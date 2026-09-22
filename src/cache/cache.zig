@@ -148,7 +148,8 @@ pub const Cache = struct {
     ) void {
         assert(outcome != .answered);
         if (ttl_seconds == 0) return;
-        const empty = wire.Answers.init(question.kind);
+        var empty: wire.Answers = undefined;
+        empty.reset(question.kind);
         self.insert(question, outcome, &empty, ttl_seconds, now_ns);
     }
 
@@ -167,7 +168,7 @@ pub const Cache = struct {
         if (self.find(question, hash)) |index| {
             // Replaced in place, and the bit set: a name put twice is a name being used.
             const slot = &self.slots[index];
-            slot.answers = answers.*;
+            slot.answers.assign(answers, question.kind);
             slot.outcome = outcome;
             slot.expires_ns = expires_ns;
             slot.visited = true;
@@ -180,19 +181,19 @@ pub const Cache = struct {
             self.release(index);
             return;
         };
+        // Field by field, not as one literal: a literal would write the whole slot, and the
+        // answers' storage is copied only as far as it is used.
         const slot = &self.slots[index];
-        slot.* = .{
-            .name = question.name,
-            .answers = answers.*,
-            .expires_ns = expires_ns,
-            .hash = hash,
-            .links = .{},
-            .kind = question.kind,
-            .outcome = outcome,
-            .absolute = question.absolute,
-            .visited = false,
-            .occupied = true,
-        };
+        slot.name = question.name;
+        slot.answers.assign(answers, question.kind);
+        slot.expires_ns = expires_ns;
+        slot.hash = hash;
+        slot.links = .{};
+        slot.kind = question.kind;
+        slot.outcome = outcome;
+        slot.absolute = question.absolute;
+        slot.visited = false;
+        slot.occupied = true;
         slot.name.fold_case();
         self.order.link_newest(self.slots, index);
         assert(self.order.len <= self.slots.len);
@@ -280,7 +281,7 @@ const slot_count = 4;
 
 test "the size of a slot is pinned" {
     // Measured, not derived: Zig orders the fields (docs/design.md §18).
-    try testing.expectEqual(@as(usize, 568), @sizeOf(Slot));
+    try testing.expectEqual(@as(usize, 2728), @sizeOf(Slot));
 }
 
 test "a put is a hit whatever the case, and a miss for another type, name or absoluteness" {
