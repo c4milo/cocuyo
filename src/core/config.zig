@@ -69,6 +69,11 @@ pub const Config = struct {
     primary: bool = false,
     /// Where the engine looks a name up, in order: the hosts file, then DNS, by default.
     lookups: []const Source = &default_lookups,
+    /// One query in this many gives a server that failed, and whose delay has passed, the first
+    /// place again (§19 step 12); zero never does.
+    failover_retry_chance: u8 = constants.failover_retry_chance_default,
+    /// How long a failed server stays last before it may be tried first again.
+    failover_retry_delay_ns: u64 = constants.failover_retry_delay_ns_default,
 
     /// Every rule a configuration must satisfy. A configuration is the caller's to build, so a
     /// broken one is a programmer error and asserts rather than returning (CLAUDE.md

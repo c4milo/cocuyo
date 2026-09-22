@@ -102,6 +102,13 @@ pub const servers_max = 8;
 /// once (docs/design.md §19 step 11).
 pub const lookup_sources_max = 2;
 
+/// Server failover (docs/design.md §19 step 12): a server that failed to answer is asked last,
+/// and asked first again one query in `failover_retry_chance_default` once
+/// `failover_retry_delay_ns_default` has passed since it failed. Both are c-ares's defaults.
+/// A chance of zero never retries.
+pub const failover_retry_chance_default = 10;
+pub const failover_retry_delay_ns_default = 5_000_000_000;
+
 /// The most search-list entries a configuration may name. glibc's MAXDNSRCH; recalled, not
 /// measured.
 pub const search_max = 6;
