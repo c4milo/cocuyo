@@ -8,7 +8,10 @@
 //! The width of an octet is `@bitSizeOf(u8)`, never 8, so a shift by a whole octet names what it
 //! shifts by.
 //!
-//! `constants.zig` is exempt, because it is the file the numbers belong in.
+//! Two basenames are exempt. `constants.zig` is the file the numbers belong in. `fixtures.zig`
+//! holds hand-written wire messages for the tests of its module: it is all numbers, the numbers
+//! are the format, and naming each octet of a message would say less than the octets do. Both
+//! exemptions are by basename, so every module gets one of each and no other file gets either.
 //!
 //! The rule is pepegrillo's `magic_numbers`. This file holds cocuyo's configuration of it and the
 //! fixtures that pin that configuration.
@@ -21,7 +24,7 @@ pub const config: magic_numbers.Config = .{
     .scope = .{
         .extensions = &.{lint.paths.zig_extension},
         .include_directories = &.{"src"},
-        .exclude_basenames = &.{"constants.zig"},
+        .exclude_basenames = &.{ "constants.zig", "fixtures.zig" },
     },
 };
 
@@ -50,8 +53,10 @@ test "magic-numbers flags a literal shift and a literal buffer length" {
     try testing.expect(findings.len >= 1);
 }
 
-test "magic-numbers exempts the file the numbers belong in" {
+test "magic-numbers exempts the constants and the corpus, and nothing else" {
     try testing.expect(!config.scope.applies("src/core/constants.zig"));
     try testing.expect(!config.scope.applies("src/wire/constants.zig"));
-    try testing.expect(config.scope.applies("src/wire/wire_name.zig"));
+    try testing.expect(!config.scope.applies("src/wire/fixtures.zig"));
+    try testing.expect(config.scope.applies("src/wire/name.zig"));
+    try testing.expect(config.scope.applies("src/wire/fixtures_extra.zig"));
 }

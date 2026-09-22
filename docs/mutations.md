@@ -40,7 +40,38 @@ One check has no mutation here, because the mutation is a lint finding rather th
 `label_count` walks under `constants.labels_max`, and rewriting that loop as `while (true)` is
 refused by the unbounded-loop rule before any test runs.
 
-## Planned, steps 2 and 3
+## Step 2, the codec
+
+Every check the header, the name decoder, the question compare, the query builder and the OPT
+record carry, broken against `zig build test-wire`. Fourteen mutations, fourteen `CAUGHT` — one
+of them only after a test was written for it.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| W1 | a pointer may point forwards | strictly backwards, RFC 1035 §4.1.4 | the forwards-pointer test | CAUGHT |
+| W2 | the hop bound allows one more hop | `compression_hops_max` | the seventeen-pointer chain | CAUGHT |
+| W3 | a reserved label kind is read as a label | the kind bits | the `01` and `10` cases | CAUGHT |
+| W4 | a label may run past the end of the message | `copy_label`'s bound | the truncated-label test | CAUGHT |
+| W5 | `skip` follows the pointer instead of ending | `skip`'s contract | the skip offsets | CAUGHT |
+| W6 | the case mixer walks bytes, not labels | `mix_case` | **a test written for it** | CAUGHT |
+| W7 | the case mixer reuses one word of entropy | `mix_case` | the 96-letter test | CAUGHT |
+| W8 | the question compare folds case | RFC 5452 §9.2, DNS-0x20 | the flipped-letter test | CAUGHT |
+| W9 | the question compare skips the type | §7 check 5 | the wrong-type test | CAUGHT |
+| W10 | the question compare skips the length check | §7 check 1 | the short-message test | CAUGHT |
+| W11 | a query sets no recursion-desired bit | RFC 1035 §4.1.1 | the query corpus, byte for byte | CAUGHT |
+| W12 | the TCP length prefix counts itself | RFC 7766 §8 | the TCP prefix test | CAUGHT |
+| W13 | the EDNS version check is dropped | RFC 6891 §6.1.3 | the version test | CAUGHT |
+| W14 | an unknown rcode reads as no_error | RFC 6895 §2.3 | the rcode-15 test | CAUGHT |
+
+W6 is the one worth reading twice. `mix_case` walking `name.bytes[offset..]` rather than
+`name.bytes[offset + 1 ..]` cases every letter of a label but the last, and it passed every test
+in the file: the length octets stayed put, because a length octet is never a letter, and enough
+letters still changed for the counting tests. What it broke was invisible until a test pinned that
+*each* letter position can take either case over many seeds. A weaker 0x20 is exactly the kind of
+bug that never shows up as a failure in the field, only as a resolver that is easier to spoof than
+it claims.
+
+## Planned, step 3
 
 | # | Mutation | Check it breaks | Expected to be caught by | Status |
 | --- | --- | --- | --- | --- |

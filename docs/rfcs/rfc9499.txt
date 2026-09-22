@@ -1,16 +1,14 @@
-
-
-
+﻿
 
 
 
 Internet Engineering Task Force (IETF)                        P. Hoffman
-Request for Comments: 8499                                         ICANN
-BCP: 219                                                     A. Sullivan
-Obsoletes: 7719
-Updates: 2308                                                K. Fujiwara
-Category: Best Current Practice                                     JPRS
-ISSN: 2070-1721                                             January 2019
+Request for Comments: 9499                                         ICANN
+BCP: 219                                                     K. Fujiwara
+Obsoletes: 8499                                                     JPRS
+Updates: 2308                                                 March 2024
+Category: Best Current Practice                                         
+ISSN: 2070-1721
 
 
                             DNS Terminology
@@ -19,12 +17,15 @@ Abstract
 
    The Domain Name System (DNS) is defined in literally dozens of
    different RFCs.  The terminology used by implementers and developers
-   of DNS protocols, and by operators of DNS systems, has sometimes
-   changed in the decades since the DNS was first defined.  This
-   document gives current definitions for many of the terms used in the
-   DNS in a single document.
+   of DNS protocols, and by operators of DNS systems, has changed in the
+   decades since the DNS was first defined.  This document gives current
+   definitions for many of the terms used in the DNS in a single
+   document.
 
-   This document obsoletes RFC 7719 and updates RFC 2308.
+   This document updates RFC 2308 by clarifying the definitions of
+   "forwarder" and "QNAME".  It obsoletes RFC 8499 by adding multiple
+   terms and clarifications.  Comprehensive lists of changed and new
+   definitions can be found in Appendices A and B.
 
 Status of This Memo
 
@@ -38,31 +39,11 @@ Status of This Memo
 
    Information about the current status of this document, any errata,
    and how to provide feedback on it may be obtained at
-   https://www.rfc-editor.org/info/rfc8499.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                 [Page 1]
-
-RFC 8499                     DNS Terminology                January 2019
-
+   https://www.rfc-editor.org/info/rfc9499.
 
 Copyright Notice
 
-   Copyright (c) 2019 IETF Trust and the persons identified as the
+   Copyright (c) 2024 IETF Trust and the persons identified as the
    document authors.  All rights reserved.
 
    This document is subject to BCP 78 and the IETF Trust's Legal
@@ -71,56 +52,39 @@ Copyright Notice
    publication of this document.  Please review these documents
    carefully, as they describe your rights and restrictions with respect
    to this document.  Code Components extracted from this document must
-   include Simplified BSD License text as described in Section 4.e of
-   the Trust Legal Provisions and are provided without warranty as
-   described in the Simplified BSD License.
+   include Revised BSD License text as described in Section 4.e of the
+   Trust Legal Provisions and are provided without warranty as described
+   in the Revised BSD License.
 
 Table of Contents
 
-   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . . .   3
-   2.  Names . . . . . . . . . . . . . . . . . . . . . . . . . . . .   4
-   3.  DNS Response Codes  . . . . . . . . . . . . . . . . . . . . .  10
-   4.  DNS Transactions  . . . . . . . . . . . . . . . . . . . . . .  11
-   5.  Resource Records  . . . . . . . . . . . . . . . . . . . . . .  14
-   6.  DNS Servers and Clients . . . . . . . . . . . . . . . . . . .  16
-   7.  Zones . . . . . . . . . . . . . . . . . . . . . . . . . . . .  22
-   8.  Wildcards . . . . . . . . . . . . . . . . . . . . . . . . . .  27
-   9.  Registration Model  . . . . . . . . . . . . . . . . . . . . .  28
-   10. General DNSSEC  . . . . . . . . . . . . . . . . . . . . . . .  30
-   11. DNSSEC States . . . . . . . . . . . . . . . . . . . . . . . .  34
-   12. Security Considerations . . . . . . . . . . . . . . . . . . .  36
-   13. IANA Considerations . . . . . . . . . . . . . . . . . . . . .  36
-   14. References  . . . . . . . . . . . . . . . . . . . . . . . . .  36
-     14.1.  Normative References . . . . . . . . . . . . . . . . . .  36
-     14.2.  Informative References . . . . . . . . . . . . . . . . .  39
-   Appendix A.  Definitions Updated by This Document . . . . . . . .  44
-   Appendix B.  Definitions First Defined in This Document . . . . .  44
-   Index . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  46
-   Acknowledgements  . . . . . . . . . . . . . . . . . . . . . . . .  50
-   Authors' Addresses  . . . . . . . . . . . . . . . . . . . . . . .  50
-
-
-
-
-
-
-
-
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                 [Page 2]
-
-RFC 8499                     DNS Terminology                January 2019
-
+   1.  Introduction
+   2.  Names
+   3.  DNS Response Codes
+   4.  DNS Transactions
+   5.  Resource Records
+   6.  DNS Servers and Clients
+   7.  Zones
+   8.  Wildcards
+   9.  Registration Model
+   10. General DNSSEC
+   11. DNSSEC States
+   12. Security Considerations
+   13. IANA Considerations
+   14. References
+     14.1.  Normative References
+     14.2.  Informative References
+   Appendix A.  Definitions Updated by This Document
+   Appendix B.  Definitions First Defined in This Document
+   Acknowledgements
+   Index
+   Authors' Addresses
 
 1.  Introduction
 
    The Domain Name System (DNS) is a simple query-response protocol
    whose messages in both directions have the same format.  (Section 2
-   gives a definition of "public DNS", which is often what people mean
+   gives a definition of "global DNS", which is often what people mean
    when they say "the DNS".)  The protocol and message format are
    defined in [RFC1034] and [RFC1035].  These RFCs defined some terms,
    and later documents defined others.  Some of the terms from [RFC1034]
@@ -132,8 +96,8 @@ RFC 8499                     DNS Terminology                January 2019
    defined in earlier RFCs, some have been loosely defined in earlier
    RFCs, and some are not defined in an earlier RFC at all.
 
-   Other organizations sometimes define DNS-related terms their own way.
-   For example, the WHATWG defines "domain" at
+   Other organizations sometimes define DNS-related terms in their own
+   way.  For example, the WHATWG defines "domain" at
    <https://url.spec.whatwg.org/>.  The Root Server System Advisory
    Committee (RSSAC) has a good lexicon [RSSAC026].
 
@@ -151,7 +115,8 @@ RFC 8499                     DNS Terminology                January 2019
    quite differently by different DNS experts.  Further, some terms that
    are defined in early DNS RFCs now have definitions that are generally
    agreed to, but that are different from the original definitions.
-   Therefore, this document is a substantial revision to [RFC7719].
+   This document is a small revision to [RFC8499]; that document was a
+   substantial revision to [RFC7719].
 
    Note that there is no single consistent definition of "the DNS".  It
    can be considered to be some combination of the following: a commonly
@@ -163,21 +128,16 @@ RFC 8499                     DNS Terminology                January 2019
    architecture.  Section 2 defines "global DNS" and "private DNS" as a
    way to deal with these differing definitions.
 
-
-
-
-
-Hoffman, et al.           Best Current Practice                 [Page 3]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
    Capitalization in DNS terms is often inconsistent among RFCs and
    various DNS practitioners.  The capitalization used in this document
    is a best guess at current practices, and is not meant to indicate
    that other capitalization styles are wrong or archaic.  In some
    cases, multiple styles of capitalization are used for the same term
    due to quoting from different RFCs.
+
+   In this document, the words "byte" and "octet" are used
+   interchangeably.  They appear here because they both appear in the
+   earlier RFCs that defined terms in the DNS.
 
    Readers should note that the terms in this document are grouped by
    topic.  Someone who is not already familiar with the DNS probably
@@ -216,18 +176,6 @@ RFC 8499                     DNS Terminology                January 2019
       ones listed above.  The list here is chosen because it helps
       describe the DNS and naming systems similar to the DNS.
 
-
-
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                 [Page 4]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
    Domain name:  An ordered list of one or more labels.
 
       Note that this is a definition independent of the DNS RFCs
@@ -241,7 +189,7 @@ RFC 8499                     DNS Terminology                January 2019
       the normal convention within the DNS, including this document).  A
       domain name whose last label identifies a root of the graph is
       fully qualified; other domain names whose labels form a strict
-      prefix of a fully-qualified domain name are relative to its first
+      prefix of a fully qualified domain name are relative to its first
       omitted node.
 
       Also note that different IETF and non-IETF documents have used the
@@ -260,117 +208,95 @@ RFC 8499                     DNS Terminology                January 2019
       come from [RFC1034] and [RFC1035], although the term "global DNS"
       has not been defined before now.
 
-      Composition of names: A name in the global DNS has one or more
-      labels.  The length of each label is between 0 and 63 octets
-      inclusive.  In a fully-qualified domain name, the last label in
-      the ordered list is 0 octets long; it is the only label whose
-      length may be 0 octets, and it is called the "root" or "root
-      label".  A domain name in the global DNS has a maximum total
-      length of 255 octets in the wire format; the root represents one
-      octet for this calculation.  (Multicast DNS [RFC6762] allows names
-      up to 255 bytes plus a terminating zero byte based on a different
-      interpretation of RFC 1035 and what is included in the 255
-      octets.)
+      Composition of names:  A name in the global DNS has one or more
+         labels.  The length of each label is between 0 and 63 octets
+         inclusive.  In a fully qualified domain name, the last label in
+         the ordered list is 0 octets long; it is the only label whose
+         length may be 0 octets, and it is called the "root" or "root
+         label".  A domain name in the global DNS has a maximum total
+         length of 255 octets in the wire format; the root represents
+         one octet for this calculation.  (Multicast DNS [RFC6762]
+         allows names up to 255 bytes plus a terminating zero byte based
+         on a different interpretation of RFC 1035 and what is included
+         in the 255 octets.)
 
+      Format of names:  Names in the global DNS are domain names.  There
+         are three formats: wire format, presentation format, and common
+         display.
 
+         Wire format:  The basic wire format for names in the global DNS
+            is a list of labels ordered by decreasing distance from the
+            root, with the root label last.  Each label is preceded by a
+            length octet.  [RFC1035] also defines a compression scheme
+            that modifies this format.
 
+         Presentation format:  The presentation format for names in the
+            global DNS is a list of labels ordered by decreasing
+            distance from the root, encoded as ASCII, with a "."
+            character between each label.  In presentation format, a
+            fully qualified domain name includes the root label and the
+            associated separator dot.  For example, in presentation
+            format, a fully qualified domain name with two non-root
+            labels is always shown as "example.tld." instead of
+            "example.tld".  [RFC1035] defines a method for showing
+            octets that do not display in ASCII.
 
+         Common display format:  The common display format is used in
+            applications and free text.  It is the same as the
+            presentation format, but showing the root label and the "."
+            before it is optional and is rarely done.  For example, in
+            common display format, a fully qualified domain name with
+            two non-root labels is usually shown as "example.tld"
+            instead of "example.tld.".  Names in the common display
+            format are normally written such that the directionality of
+            the writing system presents labels by decreasing distance
+            from the root (so, in both English and the C programming
+            language, the root or Top-Level Domain (TLD) label in the
+            ordered list is rightmost; but in Arabic, it may be
+            leftmost, depending on local conventions).
 
+      Administration of names:  Administration is specified by
+         delegation (see the definition of "delegation" in Section 7).
+         Policies for administration of the root zone in the global DNS
+         are determined by the names operational community, which
+         convenes itself in the Internet Corporation for Assigned Names
+         and Numbers (ICANN).  The names operational community selects
+         the IANA Functions Operator for the global DNS root zone.  The
+         name servers that serve the root zone are provided by
+         independent root operators.  Other zones in the global DNS have
+         their own policies for administration.
 
+      Types of data that can be associated with names:  A name can have
+         zero or more resource records associated with it.  There are
+         numerous types of resource records with unique data structures
+         defined in many different RFCs and in the IANA registry at
+         [IANA_Resource_Registry].
 
+      Types of metadata for names:  Any name that is published in the
+         DNS appears as a set of resource records (see the definition of
+         "RRset" in Section 5).  Some names do not, themselves, have
+         data associated with them in the DNS, but they "appear" in the
+         DNS anyway because they form part of a longer name that does
+         have data associated with it (see the definition of "empty non-
+         terminals" in Section 7).
 
-Hoffman, et al.           Best Current Practice                 [Page 5]
-
-RFC 8499                     DNS Terminology                January 2019
+      Protocol for getting data from a name:  The protocol described in
+         [RFC1035].
 
-
-      Format of names: Names in the global DNS are domain names.  There
-      are three formats: wire format, presentation format, and common
-      display.
-
-         The basic wire format for names in the global DNS is a list of
-         labels ordered by decreasing distance from the root, with the
-         root label last.  Each label is preceded by a length octet.
-         [RFC1035] also defines a compression scheme that modifies this
-         format.
-
-         The presentation format for names in the global DNS is a list
-         of labels ordered by decreasing distance from the root, encoded
-         as ASCII, with a "." character between each label.  In
-         presentation format, a fully-qualified domain name includes the
-         root label and the associated separator dot.  For example, in
-         presentation format, a fully-qualified domain name with two
-         non-root labels is always shown as "example.tld." instead of
-         "example.tld".  [RFC1035] defines a method for showing octets
-         that do not display in ASCII.
-
-         The common display format is used in applications and free
-         text.  It is the same as the presentation format, but showing
-         the root label and the "." before it is optional and is rarely
-         done.  For example, in common display format, a fully-qualified
-         domain name with two non-root labels is usually shown as
-         "example.tld" instead of "example.tld.".  Names in the common
-         display format are normally written such that the
-         directionality of the writing system presents labels by
-         decreasing distance from the root (so, in both English and the
-         C programming language the root or Top-Level Domain (TLD) label
-         in the ordered list is rightmost; but in Arabic, it may be
-         leftmost, depending on local conventions).
-
-      Administration of names: Administration is specified by delegation
-      (see the definition of "delegation" in Section 7).  Policies for
-      administration of the root zone in the global DNS are determined
-      by the names operational community, which convenes itself in the
-      Internet Corporation for Assigned Names and Numbers (ICANN).  The
-      names operational community selects the IANA Functions Operator
-      for the global DNS root zone.  At the time of writing, that
-      operator is Public Technical Identifiers (PTI).  (See
-      <https://pti.icann.org/> for more information about PTI operating
-      the IANA Functions.)  The name servers that serve the root zone
-      are provided by independent root operators.  Other zones in the
-      global DNS have their own policies for administration.
-
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                 [Page 6]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
-      Types of data that can be associated with names: A name can have
-      zero or more resource records associated with it.  There are
-      numerous types of resource records with unique data structures
-      defined in many different RFCs and in the IANA registry at
-      [IANA_Resource_Registry].
-
-      Types of metadata for names: Any name that is published in the DNS
-      appears as a set of resource records (see the definition of
-      "RRset" in Section 5).  Some names do not, themselves, have data
-      associated with them in the DNS, but they "appear" in the DNS
-      anyway because they form part of a longer name that does have data
-      associated with it (see the definition of "empty non-terminals" in
-      Section 7).
-
-      Protocol for getting data from a name: The protocol described in
-      [RFC1035].
-
-      Context for resolving a name: The global DNS root zone distributed
-      by PTI.
+      Context for resolving a name:  The global DNS root zone
+         distributed by Public Technical Identifiers (PTI).
 
    Private DNS:  Names that use the protocol described in [RFC1035] but
-      that do not rely on the global DNS root zone or names that are
+      do not rely on the global DNS root zone or names that are
       otherwise not generally available on the Internet but are using
       the protocol described in [RFC1035].  A system can use both the
       global DNS and one or more private DNS systems; for example, see
       "Split DNS" in Section 6.
 
-      Note that domain names that do not appear in the DNS, and that are
-      intended never to be looked up using the DNS protocol, are not
-      part of the global DNS or a private DNS even though they are
-      domain names.
+      Note that domain names that do not appear in the DNS and that are
+      intended never to be looked up using the DNS protocol are not part
+      of the global DNS or a private DNS, even though they are domain
+      names.
 
    Multicast DNS (mDNS):  "Multicast DNS (mDNS) provides the ability to
       perform DNS-like operations on the local link in the absence of
@@ -385,17 +311,6 @@ RFC 8499                     DNS Terminology                January 2019
       clearer to say "a portion of the domain name space".  The names in
       mDNS are not intended to be looked up in the DNS.
 
-
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                 [Page 7]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
    Locally served DNS zone:  A locally served DNS zone is a special case
       of private DNS.  Names are resolved using the DNS protocol in a
       local context.  [RFC6303] defines subdomains of IN-ADDR.ARPA that
@@ -407,18 +322,18 @@ RFC 8499                     DNS Terminology                January 2019
       and [RFC7793], or implicit, such as those defined by local DNS
       administration and not known to the resolution client.
 
-   Fully-Qualified Domain Name (FQDN):  This is often just a clear way
+   Fully Qualified Domain Name (FQDN):  This is often just a clear way
       of saying the same thing as "domain name of a node", as outlined
       above.  However, the term is ambiguous.  Strictly speaking, a
-      fully-qualified domain name would include every label, including
-      the zero-length label of the root: such a name would be written
+      fully qualified domain name would include every label, including
+      the zero-length label of the root; such a name would be written
       "www.example.net." (note the terminating dot).  But, because every
       name eventually shares the common root, names are often written
       relative to the root (such as "www.example.net") and are still
       called "fully qualified".  This term first appeared in [RFC819].
       In this document, names are often written relative to the root.
 
-      The need for the term "fully-qualified domain name" comes from the
+      The need for the term "fully qualified domain name" comes from the
       existence of partially qualified domain names, which are names
       where one or more of the last labels in the ordered list are
       omitted (for example, a domain name of "www" relative to
@@ -444,14 +359,6 @@ RFC 8499                     DNS Terminology                January 2019
       first label of an FQDN, such as "printer" in
       "printer.admin.example.com".  (Sometimes this is formalized in
       configuration in operating systems.)  In addition, people
-
-
-
-Hoffman, et al.           Best Current Practice                 [Page 8]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
       sometimes use this term to describe any name that refers to a
       machine, and those might include labels that do not conform to the
       "preferred name syntax".
@@ -496,17 +403,6 @@ RFC 8499                     DNS Terminology                January 2019
       RDATA section of the RR."  (Quoted from [RFC1034], Section 3.6.2)
       This usage of the word "canonical" is related to the mathematical
       concept of "canonical form".
-
-
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                 [Page 9]
-
-RFC 8499                     DNS Terminology                January 2019
-
 
    CNAME:  "It has been traditional to refer to the [owner] of a CNAME
       record as 'a CNAME'.  This is unfortunate, as 'CNAME' is an
@@ -556,16 +452,8 @@ RFC 8499                     DNS Terminology                January 2019
       the given class, but [there] are no records of the given type.  A
       NODATA response has to be inferred from the answer."  (Quoted from
       [RFC2308], Section 1) "NODATA is indicated by an answer with the
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 10]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
       RCODE set to NOERROR and no relevant answers in the Answer
-      section.  The authority section will contain an SOA record, or
+      section.  The Authority section will contain an SOA record, or
       there will be no NS records there."  (Quoted from [RFC2308],
       Section 2.2) Note that referrals have a similar format to NODATA
       replies; [RFC2308] explains how to distinguish them.
@@ -605,20 +493,12 @@ RFC 8499                     DNS Terminology                January 2019
       [RFC1034], Section 3.7.1) Strictly speaking, the definition comes
       from [RFC1035], Section 4.1.2, where the QNAME is defined in
       respect of the Question section.  This definition appears to be
-      applied consistently: the discussion of inverse queries in
-      Section 6.4.1 refers to the "owner name of the query RR and its
-      TTL", because inverse queries populate the Answer section and
-      leave the Question section empty.  (Inverse queries are deprecated
-      in [RFC3425]; thus, relevant definitions do not appear in this
-      document.)
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 11]
-
-RFC 8499                     DNS Terminology                January 2019
-
+      applied consistently, as the discussion of inverse queries in
+      Section 6.4.1 of [RFC1035] refers to the "owner name of the query
+      RR and its TTL" because inverse queries populate the Answer
+      section and leave the Question section empty.  (Inverse queries
+      are deprecated in [RFC3425]; thus, relevant definitions do not
+      appear in this document.)
 
       However, [RFC2308] has an alternate definition that puts the QNAME
       in the answer (or series of answers) instead of the query.  It
@@ -641,41 +521,32 @@ RFC 8499                     DNS Terminology                January 2019
       view the new name (i.e., the name that was in the RDATA of the
       CNAME RR) as also being the QNAME.
 
-      However, this creates a kind of confusion because the response to
-      a query that results in CNAME processing contains in the echoed
-      Question section one QNAME (the name in the original query) and a
-      second QNAME that is in the data field of the last CNAME.  The
-      confusion comes from the iterative/recursive mode of resolution,
-      which finally returns an answer that need not actually have the
-      same owner name as the QNAME contained in the original query.
+      However, this creates confusion because the response to a query
+      that results in CNAME processing contains in the echoed Question
+      section one QNAME (the name in the original query) and a second
+      QNAME that is in the data field of the last CNAME.  The confusion
+      comes from the iterative/recursive mode of resolution, which
+      finally returns an answer that need not actually have the same
+      owner name as the QNAME contained in the original query.
 
       To address this potential confusion, it is helpful to distinguish
       between three meanings:
 
-      *  QNAME (original): The name actually sent in the Question
-         section in the original query, which is always echoed in the
-         (final) reply in the Question section when the QR bit is set to
-         1.
+      QNAME (original):  The name actually sent in the Question section
+         in the original query, which is always echoed in the (final)
+         reply in the Question section when the QR bit is set to 1.
 
-      *  QNAME (effective): A name actually resolved, which is either
-         the name originally queried or a name received in a CNAME chain
+      QNAME (effective):  A name actually resolved, which is either the
+         name originally queried or a name received in a CNAME chain
          response.
 
-      *  QNAME (final): The name actually resolved, which is either the
+      QNAME (final):  The name actually resolved, which is either the
          name actually queried or else the last name in a CNAME chain
          response.
 
       Note that, because the definition in [RFC2308] is actually for a
       different concept than what was in [RFC1034], it would have been
       better if [RFC2308] had used a different name for that concept.
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 12]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
       In general use today, QNAME almost always means what is defined
       above as "QNAME (original)".
 
@@ -691,7 +562,7 @@ RFC 8499                     DNS Terminology                January 2019
       There are two types of referral response.  The first is a downward
       referral (sometimes described as "delegation response"), where the
       server is authoritative for some portion of the QNAME.  The
-      authority section RRset's RDATA contains the name servers
+      Authority section RRset's RDATA contains the name servers
       specified at the referred-to zone cut.  In normal DNS operation,
       this kind of response is required in order to find names beneath a
       delegation.  The bare use of "referral" means this kind of
@@ -701,7 +572,7 @@ RFC 8499                     DNS Terminology                January 2019
       The second is an upward referral (sometimes described as "root
       referral"), where the server is not authoritative for any portion
       of the QNAME.  When this happens, the referred-to zone in the
-      authority section is usually the root zone (".").  In normal DNS
+      Authority section is usually the root zone (".").  In normal DNS
       operation, this kind of response is not required for resolution or
       for correctly answering any query.  There is no requirement that
       any server send upward referrals.  Some people regard upward
@@ -709,10 +580,10 @@ RFC 8499                     DNS Terminology                January 2019
       referrals always need some sort of qualifier (such as "upward" or
       "root") and are never identified simply by the word "referral".
 
-      A response that has only a referral contains an empty answer
+      A response that has only a referral contains an empty Answer
       section.  It contains the NS RRset for the referred-to zone in the
       Authority section.  It may contain RRs that provide addresses in
-      the additional section.  The AA bit is clear.
+      the Additional section.  The AA bit is clear.
 
       In the case where the query matches an alias, and the server is
       not authoritative for the target of the alias but is authoritative
@@ -722,17 +593,7 @@ RFC 8499                     DNS Terminology                January 2019
       answer and referral response has data in the Answer section.  It
       has the NS RRset for the referred-to zone in the Authority
       section.  It may contain RRs that provide addresses in the
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 13]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
-      additional section.  The AA bit is set, because the first name in
+      Additional section.  The AA bit is set because the first name in
       the Answer section matches the QNAME and the server is
       authoritative for that answer (see [RFC1035], Section 4.1.1).
 
@@ -772,21 +633,14 @@ RFC 8499                     DNS Terminology                January 2019
    EDNS:  The extension mechanisms for DNS, defined in [RFC6891].
       Sometimes called "EDNS0" or "EDNS(0)" to indicate the version
       number.  EDNS allows DNS clients and servers to specify message
-      sizes larger than the original 512 octet limit, to expand the
-      response code space and to carry additional options that affect
+      sizes larger than the original 512-octet limit, to expand the
+      response code space, and to carry additional options that affect
       the handling of a DNS query.
 
    OPT:  A pseudo-RR (sometimes called a "meta-RR") that is used only to
       contain control information pertaining to the question-and-answer
       sequence of a specific transaction.  (Definition paraphrased from
       [RFC6891], Section 6.1.1.)  It is used by EDNS.
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 14]
-
-RFC 8499                     DNS Terminology                January 2019
-
 
    Owner:  "The domain name where the RR is found."  (Quoted from
       [RFC1034], Section 3.6) Often appears in the term "owner name".
@@ -807,29 +661,29 @@ RFC 8499                     DNS Terminology                January 2019
       value of 2147483647.  That is, a maximum of 2^31 - 1.  When
       transmitted, this value shall be encoded in the less significant
       31 bits of the 32 bit TTL field, with the most significant, or
-      sign, bit set to zero."  (Quoted from [RFC2181], Section 8) (Note
+      sign, bit set to zero."  (Quoted from [RFC2181], Section 8) Note
       that [RFC1035] erroneously stated that this is a signed integer;
-      that was fixed by [RFC2181].)
+      that was fixed by [RFC2181].
 
       The TTL "specifies the time interval that the resource record may
       be cached before the source of the information should again be
       consulted."  (Quoted from [RFC1035], Section 3.2.1) Section 4.1.3
-      of the same document states: "the time interval (in seconds) that
-      the resource record may be cached before it should be discarded".
+      of [RFC1035] states "the time interval (in seconds) that the
+      resource record may be cached before it should be discarded".
       Despite being defined for a resource record, the TTL of every
       resource record in an RRset is required to be the same ([RFC2181],
       Section 5.2).
 
       The reason that the TTL is the maximum time to live is that a
       cache operator might decide to shorten the time to live for
-      operational purposes, such as if there is a policy to disallow TTL
-      values over a certain number.  Some servers are known to ignore
-      the TTL on some RRsets (such as when the authoritative data has a
-      very short TTL) even though this is against the advice in RFC
-      1035.  An RRset can be flushed from the cache before the end of
-      the TTL interval, at which point, the value of the TTL becomes
-      unknown because the RRset with which it was associated no longer
-      exists.
+      operational purposes, for example, if there is a policy to
+      disallow TTL values over a certain number.  Some servers are known
+      to ignore the TTL on some RRsets (such as when the authoritative
+      data has a very short TTL) even though this is against the advice
+      in [RFC1035].  An RRset can be flushed from the cache before the
+      end of the TTL interval, at which point, the value of the TTL
+      becomes unknown because the RRset with which it was associated no
+      longer exists.
 
       There is also the concept of a "default TTL" for a zone, which can
       be a configuration parameter in the server software.  This is
@@ -837,21 +691,14 @@ RFC 8499                     DNS Terminology                January 2019
       for a zone using the $TTL directive in a zone file.  The $TTL
       directive was added to the master file format by [RFC2308].
 
-
-
-Hoffman, et al.           Best Current Practice                [Page 15]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
    Class independent:  A resource record type whose syntax and semantics
       are the same for every DNS class.  A resource record type that is
-      not class independent has different meanings depending on the DNS
-      class of the record, or the meaning is undefined for some class.
-      Most resource record types are defined for class 1 (IN, the
-      Internet), but many are undefined for other classes.
+      not class independent has different meanings, depending on the DNS
+      class of the record or if the meaning is undefined for some
+      classes.  Most resource record types are defined for class 1 (IN,
+      the Internet), but many are undefined for other classes.
 
-   Address records:  Records whose type is A or AAAA.  [RFC2181]
+   Address records:  Records whose type is either A or AAAA.  [RFC2181]
       informally defines these as "(A, AAAA, etc)".  Note that new types
       of address records could be defined in the future.
 
@@ -871,10 +718,10 @@ RFC 8499                     DNS Terminology                January 2019
    "DNS servers" and "name servers" even though they serve different
    roles (but may be part of the same software package).
 
-   For terminology specific to the public DNS root server system, see
+   For terminology specific to the global DNS root server system, see
    [RSSAC026].  That document defines terms such as "root server", "root
    server operator", and terms that are specific to the way that the
-   root zone of the public DNS is served.
+   root zone of the global DNS is served.
 
    Resolver:  A program "that extract[s] information from name servers
       in response to client requests."  (Quoted from [RFC1034],
@@ -891,14 +738,6 @@ RFC 8499                     DNS Terminology                January 2019
       receiving some sort of response".  Similarly, an imputed
       definition of "resolution" might be "the response received from
       resolving".
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 16]
-
-RFC 8499                     DNS Terminology                January 2019
-
 
    Stub resolver:  A resolver that cannot perform all resolution itself.
       Stub resolvers generally depend on a recursive resolver to
@@ -946,16 +785,6 @@ RFC 8499                     DNS Terminology                January 2019
       [RFC4697] tried to differentiate between a recursive resolver and
       an iterative resolver.
 
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 17]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
    Recursive query:  A query with the Recursion Desired (RD) bit set to
       1 in the header.  (See Section 4.1.1 of [RFC1035].)  If recursive
       service is available and is requested by the RD bit in the query,
@@ -983,11 +812,13 @@ RFC 8499                     DNS Terminology                January 2019
    Full resolver:  This term is used in [RFC1035], but it is not defined
       there.  RFC 1123 defines a "full-service resolver" that may or may
       not be what was intended by "full resolver" in [RFC1035].  This
-      term is not properly defined in any RFC.
+      term is not properly defined in any RFC, and there is no consensus
+      on what the term means.  The use of this term without proper
+      context is discouraged.
 
    Full-service resolver:  Section 6.1.3.1 of [RFC1123] defines this
-      term to mean a resolver that acts in recursive mode with a cache
-      (and meets other requirements).
+      term as a resolver that acts in recursive mode with a cache (and
+      meets other requirements).
 
    Priming:  "The act of finding the list of root servers from a
       configuration that lists some or all of the purported IP addresses
@@ -1004,13 +835,6 @@ RFC 8499                     DNS Terminology                January 2019
       process.  For many pieces of software, this list comes built into
       the software."  (Quoted from [IANA_RootFiles]) This file is often
       used in priming.
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 18]
-
-RFC 8499                     DNS Terminology                January 2019
-
 
    Negative caching:  "The storage of knowledge that something does not
       exist, cannot or does not give an answer."  (Quoted from
@@ -1047,7 +871,7 @@ RFC 8499                     DNS Terminology                January 2019
       Transfer") mechanism to copy the full zone (described in
       [RFC5936], and the IXFR ("Incremental Transfer") mechanism to copy
       only parts of the zone that have changed (described in [RFC1995]).
-      Many systems use non-standard methods for zone transfer outside
+      Many systems use non-standard methods for zone transfers outside
       the DNS protocol.
 
    Slave server:  See "Secondary server".
@@ -1060,13 +884,6 @@ RFC 8499                     DNS Terminology                January 2019
       common usage has shifted to calling it a "secondary".
 
    Master server:  See "Primary server".
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 19]
-
-RFC 8499                     DNS Terminology                January 2019
-
 
    Primary server:  "Any authoritative server configured to be the
       source of zone transfer for one or more [secondary] servers."
@@ -1097,11 +914,10 @@ RFC 8499                     DNS Terminology                January 2019
       transfers.  "In this arrangement, the master name server that
       processes the updates is unavailable to general hosts on the
       Internet; it is not listed in the NS RRset."  (Quoted from
-      [RFC6781], Section 3.4.3) An earlier RFC, [RFC4641], said that the
-      hidden master's name "appears in the SOA RRs MNAME field",
-      although, in some setups, the name does not appear at all in the
-      public DNS.  A hidden master can also be a secondary server for
-      the zone itself.
+      [RFC6781], Section 3.4.3) [RFC4641] said that the hidden master's
+      name "appears in the SOA RRs MNAME field"; however, the name does
+      not appear at all in the global DNS in some setups.  A hidden
+      master can also be a secondary server for the zone itself.
 
    Forwarding:  The process of one server sending a DNS query with the
       RD bit set to 1 to another server to resolve that query.
@@ -1112,17 +928,6 @@ RFC 8499                     DNS Terminology                January 2019
       describes in detail what features a system that forwards needs to
       support.  Systems that forward are sometimes called "DNS proxies",
       but that term has not yet been defined (even in [RFC5625]).
-
-
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 20]
-
-RFC 8499                     DNS Terminology                January 2019
-
 
    Forwarder:  Section 1 of [RFC2308] describes a forwarder as "a
       nameserver used to resolve queries instead of directly using the
@@ -1159,10 +964,10 @@ RFC 8499                     DNS Terminology                January 2019
       general, they refer to situations in which DNS servers that are
       authoritative for a particular set of domains provide partly or
       completely different answers in those domains depending on the
-      source of the query.  The effect of this is that a domain name
-      that is notionally globally unique nevertheless has different
+      source of the query.  Nevertheless, the effect of this is that a
+      domain name that is notionally globally unique has different
       meanings for different network users.  This can sometimes be the
-      result of a "view" configuration, described below.
+      result of a "view" configuration, as described below.
 
       Section 3.8 of [RFC2775] gives a related definition that is too
       specific to be generally useful.
@@ -1172,14 +977,6 @@ RFC 8499                     DNS Terminology                January 2019
       for "split DNS".  Typically, views differ by the source IP address
       of a query, but can also be based on the destination IP address,
       the type of query (such as AXFR), whether it is recursive, and so
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 21]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
       on.  Views are often used to provide more names or different
       addresses to queries from "inside" a protected network than to
       those "outside" that network.  Views are not a standardized part
@@ -1189,7 +986,7 @@ RFC 8499                     DNS Terminology                January 2019
       responses from name servers.  Some of these systems also collect
       the DNS queries associated with the responses, although doing so
       raises some privacy concerns.  Passive DNS databases can be used
-      to answer historical questions about DNS zones such as which
+      to answer historical questions about DNS zones, such as which
       values were present at a given time in the past, or when a name
       was spotted first.  Passive DNS databases allow searching of the
       stored records on keys other than just the name and type, such as
@@ -1211,7 +1008,40 @@ RFC 8499                     DNS Terminology                January 2019
       TLS [RFC7858] and may optionally implement DNS over DTLS
       [RFC8094]."  (Quoted from [RFC8310], Section 2) Other types of DNS
       servers might also be considered privacy-enabling, such as those
-      running DNS over HTTPS [RFC8484].
+      running DNS-over-HTTPS [RFC8484] or DNS-over-QUIC [RFC9250].
+
+   DNS-over-TLS (DoT):  DNS over TLS as defined in [RFC7858] and its
+      successors.
+
+   DNS-over-HTTPS (DoH):  DNS over HTTPS as defined in [RFC8484] and its
+      successors.
+
+   DNS-over-QUIC (DoQ):  DNS over QUIC as defined in [RFC9250] and its
+      successors.  [RFC9250] specifically defines DoQ as general-purpose
+      transport for DNS that can be used in stub to recursive, recursive
+      to authoritative, and zone transfer scenarios.
+
+   Classic DNS:  DNS over UDP or DNS over TCP as defined in [RFC1035]
+      and its successors.  Classic DNS applies to DNS communication
+      between stub resolvers and recursive resolvers, and between
+      recursive resolvers and authoritative servers.  This has sometimes
+      been called "Do53".  Classic DNS is not encrypted.
+
+   Recursive DoT (RDoT):  RDoT specifically means DNS-over-TLS for
+      transport between a stub resolver and a recursive resolver, or
+      between a recursive resolver and another recursive resolver.  This
+      term is necessary because it is expected that DNS-over-TLS will
+      later be defined as a transport between recursive resolvers and
+      authoritative servers.
+
+   Authoritative DoT (ADoT):  If DNS-over-TLS is later defined as a
+      transport between recursive resolvers and authoritative servers,
+      ADoT specifically means DNS-over-TLS for transport between
+      recursive resolvers and authoritative servers.
+
+   XFR-over-TLS (XoT):  DNS zone transfer over TLS, as specified in
+      [RFC9103].  This term applies to both AXFR over TLS (AXoT) and
+      IXFR over TLS (IXoT).
 
 7.  Zones
 
@@ -1225,16 +1055,6 @@ RFC 8499                     DNS Terminology                January 2019
 
    Child:  "The entity on record that has the delegation of the domain
       from the Parent."  (Quoted from [RFC7344], Section 1.1)
-
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 22]
-
-RFC 8499                     DNS Terminology                January 2019
-
 
    Parent:  "The domain in which the Child is registered."  (Quoted from
       [RFC7344], Section 1.1) Earlier, "parent name server" was defined
@@ -1283,15 +1103,6 @@ RFC 8499                     DNS Terminology                January 2019
       barely an ostensive definition.)  Section 4.2 of [RFC1034] uses
       "cuts" instead of "zone cut".
 
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 23]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
    Delegation:  The process by which a separate zone is created in the
       name space beneath the apex of a given domain.  Delegation happens
       when an NS RRset is added in the parent zone for the child origin.
@@ -1304,7 +1115,7 @@ RFC 8499                     DNS Terminology                January 2019
       cuts around the bottom edge of the zone."  (Quoted from [RFC1034],
       Section 4.2.1) Note that this definition might inadvertently also
       cause any NS records that appear in the zone to be included, even
-      those that might not truly be authoritative because there are
+      those that might not truly be authoritative, because there are
       identical NS RRs below the zone cut.  This reveals the ambiguity
       in the notion of authoritative data, because the parent-side NS
       records authoritatively indicate the delegation, even though they
@@ -1326,6 +1137,27 @@ RFC 8499                     DNS Terminology                January 2019
       hosts (if they exist!) don't even run name servers."  (Quoted from
       [RFC1713], Section 2.3)
 
+      These early definitions do not match the current use of the term
+      "lame delegation", but there is no consensus on what a lame
+      delegation is.  The term is used not only for the specific case
+      described above, but for a variety of other flaws in delegations
+      that lead to non-authoritative answers or no answers at all, such
+      as:
+
+      *  a nameserver with an NS record for a zone that does not answer
+         DNS queries;
+
+      *  a nameserver with an IP address that is not reachable by the
+         resolver; and
+
+      *  a nameserver that responds to a query for a specific name with
+         an error or without the authoritative bit set.
+
+      Because the term in current usage has drifted from the original
+      definition, and now is not specific or clear as to the intended
+      meaning, it should be considered historic and avoided in favor of
+      terms that are specific and clear.
+
    Glue records:  "...[Resource records] which are not part of the
       authoritative data [of the zone], and are address RRs for the
       [name] servers [in subzones].  These RRs are only necessary if the
@@ -1340,74 +1172,70 @@ RFC 8499                     DNS Terminology                January 2019
       records of delegated sub-zones (NS records), address records that
       accompany those NS records (A, AAAA, etc), and any other stray
       data that might appear."  (Quoted from [RFC2181], Section 5.4.1)
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 24]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
       Although glue is sometimes used today with this wider definition
       in mind, the context surrounding the definition in [RFC2181]
       suggests it is intended to apply to the use of glue within the
       document itself and not necessarily beyond.
 
-   Bailiwick:  "In-bailiwick" is a modifier to describe a name server
-      whose name is either a subdomain of or (rarely) the same as the
-      origin of the zone that contains the delegation to the name
-      server.  In-bailiwick name servers may have glue records in their
-      parent zone (using the first of the definitions of "glue records"
-      in the definition above).  (The word "bailiwick" means the
-      district or territory where a bailiff or policeman has
-      jurisdiction.)
+      In an NS record, there are three types of relationships between
+      the owner name of the record, the name in the NS RDATA, and the
+      zone origin: unrelated, in-domain, and sibling domain.  The
+      application of these three types of relationships to glue records
+      is defined in [RFC9471].
 
-      "In-bailiwick" names are divided into two types of names for name
-      servers: "in-domain" names and "sibling domain" names.
+      An unrelated relationship is one where the NS RDATA contains a
+      name server that is not subordinate to the zone origin and
+      therefore is not part of the same zone.
 
-      *  In-domain: a modifier to describe a name server whose name is
-         either subordinate to or (rarely) the same as the owner name of
-         the NS resource records.  An in-domain name server name needs
-         to have glue records or name resolution fails.  For example, a
-         delegation for "child.example.com" may have "in-domain" name
-         server name "ns.child.example.com".
+      An in-domain relationship is one where the NS RDATA contains a
+      name server whose name is either subordinate to or (rarely) the
+      same as the owner name of the NS resource records.  For example, a
+      delegation for "child.example.com" might have an in-domain name
+      server called "ns.child.example.com".
 
-      *  Sibling domain: a name server's name that is either subordinate
-         to or (rarely) the same as the zone origin and not subordinate
-         to or the same as the owner name of the NS resource records.
-         Glue records for sibling domains are allowed, but not
-         necessary.  For example, a delegation for "child.example.com"
-         in "example.com" zone may have "sibling" name server name
-         "ns.another.example.com".
+      A sibling domain relationship is one where the NS RDATA contains a
+      name server whose name is either subordinate to or (rarely) the
+      same as the zone origin of the parent and not subordinate to or
+      the same as the owner name of the NS resource records.  For
+      example, a delegation for "child.example.com" in "example.com"
+      zone might have a sibling domain name server called
+      "ns.another.example.com".
 
-      "Out-of-bailiwick" is the antonym of "in-bailiwick".  It is a
-      modifier to describe a name server whose name is not subordinate
-      to or the same as the zone origin.  Glue records for out-of-
-      bailiwick name servers are useless.  The following table shows
-      examples of delegation types.
+      The following table shows examples of delegation types:
 
-   Delegation |Parent|Name Server Name  | Type
-   -----------+------+------------------+-----------------------------
-   com        | .    |a.gtld-servers.net|in-bailiwick / sibling domain
-   net        | .    |a.gtld-servers.net|in-bailiwick / in-domain
-   example.org| org  |ns.example.org    |in-bailiwick / in-domain
-   example.org| org  |ns.ietf.org       |in-bailiwick / sibling domain
-   example.org| org  |ns.example.com    |out-of-bailiwick
-   example.jp | jp   |ns.example.jp     |in-bailiwick / in-domain
-   example.jp | jp   |ns.example.ne.jp  |in-bailiwick / sibling domain
-   example.jp | jp   |ns.example.com    |out-of-bailiwick
+ 
+        +=============+========+====================+================+
+        | Delegation  | Parent | Name Server Name   | Type           |
+        +=============+========+====================+================+
+        | com         | .      | a.gtld-servers.net | sibling domain |
+        +-------------+--------+--------------------+----------------+
+        | net         | .      | a.gtld-servers.net | in-domain      |
+        +-------------+--------+--------------------+----------------+
+        | example.org | org    | ns.example.org     | in-domain      |
+        +-------------+--------+--------------------+----------------+
+        | example.org | org    | ns.ietf.org        | sibling domain |
+        +-------------+--------+--------------------+----------------+
+        | example.org | org    | ns.example.com     | unrelated      |
+        +-------------+--------+--------------------+----------------+
+        | example.jp  | jp     | ns.example.jp      | in-domain      |
+        +-------------+--------+--------------------+----------------+
+        | example.jp  | jp     | ns.example.ne.jp   | sibling domain |
+        +-------------+--------+--------------------+----------------+
+        | example.jp  | jp     | ns.example.com     | unrelated      |
+        +-------------+--------+--------------------+----------------+
 
+                                   Table 1
 
-
-Hoffman, et al.           Best Current Practice                [Page 25]
-
-RFC 8499                     DNS Terminology                January 2019
-
+   Bailiwick:  "In-bailiwick" and "Out-of-bailiwick" are modifiers used
+      to describe the relationship between a zone and the name servers
+      for that zone.  The dictionary definition of bailiwick has been
+      observed to cause more confusion than meaning for this use.  These
+      terms should be considered historic in nature.
 
    Root zone:  The zone of a DNS-based tree whose apex is the zero-
       length label.  Also sometimes called "the DNS root".
 
-   Empty non-terminals (ENT):  "Domain names that own no resource
+   Empty non-terminals (ENTs):  "Domain names that own no resource
       records but have subdomains that do."  (Quoted from [RFC4592],
       Section 2.2.2) A typical example is in SRV records: in the name
       "_sip._tcp.example.com", it is likely that "_tcp.example.com" has
@@ -1434,32 +1262,24 @@ RFC 8499                     DNS Terminology                January 2019
       domain resolves to varying IP addresses over a short period of
       time."  (Quoted from [RFC6561], Section 1.1.5, with a typo
       corrected) In addition to having legitimate uses, fast flux DNS
-      can used to deliver malware.  Because the addresses change so
+      can be used to deliver malware.  Because the addresses change so
       rapidly, it is difficult to ascertain all the hosts.  It should be
       noted that the technique also works with AAAA records, but such
       use is not frequently observed on the Internet as of this writing.
 
    Reverse DNS, reverse lookup:  "The process of mapping an address to a
-      name is generally known as a 'reverse lookup', and the
-      IN-ADDR.ARPA and IP6.ARPA zones are said to support the 'reverse
+      name is generally known as a 'reverse lookup', and the IN-
+      ADDR.ARPA and IP6.ARPA zones are said to support the 'reverse
       DNS'."  (Quoted from [RFC5855], Section 1)
 
    Forward lookup:  "Hostname-to-address translation".  (Quoted from
       [RFC3493], Section 6)
 
-   arpa: Address and Routing Parameter Area Domain:  "The 'arpa' domain
+   arpa (Address and Routing Parameter Area Domain):  "The 'arpa' domain
       was originally established as part of the initial deployment of
-      the DNS, to provide a transition mechanism from the Host Tables
+      the DNS to provide a transition mechanism from the Host Tables
       that were common in the ARPANET, as well as a home for the IPv4
       reverse mapping domain.  During 2000, the abbreviation was
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 26]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
       redesignated to 'Address and Routing Parameter Area' in the hope
       of reducing confusion with the earlier network name."  (Quoted
       from [RFC3172], Section 2) .arpa is an "infrastructure domain", a
@@ -1507,15 +1327,6 @@ RFC 8499                     DNS Terminology                January 2019
       closest encloser in an Opt-Out zone."  (Quoted from [RFC5155],
       Section 1.3) See Section 10 for more on "opt-out".
 
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 27]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
    Next closer name:  "The name one label longer than the closest
       provable encloser of a name."  (Quoted from [RFC5155],
       Section 1.3)
@@ -1525,7 +1336,9 @@ RFC 8499                     DNS Terminology                January 2019
       immediately descending from the closest encloser, provided that
       this wildcard domain name exists.  'Immediately descending' means
       that the source of synthesis has a name of the form:
+
       <asterisk label>.<closest encloser>."
+
       (Quoted from [RFC4592], Section 3.3.1)
 
 9.  Registration Model
@@ -1562,18 +1375,8 @@ RFC 8499                     DNS Terminology                January 2019
       different protocols, particularly RDAP.  The WHOIS protocol is
       also used with IP address registry data.
 
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 28]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
    RDAP:  The Registration Data Access Protocol, defined in [RFC7480],
-      [RFC7481], [RFC7482], [RFC7483], [RFC7484], and [RFC7485].  The
+      [RFC7481], [RFC7485], [RFC9082], [RFC9083], and [RFC9224].  The
       RDAP protocol and data format are meant as a replacement for
       WHOIS.
 
@@ -1596,7 +1399,7 @@ RFC 8499                     DNS Terminology                January 2019
       There is nothing inherent in a domain name to indicate whether it
       is a public suffix.  One resource for identifying public suffixes
       is the Public Suffix List (PSL) maintained by Mozilla
-      (http://publicsuffix.org/).
+      <https://publicsuffix.org/>.
 
       For example, at the time this document is published, the "com.au"
       domain is listed as a public suffix in the PSL.  (Note that this
@@ -1620,14 +1423,6 @@ RFC 8499                     DNS Terminology                January 2019
       relationship standing of two domains where one is a subdomain of
       the other.
 
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 29]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
 10.  General DNSSEC
 
    Most DNSSEC terms are defined in [RFC4033], [RFC4034], [RFC4035], and
@@ -1637,8 +1432,8 @@ RFC 8499                     DNS Terminology                January 2019
    DNSSEC-aware and DNSSEC-unaware:  These two terms, which are used in
       some RFCs, have not been formally defined.  However, Section 2 of
       [RFC4033] defines many types of resolvers and validators,
-      including "non-validating security-aware stub resolver",
-      "non-validating stub resolver", "security-aware name server",
+      including "non-validating security-aware stub resolver", "non-
+      validating stub resolver", "security-aware name server",
       "security-aware recursive name server", "security-aware resolver",
       "security-aware stub resolver", and "security-oblivious
       'anything'".  (Note that the term "validating resolver", which is
@@ -1662,6 +1457,12 @@ RFC 8499                     DNS Terminology                January 2019
       NSEC3 mechanisms used by DNSSEC to provide authenticated denial-
       of-existence responses.  NSEC and NSEC3 are described below.
 
+   Online signing:  [RFC4470] defines "on-line signing" (note the
+      hyphen) as "generating and signing these records on demand", where
+      "these" was defined as NSEC records.  The current definition
+      expands that to generating and signing RRSIG, NSEC, and NSEC3
+      records on demand.
+
    Unsigned zone:  Section 2 of [RFC4033] defines this as "a zone that
       is not signed".  Section 2 of [RFC4035] defines this as a "zone
       that does not include these records [properly constructed DNSKEY,
@@ -1675,30 +1476,21 @@ RFC 8499                     DNS Terminology                January 2019
       child zone.  In this case, the resolver SHOULD treat the child
       zone as if it were unsigned."
 
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 30]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
    NSEC:  "The NSEC record allows a security-aware resolver to
-      authenticate a negative reply for either name or type
-      non-existence with the same mechanisms used to authenticate other
-      DNS replies."  (Quoted from [RFC4033], Section 3.2) In short, an
-      NSEC record provides authenticated denial of existence.
+      authenticate a negative reply for either name or type non-
+      existence with the same mechanisms used to authenticate other DNS
+      replies."  (Quoted from [RFC4033], Section 3.2) In short, an NSEC
+      record provides authenticated denial of existence.
 
       "The NSEC resource record lists two separate things: the next
       owner name (in the canonical ordering of the zone) that contains
       authoritative data or a delegation point NS RRset, and the set of
       RR types present at the NSEC RR's owner name."  (Quoted from
-      Section 4 of RFC 4034)
+      [RFC4034], Section 4)
 
    NSEC3:  Like the NSEC record, the NSEC3 record also provides
       authenticated denial of existence; however, NSEC3 records mitigate
-      zone enumeration and support Opt-Out.  NSEC3 resource records
+      zone enumeration and support Opt-Out. NSEC3 resource records
       require associated NSEC3PARAM resource records.  NSEC3 and
       NSEC3PARAM resource records are defined in [RFC5155].
 
@@ -1730,16 +1522,6 @@ RFC 8499                     DNS Terminology                January 2019
       successive queries for them, or matches the contents of NSEC3
       records against such a dictionary.
 
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 31]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
    Validation:  Validation, in the context of DNSSEC, refers to one of
       the following:
 
@@ -1749,10 +1531,10 @@ RFC 8499                     DNS Terminology                January 2019
          authenticated denial of existence, or
 
       *  Building an authentication chain from a trust anchor to a DNS
-         response or individual DNS RRsets in a response
+         response or individual DNS RRsets in a response.
 
       The first two definitions above consider only the validity of
-      individual DNSSEC components such as the RRSIG validity or NSEC
+      individual DNSSEC components, such as the RRSIG validity or NSEC
       proof validity.  The third definition considers the components of
       the entire DNSSEC authentication chain; thus, it requires
       "configured knowledge of at least one authenticated DNSKEY or DS
@@ -1765,7 +1547,7 @@ RFC 8499                     DNS Terminology                January 2019
       definitions above.  The process of validating an RRSIG resource
       record is described in [RFC4035], Section 5.3.
 
-      [RFC5155] refers to validating responses throughout the document,
+      [RFC5155] refers to validating responses throughout the document
       in the context of hashed authenticated denial of existence; this
       uses the second definition above.
 
@@ -1785,20 +1567,9 @@ RFC 8499                     DNS Terminology                January 2019
       The term "verification", when used, is usually a synonym for
       "validation".
 
-
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 32]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
    Validating resolver:  A security-aware recursive name server,
       security-aware resolver, or security-aware stub resolver that is
-      applying at least one of the definitions of validation (above), as
+      applying at least one of the definitions of validation (above) as
       appropriate to the resolution context.  For the same reason that
       the generic term "resolver" is sometimes ambiguous and needs to be
       evaluated in context (see Section 6), "validating resolver" is a
@@ -1842,16 +1613,6 @@ RFC 8499                     DNS Terminology                January 2019
       public keys with the parent there is a need to differentiate SEP
       keys from other public keys in the Domain Name System KEY (DNSKEY)
       resource record set.  A flag bit in the DNSKEY RR is defined to
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 33]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
       indicate that DNSKEY is to be used as a SEP."  That definition of
       the SEP as a key was made obsolete by [RFC4034], and the
       definition from [RFC6781] is consistent with [RFC4034].
@@ -1894,93 +1655,73 @@ RFC 8499                     DNS Terminology                January 2019
    states: secure, insecure, bogus, or indeterminate.  These states are
    defined in [RFC4033] and [RFC4035], although the definitions in the
    two documents differ a bit.  This document makes no effort to
-   reconcile the definitions in the two documents, and takes no position
+   reconcile the definitions in the two documents and takes no position
    as to whether they need to be reconciled.
-
-
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 34]
-
-RFC 8499                     DNS Terminology                January 2019
-
 
    Section 5 of [RFC4033] says:
 
-      A validating resolver can determine the following 4 states:
-
-      Secure: The validating resolver has a trust anchor, has a chain
-         of trust, and is able to verify all the signatures in the
-         response.
-
-      Insecure: The validating resolver has a trust anchor, a chain
-         of trust, and, at some delegation point, signed proof of the
-         non-existence of a DS record.  This indicates that subsequent
-         branches in the tree are provably insecure.  A validating
-         resolver may have a local policy to mark parts of the domain
-         space as insecure.
-
-      Bogus: The validating resolver has a trust anchor and a secure
-         delegation indicating that subsidiary data is signed, but
-         the response fails to validate for some reason: missing
-         signatures, expired signatures, signatures with unsupported
-         algorithms, data missing that the relevant NSEC RR says
-         should be present, and so forth.
-
-      Indeterminate: There is no trust anchor that would indicate that a
-         specific portion of the tree is secure.  This is the default
-         operation mode.
+   |  A validating resolver can determine the following 4 states:
+   |  Secure:  The validating resolver has a trust anchor, has a chain
+   |     of trust, and is able to verify all the signatures in the
+   |     response.
+   |  
+   |  Insecure:  The validating resolver has a trust anchor, a chain of
+   |     trust, and, at some delegation point, signed proof of the non-
+   |     existence of a DS record.  This indicates that subsequent
+   |     branches in the tree are provably insecure.  A validating
+   |     resolver may have a local policy to mark parts of the domain
+   |     space as insecure.
+   |  
+   |  Bogus:  The validating resolver has a trust anchor and a secure
+   |     delegation indicating that subsidiary data is signed, but the
+   |     response fails to validate for some reason: missing signatures,
+   |     expired signatures, signatures with unsupported algorithms,
+   |     data missing that the relevant NSEC RR says should be present,
+   |     and so forth.
+   |  
+   |  Indeterminate:  There is no trust anchor that would indicate that
+   |     a specific portion of the tree is secure.  This is the default
+   |     operation mode.
 
    Section 4.3 of [RFC4035] says:
 
-      A security-aware resolver must be able to distinguish between four
-      cases:
-
-      Secure: An RRset for which the resolver is able to build a chain
-          of signed DNSKEY and DS RRs from a trusted security anchor to
-          the RRset.  In this case, the RRset should be signed and is
-          subject to signature validation, as described above.
-
-      Insecure: An RRset for which the resolver knows that it has no
-         chain of signed DNSKEY and DS RRs from any trusted starting
-         point to the RRset.  This can occur when the target RRset lies
-         in an unsigned zone or in a descendent [sic] of an unsigned
-         zone.  In this case, the RRset may or may not be signed, but
-         the resolver will not be able to verify the signature.
-
-      Bogus: An RRset for which the resolver believes that it ought to
-         be able to establish a chain of trust but for which it is
-         unable to do so, either due to signatures that for some reason
-         fail to validate or due to missing data that the relevant
-         DNSSEC RRs indicate should be present.  This case may indicate
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 35]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
-         an attack but may also indicate a configuration error or some
-         form of data corruption.
-
-      Indeterminate: An RRset for which the resolver is not able to
-         determine whether the RRset should be signed, as the resolver
-         is not able to obtain the necessary DNSSEC RRs.  This can occur
-         when the security-aware resolver is not able to contact
-         security-aware name servers for the relevant zones.
+   |  A security-aware resolver must be able to distinguish between four
+   |  cases:
+   |  Secure:  An RRset for which the resolver is able to build a chain
+   |     of signed DNSKEY and DS RRs from a trusted security anchor to
+   |     the RRset.  In this case, the RRset should be signed and is
+   |     subject to signature validation, as described above.
+   |  
+   |  Insecure:  An RRset for which the resolver knows that it has no
+   |     chain of signed DNSKEY and DS RRs from any trusted starting
+   |     point to the RRset.  This can occur when the target RRset lies
+   |     in an unsigned zone or in a descendent [sic] of an unsigned
+   |     zone.  In this case, the RRset may or may not be signed, but
+   |     the resolver will not be able to verify the signature.
+   |  
+   |  Bogus:  An RRset for which the resolver believes that it ought to
+   |     be able to establish a chain of trust but for which it is
+   |     unable to do so, either due to signatures that for some reason
+   |     fail to validate or due to missing data that the relevant
+   |     DNSSEC RRs indicate should be present.  This case may indicate
+   |     an attack but may also indicate a configuration error or some
+   |     form of data corruption.
+   |  
+   |  Indeterminate:  An RRset for which the resolver is not able to
+   |     determine whether the RRset should be signed, as the resolver
+   |     is not able to obtain the necessary DNSSEC RRs.  This can occur
+   |     when the security-aware resolver is not able to contact
+   |     security-aware name servers for the relevant zones.
 
 12.  Security Considerations
 
-   These definitions do not change any security considerations for the
-   DNS.
+   These definitions do not change any security considerations for
+   either the global DNS or private DNS.
 
 13.  IANA Considerations
 
-   This document has no IANA actions.
+   References to RFC 8499 in the IANA registries have been replaced with
+   references to this document.
 
 14.  References
 
@@ -2011,15 +1752,6 @@ RFC 8499                     DNS Terminology                January 2019
               Errors", RFC 1912, DOI 10.17487/RFC1912, February 1996,
               <https://www.rfc-editor.org/info/rfc1912>.
 
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 36]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
    [RFC1996]  Vixie, P., "A Mechanism for Prompt Notification of Zone
               Changes (DNS NOTIFY)", RFC 1996, DOI 10.17487/RFC1996,
               August 1996, <https://www.rfc-editor.org/info/rfc1996>.
@@ -2042,18 +1774,18 @@ RFC 8499                     DNS Terminology                January 2019
               NCACHE)", RFC 2308, DOI 10.17487/RFC2308, March 1998,
               <https://www.rfc-editor.org/info/rfc2308>.
 
-   [RFC4033]  Arends, R., Austein, R., Larson, M., Massey, D., and
-              S. Rose, "DNS Security Introduction and Requirements",
+   [RFC4033]  Arends, R., Austein, R., Larson, M., Massey, D., and S.
+              Rose, "DNS Security Introduction and Requirements",
               RFC 4033, DOI 10.17487/RFC4033, March 2005,
               <https://www.rfc-editor.org/info/rfc4033>.
 
-   [RFC4034]  Arends, R., Austein, R., Larson, M., Massey, D., and
-              S. Rose, "Resource Records for the DNS Security
-              Extensions", RFC 4034, DOI 10.17487/RFC4034, March 2005,
+   [RFC4034]  Arends, R., Austein, R., Larson, M., Massey, D., and S.
+              Rose, "Resource Records for the DNS Security Extensions",
+              RFC 4034, DOI 10.17487/RFC4034, March 2005,
               <https://www.rfc-editor.org/info/rfc4034>.
 
-   [RFC4035]  Arends, R., Austein, R., Larson, M., Massey, D., and
-              S. Rose, "Protocol Modifications for the DNS Security
+   [RFC4035]  Arends, R., Austein, R., Larson, M., Massey, D., and S.
+              Rose, "Protocol Modifications for the DNS Security
               Extensions", RFC 4035, DOI 10.17487/RFC4035, March 2005,
               <https://www.rfc-editor.org/info/rfc4035>.
 
@@ -2065,16 +1797,6 @@ RFC 8499                     DNS Terminology                January 2019
               Security (DNSSEC) Hashed Authenticated Denial of
               Existence", RFC 5155, DOI 10.17487/RFC5155, March 2008,
               <https://www.rfc-editor.org/info/rfc5155>.
-
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 37]
-
-RFC 8499                     DNS Terminology                January 2019
-
 
    [RFC5358]  Damas, J. and F. Neves, "Preventing Use of Recursive
               Nameservers in Reflector Attacks", BCP 140, RFC 5358,
@@ -2123,15 +1845,6 @@ RFC 8499                     DNS Terminology                January 2019
               DOI 10.17487/RFC6891, April 2013,
               <https://www.rfc-editor.org/info/rfc6891>.
 
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 38]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
    [RFC7344]  Kumari, W., Gudmundsson, O., and G. Barwood, "Automating
               DNSSEC Delegation Trust Maintenance", RFC 7344,
               DOI 10.17487/RFC7344, September 2014,
@@ -2146,11 +1859,29 @@ RFC 8499                     DNS Terminology                January 2019
               DOI 10.17487/RFC8310, March 2018,
               <https://www.rfc-editor.org/info/rfc8310>.
 
+   [RFC8499]  Hoffman, P., Sullivan, A., and K. Fujiwara, "DNS
+              Terminology", BCP 219, RFC 8499, DOI 10.17487/RFC8499,
+              January 2019, <https://www.rfc-editor.org/info/rfc8499>.
+
+   [RFC9250]  Huitema, C., Dickinson, S., and A. Mankin, "DNS over
+              Dedicated QUIC Connections", RFC 9250,
+              DOI 10.17487/RFC9250, May 2022,
+              <https://www.rfc-editor.org/info/rfc9250>.
+
+   [RFC9471]  Andrews, M., Huque, S., Wouters, P., and D. Wessels, "DNS
+              Glue Requirements in Referral Responses", RFC 9471,
+              DOI 10.17487/RFC9471, September 2023,
+              <https://www.rfc-editor.org/info/rfc9471>.
+
 14.2.  Informative References
 
    [IANA_Resource_Registry]
               IANA, "Resource Record (RR) TYPEs",
               <https://www.iana.org/assignments/dns-parameters/>.
+
+   [RFC20]    Cerf, V., "ASCII format for network interchange", STD 80,
+              RFC 20, DOI 10.17487/RFC0020, October 1969,
+              <https://www.rfc-editor.org/info/rfc20>.
 
    [RFC819]   Su, Z. and J. Postel, "The Domain Naming Convention for
               Internet User Applications", RFC 819,
@@ -2178,22 +1909,12 @@ RFC 8499                     DNS Terminology                January 2019
               Domain ("arpa")", BCP 52, RFC 3172, DOI 10.17487/RFC3172,
               September 2001, <https://www.rfc-editor.org/info/rfc3172>.
 
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 39]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
    [RFC3425]  Lawrence, D., "Obsoleting IQUERY", RFC 3425,
               DOI 10.17487/RFC3425, November 2002,
               <https://www.rfc-editor.org/info/rfc3425>.
 
-   [RFC3493]  Gilligan, R., Thomson, S., Bound, J., McCann, J., and
-              W. Stevens, "Basic Socket Interface Extensions for IPv6",
+   [RFC3493]  Gilligan, R., Thomson, S., Bound, J., McCann, J., and W.
+              Stevens, "Basic Socket Interface Extensions for IPv6",
               RFC 3493, DOI 10.17487/RFC3493, February 2003,
               <https://www.rfc-editor.org/info/rfc3493>.
 
@@ -2205,6 +1926,11 @@ RFC 8499                     DNS Terminology                January 2019
    [RFC3912]  Daigle, L., "WHOIS Protocol Specification", RFC 3912,
               DOI 10.17487/RFC3912, September 2004,
               <https://www.rfc-editor.org/info/rfc3912>.
+
+   [RFC4470]  Weiler, S. and J. Ihren, "Minimally Covering NSEC Records
+              and DNSSEC On-line Signing", RFC 4470,
+              DOI 10.17487/RFC4470, April 2006,
+              <https://www.rfc-editor.org/info/rfc4470>.
 
    [RFC4641]  Kolkman, O. and R. Gieben, "DNSSEC Operational Practices",
               RFC 4641, DOI 10.17487/RFC4641, September 2006,
@@ -2235,14 +1961,6 @@ RFC 8499                     DNS Terminology                January 2019
               Applications (IDNA): Protocol", RFC 5891,
               DOI 10.17487/RFC5891, August 2010,
               <https://www.rfc-editor.org/info/rfc5891>.
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 40]
-
-RFC 8499                     DNS Terminology                January 2019
-
 
    [RFC5892]  Faltstrom, P., Ed., "The Unicode Code Points and
               Internationalized Domain Names for Applications (IDNA)",
@@ -2292,41 +2010,34 @@ RFC 8499                     DNS Terminology                January 2019
               DOI 10.17487/RFC6762, February 2013,
               <https://www.rfc-editor.org/info/rfc6762>.
 
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 41]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
    [RFC7129]  Gieben, R. and W. Mekking, "Authenticated Denial of
               Existence in the DNS", RFC 7129, DOI 10.17487/RFC7129,
               February 2014, <https://www.rfc-editor.org/info/rfc7129>.
 
    [RFC7480]  Newton, A., Ellacott, B., and N. Kong, "HTTP Usage in the
-              Registration Data Access Protocol (RDAP)", RFC 7480,
-              DOI 10.17487/RFC7480, March 2015,
+              Registration Data Access Protocol (RDAP)", STD 95,
+              RFC 7480, DOI 10.17487/RFC7480, March 2015,
               <https://www.rfc-editor.org/info/rfc7480>.
 
    [RFC7481]  Hollenbeck, S. and N. Kong, "Security Services for the
-              Registration Data Access Protocol (RDAP)", RFC 7481,
-              DOI 10.17487/RFC7481, March 2015,
+              Registration Data Access Protocol (RDAP)", STD 95,
+              RFC 7481, DOI 10.17487/RFC7481, March 2015,
               <https://www.rfc-editor.org/info/rfc7481>.
 
-   [RFC7482]  Newton, A. and S. Hollenbeck, "Registration Data Access
-              Protocol (RDAP) Query Format", RFC 7482,
-              DOI 10.17487/RFC7482, March 2015,
-              <https://www.rfc-editor.org/info/rfc7482>.
+   [RFC9082]  Hollenbeck, S. and A. Newton, "Registration Data Access
+              Protocol (RDAP) Query Format", STD 95, RFC 9082,
+              DOI 10.17487/RFC9082, June 2021,
+              <https://www.rfc-editor.org/info/rfc9082>.
 
-   [RFC7483]  Newton, A. and S. Hollenbeck, "JSON Responses for the
-              Registration Data Access Protocol (RDAP)", RFC 7483,
-              DOI 10.17487/RFC7483, March 2015,
-              <https://www.rfc-editor.org/info/rfc7483>.
+   [RFC9083]  Hollenbeck, S. and A. Newton, "JSON Responses for the
+              Registration Data Access Protocol (RDAP)", STD 95,
+              RFC 9083, DOI 10.17487/RFC9083, June 2021,
+              <https://www.rfc-editor.org/info/rfc9083>.
 
-   [RFC7484]  Blanchet, M., "Finding the Authoritative Registration Data
-              (RDAP) Service", RFC 7484, DOI 10.17487/RFC7484, March
-              2015, <https://www.rfc-editor.org/info/rfc7484>.
+   [RFC9224]  Blanchet, M., "Finding the Authoritative Registration Data
+              Access Protocol (RDAP) Service", STD 95, RFC 9224,
+              DOI 10.17487/RFC9224, March 2022,
+              <https://www.rfc-editor.org/info/rfc9224>.
 
    [RFC7485]  Zhou, L., Kong, N., Shen, S., Sheng, S., and A. Servin,
               "Inventory and Analysis of WHOIS Registration Objects",
@@ -2348,14 +2059,6 @@ RFC 8499                     DNS Terminology                January 2019
               DOI 10.17487/RFC8094, February 2017,
               <https://www.rfc-editor.org/info/rfc8094>.
 
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 42]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
    [RFC8109]  Koch, P., Larson, M., and P. Hoffman, "Initializing a DNS
               Resolver with Priming Queries", BCP 209, RFC 8109,
               DOI 10.17487/RFC8109, March 2017,
@@ -2365,439 +2068,531 @@ RFC 8499                     DNS Terminology                January 2019
               (DoH)", RFC 8484, DOI 10.17487/RFC8484, October 2018,
               <https://www.rfc-editor.org/info/rfc8484>.
 
-   [RSSAC026] Root Server System Advisory Committee (RSSAC), "RSSAC
-              Lexicon", 2017,
-              <https://www.icann.org/en/system/files/files/
-              rssac-026-14mar17-en.pdf>.
+   [RFC9103]  Toorop, W., Dickinson, S., Sahib, S., Aras, P., and A.
+              Mankin, "DNS Zone Transfer over TLS", RFC 9103,
+              DOI 10.17487/RFC9103, August 2021,
+              <https://www.rfc-editor.org/info/rfc9103>.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 43]
-
-RFC 8499                     DNS Terminology                January 2019
-
+   [RSSAC026] Root Server System Advisory Committee (RSSAC), "RSSAC0226
+              RSSAC Lexicon", 2017,
+              <https://www.icann.org/en/system/files/files/rssac-
+              026-14mar17-en.pdf>.
 
 Appendix A.  Definitions Updated by This Document
 
    The following definitions from RFCs are updated by this document:
 
-   o  Forwarder in [RFC2308]
+   *  Forwarder in [RFC2308]
 
-   o  QNAME in [RFC2308]
+   *  QNAME in [RFC2308]
 
-   o  Secure Entry Point (SEP) in [RFC3757]; note, however, that this
+   *  Secure Entry Point (SEP) in [RFC3757]; note, however, that this
       RFC is already obsolete (see [RFC4033], [RFC4034], [RFC4035]).
 
 Appendix B.  Definitions First Defined in This Document
 
    The following definitions are first defined in this document:
 
-   o  "Alias" in Section 2
+   *  "Alias" in Section 2
 
-   o  "Apex" in Section 7
+   *  "Apex" in Section 7
 
-   o  "arpa" in Section 7
+   *  "arpa" in Section 7
 
-   o  "Bailiwick" in Section 7
+   *  "Authoritative DoT (ADot)" in Section 6
 
-   o  "Class independent" in Section 5
+   *  "Bailiwick" in Section 7
 
-   o  "Delegation-centric zone" in Section 7
+   *  "Class independent" in Section 5
 
-   o  "Delegation" in Section 7
+   *  "Classic DNS" in Section 6
 
-   o  "DNS operator" in Section 9
+   *  "Delegation-centric zone" in Section 7
 
-   o  "DNSSEC-aware" in Section 10
+   *  "Delegation" in Section 7
 
-   o  "DNSSEC-unaware" in Section 10
+   *  "DNS operator" in Section 9
 
-   o  "Forwarding" in Section 6
+   *  "DNSSEC-aware" in Section 10
 
-   o  "Full resolver" in Section 6
+   *  "DNSSEC-unaware" in Section 10
 
-   o  "Fully-qualified domain name" in Section 2
+   *  "Forwarding" in Section 6
 
-   o  "Global DNS" in Section 2
+   *  "Full resolver" in Section 6
 
-   o  "Hardware Security Module (HSM)" in Section 10
+   *  "Fully Qualified Domain Name" in Section 2
 
-   o  "Host name" in Section 2
+   *  "Global DNS" in Section 2
 
-   o  "IDN" in Section 2
+   *  "Hardware Security Module (HSM)" in Section 10
 
+   *  "Host name" in Section 2
 
+   *  "IDN" in Section 2
 
-Hoffman, et al.           Best Current Practice                [Page 44]
-
-RFC 8499                     DNS Terminology                January 2019
+   *  "In-domain" in Section 7
 
+   *  "Iterative resolution" in Section 6
 
-   o  "In-bailiwick" in Section 7
+   *  "Label" in Section 2
 
-   o  "Iterative resolution" in Section 6
+   *  "Locally served DNS zone" in Section 2
 
-   o  "Label" in Section 2
+   *  "Naming system" in Section 2
 
-   o  "Locally served DNS zone" in Section 2
+   *  "Negative response" in Section 3
 
-   o  "Naming system" in Section 2
+   *  "Non-recursive query" in Section 6
 
-   o  "Negative response" in Section 3
+   *  "Open resolver" in Section 6
 
-   o  "Non-recursive query" in Section 6
+   *  "Passive DNS" in Section 6
 
-   o  "Open resolver" in Section 6
+   *  "Policy-implementing resolver" in Section 6
 
-   o  "Out-of-bailiwick" in Section 7
+   *  "Presentation format" in Section 5
 
-   o  "Passive DNS" in Section 6
+   *  "Priming" in Section 6
 
-   o  "Policy-implementing resolver" in Section 6
+   *  "Private DNS" in Section 2
 
-   o  "Presentation format" in Section 5
+   *  "Recursive DoT (RDot)" in Section 6
 
-   o  "Priming" in Section 6
+   *  "Recursive resolver" in Section 6
 
-   o  "Private DNS" in Section 2
+   *  "Referrals" in Section 4
 
-   o  "Recursive resolver" in Section 6
+   *  "Registrant" in Section 9
 
-   o  "Referrals" in Section 4
+   *  "Registrar" in Section 9
 
-   o  "Registrant" in Section 9
+   *  "Registry" in Section 9
 
-   o  "Registrar" in Section 9
+   *  "Root zone" in Section 7
 
-   o  "Registry" in Section 9
+   *  "Secure Entry Point (SEP)" in Section 10
 
-   o  "Root zone" in Section 7
+   *  "Sibling domain" in Section 7
 
-   o  "Secure Entry Point (SEP)" in Section 10
+   *  "Signing software" in Section 10
 
-   o  "Signing software" in Section 10
+   *  "Split DNS" in Section 6
 
-   o  "Split DNS" in Section 6
+   *  "Stub resolver" in Section 6
 
-   o  "Stub resolver" in Section 6
+   *  "Subordinate" in Section 8
 
+   *  "Superordinate" in Section 8
 
+   *  "TLD" in Section 2
 
+   *  "Validating resolver" in Section 10
 
-Hoffman, et al.           Best Current Practice                [Page 45]
-
-RFC 8499                     DNS Terminology                January 2019
+   *  "Validation" in Section 10
 
+   *  "View" in Section 6
 
-   o  "Subordinate" in Section 8
-
-   o  "Superordinate" in Section 8
-
-   o  "TLD" in Section 2
-
-   o  "Validating resolver" in Section 10
-
-   o  "Validation" in Section 10
-
-   o  "View" in Section 6
-
-   o  "Zone transfer" in Section 6
-
-Index
-
-   A
-      Address records  16
-      Alias  9
-      Anycast  22
-      Apex  23
-      Asterisk label  27
-      Authoritative data  24
-      Authoritative server  19
-      Authoritative-only server  19
-      arpa: Address and Routing Parameter Area Domain  26
-
-   C
-      CNAME  10
-      Canonical name  9
-      Child  22
-      Class  11
-      Class independent  16
-      Closest encloser  27
-      Closest provable encloser  27
-      Combined signing key (CSK)  33
-
-   D
-      DNS operator  29
-      DNSSEC Policy (DP)  34
-      DNSSEC Practice Statement (DPS)  34
-      DNSSEC-aware and DNSSEC-unaware  30
-      Delegation  24
-      Delegation-centric zone  26
-      Domain name  5
-
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 46]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
-   E
-      EDNS  14
-      EPP  28
-      Empty non-terminals (ENT)  26
-
-   F
-      FORMERR  10
-      Fast flux DNS  26
-      Forward lookup  26
-      Forwarder  21
-      Forwarding  20
-      Full resolver  18
-      Full-service resolver  18
-      Fully-qualified domain name (FQDN)  8
-
-   G
-      Global DNS  5
-      Glue records  24
-
-   H
-      Hardware security module (HSM)  34
-      Hidden master  20
-      Host name  8
-
-   I
-      IDN  9
-      In-bailiwick  25
-      Insecure delegation  31
-      Instance  22
-      Internationalized Domain Name  9
-      Iterative mode  17
-      Iterative resolution  18
-
-   K
-      Key signing key (KSK)  33
-
-   L
-      Label  5
-      Lame delegation  24
-      Locally served DNS zone  8
-
-   M
-      Master file  14
-      Master server  19
-      Multicast DNS  7
-      mDNS  7
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 47]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
-   N
-      NODATA  10
-      NOERROR  10
-      NOTIMP  10
-      NS  19
-      NSEC  31
-      NSEC3  31
-      NXDOMAIN  10
-      Naming system  4
-      Negative caching  19
-      Negative response  11
-      Next closer name  28
-      Non-recursive query  18
-
-   O
-      OPT  14
-      Occluded name  26
-      Open resolver  21
-      Opt-out  31
-      Origin  23
-      Out-of-bailiwick  25
-      Owner  15
-
-   P
-      Parent  23
-      Passive DNS  22
-      Policy-implementing resolver  21
-      Presentation format  14
-      Primary master  20
-      Primary server  20
-      Priming  18
-      Privacy-enabling DNS server  22
-      Private DNS  7
-      Public suffix  29
-
-   Q
-      QNAME  11
-
-   R
-      RDAP  29
-      REFUSED  10
-      RR  14
-      RRset  14
-      Recursive mode  17
-      Recursive query  18
-      Recursive resolver  17
-      Referrals  13
-      Registrant  28
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 48]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
-      Registrar  28
-      Registry  28
-      Resolver  16
-      Reverse DNS, reverse lookup  26
-      Root hints  18
-      Root zone  26
-
-   S
-      SERVFAIL  10
-      SOA  14
-      SOA field names  14
-      Secondary server  19
-      Secure Entry Point (SEP)  33
-      Service name  27
-      Signed zone  30
-      Signing software  34
-      Slave server  19
-      Source of Synthesis  28
-      Split DNS  21
-      Split-horizon DNS  21
-      Stealth server  20
-      Stub resolver  17
-      Subdomain  9
-      Subordinate  29
-      Superordinate  29
-
-   T
-      TLD  9
-      TTL  15
-      Trust anchor  34
-
-   U
-      Unsigned zone  30
-
-   V
-      Validating resolver  33
-      Validation  32
-      View  21
-
-   W
-      WHOIS  28
-      Wildcard  27
-      Wildcard domain name  27
-
-
-
-
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 49]
-
-RFC 8499                     DNS Terminology                January 2019
-
-
-   Z
-      Zone  22
-      Zone cut  23
-      Zone enumeration  31
-      Zone signing key (ZSK)  33
-      Zone transfer  19
+   *  "Zone transfer" in Section 6
 
 Acknowledgements
 
-   The following is the Acknowledgements section of RFC 7719.
+   [RFC8499] and its predecessor, [RFC7719], were co-authored by Andrew
+   Sullivan.  The current document, which is a small update to
+   [RFC8499], has just two authors.  Andrew's work on the earlier
+   documents is greatly appreciated.
 
-      The authors gratefully acknowledge all of the authors of DNS-
-      related RFCs that proceed this one.  Comments from Tony Finch,
-      Stephane Bortzmeyer, Niall O'Reilly, Colm MacCarthaigh, Ray
-      Bellis, John Kristoff, Robert Edmonds, Paul Wouters, Shumon Huque,
-      Paul Ebersman, David Lawrence, Matthijs Mekking, Casey Deccio, Bob
-      Harold, Ed Lewis, John Klensin, David Black, and many others in
-      the DNSOP Working Group helped shape RFC 7719.
+   Numerous people made significant contributions to [RFC8499] and
+   [RFC7719].  Please see the acknowledgements sections in those two
+   documents for the extensive list of contributors.
 
-   Most of the major changes between RFC 7719 and this document came
-   from active discussion on the DNSOP WG.  Specific people who
-   contributed material to this document include: Bob Harold, Dick
-   Franks, Evan Hunt, John Dickinson, Mark Andrews, Martin Hoffmann,
-   Paul Vixie, Peter Koch, Duane Wessels, Allison Mankin, Giovane Moura,
-   Roni Even, Dan Romascanu, and Vladmir Cunat.
+   Even though the current document is a small revision, many people in
+   the DNSOP Working Group have contributed to it, and their work is
+   greatly appreciated.
+
+Index
+
+   A B C D E F G H I K L M N O P Q R S T U V W X Z
+
+      A
+
+         Address and Routing Parameter Area Domain (arpa)
+            Section 7
+         Address records
+            Section 5
+         ADoT
+            Section 6
+         Alias
+            Section 2
+         Anycast
+            Section 6
+         Apex
+            Section 7
+         Asterisk label
+            Section 8
+         Authoritative data
+            Section 7
+         Authoritative server
+            Section 6
+         Authoritative-only server
+            Section 6
+         AXoT
+            Section 6
+
+      B
+
+         Bailiwick
+            Section 7
+
+      C
+
+         Canonical name
+            Section 2
+         Child
+            Section 7
+         Class
+            Section 4
+         Class independent
+            Section 5
+         Classic DNS
+            Section 6
+         Closest encloser
+            Section 8
+         Closest provable encloser
+            Section 8
+         CNAME
+            Section 2
+         Combined signing key (CSK)
+            Section 10
+
+      D
+
+         Delegation
+            Section 7
+         Delegation-centric zone
+            Section 7
+         DNS operator
+            Section 9
+         DNS-over-HTTPS
+            Section 6
+         DNS-over-QUIC
+            Section 6
+         DNS-over-TLS
+            Section 6
+         DNSSEC Policy (DP)
+            Section 10
+         DNSSEC Practice Statement (DPS)
+            Section 10
+         DNSSEC-aware and DNSSEC-unaware
+            Section 10
+         DoH
+            Section 6
+         Domain name
+            Section 2
+         DoQ
+            Section 6
+         DoT
+            Section 6
+
+      E
+
+         EDNS
+            Section 5
+         Empty non-terminals (ENTs)
+            Section 7
+         EPP
+            Section 9
+
+      F
+
+         Fast flux DNS
+            Section 7
+         FORMERR
+            Section 3
+         Forward lookup
+            Section 7
+         Forwarder
+            Section 6
+         Forwarding
+            Section 6
+         Full resolver
+            Section 6
+         Full-service resolver
+            Section 6
+         Fully Qualified Domain Name (FQDN)
+            Section 2
+
+      G
+
+         Global DNS
+            Section 2
+         Glue records
+            Section 7
+
+      H
+
+         Hardware security module (HSM)
+            Section 10
+         Hidden master
+            Section 6
+         Host name
+            Section 2
+
+      I
+
+         IDN
+            Section 2
+         In-bailiwick
+            Section 7
+         In-domain
+            Section 7
+         Insecure delegation
+            Section 10
+         Instance
+            Section 6
+         Internationalized Domain Name
+            Section 2
+         Iterative mode
+            Section 6
+         Iterative resolution
+            Section 6
+         IXoT
+            Section 6
+
+      K
+
+         Key signing key (KSK)
+            Section 10
+
+      L
+
+         Label
+            Section 2
+         Lame delegation
+            Section 7
+         Locally served DNS zone
+            Section 2
+
+      M
+
+         Master file
+            Section 5
+         Master server
+            Section 6
+         mDNS
+            Section 2
+         Multicast DNS
+            Section 2
+
+      N
+
+         Naming system
+            Section 2, Paragraph 1.2.1
+         Negative caching
+            Section 6
+         Negative response
+            Section 3
+         Next closer name
+            Section 8
+         NODATA
+            Section 3
+         NOERROR
+            Section 3
+         Non-recursive query
+            Section 6
+         NOTIMP
+            Section 3
+         NS
+            Section 6
+         NSEC
+            Section 10
+         NSEC3
+            Section 10
+         NXDOMAIN
+            Section 3
+
+      O
+
+         Occluded name
+            Section 7
+         on-line signing
+            Section 10
+         online signing
+            Section 10
+         Open resolver
+            Section 6
+         OPT
+            Section 5
+         Opt-out
+            Section 10
+         Origin
+            Section 7
+         Out-of-bailiwick
+            Section 7
+         Owner
+            Section 5
+
+      P
+
+         Parent
+            Section 7
+         Passive DNS
+            Section 6
+         Policy-implementing resolver
+            Section 6
+         Presentation format
+            Section 5
+         Primary master
+            Section 6
+         Primary server
+            Section 6
+         Priming
+            Section 6
+         Privacy-enabling DNS server
+            Section 6
+         Private DNS
+            Section 2
+         Public suffix
+            Section 9
+
+      Q
+
+         QNAME
+            Section 4
+
+      R
+
+         RDAP
+            Section 9
+         RDoT
+            Section 6
+         Recursive DoT
+            Section 6
+         Recursive mode
+            Section 6, Paragraph 4.10.1
+         Recursive query
+            Section 6
+         Recursive resolver
+            Section 6
+         Referrals
+            Section 4
+         REFUSED
+            Section 3
+         Registrant
+            Section 9
+         Registrar
+            Section 9
+         Registry
+            Section 9
+         Resolver
+            Section 6
+         Reverse DNS, reverse lookup
+            Section 7
+         Root hints
+            Section 6
+         Root zone
+            Section 7
+         RR
+            Section 5
+         RRset
+            Section 5
+
+      S
+
+         Secondary server
+            Section 6
+         Secure Entry Point (SEP)
+            Section 10
+         SERVFAIL
+            Section 3
+         Service name
+            Section 7
+         Sibling domain
+            Section 7
+         Signed zone
+            Section 10
+         Signing software
+            Section 10
+         Slave server
+            Section 6
+         SOA
+            Section 5
+         SOA field names
+            Section 5
+         Source of Synthesis
+            Section 8, Paragraph 1.14.1
+         Split DNS
+            Section 6
+         Split-horizon DNS
+            Section 6
+         Stealth server
+            Section 6
+         Stub resolver
+            Section 6
+         Subdomain
+            Section 2
+         Subordinate
+            Section 9
+         Superordinate
+            Section 9
+
+      T
+
+         TLD
+            Section 2
+         Trust anchor
+            Section 10
+         TTL
+            Section 5
+
+      U
+
+         Unsigned zone
+            Section 10
+
+      V
+
+         Validating resolver
+            Section 10
+         Validation
+            Section 10, Paragraph 2.26.1
+         View
+            Section 6
+
+      W
+
+         WHOIS
+            Section 9
+         Wildcard
+            Section 8
+         Wildcard domain name
+            Section 8
+
+      X
+
+         XoT
+            Section 6
+
+      Z
+
+         Zone
+            Section 7
+         Zone cut
+            Section 7
+         Zone enumeration
+            Section 10
+         Zone signing key (ZSK)
+            Section 10
+         Zone transfer
+            Section 6
 
 Authors' Addresses
 
    Paul Hoffman
    ICANN
-
    Email: paul.hoffman@icann.org
-
-
-   Andrew Sullivan
-
-   Email: ajs@anvilwalrusden.com
 
 
    Kazunori Fujiwara
    Japan Registry Services Co., Ltd.
-   Chiyoda First Bldg. East 13F, 3-8-1 Nishi-Kanda
-   Chiyoda-ku, Tokyo  101-0065
-   Japan
-
-   Phone: +81 3 5215 8451
    Email: fujiwara@jprs.co.jp
-
-
-
-
-Hoffman, et al.           Best Current Practice                [Page 50]
-

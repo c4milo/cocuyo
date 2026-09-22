@@ -106,7 +106,8 @@ pub const port_ephemeral_max = 65535;
 /// The port a DNS server listens on (RFC 1035 §4.2.1).
 pub const port_dns_default = 53;
 
-/// An IPv4 address, in octets (RFC 791 §3.1).
+/// An IPv4 address, in octets: the "32 bit Internet address" an A record carries
+/// (RFC 1035 §3.4.1).
 pub const address_v4_bytes = 4;
 
 /// An IPv6 address, in octets (RFC 3596 §2.2 gives the AAAA rdata this length).

@@ -7,6 +7,7 @@
 const std = @import("std");
 
 pub const constants = @import("constants.zig");
+pub const mix = @import("mix.zig");
 pub const Error = @import("errors.zig").Error;
 
 const address = @import("address.zig");
@@ -26,6 +27,7 @@ pub const Config = @import("config.zig").Config;
 
 test {
     _ = constants;
+    _ = mix;
     _ = address;
     _ = name_text;
     _ = name_reverse;

@@ -2,9 +2,27 @@
 //! cocuyo that faces an attacker, so it is the half with the fuzz target and most of the mutations
 //! (docs/design.md §8 and §13).
 //!
-//! Step 2 of §15 fills this module.
-const core = @import("core");
+//! Every file here is named for what it reads or writes, without the module's own name repeated:
+//! the directory already says `wire`.
+pub const constants = @import("constants.zig");
+pub const integer = @import("integer.zig");
+pub const header = @import("header.zig");
+pub const name = @import("name.zig");
+pub const question = @import("question.zig");
+pub const edns = @import("edns.zig");
+pub const query = @import("query.zig");
+
+pub const Header = header.Header;
+pub const Rcode = constants.Rcode;
+pub const message_len = header.message_len;
+pub const Query = query.Query;
 
 test {
-    _ = core;
+    _ = constants;
+    _ = integer;
+    _ = header;
+    _ = name;
+    _ = question;
+    _ = edns;
+    _ = query;
 }
