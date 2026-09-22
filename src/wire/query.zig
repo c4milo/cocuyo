@@ -31,6 +31,9 @@ pub const Query = struct {
     tcp: bool = false,
     /// The COOKIE option to carry in the OPT record (RFC 7873 §5.1), which needs `payload_bytes`.
     cookie: ?edns.Cookie = null,
+    /// The RD bit (RFC 1035 §4.1.1): a stub asks a recursive server to do the walking, unless
+    /// the caller wants the server's own data alone.
+    recursion_desired: bool = true,
 };
 
 /// The octets a query occupies.
@@ -55,9 +58,8 @@ pub fn write(query: *const Query, out: []u8) usize {
 
     const header: header_codec.Header = .{
         .id = query.id,
-        // Recursion desired: a stub asks a recursive server to do the walking. Nothing else is
-        // set, and the query is never authoritative or truncated.
-        .flags = constants.flag_recursion_desired,
+        // Nothing but the RD bit is ever set: the query is never authoritative or truncated.
+        .flags = if (query.recursion_desired) constants.flag_recursion_desired else 0,
         .qdcount = 1,
         .ancount = 0,
         .nscount = 0,
@@ -175,4 +177,14 @@ test "a query with a cookie carries it in the OPT record, and one without EDNS c
     try testing.expectEqual(@as(u16, 1), (try @import("header.zig").parse(out[0..written])).arcount);
     query.payload_bytes = null;
     try testing.expectEqual(plain_bytes - core.constants.opt_record_bytes, write(&query, &out));
+}
+
+test "the RD bit is set unless the caller clears it" {
+    var query = try query_for("example.com");
+    var out: [core.constants.query_bytes_max]u8 = @splat(0);
+    _ = write(&query, &out);
+    try testing.expect((try header_codec.parse(&out)).flags & constants.flag_recursion_desired != 0);
+    query.recursion_desired = false;
+    _ = write(&query, &out);
+    try testing.expectEqual(@as(u16, 0), (try header_codec.parse(&out)).flags);
 }
