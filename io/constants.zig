@@ -41,6 +41,13 @@ pub const tcp_message_bytes_max = core.constants.message_bytes_max;
 /// The stream chunks arrive in a group of their own: a datagram group carries rotor's prefix
 /// before every payload, and a stream has no peer to name.
 pub const tcp_group_id = 1;
+
+/// The most alignment a buffer group's storage may claim for itself. The loader keeps page
+/// alignment and nothing larger, and the smallest page of any target cocuyo builds for is 4 KiB,
+/// so a type that claims more makes a promise some platform breaks — and in ReleaseSafe the
+/// optimizer believes the promise (docs/design.md §19 step 13). The ring's own 64 KiB is found at
+/// run time inside the storage instead.
+pub const storage_alignment_max = 4096;
 pub const tcp_chunk_bytes = 2048;
 pub const tcp_group_buffers_default = 8;
 

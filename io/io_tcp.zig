@@ -54,9 +54,14 @@ pub fn Group(comptime buffers: u16) type {
         const needed = rotor.buffers.group_bytes(buffers, constants.tcp_chunk_bytes);
         const alignment = rotor.buffers.group_alignment;
 
-        /// One alignment more than the group needs, for the reason the datagram group's own
-        /// `memory` gives: a type's alignment is not always the object's.
-        memory: [needed + alignment]u8 align(alignment),
+        /// One alignment more than the group needs, and no alignment claimed for it, for the
+        /// reason the datagram group's own `memory` gives: the loader keeps page alignment and
+        /// nothing more, and a type that claims more hands the optimizer a false premise.
+        memory: [needed + alignment]u8,
+
+        comptime {
+            assert(@alignOf(Self) <= constants.storage_alignment_max);
+        }
 
         pub fn ring(self: *Self) []align(alignment) u8 {
             const from = @intFromPtr(&self.memory);

@@ -249,7 +249,9 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
 - **16**, the package a consumer gets, §20, asked for by colibri's driver: the cache under every
   lookup as a `Memory` the caller supplies, the module surface closed to `cocuyo` alone, and
   `zig build consumer-check` compiling a dependent package. Landed 2026-09-22.
-- Next: whether the cache earns its keep, which §18 says no trace has ever decided; and the
-  engine on Linux, which fails registering its io_uring buffer group before a lookup goes out.
+- The cache's hit rate is measured (§18, over a synthetic trace), and the engine runs on Linux
+  over io_uring in CI. Both needed the buffer group's storage to stop claiming an alignment no
+  loader keeps (docs/mutations.md N1).
+- Next: SIEVE against S3-FIFO, which §18 leaves open, and §17 question 13.
 
 §17 holds the questions the owner has not answered.

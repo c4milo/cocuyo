@@ -850,6 +850,20 @@ thing rather than from a missing test.
 | 11 | keep the same transaction id across a CNAME re-query | design §5, new transaction | the re-query entropy test | planned |
 | 12 | advance the search candidate on SERVFAIL | design §5, rcode mapping | the policy table test | planned |
 
+## The buffer group's alignment
+
+rotor asks for a buffer group's memory at 64 KiB, and no platform delivers it to a global: the
+object file keeps the promise and the loader slides the image by a page, 16 KiB on arm64 macOS.
+The group's storage used to claim the 64 KiB in its type. Debug computed on the real address and
+failed at the alignment assert; ReleaseSafe believed the type, folded the arithmetic that finds
+the aligned window, and reached `unreachable` — the abort that looked like a `pthread_join` in a
+trace whose frames were all wrong. The storage now claims nothing, and the window is found at
+run time.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| N1 | let the datagram group's storage claim 64 KiB again | the storage claims no more than a page | `zig build test-io` refuses to compile | CAUGHT |
+
 ## The lint's own names
 
 A rule's list of forbidden names is checked by nothing when a name in it has moved or gone: the

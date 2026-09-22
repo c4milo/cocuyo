@@ -203,13 +203,19 @@ pub fn Group(comptime buffers: u16) type {
         const needed = rotor.buffers.group_bytes(buffers, constants.buffer_bytes);
         const alignment = rotor.buffers.group_alignment;
 
-        /// One alignment more than the group needs, because the alignment a type asks for is not
-        /// always the alignment the object gets. On x86_64-linux, Zig reported `@alignOf` of the
-        /// engine as 65536 and placed it at 0x1332d50, 3408 octets into its page;
-        /// `IORING_REGISTER_PBUF_RING` refuses a ring that is not page-aligned, which is the
-        /// `EINVAL` the engine met there with every test on the twin green. The spare octets buy
-        /// an aligned window inside this array whatever the array's own address turns out to be.
-        memory: [needed + alignment]u8 align(alignment),
+        /// One alignment more than the group needs, and no alignment claimed for it: the window
+        /// is found at run time instead.
+        ///
+        /// rotor asks for 64 KiB, and no platform gave it. The object file keeps the promise
+        /// (`__bss` at `align 2^16` on arm64 macOS), and the loader then slides the image by the
+        /// page, 16 KiB there, so the engine landed at 0x102be8000, 32 KiB into a 64 KiB boundary;
+        /// on x86_64-linux it landed at 0x1332d50, not even page-aligned, and
+        /// `IORING_REGISTER_PBUF_RING` refused it with `EINVAL`. A type that claims the alignment
+        /// is worse than one that does not: in ReleaseSafe the optimizer believes the claim and
+        /// folds the arithmetic that would find the window, and the program reaches `unreachable`
+        /// from a premise that was false. Debug computes on the real address, which is why only
+        /// ReleaseSafe failed.
+        memory: [needed + alignment]u8,
 
         /// The aligned window, which is what rotor is given.
         pub fn ring(self: *Self) []align(alignment) u8 {
@@ -217,6 +223,12 @@ pub fn Group(comptime buffers: u16) type {
             const at = std.mem.alignForward(usize, from, alignment);
             assert(at - from < alignment);
             return @alignCast(self.memory[at - from ..][0..needed]);
+        }
+
+        comptime {
+            // The claim this struct must never make again, pinned: nothing here is aligned beyond
+            // what a page guarantees, so the optimizer has no false premise to fold.
+            assert(@alignOf(Self) <= constants.storage_alignment_max);
         }
 
         pub fn provide(self: *Self, loop: *rotor.Loop) error{ReceiveFailed}!void {
