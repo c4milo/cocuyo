@@ -25,6 +25,7 @@ const entropy_module = @import("entropy.zig");
 const servers_module = @import("servers.zig");
 const keys_module = @import("table_keys.zig");
 const slots_module = @import("table_slots.zig");
+const ready_module = @import("table_ready.zig");
 const lookup_module = @import("lookup.zig");
 const Lookup = lookup_module.Lookup;
 const Action = lookup_module.Action;
@@ -48,10 +49,16 @@ pub const Resolver = struct {
     /// (docs/design.md §19 steps 10 and 12).
     servers: servers_module.Servers,
     entropy: entropy_module.Entropy,
-    /// Where the next poll starts, so one busy lookup cannot starve the others.
-    cursor: u16,
-    /// The soonest deadline in the table, or null when it has to be found again. It is kept
-    /// incrementally and invalidated by every call that can move a deadline (docs/design.md §11).
+    /// The lookups with something to do, oldest first: the ready list of docs/design.md §11,
+    /// threaded through the slots. A poll takes from the head rather than walking the table, so
+    /// what one event costs does not grow with the lookups in flight.
+    ready_head: u16,
+    ready_tail: u16,
+    /// A lower bound on the soonest deadline in the table, or null when nothing is waiting. A
+    /// bound and not the minimum: a deadline that moves earlier lowers it, and one that moves
+    /// later or goes away leaves it, so the caller's timer can fire early and never late. The
+    /// exact minimum is found again when it fires, which is the one scan of the table
+    /// (docs/design.md §11).
     soonest_ns: ?u64,
 
     /// `keys.len` must be a power of two and at least `keys_per_slot_min` times `slots.len`: the
@@ -67,7 +74,8 @@ pub const Resolver = struct {
             .config = config,
             .servers = servers_module.Servers.init(config, seed),
             .entropy = entropy_module.Entropy.init(seed),
-            .cursor = 0,
+            .ready_head = slots_module.slot_none,
+            .ready_tail = slots_module.slot_none,
             .soonest_ns = null,
         };
     }
@@ -80,45 +88,45 @@ pub const Resolver = struct {
         slot.lookup.init_in_place(self.config, &self.servers, question, self.entropy.next());
         slot.keyed_id = slot.lookup.transaction.id;
         keys_module.insert(self.keys, slot.keyed_id, index);
+        ready_module.offer(self, index);
         return self.slots.handle_of(index);
     }
 
-    /// The next thing for the caller to do, for any lookup, or null when every lookup is waiting.
-    /// The caller then sleeps until `next_deadline_ns`.
+    /// The next thing for the caller to do, for any lookup, or null when there is nothing to
+    /// do now. The caller then sleeps until `next_deadline_ns`.
+    ///
+    /// Each lookup is offered once for each thing it has to do, and offered again when an event
+    /// gives it something new: a send whose completion has not arrived, or an answer the caller
+    /// has been handed and not yet freed, is not offered twice. That is what keeps one event's
+    /// cost independent of the lookups in flight (docs/design.md §11 and §16 decision 20), and
+    /// it is why a caller must act on what it is given rather than poll again to be reminded.
     pub fn poll(self: *Resolver, now_ns: u64, out: []u8) ?Event {
         assert(out.len >= core.constants.query_bytes_max);
-        var scanned: usize = 0;
-        while (scanned < self.slots.items.len) : (scanned += 1) {
-            const index = self.cursor;
-            self.cursor = @intCast((@as(usize, index) + 1) % self.slots.items.len);
+        ready_module.wake_expired(self, now_ns);
+        var taken: usize = 0;
+        while (taken < self.slots.items.len) : (taken += 1) {
+            const index = ready_module.take_ready(self) orelse return null;
             const slot = &self.slots.items[index];
-            if (!slot.occupied) continue;
+            assert(slot.occupied);
             const action = slot.lookup.poll(now_ns, out);
             self.rekey(index);
             if (action == .wait) {
-                self.note_deadline(action.wait);
+                ready_module.note_deadline(self, action.wait);
                 continue;
             }
             return .{ .handle = self.slots.handle_of(index), .action = action };
         }
-        assert(scanned == self.slots.items.len);
         return null;
     }
 
     /// The soonest instant any lookup is waiting for, or null when none is. A caller arms one
     /// timer for the whole table rather than one per lookup.
-    pub fn next_deadline_ns(self: *Resolver) ?u64 {
-        if (self.soonest_ns) |soonest| return soonest;
-        // The cache was invalidated, so it is found again. This is the one scan in the table.
-        var soonest: ?u64 = null;
-        for (self.slots.items) |*slot| {
-            if (!slot.occupied) continue;
-            if (!slot.lookup.is_waiting()) continue;
-            const deadline = slot.lookup.deadline_ns;
-            if (soonest == null or deadline < soonest.?) soonest = deadline;
-        }
-        self.soonest_ns = soonest;
-        return soonest;
+    /// The instant the caller's one timer is armed for: a bound on the soonest deadline, never
+    /// later than it. A lookup that stops waiting leaves the bound where it was, so the timer can
+    /// fire with nothing expired; the poll that follows finds the soonest again and the caller
+    /// arms it anew. Firing early costs a wakeup, and never firing would cost an answer.
+    pub fn next_deadline_ns(self: *const Resolver) ?u64 {
+        return self.soonest_ns;
     }
 
     /// Hands a datagram to the lookup it belongs to, if any.
@@ -163,7 +171,7 @@ pub const Resolver = struct {
     pub fn cancel(self: *Resolver, handle: Handle) void {
         const slot = self.slot_of(handle);
         slot.lookup.cancel();
-        self.soonest_ns = null;
+        ready_module.settle(self, handle.index);
     }
 
     /// Frees a slot. Every slice the lookup handed out — the addresses of an answer, the names —
@@ -171,8 +179,8 @@ pub const Resolver = struct {
     pub fn release(self: *Resolver, handle: Handle) void {
         const slot = self.slot_of(handle);
         keys_module.remove(self.keys, slot.keyed_id, handle.index);
+        ready_module.withdraw(self, handle.index);
         self.slots.release(handle.index);
-        self.soonest_ns = null;
     }
 
     /// How many lookups are in flight.
@@ -186,8 +194,9 @@ pub const Resolver = struct {
         return &self.slot_of(handle).lookup;
     }
 
-    /// One event on one lookup: forward it, follow any new transaction, and drop the cached
-    /// deadline, because every one of these can move the instant the table is waiting for.
+    /// One event on one lookup: forward it, follow any new transaction, and put the lookup back
+    /// where it belongs, because every one of these can give it something to do or a new instant
+    /// to wait for.
     fn event(
         self: *Resolver,
         handle: Handle,
@@ -197,7 +206,7 @@ pub const Resolver = struct {
         const slot = self.slot_of(handle);
         apply(&slot.lookup, now_ns);
         self.rekey(handle.index);
-        self.soonest_ns = null;
+        ready_module.settle(self, handle.index);
     }
 
     fn slot_of(self: *Resolver, handle: Handle) *Slot {
@@ -220,7 +229,7 @@ pub const Resolver = struct {
         const verdict = slot.lookup.on_response(message, from, now_ns);
         if (verdict == .accepted) {
             self.rekey(index);
-            self.soonest_ns = null;
+            ready_module.settle(self, index);
         }
         return verdict;
     }
@@ -234,12 +243,6 @@ pub const Resolver = struct {
         keys_module.remove(self.keys, slot.keyed_id, index);
         keys_module.insert(self.keys, current, index);
         slot.keyed_id = current;
-    }
-
-    fn note_deadline(self: *Resolver, deadline_ns: u64) void {
-        if (self.soonest_ns == null or deadline_ns < self.soonest_ns.?) {
-            self.soonest_ns = deadline_ns;
-        }
     }
 };
 
@@ -429,7 +432,9 @@ test "two lookups sharing a transaction id are both offered the datagram" {
 
     const shared = table.resolver.lookup_of(second).transaction.id;
     table.resolver.lookup_of(first).transaction.id = shared;
-    // A poll re-keys every slot it scans, which is what puts both ids in one chain.
+    // The collision is made by hand, so it is keyed by hand: a lookup that draws a new
+    // transaction is re-keyed by the entry point that moved it, and nothing has moved this one.
+    table.resolver.rekey(first.index);
     try testing.expectEqual(@as(?Event, null), table.poll());
     try testing.expectEqual(Verdict.accepted, table.answer(second));
     try testing.expect(table.resolver.lookup_of(second).state == .done);

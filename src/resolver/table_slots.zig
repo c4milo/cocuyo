@@ -31,6 +31,13 @@ pub const Slot = struct {
     /// transaction can be re-keyed without the table having to be told.
     keyed_id: u16 = 0,
     next_free: u16 = slot_none,
+    /// The ready list of docs/design.md §11, threaded through the slots so it costs no memory
+    /// of its own: the lookups with something to do, oldest first. Doubly linked, so a slot
+    /// leaves it in a step from wherever it sits.
+    next_ready: u16 = slot_none,
+    prev_ready: u16 = slot_none,
+    /// Whether this slot is on that list, so it is never linked twice.
+    ready: bool = false,
 };
 
 /// The caller's slot array with a free list threaded through it. The link lives in the slot
@@ -153,6 +160,6 @@ test "a handle names the slot it was taken from" {
 test "the size of a slot is pinned" {
     // docs/design.md §9: a caller sizing a table needs this number, and it is a lookup plus the
     // few octets the table keeps beside it.
-    try testing.expectEqual(@as(usize, 3048), @sizeOf(Slot));
+    try testing.expectEqual(@as(usize, 3056), @sizeOf(Slot));
     try testing.expectEqual(@as(usize, 4), @sizeOf(Handle));
 }

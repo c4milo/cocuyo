@@ -13,6 +13,7 @@ pub const policy = @import("lookup_policy.zig");
 pub const lookup = @import("lookup.zig");
 pub const table = @import("table.zig");
 pub const table_keys = @import("table_keys.zig");
+pub const table_ready = @import("table_ready.zig");
 pub const table_slots = @import("table_slots.zig");
 pub const address_lookup = @import("address_lookup.zig");
 pub const constants = @import("constants.zig");
@@ -45,6 +46,7 @@ test {
     _ = lookup;
     _ = table;
     _ = table_keys;
+    _ = table_ready;
     _ = table_slots;
     _ = constants;
     _ = @import("lookup_poll.zig");

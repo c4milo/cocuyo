@@ -359,6 +359,17 @@ fn run_resolv_conf() void {
 
 const testing = std.testing;
 
+/// Gives a lookup the transaction id a case wants, key table and all. The table re-keys a lookup
+/// when an entry point moves it (docs/design.md §11), and a case that writes the id itself has
+/// moved nothing, so it does that work here.
+fn rekey_by_hand(handle: cocuyo.Handle, id: u16) void {
+    const slot = &resolver.slots.items[handle.index];
+    table_keys.remove(resolver.keys, slot.keyed_id, handle.index);
+    table_keys.insert(resolver.keys, id, handle.index);
+    slot.keyed_id = id;
+    slot.lookup.transaction.id = id;
+}
+
 fn expect_three_verdicts(count: usize) !void {
     setup_messages();
     setup_table(count);
@@ -450,8 +461,7 @@ test "the stray id is walked for, past an id a lookup holds" {
     // from a bare assignment. Force the collision and the walk is the only way to a stray id.
     setup_messages();
     setup_table(table_medium);
-    resolver.lookup_of(handles[3]).transaction.id = stray_id_first;
-    try testing.expectEqual(@as(?cocuyo.Event, null), resolver.poll(now_ns, &send_out));
+    rekey_by_hand(handles[3], stray_id_first);
     const found = unheld_id();
     try testing.expect(found != stray_id_first);
     var walk = table_keys.Candidates.init(resolver.keys, found);
@@ -461,9 +471,7 @@ test "the stray id is walked for, past an id a lookup holds" {
 test "the target is the lookup whose id no other holds, past ones that collide" {
     setup_messages();
     setup_table(table_medium);
-    const shared = resolver.lookup_of(handles[1]).transaction.id;
-    resolver.lookup_of(handles[0]).transaction.id = shared;
-    try testing.expectEqual(@as(?cocuyo.Event, null), resolver.poll(now_ns, &send_out));
+    rekey_by_hand(handles[0], resolver.lookup_of(handles[1]).transaction.id);
     const target = unique_handle(table_medium);
     try testing.expect(target.index != handles[0].index);
     try testing.expect(target.index != handles[1].index);
