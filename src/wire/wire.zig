@@ -13,6 +13,7 @@ pub const edns = @import("edns.zig");
 pub const query = @import("query.zig");
 pub const record = @import("record.zig");
 pub const response = @import("response.zig");
+pub const rdata = @import("rdata/rdata.zig");
 pub const fuzz = @import("fuzz.zig");
 /// The hand-written corpus. Tests read it, and so does `bench/`, because a benchmark over a
 /// message the encoder built would measure the encoder's idea of a message rather than a
@@ -37,6 +38,7 @@ test {
     _ = query;
     _ = record;
     _ = response;
+    _ = rdata;
     _ = fuzz;
     _ = @import("fuzz_generate.zig");
     _ = @import("fuzz_check.zig");

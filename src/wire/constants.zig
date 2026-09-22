@@ -31,6 +31,76 @@ pub const record_rdlength_offset = 8;
 /// each (RFC 1035 §3.3.13). MINIMUM is the last, and is the negative-caching TTL (RFC 2308 §5).
 pub const soa_fixed_bytes = 20;
 pub const soa_minimum_offset = 16;
+pub const soa_refresh_offset = 4;
+pub const soa_retry_offset = 8;
+pub const soa_expire_offset = 12;
+
+/// MX: a 16-bit preference, then the exchange name (RFC 1035 §3.3.9).
+pub const mx_fixed_bytes = 2;
+
+/// SRV: priority, weight and port, 16 bits each, then the target name (RFC 2782).
+pub const srv_fixed_bytes = 6;
+pub const srv_weight_offset = 2;
+pub const srv_port_offset = 4;
+
+/// NAPTR: order and preference, 16 bits each, then three character-strings and the replacement
+/// name (RFC 3403 §4.1).
+pub const naptr_fixed_bytes = 4;
+pub const naptr_preference_offset = 2;
+
+/// SIG: type covered (16), algorithm (8), labels (8), original TTL (32), expiration (32),
+/// inception (32) and key tag (16), then the signer's name and the signature (RFC 2535 §4.1).
+pub const sig_fixed_bytes = 18;
+pub const sig_algorithm_offset = 2;
+pub const sig_labels_offset = 3;
+pub const sig_original_ttl_offset = 4;
+pub const sig_expiration_offset = 8;
+pub const sig_inception_offset = 12;
+pub const sig_key_tag_offset = 16;
+
+/// SVCB and HTTPS: a 16-bit priority, the uncompressed target name, then parameters of a 16-bit
+/// key, a 16-bit length and a value (RFC 9460 §2.2).
+pub const svcb_fixed_bytes = 2;
+pub const svcb_param_fixed_bytes = 4;
+pub const svcb_param_length_offset = 2;
+/// The parameter keys RFC 9460 §7 defines, whose values have a format a client checks (§2.2).
+pub const svcb_key_mandatory = 0;
+pub const svcb_key_alpn = 1;
+pub const svcb_key_no_default_alpn = 2;
+pub const svcb_key_port = 3;
+pub const svcb_key_ipv4hint = 4;
+pub const svcb_key_ech = 5;
+pub const svcb_key_ipv6hint = 6;
+
+/// TLSA: certificate usage, selector and matching type, one octet each, then the association
+/// data (RFC 6698 §2.1).
+pub const tlsa_fixed_bytes = 3;
+pub const tlsa_selector_offset = 1;
+pub const tlsa_matching_type_offset = 2;
+
+/// URI: priority and weight, 16 bits each, then the target, which must not be empty
+/// (RFC 7553 §4.5).
+pub const uri_fixed_bytes = 4;
+pub const uri_weight_offset = 2;
+
+/// CAA: flags and a tag length, one octet each, then the tag, at least one octet, then the
+/// value (RFC 8659 §4.1).
+pub const caa_fixed_bytes = 2;
+pub const caa_tag_length_offset = 1;
+pub const caa_tag_bytes_min = 1;
+/// The issuer-critical flag, bit 0 in RFC 1035's numbering, which is the high bit (RFC 8659 §4.1).
+pub const caa_flag_critical = 0x80;
+
+/// A `<character-string>`: one length octet, then at most that many octets (RFC 1035 §3.3).
+pub const character_string_bytes_max = 255;
+
+/// An OPT option: a 16-bit code and a 16-bit length, then the data (RFC 6891 §6.1.2).
+pub const opt_option_fixed_bytes = 4;
+pub const opt_option_length_offset = 2;
+
+/// The most segments a record layout has: NAPTR's fixed part, three strings and a name
+/// (`rdata/rdata_layout.zig`).
+pub const layout_segments_max = 5;
 
 /// QR: set in a response (RFC 1035 §4.1.1).
 pub const flag_response = 0x8000;
