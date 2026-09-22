@@ -60,6 +60,12 @@ const cocuyo = @import("cocuyo");
 const wire = @import("wire");
 const udp = @import("udp.zig");
 
+test {
+    // The two drivers' own tests, which the runs below do not reach.
+    _ = cares_loop;
+    _ = rotor_loop;
+}
+
 test "the responder answers a query cocuyo builds with one A record for the name it asked" {
     var responder: responder_module.Responder = .{ .socket = undefined, .port = 0 };
     try responder.start();

@@ -1170,9 +1170,10 @@ step until `zig build test` passes.
 13. **Should the cache keep the chain end?** Open, asked by §20. The cache is keyed by the
     question and stores the answers, so an answer reached through a CNAME loses its canonical
     name once it is remembered, and `AddressLookup`'s `canonical_name` is filled from a lookup
-    that went out and empty from one the cache answered. Keeping it costs one `Name` a slot, 256
-    octets, 8% of a slot, and moves §18's memory table. Until it is answered the answer is no,
-    and §20 says so where a consumer will read it.
+    that went out and empty from one the cache answered. Keeping it costs one `Name` a slot: 256
+    octets on a slot of 2728, a tenth more per entry: a thousand slots would cost 3.0 MiB rather
+    than the 2.7 §18 measures, and sixteen thousand 47 MiB rather than 43. Until it is
+    answered the answer is no, and §20 says so where a consumer will read it.
 
 ## 18. The cache
 
@@ -1815,7 +1816,7 @@ unexported until one asks.
 | `udp_queries_per_port_default` | 0 | c-ares's default: never replace the socket |
 | `tcp_idle_ns_default` | 10 s | chosen, not measured: a burst's worth, and short by RFC 7766 §6.2.3's standard |
 | `engine_lookups_default` | 256 | in flight at once; the caller sizes the memory |
-| `engine_cache_slots_default` | 1024 | §18's memory table row |
+| `engine_cache_slots_default` | 1024 | 2.7 MiB of slots, the cost §18 measures |
 | `address_lookup_addresses_max` | 32 | both families' `addresses_max`, bounded the way one answer is; `truncated` past it |
 | `address_policy_rows` | 9 | RFC 6724 §2.1's default table |
 | `common_prefix_bits_v6_max` | 64 | RFC 6724 §2.2 stops at the source's prefix, and RFC 4291 §2.5.1 makes the interface identifier the low 64 bits |
@@ -1912,8 +1913,9 @@ answers, not the chain that reached them, so an answer that came through a CNAME
 name once it is remembered. `AddressLookup`'s `canonical_name` is therefore filled from a lookup
 that went out and empty from one the cache answered. That is today's behaviour through the
 engine's `Started.hit` too, and it is not new here, but it becomes visible to every consumer, so
-§17 asks the owner whether the cache should keep the chain end: one `Name` a slot, 256 octets,
-which is 8% of a slot and moves §18's memory table.
+§17 asks the owner whether the cache should keep the chain end: one `Name` a slot, 256 octets on
+a slot of 2728, which is a tenth more per entry — a thousand slots would cost 3.0 MiB where §18
+measures 2.7, and sixteen thousand 47 MiB where it measures 43.
 
 **What it costs.** A hit now takes a slot and copies `Answers` into it, where the engine's
 `Started.hit` handed back a pointer and took no slot. §11 measures the copy at 53 ns and a hit

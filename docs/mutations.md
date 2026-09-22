@@ -810,6 +810,7 @@ The comparison's own driver, not the library: `bench/end_to_end/rotor_loop.zig`.
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
 | K1 | start the next lookup before taking the result that frees its slot | §19 step 15, the driver keeps `in_flight` going | the one-at-a-time test | CAUGHT |
+| K2 | let a start that happens inside a start make its own query | the c-ares driver's trampoline | the start-inside-a-start test | CAUGHT |
 
 The bug this records was real and it hid for a day. With several lookups in flight the others keep
 the loop busy and no test saw anything; with one, every iteration that took a result left nothing
@@ -817,6 +818,12 @@ outstanding, and the tick under it waited out `tick_wait_ns_max`. That is one se
 the table's first row would have taken five hours rather than a second, and the run looked hung.
 The test runs one at a time and bounds the run's wall time, because a lookup's latency is read
 when its result is taken, which is before the wait.
+
+K2 is the same shape on the other side. c-ares answers some queries before `ares_query_dnsrec`
+returns — `ares_send_nolock` calls the callback itself — and that callback started the next
+lookup, so a run of inline answers was recursion with a frame per lookup. It aborted at 20,000
+with a ten-thousand-frame trace, one run in five. No run can be made to answer inline on demand,
+so the test drives the guard directly rather than the shape that trips it.
 
 ## Planned, later steps
 

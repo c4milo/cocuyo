@@ -11,10 +11,15 @@ const c = @cImport(@cInclude("ares.h"));
 
 pub const Outcome = struct { elapsed_ns: u64, failures: u32 };
 
-/// One lookup in flight: when it started, and the name it asked, which c-ares copies at start.
+/// One lookup in flight: when it started, the name it asked, which c-ares copies at start, and
+/// the two flags that keep a start from nesting inside a start.
 const Slot = struct {
     started_ns: u64 = 0,
     text: [constants.name_bytes]u8 = undefined,
+    /// A query is being submitted on this slot right now.
+    issuing: bool = false,
+    /// Its answer came before `ares_query_dnsrec` returned.
+    answered_inline: bool = false,
 };
 
 const State = struct {
@@ -53,15 +58,37 @@ pub fn run(port: u16, in_flight: u32, total: u32, latencies: []u64) !Outcome {
     return .{ .elapsed_ns = harness.now_ns() - begin, .failures = state.failures.load(.monotonic) };
 }
 
-/// Starts the next lookup in `slot`. Called from `run` for the first batch and from the callback
-/// for every one after, under c-ares's lock either way.
+/// Starts lookups on `slot` until one of them does not answer inside the call that made it.
+///
+/// c-ares may answer before `ares_query_dnsrec` returns: `ares_send_nolock` calls the callback
+/// itself when the answer is already there. The callback starts the next lookup, so calling this
+/// again from inside it is recursion with a frame per lookup, and at 20,000 it overflowed the
+/// stack. A start that happens inside a start now only says so, and the loop here makes the next
+/// one. The claims bound the loop: there are `total` of them and no more.
 fn start_next(slot: *Slot) void {
-    // The counters are written by two threads: the first batch goes out from the main thread and
-    // every lookup after it from a callback on c-ares's event thread, which runs while that batch
-    // is still going. Each start claims its own index, and a claim past the total starts nothing,
-    // so exactly `total` lookups go out however the two threads interleave.
+    if (slot.issuing) {
+        slot.answered_inline = true;
+        return;
+    }
+    slot.issuing = true;
+    defer slot.issuing = false;
+    while (claim()) |index| {
+        slot.answered_inline = false;
+        issue(slot, index);
+        if (!slot.answered_inline) return;
+    }
+}
+
+/// The next lookup's index, or null once `total` have been claimed. Two threads claim: the first
+/// batch goes out from the main thread and every lookup after it from a callback on c-ares's,
+/// which runs while that batch is still going.
+fn claim() ?u32 {
     const index = state.started.fetchAdd(1, .monotonic);
-    if (index >= state.total) return;
+    return if (index < state.total) index else null;
+}
+
+/// One query out, under c-ares's own lock either way.
+fn issue(slot: *Slot, index: u32) void {
     const name = std.fmt.bufPrintZ(&slot.text, "h{d}.example.", .{index}) catch unreachable;
     slot.started_ns = harness.now_ns();
     const status = c.ares_query_dnsrec(state.channel, name.ptr, c.ARES_CLASS_IN, c.ARES_REC_TYPE_A, &on_answer, slot, null);
@@ -78,4 +105,18 @@ fn on_answer(arg: ?*anyopaque, status: c.ares_status_t, timeouts: usize, record:
     state.latencies[at] = now - slot.started_ns;
     if (!answered) _ = state.failures.fetchAdd(1, .monotonic);
     start_next(slot);
+}
+
+// Tests. The loop against the responder is in `end_to_end.zig`; this pins the guard that keeps a
+// start from nesting inside a start, which no run can be made to exercise on demand — c-ares
+// answers inline when it happens to, not when a test asks.
+
+const testing = std.testing;
+
+test "a start that happens inside a start makes no query of its own" {
+    var slot: Slot = .{ .issuing = true };
+    start_next(&slot);
+    try testing.expect(slot.answered_inline);
+    // Still the outer start's to finish: the loop there makes the next query, not this call.
+    try testing.expect(slot.issuing);
 }
