@@ -132,12 +132,33 @@ pub const Endpoint = struct { address: Address, port: u16 };
 pub const Name = struct {
     bytes: [name_bytes_max]u8,
     len: u8,
-    pub fn from_text(text: []const u8) error{ NameTooLong, LabelTooLong, MalformedName }!Name;
+
+    pub const root: Name;  // "."
+    pub const empty: Name; // a builder: no label yet, not a name until terminated
+
+    pub fn from_text(text: []const u8) Error!Name;
     pub fn write_text(self: *const Name, out: []u8) usize; // out.len >= name_text_bytes_max
     pub fn equal(self: *const Name, other: *const Name) bool; // case-insensitive, per RFC 4343
+    pub fn wire(self: *const Name) []const u8;
+    pub fn is_root(self: *const Name) bool;
+    pub fn label_count(self: *const Name) u8;
+    pub fn dot_count(self: *const Name) u8;               // what ndots counts
+    pub fn concat(self: *const Name, suffix: *const Name) Error!Name; // a search candidate
+    pub fn append_label(self: *Name, label: []const u8) Error!void;   // the codec builds with
+    pub fn terminate(self: *Name) Error!void;                         // these two
 };
 
-pub const Question = struct { name: Name, kind: Kind };
+pub const Question = struct {
+    name: Name,
+    kind: Kind,
+    /// Whether the name was written absolute, with a trailing dot. Wire form cannot record it and
+    /// the search-list policy of §5 turns on it, so the question carries it.
+    absolute: bool = false,
+
+    pub fn from_text(text: []const u8, kind: Kind) Error!Question;
+    /// The reverse question: the in-addr.arpa or ip6.arpa name for an address, always absolute.
+    pub fn from_address(address: *const Address) Error!Question;
+};
 
 pub const Config = struct {
     servers: []const Endpoint,
@@ -429,8 +450,9 @@ is decompressed only when the type is one the lookup wants (§11). Type-specific
 
 ## 9. Memory the caller provides
 
-Byte counts are hand-computed from the field list; a test pins `@sizeOf(Lookup)` so a layout
-change shows up as a diff rather than as a surprise.
+Byte counts are hand-computed from the field list; a test pins `@sizeOf` so a layout change shows
+up as a diff rather than as a surprise. The pins that exist are in `src/core/core.zig`: `Name` is
+256 bytes, `Address` 17, `Endpoint` 20 and `Question` 260, all measured.
 
 | Part of `Lookup` | Bytes | Note |
 | --- | --- | --- |
@@ -438,7 +460,7 @@ change shows up as a diff rather than as a surprise.
 | `name_question` | 256 | the name as asked, wire form |
 | `name_current` | 256 | the current candidate or chain position |
 | answers, a union | 272 | `[addresses_max]Address` is 272, `[ptr_names_max]Name` is 256 |
-| total | about 824 | pinned by a test at implementation |
+| total | about 824 | pinned by a test as each part lands |
 
 The hot block is first and sized to stay inside one cache line, so the code that scans slots never
 pulls in the name storage (§11).

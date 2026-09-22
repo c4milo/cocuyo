@@ -12,6 +12,36 @@ captures.
 
 Status values: `planned` means the check does not exist yet, so neither does the mutation.
 
+## Step 1, core
+
+Every check `core` carries, each broken on purpose against `zig build test-core`. Thirteen
+mutations, thirteen `CAUGHT`. Two of them needed a test written first, because the check and a
+loosened version of it agreed on every case the suite already had: M7 needed a name whose labels
+reach 253 octets, where reserving the root octet is the only thing that makes one more label an
+error, and M9 needed a candidate of exactly 255 octets, which a bound written `>=` would refuse.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| M1 | accept an empty label | `validate_label` | `from_text` refuses `a..b` and `.a` | CAUGHT |
+| M2 | accept a 64-octet label | `validate_label` | the label-at-63 and label-at-64 cases | CAUGHT |
+| M3 | accept a byte above printable ASCII | `validate_label` | the non-ASCII name case | CAUGHT |
+| M4 | accept a backslash | `validate_label` | the escape case, which v1 refuses on input | CAUGHT |
+| M5 | stop escaping the separator on output | `write_byte` | the escaped-dot case | CAUGHT |
+| M6 | stop escaping a byte outside printable ASCII | `write_byte` | the `\000` and `\255` cases | CAUGHT |
+| M7 | stop reserving the root octet | `append_label` | the 253-octet boundary test | CAUGHT |
+| M8 | accept one octet past the limit | `terminate` | the name-at-255 test | CAUGHT |
+| M9 | refuse a candidate of exactly the limit | `concat` | the concat-to-255 test | CAUGHT |
+| M10 | compare case-sensitively | `Name.equal` | the RFC 4343 case test | CAUGHT |
+| M11 | call the empty name relative | `is_absolute` | the root-is-absolute test | CAUGHT |
+| M12 | write the v6 nibbles high first | `name_reverse` | the ip6.arpa text test | CAUGHT |
+| M13 | keep leading zeros in an octet | `write_decimal` | the octet-width test | CAUGHT |
+
+One check has no mutation here, because the mutation is a lint finding rather than a test failure:
+`label_count` walks under `constants.labels_max`, and rewriting that loop as `while (true)` is
+refused by the unbounded-loop rule before any test runs.
+
+## Planned, steps 2 and 3
+
 | # | Mutation | Check it breaks | Expected to be caught by | Status |
 | --- | --- | --- | --- | --- |
 | 1 | accept a compression pointer that points forwards | design §8, strictly backwards | the crafted-loop message test | planned |
