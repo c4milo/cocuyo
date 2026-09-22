@@ -145,7 +145,7 @@ pub fn run_parse_sixteen() void {
 
 // Datagram match: a table with N lookups in flight and one datagram aimed at it.
 
-const servers = [_]cocuyo.Endpoint{.{ .address = cocuyo.Address.from_v4(.{ 192, 0, 2, 53 }) }};
+const servers = [_]cocuyo.Server{.{ .endpoint = .{ .address = cocuyo.Address.from_v4(.{ 192, 0, 2, 53 }) } }};
 var config: cocuyo.Config = .{ .servers = &servers };
 var slots: [table_large]cocuyo.Slot = undefined;
 var keys: [keys_large]cocuyo.MatchKey = undefined;
@@ -254,12 +254,12 @@ fn build_reply(out: []u8, id: u16, name: *const Name) usize {
 
 fn run_match_stray() void {
     now_ns += 1;
-    doNotOptimizeAway(resolver.on_datagram(reply_stray[0..reply_stray_len], servers[0], now_ns));
+    doNotOptimizeAway(resolver.on_datagram(reply_stray[0..reply_stray_len], servers[0].endpoint, now_ns));
 }
 
 fn run_match_wrong() void {
     now_ns += 1;
-    doNotOptimizeAway(resolver.on_datagram(reply_wrong[0..reply_wrong_len], servers[0], now_ns));
+    doNotOptimizeAway(resolver.on_datagram(reply_wrong[0..reply_wrong_len], servers[0].endpoint, now_ns));
 }
 
 /// The cost of putting the slot back, which the accepted case pays on every iteration because an
@@ -272,7 +272,7 @@ fn run_slot_restore() void {
 fn run_match_accept() void {
     slots[first.index] = saved_slot;
     now_ns += 1;
-    doNotOptimizeAway(resolver.on_datagram(reply_accept[0..reply_accept_len], servers[0], now_ns));
+    doNotOptimizeAway(resolver.on_datagram(reply_accept[0..reply_accept_len], servers[0].endpoint, now_ns));
 }
 
 // The same match, with the cache cold: a different slot and a different reply on every iteration.
@@ -302,7 +302,7 @@ fn run_match_rotating() void {
     if (rotation == table_large) rotation = 0;
     now_ns += 1;
     const reply = rotating_replies[rotation][0..rotating_lengths[rotation]];
-    doNotOptimizeAway(resolver.on_datagram(reply, servers[0], now_ns));
+    doNotOptimizeAway(resolver.on_datagram(reply, servers[0].endpoint, now_ns));
 }
 
 // One whole lookup, minus the network: made, its query built, the send heard, the answer read.
@@ -329,7 +329,7 @@ fn run_round_trip() void {
     now_ns += 1;
     doNotOptimizeAway(lookup.poll(now_ns, &round_out));
     lookup.on_sent(now_ns);
-    doNotOptimizeAway(lookup.on_response(round_reply[0..round_reply_len], servers[0], now_ns));
+    doNotOptimizeAway(lookup.on_response(round_reply[0..round_reply_len], servers[0].endpoint, now_ns));
     assert(lookup.state == .done);
 }
 
@@ -367,7 +367,7 @@ fn expect_three_verdicts(count: usize) !void {
     // The wrong-question reply passes every check up to the question compare, and fails there.
     const header = try wire.header.parse(reply_wrong[0..reply_wrong_len]);
     try testing.expectEqual(armed.transaction.id, header.id);
-    try testing.expect(armed.server().equal(&servers[0]));
+    try testing.expect(armed.server().equal(&servers[0].endpoint));
     try testing.expect(!wire.question.matches(reply_wrong[0..reply_wrong_len], &cased, .a));
     try testing.expect(wire.question.matches(reply_accept[0..reply_accept_len], &cased, .a));
     // The stray id is offered to nobody, and the target's id to the target alone.
@@ -377,9 +377,9 @@ fn expect_three_verdicts(count: usize) !void {
     try testing.expectEqual(@as(?u16, first.index), own_walk.next());
     try testing.expectEqual(@as(?u16, null), own_walk.next());
 
-    try testing.expectEqual(cocuyo.Verdict.ignored, resolver.on_datagram(reply_stray[0..reply_stray_len], servers[0], now_ns + 1));
-    try testing.expectEqual(cocuyo.Verdict.ignored, resolver.on_datagram(reply_wrong[0..reply_wrong_len], servers[0], now_ns + 2));
-    try testing.expectEqual(cocuyo.Verdict.accepted, resolver.on_datagram(reply_accept[0..reply_accept_len], servers[0], now_ns + 3));
+    try testing.expectEqual(cocuyo.Verdict.ignored, resolver.on_datagram(reply_stray[0..reply_stray_len], servers[0].endpoint, now_ns + 1));
+    try testing.expectEqual(cocuyo.Verdict.ignored, resolver.on_datagram(reply_wrong[0..reply_wrong_len], servers[0].endpoint, now_ns + 2));
+    try testing.expectEqual(cocuyo.Verdict.accepted, resolver.on_datagram(reply_accept[0..reply_accept_len], servers[0].endpoint, now_ns + 3));
     try testing.expect(resolver.lookup_of(first).state == .done);
 }
 
