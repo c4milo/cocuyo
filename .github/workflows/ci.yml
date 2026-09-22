@@ -1,0 +1,102 @@
+# What runs on every push to main and every pull request.
+#
+# Two gates run everywhere, and they are the gate a developer runs by hand:
+#
+#   - `macos` and `linux`: `zig build test`, which is the lint over the tree and over the canary
+#     that holds one violation of each rule, the module graph check, the hook check, every
+#     module's unit tests, the engine on the deterministic twin of `src/sim/`, the tools' own
+#     tests, the bench compile and the format check. It needs no network service and no kernel
+#     feature: the twin is a virtual clock and a virtual network, so the same run happens on both.
+#
+#   - `engine`: the engine of docs/design.md §19 step 13 over rotor itself, and the comparison
+#     against the c-ares the runner installs. This is the only job that opens a socket, and the
+#     only one that needs rotor's io_uring backend. It is `workflow_dispatch` until rotor tags the
+#     release that carries its Linux fixes; making it run on every push is a one-line change here.
+#
+# **No number from CI enters docs/design.md §11.** A measured row there names the machine, the
+# command and the day, and a shared runner is neither named nor quiet. What this job proves is
+# that the engine works against a real kernel, not how fast it is: its tests assert that every
+# lookup is answered and none fails, which is a tripwire. A speed claim comes from a quiet
+# machine, as §11 says.
+#
+# Zig is downloaded from ziglang.org and checked against the SHA-256 the release index published
+# for 0.16.0, so the toolchain is pinned. No third-party action runs here; `actions/checkout` is
+# GitHub's own.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ZIG_VERSION: "0.16.0"
+
+jobs:
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Zig
+        run: |
+          set -euo pipefail
+          url="https://ziglang.org/download/${ZIG_VERSION}/zig-aarch64-macos-${ZIG_VERSION}.tar.xz"
+          sha="b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489"
+          curl -fsSL "$url" -o zig.tar.xz
+          echo "$sha  zig.tar.xz" | shasum -a 256 -c -
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-aarch64-macos-${ZIG_VERSION}" >> "$GITHUB_PATH"
+      - run: zig version
+      - name: The whole local gate
+        run: zig build test
+
+  linux:
+    name: Linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Zig
+        run: |
+          set -euo pipefail
+          url="https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          sha="70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+          curl -fsSL "$url" -o zig.tar.xz
+          echo "$sha  zig.tar.xz" | sha256sum -c -
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+      - run: zig version
+      - name: The whole local gate
+        run: zig build test
+
+  engine:
+    name: Linux, the engine over rotor and c-ares
+    # Waiting on the rotor release that carries its Linux fixes. Add the push and pull_request
+    # triggers of the jobs above once it is tagged and `build.zig.zon` is pinned to it.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Zig
+        run: |
+          set -euo pipefail
+          url="https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          sha="70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+          curl -fsSL "$url" -o zig.tar.xz
+          echo "$sha  zig.tar.xz" | sha256sum -c -
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+      - run: zig version
+      - name: Install c-ares
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libc-ares-dev
+      - name: The comparison's own tests, and the engine against a real kernel
+        run: zig build test-cares -Dcares=/usr
+      - name: The comparison, for the log and not for the record
+        run: zig build bench-cares -Dcares=/usr
