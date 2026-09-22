@@ -10,6 +10,7 @@ const Family = core.Family;
 const Kind = core.Kind;
 const Name = core.Name;
 const Question = core.Question;
+const address_order = core.address_order;
 const policy = @import("lookup_policy.zig");
 const lookup_module = @import("lookup.zig");
 const Answer = lookup_module.Answer;
@@ -52,6 +53,7 @@ fn consult_file(self: *AddressLookup) bool {
     // A table that fills the room may hold more: said the way an answer says it.
     if (count == found.len) self.truncated = true;
     select_families(self);
+    order_kept(self);
     if (self.flags.canonical_name) {
         if (hosts.canonical(&self.question.name)) |official| set_canonical(self, &official);
     }
@@ -207,6 +209,7 @@ fn next_candidate(self: *AddressLookup) void {
 fn finish_answered(self: *AddressLookup) void {
     self.partial = hard_error(self);
     select_families(self);
+    order_kept(self);
     if (self.flags.canonical_name and !self.has_canonical) set_canonical(self, &candidate_name(self));
     self.ended = .answered;
     assert(self.address_count >= 1);
@@ -252,26 +255,32 @@ fn keep(self: *AddressLookup, address: Address) void {
     assert(self.address_count <= self.addresses.len);
 }
 
-/// The addresses kept so far, in the order `getaddrinfo(3)` gives them: IPv6 first, then IPv4,
-/// which under `v4_mapped` come mapped, and only when no IPv6 came or `all` asks for both.
+/// The addresses kept so far, in the order they came, with `getaddrinfo(3)`'s family rule
+/// applied: under `v4_mapped`, an IPv4 address comes mapped, and only when no IPv6 came or `all`
+/// asks for both.
 fn select_families(self: *AddressLookup) void {
     var found: [core.constants.address_lookup_addresses_max]Address = undefined;
     const count = self.address_count;
     @memcpy(found[0..count], self.addresses[0..count]);
     self.address_count = 0;
+    var has_v6 = false;
     for (found[0..count]) |address| {
-        if (address.family == .ipv6) keep(self, address);
+        if (address.family == .ipv6) has_v6 = true;
     }
-    const has_v6 = self.address_count > 0;
     for (found[0..count]) |address| {
-        if (address.family != .ipv4) continue;
-        if (!mapping(self)) {
+        if (address.family == .ipv6 or !mapping(self)) {
             keep(self, address);
         } else if (!has_v6 or self.flags.all) {
             keep(self, address.v4_mapped());
         }
     }
     assert(self.address_count <= count);
+}
+
+/// RFC 6724 §6 over what was kept, with no routes, unless `no_sort` asks for the order received.
+fn order_kept(self: *AddressLookup) void {
+    if (self.flags.no_sort) return;
+    address_order.order(self.addresses[0..self.address_count], null);
 }
 
 fn set_canonical(self: *AddressLookup, name: *const Name) void {

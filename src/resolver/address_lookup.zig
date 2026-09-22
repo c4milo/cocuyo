@@ -37,8 +37,8 @@ pub const AddressFlags = packed struct {
     v4_mapped: bool = false,
     /// `AI_ALL`: with `v4_mapped`, the `AAAA` addresses and the mapped `A` ones both.
     all: bool = false,
-    /// `ARES_AI_NOSORT`: the addresses in the order received rather than §19 step 15's, which
-    /// lands with that step; until then the order is `AAAA` then `A` either way.
+    /// `ARES_AI_NOSORT`: the addresses in the order received rather than RFC 6724 §6's, applied
+    /// with no routes (§19 step 15); a consumer that knows its routes orders the result again.
     no_sort: bool = false,
 };
 

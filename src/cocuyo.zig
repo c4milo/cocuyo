@@ -23,6 +23,9 @@ pub const Config = core.Config;
 pub const Server = core.Server;
 pub const Source = core.Source;
 pub const Hosts = core.Hosts;
+/// RFC 6724's destination address ordering over routes the consumer supplies (§19 step 15).
+pub const Route = core.address_order.Route;
+pub const order_addresses = core.address_order.order;
 pub const Error = core.Error;
 pub const constants = core.constants;
 

@@ -159,6 +159,20 @@ test "one family answered and the other timed out is an answer that says so" {
     try testing.expectEqual(core.Error.Timeout, info.partial.?);
 }
 
+test "no_sort keeps the order received, whichever family came first" {
+    var rig: Rig = .{ .table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } } };
+    try rig.open();
+    try rig.start(null, "host.example.", null, .{ .no_sort = true });
+    try rig.drive();
+    try rig.reply(rig.lookup.a.handle, fixtures.answer_a);
+    try rig.reply(rig.lookup.aaaa.handle, fixtures.answer_aaaa);
+    try rig.drive();
+    const info = rig.lookup.outcome().?.answered;
+    try testing.expectEqual(@as(usize, 2), info.addresses.len);
+    try expect_address(info, 0, "192.0.2.1");
+    try expect_address(info, 1, "2001:db8::1");
+}
+
 test "both families answered come back IPv6 first, with the smaller TTL" {
     var rig: Rig = .{ .table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } } };
     try rig.open();

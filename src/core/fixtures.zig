@@ -11,3 +11,6 @@ pub const localhost_v6 = Address.from_v6(.{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
 pub const db_v4 = Address.from_v4(.{ 192, 0, 2, 10 });
 pub const db_v6 = Address.from_v6(.{ 0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10 });
 pub const unlisted_v4 = Address.from_v4(.{ 192, 0, 2, 99 });
+
+/// The worked examples of RFC 6724 §10.2 that the ordering's tests replay: nine.
+pub const ordering_examples = 9;

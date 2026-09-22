@@ -215,6 +215,52 @@ pub const word_high_to_case_shift = 2;
 /// The class every query cocuyo sends carries: IN, the internet class (RFC 1035 §3.2.4).
 pub const class_internet = 1;
 
+/// The scopes RFC 6724 §3.1 compares, numbered as RFC 4291 §2.7 numbers a multicast address's
+/// scope field, with unicast link-local, site-local and global on the same values.
+pub const scope_link_local = 0x2;
+pub const scope_site_local = 0x5;
+pub const scope_global = 0xe;
+
+/// The prefixes a scope is read from: link-local unicast `fe80::/10` (RFC 4291 §2.5.6),
+/// site-local unicast `fec0::/10` (§2.5.7), both under a ten-bit mask; multicast `ff00::/8`,
+/// whose scope is the low four bits of its second octet (§2.7); and for IPv4, `169.254/16` and
+/// `127/8`, which RFC 6724 §3.2 makes link-local.
+pub const v6_link_local_prefix = [_]u8{ 0xfe, 0x80 };
+pub const v6_site_local_prefix = [_]u8{ 0xfe, 0xc0 };
+pub const v6_ten_bit_mask = [_]u8{ 0xff, 0xc0 };
+pub const v6_multicast_first_octet = 0xff;
+pub const v6_multicast_scope_mask = 0x0f;
+pub const v4_link_local_prefix = [_]u8{ 169, 254 };
+pub const v4_loopback_first_octet = 127;
+
+/// The most bits `CommonPrefixLen` counts (RFC 6724 §2.2): up to the source's prefix, which for
+/// IPv6 stops before the interface identifier of RFC 4291 §2.5.1, 64 bits, and for IPv4 is the
+/// whole address.
+pub const common_prefix_bits_v6_max = 64;
+pub const common_prefix_bits_v4_max = 32;
+
+/// One row of RFC 6724 §2.1's default policy table: a prefix written in full, its length in
+/// bits, and the precedence and label a longest-prefix match hands back.
+pub const PolicyRow = struct { prefix: [address_v6_bytes]u8, bits: u8, precedence: u8, label: u8 };
+
+/// RFC 6724 §2.1's default policy table, its nine rows in the RFC's order: `::1/128`, `::/0`,
+/// `::ffff:0:0/96`, `2002::/16`, `2001::/32`, `fc00::/7`, `::/96`, `fec0::/10`, `3ffe::/16`.
+pub const address_policy_rows = 9;
+pub const address_policy_table = [address_policy_rows]PolicyRow{
+    .{ .prefix = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }, .bits = 128, .precedence = 50, .label = 0 },
+    .{ .prefix = @splat(0), .bits = 0, .precedence = 40, .label = 1 },
+    .{ .prefix = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0, 0, 0, 0 }, .bits = 96, .precedence = 35, .label = 4 },
+    .{ .prefix = .{ 0x20, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, .bits = 16, .precedence = 30, .label = 2 },
+    .{ .prefix = .{ 0x20, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, .bits = 32, .precedence = 5, .label = 5 },
+    .{ .prefix = .{ 0xfc, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, .bits = 7, .precedence = 3, .label = 13 },
+    .{ .prefix = @splat(0), .bits = 96, .precedence = 1, .label = 3 },
+    .{ .prefix = .{ 0xfe, 0xc0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, .bits = 10, .precedence = 1, .label = 11 },
+    .{ .prefix = .{ 0x3f, 0xfe, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, .bits = 16, .precedence = 1, .label = 12 },
+};
+
+/// The bits of one octet, for walking a prefix bit by bit.
+pub const bits_per_octet = 8;
+
 comptime {
     // The query bound must hold every part it is the sum of, or a maximal query would not fit the
     // buffer the caller is asked to provide.
