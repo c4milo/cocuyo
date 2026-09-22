@@ -195,3 +195,92 @@ pub const answer_rdlength_one_past = answer_header(1) ++ question_a ++ owner_poi
     0xc0, 0x00,
     0x02, 0x01,
 };
+
+// Negative answers with an SOA in the authority section, which is where RFC 2308 §5 finds the
+// TTL a negative answer is cached for.
+
+/// The SOA's rdata: MNAME `ns.example.com` and RNAME `admin.example.com`, both ending in a
+/// pointer to the question's name, then SERIAL 1, REFRESH 7200, RETRY 900, EXPIRE 1209600 and
+/// MINIMUM 60. 5 + 8 + 20 octets: a label, its length octet and a two-octet pointer each.
+const soa_rdata = [_]u8{
+    0x02, 'n', 's', 0xc0, 0x0c, // ns, then a pointer to the question's name
+    0x05, 'a', 'd', 'm', 'i', 'n', 0xc0, 0x0c, // admin, the same
+    0x00, 0x00, 0x00, 0x01, // serial
+    0x00, 0x00, 0x1c, 0x20, // refresh 7200
+    0x00, 0x00, 0x03, 0x84, // retry 900
+    0x00, 0x12, 0x75, 0x00, // expire 1209600
+    0x00, 0x00, 0x00, 0x3c, // minimum 60
+};
+
+/// An SOA owned by the question's name with TTL 300 and the 33 octets of rdata above.
+const record_soa = owner_pointer ++ [_]u8{
+    0x00, 0x06, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x21,
+} ++ soa_rdata;
+
+/// The same SOA with TTL 30, under its own MINIMUM of 60.
+const record_soa_short_ttl = owner_pointer ++ [_]u8{
+    0x00, 0x06, 0x00, 0x01, 0x00, 0x00, 0x00, 0x1e, 0x00, 0x21,
+} ++ soa_rdata;
+
+/// An SOA whose rdata is one octet short of its fixed fields: 32 octets where the two names
+/// take 13 and the fields need 20. The slice is dereferenced, because a slice of a comptime
+/// array is a pointer and `++` would carry that pointer into the message.
+const record_soa_short_rdata = owner_pointer ++ [_]u8{
+    0x00, 0x06, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x20,
+} ++ soa_rdata[0 .. soa_rdata.len - 1].*;
+
+/// An SOA whose rdata has one octet more than its fixed fields: rdlength 34 over the 33 octets
+/// plus a stray one. The other direction from the short fixture, and the one a bound written as
+/// "at least" would let through.
+const record_soa_long_rdata = owner_pointer ++ [_]u8{
+    0x00, 0x06, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x22,
+} ++ soa_rdata ++ [_]u8{0x00};
+
+/// A header with no answers and one authority record, and the rcode given.
+fn negative_header(rcode: u8) [core.constants.header_bytes]u8 {
+    return [_]u8{ 0x12, 0x34, 0x81, 0x80 | rcode } ++ [_]u8{
+        0x00, 0x01, // qdcount 1
+        0x00, 0x00, // ancount 0
+        0x00, 0x01, // nscount 1
+        0x00, 0x00, // arcount 0
+    };
+}
+
+/// NXDOMAIN with the SOA: cached for 60, the MINIMUM, since the SOA's TTL is 300.
+pub const answer_name_error_soa = negative_header(3) ++ question_a ++ record_soa;
+
+/// NODATA with the SOA: NOERROR, no answers, the same SOA. RFC 2308 §2.2 caches it for 60 too.
+pub const answer_no_data_soa = negative_header(0) ++ question_a ++ record_soa;
+
+/// NODATA whose SOA has a TTL of 30 under a MINIMUM of 60: cached for 30.
+pub const answer_no_data_soa_short = negative_header(0) ++ question_a ++ record_soa_short_ttl;
+
+/// NXDOMAIN whose SOA rdata is one octet short of its fixed fields.
+pub const answer_soa_short_rdata = negative_header(3) ++ question_a ++ record_soa_short_rdata;
+
+/// NXDOMAIN whose SOA rdata carries one octet past its fixed fields.
+pub const answer_soa_long_rdata = negative_header(3) ++ question_a ++ record_soa_long_rdata;
+
+/// Where the authority section starts in a message with no answers.
+pub const authority_offset_no_answers = answer_offset;
+
+/// One A answer and an SOA in the authority section, which is what an authoritative server sends
+/// for a name it holds. The negative TTL walk has to step over the answer to reach the SOA.
+pub const answer_a_with_soa = [_]u8{ 0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00 } ++
+    question_a ++ record_a ++ record_soa;
+
+/// A question name of 255 octets, the longest there is, echoed with one A record. The offsets a
+/// parser computes from the question's length overflow an octet here, which is the bug this
+/// fixture exists to catch.
+const question_long = [_]u8{63} ++ [_]u8{'a'} ** 63 ++ [_]u8{63} ++ [_]u8{'b'} ** 63 ++
+    [_]u8{63} ++ [_]u8{'c'} ** 63 ++ [_]u8{61} ++ [_]u8{'d'} ** 61 ++ [_]u8{ 0x00, 0x00, 0x01, 0x00, 0x01 };
+pub const answer_a_long_name = answer_header(1) ++ question_long ++ record_a;
+
+comptime {
+    if (question_long.len != core.constants.name_bytes_max + core.constants.question_fixed_bytes) {
+        @compileError("the long question is not a maximal name");
+    }
+    // The SOA's rdlength octets say 33, and the rdata is 33: a fixture whose length field lied
+    // would be testing the parser's tolerance rather than the format.
+    if (soa_rdata.len != 0x21) @compileError("the SOA rdlength does not match its rdata");
+}

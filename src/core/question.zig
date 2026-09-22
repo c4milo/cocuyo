@@ -16,16 +16,18 @@ const name_reverse = @import("name_reverse.zig");
 /// `cname` and `opt` appear in responses and are never a question (docs/design.md §1).
 pub const Kind = enum(u16) {
     a = 1,
+    soa = 6,
     cname = 5,
     ptr = 12,
     aaaa = 28,
     opt = 41,
 
-    /// Whether a caller may ask for this type in version one.
+    /// Whether a caller may ask for this type in version one. `soa` is read from an authority
+    /// section for a negative answer's TTL (RFC 2308 §5) and is never a question.
     pub fn queryable(self: Kind) bool {
         return switch (self) {
             .a, .aaaa, .ptr => true,
-            .cname, .opt => false,
+            .soa, .cname, .opt => false,
         };
     }
 
@@ -105,6 +107,8 @@ test "only three kinds are queryable, and each has its RFC code" {
     try testing.expect(Kind.ptr.queryable());
     try testing.expect(!Kind.cname.queryable());
     try testing.expect(!Kind.opt.queryable());
+    try testing.expect(!Kind.soa.queryable());
+    try testing.expectEqual(@as(u16, 6), Kind.soa.code());
     try testing.expectEqual(@as(u16, 1), Kind.a.code());
     try testing.expectEqual(@as(u16, 28), Kind.aaaa.code());
     try testing.expectEqual(@as(u16, 12), Kind.ptr.code());

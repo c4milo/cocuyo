@@ -60,6 +60,21 @@ pub const Record = struct {
         return Address.from_v6(self.rdata[0..core.constants.address_v6_bytes].*);
     }
 
+    /// The MINIMUM field of an SOA record, capped by the record's own TTL: what a negative answer
+    /// is cached for (RFC 2308 §5). The rdata is two names, either of which may be compressed,
+    /// then five four-octet fields of which MINIMUM is the last (RFC 1035 §3.3.13). The names are
+    /// skipped rather than decoded, and the fixed fields must fit inside the rdata exactly.
+    pub fn soa_negative_ttl(self: *const Record, message: []const u8) Error!u32 {
+        assert(self.is_kind(.soa));
+        const start = self.end - self.rdata.len;
+        const after_mname = try name_codec.skip(message, start);
+        const after_rname = try name_codec.skip(message, after_mname);
+        if (after_rname + constants.soa_fixed_bytes != self.end) return Error.MalformedMessage;
+        assert(after_rname + constants.soa_fixed_bytes <= message.len);
+        const minimum = integer.read_u32(message, after_rname + constants.soa_minimum_offset);
+        return @min(minimum, self.ttl_seconds);
+    }
+
     /// The name a CNAME or PTR record's rdata holds, decompressed into `out`.
     ///
     /// The decode must consume the rdata exactly. A name that ends before the rdata does leaves
@@ -237,4 +252,28 @@ test "an rdata name must consume its rdata exactly, in both directions" {
 test "an rdlength one octet past the end of the message is refused" {
     var walk = Iterator.init(&fixtures.answer_rdlength_one_past, fixtures.answer_offset, 1);
     try testing.expectError(Error.TruncatedMessage, walk.next());
+}
+
+test "an SOA's negative TTL is its minimum, capped by its own TTL" {
+    // The fixture's SOA carries TTL 300 and MINIMUM 60.
+    var walk = Iterator.init(&fixtures.answer_name_error_soa, fixtures.authority_offset_no_answers, 1);
+    const soa = (try walk.next()).?;
+    try testing.expect(soa.is_kind(.soa));
+    try testing.expectEqual(@as(u32, 60), try soa.soa_negative_ttl(&fixtures.answer_name_error_soa));
+
+    // The other way round: a TTL of 30 under a MINIMUM of 60 gives 30 (RFC 2308 §5).
+    var short = Iterator.init(&fixtures.answer_no_data_soa_short, fixtures.authority_offset_no_answers, 1);
+    const capped = (try short.next()).?;
+    try testing.expectEqual(@as(u32, 30), try capped.soa_negative_ttl(&fixtures.answer_no_data_soa_short));
+}
+
+test "an SOA whose fixed fields do not fill its rdata exactly is malformed, either way" {
+    // One octet short, and one octet over. A bound that only refused the short case would take
+    // a trailing octet as part of the record and read the minimum from the wrong place.
+    var short = Iterator.init(&fixtures.answer_soa_short_rdata, fixtures.authority_offset_no_answers, 1);
+    const soa_short = (try short.next()).?;
+    try testing.expectError(Error.MalformedMessage, soa_short.soa_negative_ttl(&fixtures.answer_soa_short_rdata));
+    var long = Iterator.init(&fixtures.answer_soa_long_rdata, fixtures.authority_offset_no_answers, 1);
+    const soa_long = (try long.next()).?;
+    try testing.expectError(Error.MalformedMessage, soa_long.soa_negative_ttl(&fixtures.answer_soa_long_rdata));
 }

@@ -27,6 +27,11 @@ pub const record_class_offset = 2;
 pub const record_ttl_offset = 4;
 pub const record_rdlength_offset = 8;
 
+/// An SOA's rdata after its two names: SERIAL, REFRESH, RETRY, EXPIRE and MINIMUM, four octets
+/// each (RFC 1035 §3.3.13). MINIMUM is the last, and is the negative-caching TTL (RFC 2308 §5).
+pub const soa_fixed_bytes = 20;
+pub const soa_minimum_offset = 16;
+
 /// QR: set in a response (RFC 1035 §4.1.1).
 pub const flag_response = 0x8000;
 

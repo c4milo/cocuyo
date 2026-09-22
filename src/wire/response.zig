@@ -106,9 +106,9 @@ pub fn collect(
     out.* = Answers.init(kind);
     out.hops_used = hops_before;
     // The question's own name fixes where the answer section starts, and the response was already
-    // checked to carry that question byte for byte (docs/design.md §7 check 5).
-    const answer_offset = core.constants.header_bytes + chain.len +
-        core.constants.question_fixed_bytes;
+    // checked to carry that question byte for byte (docs/design.md §7 check 5). The sum is taken
+    // in a usize: a maximal name overflows the octet its length is held in.
+    const answer_offset = section_start(chain);
     if (answer_offset > message.len) return Error.MalformedMessage;
 
     var hops: u8 = hops_before;
@@ -126,6 +126,36 @@ pub fn collect(
     }
     assert(hops > core.constants.cname_hops_max);
     return Error.ChainTooLong;
+}
+
+/// The TTL a negative answer is cached for: the MINIMUM of the first SOA in the authority section,
+/// capped by that record's TTL (RFC 2308 §5), or zero when the message carries no SOA, which is a
+/// message that cannot be cached negatively (RFC 2308 §5, last paragraph).
+///
+/// The authority section starts where the answer section ends, so the answer records are skipped
+/// on the way, never decoded. `question` is the name the message echoes, which fixes where the
+/// sections start (§7 check 5).
+pub fn negative_ttl_seconds(message: []const u8, question: *const Name) Error!u32 {
+    assert(question.len >= 1);
+    const header = try header_codec.parse(message);
+    if (header.qdcount != 1) return Error.MalformedMessage;
+    const answer_offset = section_start(question);
+    if (answer_offset > message.len) return Error.MalformedMessage;
+    var answers = record_codec.Iterator.init(message, answer_offset, header.ancount);
+    var authority_offset: usize = answer_offset;
+    while (try answers.next()) |record| authority_offset = record.end;
+    var authority = record_codec.Iterator.init(message, authority_offset, header.nscount);
+    while (try authority.next()) |record| {
+        if (record.is_kind(.soa)) return record.soa_negative_ttl(message);
+    }
+    return 0;
+}
+
+/// Where the answer section starts: after the header and the one question the message echoes.
+fn section_start(question: *const Name) usize {
+    const name_len: usize = question.len;
+    assert(name_len <= core.constants.name_bytes_max);
+    return core.constants.header_bytes + name_len + core.constants.question_fixed_bytes;
 }
 
 /// What one pass over the answer section found for the chain's current name.
@@ -333,4 +363,39 @@ test "the hop count follows the chain across messages" {
     const outcome = try collect(&fixtures.answer_cname_only, &test_chain, .a, 3, &collected);
     try testing.expectEqual(Outcome.chain_incomplete, outcome);
     try testing.expectEqual(@as(u8, 4), collected.hops_used);
+}
+
+test "a negative answer's TTL is the SOA minimum, for NXDOMAIN and for NODATA alike" {
+    const question = try Name.from_text("example.com");
+    try testing.expectEqual(@as(u32, 60), try negative_ttl_seconds(&fixtures.answer_name_error_soa, &question));
+    try testing.expectEqual(@as(u32, 60), try negative_ttl_seconds(&fixtures.answer_no_data_soa, &question));
+    try testing.expectEqual(@as(u32, 30), try negative_ttl_seconds(&fixtures.answer_no_data_soa_short, &question));
+}
+
+test "a negative answer with no SOA has a TTL of zero, which is not cached" {
+    const question = try Name.from_text("example.com");
+    try testing.expectEqual(@as(u32, 0), try negative_ttl_seconds(&fixtures.answer_name_error, &question));
+    try testing.expectEqual(@as(u32, 0), try negative_ttl_seconds(&fixtures.answer_no_data, &question));
+}
+
+test "the authority walk starts after the answers, not at the first record" {
+    // A message with answers: the walk must step over them to reach the authority section, and
+    // a message whose only records are answers has no SOA to find.
+    const question = try Name.from_text("example.com");
+    try testing.expectEqual(@as(u32, 0), try negative_ttl_seconds(&fixtures.answer_a_twice, &question));
+}
+
+test "a response echoing a maximal name parses, and its offsets do not overflow an octet" {
+    var collected: Answers = undefined;
+    test_chain = try Name.from_text("a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63 ++ "." ++ "d" ** 61);
+    try testing.expectEqual(core.constants.name_bytes_max, test_chain.len);
+    const outcome = try collect(&fixtures.answer_a_long_name, &test_chain, .a, 0, &collected);
+    try testing.expectEqual(Outcome.answered, outcome);
+    try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 1 }, collected.addresses()[0].slice());
+    try testing.expectEqual(@as(u32, 0), try negative_ttl_seconds(&fixtures.answer_a_long_name, &test_chain));
+}
+
+test "the negative TTL walk steps over the answers to reach the SOA" {
+    const question = try Name.from_text("example.com");
+    try testing.expectEqual(@as(u32, 60), try negative_ttl_seconds(&fixtures.answer_a_with_soa, &question));
 }
