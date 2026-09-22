@@ -98,6 +98,18 @@ pub const record_long_rdlength = [_]u8{
     0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x01, 0x90, 192, 0, 2, 1,
 };
 
+/// An SOA owned by the question's name, TTL 300, MINIMUM 60: what an authoritative server puts in
+/// the authority section of a negative answer (RFC 2308 §2).
+pub const record_soa = [_]u8{
+    0xc0, 0x0c, 0x00, 0x06, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x21,
+    0x02, 'n',  's',  0xc0, 0x0c, 0x05, 'a',  'd',  'm',  'i',  'n',  0xc0,
+    0x0c, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x1c, 0x20, 0x00, 0x00, 0x03,
+    0x84, 0x00, 0x12, 0x75, 0x00, 0x00, 0x00, 0x00, 0x3c,
+};
+
+/// The same SOA with an rdlength one octet over its rdata, so its minimum cannot be read.
+pub const record_soa_broken = record_soa[0..10].* ++ [_]u8{ 0x00, 0x22 } ++ record_soa[12..].* ++ [_]u8{0x00};
+
 /// What the fake server sends back.
 pub const Reply = struct {
     rcode: wire.Rcode = .no_error,
@@ -105,6 +117,9 @@ pub const Reply = struct {
     /// The answer section, one of the records above or several concatenated.
     records: []const u8 = &.{},
     ancount: u16 = 0,
+    /// The authority section, where a negative answer's SOA goes.
+    authority: []const u8 = &.{},
+    nscount: u16 = 0,
     /// An id to echo instead of the one that was asked, which is how a spoof is written.
     id: ?u16 = null,
     /// Whether to fold the question's case rather than echoing it: the other half of a spoof.
@@ -143,6 +158,9 @@ pub const long_rdlength: Reply = .{ .records = &record_long_rdlength, .ancount =
 pub const truncated: Reply = .{ .truncated = true };
 pub const name_error: Reply = .{ .rcode = .name_error };
 pub const no_data: Reply = .{};
+pub const name_error_soa: Reply = .{ .rcode = .name_error, .authority = &record_soa, .nscount = 1 };
+pub const no_data_soa: Reply = .{ .authority = &record_soa, .nscount = 1 };
+pub const name_error_soa_broken: Reply = .{ .rcode = .name_error, .authority = &record_soa_broken, .nscount = 1 };
 pub const server_failure: Reply = .{ .rcode = .server_failure };
 pub const format_error: Reply = .{ .rcode = .format_error };
 
@@ -223,7 +241,7 @@ pub const Harness = struct {
             .flags = flags,
             .qdcount = 1,
             .ancount = reply.ancount,
-            .nscount = 0,
+            .nscount = reply.nscount,
             .arcount = 0,
         };
         wire.header.write(&header, &self.reply_buffer);
@@ -231,6 +249,8 @@ pub const Harness = struct {
         offset += self.write_question(question, reply, offset);
         @memcpy(self.reply_buffer[offset..][0..reply.records.len], reply.records);
         offset += reply.records.len;
+        @memcpy(self.reply_buffer[offset..][0..reply.authority.len], reply.authority);
+        offset += reply.authority.len;
         assert(offset <= self.reply_buffer.len);
         return self.reply_buffer[0..offset];
     }

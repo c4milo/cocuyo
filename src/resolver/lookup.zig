@@ -81,6 +81,10 @@ pub const Failure = struct {
     err: core.Error,
     server_index: u8,
     attempts_made: u8,
+    /// For `NameNotFound` and `NoData`, the TTL a cache may keep the negative answer for: the SOA
+    /// minimum of the response that decided it (RFC 2308 §5), or zero when that response carried
+    /// no SOA. Zero for every other failure, and zero is never cached (docs/design.md §18).
+    negative_ttl_seconds: u32,
 };
 
 /// The flags one lookup carries, packed into an octet so the hot block stays inside a cache line.
@@ -115,6 +119,8 @@ pub const Lookup = struct {
     now_ns_seen: u64,
     entropy: entropy_module.Entropy,
     failure: core.Error,
+    /// The SOA minimum of the last negative answer, for `Failure.negative_ttl_seconds`.
+    negative_ttl_seconds: u32,
     config: *const Config,
 
     // The names and the records: the bulk of a slot.
@@ -145,6 +151,7 @@ pub const Lookup = struct {
             .now_ns_seen = 0,
             .entropy = entropy_module.Entropy.init(seed),
             .failure = core.Error.Timeout,
+            .negative_ttl_seconds = 0,
             .config = config,
             .question = question,
             .current = question.name,
@@ -335,10 +342,12 @@ pub const Lookup = struct {
 
     pub fn failure_of(self: *const Lookup) Failure {
         assert(self.state == .failed);
+        const negative = self.failure == core.Error.NameNotFound or self.failure == core.Error.NoData;
         return .{
             .err = self.failure,
             .server_index = self.server_index,
             .attempts_made = self.round,
+            .negative_ttl_seconds = if (negative) self.negative_ttl_seconds else 0,
         };
     }
 };
@@ -444,7 +453,7 @@ test "the size of a lookup slot is pinned" {
     // docs/design.md §9 budgets the memory a caller provides, and a caller sizing a table needs
     // this number. It is measured, not computed: Zig chooses the field order, so a field added
     // here can cost more than its own width in padding.
-    try testing.expectEqual(@as(usize, 856), @sizeOf(Lookup));
+    try testing.expectEqual(@as(usize, 864), @sizeOf(Lookup));
     try testing.expectEqual(@as(usize, 284), @sizeOf(wire.Answers));
     try testing.expectEqual(@as(usize, 16), @sizeOf(entropy_module.Transaction));
 }

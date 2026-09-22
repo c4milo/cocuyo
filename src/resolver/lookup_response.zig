@@ -23,14 +23,20 @@ const policy = @import("lookup_policy.zig");
 
 pub fn on_response(self: *Lookup, message: []const u8, from: Endpoint, now_ns: u64) Verdict {
     self.see(now_ns);
-    const header = accepted_header(self, message, from) orelse return .ignored;
+    const cased = self.cased_name();
+    const header = accepted_header(self, message, from, &cased) orelse return .ignored;
     assert(!self.is_settled());
-    return apply(self, message, header, now_ns);
+    return apply(self, message, header, &cased, now_ns);
 }
 
 /// Every check of §7, in order. Returns the header when the message is ours, and null when it is
 /// not, without touching the lookup.
-fn accepted_header(self: *const Lookup, message: []const u8, from: Endpoint) ?wire.Header {
+fn accepted_header(
+    self: *const Lookup,
+    message: []const u8,
+    from: Endpoint,
+    cased: *const core.Name,
+) ?wire.Header {
     if (self.state != .awaiting_udp and self.state != .awaiting_tcp) return null;
     // 1. A message too short to hold a header, or longer than a message can be.
     if (message.len > core.constants.message_bytes_max) return null;
@@ -47,12 +53,17 @@ fn accepted_header(self: *const Lookup, message: []const u8, from: Endpoint) ?wi
     // 5. One question, byte-identical to the one asked, case included: DNS-0x20 lives here
     //    (RFC 5452 §9.1, §9.2).
     if (header.qdcount != 1) return null;
-    const cased = self.cased_name();
-    if (!wire.question.matches(message, &cased, self.question.kind)) return null;
+    if (!wire.question.matches(message, cased, self.question.kind)) return null;
     return header;
 }
 
-fn apply(self: *Lookup, message: []const u8, header: wire.Header, now_ns: u64) Verdict {
+fn apply(
+    self: *Lookup,
+    message: []const u8,
+    header: wire.Header,
+    cased: *const core.Name,
+    now_ns: u64,
+) Verdict {
     // Truncation over UDP sends this server's answer to TCP. Over TCP it means nothing: a stream
     // has no size limit to overflow (RFC 7766 §5), so the bit is ignored there.
     if (header.truncated() and self.state == .awaiting_udp) {
@@ -61,8 +72,14 @@ fn apply(self: *Lookup, message: []const u8, header: wire.Header, now_ns: u64) V
     }
     const rcode = header.rcode() catch return .ignored;
     switch (policy.rcode_action(rcode, self.flags.edns_enabled)) {
-        .collect => return collect(self, message, now_ns),
-        .next_candidate => self.next_candidate(now_ns),
+        .collect => return collect(self, message, cased, now_ns),
+        .next_candidate => {
+            // NXDOMAIN. The SOA in the authority section says how long a cache may remember it
+            // (RFC 2308 §5); a message with no SOA, or a malformed one, says nothing, and nothing
+            // is zero, which is not cached.
+            self.negative_ttl_seconds = negative_ttl(message, cased);
+            self.next_candidate(now_ns);
+        },
         .next_server => {
             self.flags.had_server_failure = true;
             self.next_server(now_ns);
@@ -76,7 +93,13 @@ fn apply(self: *Lookup, message: []const u8, header: wire.Header, now_ns: u64) V
     return .accepted;
 }
 
-fn collect(self: *Lookup, message: []const u8, now_ns: u64) Verdict {
+/// The negative TTL a message carries, or zero. A malformed authority section is not a reason
+/// to refuse a message whose rcode was already acted on; it is a reason not to cache it.
+fn negative_ttl(message: []const u8, cased: *const core.Name) u32 {
+    return wire.response.negative_ttl_seconds(message, cased) catch 0;
+}
+
+fn collect(self: *Lookup, message: []const u8, cased: *const core.Name, now_ns: u64) Verdict {
     // The chain walk moves `current`, so it is restored when the walk fails: a lookup must not be
     // left pointing at half a chain by a message it then ignores.
     const before = self.current;
@@ -110,6 +133,9 @@ fn collect(self: *Lookup, message: []const u8, now_ns: u64) Verdict {
         .no_data => {
             self.current = before;
             self.flags.had_no_data = true;
+            // NODATA takes the SOA minimum too (RFC 2308 §2.2), which is where this differs from
+            // c-ares (docs/design.md §18).
+            self.negative_ttl_seconds = negative_ttl(message, cased);
             self.next_candidate(now_ns);
         },
     }
@@ -378,4 +404,50 @@ test "a chain name compressed into the question comes back without cocuyo's own 
             harness.lookup.current.wire(),
         );
     }
+}
+
+test "a negative answer's SOA minimum reaches the failure, for NXDOMAIN and for NODATA" {
+    var harness = try harness_for(.{ .servers = &servers });
+    try harness.start("example.com.", .a, seed);
+    _ = harness.send();
+    _ = harness.respond(fixtures.name_error_soa, servers[0]);
+    const failure = harness.poll().failed;
+    try testing.expectEqual(core.Error.NameNotFound, failure.err);
+    try testing.expectEqual(@as(u32, 60), failure.negative_ttl_seconds);
+
+    var no_data = try harness_for(.{ .servers = &servers });
+    try no_data.start("example.com.", .a, seed);
+    _ = no_data.send();
+    _ = no_data.respond(fixtures.no_data_soa, servers[0]);
+    const nodata_failure = no_data.poll().failed;
+    try testing.expectEqual(core.Error.NoData, nodata_failure.err);
+    try testing.expectEqual(@as(u32, 60), nodata_failure.negative_ttl_seconds);
+}
+
+test "a negative answer with no SOA, or a broken one, carries a TTL of zero" {
+    var harness = try harness_for(.{ .servers = &servers });
+    try harness.start("example.com.", .a, seed);
+    _ = harness.send();
+    _ = harness.respond(fixtures.name_error, servers[0]);
+    try testing.expectEqual(@as(u32, 0), harness.poll().failed.negative_ttl_seconds);
+
+    var broken = try harness_for(.{ .servers = &servers });
+    try broken.start("example.com.", .a, seed);
+    _ = broken.send();
+    _ = broken.respond(fixtures.name_error_soa_broken, servers[0]);
+    const failure = broken.poll().failed;
+    try testing.expectEqual(core.Error.NameNotFound, failure.err);
+    try testing.expectEqual(@as(u32, 0), failure.negative_ttl_seconds);
+}
+
+test "a failure that is not a negative answer carries a TTL of zero" {
+    var harness = try harness_for(.{ .servers = &servers, .attempts = 1 });
+    try harness.start("example.com.", .a, seed);
+    _ = harness.send();
+    _ = harness.respond(fixtures.server_failure, servers[0]);
+    _ = harness.send();
+    _ = harness.respond(fixtures.server_failure, servers[1]);
+    const failure = harness.poll().failed;
+    try testing.expectEqual(core.Error.AllServersFailed, failure.err);
+    try testing.expectEqual(@as(u32, 0), failure.negative_ttl_seconds);
 }
