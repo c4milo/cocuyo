@@ -81,10 +81,9 @@ test "a lookup started on the engine is answered by the scripted server through 
     var rig: Rig = .{};
     try rig.init(1, .{ .{}, .{} }, .{ .servers = &.{} });
     const started = try rig.engine.start(question("example.com."), rig.loop.now());
-    try testing.expect(started == .lookup);
     try testing.expectEqual(@as(usize, 1), rig.engine.active());
     const result = try rig.until_result();
-    try testing.expectEqual(started.lookup, result.handle);
+    try testing.expectEqual(started, result.handle);
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expect(result.outcome.answer.addresses[0].family == .ipv4);
     try testing.expect(rig.loop.now() >= 1_000_000);
@@ -100,10 +99,12 @@ test "a second start for the same name is a cache hit, and a negative answer is 
     const first = try rig.until_result();
     const address = first.outcome.answer.addresses[0];
     _ = rig.engine.take(rig.loop.now());
+    // The cache answers it under the table (docs/design.md §20), so the result is there before
+    // the loop turns: nothing was sent, because nothing could have been.
     const again = try rig.engine.start(question("EXAMPLE.com."), rig.loop.now());
-    try testing.expect(again == .hit);
-    try testing.expectEqual(cocuyo.cache.Outcome.answered, again.hit.outcome);
-    try testing.expect(address.equal(&again.hit.answers.addresses()[0]));
+    const hit = rig.engine.take(rig.loop.now()).?;
+    try testing.expectEqual(again, hit.handle);
+    try testing.expect(address.equal(&hit.outcome.answer.addresses[0]));
 
     // The scripted server holds addresses alone, so an MX question is NODATA, and NODATA is
     // cached for the SOA minimum, or not at all without one (§18): the engine puts it anyway
@@ -115,7 +116,7 @@ test "a second start for the same name is a cache hit, and a negative answer is 
     try testing.expectEqual(cocuyo.Error.NoData, nodata.outcome.failure.err);
     try testing.expectEqual(@as(u32, 0), nodata.outcome.failure.negative_ttl_seconds);
     _ = rig.engine.take(rig.loop.now());
-    try testing.expect((try rig.engine.start(mx, rig.loop.now())) == .lookup);
+    _ = try rig.engine.start(mx, rig.loop.now());
     _ = try rig.until_result();
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
@@ -144,7 +145,7 @@ test "cancel ends a lookup with Canceled, through take" {
     var rig: Rig = .{};
     try rig.init(4, .{ .{ .delay_ns_min = 1_000_000_000, .delay_ns_max = 1_000_000_000 }, .{} }, .{ .servers = &.{} });
     const started = try rig.engine.start(question("example.com."), rig.loop.now());
-    rig.engine.cancel(started.lookup, rig.loop.now());
+    rig.engine.cancel(started, rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(cocuyo.Error.Canceled, result.outcome.failure.err);
     _ = rig.engine.take(rig.loop.now());
@@ -190,7 +191,7 @@ test "the end of a timer the engine has replaced is not taken for the current on
     try testing.expectEqual(armed, rig.engine.timer_handle);
     try testing.expectEqual(@as(?u64, 2_000_000_000), rig.engine.timer_due_ns);
 
-    rig.engine.cancel(started.lookup, rig.loop.now());
+    rig.engine.cancel(started, rig.loop.now());
     try testing.expectEqual(cocuyo.Error.Canceled, (try rig.until_result()).outcome.failure.err);
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
@@ -220,7 +221,7 @@ test "a lookup offered twice is on the ready list once" {
     var rig: Rig = .{};
     try rig.init(15, .{ .{}, .{} }, .{ .servers = &.{} });
     const started = try rig.engine.start(question("example.com."), rig.loop.now());
-    rig.engine.cancel(started.lookup, rig.loop.now());
+    rig.engine.cancel(started, rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(cocuyo.Error.Canceled, result.outcome.failure.err);
     _ = rig.engine.take(rig.loop.now());

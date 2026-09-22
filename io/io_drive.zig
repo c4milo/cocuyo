@@ -78,26 +78,15 @@ fn queue_send(self: anytype, index: usize, send: anytype, now_ns: u64) void {
 
 /// Hands one lookup's end to `results`, once. False when it was handed over already and the
 /// slot is only waiting for `take`.
+///
+/// The cache is not written here: the table writes it, through the `Memory` `init` put under it,
+/// so what may be remembered is decided in one place for every caller (docs/design.md §20).
 fn report(self: anytype, index: usize, outcome: results_module.Outcome, now_ns: u64) bool {
     if (self.reported[index]) return false;
     self.reported[index] = true;
-    const lookup = self.resolver.lookup_of(self.handles[index]);
-    switch (outcome) {
-        .answer => self.cache.put(&lookup.question, &lookup.answers, now_ns),
-        .failure => |failure| put_negative(self, &lookup.question, failure, now_ns),
-    }
     tcp.release(self, index, now_ns);
     self.results.push(.{ .handle = self.handles[index], .outcome = outcome });
     return true;
-}
-
-fn put_negative(self: anytype, question: *const cocuyo.Question, failure: cocuyo.Failure, now_ns: u64) void {
-    const outcome: cocuyo.cache.Outcome = switch (failure.err) {
-        cocuyo.Error.NameNotFound => .name_not_found,
-        cocuyo.Error.NoData => .no_data,
-        else => return,
-    };
-    self.cache.put_negative(question, outcome, failure.negative_ttl_seconds, now_ns);
 }
 
 /// Replaces a source port that has carried its share of queries, once no lookup is waiting on

@@ -38,6 +38,13 @@ pub const Slot = struct {
     prev_ready: u16 = slot_none,
     /// Whether this slot is on that list, so it is never linked twice.
     ready: bool = false,
+    /// Whether the memory of docs/design.md §20 was already asked about this lookup. It is asked
+    /// once, at the first poll and before a query is built.
+    asked_memory: bool = false,
+    /// Whether this lookup's end was written back, or came from the memory in the first place.
+    /// A poll may produce the same end more than once (§11), and a recalled answer is not
+    /// written back to where it was just read from.
+    remembered: bool = false,
 };
 
 /// The caller's slot array with a free list threaded through it. The link lives in the slot
@@ -66,6 +73,8 @@ pub const Slots = struct {
         self.free_head = slot.next_free;
         slot.occupied = true;
         slot.next_free = slot_none;
+        slot.asked_memory = false;
+        slot.remembered = false;
         return index;
     }
 

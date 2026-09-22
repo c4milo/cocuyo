@@ -782,6 +782,26 @@ and caps it, macOS grants it and then refuses once the socket is already large. 
 one bound and refuses above a second, so a test can drive each, and the refusal is what says the
 engine keeps a socket whose size it could not set.
 
+## Step 16, the cache under the table
+
+Design §20: the table asks a `Memory` the caller supplies, and `cocuyo.remembered_by` fills one
+in from a `Cache`. Broken against `zig build test-resolver` and `zig build test-cocuyo`. Six
+mutations, six `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| L1 | ask the memory at every poll rather than once | §20, asked once and before the query | the first-poll test, polled twice | CAUGHT |
+| L2 | write an end back at every poll that produces it | §20, written once | the written-once test | CAUGHT |
+| L3 | write back a lookup the memory itself answered | §20, a recall is not a write | the first-poll test | CAUGHT |
+| L4 | report the life the answer was given, not what is left | §20, a recalled answer reports the time it has | the first-poll test | CAUGHT |
+| L5 | remember any failure | RFC 2308 §5, two negatives and nothing else | the mapping test and the cancel test | CAUGHT |
+| L6 | hand back the life the cache was given | §20, `Hit.ttl_seconds` is what is left | the glue's round-trip test | CAUGHT |
+
+L1 was `NOT CAUGHT` at first. Every test polled a hit once, and the stub the written-once test
+used held nothing, so a second ask found nothing to trip over. The test now offers the lookup
+again and polls it twice with the memory holding an answer, which is the shape a caller that has
+not yet read its answer produces.
+
 ## The end-to-end driver
 
 The comparison's own driver, not the library: `bench/end_to_end/rotor_loop.zig`. Broken against

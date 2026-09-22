@@ -47,12 +47,6 @@ pub fn Engine(comptime options: Options) type {
 
         pub const Result = results_module.Result;
         pub const InitErrorType = InitError;
-        pub const Started = union(enum) {
-            /// A lookup is on its way; its result comes through `take`.
-            lookup: cocuyo.Handle,
-            /// The cache had it, answered or negative. Valid until the next call on the engine.
-            hit: cocuyo.Hit,
-        };
 
         loop: *rotor.Loop,
         config: *const cocuyo.Config,
@@ -112,6 +106,7 @@ pub fn Engine(comptime options: Options) type {
             self.config = config;
             self.resolver = cocuyo.Resolver.init(&self.slots, &self.keys, config, seed);
             self.cache = cocuyo.Cache.init(&self.cache_slots, &self.cache_keys, seed, cocuyo.cache.constants.ttl_seconds_max_default);
+            self.resolver.remember_with(cocuyo.remembered_by(&self.cache));
             self.send_in_flight = @splat(false);
             self.reported = @splat(false);
             self.results = .{};
@@ -154,18 +149,18 @@ pub fn Engine(comptime options: Options) type {
             }
         }
 
-        /// Asks the cache, then the table. A hit is answered here; a lookup's result comes
-        /// through `take`.
-        pub fn start(self: *Self, question: cocuyo.Question, now_ns: u64) error{Full}!Started {
+        /// Starts a lookup. Its result comes through `take`, and one the cache already holds is
+        /// there by the time this returns: the table asks the cache at the lookup's first poll,
+        /// which the drive below makes (docs/design.md §20).
+        pub fn start(self: *Self, question: cocuyo.Question, now_ns: u64) error{Full}!cocuyo.Handle {
             assert(!self.closing);
-            if (self.cache.get(&question, now_ns)) |hit| return .{ .hit = hit };
             const handle = self.resolver.start(question) catch return error.Full;
             self.handles[handle.index] = handle;
             self.send_in_flight[handle.index] = false;
             self.reported[handle.index] = false;
             self.tcp_connection[handle.index] = null;
             drive_module.drive(self, now_ns);
-            return .{ .lookup = handle };
+            return handle;
         }
 
         /// Settles every lookup as cancelled, which is `ares_cancel`. Each failure comes through

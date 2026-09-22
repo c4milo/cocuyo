@@ -14,6 +14,7 @@ pub const lookup = @import("lookup.zig");
 pub const table = @import("table.zig");
 pub const table_keys = @import("table_keys.zig");
 pub const table_ready = @import("table_ready.zig");
+pub const table_memory = @import("table_memory.zig");
 pub const table_slots = @import("table_slots.zig");
 pub const address_lookup = @import("address_lookup.zig");
 pub const name_lookup = @import("name_lookup.zig");
@@ -30,6 +31,9 @@ pub const Slot = table.Slot;
 pub const MatchKey = table.MatchKey;
 pub const Handle = table.Handle;
 pub const Event = table.Event;
+pub const Memory = table_memory.Memory;
+pub const Remembered = table_memory.Remembered;
+pub const Negative = table_memory.Negative;
 
 pub const AddressLookup = address_lookup.AddressLookup;
 pub const AddressFlags = address_lookup.AddressFlags;
@@ -51,6 +55,7 @@ test {
     _ = table;
     _ = table_keys;
     _ = table_ready;
+    _ = table_memory;
     _ = table_slots;
     _ = constants;
     _ = @import("lookup_poll.zig");

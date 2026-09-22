@@ -54,8 +54,9 @@ test "reinit cancels what is in flight, empties the cache, and asks the new serv
     const replacement: cocuyo.Config = .{ .servers = &servers, .search = &.{} };
     try rig.engine.reinit(&replacement, 22, rig.loop.now());
     // The cache went with the servers that filled it, so the name is asked about again.
-    const again = try rig.engine.start(question("example.com."), rig.loop.now());
-    try testing.expect(again == .lookup);
+    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    // Nothing is waiting to be taken, so the cache did not answer it: it goes to a server.
+    try testing.expect(rig.engine.take(rig.loop.now()) == null);
     const answer = try rig.until_result();
     try testing.expect(answer.outcome == .answer);
     _ = rig.engine.take(rig.loop.now());

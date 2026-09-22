@@ -26,6 +26,7 @@ const servers_module = @import("servers.zig");
 const keys_module = @import("table_keys.zig");
 const slots_module = @import("table_slots.zig");
 const ready_module = @import("table_ready.zig");
+const memory_module = @import("table_memory.zig");
 const lookup_module = @import("lookup.zig");
 const Lookup = lookup_module.Lookup;
 const Action = lookup_module.Action;
@@ -60,6 +61,10 @@ pub const Resolver = struct {
     /// exact minimum is found again when it fires, which is the one scan of the table
     /// (docs/design.md §11).
     soonest_ns: ?u64,
+    /// The cache under every lookup, or null when the caller keeps none (docs/design.md §20).
+    /// The table names no cache: it names two functions, which `cocuyo.remembered_by` fills in
+    /// from a `Cache` and a consumer with a cache of its own fills the same way.
+    memory: ?memory_module.Memory,
 
     /// `keys.len` must be a power of two and at least `keys_per_slot_min` times `slots.len`: the
     /// probe relies on the mask, and the load factor keeps the probe short.
@@ -77,7 +82,15 @@ pub const Resolver = struct {
             .ready_head = slots_module.slot_none,
             .ready_tail = slots_module.slot_none,
             .soonest_ns = null,
+            .memory = null,
         };
+    }
+
+    /// Puts a cache under every lookup this table starts (docs/design.md §20). Set before the
+    /// first lookup: a table with lookups already in flight would remember some and not others.
+    pub fn remember_with(self: *Resolver, memory: memory_module.Memory) void {
+        assert(self.in_flight() == 0);
+        self.memory = memory;
     }
 
     /// Starts a lookup. Its seed is drawn from the table's own generator, so one seed at the top
@@ -108,12 +121,14 @@ pub const Resolver = struct {
             const index = ready_module.take_ready(self) orelse return null;
             const slot = &self.slots.items[index];
             assert(slot.occupied);
+            memory_module.recall_into(self.memory, slot, now_ns);
             const action = slot.lookup.poll(now_ns, out);
             self.rekey(index);
             if (action == .wait) {
                 ready_module.note_deadline(self, action.wait);
                 continue;
             }
+            memory_module.remember_end(self.memory, slot, action, now_ns);
             return .{ .handle = self.slots.handle_of(index), .action = action };
         }
         return null;

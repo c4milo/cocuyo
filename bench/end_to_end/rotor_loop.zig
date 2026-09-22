@@ -75,11 +75,10 @@ const Driver = struct {
             var text: [constants.name_bytes]u8 = undefined;
             const name = try std.fmt.bufPrint(&text, "h{d}.example.", .{self.started});
             const now = harness.now_ns();
-            switch (try engine.start(try cocuyo.Question.from_text(name, .a), now)) {
-                .lookup => |handle| started_ns[handle.index] = now,
-                // The names are distinct, so the cache never has one.
-                .hit => unreachable,
-            }
+            // The names are distinct, so the cache under the table never holds one and every
+            // start is a query (docs/design.md §20).
+            const handle = try engine.start(try cocuyo.Question.from_text(name, .a), now);
+            started_ns[handle.index] = now;
             self.started += 1;
         }
     }

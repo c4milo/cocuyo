@@ -1051,6 +1051,10 @@ step until `zig build test` passes.
   configuration parity and the hosts file (11), server failover (12), the engine over rotor
   with its deterministic twin first (13), the `getaddrinfo` shape (14), RFC 6724 ordering and
   the end-to-end comparison (15). Each names its gate there.
+- **Step 16.** The package a consumer gets, §20: the cache under the table as a `Memory` the
+  caller supplies, so every lookup shape is cached and the policy of RFC 2308 §5 is written
+  once; the module surface closed to `cocuyo` alone; and a dependent build the gate compiles.
+  Asked for by colibri's driver on 2026-09-22. Its gate is §20's list of checks.
 
 ## 16. Decisions, with the alternatives they beat
 
@@ -1113,6 +1117,14 @@ step until `zig build test` passes.
 21. **`next_deadline_ns` is a bound, not the minimum.** Rejected: invalidating it on every event,
     which is a rescan per event; and keeping it exact by tracking every deadline that moves,
     which is a heap in the table for a timer that costs nothing to re-arm. §11.
+22. **The cache reaches the table as a `Memory` the caller supplies.** Rejected: `Resolver`
+    importing `cache`, which §3's graph forbids and for good reason; `Resolver` generic over its
+    cache, which changes every signature that names it; and leaving the policy in each consumer,
+    which is two readings of RFC 2308 §5 for a rule that belongs with the DNS. §20.
+23. **A cache hit is a lookup that is already over.** Rejected: a synchronous hit returned by
+    `start`, which saves a slot and a 3 KiB copy and makes `AddressLookup` and `NameLookup` each
+    learn a second control path, consuming an answer inside their own `init`. The copy is 53 ns
+    against a round trip of a millisecond, and it buys every lookup shape a cache. §20.
 
 ## 17. Questions for the owner
 
@@ -1155,6 +1167,12 @@ step until `zig build test` passes.
 12. **Does `name_info` need an entry point?** Answered on 2026-09-22: yes. `NameLookup` sits
     beside `AddressLookup`, because the recipe left the `lookups` order to every consumer that
     wrote it out, and that order is configuration the library already holds.
+13. **Should the cache keep the chain end?** Open, asked by §20. The cache is keyed by the
+    question and stores the answers, so an answer reached through a CNAME loses its canonical
+    name once it is remembered, and `AddressLookup`'s `canonical_name` is filled from a lookup
+    that went out and empty from one the cache answered. Keeping it costs one `Name` a slot, 256
+    octets, 8% of a slot, and moves §18's memory table. Until it is answered the answer is no,
+    and §20 says so where a consumer will read it.
 
 ## 18. The cache
 
@@ -1808,3 +1826,133 @@ Steps 9 to 15 land in that order, each with its mutation table in `docs/mutation
 committed only when `zig build test` is green, and step 13 beginning with the twin, so the
 engine is driven at every seed before it touches a socket. §15 lists them as steps of the plan.
 Step 14 begins with its two moves into `core`, each committed on its own before the shape.
+
+## 20. What a consumer gets
+
+cocuyo is a package before it is a library: a consumer writes `.cocuyo` in its `build.zig.zon`,
+`@import("cocuyo")` in its source, and what it finds there is this section's subject. The first
+consumer to ask for it was colibri's, on 2026-09-22.
+
+colibri owns no I/O and no allocator, as cocuyo does not, so colibri itself never resolves a
+name: its driver does, and the driver is what reaches for this. That is why this section adds no
+loop. The owner's ruling of 2026-09-22 stands — no library bound to rotor until a consumer asks
+for one — and this consumer does not ask for one.
+
+### What is already true
+
+- `build.zig` registers one module, `cocuyo`, rooted at `src/cocuyo.zig`, and returns before the
+  tools' dependency when cocuyo is not the root build, so a dependent resolves the library and
+  fetches nothing else. `build.zig.zon` ships `build.zig`, `build/` and `src/`; pepegrillo and
+  rotor are lazy, and only the root build asks for either.
+- `src/cocuyo.zig` holds no logic. It re-exports each module of §2 as a namespace and flattens
+  the names a consumer reaches for beside them.
+
+### What is missing
+
+1. **The cache cannot be reached from outside.** `Resolver` never names it. The policy that puts
+   a cache in front — ask before a lookup starts, remember an answer when one ends, and remember
+   the two negatives RFC 2308 allows and nothing else — lives in `io/io_drive.zig`, which is not
+   exported. A consumer that wants cocuyo with its cache writes that policy again, and the part
+   that is easy to get wrong is which failures may be remembered at all.
+2. **A composition misses the cache entirely.** `AddressLookup` and `NameLookup` ask their
+   questions through `Resolver.start`, so a consumer that wrapped its own calls would still send
+   every query those two make. c-ares caches `ares_getaddrinfo`, so §19's parity claim is not met
+   while this is true.
+3. **The module surface is wider than the claim.** The build registers `core`, `wire`,
+   `resolver`, `config`, `cache`, `sim` and `io` by name as well, so a consumer can import the
+   deterministic twin.
+4. **Nothing proves a dependent build.** The branch a dependent takes — the early return, the
+   manifest's `paths` — is never compiled by the gate, so it can break without the gate saying so.
+
+### Step 16: the cache under the table
+
+`Resolver` gains one optional field, a `Memory`: a context pointer and two functions the caller
+supplies. The table never names a cache, so the module graph of §3 is unchanged — `resolver`
+still reads `core` and `wire` alone — and the root module, which sees both, is where a `Cache`
+is turned into a `Memory`.
+
+```zig
+pub const Negative = enum { name_not_found, no_data };
+
+/// What the table remembers, and what it is handed back. The answers point into the caller's
+/// storage and are read before the call returns.
+pub const Remembered = union(enum) {
+    answered: *const wire.Answers,
+    negative: struct { outcome: Negative, ttl_seconds: u32 },
+};
+
+pub const Memory = struct {
+    context: *anyopaque,
+    recall: *const fn (context: *anyopaque, question: *const Question, now_ns: u64) ?Remembered,
+    remember: *const fn (context: *anyopaque, question: *const Question, end: Remembered, now_ns: u64) void,
+};
+```
+
+**A hit is a lookup that is already over.** A lookup's first `poll` asks `recall` before it
+builds anything. On a hit the answers are copied into the slot the lookup already holds and it is
+put in its end state, so that same poll returns `.done` — or `.failed` with `NameNotFound` or
+`NoData` — and no query is ever built. The asking is at the first poll rather than at `start`
+because `poll` is where the clock comes in, and an expiry needs one (CLAUDE.md non-negotiable 4):
+`start` keeps its signature, and nothing above the table learns a new shape. `poll`,
+`AddressLookup` and `NameLookup` work unchanged, and every question they ask goes through the
+cache, because they all start through the table.
+
+**An end is remembered once.** `poll` may produce a lookup's end more than once, because a
+lookup that has ended and waits for `release` answers each poll with it again (§11). The slot
+carries a bit that says its end was remembered, set when `poll` first produces it, and a slot
+seeded from the cache never writes back what it was handed.
+
+`cocuyo.remembered_by(&cache)` builds a `Memory` from a `Cache`. It is the only place that maps
+a `Failure` to what may be kept: `NameNotFound` and `NoData` with the TTL the SOA gave
+(RFC 2308 §5), and nothing else — not a timeout, not a refusal, not a malformed answer.
+`io/` then drops its own copy of that policy and passes a `Memory` like any other caller.
+
+**What a recalled answer does not carry.** The cache is keyed by the question and stores the
+answers, not the chain that reached them, so an answer that came through a CNAME has no canonical
+name once it is remembered. `AddressLookup`'s `canonical_name` is therefore filled from a lookup
+that went out and empty from one the cache answered. That is today's behaviour through the
+engine's `Started.hit` too, and it is not new here, but it becomes visible to every consumer, so
+§17 asks the owner whether the cache should keep the chain end: one `Name` a slot, 256 octets,
+which is 8% of a slot and moves §18's memory table.
+
+**What it costs.** A hit now takes a slot and copies `Answers` into it, where the engine's
+`Started.hit` handed back a pointer and took no slot. §11 measures the copy at 53 ns and a hit
+at 31 ns, against a round trip of a millisecond or more, and the copy buys the composition: one
+policy, and every lookup shape cached rather than one. The engine's `start` returns a handle
+and nothing else, and `Started` goes away.
+
+### Step 16 also: the surface, and a dependent build
+
+- The build registers `cocuyo` and creates the rest, so `cocuyo` is the only name a dependent
+  can import. `zig build test-<module>` still names each one, because the build holds the graph
+  as a value rather than by name.
+- A fixture package under `test/consumer/`, with a manifest that depends on cocuyo by relative
+  path, is built by `zig build consumer-check`: it imports `cocuyo`, starts a lookup, and is the
+  proof that the packaging works. A second fixture that imports `sim` must fail to build, the way
+  `graph-check` proves the module graph.
+
+### Alternatives this beats
+
+- **A synchronous hit, returned by `start`.** It saves the slot and the copy, and it makes every
+  composition learn a second control path: `AddressLookup` would have to consume an answer while
+  still inside its own `init`, for each of its candidates, and recursion is the shape that
+  invites. Rejected for the cost of one copy.
+- **`Resolver` generic over the cache.** It costs nothing at run time and it changes every
+  signature that names `Resolver`, in the library and in every consumer. Rejected.
+- **Leave the policy in each consumer.** Two consumers, two readings of RFC 2308. Rejected: the
+  rule about which failures may be remembered is DNS knowledge, and it belongs with the DNS.
+- **Export the engine over rotor.** It would answer a different question than the one asked:
+  colibri's driver has a loop already. Rejected for now, and the ruling that holds it back is the
+  owner's.
+
+### Checks
+
+- A hit answers without a query: start the same question twice, and the second lookup's first
+  `poll` is `.done` with the send count unchanged.
+- A cached negative comes back as the failure it was, with its TTL, and an expired one does not.
+- `AddressLookup` asks one question when the cache holds the other family, and none when it
+  holds both.
+- An end is remembered once, however many times it is polled.
+- A lookup seeded from the cache does not write back what it was handed.
+- `zig build consumer-check` builds the dependent fixture, and the fixture that imports `sim`
+  fails to build.

@@ -401,6 +401,30 @@ pub const Lookup = struct {
         self.fail(core.Error.NameTooLong);
     }
 
+    /// Ends this lookup with answers a memory above the table remembered, before any query was
+    /// built (docs/design.md §20). `ttl_seconds` is what is left of them, not what they were
+    /// given, so the answer reports the life it has now.
+    ///
+    /// `flags.aliased` stays clear, so the answer carries no canonical name: the memory is keyed
+    /// by the question and does not keep the chain that reached it (§17 question 13).
+    pub fn recall_answer(self: *Lookup, answers: *const wire.Answers, ttl_seconds: u32) void {
+        assert(self.state == .query_ready);
+        assert(!self.flags.aliased);
+        self.answers = answers.*;
+        self.answers.ttl_seconds = ttl_seconds;
+        self.state = .done;
+        assert(self.is_settled());
+    }
+
+    /// Ends this lookup with a negative a memory remembered: one of the two of RFC 2308 §5, with
+    /// what is left of its life.
+    pub fn recall_failure(self: *Lookup, err: core.Error, ttl_seconds: u32) void {
+        assert(self.state == .query_ready);
+        assert(err == core.Error.NameNotFound or err == core.Error.NoData);
+        self.negative_ttl_seconds = ttl_seconds;
+        self.fail(err);
+    }
+
     pub fn fail(self: *Lookup, err: core.Error) void {
         self.failure = err;
         self.state = .failed;
