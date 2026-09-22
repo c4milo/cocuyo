@@ -9,15 +9,17 @@
 //!
 //! The first row is the harness itself: an empty call through the same function pointer, so a
 //! reader knows how much of every other row is the loop and not the operation. The method is in
-//! `bench/harness.zig`, and the cases in `bench/bench_cases.zig`.
+//! `bench/harness.zig`, and the cases in `bench/bench_cases.zig` and `bench/bench_cache.zig`.
 const harness = @import("harness.zig");
 const cases = @import("bench_cases.zig");
+const cache_cases = @import("bench_cache.zig");
 
 pub fn main() void {
-    harness.run("cocuyo bench", &cases.all);
+    harness.run("cocuyo bench", &(cases.all ++ cache_cases.all));
 }
 
 test {
     _ = harness;
     _ = cases;
+    _ = cache_cases;
 }

@@ -559,52 +559,77 @@ ran before the bench. Two runs back to back; every median below is from the seco
 of them sits within 2% of the first. The harness overhead, the first row, is included in every
 other row and not subtracted. The numbers are cocuyo's alone: nothing here is measured against
 c-ares or any other resolver, so the table supports no claim about speed relative to what cocuyo
-replaces. Nanoseconds per operation, from the commit that added this table:
+replaces. Nanoseconds per operation, from the commit that added the cache rows; the table was
+first measured by the commit that added it, and re-measured whole when the cache landed, because
+the rows move together (below):
 
 | Case | Fastest | Median |
 | --- | --- | --- |
-| harness overhead, an empty call through the same function pointer | 1.5 | 1.5 |
+| harness overhead, an empty call through the same function pointer | 1.5 | 1.6 |
 | query build, `example.com`, EDNS0 | 8.5 | 8.6 |
-| query build, a 255-octet name, over TCP | 12.4 | 12.6 |
-| name decode, two labels | 15.8 | 15.9 |
-| name decode, through a compression pointer | 17.1 | 17.1 |
-| response parse, one A record | 45.0 | 45.1 |
-| response parse, a CNAME then its A record, with a 256-octet restore of the chain | 173.3 | 173.8 |
-| response parse, 17 A records, 16 kept | 574.0 | 575.0 |
-| datagram match, an id nobody holds, 1 in flight | 3.1 | 3.1 |
+| query build, a 255-octet name, over TCP | 12.2 | 12.5 |
+| name decode, two labels | 15.8 | 16.2 |
+| name decode, through a compression pointer | 17.1 | 17.4 |
+| response parse, one A record | 52.8 | 53.5 |
+| response parse, a CNAME then its A record, with a 256-octet restore of the chain | 190.2 | 191.9 |
+| response parse, 17 A records, 16 kept | 573.9 | 576.8 |
+| datagram match, an id nobody holds, 1 in flight | 3.1 | 3.2 |
 | datagram match, an id nobody holds, 1024 in flight | 3.1 | 3.1 |
-| datagram match, right id and wrong question, 1 in flight | 34.3 | 34.5 |
-| datagram match, right id and wrong question, 64 in flight | 35.2 | 36.0 |
-| datagram match, right id and wrong question, 1024 in flight | 35.3 | 35.4 |
-| datagram match, right id and wrong question, rotating over all 1024 slots | 50.1 | 50.2 |
-| slot restore, an 864-octet copy the accepted case pays and a caller does not | 12.9 | 13.2 |
-| datagram match, accepted, 1024 in flight, with the slot restore | 91.8 | 92.0 |
-| lookup round trip: `init`, `poll`, `on_sent`, `on_response` | 174.4 | 174.7 |
-| `resolv.conf` parse, three lines | 324.6 | 328.0 |
+| datagram match, right id and wrong question, 1 in flight | 35.1 | 35.9 |
+| datagram match, right id and wrong question, 64 in flight | 35.9 | 36.5 |
+| datagram match, right id and wrong question, 1024 in flight | 36.0 | 36.5 |
+| datagram match, right id and wrong question, rotating over all 1024 slots | 52.9 | 53.6 |
+| slot restore, an 872-octet copy the accepted case pays and a caller does not | 12.8 | 12.9 |
+| datagram match, accepted, 1024 in flight, with the slot restore | 102.1 | 103.1 |
+| lookup round trip: `init`, `poll`, `on_sent`, `on_response` | 225.8 | 227.7 |
+| `resolv.conf` parse, three lines | 329.9 | 332.9 |
+| cache hit, one entry, hot | 31.0 | 31.2 |
+| cache hit, rotating over 1024 entries | 43.2 | 43.9 |
+| cache miss, 1024 entries, a young index | 12.3 | 12.6 |
+| cache miss, 1024 entries, after churn | 35.2 | 35.9 |
+| cache put, replacing an entry in place | 35.6 | 36.5 |
+| cache put, evicting, 1024 entries and the table full | 96.2 | 97.0 |
 
 What the table says, against the estimates:
 
 - The estimates hold, and were pessimistic. A query builds in 9 ns. A response with one record
-  parses in 45 ns, and one with seventeen records, sixteen of them kept, in 575 ns: about 33 ns for
-  each record walked beyond the first — (575 − 45) / 16, the seventeenth walked and its owner
+  parses in 54 ns, and one with seventeen records, sixteen of them kept, in 577 ns: about 33 ns for
+  each record walked beyond the first — (577 − 54) / 16, the seventeenth walked and its owner
   decoded before it is refused — which is a skip, an owner name decoded through a pointer at 17 ns,
-  and the address copied. A CNAME chain resolved in one message costs 174 ns: the chain moves
+  and the address copied. A CNAME chain resolved in one message costs 192 ns: the chain moves
   once, the section is walked twice, five names are decoded on the way (the two owners on each of
   the two passes, and the CNAME's target once), three 256-octet copies move the chain, and the row
   carries the restore its name says.
 - The demultiplexer is the constant it was designed to be. An id nobody holds is refused in 3 ns
   whether 1 or 1024 lookups are in flight, and a real id with the wrong question — the probe plus
-  every check of §7 short of the answer walk — costs 34 ns at 1 in flight and 35 ns at 1024.
-  Accepting one at 1024 in flight costs 92 ns, of which 13 is the slot the harness puts back after
-  each iteration, so 79 ns is the match and the answer walk.
+  every check of §7 short of the answer walk — costs 36 ns at 1 in flight and 37 ns at 1024.
+  Accepting one at 1024 in flight costs 103 ns, of which 13 is the slot the harness puts back after
+  each iteration, so 90 ns is the match and the answer walk.
 - Those rows aim every iteration at one slot, which sits in the first-level cache from the second
-  iteration on. The rotating row aims each iteration at a different one of the 1024, whose 864 KiB
-  do not fit the 128 KiB first level and do fit the 12 MiB second: the same path costs 50 ns there,
-  so a slot read cold out of the first level adds 15 ns. A datagram arriving from the kernel finds
+  iteration on. The rotating row aims each iteration at a different one of the 1024, whose 872 KiB
+  do not fit the 128 KiB first level and do fit the 12 MiB second: the same path costs 54 ns there,
+  so a slot read cold out of the first level adds 17 ns. A datagram arriving from the kernel finds
   its slot at least that cold.
 - A whole lookup, minus the network — made, its query built, the send heard, the answer read — is
-  175 ns. Against the shortest round trip the estimate considered, one millisecond, that is 0.017%:
-  the network is about 5,700 times the library.
+  228 ns. Against the shortest round trip the estimate considered, one millisecond, that is 0.023%:
+  the network is about 4,400 times the library.
+- The cache of §18 answers a hot hit in 31 ns — the keyed hash over the name, one probe, the
+  folded compare and the division that turns the expiry into seconds — and a miss in 13 ns when
+  the index is young, because the walk stops at the first empty entry. After churn, when every
+  entry the evictions freed is a tombstone the walk steps over, a miss walks to the probe bound and
+  costs 36 ns; that is the bound doing what §18 says, and `flush` is what resets it. A hit read
+  cold over 1024 entries, 568 KiB of slots, costs 44 ns, the same 13 ns a cold lookup slot costs
+  above. A put that replaces an entry in place costs 37 ns; one that has to evict, with the hand
+  meeting an unvisited entry at once, 97 ns: the miss, the eviction's unlink and key removal, the
+  key insert, and a 568-octet slot written.
+- The rows move with the binary they are built into, and by more than the run-to-run band. On
+  the day the cache landed, the parse of one A record measured 45.0 ns in the binary before it,
+  52.7 ns in the binary with it, and 42.8 ns in a binary holding only the three parse rows, and
+  the code on that path was the same in all three: stubbing the two functions the change added
+  moved nothing, and the row that walks seventeen records did not move either. That is the
+  layout of the text and nothing else, and it puts a fifth on any single row. So a comparison
+  reads within one table, built once, and never across two builds; and the run-to-run band of 2%
+  is the harness's precision, not the number's.
 
 What the table does not say: a slot evicted to memory, and not only out of the first level, costs
 more than the rotating row shows. A memory access on this machine is on the order of a hundred
