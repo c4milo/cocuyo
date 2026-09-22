@@ -207,7 +207,28 @@ C10 is the one that needed a better test rather than a new one. The options test
 options last, where a parser that stopped at the first one it did not recognise behaves exactly
 like one that skips them. They now sit between the options that matter.
 
-## Planned, step 6
+## Step 6, the example
+
+The example is a check of its own: `zig build test` compiles it, so an API change that breaks it
+fails the build, and running it resolves a real name against a real server. That is where the one
+finding of this step came from, and it is the kind of finding no unit test was going to produce.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| E1 | a chain name keeps cocuyo's own case | §7 DNS-0x20 | **the compressed-suffix test** | CAUGHT |
+
+Running the example against the live network printed `www.github.com is github.cOm.` The capital
+was cocuyo's. DNS-0x20 randomises the case of the question, the server compressed the CNAME's
+target to a pointer into the question it echoed, and the target therefore decoded wearing the
+randomisation cocuyo had applied. Case is insignificant in DNS (RFC 1035 §2.3.3), so nothing was
+wrong on the wire, but a caller reading `github.cOm` would reasonably think something had broken.
+
+A chain name is now folded to lowercase when 0x20 is on, and the fixture that pins it is a CNAME
+whose rdata is `host.` followed by a pointer at the `com` label of the echoed question. The test
+runs sixteen seeds, because whether a given seed capitalises anything in that suffix is a matter
+of which bits it drew.
+
+## Planned, step 7
 
 | # | Mutation | Check it breaks | Expected to be caught by | Status |
 | --- | --- | --- | --- | --- |

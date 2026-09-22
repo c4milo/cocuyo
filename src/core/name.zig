@@ -116,6 +116,29 @@ pub const Name = struct {
         return true;
     }
 
+    /// Lowercases every label byte, leaving the length octets alone.
+    ///
+    /// This undoes cocuyo's own DNS-0x20 randomisation where it comes back. A server may compress
+    /// a name in its answer to a pointer into the question it echoed, and the question carries the
+    /// case cocuyo randomised, so a name decoded from such a pointer wears cocuyo's noise rather
+    /// than the server's spelling. Case is insignificant either way (RFC 1035 §2.3.3), and a
+    /// caller reading `github.cOm` would reasonably think something had gone wrong.
+    pub fn fold_case(self: *Name) void {
+        assert(self.len >= 1);
+        var offset: usize = 0;
+        var labels: usize = 0;
+        while (labels <= constants.labels_max) {
+            if (offset >= self.len) break;
+            const length = self.bytes[offset];
+            if (length == root_label) break;
+            assert(length <= constants.label_bytes_max);
+            for (self.bytes[offset + 1 ..][0..length]) |*byte| byte.* = fold(byte.*);
+            offset += 1 + length;
+            labels += 1;
+        }
+        assert(labels <= constants.labels_max);
+    }
+
     /// `self` with `suffix` appended: `www` and `example.com` become `www.example.com`. This is
     /// how a search-list candidate is built (docs/design.md §5), so a candidate too long to encode
     /// is an error rather than a truncation.
@@ -301,4 +324,16 @@ test "concat accepts a candidate of exactly the limit" {
     const joined = try prefix.concat(&suffix);
     try testing.expectEqual(@as(u8, constants.name_bytes_max), joined.len);
     try testing.expectEqual(@as(u8, 4), joined.label_count());
+}
+
+test "fold_case lowercases the labels and nothing else" {
+    var name = try Name.from_text("Example.COM");
+    const before = name;
+    name.fold_case();
+    try testing.expect(name.equal(&before));
+    try testing.expectEqualStrings("\x07example\x03com\x00", name.wire());
+
+    var root = Name.root;
+    root.fold_case();
+    try testing.expect(root.is_root());
 }

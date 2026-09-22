@@ -20,6 +20,7 @@ const assert = std.debug.assert;
 const modules = @import("build/modules.zig");
 const lint = @import("build/lint.zig");
 const graph_check = @import("build/graph_check.zig");
+const examples = @import("build/examples.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "build", "src", "tools", "examples" };
@@ -111,6 +112,7 @@ pub fn build(b: *std.Build) void {
     }
 
     test_step.dependOn(graph_check.add(b, host_module(b, "tools/graph_check.zig")));
+    examples.add(b, graph.cocuyo, target, optimize, test_step);
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_commit_lint_step(b, pepegrillo, install_step);
     add_hooks_step(b);

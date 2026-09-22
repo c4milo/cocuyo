@@ -69,6 +69,14 @@ pub const record_cname = [_]u8{
     0xc0, 0x0c, 0x00, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x12,
 } ++ "\x04host\x07example\x03net\x00".*;
 
+/// A CNAME to `host.` plus a pointer to offset 20, which is the `com` label of `example.com` in
+/// the question the harness echoes back. A server that compresses a target's suffix into the
+/// question is doing something ordinary; what makes it interesting is that the question carries
+/// the case DNS-0x20 randomised.
+pub const record_cname_into_question = [_]u8{
+    0xc0, 0x0c, 0x00, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x07,
+} ++ "\x04host".* ++ [_]u8{ 0xc0, 0x14 };
+
 /// The A record for `host.example.net`, 192.0.2.3, TTL 300.
 pub const record_cname_target_a = "\x04host\x07example\x03net\x00".* ++ [_]u8{
     0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x04, 192, 0, 2, 3,
@@ -110,6 +118,9 @@ pub const answer_a: Reply = .{ .records = &record_a, .ancount = 1 };
 
 /// A reply carrying a CNAME and no record for its target.
 pub const cname_only: Reply = .{ .records = &record_cname, .ancount = 1 };
+
+/// A reply whose CNAME target borrows its suffix from the question.
+pub const cname_into_question: Reply = .{ .records = &record_cname_into_question, .ancount = 1 };
 
 /// A reply carrying a CNAME and the A record its target owns.
 pub const cname_then_a: Reply = .{

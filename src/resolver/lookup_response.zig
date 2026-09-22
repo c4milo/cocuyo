@@ -90,6 +90,10 @@ fn collect(self: *Lookup, message: []const u8, now_ns: u64) Verdict {
         self.current = before;
         return .ignored;
     };
+    // A name the chain moved to came off the wire, and a server that compressed it to a pointer
+    // into the question it echoed handed back cocuyo's own case randomisation. That case is noise
+    // cocuyo made, not the server's spelling, so it is folded away before anyone reads it.
+    if (self.flags.mix_case and self.answers.aliased) self.current.fold_case();
     switch (outcome) {
         .answered => {
             self.flags.aliased = self.answers.aliased or self.flags.aliased;
@@ -354,4 +358,24 @@ test "a CNAME chain that loops is ignored, and the name is left where it was" {
     try testing.expectEqual(@as(u8, 0), harness.lookup.cname_hops);
     try testing.expectEqual(deadline, harness.lookup.deadline_ns);
     try testing.expect(harness.poll() == .wait);
+}
+
+test "a chain name compressed into the question comes back without cocuyo's own case" {
+    // A server may answer a CNAME whose target shares a suffix with the question, and compress
+    // that suffix to a pointer into the question it echoed. The question carries the case
+    // DNS-0x20 randomised, so the target decodes wearing it. Over sixteen seeds at least one
+    // randomisation puts a capital in that suffix, and none of them may reach the caller.
+    const seed_count = 16;
+    var lookup_seed: u64 = 0;
+    while (lookup_seed < seed_count) : (lookup_seed += 1) {
+        var harness = try harness_for(.{ .servers = &servers });
+        try harness.start("example.com.", .a, lookup_seed);
+        _ = harness.send();
+        _ = harness.respond(fixtures.cname_into_question, servers[0]);
+        try testing.expectEqualSlices(
+            u8,
+            (try Name.from_text("host.com")).wire(),
+            harness.lookup.current.wire(),
+        );
+    }
 }
