@@ -48,8 +48,11 @@ pub fn run(port: u16, in_flight: u32, total: u32, latencies: []u64) !Outcome {
     var driver: Driver = .{ .loop = &loop, .total = total, .in_flight = in_flight, .latencies = latencies };
     const begin = harness.now_ns();
     while (driver.done < total) {
-        try driver.start_more();
+        // Results first: `take` frees the slot the lookup before it used, and the start below
+        // needs one. Starting first leaves this iteration with nothing outstanding, and the tick
+        // under it then waits out `tick_wait_ns_max` before the next lookup goes out at all.
         driver.take_results();
+        try driver.start_more();
         if (driver.done == total) break;
         const count = try loop.tick(&events, constants.tick_wait_ns_max);
         const now = harness.now_ns();

@@ -87,7 +87,20 @@ test "cocuyo resolves every name through the engine over rotor against the respo
     const outcome = try rotor_loop.run(responder.port, constants.test_in_flight, constants.test_total, &measured);
     try testing.expectEqual(@as(u32, 0), outcome.failures);
     try testing.expect(outcome.elapsed_ns > 0);
-    for (measured) |latency| try testing.expect(latency > 0);
+    for (measured) |latency| try testing.expect(latency > 0 and latency < constants.latency_ns_max);
+}
+
+test "one lookup at a time is answered without waiting out a tick" {
+    var responder: responder_module.Responder = .{ .socket = undefined, .port = 0 };
+    try responder.start();
+    defer responder.stop();
+    var measured: [constants.test_total_one]u64 = undefined;
+    const outcome = try rotor_loop.run(responder.port, 1, constants.test_total_one, &measured);
+    try testing.expectEqual(@as(u32, 0), outcome.failures);
+    // The wall time, not the latencies: a lookup's latency is read when its result is taken,
+    // which is before the driver waits, so a wait that follows every result shows here alone.
+    try testing.expect(outcome.elapsed_ns < constants.test_total_one * constants.latency_ns_max);
+    for (measured) |latency| try testing.expect(latency > 0 and latency < constants.latency_ns_max);
 }
 
 test "c-ares resolves every name through its event thread against the responder" {
@@ -98,5 +111,5 @@ test "c-ares resolves every name through its event thread against the responder"
     const outcome = try cares_loop.run(responder.port, constants.test_in_flight, constants.test_total, &measured);
     try testing.expectEqual(@as(u32, 0), outcome.failures);
     try testing.expect(outcome.elapsed_ns > 0);
-    for (measured) |latency| try testing.expect(latency > 0);
+    for (measured) |latency| try testing.expect(latency > 0 and latency < constants.latency_ns_max);
 }

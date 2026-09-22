@@ -782,6 +782,22 @@ and caps it, macOS grants it and then refuses once the socket is already large. 
 one bound and refuses above a second, so a test can drive each, and the refusal is what says the
 engine keeps a socket whose size it could not set.
 
+## The end-to-end driver
+
+The comparison's own driver, not the library: `bench/end_to_end/rotor_loop.zig`. Broken against
+`zig build test-cares`. One mutation, one `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| K1 | start the next lookup before taking the result that frees its slot | §19 step 15, the driver keeps `in_flight` going | the one-at-a-time test | CAUGHT |
+
+The bug this records was real and it hid for a day. With several lookups in flight the others keep
+the loop busy and no test saw anything; with one, every iteration that took a result left nothing
+outstanding, and the tick under it waited out `tick_wait_ns_max`. That is one second a lookup, so
+the table's first row would have taken five hours rather than a second, and the run looked hung.
+The test runs one at a time and bounds the run's wall time, because a lookup's latency is read
+when its result is taken, which is before the wait.
+
 ## Planned, later steps
 
 | # | Mutation | Check it breaks | Expected to be caught by | Status |

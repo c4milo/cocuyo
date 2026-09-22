@@ -54,6 +54,18 @@ pub const engine_seed = 0x5eed_c0c0;
 pub const test_in_flight = 4;
 pub const test_total = 20;
 
+/// What one lookup over the loopback may take before the run has stopped measuring the stacks
+/// and started measuring a wait: a quarter of `tick_wait_ns_max`. A driver that leaves nothing
+/// in flight waits that cap out once per lookup, which is what this catches; a lookup that is
+/// answered takes under a millisecond.
+pub const latency_ns_max = 250 * ns_per_ms;
+
+/// The run that holds one lookup at a time, which is the first row of the table and the shape a
+/// driver's own mistake shows up in: with one in flight there is nothing else to keep the loop
+/// busy, so a lookup that is not started until the tick under it has waited out shows as a
+/// latency of a whole `tick_wait_ns_max`.
+pub const test_total_one = 5;
+
 /// What the responder's queue holds: the c-ares side and cocuyo's each send one datagram per
 /// lookup in flight, so this is the most that can be waiting.
 pub const socket_buffer_bytes = 4 * 1024 * 1024;
