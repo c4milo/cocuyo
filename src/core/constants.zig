@@ -99,14 +99,14 @@ pub const timeout_ns_default = 5_000_000_000;
 /// The cap on the doubling of `timeout_ns` per pass: 30 seconds. 30 * 1_000_000_000.
 pub const timeout_ns_max = 30_000_000_000;
 
-/// The IANA ephemeral port range, which the source-port hint is drawn from (RFC 6335 §6).
+/// The IANA Dynamic port range, which the source-port hint is drawn from (RFC 6335 §6).
 pub const port_ephemeral_min = 49152;
 pub const port_ephemeral_max = 65535;
 
-/// The port a DNS server listens on (RFC 1035 §4.2).
+/// The port a DNS server listens on (RFC 1035 §4.2.1).
 pub const port_dns_default = 53;
 
-/// An IPv4 address, in octets (RFC 791).
+/// An IPv4 address, in octets (RFC 791 §3.1).
 pub const address_v4_bytes = 4;
 
 /// An IPv6 address, in octets (RFC 3596 §2.2 gives the AAAA rdata this length).

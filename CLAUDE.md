@@ -44,7 +44,17 @@ The architecture depends on every rule in this section.
    input was hostile and returns an error, the assertion says the code that already rejected the
    hostile input did its job. Every length is checked against the end of the message before the
    bytes are read, and no count field is ever a reason to read.
-7. **Tests are proved by mutation.** A test must fail when the code it covers is broken. When you
+7. **Every RFC rule is cited by section, in the code.** A check that exists because an RFC
+   demands it carries the RFC and the section in a comment on the line that does the checking, so
+   a reader can go from any validation to the sentence that requires it. Cite the RFC that
+   *states* the rule, not one that inherits it: the case-insensitivity rule is RFC 1035 §2.3.3 as
+   clarified by RFC 4343, not RFC 4343 alone.
+8. **Read the RFCs, never a summary and never another implementation's source.** The copies to
+   read are in `docs/rfcs/`, unmodified from rfc-editor.org, with `docs/rfcs/SHA256SUMS` to show
+   they stay that way, and `docs/rfcs/README.md` saying what each one is read for. Where cocuyo
+   implements something no RFC states — DNS-0x20, `resolv.conf` — the code says what the source
+   is instead of citing an RFC that does not say it.
+9. **Tests are proved by mutation.** A test must fail when the code it covers is broken. When you
    add a check, break it on purpose and confirm a test fails. Report `CAUGHT` or `NOT CAUGHT` per
    mutation in the body of the commit that adds the check, and keep the table in
    `docs/mutations.md`. A `NOT CAUGHT` means a test is missing: write it.

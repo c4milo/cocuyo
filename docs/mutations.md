@@ -1,6 +1,6 @@
 # Mutations
 
-A test must fail when the code it covers is broken (CLAUDE.md non-negotiable 7). Every check lands
+A test must fail when the code it covers is broken (CLAUDE.md non-negotiable 9). Every check lands
 with its mutation: break the check on purpose, run the narrowest test target that should catch it,
 and record `CAUGHT` or `NOT CAUGHT` here and in the body of the commit that adds the check. A
 `NOT CAUGHT` means a test is missing, and the missing test is written before the step is called

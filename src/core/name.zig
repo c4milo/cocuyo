@@ -100,9 +100,10 @@ pub const Name = struct {
         return if (labels == 0) 0 else labels - 1;
     }
 
-    /// Case-insensitive equality, RFC 4343: two names are the same name whatever the case of their
-    /// ASCII letters. The comparison folds every byte, length octets included, which is sound
-    /// because no length octet can be a letter (the comptime block above).
+    /// Case-insensitive equality (RFC 1035 §2.3.3, clarified by RFC 4343): two names are the same
+    /// name whatever the case of their ASCII letters. The comparison folds every byte, length
+    /// octets included, which is sound because no length octet can be a letter (the comptime
+    /// block above).
     ///
     /// This is never the check a response is matched with. That check compares the question
     /// section byte for byte, case included, because the case is entropy (docs/design.md §7).
