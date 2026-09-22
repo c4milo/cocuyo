@@ -243,7 +243,13 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   local address of `Config.local_address`. Since rotor 0.2.0 it also has the socket buffer sizes
   of `Config.socket_receive_bytes` and `socket_send_bytes`. Nothing of c-ares is left but device
   binding by name, which stays out because rotor names no device.
-- Next: the end-to-end comparison, on a quiet machine for the numbers and on GitHub for Linux,
-  and then whether the cache earns its keep, which §18 says no trace has ever decided.
+- **15**'s comparison is done: §11 carries the decoder table and the end-to-end one, measured
+  2026-09-22 over five runs. Three defects in the comparison's own driver had to be fixed first
+  (docs/mutations.md K1 to K3), which is what an end-to-end number costs.
+- **16**, the package a consumer gets, §20, asked for by colibri's driver: the cache under every
+  lookup as a `Memory` the caller supplies, the module surface closed to `cocuyo` alone, and
+  `zig build consumer-check` compiling a dependent package. Landed 2026-09-22.
+- Next: whether the cache earns its keep, which §18 says no trace has ever decided; and the
+  engine on Linux, which fails registering its io_uring buffer group before a lookup goes out.
 
 §17 holds the questions the owner has not answered.

@@ -178,6 +178,18 @@ pub const server_cookie_fresh = [_]u8{0xf0} ++ [_]u8{0xff} ** 15;
 const cookie_client_wrong = [_]u8{ 0xba, 0xdc, 0x00, 0xc1, 0xe0, 0x00, 0x00, 0x01 };
 
 /// A reply carrying one A record.
+/// Answers as a memory above the table hands them back: one A record, with a life to spare so
+/// nothing expires while a test runs (docs/design.md §20).
+pub const cached_ttl_seconds = 300;
+
+pub fn cached_a(text: []const u8) wire.Answers {
+    var out = wire.Answers.init(.a);
+    out.items.addresses[0] = core.Address.from_text(text).?;
+    out.count = 1;
+    out.ttl_seconds = cached_ttl_seconds;
+    return out;
+}
+
 pub const answer_a: Reply = .{ .records = &record_a, .ancount = 1 };
 pub const answer_ptr: Reply = .{ .records = &record_ptr, .ancount = 1 };
 pub const answer_aaaa: Reply = .{ .records = &record_aaaa, .ancount = 1 };

@@ -805,21 +805,21 @@ nanoseconds, a figure recalled and not measured, because the largest table there
 second-level cache and the harness cannot build one that does not. It is still nothing against a
 millisecond, but it is an estimate where the rest of this section is not.
 
-**Against c-ares.** `zig build bench-cares` on 2026-09-22, the same machine, clock and method as
-the table above: cocuyo ReleaseSafe against the Homebrew build of c-ares 1.34.8, which is its
-shipping build, optimised, with its assertions compiled out. Two runs back to back; every median
-from the second, each within 2% of the first. The cocuyo rows here are the same code as above
-measured in a different binary, and sit up to a tenth below the table above — 7.8 ns against 8.6
-for the query build — so a comparison reads within one table and never across two. Nanoseconds
-per operation:
+**Against c-ares.** `zig build bench-cares` on 2026-09-22, the same machine and clock as the
+table above: cocuyo ReleaseSafe against the Homebrew build of c-ares 1.34.8, which is its
+shipping build, optimised, with its assertions compiled out. Five runs back to back; each cell is
+the median of the five, and every one of them sits within 2% of the slowest run of its own row.
+The cocuyo rows here are the same code as above measured in a different binary, and sit a tenth
+below the table above — 7.7 ns against 8.6 for the query build — so a comparison reads within one
+table and never across two. Nanoseconds per operation:
 
 | Case | cocuyo | c-ares | c-ares over cocuyo |
 | --- | --- | --- | --- |
-| query build, `example.com`, EDNS0: cocuyo from a name it holds into the caller's buffer; c-ares from a prepared record into a buffer it allocates and the caller frees | 7.8 | 945.4 | 121 |
-| the same, with c-ares building the record as well: create, question, OPT, write, both freed | 7.8 | 1,281.3 | 165 |
-| response parse, one A record: cocuyo checks owners and copies the address out; c-ares parses to a record tree, the address is read, the tree is freed | 41.8 | 680.0 | 16 |
-| response parse, a CNAME then its A record, the same two ways | 166.8 | 1,059.8 | 6.4 |
-| response parse, 17 A records: cocuyo keeps sixteen and says so, c-ares keeps all seventeen | 560.8 | 4,039.3 | 7.2 |
+| query build, `example.com`, EDNS0: cocuyo from a name it holds into the caller's buffer; c-ares from a prepared record into a buffer it allocates and the caller frees | 7.7 | 958.4 | 124 |
+| the same, with c-ares building the record as well: create, question, OPT, write, both freed | 7.7 | 1,293.9 | 168 |
+| response parse, one A record: cocuyo checks owners and copies the address out; c-ares parses to a record tree, the address is read, the tree is freed | 49.3 | 693.4 | 14 |
+| response parse, a CNAME then its A record, the same two ways | 185.1 | 1,084.1 | 5.9 |
+| response parse, 17 A records: cocuyo keeps sixteen and says so, c-ares keeps all seventeen | 583.5 | 4,157.7 | 7.1 |
 
 What the comparison says, and what it does not:
 
@@ -909,10 +909,44 @@ binary prints, with its event thread, which gives it a second thread of its own,
 are in every number and are the same for both. Lookups per second over the wall time, and the
 median and 99th-percentile latency from start to result, in microseconds, on the machine above.
 
-The rows are not recorded here yet. The engine changed under the measurement twice in one day,
-and a table measured against a build that no longer exists is worse than none: run
-`zig build bench-cares` on the machine above and record what it prints, with the day, the way
-every other table in this section was made.
+Measured on 2026-09-22, five runs back to back on the machine above. Each cell is the median of
+the runs that produced its row, and the last column says how many did: two of the fifteen c-ares
+rows never finished, for the reason below. Lookups per second, and microseconds:
+
+| Stack | In flight | Lookups/s | Median | p99 | Failures | Runs |
+| --- | --- | --- | --- | --- | --- | --- |
+| cocuyo | 1 | 41,319 | 21 | 77 | 0 | 5 |
+| c-ares | 1 | 33,110 | 28 | 64 | 0 | 4 |
+| cocuyo | 16 | 86,702 | 206 | 255 | 0 | 5 |
+| c-ares | 16 | 71,028 | 222 | 318 | 0 | 4 |
+| cocuyo | 128 | 85,609 | 1,664 | 1,829 | 0 | 5 |
+| c-ares | 128 | 69,250 | 1,862 | 2,352 | 0 | 5 |
+
+What the rows say, and what they do not:
+
+- cocuyo resolves 1.25 times as many lookups a second as c-ares at one in flight, 1.22 at
+  sixteen and 1.24 at 128, and its median latency is lower on every row. That is a far smaller
+  ratio than the decoder table above, and it is the honest one: the responder, two system calls
+  per lookup and the kernel's loopback are in every number and are the same for both, so what is
+  left to differ is the library and the loop around it.
+- c-ares has the better tail at one in flight — 64 microseconds against 77 — and cocuyo the
+  better tail at sixteen and at 128. Spread run to run is under 6% on every cell.
+- Neither stack scales from sixteen in flight to 128: cocuyo loses 1% and c-ares loses 2% while
+  latency grows eightfold. The responder is one thread, and past sixteen in flight it is what the
+  run measures rather than either resolver.
+- Nothing here says anything about Linux, about a real network, or about a working set that a
+  cache would answer: the names are distinct, so neither cache is ever asked twice.
+
+**Two c-ares rows did not finish.** Its event thread parks in `kevent` with a query still queued
+and no timer armed for it, and an unbounded `ares_queue_wait_empty` never returns; the driver
+bounds that wait, gives the row up and says so, and the run carries on. It happened twice in
+fifteen rows, at one in flight and at sixteen. cocuyo's side finished every row of every run.
+
+**Three defects in the comparison's own driver had to go first**, and each of them would have
+made a row a lie: one second of wait per lookup at one in flight, a stack overflow from starting
+the next lookup inside c-ares's callback, and a panic from starting one on a channel being
+destroyed. docs/mutations.md records them as K1, K2 and K3. A harness is code, and until it is
+proved it measures itself.
 
 What the first run found. The engine's `drive` polled the table up to 4,096 times per call, and a
 lookup that has ended and waits for `take` answers every poll with its end again, so every drive
@@ -1789,12 +1823,13 @@ Landed on 2026-09-22: `core/address_order.zig`, the policy table and the scope p
 `core`'s constants with the RFC 4291 sections they come from, and the hook in `AddressLookup`,
 whose `select_families` now keeps the order received so that `no_sort` means what it says. Rule
 4 is in after all: the RFC's own examples exercise it, and two flags on `Route` are all it costs.
-The comparison against c-ares remains.
+The comparison against c-ares landed the same day, and §11 carries both of its tables: the
+decoders, and end to end at one, sixteen and 128 lookups in flight. cocuyo resolves 1.22 to 1.25
+times as many lookups a second on every row, with the lower median latency on each.
 
-Then the comparison the README will state: the decoders against c-ares's, which
-`zig build bench-cares` measures today, and end to end, both stacks against one in-process
-responder, lookups per second and latency at a number in flight, on the machine and the day §11
-names. cocuyo's side of that run is the engine of step 13 over rotor itself, built privately for
+What the comparison states, which §11 has in full: the decoders against c-ares's, and end to end,
+both stacks against one in-process responder, lookups per second and latency at a number in
+flight, on the machine and the day §11 names. cocuyo's side of that run is the engine of step 13 over rotor itself, built privately for
 the bench in `bench/end_to_end/` (the owner's call on 2026-09-22: rotor, not a `poll(2)` loop),
 so what is measured is the batteries-included path a consumer would get, while the engine stays
 unexported until one asks.

@@ -11,6 +11,8 @@ const Name = core.Name;
 const Source = core.Source;
 const fixtures = @import("fixtures.zig");
 const address_lookup = @import("address_lookup.zig");
+const memory_module = @import("table_memory.zig");
+const wire = @import("wire");
 const AddressLookup = address_lookup.AddressLookup;
 const AddressFlags = address_lookup.AddressFlags;
 const Handle = @import("table.zig").Handle;
@@ -384,3 +386,56 @@ const HostsFixture = struct {
         };
     }
 };
+
+/// A memory that holds one family's answer and nothing else, so a walk asks a server for the
+/// other family alone (docs/design.md §20).
+const OneFamily = struct {
+    answers: wire.Answers,
+    kind: core.Kind,
+    asked: u32 = 0,
+
+    fn memory(self: *OneFamily) memory_module.Memory {
+        return .{ .context = self, .recall = recall, .remember = remember };
+    }
+
+    fn recall(context: *anyopaque, question: *const core.Question, now_ns: u64) ?memory_module.Remembered {
+        _ = now_ns;
+        const self: *OneFamily = @ptrCast(@alignCast(context));
+        self.asked += 1;
+        if (question.kind != self.kind) return null;
+        return .{ .answered = .{ .answers = &self.answers, .ttl_seconds = fixtures.cached_ttl_seconds } };
+    }
+
+    fn remember(
+        context: *anyopaque,
+        question: *const core.Question,
+        end: memory_module.Remembered,
+        now_ns: u64,
+    ) void {
+        _ = context;
+        _ = question;
+        _ = end;
+        _ = now_ns;
+    }
+};
+
+test "a family the memory holds costs no query, and the walk asks for the other alone" {
+    var rig: Rig = .{ .table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } } };
+    try rig.open();
+    var held: OneFamily = .{ .answers = fixtures.cached_a("192.0.2.7"), .kind = .a };
+    rig.table.resolver.remember_with(held.memory());
+
+    try rig.start(null, "host", null, .{});
+    try rig.drive();
+    // The A side never reached a server: it ended at its first poll and its slot is free.
+    try testing.expectEqual(@as(?Handle, null), rig.lookup.a.handle);
+    // The other family is where a walk leaves it, on the first candidate and waiting.
+    try rig.asking(rig.lookup.aaaa.handle, "host.a.example");
+    try testing.expect(held.asked >= 2);
+
+    try rig.reply(rig.lookup.aaaa.handle, fixtures.no_data);
+    try rig.drive();
+    const info = rig.lookup.outcome().?.answered;
+    try expect_address(info, 0, "192.0.2.7");
+    try testing.expectEqual(@as(usize, 0), rig.table.resolver.in_flight());
+}
