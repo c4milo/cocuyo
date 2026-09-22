@@ -741,9 +741,11 @@ step until `zig build test` passes.
    `config`, which is the module the state machine cannot import.
 7. **Search-list order.** §5 records glibc's behaviour from memory. Worth pinning against a live
    `getaddrinfo` on both hosts before v1 is called done.
-8. **A second example.** The blocking one is required. A second one over rotor's completion-based
-   loop shows the shape this library was built for, and the owner cleared rotor as a dev-only
-   dependency of the tests and examples on 2026-09-22. rotor must still never depend on cocuyo.
+8. **A second example.** Answered: `examples/udp_rotor.zig` drives the same lookup over rotor's
+   completion-based loop, cleared by the owner on 2026-09-22 as a dependency of that example
+   alone. It is lazy, `zig build graph-check` still shows cocuyo's own modules cannot name it, and
+   rotor must never depend on cocuyo. The pin is a path while rotor's change is unpushed; it
+   becomes a URL and a hash when that lands.
 
 9. **Does version one need a cache after all?** c-ares caches by default and has since 1.31.0
    (§1), so a consumer replacing it loses that unless it writes one. The seam is clean and a cache
