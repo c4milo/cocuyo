@@ -30,13 +30,26 @@ pub const udp_payload_bytes_default = 1232;
 /// already honours (RFC 6891 §6.2.3).
 pub const udp_payload_bytes_min = 512;
 
-/// The largest query cocuyo builds: the header, a maximal qname, qtype and qclass, an OPT record,
-/// and the TCP length prefix. 12 + 255 + 4 + 11 + 2.
-pub const query_bytes_max = 284;
+/// The largest query cocuyo builds: the header, a maximal qname, qtype and qclass, an OPT record
+/// carrying the largest COOKIE option, and the TCP length prefix. 12 + 255 + 4 + 55 + 2.
+pub const query_bytes_max = 328;
 
-/// The OPT pseudo-record as cocuyo writes it: the root owner name, type, class, TTL and a zero
-/// rdlength. 1 + 2 + 2 + 4 + 2 (RFC 6891 §6.1.2).
+/// The OPT pseudo-record's fixed part: the root owner name, type, class, TTL and the rdlength.
+/// 1 + 2 + 2 + 4 + 2 (RFC 6891 §6.1.2).
 pub const opt_record_bytes = 11;
+
+/// The OPT record with the one option cocuyo writes, a COOKIE at its longest (RFC 7873 §4):
+/// the fixed part, the option's code and length, a client cookie and a 32-octet server cookie.
+pub const opt_record_bytes_max = opt_record_bytes + cookie_option_bytes_max;
+
+/// A COOKIE option at its longest: a 4-octet option header, then 8 + 32 octets of cookie.
+pub const cookie_option_bytes_max = 4 + cookie_client_bytes + cookie_server_bytes_max;
+
+/// The client cookie is fixed at eight octets; the server's is eight to thirty-two
+/// (RFC 7873 §4).
+pub const cookie_client_bytes = 8;
+pub const cookie_server_bytes_min = 8;
+pub const cookie_server_bytes_max = 32;
 
 /// A name in wire form, counting every length octet and the root (RFC 1035 §2.3.4).
 pub const name_bytes_max = 255;
@@ -145,7 +158,7 @@ pub const class_internet = 1;
 comptime {
     // The query bound must hold every part it is the sum of, or a maximal query would not fit the
     // buffer the caller is asked to provide.
-    const parts = header_bytes + name_bytes_max + question_fixed_bytes + opt_record_bytes +
+    const parts = header_bytes + name_bytes_max + question_fixed_bytes + opt_record_bytes_max +
         tcp_prefix_bytes;
     if (query_bytes_max != parts) @compileError("query_bytes_max is not the sum of its parts");
     if (name_text_bytes_max != name_bytes_max * 4) @compileError("the escape bound is wrong");
