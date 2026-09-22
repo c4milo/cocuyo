@@ -273,6 +273,16 @@ pub const Lookup = struct {
         assert(self.state == .failed);
     }
 
+    /// Whether the lookup is on a stream: waiting for a connection, ready to send on one, or
+    /// waiting for its answer. What a caller holding one connection for several lookups asks
+    /// before it tells a lookup the connection is up or gone (docs/design.md §19 step 13).
+    pub fn is_on_stream(self: *const Lookup) bool {
+        return switch (self.state) {
+            .connecting_tcp, .tcp_ready, .awaiting_tcp => true,
+            .query_ready, .awaiting_udp, .tcp_needed, .done, .failed => false,
+        };
+    }
+
     pub fn is_settled(self: *const Lookup) bool {
         return self.state == .done or self.state == .failed;
     }

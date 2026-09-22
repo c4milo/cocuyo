@@ -28,6 +28,39 @@ pub const group_id = 0;
 /// server, a send per lookup, one timer, and slack for the closes.
 pub const loop_operations_slack = 16;
 
+/// The TCP connections one engine keeps, when the caller says nothing. One: every lookup that
+/// needs a stream to the same server pipelines onto it (RFC 7766 §6.2.1.1), and a caller that
+/// asks several servers over TCP at once raises it. Each costs a message buffer.
+pub const tcp_connections_default = 1;
+
+/// The longest message a length prefix can describe (RFC 7766 §8), which is what one connection
+/// assembles its chunks into. A stream exists for the answers a datagram cannot carry, so the
+/// buffer is the whole of what one can say.
+pub const tcp_message_bytes_max = core.constants.message_bytes_max;
+
+/// The stream chunks arrive in a group of their own: a datagram group carries rotor's prefix
+/// before every payload, and a stream has no peer to name.
+pub const tcp_group_id = 1;
+pub const tcp_chunk_bytes = 2048;
+pub const tcp_group_buffers_default = 8;
+
+/// How long a connection nobody is using is kept. Ten seconds, chosen and not measured, which is
+/// short by the standard RFC 7766 §6.2.3 sets a client.
+pub const tcp_idle_ns_default = 10_000_000_000;
+
+/// Where a receive's generation sits in its `user_data`, above the server's index: a socket
+/// that has been replaced has a generation of its own, so the end of the receive it left behind
+/// is told from the one now armed.
+pub const receive_generation_shift = 8;
+pub const receive_index_mask = (1 << receive_generation_shift) - 1;
+
+/// What one connection asks of the loop: the connect, and then the receive that replaces it.
+pub const loop_operations_per_connection = 2;
+
+/// The most whole messages taken out of one chunk, which bounds the framing loop. A chunk is one
+/// read, and a pipelined server can answer several queries in one.
+pub const tcp_messages_per_chunk_max = 32;
+
 comptime {
     if (buffer_bytes < core.constants.udp_payload_bytes_default + 192) {
         @compileError("a group buffer cannot hold the payload cocuyo advertises after rotor's prefix");

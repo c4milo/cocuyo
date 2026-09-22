@@ -18,27 +18,35 @@ const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 pub const constants = @import("constants.zig");
 const udp = @import("io_udp.zig");
+const tcp = @import("io_tcp.zig");
 const results_module = @import("io_results.zig");
 const drive_module = @import("io_drive.zig");
 const events_module = @import("io_events.zig");
+const lifecycle = @import("io_lifecycle.zig");
 
 pub const Options = struct {
     lookups: u16 = constants.lookups_default,
     cache_slots: u16 = constants.cache_slots_default,
     tag: u16 = constants.tag_default,
     group_buffers: u16 = constants.group_buffers_default,
+    /// The TCP connections held at once, and the chunk buffers they read into.
+    tcp_connections: u16 = constants.tcp_connections_default,
+    tcp_group_buffers: u16 = constants.tcp_group_buffers_default,
+    /// The longest message one connection can assemble (RFC 7766 §8).
+    tcp_message_bytes: u32 = constants.tcp_message_bytes_max,
 };
 
 pub const InitError = error{ SocketFailed, ReceiveFailed };
 
 /// What one of the engine's `user_data` values says.
-pub const Kind = enum(u8) { udp_send, udp_receive, timer };
+pub const Kind = enum(u8) { udp_send, udp_receive, timer, tcp_connect, tcp_send, tcp_receive };
 
 pub fn Engine(comptime options: Options) type {
     return struct {
         const Self = @This();
 
         pub const Result = results_module.Result;
+        pub const InitErrorType = InitError;
         pub const Started = union(enum) {
             /// A lookup is on its way; its result comes through `take`.
             lookup: cocuyo.Handle,
@@ -65,6 +73,11 @@ pub fn Engine(comptime options: Options) type {
         outbounds: [options.lookups]rotor.datagram.Outbound,
         sockets: udp.Sockets,
         group: udp.Group(options.group_buffers),
+        /// The streams of RFC 7766, and which one each lookup is on (`io_tcp.zig`).
+        connections: [options.tcp_connections]tcp.Connection(options.tcp_message_bytes),
+        tcp_connection: [options.lookups]?u8,
+        tcp_group: tcp.Group(options.tcp_group_buffers),
+        tcp_idle_ns: u64,
         results: results_module.Queue(options.lookups),
         /// The result handed out last, whose slot is freed at the next `take`.
         last_taken: ?cocuyo.Handle,
@@ -87,7 +100,11 @@ pub fn Engine(comptime options: Options) type {
         pub const tag = options.tag;
 
         /// The operations and entries a loop needs for this engine: what `Loop.Options` takes.
-        pub const loop_operations = @as(u32, options.lookups) + cocuyo.constants.servers_max + constants.loop_operations_slack;
+        /// What `Loop.Options.operations` needs for this engine: a send per lookup, a receive
+        /// per server, a connect and a receive per connection, one timer, and slack.
+        pub const loop_operations = @as(u32, options.lookups) + cocuyo.constants.servers_max +
+            constants.loop_operations_per_connection * @as(u32, options.tcp_connections) +
+            constants.loop_operations_slack;
 
         pub fn init(self: *Self, loop: *rotor.Loop, config: *const cocuyo.Config, seed: u64, now_ns: u64) InitError!void {
             config.assert_valid();
@@ -103,7 +120,12 @@ pub fn Engine(comptime options: Options) type {
             self.timer_due_ns = null;
             self.timer_generation = 0;
             self.closing = false;
+            self.connections = @splat(.{});
+            self.tcp_connection = @splat(null);
+            self.tcp_idle_ns = constants.tcp_idle_ns_default;
+            self.sockets.reset_generation();
             try self.group.provide(loop);
+            try self.tcp_group.provide(loop);
             try self.sockets.open(loop, config, seed, options.tag);
             _ = now_ns;
         }
@@ -115,12 +137,14 @@ pub fn Engine(comptime options: Options) type {
             if (self.timer_handle) |handle| self.loop.cancel(handle);
             self.timer_handle = null;
             self.sockets.cancel(self.loop);
+            tcp.cancel_all(self);
         }
 
         /// Closes the sockets, once the loop has drained (rotor decision 5, rule 4).
         pub fn close(self: *Self) void {
             assert(self.closing);
             self.sockets.close();
+            tcp.close_all(self);
         }
 
         fn resolver_cancel_all(self: *Self) void {
@@ -139,8 +163,21 @@ pub fn Engine(comptime options: Options) type {
             self.handles[handle.index] = handle;
             self.send_in_flight[handle.index] = false;
             self.reported[handle.index] = false;
+            self.tcp_connection[handle.index] = null;
             drive_module.drive(self, now_ns);
             return .{ .lookup = handle };
+        }
+
+        /// Settles every lookup as cancelled, which is `ares_cancel`. Each failure comes through
+        /// `take` like any other, so the caller learns of all of them.
+        pub fn cancel_all(self: *Self, now_ns: u64) void {
+            lifecycle.cancel_all(self, now_ns);
+        }
+
+        /// A new configuration, which is `ares_reinit`. The engine must be idle; `io_lifecycle.zig`
+        /// says why and what a caller does first.
+        pub fn reinit(self: *Self, config: *const cocuyo.Config, seed: u64, now_ns: u64) InitError!void {
+            try lifecycle.reinit(self, config, seed, now_ns);
         }
 
         /// Settles the lookup as cancelled; its failure comes through `take` like any other.
@@ -188,9 +225,15 @@ pub fn Engine(comptime options: Options) type {
 
 test {
     _ = udp;
+    _ = tcp;
     _ = results_module;
     _ = drive_module;
     _ = events_module;
+    _ = lifecycle;
     // The tests drive the engine on the twin, which is the only `rotor` that has scripts.
-    if (comptime @hasDecl(rotor, "server")) _ = @import("io_sim_test.zig");
+    if (comptime @hasDecl(rotor, "server")) {
+        _ = @import("io_sim_test.zig");
+        _ = @import("io_tcp_test.zig");
+        _ = @import("io_lifecycle_test.zig");
+    }
 }

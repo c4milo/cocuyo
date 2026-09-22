@@ -7,6 +7,7 @@ const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
 const udp = @import("io_udp.zig");
+const tcp = @import("io_tcp.zig");
 const drive_module = @import("io_drive.zig");
 const Kind = @import("io.zig").Kind;
 
@@ -20,6 +21,9 @@ pub fn apply(self: anytype, event: rotor.Event, now_ns: u64) bool {
         .udp_send => on_send_event(self, index, event, now_ns),
         .udp_receive => on_receive_event(self, index, event, now_ns),
         .timer => on_timer_event(self, index),
+        .tcp_connect => tcp.on_connect_event(self, index, event, now_ns),
+        .tcp_send => on_send_event(self, index, event, now_ns),
+        .tcp_receive => tcp.on_receive_event(self, index, event, now_ns),
     }
     drive_module.drive(self, now_ns);
     return true;
@@ -37,6 +41,10 @@ fn on_timer_event(self: anytype, generation: usize) void {
 
 fn on_send_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64) void {
     assert(index < self.slots.len);
+    // A send the engine is not waiting for belongs to a lookup that is gone: `reinit` put a new
+    // table under the slot, or the slot was freed and taken. Its completion says nothing about
+    // whatever is there now.
+    if (!self.send_in_flight[index]) return;
     self.send_in_flight[index] = false;
     const handle = self.handles[index];
     if (!self.slots[index].occupied or self.resolver.lookup_of(handle).is_settled()) return;
@@ -47,14 +55,17 @@ fn on_send_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64) v
     }
 }
 
-fn on_receive_event(self: anytype, server: usize, event: rotor.Event, now_ns: u64) void {
+fn on_receive_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64) void {
+    // A receive the socket left behind, because the port was replaced or the configuration was:
+    // its bytes belong to a socket that is closed, and arming another is not this one's to do.
+    const server = self.sockets.is_current(index) orelse return;
     assert(server < cocuyo.constants.servers_max);
     if (event.outcome()) |bytes| {
         if (bytes > 0) deliver(self, event, now_ns);
     } else |_| {}
     // A multishot that ended is armed again, unless the engine is closing.
     if (event.is_final() and !self.closing) {
-        self.sockets.receive_again(self.loop, @intCast(server), @TypeOf(self.*).tag) catch {};
+        self.sockets.receive_again(self.loop, server, @TypeOf(self.*).tag) catch {};
     }
 }
 

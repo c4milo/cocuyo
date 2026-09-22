@@ -102,6 +102,53 @@ pub const Operation = struct {
         to: *const Outbound,
     };
     pub const Buffer = struct { bytes: []u8, registered: ?u16 = null };
+
+    // One call per kind, as rotor builds them: the common shape, with the rest set on the
+    // result. The parameters are named apart from the kinds, because Zig lets nothing shadow a
+    // declaration.
+
+    pub fn accept(user_data: u64, listener: Descriptor, multishot: bool) Operation {
+        return .{ .user_data = user_data, .kind = .{ .accept = .{ .listener = listener, .multishot = multishot } } };
+    }
+    pub fn connect(user_data: u64, socket: Descriptor, address: *const Address) Operation {
+        return .{ .user_data = user_data, .kind = .{ .connect = .{ .socket = socket, .address = address } } };
+    }
+    pub fn receive(user_data: u64, socket: Descriptor, bytes: []u8) Operation {
+        return .{ .user_data = user_data, .kind = .{ .receive = .{ .socket = socket, .target = .{ .buffer = .{ .bytes = bytes } } } } };
+    }
+    pub fn receive_group(user_data: u64, socket: Descriptor, group: u16) Operation {
+        return .{ .user_data = user_data, .kind = .{ .receive = .{ .socket = socket, .target = .{ .group = group }, .multishot = true } } };
+    }
+    pub fn send(user_data: u64, socket: Descriptor, bytes: []const u8) Operation {
+        return .{ .user_data = user_data, .kind = .{ .send = .{ .socket = socket, .buffer = .{ .bytes = bytes } } } };
+    }
+    pub fn shutdown(user_data: u64, socket: Descriptor, how: How) Operation {
+        return .{ .user_data = user_data, .kind = .{ .shutdown = .{ .socket = socket, .how = how } } };
+    }
+    pub fn close(user_data: u64, closing: Descriptor) Operation {
+        return .{ .user_data = user_data, .kind = .{ .close = .{ .descriptor = closing } } };
+    }
+    pub fn read(user_data: u64, file: Descriptor, bytes: []u8, offset: u64) Operation {
+        return .{ .user_data = user_data, .kind = .{ .read = .{ .file = file, .buffer = .{ .bytes = bytes }, .offset = offset } } };
+    }
+    pub fn write(user_data: u64, file: Descriptor, bytes: []const u8, offset: u64) Operation {
+        return .{ .user_data = user_data, .kind = .{ .write = .{ .file = file, .buffer = .{ .bytes = bytes }, .offset = offset } } };
+    }
+    pub fn fdatasync(user_data: u64, file: Descriptor) Operation {
+        return .{ .user_data = user_data, .kind = .{ .fdatasync = .{ .file = file } } };
+    }
+    pub fn timer(user_data: u64, after_ns: u64, repeat_ns: u64) Operation {
+        return .{ .user_data = user_data, .kind = .{ .timer = .{ .after_ns = after_ns, .repeat_ns = repeat_ns } } };
+    }
+    pub fn post(user_data: u64, target: LoopId, message: Message) Operation {
+        return .{ .user_data = user_data, .kind = .{ .post = .{ .target = target, .message = message } } };
+    }
+    pub fn receive_from(user_data: u64, socket: Descriptor, group: u16) Operation {
+        return .{ .user_data = user_data, .kind = .{ .receive_from = .{ .socket = socket, .group = group } } };
+    }
+    pub fn send_to(user_data: u64, socket: Descriptor, bytes: []const u8, to: *const Outbound) Operation {
+        return .{ .user_data = user_data, .kind = .{ .send_to = .{ .socket = socket, .buffer = .{ .bytes = bytes }, .to = to } } };
+    }
     pub const ConstBuffer = struct { bytes: []const u8, registered: ?u16 = null };
 
     pub fn code(operation: *const Operation) Code {
@@ -109,18 +156,19 @@ pub const Operation = struct {
     }
 
     pub fn descriptor(operation: *const Operation) ?Descriptor {
+        // The captures are named apart from the constructors above, which they would shadow.
         return switch (operation.kind) {
-            .accept => |accept| accept.listener,
-            .connect => |connect| connect.socket,
-            .receive => |receive| receive.socket,
-            .send => |send| send.socket,
-            .shutdown => |shutdown| shutdown.socket,
-            .close => |close| close.descriptor,
-            .read => |read| read.file,
-            .write => |write| write.file,
-            .fdatasync => |fdatasync| fdatasync.file,
-            .receive_from => |receive| receive.socket,
-            .send_to => |send| send.socket,
+            .accept => |kind| kind.listener,
+            .connect => |kind| kind.socket,
+            .receive => |kind| kind.socket,
+            .send => |kind| kind.socket,
+            .shutdown => |kind| kind.socket,
+            .close => |kind| kind.descriptor,
+            .read => |kind| kind.file,
+            .write => |kind| kind.file,
+            .fdatasync => |kind| kind.file,
+            .receive_from => |kind| kind.socket,
+            .send_to => |kind| kind.socket,
             .timer, .post, .nop => null,
         };
     }

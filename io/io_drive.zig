@@ -6,6 +6,7 @@ const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
 const udp = @import("io_udp.zig");
+const tcp = @import("io_tcp.zig");
 const results_module = @import("io_results.zig");
 
 /// Polls the table for what every lookup wants and does it: a send queued, an end handed to
@@ -27,6 +28,8 @@ pub fn drive(self: anytype, now_ns: u64) void {
         const event = self.resolver.poll(now_ns, &self.scratch) orelse break;
         if (act(self, event, now_ns)) refused = 0 else refused += 1;
     }
+    tcp.close_idle(self, now_ns);
+    rotate_ports(self);
     arm_timer(self, now_ns);
 }
 
@@ -38,9 +41,11 @@ fn act(self: anytype, event: cocuyo.Event, now_ns: u64) bool {
             if (self.send_in_flight[index]) return false;
             queue_send(self, index, send, now_ns);
         },
-        // TCP comes with the next commit of §19 step 13; until then the answer that needs it
-        // is a failure of this server.
-        .connect_tcp, .send_tcp => self.resolver.on_tcp_failed(event.handle, now_ns),
+        .connect_tcp => tcp.want(self, index, now_ns),
+        .send_tcp => |send| {
+            if (self.send_in_flight[index]) return false;
+            tcp.send(self, index, send.message_bytes, now_ns);
+        },
         .done => |answer| return report(self, index, .{ .answer = answer }, now_ns),
         .failed => |failure| return report(self, index, .{ .failure = failure }, now_ns),
         .wait => unreachable,
@@ -53,7 +58,8 @@ fn queue_send(self: anytype, index: usize, send: anytype, now_ns: u64) void {
     assert(bytes.len <= cocuyo.constants.query_bytes_max);
     @memcpy(self.send_buffers[index][0..bytes.len], bytes);
     self.outbounds[index] = udp.outbound_to(send.server);
-    const socket = self.sockets.descriptor_of(self.resolver.lookup_of(self.handles[index]).server_slot());
+    const slot = self.resolver.lookup_of(self.handles[index]).server_slot();
+    const socket = self.sockets.descriptor_of(slot);
     const operation: rotor.Operation = .{
         .user_data = @TypeOf(self.*).user_data(.udp_send, index),
         .kind = .{ .send_to = .{
@@ -64,6 +70,7 @@ fn queue_send(self: anytype, index: usize, send: anytype, now_ns: u64) void {
     };
     if (self.loop.submit(&.{operation}, &.{}) == 1) {
         self.send_in_flight[index] = true;
+        _ = self.sockets.count_sent(slot, self.config.udp_queries_per_port);
     } else {
         self.resolver.on_send_failed(self.handles[index], now_ns);
     }
@@ -79,6 +86,7 @@ fn report(self: anytype, index: usize, outcome: results_module.Outcome, now_ns: 
         .answer => self.cache.put(&lookup.question, &lookup.answers, now_ns),
         .failure => |failure| put_negative(self, &lookup.question, failure, now_ns),
     }
+    tcp.release(self, index, now_ns);
     self.results.push(.{ .handle = self.handles[index], .outcome = outcome });
     return true;
 }
@@ -90,6 +98,30 @@ fn put_negative(self: anytype, question: *const cocuyo.Question, failure: cocuyo
         else => return,
     };
     self.cache.put_negative(question, outcome, failure.negative_ttl_seconds, now_ns);
+}
+
+/// Replaces a source port that has carried its share of queries, once no lookup is waiting on
+/// its server (`Config.udp_queries_per_port`, c-ares `udp_max_queries`). A port is never taken
+/// from a query that is still waiting: the answer would arrive at a socket that is gone.
+fn rotate_ports(self: anytype) void {
+    var server: u8 = 0;
+    while (server < self.config.servers.len) : (server += 1) {
+        if (!self.sockets.is_retiring(server)) continue;
+        if (waiting_on(self, server)) continue;
+        self.sockets.rotate(self.loop, self.config, server, @TypeOf(self.*).tag) catch return;
+    }
+}
+
+/// Whether any lookup is waiting for an answer from server `server`, or has a query on its way
+/// there.
+fn waiting_on(self: anytype, server: u8) bool {
+    for (self.slots[0..], 0..) |*slot, index| {
+        if (!slot.occupied) continue;
+        const lookup = self.resolver.lookup_of(self.handles[index]);
+        if (lookup.server_slot() != server) continue;
+        if (self.send_in_flight[index] or lookup.is_waiting()) return true;
+    }
+    return false;
 }
 
 /// One rotor timer at the table's soonest deadline, moved when the deadline moves.

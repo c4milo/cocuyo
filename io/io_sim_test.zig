@@ -19,7 +19,7 @@ const Engine = io.Engine(options);
 const loop_options: rotor.Loop.Options = .{ .operations = Engine.loop_operations };
 
 /// Two scripted servers, which are the twin's first two, and an engine over them.
-const Rig = struct {
+pub const Rig = struct {
     loop: rotor.Loop = undefined,
     memory: [0]u8 align(rotor.memory_alignment) = undefined,
     servers: [fixtures.servers]cocuyo.Server = .{
@@ -30,7 +30,7 @@ const Rig = struct {
     engine: Engine = undefined,
     events: [fixtures.events_max]rotor.Event = undefined,
 
-    fn init(rig: *Rig, seed: u64, scripts: [fixtures.servers]rotor.server.Script, config: cocuyo.Config) !void {
+    pub fn init(rig: *Rig, seed: u64, scripts: [fixtures.servers]rotor.server.Script, config: cocuyo.Config) !void {
         try rig.loop.init(&rig.memory, loop_options);
         rig.loop.seed(seed);
         rig.loop.network().scripts[0] = scripts[0];
@@ -41,7 +41,7 @@ const Rig = struct {
         try rig.engine.init(&rig.loop, &rig.config, seed, rig.loop.now());
     }
 
-    fn deinit(rig: *Rig) !void {
+    pub fn deinit(rig: *Rig) !void {
         rig.engine.deinit();
         try rig.loop.drain(&rig.events);
         rig.engine.close();
@@ -49,7 +49,7 @@ const Rig = struct {
     }
 
     /// One tick, every event applied. How many were the engine's.
-    fn step(rig: *Rig, wait_ns: u64) !u32 {
+    pub fn step(rig: *Rig, wait_ns: u64) !u32 {
         const count = try rig.loop.tick(&rig.events, wait_ns);
         var applied: u32 = 0;
         for (rig.events[0..count]) |event| {
@@ -59,7 +59,7 @@ const Rig = struct {
     }
 
     /// Runs until a result is ready, or the rounds run out.
-    fn until_result(rig: *Rig) !Engine.Result {
+    pub fn until_result(rig: *Rig) !Engine.Result {
         var rounds: usize = 0;
         while (rounds < fixtures.until_rounds_max) : (rounds += 1) {
             if (rig.engine.take(rig.loop.now())) |result| return result;
@@ -69,11 +69,11 @@ const Rig = struct {
     }
 };
 
-fn endpoint_of(address: rotor.Address) cocuyo.Endpoint {
+pub fn endpoint_of(address: rotor.Address) cocuyo.Endpoint {
     return .{ .address = cocuyo.Address.from_v4(address.bytes[0..cocuyo.constants.address_v4_bytes].*), .port = address.port };
 }
 
-fn question(text: []const u8) cocuyo.Question {
+pub fn question(text: []const u8) cocuyo.Question {
     return cocuyo.Question.from_text(text, .a) catch unreachable;
 }
 
@@ -168,31 +168,32 @@ test "the timer follows the table's soonest deadline" {
     try rig.deinit();
 }
 
-test "a timer moved to a later deadline stays armed when the old timer's canceled end arrives" {
+test "the end of a timer the engine has replaced is not taken for the current one's" {
+    // The table's deadline is a bound that never moves earlier while lookups wait (§11), so the
+    // engine replaces a timer rarely; when it does, the old one's canceled end arrives after the
+    // new one is armed (rotor decision 5, rule 2). The generation in the `user_data` is what
+    // tells them apart, and this hands the engine an end from the timer before the current one.
     var rig: Rig = .{};
     try rig.init(9, .{ .{ .down = true }, .{ .down = true } }, .{ .servers = &.{}, .timeout_ns = 2_000_000_000, .attempts = 1 });
-    const first = try rig.engine.start(question("first.example."), rig.loop.now());
+    const started = try rig.engine.start(question("first.example."), rig.loop.now());
     _ = try rig.step(0);
+    const armed = rig.engine.timer_handle;
+    try testing.expect(armed != null);
     try testing.expectEqual(@as(?u64, 2_000_000_000), rig.engine.timer_due_ns);
-    // A tick with nothing due moves the clock, so the second lookup's deadline is later.
-    _ = try rig.step(1_000_000_000);
-    const second = try rig.engine.start(question("second.example."), rig.loop.now());
-    _ = try rig.step(0);
-    // Cancelling the first moves the deadline to the second's: the old timer is cancelled and
-    // a new one armed, and the old one's canceled end must not be taken for the new one's.
-    rig.engine.cancel(first.lookup, rig.loop.now());
-    try testing.expectEqual(@as(?u64, 3_000_000_000), rig.engine.timer_due_ns);
-    try testing.expect(rig.engine.timer_handle != null);
-    try testing.expectEqual(@as(u32, 1), try rig.step(0));
-    try testing.expect(rig.engine.timer_handle != null);
-    try testing.expectEqual(@as(u64, 1_000_000_000), rig.loop.now());
-    try testing.expectEqual(cocuyo.Error.Canceled, (try rig.until_result()).outcome.failure.err);
-    rig.engine.cancel(second.lookup, rig.loop.now());
+
+    const stale: rotor.Event = .{
+        .user_data = Engine.user_data(.timer, rig.engine.timer_generation - 1),
+        .result = 0,
+        .flags = .{},
+    };
+    try testing.expect(rig.engine.apply(stale, rig.loop.now()));
+    try testing.expectEqual(armed, rig.engine.timer_handle);
+    try testing.expectEqual(@as(?u64, 2_000_000_000), rig.engine.timer_due_ns);
+
+    rig.engine.cancel(started.lookup, rig.loop.now());
     try testing.expectEqual(cocuyo.Error.Canceled, (try rig.until_result()).outcome.failure.err);
     _ = rig.engine.take(rig.loop.now());
-    // No deadline is left, so no timer is: the drain ends now, not when a forgotten one fires.
     try rig.deinit();
-    try testing.expectEqual(@as(u64, 1_000_000_000), rig.loop.now());
 }
 
 test "a timer that fires before the caller's clock reaches the deadline is armed again" {
@@ -210,6 +211,21 @@ test "a timer that fires before the caller's clock reaches the deadline is armed
     try testing.expectEqual(@as(?u64, 2_000_000_000), rig.engine.timer_due_ns);
     try testing.expectEqual(cocuyo.Error.Timeout, (try rig.until_result()).outcome.failure.err);
     _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
+test "a lookup offered twice is on the ready list once" {
+    // `start` offers the lookup and `cancel` settles it again before any poll, so the table is
+    // asked to put one slot on its list twice (§11).
+    var rig: Rig = .{};
+    try rig.init(15, .{ .{}, .{} }, .{ .servers = &.{} });
+    const started = try rig.engine.start(question("example.com."), rig.loop.now());
+    rig.engine.cancel(started.lookup, rig.loop.now());
+    const result = try rig.until_result();
+    try testing.expectEqual(cocuyo.Error.Canceled, result.outcome.failure.err);
+    _ = rig.engine.take(rig.loop.now());
+    try testing.expectEqual(@as(?Engine.Result, null), rig.engine.take(rig.loop.now()));
+    try testing.expectEqual(@as(usize, 0), rig.engine.active());
     try rig.deinit();
 }
 

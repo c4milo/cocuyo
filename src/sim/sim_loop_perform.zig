@@ -105,7 +105,8 @@ fn connect_stream(loop: *Loop, slot: u32, connect: *const Operation.Connect) voi
     };
     entry.connection = connection;
     if (entry.local.port == 0) entry.local.port = network().assign_port_public();
-    loop.queue(slot, Event.success(user_data, 0), loop.now_ns + script.delay_ns_min, true);
+    const delay_ns = if (script.connect_delay_ns != 0) script.connect_delay_ns else script.delay_ns_min;
+    loop.queue(slot, Event.success(user_data, 0), loop.now_ns + delay_ns, true);
 }
 
 /// Bytes to the server: whole frames are answered, a partial one waits for the rest
@@ -230,7 +231,13 @@ fn materialize_streams(loop: *Loop) void {
         const receiver = stream_ready(loop, connection) orelse continue;
         var chunks: usize = 0;
         while (chunks < constants.buffers_per_group_max and connection.inbound_len > 0) : (chunks += 1) {
-            if (!deliver_chunk(loop, connection, receiver)) break;
+            if (!deliver_chunk(loop, connection, receiver)) {
+                // No buffer for bytes that are ready: the multishot ends the way rotor's does,
+                // and the bytes wait for the next receive.
+                network().sockets[@intCast(connection.socket)].receiver = null;
+                loop.queue(receiver.slot, Event.failure(receiver.user_data, .buffers_exhausted), loop.now_ns, true);
+                break;
+            }
             if (!receiver.multishot) {
                 network().sockets[@intCast(connection.socket)].receiver = null;
                 break;

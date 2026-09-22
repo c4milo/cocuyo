@@ -14,10 +14,12 @@ const Name = core.Name;
 
 /// What one server does, per query. Chances are in 256ths and drawn from the seed.
 pub const Script = struct {
-    drop_per_256: u8 = 0,
-    truncate_per_256: u8 = 0,
-    servfail_per_256: u8 = 0,
-    nxdomain_per_256: u8 = 0,
+    /// How often, out of 256 queries, the server does each of these. A draw is an octet, so 256
+    /// is every query and 0 is none.
+    drop_per_256: u16 = 0,
+    truncate_per_256: u16 = 0,
+    servfail_per_256: u16 = 0,
+    nxdomain_per_256: u16 = 0,
     /// The reply's delay, drawn between the two.
     delay_ns_min: u64 = 1_000_000,
     delay_ns_max: u64 = 5_000_000,
@@ -29,6 +31,8 @@ pub const Script = struct {
     cookies: bool = true,
     /// Accepts TCP connections.
     tcp: bool = true,
+    /// What a connect to it costs, when it is slower than an answer. Zero is `delay_ns_min`.
+    connect_delay_ns: u64 = 0,
     ttl_seconds: u32 = constants.answer_ttl_seconds,
 };
 
@@ -159,19 +163,19 @@ const Dice = struct {
         return @truncate(self.word >> shift);
     }
 
-    fn hit(self: Dice, per_256: u8) bool {
+    fn hit(self: Dice, per_256: u16) bool {
         return self.octet(constants.dice_drop_shift) < per_256;
     }
 
-    fn hit_second(self: Dice, per_256: u8) bool {
+    fn hit_second(self: Dice, per_256: u16) bool {
         return self.octet(constants.dice_servfail_shift) < per_256;
     }
 
-    fn hit_third(self: Dice, per_256: u8) bool {
+    fn hit_third(self: Dice, per_256: u16) bool {
         return self.octet(constants.dice_nxdomain_shift) < per_256;
     }
 
-    fn hit_fourth(self: Dice, per_256: u8) bool {
+    fn hit_fourth(self: Dice, per_256: u16) bool {
         return self.octet(constants.dice_truncate_shift) < per_256;
     }
 

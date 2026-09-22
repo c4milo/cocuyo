@@ -37,6 +37,35 @@ pub const lossy_step_ns = 1_000_000_000;
 pub const name_text_bytes = 24;
 pub const trace_code_shift = 32;
 
+/// Every query truncated, which is what sends a lookup to the stream (RFC 7766 §5), and the
+/// wait that carries a connection past the idle close.
+pub const always = 256;
+pub const tcp_idle_jump_ns = 11 * 1_000_000_000;
+
+/// A stream scenario slow enough to outlast the idle close, under a timeout that outlasts it in
+/// turn: the answer comes at `stream_delay_ns` over each of UDP and TCP.
+pub const stream_delay_ns = 12 * 1_000_000_000;
+pub const stream_timeout_ns = 25 * 1_000_000_000;
+
+/// A connect slower than the lookup's wait, which strands a lookup that has moved on by the
+/// time the connection comes up.
+pub const slow_connect_ns = 3 * 1_000_000_000;
+pub const slow_connect_timeout_ns = 2 * 1_000_000_000;
+/// What the next server takes: longer than the connect has left to run, so the lookup is still
+/// waiting on it when the connection comes up, and shorter than its own wait.
+pub const slow_answer_ns = 1_500_000_000;
+
+/// The local address a socket is asked to bind to: the documentation range (RFC 5737).
+pub const local_octets = [_]u8{ 192, 0, 2, 200 };
+pub const unspecified_v4 = [_]u8{ 0, 0, 0, 0 };
+pub const local_v6_octets = [_]u8{ 0x20, 0x01, 0x0d, 0xb8 } ++ [_]u8{0} ** 11 ++ [_]u8{9};
+
+/// A connection that can assemble only a small message, so an ordinary answer will not fit.
+pub const tiny_message_bytes = 64;
+
+/// A stream group of two buffers, so a chunk finds none and the multishot ends.
+pub const tcp_group_buffers_small = 2;
+
 /// A small engine whose group runs dry under its own lookups: more replies at once than buffers.
 pub const small_lookups = 6;
 pub const small_group_buffers = 2;

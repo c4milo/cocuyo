@@ -59,6 +59,10 @@ pub const server_prefix = [_]u8{ 192, 0, 2 };
 pub const server_octet_first = 53;
 pub const server_port = core.constants.port_dns_default;
 
+/// The port a scripted server also accepts streams on, so a `Server.tcp_port` of its own is a
+/// thing a test can set (docs/design.md §19 step 11).
+pub const server_tcp_port = 5353;
+
 /// The address a client socket bound to no address gets, and the range of ports handed out.
 pub const client_address = [_]u8{ 192, 0, 2, 1 };
 pub const client_port_first = 40000;

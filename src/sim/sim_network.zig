@@ -73,7 +73,8 @@ pub const Network = struct {
     /// Which scripted server an address names, or null for anywhere else: a datagram there is
     /// sent into the void, and a connection there is refused.
     pub fn server_of(self: *const Network, address: *const Address) ?u8 {
-        if (address.family != .ipv4 or address.port != constants.server_port) return null;
+        if (address.family != .ipv4) return null;
+        if (address.port != constants.server_port and address.port != constants.server_tcp_port) return null;
         if (!std.mem.eql(u8, address.bytes[0..constants.server_prefix.len], &constants.server_prefix)) return null;
         const octet = address.bytes[constants.server_prefix.len];
         if (octet < constants.server_octet_first) return null;
@@ -237,5 +238,8 @@ test "the scripted servers sit at the documentation range, in order" {
     try testing.expectEqual(@as(?u8, 1), network.server_of(&Network.server_address(1)));
     try testing.expectEqual(@as(?u8, null), network.server_of(&Network.server_address(2)));
     try testing.expectEqual(@as(?u8, null), network.server_of(&Address.ipv4(.{ 10, 0, 0, 1 }, 53)));
-    try testing.expectEqual(@as(?u8, null), network.server_of(&Address.ipv4(.{ 192, 0, 2, 53 }, 5353)));
+    // A server also accepts streams on a port of its own, so a `Server.tcp_port` is a thing a
+    // test can set; any other port is nobody's.
+    try testing.expectEqual(@as(?u8, 0), network.server_of(&Address.ipv4(.{ 192, 0, 2, 53 }, constants.server_tcp_port)));
+    try testing.expectEqual(@as(?u8, null), network.server_of(&Address.ipv4(.{ 192, 0, 2, 53 }, 1053)));
 }
