@@ -564,7 +564,7 @@ twenty-four `CAUGHT`, one after a test was written for it.
 | A3 | NODATA seen is forgotten at the end of the walk | §5's rule | the nothing-found test | CAUGHT |
 | A4 | a hard failure on one family is dropped | §19 step 14 | the hard-failure test | CAUGHT |
 | A5 | the half that failed is not reported | `partial` | the timed-out-half test | CAUGHT |
-| A6 | the families come back in arrival order | `getaddrinfo(3)`'s order | the IPv6-first test | CAUGHT |
+| A6 | the families come back in arrival order | `getaddrinfo(3)`'s order | the IPv6-first test | CAUGHT, then retired |
 | A7 | `v4_mapped` maps for any family | `getaddrinfo(3)` | the IPv6-first test | CAUGHT |
 | A8 | the mapped `A` comes back beside an `AAAA` without `all` | `getaddrinfo(3)` | the mapped test | CAUGHT |
 | A9 | `all` is ignored | `getaddrinfo(3)` | the mapped test | CAUGHT |
@@ -588,10 +588,46 @@ A24 survived the first run: with nothing answered, a cancelled pair ends `Cancel
 hard-failure path all the same, so the check that puts the consumer's cancel first only shows
 once one family has answered. The test for that case was written, and the mutation fell.
 
+A6 was retired the same day by step 15: the join now keeps the order received, so that
+`no_sort` means what it says, and IPv6 comes first through rule 6 of the ordering, which L7 and
+L18 below break.
+
 The harness taught something too. The table harness of the resolver's fixtures built every reply
 with a clean header, whatever rcode the test named, so an NXDOMAIN it sent arrived as NOERROR
 with no records, which is NODATA; the first run of the early-end test failed for that. It now
 writes the rcode the way the lookup harness does, and asserts the reply needs no OPT record.
+
+## Step 15, the ordering
+
+Design §19 step 15: RFC 6724 §6 as a pure function over routes the consumer supplies, and the
+hook in `AddressLookup`. Broken against `zig build test-core` and `test-resolver`. Nineteen
+mutations, nineteen `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| L1 | rule 1 ignores a destination known unreachable | RFC 6724 §6 rule 1 | the unusable test | CAUGHT |
+| L2 | rule 1 ignores a missing source | RFC 6724 §6 rule 1 | the unusable test | CAUGHT |
+| L3 | rule 2, matching scope, never decides | RFC 6724 §6 rule 2 | the RFC's examples | CAUGHT |
+| L4 | rule 3, deprecated sources, never decides | RFC 6724 §6 rule 3 | the RFC's examples | CAUGHT |
+| L5 | rule 4, home addresses, never decides | RFC 6724 §6 rule 4 | the RFC's examples | CAUGHT |
+| L6 | rule 5, matching label, never decides | RFC 6724 §6 rule 5 | the RFC's examples | CAUGHT |
+| L7 | rule 6, precedence, never decides | RFC 6724 §6 rule 6 | the RFC's examples | CAUGHT |
+| L8 | rule 7, native transport, never decides | RFC 6724 §6 rule 7 | the encapsulation test | CAUGHT |
+| L9 | rule 8, smaller scope, never decides | RFC 6724 §6 rule 8 | the RFC's examples | CAUGHT |
+| L10 | rule 9, longest prefix, never decides | RFC 6724 §6 rule 9 | the RFC's examples | CAUGHT |
+| L11 | the rules run out of order | RFC 6724 §6, "applied in order" | the RFC's examples | CAUGHT |
+| L12 | the sort is not stable | RFC 6724 §6 rule 10 | the no-route test | CAUGHT |
+| L13 | the policy table takes the first match | RFC 6724 §2.1, longest prefix | the RFC's examples | CAUGHT |
+| L14 | an IPv4 address is looked up unmapped | RFC 6724 §3.2 | the RFC's examples | CAUGHT |
+| L15 | IPv4 loopback and link-local are global | RFC 6724 §3.2 | the scopes test | CAUGHT |
+| L16 | the common prefix is not capped | RFC 6724 §2.2 | the common-prefix test | CAUGHT |
+| L17 | a multicast address's scope is not its own | RFC 4291 §2.7 | the scopes test | CAUGHT |
+| L18 | the address lookup does not order its answer | §19 step 15 | the IPv6-first test | CAUGHT |
+| L19 | `no_sort` is ignored | `ARES_AI_NOSORT` | the order-received test | CAUGHT |
+
+The nine worked examples of RFC 6724 §10.2 are the gate the design asked for, and they carry
+most of the table: each is run the wrong way round, so the sort has to move one address, and
+both ways through `compare`, so a rule that decides the wrong way is seen twice.
 
 ## Planned, later steps
 

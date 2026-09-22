@@ -215,7 +215,12 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   absolute `A` and `AAAA` lookup per search candidate in lockstep, joined with `v4_mapped`,
   `all` and the canonical name as `getaddrinfo(3)` has them; it holds two slots at most and is
   1152 bytes (§9).
-- Next, in order: RFC 6724 ordering and the end-to-end comparison (15), then the rest of 13
-  (the TCP path, port rotation, `reinit`, `cancel_all`) on the twin.
+- **15**, the ordering, done the same day: `core.address_order` applies the ten rules of
+  RFC 6724 §6 over routes the consumer supplies, since the source per destination is I/O, with
+  the policy table and the scopes of the RFC as named constants; `AddressLookup` applies the
+  route-free rules unless `no_sort`. The nine worked examples of the RFC are the gate. The
+  end-to-end comparison against c-ares is the part of 15 still open.
+- Next, in order: the comparison, then the rest of 13 (the TCP path, port rotation, `reinit`,
+  `cancel_all`) on the twin.
 
 §17 holds the questions the owner has not answered.

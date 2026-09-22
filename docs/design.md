@@ -343,8 +343,10 @@ pub const AddressInfo = struct {
 /// use, learned by connecting a datagram socket or read from a routing table, and the flags.
 pub const Route = struct {
     source: ?Address = null,
-    unreachable: bool = false,
+    known_unreachable: bool = false,
     deprecated: bool = false,
+    home: bool = false,
+    care_of: bool = false,
     encapsulated: bool = false,
 };
 /// RFC 6724 §6 over `addresses`, in place and stable. `routes[i]` describes `addresses[i]`;
@@ -1626,12 +1628,12 @@ socket per candidate. That is I/O, so it is the consumer's: `core.address_order.
 pure function over the addresses and a `Route` per address the consumer filled in, or none.
 
 - **The inputs.** `Route` holds the source address, null when the host has none, which rule 1
-  puts last; `unreachable`, for rule 1; `deprecated`, in RFC 4862's sense, for rule 3; and
-  `encapsulated`, for rule 7, which the RFC leaves to what an implementation knows of its
-  interfaces. Rule 4, home and care-of addresses, never decides: mobile IPv6 is outside
-  version one, and the rule is written down as skipped rather than left out. With no routes,
-  rules 1, 2, 5 and 9 never decide either, and rules 6, 8 and 10 order the list: precedence,
-  smaller scope, then the order received.
+  puts last; `known_unreachable`, for rule 1; `deprecated`, in RFC 4862's sense, for rule 3;
+  `home` and `care_of`, for rule 4, since the RFC's own worked examples exercise it and two
+  flags are all it costs; and `encapsulated`, for rule 7, which the RFC leaves to what an
+  implementation knows of its interfaces. With no routes, rules 1, 2, 3, 4, 5, 7 and 9 never
+  decide, and rules 6, 8 and 10 order the list: precedence, smaller scope, then the order
+  received.
 - **The table.** RFC 6724 §2.1's default policy table, nine rows, looked up by longest prefix
   over the IPv4-mapped form of an IPv4 address (§3.2), gives `Precedence` and `Label`. Scope
   is §3.1 to §3.4: link-local for `fe80::/10`, `::1`, `127/8` and `169.254/16`; site-local for
@@ -1646,6 +1648,12 @@ pure function over the addresses and a `Route` per address the consumer filled i
 **Gate.** The nine worked examples of RFC 6724 §10.2, each a test with the sources the RFC
 lists; a shuffled list coming back in the RFC's order; the no-route order; and each rule broken
 in turn.
+
+Landed on 2026-09-22: `core/address_order.zig`, the policy table and the scope prefixes in
+`core`'s constants with the RFC 4291 sections they come from, and the hook in `AddressLookup`,
+whose `select_families` now keeps the order received so that `no_sort` means what it says. Rule
+4 is in after all: the RFC's own examples exercise it, and two flags on `Route` are all it costs.
+The comparison against c-ares remains.
 
 Then the comparison the README will state: the decoders against c-ares's, which
 `zig build bench-cares` measures today, and end to end, both stacks against one in-process
