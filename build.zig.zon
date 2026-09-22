@@ -8,8 +8,8 @@
         // requested only when cocuyo is the root build, so a project depending on cocuyo never
         // fetches it.
         .pepegrillo = .{
-            .url = "git+https://github.com/c4milo/pepegrillo#4316b905767198fb78528e7cc72fcbb2bf7663fe",
-            .hash = "pepegrillo-0.0.0-axiFUAVjBwDOD6QFo7ICAVM4kCgvOpTD0uQJ7yr8UVws",
+            .url = "git+https://github.com/c4milo/pepegrillo#ed1c896b076a40634c1205eaf68f8d51a26c98d5",
+            .hash = "pepegrillo-0.0.0-axiFUArVBwDWnQR-lWdTI7xljeUOlCrSNTSoPB6kZ2yz",
             .lazy = true,
         },
         // The event loop the second example is driven by, and the engine of `io/` under

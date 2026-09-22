@@ -19,6 +19,14 @@ const forbidden_prefixes = [_][]const u8{
     "std.testing.FailingAllocator",
 };
 
+// A name that has moved or gone leaves the rule holding it checking nothing, and a clean tree
+// cannot say which: it passes either way. This fails the build instead, naming the entry. Two of
+// these lists held such a name until 2026-09-22 — `std.crypto.random`, which Zig 0.16 does not
+// have, and `std.net`, which moved under `std.Io`.
+comptime {
+    lint.names.assert_all_resolve(std, "std", &forbidden_prefixes);
+}
+
 const reason = "cocuyo allocates nothing; the caller owns every buffer (non-negotiable 2)";
 
 /// The configuration. It reads `src/` alone: developer tooling under `tools/` allocates freely,

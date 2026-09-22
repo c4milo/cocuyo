@@ -36,6 +36,14 @@ const forbidden_references = lint.rules.forbidden_references;
 /// is reached through `std.Io` and `std.posix`.
 const forbidden_prefixes = [_][]const u8{ "std.time", "std.Random" };
 
+// A name that has moved or gone leaves the rule holding it checking nothing, and a clean tree
+// cannot say which: it passes either way. This fails the build instead, naming the entry. Two of
+// these lists held such a name until 2026-09-22 — `std.crypto.random`, which Zig 0.16 does not
+// have, and `std.net`, which moved under `std.Io`.
+comptime {
+    lint.names.assert_all_resolve(std, "std", &forbidden_prefixes);
+}
+
 const reason = "time is a caller-supplied parameter and entropy is a caller-supplied seed" ++
     " (non-negotiable 4)";
 

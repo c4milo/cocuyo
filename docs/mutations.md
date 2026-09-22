@@ -850,6 +850,18 @@ thing rather than from a missing test.
 | 11 | keep the same transaction id across a CNAME re-query | design §5, new transaction | the re-query entropy test | planned |
 | 12 | advance the search candidate on SERVFAIL | design §5, rcode mapping | the policy table test | planned |
 
+## The lint's own names
+
+A rule's list of forbidden names is checked by nothing when a name in it has moved or gone: the
+tree passes either way, which is how `std.crypto.random` and `std.net` sat in two lists guarding
+nothing. Since 2026-09-22 each list is asserted at compile time against the standard library it
+names, so the next Zig release that moves something fails the build with the entry in the
+message rather than dropping a guard in silence.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| M1 | put `std.crypto.random` back in the determinism list | the list names what exists | `zig build test-tools` refuses to compile | CAUGHT |
+
 ## The build's own mutation
 
 `zig build lint` runs the rules twice: over the tree, which must be clean, and over a canary tree
