@@ -48,6 +48,17 @@ pub const Address = struct {
         return address_text.parse(text);
     }
 
+    /// This IPv4 address as an IPv4-mapped IPv6 address, `::ffff:a.b.c.d` (RFC 4291 §2.5.5.2).
+    pub fn v4_mapped(self: *const Address) Address {
+        assert(self.family == .ipv4);
+        var octets: [constants.address_v6_bytes]u8 = undefined;
+        @memcpy(octets[0..constants.v4_mapped_prefix.len], &constants.v4_mapped_prefix);
+        @memcpy(octets[constants.v4_mapped_prefix.len..], self.octets[0..constants.address_v4_bytes]);
+        const mapped = from_v6(octets);
+        assert(mapped.family == .ipv6);
+        return mapped;
+    }
+
     /// The octets this family uses: the first four for IPv4, all sixteen for IPv6.
     pub fn slice(self: *const Address) []const u8 {
         const length = self.family.address_bytes();
@@ -115,4 +126,10 @@ test "an endpoint compares its port as well as its address" {
 test "the length of an address is the family's, not the buffer's" {
     try testing.expectEqual(@as(u8, 4), Family.ipv4.address_bytes());
     try testing.expectEqual(@as(u8, 16), Family.ipv6.address_bytes());
+}
+
+test "an IPv4 address maps into ::ffff:0:0/96, octet for octet" {
+    const mapped = Address.from_v4(.{ 192, 0, 2, 1 }).v4_mapped();
+    try std.testing.expectEqual(Family.ipv6, mapped.family);
+    try std.testing.expect(mapped.equal(&Address.from_text("::ffff:192.0.2.1").?));
 }

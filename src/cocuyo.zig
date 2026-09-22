@@ -37,6 +37,10 @@ pub const Handle = resolver.Handle;
 pub const Slot = resolver.Slot;
 pub const MatchKey = resolver.MatchKey;
 pub const Event = resolver.Event;
+pub const AddressLookup = resolver.AddressLookup;
+pub const AddressFlags = resolver.AddressFlags;
+pub const AddressInfo = resolver.AddressInfo;
+pub const AddressOutcome = resolver.AddressOutcome;
 
 pub const Cache = cache.Cache;
 pub const Hit = cache.Hit;

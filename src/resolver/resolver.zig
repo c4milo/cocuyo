@@ -14,6 +14,7 @@ pub const lookup = @import("lookup.zig");
 pub const table = @import("table.zig");
 pub const table_keys = @import("table_keys.zig");
 pub const table_slots = @import("table_slots.zig");
+pub const address_lookup = @import("address_lookup.zig");
 pub const constants = @import("constants.zig");
 
 pub const Lookup = lookup.Lookup;
@@ -27,6 +28,11 @@ pub const Slot = table.Slot;
 pub const MatchKey = table.MatchKey;
 pub const Handle = table.Handle;
 pub const Event = table.Event;
+
+pub const AddressLookup = address_lookup.AddressLookup;
+pub const AddressFlags = address_lookup.AddressFlags;
+pub const AddressInfo = address_lookup.AddressInfo;
+pub const AddressOutcome = address_lookup.AddressOutcome;
 
 pub const Entropy = entropy.Entropy;
 pub const Servers = servers.Servers;
@@ -52,4 +58,7 @@ test {
     _ = @import("lookup_order.zig");
     _ = @import("lookup_failover_test.zig");
     _ = @import("lookup_walk_test.zig");
+    _ = address_lookup;
+    _ = @import("address_lookup_walk.zig");
+    _ = @import("address_lookup_test.zig");
 }

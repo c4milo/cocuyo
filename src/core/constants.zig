@@ -80,6 +80,11 @@ pub const records_max = 64;
 /// docs/design.md §17.4 records that this number is not measured.
 pub const addresses_max = 16;
 
+/// The most addresses one `AddressLookup` keeps: both families' `addresses_max`, bounded the way
+/// one answer is, with `truncated` past it (docs/design.md §19 step 14). It is also the most the
+/// ordering of step 15 sorts.
+pub const address_lookup_addresses_max = 2 * addresses_max;
+
 /// The most names a reverse lookup keeps. One, because that is what a PTR lookup returns in
 /// practice, and `Answer.truncated` says when more existed (docs/design.md §17.2).
 pub const ptr_names_max = 1;
@@ -154,6 +159,11 @@ pub const address_v4_bytes = 4;
 
 /// An IPv6 address, in octets (RFC 3596 §2.2 gives the AAAA rdata this length).
 pub const address_v6_bytes = 16;
+
+/// The prefix of an IPv4-mapped IPv6 address, `::ffff:0:0/96` (RFC 4291 §2.5.5.2): how an IPv4
+/// address is handed back under `v4_mapped`, and how the policy table of RFC 6724 §2.1 reads one
+/// (its §3.2).
+pub const v4_mapped_prefix = [_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff };
 
 /// An address in text (`address_text.zig`): the dotted quad's octet count (RFC 1035 §3.4.1) and
 /// the decimal digits one octet may hold.

@@ -61,6 +61,14 @@ pub const record_a = [_]u8{
     0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x04, 192, 0, 2, 1,
 };
 
+/// An AAAA record owned by whatever the question named: 2001:db8::1, TTL 60, so a join of the
+/// two families has a smaller TTL to take.
+pub const record_aaaa = [_]u8{
+    0xc0, 0x0c, 0x00, 0x1c, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x10,
+    0x20, 0x01, 0x0d, 0xb8, 0,    0,    0,    0,    0,    0,    0,    0,
+    0,    0,    0,    1,
+};
+
 /// A second A record for the same owner: 192.0.2.2.
 pub const record_a_second = [_]u8{
     0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x04, 192, 0, 2, 2,
@@ -166,6 +174,17 @@ const cookie_client_wrong = [_]u8{ 0xba, 0xdc, 0x00, 0xc1, 0xe0, 0x00, 0x00, 0x0
 
 /// A reply carrying one A record.
 pub const answer_a: Reply = .{ .records = &record_a, .ancount = 1 };
+pub const answer_aaaa: Reply = .{ .records = &record_aaaa, .ancount = 1 };
+
+/// The most polls an address lookup's test drives before it gives up, and the jump that makes a
+/// lookup time out on the fake server, which never answers on its own.
+pub const address_polls_max = 64;
+pub const address_timeout_jump_ns = 60 * 1_000_000_000;
+
+/// The search list the address lookup's rig configures, and the slots a walk may hold at most:
+/// one per family (docs/design.md §19 step 14).
+pub const address_search_entries = 2;
+pub const address_slots_per_walk = 2;
 
 /// The A record with the client cookie echoed and a server cookie learned.
 pub const answer_a_cookie: Reply = .{ .records = &record_a, .ancount = 1, .cookie = .echo, .server_cookie = &server_cookie };
@@ -417,11 +436,18 @@ pub const Table = struct {
         return self.resolver.on_datagram(message, question_lookup.server(), self.now_ns);
     }
 
+    /// Builds `reply` around the question `lookup` asked: the rcode's low four bits in the
+    /// header, as `Harness.build` does, and no OPT record, so the extended rcodes stay there.
     pub fn build(self: *Table, lookup: *const Lookup, reply: Reply) []const u8 {
+        assert(reply.cookie == .none);
         const name = lookup.cased_name();
+        const rcode: u16 = @intFromEnum(reply.rcode);
+        assert(rcode >> wire.constants.extended_rcode_low_bits == 0);
+        var flags: u16 = wire.constants.flag_response | wire.constants.flag_recursion_desired | (rcode & wire.constants.rcode_mask);
+        if (reply.truncated) flags |= wire.constants.flag_truncated;
         const header: wire.Header = .{
             .id = reply.id orelse lookup.transaction.id,
-            .flags = wire.constants.flag_response | wire.constants.flag_recursion_desired,
+            .flags = flags,
             .qdcount = 1,
             .ancount = reply.ancount,
             .nscount = 0,
