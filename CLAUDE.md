@@ -102,8 +102,9 @@ The architecture depends on every rule in this section.
 - `src/<module>/` is one Zig module per module of §2, declared in `build/modules.zig` with its
   imports listed, so the dependency direction is enforced by the build rather than by review:
   `core` imports nothing, `wire` reads `core`, `resolver` reads `core` and `wire`, `config` reads
-  `core` alone, and `sim` reads all three. `resolver` cannot reach `config`, and
-  `zig build graph-check` compiles a fixture to show the compiler rejects it.
+  `core` alone, `cache` reads `core` and `wire` and never `resolver`, and `sim` reads the first
+  three. `resolver` cannot reach `config`, and `zig build graph-check` compiles a fixture to show
+  the compiler rejects it.
 - Each module owns its `constants.zig`. A limit two modules share lives in `src/core/constants.zig`.
 - `examples/` holds worked examples, `bench/` the microbenchmarks, `docs/` the design set, and
   `tools/` developer tooling that is never linked into the library. `bench/` is outside the module
@@ -117,8 +118,9 @@ The architecture depends on every rule in this section.
   ruled dependency of the tools, approved by the owner on 2026-09-21: `build.zig.zon` pins it by
   hash as a lazy dependency, the tools import it, and it is never linked into the library.
 - Weakening an assertion or a check to make a test pass.
-- Adding anything §1 puts out of scope for version one: a cache, DNSSEC, DoT, DoH, mDNS, zone
-  transfers, `/etc/hosts`, or record types beyond `A`, `AAAA`, `CNAME` and `PTR`.
+- Adding anything §1 puts out of scope for version one: DNSSEC, DoT, DoH, mDNS, zone transfers,
+  `/etc/hosts`, or record types beyond `A`, `AAAA`, `CNAME`, `PTR` and the `SOA` the negative
+  TTL is read from. The cache was the one exception, decided 2026-09-22 and designed in §18.
 
 ## Commands
 
@@ -130,9 +132,9 @@ The architecture depends on every rule in this section.
   holds one violation of each, so a rule that stopped checking fails the build.
 - Test: `zig build test` — the lint, the graph check, the hook check, then every module's unit
   tests and the tools' own tests. Every change passes it before it is committed.
-  `zig build test-<module>` (`test-core`, `test-wire`, `test-resolver`, `test-config`, `test-sim`,
-  `test-cocuyo`) and `zig build test-tools` run one target's tests with nothing else in the graph,
-  which is what a mutation is measured against.
+  `zig build test-<module>` (`test-core`, `test-wire`, `test-resolver`, `test-config`,
+  `test-cache`, `test-sim`, `test-cocuyo`) and `zig build test-tools` run one target's tests with
+  nothing else in the graph, which is what a mutation is measured against.
 - Bench: `zig build bench` — the microbenchmarks of design §15 step 7, built ReleaseSafe
   whatever `-Drelease` says. `zig build test` compiles the bench and runs the harness's own tests,
   so it cannot rot. A number goes into design §11 with the machine, the command and the date, or it
@@ -168,6 +170,9 @@ Steps 0 to 7 are done:
   the layout question §11 left open is closed on the cold-slot row, the one measurement that can
   see a cache line.
 
-Every step of the plan is done. §17 holds the questions the owner has not answered, and question
-9 — whether version one ships a cache, since c-ares has had one on by default since 1.31.0 — is
-the one that decides what "replacement" means.
+- **8**, `cache`: the SIEVE cache of §18 above the state machine, with the negative TTL of
+  RFC 2308 read from the SOA in `wire` and carried in `Failure` by `resolver`. Question 9 of §17
+  was answered yes on 2026-09-22, because c-ares has had a cache on by default since 1.31.0 and a
+  replacement without one is not one.
+
+Every step of the plan is done. §17 holds the questions the owner has not answered.

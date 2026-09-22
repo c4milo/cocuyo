@@ -284,6 +284,79 @@ same query for the same question, octet for octet; a comparison whose two sides 
 queries would be timing two different things and calling the ratio a result. Every octet of the
 OPT record is in that test's reach, and K1 shows one octet is enough to fail it.
 
+## Step 8, the cache
+
+The cache of design §18 and the negative TTL it needs. The wire side, `wire.response.negative_ttl_seconds`,
+was broken against `zig build test-wire`; the resolver side, `Failure.negative_ttl_seconds`,
+against `zig build test-resolver`; the cache against `zig build test-cache`; and the word fold
+the hash reads, `Name.fold_word`, against `zig build test-core`. Forty-seven mutations,
+forty-six `CAUGHT` and one that found redundant code — two of the cache's only after their tests
+were sharpened.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| N1 | the negative TTL is the SOA minimum, not capped by the record's TTL | RFC 2308 §5 | the min test | CAUGHT |
+| N2 | an SOA's fixed fields may fall short of its rdata | the rdlength bound | **a fixture with one octet too many** | CAUGHT |
+| N3 | the authority walk starts at the answers | RFC 2308 §2 | the answer-then-SOA fixture | CAUGHT |
+| N4 | a message with no SOA reports the cap instead of zero | §18, zero is not cached | the no-SOA test | CAUGHT |
+| N5 | the section start is summed in an octet again | the u8 overflow of step 2 | the maximal-name fixture | CAUGHT |
+| N6 | NXDOMAIN does not record the TTL | §18 | the NXDOMAIN failure test | CAUGHT |
+| N7 | NODATA does not record the TTL | RFC 2308 §2.2 | the NODATA failure test | CAUGHT |
+| N8 | every failure carries zero | §18 | the failure tests | CAUGHT |
+| N9 | every failure carries the TTL | §18, only a negative answer | the timeout test | CAUGHT |
+| N10 | a malformed SOA reads as one second | §18, zero is not cached | the broken-SOA test | CAUGHT |
+| Q1 | a hit does not set the visited bit | §18, SIEVE | the bit test | CAUGHT |
+| Q2 | an entry expires one instant late | §18 | the boundary test | CAUGHT |
+| Q3 | an expired entry is never evicted on a get | §18 | the expiry test | CAUGHT |
+| Q4 | a hit reports the TTL put, not what is left | §18 | the remaining-TTL test | CAUGHT |
+| Q5 | a truncated answer is cached | §18 | the refusal test | CAUGHT |
+| Q6 | a TTL of zero is cached | §18 | the refusal test | CAUGHT |
+| Q7 | the cap is not applied | §18 | the cap test | CAUGHT |
+| Q8 | a put for a held question inserts a duplicate | §18, in place | the in-place test, by `len` | CAUGHT |
+| Q9 | a replacement does not set the bit | §18 | the in-place test | CAUGHT |
+| Q10 | a new entry is born visited | §18, SIEVE | the bit test, by its neighbours | CAUGHT |
+| Q11 | the stored name is not folded | §18, the key | the folded-name test | CAUGHT |
+| Q12 | the hash is not folded | §18, the key | the case-insensitive hit | CAUGHT |
+| Q13 | the hash ignores the type | §18, the key | the hash test | CAUGHT |
+| Q14 | the hash ignores the flag | §18, the key | the hash test | CAUGHT |
+| Q15 | an eviction keeps the key | the index | `find`'s own assertion, on a free slot | CAUGHT |
+| Q16 | an eviction leaves the hand on the slot | §18 | the hand-moves-on test | CAUGHT |
+| Q17 | a flush keeps the keys | §18 | the flush test | CAUGHT |
+| Q18 | a refused put keeps its slot | §18 | **the probe test, at one slot over the bound** | CAUGHT |
+| Q19 | a negative TTL of zero is cached | §18 | `insert`'s own assertion | CAUGHT |
+| Q20 | `find` ignores the flag | §18, the key | **the direct `find` test** | CAUGHT |
+| Q21 | the hand evicts a visited entry | §18, SIEVE | the survives-one-sweep test | CAUGHT |
+| Q22 | the hand never clears the bit | §18, SIEVE | the not-two-sweeps test | CAUGHT |
+| Q23 | the hand ignores expiry | §18 | the expired-on-sight test | CAUGHT |
+| Q24 | the hand is not saved | §18 | the hand-keeps-its-place test | CAUGHT |
+| Q25 | the hand restarts at the oldest | §18 | the hand-keeps-its-place test | CAUGHT |
+| Q26 | the sweep bound is one pass | §18 | the every-entry-visited test | CAUGHT |
+| Q27 | the probe bound is off by one | §12 | the seventeenth-entry test | CAUGHT |
+| Q28 | a walk goes past an empty entry | the index | the stops-at-empty test | CAUGHT |
+| Q29 | a removal empties rather than tombstones | the index | the tombstone test | CAUGHT |
+| Q30 | an insert skips tombstones | the index | the reuse test, by position | CAUGHT |
+| Q31 | the hand does not wrap | §18, SIEVE | the not-two-sweeps test | CAUGHT |
+| Q32 | an unlink drops the older link | the chain | the middle-unlink test | CAUGHT |
+| Q33 | `find` ignores the type | §18, the key | the direct `find` test | CAUGHT |
+| Q34 | the hash ignores the name's length | §18, the key | nothing: **the length was redundant, and is gone** | CAUGHT |
+| M14 | the word fold folds past `Z` | `Name.fold_word` | the every-octet test | CAUGHT |
+| M15 | the word fold folds an octet past ASCII | `Name.fold_word` | the every-octet test | CAUGHT |
+| M16 | the word fold folds below `A` | `Name.fold_word` | the every-octet test | CAUGHT |
+
+Q18 and Q20 survived the first run. Q18 leaked the slot of a refused put, and the probe test ran
+on a table of thirty-two slots, where one lost slot changes nothing a test reads; it now runs on
+a table of seventeen, one more than the bound, where the leak leaves the table one short of full
+and the next put trips the sweep's own assertion. Q20 dropped the `absolute` compare from `find`,
+and nothing noticed because the hash already mixes the flag, so the two forms of a name never
+meet in one chain; the compare is still there because a hash is not a proof, and a test now calls
+`find` with the other form's hash to show it.
+
+Q34 is the fifth mutation in this tree to find code with nothing to do. The hash mixed the name's
+length in, and dropping it changed no test, because it could not: the last chunk of a name is
+zero-padded to eight octets, and a name ends at its root octet, so no valid name is another's
+zero padding and the octets alone tell every two names apart. The length is gone, with the
+argument in the hash's comment.
+
 ## Planned, later steps
 
 | # | Mutation | Check it breaks | Expected to be caught by | Status |

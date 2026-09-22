@@ -19,7 +19,7 @@ const pepegrillo = @import("pepegrillo");
 /// The scopes CLAUDE.md names: one per module of docs/design.md §2, plus the two directories that
 /// carry code and are not modules.
 pub const module_scopes = [_][]const u8{
-    "core", "wire", "resolver", "config", "sim", "bench", "examples",
+    "core", "wire", "resolver", "config", "cache", "sim", "bench", "examples",
 };
 
 /// First words that describe the commit instead of commanding it.
@@ -73,7 +73,7 @@ fn expect_findings(text: []const u8, expected: []const []const u8) !void {
 test "every scope CLAUDE.md names passes" {
     // Written out rather than read from `module_scopes`, so a scope dropped from that list fails.
     const scopes = [_][]const u8{
-        "core", "wire", "resolver", "config", "sim", "bench", "examples",
+        "core", "wire", "resolver", "config", "cache", "sim", "bench", "examples",
     };
     try testing.expectEqual(scopes.len, module_scopes.len);
     for (scopes) |scope| {
@@ -86,7 +86,7 @@ test "every scope CLAUDE.md names passes" {
 test "a well-formed scope the graph does not name draws a warning" {
     try expect_findings("refactor(lookup): split the poll path\n", &.{
         "warning: scope-known: the scope \"lookup\" is not a module of the graph" ++
-            " (core, wire, resolver, config, sim, bench, examples)",
+            " (core, wire, resolver, config, cache, sim, bench, examples)",
     });
 }
 

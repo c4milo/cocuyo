@@ -9,6 +9,7 @@ pub const core = @import("core");
 pub const wire = @import("wire");
 pub const resolver = @import("resolver");
 pub const resolv_conf = @import("config");
+pub const cache = @import("cache");
 
 // The names a consumer reaches for, flattened. Everything else is behind the module it belongs to.
 pub const Address = core.Address;
@@ -32,6 +33,9 @@ pub const Slot = resolver.Slot;
 pub const MatchKey = resolver.MatchKey;
 pub const Event = resolver.Event;
 
+pub const Cache = cache.Cache;
+pub const Hit = cache.Hit;
+
 /// The length a TCP length prefix describes (RFC 7766 §8). A caller reads two octets, calls this,
 /// reads that many more, and hands them to `on_response`.
 pub const message_len = wire.message_len;
@@ -41,4 +45,5 @@ test {
     _ = wire;
     _ = resolver;
     _ = resolv_conf;
+    _ = cache;
 }

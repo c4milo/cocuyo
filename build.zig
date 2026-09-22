@@ -90,6 +90,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "wire", .module = graph.wire },
         .{ .name = "resolver", .module = graph.resolver },
         .{ .name = "config", .module = graph.config },
+        .{ .name = "cache", .module = graph.cache },
         .{ .name = "sim", .module = graph.sim },
         .{ .name = "cocuyo", .module = graph.cocuyo },
     };

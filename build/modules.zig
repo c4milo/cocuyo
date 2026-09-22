@@ -1,7 +1,7 @@
 //! The module graph of docs/design.md §2. A module can `@import` only what this file gives it, so
 //! the dependency direction is enforced by the build rather than by review: `core` imports
 //! nothing, `wire` reads `core`, `resolver` reads `core` and `wire`, `config` reads `core` alone,
-//! and `resolver` cannot reach `config`. That last one is the split between the state machine and
+//! `cache` reads `core` and `wire` and never `resolver`, and `resolver` cannot reach `config`. That last one is the split between the state machine and
 //! the config parser, and `zig build graph-check` is what shows the compiler enforces it.
 //!
 //! `sim` is the deterministic harness. It reads everything and is never packaged
@@ -16,6 +16,7 @@ pub const Graph = struct {
     wire: *std.Build.Module,
     resolver: *std.Build.Module,
     config: *std.Build.Module,
+    cache: *std.Build.Module,
     sim: *std.Build.Module,
 };
 
@@ -27,6 +28,7 @@ pub const roots = .{
     .wire = "src/wire/wire.zig",
     .resolver = "src/resolver/resolver.zig",
     .config = "src/config/resolv_conf.zig",
+    .cache = "src/cache/cache.zig",
     .sim = "src/sim/sim.zig",
 };
 
@@ -61,6 +63,7 @@ fn build(
         .wire = module(b, target, optimize, "wire", roots.wire, register),
         .resolver = module(b, target, optimize, "resolver", roots.resolver, register),
         .config = module(b, target, optimize, "config", roots.config, register),
+        .cache = module(b, target, optimize, "cache", roots.cache, register),
         .sim = module(b, target, optimize, "sim", roots.sim, register),
     };
 
@@ -70,6 +73,8 @@ fn build(
     graph.resolver.addImport("core", graph.core);
     graph.resolver.addImport("wire", graph.wire);
     graph.config.addImport("core", graph.core);
+    graph.cache.addImport("core", graph.core);
+    graph.cache.addImport("wire", graph.wire);
     graph.sim.addImport("core", graph.core);
     graph.sim.addImport("wire", graph.wire);
     graph.sim.addImport("resolver", graph.resolver);
@@ -77,6 +82,7 @@ fn build(
     graph.cocuyo.addImport("wire", graph.wire);
     graph.cocuyo.addImport("resolver", graph.resolver);
     graph.cocuyo.addImport("config", graph.config);
+    graph.cocuyo.addImport("cache", graph.cache);
 
     return graph;
 }

@@ -53,12 +53,15 @@ alternative it beat recorded in §16.
 
 Each of these is out of scope on purpose, with the place it would attach.
 
-- **No cache.** Seam: `Answer.ttl_seconds` is reported, and `Lookup` touches no socket, so a cache
-  wraps `Resolver.start` from above without changing this library. Worth knowing before choosing
-  this: **c-ares caches by default.** Its `ares_init_options(3)` says the query cache has been on
-  since c-ares 1.31.0 with a one-hour ceiling, caching successful and NXDOMAIN results and
-  flushing on a server configuration change. A consumer swapping c-ares for cocuyo version one
-  therefore sends every query it used to answer from memory, which §17 asks the owner about.
+- **A cache, since 2026-09-22, and above the library.** Version one was planned without one:
+  `Answer.ttl_seconds` is reported and `Lookup` touches no socket, so a cache wraps
+  `Resolver.start` from above without changing the state machine. What decided it was that
+  **c-ares caches by default.** Its `ares_init_options(3)` says the query cache has been on since
+  c-ares 1.31.0 with a one-hour ceiling, caching successful and NXDOMAIN results and flushing on
+  a server configuration change, so a consumer swapping c-ares for a cocuyo without one would
+  send every query it used to answer from memory. §17 asked; the owner answered yes; §18 is the
+  design, and the `cache` module of §2 is the one place the answer touched, with `Failure`
+  gaining the negative TTL a cache needs.
 - **No DNSSEC validation.** Seam: EDNS0 exists, the DO bit is a flag cocuyo never sets, and the
   record iterator hands out rdata unread, so a validator sits above the codec.
 - **No DNS-over-TLS and no DNS-over-HTTPS.** Seam: the TCP path already produces length-prefixed
@@ -81,14 +84,16 @@ by the build rather than by review.
 | `wire` | `core` | the codec: build a query, parse a response |
 | `resolver` | `core`, `wire` | `Lookup`, `Resolver`, retry policy, entropy |
 | `config` | `core` | the `resolv.conf` parser |
+| `cache` | `core`, `wire` | the answer cache of §18, above the state machine and never inside it |
 | `sim` | `core`, `wire`, `resolver` | the scripted server and the virtual clock, test-only |
 
 `resolver` cannot import `config`. That is the split between the state machine and the config
 parser, made structural: `Config` is a `core` type, the parser is one producer of it, and the
 state machine cannot reach the parser even by accident.
 
-The library root, `src/cocuyo.zig`, re-exports `core`, `wire`, `resolver` and `config`, so a
-consumer writes `cocuyo.Lookup` and `cocuyo.resolv_conf.parse`. `sim` is never packaged.
+The library root, `src/cocuyo.zig`, re-exports `core`, `wire`, `resolver`, `config` and `cache`,
+so a consumer writes `cocuyo.Lookup`, `cocuyo.resolv_conf.parse` and `cocuyo.Cache`. `sim` is
+never packaged.
 
 ### File layout
 
@@ -100,6 +105,7 @@ src/wire/     wire.zig wire_header.zig wire_name.zig wire_question.zig wire_reco
 src/resolver/ resolver.zig lookup.zig lookup_poll.zig lookup_response.zig lookup_policy.zig
               entropy.zig constants.zig
 src/config/   resolv_conf.zig resolv_conf_options.zig constants.zig
+src/cache/    cache.zig cache_keys.zig cache_chain.zig cache_sweep.zig constants.zig
 src/sim/      sim.zig sim_script.zig sim_gate.zig
 examples/udp_blocking.zig
 bench/
@@ -851,24 +857,162 @@ step until `zig build test` passes.
    possible when rotor went public on 2026-09-22: Zig's fetcher speaks the git protocol
    anonymously, so a private repository cannot be pinned that way at all.
 
-9. **Does version one need a cache after all?** c-ares caches by default and has since 1.31.0
-   (§1), so a consumer replacing it loses that unless it writes one. The seam is clean and a cache
-   above `Resolver.start` needs nothing from this library, but "clean seam" is not the same as
-   "someone has written it". The question for the owner is whether version one ships the cache, or
-   ships without it and says so in the same breath as calling itself a c-ares replacement.
+9. **Does version one need a cache after all?** Answered on 2026-09-22: yes, and §18 is its
+   design. c-ares caches by default and has since 1.31.0 (§1), so a consumer replacing it would
+   otherwise lose that. What c-ares does, read from `src/lib/ares_qcache.c` that day, and what
+   §18 keeps and drops of it, is recorded there.
 
-   What c-ares does, read from `src/lib/ares_qcache.c` on 2026-09-22: a string-keyed hash table,
-   compared case-insensitively, keyed by the opcode, the RD and CD flags, and each question's type,
-   class and name with a trailing dot stripped; each entry a duplicate of the whole parsed
-   response; a skip list ordered by expiry, drained of expired entries on every fetch; the TTL the
-   smallest over the answer, authority and additional records with OPT, SOA and SIG skipped, or
-   the SOA minimum for NXDOMAIN (RFC 2308), capped at `qcache_max_ttl`, an hour by default, and a
-   TTL of zero not cached; NOERROR and NXDOMAIN cached, everything else and anything truncated
-   not; the cached record's TTLs decremented by its age on a hit; no bound on the entry count; the
-   whole cache flushed when the servers change. Two of those a cocuyo cache would not copy. A
-   NODATA answer — NOERROR, no records, an SOA in the authority section — takes the cap rather than
-   the SOA minimum, because the walk that finds the smallest TTL skips SOA and then finds nothing;
-   and the entry count is unbounded, which this library cannot do at all. A cocuyo cache would be
-   a caller-sized table of slots keyed by the folded name and the type, each holding an `Answers`
-   and an expiry, evicting the soonest to expire when full: the shape `Resolver`'s slot table
-   already has.
+## 18. The cache
+
+A cache above `Resolver.start`, in a module of its own that imports `core` and `wire` and never
+the state machine (§2). The state machine stays cache-free: a caller asks the cache, starts a
+lookup on a miss, and puts the answer in when the lookup ends. Nothing in `Lookup` or `Resolver`
+changes shape for it, which is what §1 promised when it put the cache above the library.
+
+### What c-ares does, and what this keeps
+
+c-ares (`src/lib/ares_qcache.c`, read 2026-09-22): a string-keyed hash table compared
+case-insensitively, keyed by the opcode, the RD and CD flags, and each question's type, class and
+name; each entry a duplicate of the whole parsed response; a skip list ordered by expiry, drained
+on every fetch; the TTL the smallest over every record with OPT, SOA and SIG skipped, or the SOA
+minimum for NXDOMAIN (RFC 2308), capped at an hour by default, and zero not cached; NOERROR and
+NXDOMAIN cached, everything else and anything truncated not; TTLs decremented by age on a hit; no
+bound on the entry count; the whole cache flushed when the servers change.
+
+Kept: the key by folded name and type; the TTL rules, with the cap; TTLs decremented on a hit; a
+flush. Dropped: the entry count, which is unbounded there and cannot be here; the skip list, which
+exists to find expired entries and is not needed when eviction walks the entries anyway; and one
+behaviour, that a NODATA answer — NOERROR with no records and an SOA in the authority section —
+takes the cap rather than the SOA minimum, because the walk that finds the smallest TTL skips SOA
+and then finds nothing. RFC 2308 §2.2 and §5 have NODATA use the SOA minimum as NXDOMAIN does,
+and this cache does.
+
+### The policy: SIEVE, with expiry folded into the hand
+
+A fixed table has to answer "full, and nothing has expired", which c-ares never has to. Three
+policies were weighed in the conversation that decided this (2026-09-22):
+
+- LRU moves an entry to the head on every hit: pointer writes on the read path.
+- SIEVE (Zhang et al., NSDI 2024) keeps insertion order, one visited bit per entry, and a hand. A
+  hit sets the bit. Eviction walks the hand from the oldest entry toward the newest, clears the bit
+  on anything visited and leaves it in place, and evicts the first unvisited entry it meets. New
+  entries go in at the newest end, apart from the hand, which is what separates it from CLOCK.
+- S3-FIFO (Yang et al., SOSP 2023): a small probation queue, a main queue with a two-bit counter,
+  and a ghost queue of evicted keys. Its edge is a workload dominated by one-hit objects and scans,
+  at the price of three queues and a ghost.
+
+SIEVE is the one built: the simplest policy whose hit path is a single bit write, deterministic
+with no seed, and whose worst case is one bounded pass. S3-FIFO stays the one alternative to
+measure it against, because the two share every line but the eviction, and a replayed trace
+through `bench/` is what decides between them, not this page. The argument for SIEVE is the
+papers' and the structural fit; no DNS trace was measured to make it, and §11's rule applies.
+
+The one thing neither paper models is that a DNS entry dies on its own. The hand evicts an
+expired entry on sight, visited or not: a free eviction, which is what c-ares spends its skip list
+finding.
+
+### Shape
+
+The shape `Resolver` already has: a caller-sized array of slots, an open-addressed key index, and
+the policy's own few words.
+
+```zig
+pub const Outcome = enum { answered, name_not_found, no_data };
+
+pub const Slot = struct {
+    name: Name,             // folded: the key, and what a hit hands back
+    answers: wire.Answers,  // the records, for an answered entry
+    expires_ns: u64,
+    hash: u32,
+    links: Links,           // older and newer: the insertion-order chain, oldest to newest
+    kind: Kind,
+    outcome: Outcome,
+    absolute: bool,         // part of the key: the search list makes `foo` and `foo.` two questions
+    visited: bool,
+    occupied: bool,
+};
+
+pub const Key = packed struct(u64) { hash: u32, slot: u16, state: u16 };
+
+pub const Hit = struct {
+    outcome: Outcome,
+    answers: *const wire.Answers, // valid until the next call on the cache
+    name: *const Name,
+    ttl_seconds: u32,             // what is left, not what was put
+};
+
+pub const Cache = struct {
+    pub fn init(slots: []Slot, keys: []Key, seed: u64, ttl_seconds_max: u32) Cache;
+    pub fn get(self: *Cache, question: *const Question, now_ns: u64) ?Hit;
+    pub fn put(self: *Cache, question: *const Question, answers: *const wire.Answers, now_ns: u64) void;
+    pub fn put_negative(self: *Cache, question: *const Question, outcome: Outcome, ttl_seconds: u32, now_ns: u64) void;
+    pub fn flush(self: *Cache) void;
+    pub fn len(self: *const Cache) usize;
+};
+```
+
+- The key is the folded name, the type, and whether the name was absolute, which is what a
+  `Question` holds: `foo` may resolve through the search list and `foo.` may not, so they are two
+  entries. The hash is a keyed one, seeded by the caller's `u64` the way the transaction ids are,
+  so a peer that chooses the names a process resolves cannot choose where they land. The probe is bounded by `cache_probe_max`; a chain longer than that is
+  a miss on `get` and a refusal on `put`, never more work.
+- A `get` that finds an expired entry evicts it and misses. A `get` that hits sets the visited bit
+  and returns the remaining TTL, which is the expiry less `now_ns`, rounded down to a second.
+- A `put` for a question the cache holds replaces the entry in place and sets the bit; it does not
+  move it in the order. A `put` of a TTL of zero, or of an answer marked truncated, is refused.
+  The TTL is capped at `ttl_seconds_max`.
+- A `put` into a full table runs the hand: from where it stopped, or the oldest entry, toward the
+  newest; an expired entry is evicted on sight; a visited entry has its bit cleared and stays; the
+  first unvisited entry is evicted. The walk is bounded by twice the slot count, which is one
+  pass that clears every bit and a second that must then find one, and that bound is asserted.
+- `flush` empties the table, which is what a caller does when its servers change.
+- Nothing here reads a clock or a random source; `now_ns` and the seed come in as they do
+  everywhere else, so a cache replays from its inputs.
+
+### What the state machine had to add
+
+RFC 2308 wants a negative answer cached for min(SOA TTL, SOA minimum), and the SOA is in the
+authority section, which nothing read before. Two additions: `wire.response.negative_ttl_seconds`
+reads the first SOA of the authority section, bounds-checked like everything else, and returns
+that minimum, or zero when there is no SOA; and a `Lookup` that ends in `NameNotFound` or `NoData`
+carries it in `Failure.negative_ttl_seconds`, so the caller can `put_negative` without reading a
+message it never saw. A failure that is not a negative answer — a timeout, every server failing —
+carries zero, and zero is not cached.
+
+### Measured
+
+The cache rows of §11's table, on the same day and machine: a hot hit 31 ns, a hit read cold
+over 1024 entries 44 ns, a miss 13 ns on a young index and 36 ns after churn, a put in place
+37 ns, a put that evicts 97 ns. The first build of the hash copied the question's name, folded
+it octet by octet, and mixed the type, the flag and the length in three steps: the hit cost
+50 ns, the miss 23, the eviction 123. Folding eight octets at once as the name is read
+(`Name.fold_word`, in `core` because folding is `core`'s) and mixing the prefix once brought
+them to the numbers above, a third off every row. Nothing here was compared against c-ares's
+cache, whose entry is a parsed record tree and whose key is a formatted string, so no ratio is
+claimed.
+
+### Memory
+
+Per slot: a `Name` at 256, an `Answers` at 284, and 28 octets of scalars and padding: 568,
+measured and pinned by a test in `src/cache/cache.zig`. The key index is eight octets an entry at
+two entries a slot, rounded up to a power of two. A thousand slots cost 555 KiB of slots and
+16 KiB of keys; sixteen thousand, the most a `u16` slot index and the key index allow at
+`cache_slots_max`, cost 8.9 MiB and 256 KiB. The caller chooses.
+
+### Limits
+
+| Constant | Value | Why |
+| --- | --- | --- |
+| `cache_slots_max` | 16384 | a `u16` chain index with room for the sentinels, and a table nobody has asked for more of |
+| `cache_keys_per_slot_min` | 2 | the load factor that keeps a bounded probe short |
+| `cache_probe_max` | 16 | the longest chain a `get` walks before calling it a miss |
+| `cache_ttl_seconds_max_default` | 3600 | c-ares's default cap, so a consumer replacing it sees the same ceiling |
+| `cache_sweep_steps_max` | twice the slots | one pass clears every bit, the next must find one |
+
+### Checks
+
+Every rule above is a test, and every test is broken by a mutation in `docs/mutations.md`. The
+ones that matter most: a hit sets the bit and moves nothing; the hand evicts an expired entry
+before an unvisited one; a visited entry survives one sweep and not two; a NODATA is cached for
+the SOA minimum and not the cap; a probe longer than the bound is a miss and not a walk; and a
+`get` after `flush` finds nothing.
