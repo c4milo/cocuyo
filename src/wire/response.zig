@@ -20,6 +20,7 @@ const Kind = core.Kind;
 const Address = core.Address;
 const header_codec = @import("header.zig");
 const record_codec = @import("record.zig");
+const response_take = @import("response_take.zig");
 
 /// What a response turned out to be.
 pub const Outcome = enum {
@@ -32,8 +33,9 @@ pub const Outcome = enum {
     no_data,
 };
 
-/// What was collected. The addresses and the names share storage, because one question asks for
-/// one type and no response can fill both (docs/design.md §9).
+/// What was collected. The addresses, the PTR names and the kept records share storage, because
+/// one question asks for one type and no response can fill more than one of them
+/// (docs/design.md §9 and §19 step 9).
 ///
 /// The chain's name is not here: it is the caller's, passed to `collect` by pointer and left
 /// holding the canonical name. A lookup already holds the name it is asking about, so keeping a
@@ -54,16 +56,18 @@ pub const Answers = struct {
     pub const Items = union {
         addresses: [core.constants.addresses_max]Address,
         names: [core.constants.ptr_names_max]Name,
+        records: Records,
     };
 
     /// An empty collection for a question. The union's active field is chosen by the type asked
-    /// for and both are zeroed, so nothing here is ever read uninitialised.
+    /// for and each is zeroed, so nothing here is ever read uninitialised.
     pub fn init(kind: Kind) Answers {
         assert(kind.queryable());
         return .{
-            .items = switch (kind) {
-                .ptr => .{ .names = @splat(Name.root) },
-                else => .{ .addresses = @splat(.{ .family = .ipv4, .octets = @splat(0) }) },
+            .items = switch (kind.storage()) {
+                .names => .{ .names = @splat(Name.root) },
+                .addresses => .{ .addresses = @splat(.{ .family = .ipv4, .octets = @splat(0) }) },
+                .rdata => .{ .records = Records.empty },
             },
             .count = 0,
             .ttl_seconds = 0,
@@ -71,6 +75,60 @@ pub const Answers = struct {
             .hops_used = 0,
             .truncated = false,
         };
+    }
+
+    /// Empties `self` for a question of `kind`, touching only the storage that kind uses. The
+    /// rdata buffer is not cleared: nothing reads past `used`, which `Records.at` asserts, and
+    /// clearing two kilooctets on every response is what §11 measured at 25 ns a parse.
+    pub fn reset(self: *Answers, kind: Kind) void {
+        assert(kind.queryable());
+        // Assigning the union is what makes a member active in a safe build; writing a field of
+        // an inactive member is a safety panic.
+        switch (kind.storage()) {
+            .names => self.items = .{ .names = @splat(Name.root) },
+            .addresses => self.items = .{ .addresses = @splat(.{ .family = .ipv4, .octets = @splat(0) }) },
+            .rdata => {
+                self.items = .{ .records = undefined };
+                self.items.records.used = 0;
+            },
+        }
+        self.count = 0;
+        self.ttl_seconds = 0;
+        self.aliased = false;
+        self.hops_used = 0;
+        self.truncated = false;
+        assert(self.count == 0);
+    }
+
+    /// Copies `src` into `dst` for a question of `kind`: the scalars and the storage in use, and
+    /// nothing past `count` or `used`, so a cache put costs what the answer holds and not what
+    /// the union can hold.
+    pub fn assign(dst: *Answers, src: *const Answers, kind: Kind) void {
+        assert(kind.queryable());
+        dst.count = src.count;
+        dst.ttl_seconds = src.ttl_seconds;
+        dst.aliased = src.aliased;
+        dst.hops_used = src.hops_used;
+        dst.truncated = src.truncated;
+        switch (kind.storage()) {
+            .addresses => {
+                dst.items = .{ .addresses = undefined };
+                @memcpy(dst.items.addresses[0..src.count], src.items.addresses[0..src.count]);
+            },
+            .names => {
+                dst.items = .{ .names = undefined };
+                @memcpy(dst.items.names[0..src.count], src.items.names[0..src.count]);
+            },
+            .rdata => {
+                const from = &src.items.records;
+                assert(from.used <= core.constants.rdata_bytes_max);
+                dst.items = .{ .records = undefined };
+                const to = &dst.items.records;
+                @memcpy(to.refs[0..src.count], from.refs[0..src.count]);
+                @memcpy(to.bytes[0..from.used], from.bytes[0..from.used]);
+                to.used = from.used;
+            },
+        }
     }
 
     /// The addresses collected for an A or AAAA question.
@@ -84,7 +142,46 @@ pub const Answers = struct {
         assert(self.count <= core.constants.ptr_names_max);
         return self.items.names[0..self.count];
     }
+
+    /// The records kept for a question of any other type, `count` of them.
+    pub fn records(self: *const Answers) *const Records {
+        assert(self.count <= core.constants.records_kept_max);
+        return &self.items.records;
+    }
 };
+
+/// The records of one type that are neither addresses nor PTR names: a reference each into a
+/// buffer holding its rdata with every name written out in full (docs/design.md §19 step 9).
+pub const Records = struct {
+    refs: [core.constants.records_kept_max]Ref,
+    bytes: [core.constants.rdata_bytes_max]u8,
+    /// Octets of `bytes` in use.
+    used: u16,
+
+    pub const Ref = struct { kind_code: u16, ttl_seconds: u32, offset: u16, len: u16 };
+
+    pub const empty: Records = .{
+        .refs = @splat(.{ .kind_code = 0, .ttl_seconds = 0, .offset = 0, .len = 0 }),
+        .bytes = @splat(0),
+        .used = 0,
+    };
+
+    /// The record at `index`, which the owning `Answers.count` bounds.
+    pub fn at(self: *const Records, index: usize) Kept {
+        assert(index < core.constants.records_kept_max);
+        const ref = self.refs[index];
+        assert(ref.offset + ref.len <= self.used);
+        return .{
+            .kind_code = ref.kind_code,
+            .ttl_seconds = ref.ttl_seconds,
+            .rdata = self.bytes[ref.offset..][0..ref.len],
+        };
+    }
+};
+
+/// One kept record: its type as the octets said it, its TTL, and its rdata, self-contained, for
+/// the typed views of `wire.rdata`.
+pub const Kept = struct { kind_code: u16, ttl_seconds: u32, rdata: []const u8 };
 
 /// Collects what `message` answers about `question`, of type `kind`, into `out`.
 ///
@@ -103,7 +200,7 @@ pub fn collect(
     assert(chain.len >= 1);
     const header = try header_codec.parse(message);
     if (header.qdcount != 1) return Error.MalformedMessage;
-    out.* = Answers.init(kind);
+    out.reset(kind);
     out.hops_used = hops_before;
     // The question's own name fixes where the answer section starts, and the response was already
     // checked to carry that question byte for byte (docs/design.md §7 check 5). The sum is taken
@@ -168,7 +265,12 @@ const Pass = struct {
 const Role = enum { wanted, alias, other };
 
 fn role_of(record: *const record_codec.Record, kind: Kind) Role {
+    // An ANY question wants every record the name owns, a CNAME among them, and follows nothing
+    // (RFC 1034 §3.6.2, RFC 8482 §4.1).
+    if (kind == .any) return if (record.class == core.constants.class_internet) .wanted else .other;
     if (record.is_kind(kind)) return .wanted;
+    // A CNAME moves every other question along the chain (RFC 1034 §3.6.2); a CNAME question
+    // took it as wanted above.
     if (record.is_kind(.cname)) return .alias;
     return .other;
 }
@@ -191,7 +293,7 @@ fn one_pass(
         try record.owner_name(message, &owner);
         if (!owner.equal(chain)) continue;
         switch (role) {
-            .wanted => pass.collected = try take(message, &record, kind, out) or pass.collected,
+            .wanted => pass.collected = try response_take.take(message, &record, kind, out) or pass.collected,
             // The first CNAME for this name wins; a second one for the same name is the
             // "no other data" rule of RFC 1034 §3.6.2 being broken, and is ignored.
             .alias => if (pass.alias == null) {
@@ -207,36 +309,9 @@ fn one_pass(
     return pass;
 }
 
-/// Stores one wanted record. Returns whether it was stored: a record that does not fit sets
-/// `truncated` rather than failing, because the addresses already collected are still answers.
-fn take(
-    message: []const u8,
-    record: *const record_codec.Record,
-    kind: Kind,
-    out: *Answers,
-) Error!bool {
-    const room: u8 = if (kind == .ptr)
-        core.constants.ptr_names_max
-    else
-        core.constants.addresses_max;
-    if (out.count == room) {
-        out.truncated = true;
-        return false;
-    }
-    assert(out.count < room);
-    if (kind == .ptr) {
-        try record.rdata_name(message, &out.items.names[out.count]);
-    } else {
-        out.items.addresses[out.count] = try record.address();
-    }
-    out.count += 1;
-    note_ttl(record.ttl_seconds, out);
-    return true;
-}
-
 /// The smallest TTL over the records used. Zero means nothing has been noted yet, and a record
 /// with a TTL of zero is one nothing may cache, so it stays the smallest.
-fn note_ttl(ttl_seconds: u32, out: *Answers) void {
+pub fn note_ttl(ttl_seconds: u32, out: *Answers) void {
     if (out.ttl_seconds == 0 or ttl_seconds < out.ttl_seconds) out.ttl_seconds = ttl_seconds;
     assert(out.ttl_seconds <= ttl_seconds or ttl_seconds == 0);
 }
@@ -398,4 +473,8 @@ test "a response echoing a maximal name parses, and its offsets do not overflow 
 test "the negative TTL walk steps over the answers to reach the SOA" {
     const question = try Name.from_text("example.com");
     try testing.expectEqual(@as(u32, 60), try negative_ttl_seconds(&fixtures.answer_a_with_soa, &question));
+}
+
+test {
+    _ = response_take;
 }

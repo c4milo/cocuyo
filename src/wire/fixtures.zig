@@ -284,3 +284,137 @@ comptime {
     // would be testing the parser's tolerance rather than the format.
     if (soa_rdata.len != 0x21) @compileError("the SOA rdlength does not match its rdata");
 }
+
+// Records of the kinds kept as rdata (docs/design.md §19 step 9). The question in each message
+// names the type asked for, and the owner of every record is the question's name.
+
+const question_mx = "\x07example\x03com\x00\x00\x0f\x00\x01".*;
+const question_srv = "\x07example\x03com\x00\x00\x21\x00\x01".*;
+const question_soa = "\x07example\x03com\x00\x00\x06\x00\x01".*;
+const question_txt = "\x07example\x03com\x00\x00\x10\x00\x01".*;
+const question_cname = "\x07example\x03com\x00\x00\x05\x00\x01".*;
+const question_any = "\x07example\x03com\x00\x00\xff\x00\x01".*;
+
+/// Where the first record starts in a message whose question is `example.com` of any type.
+pub const answer_offset_mx = answer_offset;
+
+/// MX, preference 10, exchange `mail` then a pointer to the question's name: `mail.example.com`
+/// compressed the way a server sends it (RFC 1035 §4.1.4).
+const record_mx_compressed = owner_pointer ++ [_]u8{
+    0x00, 0x0f, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
+    0x00, 0x09, // rdlength
+    0x00, 0x0a, // preference
+    0x04, 'm',
+    'a',  'i',
+    'l',  0xc0,
+    0x0c,
+};
+
+/// The same MX with an rdlength of 7: the exchange name's encoding runs past the record.
+const record_mx_name_past_record = owner_pointer ++ [_]u8{
+    0x00, 0x0f, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
+    0x00, 0x07, // rdlength
+    0x00, 0x0a,
+    0x04, 'm',
+    'a',  'i',
+    'l',
+};
+
+/// The same MX with one octet after its name, and an rdlength that admits it.
+const record_mx_trailing_octet = owner_pointer ++ [_]u8{
+    0x00, 0x0f, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
+    0x00, 0x0a, // rdlength
+    0x00, 0x0a,
+    0x04, 'm',
+    'a',  'i',
+    'l',  0xc0,
+    0x0c, 0x00,
+};
+
+/// SRV (RFC 2782): priority 10, weight 20, port 5269, target `sip` then a pointer to the
+/// question's name, which the RFC forbids and servers do anyway.
+const record_srv_compressed = owner_pointer ++ [_]u8{
+    0x00, 0x21, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
+    0x00, 0x0c, // rdlength
+    0x00, 0x0a,
+    0x00, 0x14,
+    0x14, 0x95,
+    0x03, 's',
+    'i',  'p',
+    0xc0, 0x0c,
+};
+
+/// SOA in an answer section, both names compressed into the question's name.
+const record_soa_compressed = owner_pointer ++ [_]u8{
+    0x00, 0x06, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
+    0x00, 0x27, // rdlength 39
+    0x03, 'n',
+    's',  '1',
+    0xc0, 0x0c,
+    0x0a, 'h',
+    'o',  's',
+    't',  'm',
+    'a',  's',
+    't',  'e',
+    'r',  0xc0,
+    0x0c, 0x78,
+    0xc3, 0xb6,
+    0xa9, 0x00,
+    0x00, 0x1c,
+    0x20, 0x00,
+    0x00, 0x03,
+    0x84, 0x00,
+    0x12, 0x75,
+    0x00, 0x00,
+    0x00, 0x01,
+    0x2c,
+};
+
+/// TXT: `hello` and `world` (RFC 1035 §3.3.14).
+const record_txt = owner_pointer ++ [_]u8{
+    0x00, 0x10, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
+    0x00, 0x0c, // rdlength
+    0x05, 'h',
+    'e',  'l',
+    'l',  'o',
+    0x05, 'w',
+    'o',  'r',
+    'l',  'd',
+};
+
+/// A TXT of five full strings, 1280 octets of rdata: two of them do not fit one rdata buffer.
+const txt_full_string = [_]u8{0xff} ++ [_]u8{'x'} ** 255;
+const record_txt_big = owner_pointer ++ [_]u8{
+    0x00, 0x10, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
+    0x05, 0x00, // rdlength 1280
+} ++ txt_full_string ** 5;
+
+/// SVCB, priority 1, whose target `foo` has no root octet and an rdlength of 6 that ends the
+/// record there: the name's encoding runs on into the next record's owner pointer, which makes
+/// it `foo.example.com` and the record's parameters start past its own end.
+const record_svcb_name_past_record = owner_pointer ++ [_]u8{
+    0x00, 0x40, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
+    0x00, 0x06, // rdlength
+    0x00, 0x01,
+    0x03, 'f',
+    'o',  'o',
+};
+const question_svcb = "\x07example\x03com\x00\x00\x40\x00\x01".*;
+
+pub const answer_mx = answer_header(1) ++ question_mx ++ record_mx_compressed;
+pub const answer_svcb_name_past_record = answer_header(2) ++ question_svcb ++ record_svcb_name_past_record ++ record_a;
+pub const answer_mx_name_past_record = answer_header(1) ++ question_mx ++ record_mx_name_past_record;
+pub const answer_mx_trailing_octet = answer_header(1) ++ question_mx ++ record_mx_trailing_octet;
+pub const answer_srv = answer_header(1) ++ question_srv ++ record_srv_compressed;
+pub const answer_soa_asked = answer_header(1) ++ question_soa ++ record_soa_compressed;
+pub const answer_txt = answer_header(1) ++ question_txt ++ record_txt;
+pub const answer_txt_two_big = answer_header(2) ++ question_txt ++ record_txt_big ++ record_txt_big;
+/// Thirty-three TXT records: one more than a lookup keeps.
+pub const answer_txt_thirty_three = answer_header(33) ++ question_txt ++ record_txt ** 33;
+/// A CNAME question, and the CNAME record that answers it.
+pub const answer_cname_asked = answer_header(1) ++ question_cname ++ record_cname;
+/// An ANY question answered with an A, an MX and a TXT (RFC 8482 §4.1).
+pub const answer_any = answer_header(3) ++ question_any ++ record_a ++ record_mx_compressed ++ record_txt;
+/// An ANY question at a name that is an alias: the CNAME is the answer and is not followed
+/// (RFC 1034 §3.6.2).
+pub const answer_any_cname = answer_header(1) ++ question_any ++ record_cname;

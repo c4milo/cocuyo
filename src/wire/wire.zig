@@ -12,6 +12,7 @@ pub const question = @import("question.zig");
 pub const edns = @import("edns.zig");
 pub const query = @import("query.zig");
 pub const record = @import("record.zig");
+pub const record_copy = @import("record_copy.zig");
 pub const response = @import("response.zig");
 pub const rdata = @import("rdata/rdata.zig");
 pub const fuzz = @import("fuzz.zig");
@@ -26,6 +27,8 @@ pub const message_len = header.message_len;
 pub const Query = query.Query;
 pub const Record = record.Record;
 pub const Answers = response.Answers;
+pub const Records = response.Records;
+pub const Kept = response.Kept;
 pub const Outcome = response.Outcome;
 
 test {
@@ -37,6 +40,7 @@ test {
     _ = edns;
     _ = query;
     _ = record;
+    _ = record_copy;
     _ = response;
     _ = rdata;
     _ = fuzz;

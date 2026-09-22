@@ -21,6 +21,8 @@ const name_codec = @import("name.zig");
 const question_codec = @import("question.zig");
 const record_codec = @import("record.zig");
 const response_codec = @import("response.zig");
+const record_copy = @import("record_copy.zig");
+const rdata = @import("rdata/rdata.zig");
 
 /// How many offsets of one message the name decoder is aimed at. Every offset would be thorough
 /// and slow; thirty-two spread across the message reaches every structure the generator builds.
@@ -87,7 +89,8 @@ fn question_check(message: []const u8) ?[]const u8 {
     if (name.len < 1 or name.len > core.constants.name_bytes_max) return "a question name has an impossible length";
     // The question that parsed must match itself, case and all: that is the response check of §7
     // run against the message's own bytes.
-    const kind: core.Kind = @enumFromInt(parsed.kind_code);
+    // A type cocuyo does not name is a question it never asks, so there is nothing to match.
+    const kind = core.Kind.from_code(parsed.kind_code) orelse return null;
     if (kind.queryable() and !question_codec.matches(message, &name, kind)) {
         return "a question did not match the bytes it was parsed from";
     }
@@ -112,6 +115,7 @@ fn record_sweep(message: []const u8) ?[]const u8 {
 }
 
 fn rdata_check(message: []const u8, record: *const record_codec.Record) ?[]const u8 {
+    if (copy_check(message, record)) |failure| return failure;
     if (record.is_kind(.a) or record.is_kind(.aaaa)) {
         const address = record.address() catch return null;
         const expected: usize = if (record.is_kind(.a))
@@ -128,7 +132,65 @@ fn rdata_check(message: []const u8, record: *const record_codec.Record) ?[]const
     return null;
 }
 
+/// The copy of docs/design.md §19 step 9 against the typed views: a record the copy accepted, of
+/// a type whose layout has no `rest`, must read back through its view, because the two walk the
+/// same segments; and the copy never writes past the room it was given.
+fn copy_check(message: []const u8, record: *const record_codec.Record) ?[]const u8 {
+    var out: [core.constants.rdata_bytes_max]u8 = undefined;
+    const written = (record_copy.copy_out(message, record, &out) catch return null) orelse return null;
+    if (written > out.len) return "the copy wrote past its buffer";
+    const kind = core.Kind.from_code(record.kind_code) orelse return null;
+    const parsed = reads_back(kind, out[0..written]) orelse return null;
+    if (!parsed) return "a record the copy accepted did not read back through its view";
+    return null;
+}
+
+/// Whether the view of a type whose layout has no `rest` accepts `stored`; null for the others.
+fn reads_back(kind: core.Kind, stored: []const u8) ?bool {
+    return switch (kind) {
+        .ns, .cname, .ptr => accepted(rdata.name.whole(stored)),
+        .mx => accepted(rdata.Mx.parse(stored)),
+        .soa => accepted(rdata.Soa.parse(stored)),
+        .srv => accepted(rdata.Srv.parse(stored)),
+        .naptr => accepted(rdata.Naptr.parse(stored)),
+        else => null,
+    };
+}
+
+fn accepted(result: anytype) bool {
+    _ = result catch return false;
+    return true;
+}
+
+/// `collect` for a type kept as rdata: the counts and the references stay inside their bounds,
+/// and an MX question keeps only MX records that read back.
+fn records_check(message: []const u8, kind: core.Kind) ?[]const u8 {
+    var chain = Name.from_text(question_text) catch unreachable;
+    var collected: response_codec.Answers = undefined;
+    const outcome = response_codec.collect(message, &chain, kind, 0, &collected) catch return null;
+    if (collected.count > core.constants.records_kept_max) return "more records were kept than there is room for";
+    if ((outcome == .answered) != (collected.count > 0)) return "an answer and a count disagree";
+    if (collected.records().used > core.constants.rdata_bytes_max) return "the rdata buffer overflowed";
+    var index: usize = 0;
+    while (index < collected.count) : (index += 1) {
+        if (kept_check(&collected, index, kind)) |failure| return failure;
+    }
+    return null;
+}
+
+fn kept_check(collected: *const response_codec.Answers, index: usize, kind: core.Kind) ?[]const u8 {
+    const records = collected.records();
+    const kept = records.at(index);
+    if (kept.rdata.len != records.refs[index].len) return "a kept record's rdata is not its reference";
+    if (kind != .mx) return null;
+    if (kept.kind_code != core.Kind.mx.code()) return "an MX question kept another type";
+    _ = rdata.Mx.parse(kept.rdata) catch return "an MX kept by the collector did not read back";
+    return null;
+}
+
 fn response_check(message: []const u8) ?[]const u8 {
+    if (records_check(message, .mx)) |failure| return failure;
+    if (records_check(message, .any)) |failure| return failure;
     var chain = Name.from_text(question_text) catch unreachable;
     var collected: response_codec.Answers = response_codec.Answers.init(.a);
     const outcome = response_codec.collect(message, &chain, .a, 0, &collected) catch return null;
