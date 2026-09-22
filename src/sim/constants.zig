@@ -35,8 +35,13 @@ pub const socket_buffer_bytes_cap = 1 << 20;
 pub const socket_buffer_bytes_refuse_above = 1 << 28;
 
 /// The alignment rotor asks of a buffer ring and of the loop's memory, and the octets one ring
-/// entry takes, so a caller's arrays are sized the same for the twin and for rotor.
-pub const buffer_ring_alignment = 64;
+/// entry takes, so a caller's arrays are sized and aligned the same for the twin and for rotor.
+///
+/// The ring's alignment was 64 here until 2026-09-22, when rotor asks 64 KiB on both of its
+/// backends. A twin that asks for less cannot catch a caller whose memory is not aligned enough,
+/// and it did not: `IORING_REGISTER_PBUF_RING` refuses a ring that is not page-aligned, and the
+/// engine met that refusal on Linux with every test on the twin green.
+pub const buffer_ring_alignment = 64 * 1024;
 pub const buffer_ring_entry_bytes = 16;
 pub const memory_alignment = 64;
 

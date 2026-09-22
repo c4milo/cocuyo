@@ -51,14 +51,24 @@ pub fn Group(comptime buffers: u16) type {
     return struct {
         const Self = @This();
 
-        memory: [rotor.buffers.group_bytes(buffers, constants.tcp_chunk_bytes)]u8 align(rotor.buffers.group_alignment),
+        const needed = rotor.buffers.group_bytes(buffers, constants.tcp_chunk_bytes);
+        const alignment = rotor.buffers.group_alignment;
+
+        /// One alignment more than the group needs, for the reason the datagram group's own
+        /// `memory` gives: a type's alignment is not always the object's.
+        memory: [needed + alignment]u8 align(alignment),
+
+        pub fn ring(self: *Self) []align(alignment) u8 {
+            const from = @intFromPtr(&self.memory);
+            const at = std.mem.alignForward(usize, from, alignment);
+            assert(at - from < alignment);
+            return @alignCast(self.memory[at - from ..][0..needed]);
+        }
 
         pub fn provide(self: *Self, loop: *rotor.Loop) error{ReceiveFailed}!void {
-            // The same precondition the datagram group carries, for the same reason: the type
-            // says this memory is aligned and nothing checks it, and a kernel that refuses an
-            // unaligned ring says so with an errno rotor does not map.
-            assert(@intFromPtr(&self.memory) % rotor.buffers.group_alignment == 0);
-            loop.provide_buffers(constants.tcp_group_id, &self.memory, buffers, constants.tcp_chunk_bytes) catch
+            const memory = ring(self);
+            assert(@intFromPtr(memory.ptr) % alignment == 0);
+            loop.provide_buffers(constants.tcp_group_id, memory, buffers, constants.tcp_chunk_bytes) catch
                 return error.ReceiveFailed;
         }
     };

@@ -326,8 +326,9 @@ test "the buffer groups sit where the kernel can take them" {
     // caller for `group_alignment` so it never is. A field's alignment is only as good as the
     // placement of whatever holds it, and this is the check that it held (docs/design.md §19
     // step 13).
-    const udp_at = @intFromPtr(&rig.engine.group.memory);
-    const tcp_at = @intFromPtr(&rig.engine.tcp_group.memory);
+    // What is handed over, not what is declared: the declaration is what Linux did not honour.
+    const udp_at = @intFromPtr(rig.engine.group.ring().ptr);
+    const tcp_at = @intFromPtr(rig.engine.tcp_group.ring().ptr);
     try testing.expectEqual(@as(usize, 0), udp_at % rotor.buffers.group_alignment);
     try testing.expectEqual(@as(usize, 0), tcp_at % rotor.buffers.group_alignment);
 }

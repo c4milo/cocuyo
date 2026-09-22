@@ -200,15 +200,29 @@ pub fn Group(comptime buffers: u16) type {
         const Self = @This();
         const group: rotor.datagram.GroupOptions = .{};
 
-        memory: [rotor.buffers.group_bytes(buffers, constants.buffer_bytes)]u8 align(rotor.buffers.group_alignment),
+        const needed = rotor.buffers.group_bytes(buffers, constants.buffer_bytes);
+        const alignment = rotor.buffers.group_alignment;
+
+        /// One alignment more than the group needs, because the alignment a type asks for is not
+        /// always the alignment the object gets. On x86_64-linux, Zig reported `@alignOf` of the
+        /// engine as 65536 and placed it at 0x1332d50, 3408 octets into its page;
+        /// `IORING_REGISTER_PBUF_RING` refuses a ring that is not page-aligned, which is the
+        /// `EINVAL` the engine met there with every test on the twin green. The spare octets buy
+        /// an aligned window inside this array whatever the array's own address turns out to be.
+        memory: [needed + alignment]u8 align(alignment),
+
+        /// The aligned window, which is what rotor is given.
+        pub fn ring(self: *Self) []align(alignment) u8 {
+            const from = @intFromPtr(&self.memory);
+            const at = std.mem.alignForward(usize, from, alignment);
+            assert(at - from < alignment);
+            return @alignCast(self.memory[at - from ..][0..needed]);
+        }
 
         pub fn provide(self: *Self, loop: *rotor.Loop) error{ReceiveFailed}!void {
-            // rotor takes the memory as `[]align(group_alignment) u8`, so the type says it is
-            // aligned and nothing checks that it is. `IORING_REGISTER_PBUF_RING` refuses a ring
-            // that is not page-aligned, and it refuses it with an errno rotor maps to
-            // `Unexpected`, which names nothing. This says which.
-            assert(@intFromPtr(&self.memory) % rotor.buffers.group_alignment == 0);
-            loop.provide_datagram_buffers(constants.group_id, &self.memory, buffers, constants.buffer_bytes, group) catch
+            const memory = ring(self);
+            assert(@intFromPtr(memory.ptr) % alignment == 0);
+            loop.provide_datagram_buffers(constants.group_id, memory, buffers, constants.buffer_bytes, group) catch
                 return error.ReceiveFailed;
         }
 
