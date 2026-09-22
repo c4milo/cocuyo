@@ -24,10 +24,6 @@ pub const group_buffers_default = 64;
 pub const buffer_bytes = 2048;
 pub const group_id = 0;
 
-/// The most polls one drive of the table makes: one per slot, so a table full of lookups that
-/// each want something is walked once.
-pub const polls_per_drive_max = 4096;
-
 /// The most operations and entries the loop is asked to hold for one engine: a receive per
 /// server, a send per lookup, one timer, and slack for the closes.
 pub const loop_operations_slack = 16;

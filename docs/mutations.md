@@ -551,6 +551,13 @@ I1 and V4 are caught by an assertion rather than a test's own check. A second re
 same lookup overfills the results ring, whose capacity is the table's, and the push asserts it
 has room; a chunk delivered twice overfills the reader's frame, which the delivery asserts fits.
 
+One defect of this slice had no check to mutate and no test to catch it, and the end-to-end
+comparison of step 15 found it: `drive` polled the table up to 4096 times per call, and a lookup
+that has ended and waits for `take` answers every poll with its end again, so every drive spun
+through 4096 polls over it. That was 4 ms a lookup ReleaseSafe and 10 in Debug. A drive is now
+one rotation over the engine's slots. Nothing observable on the twin changed, so no row was
+added; the numbers of design §11 before and after are its proof.
+
 ## Step 14, the `getaddrinfo` shape
 
 Design §19 step 14: `AddressLookup` above the table, after the address text parser and the hosts
