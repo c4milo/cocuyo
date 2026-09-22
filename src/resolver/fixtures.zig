@@ -74,6 +74,11 @@ pub const record_a_second = [_]u8{
     0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x04, 192, 0, 2, 2,
 };
 
+/// A PTR record owned by whatever the question named, pointing at `host.example.net`, TTL 300.
+pub const record_ptr = [_]u8{
+    0xc0, 0x0c, 0x00, 0x0c, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x12,
+} ++ "\x04host\x07example\x03net\x00".*;
+
 /// A CNAME from the question's name to `host.example.net`, TTL 60.
 pub const record_cname = [_]u8{
     0xc0, 0x0c, 0x00, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x12,
@@ -174,6 +179,7 @@ const cookie_client_wrong = [_]u8{ 0xba, 0xdc, 0x00, 0xc1, 0xe0, 0x00, 0x00, 0x0
 
 /// A reply carrying one A record.
 pub const answer_a: Reply = .{ .records = &record_a, .ancount = 1 };
+pub const answer_ptr: Reply = .{ .records = &record_ptr, .ancount = 1 };
 pub const answer_aaaa: Reply = .{ .records = &record_aaaa, .ancount = 1 };
 
 /// The most polls an address lookup's test drives before it gives up, and the jump that makes a

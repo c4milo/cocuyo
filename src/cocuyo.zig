@@ -44,6 +44,9 @@ pub const AddressLookup = resolver.AddressLookup;
 pub const AddressFlags = resolver.AddressFlags;
 pub const AddressInfo = resolver.AddressInfo;
 pub const AddressOutcome = resolver.AddressOutcome;
+pub const NameLookup = resolver.NameLookup;
+pub const NameInfo = resolver.NameInfo;
+pub const NameOutcome = resolver.NameOutcome;
 
 pub const Cache = cache.Cache;
 pub const Hit = cache.Hit;
