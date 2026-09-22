@@ -20,9 +20,9 @@ const Slot = struct {
 const State = struct {
     channel: ?*c.ares_channel_t,
     total: u32,
-    started: u32 = 0,
-    done: u32 = 0,
-    failures: u32 = 0,
+    started: std.atomic.Value(u32) = .init(0),
+    done: std.atomic.Value(u32) = .init(0),
+    failures: std.atomic.Value(u32) = .init(0),
     latencies: []u64,
     slots: [constants.in_flight_max]Slot = @splat(.{}),
 };
@@ -49,16 +49,21 @@ pub fn run(port: u16, in_flight: u32, total: u32, latencies: []u64) !Outcome {
     const begin = harness.now_ns();
     var index: u32 = 0;
     while (index < in_flight and index < total) : (index += 1) start_next(&state.slots[index]);
-    if (c.ares_queue_wait_empty(channel, -1) != c.ARES_SUCCESS) return error.CaresWaitFailed;
-    return .{ .elapsed_ns = harness.now_ns() - begin, .failures = state.failures };
+    if (c.ares_queue_wait_empty(channel, constants.cares_wait_ms_max) != c.ARES_SUCCESS) return error.CaresStalled;
+    return .{ .elapsed_ns = harness.now_ns() - begin, .failures = state.failures.load(.monotonic) };
 }
 
 /// Starts the next lookup in `slot`. Called from `run` for the first batch and from the callback
 /// for every one after, under c-ares's lock either way.
 fn start_next(slot: *Slot) void {
-    const name = std.fmt.bufPrintZ(&slot.text, "h{d}.example.", .{state.started}) catch unreachable;
+    // The counters are written by two threads: the first batch goes out from the main thread and
+    // every lookup after it from a callback on c-ares's event thread, which runs while that batch
+    // is still going. Each start claims its own index, and a claim past the total starts nothing,
+    // so exactly `total` lookups go out however the two threads interleave.
+    const index = state.started.fetchAdd(1, .monotonic);
+    if (index >= state.total) return;
+    const name = std.fmt.bufPrintZ(&slot.text, "h{d}.example.", .{index}) catch unreachable;
     slot.started_ns = harness.now_ns();
-    state.started += 1;
     const status = c.ares_query_dnsrec(state.channel, name.ptr, c.ARES_CLASS_IN, c.ARES_REC_TYPE_A, &on_answer, slot, null);
     assert(status == c.ARES_SUCCESS);
 }
@@ -67,8 +72,10 @@ fn on_answer(arg: ?*anyopaque, status: c.ares_status_t, timeouts: usize, record:
     _ = timeouts;
     const slot: *Slot = @ptrCast(@alignCast(arg.?));
     const now = harness.now_ns();
-    state.latencies[state.done] = now - slot.started_ns;
-    state.done += 1;
-    if (status != c.ARES_SUCCESS or c.ares_dns_record_rr_cnt(record, c.ARES_SECTION_ANSWER) == 0) state.failures += 1;
-    if (state.started < state.total) start_next(slot);
+    const answered = status == c.ARES_SUCCESS and c.ares_dns_record_rr_cnt(record, c.ARES_SECTION_ANSWER) != 0;
+    const at = state.done.fetchAdd(1, .monotonic);
+    assert(at < state.total);
+    state.latencies[at] = now - slot.started_ns;
+    if (!answered) _ = state.failures.fetchAdd(1, .monotonic);
+    start_next(slot);
 }

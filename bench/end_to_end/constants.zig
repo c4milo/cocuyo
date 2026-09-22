@@ -66,6 +66,13 @@ pub const latency_ns_max = 250 * ns_per_ms;
 /// latency of a whole `tick_wait_ns_max`.
 pub const test_total_one = 5;
 
+/// The longest the c-ares side waits for its queue to empty before it gives the row up. c-ares
+/// is driven by its own event thread, and that thread has been seen parked in `kevent` with a
+/// query still queued and no timer armed for it, on the loopback at 128 in flight; an unbounded
+/// `ares_queue_wait_empty` then never returns. A bounded one ends the row and says so, which is
+/// a measurement that failed rather than a run that hangs.
+pub const cares_wait_ms_max = 60_000;
+
 /// What the responder's queue holds: the c-ares side and cocuyo's each send one datagram per
 /// lookup in flight, so this is the most that can be waiting.
 pub const socket_buffer_bytes = 4 * 1024 * 1024;

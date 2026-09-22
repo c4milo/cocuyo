@@ -30,12 +30,12 @@ pub fn run() void {
     for (constants.in_flight_counts) |in_flight| {
         const ours = rotor_loop.run(responder.port, in_flight, constants.lookups_total, &latencies) catch |err| {
             std.debug.print("cocuyo: {t}\n", .{err});
-            return;
+            continue;
         };
         report("cocuyo", in_flight, ours.elapsed_ns, ours.failures, latencies[0..constants.lookups_total]);
         const theirs = cares_loop.run(responder.port, in_flight, constants.lookups_total, &latencies) catch |err| {
             std.debug.print("c-ares: {t}\n", .{err});
-            return;
+            continue;
         };
         report("c-ares", in_flight, theirs.elapsed_ns, theirs.failures, latencies[0..constants.lookups_total]);
     }
