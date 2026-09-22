@@ -29,3 +29,10 @@ counterpart: c-ares decides whose datagram it is inside its own event loop, whic
 cocuyo was split to avoid. This step links a library the gate must not require, so nothing of it
 runs under `zig build test`; its own tests, which show c-ares writes the same query bytes cocuyo
 does, run first under the step and alone under `zig build test-cares`.
+
+The same step then runs the comparison end to end (`bench/end_to_end/`): one responder thread on
+the loopback answers every query with one A record, and each stack resolves 20,000 distinct
+names against it with 1, 16 and 128 lookups in flight. cocuyo's side is the engine of design §19
+step 13 over rotor, built privately for the bench; c-ares's is the installed build with its
+event thread. The rows are lookups per second, and the median and 99th-percentile latency. The
+numbers live in §11 of the design document, with the machine and the day.

@@ -117,10 +117,9 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(graph_check.add(b, host_module(b, "tools/graph_check.zig")));
     // rotor drives the second example and nothing else. `lazyDependency` leaves it null until
     // the build has it, and `build/examples.zig` simply adds no rotor example in that case.
-    examples.add(b, graph.cocuyo, target, optimize, test_step, b.lazyDependency("rotor", .{
-        .target = target,
-    }));
-    bench.add(b, target, test_step, tool_test_step);
+    const rotor = b.lazyDependency("rotor", .{ .target = target });
+    examples.add(b, graph.cocuyo, target, optimize, test_step, rotor);
+    bench.add(b, target, test_step, tool_test_step, rotor);
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_commit_lint_step(b, pepegrillo, install_step);
     add_hooks_step(b);

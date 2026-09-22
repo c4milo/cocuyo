@@ -27,6 +27,7 @@ const cocuyo = @import("cocuyo");
 const wire = @import("wire");
 const harness = @import("harness.zig");
 const cases = @import("bench_cases.zig");
+const end_to_end = @import("end_to_end/end_to_end.zig");
 const c = @cImport(@cInclude("ares.h"));
 
 const fixtures = wire.fixtures;
@@ -56,6 +57,7 @@ pub fn main() void {
     var version_buffer: [64]u8 = undefined;
     const title = std.fmt.bufPrint(&version_buffer, "cocuyo against c-ares {s}", .{c.ares_version(null)}) catch unreachable;
     harness.run(title, &all);
+    end_to_end.run();
 }
 
 fn noop() void {}
@@ -181,6 +183,10 @@ test "c-ares reads the same records from the corpus that cocuyo does" {
     try testing.expectEqual(@as(usize, 1), parse_cares(&cares_message_cname));
     // Seventeen A records are in the message. cocuyo keeps sixteen and says so; c-ares keeps all.
     try testing.expectEqual(@as(usize, cocuyo.constants.addresses_max + 1), parse_cares(&cares_message_seventeen));
+}
+
+test {
+    _ = end_to_end;
 }
 
 test "the version measured is the one the header names" {

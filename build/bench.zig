@@ -20,6 +20,7 @@ pub fn add(
     target: std.Build.ResolvedTarget,
     test_step: *std.Build.Step,
     tool_test_step: *std.Build.Step,
+    rotor: ?*std.Build.Dependency,
 ) void {
     const graph = modules.add_private(b, target, .ReleaseSafe);
     const module = b.createModule(.{
@@ -50,7 +51,7 @@ pub fn add(
     test_step.dependOn(run_tests);
     tool_test_step.dependOn(run_tests);
 
-    add_cares(b, target, graph, debug_graph);
+    add_cares(b, target, graph, debug_graph, rotor);
 }
 
 /// Where a Homebrew c-ares lives on Apple Silicon. Any prefix with `include/ares.h` and
@@ -65,6 +66,7 @@ fn add_cares(
     target: std.Build.ResolvedTarget,
     graph: modules.Graph,
     debug_graph: modules.Graph,
+    rotor: ?*std.Build.Dependency,
 ) void {
     const prefix = b.option(
         []const u8,
@@ -72,14 +74,14 @@ fn add_cares(
         "The c-ares install prefix for bench-cares (default " ++ cares_prefix_default ++ ")",
     ) orelse cares_prefix_default;
 
-    const test_module = cares_module(b, target, .Debug, prefix, debug_graph);
+    const test_module = cares_module(b, target, .Debug, prefix, debug_graph, rotor);
     const tests = b.addTest(.{ .name = "cares", .root_module = test_module });
     const run_tests = b.addRunArtifact(tests);
 
     const test_cares = b.step("test-cares", "Run the comparison's own tests alone");
     test_cares.dependOn(&run_tests.step);
 
-    const module = cares_module(b, target, .ReleaseSafe, prefix, graph);
+    const module = cares_module(b, target, .ReleaseSafe, prefix, graph, rotor);
     const exe = b.addExecutable(.{ .name = "bench-cares", .root_module = module });
     const run = b.addRunArtifact(exe);
     run.step.dependOn(&run_tests.step);
@@ -88,12 +90,16 @@ fn add_cares(
     step.dependOn(&run.step);
 }
 
+/// The comparison's module. Its end-to-end run drives the engine of docs/design.md §19 step 13
+/// over rotor itself, so the engine is built here, privately, against the real rotor: the one
+/// place in the tree that binds the two, and not a library (step 13).
 fn cares_module(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     prefix: []const u8,
     graph: modules.Graph,
+    rotor: ?*std.Build.Dependency,
 ) *std.Build.Module {
     const module = b.createModule(.{
         .root_source_file = b.path("bench/cares.zig"),
@@ -103,6 +109,17 @@ fn cares_module(
     });
     module.addImport("cocuyo", graph.cocuyo);
     module.addImport("wire", graph.wire);
+    if (rotor) |dependency| {
+        const engine = b.createModule(.{
+            .root_source_file = b.path(modules.roots.io),
+            .target = target,
+            .optimize = optimize,
+        });
+        engine.addImport("cocuyo", graph.cocuyo);
+        engine.addImport("rotor", dependency.module("rotor"));
+        module.addImport("rotor", dependency.module("rotor"));
+        module.addImport("io", engine);
+    }
     module.addIncludePath(.{ .cwd_relative = b.fmt("{s}/include", .{prefix}) });
     module.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/lib", .{prefix}) });
     module.linkSystemLibrary("cares", .{});
