@@ -13,13 +13,19 @@
 const harness = @import("harness.zig");
 const cases = @import("bench_cases.zig");
 const cache_cases = @import("bench_cache.zig");
+const cache_trace = @import("cache_trace.zig");
+
+/// The seed the trace replays from: one seed, one trace, so a rerun reads the same questions.
+const trace_seed = 0x5eed_c0c0;
 
 pub fn main() void {
     harness.run("cocuyo bench", &(cases.all ++ cache_cases.all));
+    cache_trace.run(trace_seed);
 }
 
 test {
     _ = harness;
     _ = cases;
     _ = cache_cases;
+    _ = cache_trace;
 }

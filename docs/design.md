@@ -1338,6 +1338,43 @@ them to the numbers above, a third off every row. Nothing here was compared agai
 cache, whose entry is a parsed record tree and whose key is a formatted string, so no ratio is
 claimed.
 
+### Does it earn its keep
+
+`zig build bench` prints this after the nanosecond rows, on the machine and day §11 names. One
+million questions over 50,000 distinct names, drawn Zipf with an exponent of one, arriving one
+every 10 milliseconds — a little under three hours of virtual time — with TTLs of 60, 300 and
+3600 seconds over 40%, 40% and 20% of the names. `bench/cache_trace.zig` holds every one of those
+numbers as a named constant.
+
+| Slots | Memory | Hit rate | Hits | Misses |
+| --- | --- | --- | --- | --- |
+| 64 | 175 KiB | 34.7% | 347,202 | 652,798 |
+| 256 | 699 KiB | 43.8% | 437,741 | 562,259 |
+| 1024 | 2.7 MiB | 52.2% | 522,138 | 477,862 |
+| 4096 | 11 MiB | 60.1% | 600,653 | 399,347 |
+| 16384 | 43 MiB | 60.7% | 606,573 | 393,427 |
+
+What it says:
+
+- **The cache earns its keep.** At the 1024 slots the engine takes by default, 2.7 MiB of the
+  caller's memory answers half the questions without a packet. That is the answer §17 question 9
+  assumed and no measurement had given.
+- **The curve bends at 4096.** Sixteen times the memory of the default buys eight points; four
+  times that buys another 0.6. A caller with memory to spare should stop at 4096 on this trace.
+- **The ceiling is the workload's, not the policy's.** Nothing reaches 61%, because a name is a
+  hit only if it is asked again inside its own TTL, and the tail of a Zipf never is. A policy
+  change cannot lift that ceiling; only a longer TTL or a busier client can.
+
+**The trace is synthetic, and the table is worth exactly what its assumptions are.** No DNS trace
+was measured. The popularity curve is Zipf because that is what web object popularity has measured
+as for decades, not because anyone has measured DNS names here. A real trace replaces `Trace` and
+nothing else.
+
+**SIEVE against S3-FIFO is still unmeasured.** The policies differ in what they evict, and the
+rows above say the ceiling is set by expiry rather than by eviction, so the difference is likely
+small on this trace — but "likely" is not a measurement, and §17 question 9's second half stays
+open.
+
 ### Memory
 
 Per slot: a `Name` at 256, an `Answers` at 2448 since §19 step 9 gave it the rdata buffer, and
