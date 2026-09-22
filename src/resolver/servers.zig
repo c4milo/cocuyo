@@ -16,6 +16,11 @@ pub const ServerState = struct {
     /// one is learned (RFC 7873 §5.3).
     cookie_server: [core.constants.cookie_server_bytes_max]u8,
     cookie_server_len: u8,
+    /// Consecutive failures to answer: timeouts, failed sends, failed connections. A response
+    /// of any kind resets it (docs/design.md §19 step 12).
+    failures: u8,
+    /// When the last of them happened.
+    failed_at_ns: u64,
 };
 
 pub const Servers = struct {
@@ -32,6 +37,8 @@ pub const Servers = struct {
                 .cookie_client = client_cookie(seed, &server.endpoint),
                 .cookie_server = @splat(0),
                 .cookie_server_len = 0,
+                .failures = 0,
+                .failed_at_ns = 0,
             };
         }
         assert(servers.count <= core.constants.servers_max);
@@ -58,6 +65,26 @@ pub const Servers = struct {
     /// server has answered with a cookie (RFC 7873 §5.3, "expecting").
     pub fn expecting(self: *const Servers, index: usize) bool {
         return self.state(index).cookie_server_len > 0;
+    }
+
+    /// One more failure to answer, at `now_ns`. Saturates: a server down for a week is as down
+    /// as one down for a day.
+    pub fn record_failure(self: *Servers, index: usize, now_ns: u64) void {
+        assert(index < self.count);
+        const entry = &self.states[index];
+        entry.failures +|= 1;
+        entry.failed_at_ns = now_ns;
+        assert(entry.failures >= 1);
+    }
+
+    /// An answer of any kind: the server is up.
+    pub fn record_success(self: *Servers, index: usize) void {
+        assert(index < self.count);
+        self.states[index].failures = 0;
+    }
+
+    pub fn failures(self: *const Servers, index: usize) u8 {
+        return self.state(index).failures;
     }
 
     /// Caches the server cookie a response carried (RFC 7873 §5.3). The caller has checked the
@@ -122,4 +149,17 @@ test "a learned server cookie is what the next query carries, and nothing is exp
     try testing.expectEqual(@as(u8, 16), cookie.server_len);
     try testing.expectEqualSlices(u8, &learned, cookie.server[0..16]);
     try testing.expectEqualSlices(u8, &servers.state(0).cookie_client, &cookie.client);
+}
+
+test "failures count up until an answer resets them, and the instant is the last one's" {
+    const config: Config = .{ .servers = &fixtures.servers_two };
+    var servers = Servers.init(&config, 1);
+    try testing.expectEqual(@as(u8, 0), servers.failures(0));
+    servers.record_failure(0, 10);
+    servers.record_failure(0, 20);
+    try testing.expectEqual(@as(u8, 2), servers.failures(0));
+    try testing.expectEqual(@as(u64, 20), servers.state(0).failed_at_ns);
+    try testing.expectEqual(@as(u8, 0), servers.failures(1));
+    servers.record_success(0);
+    try testing.expectEqual(@as(u8, 0), servers.failures(0));
 }

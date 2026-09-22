@@ -89,9 +89,9 @@ fn opt_of(message: []const u8, cased: *const core.Name) ?OptFields {
 /// them, and it stands. A lookup that sent no OPT record expects nothing back.
 fn cookie_accepted(self: *const Lookup, cookie: ?wire.CookieView) bool {
     if (!self.flags.edns_enabled) return true;
-    const mine = self.servers.state(self.server_index);
+    const mine = self.servers.state(self.server_slot());
     if (cookie) |view| return std.mem.eql(u8, view.client, &mine.cookie_client);
-    return !self.servers.expecting(self.server_index);
+    return !self.servers.expecting(self.server_slot());
 }
 
 /// Caches the server cookie a response carried, even an error response (RFC 7873 §5.3). The
@@ -100,8 +100,8 @@ fn learn_cookie(self: *Lookup, cookie: ?wire.CookieView) void {
     if (!self.flags.edns_enabled) return;
     const view = cookie orelse return;
     if (view.server.len == 0) return;
-    self.servers.learn(self.server_index, view.server);
-    assert(self.servers.expecting(self.server_index));
+    self.servers.learn(self.server_slot(), view.server);
+    assert(self.servers.expecting(self.server_slot()));
 }
 
 fn apply(
@@ -112,6 +112,9 @@ fn apply(
     now_ns: u64,
 ) Verdict {
     const header = accepted.header;
+    // An answer of any kind is the server being up (§19 step 12), and its cookie is learned
+    // whatever its rcode (RFC 7873 §5.3).
+    self.servers.record_success(self.server_slot());
     learn_cookie(self, accepted.cookie);
     // Truncation over UDP sends this server's answer to TCP. Over TCP it means nothing: a stream
     // has no size limit to overflow (RFC 7766 §5), so the bit is ignored there.

@@ -234,6 +234,9 @@ pub const key_count = 16;
 pub const Harness = struct {
     config: Config,
     servers: Servers = undefined,
+    /// Whether `servers` was built: a second `start` on one harness keeps what the first lookup
+    /// learned, which is how the state shared across lookups is tested.
+    servers_ready: bool = false,
     lookup: Lookup = undefined,
     query: [core.constants.query_bytes_max]u8 = @splat(0),
     query_bytes: usize = 0,
@@ -244,7 +247,10 @@ pub const Harness = struct {
     now_ns: u64 = 0,
 
     pub fn start(self: *Harness, text: []const u8, kind: Kind, lookup_seed: u64) !void {
-        self.servers = Servers.init(&self.config, lookup_seed);
+        if (!self.servers_ready) {
+            self.servers = Servers.init(&self.config, lookup_seed);
+            self.servers_ready = true;
+        }
         self.lookup = Lookup.init(&self.config, &self.servers, try Question.from_text(text, kind), lookup_seed);
     }
 
@@ -336,7 +342,7 @@ pub const Harness = struct {
     fn cookie_option(self: *Harness, reply: Reply, out: []u8) usize {
         const client: []const u8 = switch (reply.cookie) {
             .none, .opt_only => return 0,
-            .echo, .malformed => &self.servers.state(self.lookup.server_index).cookie_client,
+            .echo, .malformed => &self.servers.state(self.lookup.server_slot()).cookie_client,
             .wrong => &cookie_client_wrong,
         };
         const server: []const u8 = if (reply.cookie == .malformed) &[_]u8{0x00} else reply.server_cookie;

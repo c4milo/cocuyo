@@ -23,6 +23,13 @@ const Kind = core.Kind;
 const Question = core.Question;
 const entropy_module = @import("entropy.zig");
 const Servers = @import("servers.zig").Servers;
+
+/// The order before the first poll computes one: the configured order.
+const identity_order: [core.constants.servers_max]u8 = blk: {
+    var order: [core.constants.servers_max]u8 = undefined;
+    for (&order, 0..) |*slot, index| slot.* = @intCast(index);
+    break :blk order;
+};
 const policy = @import("lookup_policy.zig");
 const poll_module = @import("lookup_poll.zig");
 const response_module = @import("lookup_response.zig");
@@ -107,7 +114,10 @@ pub const Flags = packed struct(u8) {
     aliased: bool,
     /// Whether a BADCOOKIE was already answered with a retry on this server (RFC 7873 §5.3).
     cookie_retried: bool,
-    unused: u2 = 0,
+    /// Whether `order` has been computed, which the first poll does with the clock in hand
+    /// (docs/design.md §19 step 12).
+    ordered: bool,
+    unused: u1 = 0,
 };
 
 pub const Lookup = struct {
@@ -117,10 +127,14 @@ pub const Lookup = struct {
     // demultiplexer cheap is the side table of §11, not this declaration order.
     state: State,
     flags: Flags,
+    /// Where the walk over the servers stands: a position in `order`, not a configured server.
     server_index: u8,
     round: u8,
     candidate_index: u8,
     cname_hops: u8,
+    /// The configured servers in the order this lookup asks them: sorted by their failures,
+    /// rotated among the equals, a retry promoted to the front (§19 step 12, `lookup_order.zig`).
+    order: [core.constants.servers_max]u8,
     transaction: entropy_module.Transaction,
     deadline_ns: u64,
     /// The last instant the caller passed in, so a clock going backwards is caught.
@@ -169,8 +183,10 @@ pub const Lookup = struct {
                 .had_server_failure = false,
                 .aliased = false,
                 .cookie_retried = false,
+                .ordered = false,
             },
             .server_index = 0,
+            .order = identity_order,
             .round = 0,
             .candidate_index = 0,
             .cname_hops = 0,
@@ -195,9 +211,6 @@ pub const Lookup = struct {
         if (config.server_count() == 0) {
             self.fail(core.Error.NoServers);
             return;
-        }
-        if (config.rotate) {
-            self.server_index = self.entropy.server_start(config.server_count());
         }
         self.take_candidate(self.candidate_index);
         if (self.state == .query_ready and config.use_tcp) self.state = .tcp_needed;
@@ -234,6 +247,7 @@ pub const Lookup = struct {
     pub fn on_send_failed(self: *Lookup, now_ns: u64) void {
         self.see(now_ns);
         assert(self.state == .query_ready or self.state == .tcp_ready);
+        self.servers.record_failure(self.server_slot(), now_ns);
         self.next_server(now_ns);
     }
 
@@ -248,6 +262,7 @@ pub const Lookup = struct {
         self.see(now_ns);
         assert(self.state == .connecting_tcp or self.state == .tcp_ready or
             self.state == .awaiting_tcp);
+        self.servers.record_failure(self.server_slot(), now_ns);
         self.next_server(now_ns);
     }
 
@@ -273,15 +288,21 @@ pub const Lookup = struct {
 
     /// The current server: the one a query goes to and the only one a response may come from.
     pub fn server(self: *const Lookup) Endpoint {
-        assert(self.server_index < self.config.servers.len);
-        return self.config.servers[self.server_index].endpoint;
+        return self.config.servers[self.server_slot()].endpoint;
     }
 
     /// Where a TCP connection to the current server goes: its own port when it has one
     /// (docs/design.md §19 step 11).
     pub fn server_tcp(self: *const Lookup) Endpoint {
-        assert(self.server_index < self.config.servers.len);
-        return self.config.servers[self.server_index].tcp_endpoint();
+        return self.config.servers[self.server_slot()].tcp_endpoint();
+    }
+
+    /// The configured server the walk is on: what `Servers` and `Failure` are indexed by.
+    pub fn server_slot(self: *const Lookup) u8 {
+        assert(self.server_index < self.config.server_count());
+        const slot = self.order[self.server_index];
+        assert(slot < self.config.servers.len);
+        return slot;
     }
 
     /// The name as it goes on the wire: the current name with its case set from this
@@ -397,7 +418,8 @@ pub const Lookup = struct {
         const negative = self.failure == core.Error.NameNotFound or self.failure == core.Error.NoData;
         return .{
             .err = self.failure,
-            .server_index = self.server_index,
+            // A lookup with no server to have been on reports the first.
+            .server_index = if (self.config.server_count() == 0) 0 else self.server_slot(),
             .attempts_made = self.round,
             .negative_ttl_seconds = if (negative) self.negative_ttl_seconds else 0,
         };
@@ -437,51 +459,4 @@ test "the name on the wire is cased and the name held is not" {
     var servers_plain = Servers.init(&plain, 1);
     var without = Lookup.init(&plain, &servers_plain, lookup.question, 1);
     try testing.expectEqualSlices(u8, without.current.wire(), without.cased_name().wire());
-}
-
-test "the servers are tried in turn, then the passes, then the lookup fails" {
-    const config: Config = .{ .servers = &three_servers, .attempts = 2 };
-    var servers_config = Servers.init(&config, 1);
-    var lookup = Lookup.init(&config, &servers_config, try Question.from_text("example.com.", .a), 1);
-    const first_id = lookup.transaction.id;
-    lookup.next_server(1);
-    try testing.expectEqual(@as(u8, 1), lookup.server_index);
-    try testing.expectEqual(@as(u8, 0), lookup.round);
-    try testing.expect(lookup.transaction.id != first_id or lookup.transaction.case_seed != 0);
-    lookup.next_server(2);
-    lookup.next_server(3);
-    try testing.expectEqual(@as(u8, 0), lookup.server_index);
-    try testing.expectEqual(@as(u8, 1), lookup.round);
-    lookup.next_server(4);
-    lookup.next_server(5);
-    lookup.next_server(6);
-    try testing.expectEqual(State.failed, lookup.state);
-    try testing.expectEqual(core.Error.Timeout, lookup.failure_of().err);
-}
-
-test "a lookup that saw a server failure fails with that rather than a timeout" {
-    const config: Config = .{ .servers = &one_server, .attempts = 1 };
-    var servers_config = Servers.init(&config, 1);
-    var lookup = Lookup.init(&config, &servers_config, try Question.from_text("example.com.", .a), 1);
-    lookup.flags.had_server_failure = true;
-    lookup.next_server(1);
-    try testing.expectEqual(core.Error.AllServersFailed, lookup.failure_of().err);
-}
-
-test "the candidate walk ends in NameNotFound, or NoData when a name existed" {
-    const search = [_]Name{try Name.from_text("one.net")};
-    const config: Config = .{ .servers = &one_server, .search = &search, .ndots = 1 };
-    var servers_config = Servers.init(&config, 1);
-    var lookup = Lookup.init(&config, &servers_config, try Question.from_text("host.example", .a), 1);
-    try testing.expect(lookup.current.equal(&try Name.from_text("host.example")));
-    lookup.next_candidate(1);
-    try testing.expect(lookup.current.equal(&try Name.from_text("host.example.one.net")));
-    lookup.next_candidate(2);
-    try testing.expectEqual(core.Error.NameNotFound, lookup.failure_of().err);
-
-    var second = Lookup.init(&config, &servers_config, try Question.from_text("host.example", .a), 1);
-    second.flags.had_no_data = true;
-    second.next_candidate(1);
-    second.next_candidate(2);
-    try testing.expectEqual(core.Error.NoData, second.failure_of().err);
 }

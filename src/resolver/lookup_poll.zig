@@ -11,11 +11,17 @@ const lookup_module = @import("lookup.zig");
 const Lookup = lookup_module.Lookup;
 const Action = lookup_module.Action;
 const policy = @import("lookup_policy.zig");
+const lookup_order = @import("lookup_order.zig");
 
 pub fn poll(self: *Lookup, now_ns: u64, out: []u8) Action {
     self.see(now_ns);
     assert(out.len >= core.constants.query_bytes_max);
-    if (expired(self, now_ns)) self.next_server(now_ns);
+    // The first poll is the first instant a lookup has, and the server order needs one.
+    if (!self.flags.ordered and !self.is_settled()) lookup_order.order_servers(self, now_ns);
+    if (expired(self, now_ns)) {
+        self.servers.record_failure(self.server_slot(), now_ns);
+        self.next_server(now_ns);
+    }
     return switch (self.state) {
         .query_ready => send_udp(self, out),
         .tcp_needed => connect_tcp(self, now_ns),
@@ -72,7 +78,7 @@ fn build(self: *const Lookup, tcp: bool, out: []u8) []const u8 {
         .tcp = tcp,
         // The cookies of this server ride in the OPT record, so there are none without it
         // (RFC 7873 §5.1).
-        .cookie = if (self.flags.edns_enabled) self.servers.cookie(self.server_index) else null,
+        .cookie = if (self.flags.edns_enabled) self.servers.cookie(self.server_slot()) else null,
         .recursion_desired = self.config.recursion_desired,
     };
     const written = wire.query.write(&query, out);

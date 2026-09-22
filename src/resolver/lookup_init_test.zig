@@ -25,9 +25,14 @@ test "rotation starts somewhere in the list, and a lookup without it starts at t
     var seed: u64 = 0;
     while (seed < 64) : (seed += 1) {
         const lookup = Lookup.init(&rotating, &servers_rotating, try Question.from_text("example.com.", .a), seed);
-        seen[lookup.server_index] = true;
+        var polled = lookup;
+        var out: [core.constants.query_bytes_max]u8 = @splat(0);
+        _ = polled.poll(0, &out);
+        seen[polled.server_slot()] = true;
         const fixed = Lookup.init(&plain, &servers_plain, try Question.from_text("example.com.", .a), seed);
-        try testing.expectEqual(@as(u8, 0), fixed.server_index);
+        var fixed_polled = fixed;
+        _ = fixed_polled.poll(0, &out);
+        try testing.expectEqual(@as(u8, 0), fixed_polled.server_slot());
     }
     for (seen) |reached| try testing.expect(reached);
 }
@@ -45,7 +50,7 @@ test "the size of a lookup slot is pinned" {
     // docs/design.md §9 budgets the memory a caller provides, and a caller sizing a table needs
     // this number. It is measured, not computed: Zig chooses the field order, so a field added
     // here can cost more than its own width in padding.
-    try testing.expectEqual(@as(usize, 3032), @sizeOf(Lookup));
+    try testing.expectEqual(@as(usize, 3040), @sizeOf(Lookup));
     try testing.expectEqual(@as(usize, 2448), @sizeOf(wire.Answers));
     try testing.expectEqual(@as(usize, 16), @sizeOf(entropy_module.Transaction));
 }

@@ -49,4 +49,7 @@ test {
     _ = @import("lookup_init_test.zig");
     _ = @import("lookup_negative_test.zig");
     _ = @import("lookup_config_test.zig");
+    _ = @import("lookup_order.zig");
+    _ = @import("lookup_failover_test.zig");
+    _ = @import("lookup_walk_test.zig");
 }
