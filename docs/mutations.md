@@ -551,6 +551,48 @@ I1 and V4 are caught by an assertion rather than a test's own check. A second re
 same lookup overfills the results ring, whose capacity is the table's, and the push asserts it
 has room; a chunk delivered twice overfills the reader's frame, which the delivery asserts fits.
 
+## Step 14, the `getaddrinfo` shape
+
+Design §19 step 14: `AddressLookup` above the table, after the address text parser and the hosts
+table moved to `core`. Broken against `zig build test-resolver`. Twenty-four mutations,
+twenty-four `CAUGHT`, one after a test was written for it.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| A1 | the families walk the search list on their own | the lockstep walk | the lockstep test | CAUGHT |
+| A2 | a name that does not exist leaves the other family running | RFC 1035 §4.1.1 | the early-end test | CAUGHT |
+| A3 | NODATA seen is forgotten at the end of the walk | §5's rule | the nothing-found test | CAUGHT |
+| A4 | a hard failure on one family is dropped | §19 step 14 | the hard-failure test | CAUGHT |
+| A5 | the half that failed is not reported | `partial` | the timed-out-half test | CAUGHT |
+| A6 | the families come back in arrival order | `getaddrinfo(3)`'s order | the IPv6-first test | CAUGHT |
+| A7 | `v4_mapped` maps for any family | `getaddrinfo(3)` | the IPv6-first test | CAUGHT |
+| A8 | the mapped `A` comes back beside an `AAAA` without `all` | `getaddrinfo(3)` | the mapped test | CAUGHT |
+| A9 | `all` is ignored | `getaddrinfo(3)` | the mapped test | CAUGHT |
+| A10 | the candidate's own name is never the canonical one | `canonical_name` | the canonical test | CAUGHT |
+| A11 | the chain's end is not taken as the canonical name | `canonical_name` | the canonical test | CAUGHT |
+| A12 | the hosts table is never consulted | `Config.lookups` | the table-first test | CAUGHT |
+| A13 | the table is consulted first whatever the order | `Config.lookups` | the DNS-first test | CAUGHT |
+| A14 | the table answers in a family that was not asked | §19 step 14 | the family-lacking test | CAUGHT |
+| A15 | the table's official name is not the canonical one | `canonical_name` | the table-first test | CAUGHT |
+| A16 | a numeric host is queried anyway | `getaddrinfo(3)` | the numeric test | CAUGHT |
+| A17 | `numeric_host` does not insist | `AI_NUMERICHOST` | the numeric test | CAUGHT |
+| A18 | a numeric host of another family is answered anyway | §19 step 14 | the numeric test | CAUGHT |
+| A19 | a pair short of a slot leaks the first | §19 step 14 | the slot-short test | CAUGHT |
+| A20 | a lookup's slot is never released | two slots at most | the lockstep test | CAUGHT |
+| A21 | a full table is not marked truncated | `truncated` | the full-table test | CAUGHT |
+| A22 | `v4_mapped` does not widen the table's ask | §19 step 14 | the family-lacking test | CAUGHT |
+| A23 | the join keeps the larger TTL | `ttl_seconds` | the IPv6-first test | CAUGHT |
+| A24 | the consumer's cancel is not the outcome | `cancel` | **the cancel-after-answer test** | CAUGHT |
+
+A24 survived the first run: with nothing answered, a cancelled pair ends `Canceled` through the
+hard-failure path all the same, so the check that puts the consumer's cancel first only shows
+once one family has answered. The test for that case was written, and the mutation fell.
+
+The harness taught something too. The table harness of the resolver's fixtures built every reply
+with a clean header, whatever rcode the test named, so an NXDOMAIN it sent arrived as NOERROR
+with no records, which is NODATA; the first run of the early-end test failed for that. It now
+writes the rcode the way the lookup harness does, and asserts the reply needs no OPT record.
+
 ## Planned, later steps
 
 | # | Mutation | Check it breaks | Expected to be caught by | Status |

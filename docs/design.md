@@ -599,7 +599,7 @@ The caller-provided buffer §19 keeps as the fallback is what would take it back
 | `[2N]MatchKey` | 4 bytes each | the id-to-slot table, power-of-two length |
 | send buffer | `query_bytes_max`, 284 | shared by the whole table |
 | receive buffer | `config.udp_payload_bytes`, 1232 by default | the caller's, per socket |
-| `[M]AddressLookup` | about 1100 bytes each, estimated | one per `getaddrinfo`-shaped lookup in flight: the name, the canonical name, 32 addresses, two handles and the walk's scalars, beside the two slots it takes; measured when §19 step 14 lands |
+| `[M]AddressLookup` | 1152 bytes each, measured | one per `getaddrinfo`-shaped lookup in flight: the name, the canonical name, 32 addresses, two handles and the walk's scalars, beside the two slots it takes; pinned by a test in `src/resolver/address_lookup_test.zig` |
 
 So 1024 concurrent lookups cost 3048 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
 ever, by anybody.
@@ -1611,6 +1611,12 @@ the end of the walk; `v4_mapped` alone and with `all`; the canonical name from a
 the hosts table; the `lookups` order both ways round; a numeric host with and without the flag;
 a family the hosts table lacks falling through to DNS; a slot count that never exceeds two per
 `AddressLookup`. Each check broken in turn, in `docs/mutations.md`.
+
+Landed on 2026-09-22: `resolver/address_lookup.zig` and `address_lookup_walk.zig`, 1152 bytes
+a lookup (§9), after the two moves into `core`. What the tests taught: the table harness of the
+resolver's fixtures had ignored a reply's rcode, so every NXDOMAIN it built was NODATA, and it
+now writes the rcode as the lookup harness does. The ordering hook is in place for step 15: the
+result is `AAAA` then `A` until then.
 
 ### Step 15: ordering, and the comparison
 

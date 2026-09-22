@@ -209,7 +209,13 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   twin by `zig build test-io`. The owner ruled the same day that no library bound to rotor is
   exposed until a consumer asks for one, so the engine is not exported. Still to come in 13: the
   TCP path, port rotation, `reinit` and `cancel_all`.
-- Next, in order: the rest of 13, the `getaddrinfo` shape (14), RFC 6724 ordering and the
-  end-to-end comparison (15).
+- **14**, the `getaddrinfo` shape, done the same day: the address text parser and the hosts
+  table moved to `core` (the parser of the table stays in `config`), and `AddressLookup` in
+  `resolver` composes a numeric host, the hosts table in `Config.lookups` order, and one
+  absolute `A` and `AAAA` lookup per search candidate in lockstep, joined with `v4_mapped`,
+  `all` and the canonical name as `getaddrinfo(3)` has them; it holds two slots at most and is
+  1152 bytes (§9).
+- Next, in order: RFC 6724 ordering and the end-to-end comparison (15), then the rest of 13
+  (the TCP path, port rotation, `reinit`, `cancel_all`) on the twin.
 
 §17 holds the questions the owner has not answered.
