@@ -66,12 +66,12 @@ Each of these is out of scope on purpose, with the place it would attach.
   record iterator hands out rdata unread, so a validator sits above the codec.
 - **No DNS-over-TLS and no DNS-over-HTTPS.** Seam: the TCP path already produces length-prefixed
   messages, and the socket is the caller's, so DoT is the caller's TLS over the same bytes.
-- **No mDNS, no zone transfers, no `NS`, `MX`, `TXT` or `SRV`.** Seam: the record iterator is
-  type-agnostic; only answer collection is typed.
-- **No `/etc/hosts`, no nsswitch, no NIS.** Seam: the same place as the cache.
-- **No A-plus-AAAA merge and no Happy Eyeballs.** A caller that wants both runs two lookups.
-- **No TCP connection reuse or pipelining** (RFC 7766 §6.2). One query per connection. Seam:
-  `connect_tcp` names a server, so a caller with a pool can satisfy it from the pool.
+- **No mDNS and no zone transfers.** Out: neither is a stub resolver's.
+- **Record types beyond `A`, `AAAA`, `PTR` and `CNAME`; `/etc/hosts`; A-plus-AAAA in one call;
+  TCP reuse and pipelining; DNS cookies; server failover.** Out of version one, and in since
+  2026-09-22 by §19's plan, which says where each lands: the record types, the cookies and the
+  failover in the core, the hosts file in `config`, the joined lookup and the TCP pool in the
+  engine of §19 step 13. nsswitch and NIS stay out.
 
 ## 2. Module graph
 
@@ -86,6 +86,7 @@ by the build rather than by review.
 | `config` | `core` | the `resolv.conf` parser |
 | `cache` | `core`, `wire` | the answer cache of §18, above the state machine and never inside it |
 | `sim` | `core`, `wire`, `resolver` | the scripted server and the virtual clock, test-only |
+| `cocuyo_rotor` | `cocuyo`, `rotor` | the engine of §19: sockets, timers and connections over rotor, in `engine/` and built only when asked for |
 
 `resolver` cannot import `config`. That is the split between the state machine and the config
 parser, made structural: `Config` is a `core` type, the parser is one producer of it, and the
@@ -819,6 +820,12 @@ step until `zig build test` passes.
 - **Step 7.** `bench/`: query build, response parse, datagram match, in nanoseconds per operation.
   Every estimate in §11 is then either confirmed or corrected in place. Done: §11 carries the
   table, the machine and the command, and the harness's own tests run under `zig build test`.
+- **Step 8.** `cache`: the SIEVE cache of §18 with the negative TTL of RFC 2308 under it. Done
+  on 2026-09-22; §11 carries its rows.
+- **Steps 9 to 15.** The gap with c-ares, §19: every record type (9), DNS cookies (10),
+  configuration parity and the hosts file (11), server failover (12), the engine over rotor
+  with its deterministic twin first (13), the `getaddrinfo` shape (14), RFC 6724 ordering and
+  the end-to-end comparison (15). Each names its gate there.
 
 ## 16. Decisions, with the alternatives they beat
 
@@ -852,6 +859,20 @@ step until `zig build test` passes.
     load on the resolvers for a latency win that belongs to the caller's policy, not ours.
 12. **Assertions and checks both, on the same bound.** Rejected: one or the other. They are
     different claims, and §8 says which is which.
+13. **The engine is a second module of this repository, over rotor, outside `src/`.** Rejected:
+    the engine in every consumer, a third repository, or the engine under `src/`, which
+    non-negotiable 1 forbids. §19 step 13.
+14. **Records are copied into a fixed rdata buffer per lookup, names written out in full.** Rejected:
+    a view of the message during `on_response`, the whole message per slot, and a
+    caller-provided buffer, which stays the fallback. §19 step 9.
+15. **Per-server state lives in a `Servers` table the caller owns and `Resolver` holds.**
+    Rejected: in `Config`, which is shared and constant, or in `Lookup`, which is per question.
+    §19 step 10.
+16. **A compressed name is decoded wherever it appears in rdata.** Rejected: refusing the types
+    whose RFC forbids compression as malformed, which fails a lookup for a server's fault. §19
+    step 9.
+17. **Failover retries a failed server with a real query.** Rejected: c-ares's probe with a copy
+    of the query, which is a second transaction §7's defences do not bind. §19 step 12.
 
 ## 17. Questions for the owner
 
@@ -869,10 +890,10 @@ step until `zig build test` passes.
 
 4. **`addresses_max = 16`.** Unanswered, so it stands. Some large round-robin names return more,
    and `Answer.truncated` says so when they do. I have not measured it.
-5. **TCP reuse.** Unanswered, so v1 is one query per connection, as §1 records. RFC 7766 §6.2
-   pipelining would be a v2 change with `connect_tcp` unchanged.
-6. **`/etc/hosts`.** Unanswered, so it is out of v1. It would live beside `resolv_conf.zig` in
-   `config`, which is the module the state machine cannot import.
+5. **TCP reuse.** Answered on 2026-09-22 by §19: the engine keeps one pipelined connection per
+   server, and `connect_tcp` is unchanged.
+6. **`/etc/hosts`.** Answered on 2026-09-22 by §19: a parser beside `resolv_conf.zig` in
+   `config`, and the engine consults it first.
 7. **Search-list order.** §5 records glibc's behaviour from memory. Worth pinning against a live
    `getaddrinfo` on both hosts before v1 is called done.
 8. **A second example.** Answered: `examples/udp_rotor.zig` drives the same lookup over rotor's
@@ -886,6 +907,11 @@ step until `zig build test` passes.
    design. c-ares caches by default and has since 1.31.0 (§1), so a consumer replacing it would
    otherwise lose that. What c-ares does, read from `src/lib/ares_qcache.c` that day, and what
    §18 keeps and drops of it, is recorded there.
+10. **The limits §19 proposes.** `rdata_bytes_max` at 2048 and `tcp_idle_ns_default` at ten
+    seconds are chosen, not measured, and stand unless overruled; the table in §19 says why each.
+11. **Service names.** §19 leaves `/etc/services` to the consumer, so `address_info` takes a
+    port and `name_info` returns no service. If a consumer needs `getservbyname`, a parser in
+    `config` is the place.
 
 ## 18. The cache
 
@@ -1041,3 +1067,346 @@ ones that matter most: a hit sets the bit and moves nothing; the hand evicts an 
 before an unvisited one; a visited entry survives one sweep and not two; a NODATA is cached for
 the SOA minimum and not the cap; a probe longer than the bound is a miss and not a walk; and a
 `get` after `flush` finds nothing.
+
+## 19. Closing the gap with c-ares
+
+c-ares 1.34.8 is what cocuyo replaces, and §1 lists what version one left out of it. On
+2026-09-22 the owner decided to close that gap, and settled the four questions that shape how:
+
+1. The engine that owns sockets lives in this repository, as a second module over rotor.
+2. Every record type c-ares parses gets a typed decoder.
+3. `/etc/hosts` comes in: parsed in `config`, consulted by the engine before a query goes out.
+4. DNS cookies (RFC 7873) are on by default with EDNS, as they are in c-ares.
+
+What c-ares does was read that day from its installed headers, `ares.h` and
+`ares_dns_record.h`, and from `ares_init_options(3)`, which describe the behaviour a consumer
+sees. Where a behaviour has no RFC, that documentation is the source the code names, the way §18
+names `ares_qcache.c`.
+
+### Where each piece goes
+
+Four places, in order of preference, so the core stays what §1 made it:
+
+- **The core**: `wire`, `resolver`, `config` and `cache`. I/O-free, allocation-free,
+  deterministic, and where every protocol rule lands.
+- **The engine**: a new module, `cocuyo_rotor`, in `engine/` beside `src/`. It owns sockets,
+  timers and connections through rotor and nothing else, and it is the only place in this
+  repository that reads a clock, opens a file or reads the environment. It imports `cocuyo` and
+  `rotor`; `src/` cannot import it, and `zig build graph-check` shows that.
+- **The consumer**: what only a particular program can decide.
+- **Out**: with the reason, and where it would attach.
+
+| c-ares | cocuyo before this section | Goes to | Step |
+| --- | --- | --- | --- |
+| `A`, `AAAA`, `PTR`, `CNAME` | asked for, followed | done | — |
+| `NS`, `MX`, `TXT`, `SRV`, `SOA`, `HINFO`, `NAPTR`, `CAA`, `URI`, `TLSA`, `SVCB`, `HTTPS`, `SIG`, `ANY` | skipped, or read for one field | `wire` decoders, `Lookup` for any type | 9 |
+| unknown types (`RAW_RR`) | skipped | `wire`, the raw rdata (RFC 3597) | 9 |
+| `ares_expand_name`, `ares_expand_string` | `wire.name.decode`; no character-strings | `wire`, with `TXT` | 9 |
+| OPT options: COOKIE, NSID, ECS, padding, extended error | OPT written, its options unread | `wire` for COOKIE; the rest as raw options | 10 |
+| DNS cookies | none | a `wire` option, `resolver` per-server state | 10 |
+| `ares_query` and `ares_search` | the search list applies by `ndots` | `Question.absolute` is the switch (§5) | — |
+| `ARES_FLAG_USEVC`, `IGNTC`, `NORECURSE`, `NOCHECKRESP`, `PRIMARY`, `NO_DFLT_SVR`, `ARES_OPT_MAXTIMEOUTMS`, a TCP port per server | none; the maximum timeout is a constant | `Config` | 11 |
+| the hosts file, `ARES_OPT_LOOKUPS`, `ares_gethostbyname_file` | none | `config.hosts`; the engine reads the file and keeps the order | 11, 14 |
+| `ARES_OPT_RESOLVCONF`, `RES_OPTIONS`, `LOCALDOMAIN` | the parser takes bytes | the engine reads them; `config` parses the option string | 11, 13 |
+| server failover | the next server on a failure, in a fixed order | `resolver` per-server state | 12 |
+| `udp_max_queries` | one port hint per lookup | engine | 13 |
+| TCP reuse (`STAYOPEN`) and pipelining | one connection per query | engine; the framing is there (RFC 7766 §6.2.1) | 13 |
+| local address and device binding, socket buffer sizes | none | engine | 13 |
+| the event thread, `sock_state_cb`, `ares_process_fd`, the socket callbacks | `Resolver`, driven by the caller | the engine over rotor is the built-in driver | 13 |
+| `ares_cancel`, the active count, wait-empty, `ares_reinit`, `ares_set_servers` | `Lookup.cancel` | engine | 13 |
+| the query cache | §18 | the engine wires it in | 13 |
+| `ares_getaddrinfo`: `A` and `AAAA` together, the canonical name, numeric host and service, the hosts file, `V4MAPPED`, `ALL` | two lookups | engine | 14 |
+| `ares_gethostbyaddr`, `ares_getnameinfo` | a `PTR` lookup | engine, for addresses; service names are out | 14 |
+| RFC 6724 ordering, off with `ARES_AI_NOSORT` | none; `sortlist` was rejected in §16 | engine, off until it lands | 15 |
+| `ARES_AI_ADDRCONFIG` | none | out: rotor enumerates no interfaces, and the consumer knows its own | — |
+| service names (`getservbyname`) | none | out: `/etc/services` is the consumer's; the engine takes a port | — |
+| `HOSTALIASES`, `ARES_AI_ENVHOSTS` | none | out for now: glibc's alias file, rarely set; a parser in `config` if asked | — |
+| the IDN flags | none | out: no IDN (§16); a caller sends A-labels | — |
+| classes `CHAOS` and `HESIOD` | `IN` only | out: `version.bind` is a debugging query, not a resolver's | — |
+| macOS SystemConfiguration, the Windows registry, Android | `resolv.conf` only (§14) | out: §14 stands | — |
+| custom allocators, `ares_library_init`, `ares_dup`, `ares_save_options` | no allocation | out: nothing to configure | — |
+| `ares_threadsafety` | one table, no lock | one engine per loop per thread (rotor decision 4) | 13 |
+
+### Step 9: every record type
+
+`Kind` grows to every type c-ares names, each with the RFC that defines its fields:
+
+```zig
+pub const Kind = enum(u16) {
+    a = 1,      // RFC 1035 §3.4.1
+    ns = 2,     // RFC 1035 §3.3.11
+    cname = 5,  // RFC 1035 §3.3.1
+    soa = 6,    // RFC 1035 §3.3.13
+    ptr = 12,   // RFC 1035 §3.3.12
+    hinfo = 13, // RFC 1035 §3.3.2
+    mx = 15,    // RFC 1035 §3.3.9
+    txt = 16,   // RFC 1035 §3.3.14
+    sig = 24,   // RFC 2535 §4.1, kept by RFC 2931
+    aaaa = 28,  // RFC 3596 §2.2
+    srv = 33,   // RFC 2782
+    naptr = 35, // RFC 3403 §4.1
+    opt = 41,   // RFC 6891 §6.1.2, never a question
+    tlsa = 52,  // RFC 6698 §2.1
+    svcb = 64,  // RFC 9460 §2.2
+    https = 65, // RFC 9460 §9
+    any = 255,  // RFC 1035 §3.2.3, a question and never a record; RFC 8482 §4 says what comes back
+    uri = 256,  // RFC 7553 §4
+    caa = 257,  // RFC 8659 §4.1
+};
+```
+
+A record of a type not in the enum is not an error and never was: the record walk keeps the type
+code, and a caller reads the rdata raw (RFC 3597 §3).
+
+**What a lookup keeps.** `Lookup` keeps the records of the type asked for, owned by the end of
+the CNAME chain (RFC 5452 §6, as today), and copies them out of the message, because the message
+buffer is the caller's and may be reused the moment `on_response` returns. Addresses and PTR
+names keep their storage; everything else goes into a fixed rdata buffer of `rdata_bytes_max` octets with a
+table of `records_kept_max` references, and the three share one union, because one question asks
+one type:
+
+```zig
+pub const Answers = struct {
+    items: union { addresses: [addresses_max]Address, names: [ptr_names_max]Name, records: Records },
+    ...
+};
+pub const Records = struct {
+    refs: [records_kept_max]Ref,   // type code, TTL, offset and length into `bytes`
+    bytes: [rdata_bytes_max]u8,
+    count: u8,
+};
+pub const Answer = struct {
+    ...
+    records: []const Record,       // the type asked for, each with its rdata, for the kinds kept in the rdata buffer
+};
+pub const Record = struct { kind_code: u16, ttl_seconds: u32, rdata: []const u8 };
+```
+
+The rdata stored is self-contained: names inside it are written out in full. Where the wire
+allows a compressed name — the types of RFC 1035, which a receiver MUST decompress (RFC 3597
+§4) — the collector decodes each name through `wire.name.decode`, with its two bounds, and
+writes it uncompressed with the fixed fields around it. `SRV` (RFC 2782), `NAPTR` (RFC 3403
+§4.1) and `SVCB` (RFC 9460 §2.2) forbid compression on the wire, and `SIG` a receiver SHOULD
+decompress (RFC 3597 §4); cocuyo decodes through a pointer in all four, because decoding is
+bounded and safe and a message that broke the sender's rule is otherwise readable. Rejected:
+refusing it as malformed, which fails the lookup for a server's fault the caller cannot see.
+
+**The typed views.** `wire.rdata` holds one decoder per type, each reading a self-contained
+rdata slice with every length checked and asserted (§8), and each returning a struct of the
+RFC's fields: `Mx{ preference, exchange }`, `Srv{ priority, weight, port, target }`, `Soa{
+mname, rname, serial, refresh, retry, expire, minimum }`, `Caa{ flags, tag, value }`, `Svcb{
+priority, target, params }` with a bounded iterator over the parameters and their keys (RFC 9460
+§7), `Naptr{ order, preference, flags, services, regexp, replacement }`, `Tlsa{ usage, selector,
+matching_type, data }`, `Hinfo{ cpu, os }`, `Uri{ priority, weight, target }`, `Sig{
+type_covered, algorithm, labels, original_ttl, expiration, inception, key_tag, signer,
+signature }`, `Ns`, `Cname` and `Ptr` as a name, `Txt` as a bounded iterator over
+character-strings (RFC 1035 §3.3, which is `ares_expand_string`). `A` and `AAAA` stay
+addresses. A view holds slices into the rdata it was given and copies nothing.
+
+**Questions.** Every kind but `opt` is queryable. Asking for `CNAME` keeps the CNAME record and
+follows nothing (RFC 1034 §3.6.2). Asking for `ANY` keeps every record the name owns whatever
+its type, which may be one synthesized `HINFO` (RFC 8482 §4.2), and is `NoData` when there are
+none. Every other kind follows the chain as `A` does today.
+
+**Rejected alternatives.** Handing the caller a view of the message during `on_response`, which
+copies nothing: it breaks the rule that `on_response` never changes what the caller does next,
+because the records would be gone by the time `poll` says `done`. Keeping the whole message per
+lookup: 64 KiB a slot. A caller-provided rdata buffer per lookup: the fallback if `rdata_bytes_max`
+turns out too small for someone, because it changes `Lookup.init` and every slot.
+
+**Gate.** Fixtures for every type from the RFCs' own examples where they give one (RFC 9460
+Appendix D has test vectors), the fuzz corpus grown by each, and one mutation per field decoded.
+
+### Step 10: DNS cookies
+
+The COOKIE option (RFC 7873 §4) rides in the OPT record: a client cookie of 8 octets, and after
+the first exchange the server cookie it answered with, 8 to 32 octets (§4.2; RFC 9018 §3 fixes
+the length at 16 for servers that follow it, and a client reads only the length).
+
+- The client cookie is a pseudorandom function of the server's address and a secret (§4.1).
+  cocuyo derives it from the caller's seed and the server address through `core.mix`. The
+  RFC's third input, the client's own IP address, is not known before a socket is bound, and
+  is left out; its purpose is a different cookie per source address, which the seed gives per
+  process instead. The caveat of §7 applies: the mix spreads a seed, it is not a cryptographic
+  function, and the defence is against an off-path attacker who sees no cookie at all.
+- Per-server state, which nothing in cocuyo had before: the client cookie, the server cookie
+  learned and its length, and the failover counters of step 12, in a `Servers` table of
+  `servers_max` entries. `Lookup.init` takes a pointer to it beside the config, because the
+  config is shared and constant and this is neither; `Resolver` owns one and hands it to every
+  lookup. Rejected: putting it in `Config`, which is immutable and shared, or in `Lookup`, which
+  is per question.
+- On a response (§5.3): the client cookie in it must be the one sent, or the response is
+  discarded, which lands in §7's checks as one more reason to ignore a message and never disturb
+  the wait. A correct client cookie has its server cookie cached even when the response is an
+  error. BADCOOKIE (extended RCODE 23) is retried once with the fresh server cookie, and a second
+  BADCOOKIE goes to TCP (§5.3), which is the path `tcp_needed` already takes. A response with
+  no COOKIE option is discarded only when the client is expecting one (§5.3), which cocuyo reads
+  as: a server cookie has been learned from that server. Before that, a server that answers
+  without the option is one without cookies, and its answer stands.
+- FORMERR from a server that rejects the option is what RFC 6891 §6.2.2's fallback already
+  covers: the query is repeated without EDNS.
+
+**Gate.** The scripted server of `sim` learns cookies: a good one, a wrong client cookie, a
+BADCOOKIE once and twice, and a server with none. Mutations on each check.
+
+### Step 11: configuration parity
+
+`Config` grows the knobs c-ares exposes, each with c-ares's default so a consumer that set none
+sees the same behaviour:
+
+- `use_tcp` (`USEVC`): every query over TCP.
+- `ignore_truncation` (`IGNTC`): a truncated UDP answer is taken as it is.
+- `recursion_desired` (`NORECURSE` clears it): the RD bit, on by default.
+- `check_response` (`NOCHECKRESP` clears it): off, SERVFAIL, NOTIMP and REFUSED end the lookup
+  as answers rather than moving to the next server.
+- `primary`: only the first server is asked.
+- `timeout_ns_max` (`MAXTIMEOUTMS`): the cap on the doubling wait, a field with the constant as
+  its default.
+- `servers` becomes `[]const Server`, a `Server` being an endpoint and a TCP port, zero meaning
+  the same port, because c-ares configures the two ports apart.
+- `lookups`: the order of `.file` and `.dns`, `fb` by default.
+
+`Question.absolute` already is `ares_query` against `ares_search`: an absolute name skips the
+search list (§5), so no flag is added.
+
+`config.hosts` parses the hosts file's bytes into caller storage: `hosts_entries_max` lines of
+one address and up to `hosts_names_per_entry_max` names, the first name canonical, and answers
+`find(name, family)`, `canonical(name)` and `reverse(address)`. Its source is `hosts(5)`; no RFC
+states the format, and the code says so. `resolv_conf.parse` gains an option for
+`NO_DFLT_SVR`: with it, an empty server list stays empty instead of becoming `127.0.0.1`, and a
+lookup with no server fails at once. The option-line parser is exposed so the engine can hand it
+`RES_OPTIONS` from the environment, and `LOCALDOMAIN` replaces the search list the same way.
+
+### Step 12: server failover
+
+c-ares deprioritises a server that failed to answer, prefers servers with fewer consecutive
+failures, and probes a failed one now and then. cocuyo keeps the count and the instant of the
+last failure per server in the `Servers` table, orders a lookup's servers by the count, stable,
+with rotation applied among the equals, and lets a failed server back in when
+`failover_retry_delay_ns` has passed since its failure and the seed's draw says so, one query in
+`failover_retry_chance`. Success resets the count; a timeout or a failed send raises it. c-ares
+probes a failed server with a copy of the query alongside the real one, so a recovered server is
+found without costing a real query a timeout. Rejected: it needs two transactions per lookup,
+and §7's defences bind one; here the probing query is a real one, and the price is one timeout
+in ten queries, after the delay, on a server that is still down.
+
+### Step 13: the engine
+
+`cocuyo_rotor` is the c-ares replacement in one import: the state machine, the cache, the
+config parsers, and the sockets and timers under them, driven by rotor's completion loop. It is
+a module of this repository, rooted at `engine/engine.zig`, built when the consumer asks for it
+(`b.dependency("cocuyo", .{ .engine = true })`), which is the one condition under which rotor,
+a lazy dependency, is fetched. A consumer that wants only the protocol pays for nothing.
+Rejected: the engine in the consumer, which every consumer would then write; a third
+repository, which is a third thing to pin; the engine under `src/`, which non-negotiable 1
+forbids.
+
+```zig
+pub const Engine = struct {
+    pub const Options = struct {
+        lookups: u16 = engine_lookups_default,
+        cache_slots: u16 = engine_cache_slots_default,
+        tag: u16 = engine_tag_default,          // the high bits of every user_data the engine submits
+        udp_queries_per_port: u32 = udp_queries_per_port_default,
+        tcp_idle_ns: u64 = tcp_idle_ns_default,
+    };
+    pub fn memory_bytes(options: Options) usize;
+    pub fn init(self: *Engine, memory: []align(alignment) u8, loop: *rotor.Loop, config: *const Config,
+        hosts: ?*const Hosts, seed: u64, now_ns: u64, options: Options) Error!void;
+    pub fn deinit(self: *Engine) void;
+
+    pub fn start(self: *Engine, question: Question, now_ns: u64) error{Full}!Handle;
+    pub fn address_info(self: *Engine, name: []const u8, port: u16, flags: AddressInfoFlags, now_ns: u64) error{Full}!Handle;
+    pub fn name_info(self: *Engine, address: *const Address, now_ns: u64) error{Full}!Handle;
+    pub fn cancel(self: *Engine, handle: Handle) void;
+    pub fn cancel_all(self: *Engine) void;
+    pub fn active(self: *const Engine) usize;
+
+    /// One completion event. True when it was the engine's; false hands it back to the caller.
+    pub fn apply(self: *Engine, event: rotor.Event, now_ns: u64) bool;
+    /// The results ready since the last call, one per call, until null. Pointers in a result
+    /// are valid until the next call.
+    pub fn take(self: *Engine, now_ns: u64) ?Result;
+    /// New configuration: the cache is flushed and the sockets rebound, which is `ares_reinit`.
+    pub fn reinit(self: *Engine, config: *const Config, hosts: ?*const Hosts, now_ns: u64) Error!void;
+};
+
+pub const Result = struct {
+    handle: Handle,
+    outcome: union(enum) { answer: Answer, address_info: AddressInfo, failure: Failure },
+};
+```
+
+- **Sockets.** One UDP socket per server, bound to an ephemeral port the seed chooses, with one
+  multishot receive into a buffer group, as the example does today; after
+  `udp_queries_per_port` queries a new socket on a new port replaces it, which is
+  `udp_max_queries`, and zero, the default, never replaces it. One TCP connection per server,
+  opened on the first `connect_tcp`, pipelined (RFC 7766 §6.2.1.1) with answers matched by
+  transaction id through the table, and closed after `tcp_idle_ns` with no query in flight
+  (§6.2.3 has clients keep that short).
+- **Time.** `Resolver.next_deadline_ns` becomes one rotor timer the engine re-arms as it moves,
+  so the caller's `tick` waits for whatever the loop is waiting for and never for cocuyo alone.
+- **Results.** A bounded queue the caller drains after applying the tick's events. Rejected:
+  a callback per lookup, which is a function pointer and a context the consumer has to keep
+  alive, where the consumer already loops on `tick`.
+- **The cache.** `start` and `address_info` ask it first; a hit is a result on the next `take`,
+  and a lookup that ends puts its answer, or its negative answer with the TTL of §18.
+- **Threads.** One engine per loop, and one loop per thread (rotor decision 4). Work from other
+  threads arrives through rotor's `post`, which is the consumer's to arrange.
+- **The deterministic twin first.** rotor's decision 10 has a backend be a module carrying its
+  surface, so `sim` gains a loop with that surface — `submit`, `tick`, `cancel`, the buffer
+  groups — over the scripted server and the virtual clock, and the build compiles the engine a
+  second time with the twin as its `rotor`, the way stompy's log runs on its simulator. The
+  engine is written against the twin and then run on rotor, so every path is driven at every
+  seed before a real socket exists.
+
+**Gate.** The twin over many seeds: many lookups in flight, datagram loss, truncation and the
+TCP path, timeouts, cookies and failover, with the invariants checked after every event and the
+trace byte-identical on replay; and one live test against real servers, opt in, because the
+gate must not need the network.
+
+### Step 14: the `getaddrinfo` shape
+
+`address_info(name, port, flags)` does what `ares_getaddrinfo` does with the flags c-ares
+implements: a numeric host is answered without a query; the hosts file is consulted in the
+`lookups` order; `A` and `AAAA` are started together and joined into one result with the
+canonical name, when `canonical_name` is asked for and a chain was followed; `v4_mapped` and
+`all` follow `getaddrinfo(3)`. The join lives in the engine and not the state machine, so
+§16's decision 9 stands. `name_info(address)` is the reverse lookup through the hosts file and
+then `PTR`. Services by name are out: `/etc/services` belongs to the consumer, and the engine
+takes a port number.
+
+### Step 15: ordering, and the comparison
+
+RFC 6724 §6 orders destination addresses by rules that need the source address the kernel would
+pick for each, which c-ares learns by connecting a datagram socket per candidate. The engine can
+do the same through rotor, and will, as a flag off by default until it is measured; until then
+addresses come back in the order received, which is `ARES_AI_NOSORT`. Then the comparison the
+README will state: the decoders against c-ares's, and end to end, both stacks against one
+in-process responder, lookups per second and latency at a number in flight, on the machine and
+the day §11 names.
+
+### New limits
+
+| Constant | Value | Why |
+| --- | --- | --- |
+| `records_kept_max` | 32 | half `records_max`: what one answer section holds of one type, with `truncated` past it |
+| `rdata_bytes_max` | 2048 | one UDP payload of 1232 plus room for the names decompressed on the way in; `truncated` says when a TCP answer did not fit |
+| `cookie_client_bytes` | 8 | RFC 7873 §4 |
+| `cookie_server_bytes_max` | 32 | RFC 7873 §4 |
+| `opt_record_bytes` | 11 to 55 | the OPT record with a COOKIE option carrying the largest server cookie |
+| `query_bytes_max` | 284 to 328 | follows from it |
+| `hosts_entries_max` | 1024 | more lines than a machine that is not a blocklist has; past it, dropped and said so |
+| `hosts_names_per_entry_max` | 8 | a name and its aliases on one line |
+| `failover_retry_chance_default` | 10 | c-ares's default: one query in ten retries a failed server |
+| `failover_retry_delay_ns_default` | 5 s | c-ares's default |
+| `udp_queries_per_port_default` | 0 | c-ares's default: never replace the socket |
+| `tcp_idle_ns_default` | 10 s | chosen, not measured: a burst's worth, and short by RFC 7766 §6.2.3's standard |
+| `engine_lookups_default` | 256 | in flight at once; the caller sizes the memory |
+| `engine_cache_slots_default` | 1024 | §18's memory table row |
+
+### Order and gates
+
+Steps 9 to 15 land in that order, each with its mutation table in `docs/mutations.md`, each
+committed only when `zig build test` is green, and step 13 beginning with the twin, so the
+engine is driven at every seed before it touches a socket. §15 lists them as steps of the plan.

@@ -118,9 +118,10 @@ The architecture depends on every rule in this section.
   ruled dependency of the tools, approved by the owner on 2026-09-21: `build.zig.zon` pins it by
   hash as a lazy dependency, the tools import it, and it is never linked into the library.
 - Weakening an assertion or a check to make a test pass.
-- Adding anything §1 puts out of scope for version one: DNSSEC, DoT, DoH, mDNS, zone transfers,
-  `/etc/hosts`, or record types beyond `A`, `AAAA`, `CNAME`, `PTR` and the `SOA` the negative
-  TTL is read from. The cache was the one exception, decided 2026-09-22 and designed in §18.
+- Adding anything §1 puts out of scope: DNSSEC, DoT, DoH, mDNS, zone transfers, nsswitch, IDN,
+  the platform resolver configuration of §14. The cache (§18) and the gap with c-ares (§19:
+  every record type, cookies, the hosts file, failover, the engine over rotor) were decided in on
+  2026-09-22; what §19 lists as out stays out.
 
 ## Commands
 
@@ -175,4 +176,7 @@ Steps 0 to 7 are done:
   was answered yes on 2026-09-22, because c-ares has had a cache on by default since 1.31.0 and a
   replacement without one is not one.
 
-Every step of the plan is done. §17 holds the questions the owner has not answered.
+Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22 and not yet begun: every
+record type, DNS cookies, configuration parity with the hosts file, server failover, the engine
+over rotor (its deterministic twin in `sim` first), the `getaddrinfo` shape, and RFC 6724
+ordering with the end-to-end comparison. §17 holds the questions the owner has not answered.
