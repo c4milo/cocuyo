@@ -134,7 +134,10 @@ the entry point.
 ## 4. The public API
 
 ```zig
-pub const Kind = enum(u16) { a = 1, cname = 5, ptr = 12, aaaa = 28, opt = 41 };
+/// Every type c-ares parses, since §19 step 9; the full list with each type's RFC is there.
+pub const Kind = enum(u16) { a = 1, ns = 2, cname = 5, soa = 6, ptr = 12, hinfo = 13, mx = 15, txt = 16,
+    sig = 24, aaaa = 28, srv = 33, naptr = 35, opt = 41, tlsa = 52, svcb = 64, https = 65, any = 255,
+    uri = 256, caa = 257 };
 pub const Family = enum(u8) { ipv4, ipv6 };
 pub const Address = struct { family: Family, octets: [16]u8 };
 pub const Endpoint = struct { address: Address, port: u16 };
@@ -211,13 +214,24 @@ pub const Verdict = enum { accepted, ignored };
 pub const Answer = struct {
     kind: Kind,
     addresses: []const Address,   // slices into the lookup's own storage
-    names: []const Name,          // PTR results; addresses and names share storage
+    names: []const Name,          // PTR results; addresses, names and records share storage
+    records: ?*const wire.Records, // every other type (§19 step 9): `records.?.at(i)` for i below
+    record_count: u8,             // `record_count`, each a `wire.Kept` the views of `wire.rdata` read
     canonical_name: ?*const Name, // the end of the CNAME chain, when there was one
     ttl_seconds: u32,             // the minimum TTL over the records used
     truncated: bool,              // more records existed than the slot can hold
 };
 
-pub const Failure = struct { err: Error, server_index: u8, attempts_made: u8 };
+/// One kept record: the type as the octets said it, the TTL, and self-contained rdata with every
+/// name written out in full, so `wire.rdata.Mx.parse(kept.rdata)` and the others need no message.
+pub const Kept = struct { kind_code: u16, ttl_seconds: u32, rdata: []const u8 };
+
+pub const Failure = struct {
+    err: Error,
+    server_index: u8,
+    attempts_made: u8,
+    negative_ttl_seconds: u32, // the SOA minimum for NameNotFound and NoData (§18), else zero
+};
 ```
 
 `on_response` never changes what the caller does next: the caller always calls `poll` afterwards.
@@ -491,24 +505,25 @@ up as a diff rather than as a surprise. The pins that exist are in `src/core/cor
 | the scalars | 64 | state, flags, four indices, the transaction, two instants, the generator, the failure, the negative TTL, the config pointer |
 | `question` | 260 | the name as asked, its type, and whether it was absolute |
 | `current` | 256 | the current candidate, or where the CNAME chain has reached |
-| `answers` | 284 | a union: `[addresses_max]Address` is 272 and `[ptr_names_max]Name` is 256, plus the count, the TTL, the hop count and two flags |
-| total | 864, measured | pinned by a test in `src/resolver/lookup.zig` |
+| `answers` | 2448 | a union: `[addresses_max]Address` is 272, `[ptr_names_max]Name` is 256, and the records of §19 step 9 are 2436 — 32 references of 12 and a buffer of `rdata_bytes_max` — plus the count, the TTL, the hop count and two flags |
+| total | 3024, measured | pinned by a test in `src/resolver/lookup.zig` |
 
 The total is larger than the parts because Zig chooses a struct's field order and pads accordingly.
 It also means a declaration order cannot be relied on for locality: the measurement that pinned
 the first total, 856, also found `state` sitting past both names, so §11's demultiplexer earns its
-keep through the side table and not through this layout. The negative TTL of §18 added eight
-octets to the lookup and to the slot after §11 was measured, so §11's rows name the sizes they
-were measured at, 856 and 864.
+keep through the side table and not through this layout. The lookup was 864 octets until the
+records of §19 step 9 landed on 2026-09-22 and the union grew to hold an rdata buffer; every
+caller pays it, an address lookup included, because a union is the size of its largest member.
+The caller-provided buffer §19 keeps as the fallback is what would take it back.
 
 | Caller allocation | Size | For |
 | --- | --- | --- |
-| `[N]Resolver.Slot` | 872 bytes each, measured | one per concurrent lookup: a lookup plus the table's own octets |
+| `[N]Resolver.Slot` | 3032 bytes each, measured | one per concurrent lookup: a lookup plus the table's own octets |
 | `[2N]MatchKey` | 4 bytes each | the id-to-slot table, power-of-two length |
 | send buffer | `query_bytes_max`, 284 | shared by the whole table |
 | receive buffer | `config.udp_payload_bytes`, 1232 by default | the caller's, per socket |
 
-So 1024 concurrent lookups cost 872 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
+So 1024 concurrent lookups cost 3032 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
 ever, by anybody.
 
 ## 10. The config parser
@@ -557,72 +572,78 @@ reports as stepping 42 ns; `CLOCK_MONOTONIC` on this macOS steps a whole microse
 version of this table was quantised by it. Twenty-one samples per case after one untimed warm-up,
 each sample 200,000 iterations, after one second of spinning so the machine has finished whatever
 ran before the bench. Two runs back to back; every median below is from the second, and every one
-of them sits within 2% of the first. The harness overhead, the first row, is included in every
+of them sits within 5% of the first, most within 2%. The harness overhead, the first row, is included in every
 other row and not subtracted. The numbers are cocuyo's alone: nothing here is measured against
 c-ares or any other resolver, so the table supports no claim about speed relative to what cocuyo
-replaces. Nanoseconds per operation, from the commit that added the cache rows; the table was
-first measured by the commit that added it, and re-measured whole when the cache landed, because
-the rows move together (below):
+replaces. Nanoseconds per operation, from the commit that landed §19 step 9; the table was first
+measured by the commit that added it, and is re-measured whole whenever a change moves a row,
+because the rows move together (below):
 
 | Case | Fastest | Median |
 | --- | --- | --- |
-| harness overhead, an empty call through the same function pointer | 1.5 | 1.6 |
-| query build, `example.com`, EDNS0 | 8.5 | 8.6 |
-| query build, a 255-octet name, over TCP | 12.2 | 12.5 |
+| harness overhead, an empty call through the same function pointer | 1.6 | 1.6 |
+| query build, `example.com`, EDNS0 | 8.1 | 8.5 |
+| query build, a 255-octet name, over TCP | 12.4 | 13.1 |
 | name decode, two labels | 15.8 | 16.2 |
 | name decode, through a compression pointer | 17.1 | 17.4 |
-| response parse, one A record | 52.8 | 53.5 |
-| response parse, a CNAME then its A record, with a 256-octet restore of the chain | 190.2 | 191.9 |
-| response parse, 17 A records, 16 kept | 573.9 | 576.8 |
-| datagram match, an id nobody holds, 1 in flight | 3.1 | 3.2 |
+| response parse, one A record | 50.1 | 50.9 |
+| response parse, a CNAME then its A record, with a 256-octet restore of the chain | 184.5 | 186.2 |
+| response parse, 17 A records, 16 kept | 585.3 | 587.8 |
+| datagram match, an id nobody holds, 1 in flight | 3.1 | 3.1 |
 | datagram match, an id nobody holds, 1024 in flight | 3.1 | 3.1 |
-| datagram match, right id and wrong question, 1 in flight | 35.1 | 35.9 |
-| datagram match, right id and wrong question, 64 in flight | 35.9 | 36.5 |
-| datagram match, right id and wrong question, 1024 in flight | 36.0 | 36.5 |
-| datagram match, right id and wrong question, rotating over all 1024 slots | 52.9 | 53.6 |
-| slot restore, an 872-octet copy the accepted case pays and a caller does not | 12.8 | 12.9 |
-| datagram match, accepted, 1024 in flight, with the slot restore | 102.1 | 103.1 |
-| lookup round trip: `init`, `poll`, `on_sent`, `on_response` | 225.8 | 227.7 |
-| `resolv.conf` parse, three lines | 329.9 | 332.9 |
-| cache hit, one entry, hot | 31.0 | 31.2 |
-| cache hit, rotating over 1024 entries | 43.2 | 43.9 |
-| cache miss, 1024 entries, a young index | 12.3 | 12.6 |
-| cache miss, 1024 entries, after churn | 35.2 | 35.9 |
-| cache put, replacing an entry in place | 35.6 | 36.5 |
-| cache put, evicting, 1024 entries and the table full | 96.2 | 97.0 |
+| datagram match, right id and wrong question, 1 in flight | 35.9 | 36.5 |
+| datagram match, right id and wrong question, 64 in flight | 36.4 | 37.0 |
+| datagram match, right id and wrong question, 1024 in flight | 36.3 | 37.0 |
+| datagram match, right id and wrong question, rotating over all 1024 slots | 53.7 | 54.3 |
+| slot restore, a 3032-octet copy the accepted case pays and a caller does not | 51.4 | 52.2 |
+| datagram match, accepted, 1024 in flight, with the slot restore | 131.1 | 131.8 |
+| lookup round trip: `init_in_place`, `poll`, `on_sent`, `on_response` | 183.7 | 184.8 |
+| `resolv.conf` parse, three lines | 319.0 | 321.4 |
+| cache hit, one entry, hot | 30.9 | 31.6 |
+| cache hit, rotating over 1024 entries | 42.9 | 43.7 |
+| cache miss, 1024 entries, a young index | 12.4 | 12.6 |
+| cache miss, 1024 entries, after churn | 35.3 | 35.7 |
+| cache put, replacing an entry in place | 37.6 | 38.1 |
+| cache put, evicting, 1024 entries and the table full | 94.7 | 95.7 |
 
 What the table says, against the estimates:
 
 - The estimates hold, and were pessimistic. A query builds in 9 ns. A response with one record
-  parses in 54 ns, and one with seventeen records, sixteen of them kept, in 577 ns: about 33 ns for
-  each record walked beyond the first — (577 − 54) / 16, the seventeenth walked and its owner
+  parses in 51 ns, and one with seventeen records, sixteen of them kept, in 588 ns: about 34 ns for
+  each record walked beyond the first — (588 − 51) / 16, the seventeenth walked and its owner
   decoded before it is refused — which is a skip, an owner name decoded through a pointer at 17 ns,
-  and the address copied. A CNAME chain resolved in one message costs 192 ns: the chain moves
+  and the address copied. A CNAME chain resolved in one message costs 186 ns: the chain moves
   once, the section is walked twice, five names are decoded on the way (the two owners on each of
   the two passes, and the CNAME's target once), three 256-octet copies move the chain, and the row
   carries the restore its name says.
 - The demultiplexer is the constant it was designed to be. An id nobody holds is refused in 3 ns
   whether 1 or 1024 lookups are in flight, and a real id with the wrong question — the probe plus
-  every check of §7 short of the answer walk — costs 36 ns at 1 in flight and 37 ns at 1024.
-  Accepting one at 1024 in flight costs 103 ns, of which 13 is the slot the harness puts back after
-  each iteration, so 90 ns is the match and the answer walk.
+  every check of §7 short of the answer walk — costs 37 ns at 1 in flight and 37 ns at 1024.
+  Accepting one at 1024 in flight costs 132 ns, of which 52 is the slot the harness puts back after
+  each iteration, so 80 ns is the match and the answer walk.
 - Those rows aim every iteration at one slot, which sits in the first-level cache from the second
-  iteration on. The rotating row aims each iteration at a different one of the 1024, whose 872 KiB
+  iteration on. The rotating row aims each iteration at a different one of the 1024, whose 3 MiB
   do not fit the 128 KiB first level and do fit the 12 MiB second: the same path costs 54 ns there,
   so a slot read cold out of the first level adds 17 ns. A datagram arriving from the kernel finds
   its slot at least that cold.
-- A whole lookup, minus the network — made, its query built, the send heard, the answer read — is
-  228 ns. Against the shortest round trip the estimate considered, one millisecond, that is 0.023%:
-  the network is about 4,400 times the library.
-- The cache of §18 answers a hot hit in 31 ns — the keyed hash over the name, one probe, the
+- A whole lookup, minus the network — made in its slot, its query built, the send heard, the
+  answer read — is 185 ns. Against the shortest round trip the estimate considered, one
+  millisecond, that is 0.019%: the network is about 5,400 times the library.
+- The rdata buffer of §19 step 9 costs what is written, not what is held. With `collect` building
+  a whole `Answers` per response, one A record parsed in 79 ns, a lookup started in 302 and a cache
+  put in place took 60; with `reset` and `assign` touching only the storage a kind uses, and
+  `init_in_place` building a lookup in its slot instead of in a local that is then copied, the
+  three rows read 51, 185 and 38, which is below where two of them stood before the buffer
+  existed, because the copy `init_in_place` removes was there at 864 octets too.
+- The cache of §18 answers a hot hit in 32 ns — the keyed hash over the name, one probe, the
   folded compare and the division that turns the expiry into seconds — and a miss in 13 ns when
   the index is young, because the walk stops at the first empty entry. After churn, when every
   entry the evictions freed is a tombstone the walk steps over, a miss walks to the probe bound and
   costs 36 ns; that is the bound doing what §18 says, and `flush` is what resets it. A hit read
-  cold over 1024 entries, 568 KiB of slots, costs 44 ns, the same 13 ns a cold lookup slot costs
-  above. A put that replaces an entry in place costs 37 ns; one that has to evict, with the hand
-  meeting an unvisited entry at once, 97 ns: the miss, the eviction's unlink and key removal, the
-  key insert, and a 568-octet slot written.
+  cold over 1024 entries, 2.7 MiB of slots, costs 44 ns, 12 ns over the hot one. A put that
+  replaces an entry in place costs 38 ns; one that has to evict, with the hand meeting an
+  unvisited entry at once, 96 ns: the miss, the eviction's unlink and key removal, the key insert,
+  and the answer's live storage written.
 - The rows move with the binary they are built into, and by more than the run-to-run band. On
   the day the cache landed, the parse of one A record measured 45.0 ns in the binary before it,
   52.7 ns in the binary with it, and 42.8 ns in a binary holding only the three parse rows, and
@@ -729,6 +750,8 @@ written at the use site. Shared limits live in `src/core/constants.zig`.
 | `records_max` | 64 | bounds the walk whatever the count fields claim |
 | `addresses_max` | 16 | §17 asks whether this is enough for large round-robin names |
 | `ptr_names_max` | 1 | a reverse lookup returns one name in practice, and `truncated` says when more existed |
+| `records_kept_max` | 32 | the records of one type a lookup keeps for every other type (§19 step 9); `truncated` past it |
+| `rdata_bytes_max` | 2048 | one UDP payload with room for the names written out in full (§19 step 9); `truncated` when a TCP answer does not fit |
 | `servers_max` | 8 | glibc's MAXNS is 3; 8 leaves room and still bounds the loop |
 | `search_max` | 6 | glibc's MAXDNSRCH; recalled, not measured |
 | `attempts_default` | 2 | the `resolv.conf` default |
@@ -1044,11 +1067,13 @@ claimed.
 
 ### Memory
 
-Per slot: a `Name` at 256, an `Answers` at 284, and 28 octets of scalars and padding: 568,
-measured and pinned by a test in `src/cache/cache.zig`. The key index is eight octets an entry at
-two entries a slot, rounded up to a power of two. A thousand slots cost 555 KiB of slots and
-16 KiB of keys; sixteen thousand, the most a `u16` slot index and the key index allow at
-`cache_slots_max`, cost 8.9 MiB and 256 KiB. The caller chooses.
+Per slot: a `Name` at 256, an `Answers` at 2448 since §19 step 9 gave it the rdata buffer, and
+24 octets of scalars and padding: 2728, measured and pinned by a test in `src/cache/cache.zig`
+(568 before that step, with `Answers` at 284). The key index is eight octets an entry at two
+entries a slot, rounded up to a power of two. A thousand slots cost 2.7 MiB of slots and 16 KiB
+of keys; sixteen thousand, the most a `u16` slot index and the key index allow at
+`cache_slots_max`, cost 43 MiB and 256 KiB. The caller chooses, and an address-only cache pays
+for the buffer too, as §9 says of the lookup.
 
 ### Limits
 
@@ -1216,6 +1241,9 @@ turns out too small for someone, because it changes `Lookup.init` and every slot
 
 **Gate.** Fixtures for every type from the RFCs' own examples where they give one (RFC 9460
 Appendix D has test vectors), the fuzz corpus grown by each, and one mutation per field decoded.
+Landed on 2026-09-22: `src/wire/rdata/`, `record_copy.zig`, `response_take.zig`; the sizes it
+moved are in §9 and §18, its mutations in `docs/mutations.md`, and what the buffer cost until
+`Answers.reset`, `Answers.assign` and `Lookup.init_in_place` in §11.
 
 ### Step 10: DNS cookies
 

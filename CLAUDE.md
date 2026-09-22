@@ -176,7 +176,14 @@ Steps 0 to 7 are done:
   was answered yes on 2026-09-22, because c-ares has had a cache on by default since 1.31.0 and a
   replacement without one is not one.
 
-Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22 and not yet begun: every
-record type, DNS cookies, configuration parity with the hosts file, server failover, the engine
-over rotor (its deterministic twin in `sim` first), the `getaddrinfo` shape, and RFC 6724
-ordering with the end-to-end comparison. §17 holds the questions the owner has not answered.
+Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
+
+- **9**, every record type, done the same day: `Kind` names every type c-ares parses,
+  `src/wire/rdata/` decodes each from stored rdata, `record_copy.zig` writes a record out of a
+  message with its names in full, and a lookup for any type keeps its records in the rdata
+  buffer of `Answers`, which grew the lookup to 3024 octets (§9).
+- Next, in order: DNS cookies (10), configuration parity with the hosts file (11), server
+  failover (12), the engine over rotor with its deterministic twin in `sim` first (13), the
+  `getaddrinfo` shape (14), RFC 6724 ordering and the end-to-end comparison (15).
+
+§17 holds the questions the owner has not answered.

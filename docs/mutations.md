@@ -357,6 +357,55 @@ zero-padded to eight octets, and a name ends at its root octet, so no valid name
 zero padding and the octets alone tell every two names apart. The length is gone, with the
 argument in the hash's comment.
 
+## Step 9, every record type
+
+Design §19 step 9: the decoders of `src/wire/rdata/`, the copy of `record_copy.zig` that writes
+names out in full, the collector's `ANY` and `CNAME` rules, and `Kind` itself. Broken against
+`zig build test-wire`, and the two on `Kind` against `zig build test-core`. Thirty-two mutations,
+thirty-two `CAUGHT` — one after its fixture was rewritten.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| D1 | a stored name accepts a compression pointer | RFC 3597 §4, the stored form | the pointer test | CAUGHT |
+| D2 | a name need not fill its rdata | RFC 1035 §3.3 | the trailing-octet test | CAUGHT |
+| D3 | a character-string may run past the rdata | RFC 1035 §3.3 | the short TXT test, by the crash | CAUGHT |
+| D4 | an empty TXT is accepted | RFC 1035 §3.3.14 | the empty-rdata test | CAUGHT |
+| D5 | HINFO need not fill its rdata | RFC 1035 §3.3.2 | the trailing test | CAUGHT |
+| D6 | MX need not fill its rdata | RFC 1035 §3.3.9 | the trailing test | CAUGHT |
+| D7 | SRV reads its port at the weight | RFC 2782 | the port test | CAUGHT |
+| D8 | SOA reads refresh at retry | RFC 1035 §3.3.13 | the counters test | CAUGHT |
+| D9 | NAPTR need not fill its rdata | RFC 3403 §4.1 | the trailing test | CAUGHT |
+| D10 | SIG needs no fixed fields | RFC 2535 §4.1 | the short test, by the crash | CAUGHT |
+| D11 | SVCB keys may repeat or fall | RFC 9460 §2.2 | the ordering tests | CAUGHT |
+| D12 | an SVCB parameter may run past the rdata | RFC 9460 §2.2 | the ends-inside test | CAUGHT |
+| D13 | an SVCB port of any length | RFC 9460 §7.2 | the format tests | CAUGHT |
+| D14 | an empty alpn-id | RFC 9460 §7.1 | the format tests | CAUGHT |
+| D15 | mandatory may list itself | RFC 9460 §8 | the format tests | CAUGHT |
+| D16 | TLSA reads its selector at the usage | RFC 6698 §2.1 | the fields test | CAUGHT |
+| D17 | a URI with an empty target | RFC 7553 §4.5 | the empty-target test | CAUGHT |
+| D18 | a CAA with an empty tag | RFC 8659 §4.1 | the tag tests | CAUGHT |
+| D19 | a CAA tag with any character | RFC 8659 §4.1 | the tag tests | CAUGHT |
+| D20 | an OPT option may run past the rdata | RFC 6891 §6.1.2 | the short test | CAUGHT |
+| D21 | the MX layout has no name | RFC 3597 §4 | the copy test, by the pointer left in | CAUGHT |
+| D22 | the copy ignores octets after the last field | RFC 1035 §3.3 | the trailing-octet test | CAUGHT |
+| D23 | a name may run past its record | the record's bounds | **the SVCB-into-next-record test** | CAUGHT |
+| D24 | the copy never checks its room | the buffer | the does-not-fit test, by the crash | CAUGHT |
+| D25 | an ANY question follows a CNAME | RFC 1034 §3.6.2 | the ANY-at-an-alias test | CAUGHT |
+| D26 | a CNAME question follows the CNAME | RFC 1034 §3.6.2 | the CNAME-question test | CAUGHT |
+| D27 | no bound on the records kept | `records_kept_max` | the thirty-three test, by the crash | CAUGHT |
+| D28 | a kept record loses its type | §19, ANY | the ANY test | CAUGHT |
+| D29 | a kept record's TTL is not noted | §18, the cache's TTL | the MX test | CAUGHT |
+| D30 | PTR names stored as rdata | §19, storage | the storage test | CAUGHT |
+| D31 | OPT is queryable | RFC 6891 §6.1.1 | the queryable test | CAUGHT |
+| D32 | the SVCB layout has no name | RFC 9460 §2.2 | the layout test | CAUGHT |
+
+D23 survived its first fixture, an MX whose name ran past the record and the message together:
+the name decoder failed on the message's end by itself, and the exact-consumption check of D22
+covers every layout without `rest` besides. The check earns its keep where `rest` follows the
+name, so the fixture is now an SVCB whose target runs into the record after it, where nothing
+else would notice: the copy would keep `foo.example.com` and take the parameters from past the
+record's end.
+
 ## Planned, later steps
 
 | # | Mutation | Check it breaks | Expected to be caught by | Status |
