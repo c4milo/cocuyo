@@ -59,7 +59,7 @@ pub const all = [_]Case{
     .{ .name = "datagram match, wrong question, 64 in flight", .iterations = iterations, .run = &run_match_wrong, .setup = &setup_table_medium },
     .{ .name = "datagram match, wrong question, 1024 in flight", .iterations = iterations, .run = &run_match_wrong, .setup = &setup_table_large },
     .{ .name = "datagram match, wrong question, rotating over 1024 slots", .iterations = iterations, .run = &run_match_rotating, .setup = &setup_rotation },
-    .{ .name = "slot restore (3040-octet copy)", .iterations = iterations, .run = &run_slot_restore, .setup = &setup_table_large },
+    .{ .name = "slot restore (3048-octet copy)", .iterations = iterations, .run = &run_slot_restore, .setup = &setup_table_large },
     .{ .name = "datagram match, accepted, 1024 in flight (+ slot restore)", .iterations = iterations, .run = &run_match_accept, .setup = &setup_table_large },
     .{ .name = "lookup round trip: init in place, poll, on_sent, on_response", .iterations = iterations, .run = &run_round_trip, .setup = &setup_round_trip },
     .{ .name = "resolv.conf parse, three lines", .iterations = iterations, .run = &run_resolv_conf, .setup = &setup_resolv_conf },
