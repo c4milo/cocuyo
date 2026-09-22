@@ -195,6 +195,8 @@ pub const Config = struct {
     check_response: bool = true,  // off: SERVFAIL, REFUSED and NOTIMP end the lookup as its answer
     primary: bool = false,        // the first server alone (ARES_FLAG_PRIMARY)
     lookups: []const Source = &.{ .file, .dns },
+    failover_retry_chance: u8 = 10,          // one query in this many retries a failed server first
+    failover_retry_delay_ns: u64 = 5 s,      // once this long has passed since it failed
 };
 ```
 
@@ -528,11 +530,11 @@ up as a diff rather than as a surprise. The pins that exist are in `src/core/cor
 
 | Part of `Lookup` | Bytes | Note |
 | --- | --- | --- |
-| the scalars | 72 | state, flags, four indices, the transaction, two instants, the generator, the failure, the negative TTL, the config pointer, the servers pointer |
+| the scalars | 80 | state, flags, four indices, the server order, the transaction, two instants, the generator, the failure, the negative TTL, the config pointer, the servers pointer |
 | `question` | 260 | the name as asked, its type, and whether it was absolute |
 | `current` | 256 | the current candidate, or where the CNAME chain has reached |
 | `answers` | 2448 | a union: `[addresses_max]Address` is 272, `[ptr_names_max]Name` is 256, and the records of §19 step 9 are 2436 — 32 references of 12 and a buffer of `rdata_bytes_max` — plus the count, the TTL, the hop count and two flags |
-| total | 3032, measured | pinned by a test in `src/resolver/lookup_init_test.zig` |
+| total | 3040, measured | pinned by a test in `src/resolver/lookup_init_test.zig` |
 
 The total is larger than the parts because Zig chooses a struct's field order and pads accordingly.
 It also means a declaration order cannot be relied on for locality: the measurement that pinned
@@ -544,12 +546,12 @@ The caller-provided buffer §19 keeps as the fallback is what would take it back
 
 | Caller allocation | Size | For |
 | --- | --- | --- |
-| `[N]Resolver.Slot` | 3040 bytes each, measured | one per concurrent lookup: a lookup plus the table's own octets |
+| `[N]Resolver.Slot` | 3048 bytes each, measured | one per concurrent lookup: a lookup plus the table's own octets |
 | `[2N]MatchKey` | 4 bytes each | the id-to-slot table, power-of-two length |
 | send buffer | `query_bytes_max`, 284 | shared by the whole table |
 | receive buffer | `config.udp_payload_bytes`, 1232 by default | the caller's, per socket |
 
-So 1024 concurrent lookups cost 3040 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
+So 1024 concurrent lookups cost 3048 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
 ever, by anybody.
 
 ## 10. The config parser
@@ -624,36 +626,36 @@ ran before the bench. Two runs back to back; every median below is from the seco
 of them sits within 5% of the first, most within 2%. The harness overhead, the first row, is included in every
 other row and not subtracted. The numbers are cocuyo's alone: nothing here is measured against
 c-ares or any other resolver, so the table supports no claim about speed relative to what cocuyo
-replaces. Nanoseconds per operation, from the commit that landed §19 step 10; the table was first
+replaces. Nanoseconds per operation, from the commit that landed §19 step 12; the table was first
 measured by the commit that added it, and is re-measured whole whenever a change moves a row,
 because the rows move together (below):
 
 | Case | Fastest | Median |
 | --- | --- | --- |
-| harness overhead, an empty call through the same function pointer | 1.5 | 1.6 |
-| query build, `example.com`, EDNS0, no cookie | 8.3 | 8.5 |
-| query build, a 255-octet name, over TCP | 10.5 | 10.8 |
+| harness overhead, an empty call through the same function pointer | 1.5 | 1.5 |
+| query build, `example.com`, EDNS0, no cookie | 8.4 | 8.6 |
+| query build, a 255-octet name, over TCP | 10.6 | 11.0 |
 | name decode, two labels | 15.8 | 16.3 |
-| name decode, through a compression pointer | 17.1 | 17.6 |
-| response parse, one A record | 50.1 | 50.9 |
-| response parse, a CNAME then its A record, with a 256-octet restore of the chain | 186.9 | 188.6 |
-| response parse, 17 A records, 16 kept | 587.2 | 591.9 |
+| name decode, through a compression pointer | 17.1 | 17.5 |
+| response parse, one A record | 49.6 | 50.9 |
+| response parse, a CNAME then its A record, with a 256-octet restore of the chain | 187.2 | 189.4 |
+| response parse, 17 A records, 16 kept | 587.4 | 593.9 |
 | datagram match, an id nobody holds, 1 in flight | 3.1 | 3.1 |
-| datagram match, an id nobody holds, 1024 in flight | 3.1 | 3.1 |
-| datagram match, right id and wrong question, 1 in flight | 36.4 | 37.0 |
-| datagram match, right id and wrong question, 64 in flight | 37.1 | 37.9 |
-| datagram match, right id and wrong question, 1024 in flight | 37.4 | 38.3 |
-| datagram match, right id and wrong question, rotating over all 1024 slots | 52.3 | 54.2 |
-| slot restore, a 3040-octet copy the accepted case pays and a caller does not | 40.3 | 41.1 |
-| datagram match, accepted, 1024 in flight, with the slot restore | 135.8 | 137.9 |
-| lookup round trip: `init_in_place`, `poll`, `on_sent`, `on_response` | 199.1 | 201.4 |
-| `resolv.conf` parse, three lines | 321.3 | 324.5 |
-| cache hit, one entry, hot | 30.9 | 32.0 |
-| cache hit, rotating over 1024 entries | 42.7 | 44.7 |
-| cache miss, 1024 entries, a young index | 12.6 | 12.8 |
-| cache miss, 1024 entries, after churn | 35.2 | 36.2 |
-| cache put, replacing an entry in place | 37.4 | 38.7 |
-| cache put, evicting, 1024 entries and the table full | 95.5 | 97.1 |
+| datagram match, an id nobody holds, 1024 in flight | 3.1 | 3.2 |
+| datagram match, right id and wrong question, 1 in flight | 36.7 | 37.9 |
+| datagram match, right id and wrong question, 64 in flight | 37.5 | 38.2 |
+| datagram match, right id and wrong question, 1024 in flight | 37.6 | 38.6 |
+| datagram match, right id and wrong question, rotating over all 1024 slots | 54.1 | 55.1 |
+| slot restore, a 3048-octet copy the accepted case pays and a caller does not | 52.0 | 53.6 |
+| datagram match, accepted, 1024 in flight, with the slot restore | 148.0 | 149.4 |
+| lookup round trip: `init_in_place`, `poll`, `on_sent`, `on_response` | 209.5 | 211.3 |
+| `resolv.conf` parse, three lines | 329.1 | 331.1 |
+| cache hit, one entry, hot | 30.9 | 31.7 |
+| cache hit, rotating over 1024 entries | 43.4 | 44.6 |
+| cache miss, 1024 entries, a young index | 12.4 | 12.8 |
+| cache miss, 1024 entries, after churn | 35.1 | 36.1 |
+| cache put, replacing an entry in place | 37.6 | 38.9 |
+| cache put, evicting, 1024 entries and the table full | 95.8 | 97.0 |
 
 What the table says, against the estimates:
 
@@ -668,23 +670,27 @@ What the table says, against the estimates:
 - The demultiplexer is the constant it was designed to be. An id nobody holds is refused in 3 ns
   whether 1 or 1024 lookups are in flight, and a real id with the wrong question — the probe plus
   every check of §7 short of the answer walk — costs 37 ns at 1 in flight and 38 ns at 1024.
-  Accepting one at 1024 in flight costs 138 ns, of which 41 is the slot the harness puts back after
-  each iteration, so 97 ns is the match, check 6 and the answer walk.
+  Accepting one at 1024 in flight costs 149 ns, of which 54 is the slot the harness puts back after
+  each iteration, so 95 ns is the match, check 6 and the answer walk.
 - Those rows aim every iteration at one slot, which sits in the first-level cache from the second
   iteration on. The rotating row aims each iteration at a different one of the 1024, whose 3 MiB
   do not fit the 128 KiB first level and do fit the 12 MiB second: the same path costs 54 ns there,
   so a slot read cold out of the first level adds 17 ns. A datagram arriving from the kernel finds
   its slot at least that cold.
 - A whole lookup, minus the network — made in its slot, its query built with its cookie, the
-  send heard, the answer read and its OPT record sought — is 201 ns. Against the shortest round
-  trip the estimate considered, one millisecond, that is 0.020%: the network is about 5,000 times
+  send heard, the answer read and its OPT record sought — is 211 ns. Against the shortest round
+  trip the estimate considered, one millisecond, that is 0.021%: the network is about 4,700 times
   the library.
 - The cookies of §19 step 10 cost 17 ns a lookup: the round trip read 185 ns before them and
   201 after, the accepted match 80 and 97 net of the restore. That is the COOKIE option written
   into every query, a 41-octet cookie copied out of the server table on the way, and the OPT
   record sought across the three sections of every accepted response for check 6. The slot
-  restore row fell from 52 to 41 while the slot grew from 3032 octets to 3040: a copy of a size
-  that is a multiple of 32 is the faster one, which is the layout effect below in another form.
+  restore row fell from 52 to 41 while the slot grew from 3032 octets to 3040, and rose to 54
+  again at 3048: a copy of a size that is a multiple of 32 is the faster one, which is the layout
+  effect below in another form.
+- The failover of §19 step 12 costs 10 ns a lookup: the round trip read 201 ns before it and
+  211 after. That is the order computed at the first poll — a sort of one server, the draw that
+  decides a retry — and every read of the current server going through the order.
 - The rdata buffer of §19 step 9 costs what is written, not what is held. With `collect` building
   a whole `Answers` per response, one A record parsed in 79 ns, a lookup started in 302 and a cache
   put in place took 60; with `reset` and `assign` touching only the storage a kind uses, and
@@ -811,6 +817,8 @@ written at the use site. Shared limits live in `src/core/constants.zig`.
 | `opt_record_bytes_max` | 55 | the OPT record with the largest COOKIE option; `query_bytes_max` is 328 with it |
 | `records_kept_max` | 32 | the records of one type a lookup keeps for every other type (§19 step 9); `truncated` past it |
 | `lookup_sources_max` | 2 | the hosts file and DNS, each named at most once in `Config.lookups` |
+| `failover_retry_chance_default` | 10 | c-ares's default: one query in ten retries a failed server first (§19 step 12) |
+| `failover_retry_delay_ns_default` | 5 s | c-ares's default: how long a failed server stays last |
 | `hosts_lines_max` | 4096 | the most lines read from a hosts file; a blocklist is longer, and past it is dropped and said so |
 | `hosts_entries_max` | 1024 | the most entries kept from one |
 | `hosts_names_per_entry_max` | 8 | the official name and its aliases on one line |
@@ -1393,6 +1401,11 @@ probes a failed server with a copy of the query alongside the real one, so a rec
 found without costing a real query a timeout. Rejected: it needs two transactions per lookup,
 and §7's defences bind one; here the probing query is a real one, and the price is one timeout
 in ten queries, after the delay, on a server that is still down.
+
+Landed on 2026-09-22: `Servers` counts consecutive failures per server with the instant of the
+last, a timeout, a failed send and a failed connection each counting one and an answer of any
+kind resetting it; `lookup_order.zig` computes a lookup's order at its first poll, which is the
+first instant it has, and the order holds for the lookup. The lookup is 3040 octets.
 
 ### Step 13: the engine
 

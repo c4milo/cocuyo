@@ -474,6 +474,34 @@ hosts file. Broken against `zig build test-core`, `test-wire`, `test-resolver` a
 | P22 | check 3 expects the UDP port over TCP | §7 check 3 | the TCP-port test | CAUGHT |
 | P23 | the server walk ignores `primary` | §19 step 11 | the primary test | CAUGHT |
 
+## Step 12, server failover
+
+Design §19 step 12: the failure count and instant per server, the order a lookup walks, and the
+retry of a failed server with a real query. Broken against `zig build test-resolver`. Fifteen
+mutations, fifteen `CAUGHT` — one after a test was extended for it.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| F1 | a timeout is not a failure | §19 step 12 | the next-lookup test | CAUGHT |
+| F2 | a failed send is not a failure | §19 step 12 | the failed-send test | CAUGHT |
+| F3 | a failed connection is not a failure | §19 step 12 | the failed-connect test | CAUGHT |
+| F4 | an answer does not reset the count | §19 step 12 | the reset tests | CAUGHT |
+| F5 | the servers are not sorted | §19 step 12 | the order test | CAUGHT |
+| F6 | the sort is not stable | §19 step 12 | the order test | CAUGHT |
+| F7 | rotation reaches past the fewest-failures group | §19 step 12 | the rotation test | CAUGHT |
+| F8 | the retry ignores the delay | `failover_retry_delay_ns` | the promotion test | CAUGHT |
+| F9 | the retry ignores the chance | `failover_retry_chance` | the chance tests | CAUGHT |
+| F10 | the retry never happens | §19 step 12 | the promotion test | CAUGHT |
+| F11 | failures do not count up | §19 step 12 | the counter test | CAUGHT |
+| F12 | the instant is not recorded | §19 step 12 | the counter test | CAUGHT |
+| F13 | the walk ignores the order | §19 step 12 | the order tests | CAUGHT |
+| F14 | a failure names the walk position | `Failure.server_index` | the configured-server test | CAUGHT |
+| F15 | the order is recomputed every poll | §19 step 12 | **the poll after the timeout** | CAUGHT |
+
+F15 survived until the first failover test polled once more after its timeout: with the order
+recomputed around the failure just recorded, the walk position that meant the second server
+came to mean the first again, and the second server's answer was no longer the lookup's.
+
 ## Planned, later steps
 
 | # | Mutation | Check it breaks | Expected to be caught by | Status |

@@ -193,8 +193,12 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   the lookup honours each; `resolv.conf` reads `use-vc` and may refuse the default server;
   `apply_options` and `apply_search` take `RES_OPTIONS` and `LOCALDOMAIN`; `config.hosts`
   parses the hosts file into the caller's storage.
-- Next, in order: server failover (12), the engine over rotor with its deterministic twin in
-  `sim` first (13), the `getaddrinfo` shape (14), RFC 6724 ordering and the end-to-end
-  comparison (15).
+- **12**, server failover, done the same day: `Servers` counts consecutive failures per
+  server (a timeout, a failed send, a failed connection) and an answer resets them; a lookup
+  walks its servers in `lookup_order.zig`'s order, computed at its first poll: sorted by
+  failures, rotated among the fewest, and one query in `failover_retry_chance` a failed server
+  whose delay has passed goes first with the real query.
+- Next, in order: the engine over rotor with its deterministic twin in `sim` first (13), the
+  `getaddrinfo` shape (14), RFC 6724 ordering and the end-to-end comparison (15).
 
 §17 holds the questions the owner has not answered.
