@@ -10,6 +10,9 @@ pub const header = @import("header.zig");
 pub const name = @import("name.zig");
 pub const question = @import("question.zig");
 pub const edns = @import("edns.zig");
+pub const edns_options = @import("edns_options.zig");
+pub const ClientSubnet = edns_options.ClientSubnet;
+pub const ExtendedError = edns_options.ExtendedError;
 pub const query = @import("query.zig");
 pub const record = @import("record.zig");
 pub const record_copy = @import("record_copy.zig");
@@ -41,6 +44,7 @@ test {
     _ = name;
     _ = question;
     _ = edns;
+    _ = edns_options;
     _ = query;
     _ = record;
     _ = record_copy;

@@ -7,6 +7,11 @@ that way:
 shasum -a 256 -c SHA256SUMS
 ```
 
+Added on 2026-09-22 for the EDNS0 options a response may carry (docs/design.md §19 step 10):
+RFC 5001 for the name server identifier, RFC 7830 for padding, RFC 7871 for the client subnet and
+RFC 8914 for the extended errors. Each was checked against `rfc-editor.org/rfc/rfcNNNN.json` that
+day: none is obsoleted.
+
 Read these, never a summary and never another implementation's source. Cite the RFC that *states*
 a rule, not one that inherits it, and cite it by section on the line that does the checking
 (CLAUDE.md non-negotiable 8).

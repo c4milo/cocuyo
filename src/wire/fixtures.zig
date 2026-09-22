@@ -459,3 +459,33 @@ pub const answer_a_with_cookie = answer_header_additional(1, 1) ++ question_a ++
 pub const answer_a_with_opt_bad_owner = answer_header_additional(1, 1) ++ question_a ++ record_a ++ record_opt_bad_owner;
 /// The additional section holds an A record before the OPT: the walk has to pass it.
 pub const answer_a_opt_after_additional = answer_header_additional(1, 2) ++ question_a ++ record_a ++ record_a_second ++ record_opt_empty;
+
+/// The EDNS0 options of docs/design.md §19 step 10, as an OPT record's rdata: a code, a length
+/// and the data, one after another (RFC 6891 §6.1.2).
+/// An NSID carrying a name (RFC 5001 §2.3).
+pub const nsid_text = "ns1.example".*;
+pub const opt_nsid = [_]u8{ 0x00, 0x03, 0x00, nsid_text.len } ++ nsid_text;
+
+/// Padding of a few octets (RFC 7830 §3), and the same option twice, which the RFC refuses.
+pub const padding_bytes = 4;
+pub const opt_padding = [_]u8{ 0x00, 0x0c, 0x00, padding_bytes, 0, 0, 0, 0 };
+pub const opt_padding_twice = opt_padding ++ opt_padding;
+
+/// A client subnet for 192.0.2.0/24, answered for /20 (RFC 7871 §6).
+pub const opt_client_subnet = [_]u8{ 0x00, 0x08, 0x00, 0x07, 0x00, 0x01, 24, 20, 192, 0, 2 };
+/// A family that is neither of the two the RFC defines a format for.
+pub const opt_client_subnet_family = [_]u8{ 0x00, 0x08, 0x00, 0x07, 0x00, 0x03, 24, 20, 192, 0, 2 };
+/// A source prefix longer than an IPv4 address.
+pub const opt_client_subnet_long_prefix = [_]u8{ 0x00, 0x08, 0x00, 0x09, 0x00, 0x01, 40, 0, 192, 0, 2, 0, 0 };
+/// Too few address octets for the prefix, and too many.
+pub const opt_client_subnet_short_address = [_]u8{ 0x00, 0x08, 0x00, 0x06, 0x00, 0x01, 24, 20, 192, 0 };
+pub const opt_client_subnet_long_address = [_]u8{ 0x00, 0x08, 0x00, 0x08, 0x00, 0x01, 24, 20, 192, 0, 2, 0 };
+/// A bit set past the source prefix, which the RFC refuses.
+pub const opt_client_subnet_stray_bit = [_]u8{ 0x00, 0x08, 0x00, 0x07, 0x00, 0x01, 20, 20, 192, 0, 2 };
+
+/// An extended error with text, one without, and one too short to hold its code (RFC 8914 §2).
+pub const extended_error_code = 22;
+pub const extended_error_text = "no reachable authority";
+pub const opt_extended_error = [_]u8{ 0x00, 0x0f, 0x00, extended_error_text.len + 2, 0x00, extended_error_code } ++ extended_error_text.*;
+pub const opt_extended_error_bare = [_]u8{ 0x00, 0x0f, 0x00, 0x02, 0x00, extended_error_code };
+pub const opt_extended_error_short = [_]u8{ 0x00, 0x0f, 0x00, 0x01, 0x00 };

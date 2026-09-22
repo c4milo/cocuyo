@@ -98,6 +98,31 @@ pub const character_string_bytes_max = 255;
 pub const opt_option_fixed_bytes = 4;
 pub const opt_option_length_offset = 2;
 
+/// The EDNS0 options cocuyo reads, by the code IANA assigned each: the name server's identifier
+/// (RFC 5001 §2.3), the client subnet (RFC 7871 §6), the padding (RFC 7830 §3) and the extended
+/// error (RFC 8914 §2). The state machine acts on the cookie alone; the rest are read for the
+/// caller (docs/design.md §19 step 10).
+pub const nsid_option_code = 3;
+pub const client_subnet_option_code = 8;
+pub const padding_option_code = 12;
+pub const extended_error_option_code = 15;
+
+/// The client subnet option's fixed part: the family and the two prefix lengths, before the
+/// address (RFC 7871 §6), and where each sits.
+pub const client_subnet_fixed_bytes = 4;
+pub const client_subnet_source_offset = 2;
+pub const client_subnet_scope_offset = 3;
+
+/// The two families RFC 7871 §6 defines a format for, by their IANA Address Family Number.
+pub const client_subnet_family_ipv4 = 1;
+pub const client_subnet_family_ipv6 = 2;
+
+/// The extended error's fixed part: the info code, before the text (RFC 8914 §2).
+pub const extended_error_fixed_bytes = 2;
+
+/// The bits of an octet, for the prefix arithmetic of RFC 7871 §6.
+pub const bits_per_octet = 8;
+
 /// The COOKIE option's code (RFC 7873 §4), and the two lengths the option may have: a client
 /// cookie alone, or a client cookie and a server cookie of 8 to 32 octets.
 pub const cookie_option_code = 10;
