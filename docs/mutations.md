@@ -98,7 +98,39 @@ test: the hop check inside the loop was unreachable, because the loop's own cond
 error after it already bounded the chain. The check was removed and the mutation moved to the
 bound that does the work.
 
-## Planned, step 3
+## Step 3, the state machine
+
+The lookup's checks and transitions, broken against `zig build test-resolver`. Sixteen mutations,
+sixteen `CAUGHT` — two after a test was written, and one of those after a fixture that could reach
+the path at all.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| S1 | the transaction id is not checked | §7 check 2 | the wrong-id test | CAUGHT |
+| S2 | the source address is not checked | §7 check 3, RFC 5452 §4.4 | the other-server test | CAUGHT |
+| S3 | the source port is not compared | §7 check 3, RFC 5452 §4.5 | the wrong-port test | CAUGHT |
+| S4 | the question section is not compared | §7 check 5, RFC 5452 §9.1 | the other-name test | CAUGHT |
+| S5 | the qname goes out uncased | RFC 5452 §9.2 | the folded-case test | CAUGHT |
+| S6 | a response is read whatever the state | §5 | the after-settled test | CAUGHT |
+| S7 | truncation over TCP is obeyed | RFC 7766 §5 | **a test written for it** | CAUGHT |
+| S8 | a malformed answer fails the lookup | §16 decision 10 | the malformed-section test | CAUGHT |
+| S9 | a failed chain walk leaves the name moved | §5 CNAME policy | **the CNAME-loop fixture** | CAUGHT |
+| S10 | NXDOMAIN moves to the next server | §5 search policy | the candidate walk test | CAUGHT |
+| S11 | FORMERR does not turn EDNS0 off | RFC 6891 §6.2.2 | the FORMERR test | CAUGHT |
+| S12 | a chain re-query keeps its transaction | §7 entropy | the new-transaction test | CAUGHT |
+| S13 | the deadline is not armed on a send | §5 retry policy | the wait test | CAUGHT |
+| S14 | the wait ends one instant late | §5 retry policy | the poll-at-the-deadline test | CAUGHT |
+| S15 | the server index does not wrap | §5 retry policy | the every-server test | CAUGHT |
+| S16 | a settled lookup can time out | §5 | the settled-lookup test | CAUGHT |
+
+S9 is the interesting one. The collector moves the chain's name in place, and the state machine
+restores it when the walk then fails — but no message could reach that path: a malformed record
+fails the first pass, before the chain has moved anywhere. The path that reaches it is a CNAME
+chain that *loops*, where every pass succeeds and the hop bound is what finally stops it. With the
+restore removed, the lookup is left asking the next server about a name halfway around the loop,
+which is a name the caller never mentioned. The fixture is now two CNAMEs pointing at each other.
+
+## Planned, step 4
 
 | # | Mutation | Check it breaks | Expected to be caught by | Status |
 | --- | --- | --- | --- | --- |

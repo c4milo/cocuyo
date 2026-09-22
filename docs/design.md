@@ -456,24 +456,26 @@ up as a diff rather than as a surprise. The pins that exist are in `src/core/cor
 
 | Part of `Lookup` | Bytes | Note |
 | --- | --- | --- |
-| hot block | 40 | state, flags, five indices, id, port hint, deadline, generator, TTL, free-list link |
-| `name_question` | 256 | the name as asked, wire form |
-| `name_current` | 256 | the current candidate or chain position |
-| answers, a union | 272 | `[addresses_max]Address` is 272, `[ptr_names_max]Name` is 256 |
-| total | about 824 | pinned by a test as each part lands |
+| the scalars | 60 | state, flags, four indices, the transaction, two instants, the generator, the failure, the config pointer |
+| `question` | 260 | the name as asked, its type, and whether it was absolute |
+| `current` | 256 | the current candidate, or where the CNAME chain has reached |
+| `answers` | 284 | a union: `[addresses_max]Address` is 272 and `[ptr_names_max]Name` is 256, plus the count, the TTL, the hop count and two flags |
+| total | 856, measured | pinned by a test in `src/resolver/lookup.zig` |
 
-The hot block is first and sized to stay inside one cache line, so the code that scans slots never
-pulls in the name storage (§11).
+The total is larger than the parts because Zig chooses a struct's field order and pads accordingly.
+It also means a declaration order cannot be relied on for locality: the measurement that pinned
+856 also found `state` sitting past both names, so §11's demultiplexer earns its keep through the
+side table and not through this layout.
 
 | Caller allocation | Size | For |
 | --- | --- | --- |
-| `[N]Lookup` | about 824 bytes each | one per concurrent lookup |
+| `[N]Lookup` | 856 bytes each | one per concurrent lookup |
 | `[2N]MatchKey` | 4 bytes each | the id-to-slot table, power-of-two length |
 | send buffer | `query_bytes_max`, 284 | shared by the whole table |
 | receive buffer | `config.udp_payload_bytes`, 1232 by default | the caller's, per socket |
 
-So 1024 concurrent lookups cost about 824 KiB of slots plus 8 KiB of keys. Nothing else is
-allocated, ever, by anybody.
+So 1024 concurrent lookups cost 856 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
+ever, by anybody.
 
 ## 10. The config parser
 
@@ -514,12 +516,17 @@ are in flight, because that is the one cost that grows with the table. So that i
 designed for a constant, and everything else is written for clarity first and measured later.
 
 **Place frequently accessed fields together, and reduce the cache lines touched.** A naive
-demultiplexer scans the slots, touching 824 bytes per candidate. Instead `Resolver` keeps a side
+demultiplexer scans the slots, touching 856 bytes per candidate. Instead `Resolver` keeps a side
 table of `MatchKey`, four bytes each, sixteen to a cache line, indexed by the low bits of the
 transaction id with open addressing. Because the id is drawn from the generator it is uniform, so
-one probe finds the slot, and the slot's own hot block — one cache line — carries the state and
-the server index needed to finish the checks of §7. The `Lookup` layout is hot block first for the
-same reason.
+one probe finds the slot, and only that slot is touched.
+
+The hint's other half, grouping the fields a hot path reads, is **not** claimed here. Zig orders a
+struct's fields as it likes, and the pinned measurement of §9 shows it reordering a lookup's
+scalars across the names, so the state and the transaction id are not one cache line however they
+are declared. Grouping them in a sub-struct would fix that and cost every use site a level of
+naming; it stays unmade until `bench/` says the difference is visible next to a network round
+trip, which is the estimate-first hint applied to the layout hint.
 
 **Bulk APIs.** `Resolver.poll` returns the next action for any slot, so the caller never loops
 over the table. `next_deadline_ns` returns one deadline for the whole table, so the caller arms

@@ -34,50 +34,55 @@ pub const Outcome = enum {
 
 /// What was collected. The addresses and the names share storage, because one question asks for
 /// one type and no response can fill both (docs/design.md §9).
-pub const Collected = struct {
-    /// The end of the CNAME chain: the name the collected records belong to.
-    canonical: Name,
-    answers: Answers,
+///
+/// The chain's name is not here: it is the caller's, passed to `collect` by pointer and left
+/// holding the canonical name. A lookup already holds the name it is asking about, so keeping a
+/// second copy here would cost 256 octets per lookup slot to say the same thing twice.
+pub const Answers = struct {
+    items: Items,
     count: u8,
     /// The smallest TTL over every record used, which is what a cache above cocuyo would honour.
     ttl_seconds: u32,
     /// Whether the chain moved: a CNAME was followed.
     aliased: bool,
+    /// How many CNAMEs were followed, counting the ones followed before this message, so a lookup
+    /// carries the bound across a chain that spans several responses.
+    hops_used: u8,
     /// Whether records were dropped for want of room, here or in the record walk.
     truncated: bool,
 
-    pub const Answers = union {
+    pub const Items = union {
         addresses: [core.constants.addresses_max]Address,
         names: [core.constants.ptr_names_max]Name,
     };
 
     /// An empty collection for a question. The union's active field is chosen by the type asked
     /// for and both are zeroed, so nothing here is ever read uninitialised.
-    pub fn init(kind: Kind, question: *const Name) Collected {
+    pub fn init(kind: Kind) Answers {
         assert(kind.queryable());
         return .{
-            .canonical = question.*,
-            .answers = switch (kind) {
+            .items = switch (kind) {
                 .ptr => .{ .names = @splat(Name.root) },
                 else => .{ .addresses = @splat(.{ .family = .ipv4, .octets = @splat(0) }) },
             },
             .count = 0,
             .ttl_seconds = 0,
             .aliased = false,
+            .hops_used = 0,
             .truncated = false,
         };
     }
 
     /// The addresses collected for an A or AAAA question.
-    pub fn addresses(self: *const Collected) []const Address {
+    pub fn addresses(self: *const Answers) []const Address {
         assert(self.count <= core.constants.addresses_max);
-        return self.answers.addresses[0..self.count];
+        return self.items.addresses[0..self.count];
     }
 
     /// The names collected for a PTR question.
-    pub fn names(self: *const Collected) []const Name {
+    pub fn names(self: *const Answers) []const Name {
         assert(self.count <= core.constants.ptr_names_max);
-        return self.answers.names[0..self.count];
+        return self.items.names[0..self.count];
     }
 };
 
@@ -89,30 +94,35 @@ pub const Collected = struct {
 /// what a chain that runs out of hops ends in.
 pub fn collect(
     message: []const u8,
-    question: *const Name,
+    chain: *Name,
     kind: Kind,
     hops_before: u8,
-    out: *Collected,
+    out: *Answers,
 ) Error!Outcome {
     assert(kind.queryable());
+    assert(chain.len >= 1);
     const header = try header_codec.parse(message);
     if (header.qdcount != 1) return Error.MalformedMessage;
-    out.* = Collected.init(kind, question);
-    const answer_offset = core.constants.header_bytes + question.len +
+    out.* = Answers.init(kind);
+    out.hops_used = hops_before;
+    // The question's own name fixes where the answer section starts, and the response was already
+    // checked to carry that question byte for byte (docs/design.md §7 check 5).
+    const answer_offset = core.constants.header_bytes + chain.len +
         core.constants.question_fixed_bytes;
     if (answer_offset > message.len) return Error.MalformedMessage;
 
     var hops: u8 = hops_before;
     while (hops <= core.constants.cname_hops_max) {
-        const pass = try one_pass(message, header.ancount, kind, out, answer_offset);
+        const pass = try one_pass(message, header.ancount, kind, out, answer_offset, chain);
         if (pass.collected) return .answered;
         // Nothing for this name. If the chain moved to get here, the lookup asks again for
         // where it moved to; if it never moved, the name simply has no record of this type.
         const target = pass.alias orelse
             return if (out.aliased) .chain_incomplete else .no_data;
-        out.canonical = target;
+        chain.* = target;
         out.aliased = true;
         hops += 1;
+        out.hops_used = hops;
     }
     assert(hops > core.constants.cname_hops_max);
     return Error.ChainTooLong;
@@ -137,8 +147,9 @@ fn one_pass(
     message: []const u8,
     ancount: u16,
     kind: Kind,
-    out: *Collected,
+    out: *Answers,
     answer_offset: usize,
+    chain: *const Name,
 ) Error!Pass {
     var pass: Pass = .{};
     var walk = record_codec.Iterator.init(message, answer_offset, ancount);
@@ -148,7 +159,7 @@ fn one_pass(
         // The owner name is decoded only now, for a record whose type could matter.
         var owner: Name = Name.empty;
         try record.owner_name(message, &owner);
-        if (!owner.equal(&out.canonical)) continue;
+        if (!owner.equal(chain)) continue;
         switch (role) {
             .wanted => pass.collected = try take(message, &record, kind, out) or pass.collected,
             // The first CNAME for this name wins; a second one for the same name is the
@@ -172,7 +183,7 @@ fn take(
     message: []const u8,
     record: *const record_codec.Record,
     kind: Kind,
-    out: *Collected,
+    out: *Answers,
 ) Error!bool {
     const room: u8 = if (kind == .ptr)
         core.constants.ptr_names_max
@@ -184,9 +195,9 @@ fn take(
     }
     assert(out.count < room);
     if (kind == .ptr) {
-        try record.rdata_name(message, &out.answers.names[out.count]);
+        try record.rdata_name(message, &out.items.names[out.count]);
     } else {
-        out.answers.addresses[out.count] = try record.address();
+        out.items.addresses[out.count] = try record.address();
     }
     out.count += 1;
     note_ttl(record.ttl_seconds, out);
@@ -195,7 +206,7 @@ fn take(
 
 /// The smallest TTL over the records used. Zero means nothing has been noted yet, and a record
 /// with a TTL of zero is one nothing may cache, so it stays the smallest.
-fn note_ttl(ttl_seconds: u32, out: *Collected) void {
+fn note_ttl(ttl_seconds: u32, out: *Answers) void {
     if (out.ttl_seconds == 0 or ttl_seconds < out.ttl_seconds) out.ttl_seconds = ttl_seconds;
     assert(out.ttl_seconds <= ttl_seconds or ttl_seconds == 0);
 }
@@ -205,13 +216,16 @@ fn note_ttl(ttl_seconds: u32, out: *Collected) void {
 const testing = std.testing;
 const fixtures = @import("fixtures.zig");
 
-fn collect_from(message: []const u8, kind: Kind, out: *Collected) !Outcome {
-    const question = try Name.from_text("example.com");
-    return collect(message, &question, kind, 0, out);
+/// The chain the tests walk, left holding the canonical name when a CNAME was followed.
+var test_chain: Name = Name.empty;
+
+fn collect_from(message: []const u8, kind: Kind, out: *Answers) !Outcome {
+    test_chain = try Name.from_text("example.com");
+    return collect(message, &test_chain, kind, 0, out);
 }
 
 test "an A record owned by the question is collected" {
-    var collected: Collected = undefined;
+    var collected: Answers = undefined;
     try testing.expectEqual(Outcome.answered, try collect_from(&fixtures.answer_a, .a, &collected));
     try testing.expectEqual(@as(u8, 1), collected.count);
     try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 1 }, collected.addresses()[0].slice());
@@ -221,7 +235,7 @@ test "an A record owned by the question is collected" {
 }
 
 test "two A records for one name are both collected" {
-    var collected: Collected = undefined;
+    var collected: Answers = undefined;
     const outcome = try collect_from(&fixtures.answer_a_twice, .a, &collected);
     try testing.expectEqual(Outcome.answered, outcome);
     try testing.expectEqual(@as(u8, 2), collected.count);
@@ -229,33 +243,33 @@ test "two A records for one name are both collected" {
 }
 
 test "a record of another type is not an answer" {
-    var collected: Collected = undefined;
+    var collected: Answers = undefined;
     const outcome = try collect_from(&fixtures.answer_aaaa, .a, &collected);
     try testing.expectEqual(Outcome.no_data, outcome);
     try testing.expectEqual(@as(u8, 0), collected.count);
 }
 
 test "a CNAME and its target's A record answer in one message" {
-    var collected: Collected = undefined;
+    var collected: Answers = undefined;
     const outcome = try collect_from(&fixtures.answer_cname_then_a, .a, &collected);
     try testing.expectEqual(Outcome.answered, outcome);
     try testing.expect(collected.aliased);
-    try testing.expect(collected.canonical.equal(&try Name.from_text("host.example.net")));
+    try testing.expect(test_chain.equal(&try Name.from_text("host.example.net")));
     try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 3 }, collected.addresses()[0].slice());
     // The smallest TTL over the records used: the CNAME's 60, not the address's 300.
     try testing.expectEqual(@as(u32, 60), collected.ttl_seconds);
 }
 
 test "a CNAME with no target record asks the caller to query again" {
-    var collected: Collected = undefined;
+    var collected: Answers = undefined;
     const outcome = try collect_from(&fixtures.answer_cname_only, .a, &collected);
     try testing.expectEqual(Outcome.chain_incomplete, outcome);
     try testing.expectEqual(@as(u8, 0), collected.count);
-    try testing.expect(collected.canonical.equal(&try Name.from_text("host.example.net")));
+    try testing.expect(test_chain.equal(&try Name.from_text("host.example.net")));
 }
 
 test "an A record for a name nobody asked about is dropped" {
-    var collected: Collected = undefined;
+    var collected: Answers = undefined;
     const outcome = try collect_from(&fixtures.answer_injected, .a, &collected);
     try testing.expectEqual(Outcome.answered, outcome);
     // The injected record is first in the section and holds 192.0.2.9. Only the asked-about
@@ -265,16 +279,17 @@ test "an A record for a name nobody asked about is dropped" {
 }
 
 test "a response with no answers at all is NODATA" {
-    var collected: Collected = undefined;
+    var collected: Answers = undefined;
     try testing.expectEqual(Outcome.no_data, try collect_from(&fixtures.answer_no_data, .a, &collected));
 }
 
 test "a chain already at the hop bound is refused rather than followed" {
-    var collected: Collected = undefined;
+    var collected: Answers = undefined;
     const question = try Name.from_text("example.com");
+    test_chain = question;
     try testing.expectError(Error.ChainTooLong, collect(
         &fixtures.answer_cname_only,
-        &question,
+        &test_chain,
         .a,
         core.constants.cname_hops_max,
         &collected,
@@ -282,7 +297,7 @@ test "a chain already at the hop bound is refused rather than followed" {
 }
 
 test "a malformed record in the section fails the whole collection" {
-    var collected: Collected = undefined;
+    var collected: Answers = undefined;
     try testing.expectError(
         Error.TruncatedMessage,
         collect_from(&fixtures.answer_long_rdlength, .a, &collected),
@@ -296,15 +311,26 @@ test "a malformed record in the section fails the whole collection" {
 test "a response whose question count is not one is malformed" {
     var chaos = fixtures.answer_a;
     chaos[5] = 2; // qdcount 2
-    var collected: Collected = undefined;
+    var collected: Answers = undefined;
     try testing.expectError(Error.MalformedMessage, collect_from(&chaos, .a, &collected));
 }
 
 test "more records than there is room for are truncated, not dropped silently" {
-    var collected: Collected = undefined;
+    var collected: Answers = undefined;
     const outcome = try collect_from(&fixtures.answer_a_seventeen, .a, &collected);
     try testing.expectEqual(Outcome.answered, outcome);
     try testing.expectEqual(@as(u8, core.constants.addresses_max), collected.count);
     try testing.expect(collected.truncated);
     try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 1 }, collected.addresses()[15].slice());
+}
+
+test "the hop count follows the chain across messages" {
+    var collected: Answers = undefined;
+    _ = try collect_from(&fixtures.answer_cname_then_a, .a, &collected);
+    try testing.expectEqual(@as(u8, 1), collected.hops_used);
+
+    test_chain = try Name.from_text("example.com");
+    const outcome = try collect(&fixtures.answer_cname_only, &test_chain, .a, 3, &collected);
+    try testing.expectEqual(Outcome.chain_incomplete, outcome);
+    try testing.expectEqual(@as(u8, 4), collected.hops_used);
 }

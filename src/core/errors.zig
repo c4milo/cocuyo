@@ -39,4 +39,7 @@ pub const Error = error{
     UnsupportedClass,
     /// An OPT record carries a version cocuyo does not implement, which is anything but 0.
     UnsupportedEdnsVersion,
+    /// The caller cancelled the lookup. The only failure here that cocuyo did not observe but was
+    /// told about.
+    Canceled,
 };
