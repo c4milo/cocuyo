@@ -7,6 +7,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
+const constants = @import("constants.zig");
 
 /// What one option token asked for, or null when it asked for nothing cocuyo knows.
 pub const Option = union(enum) {
@@ -14,6 +15,8 @@ pub const Option = union(enum) {
     timeout_ns: u64,
     attempts: u8,
     rotate,
+    /// `use-vc`: every query over TCP (`resolv.conf(5)`).
+    use_tcp,
 };
 
 /// The keywords, each with the limit its value is clamped to. The manual pages cap `ndots` at 15
@@ -38,6 +41,7 @@ const decimal_base = 10;
 
 pub fn parse(token: []const u8) ?Option {
     if (std.mem.eql(u8, token, rotate_keyword)) return .rotate;
+    if (std.mem.eql(u8, token, constants.option_use_vc)) return .use_tcp;
     if (value_of(token, ndots_keyword)) |text| {
         const ndots = number(text, ndots_limit) orelse return null;
         return .{ .ndots = @intCast(ndots) };
@@ -120,4 +124,9 @@ test "a zero timeout or zero attempts reads as the smallest there is" {
 test "ndots zero is a real setting and is kept" {
     // ndots:0 means try the name as written first, always. It is not the same as no setting.
     try testing.expectEqual(Option{ .ndots = 0 }, parse("ndots:0").?);
+}
+
+test "use-vc asks for TCP" {
+    try testing.expectEqual(Option.use_tcp, parse("use-vc").?);
+    try testing.expectEqual(@as(?Option, null), parse("use-vc:1"));
 }

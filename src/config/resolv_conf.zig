@@ -19,24 +19,38 @@ const core = @import("core");
 const Address = core.Address;
 const Config = core.Config;
 const Endpoint = core.Endpoint;
+const Server = core.Server;
 const Name = core.Name;
 pub const constants = @import("constants.zig");
 pub const address_text = @import("address_text.zig");
 pub const options = @import("resolv_conf_options.zig");
+pub const hosts = @import("hosts.zig");
 
 /// The memory a parse fills. The `Config` it returns holds slices into this, so it must outlive
 /// every lookup that reads it. cocuyo allocates nothing.
 pub const Storage = struct {
-    servers: [core.constants.servers_max]Endpoint = @splat(.{
+    servers: [core.constants.servers_max]Server = @splat(.{ .endpoint = .{
         .address = .{ .family = .ipv4, .octets = @splat(0) },
-    }),
+    } }),
     search: [core.constants.search_max]Name = @splat(Name.root),
+};
+
+/// What a parse may be told beyond the bytes.
+pub const ParseOptions = struct {
+    /// Whether a file naming no server means the local one, as every stub reads it. Off, the
+    /// list stays empty and every lookup fails with `NoServers`, which is c-ares's
+    /// `ARES_FLAG_NO_DFLT_SVR` (docs/design.md §19 step 11).
+    default_server: bool = true,
 };
 
 /// Reads `bytes` into `storage` and returns the configuration it describes. Lines past
 /// `lines_max`, servers past `servers_max` and search entries past `search_max` are dropped, which
 /// the returned slice lengths say.
 pub fn parse(bytes: []const u8, storage: *Storage) Config {
+    return parse_with(bytes, storage, .{});
+}
+
+pub fn parse_with(bytes: []const u8, storage: *Storage, parse_options: ParseOptions) Config {
     var builder: Builder = .{ .storage = storage };
     var lines = std.mem.splitScalar(u8, bytes, '\n');
     var read: usize = 0;
@@ -45,7 +59,49 @@ pub fn parse(bytes: []const u8, storage: *Storage) Config {
         builder.line(line);
     }
     assert(read <= constants.lines_max);
-    return builder.finish();
+    return builder.finish(parse_options);
+}
+
+/// Applies an options string to `config`: the `RES_OPTIONS` environment variable, whose tokens
+/// are those of an `options` line (`resolv.conf(5)`). The engine reads the variable and hands
+/// the text here (§19 step 11).
+pub fn apply_options(text: []const u8, config: *Config) void {
+    var tokens = std.mem.tokenizeAny(u8, text, constants.token_separators);
+    var read: usize = 0;
+    while (read < constants.options_max) : (read += 1) {
+        const token = tokens.next() orelse break;
+        const option = options.parse(token) orelse continue;
+        apply_option(option, config);
+    }
+    assert(read <= constants.options_max);
+    config.assert_valid();
+}
+
+/// Replaces the search list with the names in `text`, which is the `LOCALDOMAIN` environment
+/// variable (`resolv.conf(5)`): a `domain` or `search` line's worth of names.
+pub fn apply_search(text: []const u8, storage: *Storage, config: *Config) void {
+    var tokens = std.mem.tokenizeAny(u8, text, constants.token_separators);
+    var count: usize = 0;
+    var read: usize = 0;
+    while (read <= core.constants.search_max) : (read += 1) {
+        const token = tokens.next() orelse break;
+        if (count == core.constants.search_max) break;
+        const name = Name.from_text(token) catch continue;
+        storage.search[count] = name;
+        count += 1;
+    }
+    assert(count <= core.constants.search_max);
+    config.search = storage.search[0..count];
+}
+
+fn apply_option(option: options.Option, config: *Config) void {
+    switch (option) {
+        .ndots => |ndots| config.ndots = ndots,
+        .timeout_ns => |timeout_ns| config.timeout_ns = timeout_ns,
+        .attempts => |attempts| config.attempts = attempts,
+        .rotate => config.rotate = true,
+        .use_tcp => config.use_tcp = true,
+    }
 }
 
 const Builder = struct {
@@ -56,6 +112,7 @@ const Builder = struct {
     timeout_ns: u64 = core.constants.timeout_ns_default,
     attempts: u8 = core.constants.attempts_default,
     rotate: bool = false,
+    use_tcp: bool = false,
 
     const Tokens = std.mem.TokenIterator(u8, .any);
 
@@ -82,7 +139,7 @@ const Builder = struct {
         const text = tokens.next() orelse return;
         if (self.server_count == core.constants.servers_max) return;
         const address = address_text.parse(text) orelse return;
-        self.storage.servers[self.server_count] = .{ .address = address };
+        self.storage.servers[self.server_count] = .{ .endpoint = .{ .address = address } };
         self.server_count += 1;
         assert(self.server_count <= core.constants.servers_max);
     }
@@ -121,19 +178,20 @@ const Builder = struct {
                 .timeout_ns => |timeout_ns| self.timeout_ns = timeout_ns,
                 .attempts => |attempts| self.attempts = attempts,
                 .rotate => self.rotate = true,
+                .use_tcp => self.use_tcp = true,
             }
         }
     }
 
-    fn finish(self: *Builder) Config {
-        if (self.server_count == 0) {
+    fn finish(self: *Builder, parse_options: ParseOptions) Config {
+        if (self.server_count == 0 and parse_options.default_server) {
             // A file with no nameserver means the local one, which is what every stub does.
-            self.storage.servers[0] = .{
+            self.storage.servers[0] = .{ .endpoint = .{
                 .address = Address.from_v4(constants.nameserver_default),
-            };
+            } };
             self.server_count = 1;
         }
-        assert(self.server_count >= 1);
+        assert(self.server_count >= 1 or !parse_options.default_server);
         const config: Config = .{
             .servers = self.storage.servers[0..self.server_count],
             .search = self.storage.search[0..self.search_count],
@@ -141,6 +199,7 @@ const Builder = struct {
             .attempts = self.attempts,
             .timeout_ns = self.timeout_ns,
             .rotate = self.rotate,
+            .use_tcp = self.use_tcp,
         };
         // Whatever the file said, the configuration handed back is one a lookup can run on.
         config.assert_valid();
@@ -164,16 +223,16 @@ test "a plain file gives its servers in order" {
         \\
     , &storage);
     try testing.expectEqual(@as(usize, 2), config.servers.len);
-    try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 53 }, config.servers[0].address.slice());
-    try testing.expectEqual(core.Family.ipv6, config.servers[1].address.family);
-    try testing.expectEqual(@as(u16, 53), config.servers[0].port);
+    try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 53 }, config.servers[0].endpoint.address.slice());
+    try testing.expectEqual(core.Family.ipv6, config.servers[1].endpoint.address.family);
+    try testing.expectEqual(@as(u16, 53), config.servers[0].endpoint.port);
 }
 
 test "an empty file means the local nameserver" {
     var storage: Storage = .{};
     const config = parse_text("", &storage);
     try testing.expectEqual(@as(usize, 1), config.servers.len);
-    try testing.expectEqualSlices(u8, &.{ 127, 0, 0, 1 }, config.servers[0].address.slice());
+    try testing.expectEqualSlices(u8, &.{ 127, 0, 0, 1 }, config.servers[0].endpoint.address.slice());
     try testing.expectEqual(@as(usize, 0), config.search.len);
     try testing.expectEqual(core.constants.ndots_default, config.ndots);
     try testing.expectEqual(core.constants.attempts_default, config.attempts);
@@ -232,7 +291,7 @@ test "comments and blank lines are skipped" {
         \\
     , &storage);
     try testing.expectEqual(@as(usize, 1), config.servers.len);
-    try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 53 }, config.servers[0].address.slice());
+    try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 53 }, config.servers[0].endpoint.address.slice());
 }
 
 test "a line cocuyo does not understand costs nothing" {
@@ -247,7 +306,7 @@ test "a line cocuyo does not understand costs nothing" {
         \\
     , &storage);
     try testing.expectEqual(@as(usize, 2), config.servers.len);
-    try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 54 }, config.servers[1].address.slice());
+    try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 54 }, config.servers[1].endpoint.address.slice());
 }
 
 test "tabs and extra spaces separate tokens like one space" {
@@ -255,6 +314,36 @@ test "tabs and extra spaces separate tokens like one space" {
     const config = parse_text("nameserver\t \t192.0.2.53   \nsearch\tone.example\n", &storage);
     try testing.expectEqual(@as(usize, 1), config.servers.len);
     try testing.expectEqual(@as(usize, 1), config.search.len);
+}
+
+test "use-vc asks for every query over TCP" {
+    var storage: Storage = .{};
+    const config = parse_text("options use-vc\n", &storage);
+    try testing.expect(config.use_tcp);
+}
+
+test "without the default server, a file naming none gives none" {
+    var storage: Storage = .{};
+    const config = parse_with("options ndots:2\n", &storage, .{ .default_server = false });
+    try testing.expectEqual(@as(usize, 0), config.servers.len);
+    try testing.expectEqual(@as(u8, 2), config.ndots);
+    config.assert_valid();
+    const with_one = parse_with("nameserver 192.0.2.53\n", &storage, .{ .default_server = false });
+    try testing.expectEqual(@as(usize, 1), with_one.servers.len);
+}
+
+test "RES_OPTIONS applies over a configuration, and LOCALDOMAIN replaces its search list" {
+    var storage: Storage = .{};
+    var config = parse_text("nameserver 192.0.2.53\nsearch one.example\n", &storage);
+    apply_options("ndots:3 use-vc bogus attempts:4", &config);
+    try testing.expectEqual(@as(u8, 3), config.ndots);
+    try testing.expectEqual(@as(u8, 4), config.attempts);
+    try testing.expect(config.use_tcp);
+    apply_search("two.example three.example", &storage, &config);
+    try testing.expectEqual(@as(usize, 2), config.search.len);
+    try testing.expect(config.search[1].equal(&try Name.from_text("three.example")));
+    apply_search("", &storage, &config);
+    try testing.expectEqual(@as(usize, 0), config.search.len);
 }
 
 test "a file with carriage returns parses" {
@@ -284,7 +373,7 @@ test "a file longer than the line bound stops there" {
     const filler = "# comment\n" ** (constants.lines_max + 10);
     const config = parse_text(filler ++ "nameserver 192.0.2.53\n", &storage);
     // The nameserver line is past the bound, so the default stands.
-    try testing.expectEqualSlices(u8, &.{ 127, 0, 0, 1 }, config.servers[0].address.slice());
+    try testing.expectEqualSlices(u8, &.{ 127, 0, 0, 1 }, config.servers[0].endpoint.address.slice());
 }
 
 test "the configuration a parse returns is one the state machine accepts" {
@@ -304,4 +393,8 @@ test "a malformed search entry is skipped and the rest are kept" {
     const config = parse_text("search one.example a..b two.example\n", &storage);
     try testing.expectEqual(@as(usize, 2), config.search.len);
     try testing.expect(config.search[1].equal(&try Name.from_text("two.example")));
+}
+
+test {
+    _ = hosts;
 }

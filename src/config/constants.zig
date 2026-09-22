@@ -69,3 +69,15 @@ pub const double_colon_bytes = 2;
 /// The most option tokens one `options` line is read for. A line holds a handful; the bound is
 /// what keeps a file the parser did not write from deciding how long it runs.
 pub const options_max = 16;
+
+/// The hosts file (`hosts(5)`): the most lines read from one, the most entries kept, the most
+/// names on one line (the official name and its aliases), the octets of wire names one storage
+/// holds (a `u16` offset each), and the character that starts a comment.
+pub const hosts_lines_max = 4096;
+pub const hosts_entries_max = 1024;
+pub const hosts_names_per_entry_max = 8;
+pub const hosts_names_bytes_max = 65536;
+pub const hosts_comment_start = '#';
+
+/// The `use-vc` option of `resolv.conf(5)`: every query over TCP.
+pub const option_use_vc = "use-vc";

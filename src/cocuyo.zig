@@ -9,6 +9,7 @@ pub const core = @import("core");
 pub const wire = @import("wire");
 pub const resolver = @import("resolver");
 pub const resolv_conf = @import("config");
+pub const hosts = resolv_conf.hosts;
 pub const cache = @import("cache");
 
 // The names a consumer reaches for, flattened. Everything else is behind the module it belongs to.
@@ -19,6 +20,8 @@ pub const Name = core.Name;
 pub const Kind = core.Kind;
 pub const Question = core.Question;
 pub const Config = core.Config;
+pub const Server = core.Server;
+pub const Source = core.Source;
 pub const Error = core.Error;
 pub const constants = core.constants;
 
