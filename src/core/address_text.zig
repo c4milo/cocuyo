@@ -1,17 +1,20 @@
-//! Addresses from text, for the `resolv.conf` parser.
+//! An address from text, IPv4 or IPv6: what a `nameserver` line, a hosts file line and a numeric
+//! host given to `AddressLookup` (docs/design.md §19 step 14) carry. `Address.from_text` is the
+//! entry point; the two parsers are public for the tests.
 //!
-//! This is the one place cocuyo reads an address as text. The library never does: it owns no
-//! socket, so it never has to name an address to a host, and `core.Address` has no parser for that
-//! reason (docs/design.md §16 decision 7 keeps the file format out of the state machine). A config
-//! file is text, so the parser needs one, and it lives here rather than in `core`.
+//! This is the one place cocuyo reads an address as text, and it formats none: it owns no
+//! socket, so it never has to name an address to the host. It lived in `config` while a config
+//! file was the only text that carried one, and moved here when the numeric host of §19 step 14
+//! made it a need of `resolver`, which cannot import `config` (§2).
 //!
-//! Anything unparseable returns null. A `resolv.conf` line with a bad address is skipped, not an
-//! error: one bad line must not stop a program from resolving (docs/design.md §10).
+//! Anything unparseable returns null. A `resolv.conf` or hosts line with a bad address is skipped,
+//! not an error: one bad line must not stop a program from resolving (docs/design.md §10).
 const std = @import("std");
 const assert = std.debug.assert;
-const core = @import("core");
-const Address = core.Address;
 const constants = @import("constants.zig");
+const address_module = @import("address.zig");
+const Address = address_module.Address;
+const Family = address_module.Family;
 
 /// An address from text, IPv4 or IPv6.
 ///
@@ -106,7 +109,7 @@ fn fill_quad(text: []const u8, out: []u16, written: u8) ?u8 {
     if (written + constants.groups_per_quad > out.len) return null;
     const address = parse_v4(text) orelse return null;
     const quad = address.slice();
-    assert(quad.len == core.constants.address_v4_bytes);
+    assert(quad.len == constants.address_v4_bytes);
     for (0..constants.groups_per_quad) |group| {
         const octet = group * constants.address_v6_group_bytes;
         out[written + group] = (@as(u16, quad[octet]) << constants.octet_bits) | quad[octet + 1];
@@ -134,7 +137,7 @@ fn hex_digit(byte: u8) ?u4 {
 }
 
 fn from_groups(groups: [constants.address_v6_groups]u16) Address {
-    var octets: [core.constants.address_v6_bytes]u8 = @splat(0);
+    var octets: [constants.address_v6_bytes]u8 = @splat(0);
     for (groups, 0..) |group, index| {
         octets[index * constants.address_v6_group_bytes] = @intCast(group >> constants.octet_bits);
         octets[index * constants.address_v6_group_bytes + 1] = @truncate(group);
@@ -146,16 +149,16 @@ fn from_groups(groups: [constants.address_v6_groups]u16) Address {
 
 const testing = std.testing;
 
-fn expect_v4(text: []const u8, octets: [core.constants.address_v4_bytes]u8) !void {
-    const address = parse(text) orelse return error.TestUnexpectedResult;
-    try testing.expectEqual(core.Family.ipv4, address.family);
-    try testing.expectEqualSlices(u8, &octets, address.slice());
+fn expect_v4(text: []const u8, octets: [constants.address_v4_bytes]u8) !void {
+    const parsed = parse(text) orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(Family.ipv4, parsed.family);
+    try testing.expectEqualSlices(u8, &octets, parsed.slice());
 }
 
-fn expect_v6(text: []const u8, octets: [core.constants.address_v6_bytes]u8) !void {
-    const address = parse(text) orelse return error.TestUnexpectedResult;
-    try testing.expectEqual(core.Family.ipv6, address.family);
-    try testing.expectEqualSlices(u8, &octets, address.slice());
+fn expect_v6(text: []const u8, octets: [constants.address_v6_bytes]u8) !void {
+    const parsed = parse(text) orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(Family.ipv6, parsed.family);
+    try testing.expectEqualSlices(u8, &octets, parsed.slice());
 }
 
 test "a dotted quad parses" {
@@ -238,6 +241,12 @@ test "a full address and its compressed form are the same address" {
     const full = parse("2001:db8:0:0:0:0:0:1").?;
     const short = parse("2001:db8::1").?;
     try testing.expect(full.equal(&short));
+}
+
+test "Address.from_text is the parser, for either family" {
+    try testing.expect(Address.from_text("192.0.2.1").?.equal(&Address.from_v4(.{ 192, 0, 2, 1 })));
+    try testing.expectEqual(Family.ipv6, Address.from_text("::1").?.family);
+    try testing.expectEqual(@as(?Address, null), Address.from_text("example.com"));
 }
 
 test "a double colon standing for no groups is refused" {

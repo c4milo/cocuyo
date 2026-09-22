@@ -1,10 +1,11 @@
-//! `Address` and `Endpoint`: an IP address as octets, and a server to send to. cocuyo never parses
-//! or formats an address — it owns no I/O, so it never has to name one to the host — and these
-//! types exist so the response check of docs/design.md §7 can compare the source of a datagram
-//! against the server the query went to, octet for octet.
+//! `Address` and `Endpoint`: an IP address as octets, and a server to send to. cocuyo formats no
+//! address — it owns no I/O, so it never has to name one to the host — and reads one only from
+//! text it is handed (`from_text`). These types exist so the response check of docs/design.md §7
+//! can compare the source of a datagram against the server the query went to, octet for octet.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
+const address_text = @import("address_text.zig");
 
 pub const Family = enum(u8) {
     ipv4,
@@ -39,6 +40,12 @@ pub const Address = struct {
         assert(address.family == .ipv6);
         assert(address.octets.len == constants.address_v6_bytes);
         return address;
+    }
+
+    /// An address from text, IPv4 or IPv6, or null when the text is not one: no zone index, no
+    /// brackets, no prefix length (`address_text.zig` says why each).
+    pub fn from_text(text: []const u8) ?Address {
+        return address_text.parse(text);
     }
 
     /// The octets this family uses: the first four for IPv4, all sixteen for IPv6.

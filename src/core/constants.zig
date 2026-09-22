@@ -147,6 +147,37 @@ pub const address_v4_bytes = 4;
 /// An IPv6 address, in octets (RFC 3596 §2.2 gives the AAAA rdata this length).
 pub const address_v6_bytes = 16;
 
+/// An address in text (`address_text.zig`): the dotted quad's octet count (RFC 1035 §3.4.1) and
+/// the decimal digits one octet may hold.
+pub const address_v4_octets = address_v4_bytes;
+pub const address_v4_octet_digits_max = 3;
+
+/// The groups an IPv6 address holds in text (RFC 4291 §2.2 form 1), the hexadecimal digits one
+/// group may hold, and the octets one group covers.
+pub const address_v6_groups = 8;
+pub const address_v6_group_digits_max = 4;
+pub const address_v6_group_bytes = 2;
+
+/// The groups a trailing dotted quad fills (RFC 4291 §2.2 form 3), and the `::` of a compressed
+/// address in octets (form 2).
+pub const groups_per_quad = 2;
+pub const double_colon_bytes = 2;
+
+/// The bases the text is written in: decimal for an octet, and hexadecimal for a group as a
+/// shift of one digit's bits, with the value the letter `a` stands for.
+pub const decimal_base = 10;
+pub const hex_digit_bits = 4;
+pub const hex_alpha_value = 10;
+
+/// The bits in an octet, so a shift by a whole octet names what it shifts by.
+pub const octet_bits = @bitSizeOf(u8);
+
+comptime {
+    if (address_v6_groups * address_v6_group_bytes != address_v6_bytes) {
+        @compileError("the IPv6 groups do not cover the address");
+    }
+}
+
 /// The most lookup slots one resolver table may hold, which bounds a handle's index.
 pub const lookup_slots_max = 1024;
 

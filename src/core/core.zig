@@ -14,6 +14,7 @@ const address = @import("address.zig");
 pub const Family = address.Family;
 pub const Address = address.Address;
 pub const Endpoint = address.Endpoint;
+pub const address_text = @import("address_text.zig");
 
 pub const name_text = @import("name_text.zig");
 pub const name_reverse = @import("name_reverse.zig");
@@ -31,6 +32,7 @@ test {
     _ = constants;
     _ = mix;
     _ = address;
+    _ = address_text;
     _ = name_text;
     _ = name_reverse;
     _ = question;

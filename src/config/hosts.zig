@@ -14,7 +14,6 @@ const Address = core.Address;
 const Family = core.Family;
 const Name = core.Name;
 const constants = @import("constants.zig");
-const address_text = @import("address_text.zig");
 
 /// A wire name inside `Storage.names`.
 pub const NameRef = struct { offset: u16, len: u8 };
@@ -127,7 +126,7 @@ const Builder = struct {
         var tokens = std.mem.tokenizeAny(u8, text[0..end], constants.token_separators);
         const address_token = tokens.next() orelse return;
         if (self.entry_count == constants.hosts_entries_max) return;
-        const address = address_text.parse(address_token) orelse return;
+        const address = Address.from_text(address_token) orelse return;
         var entry: Entry = .{ .address = address, .names = undefined, .name_count = 0 };
         var read: usize = 0;
         while (read <= constants.hosts_names_per_entry_max) : (read += 1) {

@@ -172,7 +172,8 @@ assertion whose removal a test can see would have been a check.
 
 The `resolv.conf` parser and the address text parser it needs, broken against
 `zig build test-config`. Eighteen mutations, eighteen `CAUGHT` — four after the tests and the two
-dead checks the mutations found.
+dead checks the mutations found. §19 step 14 moved the address parser and its tests to `core`,
+so C1 to C9 break against `zig build test-core` since.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |

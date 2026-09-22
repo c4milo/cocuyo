@@ -22,7 +22,6 @@ const Endpoint = core.Endpoint;
 const Server = core.Server;
 const Name = core.Name;
 pub const constants = @import("constants.zig");
-pub const address_text = @import("address_text.zig");
 pub const options = @import("resolv_conf_options.zig");
 pub const hosts = @import("hosts.zig");
 
@@ -138,7 +137,7 @@ const Builder = struct {
     fn nameserver(self: *Builder, tokens: *Tokens) void {
         const text = tokens.next() orelse return;
         if (self.server_count == core.constants.servers_max) return;
-        const address = address_text.parse(text) orelse return;
+        const address = Address.from_text(text) orelse return;
         self.storage.servers[self.server_count] = .{ .endpoint = .{ .address = address } };
         self.server_count += 1;
         assert(self.server_count <= core.constants.servers_max);
