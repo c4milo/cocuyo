@@ -136,7 +136,24 @@ The architecture depends on every rule in this section.
 
 ## Current task
 
-docs/design.md §15 names the steps, each with the check that proves it. Step 0 is done: the module
-graph, the lint rules with their canary, the graph check, the commit linter and the pre-push hook.
+docs/design.md §15 names the steps, each with the check that proves it, and docs/mutations.md
+records what each step's checks were broken against.
 
-Next is step 1, `core`: the types, the limits, and `Name` between text and wire form.
+Steps 0 to 6 are done:
+
+- **0**, the build: the module graph the compiler enforces, the lint rules with their canary, the
+  graph check, the commit linter and the pre-push hook.
+- **1**, `core`: the types, the limits, `Name` between text and wire form, and the reverse name.
+- **2**, `wire`: the header, name decoding with its two bounds, the question compare, the query
+  builder, EDNS0, the record walk, the answer walk, and a seeded fuzz target whose gate runs
+  4096 seeds inside `zig build test`.
+- **3**, `Lookup`: the eight states of §5, the response checks of §7, the retry, search and CNAME
+  policies.
+- **4**, `Resolver`: the slot table, the key table and the demultiplexer.
+- **5**, `config`: the `resolv.conf` parser and the address text parser it needs.
+- **6**, `examples/udp_blocking.zig`, which resolves real names against real servers.
+
+Next is step 7, `bench/`: query build, response parse and datagram match, in nanoseconds per
+operation, which is what turns §11's estimates into measurements. §17 holds the questions the
+owner has not answered, and question 9 — whether version one ships a cache, since c-ares has had
+one on by default since 1.31.0 — is the one that decides what "replacement" means.
