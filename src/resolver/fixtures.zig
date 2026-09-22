@@ -29,6 +29,7 @@ const Slot = slots_module.Slot;
 const Lookup = lookup_module.Lookup;
 const Action = lookup_module.Action;
 const Verdict = lookup_module.Verdict;
+const Servers = @import("servers.zig").Servers;
 
 /// The servers the tests ask. Documentation addresses, from RFC 5737.
 pub const servers_one = [_]Endpoint{
@@ -133,10 +134,50 @@ pub const Reply = struct {
     fold_case: bool = false,
     /// Whether to echo a question for another name entirely.
     other_name: bool = false,
+    /// The COOKIE option to put in an OPT record in the additional section (RFC 7873 §5.2).
+    cookie: CookieReply = .none,
+    /// The server cookie to send beside the client's, when `cookie` sends one; empty for the
+    /// short form.
+    server_cookie: []const u8 = &.{},
 };
+
+/// What the fake server does about cookies.
+pub const CookieReply = enum {
+    /// No OPT record at all.
+    none,
+    /// An OPT record with no options: a server that has EDNS and no cookies.
+    opt_only,
+    /// The client cookie the lookup sent, echoed back (RFC 7873 §5.2.3, §5.2.5).
+    echo,
+    /// Another client cookie: an answer forged off-path, or a mix-up (RFC 7873 §5.3).
+    wrong,
+    /// A COOKIE option nine octets long, which neither form allows (RFC 7873 §5.2.2).
+    malformed,
+};
+
+/// A sixteen-octet server cookie, the length RFC 9018 §3 fixes.
+pub const server_cookie = [_]u8{0xc0} ++ [_]u8{0xcc} ** 15;
+/// Another one, for the fresh cookie a BADCOOKIE response carries (RFC 7873 §5.2.4).
+pub const server_cookie_fresh = [_]u8{0xf0} ++ [_]u8{0xff} ** 15;
+
+/// The record rewritten at the harness's cookie: the client's own, or a wrong one.
+const cookie_client_wrong = [_]u8{ 0xba, 0xdc, 0x00, 0xc1, 0xe0, 0x00, 0x00, 0x01 };
 
 /// A reply carrying one A record.
 pub const answer_a: Reply = .{ .records = &record_a, .ancount = 1 };
+
+/// The A record with the client cookie echoed and a server cookie learned.
+pub const answer_a_cookie: Reply = .{ .records = &record_a, .ancount = 1, .cookie = .echo, .server_cookie = &server_cookie };
+/// The A record with an OPT record and no cookie: a server without them.
+pub const answer_a_opt_only: Reply = .{ .records = &record_a, .ancount = 1, .cookie = .opt_only };
+/// The A record with another client's cookie.
+pub const answer_a_cookie_wrong: Reply = .{ .records = &record_a, .ancount = 1, .cookie = .wrong, .server_cookie = &server_cookie };
+/// The A record with a COOKIE option of nine octets.
+pub const answer_a_cookie_malformed: Reply = .{ .records = &record_a, .ancount = 1, .cookie = .malformed };
+/// A CNAME with no target, with the cookie echoed and a server cookie: the lookup asks again.
+pub const cname_only_cookie: Reply = .{ .records = &record_cname, .ancount = 1, .cookie = .echo, .server_cookie = &server_cookie };
+/// BADCOOKIE with a fresh server cookie (RFC 7873 §5.2.4).
+pub const bad_cookie_fresh: Reply = .{ .rcode = .bad_cookie, .cookie = .echo, .server_cookie = &server_cookie_fresh };
 
 /// A reply carrying one MX record, for a question of that type.
 pub const answer_mx: Reply = .{ .records = &record_mx, .ancount = 1 };
@@ -188,6 +229,7 @@ pub const key_count = 16;
 /// temporary it was built in.
 pub const Harness = struct {
     config: Config,
+    servers: Servers = undefined,
     lookup: Lookup = undefined,
     query: [core.constants.query_bytes_max]u8 = @splat(0),
     query_bytes: usize = 0,
@@ -198,7 +240,8 @@ pub const Harness = struct {
     now_ns: u64 = 0,
 
     pub fn start(self: *Harness, text: []const u8, kind: Kind, lookup_seed: u64) !void {
-        self.lookup = Lookup.init(&self.config, try Question.from_text(text, kind), lookup_seed);
+        self.servers = Servers.init(&self.config, lookup_seed);
+        self.lookup = Lookup.init(&self.config, &self.servers, try Question.from_text(text, kind), lookup_seed);
     }
 
     pub fn poll(self: *Harness) Action {
@@ -243,11 +286,16 @@ pub const Harness = struct {
 
     fn build(self: *Harness, reply: Reply) []const u8 {
         const question = self.question_section();
+        // The rcode's low four bits go in the header and the rest in the OPT record's TTL
+        // (RFC 6891 §6.1.3), so BADCOOKIE forces an OPT record.
+        const rcode: u16 = @intFromEnum(reply.rcode);
         var flags: u16 = wire.constants.flag_response |
             wire.constants.flag_recursion_desired |
             wire.constants.flag_recursion_available |
-            @as(u16, @intFromEnum(reply.rcode));
+            (rcode & wire.constants.rcode_mask);
         if (reply.truncated) flags |= wire.constants.flag_truncated;
+        const extended_high: u8 = @intCast(rcode >> wire.constants.extended_rcode_low_bits);
+        const with_opt = reply.cookie != .none or extended_high != 0;
 
         const header: wire.Header = .{
             .id = reply.id orelse self.lookup.transaction.id,
@@ -255,7 +303,7 @@ pub const Harness = struct {
             .qdcount = 1,
             .ancount = reply.ancount,
             .nscount = reply.nscount,
-            .arcount = 0,
+            .arcount = if (with_opt) 1 else 0,
         };
         wire.header.write(&header, &self.reply_buffer);
         var offset: usize = core.constants.header_bytes;
@@ -264,8 +312,35 @@ pub const Harness = struct {
         offset += reply.records.len;
         @memcpy(self.reply_buffer[offset..][0..reply.authority.len], reply.authority);
         offset += reply.authority.len;
+        if (with_opt) offset += self.write_opt(reply, extended_high, offset);
         assert(offset <= self.reply_buffer.len);
         return self.reply_buffer[0..offset];
+    }
+
+    /// An OPT record in the additional section: root owner, payload 1232, the extended rcode's
+    /// high octet in the TTL, and the COOKIE option the reply asks for.
+    fn write_opt(self: *Harness, reply: Reply, extended_high: u8, offset: usize) usize {
+        const out = self.reply_buffer[offset..];
+        var written: usize = wire.edns.write(core.constants.udp_payload_bytes_default, null, out);
+        out[5] = extended_high; // the TTL's high octet (RFC 6891 §6.1.3)
+        const option = self.cookie_option(reply, out[written..]);
+        written += option;
+        wire.integer.write_u16(out, core.constants.opt_record_bytes - 2, @intCast(option)); // rdlength
+        return written;
+    }
+
+    fn cookie_option(self: *Harness, reply: Reply, out: []u8) usize {
+        const client: []const u8 = switch (reply.cookie) {
+            .none, .opt_only => return 0,
+            .echo, .malformed => &self.servers.state(self.lookup.server_index).cookie_client,
+            .wrong => &cookie_client_wrong,
+        };
+        const server: []const u8 = if (reply.cookie == .malformed) &[_]u8{0x00} else reply.server_cookie;
+        wire.integer.write_u16(out, 0, wire.constants.cookie_option_code);
+        wire.integer.write_u16(out, 2, @intCast(client.len + server.len));
+        @memcpy(out[4..][0..client.len], client);
+        @memcpy(out[4 + client.len ..][0..server.len], server);
+        return 4 + client.len + server.len;
     }
 
     /// Echoes the question, or the spoof a test asked for: the case folded, or another name.

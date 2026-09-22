@@ -70,6 +70,9 @@ fn build(self: *const Lookup, tcp: bool, out: []u8) []const u8 {
         .kind = self.question.kind,
         .payload_bytes = if (self.flags.edns_enabled) self.config.udp_payload_bytes else null,
         .tcp = tcp,
+        // The cookies of this server ride in the OPT record, so there are none without it
+        // (RFC 7873 §5.1).
+        .cookie = if (self.flags.edns_enabled) self.servers.cookie(self.server_index) else null,
     };
     const written = wire.query.write(&query, out);
     assert(written >= core.constants.header_bytes);
@@ -86,13 +89,18 @@ const Name = core.Name;
 const Question = core.Question;
 
 const fixtures = @import("fixtures.zig");
+const Servers = @import("servers.zig").Servers;
 const servers = fixtures.servers_two;
 
 /// A buffer of the size every caller must provide.
 const Buffer = [core.constants.query_bytes_max]u8;
 
+/// The per-server state of the lookup under test. One at a time is enough here.
+var test_servers: Servers = undefined;
+
 fn lookup_for(config: *const Config, text: []const u8) !Lookup {
-    return Lookup.init(config, try Question.from_text(text, .a), fixtures.seed);
+    test_servers = Servers.init(config, fixtures.seed);
+    return Lookup.init(config, &test_servers, try Question.from_text(text, .a), fixtures.seed);
 }
 
 test "the first poll asks for a UDP send to the first server" {

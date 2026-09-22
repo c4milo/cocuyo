@@ -22,6 +22,7 @@ const Endpoint = core.Endpoint;
 const Question = core.Question;
 const constants = @import("constants.zig");
 const entropy_module = @import("entropy.zig");
+const servers_module = @import("servers.zig");
 const keys_module = @import("table_keys.zig");
 const slots_module = @import("table_slots.zig");
 const lookup_module = @import("lookup.zig");
@@ -43,6 +44,9 @@ pub const Resolver = struct {
     slots: slots_module.Slots,
     keys: []MatchKey,
     config: *const Config,
+    /// The per-server state every lookup of the table shares: cookies now, failover next
+    /// (docs/design.md §19 steps 10 and 12).
+    servers: servers_module.Servers,
     entropy: entropy_module.Entropy,
     /// Where the next poll starts, so one busy lookup cannot starve the others.
     cursor: u16,
@@ -61,6 +65,7 @@ pub const Resolver = struct {
             .slots = slots_module.Slots.init(slots),
             .keys = keys,
             .config = config,
+            .servers = servers_module.Servers.init(config, seed),
             .entropy = entropy_module.Entropy.init(seed),
             .cursor = 0,
             .soonest_ns = null,
@@ -72,7 +77,7 @@ pub const Resolver = struct {
     pub fn start(self: *Resolver, question: Question) error{NoSlot}!Handle {
         const index = self.slots.acquire() orelse return error.NoSlot;
         const slot = &self.slots.items[index];
-        slot.lookup.init_in_place(self.config, question, self.entropy.next());
+        slot.lookup.init_in_place(self.config, &self.servers, question, self.entropy.next());
         slot.keyed_id = slot.lookup.transaction.id;
         keys_module.insert(self.keys, slot.keyed_id, index);
         return self.slots.handle_of(index);

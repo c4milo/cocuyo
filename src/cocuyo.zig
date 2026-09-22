@@ -24,6 +24,7 @@ pub const constants = core.constants;
 
 pub const Lookup = resolver.Lookup;
 pub const Resolver = resolver.Resolver;
+pub const Servers = resolver.Servers;
 pub const Action = resolver.Action;
 pub const Answer = resolver.Answer;
 pub const Failure = resolver.Failure;

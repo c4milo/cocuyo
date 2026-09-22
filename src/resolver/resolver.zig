@@ -8,6 +8,7 @@
 //!
 //! Steps 3 and 4 of §15 fill this module.
 pub const entropy = @import("entropy.zig");
+pub const servers = @import("servers.zig");
 pub const policy = @import("lookup_policy.zig");
 pub const lookup = @import("lookup.zig");
 pub const table = @import("table.zig");
@@ -28,10 +29,12 @@ pub const Handle = table.Handle;
 pub const Event = table.Event;
 
 pub const Entropy = entropy.Entropy;
+pub const Servers = servers.Servers;
 pub const Transaction = entropy.Transaction;
 
 test {
     _ = entropy;
+    _ = servers;
     _ = policy;
     _ = lookup;
     _ = table;
@@ -42,4 +45,7 @@ test {
     _ = @import("lookup_response.zig");
     _ = @import("fixtures.zig");
     _ = @import("lookup_records_test.zig");
+    _ = @import("lookup_cookie_test.zig");
+    _ = @import("lookup_init_test.zig");
+    _ = @import("lookup_negative_test.zig");
 }

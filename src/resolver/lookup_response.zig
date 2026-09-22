@@ -24,19 +24,29 @@ const policy = @import("lookup_policy.zig");
 pub fn on_response(self: *Lookup, message: []const u8, from: Endpoint, now_ns: u64) Verdict {
     self.see(now_ns);
     const cased = self.cased_name();
-    const header = accepted_header(self, message, from, &cased) orelse return .ignored;
+    const accepted = accepted_header(self, message, from, &cased) orelse return .ignored;
     assert(!self.is_settled());
-    return apply(self, message, header, &cased, now_ns);
+    return apply(self, message, accepted, &cased, now_ns);
 }
 
-/// Every check of §7, in order. Returns the header when the message is ours, and null when it is
-/// not, without touching the lookup.
+/// What the checks of §7 let through: the header, and what the OPT record said when there was
+/// one.
+const Accepted = struct {
+    header: wire.Header,
+    /// The COOKIE option the OPT carried; null for no OPT, or an OPT with no cookie.
+    cookie: ?wire.CookieView,
+    /// The rcode's eight high bits, from the OPT record's TTL (RFC 6891 §6.1.3).
+    extended_rcode_high: u8,
+};
+
+/// Every check of §7, in order. Returns what was read when the message is ours, and null when it
+/// is not, without touching the lookup.
 fn accepted_header(
     self: *const Lookup,
     message: []const u8,
     from: Endpoint,
     cased: *const core.Name,
-) ?wire.Header {
+) ?Accepted {
     if (self.state != .awaiting_udp and self.state != .awaiting_tcp) return null;
     // 1. A message too short to hold a header, or longer than a message can be.
     if (message.len > core.constants.message_bytes_max) return null;
@@ -54,23 +64,64 @@ fn accepted_header(
     //    (RFC 5452 §9.1, §9.2).
     if (header.qdcount != 1) return null;
     if (!wire.question.matches(message, cased, self.question.kind)) return null;
-    return header;
+    // 6. The cookie (RFC 7873 §5.3): the client cookie must be the one this lookup sent, and a
+    //    server that has given a server cookie before must give one again.
+    const opt = opt_of(message, cased) orelse return null;
+    if (!cookie_accepted(self, opt.cookie)) return null;
+    return .{ .header = header, .cookie = opt.cookie, .extended_rcode_high = opt.extended_rcode_high };
+}
+
+const OptFields = struct { cookie: ?wire.CookieView, extended_rcode_high: u8 };
+
+/// The OPT record's fields; the defaults when the message carries no OPT; null when it is
+/// malformed: a version cocuyo does not speak (RFC 6891 §6.1.3), an owner that is not the root
+/// (§6.1.2), or a COOKIE option of a length neither form allows (RFC 7873 §5.2.2).
+fn opt_of(message: []const u8, cased: *const core.Name) ?OptFields {
+    const record = (wire.response_opt.find(message, cased) catch return null) orelse
+        return .{ .cookie = null, .extended_rcode_high = 0 };
+    const opt = wire.edns.parse(record.class, record.ttl_seconds) catch return null;
+    const cookie = wire.edns.find_cookie(record.rdata) catch return null;
+    return .{ .cookie = cookie, .extended_rcode_high = opt.extended_rcode_high };
+}
+
+/// A wrong client cookie is a discard, and so is a missing option once this server has given a
+/// server cookie (RFC 7873 §5.3). Before that, a response with no cookie is a server without
+/// them, and it stands. A lookup that sent no OPT record expects nothing back.
+fn cookie_accepted(self: *const Lookup, cookie: ?wire.CookieView) bool {
+    if (!self.flags.edns_enabled) return true;
+    const mine = self.servers.state(self.server_index);
+    if (cookie) |view| return std.mem.eql(u8, view.client, &mine.cookie_client);
+    return !self.servers.expecting(self.server_index);
+}
+
+/// Caches the server cookie a response carried, even an error response (RFC 7873 §5.3). The
+/// client cookie beside it was checked already.
+fn learn_cookie(self: *Lookup, cookie: ?wire.CookieView) void {
+    if (!self.flags.edns_enabled) return;
+    const view = cookie orelse return;
+    if (view.server.len == 0) return;
+    self.servers.learn(self.server_index, view.server);
+    assert(self.servers.expecting(self.server_index));
 }
 
 fn apply(
     self: *Lookup,
     message: []const u8,
-    header: wire.Header,
+    accepted: Accepted,
     cased: *const core.Name,
     now_ns: u64,
 ) Verdict {
+    const header = accepted.header;
+    learn_cookie(self, accepted.cookie);
     // Truncation over UDP sends this server's answer to TCP. Over TCP it means nothing: a stream
     // has no size limit to overflow (RFC 7766 §5), so the bit is ignored there.
     if (header.truncated() and self.state == .awaiting_udp) {
         self.state = .tcp_needed;
         return .accepted;
     }
-    const rcode = header.rcode() catch return .ignored;
+    const bits = (@as(u16, accepted.extended_rcode_high) << wire.constants.extended_rcode_low_bits) |
+        header.rcode_bits();
+    const rcode = wire.Rcode.from_bits(bits) orelse return .ignored;
     switch (policy.rcode_action(rcode, self.flags.edns_enabled)) {
         .collect => return collect(self, message, cased, now_ns),
         .next_candidate => {
@@ -89,8 +140,24 @@ fn apply(
             self.flags.edns_enabled = false;
             self.restart(now_ns);
         },
+        .retry_with_cookie => on_bad_cookie(self, now_ns),
     }
     return .accepted;
+}
+
+/// BADCOOKIE (RFC 7873 §5.3): once more with the server cookie just learned, then over TCP, and
+/// a server that answers BADCOOKIE over TCP as well is one that will not answer at all.
+fn on_bad_cookie(self: *Lookup, now_ns: u64) void {
+    if (self.state == .awaiting_tcp) {
+        self.flags.had_server_failure = true;
+        self.next_server(now_ns);
+    } else if (self.flags.cookie_retried) {
+        self.state = .tcp_needed;
+    } else {
+        self.flags.cookie_retried = true;
+        self.restart(now_ns);
+    }
+    assert(self.state != .awaiting_udp);
 }
 
 /// The negative TTL a message carries, or zero. A malformed authority section is not a reason
@@ -404,50 +471,4 @@ test "a chain name compressed into the question comes back without cocuyo's own 
             harness.lookup.current.wire(),
         );
     }
-}
-
-test "a negative answer's SOA minimum reaches the failure, for NXDOMAIN and for NODATA" {
-    var harness = try harness_for(.{ .servers = &servers });
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    _ = harness.respond(fixtures.name_error_soa, servers[0]);
-    const failure = harness.poll().failed;
-    try testing.expectEqual(core.Error.NameNotFound, failure.err);
-    try testing.expectEqual(@as(u32, 60), failure.negative_ttl_seconds);
-
-    var no_data = try harness_for(.{ .servers = &servers });
-    try no_data.start("example.com.", .a, seed);
-    _ = no_data.send();
-    _ = no_data.respond(fixtures.no_data_soa, servers[0]);
-    const nodata_failure = no_data.poll().failed;
-    try testing.expectEqual(core.Error.NoData, nodata_failure.err);
-    try testing.expectEqual(@as(u32, 60), nodata_failure.negative_ttl_seconds);
-}
-
-test "a negative answer with no SOA, or a broken one, carries a TTL of zero" {
-    var harness = try harness_for(.{ .servers = &servers });
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    _ = harness.respond(fixtures.name_error, servers[0]);
-    try testing.expectEqual(@as(u32, 0), harness.poll().failed.negative_ttl_seconds);
-
-    var broken = try harness_for(.{ .servers = &servers });
-    try broken.start("example.com.", .a, seed);
-    _ = broken.send();
-    _ = broken.respond(fixtures.name_error_soa_broken, servers[0]);
-    const failure = broken.poll().failed;
-    try testing.expectEqual(core.Error.NameNotFound, failure.err);
-    try testing.expectEqual(@as(u32, 0), failure.negative_ttl_seconds);
-}
-
-test "a failure that is not a negative answer carries a TTL of zero" {
-    var harness = try harness_for(.{ .servers = &servers, .attempts = 1 });
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    _ = harness.respond(fixtures.server_failure, servers[0]);
-    _ = harness.send();
-    _ = harness.respond(fixtures.server_failure, servers[1]);
-    const failure = harness.poll().failed;
-    try testing.expectEqual(core.Error.AllServersFailed, failure.err);
-    try testing.expectEqual(@as(u32, 0), failure.negative_ttl_seconds);
 }

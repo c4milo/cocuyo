@@ -22,6 +22,7 @@ const Name = core.Name;
 const Kind = core.Kind;
 const Question = core.Question;
 const entropy_module = @import("entropy.zig");
+const Servers = @import("servers.zig").Servers;
 const policy = @import("lookup_policy.zig");
 const poll_module = @import("lookup_poll.zig");
 const response_module = @import("lookup_response.zig");
@@ -104,7 +105,9 @@ pub const Flags = packed struct(u8) {
     had_server_failure: bool,
     /// Whether a CNAME was followed, which makes the current name the canonical one.
     aliased: bool,
-    unused: u3 = 0,
+    /// Whether a BADCOOKIE was already answered with a retry on this server (RFC 7873 §5.3).
+    cookie_retried: bool,
+    unused: u2 = 0,
 };
 
 pub const Lookup = struct {
@@ -127,6 +130,9 @@ pub const Lookup = struct {
     /// The SOA minimum of the last negative answer, for `Failure.negative_ttl_seconds`.
     negative_ttl_seconds: u32,
     config: *const Config,
+    /// The per-server state shared with every other lookup of the caller: the cookies of
+    /// RFC 7873 (docs/design.md §19 step 10).
+    servers: *Servers,
 
     // The names and the records: the bulk of a slot.
     question: Question,
@@ -135,18 +141,25 @@ pub const Lookup = struct {
     current: Name,
     answers: wire.Answers,
 
-    pub fn init(config: *const Config, question: Question, seed: u64) Lookup {
+    pub fn init(config: *const Config, servers: *Servers, question: Question, seed: u64) Lookup {
         var lookup: Lookup = undefined;
-        lookup.init_in_place(config, question, seed);
+        lookup.init_in_place(config, servers, question, seed);
         return lookup;
     }
 
     /// `init` into memory the caller already owns, a slot of `Resolver` above all: the lookup is
     /// three kilooctets since §19 step 9, and a value built in a local and returned is copied
     /// into its destination, which §11 measured at forty nanoseconds a start.
-    pub fn init_in_place(self: *Lookup, config: *const Config, question: Question, seed: u64) void {
+    pub fn init_in_place(
+        self: *Lookup,
+        config: *const Config,
+        servers: *Servers,
+        question: Question,
+        seed: u64,
+    ) void {
         config.assert_valid();
         assert(question.kind.queryable());
+        assert(servers.count == config.servers.len);
         self.* = .{
             .state = .query_ready,
             .flags = .{
@@ -155,6 +168,7 @@ pub const Lookup = struct {
                 .had_no_data = false,
                 .had_server_failure = false,
                 .aliased = false,
+                .cookie_retried = false,
             },
             .server_index = 0,
             .round = 0,
@@ -167,6 +181,7 @@ pub const Lookup = struct {
             .failure = core.Error.Timeout,
             .negative_ttl_seconds = 0,
             .config = config,
+            .servers = servers,
             .question = question,
             .current = question.name,
             // Left undefined and then reset: the answers' rdata buffer is two kilooctets that
@@ -273,6 +288,7 @@ pub const Lookup = struct {
     /// Moves to the next server, then to the next pass, then gives up.
     pub fn next_server(self: *Lookup, now_ns: u64) void {
         assert(!self.is_settled());
+        self.flags.cookie_retried = false;
         self.server_index += 1;
         if (self.server_index == self.config.servers.len) {
             self.server_index = 0;
@@ -292,6 +308,7 @@ pub const Lookup = struct {
     /// Moves to the next candidate of the search walk, then gives up.
     pub fn next_candidate(self: *Lookup, now_ns: u64) void {
         assert(!self.is_settled());
+        self.flags.cookie_retried = false;
         self.server_index = 0;
         self.round = 0;
         self.cname_hops = 0;
@@ -382,7 +399,8 @@ const three_servers = fixtures.servers_three;
 
 test "a lookup starts ready to send its first query" {
     const config: Config = .{ .servers = &one_server };
-    var lookup = Lookup.init(&config, try Question.from_text("example.com", .a), 1);
+    var servers_config = Servers.init(&config, 1);
+    var lookup = Lookup.init(&config, &servers_config, try Question.from_text("example.com", .a), 1);
     try testing.expectEqual(State.query_ready, lookup.state);
     try testing.expect(lookup.current.equal(&try Name.from_text("example.com")));
     try testing.expect(lookup.flags.edns_enabled);
@@ -393,18 +411,22 @@ test "a lookup starts ready to send its first query" {
 
 test "the name on the wire is cased and the name held is not" {
     const config: Config = .{ .servers = &one_server };
-    var lookup = Lookup.init(&config, try Question.from_text("example.com", .a), 1);
+    var servers_config = Servers.init(&config, 1);
+    var lookup = Lookup.init(&config, &servers_config, try Question.from_text("example.com", .a), 1);
     const cased = lookup.cased_name();
     try testing.expect(cased.equal(&lookup.current));
     try testing.expect(!std.mem.eql(u8, cased.wire(), lookup.current.wire()));
 
-    var without = Lookup.init(&.{ .servers = &one_server, .mix_case = false }, lookup.question, 1);
+    const plain: Config = .{ .servers = &one_server, .mix_case = false };
+    var servers_plain = Servers.init(&plain, 1);
+    var without = Lookup.init(&plain, &servers_plain, lookup.question, 1);
     try testing.expectEqualSlices(u8, without.current.wire(), without.cased_name().wire());
 }
 
 test "the servers are tried in turn, then the passes, then the lookup fails" {
     const config: Config = .{ .servers = &three_servers, .attempts = 2 };
-    var lookup = Lookup.init(&config, try Question.from_text("example.com.", .a), 1);
+    var servers_config = Servers.init(&config, 1);
+    var lookup = Lookup.init(&config, &servers_config, try Question.from_text("example.com.", .a), 1);
     const first_id = lookup.transaction.id;
     lookup.next_server(1);
     try testing.expectEqual(@as(u8, 1), lookup.server_index);
@@ -423,7 +445,8 @@ test "the servers are tried in turn, then the passes, then the lookup fails" {
 
 test "a lookup that saw a server failure fails with that rather than a timeout" {
     const config: Config = .{ .servers = &one_server, .attempts = 1 };
-    var lookup = Lookup.init(&config, try Question.from_text("example.com.", .a), 1);
+    var servers_config = Servers.init(&config, 1);
+    var lookup = Lookup.init(&config, &servers_config, try Question.from_text("example.com.", .a), 1);
     lookup.flags.had_server_failure = true;
     lookup.next_server(1);
     try testing.expectEqual(core.Error.AllServersFailed, lookup.failure_of().err);
@@ -432,47 +455,17 @@ test "a lookup that saw a server failure fails with that rather than a timeout" 
 test "the candidate walk ends in NameNotFound, or NoData when a name existed" {
     const search = [_]Name{try Name.from_text("one.net")};
     const config: Config = .{ .servers = &one_server, .search = &search, .ndots = 1 };
-    var lookup = Lookup.init(&config, try Question.from_text("host.example", .a), 1);
+    var servers_config = Servers.init(&config, 1);
+    var lookup = Lookup.init(&config, &servers_config, try Question.from_text("host.example", .a), 1);
     try testing.expect(lookup.current.equal(&try Name.from_text("host.example")));
     lookup.next_candidate(1);
     try testing.expect(lookup.current.equal(&try Name.from_text("host.example.one.net")));
     lookup.next_candidate(2);
     try testing.expectEqual(core.Error.NameNotFound, lookup.failure_of().err);
 
-    var second = Lookup.init(&config, try Question.from_text("host.example", .a), 1);
+    var second = Lookup.init(&config, &servers_config, try Question.from_text("host.example", .a), 1);
     second.flags.had_no_data = true;
     second.next_candidate(1);
     second.next_candidate(2);
     try testing.expectEqual(core.Error.NoData, second.failure_of().err);
-}
-
-test "rotation starts somewhere in the list, and a lookup without it starts at the first" {
-    const rotating: Config = .{ .servers = &three_servers, .rotate = true };
-    const plain: Config = .{ .servers = &three_servers };
-    var seen: [three_servers.len]bool = @splat(false);
-    var seed: u64 = 0;
-    while (seed < 64) : (seed += 1) {
-        const lookup = Lookup.init(&rotating, try Question.from_text("example.com.", .a), seed);
-        seen[lookup.server_index] = true;
-        const fixed = Lookup.init(&plain, try Question.from_text("example.com.", .a), seed);
-        try testing.expectEqual(@as(u8, 0), fixed.server_index);
-    }
-    for (seen) |reached| try testing.expect(reached);
-}
-
-test "cancel settles a lookup without an answer" {
-    const config: Config = .{ .servers = &one_server };
-    var lookup = Lookup.init(&config, try Question.from_text("example.com.", .a), 1);
-    lookup.cancel();
-    try testing.expect(lookup.is_settled());
-    try testing.expectEqual(core.Error.Canceled, lookup.failure_of().err);
-}
-
-test "the size of a lookup slot is pinned" {
-    // docs/design.md §9 budgets the memory a caller provides, and a caller sizing a table needs
-    // this number. It is measured, not computed: Zig chooses the field order, so a field added
-    // here can cost more than its own width in padding.
-    try testing.expectEqual(@as(usize, 3024), @sizeOf(Lookup));
-    try testing.expectEqual(@as(usize, 2448), @sizeOf(wire.Answers));
-    try testing.expectEqual(@as(usize, 16), @sizeOf(entropy_module.Transaction));
 }

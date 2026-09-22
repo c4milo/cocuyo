@@ -71,6 +71,9 @@ pub const RcodeAction = enum {
     /// This server does not understand EDNS0: ask it again without the OPT record
     /// (RFC 6891 §6.2.2).
     retry_without_edns,
+    /// This server wants a fresh server cookie: ask it again with the one it just sent, once,
+    /// then over TCP (RFC 7873 §5.3).
+    retry_with_cookie,
 };
 
 pub fn rcode_action(rcode: wire.Rcode, edns_enabled: bool) RcodeAction {
@@ -78,7 +81,10 @@ pub fn rcode_action(rcode: wire.Rcode, edns_enabled: bool) RcodeAction {
         .no_error => .collect,
         .name_error => .next_candidate,
         .format_error => if (edns_enabled) .retry_without_edns else .next_server,
-        .server_failure, .refused, .not_implemented => .next_server,
+        // BADVERS: cocuyo speaks version 0 alone, so there is no lower version to fall back to
+        // (RFC 6891 §6.1.3).
+        .server_failure, .refused, .not_implemented, .bad_vers => .next_server,
+        .bad_cookie => .retry_with_cookie,
     };
 }
 
@@ -166,4 +172,6 @@ test "every response code maps to one decision" {
     try testing.expectEqual(RcodeAction.next_server, rcode_action(.not_implemented, true));
     try testing.expectEqual(RcodeAction.retry_without_edns, rcode_action(.format_error, true));
     try testing.expectEqual(RcodeAction.next_server, rcode_action(.format_error, false));
+    try testing.expectEqual(RcodeAction.next_server, rcode_action(.bad_vers, true));
+    try testing.expectEqual(RcodeAction.retry_with_cookie, rcode_action(.bad_cookie, true));
 }
