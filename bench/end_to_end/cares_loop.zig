@@ -64,7 +64,20 @@ pub fn run(port: u16, in_flight: u32, total: u32, latencies: []u64) !Outcome {
     const begin = harness.now_ns();
     var index: u32 = 0;
     while (index < in_flight and index < total) : (index += 1) start_next(&state.slots[index]);
-    if (c.ares_queue_wait_empty(channel, constants.cares_wait_ms_max) != c.ARES_SUCCESS) return error.CaresStalled;
+    if (c.ares_queue_wait_empty(channel, constants.cares_wait_ms_max) != c.ARES_SUCCESS) {
+        // A row that gives up says what it knew, because "the queue never emptied" has two very
+        // different causes and they are told apart here. `done == total` means every lookup was
+        // answered and the queue still held something, which is c-ares's own bookkeeping.
+        // `done < total` means a lookup this driver started never came back, and the count says
+        // how many.
+        std.debug.print(
+            "c-ares stalled: {d} of {d} answered, {d} claimed, {d} in flight asked for\n",
+            .{ state.done.load(.monotonic), total, state.started.load(.monotonic), in_flight },
+        );
+        return error.CaresStalled;
+    }
+    // Every lookup the row asked for is answered, or the rate below is over a count nobody made.
+    assert(state.done.load(.monotonic) == total);
     return .{ .elapsed_ns = harness.now_ns() - begin, .failures = state.failures.load(.monotonic) };
 }
 

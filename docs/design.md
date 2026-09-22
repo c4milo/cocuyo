@@ -937,10 +937,18 @@ What the rows say, and what they do not:
 - Nothing here says anything about Linux, about a real network, or about a working set that a
   cache would answer: the names are distinct, so neither cache is ever asked twice.
 
-**Two c-ares rows did not finish.** Its event thread parks in `kevent` with a query still queued
-and no timer armed for it, and an unbounded `ares_queue_wait_empty` never returns; the driver
-bounds that wait, gives the row up and says so, and the run carries on. It happened twice in
-fifteen rows, at one in flight and at sixteen. cocuyo's side finished every row of every run.
+**Two c-ares rows did not finish.** What was observed, and no more: `ares_queue_wait_empty`
+timed out, so c-ares's queue was not empty; a stack sample at that moment showed its event thread
+parked in `kevent` and the responder thread idle in `recvfrom`, with nothing in flight to answer.
+An unbounded wait there never returns, so the driver bounds it, gives the row up and says so.
+It happened twice in fifteen rows, at one in flight and at sixteen, and on Linux at 128.
+
+**Whose fault that is, is not settled.** Three defects in this driver were found and fixed the
+same day, so "c-ares stalls" is a claim this table has not earned: a driver with that history
+answers for itself first. The driver now prints how many of the row's lookups were answered when
+it gives up, which tells the two cases apart — every lookup answered and the queue still full is
+c-ares's bookkeeping, and a lookup that never came back is this driver's. Until a stalled row
+prints that, the rows above say only that two of them did not finish.
 
 **Three defects in the comparison's own driver had to go first**, and each of them would have
 made a row a lie: one second of wait per lookup at one in flight, a stack overflow from starting
