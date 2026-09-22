@@ -24,6 +24,7 @@ const canary_rules = [_][]const u8{
     "markdown",
     "file-length",
     "magic-numbers",
+    "defer-order",
 };
 
 /// The most lines a hand-written file may hold (tools/lint/file_length.zig).
@@ -45,6 +46,11 @@ const canary_source =
     \\}
     \\pub fn parse(reader: *Reader, buffer: []u8) !void {
     \\    _ = buffer[0..try reader.read_int(u16)];
+    \\}
+    \\pub fn ordering(path: []const u8) !void {
+    \\    const socket = try open(path);
+    \\    try bind(socket);
+    \\    defer release_everything();
     \\}
     \\
 ++ "//\n" ** file_length_max_lines;

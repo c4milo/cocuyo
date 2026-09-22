@@ -31,6 +31,7 @@ const rules = .{
     @import("markdown.zig"),
     @import("file_length.zig"),
     @import("magic_numbers.zig"),
+    @import("defer_order.zig"),
 };
 
 const Linter = pepegrillo.lint.Linter(rules);
@@ -53,6 +54,7 @@ test "the registered rules are exactly the rules CLAUDE.md names" {
         "markdown",
         "file-length",
         "magic-numbers",
+        "defer-order",
     };
     try testing.expectEqual(expected.len, Linter.count);
     inline for (rules, 0..) |rule, index| {
