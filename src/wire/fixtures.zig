@@ -418,3 +418,44 @@ pub const answer_any = answer_header(3) ++ question_any ++ record_a ++ record_mx
 /// An ANY question at a name that is an alias: the CNAME is the answer and is not followed
 /// (RFC 1034 §3.6.2).
 pub const answer_any_cname = answer_header(1) ++ question_any ++ record_cname;
+
+// The OPT record and its COOKIE option (RFC 6891 §6.1.2, RFC 7873 §4).
+
+pub const cookie_client = [_]u8{ 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 };
+pub const cookie_server = [_]u8{0xc0} ++ [_]u8{0xcc} ** 15;
+
+/// The short form: a client cookie alone.
+pub const opt_cookie_short_rdata = [_]u8{ 0x00, 0x0a, 0x00, 0x08 } ++ cookie_client;
+/// The long form: a client cookie and a sixteen-octet server cookie.
+pub const opt_cookie_long_rdata = [_]u8{ 0x00, 0x0a, 0x00, 0x18 } ++ cookie_client ++ cookie_server;
+/// Two COOKIE options: the first is the one that counts (RFC 7873 §5.3).
+pub const opt_two_cookies_rdata = opt_cookie_short_rdata ++ [_]u8{ 0x00, 0x0a, 0x00, 0x08 } ++ [_]u8{0xee} ** 8;
+/// Lengths neither form allows (RFC 7873 §5.2.2): nine, fifteen and forty-one octets.
+pub const opt_cookie_nine_rdata = [_]u8{ 0x00, 0x0a, 0x00, 0x09 } ++ cookie_client ++ [_]u8{0x00};
+pub const opt_cookie_fifteen_rdata = [_]u8{ 0x00, 0x0a, 0x00, 0x0f } ++ cookie_client ++ [_]u8{0xcc} ** 7;
+pub const opt_cookie_forty_one_rdata = [_]u8{ 0x00, 0x0a, 0x00, 0x29 } ++ cookie_client ++ [_]u8{0xcc} ** 33;
+
+/// An OPT record as a responder sends it: root owner, type 41, payload 1232, version 0, and
+/// rdata of the length given.
+fn opt_record(comptime rdata: []const u8) [11 + rdata.len]u8 {
+    return [_]u8{ 0x00, 0x00, 0x29, 0x04, 0xd0, 0x00, 0x00, 0x00, 0x00 } ++
+        [_]u8{ 0x00, @intCast(rdata.len) } ++ rdata[0..rdata.len].*;
+}
+
+fn answer_header_additional(ancount: u8, arcount: u8) [core.constants.header_bytes]u8 {
+    return [_]u8{ 0x12, 0x34 } ++ answer_flags ++ [_]u8{ 0x00, 0x01, 0x00, ancount, 0x00, 0x00, 0x00, arcount };
+}
+
+const record_opt_empty = opt_record(&.{});
+const record_opt_cookie_long = opt_record(&opt_cookie_long_rdata);
+/// An OPT whose owner is not the root, which RFC 6891 §6.1.2 forbids.
+const record_opt_bad_owner = owner_pointer ++ [_]u8{ 0x00, 0x29, 0x04, 0xd0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
+/// One A record, then an OPT with no options in the additional section.
+pub const answer_a_with_opt = answer_header_additional(1, 1) ++ question_a ++ record_a ++ record_opt_empty;
+/// One A record, then an OPT carrying the long COOKIE option.
+pub const answer_a_with_cookie = answer_header_additional(1, 1) ++ question_a ++ record_a ++ record_opt_cookie_long;
+/// An OPT owned by the question's name instead of the root.
+pub const answer_a_with_opt_bad_owner = answer_header_additional(1, 1) ++ question_a ++ record_a ++ record_opt_bad_owner;
+/// The additional section holds an A record before the OPT: the walk has to pass it.
+pub const answer_a_opt_after_additional = answer_header_additional(1, 2) ++ question_a ++ record_a ++ record_a_second ++ record_opt_empty;

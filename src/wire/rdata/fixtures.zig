@@ -140,5 +140,7 @@ pub const caa_short = [_]u8{0x00};
 
 /// OPT options (RFC 6891 §6.1.2): a COOKIE of eight octets (RFC 7873 §4), then an empty NSID.
 pub const opt_options = [_]u8{ 0x00, 0x0a, 0x00, 0x08, 1, 2, 3, 4, 5, 6, 7, 8, 0x00, 0x03, 0x00, 0x00 };
+/// An empty NSID alone: no cookie.
+pub const opt_nsid_only = [_]u8{ 0x00, 0x03, 0x00, 0x00 };
 pub const opt_option_short = [_]u8{ 0x00, 0x0a, 0x00, 0x08, 1, 2 };
 pub const opt_option_header_only = [_]u8{ 0x00, 0x0a, 0x00 };

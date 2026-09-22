@@ -249,7 +249,7 @@ pub fn negative_ttl_seconds(message: []const u8, question: *const Name) Error!u3
 }
 
 /// Where the answer section starts: after the header and the one question the message echoes.
-fn section_start(question: *const Name) usize {
+pub fn section_start(question: *const Name) usize {
     const name_len: usize = question.len;
     assert(name_len <= core.constants.name_bytes_max);
     return core.constants.header_bytes + name_len + core.constants.question_fixed_bytes;

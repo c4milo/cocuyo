@@ -14,6 +14,7 @@ pub const query = @import("query.zig");
 pub const record = @import("record.zig");
 pub const record_copy = @import("record_copy.zig");
 pub const response = @import("response.zig");
+pub const response_opt = @import("response_opt.zig");
 pub const rdata = @import("rdata/rdata.zig");
 pub const fuzz = @import("fuzz.zig");
 /// The hand-written corpus. Tests read it, and so does `bench/`, because a benchmark over a
@@ -25,6 +26,8 @@ pub const Header = header.Header;
 pub const Rcode = constants.Rcode;
 pub const message_len = header.message_len;
 pub const Query = query.Query;
+pub const Cookie = edns.Cookie;
+pub const CookieView = edns.CookieView;
 pub const Record = record.Record;
 pub const Answers = response.Answers;
 pub const Records = response.Records;
@@ -42,6 +45,7 @@ test {
     _ = record;
     _ = record_copy;
     _ = response;
+    _ = response_opt;
     _ = rdata;
     _ = fuzz;
     _ = @import("fuzz_generate.zig");

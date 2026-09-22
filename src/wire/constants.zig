@@ -98,6 +98,16 @@ pub const character_string_bytes_max = 255;
 pub const opt_option_fixed_bytes = 4;
 pub const opt_option_length_offset = 2;
 
+/// The COOKIE option's code (RFC 7873 §4), and the two lengths the option may have: a client
+/// cookie alone, or a client cookie and a server cookie of 8 to 32 octets.
+pub const cookie_option_code = 10;
+pub const cookie_option_short_bytes = 8;
+pub const cookie_option_long_bytes_min = 16;
+pub const cookie_option_long_bytes_max = 40;
+
+/// The rcode's high eight bits sit above the header's four (RFC 6891 §6.1.3).
+pub const extended_rcode_low_bits = 4;
+
 /// The most segments a record layout has: NAPTR's fixed part, three strings and a name
 /// (`rdata/rdata_layout.zig`).
 pub const layout_segments_max = 5;
@@ -137,10 +147,16 @@ pub const Rcode = enum(u8) {
     name_error = 3,
     not_implemented = 4,
     refused = 5,
+    /// The responder does not implement the EDNS version asked (RFC 6891 §6.1.3).
+    bad_vers = 16,
+    /// The server cookie was missing or wrong (RFC 7873 §8, the IANA entry).
+    bad_cookie = 23,
 
     /// The code `bits` names, or null when cocuyo does not know it. A code cocuyo does not know is
-    /// a malformed message to its caller rather than a code to guess the meaning of.
-    pub fn from_bits(bits: u8) ?Rcode {
+    /// a malformed message to its caller rather than a code to guess the meaning of. The header
+    /// holds four bits and an OPT record's TTL eight more above them (RFC 6891 §6.1.3), so a
+    /// code is twelve bits wide.
+    pub fn from_bits(bits: u16) ?Rcode {
         inline for (@typeInfo(Rcode).@"enum".fields) |field| {
             if (field.value == bits) return @enumFromInt(field.value);
         }
