@@ -59,7 +59,7 @@ pub const all = [_]Case{
     .{ .name = "datagram match, wrong question, 64 in flight", .iterations = iterations, .run = &run_match_wrong, .setup = &setup_table_medium },
     .{ .name = "datagram match, wrong question, 1024 in flight", .iterations = iterations, .run = &run_match_wrong, .setup = &setup_table_large },
     .{ .name = "datagram match, wrong question, rotating over 1024 slots", .iterations = iterations, .run = &run_match_rotating, .setup = &setup_rotation },
-    .{ .name = "slot restore (3032-octet copy)", .iterations = iterations, .run = &run_slot_restore, .setup = &setup_table_large },
+    .{ .name = "slot restore (3040-octet copy)", .iterations = iterations, .run = &run_slot_restore, .setup = &setup_table_large },
     .{ .name = "datagram match, accepted, 1024 in flight (+ slot restore)", .iterations = iterations, .run = &run_match_accept, .setup = &setup_table_large },
     .{ .name = "lookup round trip: init in place, poll, on_sent, on_response", .iterations = iterations, .run = &run_round_trip, .setup = &setup_round_trip },
     .{ .name = "resolv.conf parse, three lines", .iterations = iterations, .run = &run_resolv_conf, .setup = &setup_resolv_conf },
@@ -312,18 +312,20 @@ var lookup: Lookup = undefined;
 var round_reply: [cocuyo.constants.udp_payload_bytes_default]u8 = undefined;
 var round_reply_len: usize = 0;
 var round_out: [cocuyo.constants.query_bytes_max]u8 = undefined;
+var round_servers: cocuyo.Servers = undefined;
 
 /// `init` from the same seed draws the same transaction every time, so one reply built at setup
 /// answers every iteration.
 fn setup_round_trip() void {
     round_question = cocuyo.Question.from_text("example.com.", .a) catch unreachable;
-    const initial = Lookup.init(&config, round_question, seed);
+    round_servers = cocuyo.Servers.init(&config, seed);
+    const initial = Lookup.init(&config, &round_servers, round_question, seed);
     const cased = initial.cased_name();
     round_reply_len = build_reply(&round_reply, initial.transaction.id, &cased);
 }
 
 fn run_round_trip() void {
-    lookup.init_in_place(&config, round_question, seed);
+    lookup.init_in_place(&config, &round_servers, round_question, seed);
     now_ns += 1;
     doNotOptimizeAway(lookup.poll(now_ns, &round_out));
     lookup.on_sent(now_ns);
