@@ -129,13 +129,13 @@ fn rdata_check(message: []const u8, record: *const record_codec.Record) ?[]const
 }
 
 fn response_check(message: []const u8) ?[]const u8 {
-    const question = Name.from_text(question_text) catch unreachable;
-    var collected: response_codec.Collected = response_codec.Collected.init(.a, &question);
-    const outcome = response_codec.collect(message, &question, .a, 0, &collected) catch return null;
+    var chain = Name.from_text(question_text) catch unreachable;
+    var collected: response_codec.Answers = response_codec.Answers.init(.a);
+    const outcome = response_codec.collect(message, &chain, .a, 0, &collected) catch return null;
     if (collected.count > core.constants.addresses_max) return "more addresses were collected than there is room for";
     if (outcome == .answered and collected.count == 0) return "an answer was reported with nothing collected";
     if (outcome != .answered and collected.count != 0) return "records were collected without an answer";
-    if (collected.canonical.len < 1) return "the canonical name is not a name";
+    if (chain.len < 1) return "the chain name is not a name";
     for (collected.addresses()) |address| {
         if (address.family != .ipv4) return "an A question collected an address that is not IPv4";
     }

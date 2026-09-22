@@ -20,7 +20,7 @@ pub const Rcode = constants.Rcode;
 pub const message_len = header.message_len;
 pub const Query = query.Query;
 pub const Record = record.Record;
-pub const Collected = response.Collected;
+pub const Answers = response.Answers;
 pub const Outcome = response.Outcome;
 
 test {
