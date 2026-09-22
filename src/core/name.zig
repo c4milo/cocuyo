@@ -139,6 +139,21 @@ pub const Name = struct {
         assert(labels <= constants.labels_max);
     }
 
+    /// `fold` over the eight octets of a word at once, so a hash can fold a name without copying
+    /// it: an octet in `'A'..'Z'` gets its case bit, and a length octet, a digit, a hyphen or an
+    /// octet past ASCII is left alone, as `fold_case` leaves them.
+    pub fn fold_word(word: u64) u64 {
+        const low = word & constants.word_low_bits;
+        // No octet carries into the next: a low part is at most 0x7f and a bias at most 0x3f.
+        const at_a = (low + constants.word_bias_at_a) & constants.word_high_bits;
+        const past_z = (low + constants.word_bias_past_z) & constants.word_high_bits;
+        const upper = at_a & ~past_z & ~(word & constants.word_high_bits);
+        const folded = word | (upper >> constants.word_high_to_case_shift);
+        // Nothing but case bits were set.
+        assert((folded & ~word) & ~(constants.word_high_bits >> constants.word_high_to_case_shift) == 0);
+        return folded;
+    }
+
     /// `self` with `suffix` appended: `www` and `example.com` become `www.example.com`. This is
     /// how a search-list candidate is built (docs/design.md §5), so a candidate too long to encode
     /// is an error rather than a truncation.
@@ -198,9 +213,44 @@ fn fold(byte: u8) u8 {
     return if (byte >= 'A' and byte <= 'Z') byte | constants.ascii_case_bit else byte;
 }
 
+comptime {
+    if (constants.word_high_bits >> constants.word_high_to_case_shift !=
+        constants.word_low_bits & (constants.word_high_bits >> constants.word_high_to_case_shift))
+        @compileError("the shifted high bit must land inside the low seven");
+    if (constants.word_high_to_case_shift != @ctz(@as(u8, 0x80)) - @ctz(@as(u8, constants.ascii_case_bit)))
+        @compileError("the shift must take the high bit to the case bit");
+}
+
 // Tests.
 
 const testing = std.testing;
+
+test "the word fold agrees with the octet fold for every octet value in every position" {
+    var value: usize = 0;
+    while (value <= std.math.maxInt(u8)) : (value += 1) {
+        const byte: u8 = @intCast(value);
+        var octets: [@sizeOf(u64)]u8 = @splat(byte);
+        var expected: [@sizeOf(u64)]u8 = @splat(fold(byte));
+        const folded = Name.fold_word(std.mem.readInt(u64, &octets, .little));
+        try testing.expectEqual(std.mem.readInt(u64, &expected, .little), folded);
+        // The octet alone in one position, the rest zero, so a fold that leaked between octets
+        // would show.
+        octets = @splat(0);
+        expected = @splat(0);
+        octets[3] = byte;
+        expected[3] = fold(byte);
+        try testing.expectEqual(
+            std.mem.readInt(u64, &expected, .little),
+            Name.fold_word(std.mem.readInt(u64, &octets, .little)),
+        );
+    }
+}
+
+test "the word fold leaves a length octet, a digit, a hyphen and a high octet alone" {
+    const word = std.mem.readInt(u64, "\x07Ab-9Z@\xc1", .little);
+    const folded = Name.fold_word(word);
+    try testing.expectEqualSlices(u8, "\x07ab-9z@\xc1", std.mem.asBytes(&folded));
+}
 
 test "from_text encodes labels in wire form" {
     const name = try Name.from_text("example.com");

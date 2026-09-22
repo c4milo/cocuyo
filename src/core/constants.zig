@@ -120,6 +120,15 @@ pub const lookup_slots_max = 1024;
 /// (RFC 4343) and DNS-0x20 sets it at random (docs/design.md §7), which is the same bit twice.
 pub const ascii_case_bit = 0x20;
 
+/// `Name.fold_word` folds eight octets at once. Each octet's low seven bits, plus a bias, put the
+/// octet's high bit on when the octet is at or past `'A'` (`0x80 - 'A'`) and when it is past
+/// `'Z'` (`0x80 - ('Z' + 1)`); the high bit, shifted down, is the case bit.
+pub const word_low_bits: u64 = 0x7f7f7f7f7f7f7f7f;
+pub const word_high_bits: u64 = 0x8080808080808080;
+pub const word_bias_at_a: u64 = 0x3f3f3f3f3f3f3f3f;
+pub const word_bias_past_z: u64 = 0x2525252525252525;
+pub const word_high_to_case_shift = 2;
+
 /// The class every query cocuyo sends carries: IN, the internet class (RFC 1035 §3.2.4).
 pub const class_internet = 1;
 
