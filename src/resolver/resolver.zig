@@ -10,6 +10,10 @@
 pub const entropy = @import("entropy.zig");
 pub const policy = @import("lookup_policy.zig");
 pub const lookup = @import("lookup.zig");
+pub const table = @import("table.zig");
+pub const table_keys = @import("table_keys.zig");
+pub const table_slots = @import("table_slots.zig");
+pub const constants = @import("constants.zig");
 
 pub const Lookup = lookup.Lookup;
 pub const Action = lookup.Action;
@@ -17,6 +21,11 @@ pub const Answer = lookup.Answer;
 pub const Failure = lookup.Failure;
 pub const Verdict = lookup.Verdict;
 pub const State = lookup.State;
+pub const Resolver = table.Resolver;
+pub const Slot = table.Slot;
+pub const MatchKey = table.MatchKey;
+pub const Handle = table.Handle;
+pub const Event = table.Event;
 
 pub const Entropy = entropy.Entropy;
 pub const Transaction = entropy.Transaction;
@@ -25,6 +34,10 @@ test {
     _ = entropy;
     _ = policy;
     _ = lookup;
+    _ = table;
+    _ = table_keys;
+    _ = table_slots;
+    _ = constants;
     _ = @import("lookup_poll.zig");
     _ = @import("lookup_response.zig");
     _ = @import("fixtures.zig");

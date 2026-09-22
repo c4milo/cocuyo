@@ -217,6 +217,15 @@ pub const Lookup = struct {
         return self.state == .done or self.state == .failed;
     }
 
+    /// Whether the lookup is waiting for an instant to arrive, which is what a table's timer is
+    /// armed for.
+    pub fn is_waiting(self: *const Lookup) bool {
+        return switch (self.state) {
+            .awaiting_udp, .awaiting_tcp, .connecting_tcp => true,
+            .query_ready, .tcp_needed, .tcp_ready, .done, .failed => false,
+        };
+    }
+
     /// The current server: the one a query goes to and the only one a response may come from.
     pub fn server(self: *const Lookup) Endpoint {
         assert(self.server_index < self.config.servers.len);

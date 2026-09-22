@@ -130,7 +130,45 @@ chain that *loops*, where every pass succeeds and the hop bound is what finally 
 restore removed, the lookup is left asking the next server about a name halfway around the loop,
 which is a name the caller never mentioned. The fixture is now two CNAMEs pointing at each other.
 
-## Planned, step 4
+## Step 4, the table
+
+The slot table, the key table and the demultiplexer, broken against `zig build test-resolver`.
+Eleven mutations: ten `CAUGHT`, and one deliberate `NOT CAUGHT` explained below. Two of the ten
+needed tests written for them, and one of those found a bug rather than a gap.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| T1 | the probe stops at the first tombstone | §11 key table | the tombstone-chain test | CAUGHT |
+| T2 | a candidate is offered without its id | §11 key table | the same-index test | CAUGHT |
+| T3 | the probe stops at the first refusal | §4 demultiplexing | **the colliding-id test** | CAUGHT |
+| T4 | a new transaction is not re-keyed | §11 re-keying | the retry-then-answer test | CAUGHT |
+| T5 | a released slot keeps its generation | §4 handles | the generation test | CAUGHT |
+| T6 | a released slot's key is left behind | §4 release | the released-slot test | CAUGHT |
+| T7 | a released slot is not freed | §4 release | the churn test | CAUGHT |
+| T8 | the poll does not rotate | §4 poll | the rotation test | CAUGHT |
+| T9 | an event does not drop the deadline cache | §11 one timer | **the late-deadline test** | CAUGHT |
+| T10 | the deadline reported is the latest | §11 one timer | the two-lookup test | CAUGHT |
+| T11 | the assertion guarding a free slot | §4 | nothing, by design | NOT CAUGHT |
+
+T9 found a bug, not a gap. The deadline cache was invalidated where the table could see a change,
+but a caller told a *lookup* its query had gone out by reaching through `lookup_of`, which armed a
+deadline the table never learned about. The table then handed out a timer running past that
+lookup's timeout. The fix is that every event is now the table's own entry point, and the
+mutation that would have hidden it — dropping the invalidation — is caught by a test where a fresh
+lookup's wait is shorter than the one already cached.
+
+T3 is the collision case. Two live lookups can draw the same sixteen-bit id, and the datagram then
+has two candidates. The test forces the collision and aims the datagram at the candidate that is
+*second* in the chain, because a walk that stopped at the first refusal would pass the earlier
+test and drop this answer.
+
+T11 stays uncaught on purpose. `deliver` asserts that the slot a key names is occupied, and
+nothing can reach it while `release` tombstones the key it held — so removing the assertion changes
+no behaviour any test can see. That is what an assertion is for: it covers the programmer error of
+a corrupted key table, where the alternative is reading a lookup that is `undefined`. An
+assertion whose removal a test can see would have been a check.
+
+## Planned, step 5
 
 | # | Mutation | Check it breaks | Expected to be caught by | Status |
 | --- | --- | --- | --- | --- |

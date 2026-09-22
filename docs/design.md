@@ -217,16 +217,37 @@ caller with one socket, so it is an operational event, not a programmer error.
 ### Many lookups
 
 ```zig
-pub const MatchKey = packed struct { transaction_id: u16, slot: u16 };
-pub const Handle = packed struct { index: u16, generation: u16 };
+pub const MatchKey = packed struct(u32) { transaction_id: u16, slot: u16 };
+pub const Handle = packed struct(u32) { index: u16, generation: u16 };
+
+/// One slot: a lookup, and the few octets the table keeps beside it.
+pub const Slot = struct {
+    lookup: Lookup,
+    generation: u16,
+    occupied: bool,
+    keyed_id: u16,
+    next_free: u16,
+};
 
 pub const Resolver = struct {
-    pub fn init(slots: []Lookup, keys: []MatchKey, config: *const Config, seed: u64) Resolver;
+    pub fn init(slots: []Slot, keys: []MatchKey, config: *const Config, seed: u64) Resolver;
     pub fn start(self: *Resolver, question: Question) error{NoSlot}!Handle;
     pub fn poll(self: *Resolver, now_ns: u64, out: []u8) ?Event; // null: nothing to do now
-    pub fn next_deadline_ns(self: *const Resolver) ?u64;         // arm one timer for the table
+    pub fn next_deadline_ns(self: *Resolver) ?u64;               // arm one timer for the table
     pub fn on_datagram(self: *Resolver, message: []const u8, from: Endpoint, now_ns: u64) Verdict;
+
+    // Every event goes through the table rather than through the lookup, because each one can
+    // move the instant the table is waiting for, and the timer it hands out has to follow.
+    pub fn on_sent(self: *Resolver, handle: Handle, now_ns: u64) void;
+    pub fn on_send_failed(self: *Resolver, handle: Handle, now_ns: u64) void;
+    pub fn on_tcp_connected(self: *Resolver, handle: Handle, now_ns: u64) void;
+    pub fn on_tcp_failed(self: *Resolver, handle: Handle, now_ns: u64) void;
+
     pub fn cancel(self: *Resolver, handle: Handle) void;
+    /// Frees the slot. Every slice an answer handed out points into it and dies here.
+    pub fn release(self: *Resolver, handle: Handle) void;
+    pub fn lookup_of(self: *Resolver, handle: Handle) *Lookup;
+    pub fn in_flight(self: *const Resolver) usize;
 };
 
 pub const Event = struct { handle: Handle, action: Action };
@@ -469,12 +490,12 @@ side table and not through this layout.
 
 | Caller allocation | Size | For |
 | --- | --- | --- |
-| `[N]Lookup` | 856 bytes each | one per concurrent lookup |
+| `[N]Resolver.Slot` | 864 bytes each, measured | one per concurrent lookup: a lookup plus the table's own octets |
 | `[2N]MatchKey` | 4 bytes each | the id-to-slot table, power-of-two length |
 | send buffer | `query_bytes_max`, 284 | shared by the whole table |
 | receive buffer | `config.udp_payload_bytes`, 1232 by default | the caller's, per socket |
 
-So 1024 concurrent lookups cost 856 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
+So 1024 concurrent lookups cost 864 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
 ever, by anybody.
 
 ## 10. The config parser
