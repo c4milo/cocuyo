@@ -14,17 +14,11 @@
         },
         // The event loop the second example is driven by, and a dependency of that example alone:
         // never of the library, and never of `zig build test`'s own tests. Lazy, so a build that
-        // does not ask for the example does not resolve it.
-        //
-        // A path rather than a URL and a hash, because rotor is a private repository. Zig's
-        // fetcher speaks the git protocol anonymously, so `zig fetch` of the pushed commit fails
-        // before it reads a byte (`unable to discover remote git server capabilities`), on this
-        // machine as on any other. The path is the pin that works wherever rotor is checked out
-        // beside this tree, which is the only place a private rotor can be read from anyway. It
-        // becomes `git+https://github.com/c4milo/rotor#<commit>` with a hash the day rotor is
-        // public: one `zig fetch --save=rotor`.
+        // does not ask for the example does not resolve it. Pinned to the commit that first
+        // exports rotor's public module, plus the docs commit the owner pushed on top of it.
         .rotor = .{
-            .path = "../rotor",
+            .url = "git+https://github.com/c4milo/rotor#3d308b9c0ce2789db08b45361f2378c4048f440b",
+            .hash = "rotor-0.0.0-YZkxRFpoCwAdGRSG_0j9D_xnBl1WEjzi-vjqEQES-H0O",
             .lazy = true,
         },
     },

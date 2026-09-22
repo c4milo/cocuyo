@@ -744,8 +744,9 @@ step until `zig build test` passes.
 8. **A second example.** Answered: `examples/udp_rotor.zig` drives the same lookup over rotor's
    completion-based loop, cleared by the owner on 2026-09-22 as a dependency of that example
    alone. It is lazy, `zig build graph-check` still shows cocuyo's own modules cannot name it, and
-   rotor must never depend on cocuyo. The pin is a path while rotor's change is unpushed; it
-   becomes a URL and a hash when that lands.
+   rotor must never depend on cocuyo. It is pinned by commit and content hash, which became
+   possible when rotor went public on 2026-09-22: Zig's fetcher speaks the git protocol
+   anonymously, so a private repository cannot be pinned that way at all.
 
 9. **Does version one need a cache after all?** c-ares caches by default and has since 1.31.0
    (§1), so a consumer replacing it loses that unless it writes one. The seam is clean and a cache
