@@ -71,6 +71,33 @@ letters still changed for the counting tests. What it broke was invisible until 
 bug that never shows up as a failure in the field, only as a resolver that is easier to spoof than
 it claims.
 
+## Step 2, the parse side
+
+The record walk and the answer walk, broken against `zig build test-wire`. Eleven mutations,
+eleven `CAUGHT` — three only after the tests and fixtures they needed were written.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| R1 | the walk trusts the count past the end | §7, no count is a reason to read | the lying-count fixture | CAUGHT |
+| R2 | the rdlength bound is loose by one | RFC 1035 §4.1.3 | **a fixture written for it** | CAUGHT |
+| R3 | an A record's rdata width is unchecked | RFC 1035 §3.4.1 | the three-octet address | CAUGHT |
+| R4 | the `records_max` bound is dropped | §12 | the truncated-walk test | CAUGHT |
+| R5 | an rdata name need not fill its rdata | RFC 1035 §3.3 | the padded and short rdata fixtures | CAUGHT |
+| R6 | a record is taken whatever its owner | RFC 5452 §6 | the injected-record fixture | CAUGHT |
+| R7 | the CNAME chain bound is doubled | RFC 1034 §3.6.2, §12 | the hop-bound test | CAUGHT |
+| R8 | records are taken with no room left | §9 | **the seventeen-record fixture** | CAUGHT |
+| R9 | the TTL reported is the largest | §4 `Answer.ttl_seconds` | **the fixture's TTLs, made to differ** | CAUGHT |
+| R10 | a response with two questions is accepted | RFC 1035 §4.1.2 | the qdcount test | CAUGHT |
+| R11 | a moved chain reports no_data | §5 CNAME policy | the chain-incomplete test | CAUGHT |
+
+Three of these earned their keep twice. R2 showed that an rdlength of 400 cannot catch a bound
+that is loose by one, so the corpus gained a record whose rdata ends exactly one octet past the
+message. R9 showed that a fixture whose records all carry TTL 60 cannot tell the smallest TTL from
+the largest, so the CNAME's target now carries 300. And R7 found dead code rather than a missing
+test: the hop check inside the loop was unreachable, because the loop's own condition and the
+error after it already bounded the chain. The check was removed and the mutation moved to the
+bound that does the work.
+
 ## Planned, step 3
 
 | # | Mutation | Check it breaks | Expected to be caught by | Status |

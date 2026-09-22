@@ -21,6 +21,12 @@ pub const header_ancount_offset = 6;
 pub const header_nscount_offset = 8;
 pub const header_arcount_offset = 10;
 
+// A record's fixed part after the owner name, RFC 1035 §4.1.3: type, class, TTL, rdlength.
+pub const record_kind_offset = 0;
+pub const record_class_offset = 2;
+pub const record_ttl_offset = 4;
+pub const record_rdlength_offset = 8;
+
 /// QR: set in a response (RFC 1035 §4.1.1).
 pub const flag_response = 0x8000;
 
@@ -90,5 +96,9 @@ comptime {
     }
     if (pointer_offset_mask | label_kind_mask << octet_bits != 0xffff) {
         @compileError("a pointer's kind bits and offset bits do not cover its two octets");
+    }
+    // The record's fixed fields must tile its fixed part, or a walk would read past one of them.
+    if (record_rdlength_offset + u16_bytes != core.constants.record_fixed_bytes) {
+        @compileError("the record fields do not tile the fixed part");
     }
 }

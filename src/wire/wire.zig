@@ -11,11 +11,17 @@ pub const name = @import("name.zig");
 pub const question = @import("question.zig");
 pub const edns = @import("edns.zig");
 pub const query = @import("query.zig");
+pub const record = @import("record.zig");
+pub const response = @import("response.zig");
+pub const fuzz = @import("fuzz.zig");
 
 pub const Header = header.Header;
 pub const Rcode = constants.Rcode;
 pub const message_len = header.message_len;
 pub const Query = query.Query;
+pub const Record = record.Record;
+pub const Collected = response.Collected;
+pub const Outcome = response.Outcome;
 
 test {
     _ = constants;
@@ -25,4 +31,9 @@ test {
     _ = question;
     _ = edns;
     _ = query;
+    _ = record;
+    _ = response;
+    _ = fuzz;
+    _ = @import("fuzz_generate.zig");
+    _ = @import("fuzz_check.zig");
 }
