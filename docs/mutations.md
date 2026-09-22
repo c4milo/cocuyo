@@ -441,6 +441,39 @@ a cookie that comes back anyway, so the next lookup does not expect a cookie it 
 test that shows it is a lookup without EDNS answered with a cookie, accepted, and a server table
 that expects nothing after.
 
+## Step 11, configuration parity and the hosts file
+
+Design §19 step 11: the knobs c-ares has and cocuyo lacked, the `Server` type with its TCP port,
+`use-vc` and the default-server option of `resolv.conf`, the two environment appliers, and the
+hosts file. Broken against `zig build test-core`, `test-wire`, `test-resolver` and
+`test-config`. Twenty-three mutations, twenty-three `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| P1 | a restart ignores `use_tcp` | §19 step 11 | the re-query over TCP | CAUGHT |
+| P2 | `init` ignores `use_tcp` | §19 step 11 | the first state | CAUGHT |
+| P3 | a truncated answer always goes to TCP | `ignore_truncation` | the taken-as-is test | CAUGHT |
+| P4 | the RD bit is always set | RFC 1035 §4.1.1, `recursion_desired` | the query flags | CAUGHT |
+| P5 | a server's error always moves on | `check_response` | the policy table and the failure test | CAUGHT |
+| P6 | `primary` asks every server | §19 step 11 | the count test | CAUGHT |
+| P7 | a TCP port of its own is ignored | §19 step 11 | the endpoint tests | CAUGHT |
+| P8 | the timeout cap is the constant | `timeout_ns_max` | the cap test | CAUGHT |
+| P9 | no server is no failure | `NoServers` | the empty-list test | CAUGHT |
+| P10 | `use-vc` is not an option | `resolv.conf(5)` | the option test | CAUGHT |
+| P11 | the default server ignores the option | `NO_DFLT_SVR` | the none test | CAUGHT |
+| P12 | `RES_OPTIONS` drops `use-vc` | §19 step 11 | the applier test | CAUGHT |
+| P13 | `LOCALDOMAIN` keeps the old list | §19 step 11 | the applier test | CAUGHT |
+| P14 | a comment is read as names | `hosts(5)` | the word-in-a-comment test | CAUGHT |
+| P15 | an alias is not searched | `hosts(5)` | the alias test | CAUGHT |
+| P16 | names compare case-sensitively | RFC 1035 §2.3.3 | the `DB` test | CAUGHT |
+| P17 | the family filter is ignored | §19 step 11 | the IPv6-only find | CAUGHT |
+| P18 | entries are unbounded | `hosts_entries_max` | the bound test, by the crash | CAUGHT |
+| P19 | names on a line are unbounded | `hosts_names_per_entry_max` | the bound test, by the crash | CAUGHT |
+| P20 | an address alone is an entry | `hosts(5)` | the entry count | CAUGHT |
+| P21 | a reverse lookup matches any address | §19 step 11 | the other-address test | CAUGHT |
+| P22 | check 3 expects the UDP port over TCP | §7 check 3 | the TCP-port test | CAUGHT |
+| P23 | the server walk ignores `primary` | §19 step 11 | the primary test | CAUGHT |
+
 ## Planned, later steps
 
 | # | Mutation | Check it breaks | Expected to be caught by | Status |

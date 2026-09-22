@@ -187,8 +187,14 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   and handed to every lookup); `on_response` discards a wrong or, once expected, a missing
   cookie (§7 check 6), learns from what it accepts, and answers BADCOOKIE with one retry, then
   TCP, then the next server.
-- Next, in order: configuration parity with the hosts file (11), server failover (12), the
-  engine over rotor with its deterministic twin in `sim` first (13), the `getaddrinfo` shape
-  (14), RFC 6724 ordering and the end-to-end comparison (15).
+- **11**, configuration parity and the hosts file, done the same day: `Config.servers` is a
+  list of `Server`, each with a TCP port of its own; `use_tcp`, `ignore_truncation`,
+  `recursion_desired`, `check_response`, `primary`, `timeout_ns_max` and `lookups` join it and
+  the lookup honours each; `resolv.conf` reads `use-vc` and may refuse the default server;
+  `apply_options` and `apply_search` take `RES_OPTIONS` and `LOCALDOMAIN`; `config.hosts`
+  parses the hosts file into the caller's storage.
+- Next, in order: server failover (12), the engine over rotor with its deterministic twin in
+  `sim` first (13), the `getaddrinfo` shape (14), RFC 6724 ordering and the end-to-end
+  comparison (15).
 
 §17 holds the questions the owner has not answered.

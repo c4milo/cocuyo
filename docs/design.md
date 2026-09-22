@@ -174,15 +174,27 @@ pub const Question = struct {
     pub fn from_address(address: *const Address) Error!Question;
 };
 
+/// One server: its UDP endpoint, and a TCP port of its own when it has one (§19 step 11).
+pub const Server = struct { endpoint: Endpoint, tcp_port: u16 = 0 };
+/// Where the engine looks a name up, in `Config.lookups` order: `.file` is the hosts file.
+pub const Source = enum { file, dns };
+
 pub const Config = struct {
-    servers: []const Endpoint,
+    servers: []const Server,      // none when a resolv.conf named none and the default was refused
     search: []const Name,
     ndots: u8 = ndots_default,
     attempts: u8 = attempts_default,
     timeout_ns: u64 = timeout_ns_default,
+    timeout_ns_max: u64 = timeout_ns_max, // the cap on the doubling wait (c-ares maxtimeout)
     udp_payload_bytes: u16 = udp_payload_bytes_default,
     mix_case: bool = true,
     rotate: bool = false,
+    use_tcp: bool = false,        // every query over TCP (use-vc, ARES_FLAG_USEVC)
+    ignore_truncation: bool = false, // a truncated UDP answer taken as it is (ARES_FLAG_IGNTC)
+    recursion_desired: bool = true,  // the RD bit (ARES_FLAG_NORECURSE clears it)
+    check_response: bool = true,  // off: SERVFAIL, REFUSED and NOTIMP end the lookup as its answer
+    primary: bool = false,        // the first server alone (ARES_FLAG_PRIMARY)
+    lookups: []const Source = &.{ .file, .dns },
 };
 ```
 
@@ -548,22 +560,45 @@ because it takes bytes rather than a path: the caller reads the file.
 
 ```zig
 pub const Storage = struct {
-    servers: [servers_max]Endpoint,
+    servers: [servers_max]Server,
     search: [search_max]Name,
 };
 
 pub fn parse(bytes: []const u8, storage: *Storage) Config;
+/// `parse` with `default_server` false: a file naming no server gives none (NO_DFLT_SVR).
+pub fn parse_with(bytes: []const u8, storage: *Storage, options: ParseOptions) Config;
+/// The RES_OPTIONS and LOCALDOMAIN environment variables, applied over a parsed configuration.
+pub fn apply_options(text: []const u8, config: *Config) void;
+pub fn apply_search(text: []const u8, storage: *Storage, config: *Config) void;
+
+/// The hosts file (hosts(5)), parsed into the caller's storage: entries of one address and up
+/// to hosts_names_per_entry_max names, the names kept in wire form in one arena of the storage.
+pub const hosts = struct {
+    pub fn parse(bytes: []const u8, storage: *hosts.Storage) Hosts;
+    pub const Hosts = struct {
+        pub fn find(self: *const Hosts, name: *const Name, family: ?Family, out: []Address) usize;
+        pub fn canonical(self: *const Hosts, name: *const Name) ?Name;
+        pub fn reverse(self: *const Hosts, address: *const Address) ?Name;
+    };
+};
 ```
 
 Recognised, and nothing else: `nameserver`, `search`, `domain`, `options ndots:`,
-`options timeout:`, `options attempts:`, `options rotate`. `domain` is `search` with one entry, and
-the last of the two wins. An unrecognised line, a malformed address or an option cocuyo does not
+`options timeout:`, `options attempts:`, `options rotate`, `options use-vc`. `domain` is `search`
+with one entry, and the last of the two wins. An unrecognised line, a malformed address or an option cocuyo does not
 know is skipped, not an error — that is what every stub resolver does, and a config file with one
 bad line must not stop a program from resolving. Counts above `servers_max` or `search_max` are
 truncated, and the returned `Config` says so through the slice lengths.
 
 `parse` cannot fail. It returns the default `Config` for empty input, which is the localhost
 nameserver, matching the historical behaviour of the platform stubs.
+
+The hosts file (§19 step 11) is the same shape: bytes in, the caller's storage filled, nothing
+that can fail. Its source is `hosts(5)`, because no RFC states the format, and the code says so.
+A line is an address, an official name and aliases; a comment runs from `#`; a line whose
+address will not parse, or that names nothing, is skipped. Names compare with their case folded
+(RFC 1035 §2.3.3). The engine consults it before a query goes out, in the order
+`Config.lookups` gives.
 
 ## 11. Performance
 
@@ -775,6 +810,11 @@ written at the use site. Shared limits live in `src/core/constants.zig`.
 | `cookie_server_bytes_max` | 32 | RFC 7873 §4; a server cookie is 8 to 32 octets, 16 under RFC 9018 |
 | `opt_record_bytes_max` | 55 | the OPT record with the largest COOKIE option; `query_bytes_max` is 328 with it |
 | `records_kept_max` | 32 | the records of one type a lookup keeps for every other type (§19 step 9); `truncated` past it |
+| `lookup_sources_max` | 2 | the hosts file and DNS, each named at most once in `Config.lookups` |
+| `hosts_lines_max` | 4096 | the most lines read from a hosts file; a blocklist is longer, and past it is dropped and said so |
+| `hosts_entries_max` | 1024 | the most entries kept from one |
+| `hosts_names_per_entry_max` | 8 | the official name and its aliases on one line |
+| `hosts_names_bytes_max` | 65536 | the wire names of one hosts storage, a `u16` offset each |
 | `rdata_bytes_max` | 2048 | one UDP payload with room for the names written out in full (§19 step 9); `truncated` when a TCP answer does not fit |
 | `servers_max` | 8 | glibc's MAXNS is 3; 8 leaves room and still bounds the loop |
 | `search_max` | 6 | glibc's MAXDNSRCH; recalled, not measured |
@@ -1333,6 +1373,13 @@ states the format, and the code says so. `resolv_conf.parse` gains an option for
 `NO_DFLT_SVR`: with it, an empty server list stays empty instead of becoming `127.0.0.1`, and a
 lookup with no server fails at once. The option-line parser is exposed so the engine can hand it
 `RES_OPTIONS` from the environment, and `LOCALDOMAIN` replaces the search list the same way.
+
+Landed on 2026-09-22: `Config` carries every knob above, `Lookup` honours each, `Server`
+replaced `Endpoint` in the server list (the one API change of the step), `config.hosts` keeps
+its names in one arena of the caller's storage with a `u16` offset each rather than a `Name` per
+alias, `resolv_conf.parse_with` takes the default-server option, and `apply_options` and
+`apply_search` serve `RES_OPTIONS` and `LOCALDOMAIN`. No row of §11 moved by more than its
+band, so the table stands.
 
 ### Step 12: server failover
 
