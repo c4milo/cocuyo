@@ -42,4 +42,7 @@ pub const Error = error{
     /// The caller cancelled the lookup. The only failure here that cocuyo did not observe but was
     /// told about.
     Canceled,
+    /// The configuration names no server: a `resolv.conf` with none, read without the default
+    /// (docs/design.md §19 step 11).
+    NoServers,
 };

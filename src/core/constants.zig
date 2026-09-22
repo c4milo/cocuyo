@@ -98,6 +98,10 @@ pub const rdata_bytes_max = 2048;
 /// every loop over the list.
 pub const servers_max = 8;
 
+/// The sources a name is looked up in, the hosts file and DNS, so an order names each at most
+/// once (docs/design.md §19 step 11).
+pub const lookup_sources_max = 2;
+
 /// The most search-list entries a configuration may name. glibc's MAXDNSRCH; recalled, not
 /// measured.
 pub const search_max = 6;

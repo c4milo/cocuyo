@@ -24,6 +24,8 @@ pub const Kind = question.Kind;
 pub const Question = question.Question;
 
 pub const Config = @import("config.zig").Config;
+pub const Server = @import("config.zig").Server;
+pub const Source = @import("config.zig").Source;
 
 test {
     _ = constants;
