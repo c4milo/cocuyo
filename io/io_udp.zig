@@ -57,6 +57,7 @@ pub const Sockets = struct {
         const local = local_for(config, family);
         const descriptor = open_bound(family, port_from(self.word), local) catch
             open_bound(family, 0, local) catch return error.SocketFailed;
+        size_buffers(descriptor, config);
         self.items[index] = .{ .open = true, .descriptor = descriptor };
         try self.receive_again(loop, index, tag);
     }
@@ -212,6 +213,18 @@ pub fn Group(comptime buffers: u16) type {
             }
         }
     };
+}
+
+/// Asks the kernel for the buffer sizes the caller named, and lets the socket be whatever it
+/// already is when the kernel will not: a buffer smaller than the caller wanted loses datagrams
+/// under load, and a socket that was not opened loses every one (`Config.socket_receive_bytes`).
+pub fn size_buffers(descriptor: rotor.Descriptor, config: *const cocuyo.Config) void {
+    if (config.socket_receive_bytes != 0) {
+        _ = rotor.sync.set_buffer_bytes(descriptor, .receive, config.socket_receive_bytes) catch {};
+    }
+    if (config.socket_send_bytes != 0) {
+        _ = rotor.sync.set_buffer_bytes(descriptor, .send, config.socket_send_bytes) catch {};
+    }
 }
 
 /// Where a datagram goes: cocuyo's endpoint as rotor addresses it.

@@ -79,6 +79,14 @@ pub const Config = struct {
     /// an address of the wrong family cannot name a local endpoint for it. Binding to a device
     /// by name is out: rotor opens sockets and names no device (docs/design.md §19 step 13).
     local_address: ?Address = null,
+    /// What the engine asks the kernel for on each socket it opens, which is c-ares's
+    /// `socket_receive_buffer_size` and `socket_send_buffer_size`. Zero, the default, leaves the
+    /// kernel's own size alone. What a kernel grants is rarely what it was asked for, and it is
+    /// free to refuse: a socket that will not take the size is used with the size it has, since
+    /// a buffer smaller than the caller wanted loses datagrams and no buffer at all loses every
+    /// one (docs/design.md §19 step 13).
+    socket_receive_bytes: u32 = 0,
+    socket_send_bytes: u32 = 0,
     /// How many queries one source port carries before the engine opens another, which is
     /// c-ares `udp_max_queries`. Zero, the default there and here, keeps the port for the life
     /// of the engine; the port is entropy against a spoof either way (RFC 5452 §9.2).

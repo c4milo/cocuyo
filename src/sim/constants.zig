@@ -28,6 +28,12 @@ pub const stream_bytes_max = 16384;
 pub const buffer_groups_max = 4;
 pub const buffers_per_group_max = 256;
 
+/// What a socket's kernel buffers may be sized to here, which is the shape rotor measured on
+/// macOS: what is asked for up to the cap, the cap above it, and a refusal above the second
+/// bound, because that kernel refuses rather than caps once a socket is already large.
+pub const socket_buffer_bytes_cap = 1 << 20;
+pub const socket_buffer_bytes_refuse_above = 1 << 28;
+
 /// The alignment rotor asks of a buffer ring and of the loop's memory, and the octets one ring
 /// entry takes, so a caller's arrays are sized the same for the twin and for rotor.
 pub const buffer_ring_alignment = 64;

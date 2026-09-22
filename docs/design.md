@@ -202,6 +202,8 @@ pub const Config = struct {
     failover_retry_chance: u8 = 10,          // one query in this many retries a failed server first
     failover_retry_delay_ns: u64 = 5 s,      // once this long has passed since it failed
     local_address: ?Address = null,          // what the engine binds its sockets to (ARES_OPT_LOCAL_IP4/6)
+    socket_receive_bytes: u32 = 0,           // what the kernel is asked for on each socket; 0 leaves its own
+    socket_send_bytes: u32 = 0,              // the same for the send buffer
     udp_queries_per_port: u32 = 0,           // queries one source port carries (udp_max_queries); 0 keeps it
 };
 ```
@@ -1355,7 +1357,8 @@ Four places, in order of preference, so the core stays what §1 made it:
 | server failover | the next server on a failure, in a fixed order | `resolver` per-server state | 12 |
 | `udp_max_queries` | one port hint per lookup | engine | 13 |
 | TCP reuse (`STAYOPEN`) and pipelining | one connection per query | engine; the framing is there (RFC 7766 §6.2.1) | 13 |
-| local address and device binding, socket buffer sizes | none | engine | 13 |
+| local address binding, socket buffer sizes | none | `Config`, applied by the engine | 13 |
+| device binding by name | none | out: rotor opens the sockets and names no device | — |
 | the event thread, `sock_state_cb`, `ares_process_fd`, the socket callbacks | `Resolver`, driven by the caller | the engine over rotor would be the built-in driver; held back until a consumer asks | 13 |
 | `ares_cancel`, the active count, wait-empty, `ares_reinit`, `ares_set_servers` | `Lookup.cancel` | engine | 13 |
 | the query cache | §18 | the engine wires it in | 13 |
@@ -1582,8 +1585,12 @@ the new table has never heard of; a caller with lookups in flight calls `cancel_
 their failures first, which is what tells it what it lost. `Config.udp_queries_per_port` is
 c-ares's `udp_max_queries`: a port that has carried its share is replaced once no lookup is
 waiting on it, never taken from a query that is. `Config.local_address` is `ARES_OPT_LOCAL_IP4`
-and `LOCAL_IP6`. Binding to a device by name and sizing the socket buffers stay out: rotor opens
-the sockets and offers neither.
+and `LOCAL_IP6`, and `socket_receive_bytes` and `socket_send_bytes` are the two buffer sizes,
+which rotor 0.2.0 made expressible. What a kernel grants is rarely what it was asked for: Linux
+doubles and caps, macOS grants and then refuses, and a socket that would not take the size is
+used with the size it has, because a buffer smaller than the caller wanted loses datagrams and a
+socket that was not opened loses every one. Binding to a device by name stays out: rotor names no
+device.
 
 Three stale-event guards came with it, each the same shape as the timer's generation: a send
 completion the engine is not waiting for, a receive from a socket that has been replaced, and a

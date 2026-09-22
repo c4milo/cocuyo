@@ -765,6 +765,23 @@ response with no record of the type asked for is NODATA and the state machine fa
 the branch that handled an answer with no names could not be reached. It is an assertion now,
 which is what a claim about the code's own callers is (CLAUDE.md non-negotiable 3).
 
+## Step 13, the socket buffers
+
+Design §19 step 13's last knob: `Config.socket_receive_bytes` and `socket_send_bytes`, which rotor
+0.2.0 made expressible. Broken against `zig build test-io`. Four mutations, four `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| J1 | the receive buffer is never sized | `socket_receive_bytes` | the sizes test | CAUGHT |
+| J2 | the send buffer is never sized | `socket_send_bytes` | the sizes test | CAUGHT |
+| J3 | a size of zero is asked for anyway | the default, which leaves the kernel's | every test with no size | CAUGHT |
+| J4 | a size the kernel refuses fails the socket | §19 step 13 | **the capped-or-refused test** | CAUGHT |
+
+J4 needed the twin to refuse rather than cap. rotor measured both kernels: Linux doubles a request
+and caps it, macOS grants it and then refuses once the socket is already large. The twin caps up to
+one bound and refuses above a second, so a test can drive each, and the refusal is what says the
+engine keeps a socket whose size it could not set.
+
 ## Planned, later steps
 
 | # | Mutation | Check it breaks | Expected to be caught by | Status |

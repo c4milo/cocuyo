@@ -25,6 +25,9 @@ pub const Socket = struct {
     /// A stream socket's connection once connected.
     connection: ?u8 = null,
     receiver: ?Receiver = null,
+    /// What the kernel gave each of its buffers, or zero for whatever it starts with.
+    receive_buffer_bytes: u32 = 0,
+    send_buffer_bytes: u32 = 0,
 };
 
 /// A datagram on its way to a socket.
@@ -189,6 +192,30 @@ pub fn close_now(descriptor: Descriptor) void {
 
 pub fn local_address(descriptor: Descriptor) AddressError!Address {
     return network.socket(descriptor).local;
+}
+
+/// Which of a socket's two kernel buffers `set_buffer_bytes` sizes.
+pub const SocketBuffer = enum { receive, send };
+
+/// The largest `bytes` the call carries, as rotor's is: not a size any kernel grants.
+pub const socket_buffer_bytes_max: u32 = std.math.maxInt(i32);
+
+pub const BufferError = OptionError || error{SizeRefused};
+
+/// Asks for `bytes` of buffer and answers what was set, which is rarely the request: this grants
+/// what it is asked for up to `socket_buffer_bytes_cap` and caps above it, which is the shape
+/// rotor measured on macOS. The size is remembered so a test can read it back.
+pub fn set_buffer_bytes(descriptor: Descriptor, which: SocketBuffer, bytes: u32) BufferError!u32 {
+    assert(bytes >= 1);
+    assert(bytes <= socket_buffer_bytes_max);
+    const entry = network.socket(descriptor);
+    if (bytes > constants.socket_buffer_bytes_refuse_above) return error.SizeRefused;
+    const granted = @min(bytes, constants.socket_buffer_bytes_cap);
+    switch (which) {
+        .receive => entry.receive_buffer_bytes = granted,
+        .send => entry.send_buffer_bytes = granted,
+    }
+    return granted;
 }
 
 pub fn set_no_delay(descriptor: Descriptor, enabled: bool) OptionError!void {

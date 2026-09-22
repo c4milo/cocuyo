@@ -90,6 +90,38 @@ test "a local address of another family is not bound to a socket of this one" {
     try rig.deinit();
 }
 
+test "the sockets take the buffer sizes the caller asked for" {
+    var rig: Rig = .{};
+    try rig.init(26, .{ .{}, .{} }, .{
+        .servers = &.{},
+        .socket_receive_bytes = fixtures.socket_bytes_granted,
+        .socket_send_bytes = fixtures.socket_bytes_granted,
+    });
+    const entry = rig.loop.network().socket(rig.engine.sockets.descriptor_of(0));
+    try testing.expectEqual(@as(u32, fixtures.socket_bytes_granted), entry.receive_buffer_bytes);
+    try testing.expectEqual(@as(u32, fixtures.socket_bytes_granted), entry.send_buffer_bytes);
+    try rig.deinit();
+}
+
+test "a size the kernel caps or refuses leaves the socket working with what it has" {
+    // What a kernel grants is rarely what it was asked for: it may cap, and it may refuse. A
+    // socket that did not take the size still resolves.
+    var rig: Rig = .{};
+    try rig.init(27, .{ .{}, .{} }, .{ .servers = &.{}, .socket_receive_bytes = fixtures.socket_bytes_capped });
+    const capped = rig.loop.network().socket(rig.engine.sockets.descriptor_of(0)).receive_buffer_bytes;
+    try testing.expect(capped > 0 and capped < fixtures.socket_bytes_capped);
+    try rig.deinit();
+
+    var refused: Rig = .{};
+    try refused.init(28, .{ .{}, .{} }, .{ .servers = &.{}, .socket_receive_bytes = fixtures.socket_bytes_refused });
+    const entry = refused.loop.network().socket(refused.engine.sockets.descriptor_of(0));
+    try testing.expectEqual(@as(u32, 0), entry.receive_buffer_bytes);
+    _ = try refused.engine.start(question("example.com."), refused.loop.now());
+    try testing.expect((try refused.until_result()).outcome == .answer);
+    _ = refused.engine.take(refused.loop.now());
+    try refused.deinit();
+}
+
 test "a source port that has carried its share is replaced once nothing waits on it" {
     var rig: Rig = .{};
     try rig.init(24, .{ .{}, .{} }, .{ .servers = &.{}, .udp_queries_per_port = 1 });

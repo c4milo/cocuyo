@@ -58,6 +58,12 @@ pub const slow_answer_ns = 1_500_000_000;
 /// The local address a socket is asked to bind to: the documentation range (RFC 5737).
 pub const local_octets = [_]u8{ 192, 0, 2, 200 };
 pub const unspecified_v4 = [_]u8{ 0, 0, 0, 0 };
+
+/// A buffer size the twin's kernel grants, one it caps, and one it refuses outright, which is
+/// the shape rotor measured on macOS.
+pub const socket_bytes_granted = 64 * 1024;
+pub const socket_bytes_capped = 1 << 24;
+pub const socket_bytes_refused = 1 << 29;
 pub const local_v6_octets = [_]u8{ 0x20, 0x01, 0x0d, 0xb8 } ++ [_]u8{0} ** 11 ++ [_]u8{9};
 
 /// A connection that can assemble only a small message, so an ordinary answer will not fit.

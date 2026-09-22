@@ -234,10 +234,10 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   when idle; and the table hands out work from a ready list, so what one completion event costs
   no longer grows with the lookups in flight (§11, §16 decisions 20 and 21).
 - **13** also has `cancel_all` and `reinit`, the port rotation of `udp_queries_per_port` and the
-  local address of `Config.local_address`. What is left of c-ares: the socket buffer sizes, which
-  rotor gained after v0.1.1 and which land when it is tagged. Device binding stays out, because
-  rotor names no device.
-- Next, in order: the end-to-end comparison on Linux against c-ares, once rotor tags its Linux
-  fixes, then the OPT options and question 12.
+  local address of `Config.local_address`. Since rotor 0.2.0 it also has the socket buffer sizes
+  of `Config.socket_receive_bytes` and `socket_send_bytes`. Nothing of c-ares is left but device
+  binding by name, which stays out because rotor names no device.
+- Next: the end-to-end comparison, on a quiet machine for the numbers and on GitHub for Linux,
+  and then whether the cache earns its keep, which §18 says no trace has ever decided.
 
 §17 holds the questions the owner has not answered.

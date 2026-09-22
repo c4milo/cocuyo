@@ -100,6 +100,7 @@ fn open(self: anytype, server: u8) Error!u8 {
     const connection = &self.connections[at];
     const endpoint = self.config.servers[server].tcp_endpoint();
     const descriptor = rotor.sync.open_socket(family_of(endpoint)) catch return error.SocketFailed;
+    udp.size_buffers(descriptor, self.config);
     connection.* = .{
         .state = .connecting,
         .server = server,
