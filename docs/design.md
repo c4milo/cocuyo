@@ -101,10 +101,11 @@ never packaged.
 ```text
 src/cocuyo.zig                 the public surface, re-exports only
 src/core/     core.zig constants.zig address.zig name.zig name_text.zig config.zig errors.zig
+              address_text.zig hosts.zig address_order.zig (§19 steps 14 and 15)
 src/wire/     wire.zig wire_header.zig wire_name.zig wire_question.zig wire_record.zig
               wire_query.zig wire_response.zig wire_edns.zig wire_fuzz.zig
 src/resolver/ resolver.zig lookup.zig lookup_poll.zig lookup_response.zig lookup_policy.zig
-              entropy.zig constants.zig
+              entropy.zig constants.zig address_lookup.zig (§19 step 14)
 src/config/   resolv_conf.zig resolv_conf_options.zig constants.zig
 src/cache/    cache.zig cache_keys.zig cache_chain.zig cache_sweep.zig constants.zig
 src/sim/      sim.zig sim_types.zig sim_loop.zig sim_loop_perform.zig sim_network.zig
@@ -305,6 +306,51 @@ pub const Event = struct { handle: Handle, action: Action };
 
 A caller that has its own table of in-flight requests uses `Lookup` directly and skips `Resolver`.
 It then owns the matching rules of §7, and the documentation says so in those words.
+
+### The `getaddrinfo` shape (§19 step 14)
+
+```zig
+pub const AddressFlags = packed struct {
+    canonical_name: bool = false, // ai_canonname: the chain's end, or the hosts entry's official name
+    numeric_host: bool = false,   // the name must be an address: no file, no query (AI_NUMERICHOST)
+    v4_mapped: bool = false,      // with family .ipv6: A addresses as ::ffff:a.b.c.d when no AAAA came
+    all: bool = false,            // with v4_mapped: AAAA and the mapped A both
+    no_sort: bool = false,        // the order received, not §19 step 15's (ARES_AI_NOSORT)
+};
+
+/// Two lookups joined the way getaddrinfo(3) joins them, above the table (§16 decision 18).
+pub const AddressLookup = struct {
+    pub fn init(resolver: *Resolver, hosts: ?*const Hosts, name: []const u8, family: ?Family,
+        flags: AddressFlags) error{ NoSlot, NameTooLong, LabelTooLong }!AddressLookup;
+    /// A `.done` or `.failed` event of the resolver. True when the handle was this lookup's, and
+    /// then the slot is released here; the consumer releases only what this refused.
+    pub fn on_event(self: *AddressLookup, event: Event) bool;
+    pub fn outcome(self: *const AddressLookup) ?AddressOutcome; // null while lookups are in flight
+    pub fn cancel(self: *AddressLookup) void;
+};
+
+pub const AddressOutcome = union(enum) { answered: AddressInfo, failed: Failure };
+
+pub const AddressInfo = struct {
+    addresses: []const Address,   // into the lookup's own storage: valid for its lifetime
+    canonical_name: ?*const Name,
+    ttl_seconds: u32,
+    truncated: bool,
+    partial: ?Error,              // one family answered and the other failed with this
+};
+
+/// What the consumer knows about reaching one address (§19 step 15): the source its host would
+/// use, learned by connecting a datagram socket or read from a routing table, and the flags.
+pub const Route = struct {
+    source: ?Address = null,
+    unreachable: bool = false,
+    deprecated: bool = false,
+    encapsulated: bool = false,
+};
+/// RFC 6724 §6 over `addresses`, in place and stable. `routes[i]` describes `addresses[i]`;
+/// null applies the rules that need no source.
+pub fn order(addresses: []Address, routes: ?[]const Route) void;
+```
 
 ## 5. The state machine
 
@@ -553,6 +599,7 @@ The caller-provided buffer §19 keeps as the fallback is what would take it back
 | `[2N]MatchKey` | 4 bytes each | the id-to-slot table, power-of-two length |
 | send buffer | `query_bytes_max`, 284 | shared by the whole table |
 | receive buffer | `config.udp_payload_bytes`, 1232 by default | the caller's, per socket |
+| `[M]AddressLookup` | about 1100 bytes each, estimated | one per `getaddrinfo`-shaped lookup in flight: the name, the canonical name, 32 addresses, two handles and the walk's scalars, beside the two slots it takes; measured when §19 step 14 lands |
 
 So 1024 concurrent lookups cost 3048 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
 ever, by anybody.
@@ -971,6 +1018,13 @@ step until `zig build test` passes.
     step 9.
 17. **Failover retries a failed server with a real query.** Rejected: c-ares's probe with a copy
     of the query, which is a second transaction §7's defences do not bind. §19 step 12.
+18. **The `getaddrinfo` shape is a composition above the table.** Rejected: an A-plus-AAAA state
+    machine, which decision 9 refused and still does; the join in the engine, which is held
+    back; leaving it to the consumer, which then owns the lockstep search walk and the
+    `v4_mapped` rule, the two things a `getaddrinfo` caller gets wrong. §19 step 14.
+19. **RFC 6724 ordering is a pure function over routes the consumer supplies.** Rejected:
+    learning a source per destination by connecting sockets, which is I/O; dropping the rules
+    that need a source, which would deny them to a consumer that knows its routes. §19 step 15.
 
 ## 17. Questions for the owner
 
@@ -1007,9 +1061,12 @@ step until `zig build test` passes.
    §18 keeps and drops of it, is recorded there.
 10. **The limits §19 proposes.** `rdata_bytes_max` at 2048 and `tcp_idle_ns_default` at ten
     seconds are chosen, not measured, and stand unless overruled; the table in §19 says why each.
-11. **Service names.** §19 leaves `/etc/services` to the consumer, so `address_info` takes a
-    port and `name_info` returns no service. If a consumer needs `getservbyname`, a parser in
-    `config` is the place.
+11. **Service names.** §19 leaves `/etc/services` to the consumer, so `AddressLookup` takes no
+    port and the reverse recipe returns no service. If a consumer needs `getservbyname`, a
+    parser in `config` is the place.
+12. **Does `name_info` need an entry point?** §19 step 14 makes it a recipe: `Hosts.reverse`,
+    then a `PTR` lookup. If a consumer wants one call, it is a small type beside
+    `AddressLookup`.
 
 ## 18. The cache
 
@@ -1207,18 +1264,18 @@ Four places, in order of preference, so the core stays what §1 made it:
 | DNS cookies | none | a `wire` option, `resolver` per-server state | 10 |
 | `ares_query` and `ares_search` | the search list applies by `ndots` | `Question.absolute` is the switch (§5) | — |
 | `ARES_FLAG_USEVC`, `IGNTC`, `NORECURSE`, `NOCHECKRESP`, `PRIMARY`, `NO_DFLT_SVR`, `ARES_OPT_MAXTIMEOUTMS`, a TCP port per server | none; the maximum timeout is a constant | `Config` | 11 |
-| the hosts file, `ARES_OPT_LOOKUPS`, `ares_gethostbyname_file` | none | `config.hosts`; the engine reads the file and keeps the order | 11, 14 |
-| `ARES_OPT_RESOLVCONF`, `RES_OPTIONS`, `LOCALDOMAIN` | the parser takes bytes | the engine reads them; `config` parses the option string | 11, 13 |
+| the hosts file, `ARES_OPT_LOOKUPS`, `ares_gethostbyname_file` | none | `config.hosts` parses the consumer's bytes into a `core.Hosts`; `AddressLookup` keeps the `lookups` order | 11, 14 |
+| `ARES_OPT_RESOLVCONF`, `RES_OPTIONS`, `LOCALDOMAIN` | the parser takes bytes | the consumer reads them; `config` parses the option string | 11 |
 | server failover | the next server on a failure, in a fixed order | `resolver` per-server state | 12 |
 | `udp_max_queries` | one port hint per lookup | engine | 13 |
 | TCP reuse (`STAYOPEN`) and pipelining | one connection per query | engine; the framing is there (RFC 7766 §6.2.1) | 13 |
 | local address and device binding, socket buffer sizes | none | engine | 13 |
-| the event thread, `sock_state_cb`, `ares_process_fd`, the socket callbacks | `Resolver`, driven by the caller | the engine over rotor is the built-in driver | 13 |
+| the event thread, `sock_state_cb`, `ares_process_fd`, the socket callbacks | `Resolver`, driven by the caller | the engine over rotor would be the built-in driver; held back until a consumer asks | 13 |
 | `ares_cancel`, the active count, wait-empty, `ares_reinit`, `ares_set_servers` | `Lookup.cancel` | engine | 13 |
 | the query cache | §18 | the engine wires it in | 13 |
-| `ares_getaddrinfo`: `A` and `AAAA` together, the canonical name, numeric host and service, the hosts file, `V4MAPPED`, `ALL` | two lookups | engine | 14 |
-| `ares_gethostbyaddr`, `ares_getnameinfo` | a `PTR` lookup | engine, for addresses; service names are out | 14 |
-| RFC 6724 ordering, off with `ARES_AI_NOSORT` | none; `sortlist` was rejected in §16 | engine, off until it lands | 15 |
+| `ares_getaddrinfo`: `A` and `AAAA` together, the canonical name, numeric host and service, the hosts file, `V4MAPPED`, `ALL` | two lookups | `resolver`, as `AddressLookup` above the table | 14 |
+| `ares_gethostbyaddr`, `ares_getnameinfo` | a `PTR` lookup | `Hosts.reverse`, then the `PTR` lookup; service names are out | 14 |
+| RFC 6724 ordering, off with `ARES_AI_NOSORT` | none; `sortlist` was rejected in §16 | `core.address_order`, over routes the consumer learned; `no_sort` skips it | 15 |
 | `ARES_AI_ADDRCONFIG` | none | out: rotor enumerates no interfaces, and the consumer knows its own | — |
 | service names (`getservbyname`) | none | out: `/etc/services` is the consumer's; the engine takes a port | — |
 | `HOSTALIASES`, `ARES_AI_ENVHOSTS` | none | out for now: glibc's alias file, rarely set; a parser in `config` if asked | — |
@@ -1496,24 +1553,96 @@ gate must not need the network.
 
 ### Step 14: the `getaddrinfo` shape
 
-`address_info(name, port, flags)` does what `ares_getaddrinfo` does with the flags c-ares
-implements: a numeric host is answered without a query; the hosts file is consulted in the
-`lookups` order; `A` and `AAAA` are started together and joined into one result with the
-canonical name, when `canonical_name` is asked for and a chain was followed; `v4_mapped` and
-`all` follow `getaddrinfo(3)`. The join lives in the engine and not the state machine, so
-§16's decision 9 stands. `name_info(address)` is the reverse lookup through the hosts file and
-then `PTR`. Services by name are out: `/etc/services` belongs to the consumer, and the engine
-takes a port number.
+`AddressLookup` does what `ares_getaddrinfo` does with the flags c-ares implements, above the
+table and not inside the state machine, so §16's decision 9 stands: it starts ordinary lookups
+through `Resolver`, one per family, and joins what they return. It lives in `resolver`, which
+is where a consumer with a loop of its own can reach it now that the engine is held back (step
+13). Services by name stay out: `/etc/services` belongs to the consumer, who has the port.
+
+- **Two moves first**, so `resolver` reaches what the shape needs without importing `config`
+  (§2). The address text parser becomes `core.address_text`, reached as `Address.from_text`
+  the way `Name.from_text` is. The hosts table becomes a `core` type, `core.Hosts`, with its
+  `Entry`, `Storage`, `find`, `canonical` and `reverse`, and `config.hosts.parse` stays its one
+  producer. That is the split `Config` already has: the type in `core`, the parser in
+  `config`. `cocuyo.resolv_conf.address_text` goes, and `cocuyo.Hosts` joins the flattened
+  names. Each move is a commit of its own, before the shape.
+- **The walk.** `init` takes the resolver, a `?*const Hosts`, the name's text, a `?Family`,
+  where null is both as `AF_UNSPEC` is, and `AddressFlags`. A name that parses as an address
+  is answered at once, with no file and no query; with `numeric_host` set, any other name
+  fails with `NameNotFound`, which is `EAI_NONAME`. Otherwise the sources of `Config.lookups`
+  are tried in order. `.file` answers from the hosts table when it holds the name in a family
+  asked for, `v4_mapped` widening that to both, with the entry's official name as the
+  canonical name. `.dns` runs the search walk: it takes `lookup_policy.candidate` and starts
+  one absolute lookup per family for each candidate, so the two families always ask about the
+  same name. Two independent lookups could end on different search suffixes and hand back the
+  addresses of two hosts. A candidate ends when both of its lookups have, or as soon as one
+  says `NameNotFound`, because a name that does not exist (RFC 1035 §4.1.1) has no record of
+  the other type either, and the other lookup is cancelled. Both negative, the next candidate
+  starts; the candidates gone, the outcome is `NameNotFound`, or `NoData` if any candidate
+  answered NODATA, which is §5's rule. One family answered and the other failed for any other
+  reason, the answer stands and `partial` names the failure, so the consumer can tell a
+  missing half from an empty one.
+- **The join.** The addresses are copied out of the slots into the lookup's own storage, up
+  to `address_lookup_addresses_max` with `truncated` past it, and each slot is released the
+  moment its lookup ends, so a walk across candidates holds two slots and not two per
+  candidate. `canonical_name`, when asked for, is the end of the CNAME chain of the winning
+  candidate, that candidate's name when there was no chain, or the hosts entry's official
+  name. `v4_mapped` with family `.ipv6` starts the `A` lookup as well and hands its addresses
+  back as `::ffff:a.b.c.d` when no `AAAA` came (`getaddrinfo(3)`); with `all` too, both come
+  back, `AAAA` first; `v4_mapped` without `.ipv6` is ignored, as the manual says. Unless
+  `no_sort`, the result is ordered by step 15's rules that need no route, which puts IPv6
+  before IPv4 by precedence, the way `getaddrinfo` does.
+- **The driving protocol.** The consumer keeps the association from handle to `AddressLookup`
+  the way it keeps handles today, and hands `Resolver.poll`'s `.done` and `.failed` events for
+  those handles to `on_event`, which says whether it took the event and releases the slot when
+  it did. `outcome` is null until the walk is over; `cancel` cancels what is in flight.
+  Nothing about `Lookup` or `Resolver` changes.
+- **`name_info`** is a recipe rather than an entry point: `Hosts.reverse` for the address,
+  then `Question.from_address` and a `PTR` lookup, two calls the consumer makes in order. §17
+  asks whether that is enough.
+
+**Gate.** On the fake server: the lockstep walk against a search list on which the families
+would diverge; NXDOMAIN on one family ending the candidate; `NoData` against `NameNotFound` at
+the end of the walk; `v4_mapped` alone and with `all`; the canonical name from a chain and from
+the hosts table; the `lookups` order both ways round; a numeric host with and without the flag;
+a family the hosts table lacks falling through to DNS; a slot count that never exceeds two per
+`AddressLookup`. Each check broken in turn, in `docs/mutations.md`.
 
 ### Step 15: ordering, and the comparison
 
-RFC 6724 §6 orders destination addresses by rules that need the source address the kernel would
-pick for each, which c-ares learns by connecting a datagram socket per candidate. The engine can
-do the same through rotor, and will, as a flag off by default until it is measured; until then
-addresses come back in the order received, which is `ARES_AI_NOSORT`. Then the comparison the
-README will state: the decoders against c-ares's, and end to end, both stacks against one
-in-process responder, lookups per second and latency at a number in flight, on the machine and
-the day §11 names.
+RFC 6724 §6 orders destination addresses by ten rules, and rules 1, 2, 5 and 9 need the source
+address the host would use for each destination, which c-ares learns by connecting a datagram
+socket per candidate. That is I/O, so it is the consumer's: `core.address_order.order` is a
+pure function over the addresses and a `Route` per address the consumer filled in, or none.
+
+- **The inputs.** `Route` holds the source address, null when the host has none, which rule 1
+  puts last; `unreachable`, for rule 1; `deprecated`, in RFC 4862's sense, for rule 3; and
+  `encapsulated`, for rule 7, which the RFC leaves to what an implementation knows of its
+  interfaces. Rule 4, home and care-of addresses, never decides: mobile IPv6 is outside
+  version one, and the rule is written down as skipped rather than left out. With no routes,
+  rules 1, 2, 5 and 9 never decide either, and rules 6, 8 and 10 order the list: precedence,
+  smaller scope, then the order received.
+- **The table.** RFC 6724 §2.1's default policy table, nine rows, looked up by longest prefix
+  over the IPv4-mapped form of an IPv4 address (§3.2), gives `Precedence` and `Label`. Scope
+  is §3.1 to §3.4: link-local for `fe80::/10`, `::1`, `127/8` and `169.254/16`; site-local for
+  `fec0::/10`; a multicast address's own scope field; global for everything else, ULAs
+  included. `CommonPrefixLen` is §2.2, stopping at the source's prefix, which is 64 for IPv6
+  (RFC 4291 §2.5.1's interface identifier) and 32 for IPv4.
+- **The sort** is stable, which is rule 10, and in place: an insertion sort over at most
+  `address_lookup_addresses_max` entries, so it allocates nothing and its cost is bounded.
+- **Where it is called.** `AddressLookup` calls it with no routes unless `no_sort`, which is
+  `ARES_AI_NOSORT`; a consumer that learned its routes calls it again on the result.
+
+**Gate.** The nine worked examples of RFC 6724 §10.2, each a test with the sources the RFC
+lists; a shuffled list coming back in the RFC's order; the no-route order; and each rule broken
+in turn.
+
+Then the comparison the README will state: the decoders against c-ares's, which
+`zig build bench-cares` measures today, and end to end, both stacks against one in-process
+responder, lookups per second and latency at a number in flight, on the machine and the day §11
+names. cocuyo's side of that run is a `poll(2)` loop in `bench/`, which may own a socket
+(CLAUDE.md, Layout). The engine over rotor would have been that driver, and will be the day it
+is exposed.
 
 ### New limits
 
@@ -1533,9 +1662,13 @@ the day §11 names.
 | `tcp_idle_ns_default` | 10 s | chosen, not measured: a burst's worth, and short by RFC 7766 §6.2.3's standard |
 | `engine_lookups_default` | 256 | in flight at once; the caller sizes the memory |
 | `engine_cache_slots_default` | 1024 | §18's memory table row |
+| `address_lookup_addresses_max` | 32 | both families' `addresses_max`, bounded the way one answer is; `truncated` past it |
+| `address_policy_rows` | 9 | RFC 6724 §2.1's default table |
+| `common_prefix_bits_v6_max` | 64 | RFC 6724 §2.2 stops at the source's prefix, and RFC 4291 §2.5.1 makes the interface identifier the low 64 bits |
 
 ### Order and gates
 
 Steps 9 to 15 land in that order, each with its mutation table in `docs/mutations.md`, each
 committed only when `zig build test` is green, and step 13 beginning with the twin, so the
 engine is driven at every seed before it touches a socket. §15 lists them as steps of the plan.
+Step 14 begins with its two moves into `core`, each committed on its own before the shape.
