@@ -71,6 +71,16 @@ pub const addresses_max = 16;
 /// practice, and `Answer.truncated` says when more existed (docs/design.md §17.2).
 pub const ptr_names_max = 1;
 
+/// The most records of one type a lookup keeps in its rdata buffer, for every type that is not an
+/// address or a PTR name: half `records_max`, which is what one answer section holds of one type
+/// in practice, with `truncated` set past it (docs/design.md §19 step 9).
+pub const records_kept_max = 32;
+
+/// The rdata buffer of one lookup: one UDP payload of `udp_payload_bytes_default` with room for
+/// the names written out in full on the way in, each of which can grow from a two-octet pointer
+/// to `name_bytes_max`. A TCP answer that does not fit sets `truncated` (docs/design.md §19).
+pub const rdata_bytes_max = 2048;
+
 /// The most servers a configuration may name. glibc's MAXNS is 3; 8 leaves room and still bounds
 /// every loop over the list.
 pub const servers_max = 8;
