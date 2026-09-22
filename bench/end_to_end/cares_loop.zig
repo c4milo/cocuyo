@@ -35,6 +35,10 @@ const State = struct {
 };
 
 var state: State = undefined;
+/// Set once a row is over, before the channel is destroyed. Destroying a channel fails the
+/// queries still on it, and each failure reaches `on_answer`, which would otherwise start
+/// another lookup on the channel being torn down.
+var stopping: std.atomic.Value(bool) = .init(false);
 
 pub fn run(port: u16, in_flight: u32, total: u32, latencies: []u64) !Outcome {
     assert(in_flight >= 1 and in_flight <= constants.in_flight_max);
@@ -53,6 +57,10 @@ pub fn run(port: u16, in_flight: u32, total: u32, latencies: []u64) !Outcome {
     if (c.ares_set_servers_ports_csv(channel, servers.ptr) != c.ARES_SUCCESS) return error.CaresInitFailed;
 
     state = .{ .channel = channel, .total = total, .latencies = latencies };
+    stopping.store(false, .release);
+    // Registered after the destroy above, so it runs before it: no lookup starts on a channel
+    // that is going away.
+    defer stopping.store(true, .release);
     const begin = harness.now_ns();
     var index: u32 = 0;
     while (index < in_flight and index < total) : (index += 1) start_next(&state.slots[index]);
@@ -68,6 +76,7 @@ pub fn run(port: u16, in_flight: u32, total: u32, latencies: []u64) !Outcome {
 /// stack. A start that happens inside a start now only says so, and the loop here makes the next
 /// one. The claims bound the loop: there are `total` of them and no more.
 fn start_next(slot: *Slot) void {
+    if (stopping.load(.acquire)) return;
     if (slot.issuing.load(.acquire)) {
         slot.answered_inline.store(true, .release);
         return;
@@ -120,9 +129,23 @@ fn on_answer(arg: ?*anyopaque, status: c.ares_status_t, timeouts: usize, record:
 const testing = std.testing;
 
 test "a start that happens inside a start makes no query of its own" {
+    stopping.store(false, .release);
     var slot: Slot = .{ .issuing = .init(true) };
     start_next(&slot);
     try testing.expect(slot.answered_inline.load(.acquire));
     // Still the outer start's to finish: the loop there makes the next query, not this call.
     try testing.expect(slot.issuing.load(.acquire));
+}
+
+test "no lookup starts once the row is over" {
+    stopping.store(true, .release);
+    defer stopping.store(false, .release);
+    // A channel being destroyed fails what is on it, and each failure reaches the callback,
+    // which must not answer a teardown with another query. The claim is what says so: with
+    // nothing left to claim the flags read the same either way, so the count is the check.
+    state.total = 0;
+    state.started.store(0, .release);
+    var slot: Slot = .{};
+    start_next(&slot);
+    try testing.expectEqual(@as(u32, 0), state.started.load(.acquire));
 }

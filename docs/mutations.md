@@ -811,6 +811,7 @@ The comparison's own driver, not the library: `bench/end_to_end/rotor_loop.zig`.
 | --- | --- | --- | --- | --- |
 | K1 | start the next lookup before taking the result that frees its slot | §19 step 15, the driver keeps `in_flight` going | the one-at-a-time test | CAUGHT |
 | K2 | let a start that happens inside a start make its own query | the c-ares driver's trampoline | the start-inside-a-start test | CAUGHT |
+| K3 | start another lookup while the channel is being destroyed | the c-ares driver's stop flag | the row-is-over test | CAUGHT |
 
 The bug this records was real and it hid for a day. With several lookups in flight the others keep
 the loop busy and no test saw anything; with one, every iteration that took a result left nothing
@@ -824,6 +825,13 @@ returns — `ares_send_nolock` calls the callback itself — and that callback s
 lookup, so a run of inline answers was recursion with a frame per lookup. It aborted at 20,000
 with a ten-thousand-frame trace, one run in five. No run can be made to answer inline on demand,
 so the test drives the guard directly rather than the shape that trips it.
+
+K3 came out of the same crash, which K2 did not cure. Destroying a channel fails the queries
+still on it, each failure reaches the callback, and the callback started another lookup on the
+channel that was going away. Its first test was vacuous: with nothing left to claim, the slot's
+flags read the same whether the guard was there or not, and only counting the claims tells them
+apart. That is the second `NOT CAUGHT` of the day to come from a test that watched the wrong
+thing rather than from a missing test.
 
 ## Planned, later steps
 
