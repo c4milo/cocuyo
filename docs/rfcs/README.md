@@ -11,9 +11,10 @@ Read these, never a summary and never another implementation's source. Cite the 
 a rule, not one that inherits it, and cite it by section on the line that does the checking
 (CLAUDE.md non-negotiable 8).
 
-Every document here was checked against `https://www.rfc-editor.org/rfc-index.xml` on 2026-09-21:
-none is obsoleted, and each is the current document for what cocuyo reads it for. Three carry
-updates worth knowing about, none of which version one implements:
+Every document here was checked against `https://www.rfc-editor.org/rfc-index.xml` on 2026-09-21,
+and the four added for the cache and the address fixtures against `rfc-editor.org/rfc/rfcNNNN.json`
+on 2026-09-22: none is obsoleted, and each is the current document for what cocuyo reads it for.
+Five carry updates worth knowing about, none of which version one implements:
 
 - RFC 1034 and RFC 1035 are Internet Standards updated by a long list of documents. The ones that
   touch what cocuyo does are here: RFC 3596 for AAAA, RFC 4343 for case, RFC 6891 for EDNS0 and
@@ -22,10 +23,21 @@ updates worth knowing about, none of which version one implements:
   Neither changes the two-octet length field cocuyo uses, and neither is in scope.
 - RFC 4343 is updated by RFC 5890, which is IDNA. cocuyo takes names as the caller spells them and
   does no IDN mapping, so a caller sends A-labels or nothing.
+- RFC 2308 is updated by the DNSSEC set (RFC 4033 to 4035), RFC 6604 on the RCODE of a chain,
+  RFC 8020, which lets a cache infer NXDOMAIN for every name under one, and RFC 9520, which caches
+  resolution failures. cocuyo's cache remembers what a server said and nothing it could infer, so
+  none of the three applies; a failure that is not a negative answer carries a TTL of zero and is
+  not cached.
+- RFC 3849 is updated by RFC 9637, which adds a second documentation prefix, `3fff::/20`. The
+  fixtures use the first.
 
 | RFC | Title | What cocuyo reads it for |
 | --- | --- | --- |
 | 1034 | Domain Names, Concepts and Facilities | §3.6.2, aliases and canonical names: the CNAME chain |
+| 2308 | Negative Caching of DNS Queries | §2.2 NODATA takes the SOA minimum too, §5 the negative TTL is the smaller of the SOA's TTL and its MINIMUM field |
+| 3849 | IPv6 Address Prefix Reserved for Documentation | `2001:db8::/32`, the addresses the fixtures and the tests spell |
+| 4291 | IP Version 6 Addressing Architecture | §2.2 the text form `address_text` parses, `::` included |
+| 5737 | IPv4 Address Blocks Reserved for Documentation | `192.0.2.0/24`, the addresses the fixtures and the tests spell |
 | 1035 | Domain Names, Implementation and Specification | the wire format: §4.1 the message, §4.1.4 compression, §2.3.4 the size limits, §2.3.3 character case, §3.5 IN-ADDR.ARPA, §4.2.1 port 53 |
 | 3596 | DNS Extensions to Support IPv6 | §2.2 the AAAA record, §2.5 the IP6.ARPA domain |
 | 4343 | DNS Case Insensitivity Clarification | what "the same name" means, which is why `Name.equal` folds case and the question compare does not |
