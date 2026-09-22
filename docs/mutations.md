@@ -266,6 +266,24 @@ the `resolv.conf` case stopped parsing a comptime constant; and the harness spin
 before its first case, because two of three runs had measured the tail of the gate's test
 binaries in their first rows.
 
+## The comparison against c-ares
+
+`zig build bench-cares` runs its own tests before it times anything, and those tests are what
+make the comparison a comparison: they show both sides are looking at the same bytes. Broken
+against `zig build test-cares`. Four mutations, four `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| K1 | c-ares advertises a payload size one octet off | the byte-identity test | the query bytes differ | CAUGHT |
+| K2 | c-ares asks for AAAA where cocuyo asks for A | the byte-identity test | the query bytes differ | CAUGHT |
+| K3 | the c-ares walk counts every record, not the A records | the record-count test | the CNAME case counts two | CAUGHT |
+| K4 | the c-ares walk reads no address at all | the record-count test | nothing is counted | CAUGHT |
+
+K1 and K2 are the mutations that matter. The byte-identity test says c-ares and cocuyo write the
+same query for the same question, octet for octet; a comparison whose two sides built different
+queries would be timing two different things and calling the ratio a result. Every octet of the
+OPT record is in that test's reach, and K1 shows one octet is enough to fail it.
+
 ## Planned, later steps
 
 | # | Mutation | Check it breaks | Expected to be caught by | Status |

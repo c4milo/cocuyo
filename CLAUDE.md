@@ -137,6 +137,10 @@ The architecture depends on every rule in this section.
   whatever `-Drelease` says. `zig build test` compiles the bench and runs the harness's own tests,
   so it cannot rot. A number goes into design §11 with the machine, the command and the date, or it
   does not go in.
+- Comparison: `zig build bench-cares` — the same two operations against the installed c-ares,
+  found under `-Dcares=<prefix>` (a Homebrew prefix by default). It links a library the gate must
+  not require, so it and its tests (`zig build test-cares`) run only when asked. The numbers go
+  in design §11 beside cocuyo's, with the c-ares version the binary prints.
 - Format: `zig build fmt`, or `zig fmt build.zig build src tools examples bench`.
 - Commit messages: `zig build hooks` once after clone; `zig build lint-commits` by hand.
 

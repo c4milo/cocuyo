@@ -16,3 +16,16 @@ produced it.
 Every case is built ReleaseSafe whatever `-Drelease` says, because that is the mode cocuyo ships
 in. `zig build test` compiles the bench and runs the harness's own tests, so a bench that stopped
 compiling, or a case that stopped doing what its name says, fails the gate.
+
+## Against c-ares
+
+```bash
+zig build bench-cares
+```
+
+The same two operations — a query build and a response parse — against the c-ares installed on
+the machine, found under `-Dcares=<prefix>` and Homebrew's by default. The datagram match has no
+counterpart: c-ares decides whose datagram it is inside its own event loop, which is the thing
+cocuyo was split to avoid. This step links a library the gate must not require, so nothing of it
+runs under `zig build test`; its own tests, which show c-ares writes the same query bytes cocuyo
+does, run first under the step and alone under `zig build test-cares`.

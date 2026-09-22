@@ -604,6 +604,41 @@ nanoseconds, a figure recalled and not measured, because the largest table there
 second-level cache and the harness cannot build one that does not. It is still nothing against a
 millisecond, but it is an estimate where the rest of this section is not.
 
+**Against c-ares.** `zig build bench-cares` on 2026-09-22, the same machine, clock and method as
+the table above: cocuyo ReleaseSafe against the Homebrew build of c-ares 1.34.8, which is its
+shipping build, optimised, with its assertions compiled out. Two runs back to back; every median
+from the second, each within 2% of the first. The cocuyo rows here are the same code as above
+measured in a different binary, and sit up to a tenth below the table above — 7.8 ns against 8.6
+for the query build — so a comparison reads within one table and never across two. Nanoseconds
+per operation:
+
+| Case | cocuyo | c-ares | c-ares over cocuyo |
+| --- | --- | --- | --- |
+| query build, `example.com`, EDNS0: cocuyo from a name it holds into the caller's buffer; c-ares from a prepared record into a buffer it allocates and the caller frees | 7.8 | 945.4 | 121 |
+| the same, with c-ares building the record as well: create, question, OPT, write, both freed | 7.8 | 1,281.3 | 165 |
+| response parse, one A record: cocuyo checks owners and copies the address out; c-ares parses to a record tree, the address is read, the tree is freed | 41.8 | 680.0 | 16 |
+| response parse, a CNAME then its A record, the same two ways | 166.8 | 1,059.8 | 6.4 |
+| response parse, 17 A records: cocuyo keeps sixteen and says so, c-ares keeps all seventeen | 560.8 | 4,039.3 | 7.2 |
+
+What the comparison says, and what it does not:
+
+- Before either side is timed, the step's own tests show the two are looking at the same thing.
+  For the same id, name, type and OPT record, c-ares writes the query bytes cocuyo writes, octet
+  for octet: two implementations of RFC 1035 and RFC 6891, written apart, agreeing — a check on
+  cocuyo's builder that no fixture of its own could be. And c-ares reads from the corpus the
+  records cocuyo reads, seventeen A records where cocuyo keeps sixteen and says so.
+- The gap is the record model and the allocator, not the arithmetic. c-ares builds a heap object
+  per message and per record and frees it; cocuyo copies into memory the caller sized once. That
+  is what each library's caller pays per query, so it is the honest row, and it is not a claim
+  that c-ares reads bytes slowly.
+- The datagram match has no row. c-ares decides whose datagram it is inside `ares_process`, with
+  its own sockets and its readiness callbacks, and there is no way to hand it one datagram and
+  time the decision alone. That entanglement is what §1 exists to avoid, and it is also why the
+  one operation cocuyo designed for a constant cannot be compared here.
+- Every number here is against a round trip of a millisecond or more. c-ares's 1.3 µs to build
+  a query is 0.13% of that. The comparison says which library does less work per query; it does
+  not say a caller of c-ares would notice, and it does not claim c-ares is slow.
+
 **Place frequently accessed fields together, and reduce the cache lines touched.** A naive
 demultiplexer scans the slots, touching 856 bytes per candidate. Instead `Resolver` keeps a side
 table of `MatchKey`, four bytes each, sixteen to a cache line, indexed by the low bits of the
@@ -819,3 +854,19 @@ step until `zig build test` passes.
    above `Resolver.start` needs nothing from this library, but "clean seam" is not the same as
    "someone has written it". The question for the owner is whether version one ships the cache, or
    ships without it and says so in the same breath as calling itself a c-ares replacement.
+
+   What c-ares does, read from `src/lib/ares_qcache.c` on 2026-09-22: a string-keyed hash table,
+   compared case-insensitively, keyed by the opcode, the RD and CD flags, and each question's type,
+   class and name with a trailing dot stripped; each entry a duplicate of the whole parsed
+   response; a skip list ordered by expiry, drained of expired entries on every fetch; the TTL the
+   smallest over the answer, authority and additional records with OPT, SOA and SIG skipped, or
+   the SOA minimum for NXDOMAIN (RFC 2308), capped at `qcache_max_ttl`, an hour by default, and a
+   TTL of zero not cached; NOERROR and NXDOMAIN cached, everything else and anything truncated
+   not; the cached record's TTLs decremented by its age on a hit; no bound on the entry count; the
+   whole cache flushed when the servers change. Two of those a cocuyo cache would not copy. A
+   NODATA answer — NOERROR, no records, an SOA in the authority section — takes the cap rather than
+   the SOA minimum, because the walk that finds the smallest TTL skips SOA and then finds nothing;
+   and the entry count is unbounded, which this library cannot do at all. A cocuyo cache would be
+   a caller-sized table of slots keyed by the folded name and the type, each holding an `Answers`
+   and an expiry, evicting the soonest to expire when full: the shape `Resolver`'s slot table
+   already has.

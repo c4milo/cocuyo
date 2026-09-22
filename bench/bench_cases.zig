@@ -12,17 +12,17 @@ const cocuyo = @import("cocuyo");
 const wire = @import("wire");
 const fixtures = wire.fixtures;
 const table_keys = cocuyo.resolver.table_keys;
-const Case = @import("bench.zig").Case;
+const Case = @import("harness.zig").Case;
 const Name = cocuyo.Name;
 const Lookup = cocuyo.Lookup;
 
 const doNotOptimizeAway = std.mem.doNotOptimizeAway;
 
-/// Iterations per sample, the same for every case. The bound that matters is the clock's step
+/// Iterations per sample, the same for every case, and for the comparison bench. The bound that matters is the clock's step
 /// against the sample's length: at 200,000 iterations the cheapest case, an empty call at under
 /// 2 ns, makes a sample of a third of a millisecond, and the clock steps at 42 ns on this machine,
 /// which is under 0.03% of it. The dearest case makes a sample of about 120 ms.
-const iterations = 200_000;
+pub const iterations = 200_000;
 
 /// The table sizes the datagram match is measured at, to show the probe does not grow with them.
 const table_small = 1;
@@ -73,14 +73,14 @@ var query: wire.Query = undefined;
 var query_max: wire.Query = undefined;
 var query_out: [cocuyo.constants.query_bytes_max]u8 = undefined;
 
-fn setup_queries() void {
+pub fn setup_queries() void {
     query = .{ .id = fixtures.id, .name = Name.from_text("example.com") catch unreachable, .kind = .a };
     const long = "a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63 ++ "." ++ "d" ** 61;
     query_max = .{ .id = fixtures.id, .name = Name.from_text(long) catch unreachable, .kind = .a, .tcp = true };
     assert(query_max.name.len == cocuyo.constants.name_bytes_max);
 }
 
-fn run_query_build() void {
+pub fn run_query_build() void {
     doNotOptimizeAway(wire.query.write(&query, &query_out));
     doNotOptimizeAway(&query_out);
 }
@@ -100,7 +100,7 @@ var chain: Name = undefined;
 var answers: wire.Answers = undefined;
 var question_name: Name = undefined;
 
-fn setup_messages() void {
+pub fn setup_messages() void {
     message_one = fixtures.answer_a;
     message_cname = fixtures.answer_cname_then_a;
     message_sixteen = fixtures.answer_a_seventeen;
@@ -128,18 +128,18 @@ fn parse(message: []const u8) void {
 }
 
 /// The chain does not move here, so nothing is restored between iterations.
-fn run_parse_one() void {
+pub fn run_parse_one() void {
     parse(&message_one);
 }
 
 /// The chain moves to `host.example.net`, so each iteration first puts the question back: a
 /// 256-octet copy the row's name says it carries.
-fn run_parse_cname() void {
+pub fn run_parse_cname() void {
     chain = question_name;
     parse(&message_cname);
 }
 
-fn run_parse_sixteen() void {
+pub fn run_parse_sixteen() void {
     parse(&message_sixteen);
 }
 
