@@ -10,6 +10,12 @@
 //! The rule reads what a file names, not what it reaches. This is what stops a file under `src/`
 //! reaching the host through `std` directly; the module graph is what bounds the rest.
 //!
+//! The list held `std.net` until 2026-09-22, when reading the standard library showed Zig 0.16
+//! has no such declaration: the network moved to `std.Io.net`. The entry guarded nothing, and
+//! what covered the network was `std.Io` happening to be a prefix of where it went. That is luck,
+//! and luck that would not have held had it moved anywhere else, so the name below says where the
+//! network actually is.
+//!
 //! The rule is pepegrillo's `forbidden_references`. This file holds cocuyo's configuration of it
 //! and the fixtures that pin that configuration.
 const std = @import("std");
@@ -18,12 +24,11 @@ const lint = pepegrillo.lint;
 const forbidden_references = lint.rules.forbidden_references;
 
 /// A chain that starts with one of these at a dot boundary is a finding. Each names a way to reach
-/// the host: the syscall surface, the filesystem, the network, threads, the `std.Io` interface
-/// every blocking call now takes, and the process table.
+/// the host: the syscall surface, the filesystem, threads, the `std.Io` interface every blocking
+/// call now takes — the network among them, at `std.Io.net` — and the process table.
 const forbidden_prefixes = [_][]const u8{
     "std.posix",
     "std.fs",
-    "std.net",
     "std.Thread",
     "std.Io",
     "std.process",
@@ -55,14 +60,14 @@ test "io flags every way of reaching the host" {
         \\const std = @import("std");
         \\pub fn send() void {
         \\    _ = std.posix.socket;
-        \\    _ = std.net.Address;
+        \\    _ = std.Io.net.Address;
         \\    _ = std.Io.Reader;
         \\}
         \\
     );
     try harness.expect_messages(findings, &.{
         "reference to std.posix.socket: " ++ reason,
-        "reference to std.net.Address: " ++ reason,
+        "reference to std.Io.net.Address: " ++ reason,
         "reference to std.Io.Reader: " ++ reason,
     });
 }

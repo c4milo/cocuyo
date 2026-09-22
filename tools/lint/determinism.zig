@@ -3,11 +3,17 @@
 //! which holds only while a lookup's output is a pure function of its configuration, the bytes it
 //! was fed, the instants it was given and its seed.
 //!
-//! Over every `.zig` file under `src/`, the rule flags a chain that starts with `std.time`,
-//! `std.Random` or `std.crypto.random` at a dot boundary. The transaction id, the source-port hint
-//! and the 0x20 case pattern all come from a generator seeded by the caller (docs/design.md §7),
-//! so a file that names a global random source has taken that decision away from the caller — and
-//! a file that names a clock has taken back one of the `now_ns` parameters.
+//! Over every `.zig` file under `src/`, the rule flags a chain that starts with `std.time` or
+//! `std.Random` at a dot boundary. The transaction id, the source-port hint and the 0x20 case
+//! pattern all come from a generator seeded by the caller (docs/design.md §7), so a file that
+//! names a global random source has taken that decision away from the caller — and a file that
+//! names a clock has taken back one of the `now_ns` parameters.
+//!
+//! The list held `std.crypto.random` until 2026-09-22, when reading the standard library showed
+//! Zig 0.16 has no such declaration: `std/crypto.zig` has no `random` at all, and no global
+//! CSPRNG replaced it. The entry guarded nothing, and an entry that guards nothing reads like
+//! cover. System entropy in 0.16 is reached through `std.Io` or `std.posix`, which the io rule
+//! forbids under `src/` already, so dropping it loses no coverage.
 //!
 //! `std.time` is flagged whole, its unit constants included: `std.time.ns_per_s` reads no clock,
 //! but a duration cocuyo uses is a named limit in a module's `constants.zig` (non-negotiable 5),
@@ -25,9 +31,10 @@ const pepegrillo = @import("pepegrillo");
 const lint = pepegrillo.lint;
 const forbidden_references = lint.rules.forbidden_references;
 
-/// A chain that starts with one of these at a dot boundary is a finding: the clock, the general
-/// pseudo-random generator, and the system entropy source.
-const forbidden_prefixes = [_][]const u8{ "std.time", "std.Random", "std.crypto.random" };
+/// A chain that starts with either of these at a dot boundary is a finding: the clock, and the
+/// pseudo-random generators. The system entropy source is the io rule's, because in Zig 0.16 it
+/// is reached through `std.Io` and `std.posix`.
+const forbidden_prefixes = [_][]const u8{ "std.time", "std.Random" };
 
 const reason = "time is a caller-supplied parameter and entropy is a caller-supplied seed" ++
     " (non-negotiable 4)";
@@ -55,14 +62,12 @@ test "determinism flags the clock and both random sources" {
         \\const std = @import("std");
         \\pub fn identifier() u16 {
         \\    _ = std.time.nanoTimestamp();
-        \\    _ = std.crypto.random;
         \\    return std.Random.int(u16);
         \\}
         \\
     );
     try harness.expect_messages(findings, &.{
         "reference to std.time.nanoTimestamp: " ++ reason,
-        "reference to std.crypto.random: " ++ reason,
         "reference to std.Random.int: " ++ reason,
     });
 }
