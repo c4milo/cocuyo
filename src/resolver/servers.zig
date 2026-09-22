@@ -27,14 +27,14 @@ pub const Servers = struct {
     pub fn init(config: *const Config, seed: u64) Servers {
         config.assert_valid();
         var servers: Servers = .{ .states = undefined, .count = @intCast(config.servers.len) };
-        for (config.servers, 0..) |*endpoint, index| {
+        for (config.servers, 0..) |*server, index| {
             servers.states[index] = .{
-                .cookie_client = client_cookie(seed, endpoint),
+                .cookie_client = client_cookie(seed, &server.endpoint),
                 .cookie_server = @splat(0),
                 .cookie_server_len = 0,
             };
         }
-        assert(servers.count >= 1);
+        assert(servers.count <= core.constants.servers_max);
         return servers;
     }
 

@@ -190,11 +190,18 @@ pub const Lookup = struct {
         };
         self.answers.reset(question.kind);
         self.transaction = self.entropy.transaction();
+        // A configuration with no server is one a `resolv.conf` with none gave, read without
+        // the default: every lookup on it fails at once (§19 step 11).
+        if (config.server_count() == 0) {
+            self.fail(core.Error.NoServers);
+            return;
+        }
         if (config.rotate) {
-            self.server_index = self.entropy.server_start(config.servers.len);
+            self.server_index = self.entropy.server_start(config.server_count());
         }
         self.take_candidate(self.candidate_index);
-        assert(self.state == .query_ready or self.state == .failed);
+        if (self.state == .query_ready and config.use_tcp) self.state = .tcp_needed;
+        assert(self.state == .query_ready or self.state == .tcp_needed or self.state == .failed);
     }
 
     pub fn poll(self: *Lookup, now_ns: u64, out: []u8) Action {
@@ -267,7 +274,14 @@ pub const Lookup = struct {
     /// The current server: the one a query goes to and the only one a response may come from.
     pub fn server(self: *const Lookup) Endpoint {
         assert(self.server_index < self.config.servers.len);
-        return self.config.servers[self.server_index];
+        return self.config.servers[self.server_index].endpoint;
+    }
+
+    /// Where a TCP connection to the current server goes: its own port when it has one
+    /// (docs/design.md §19 step 11).
+    pub fn server_tcp(self: *const Lookup) Endpoint {
+        assert(self.server_index < self.config.servers.len);
+        return self.config.servers[self.server_index].tcp_endpoint();
     }
 
     /// The name as it goes on the wire: the current name with its case set from this
@@ -290,7 +304,7 @@ pub const Lookup = struct {
         assert(!self.is_settled());
         self.flags.cookie_retried = false;
         self.server_index += 1;
-        if (self.server_index == self.config.servers.len) {
+        if (self.server_index == self.config.server_count()) {
             self.server_index = 0;
             self.round += 1;
         }
@@ -322,7 +336,9 @@ pub const Lookup = struct {
     pub fn restart(self: *Lookup, now_ns: u64) void {
         assert(!self.is_settled());
         self.transaction = self.entropy.transaction();
-        self.state = .query_ready;
+        // Every query over TCP when the configuration says so (§19 step 11): the connection
+        // comes first.
+        self.state = if (self.config.use_tcp) .tcp_needed else .query_ready;
         self.deadline_ns = now_ns;
     }
 

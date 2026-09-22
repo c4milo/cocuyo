@@ -51,7 +51,7 @@ fn connect_tcp(self: *Lookup, now_ns: u64) Action {
     self.state = .connecting_tcp;
     self.deadline_ns = policy.deadline_ns(self.config, self.round, now_ns);
     assert(self.deadline_ns > now_ns);
-    return .{ .connect_tcp = self.server() };
+    return .{ .connect_tcp = self.server_tcp() };
 }
 
 fn send_tcp(self: *Lookup, out: []u8) Action {
@@ -73,6 +73,7 @@ fn build(self: *const Lookup, tcp: bool, out: []u8) []const u8 {
         // The cookies of this server ride in the OPT record, so there are none without it
         // (RFC 7873 §5.1).
         .cookie = if (self.flags.edns_enabled) self.servers.cookie(self.server_index) else null,
+        .recursion_desired = self.config.recursion_desired,
     };
     const written = wire.query.write(&query, out);
     assert(written >= core.constants.header_bytes);
@@ -108,7 +109,7 @@ test "the first poll asks for a UDP send to the first server" {
     var lookup = try lookup_for(&config, "example.com.");
     var out: Buffer = @splat(0);
     const action = lookup.poll(0, &out);
-    try testing.expectEqual(servers[0].address.octets, action.send_udp.server.address.octets);
+    try testing.expectEqual(servers[0].endpoint.address.octets, action.send_udp.server.address.octets);
     try testing.expect(action.send_udp.local_port_hint >= core.constants.port_ephemeral_min);
     const header = try wire.header.parse(action.send_udp.message_bytes);
     try testing.expectEqual(lookup.transaction.id, header.id);
@@ -145,7 +146,7 @@ test "a poll at the deadline moves to the next server with a new transaction" {
     lookup.on_sent(0);
     const first_id = lookup.transaction.id;
     const action = lookup.poll(config.timeout_ns, &out);
-    try testing.expectEqual(servers[1].address.octets, action.send_udp.server.address.octets);
+    try testing.expectEqual(servers[1].endpoint.address.octets, action.send_udp.server.address.octets);
     try testing.expect(lookup.transaction.id != first_id or lookup.transaction.case_seed != 0);
     try testing.expectEqual(@as(u8, 1), lookup.server_index);
 }
@@ -185,7 +186,7 @@ test "the TCP path connects, sends with a length prefix, then waits" {
     lookup.state = .tcp_needed; // what a truncated response sets
 
     const connect = lookup.poll(1, &out);
-    try testing.expectEqual(servers[0].address.octets, connect.connect_tcp.address.octets);
+    try testing.expectEqual(servers[0].endpoint.address.octets, connect.connect_tcp.address.octets);
     try testing.expectEqual(lookup_module.State.connecting_tcp, lookup.state);
 
     lookup.on_tcp_connected(2);

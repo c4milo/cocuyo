@@ -48,4 +48,5 @@ test {
     _ = @import("lookup_cookie_test.zig");
     _ = @import("lookup_init_test.zig");
     _ = @import("lookup_negative_test.zig");
+    _ = @import("lookup_config_test.zig");
 }

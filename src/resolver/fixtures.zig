@@ -29,22 +29,23 @@ const Slot = slots_module.Slot;
 const Lookup = lookup_module.Lookup;
 const Action = lookup_module.Action;
 const Verdict = lookup_module.Verdict;
+const Server = core.Server;
 const Servers = @import("servers.zig").Servers;
 
 /// The servers the tests ask. Documentation addresses, from RFC 5737.
-pub const servers_one = [_]Endpoint{
-    .{ .address = core.Address.from_v4(.{ 192, 0, 2, 53 }) },
+pub const servers_one = [_]Server{
+    .{ .endpoint = .{ .address = core.Address.from_v4(.{ 192, 0, 2, 53 }) } },
 };
 
-pub const servers_two = [_]Endpoint{
-    .{ .address = core.Address.from_v4(.{ 192, 0, 2, 53 }) },
-    .{ .address = core.Address.from_v4(.{ 192, 0, 2, 54 }) },
+pub const servers_two = [_]Server{
+    .{ .endpoint = .{ .address = core.Address.from_v4(.{ 192, 0, 2, 53 }) } },
+    .{ .endpoint = .{ .address = core.Address.from_v4(.{ 192, 0, 2, 54 }) } },
 };
 
-pub const servers_three = [_]Endpoint{
-    .{ .address = core.Address.from_v4(.{ 192, 0, 2, 53 }) },
-    .{ .address = core.Address.from_v4(.{ 192, 0, 2, 54 }) },
-    .{ .address = core.Address.from_v4(.{ 192, 0, 2, 55 }) },
+pub const servers_three = [_]Server{
+    .{ .endpoint = .{ .address = core.Address.from_v4(.{ 192, 0, 2, 53 }) } },
+    .{ .endpoint = .{ .address = core.Address.from_v4(.{ 192, 0, 2, 54 }) } },
+    .{ .endpoint = .{ .address = core.Address.from_v4(.{ 192, 0, 2, 55 }) } },
 };
 
 /// A port that is not 53, for the check that a reply from the right host on the wrong port is not
@@ -178,6 +179,9 @@ pub const answer_a_cookie_malformed: Reply = .{ .records = &record_a, .ancount =
 pub const cname_only_cookie: Reply = .{ .records = &record_cname, .ancount = 1, .cookie = .echo, .server_cookie = &server_cookie };
 /// BADCOOKIE with a fresh server cookie (RFC 7873 §5.2.4).
 pub const bad_cookie_fresh: Reply = .{ .rcode = .bad_cookie, .cookie = .echo, .server_cookie = &server_cookie_fresh };
+
+/// The A record with the TC bit set: over UDP, the answer that sends a lookup to TCP.
+pub const answer_a_truncated: Reply = .{ .records = &record_a, .ancount = 1, .truncated = true };
 
 /// A reply carrying one MX record, for a question of that type.
 pub const answer_mx: Reply = .{ .records = &record_mx, .ancount = 1 };

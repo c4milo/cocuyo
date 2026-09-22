@@ -20,7 +20,7 @@ test "a lookup for MX ends with the record kept and readable" {
     var harness = harness_for();
     try harness.start("example.com.", .mx, seed);
     _ = harness.send();
-    _ = harness.respond(fixtures.answer_mx, servers[0]);
+    _ = harness.respond(fixtures.answer_mx, servers[0].endpoint);
     const done = harness.poll().done;
     try testing.expectEqual(Kind.mx, done.kind);
     try testing.expectEqual(@as(u8, 1), done.record_count);
@@ -37,7 +37,7 @@ test "an ANY lookup keeps every record the name owns, each with its own type" {
     var harness = harness_for();
     try harness.start("example.com.", .any, seed);
     _ = harness.send();
-    _ = harness.respond(fixtures.answer_any, servers[0]);
+    _ = harness.respond(fixtures.answer_any, servers[0].endpoint);
     const done = harness.poll().done;
     try testing.expectEqual(@as(u8, 2), done.record_count);
     try testing.expectEqual(Kind.a.code(), done.records.?.at(0).kind_code);
@@ -49,7 +49,7 @@ test "a CNAME question is answered by the CNAME and follows nothing" {
     var harness = harness_for();
     try harness.start("example.com.", .cname, seed);
     _ = harness.send();
-    _ = harness.respond(fixtures.cname_only, servers[0]);
+    _ = harness.respond(fixtures.cname_only, servers[0].endpoint);
     const done = harness.poll().done;
     try testing.expectEqual(@as(u8, 1), done.record_count);
     try testing.expectEqual(@as(?*const Name, null), done.canonical_name);
@@ -61,7 +61,7 @@ test "an address lookup has no records view, and a PTR lookup has names" {
     var harness = harness_for();
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
-    _ = harness.respond(fixtures.answer_a, servers[0]);
+    _ = harness.respond(fixtures.answer_a, servers[0].endpoint);
     const done = harness.poll().done;
     try testing.expectEqual(@as(?*const wire.Records, null), done.records);
     try testing.expectEqual(@as(u8, 0), done.record_count);

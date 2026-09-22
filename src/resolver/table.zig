@@ -382,7 +382,7 @@ test "a datagram for a released slot is ignored rather than delivered" {
     table.now_ns += 1;
     try testing.expectEqual(
         Verdict.ignored,
-        table.resolver.on_datagram(message, servers[0], table.now_ns),
+        table.resolver.on_datagram(message, servers[0].endpoint, table.now_ns),
     );
 }
 

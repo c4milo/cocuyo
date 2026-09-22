@@ -55,7 +55,7 @@ pub fn candidate_count(config: *const Config, question: *const Question) u8 {
 pub fn deadline_ns(config: *const Config, round: u8, now_ns: u64) u64 {
     assert(round < core.constants.attempts_max);
     const doubled = config.timeout_ns << @intCast(round);
-    const waited = @min(doubled, core.constants.timeout_ns_max);
+    const waited = @min(doubled, config.timeout_ns_max);
     assert(waited >= config.timeout_ns);
     return now_ns + waited;
 }
@@ -74,17 +74,32 @@ pub const RcodeAction = enum {
     /// This server wants a fresh server cookie: ask it again with the one it just sent, once,
     /// then over TCP (RFC 7873 §5.3).
     retry_with_cookie,
+    /// The server's error is the answer: the caller turned `check_response` off
+    /// (docs/design.md §19 step 11).
+    fail,
 };
 
-pub fn rcode_action(rcode: wire.Rcode, edns_enabled: bool) RcodeAction {
+pub fn rcode_action(rcode: wire.Rcode, edns_enabled: bool, check_response: bool) RcodeAction {
     return switch (rcode) {
         .no_error => .collect,
         .name_error => .next_candidate,
         .format_error => if (edns_enabled) .retry_without_edns else .next_server,
         // BADVERS: cocuyo speaks version 0 alone, so there is no lower version to fall back to
         // (RFC 6891 §6.1.3).
-        .server_failure, .refused, .not_implemented, .bad_vers => .next_server,
+        .server_failure, .refused, .not_implemented, .bad_vers => if (check_response) .next_server else .fail,
         .bad_cookie => .retry_with_cookie,
+    };
+}
+
+/// The error a lookup ends in when a server's error is taken as its answer.
+pub fn error_of(rcode: wire.Rcode) core.Error {
+    return switch (rcode) {
+        .server_failure => core.Error.ServerFailure,
+        .refused => core.Error.Refused,
+        .not_implemented, .bad_vers => core.Error.NotImplemented,
+        .format_error => core.Error.FormatError,
+        .name_error => core.Error.NameNotFound,
+        .no_error, .bad_cookie => unreachable,
     };
 }
 
@@ -165,13 +180,18 @@ test "the deadline doubles per pass and stops at the cap" {
 }
 
 test "every response code maps to one decision" {
-    try testing.expectEqual(RcodeAction.collect, rcode_action(.no_error, true));
-    try testing.expectEqual(RcodeAction.next_candidate, rcode_action(.name_error, true));
-    try testing.expectEqual(RcodeAction.next_server, rcode_action(.server_failure, true));
-    try testing.expectEqual(RcodeAction.next_server, rcode_action(.refused, true));
-    try testing.expectEqual(RcodeAction.next_server, rcode_action(.not_implemented, true));
-    try testing.expectEqual(RcodeAction.retry_without_edns, rcode_action(.format_error, true));
-    try testing.expectEqual(RcodeAction.next_server, rcode_action(.format_error, false));
-    try testing.expectEqual(RcodeAction.next_server, rcode_action(.bad_vers, true));
-    try testing.expectEqual(RcodeAction.retry_with_cookie, rcode_action(.bad_cookie, true));
+    try testing.expectEqual(RcodeAction.collect, rcode_action(.no_error, true, true));
+    try testing.expectEqual(RcodeAction.next_candidate, rcode_action(.name_error, true, true));
+    try testing.expectEqual(RcodeAction.next_server, rcode_action(.server_failure, true, true));
+    try testing.expectEqual(RcodeAction.next_server, rcode_action(.refused, true, true));
+    try testing.expectEqual(RcodeAction.next_server, rcode_action(.not_implemented, true, true));
+    try testing.expectEqual(RcodeAction.retry_without_edns, rcode_action(.format_error, true, true));
+    try testing.expectEqual(RcodeAction.next_server, rcode_action(.format_error, false, true));
+    try testing.expectEqual(RcodeAction.next_server, rcode_action(.bad_vers, true, true));
+    try testing.expectEqual(RcodeAction.retry_with_cookie, rcode_action(.bad_cookie, true, true));
+    try testing.expectEqual(RcodeAction.fail, rcode_action(.server_failure, true, false));
+    try testing.expectEqual(RcodeAction.fail, rcode_action(.refused, true, false));
+    try testing.expectEqual(RcodeAction.next_candidate, rcode_action(.name_error, true, false));
+    try testing.expectEqual(core.Error.ServerFailure, error_of(.server_failure));
+    try testing.expectEqual(core.Error.NotImplemented, error_of(.bad_vers));
 }

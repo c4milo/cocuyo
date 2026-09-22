@@ -55,7 +55,7 @@ fn accepted_header(
     if (header.id != self.transaction.id) return null;
     // 3. The source: this server, on this port. An answer from the right host on the wrong port is
     //    not an answer to our query (RFC 5452 §4.4, §4.5).
-    const server = self.server();
+    const server = if (self.state == .awaiting_tcp) self.server_tcp() else self.server();
     if (!server.equal(&from)) return null;
     // 4. A response to a standard query, not a query and not another opcode.
     if (!header.is_response()) return null;
@@ -115,14 +115,14 @@ fn apply(
     learn_cookie(self, accepted.cookie);
     // Truncation over UDP sends this server's answer to TCP. Over TCP it means nothing: a stream
     // has no size limit to overflow (RFC 7766 §5), so the bit is ignored there.
-    if (header.truncated() and self.state == .awaiting_udp) {
+    if (header.truncated() and self.state == .awaiting_udp and !self.config.ignore_truncation) {
         self.state = .tcp_needed;
         return .accepted;
     }
     const bits = (@as(u16, accepted.extended_rcode_high) << wire.constants.extended_rcode_low_bits) |
         header.rcode_bits();
     const rcode = wire.Rcode.from_bits(bits) orelse return .ignored;
-    switch (policy.rcode_action(rcode, self.flags.edns_enabled)) {
+    switch (policy.rcode_action(rcode, self.flags.edns_enabled, self.config.check_response)) {
         .collect => return collect(self, message, cased, now_ns),
         .next_candidate => {
             // NXDOMAIN. The SOA in the authority section says how long a cache may remember it
@@ -141,6 +141,8 @@ fn apply(
             self.restart(now_ns);
         },
         .retry_with_cookie => on_bad_cookie(self, now_ns),
+        // The caller asked for the server's answer whatever it is (§19 step 11).
+        .fail => self.fail(policy.error_of(rcode)),
     }
     return .accepted;
 }
@@ -231,7 +233,7 @@ test "a response that matches is accepted and answers the lookup" {
     var harness = try harness_for(.{ .servers = &servers });
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
-    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a, servers[0]));
+    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a, servers[0].endpoint));
     const action = harness.poll();
     try testing.expectEqual(@as(usize, 1), action.done.addresses.len);
     try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 1 }, action.done.addresses[0].slice());
@@ -246,7 +248,7 @@ test "a response with the wrong id is ignored and the wait stands" {
     _ = harness.send();
     var reply = fixtures.answer_a;
     reply.id = harness.lookup.transaction.id ^ 0xffff;
-    try testing.expectEqual(Verdict.ignored, harness.respond(reply, servers[0]));
+    try testing.expectEqual(Verdict.ignored, harness.respond(reply, servers[0].endpoint));
     try testing.expect(harness.poll() == .wait);
 }
 
@@ -254,8 +256,8 @@ test "a response from another server, or another port, is ignored" {
     var harness = try harness_for(.{ .servers = &servers });
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
-    try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.answer_a, servers[1]));
-    const wrong_port: Endpoint = .{ .address = servers[0].address, .port = fixtures.port_other };
+    try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.answer_a, servers[1].endpoint));
+    const wrong_port: Endpoint = .{ .address = servers[0].endpoint.address, .port = fixtures.port_other };
     try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.answer_a, wrong_port));
     try testing.expect(harness.poll() == .wait);
 }
@@ -266,7 +268,7 @@ test "a response echoing the question with its case folded is ignored" {
     _ = harness.send();
     var reply = fixtures.answer_a;
     reply.fold_case = true;
-    try testing.expectEqual(Verdict.ignored, harness.respond(reply, servers[0]));
+    try testing.expectEqual(Verdict.ignored, harness.respond(reply, servers[0].endpoint));
     try testing.expect(harness.poll() == .wait);
 
     // The same reply is accepted when the caller turned 0x20 off, which shows the fold is the
@@ -274,7 +276,7 @@ test "a response echoing the question with its case folded is ignored" {
     var without = try harness_for(.{ .servers = &servers, .mix_case = false });
     try without.start("example.com.", .a, seed);
     _ = without.send();
-    try testing.expectEqual(Verdict.accepted, without.respond(reply, servers[0]));
+    try testing.expectEqual(Verdict.accepted, without.respond(reply, servers[0].endpoint));
 }
 
 test "a response to a question nobody asked is ignored" {
@@ -283,14 +285,14 @@ test "a response to a question nobody asked is ignored" {
     _ = harness.send();
     var reply = fixtures.answer_a;
     reply.other_name = true;
-    try testing.expectEqual(Verdict.ignored, harness.respond(reply, servers[0]));
+    try testing.expectEqual(Verdict.ignored, harness.respond(reply, servers[0].endpoint));
 }
 
 test "a truncated response sends the lookup to TCP" {
     var harness = try harness_for(.{ .servers = &servers });
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
-    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.truncated, servers[0]));
+    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.truncated, servers[0].endpoint));
     try testing.expect(harness.poll() == .connect_tcp);
 }
 
@@ -299,10 +301,10 @@ test "NXDOMAIN moves to the next candidate, and the last one fails the lookup" {
     var harness = try harness_for(.{ .servers = &servers, .search = &search, .ndots = 1 });
     try harness.start("example.com", .a, seed);
     _ = harness.send();
-    _ = harness.respond(fixtures.name_error, servers[0]);
+    _ = harness.respond(fixtures.name_error, servers[0].endpoint);
     try testing.expect(harness.lookup.current.equal(&try Name.from_text("example.com.one.net")));
     _ = harness.send();
-    _ = harness.respond(fixtures.name_error, servers[0]);
+    _ = harness.respond(fixtures.name_error, servers[0].endpoint);
     try testing.expectEqual(core.Error.NameNotFound, harness.poll().failed.err);
 }
 
@@ -310,7 +312,7 @@ test "NOERROR with no record of this type is NODATA, and ends as NoData" {
     var harness = try harness_for(.{ .servers = &servers });
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
-    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.no_data, servers[0]));
+    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.no_data, servers[0].endpoint));
     try testing.expect(harness.lookup.flags.had_no_data);
     try testing.expectEqual(core.Error.NoData, harness.poll().failed.err);
 }
@@ -319,10 +321,10 @@ test "SERVFAIL moves to the next server and is what the lookup fails with" {
     var harness = try harness_for(.{ .servers = &servers, .attempts = 1 });
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
-    _ = harness.respond(fixtures.server_failure, servers[0]);
+    _ = harness.respond(fixtures.server_failure, servers[0].endpoint);
     try testing.expectEqual(@as(u8, 1), harness.lookup.server_index);
     _ = harness.send();
-    _ = harness.respond(fixtures.server_failure, servers[1]);
+    _ = harness.respond(fixtures.server_failure, servers[1].endpoint);
     try testing.expectEqual(core.Error.AllServersFailed, harness.poll().failed.err);
 }
 
@@ -330,13 +332,13 @@ test "FORMERR asks the same server again without EDNS0, and only once" {
     var harness = try harness_for(.{ .servers = &servers });
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
-    _ = harness.respond(fixtures.format_error, servers[0]);
+    _ = harness.respond(fixtures.format_error, servers[0].endpoint);
     try testing.expectEqual(@as(u8, 0), harness.lookup.server_index);
     try testing.expect(!harness.lookup.flags.edns_enabled);
     const action = harness.send();
     const header = try wire.header.parse(action.send_udp.message_bytes);
     try testing.expectEqual(@as(u16, 0), header.arcount);
-    _ = harness.respond(fixtures.format_error, servers[0]);
+    _ = harness.respond(fixtures.format_error, servers[0].endpoint);
     try testing.expectEqual(@as(u8, 1), harness.lookup.server_index);
 }
 
@@ -344,7 +346,7 @@ test "a CNAME with no target asks the same server about where the chain went" {
     var harness = try harness_for(.{ .servers = &servers });
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
-    _ = harness.respond(fixtures.cname_only, servers[0]);
+    _ = harness.respond(fixtures.cname_only, servers[0].endpoint);
     try testing.expect(harness.lookup.current.equal(&try Name.from_text("host.example.net")));
     try testing.expectEqual(@as(u8, 1), harness.lookup.cname_hops);
     try testing.expectEqual(@as(u8, 0), harness.lookup.server_index);
@@ -356,7 +358,7 @@ test "a CNAME re-query draws a new transaction" {
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     const before = harness.lookup.transaction;
-    _ = harness.respond(fixtures.cname_only, servers[0]);
+    _ = harness.respond(fixtures.cname_only, servers[0].endpoint);
     const after = harness.lookup.transaction;
     try testing.expect(before.id != after.id or before.case_seed != after.case_seed);
     try testing.expect(before.case_seed != after.case_seed);
@@ -366,7 +368,7 @@ test "a chain resolved in one message answers with the canonical name" {
     var harness = try harness_for(.{ .servers = &servers });
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
-    _ = harness.respond(fixtures.cname_then_a, servers[0]);
+    _ = harness.respond(fixtures.cname_then_a, servers[0].endpoint);
     const action = harness.poll();
     try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 3 }, action.done.addresses[0].slice());
     try testing.expect(action.done.canonical_name.?.equal(&try Name.from_text("host.example.net")));
@@ -377,7 +379,7 @@ test "a record for a name nobody asked about is not part of the answer" {
     var harness = try harness_for(.{ .servers = &servers });
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
-    _ = harness.respond(fixtures.injected, servers[0]);
+    _ = harness.respond(fixtures.injected, servers[0].endpoint);
     const action = harness.poll();
     try testing.expectEqual(@as(usize, 1), action.done.addresses.len);
     try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 1 }, action.done.addresses[0].slice());
@@ -388,7 +390,7 @@ test "a malformed answer section is ignored and leaves the name alone" {
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     const before = harness.lookup.current;
-    try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.long_rdlength, servers[0]));
+    try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.long_rdlength, servers[0].endpoint));
     try testing.expectEqualSlices(u8, before.wire(), harness.lookup.current.wire());
     try testing.expect(harness.poll() == .wait);
 }
@@ -397,9 +399,9 @@ test "a response arriving after the lookup settled is ignored" {
     var harness = try harness_for(.{ .servers = &servers });
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
-    _ = harness.respond(fixtures.answer_a, servers[0]);
+    _ = harness.respond(fixtures.answer_a, servers[0].endpoint);
     try testing.expect(harness.poll() == .done);
-    try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.answer_a, servers[0]));
+    try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.answer_a, servers[0].endpoint));
 }
 
 test "a flood of unmatched datagrams neither extends nor shortens the wait" {
@@ -411,7 +413,7 @@ test "a flood of unmatched datagrams neither extends nor shortens the wait" {
     var sent: u16 = 0;
     while (sent < 64) : (sent += 1) {
         reply.id = harness.lookup.transaction.id ^ (sent + 1);
-        try testing.expectEqual(Verdict.ignored, harness.respond(reply, servers[0]));
+        try testing.expectEqual(Verdict.ignored, harness.respond(reply, servers[0].endpoint));
         try testing.expectEqual(deadline, harness.lookup.deadline_ns);
     }
     try testing.expectEqual(deadline, harness.poll().wait);
@@ -423,7 +425,7 @@ test "a truncated response over TCP is not a reason to connect again" {
     var harness = try harness_for(.{ .servers = &servers });
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
-    _ = harness.respond(fixtures.truncated, servers[0]);
+    _ = harness.respond(fixtures.truncated, servers[0].endpoint);
     try testing.expect(harness.poll() == .connect_tcp);
     harness.lookup.on_tcp_connected(harness.now_ns);
     _ = harness.send_over_tcp();
@@ -432,7 +434,7 @@ test "a truncated response over TCP is not a reason to connect again" {
     var reply = fixtures.truncated;
     reply.records = fixtures.answer_a.records;
     reply.ancount = fixtures.answer_a.ancount;
-    try testing.expectEqual(Verdict.accepted, harness.respond(reply, servers[0]));
+    try testing.expectEqual(Verdict.accepted, harness.respond(reply, servers[0].endpoint));
     // The answer is read rather than the bit obeyed, so the lookup finishes here.
     try testing.expect(harness.poll() == .done);
 }
@@ -446,7 +448,7 @@ test "a CNAME chain that loops is ignored, and the name is left where it was" {
     _ = harness.send();
     const before = harness.lookup.current;
     const deadline = harness.lookup.deadline_ns;
-    try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.cname_loop, servers[0]));
+    try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.cname_loop, servers[0].endpoint));
     try testing.expectEqualSlices(u8, before.wire(), harness.lookup.current.wire());
     try testing.expectEqual(@as(u8, 0), harness.lookup.cname_hops);
     try testing.expectEqual(deadline, harness.lookup.deadline_ns);
@@ -464,7 +466,7 @@ test "a chain name compressed into the question comes back without cocuyo's own 
         var harness = try harness_for(.{ .servers = &servers });
         try harness.start("example.com.", .a, lookup_seed);
         _ = harness.send();
-        _ = harness.respond(fixtures.cname_into_question, servers[0]);
+        _ = harness.respond(fixtures.cname_into_question, servers[0].endpoint);
         try testing.expectEqualSlices(
             u8,
             (try Name.from_text("host.com")).wire(),
