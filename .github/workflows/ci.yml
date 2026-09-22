@@ -10,8 +10,7 @@
 #
 #   - `engine`: the engine of docs/design.md §19 step 13 over rotor itself, and the comparison
 #     against the c-ares the runner installs. This is the only job that opens a socket, and the
-#     only one that needs rotor's io_uring backend. It is `workflow_dispatch` until rotor tags the
-#     release that carries its Linux fixes; making it run on every push is a one-line change here.
+#     only one that needs rotor's io_uring backend, which rotor 0.2.0 carries.
 #
 # **No number from CI enters docs/design.md §11.** A measured row there names the machine, the
 # command and the day, and a shared runner is neither named nor quiet. What this job proves is
@@ -75,9 +74,6 @@ jobs:
 
   engine:
     name: Linux, the engine over rotor and c-ares
-    # Waiting on the rotor release that carries its Linux fixes. Add the push and pull_request
-    # triggers of the jobs above once it is tagged and `build.zig.zon` is pinned to it.
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
