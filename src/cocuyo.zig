@@ -22,6 +22,7 @@ pub const Question = core.Question;
 pub const Config = core.Config;
 pub const Server = core.Server;
 pub const Source = core.Source;
+pub const Hosts = core.Hosts;
 pub const Error = core.Error;
 pub const constants = core.constants;
 

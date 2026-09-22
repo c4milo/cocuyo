@@ -447,7 +447,8 @@ that expects nothing after.
 Design §19 step 11: the knobs c-ares has and cocuyo lacked, the `Server` type with its TCP port,
 `use-vc` and the default-server option of `resolv.conf`, the two environment appliers, and the
 hosts file. Broken against `zig build test-core`, `test-wire`, `test-resolver` and
-`test-config`. Twenty-three mutations, twenty-three `CAUGHT`.
+`test-config`. Twenty-three mutations, twenty-three `CAUGHT`. §19 step 14 moved the hosts table
+and its tests to `core`, so P15, P16, P17 and P21 break against `zig build test-core` since.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |

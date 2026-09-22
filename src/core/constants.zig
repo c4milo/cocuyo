@@ -102,6 +102,14 @@ pub const servers_max = 8;
 /// once (docs/design.md §19 step 11).
 pub const lookup_sources_max = 2;
 
+/// The hosts table (`hosts.zig`): the most entries kept, the most names on one line (the
+/// official name and its aliases), and the octets of wire names one storage holds, a `u16`
+/// offset each. More lines than a machine that is not a blocklist has; past them, dropped and
+/// said so (docs/design.md §19 step 11).
+pub const hosts_entries_max = 1024;
+pub const hosts_names_per_entry_max = 8;
+pub const hosts_names_bytes_max = 65536;
+
 /// Server failover (docs/design.md §19 step 12): a server that failed to answer is asked last,
 /// and asked first again one query in `failover_retry_chance_default` once
 /// `failover_retry_delay_ns_default` has passed since it failed. Both are c-ares's defaults.

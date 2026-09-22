@@ -625,13 +625,16 @@ pub fn apply_search(text: []const u8, storage: *Storage, config: *Config) void;
 
 /// The hosts file (hosts(5)), parsed into the caller's storage: entries of one address and up
 /// to hosts_names_per_entry_max names, the names kept in wire form in one arena of the storage.
+/// The table is a core type (§19 step 14), so resolver can consult it; this is its one producer.
 pub const hosts = struct {
-    pub fn parse(bytes: []const u8, storage: *hosts.Storage) Hosts;
-    pub const Hosts = struct {
-        pub fn find(self: *const Hosts, name: *const Name, family: ?Family, out: []Address) usize;
-        pub fn canonical(self: *const Hosts, name: *const Name) ?Name;
-        pub fn reverse(self: *const Hosts, address: *const Address) ?Name;
-    };
+    pub fn parse(bytes: []const u8, storage: *core.hosts.Storage) core.Hosts;
+};
+
+/// core.Hosts, flattened as cocuyo.Hosts.
+pub const Hosts = struct {
+    pub fn find(self: *const Hosts, name: *const Name, family: ?Family, out: []Address) usize;
+    pub fn canonical(self: *const Hosts, name: *const Name) ?Name;
+    pub fn reverse(self: *const Hosts, address: *const Address) ?Name;
 };
 ```
 
@@ -1436,8 +1439,9 @@ sees the same behaviour:
 search list (§5), so no flag is added.
 
 `config.hosts` parses the hosts file's bytes into caller storage: `hosts_entries_max` lines of
-one address and up to `hosts_names_per_entry_max` names, the first name canonical, and answers
-`find(name, family)`, `canonical(name)` and `reverse(address)`. Its source is `hosts(5)`; no RFC
+one address and up to `hosts_names_per_entry_max` names, the first name canonical, as a
+`core.Hosts` that answers `find(name, family)`, `canonical(name)` and `reverse(address)` (the
+type moved to `core` in step 14). Its source is `hosts(5)`; no RFC
 states the format, and the code says so. `resolv_conf.parse` gains an option for
 `NO_DFLT_SVR`: with it, an empty server list stays empty instead of becoming `127.0.0.1`, and a
 lookup with no server fails at once. The option-line parser is exposed so the engine can hand it
