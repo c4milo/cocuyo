@@ -846,3 +846,9 @@ passes a tree that rule would have passed anyway. The canary is the mutation, an
 `zig build graph-check` is the same idea for the module graph: it compiles a fixture that imports
 `config` from a module of the `resolver` shape and requires the compiler to reject it, with a
 positive control importing `core` that must compile, so a failure means what it says.
+
+`zig build consumer-check` is the third: `test/consumer/` is a package that depends on cocuyo by
+relative path, and the check builds it twice. Once as it stands, which must build and is the
+control; once with `-Dreach-inside`, which asks for `sim` and must fail, because the build
+registers `cocuyo` and no other name (design §20). Neither run is recorded as a mutation here,
+for the same reason the canary is not: both run on every build.

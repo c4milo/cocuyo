@@ -1926,10 +1926,18 @@ and nothing else, and `Started` goes away.
 - The build registers `cocuyo` and creates the rest, so `cocuyo` is the only name a dependent
   can import. `zig build test-<module>` still names each one, because the build holds the graph
   as a value rather than by name.
-- A fixture package under `test/consumer/`, with a manifest that depends on cocuyo by relative
-  path, is built by `zig build consumer-check`: it imports `cocuyo`, starts a lookup, and is the
-  proof that the packaging works. A second fixture that imports `sim` must fail to build, the way
-  `graph-check` proves the module graph.
+- A fixture package under `test/consumer/`, whose manifest depends on cocuyo by relative path,
+  is built by `zig build consumer-check`: it imports `cocuyo`, puts a cache under a table and
+  builds one query, which is the proof that the packaging works. The same package built with
+  `-Dreach-inside` asks for `sim` and must fail, the way `graph-check` proves the module graph,
+  and the positive run is the control that stops the negative from passing for the wrong reason.
+  It lives outside `src/`, `tools/`, `bench/` and every other directory the lint and the format
+  check read, because a nested build materialises into a `zig-pkg/` beside it whatever packages
+  the machine already holds, and those are not ours to score.
+- What that first run settled: against an empty package cache, a dependent fetches nothing at
+  all — no pepegrillo, no rotor, no rotor's own dependency — and builds in about seven seconds.
+  The `zig-pkg/` that appears on a machine which already holds them is a copy of what was there,
+  not a download, and nothing in it is compiled or linked. The manifest's `lazy` holds.
 
 ### Alternatives this beats
 

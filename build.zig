@@ -20,6 +20,7 @@ const assert = std.debug.assert;
 const modules = @import("build/modules.zig");
 const lint = @import("build/lint.zig");
 const graph_check = @import("build/graph_check.zig");
+const consumer_check = @import("build/consumer_check.zig");
 const examples = @import("build/examples.zig");
 const bench = @import("build/bench.zig");
 
@@ -41,6 +42,7 @@ const tool_test_roots = [_][]const u8{
     "tools/cognitive_complexity.zig",
     "tools/commit_lint.zig",
     "tools/graph_check.zig",
+    "tools/consumer_check.zig",
 };
 
 /// The git revision range `zig build lint-commits` checks.
@@ -115,6 +117,7 @@ pub fn build(b: *std.Build) void {
     }
 
     test_step.dependOn(graph_check.add(b, host_module(b, "tools/graph_check.zig")));
+    test_step.dependOn(consumer_check.add(b, host_module(b, "tools/consumer_check.zig")));
     // rotor drives the second example and nothing else. `lazyDependency` leaves it null until
     // the build has it, and `build/examples.zig` simply adds no rotor example in that case.
     const rotor = b.lazyDependency("rotor", .{ .target = target });

@@ -118,7 +118,10 @@ The architecture depends on every rule in this section.
   consumer asks for one.
 - Each module owns its `constants.zig`. A limit two modules share lives in `src/core/constants.zig`.
 - `examples/` holds worked examples, `bench/` the microbenchmarks, `docs/` the design set, and
-  `tools/` developer tooling that is never linked into the library. `bench/` is outside the module
+  `tools/` developer tooling that is never linked into the library. `test/` holds fixtures that
+  are whole packages of their own rather than files of this one: `test/consumer/` depends on
+  cocuyo the way a consumer does, and it sits outside every linted directory because a nested
+  build leaves packages beside it. `bench/` is outside the module
   graph and may read a clock; it is linted and formatted like `src/`, and it gets a module graph
   of its own at ReleaseSafe from `build/bench.zig`.
 
@@ -143,11 +146,14 @@ The architecture depends on every rule in this section.
   relative-import, markdown, file-length, magic-numbers, defer-order, unreleased-acquire) over
   the tree and over a canary tree that
   holds one violation of each, so a rule that stopped checking fails the build.
-- Test: `zig build test` — the lint, the graph check, the hook check, then every module's unit
-  tests and the tools' own tests. Every change passes it before it is committed.
-  `zig build test-<module>` (`test-core`, `test-wire`, `test-resolver`, `test-config`,
+- Test: `zig build test` — the lint, the graph check, the consumer check, the hook check, then
+  every module's unit tests and the tools' own tests. Every change passes it before it is
+  committed. `zig build test-<module>` (`test-core`, `test-wire`, `test-resolver`, `test-config`,
   `test-cache`, `test-sim`, `test-cocuyo`, `test-io`) and `zig build test-tools` run one target's tests with
-  nothing else in the graph, which is what a mutation is measured against.
+  nothing else in the graph, which is what a mutation is measured against. `zig build
+  consumer-check` alone builds `test/consumer/`, the package that depends on cocuyo the way a
+  consumer does, and requires the same package to fail when it reaches for a module the surface
+  does not export (design §20).
 - Bench: `zig build bench` — the microbenchmarks of design §15 step 7, built ReleaseSafe
   whatever `-Drelease` says. `zig build test` compiles the bench and runs the harness's own tests,
   so it cannot rot. A number goes into design §11 with the machine, the command and the date, or it

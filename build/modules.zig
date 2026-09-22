@@ -9,7 +9,9 @@
 //! consumer never importing it rather than the file never shipping).
 const std = @import("std");
 
-/// The public module a consumer imports, and every module `zig build test-<name>` can name.
+/// The module graph as a value. `cocuyo` is the one a consumer imports and the one this build
+/// registers by name; the rest are this build's own, named by `zig build test-<name>` through
+/// this struct rather than through the package (docs/design.md §20).
 pub const Graph = struct {
     cocuyo: *std.Build.Module,
     core: *std.Build.Module,
@@ -62,15 +64,18 @@ fn build(
     optimize: std.builtin.OptimizeMode,
     register: bool,
 ) Graph {
+    // Only `cocuyo` is registered, so `cocuyo` is the only name a dependent can import
+    // (docs/design.md §20). The rest are created: this build holds the graph as a value, so
+    // `zig build test-<name>` still names each one without the name being part of the package.
     const graph: Graph = .{
         .cocuyo = module(b, target, optimize, "cocuyo", roots.cocuyo, register),
-        .core = module(b, target, optimize, "core", roots.core, register),
-        .wire = module(b, target, optimize, "wire", roots.wire, register),
-        .resolver = module(b, target, optimize, "resolver", roots.resolver, register),
-        .config = module(b, target, optimize, "config", roots.config, register),
-        .cache = module(b, target, optimize, "cache", roots.cache, register),
-        .sim = module(b, target, optimize, "sim", roots.sim, register),
-        .io = module(b, target, optimize, "io", roots.io, register),
+        .core = module(b, target, optimize, "core", roots.core, false),
+        .wire = module(b, target, optimize, "wire", roots.wire, false),
+        .resolver = module(b, target, optimize, "resolver", roots.resolver, false),
+        .config = module(b, target, optimize, "config", roots.config, false),
+        .cache = module(b, target, optimize, "cache", roots.cache, false),
+        .sim = module(b, target, optimize, "sim", roots.sim, false),
+        .io = module(b, target, optimize, "io", roots.io, false),
     };
 
     // core imports nothing, and that is the point of it: every limit and every type that two

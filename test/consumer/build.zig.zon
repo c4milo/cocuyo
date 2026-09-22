@@ -1,0 +1,15 @@
+.{
+    .name = .consumer,
+    .version = "0.0.0",
+    .fingerprint = 0x705b3727a7bb8340,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .cocuyo = .{ .path = "../.." },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "main.zig",
+        "inside.zig",
+    },
+}
