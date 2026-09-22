@@ -18,6 +18,10 @@ pub const Graph = struct {
     config: *std.Build.Module,
     cache: *std.Build.Module,
     sim: *std.Build.Module,
+    /// The driver of docs/design.md §19 step 13, compiled against the twin: `sim` stands in for
+    /// `rotor`, so its tests run with no socket and no kernel. It is not exported: nothing binds
+    /// it to rotor itself until a consumer asks for that (owner, 2026-09-22).
+    io: *std.Build.Module,
 };
 
 /// The root source of each module, which `tools/graph_check.zig` reads back when it compiles a
@@ -30,6 +34,7 @@ pub const roots = .{
     .config = "src/config/resolv_conf.zig",
     .cache = "src/cache/cache.zig",
     .sim = "src/sim/sim.zig",
+    .io = "io/io.zig",
 };
 
 /// The graph, registered: a consumer names `cocuyo`, and `zig build test-<name>` names the rest.
@@ -65,6 +70,7 @@ fn build(
         .config = module(b, target, optimize, "config", roots.config, register),
         .cache = module(b, target, optimize, "cache", roots.cache, register),
         .sim = module(b, target, optimize, "sim", roots.sim, register),
+        .io = module(b, target, optimize, "io", roots.io, register),
     };
 
     // core imports nothing, and that is the point of it: every limit and every type that two
@@ -83,6 +89,8 @@ fn build(
     graph.cocuyo.addImport("resolver", graph.resolver);
     graph.cocuyo.addImport("config", graph.config);
     graph.cocuyo.addImport("cache", graph.cache);
+    graph.io.addImport("cocuyo", graph.cocuyo);
+    graph.io.addImport("rotor", graph.sim);
 
     return graph;
 }

@@ -15,7 +15,7 @@ const lint = pepegrillo.lint;
 const relative_import = lint.rules.relative_import;
 
 pub const config: relative_import.Config = .{
-    .scope = .{ .extensions = &.{lint.paths.zig_extension}, .include_directories = &.{"src"} },
+    .scope = .{ .extensions = &.{lint.paths.zig_extension}, .include_directories = &.{ "src", "io" } },
     .mode = .leaves_subsystem,
     .message = "@import(\"{[path]s}\") reaches out of the module by path;" ++
         " import the module name build/modules.zig declares",

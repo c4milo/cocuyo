@@ -24,11 +24,11 @@ const examples = @import("build/examples.zig");
 const bench = @import("build/bench.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
-const source_directories = [_][]const u8{ "build", "src", "tools", "examples", "bench" };
+const source_directories = [_][]const u8{ "build", "src", "tools", "examples", "bench", "io" };
 
 /// Every directory the tools/lint rules read: the sources above plus the documents, which the
 /// markdown rule covers.
-const lint_rule_directories = [_][]const u8{ "build", "src", "tools", "examples", "bench", "docs" };
+const lint_rule_directories = [_][]const u8{ "build", "src", "tools", "examples", "bench", "io", "docs" };
 
 /// Markdown outside `docs/` that the markdown rule reads all the same, because both render on
 /// GitHub as written (CLAUDE.md, Conventions).
@@ -93,6 +93,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "cache", .module = graph.cache },
         .{ .name = "sim", .module = graph.sim },
         .{ .name = "cocuyo", .module = graph.cocuyo },
+        .{ .name = "io", .module = graph.io },
     };
     for (unit_test_modules) |entry| {
         const unit_tests = b.addTest(.{ .name = entry.name, .root_module = entry.module });

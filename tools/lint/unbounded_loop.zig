@@ -29,7 +29,7 @@ const length_reader_names = [_][]const u8{
 };
 
 pub const config: unbounded_loop.Config = .{
-    .scope = .{ .extensions = &.{lint.paths.zig_extension}, .include_directories = &.{"src"} },
+    .scope = .{ .extensions = &.{lint.paths.zig_extension}, .include_directories = &.{ "src", "io" } },
     .forever = .unless_bounded_break,
     .length_read = true,
     .bound = .{ .segments = &.{"constants"}, .last_segment_suffixes = &.{"_max"} },

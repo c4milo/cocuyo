@@ -22,7 +22,7 @@ pub const max_lines: u32 = 500;
 pub const config: file_length.Config = .{
     .scope = .{
         .extensions = &.{ ".zig", ".sh" },
-        .include_directories = &.{ "src", "tools", "build", "examples", "bench" },
+        .include_directories = &.{ "src", "tools", "build", "examples", "bench", "io" },
     },
     .max_lines = max_lines,
     .message_suffix = "; split the file",

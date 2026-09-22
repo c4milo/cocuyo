@@ -25,7 +25,7 @@ const reason = "cocuyo allocates nothing; the caller owns every buffer (non-nego
 /// and nothing under `tools/` is linked into the library.
 pub const config: forbidden_references.Config = .{
     .name = "heap",
-    .scope = .{ .extensions = &.{lint.paths.zig_extension}, .include_directories = &.{"src"} },
+    .scope = .{ .extensions = &.{lint.paths.zig_extension}, .include_directories = &.{ "src", "io" } },
     .prefixes = &forbidden_prefixes,
     .parameter_check = .{ .type_segment = "Allocator", .description = "an allocator parameter" },
     .reason = reason,

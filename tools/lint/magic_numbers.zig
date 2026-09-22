@@ -23,7 +23,7 @@ const magic_numbers = lint.rules.magic_numbers;
 pub const config: magic_numbers.Config = .{
     .scope = .{
         .extensions = &.{lint.paths.zig_extension},
-        .include_directories = &.{"src"},
+        .include_directories = &.{ "src", "io" },
         .exclude_basenames = &.{ "constants.zig", "fixtures.zig" },
     },
 };
