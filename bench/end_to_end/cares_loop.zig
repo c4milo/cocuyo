@@ -16,10 +16,12 @@ pub const Outcome = struct { elapsed_ns: u64, failures: u32 };
 const Slot = struct {
     started_ns: u64 = 0,
     text: [constants.name_bytes]u8 = undefined,
-    /// A query is being submitted on this slot right now.
-    issuing: bool = false,
-    /// Its answer came before `ares_query_dnsrec` returned.
-    answered_inline: bool = false,
+    /// A query is being submitted on this slot right now. Atomic because two threads read it:
+    /// the first batch goes out from the main thread, and c-ares may answer on its event thread
+    /// before `ares_query_dnsrec` has returned here.
+    issuing: std.atomic.Value(bool) = .init(false),
+    /// Its answer came while that submission was still in progress.
+    answered_inline: std.atomic.Value(bool) = .init(false),
 };
 
 const State = struct {
@@ -66,16 +68,16 @@ pub fn run(port: u16, in_flight: u32, total: u32, latencies: []u64) !Outcome {
 /// stack. A start that happens inside a start now only says so, and the loop here makes the next
 /// one. The claims bound the loop: there are `total` of them and no more.
 fn start_next(slot: *Slot) void {
-    if (slot.issuing) {
-        slot.answered_inline = true;
+    if (slot.issuing.load(.acquire)) {
+        slot.answered_inline.store(true, .release);
         return;
     }
-    slot.issuing = true;
-    defer slot.issuing = false;
+    slot.issuing.store(true, .release);
+    defer slot.issuing.store(false, .release);
     while (claim()) |index| {
-        slot.answered_inline = false;
+        slot.answered_inline.store(false, .release);
         issue(slot, index);
-        if (!slot.answered_inline) return;
+        if (!slot.answered_inline.load(.acquire)) return;
     }
 }
 
@@ -89,7 +91,11 @@ fn claim() ?u32 {
 
 /// One query out, under c-ares's own lock either way.
 fn issue(slot: *Slot, index: u32) void {
-    const name = std.fmt.bufPrintZ(&slot.text, "h{d}.example.", .{index}) catch unreachable;
+    // Not `catch unreachable`: when this failed it said nothing about why, and the name it was
+    // asked to write always fits. A panic that carries the index is what a rerun needs.
+    const name = std.fmt.bufPrintZ(&slot.text, "h{d}.example.", .{index}) catch {
+        std.debug.panic("the name for lookup {d} did not fit {d} octets", .{ index, constants.name_bytes });
+    };
     slot.started_ns = harness.now_ns();
     const status = c.ares_query_dnsrec(state.channel, name.ptr, c.ARES_CLASS_IN, c.ARES_REC_TYPE_A, &on_answer, slot, null);
     assert(status == c.ARES_SUCCESS);
@@ -114,9 +120,9 @@ fn on_answer(arg: ?*anyopaque, status: c.ares_status_t, timeouts: usize, record:
 const testing = std.testing;
 
 test "a start that happens inside a start makes no query of its own" {
-    var slot: Slot = .{ .issuing = true };
+    var slot: Slot = .{ .issuing = .init(true) };
     start_next(&slot);
-    try testing.expect(slot.answered_inline);
+    try testing.expect(slot.answered_inline.load(.acquire));
     // Still the outer start's to finish: the loop there makes the next query, not this call.
-    try testing.expect(slot.issuing);
+    try testing.expect(slot.issuing.load(.acquire));
 }
