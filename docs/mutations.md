@@ -406,6 +406,41 @@ name, so the fixture is now an SVCB whose target runs into the record after it, 
 else would notice: the copy would keep `foo.example.com` and take the parameters from past the
 record's end.
 
+## Step 10, DNS cookies
+
+Design §19 step 10: the COOKIE option written into and read out of the OPT record, the OPT
+record found across a response's three sections, the per-server table, and check 6 of §7 with
+what follows it. Broken against `zig build test-wire` and `zig build test-resolver`. Twenty
+mutations, twenty `CAUGHT` — one after a test was added for it.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| O1 | the option's length omits the server cookie | RFC 7873 §4 | the long-form test | CAUGHT |
+| O2 | a nine-octet option is accepted | RFC 7873 §5.2.2 | the lengths test | CAUGHT |
+| O3 | the last of two COOKIE options is taken | RFC 7873 §5.3 | the first-of-two test | CAUGHT |
+| O4 | an OPT owned by a name is accepted | RFC 6891 §6.1.2 | the bad-owner test | CAUGHT |
+| O5 | the OPT is sought in the answer section alone | RFC 6891 §6.1.1 | the additional-section test | CAUGHT |
+| O6 | the record's size ignores the server cookie | `query_bytes_max` | the largest-query test | CAUGHT |
+| O7 | a wrong client cookie is accepted | RFC 7873 §5.3 | the wrong-cookie test | CAUGHT |
+| O8 | a missing cookie is accepted once expected | RFC 7873 §5.3 | the no-cookie-after test | CAUGHT |
+| O9 | a missing cookie is rejected before any is learned | RFC 7873 §5.3 | the no-cookie-before test | CAUGHT |
+| O10 | the server cookie is never learned | RFC 7873 §5.3 | the next-query test | CAUGHT |
+| O11 | BADCOOKIE moves to the next server | RFC 7873 §5.3 | the retry test | CAUGHT |
+| O12 | a second BADCOOKIE is retried again | RFC 7873 §5.3 | the TCP test | CAUGHT |
+| O13 | BADCOOKIE over TCP is retried forever | §19 step 10 | the next-server test | CAUGHT |
+| O14 | the rcode's high bits are ignored | RFC 6891 §6.1.3 | every BADCOOKIE test | CAUGHT |
+| O15 | a query carries no cookie | RFC 7873 §5.1 | the first-query test | CAUGHT |
+| O16 | the client cookie ignores the server's address | RFC 7873 §4.1 | the per-server test | CAUGHT |
+| O17 | the client cookie ignores the seed | RFC 7873 §4.1 | the per-seed test | CAUGHT |
+| O18 | the retry flag is never reset | §19 step 10 | the next-server test | CAUGHT |
+| O19 | a cookie is learned from an answer to a query without EDNS | RFC 7873 §5.1 | **the EDNS-off test** | CAUGHT |
+| O20 | BADVERS is collected as an answer | RFC 6891 §6.1.3 | the policy table test | CAUGHT |
+
+O19 survived the first run. The guard says a lookup that sent no OPT record learns nothing from
+a cookie that comes back anyway, so the next lookup does not expect a cookie it never sent; the
+test that shows it is a lookup without EDNS answered with a cookie, accepted, and a server table
+that expects nothing after.
+
 ## Planned, later steps
 
 | # | Mutation | Check it breaks | Expected to be caught by | Status |

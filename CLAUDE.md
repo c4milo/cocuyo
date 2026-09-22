@@ -182,8 +182,13 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   `src/wire/rdata/` decodes each from stored rdata, `record_copy.zig` writes a record out of a
   message with its names in full, and a lookup for any type keeps its records in the rdata
   buffer of `Answers`, which grew the lookup to 3024 octets (§9).
-- Next, in order: DNS cookies (10), configuration parity with the hosts file (11), server
-  failover (12), the engine over rotor with its deterministic twin in `sim` first (13), the
-  `getaddrinfo` shape (14), RFC 6724 ordering and the end-to-end comparison (15).
+- **10**, DNS cookies, done the same day: every query with EDNS carries the client cookie of
+  its server, and the server cookie once learned (`resolver/servers.zig`, owned by `Resolver`
+  and handed to every lookup); `on_response` discards a wrong or, once expected, a missing
+  cookie (§7 check 6), learns from what it accepts, and answers BADCOOKIE with one retry, then
+  TCP, then the next server.
+- Next, in order: configuration parity with the hosts file (11), server failover (12), the
+  engine over rotor with its deterministic twin in `sim` first (13), the `getaddrinfo` shape
+  (14), RFC 6724 ordering and the end-to-end comparison (15).
 
 §17 holds the questions the owner has not answered.

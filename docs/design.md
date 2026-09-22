@@ -189,8 +189,16 @@ pub const Config = struct {
 ### One lookup
 
 ```zig
+/// Per-server state every lookup of a caller shares: the DNS cookies of §19 step 10, the failover
+/// counters of step 12. `Resolver` holds one; a caller driving a `Lookup` alone builds one.
+pub const Servers = struct {
+    pub fn init(config: *const Config, seed: u64) Servers;
+};
+
 pub const Lookup = struct {
-    pub fn init(config: *const Config, question: Question, seed: u64) Lookup;
+    pub fn init(config: *const Config, servers: *Servers, question: Question, seed: u64) Lookup;
+    /// `init` into memory the caller owns, which is what `Resolver` does with its slots (§11).
+    pub fn init_in_place(self: *Lookup, config: *const Config, servers: *Servers, question: Question, seed: u64) void;
     pub fn poll(self: *Lookup, now_ns: u64, out: []u8) Action;
     pub fn on_sent(self: *Lookup, now_ns: u64) void;
     pub fn on_send_failed(self: *Lookup, now_ns: u64) void;
@@ -409,7 +417,13 @@ A response is considered only if all of these hold, checked in this order:
 3. `from` equals the endpoint the query was sent to: family, every address octet, and the port.
 4. QR is 1 and the opcode is QUERY.
 5. QDCOUNT is 1 and the question section is byte-identical to the one sent, case included.
-6. Only then is the answer section walked.
+6. The cookie (RFC 7873 §5.3, since §19 step 10): when the query carried an OPT record, a
+   COOKIE option in the response must echo the client cookie sent, and a server that has given a
+   server cookie before must give one again; an OPT record that is malformed — a version cocuyo
+   does not speak, an owner that is not the root, a cookie of a length neither form allows — is a
+   discard too. Before a server has given a cookie, a response without one is a server without
+   them, and stands.
+7. Only then is the answer section walked.
 
 Matching on the transaction id alone is the textbook cache-poisoning hole. Checking the source
 address without the port is the same hole with one extra step. The question compare is exact
@@ -502,11 +516,11 @@ up as a diff rather than as a surprise. The pins that exist are in `src/core/cor
 
 | Part of `Lookup` | Bytes | Note |
 | --- | --- | --- |
-| the scalars | 64 | state, flags, four indices, the transaction, two instants, the generator, the failure, the negative TTL, the config pointer |
+| the scalars | 72 | state, flags, four indices, the transaction, two instants, the generator, the failure, the negative TTL, the config pointer, the servers pointer |
 | `question` | 260 | the name as asked, its type, and whether it was absolute |
 | `current` | 256 | the current candidate, or where the CNAME chain has reached |
 | `answers` | 2448 | a union: `[addresses_max]Address` is 272, `[ptr_names_max]Name` is 256, and the records of §19 step 9 are 2436 — 32 references of 12 and a buffer of `rdata_bytes_max` — plus the count, the TTL, the hop count and two flags |
-| total | 3024, measured | pinned by a test in `src/resolver/lookup.zig` |
+| total | 3032, measured | pinned by a test in `src/resolver/lookup_init_test.zig` |
 
 The total is larger than the parts because Zig chooses a struct's field order and pads accordingly.
 It also means a declaration order cannot be relied on for locality: the measurement that pinned
@@ -518,12 +532,12 @@ The caller-provided buffer §19 keeps as the fallback is what would take it back
 
 | Caller allocation | Size | For |
 | --- | --- | --- |
-| `[N]Resolver.Slot` | 3032 bytes each, measured | one per concurrent lookup: a lookup plus the table's own octets |
+| `[N]Resolver.Slot` | 3040 bytes each, measured | one per concurrent lookup: a lookup plus the table's own octets |
 | `[2N]MatchKey` | 4 bytes each | the id-to-slot table, power-of-two length |
 | send buffer | `query_bytes_max`, 284 | shared by the whole table |
 | receive buffer | `config.udp_payload_bytes`, 1232 by default | the caller's, per socket |
 
-So 1024 concurrent lookups cost 3032 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
+So 1024 concurrent lookups cost 3040 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
 ever, by anybody.
 
 ## 10. The config parser
@@ -575,36 +589,36 @@ ran before the bench. Two runs back to back; every median below is from the seco
 of them sits within 5% of the first, most within 2%. The harness overhead, the first row, is included in every
 other row and not subtracted. The numbers are cocuyo's alone: nothing here is measured against
 c-ares or any other resolver, so the table supports no claim about speed relative to what cocuyo
-replaces. Nanoseconds per operation, from the commit that landed §19 step 9; the table was first
+replaces. Nanoseconds per operation, from the commit that landed §19 step 10; the table was first
 measured by the commit that added it, and is re-measured whole whenever a change moves a row,
 because the rows move together (below):
 
 | Case | Fastest | Median |
 | --- | --- | --- |
-| harness overhead, an empty call through the same function pointer | 1.6 | 1.6 |
-| query build, `example.com`, EDNS0 | 8.1 | 8.5 |
-| query build, a 255-octet name, over TCP | 12.4 | 13.1 |
-| name decode, two labels | 15.8 | 16.2 |
-| name decode, through a compression pointer | 17.1 | 17.4 |
+| harness overhead, an empty call through the same function pointer | 1.5 | 1.6 |
+| query build, `example.com`, EDNS0, no cookie | 8.3 | 8.5 |
+| query build, a 255-octet name, over TCP | 10.5 | 10.8 |
+| name decode, two labels | 15.8 | 16.3 |
+| name decode, through a compression pointer | 17.1 | 17.6 |
 | response parse, one A record | 50.1 | 50.9 |
-| response parse, a CNAME then its A record, with a 256-octet restore of the chain | 184.5 | 186.2 |
-| response parse, 17 A records, 16 kept | 585.3 | 587.8 |
+| response parse, a CNAME then its A record, with a 256-octet restore of the chain | 186.9 | 188.6 |
+| response parse, 17 A records, 16 kept | 587.2 | 591.9 |
 | datagram match, an id nobody holds, 1 in flight | 3.1 | 3.1 |
 | datagram match, an id nobody holds, 1024 in flight | 3.1 | 3.1 |
-| datagram match, right id and wrong question, 1 in flight | 35.9 | 36.5 |
-| datagram match, right id and wrong question, 64 in flight | 36.4 | 37.0 |
-| datagram match, right id and wrong question, 1024 in flight | 36.3 | 37.0 |
-| datagram match, right id and wrong question, rotating over all 1024 slots | 53.7 | 54.3 |
-| slot restore, a 3032-octet copy the accepted case pays and a caller does not | 51.4 | 52.2 |
-| datagram match, accepted, 1024 in flight, with the slot restore | 131.1 | 131.8 |
-| lookup round trip: `init_in_place`, `poll`, `on_sent`, `on_response` | 183.7 | 184.8 |
-| `resolv.conf` parse, three lines | 319.0 | 321.4 |
-| cache hit, one entry, hot | 30.9 | 31.6 |
-| cache hit, rotating over 1024 entries | 42.9 | 43.7 |
-| cache miss, 1024 entries, a young index | 12.4 | 12.6 |
-| cache miss, 1024 entries, after churn | 35.3 | 35.7 |
-| cache put, replacing an entry in place | 37.6 | 38.1 |
-| cache put, evicting, 1024 entries and the table full | 94.7 | 95.7 |
+| datagram match, right id and wrong question, 1 in flight | 36.4 | 37.0 |
+| datagram match, right id and wrong question, 64 in flight | 37.1 | 37.9 |
+| datagram match, right id and wrong question, 1024 in flight | 37.4 | 38.3 |
+| datagram match, right id and wrong question, rotating over all 1024 slots | 52.3 | 54.2 |
+| slot restore, a 3040-octet copy the accepted case pays and a caller does not | 40.3 | 41.1 |
+| datagram match, accepted, 1024 in flight, with the slot restore | 135.8 | 137.9 |
+| lookup round trip: `init_in_place`, `poll`, `on_sent`, `on_response` | 199.1 | 201.4 |
+| `resolv.conf` parse, three lines | 321.3 | 324.5 |
+| cache hit, one entry, hot | 30.9 | 32.0 |
+| cache hit, rotating over 1024 entries | 42.7 | 44.7 |
+| cache miss, 1024 entries, a young index | 12.6 | 12.8 |
+| cache miss, 1024 entries, after churn | 35.2 | 36.2 |
+| cache put, replacing an entry in place | 37.4 | 38.7 |
+| cache put, evicting, 1024 entries and the table full | 95.5 | 97.1 |
 
 What the table says, against the estimates:
 
@@ -618,17 +632,24 @@ What the table says, against the estimates:
   carries the restore its name says.
 - The demultiplexer is the constant it was designed to be. An id nobody holds is refused in 3 ns
   whether 1 or 1024 lookups are in flight, and a real id with the wrong question — the probe plus
-  every check of §7 short of the answer walk — costs 37 ns at 1 in flight and 37 ns at 1024.
-  Accepting one at 1024 in flight costs 132 ns, of which 52 is the slot the harness puts back after
-  each iteration, so 80 ns is the match and the answer walk.
+  every check of §7 short of the answer walk — costs 37 ns at 1 in flight and 38 ns at 1024.
+  Accepting one at 1024 in flight costs 138 ns, of which 41 is the slot the harness puts back after
+  each iteration, so 97 ns is the match, check 6 and the answer walk.
 - Those rows aim every iteration at one slot, which sits in the first-level cache from the second
   iteration on. The rotating row aims each iteration at a different one of the 1024, whose 3 MiB
   do not fit the 128 KiB first level and do fit the 12 MiB second: the same path costs 54 ns there,
   so a slot read cold out of the first level adds 17 ns. A datagram arriving from the kernel finds
   its slot at least that cold.
-- A whole lookup, minus the network — made in its slot, its query built, the send heard, the
-  answer read — is 185 ns. Against the shortest round trip the estimate considered, one
-  millisecond, that is 0.019%: the network is about 5,400 times the library.
+- A whole lookup, minus the network — made in its slot, its query built with its cookie, the
+  send heard, the answer read and its OPT record sought — is 201 ns. Against the shortest round
+  trip the estimate considered, one millisecond, that is 0.020%: the network is about 5,000 times
+  the library.
+- The cookies of §19 step 10 cost 17 ns a lookup: the round trip read 185 ns before them and
+  201 after, the accepted match 80 and 97 net of the restore. That is the COOKIE option written
+  into every query, a 41-octet cookie copied out of the server table on the way, and the OPT
+  record sought across the three sections of every accepted response for check 6. The slot
+  restore row fell from 52 to 41 while the slot grew from 3032 octets to 3040: a copy of a size
+  that is a multiple of 32 is the faster one, which is the layout effect below in another form.
 - The rdata buffer of §19 step 9 costs what is written, not what is held. With `collect` building
   a whole `Answers` per response, one A record parsed in 79 ns, a lookup started in 302 and a cache
   put in place took 60; with `reset` and `assign` touching only the storage a kind uses, and
@@ -750,6 +771,9 @@ written at the use site. Shared limits live in `src/core/constants.zig`.
 | `records_max` | 64 | bounds the walk whatever the count fields claim |
 | `addresses_max` | 16 | §17 asks whether this is enough for large round-robin names |
 | `ptr_names_max` | 1 | a reverse lookup returns one name in practice, and `truncated` says when more existed |
+| `cookie_client_bytes` | 8 | RFC 7873 §4 |
+| `cookie_server_bytes_max` | 32 | RFC 7873 §4; a server cookie is 8 to 32 octets, 16 under RFC 9018 |
+| `opt_record_bytes_max` | 55 | the OPT record with the largest COOKIE option; `query_bytes_max` is 328 with it |
 | `records_kept_max` | 32 | the records of one type a lookup keeps for every other type (§19 step 9); `truncated` past it |
 | `rdata_bytes_max` | 2048 | one UDP payload with room for the names written out in full (§19 step 9); `truncated` when a TCP answer does not fit |
 | `servers_max` | 8 | glibc's MAXNS is 3; 8 leaves room and still bounds the loop |
@@ -1274,8 +1298,13 @@ the length at 16 for servers that follow it, and a client reads only the length)
 - FORMERR from a server that rejects the option is what RFC 6891 §6.2.2's fallback already
   covers: the query is repeated without EDNS.
 
-**Gate.** The scripted server of `sim` learns cookies: a good one, a wrong client cookie, a
-BADCOOKIE once and twice, and a server with none. Mutations on each check.
+**Gate.** The fake server of `resolver/fixtures.zig` learns cookies: a good one, a wrong
+client cookie, a malformed option, a BADCOOKIE once, twice and over TCP, and a server with none.
+Mutations on each check.
+
+Landed on 2026-09-22: `wire/edns.zig` writes and reads the option, `wire/response_opt.zig`
+finds the OPT record, `resolver/servers.zig` holds the per-server state, and `on_response`
+runs check 6 (§7). `Lookup.init` takes the `Servers` pointer, and the lookup is 3032 octets.
 
 ### Step 11: configuration parity
 
