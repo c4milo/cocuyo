@@ -93,6 +93,13 @@ pub const record_injected_a = "\x08attacker\x07example\x03com\x00".* ++ [_]u8{
     0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x04, 192, 0, 2, 9,
 };
 
+/// An MX record owned by the question's name: preference 10, exchange `mail` then a pointer to
+/// the question's name, TTL 300 (RFC 1035 §3.3.9, §4.1.4).
+pub const record_mx = [_]u8{
+    0xc0, 0x0c, 0x00, 0x0f, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x09,
+    0x00, 0x0a, 0x04, 'm',  'a',  'i',  'l',  0xc0, 0x0c,
+};
+
 /// An A record whose rdlength reaches past the end of the message.
 pub const record_long_rdlength = [_]u8{
     0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x01, 0x90, 192, 0, 2, 1,
@@ -130,6 +137,12 @@ pub const Reply = struct {
 
 /// A reply carrying one A record.
 pub const answer_a: Reply = .{ .records = &record_a, .ancount = 1 };
+
+/// A reply carrying one MX record, for a question of that type.
+pub const answer_mx: Reply = .{ .records = &record_mx, .ancount = 1 };
+
+/// A reply to an ANY question: the A record and the MX record together (RFC 8482 §4.1).
+pub const answer_any: Reply = .{ .records = &(record_a ++ record_mx), .ancount = 2 };
 
 /// A reply carrying a CNAME and no record for its target.
 pub const cname_only: Reply = .{ .records = &record_cname, .ancount = 1 };

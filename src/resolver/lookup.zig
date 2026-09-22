@@ -69,6 +69,11 @@ pub const Answer = struct {
     /// Slices into the lookup. Valid until the next call on it.
     addresses: []const Address,
     names: []const Name,
+    /// The records kept for a question of any type but A, AAAA and PTR, `records.?.at(index)`
+    /// for `index` below `record_count`, each readable through `wire.rdata`; null for the three
+    /// (docs/design.md §19 step 9).
+    records: ?*const wire.Records,
+    record_count: u8,
     /// The end of the CNAME chain, when one was followed.
     canonical_name: ?*const Name,
     /// The smallest TTL over the records used, for a cache above cocuyo.
@@ -131,9 +136,18 @@ pub const Lookup = struct {
     answers: wire.Answers,
 
     pub fn init(config: *const Config, question: Question, seed: u64) Lookup {
+        var lookup: Lookup = undefined;
+        lookup.init_in_place(config, question, seed);
+        return lookup;
+    }
+
+    /// `init` into memory the caller already owns, a slot of `Resolver` above all: the lookup is
+    /// three kilooctets since §19 step 9, and a value built in a local and returned is copied
+    /// into its destination, which §11 measured at forty nanoseconds a start.
+    pub fn init_in_place(self: *Lookup, config: *const Config, question: Question, seed: u64) void {
         config.assert_valid();
         assert(question.kind.queryable());
-        var lookup: Lookup = .{
+        self.* = .{
             .state = .query_ready,
             .flags = .{
                 .edns_enabled = true,
@@ -155,15 +169,17 @@ pub const Lookup = struct {
             .config = config,
             .question = question,
             .current = question.name,
-            .answers = wire.Answers.init(question.kind),
+            // Left undefined and then reset: the answers' rdata buffer is two kilooctets that
+            // nothing reads before `collect` writes it, and writing it here is what §11 measured.
+            .answers = undefined,
         };
-        lookup.transaction = lookup.entropy.transaction();
+        self.answers.reset(question.kind);
+        self.transaction = self.entropy.transaction();
         if (config.rotate) {
-            lookup.server_index = lookup.entropy.server_start(config.servers.len);
+            self.server_index = self.entropy.server_start(config.servers.len);
         }
-        lookup.take_candidate(lookup.candidate_index);
-        assert(lookup.state == .query_ready or lookup.state == .failed);
-        return lookup;
+        self.take_candidate(self.candidate_index);
+        assert(self.state == .query_ready or self.state == .failed);
     }
 
     pub fn poll(self: *Lookup, now_ns: u64, out: []u8) Action {
@@ -330,10 +346,13 @@ pub const Lookup = struct {
     /// What `.done` and `.failed` carry.
     pub fn answer(self: *const Lookup) Answer {
         assert(self.state == .done);
+        const storage = self.question.kind.storage();
         return .{
             .kind = self.question.kind,
-            .addresses = if (self.question.kind == .ptr) &.{} else self.answers.addresses(),
-            .names = if (self.question.kind == .ptr) self.answers.names() else &.{},
+            .addresses = if (storage == .addresses) self.answers.addresses() else &.{},
+            .names = if (storage == .names) self.answers.names() else &.{},
+            .records = if (storage == .rdata) self.answers.records() else null,
+            .record_count = if (storage == .rdata) self.answers.count else 0,
             .canonical_name = if (self.flags.aliased) &self.current else null,
             .ttl_seconds = self.answers.ttl_seconds,
             .truncated = self.answers.truncated,
@@ -453,7 +472,7 @@ test "the size of a lookup slot is pinned" {
     // docs/design.md §9 budgets the memory a caller provides, and a caller sizing a table needs
     // this number. It is measured, not computed: Zig chooses the field order, so a field added
     // here can cost more than its own width in padding.
-    try testing.expectEqual(@as(usize, 864), @sizeOf(Lookup));
-    try testing.expectEqual(@as(usize, 284), @sizeOf(wire.Answers));
+    try testing.expectEqual(@as(usize, 3024), @sizeOf(Lookup));
+    try testing.expectEqual(@as(usize, 2448), @sizeOf(wire.Answers));
     try testing.expectEqual(@as(usize, 16), @sizeOf(entropy_module.Transaction));
 }

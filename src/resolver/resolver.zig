@@ -41,4 +41,5 @@ test {
     _ = @import("lookup_poll.zig");
     _ = @import("lookup_response.zig");
     _ = @import("fixtures.zig");
+    _ = @import("lookup_records_test.zig");
 }

@@ -72,7 +72,7 @@ pub const Resolver = struct {
     pub fn start(self: *Resolver, question: Question) error{NoSlot}!Handle {
         const index = self.slots.acquire() orelse return error.NoSlot;
         const slot = &self.slots.items[index];
-        slot.lookup = Lookup.init(self.config, question, self.entropy.next());
+        slot.lookup.init_in_place(self.config, question, self.entropy.next());
         slot.keyed_id = slot.lookup.transaction.id;
         keys_module.insert(self.keys, slot.keyed_id, index);
         return self.slots.handle_of(index);
