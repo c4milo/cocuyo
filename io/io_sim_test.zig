@@ -317,3 +317,17 @@ test "the receive is armed again after the group runs dry, and every answer stil
     engine.close();
     loop.deinit();
 }
+
+test "the buffer groups sit where the kernel can take them" {
+    var rig: Rig = .{};
+    try rig.init(1, .{ .{}, .{} }, .{ .servers = &.{} });
+    defer rig.deinit() catch {};
+    // `IORING_REGISTER_PBUF_RING` refuses a ring that is not page-aligned, and rotor asks the
+    // caller for `group_alignment` so it never is. A field's alignment is only as good as the
+    // placement of whatever holds it, and this is the check that it held (docs/design.md §19
+    // step 13).
+    const udp_at = @intFromPtr(&rig.engine.group.memory);
+    const tcp_at = @intFromPtr(&rig.engine.tcp_group.memory);
+    try testing.expectEqual(@as(usize, 0), udp_at % rotor.buffers.group_alignment);
+    try testing.expectEqual(@as(usize, 0), tcp_at % rotor.buffers.group_alignment);
+}

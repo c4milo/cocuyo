@@ -203,6 +203,11 @@ pub fn Group(comptime buffers: u16) type {
         memory: [rotor.buffers.group_bytes(buffers, constants.buffer_bytes)]u8 align(rotor.buffers.group_alignment),
 
         pub fn provide(self: *Self, loop: *rotor.Loop) error{ReceiveFailed}!void {
+            // rotor takes the memory as `[]align(group_alignment) u8`, so the type says it is
+            // aligned and nothing checks that it is. `IORING_REGISTER_PBUF_RING` refuses a ring
+            // that is not page-aligned, and it refuses it with an errno rotor maps to
+            // `Unexpected`, which names nothing. This says which.
+            assert(@intFromPtr(&self.memory) % rotor.buffers.group_alignment == 0);
             loop.provide_datagram_buffers(constants.group_id, &self.memory, buffers, constants.buffer_bytes, group) catch
                 return error.ReceiveFailed;
         }

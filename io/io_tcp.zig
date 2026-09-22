@@ -54,6 +54,10 @@ pub fn Group(comptime buffers: u16) type {
         memory: [rotor.buffers.group_bytes(buffers, constants.tcp_chunk_bytes)]u8 align(rotor.buffers.group_alignment),
 
         pub fn provide(self: *Self, loop: *rotor.Loop) error{ReceiveFailed}!void {
+            // The same precondition the datagram group carries, for the same reason: the type
+            // says this memory is aligned and nothing checks it, and a kernel that refuses an
+            // unaligned ring says so with an errno rotor does not map.
+            assert(@intFromPtr(&self.memory) % rotor.buffers.group_alignment == 0);
             loop.provide_buffers(constants.tcp_group_id, &self.memory, buffers, constants.tcp_chunk_bytes) catch
                 return error.ReceiveFailed;
         }
