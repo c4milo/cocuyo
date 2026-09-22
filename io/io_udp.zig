@@ -12,33 +12,111 @@ pub const Socket = struct {
     open: bool = false,
     descriptor: rotor.Descriptor = 0,
     receive: rotor.Handle = rotor.Handle.none,
+    /// Queries sent from this port, for `Config.udp_queries_per_port`.
+    sent: u32 = 0,
+    /// Which receive this socket has armed, out of the table's count. The end of a receive a
+    /// replaced socket left behind carries another, and there is nothing to do about it.
+    armed_generation: u8 = 0,
+    /// Whether the port has carried its share and waits for its lookups to end before another
+    /// is opened. A port is never taken from a query that is still waiting for its answer.
+    retiring: bool = false,
 };
 
 pub const Sockets = struct {
     items: [cocuyo.constants.servers_max]Socket,
     count: u8,
+    /// Where the next port comes from: the seed's stream, so a run is a run.
+    word: u64 = 0,
+    /// Names every receive this table has ever armed, apart. It outlives the sockets, because
+    /// what it tells apart is a receive from a socket that is gone (`reinit`, a port replaced).
+    next_generation: u8 = 0,
 
     /// Opens a socket per server and starts its receive. A port already in use is not a reason
     /// to fail: the kernel picks another.
     pub fn open(self: *Sockets, loop: *rotor.Loop, config: *const cocuyo.Config, seed: u64, tag: u16) error{ SocketFailed, ReceiveFailed }!void {
+        // The generation counter is not reset: it tells a receive from one a socket that is
+        // gone left behind, and `reinit` is exactly when there are some.
         self.items = @splat(.{});
         self.count = @intCast(config.servers.len);
-        var word = seed;
+        self.word = seed;
         for (config.servers, 0..) |*server, index| {
-            word = cocuyo.core.mix.next(word);
-            const family = server.endpoint.address.family;
-            const descriptor = open_bound(family, port_from(word)) catch open_bound(family, 0) catch return error.SocketFailed;
-            self.items[index] = .{ .open = true, .descriptor = descriptor };
-            try self.receive_again(loop, @intCast(index), tag);
+            try self.open_one(loop, config, @intCast(index), server.endpoint.address.family, tag);
         }
     }
 
-    fn open_bound(family: cocuyo.Family, port: u16) !rotor.Descriptor {
+    /// Opens server `index`'s socket on a port the seed chooses and arms its receive.
+    fn open_one(
+        self: *Sockets,
+        loop: *rotor.Loop,
+        config: *const cocuyo.Config,
+        index: u8,
+        family: cocuyo.Family,
+        tag: u16,
+    ) error{ SocketFailed, ReceiveFailed }!void {
+        self.word = cocuyo.core.mix.next(self.word);
+        const local = local_for(config, family);
+        const descriptor = open_bound(family, port_from(self.word), local) catch
+            open_bound(family, 0, local) catch return error.SocketFailed;
+        self.items[index] = .{ .open = true, .descriptor = descriptor };
+        try self.receive_again(loop, index, tag);
+    }
+
+    /// Where a socket of `family` binds: the caller's local address when it named one of that
+    /// family, and the unspecified address otherwise.
+    fn local_for(config: *const cocuyo.Config, family: cocuyo.Family) ?cocuyo.Address {
+        const local = config.local_address orelse return null;
+        return if (local.family == family) local else null;
+    }
+
+    fn open_bound(family: cocuyo.Family, port: u16, local: ?cocuyo.Address) !rotor.Descriptor {
+        const octets = if (local) |address| address.octets else @as([cocuyo.constants.address_v6_bytes]u8, @splat(0));
         const bind_to = switch (family) {
-            .ipv4 => rotor.Address.ipv4(@splat(0), port),
-            .ipv6 => rotor.Address.ipv6(@splat(0), port, 0),
+            .ipv4 => rotor.Address.ipv4(octets[0..cocuyo.constants.address_v4_bytes].*, port),
+            .ipv6 => rotor.Address.ipv6(octets, port, 0),
         };
         return rotor.sync.open_datagram(rotor_family(family), &bind_to, .{});
+    }
+
+    /// One more query has gone out from server `index`'s port. True when the port has carried
+    /// its share and should be replaced once nothing is waiting on it.
+    pub fn count_sent(self: *Sockets, index: u8, per_port: u32) bool {
+        assert(index < self.count);
+        const socket = &self.items[index];
+        socket.sent +|= 1;
+        if (per_port == 0 or socket.sent < per_port) return false;
+        socket.retiring = true;
+        return true;
+    }
+
+    /// Replaces a retiring port with a new one, once nothing is waiting on it (c-ares
+    /// `udp_max_queries`). The receive on the old socket is cancelled and the socket closed, so
+    /// nothing arrives on it afterwards.
+    pub fn rotate(
+        self: *Sockets,
+        loop: *rotor.Loop,
+        config: *const cocuyo.Config,
+        index: u8,
+        tag: u16,
+    ) error{ SocketFailed, ReceiveFailed }!void {
+        assert(index < self.count);
+        const socket = &self.items[index];
+        assert(socket.retiring);
+        const family = config.servers[index].endpoint.address.family;
+        loop.cancel(socket.receive);
+        rotor.sync.close_now(socket.descriptor);
+        self.items[index] = .{};
+        try self.open_one(loop, config, index, family, tag);
+    }
+
+    /// Before the first `open`, when nothing is in flight and the struct holds whatever the
+    /// caller's memory held.
+    pub fn reset_generation(self: *Sockets) void {
+        self.next_generation = 0;
+    }
+
+    pub fn is_retiring(self: *const Sockets, index: u8) bool {
+        assert(index < self.count);
+        return self.items[index].retiring;
     }
 
     /// Arms the multishot receive of server `index`'s socket, which every datagram from that
@@ -47,13 +125,32 @@ pub const Sockets = struct {
         assert(index < self.count);
         const socket = &self.items[index];
         assert(socket.open);
-        const operation: rotor.Operation = .{
-            .user_data = user_data(tag, .udp_receive, index),
-            .kind = .{ .receive_from = .{ .socket = socket.descriptor, .group = constants.group_id } },
-        };
+        self.next_generation +%= 1;
+        socket.armed_generation = self.next_generation;
+        const operation: rotor.Operation = .receive_from(
+            user_data(tag, .udp_receive, receive_index(index, socket.armed_generation)),
+            socket.descriptor,
+            constants.group_id,
+        );
         var handles: [1]rotor.Handle = undefined;
         if (loop.submit(&.{operation}, &handles) != 1) return error.ReceiveFailed;
         socket.receive = handles[0];
+    }
+
+    /// The `user_data` index of a receive: the server it is on, and which receive on it.
+    fn receive_index(index: u8, generation: u8) usize {
+        return @as(usize, index) | (@as(usize, generation) << constants.receive_generation_shift);
+    }
+
+    /// Whether a receive event names the receive this server has armed now. An event from one
+    /// the socket left behind names a generation that has moved on, and there is nothing to do
+    /// about it: the socket it belonged to is closed.
+    pub fn is_current(self: *const Sockets, index: usize) ?u8 {
+        const server: u8 = @intCast(index & constants.receive_index_mask);
+        if (server >= self.count) return null;
+        const generation: u8 = @intCast(index >> constants.receive_generation_shift);
+        if (self.items[server].armed_generation != generation) return null;
+        return server;
     }
 
     pub fn descriptor_of(self: *const Sockets, index: u8) rotor.Descriptor {

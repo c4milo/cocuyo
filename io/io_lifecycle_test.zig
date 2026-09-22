@@ -1,0 +1,115 @@
+//! What a consumer does to the engine besides asking it questions (docs/design.md §19 step 13):
+//! cancelling everything at once, taking a new configuration, binding to a local address of its
+//! own, and retiring a source port that has carried its share. The rig is the one
+//! `io_sim_test.zig` builds, since these drive the same engine over the same scripted servers.
+const std = @import("std");
+const testing = std.testing;
+const cocuyo = @import("cocuyo");
+const rotor = @import("rotor");
+const io = @import("io.zig");
+
+const fixtures = @import("fixtures.zig");
+const sim_test = @import("io_sim_test.zig");
+const Rig = sim_test.Rig;
+const question = sim_test.question;
+const endpoint_of = sim_test.endpoint_of;
+
+test "cancel_all ends every lookup, and the caller is told about each" {
+    var rig: Rig = .{};
+    try rig.init(21, .{ .{ .down = true }, .{ .down = true } }, .{ .servers = &.{} });
+    var started: usize = 0;
+    var buffer: [fixtures.name_text_bytes]u8 = undefined;
+    while (started < fixtures.small_lookups) : (started += 1) {
+        const text = try std.fmt.bufPrint(&buffer, "h{d}.example.", .{started});
+        _ = try rig.engine.start(question(text), rig.loop.now());
+    }
+    rig.engine.cancel_all(rig.loop.now());
+    var ended: usize = 0;
+    while (ended < fixtures.small_lookups) : (ended += 1) {
+        const result = try rig.until_result();
+        try testing.expectEqual(cocuyo.Error.Canceled, result.outcome.failure.err);
+    }
+    _ = rig.engine.take(rig.loop.now());
+    try testing.expectEqual(@as(usize, 0), rig.engine.active());
+    try rig.deinit();
+}
+
+test "reinit cancels what is in flight, empties the cache, and asks the new servers" {
+    var rig: Rig = .{};
+    try rig.init(22, .{ .{}, .{} }, .{ .servers = &.{} });
+    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    const first = try rig.until_result();
+    try testing.expect(first.outcome == .answer);
+    _ = rig.engine.take(rig.loop.now());
+    // A lookup is in flight when the configuration goes, so the caller ends it and takes what it
+    // lost before it reinits: the engine must be idle.
+    _ = try rig.engine.start(question("other.example."), rig.loop.now());
+    rig.engine.cancel_all(rig.loop.now());
+    const cancelled = try rig.until_result();
+    try testing.expectEqual(cocuyo.Error.Canceled, cancelled.outcome.failure.err);
+    _ = rig.engine.take(rig.loop.now());
+    try testing.expectEqual(@as(usize, 0), rig.engine.active());
+
+    var servers = [_]cocuyo.Server{.{ .endpoint = endpoint_of(rotor.Network.server_address(1)) }};
+    const replacement: cocuyo.Config = .{ .servers = &servers, .search = &.{} };
+    try rig.engine.reinit(&replacement, 22, rig.loop.now());
+    // The cache went with the servers that filled it, so the name is asked about again.
+    const again = try rig.engine.start(question("example.com."), rig.loop.now());
+    try testing.expect(again == .lookup);
+    const answer = try rig.until_result();
+    try testing.expect(answer.outcome == .answer);
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
+test "a socket binds to the local address the caller named" {
+    var rig: Rig = .{};
+    const local = cocuyo.Address.from_v4(fixtures.local_octets);
+    try rig.init(23, .{ .{}, .{} }, .{ .servers = &.{}, .local_address = local });
+    const descriptor = rig.engine.sockets.descriptor_of(0);
+    const bound = rig.loop.network().socket(descriptor).local;
+    try testing.expectEqualSlices(u8, &fixtures.local_octets, bound.bytes[0..fixtures.local_octets.len]);
+    // The port is still the seed's, which is the entropy of RFC 5452 §9.2.
+    try testing.expect(bound.port >= cocuyo.constants.port_ephemeral_min);
+    try rig.deinit();
+}
+
+test "a local address of another family is not bound to a socket of this one" {
+    // An IPv6 address cannot name a local endpoint for an IPv4 socket, and binding it would be
+    // asking the host for something that does not exist.
+    var rig: Rig = .{};
+    const local = cocuyo.Address.from_v6(fixtures.local_v6_octets);
+    try rig.init(25, .{ .{}, .{} }, .{ .servers = &.{}, .local_address = local });
+    const bound = rig.loop.network().socket(rig.engine.sockets.descriptor_of(0)).local;
+    try testing.expectEqual(rotor.Address.Family.ipv4, bound.family);
+    // Unspecified, and not the first four octets of an address that names another family.
+    try testing.expectEqualSlices(u8, &fixtures.unspecified_v4, bound.bytes[0..fixtures.unspecified_v4.len]);
+    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    try testing.expect((try rig.until_result()).outcome == .answer);
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
+test "a source port that has carried its share is replaced once nothing waits on it" {
+    var rig: Rig = .{};
+    try rig.init(24, .{ .{}, .{} }, .{ .servers = &.{}, .udp_queries_per_port = 1 });
+    const before = rig.loop.network().socket(rig.engine.sockets.descriptor_of(0)).local.port;
+    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    // The query has gone out, so the port has carried its share; the lookup is still waiting for
+    // its answer, and a port is never taken from a query that is.
+    _ = try rig.step(0);
+    try testing.expect(rig.engine.sockets.is_retiring(0));
+    try testing.expectEqual(before, rig.loop.network().socket(rig.engine.sockets.descriptor_of(0)).local.port);
+    const result = try rig.until_result();
+    try testing.expect(result.outcome == .answer);
+    _ = rig.engine.take(rig.loop.now());
+    // The twin hands out descriptor numbers again once they are closed, so the port is what
+    // says the socket is another one.
+    try testing.expect(rig.loop.network().socket(rig.engine.sockets.descriptor_of(0)).local.port != before);
+    try testing.expect(!rig.engine.sockets.is_retiring(0));
+    // The new port answers as the old one did.
+    _ = try rig.engine.start(question("other.example."), rig.loop.now());
+    try testing.expect((try rig.until_result()).outcome == .answer);
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}

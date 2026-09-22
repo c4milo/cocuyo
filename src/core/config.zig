@@ -8,6 +8,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
+const Address = @import("address.zig").Address;
 const Endpoint = @import("address.zig").Endpoint;
 const Name = @import("name.zig").Name;
 
@@ -72,6 +73,16 @@ pub const Config = struct {
     /// One query in this many gives a server that failed, and whose delay has passed, the first
     /// place again (§19 step 12); zero never does.
     failover_retry_chance: u8 = constants.failover_retry_chance_default,
+    /// The local address the engine binds its sockets to, when the caller has one to name
+    /// (c-ares `ARES_OPT_LOCAL_IP4` and `LOCAL_IP6`). Null is the unspecified address, which is
+    /// what a host with one route wants. A server of another family is bound unspecified, since
+    /// an address of the wrong family cannot name a local endpoint for it. Binding to a device
+    /// by name is out: rotor opens sockets and names no device (docs/design.md §19 step 13).
+    local_address: ?Address = null,
+    /// How many queries one source port carries before the engine opens another, which is
+    /// c-ares `udp_max_queries`. Zero, the default there and here, keeps the port for the life
+    /// of the engine; the port is entropy against a spoof either way (RFC 5452 §9.2).
+    udp_queries_per_port: u32 = 0,
     /// How long a failed server stays last before it may be tried first again.
     failover_retry_delay_ns: u64 = constants.failover_retry_delay_ns_default,
 
@@ -101,8 +112,6 @@ pub const Config = struct {
 // Tests.
 
 const testing = std.testing;
-const Address = @import("address.zig").Address;
-
 test "the defaults are the resolv.conf defaults and are valid" {
     const servers = [_]Server{.{ .endpoint = .{ .address = Address.from_v4(.{ 127, 0, 0, 1 }) } }};
     const config: Config = .{ .servers = &servers };
