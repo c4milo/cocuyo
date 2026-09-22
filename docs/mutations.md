@@ -725,6 +725,46 @@ sockets and lookups that are gone, and each carries a generation or a flag that 
 the same shape as the timer's generation of the first slice, and they were written because the
 tests crashed without them, not after a mutation.
 
+## Step 10, the other EDNS0 options
+
+Design §19 step 10's rest: a typed reader for the name server identifier (RFC 5001), the client
+subnet (RFC 7871), the padding (RFC 7830) and the extended errors (RFC 8914). None of them changes
+what a lookup does; the state machine acts on the cookie alone. Broken against
+`zig build test-wire`. Eight mutations, eight `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| G1 | a reader takes an option of another code | RFC 6891 §6.1.2 | the identifier and subnet tests | CAUGHT |
+| G2 | padding may appear twice | RFC 7830 §3 | the twice test | CAUGHT |
+| G3 | a client subnet of any family is read | RFC 7871 §6 | the wrong-shape test | CAUGHT |
+| G4 | a prefix longer than the address is allowed | RFC 7871 §6 | the wrong-shape test | CAUGHT |
+| G5 | the address octets are not counted | RFC 7871 §6 | the wrong-shape test | CAUGHT |
+| G6 | a bit set past the prefix is allowed | RFC 7871 §6 | the wrong-shape test | CAUGHT |
+| G7 | an extended error shorter than its code is read | RFC 8914 §2 | the extended error test | CAUGHT |
+| G8 | the extended error's text starts at its code | RFC 8914 §2 | the extended error test | CAUGHT |
+
+G4 needed a fixture that only it could refuse. The first one carried a prefix too long for the
+family and too few octets for the prefix, so the length check caught it whatever the bound said;
+the fixture now carries exactly the octets its prefix needs.
+
+## Step 14, the reverse lookup
+
+Design §19 step 14's `NameLookup`, which settles §17 question 12. Broken against
+`zig build test-resolver`. Five mutations, five `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| H1 | the hosts table is never consulted | `Config.lookups` | the table-first test | CAUGHT |
+| H2 | the sources are tried in the order they are written | `Config.lookups` | the DNS-first test | CAUGHT |
+| H3 | a failure ends the walk rather than trying the next source | §19 step 14 | the DNS-first test | CAUGHT |
+| H4 | a cancel is answered by the next source | §19 step 14 | the cancel test | CAUGHT |
+| H5 | the question is built for a name rather than an address | `Question.from_address` | the PTR question test | CAUGHT |
+
+One check went the other way and was removed. A lookup that is done carries a name, because a
+response with no record of the type asked for is NODATA and the state machine fails it (§5), so
+the branch that handled an answer with no names could not be reached. It is an assertion now,
+which is what a claim about the code's own callers is (CLAUDE.md non-negotiable 3).
+
 ## Planned, later steps
 
 | # | Mutation | Check it breaks | Expected to be caught by | Status |

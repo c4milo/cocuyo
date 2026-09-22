@@ -56,7 +56,9 @@ The architecture depends on every rule in this section.
    is instead of citing an RFC that does not say it.
 9. **A cleanup is registered before what can fail.** A `defer` or an `errdefer` under a statement
    that can return leaves whatever the block took above it unreleased: the statement returns
-   before the cleanup is registered. `tools/lint/defer_order.zig` enforces it.
+   before the cleanup is registered. `tools/lint/defer_order.zig` enforces it, and
+   `tools/lint/unreleased_acquire.zig` reads the other side of it: a socket opened with `try`
+   that nothing releases, where a statement under it can still fail.
 10. **Tests are proved by mutation.** A test must fail when the code it covers is broken. When you
    add a check, break it on purpose and confirm a test fails. Report `CAUGHT` or `NOT CAUGHT` per
    mutation in the body of the commit that adds the check, and keep the table in
@@ -138,8 +140,8 @@ The architecture depends on every rule in this section.
   because assertions stay on.
 - Lint: `zig build lint` — the cognitive-complexity score over `build.zig`, `build/`, `src/`,
   `tools/`, `examples/`, `bench/` and `io/`, then the `tools/lint` rules (heap, io, determinism, unbounded-loop,
-  relative-import, markdown, file-length, magic-numbers, defer-order) over the tree and over a
-  canary tree that
+  relative-import, markdown, file-length, magic-numbers, defer-order, unreleased-acquire) over
+  the tree and over a canary tree that
   holds one violation of each, so a rule that stopped checking fails the build.
 - Test: `zig build test` — the lint, the graph check, the hook check, then every module's unit
   tests and the tools' own tests. Every change passes it before it is committed.
@@ -232,9 +234,9 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   when idle; and the table hands out work from a ready list, so what one completion event costs
   no longer grows with the lookups in flight (§11, §16 decisions 20 and 21).
 - **13** also has `cancel_all` and `reinit`, the port rotation of `udp_queries_per_port` and the
-  local address of `Config.local_address`. What is left of c-ares: the OPT options other than
-  the cookie (NSID, client subnet, padding, extended errors), and §17 question 12's `name_info`.
-  Socket buffer sizes and device binding are out, because rotor offers neither.
+  local address of `Config.local_address`. What is left of c-ares: the socket buffer sizes, which
+  rotor gained after v0.1.1 and which land when it is tagged. Device binding stays out, because
+  rotor names no device.
 - Next, in order: the end-to-end comparison on Linux against c-ares, once rotor tags its Linux
   fixes, then the OPT options and question 12.
 

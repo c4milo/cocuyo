@@ -338,6 +338,26 @@ pub const AddressLookup = struct {
 
 pub const AddressOutcome = union(enum) { answered: AddressInfo, failed: Failure };
 
+/// The reverse: an address in, the name that answers for it out (§19 step 14). The hosts table
+/// and DNS in the `lookups` order, and one PTR question, whose name the address builds.
+pub const NameLookup = struct {
+    pub fn init(resolver: *Resolver, hosts: ?*const Hosts, address: *const Address) InitError!NameLookup;
+    pub fn on_event(self: *NameLookup, event: Event) bool;
+    pub fn outcome(self: *const NameLookup) ?NameOutcome; // null while the lookup is in flight
+    pub fn cancel(self: *NameLookup) void;
+};
+pub const NameOutcome = union(enum) { answered: NameInfo, failed: Failure };
+pub const NameInfo = struct { name: *const Name, ttl_seconds: u32, from_hosts: bool };
+
+/// The EDNS0 options of a response, read for the caller rather than for the state machine
+/// (§19 step 10). Each takes the OPT record's rdata, which `response_opt.find` gives.
+pub const edns_options = struct {
+    pub fn nsid(rdata: []const u8) Error!?[]const u8;          // RFC 5001 §2.3
+    pub fn padding(rdata: []const u8) Error!?[]const u8;        // RFC 7830 §3, at most once
+    pub fn client_subnet(rdata: []const u8) Error!?ClientSubnet; // RFC 7871 §6
+    pub fn extended_error(rdata: []const u8) Error!?ExtendedError; // RFC 8914 §2
+};
+
 pub const AddressInfo = struct {
     addresses: []const Address,   // into the lookup's own storage: valid for its lifetime
     canonical_name: ?*const Name,
@@ -1130,9 +1150,9 @@ step until `zig build test` passes.
 11. **Service names.** §19 leaves `/etc/services` to the consumer, so `AddressLookup` takes no
     port and the reverse recipe returns no service. If a consumer needs `getservbyname`, a
     parser in `config` is the place.
-12. **Does `name_info` need an entry point?** §19 step 14 makes it a recipe: `Hosts.reverse`,
-    then a `PTR` lookup. If a consumer wants one call, it is a small type beside
-    `AddressLookup`.
+12. **Does `name_info` need an entry point?** Answered on 2026-09-22: yes. `NameLookup` sits
+    beside `AddressLookup`, because the recipe left the `lookups` order to every consumer that
+    wrote it out, and that order is configuration the library already holds.
 
 ## 18. The cache
 
@@ -1326,7 +1346,7 @@ Four places, in order of preference, so the core stays what §1 made it:
 | `NS`, `MX`, `TXT`, `SRV`, `SOA`, `HINFO`, `NAPTR`, `CAA`, `URI`, `TLSA`, `SVCB`, `HTTPS`, `SIG`, `ANY` | skipped, or read for one field | `wire` decoders, `Lookup` for any type | 9 |
 | unknown types (`RAW_RR`) | skipped | `wire`, the raw rdata (RFC 3597) | 9 |
 | `ares_expand_name`, `ares_expand_string` | `wire.name.decode`; no character-strings | `wire`, with `TXT` | 9 |
-| OPT options: COOKIE, NSID, ECS, padding, extended error | OPT written, its options unread | `wire` for COOKIE; the rest as raw options | 10 |
+| OPT options: COOKIE, NSID, ECS, padding, extended error | OPT written, its options unread | `wire`, a typed reader for each | 10 |
 | DNS cookies | none | a `wire` option, `resolver` per-server state | 10 |
 | `ares_query` and `ares_search` | the search list applies by `ndots` | `Question.absolute` is the switch (§5) | — |
 | `ARES_FLAG_USEVC`, `IGNTC`, `NORECURSE`, `NOCHECKRESP`, `PRIMARY`, `NO_DFLT_SVR`, `ARES_OPT_MAXTIMEOUTMS`, a TCP port per server | none; the maximum timeout is a constant | `Config` | 11 |
@@ -1340,7 +1360,7 @@ Four places, in order of preference, so the core stays what §1 made it:
 | `ares_cancel`, the active count, wait-empty, `ares_reinit`, `ares_set_servers` | `Lookup.cancel` | engine | 13 |
 | the query cache | §18 | the engine wires it in | 13 |
 | `ares_getaddrinfo`: `A` and `AAAA` together, the canonical name, numeric host and service, the hosts file, `V4MAPPED`, `ALL` | two lookups | `resolver`, as `AddressLookup` above the table | 14 |
-| `ares_gethostbyaddr`, `ares_getnameinfo` | a `PTR` lookup | `Hosts.reverse`, then the `PTR` lookup; service names are out | 14 |
+| `ares_gethostbyaddr`, `ares_getnameinfo` | a `PTR` lookup | `NameLookup` in `resolver`; service names are out | 14 |
 | RFC 6724 ordering, off with `ARES_AI_NOSORT` | none; `sortlist` was rejected in §16 | `core.address_order`, over routes the consumer learned; `no_sort` skips it | 15 |
 | `ARES_AI_ADDRCONFIG` | none | out: rotor enumerates no interfaces, and the consumer knows its own | — |
 | service names (`getservbyname`) | none | out: `/etc/services` is the consumer's; the engine takes a port | — |
@@ -1691,9 +1711,11 @@ is where a consumer with a loop of its own can reach it now that the engine is h
   those handles to `on_event`, which says whether it took the event and releases the slot when
   it did. `outcome` is null until the walk is over; `cancel` cancels what is in flight.
   Nothing about `Lookup` or `Resolver` changes.
-- **`name_info`** is a recipe rather than an entry point: `Hosts.reverse` for the address,
-  then `Question.from_address` and a `PTR` lookup, two calls the consumer makes in order. §17
-  asks whether that is enough.
+- **The reverse** is `NameLookup`, beside `AddressLookup` and the same shape: the hosts table
+  and DNS in the `lookups` order, and one `PTR` question whose name the address builds, which is
+  absolute, so there is no search walk. It answers with the name, the TTL and whether the table
+  answered. §17 question 12 is settled: one call, because the recipe left the order of the two
+  sources to every consumer that wrote it out.
 
 **Gate.** On the fake server: the lockstep walk against a search list on which the families
 would diverge; NXDOMAIN on one family ending the candidate; `NoData` against `NameNotFound` at
