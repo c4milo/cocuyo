@@ -54,7 +54,10 @@ The architecture depends on every rule in this section.
    they stay that way, and `docs/rfcs/README.md` saying what each one is read for. Where cocuyo
    implements something no RFC states — DNS-0x20, `resolv.conf` — the code says what the source
    is instead of citing an RFC that does not say it.
-9. **Tests are proved by mutation.** A test must fail when the code it covers is broken. When you
+9. **A cleanup is registered before what can fail.** A `defer` or an `errdefer` under a statement
+   that can return leaves whatever the block took above it unreleased: the statement returns
+   before the cleanup is registered. `tools/lint/defer_order.zig` enforces it.
+10. **Tests are proved by mutation.** A test must fail when the code it covers is broken. When you
    add a check, break it on purpose and confirm a test fails. Report `CAUGHT` or `NOT CAUGHT` per
    mutation in the body of the commit that adds the check, and keep the table in
    `docs/mutations.md`. A `NOT CAUGHT` means a test is missing: write it.
@@ -108,8 +111,9 @@ The architecture depends on every rule in this section.
   the compiler rejects it.
 - `io/` holds the engine of §19 step 13, outside `src/` because it owns sockets. It reads
   `cocuyo` and a `rotor` import the build binds to `sim`, so `zig build test-io` runs it on the
-  twin. It is not exported and not shipped: the owner ruled on 2026-09-22 that no library bound
-  to rotor is exposed until a consumer asks for one.
+  twin, and to rotor itself for `zig build bench-cares` alone. It is not exported and not
+  shipped: the owner ruled on 2026-09-22 that no library bound to rotor is exposed until a
+  consumer asks for one.
 - Each module owns its `constants.zig`. A limit two modules share lives in `src/core/constants.zig`.
 - `examples/` holds worked examples, `bench/` the microbenchmarks, `docs/` the design set, and
   `tools/` developer tooling that is never linked into the library. `bench/` is outside the module
@@ -134,7 +138,8 @@ The architecture depends on every rule in this section.
   because assertions stay on.
 - Lint: `zig build lint` — the cognitive-complexity score over `build.zig`, `build/`, `src/`,
   `tools/`, `examples/`, `bench/` and `io/`, then the `tools/lint` rules (heap, io, determinism, unbounded-loop,
-  relative-import, markdown, file-length, magic-numbers) over the tree and over a canary tree that
+  relative-import, markdown, file-length, magic-numbers, defer-order) over the tree and over a
+  canary tree that
   holds one violation of each, so a rule that stopped checking fails the build.
 - Test: `zig build test` — the lint, the graph check, the hook check, then every module's unit
   tests and the tools' own tests. Every change passes it before it is committed.
@@ -146,9 +151,11 @@ The architecture depends on every rule in this section.
   so it cannot rot. A number goes into design §11 with the machine, the command and the date, or it
   does not go in.
 - Comparison: `zig build bench-cares` — the same two operations against the installed c-ares,
-  found under `-Dcares=<prefix>` (a Homebrew prefix by default). It links a library the gate must
-  not require, so it and its tests (`zig build test-cares`) run only when asked. The numbers go
-  in design §11 beside cocuyo's, with the c-ares version the binary prints.
+  found under `-Dcares=<prefix>` (a Homebrew prefix by default), then end to end: both stacks
+  against one responder thread on the loopback, cocuyo's side being the `io/` engine over rotor,
+  built privately for the bench (`bench/end_to_end/`). It links libraries the gate must not
+  require, so it and its tests (`zig build test-cares`) run only when asked. The numbers go in
+  design §11 beside cocuyo's, with the c-ares version the binary prints.
 - Format: `zig build fmt`, or `zig fmt build.zig build src tools examples bench`.
 - Commit messages: `zig build hooks` once after clone; `zig build lint-commits` by hand.
 
@@ -220,7 +227,15 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   the policy table and the scopes of the RFC as named constants; `AddressLookup` applies the
   route-free rules unless `no_sort`. The nine worked examples of the RFC are the gate. The
   end-to-end comparison against c-ares is the part of 15 still open.
-- Next, in order: the comparison, then the rest of 13 (the TCP path, port rotation, `reinit`,
-  `cancel_all`) on the twin.
+- **13**, the engine, second slice done the same day: `io/io_tcp.zig` is the stream path, one
+  connection per server shared by the lookups that need it, framed by RFC 7766 §8 and closed
+  when idle; and the table hands out work from a ready list, so what one completion event costs
+  no longer grows with the lookups in flight (§11, §16 decisions 20 and 21).
+- **13** also has `cancel_all` and `reinit`, the port rotation of `udp_queries_per_port` and the
+  local address of `Config.local_address`. What is left of c-ares: the OPT options other than
+  the cookie (NSID, client subnet, padding, extended errors), and §17 question 12's `name_info`.
+  Socket buffer sizes and device binding are out, because rotor offers neither.
+- Next, in order: the end-to-end comparison on Linux against c-ares, once rotor tags its Linux
+  fixes, then the OPT options and question 12.
 
 §17 holds the questions the owner has not answered.

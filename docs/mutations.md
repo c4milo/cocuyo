@@ -1,6 +1,6 @@
 # Mutations
 
-A test must fail when the code it covers is broken (CLAUDE.md non-negotiable 9). Every check lands
+A test must fail when the code it covers is broken (CLAUDE.md non-negotiable 10). Every check lands
 with its mutation: break the check on purpose, run the narrowest test target that should catch it,
 and record `CAUGHT` or `NOT CAUGHT` here and in the body of the commit that adds the check. A
 `NOT CAUGHT` means a test is missing, and the missing test is written before the step is called
@@ -635,6 +635,95 @@ mutations, nineteen `CAUGHT`.
 The nine worked examples of RFC 6724 §10.2 are the gate the design asked for, and they carry
 most of the table: each is run the wrong way round, so the sort has to move one address, and
 both ways through `compare`, so a rule that decides the wrong way is seen twice.
+
+## The ready list and the deadline bound
+
+Design §11 and §16 decisions 20 and 21: the lookups with something to do kept on a list threaded
+through the slots, and the soonest deadline kept as a bound. Broken against
+`zig build test-resolver`. Eight mutations, eight `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| Y1 | the poll walks the table instead of taking from the list | §11 the ready list | the offered-once test | CAUGHT |
+| Y2 | a slot is linked onto the list twice | §11 the ready list | **the offered-twice test** | CAUGHT |
+| Y3 | a freed slot is left on the list | §4 release | the released-slot test | CAUGHT |
+| Y4 | an event never offers the lookup it moved | §11 the ready list | the address-lookup walk | CAUGHT |
+| Y5 | a wait that runs out offers nobody | §5 the retry | the wait-runs-out test | CAUGHT |
+| Y6 | the deadline bound keeps the later instant | §11 the bound | the one-deadline test | CAUGHT |
+| Y7 | an expiry offers every lookup that is waiting | §11 the bound | the bound test | CAUGHT |
+| Y8 | a slot taken off the list keeps its flag | §11 the ready list | the churn test | CAUGHT |
+
+Y2 needed a test of its own. Without the guard a slot is linked to itself, the list runs through
+it for ever, and the caller is told the same thing twice; every other test acts on what it is
+told the first time and never asks again, so none of them noticed.
+
+## Step 13, the stream
+
+Design §19 step 13's second slice: one connection per server, the queries of every lookup that
+needs it pipelined onto it, the length-prefixed framing of RFC 7766 §8, and the idle close of
+§6.2.3. Broken against `zig build test-io`, which runs the engine on the twin. Eleven mutations,
+eleven `CAUGHT`, four of them only after the scenario was sharpened.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| X1 | a truncated answer never reaches the stream | RFC 7766 §5 | the truncated test | CAUGHT |
+| X2 | the framing ignores the length prefix | RFC 7766 §8 | the truncated test | CAUGHT |
+| X3 | every lookup opens a connection of its own | RFC 7766 §6.2.1.1 | **the shared-connection test** | CAUGHT |
+| X4 | a refused connect leaves its lookups attached | §19 step 13 | the refused test | CAUGHT |
+| X5 | an idle connection is never closed | RFC 7766 §6.2.3 | the idle test | CAUGHT |
+| X6 | a connection in use is closed for being old | RFC 7766 §6.2.3 | **the busy-connection test** | CAUGHT |
+| X7 | a chunk that does not fit is written anyway | the frame bound | **the small-buffer test** | CAUGHT |
+| X8 | the receive is not armed again when the multishot ends | the stream receive | **the group-runs-dry test** | CAUGHT |
+| X9 | a stream answer names the server's datagram port | §7 check 3 | the TCP-port test | CAUGHT |
+| X10 | a connection tells every lookup, not only those on it | §19 step 13 | the moved-on test | CAUGHT |
+| X11 | a group with no buffer left is taken for a broken connection | the stream receive | the group-runs-dry test | CAUGHT |
+
+X8 and X11 are the two halves of one bug the tests found before a mutation did. A stream is cut
+into chunks the reader does not choose, and the twin's are as small as one octet, so a group of
+eight buffers runs dry inside a single answer. The engine took the `BuffersExhausted` that ends
+the multishot for a broken connection and tore it down, and the lookup waited out its timeout.
+The group running dry is now the ordinary end of a receive, and the receive is armed again.
+
+Four mutations needed the scenario sharpened before they had anywhere to bite: a second server
+that is down, so a lookup that opened a connection of its own has nothing to fail over to (X3);
+an answer that takes longer than the idle time (X6); a connection whose message buffer is too
+small for an ordinary answer, which the caller now sizes (X7); and a group of two buffers with
+several lookups on it (X8). Each of those is a knob a caller has, so none of them is a fixture
+the library would not otherwise carry.
+
+## Step 13, the rest of the engine
+
+Design §19 step 13: `cancel_all` and `reinit`, the port rotation of `Config.udp_queries_per_port`,
+the local address of `Config.local_address`, and the three guards that ignore an event for
+something that is gone. Broken against `zig build test-io`. Ten mutations, nine `CAUGHT` and one
+`NOT CAUGHT` by design.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| Z1 | a port carries more queries than the caller allows | `udp_queries_per_port` | the rotation test | CAUGHT |
+| Z2 | a port is taken from a query that is waiting | §19 step 13 | the rotation test | CAUGHT |
+| Z3 | a count of zero rotates all the same | c-ares's default | the idle-connection test | CAUGHT |
+| Z4 | the local address the caller named is ignored | `local_address` | the binding test | CAUGHT |
+| Z5 | a local address of another family is bound anyway | `local_address` | **the wrong-family test** | CAUGHT |
+| Z6 | `cancel_all` leaves the lookups running | `ares_cancel` | the cancel-all test | CAUGHT |
+| Z7 | a send the engine is not waiting for is acted on | the stale-send guard | the reinit test | CAUGHT |
+| Z8 | a receive from a socket that is gone is acted on | the receive's generation | the reinit and rotation tests | CAUGHT |
+| Z9 | `reinit` keeps the answers the old servers gave | `ares_reinit` | the reinit test | CAUGHT |
+| Z10 | `reinit` is taken with lookups still in flight | the idle assertion | nothing, by design | NOT CAUGHT |
+
+Z10 stays uncaught on purpose, as T11 does. `reinit` asserts that nothing is in flight, because a
+handle from the old table names a slot the new one has never heard of, and that is programmer
+error rather than an operational failure (CLAUDE.md non-negotiable 3). A test that tripped it
+would halt rather than fail.
+
+Z5 needed the test to say what it expected rather than what it did not. The socket bound an
+address of the wrong family happily, since the octets of an IPv6 address make a perfectly
+well-formed IPv4 one; what says the rule held is that the socket is bound unspecified.
+
+Z7 and Z8 are the guards that `reinit` and a replaced port need: the loop still holds events for
+sockets and lookups that are gone, and each carries a generation or a flag that says so. They are
+the same shape as the timer's generation of the first slice, and they were written because the
+tests crashed without them, not after a mutation.
 
 ## Planned, later steps
 

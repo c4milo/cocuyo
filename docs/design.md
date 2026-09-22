@@ -86,7 +86,7 @@ by the build rather than by review.
 | `config` | `core` | the `resolv.conf` parser |
 | `cache` | `core`, `wire` | the answer cache of §18, above the state machine and never inside it |
 | `sim` | `core`, `wire`, `resolver` | the scripted server and the virtual clock, test-only |
-| `io` | `cocuyo`, `rotor` | the engine of §19 step 13: sockets, timers and connections over a loop with rotor's surface, in `io/`; compiled against `sim` for the gate, and not exported |
+| `io` | `cocuyo`, `rotor` | the engine of §19 step 13: sockets, timers and connections over a loop with rotor's surface, in `io/`; compiled against `sim` for the gate and against rotor for the comparison of step 15, and not exported |
 
 `resolver` cannot import `config`. That is the split between the state machine and the config
 parser, made structural: `Config` is a `core` type, the parser is one producer of it, and the
@@ -201,6 +201,8 @@ pub const Config = struct {
     lookups: []const Source = &.{ .file, .dns },
     failover_retry_chance: u8 = 10,          // one query in this many retries a failed server first
     failover_retry_delay_ns: u64 = 5 s,      // once this long has passed since it failed
+    local_address: ?Address = null,          // what the engine binds its sockets to (ARES_OPT_LOCAL_IP4/6)
+    udp_queries_per_port: u32 = 0,           // queries one source port carries (udp_max_queries); 0 keeps it
 };
 ```
 
@@ -283,8 +285,13 @@ pub const Slot = struct {
 pub const Resolver = struct {
     pub fn init(slots: []Slot, keys: []MatchKey, config: *const Config, seed: u64) Resolver;
     pub fn start(self: *Resolver, question: Question) error{NoSlot}!Handle;
-    pub fn poll(self: *Resolver, now_ns: u64, out: []u8) ?Event; // null: nothing to do now
-    pub fn next_deadline_ns(self: *Resolver) ?u64;               // arm one timer for the table
+    /// Null when there is nothing to do now. Each lookup is offered once for each thing it has
+    /// to do, and offered again when an event gives it something new, so a caller acts on what
+    /// it is given rather than polling again to be reminded (§11, §16 decision 20).
+    pub fn poll(self: *Resolver, now_ns: u64, out: []u8) ?Event;
+    /// A bound on the soonest deadline, never later than it: the timer can fire early and the
+    /// poll that follows finds the soonest again.
+    pub fn next_deadline_ns(self: *const Resolver) ?u64;
     pub fn on_datagram(self: *Resolver, message: []const u8, from: Endpoint, now_ns: u64) Verdict;
 
     // Every event goes through the table rather than through the lookup, because each one can
@@ -597,7 +604,7 @@ The caller-provided buffer §19 keeps as the fallback is what would take it back
 
 | Caller allocation | Size | For |
 | --- | --- | --- |
-| `[N]Resolver.Slot` | 3048 bytes each, measured | one per concurrent lookup: a lookup plus the table's own octets |
+| `[N]Resolver.Slot` | 3056 bytes each, measured | one per concurrent lookup: a lookup plus the table's own octets, the ready list's two links and its flag among them (§11) |
 | `[2N]MatchKey` | 4 bytes each | the id-to-slot table, power-of-two length |
 | send buffer | `query_bytes_max`, 284 | shared by the whole table |
 | receive buffer | `config.udp_payload_bytes`, 1232 by default | the caller's, per socket |
@@ -828,8 +835,29 @@ costs 15 ns more than a hot one, and the grouping could recover at most a line o
 
 **Bulk APIs.** `Resolver.poll` returns the next action for any slot, so the caller never loops
 over the table. `next_deadline_ns` returns one deadline for the whole table, so the caller arms
-one timer rather than one per lookup; it is a cached value invalidated when the owning slot fires
-or is retired, not a scan. `on_datagram` is one call per datagram.
+one timer rather than one per lookup. `on_datagram` is one call per datagram.
+
+**What one event costs does not grow with the table.** `poll` took the next slot in rotation and
+walked the table to find one with something to do, and `next_deadline_ns` rescanned whenever an
+event had invalidated its cache. Both are O(n) in the lookups in flight, and a caller driving a
+completion loop polls after every event, so the work per event grew with the table: the
+end-to-end comparison below held at about 26,000 lookups a second whether 16 or 128 were in
+flight, with the latency growing in step. Two structures fix it, and neither changes what a
+caller calls:
+
+- **A ready list**, threaded through the caller's own slots (`table_ready.zig`): two links and a
+  flag in each slot, the lookups with something to do in the order they got it. `start`, every
+  event entry point and an expiry put a lookup on it; `poll` takes from the head. A lookup is
+  offered once for each thing it has to do, which is the one visible change: a send whose
+  completion has not arrived, and an answer the caller has been handed and not freed, are not
+  offered twice. A caller must act on what it is given.
+- **A deadline bound** in place of the cached minimum. A deadline that moves earlier lowers it; a
+  lookup that stops waiting leaves it where it was. So the bound is never later than the true
+  soonest, the caller's timer can fire early, and the poll that follows finds the exact minimum
+  again with the one scan of the table. Firing early costs a wakeup; firing late would cost an
+  answer.
+
+The slot grew by eight octets for the links and the flag, which §9 records.
 
 **Do the cheap rejection first, and no unnecessary work.** The id compare precedes the endpoint
 compare, which precedes the question compare, which precedes the answer walk. The security order
@@ -846,6 +874,31 @@ the implementation** (no iterator stability, no stable addresses for answers, wh
 Not applied, on purpose: no hand-unrolling, no inline attributes, no specialised memcpy. They
 waited for `bench/`, and `bench/` says none of them would buy anything a caller could see. A
 change to any of these carries a new table, or it does not land.
+
+### End to end against c-ares
+
+§19 step 15's comparison, `zig build bench-cares` after its table: one responder thread on the
+loopback answers every query with one A record, and each stack resolves 20,000 distinct absolute
+names against it with 1, 16 and 128 lookups in flight, so neither's cache answers. cocuyo's side
+is the engine of §19 step 13 over rotor, built privately for the bench and run on this thread,
+ReleaseSafe with its assertions on. c-ares's side is the Homebrew build of the version the
+binary prints, with its event thread, which gives it a second thread of its own, and one
+`ares_query_dnsrec` per lookup, the next started from the callback. The responder and the kernel
+are in every number and are the same for both. Lookups per second over the wall time, and the
+median and 99th-percentile latency from start to result, in microseconds, on the machine above.
+
+The rows are not recorded here yet. The engine changed under the measurement twice in one day,
+and a table measured against a build that no longer exists is worse than none: run
+`zig build bench-cares` on the machine above and record what it prints, with the day, the way
+every other table in this section was made.
+
+What the first run found. The engine's `drive` polled the table up to 4,096 times per call, and a
+lookup that has ended and waits for `take` answers every poll with its end again, so every drive
+spun through 4,096 polls over it: cocuyo did 221 lookups a second at one in flight, 4.5 ms each,
+all of it that spin. A drive is now one rotation over the engine's slots, and the row became
+what the table shows. That is what an end-to-end number is for: no unit test on the twin could
+see a cost that changes nothing observable, and no microbenchmark row ran a drive over a settled
+lookup.
 
 ## 12. Named limits
 
@@ -1030,6 +1083,14 @@ step until `zig build test` passes.
 19. **RFC 6724 ordering is a pure function over routes the consumer supplies.** Rejected:
     learning a source per destination by connecting sockets, which is I/O; dropping the rules
     that need a source, which would deny them to a consumer that knows its routes. §19 step 15.
+20. **The table hands out work from a ready list, and offers each thing once.** Rejected: the
+    rotation that walked the table, which made one event's cost grow with the lookups in flight;
+    a ready list that keeps offering a lookup until the caller acts, which is the same walk by
+    another name for a caller that cannot act yet; and a caller-provided queue, which is memory
+    the caller would have to size. The links live in the slots the caller already provides. §11.
+21. **`next_deadline_ns` is a bound, not the minimum.** Rejected: invalidating it on every event,
+    which is a rescan per event; and keeping it exact by tracking every deadline that moves,
+    which is a heap in the table for a timer that costs nothing to re-arm. §11.
 
 ## 17. Questions for the owner
 
@@ -1482,6 +1543,33 @@ surface. It is rooted at `io/io.zig`, outside `src/`, which non-negotiable 1 kee
 sockets. Rejected: the engine in the consumer, which every consumer would then write; a third
 repository, which is a third thing to pin; the engine under `src/`.
 
+**The stream, landed on 2026-09-22.** `io/io_tcp.zig`: one connection per server, opened on the
+first `connect_tcp` and shared by every lookup that needs it, their queries pipelined onto it
+(RFC 7766 §6.2.1.1) and their answers matched back by the table's own demultiplexer. A stream
+carries no message boundaries, so a connection holds the partial bytes and takes whole messages
+out of them by the length prefix of §8; the buffer it assembles into is `tcp_message_bytes`, the
+longest a prefix can describe unless the caller knows its answers are smaller. A connection
+nobody is using is closed after `tcp_idle_ns` (§6.2.3). The chunks arrive in a buffer group of
+their own, since a datagram group carries rotor's prefix before every payload, and a group that
+runs dry is the ordinary end of a receive rather than a broken connection.
+
+**The rest of the engine, landed on 2026-09-22.** `cancel_all` ends every lookup at once, which
+is `ares_cancel`, and each failure comes through `take` like any other. `reinit` takes a new
+configuration, which is `ares_reinit`: it empties the cache, whose answers came from servers that
+may be gone, closes the streams and opens the sockets again. It requires an idle engine, because
+a lookup in flight was started against servers that are going away and its handle names a slot
+the new table has never heard of; a caller with lookups in flight calls `cancel_all` and takes
+their failures first, which is what tells it what it lost. `Config.udp_queries_per_port` is
+c-ares's `udp_max_queries`: a port that has carried its share is replaced once no lookup is
+waiting on it, never taken from a query that is. `Config.local_address` is `ARES_OPT_LOCAL_IP4`
+and `LOCAL_IP6`. Binding to a device by name and sizing the socket buffers stay out: rotor opens
+the sockets and offers neither.
+
+Three stale-event guards came with it, each the same shape as the timer's generation: a send
+completion the engine is not waiting for, a receive from a socket that has been replaced, and a
+connect or a chunk on a connection that is closed. A `reinit` or a port replacement is exactly
+when the loop still holds events for things that are gone.
+
 **Held back on 2026-09-22.** The owner ruled that no library bound to rotor is exposed until a
 consumer asks for one: none does today, and every consumer so far drives `Resolver` from a loop
 of its own. So the engine is not an exported module, no build option fetches rotor for it, and
@@ -1658,9 +1746,10 @@ The comparison against c-ares remains.
 Then the comparison the README will state: the decoders against c-ares's, which
 `zig build bench-cares` measures today, and end to end, both stacks against one in-process
 responder, lookups per second and latency at a number in flight, on the machine and the day §11
-names. cocuyo's side of that run is a `poll(2)` loop in `bench/`, which may own a socket
-(CLAUDE.md, Layout). The engine over rotor would have been that driver, and will be the day it
-is exposed.
+names. cocuyo's side of that run is the engine of step 13 over rotor itself, built privately for
+the bench in `bench/end_to_end/` (the owner's call on 2026-09-22: rotor, not a `poll(2)` loop),
+so what is measured is the batteries-included path a consumer would get, while the engine stays
+unexported until one asks.
 
 ### New limits
 
