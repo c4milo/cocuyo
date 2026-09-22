@@ -15,13 +15,20 @@ pub const Responder = struct {
     port: u16,
     thread: ?std.Thread = null,
     stopping: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+    /// Set by the thread once it is in its receive loop. `start` waits for it, because a spawn
+    /// returns before the thread runs: a row that began first had its earliest queries wait in
+    /// the socket's buffer until the thread got there, and that start-up delay landed in the
+    /// latencies of the first row alone.
+    serving: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
     /// How many queries were answered, for the tests; read after `stop`.
     answered: u64 = 0,
 
     pub fn start(self: *Responder) !void {
         self.socket = try udp.open(0);
         self.port = udp.port_of(self.socket);
+        self.serving.store(false, .release);
         self.thread = try std.Thread.spawn(.{}, serve, .{self});
+        while (!self.serving.load(.acquire)) std.atomic.spinLoopHint();
     }
 
     /// Stops the thread with a datagram to its own socket, joins it and closes the socket.
@@ -38,6 +45,7 @@ pub const Responder = struct {
         var query: [constants.datagram_bytes_max]u8 = undefined;
         var reply: [constants.datagram_bytes_max]u8 = undefined;
         var from: udp.Address = undefined;
+        self.serving.store(true, .release);
         while (!self.stopping.load(.seq_cst)) {
             const bytes = udp.receive(self.socket, &query, &from) orelse continue;
             const len = build_reply(bytes, &reply) orelse continue;
