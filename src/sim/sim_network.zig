@@ -221,10 +221,12 @@ const testing = std.testing;
 test "a datagram socket opens with a port of its own, and closes" {
     network.reset();
     const bound = try open_datagram(.ipv4, null, .{});
+    errdefer close_now(bound);
     const address = try local_address(bound);
     try testing.expectEqual(@as(u16, constants.client_port_first), address.port);
     const chosen = Address.ipv4(.{ 10, 0, 0, 1 }, 5000);
     const second = try open_datagram(.ipv4, &chosen, .{});
+    errdefer close_now(second);
     try testing.expectEqual(@as(u16, 5000), (try local_address(second)).port);
     close_now(bound);
     close_now(second);

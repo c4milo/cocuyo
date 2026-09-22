@@ -32,6 +32,7 @@ const rules = .{
     @import("file_length.zig"),
     @import("magic_numbers.zig"),
     @import("defer_order.zig"),
+    @import("unreleased_acquire.zig"),
 };
 
 const Linter = pepegrillo.lint.Linter(rules);
@@ -55,6 +56,7 @@ test "the registered rules are exactly the rules CLAUDE.md names" {
         "file-length",
         "magic-numbers",
         "defer-order",
+        "unreleased-acquire",
     };
     try testing.expectEqual(expected.len, Linter.count);
     inline for (rules, 0..) |rule, index| {

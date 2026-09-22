@@ -25,6 +25,7 @@ const canary_rules = [_][]const u8{
     "file-length",
     "magic-numbers",
     "defer-order",
+    "unreleased-acquire",
 };
 
 /// The most lines a hand-written file may hold (tools/lint/file_length.zig).
@@ -51,6 +52,10 @@ const canary_source =
     \\    const socket = try open(path);
     \\    try bind(socket);
     \\    defer release_everything();
+    \\}
+    \\pub fn taking(family: u8) !void {
+    \\    const taken = try open_datagram(family);
+    \\    try arm(taken);
     \\}
     \\
 ++ "//\n" ** file_length_max_lines;
