@@ -83,7 +83,8 @@ The architecture depends on every rule in this section.
 
 - Conventional Commits: `type(scope)!: description`, with the scope and the `!` optional. The type
   is one of `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`, and a scope
-  is a module of §2: `core`, `wire`, `resolver`, `config`, `sim`, `bench`, `examples`.
+  is a module of §2 or a directory of code beside them: `core`, `wire`, `resolver`, `config`,
+  `cache`, `sim`, `io`, `bench`, `examples`.
 - The description is imperative, starts lowercase, and ends without a period: `add the name
   decoder`, never `Adds the name decoder.` The subject line stays at or under 72 columns.
 - One blank line before the body. A body line stays at or under 100 columns, and the body stays at
@@ -105,6 +106,10 @@ The architecture depends on every rule in this section.
   `core` alone, `cache` reads `core` and `wire` and never `resolver`, and `sim` reads the first
   three. `resolver` cannot reach `config`, and `zig build graph-check` compiles a fixture to show
   the compiler rejects it.
+- `io/` holds the engine of §19 step 13, outside `src/` because it owns sockets. It reads
+  `cocuyo` and a `rotor` import the build binds to `sim`, so `zig build test-io` runs it on the
+  twin. It is not exported and not shipped: the owner ruled on 2026-09-22 that no library bound
+  to rotor is exposed until a consumer asks for one.
 - Each module owns its `constants.zig`. A limit two modules share lives in `src/core/constants.zig`.
 - `examples/` holds worked examples, `bench/` the microbenchmarks, `docs/` the design set, and
   `tools/` developer tooling that is never linked into the library. `bench/` is outside the module
@@ -128,13 +133,13 @@ The architecture depends on every rule in this section.
 - Build: `zig build`. `-Drelease` builds ReleaseSafe; ReleaseFast and ReleaseSmall are not offered,
   because assertions stay on.
 - Lint: `zig build lint` — the cognitive-complexity score over `build.zig`, `build/`, `src/`,
-  `tools/` and `examples/`, then the `tools/lint` rules (heap, io, determinism, unbounded-loop,
+  `tools/`, `examples/`, `bench/` and `io/`, then the `tools/lint` rules (heap, io, determinism, unbounded-loop,
   relative-import, markdown, file-length, magic-numbers) over the tree and over a canary tree that
   holds one violation of each, so a rule that stopped checking fails the build.
 - Test: `zig build test` — the lint, the graph check, the hook check, then every module's unit
   tests and the tools' own tests. Every change passes it before it is committed.
   `zig build test-<module>` (`test-core`, `test-wire`, `test-resolver`, `test-config`,
-  `test-cache`, `test-sim`, `test-cocuyo`) and `zig build test-tools` run one target's tests with
+  `test-cache`, `test-sim`, `test-cocuyo`, `test-io`) and `zig build test-tools` run one target's tests with
   nothing else in the graph, which is what a mutation is measured against.
 - Bench: `zig build bench` — the microbenchmarks of design §15 step 7, built ReleaseSafe
   whatever `-Drelease` says. `zig build test` compiles the bench and runs the harness's own tests,
@@ -198,7 +203,13 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   walks its servers in `lookup_order.zig`'s order, computed at its first poll: sorted by
   failures, rotated among the fewest, and one query in `failover_retry_chance` a failed server
   whose delay has passed goes first with the real query.
-- Next, in order: the engine over rotor with its deterministic twin in `sim` first (13), the
-  `getaddrinfo` shape (14), RFC 6724 ordering and the end-to-end comparison (15).
+- **13**, the engine, first slice done the same day: `src/sim/` is the twin of rotor's loop, a
+  virtual clock and scripted servers behind rotor's surface, and `io/` is the engine over it,
+  with one UDP socket per server, a buffer group, one timer and the cache in front, run on the
+  twin by `zig build test-io`. The owner ruled the same day that no library bound to rotor is
+  exposed until a consumer asks for one, so the engine is not exported. Still to come in 13: the
+  TCP path, port rotation, `reinit` and `cancel_all`.
+- Next, in order: the rest of 13, the `getaddrinfo` shape (14), RFC 6724 ordering and the
+  end-to-end comparison (15).
 
 §17 holds the questions the owner has not answered.

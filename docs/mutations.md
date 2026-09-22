@@ -502,6 +502,53 @@ F15 survived until the first failover test polled once more after its timeout: w
 recomputed around the failure just recorded, the walk position that meant the second server
 came to mean the first again, and the second server's answer was no longer the lookup's.
 
+## Step 13, the twin and the engine's UDP path
+
+Design §19 step 13, the first slice: the deterministic twin of rotor's loop in `src/sim/`, and
+the engine over it in `io/`, with one UDP socket per server, a buffer group, one timer and the
+cache in front. The twin is broken against `zig build test-sim`, the engine against
+`zig build test-io`, which compiles the engine with the twin as its `rotor`. Eighteen mutations,
+eighteen `CAUGHT`, four of them written the day their bugs were found.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| V1 | a tick never moves the clock | the virtual clock | the timer test | CAUGHT |
+| V2 | cancel delivers nothing | rotor decision 5, rule 1 | the cancelled-receive test | CAUGHT |
+| V3 | a datagram is delivered before it is due | the delay | the buffer-when-due test | CAUGHT |
+| V4 | a stream chunk is not consumed | the stream framing | an assertion, under the chunked-stream test | CAUGHT |
+| V5 | the server ignores its drop rate | the loss script | the down-server test | CAUGHT |
+| V6 | a timer fires at once | the timer's instant | the timer test | CAUGHT |
+| V7 | cancel treats an unfired timer as ended | rotor decision 5, rule 5 | **the cancelled-timer test** | CAUGHT |
+| V8 | the cancelled timer's fire stays queued | rotor decision 5, rule 1 | the cancelled-timer test | CAUGHT |
+| I1 | a result is reported twice | one result per lookup | the results ring's bound | CAUGHT |
+| I2 | the cache is not asked | §18, in front of `start` | the cache-hit test | CAUGHT |
+| I3 | the timer is never armed | §19 step 13, one timer | the down-server test | CAUGHT |
+| I4 | a taken slot is never released | `take` frees the last | the first lookup test | CAUGHT |
+| I5 | a datagram's source port is not handed on | §7 check 3 | the group-runs-dry test | CAUGHT |
+| I6 | a failed send is not told to the table | §19 step 12 | the failed-send test | CAUGHT |
+| I7 | an answer is not cached | §18, put at the end | the cache-hit test | CAUGHT |
+| I8 | an ended receive is not armed again | the multishot's end | the group-runs-dry test | CAUGHT |
+| I9 | a stale timer's end is taken for the current one | the timer's generation | **the moved-timer test** | CAUGHT |
+| I10 | a fired timer keeps its recorded due | the timer's due | **the early-fire test** | CAUGHT |
+
+V7 found a bug in the twin. Its `cancel` refused any operation with a final event queued, and a
+timer's fire is queued the moment it is submitted, so the twin never cancelled a timer: the
+engine's tests passed against a loop that fired every timer it was told to forget. rotor cancels
+an unfired timer at once (decision 5, rule 5, and its own test says so), so the twin now counts
+an operation as ended only when its final event is due, and withdraws a fire still ahead.
+
+I9 was the bug V7 was hiding. When the deadline moves, the engine cancels the old timer and arms
+a new one, and the old one's `Canceled` end arrives after that (rotor decision 5, rule 2). The
+engine took it for the current timer's and dropped the new handle, so `deinit` could not cancel
+the timer it had lost, and a drain waited for it to fire. The timer's `user_data` now carries a
+generation, and an end from an earlier one is nothing. I10 is the companion: a fired timer clears
+its recorded due, so a caller whose clock is a nanosecond behind the loop's gets the timer armed
+again at the next drive instead of a deadline nobody is waiting for.
+
+I1 and V4 are caught by an assertion rather than a test's own check. A second report of the
+same lookup overfills the results ring, whose capacity is the table's, and the push asserts it
+has room; a chunk delivered twice overfills the reader's frame, which the delivery asserts fits.
+
 ## Planned, later steps
 
 | # | Mutation | Check it breaks | Expected to be caught by | Status |

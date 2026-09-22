@@ -86,7 +86,7 @@ by the build rather than by review.
 | `config` | `core` | the `resolv.conf` parser |
 | `cache` | `core`, `wire` | the answer cache of §18, above the state machine and never inside it |
 | `sim` | `core`, `wire`, `resolver` | the scripted server and the virtual clock, test-only |
-| `cocuyo_rotor` | `cocuyo`, `rotor` | the engine of §19: sockets, timers and connections over rotor, in `engine/` and built only when asked for |
+| `io` | `cocuyo`, `rotor` | the engine of §19 step 13: sockets, timers and connections over a loop with rotor's surface, in `io/`; compiled against `sim` for the gate, and not exported |
 
 `resolver` cannot import `config`. That is the split between the state machine and the config
 parser, made structural: `Config` is a `core` type, the parser is one producer of it, and the
@@ -107,8 +107,11 @@ src/resolver/ resolver.zig lookup.zig lookup_poll.zig lookup_response.zig lookup
               entropy.zig constants.zig
 src/config/   resolv_conf.zig resolv_conf_options.zig constants.zig
 src/cache/    cache.zig cache_keys.zig cache_chain.zig cache_sweep.zig constants.zig
-src/sim/      sim.zig sim_script.zig sim_gate.zig
-examples/udp_blocking.zig
+src/sim/      sim.zig sim_types.zig sim_loop.zig sim_loop_perform.zig sim_network.zig
+              sim_server.zig sim_buffers.zig constants.zig fixtures.zig sim_scenarios_test.zig
+io/           io.zig io_drive.zig io_events.zig io_udp.zig io_results.zig constants.zig
+              fixtures.zig io_sim_test.zig
+examples/udp_blocking.zig examples/udp_rotor.zig
 bench/
 docs/design.md docs/decisions.md docs/mutations.md
 ```
@@ -1186,10 +1189,11 @@ Four places, in order of preference, so the core stays what §1 made it:
 
 - **The core**: `wire`, `resolver`, `config` and `cache`. I/O-free, allocation-free,
   deterministic, and where every protocol rule lands.
-- **The engine**: a new module, `cocuyo_rotor`, in `engine/` beside `src/`. It owns sockets,
-  timers and connections through rotor and nothing else, and it is the only place in this
-  repository that reads a clock, opens a file or reads the environment. It imports `cocuyo` and
-  `rotor`; `src/` cannot import it, and `zig build graph-check` shows that.
+- **The engine**: a module of its own, `io`, in `io/` beside `src/`. It owns sockets, timers
+  and connections through a loop with rotor's surface and nothing else, and it is the only
+  place in this repository that may open a file or read the environment; the clock stays the
+  caller's (non-negotiable 4). It imports `cocuyo` and `rotor`, and `src/` cannot import it. It
+  is not exported, for the reason step 13 gives, and the gate compiles it against `sim`.
 - **The consumer**: what only a particular program can decide.
 - **Out**: with the reason, and where it would attach.
 
@@ -1409,14 +1413,22 @@ first instant it has, and the order holds for the lookup. The lookup is 3040 oct
 
 ### Step 13: the engine
 
-`cocuyo_rotor` is the c-ares replacement in one import: the state machine, the cache, the
-config parsers, and the sockets and timers under them, driven by rotor's completion loop. It is
-a module of this repository, rooted at `engine/engine.zig`, built when the consumer asks for it
-(`b.dependency("cocuyo", .{ .engine = true })`), which is the one condition under which rotor,
-a lazy dependency, is fetched. A consumer that wants only the protocol pays for nothing.
-Rejected: the engine in the consumer, which every consumer would then write; a third
-repository, which is a third thing to pin; the engine under `src/`, which non-negotiable 1
-forbids.
+The engine is the c-ares replacement in one import: the state machine, the cache, the config
+parsers, and the sockets and timers under them, driven by a completion loop with rotor's
+surface. It is rooted at `io/io.zig`, outside `src/`, which non-negotiable 1 keeps free of
+sockets. Rejected: the engine in the consumer, which every consumer would then write; a third
+repository, which is a third thing to pin; the engine under `src/`.
+
+**Held back on 2026-09-22.** The owner ruled that no library bound to rotor is exposed until a
+consumer asks for one: none does today, and every consumer so far drives `Resolver` from a loop
+of its own. So the engine is not an exported module, no build option fetches rotor for it, and
+`build.zig.zon` does not ship `io/`. What lands is the engine compiled against the twin below,
+under `zig build test-io`, which is the gate this step promised: every path of the library
+driven from a seed through a loop of rotor's shape. The engine itself names nothing of the
+twin; only its tests do, and they compile only when the twin is the `rotor`. The day a consumer
+asks, the build's `rotor` import is the one line that changes. The first slice landed that
+day: the UDP path, the buffer group, one timer, the cache in front, and the twin with its
+scripted servers. The TCP path, port rotation, `reinit` and `cancel_all` follow.
 
 ```zig
 pub const Engine = struct {
