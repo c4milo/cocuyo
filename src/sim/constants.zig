@@ -1,0 +1,89 @@
+//! The limits of the twin (docs/design.md §19 step 13): what one simulated loop and its network
+//! hold. Every table is static and every walk is bounded by one of these.
+const core = @import("core");
+
+/// The most operations one loop holds in flight: its slot table.
+pub const operations_max = 4096;
+
+/// The most events waiting to be delivered by a tick. An operation ends in one final event and a
+/// multishot delivers many, so this is above the slot count.
+pub const events_pending_max = 8192;
+
+/// The most sockets one network holds, datagram and stream together.
+pub const sockets_max = 64;
+
+/// The most scripted servers one network answers for: the servers a configuration may name.
+pub const servers_max = core.constants.servers_max;
+
+/// The most datagrams waiting to be delivered, and the room each holds: a reply is at most the
+/// UDP payload cocuyo advertises.
+pub const datagrams_pending_max = 256;
+pub const datagram_bytes_max = core.constants.udp_payload_bytes_default;
+
+/// The most stream connections open at once, and the octets each direction of one buffers.
+pub const connections_max = 16;
+pub const stream_bytes_max = 16384;
+
+/// Buffer groups and the buffers each holds, as rotor bounds them.
+pub const buffer_groups_max = 4;
+pub const buffers_per_group_max = 256;
+
+/// The alignment rotor asks of a buffer ring and of the loop's memory, and the octets one ring
+/// entry takes, so a caller's arrays are sized the same for the twin and for rotor.
+pub const buffer_ring_alignment = 64;
+pub const buffer_ring_entry_bytes = 16;
+pub const memory_alignment = 64;
+
+/// The prefix rotor puts before a datagram's payload in a group buffer: a head, then room for
+/// the addresses and the control data. 16 + 32 + 144.
+pub const prefix_head_bytes = 16;
+pub const name_reserve_default = 32;
+pub const control_reserve_default = 144;
+
+/// The longest a wait may be, and the longest an operation's own timeout may be: rotor's
+/// bounds, kept so an operation valid there is valid here.
+pub const wait_ns_max = 60 * ns_per_s;
+
+/// How many ticks `drain` runs before it gives up on an operation that will not end.
+pub const drain_rounds_max = 64;
+
+/// The generation a handle starts at; zero is `Handle.none`.
+pub const generation_first = 1;
+
+/// The most octets one transfer moves, rotor's bound.
+pub const transfer_bytes_max = 1 << 30;
+
+/// The address the scripted servers sit at: the documentation range of RFC 5737, one octet per
+/// server, on port 53.
+pub const server_prefix = [_]u8{ 192, 0, 2 };
+pub const server_octet_first = 53;
+pub const server_port = core.constants.port_dns_default;
+
+/// The address a client socket bound to no address gets, and the range of ports handed out.
+pub const client_address = [_]u8{ 192, 0, 2, 1 };
+pub const client_port_first = 40000;
+
+/// The prefix of a scripted AAAA answer: the documentation prefix of RFC 3849, `2001:db8::`.
+pub const answer_v6_prefix = [_]u8{ 0x20, 0x01, 0x0d, 0xb8 };
+
+/// The default TTL of a scripted answer.
+pub const answer_ttl_seconds = 300;
+
+/// The server cookie every scripted server hands out, sixteen octets as RFC 9018 §3 has it.
+pub const server_cookie_bytes = 16;
+
+/// The most octets one scripted stream reply is split into per delivery, at the least: a chunk
+/// is drawn between this and what the buffer holds, so framing is exercised.
+pub const stream_chunk_bytes_min = 1;
+
+/// One second, spelled out because nothing under `src/` names `std.time` (CLAUDE.md
+/// non-negotiable 4).
+pub const ns_per_s = 1_000_000_000;
+
+/// The octets of one draw the scripted server reads its decisions from: one chance per octet,
+/// and the delay from the high half.
+pub const dice_drop_shift = 0;
+pub const dice_servfail_shift = 8;
+pub const dice_nxdomain_shift = 16;
+pub const dice_truncate_shift = 24;
+pub const dice_delay_shift = 32;
