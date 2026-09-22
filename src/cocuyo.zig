@@ -10,6 +10,32 @@ pub const wire = @import("wire");
 pub const resolver = @import("resolver");
 pub const resolv_conf = @import("config");
 
+// The names a consumer reaches for, flattened. Everything else is behind the module it belongs to.
+pub const Address = core.Address;
+pub const Endpoint = core.Endpoint;
+pub const Family = core.Family;
+pub const Name = core.Name;
+pub const Kind = core.Kind;
+pub const Question = core.Question;
+pub const Config = core.Config;
+pub const Error = core.Error;
+pub const constants = core.constants;
+
+pub const Lookup = resolver.Lookup;
+pub const Resolver = resolver.Resolver;
+pub const Action = resolver.Action;
+pub const Answer = resolver.Answer;
+pub const Failure = resolver.Failure;
+pub const Verdict = resolver.Verdict;
+pub const Handle = resolver.Handle;
+pub const Slot = resolver.Slot;
+pub const MatchKey = resolver.MatchKey;
+pub const Event = resolver.Event;
+
+/// The length a TCP length prefix describes (RFC 7766 §8). A caller reads two octets, calls this,
+/// reads that many more, and hands them to `on_response`.
+pub const message_len = wire.message_len;
+
 test {
     _ = core;
     _ = wire;

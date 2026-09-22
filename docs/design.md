@@ -54,7 +54,11 @@ alternative it beat recorded in §16.
 Each of these is out of scope on purpose, with the place it would attach.
 
 - **No cache.** Seam: `Answer.ttl_seconds` is reported, and `Lookup` touches no socket, so a cache
-  wraps `Resolver.start` from above without changing this library.
+  wraps `Resolver.start` from above without changing this library. Worth knowing before choosing
+  this: **c-ares caches by default.** Its `ares_init_options(3)` says the query cache has been on
+  since c-ares 1.31.0 with a one-hour ceiling, caching successful and NXDOMAIN results and
+  flushing on a server configuration change. A consumer swapping c-ares for cocuyo version one
+  therefore sends every query it used to answer from memory, which §17 asks the owner about.
 - **No DNSSEC validation.** Seam: EDNS0 exists, the DO bit is a flag cocuyo never sets, and the
   record iterator hands out rdata unread, so a validator sits above the codec.
 - **No DNS-over-TLS and no DNS-over-HTTPS.** Seam: the TCP path already produces length-prefixed
@@ -737,5 +741,12 @@ step until `zig build test` passes.
    `config`, which is the module the state machine cannot import.
 7. **Search-list order.** §5 records glibc's behaviour from memory. Worth pinning against a live
    `getaddrinfo` on both hosts before v1 is called done.
-8. **A second example.** Unanswered, so step 6 ships the blocking one alone. A second example with
-   many concurrent lookups on one socket is where `Resolver` and §11 earn their keep.
+8. **A second example.** The blocking one is required. A second one over rotor's completion-based
+   loop shows the shape this library was built for, and the owner cleared rotor as a dev-only
+   dependency of the tests and examples on 2026-09-22. rotor must still never depend on cocuyo.
+
+9. **Does version one need a cache after all?** c-ares caches by default and has since 1.31.0
+   (§1), so a consumer replacing it loses that unless it writes one. The seam is clean and a cache
+   above `Resolver.start` needs nothing from this library, but "clean seam" is not the same as
+   "someone has written it". The question for the owner is whether version one ships the cache, or
+   ships without it and says so in the same breath as calling itself a c-ares replacement.

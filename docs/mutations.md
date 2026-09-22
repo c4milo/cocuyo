@@ -168,7 +168,46 @@ no behaviour any test can see. That is what an assertion is for: it covers the p
 a corrupted key table, where the alternative is reading a lookup that is `undefined`. An
 assertion whose removal a test can see would have been a check.
 
-## Planned, step 5
+## Step 5, the config parser
+
+The `resolv.conf` parser and the address text parser it needs, broken against
+`zig build test-config`. Eighteen mutations, eighteen `CAUGHT` — four after the tests and the two
+dead checks the mutations found.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| C1 | a quad of three octets is accepted | the dotted quad | the short-quad test | CAUGHT |
+| C2 | an octet over 255 is truncated | RFC 1035 §3.4.1 | the 256 test | CAUGHT |
+| C3 | a leading zero is read as decimal | the octal ambiguity | the `010` test | CAUGHT |
+| C4 | an empty group is accepted | RFC 4291 §2.2 | the double-`::` test | CAUGHT |
+| C5 | a `::` may stand for no groups | RFC 4291 §2.2 | **a test written for it** | CAUGHT |
+| C6 | an address of seven groups is accepted | RFC 4291 §2.2 | the seven-group test | CAUGHT |
+| C7 | a dotted quad may appear anywhere | RFC 4291 §2.2 form 3 | the misplaced-quad test | CAUGHT |
+| C8 | a group of five digits is accepted | RFC 4291 §2.2 | the `12345::1` test | CAUGHT |
+| C9 | a non-digit in an octet is accepted | the dotted quad | the `1.2.3.x` test | CAUGHT |
+| C10 | an unknown option stops the line | §10 | **the interleaved options test** | CAUGHT |
+| C11 | a search line adds to the previous | `resolv.conf(5)` | the last-line-wins test | CAUGHT |
+| C12 | no nameserver means no server | §10 | the empty-file test | CAUGHT |
+| C13 | a malformed nameserver takes a slot | §10 | the bad-address test | CAUGHT |
+| C14 | a comment is read as a keyword | `resolv.conf(5)` | the comment test | CAUGHT |
+| C15 | the line bound is doubled | §12 | the long-file test | CAUGHT |
+| C16 | servers past the limit are written | §12 | the too-many-servers test | CAUGHT |
+| C17 | a timeout of zero is kept | §10 | the `timeout:0` test | CAUGHT |
+| C18 | a value over the limit is refused | `resolv.conf(5)` | the clamping test | CAUGHT |
+
+Two mutations found dead code rather than missing tests, which is the third and fourth time in
+this tree. The parser refused a zone index, a bracketed address and a prefix length with a scan
+for `%`, `[`, `]` and `/` — and no input could reach it, because none of those four is a digit and
+the group and octet parsers refuse them wherever they appear. The same for a second `::`: it
+leaves an empty group between two colons, and an empty group is already not a group. Both checks
+are gone and the tests that pinned their behaviour stayed, because the behaviour is what matters
+and it is still there.
+
+C10 is the one that needed a better test rather than a new one. The options test had the unknown
+options last, where a parser that stopped at the first one it did not recognise behaves exactly
+like one that skips them. They now sit between the options that matter.
+
+## Planned, step 6
 
 | # | Mutation | Check it breaks | Expected to be caught by | Status |
 | --- | --- | --- | --- | --- |
