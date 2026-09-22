@@ -11,7 +11,7 @@ const Event = sim.Event;
 const Operation = sim.Operation;
 
 const fixtures = @import("fixtures.zig");
-const options: Loop.Options = .{ .operations = fixtures.operations, .entries = fixtures.entries };
+const options: Loop.Options = .{ .operations = fixtures.operations };
 const group_id = fixtures.group_id;
 const group_buffers = fixtures.group_buffers;
 const buffer_bytes = fixtures.buffer_bytes;
@@ -25,8 +25,7 @@ const connect_tag = fixtures.connect_tag;
 const Rig = struct {
     loop: Loop = undefined,
     memory: [0]u8 align(constants.memory_alignment) = undefined,
-    ring: [sim.buffers.ring_bytes(group_buffers)]u8 align(sim.buffers.ring_alignment) = undefined,
-    group_memory: [group_buffers * buffer_bytes]u8 align(sim.buffers.ring_alignment) = undefined,
+    group_memory: [sim.buffers.group_bytes(group_buffers, buffer_bytes)]u8 align(sim.buffers.group_alignment) = undefined,
     query: [core.constants.query_bytes_max]u8 = undefined,
     query_len: usize = 0,
     outbound: sim.datagram.Outbound = undefined,
@@ -36,7 +35,7 @@ const Rig = struct {
         rig.loop.seed(seed);
         rig.loop.network().scripts[0] = script;
         rig.loop.network().server_count = 1;
-        try rig.loop.provide_datagram_buffers(group_id, &rig.ring, &rig.group_memory, buffer_bytes, group);
+        try rig.loop.provide_datagram_buffers(group_id, &rig.group_memory, group_buffers, buffer_bytes, group);
         var query: wire.Query = .{ .id = fixtures.query_id, .name = try core.Name.from_text("example.com"), .kind = .a, .tcp = false };
         rig.query_len = wire.query.write(&query, &rig.query);
         rig.outbound = .{
@@ -82,8 +81,7 @@ test "a datagram to a scripted server comes back on the socket's receive, after 
     try testing.expectEqual(@as(u64, 1000), rig.loop.now());
     try testing.expectEqual(@as(u64, receive_tag), events[0].user_data);
     try testing.expect(events[0].flags.buffer and events[0].flags.more);
-    const buffer = rig.loop.provided_buffer(group_id, events[0].flags.buffer_id);
-    const delivery = rig.loop.datagram(buffer, events[0]);
+    const delivery = rig.loop.datagram(group_id, events[0]);
     try testing.expect(delivery.from.peer.equal(&rig.outbound.peer));
     try testing.expectEqual(@as(u16, 0x4242), (try wire.header.parse(delivery.bytes)).id);
     rig.loop.give_back_buffer(group_id, events[0].flags.buffer_id);

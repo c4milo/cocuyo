@@ -59,8 +59,7 @@ fn on_receive_event(self: anytype, server: usize, event: rotor.Event, now_ns: u6
 }
 
 fn deliver(self: anytype, event: rotor.Event, now_ns: u64) void {
-    const buffer = self.loop.provided_buffer(constants.group_id, event.flags.buffer_id);
-    const delivery = self.loop.datagram(buffer, event);
+    const delivery = self.loop.datagram(constants.group_id, event);
     _ = self.resolver.on_datagram(delivery.bytes, udp.endpoint_of(delivery.from.peer), now_ns);
     self.loop.give_back_buffer(constants.group_id, event.flags.buffer_id);
 }

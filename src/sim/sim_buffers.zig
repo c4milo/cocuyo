@@ -1,6 +1,7 @@
 //! Buffer groups, as rotor provides them (`provide_datagram_buffers`, `provided_buffer`,
-//! `give_back_buffer`): a caller's memory cut into buffers of one size, a free list, and rotor's
-//! prefix before each payload so `datagram` reads the same layout on both.
+//! `give_back_buffer`): one block of the caller's memory, the bookkeeping in front and the
+//! buffers of one size after it, a free list, and rotor's prefix before each payload so
+//! `datagram` reads the same layout on both.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
@@ -9,11 +10,17 @@ const types = @import("sim_types.zig");
 pub const ProvideError = error{ SystemResources, Unexpected };
 pub const RegisterError = error{ SystemResources, Unexpected };
 
-pub const ring_alignment = constants.buffer_ring_alignment;
+pub const group_alignment = constants.buffer_ring_alignment;
 
-/// The octets a ring of `count` buffers takes, as rotor sizes it, so a caller's array serves
+/// The octets one group takes: the bookkeeping rotor's ring needs, then the buffers.
+pub fn group_bytes(count: u16, buffer_bytes: u32) usize {
+    assert(buffer_bytes >= 1);
+    return ring_bytes(count) + @as(usize, count) * buffer_bytes;
+}
+
+/// The bookkeeping in front of the buffers, as rotor sizes it, so a caller's one block serves
 /// both.
-pub fn ring_bytes(count: u16) usize {
+fn ring_bytes(count: u16) usize {
     assert(count >= 1);
     assert(std.math.isPowerOfTwo(count));
     return @as(usize, count) * constants.buffer_ring_entry_bytes;
@@ -35,13 +42,15 @@ pub const Group = struct {
         .free_count = 0,
     };
 
-    pub fn init(memory: []u8, buffer_bytes: u32) Group {
+    /// The buffers of `memory` are the octets after the bookkeeping, which is what rotor lays
+    /// out and what a caller reading a buffer by its id must find.
+    pub fn init(memory: []u8, count: u16, buffer_bytes: u32) Group {
         assert(buffer_bytes >= 1);
-        const count: usize = memory.len / buffer_bytes;
         assert(count >= 1);
         assert(count <= constants.buffers_per_group_max);
+        assert(memory.len >= group_bytes(count, buffer_bytes));
         var group: Group = .{
-            .buffers = memory,
+            .buffers = memory[ring_bytes(count)..][0 .. @as(usize, count) * buffer_bytes],
             .buffer_bytes = buffer_bytes,
             .count = @intCast(count),
             .free = @splat(false),
@@ -122,10 +131,14 @@ comptime {
 
 const testing = std.testing;
 
-test "a group hands out its lowest free buffer and takes it back" {
-    var memory: [4 * 256]u8 = undefined;
-    var group = Group.init(&memory, 256);
-    try testing.expectEqual(@as(u16, 4), group.count);
+test "a group hands out its lowest free buffer and takes it back, after the bookkeeping" {
+    const count = 4;
+    const buffer_bytes = 256;
+    var memory: [group_bytes(count, buffer_bytes)]u8 align(group_alignment) = undefined;
+    var group = Group.init(&memory, count, buffer_bytes);
+    try testing.expectEqual(@as(u16, count), group.count);
+    // The buffers are the octets after the bookkeeping, which is what rotor lays out.
+    try testing.expect(group.bytes_of(0).ptr != @as([*]u8, @ptrCast(&memory)));
     try testing.expectEqual(@as(?u16, 0), group.take());
     try testing.expectEqual(@as(?u16, 1), group.take());
     group.give_back(0);
@@ -133,11 +146,11 @@ test "a group hands out its lowest free buffer and takes it back" {
     try testing.expectEqual(@as(?u16, 2), group.take());
     try testing.expectEqual(@as(?u16, 3), group.take());
     try testing.expectEqual(@as(?u16, null), group.take());
-    try testing.expectEqual(@as(usize, 256), group.bytes_of(3).len);
+    try testing.expectEqual(@as(usize, buffer_bytes), group.bytes_of(3).len);
 }
 
 test "a delivery written into a buffer reads back with its peer and its payload" {
-    var buffer: [512]u8 align(ring_alignment) = undefined;
+    var buffer: [512]u8 align(group_alignment) = undefined;
     const peer = types.Address.ipv4(.{ 192, 0, 2, 53 }, 53);
     const written = write_delivery(&buffer, .{}, &peer, "hello");
     try testing.expectEqual(@as(u32, 5), written);

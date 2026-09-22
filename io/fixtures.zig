@@ -7,9 +7,6 @@ pub const lookups = 64;
 pub const cache_slots = 64;
 pub const group_buffers = 16;
 
-/// What the loop is told to hold beyond the engine's own operations.
-pub const loop_entries = 64;
-
 /// The scripted servers the rig configures: the twin's first two.
 pub const servers = 2;
 

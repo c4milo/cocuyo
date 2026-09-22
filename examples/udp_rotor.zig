@@ -26,7 +26,7 @@ const resolv_conf_path = "/etc/resolv.conf";
 
 /// The loop holds one send and one receive at a time, and `entries` is what the io_uring backend
 /// sizes its submission ring by.
-const loop_options: rotor.Loop.Options = .{ .operations = 4, .entries = 4 };
+const loop_options: rotor.Loop.Options = .{ .operations = 4 };
 const loop_memory_bytes = rotor.Loop.memory_bytes(loop_options);
 
 /// The buffer group every datagram is delivered into. Each buffer holds rotor's own prefix and
@@ -80,15 +80,13 @@ fn resolve(io: std.Io, name: []const u8, config: *const cocuyo.Config, seed: u64
     var lookup = cocuyo.Lookup.init(config, &servers, try cocuyo.Question.from_text(name, .a), seed);
     const clock: Clock = .init(io);
 
-    var loop_memory: [loop_memory_bytes]u8 align(rotor.layout.memory_alignment) = undefined;
-    const ring_alignment = rotor.buffers.ring_alignment;
-    var ring_memory: [rotor.buffers.ring_bytes(group_buffers)]u8 align(ring_alignment) = undefined;
-    var group_memory: [group_buffers * buffer_bytes]u8 align(ring_alignment) = undefined;
+    var loop_memory: [loop_memory_bytes]u8 align(rotor.memory_alignment) = undefined;
+    var group_memory: [rotor.buffers.group_bytes(group_buffers, buffer_bytes)]u8 align(rotor.buffers.group_alignment) = undefined;
 
     var loop: rotor.Loop = undefined;
     try loop.init(&loop_memory, loop_options);
     defer loop.deinit();
-    try loop.provide_datagram_buffers(group_id, &ring_memory, &group_memory, buffer_bytes, group);
+    try loop.provide_datagram_buffers(group_id, &group_memory, group_buffers, buffer_bytes, group);
 
     // The port cocuyo suggests is entropy against a spoof (RFC 5452 §9.2). A port already in use
     // is not a reason to fail: the kernel picks another.
@@ -180,8 +178,7 @@ const Driver = struct {
     fn receive(self: *Driver, lookup: *cocuyo.Lookup, event: rotor.Event, now_ns: u64) void {
         const bytes = event.outcome() catch return;
         if (bytes == 0) return;
-        const buffer = self.loop.provided_buffer(group_id, event.flags.buffer_id);
-        const delivery = self.loop.datagram(buffer, event);
+        const delivery = self.loop.datagram(group_id, event);
         _ = lookup.on_response(delivery.bytes, endpoint_of(delivery.from.peer), now_ns);
         self.loop.give_back_buffer(group_id, event.flags.buffer_id);
     }

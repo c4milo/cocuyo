@@ -102,11 +102,10 @@ pub fn Group(comptime buffers: u16) type {
         const Self = @This();
         const group: rotor.datagram.GroupOptions = .{};
 
-        ring: [rotor.buffers.ring_bytes(buffers)]u8 align(rotor.buffers.ring_alignment),
-        memory: [@as(usize, buffers) * constants.buffer_bytes]u8 align(rotor.buffers.ring_alignment),
+        memory: [rotor.buffers.group_bytes(buffers, constants.buffer_bytes)]u8 align(rotor.buffers.group_alignment),
 
         pub fn provide(self: *Self, loop: *rotor.Loop) error{ReceiveFailed}!void {
-            loop.provide_datagram_buffers(constants.group_id, &self.ring, &self.memory, constants.buffer_bytes, group) catch
+            loop.provide_datagram_buffers(constants.group_id, &self.memory, buffers, constants.buffer_bytes, group) catch
                 return error.ReceiveFailed;
         }
 

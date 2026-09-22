@@ -24,9 +24,7 @@ pub const datagram = struct {
     pub const prefix_bytes = types.prefix_bytes;
     pub const payload_capacity = types.payload_capacity;
 };
-pub const layout = struct {
-    pub const memory_alignment = constants.memory_alignment;
-};
+pub const memory_alignment = constants.memory_alignment;
 pub const Address = types.Address;
 pub const Code = types.EventCode;
 pub const Delivery = types.Delivery;

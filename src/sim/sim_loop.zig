@@ -65,7 +65,9 @@ pub const Pending = struct {
 pub const Loop = struct {
     pub const Options = struct {
         operations: u32,
-        entries: u16,
+        /// What rotor's io_uring backend sizes its submission ring by, defaulted there and
+        /// sized by nothing here.
+        entries: u16 = 0,
         id: types.LoopId = 0,
         registry: ?*Registry = null,
     };
@@ -304,26 +306,26 @@ pub const Loop = struct {
     pub fn provide_datagram_buffers(
         loop: *Loop,
         group_id: u16,
-        ring_memory: []align(buffers.ring_alignment) u8,
-        memory: []u8,
+        memory: []align(buffers.group_alignment) u8,
+        count: u16,
         buffer_bytes: u32,
         group: types.GroupOptions,
     ) buffers.ProvideError!void {
         assert(buffer_bytes > types.prefix_bytes(group));
         loop.group_options = group;
-        return loop.provide_buffers(group_id, ring_memory, memory, buffer_bytes);
+        return loop.provide_buffers(group_id, memory, count, buffer_bytes);
     }
 
     pub fn provide_buffers(
         loop: *Loop,
         group_id: u16,
-        ring_memory: []align(buffers.ring_alignment) u8,
-        memory: []u8,
+        memory: []align(buffers.group_alignment) u8,
+        count: u16,
         buffer_bytes: u32,
     ) buffers.ProvideError!void {
         assert(group_id < constants.buffer_groups_max);
-        assert(ring_memory.len >= buffers.ring_bytes(@intCast(memory.len / buffer_bytes)));
-        loop.groups[group_id] = buffers.Group.init(memory, buffer_bytes);
+        assert(memory.len >= buffers.group_bytes(count, buffer_bytes));
+        loop.groups[group_id] = buffers.Group.init(memory, count, buffer_bytes);
     }
 
     pub fn provided_buffer(loop: *const Loop, group_id: u16, buffer_id: u16) []u8 {
@@ -336,9 +338,12 @@ pub const Loop = struct {
         loop.groups[group_id].give_back(buffer_id);
     }
 
-    pub fn datagram(loop: *const Loop, buffer: []u8, event: Event) types.Delivery {
+    /// The datagram an event of group `group_id` names: one call, the only reader of such a
+    /// buffer.
+    pub fn datagram(loop: *const Loop, group_id: u16, event: Event) types.Delivery {
         assert(!event.flags.message);
         assert(event.result >= 0);
+        const buffer = loop.provided_buffer(group_id, event.flags.buffer_id);
         return buffers.read_delivery(buffer, @intCast(event.result), loop.group_options);
     }
 

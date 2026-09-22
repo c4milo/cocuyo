@@ -16,12 +16,12 @@ const options: io.Options = .{
 };
 const Engine = io.Engine(options);
 
-const loop_options: rotor.Loop.Options = .{ .operations = Engine.loop_operations, .entries = fixtures.loop_entries };
+const loop_options: rotor.Loop.Options = .{ .operations = Engine.loop_operations };
 
 /// Two scripted servers, which are the twin's first two, and an engine over them.
 const Rig = struct {
     loop: rotor.Loop = undefined,
-    memory: [0]u8 align(rotor.layout.memory_alignment) = undefined,
+    memory: [0]u8 align(rotor.memory_alignment) = undefined,
     servers: [fixtures.servers]cocuyo.Server = .{
         .{ .endpoint = endpoint_of(rotor.Network.server_address(0)) },
         .{ .endpoint = endpoint_of(rotor.Network.server_address(1)) },
@@ -265,8 +265,8 @@ const Small = io.Engine(.{ .lookups = fixtures.small_lookups, .cache_slots = fix
 
 test "the receive is armed again after the group runs dry, and every answer still arrives" {
     var loop: rotor.Loop = undefined;
-    var memory: [0]u8 align(rotor.layout.memory_alignment) = undefined;
-    try loop.init(&memory, .{ .operations = Small.loop_operations, .entries = fixtures.loop_entries });
+    var memory: [0]u8 align(rotor.memory_alignment) = undefined;
+    try loop.init(&memory, .{ .operations = Small.loop_operations });
     loop.seed(8);
     loop.network().scripts[0] = .{ .delay_ns_min = 1000, .delay_ns_max = 1000 };
     loop.network().server_count = 1;

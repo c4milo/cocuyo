@@ -3,7 +3,6 @@
 
 /// A small loop, one group of a few buffers of a size that holds a reply after rotor's prefix.
 pub const operations = 16;
-pub const entries = 16;
 pub const group_id = 0;
 pub const group_buffers = 4;
 pub const buffer_bytes = 2048;
