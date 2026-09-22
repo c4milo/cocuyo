@@ -9,8 +9,8 @@
 #     feature: the twin is a virtual clock and a virtual network, so the same run happens on both.
 #
 #   - `engine`: the engine of docs/design.md §19 step 13 over rotor itself, and the comparison
-#     against the c-ares the runner installs. This is the only job that opens a socket, and the
-#     only one that needs rotor's io_uring backend, which rotor 0.2.0 carries.
+#     against c-ares. This is the only job that opens a socket, and the only one that needs
+#     rotor's io_uring backend, which rotor 0.2.0 carries.
 #
 # **No number from CI enters docs/design.md §11.** A measured row there names the machine, the
 # command and the day, and a shared runner is neither named nor quiet. What this job proves is
@@ -18,9 +18,15 @@
 # lookup is answered and none fails, which is a tripwire. A speed claim comes from a quiet
 # machine, as §11 says.
 #
+# c-ares is built here from its release tarball rather than installed from the distribution.
+# Ubuntu 24.04 packages 1.27.0, which predates the `ares_dns_record` reader and `ares_query_dnsrec`
+# that `bench/` is written against, so the comparison does not compile against it. Building the
+# release also makes both sides of the comparison the same c-ares: 1.34.8 is what the macOS
+# measurements in §11 were made against.
+#
 # Zig is downloaded from ziglang.org and checked against the SHA-256 the release index published
-# for 0.16.0, so the toolchain is pinned. No third-party action runs here; `actions/checkout` is
-# GitHub's own.
+# for 0.16.0, and c-ares against the SHA-256 of its release asset, so both are pinned. No
+# third-party action runs here; `actions/checkout` is GitHub's own.
 name: ci
 
 on:
@@ -34,6 +40,7 @@ permissions:
 
 env:
   ZIG_VERSION: "0.16.0"
+  CARES_VERSION: "1.34.8"
 
 jobs:
   macos:
@@ -87,12 +94,25 @@ jobs:
           tar -xf zig.tar.xz
           echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
       - run: zig version
-      - name: Install c-ares
+      - name: Build c-ares
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y libc-ares-dev
+          url="https://github.com/c-ares/c-ares/releases/download/v${CARES_VERSION}/c-ares-${CARES_VERSION}.tar.gz"
+          sha="c222b6d681096f9444d2c4863d2c1174019e27cacca0a4a5c114d36dd7d7bf78"
+          curl -fsSL "$url" -o cares.tar.gz
+          echo "$sha  cares.tar.gz" | sha256sum -c -
+          tar -xf cares.tar.gz
+          cmake -S "c-ares-${CARES_VERSION}" -B cares-build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/cares-prefix" \
+            -DCMAKE_INSTALL_LIBDIR=lib \
+            -DCARES_BUILD_TESTS=OFF \
+            -DCARES_BUILD_TOOLS=OFF
+          cmake --build cares-build --parallel
+          cmake --install cares-build
+          echo "CARES_PREFIX=$PWD/cares-prefix" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$PWD/cares-prefix/lib" >> "$GITHUB_ENV"
       - name: The comparison's own tests, and the engine against a real kernel
-        run: zig build test-cares -Dcares=/usr
+        run: zig build test-cares "-Dcares=$CARES_PREFIX"
       - name: The comparison, for the log and not for the record
-        run: zig build bench-cares -Dcares=/usr
+        run: zig build bench-cares "-Dcares=$CARES_PREFIX"
