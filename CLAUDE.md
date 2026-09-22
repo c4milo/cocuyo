@@ -106,7 +106,9 @@ The architecture depends on every rule in this section.
   `zig build graph-check` compiles a fixture to show the compiler rejects it.
 - Each module owns its `constants.zig`. A limit two modules share lives in `src/core/constants.zig`.
 - `examples/` holds worked examples, `bench/` the microbenchmarks, `docs/` the design set, and
-  `tools/` developer tooling that is never linked into the library.
+  `tools/` developer tooling that is never linked into the library. `bench/` is outside the module
+  graph and may read a clock; it is linted and formatted like `src/`, and it gets a module graph
+  of its own at ReleaseSafe from `build/bench.zig`.
 
 ## Ask before
 
@@ -131,7 +133,11 @@ The architecture depends on every rule in this section.
   `zig build test-<module>` (`test-core`, `test-wire`, `test-resolver`, `test-config`, `test-sim`,
   `test-cocuyo`) and `zig build test-tools` run one target's tests with nothing else in the graph,
   which is what a mutation is measured against.
-- Format: `zig build fmt`, or `zig fmt build.zig build src tools examples`.
+- Bench: `zig build bench` — the microbenchmarks of design §15 step 7, built ReleaseSafe
+  whatever `-Drelease` says. `zig build test` compiles the bench and runs the harness's own tests,
+  so it cannot rot. A number goes into design §11 with the machine, the command and the date, or it
+  does not go in.
+- Format: `zig build fmt`, or `zig fmt build.zig build src tools examples bench`.
 - Commit messages: `zig build hooks` once after clone; `zig build lint-commits` by hand.
 
 ## Current task
@@ -139,7 +145,7 @@ The architecture depends on every rule in this section.
 docs/design.md §15 names the steps, each with the check that proves it, and docs/mutations.md
 records what each step's checks were broken against.
 
-Steps 0 to 6 are done:
+Steps 0 to 7 are done:
 
 - **0**, the build: the module graph the compiler enforces, the lint rules with their canary, the
   graph check, the commit linter and the pre-push hook.
@@ -153,7 +159,11 @@ Steps 0 to 6 are done:
 - **5**, `config`: the `resolv.conf` parser and the address text parser it needs.
 - **6**, `examples/udp_blocking.zig`, which resolves real names against real servers.
 
-Next is step 7, `bench/`: query build, response parse and datagram match, in nanoseconds per
-operation, which is what turns §11's estimates into measurements. §17 holds the questions the
-owner has not answered, and question 9 — whether version one ships a cache, since c-ares has had
-one on by default since 1.31.0 — is the one that decides what "replacement" means.
+- **7**, `bench/`: query build, response parse and datagram match in nanoseconds per operation,
+  measured ReleaseSafe on the machine §11 names. Every estimate in §11 is now a measurement, and
+  the layout question §11 left open is closed on the cold-slot row, the one measurement that can
+  see a cache line.
+
+Every step of the plan is done. §17 holds the questions the owner has not answered, and question
+9 — whether version one ships a cache, since c-ares has had one on by default since 1.31.0 — is
+the one that decides what "replacement" means.

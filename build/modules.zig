@@ -30,18 +30,38 @@ pub const roots = .{
     .sim = "src/sim/sim.zig",
 };
 
+/// The graph, registered: a consumer names `cocuyo`, and `zig build test-<name>` names the rest.
 pub fn add(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) Graph {
+    return build(b, target, optimize, true);
+}
+
+/// The same graph at another optimize mode, unregistered. `zig build bench` measures ReleaseSafe
+/// whatever the build was asked for, and a name can be registered once.
+pub fn add_private(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) Graph {
+    return build(b, target, optimize, false);
+}
+
+fn build(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    register: bool,
+) Graph {
     const graph: Graph = .{
-        .cocuyo = module(b, target, optimize, "cocuyo", roots.cocuyo),
-        .core = module(b, target, optimize, "core", roots.core),
-        .wire = module(b, target, optimize, "wire", roots.wire),
-        .resolver = module(b, target, optimize, "resolver", roots.resolver),
-        .config = module(b, target, optimize, "config", roots.config),
-        .sim = module(b, target, optimize, "sim", roots.sim),
+        .cocuyo = module(b, target, optimize, "cocuyo", roots.cocuyo, register),
+        .core = module(b, target, optimize, "core", roots.core, register),
+        .wire = module(b, target, optimize, "wire", roots.wire, register),
+        .resolver = module(b, target, optimize, "resolver", roots.resolver, register),
+        .config = module(b, target, optimize, "config", roots.config, register),
+        .sim = module(b, target, optimize, "sim", roots.sim, register),
     };
 
     // core imports nothing, and that is the point of it: every limit and every type that two
@@ -67,10 +87,12 @@ fn module(
     optimize: std.builtin.OptimizeMode,
     name: []const u8,
     root: []const u8,
+    register: bool,
 ) *std.Build.Module {
-    return b.addModule(name, .{
+    const options: std.Build.Module.CreateOptions = .{
         .root_source_file = b.path(root),
         .target = target,
         .optimize = optimize,
-    });
+    };
+    return if (register) b.addModule(name, options) else b.createModule(options);
 }

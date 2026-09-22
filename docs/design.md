@@ -532,13 +532,77 @@ nameserver, matching the historical behaviour of the platform stubs.
 The hints in <https://abseil.io/fast/hints> are the discipline here. Four of them change the
 design rather than the prose.
 
-**Estimate before optimising.** The costs, all estimated by hand from the operation counts and
-none measured yet: building a query writes about 300 bytes and takes a few dozen branches;
-parsing a response is one pass over at most 1232 bytes with no allocation; matching a datagram to
-a lookup is one probe. Against a network wait of roughly 1 to 50 milliseconds, every one of those
-is noise. The single structure that can matter is matching an inbound datagram when many lookups
-are in flight, because that is the one cost that grows with the table. So that is the one thing
-designed for a constant, and everything else is written for clarity first and measured later.
+**Estimate before optimising.** The costs were first estimated by hand from the operation counts:
+building a query writes about 300 bytes and takes a few dozen branches; parsing a response is one
+pass over at most 1232 bytes with no allocation; matching a datagram to a lookup is one probe.
+Against a network wait of roughly 1 to 50 milliseconds, every one of those is noise. The single
+structure that can matter is matching an inbound datagram when many lookups are in flight, because
+that is the one cost that grows with the table. So that is the one thing designed for a constant,
+and everything else is written for clarity first and measured afterwards.
+
+**Measured.** `zig build bench` on 2026-09-22, Zig 0.16.0, ReleaseSafe, native target with no
+`-Dtarget` or `-Dcpu`, on an Apple M1 Pro — eight performance cores with a 128 KiB first-level data
+cache and a 12 MiB second level, two efficiency cores — with 32 GiB under macOS 26.6.2, on mains
+power, a laptop in ordinary use and not quiesced. The clock is `CLOCK_UPTIME_RAW`, which the host
+reports as stepping 42 ns; `CLOCK_MONOTONIC` on this macOS steps a whole microsecond, and the first
+version of this table was quantised by it. Twenty-one samples per case after one untimed warm-up,
+each sample 200,000 iterations, after one second of spinning so the machine has finished whatever
+ran before the bench. Two runs back to back; every median below is from the second, and every one
+of them sits within 2% of the first. The harness overhead, the first row, is included in every
+other row and not subtracted. The numbers are cocuyo's alone: nothing here is measured against
+c-ares or any other resolver, so the table supports no claim about speed relative to what cocuyo
+replaces. Nanoseconds per operation, from the commit that added this table:
+
+| Case | Fastest | Median |
+| --- | --- | --- |
+| harness overhead, an empty call through the same function pointer | 1.5 | 1.5 |
+| query build, `example.com`, EDNS0 | 8.5 | 8.6 |
+| query build, a 255-octet name, over TCP | 12.4 | 12.6 |
+| name decode, two labels | 15.8 | 15.9 |
+| name decode, through a compression pointer | 17.1 | 17.1 |
+| response parse, one A record | 45.0 | 45.1 |
+| response parse, a CNAME then its A record, with a 256-octet restore of the chain | 173.3 | 173.8 |
+| response parse, 17 A records, 16 kept | 574.0 | 575.0 |
+| datagram match, an id nobody holds, 1 in flight | 3.1 | 3.1 |
+| datagram match, an id nobody holds, 1024 in flight | 3.1 | 3.1 |
+| datagram match, right id and wrong question, 1 in flight | 34.3 | 34.5 |
+| datagram match, right id and wrong question, 64 in flight | 35.2 | 36.0 |
+| datagram match, right id and wrong question, 1024 in flight | 35.3 | 35.4 |
+| datagram match, right id and wrong question, rotating over all 1024 slots | 50.1 | 50.2 |
+| slot restore, an 864-octet copy the accepted case pays and a caller does not | 12.9 | 13.2 |
+| datagram match, accepted, 1024 in flight, with the slot restore | 91.8 | 92.0 |
+| lookup round trip: `init`, `poll`, `on_sent`, `on_response` | 174.4 | 174.7 |
+| `resolv.conf` parse, three lines | 324.6 | 328.0 |
+
+What the table says, against the estimates:
+
+- The estimates hold, and were pessimistic. A query builds in 9 ns. A response with one record
+  parses in 45 ns, and one with seventeen records, sixteen of them kept, in 575 ns: about 33 ns for
+  each record walked beyond the first — (575 − 45) / 16, the seventeenth walked and its owner
+  decoded before it is refused — which is a skip, an owner name decoded through a pointer at 17 ns,
+  and the address copied. A CNAME chain resolved in one message costs 174 ns: the chain moves
+  once, the section is walked twice, five names are decoded on the way (the two owners on each of
+  the two passes, and the CNAME's target once), three 256-octet copies move the chain, and the row
+  carries the restore its name says.
+- The demultiplexer is the constant it was designed to be. An id nobody holds is refused in 3 ns
+  whether 1 or 1024 lookups are in flight, and a real id with the wrong question — the probe plus
+  every check of §7 short of the answer walk — costs 34 ns at 1 in flight and 35 ns at 1024.
+  Accepting one at 1024 in flight costs 92 ns, of which 13 is the slot the harness puts back after
+  each iteration, so 79 ns is the match and the answer walk.
+- Those rows aim every iteration at one slot, which sits in the first-level cache from the second
+  iteration on. The rotating row aims each iteration at a different one of the 1024, whose 864 KiB
+  do not fit the 128 KiB first level and do fit the 12 MiB second: the same path costs 50 ns there,
+  so a slot read cold out of the first level adds 15 ns. A datagram arriving from the kernel finds
+  its slot at least that cold.
+- A whole lookup, minus the network — made, its query built, the send heard, the answer read — is
+  175 ns. Against the shortest round trip the estimate considered, one millisecond, that is 0.017%:
+  the network is about 5,700 times the library.
+
+What the table does not say: a slot evicted to memory, and not only out of the first level, costs
+more than the rotating row shows. A memory access on this machine is on the order of a hundred
+nanoseconds, a figure recalled and not measured, because the largest table there is fits the
+second-level cache and the harness cannot build one that does not. It is still nothing against a
+millisecond, but it is an estimate where the rest of this section is not.
 
 **Place frequently accessed fields together, and reduce the cache lines touched.** A naive
 demultiplexer scans the slots, touching 856 bytes per candidate. Instead `Resolver` keeps a side
@@ -546,12 +610,14 @@ table of `MatchKey`, four bytes each, sixteen to a cache line, indexed by the lo
 transaction id with open addressing. Because the id is drawn from the generator it is uniform, so
 one probe finds the slot, and only that slot is touched.
 
-The hint's other half, grouping the fields a hot path reads, is **not** claimed here. Zig orders a
+The hint's other half, grouping the fields a hot path reads, is **not** applied. Zig orders a
 struct's fields as it likes, and the pinned measurement of §9 shows it reordering a lookup's
 scalars across the names, so the state and the transaction id are not one cache line however they
 are declared. Grouping them in a sub-struct would fix that and cost every use site a level of
-naming; it stays unmade until `bench/` says the difference is visible next to a network round
-trip, which is the estimate-first hint applied to the layout hint.
+naming. The rotating row of the table above is the one measurement that can see the effect,
+because the rows that aim at one hot slot cannot: a slot read cold out of the first-level cache
+costs 15 ns more than a hot one, and the grouping could recover at most a line or two of those
+15 ns, next to a round trip of a million or more. It stays unmade, and that row is why.
 
 **Bulk APIs.** `Resolver.poll` returns the next action for any slot, so the caller never loops
 over the table. `next_deadline_ns` returns one deadline for the whole table, so the caller arms
@@ -570,10 +636,9 @@ touched only by its owner and cocuyo contains no lock or atomic), and **no promi
 the implementation** (no iterator stability, no stable addresses for answers, which is why
 `Answer` hands out slices into the slot and documents their lifetime as until the next call).
 
-Not applied yet, on purpose: no hand-unrolling, no inline attributes, no specialised memcpy. Those
-wait for `bench/`, which measures three operations — query build, response parse, datagram match —
-and reports nanoseconds per operation. Until then, every number in this document says it is an
-estimate.
+Not applied, on purpose: no hand-unrolling, no inline attributes, no specialised memcpy. They
+waited for `bench/`, and `bench/` says none of them would buy anything a caller could see. A
+change to any of these carries a new table, or it does not land.
 
 ## 12. Named limits
 
@@ -684,7 +749,8 @@ step until `zig build test` passes.
 - **Step 6.** `examples/udp_blocking.zig`, about 50 lines over a blocking socket, and the README
   including §14 in full.
 - **Step 7.** `bench/`: query build, response parse, datagram match, in nanoseconds per operation.
-  Every estimate in §11 is then either confirmed or corrected in place.
+  Every estimate in §11 is then either confirmed or corrected in place. Done: §11 carries the
+  table, the machine and the command, and the harness's own tests run under `zig build test`.
 
 ## 16. Decisions, with the alternatives they beat
 

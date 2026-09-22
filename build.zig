@@ -21,13 +21,14 @@ const modules = @import("build/modules.zig");
 const lint = @import("build/lint.zig");
 const graph_check = @import("build/graph_check.zig");
 const examples = @import("build/examples.zig");
+const bench = @import("build/bench.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
-const source_directories = [_][]const u8{ "build", "src", "tools", "examples" };
+const source_directories = [_][]const u8{ "build", "src", "tools", "examples", "bench" };
 
 /// Every directory the tools/lint rules read: the sources above plus the documents, which the
 /// markdown rule covers.
-const lint_rule_directories = [_][]const u8{ "build", "src", "tools", "examples", "docs" };
+const lint_rule_directories = [_][]const u8{ "build", "src", "tools", "examples", "bench", "docs" };
 
 /// Markdown outside `docs/` that the markdown rule reads all the same, because both render on
 /// GitHub as written (CLAUDE.md, Conventions).
@@ -117,6 +118,7 @@ pub fn build(b: *std.Build) void {
     examples.add(b, graph.cocuyo, target, optimize, test_step, b.lazyDependency("rotor", .{
         .target = target,
     }));
+    bench.add(b, target, test_step, tool_test_step);
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_commit_lint_step(b, pepegrillo, install_step);
     add_hooks_step(b);

@@ -14,6 +14,10 @@ pub const query = @import("query.zig");
 pub const record = @import("record.zig");
 pub const response = @import("response.zig");
 pub const fuzz = @import("fuzz.zig");
+/// The hand-written corpus. Tests read it, and so does `bench/`, because a benchmark over a
+/// message the encoder built would measure the encoder's idea of a message rather than a
+/// server's.
+pub const fixtures = @import("fixtures.zig");
 
 pub const Header = header.Header;
 pub const Rcode = constants.Rcode;

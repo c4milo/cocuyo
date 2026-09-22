@@ -228,7 +228,45 @@ whose rdata is `host.` followed by a pointer at the `com` label of the echoed qu
 runs sixteen seeds, because whether a given seed capitalises anything in that suffix is a matter
 of which bits it drew.
 
-## Planned, step 7
+## Step 7, the bench
+
+A benchmark is a check too: a row is only worth reading if the case does what its name says, so
+the harness's arithmetic and every case's behaviour are pinned by tests in `bench/`, and those
+tests were broken against `zig build test-tools`. Eight mutations, eight `CAUGHT` — three only
+after the review that preceded them changed the harness.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| B1 | the median is read one sample off | `summarise` | **the summary test, through the harness** | CAUGHT |
+| B2 | a sample is picoseconds per sample, not per run | `sample` | the per-run test | CAUGHT |
+| B3 | the wrong-question reply echoes the right question | the row's name | **the check-by-check verdict test** | CAUGHT |
+| B4 | the CNAME case stops restoring the chain | the row's name | **the run-twice assertion** | CAUGHT |
+| B5 | the rotation does not wrap | the cold-slot row | the thousand-turn test, by bounds | CAUGHT |
+| B6 | `unheld_id` returns the first id without walking | the stray rows | **the forced-collision test** | CAUGHT |
+| B7 | `unique_handle` returns the first lookup whatever its id | the accepted rows | **the forced-collision test** | CAUGHT |
+| B8 | the round trip skips `init` and reuses one lookup | the round-trip row | the answer test, by an assertion | CAUGHT |
+
+B1 was a test that tested itself: the median test sorted an array and indexed it with the same
+expression the harness used, so a change to the harness could not fail it. The summary is now a
+function, and the test calls it.
+
+B6 and B7 are guards against a probability. Two of 1024 lookups drawing one sixteen-bit id, or
+a stray id happening to be held, does not occur for the fixed seed, so mutating the *call sites*
+to take the first value on trust changes nothing a test can see: they are equivalent mutants for
+this seed. What can be tested is the guard itself under a collision the test forces, and that is
+what the two forced-collision tests do.
+
+The review before these mutations — four reviewers, twenty-one findings, none of them verified
+by the refuters, which the session's usage limit killed — was verified by hand instead, and
+changed the harness in five ways: the clock became `CLOCK_UPTIME_RAW`, because `CLOCK_MONOTONIC`
+on this macOS steps a whole microsecond and had quantised every figure at 5 ps; the round-trip row
+gained `init` and lost an 856-octet copy it had been hiding; a cold-slot row was added, because the
+layout question of §11 had been closed with a hot-cache number that could not see a cache line;
+the `resolv.conf` case stopped parsing a comptime constant; and the harness spins for a second
+before its first case, because two of three runs had measured the tail of the gate's test
+binaries in their first rows.
+
+## Planned, later steps
 
 | # | Mutation | Check it breaks | Expected to be caught by | Status |
 | --- | --- | --- | --- | --- |
