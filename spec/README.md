@@ -78,7 +78,7 @@ Two faults stand in for a kernel under pressure: the loop refuses every submissi
 of one event, as a full ring does, and every socket open fails for the length of one event, as a
 process with no descriptor left sees.
 
-`cocuyo-spec engine <tcp|udp> <slots> <connections>` walks it breadth first and checks nine
+`cocuyo-spec engine <tcp|udp> <slots> <connections>` walks it breadth first and checks ten
 invariants in every state:
 
 - A connection's users are the lookups on it.
@@ -94,6 +94,8 @@ invariants in every state:
   drains, and a draining socket nothing is owed on is gone.
 - A stream has one send in flight at most, and it is its queue's head's; no query waits in two
   queues or twice in one.
+- A connect that is gone keeps its slot closed until its final event, since it borrows the slot's
+  address until then.
 
 The walk stops at six operations in flight, two failures a server and three queries a port,
 since nothing else bounds the graph. A stream's send may come back short once a message, since a
@@ -102,7 +104,7 @@ reported, on 2026-09-23:
 
 | Transport | Slots | Connections | States | Transitions | Invariants |
 | --- | --- | --- | --- | --- | --- |
-| TCP | 1 | 1 | 3,297,814 | 48,427,352 | hold |
+| TCP | 1 | 1 | 1,038,503 | 14,908,528 | hold |
 | UDP | 1 | 1 | 5,848,772 | 85,609,860 | hold |
 
 The replay cannot visit that many states, so `cocuyo-spec engine-walks` writes seeded walks that

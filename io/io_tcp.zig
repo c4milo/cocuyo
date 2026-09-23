@@ -37,6 +37,10 @@ pub fn Connection(comptime message_bytes: u32, comptime lookups: u16) type {
         handle: ?rotor.Handle = null,
         /// The connect operation borrows this until its event arrives (rotor decision 5, rule 3).
         address: rotor.Address = undefined,
+        /// Whether a connect is in flight from this slot, of whichever opening: until its event,
+        /// the slot is not opened again, since the loop may still read `address` (docs/design.md
+        /// §19 step 13, the stream's rule 10). It outlives the connection, for that reason.
+        connect_in_flight: bool = false,
         /// The partial message: a length prefix and as much of the body as has arrived.
         frame: [message_bytes]u8 = undefined,
         used: usize = 0,
@@ -128,6 +132,8 @@ fn find(self: anytype, server: u8) ?u8 {
 fn open(self: anytype, server: u8) Error!u8 {
     const at = free_slot(self) orelse return error.SocketFailed;
     const connection = &self.connections[at];
+    // Nothing the loop holds names this slot's address (rule 10).
+    assert(!connection.connect_in_flight);
     const endpoint = self.config.servers[server].tcp_endpoint();
     const descriptor = rotor.sync.open_socket(family_of(endpoint)) catch return error.SocketFailed;
     udp.size_buffers(descriptor, self.config);
@@ -147,17 +153,19 @@ fn open(self: anytype, server: u8) Error!u8 {
         return error.SocketFailed;
     }
     connection.handle = handles[0];
+    connection.connect_in_flight = true;
     return at;
 }
 
 /// A slot with no connection in it: one that is closed, or one nobody is using, which is closed
-/// to make room. A connection with lookups on it is never taken.
+/// to make room. A connection with lookups on it is never taken, and neither is a slot whose
+/// address a connect still borrows (the stream's rule 10).
 fn free_slot(self: anytype) ?u8 {
     for (self.connections[0..], 0..) |*connection, at| {
-        if (connection.state == .closed) return @intCast(at);
+        if (connection.state == .closed and !connection.connect_in_flight) return @intCast(at);
     }
     for (self.connections[0..], 0..) |*connection, at| {
-        if (connection.users == 0) {
+        if (connection.users == 0 and !connection.connect_in_flight) {
             shut(self, @intCast(at));
             return @intCast(at);
         }
@@ -215,9 +223,17 @@ fn current_of(self: anytype, index: usize, event: rotor.Event) ?u8 {
     return null;
 }
 
-/// The connect ended. Every lookup on the connection is told, one way or the other.
+/// The connect ended. Every lookup on the connection is told, one way or the other. Its one event
+/// is its final one, so the slot's address is its own again whatever opening the event is for.
 pub fn on_connect_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64) void {
-    const at = current_of(self, index, event) orelse return;
+    const slot = &self.connections[index & constants.tcp_slot_mask];
+    assert(slot.connect_in_flight);
+    slot.connect_in_flight = false;
+    const at = current_of(self, index, event) orelse {
+        // A connect that is gone kept its slot closed until now (rule 10).
+        assert(slot.state == .closed);
+        return;
+    };
     const connection = &self.connections[at];
     // The current opening has one connect, and the receive replaces it when it ends.
     assert(connection.state == .connecting);
@@ -335,7 +351,7 @@ fn shut(self: anytype, at: u8) void {
     if (connection.handle) |handle| self.loop.cancel(handle);
     queue_module.release_all(self, at);
     if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);
-    connection.* = .{ .incarnation = connection.incarnation };
+    connection.* = .{ .incarnation = connection.incarnation, .connect_in_flight = connection.connect_in_flight };
 }
 
 /// A receive for every connection that is up and has none: one the loop refused before is asked
@@ -371,6 +387,6 @@ pub fn close_all(self: anytype) void {
     for (self.connections[0..], 0..) |*connection, at| {
         queue_module.release_all(self, @intCast(at));
         if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);
-        connection.* = .{ .incarnation = connection.incarnation };
+        connection.* = .{ .incarnation = connection.incarnation, .connect_in_flight = connection.connect_in_flight };
     }
 }

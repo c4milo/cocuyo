@@ -1039,6 +1039,22 @@ mutations, seven `CAUGHT`.
 | W6 | a draining socket's ended receive is armed on the current one | rule 5 | the committed walks | CAUGHT |
 | W7 | a query does not record the socket it left from | rule 4, what is owed | the rotation twin test; the committed walks | CAUGHT |
 
+## A connect's address
+
+The stream's rule 10 (docs/design.md §19 step 13): a connect borrows its slot's address until
+its final event, so the slot is not opened again before then. The model's new invariant broke on
+the code as it stood, in two events. Broken against `zig build test-io`, `zig build test-tools`
+and `zig build spec`. The committed walks catch all five; the twin tests catch none, since none
+of them opens a slot again while a connect is out. Five mutations, five `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CR1 | a closed slot is taken while its connect is in flight | rule 10 | the committed walks, at line 76 | CAUGHT |
+| CR2 | a slot nobody uses is taken while its connect is in flight | rule 10 | the committed walks, at line 10 | CAUGHT |
+| CR3 | a connect's event leaves its slot marked | rule 10, the slot comes back | the committed walks, at line 30 | CAUGHT |
+| CR4 | closing a slot forgets its connect is in flight | rule 10 | the committed walks, at line 76 | CAUGHT |
+| CR5 | a connect's submission does not mark its slot | rule 10 | the committed walks, at line 10 | CAUGHT |
+
 ## DoT's configuration and padding
 
 Design §21 steps 2 and 3: servers speak TLS all together or not at all, a TLS server's queries go

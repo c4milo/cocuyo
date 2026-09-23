@@ -308,6 +308,11 @@ def buffersLent (s : State) : Bool :=
     let queued := s.conns.any (·.queue.contains l)
     sends ≤ 1 && ((slotAt s l).busy == (sends == 1 || queued))
 
+/-- A connect that is gone still borrows its slot's address until its final event, so its slot
+stays closed until then (the stream's rule 10). -/
+def addressKept (s : State) : Bool :=
+  s.ops.all fun op => op.kind != .connect || op.current || (connAt s op.target).stage == .closed
+
 /-- A stream has one send in flight at most, and it is its queue's head's; no query waits in two
 queues or twice in one (the stream's rule 9). -/
 def oneSendAStream (s : State) : Bool :=
@@ -363,6 +368,7 @@ def invariants (before : State) (e : Event) (s : State) : List (String × Bool) 
     | _ => !before.jammed && !before.starved
   [("users counted", usersCounted s), ("attached right", attachedRight s),
    ("buffers lent", buffersLent s), ("one send a stream", oneSendAStream s),
+   ("address kept", addressKept s),
    ("ops current", opsCurrent s),
    ("sockets current", socksCurrent s), ("drive done", driveDone s),
    ("listening", !drove || listeningAll s), ("rotated", !drove || rotatedAll s)]

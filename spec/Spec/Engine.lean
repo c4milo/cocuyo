@@ -321,13 +321,19 @@ def firstIndex (xs : List α) (p : α → Bool) : Option Nat :=
     | some x => p x
     | none => false
 
+/-- Whether a connect of slot `k`'s is in flight, of whichever incarnation: it borrows the slot's
+address until its final event (rule 10). -/
+def connectInFlight (s : State) (k : Nat) : Bool :=
+  s.ops.any fun op => op.kind = .connect ∧ op.target = k
+
 /-- A slot for a new connection: the first closed one, or else the first nobody uses, closed to
-make room (rule 1). -/
+make room (rule 1); never one whose address a connect still borrows (rule 10). -/
 def freeConn (s : State) : Option Nat × State :=
-  match firstIndex s.conns (·.stage = .closed) with
+  let ks := List.range s.conns.length
+  match ks.find? fun k => (connAt s k).stage = .closed ∧ ¬connectInFlight s k with
   | some k => (some k, s)
   | none =>
-    match firstIndex s.conns (·.users = 0) with
+    match ks.find? fun k => (connAt s k).users = 0 ∧ ¬connectInFlight s k with
     | some k => (some k, shut s k)
     | none => (none, s)
 

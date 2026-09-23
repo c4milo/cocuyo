@@ -2080,6 +2080,12 @@ code of 2026-09-22 broke one, the model found it, and the fix is recorded with i
    would break the stream for every lookup on it. A send that fails, or that the loop refuses,
    fails the connection (rule 5). TLS needs the same order for its own reason: each record's
    nonce is its sequence number, so records reach the peer in the order they were sealed.
+10. A connect borrows the address its connection slot holds, from its submission to its final
+    event (rotor decision 5, rule 3), whichever incarnation made it, and a cancel changes nothing
+    about that. A slot is not opened again while an earlier incarnation's connect is in flight:
+    a closed slot waiting on one is not free, and a slot with no lookups on it is taken only
+    when its connect has ended. Until 2026-09-23 a slot shut while connecting could be opened
+    again at once, and the new address was written over the one the loop still held.
 
 **The datagram's rules, written on 2026-09-23** in the same way, for the same model. Rules 6 to 8
 of the stream hold for datagrams as they stand: a send lends its buffer, a completion speaks for
@@ -2115,14 +2121,15 @@ lookup waits two of them. The loop may refuse every submission for the length of
 socket opens may fail for the length of one event. A stream's send may come back short once a
 message, its rest then whole or failed: a second short send takes the same path as the first.
 
-- `cocuyo-spec engine` walks every state the model reaches in a configuration and checks nine
+- `cocuyo-spec engine` walks every state the model reaches in a configuration and checks ten
   invariants in each. A connection's users are the lookups on it. A lookup is only on a
   connection to its server. A buffer is lent to one send at most. A connection and a socket each
   have at most one current operation of each kind. A drive leaves nothing on the ready list.
   After a drive nothing refused, every socket has its receive armed and every connection that is
   up has its receive. And after such a drive, a port that has carried its share is replaced
   unless an older one still drains, and a draining socket nothing is owed on is gone. A stream
-  has one send in flight at most, its queue's head's, and no query waits twice. They hold
+  has one send in flight at most, its queue's head's, and no query waits twice. A slot whose
+  address a connect that is gone still borrows stays closed. They hold
   in every state of one slot and one connection over TCP, and in all 5.85 million of one slot
   over UDP; spec/README.md has the counts. This is model checking over bounded configurations,
   not a proof.
@@ -2131,7 +2138,7 @@ message, its rest then whole or failed: a second short send takes the same path 
   million events. After each event it compares the engine's whole state with the model's, and
   checks every buffer the event handed the engine is back in its group.
 
-The code of 2026-09-22 broke ten of these rules, each fixed with the model:
+The code of 2026-09-22 broke eleven of these rules, each fixed with the model:
 
 - A cancelled connect or receive that ended after its slot was reused was taken for the new
   connection's own (the stream's rule 2).
@@ -2153,6 +2160,10 @@ The code of 2026-09-22 broke ten of these rules, each fixed with the model:
 - Every query pipelined onto a connection was sent at once, and a short send was taken for a
   whole one, so under backpressure the queries could interleave or be cut and the length
   prefixes stopped lining up (the stream's rule 9).
+- A slot shut while connecting could be opened again at once, and the new address was written
+  over the one the cancelled connect still borrowed (the stream's rule 10). The model found it
+  in two events: a lookup's connect outlasts its deadline, and its retry to the next server
+  takes the same slot.
 
 The model also showed what the first rule 4 left open: nothing made a retiring port rotate while
 its server stayed busy. §17 question 15 put it to the owner, who answered it the same day, and
