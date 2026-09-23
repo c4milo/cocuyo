@@ -110,27 +110,94 @@ fn start_next(slot: *Slot) void {
     slot.owner.store(.idle, .release);
 }
 
-/// Takes the slot, or, when it is held, tells the holder a start is owed.
-fn take(slot: *Slot) bool {
-    for (0..take_rounds) |_| {
-        const seen = slot.owner.cmpxchgStrong(.idle, .issuing, .acq_rel, .acquire) orelse return true;
-        // One query out per slot, so one answer per holding: a second owed start cannot arise.
-        assert(seen != .owed);
-        if (slot.owner.cmpxchgStrong(.issuing, .owed, .acq_rel, .acquire) == null) return false;
-        // The holder let go between the two looks, so the slot is idle and the next look takes it.
+/// One actor's part in handing a slot over, one atomic operation at a time.
+///
+/// `take` and `settle` are each a short run of compare-and-exchange operations on `Slot.owner`,
+/// and c-ares's thread can act between any two of them. Written as steps, the code that runs is
+/// the code a test can interleave: `every_order` below puts the other actor's steps between
+/// these in each order there is, which no test built from examples can reach.
+const Handoff = struct {
+    step: Step,
+    /// How many times `take` has looked and found the holder leaving.
+    looks: u8 = 0,
+    /// How it ended: true when this actor now holds the slot and issues the next lookup.
+    holds: bool = false,
+
+    const Step = enum {
+        /// Take an idle slot.
+        take,
+        /// Tell the holder a start is owed.
+        mark,
+        /// Let the slot go, unless a start is owed.
+        let_go,
+        /// Take up the start that is owed.
+        take_owed,
+        done,
+    };
+
+    /// Performs one atomic operation. False once the handoff is over.
+    fn advance(self: *Handoff, slot: *Slot) bool {
+        switch (self.step) {
+            .take => {
+                const seen = slot.owner.cmpxchgStrong(.idle, .issuing, .acq_rel, .acquire) orelse
+                    return self.end(true);
+                // One query out per slot, so one answer per holding: a second owed start
+                // cannot arise.
+                assert(seen != .owed);
+                self.step = .mark;
+            },
+            .mark => {
+                if (slot.owner.cmpxchgStrong(.issuing, .owed, .acq_rel, .acquire) == null) return self.end(false);
+                // The holder let go between the two looks: the slot is idle, and the next look
+                // takes it.
+                self.looks += 1;
+                assert(self.looks < take_rounds);
+                self.step = .take;
+            },
+            .let_go => {
+                if (let_go(slot)) return self.end(false);
+                self.step = .take_owed;
+            },
+            .take_owed => {
+                // It could not be let go, so a start is owed: the answer has already come, and
+                // issuing for it is the holder's.
+                const taken = slot.owner.cmpxchgStrong(.owed, .issuing, .acq_rel, .acquire);
+                assert(taken == null);
+                return self.end(true);
+            },
+            .done => unreachable,
+        }
+        return true;
+    }
+
+    fn end(self: *Handoff, holds: bool) bool {
+        self.holds = holds;
+        self.step = .done;
+        return false;
+    }
+};
+
+/// The most atomic operations one handoff takes: two for each look `take` makes, which is more
+/// than the two `settle` makes.
+const handoff_steps_max = 2 * take_rounds;
+
+fn run_handoff(slot: *Slot, first: Handoff.Step) bool {
+    var handoff: Handoff = .{ .step = first };
+    for (0..handoff_steps_max) |_| {
+        if (!handoff.advance(slot)) return handoff.holds;
     }
     unreachable;
+}
+
+/// Takes the slot, or, when it is held, tells the holder a start is owed.
+fn take(slot: *Slot) bool {
+    return run_handoff(slot, .take);
 }
 
 /// After a query goes out: true when its answer has already come and the holder must issue
 /// again, false when the slot was let go and the answer, when it comes, takes it.
 fn settle(slot: *Slot) bool {
-    if (let_go(slot)) return false;
-    // It could not be let go, so a start is owed: the answer has already come, and issuing for
-    // it is the holder's.
-    const taken = slot.owner.cmpxchgStrong(.owed, .issuing, .acq_rel, .acquire);
-    assert(taken == null);
-    return true;
+    return run_handoff(slot, .let_go);
 }
 
 /// Lets the slot go unless a start is owed on it. An answer that lands while the holder leaves
@@ -219,6 +286,43 @@ test "an idle slot is taken, and a held one is marked owed" {
     try testing.expectEqual(Owner.issuing, idle.owner.load(.acquire));
     try testing.expect(!take(&idle));
     try testing.expectEqual(Owner.owed, idle.owner.load(.acquire));
+}
+
+/// Every order in which an answer's `take` and its holder's `settle` can meet on one slot.
+///
+/// The slot starts held, with one query out. Its answer arrives as `take` — on the holder's own
+/// thread inside `ares_query_dnsrec`, or on c-ares's thread at any moment — while the holder runs
+/// `settle`. Exactly one of the two must end holding the slot: neither is an answer lost, and
+/// both is two queries on one slot. The steps are the real ones, copied per branch.
+fn every_order(slot: Slot, answer: Handoff, holder: Handoff, orders: *u32) !void {
+    if (answer.step == .done and holder.step == .done) {
+        orders.* += 1;
+        try testing.expect(answer.holds != holder.holds);
+        try testing.expectEqual(Owner.issuing, slot.owner.load(.acquire));
+        return;
+    }
+    if (answer.step != .done) {
+        var next_slot = slot;
+        var next = answer;
+        _ = next.advance(&next_slot);
+        try every_order(next_slot, next, holder, orders);
+    }
+    if (holder.step != .done) {
+        var next_slot = slot;
+        var next = holder;
+        _ = next.advance(&next_slot);
+        try every_order(next_slot, answer, next, orders);
+    }
+}
+
+test "in every order an answer and its holder can meet, exactly one issues next" {
+    var orders: u32 = 0;
+    try every_order(.{ .owner = .init(.issuing) }, .{ .step = .take }, .{ .step = .let_go }, &orders);
+    // Three, and each is a way the two really meet: the holder lets go before the answer looks;
+    // the answer marks the slot owed before the holder lets go, and the holder takes it up; and
+    // the answer looks, the holder lets go, and the answer's second look takes the idle slot —
+    // the order `take_rounds` exists for. A change to the protocol's shape changes the count.
+    try testing.expectEqual(@as(u32, 3), orders);
 }
 
 test "no lookup starts once the row is over" {

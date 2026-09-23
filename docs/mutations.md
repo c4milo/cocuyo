@@ -816,6 +816,10 @@ The comparison's own driver, not the library: `bench/end_to_end/rotor_loop.zig`.
 | R2 | let a start that finds the slot held leave no word | the holder learns a start is owed | the start-inside-a-start test | CAUGHT |
 | R3 | report the slot let go although a start is owed | the holder issues for an answer that came | the settle test | CAUGHT |
 | R4 | keep starting lookups after the row is over | no query on a channel being destroyed | the row-is-over test | CAUGHT |
+| X1 | let go of a slot with a plain store | exactly one actor issues after an answer | the let-go and settle tests | CAUGHT |
+| X2 | let `take` look only once | the answer's second look finds the slot idle | **the every-order test** | CAUGHT |
+| X3 | mark a start owed with a plain store | a mark lands only on a held slot | **the every-order test** | CAUGHT |
+| X4 | take an idle slot by a load and then a store | each step is one atomic operation | nothing | NOT CAUGHT |
 
 The bug this records was real and it hid for a day. With several lookups in flight the others keep
 the loop busy and no test saw anything; with one, every iteration that took a result left nothing
@@ -836,6 +840,15 @@ reading the code after the owner asked whether the stall was the harness's. Each
 owner state that changes only by compare-and-exchange. The first run of these mutations left two
 `NOT CAUGHT`, and both were equivalent mutants — a fast path and a second stop check that other
 lines already covered. They were deleted rather than tested.
+
+X1 to X4 are the races the handoff could have, run against `every_order`, which interleaves
+the answer's `take` and the holder's `settle` step by step in every order there is — three —
+using the real steps, copied per branch. X2 is why it exists: `take` looks twice because the
+holder can let go between the looks, and no example-based test could put it there. X4 is not
+caught and is kept as the tool's boundary: `every_order` treats each step as atomic, so it
+proves the protocol and cannot prove a step is one atomic operation. Here the mutant is also
+harmless, since only one actor ever takes an idle slot. ThreadSanitizer is what sees a step that
+is not atomic, and it runs on Linux, not on this toolchain's arm64 macOS.
 
 K3 came out of the same crash, which K2 did not cure. Destroying a channel fails the queries
 still on it, each failure reaches the callback, and the callback started another lookup on the
