@@ -9,8 +9,9 @@
 #     feature: the twin is a virtual clock and a virtual network, so the same run happens on both.
 #
 #   - `engine`: the engine of docs/design.md §19 step 13 over rotor itself, and the comparison
-#     against c-ares. This is the only job that opens a socket, and the only one that needs
-#     rotor's io_uring backend, which rotor 0.2.0 carries.
+#     against c-ares. This is the only job that opens a socket, and the only one that runs rotor
+#     on Linux: io_uring on the runner, or epoll where a kernel or a container's seccomp profile
+#     refuses io_uring, which rotor 0.3.0 falls back to for the whole process.
 #
 # **No number from CI enters docs/design.md §11.** A measured row there names the machine, the
 # command and the day, and a shared runner is neither named nor quiet. What this job proves is

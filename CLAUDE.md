@@ -253,7 +253,9 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   `zig build consumer-check` compiling a dependent package. Landed 2026-09-22.
 - The cache's hit rate is measured (§18, over a synthetic trace), and the engine runs on Linux
   over io_uring in CI. Both needed the buffer group's storage to stop claiming an alignment no
-  loader keeps (docs/mutations.md N1).
+  loader keeps (docs/mutations.md N1). Since rotor 0.3.0 a process that the kernel or a
+  container's seccomp profile refuses io_uring runs on epoll instead: the rotor example resolves
+  in a container with Docker's default profile, where on rotor 0.2.0 it failed `PermissionDenied`.
 - Next: SIEVE against S3-FIFO, which §18 leaves open, and §17 question 13.
 
 §17 holds the questions the owner has not answered.

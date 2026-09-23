@@ -17,8 +17,8 @@
         // tests. Lazy, so a build that asks for neither does not resolve it. Pinned to the
         // release tag, whose public module is the whole of what rotor supports.
         .rotor = .{
-            .url = "git+https://github.com/c4milo/rotor?ref=v0.2.0#8a3a84a133a72f5c1a1bf37a52c0d39170189fb2",
-            .hash = "rotor-0.2.0-YZkxRMf9DAC3cv5OTBrtCFEVLUavbX7606SW4y4qgoQd",
+            .url = "git+https://github.com/c4milo/rotor?ref=v0.3.0#2a8af2ea891f128d6b1a187a2f8540448d789cbd",
+            .hash = "rotor-0.3.0-YZkxRHKGEAA8uKJeAHUXs7pUvEsXhRoGicwI8XU330UP",
             .lazy = true,
         },
     },
