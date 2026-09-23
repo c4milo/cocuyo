@@ -41,10 +41,13 @@ pub fn add(
     test_step: *std.Build.Step,
     rotor: ?*std.Build.Dependency,
 ) void {
+    // Built for another target with `-Dtarget`, an example cannot run where it was built, and
+    // `tools/search_order/run.sh` runs it in a container instead: this puts it in the prefix.
+    const install = b.step("examples", "Install the worked examples into the prefix's bin/");
     for (examples) |example| {
-        _ = add_one(b, cocuyo, target, optimize, test_step, example);
+        _ = add_one(b, cocuyo, target, optimize, test_step, install, example);
     }
-    add_rotor(b, cocuyo, target, optimize, test_step, rotor);
+    add_rotor(b, cocuyo, target, optimize, test_step, install, rotor);
 }
 
 fn add_one(
@@ -53,6 +56,7 @@ fn add_one(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     test_step: *std.Build.Step,
+    install: *std.Build.Step,
     example: Example,
 ) *std.Build.Module {
     const module = b.createModule(.{
@@ -63,6 +67,7 @@ fn add_one(
     module.addImport("cocuyo", cocuyo);
     const exe = b.addExecutable(.{ .name = example.name, .root_module = module });
     test_step.dependOn(&exe.step);
+    install.dependOn(&b.addInstallArtifact(exe, .{}).step);
 
     const run = b.addRunArtifact(exe);
     if (b.args) |arguments| run.addArgs(arguments);
@@ -80,6 +85,7 @@ fn add_rotor(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     test_step: *std.Build.Step,
+    install: *std.Build.Step,
     rotor: ?*std.Build.Dependency,
 ) void {
     const dependency = rotor orelse return;
@@ -87,6 +93,6 @@ fn add_rotor(
         .linux, .macos, .ios, .tvos, .watchos, .visionos => {},
         else => return,
     }
-    const module = add_one(b, cocuyo, target, optimize, test_step, rotor_example);
+    const module = add_one(b, cocuyo, target, optimize, test_step, install, rotor_example);
     module.addImport("rotor", dependency.module("rotor"));
 }

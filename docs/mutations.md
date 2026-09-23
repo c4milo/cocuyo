@@ -918,6 +918,22 @@ L11 is the one the log itself found. The first replay stopped on 53 rows whose n
 octet of a tunnelling payload as `\DDD`: over 254 characters in text and within 255 octets on
 the wire. The limit was on the text, where it should have been on what the text stands for.
 
+## The search-order recorder
+
+Design §5, §17 question 7: `tools/search_order/recorder.zig` answers the resolvers the probe
+watches, so what it answers decides what the probe sees. Broken against `zig build test-tools`.
+Four mutations, four `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| S1 | a name no case lists gets NOERROR | every other name is NXDOMAIN | the reply test | CAUGHT |
+| S2 | names keep their case | the log reads one name one way | the question test | CAUGHT |
+| S3 | the reply is not marked a response | RFC 1035 §4.1.1, QR | **a test written for it** | CAUGHT |
+| S4 | SERVFAIL reads as NXDOMAIN | a case's rcode is the one sent | the reply test | CAUGHT |
+
+S3 was `NOT CAUGHT` at first: no test read the header's flags, and a resolver drops a reply that
+is not marked as one, so the probe would have recorded timeouts where the libraries walk on.
+
 ## The expired entry keeps its slot
 
 Design §17 question 14, answered yes: a get that finds its entry expired misses and leaves it,

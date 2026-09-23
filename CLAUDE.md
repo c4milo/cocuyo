@@ -263,6 +263,9 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   synthetic trace and a real ISP log (`zig build bench-log`). A cache a client, as cocuyo is
   deployed, SIEVE is within 2.0 points of the optimal at the default size, so it stays; S3-FIFO
   leads by up to 3.2 only at a resolver's scale.
+- §17 question 7 is answered by measurement: `tools/search_order/run.sh` watches glibc, musl,
+  c-ares and cocuyo walk the same search lists, and cocuyo walks as glibc and c-ares do, but for
+  SERVFAIL, where it stops as c-ares does (§5).
 - Next: the p99 of the comparison on a quiet machine.
 
 §17 holds the questions the owner has not answered.

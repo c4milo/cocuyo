@@ -459,9 +459,34 @@ governs the read, and the framing rule is three lines in the example (§15 step 
 - NXDOMAIN or NODATA advances to the next candidate and resets the server and round counters.
   Exhausting the candidates fails with `NameNotFound`, or `NoData` if any candidate returned
   NOERROR with no record of the wanted type.
+- SERVFAIL, REFUSED or NOTIMP moves to the next server, not to the next candidate. When every
+  server has failed the lookup fails with `AllServersFailed`, and the walk stops there.
 
-This ordering is glibc's behaviour as recalled, not as measured. §17 asks whether to pin it
-against a live `getaddrinfo` before shipping.
+Measured on 2026-09-22 by `tools/search_order/run.sh`. A recorder that writes down every question
+it is asked, and answers NXDOMAIN unless a case says otherwise, sits in front of four resolvers
+asked the same names with the search list `a.test b.test`: glibc 2.39's `getaddrinfo`
+(Ubuntu 24.04's 2.39-0ubuntu8.9, in a container), musl 1.2.5's (as Zig 0.16 links it, in a
+container), c-ares 1.34.8's `ares_getaddrinfo` given the same list and `ndots` as options, and
+cocuyo's `examples/udp_blocking.zig`. Each is watched on the wire, not read. The questions each
+asked, in order:
+
+| Case | glibc | musl | c-ares | cocuyo |
+| --- | --- | --- | --- | --- |
+| `host`, ndots 1 | search list, then the name | the same | the same | the same |
+| `host.sub`, ndots 2 | search list, then the name | the same | the same | the same |
+| `host.sub`, ndots 1 | the name, then the search list | the name alone | the name, then the search list | the name, then the search list |
+| `host.sub.`, absolute | the name alone | the same | the same | the same |
+| NODATA for the first candidate | walks on, fails as no data | stops there | walks on, fails as no data | walks on, fails `NoData` |
+| SERVFAIL for the first candidate | walks on, fails as not found | asks it three times, fails to try again | stops there, fails as a server failure | stops there, fails `AllServersFailed` |
+| an answer for the second candidate | stops there | the same | the same | the same |
+
+cocuyo walks as glibc and c-ares do in every case but SERVFAIL, and there it does what c-ares
+does, on purpose. glibc treats a server failure on one candidate as a reason to try the next,
+and reports the name as not found: the failure is hidden, and a name under the second search
+domain can answer for one the first domain would have held. cocuyo stops and says the servers
+failed, as c-ares, the library it replaces, does. musl differs in two places a consumer on a
+musl system will see from its own resolver: it searches only names with fewer dots than `ndots`,
+and it stops at NODATA.
 
 ### CNAME policy
 
@@ -1203,8 +1228,11 @@ step until `zig build test` passes.
    server, and `connect_tcp` is unchanged.
 6. **`/etc/hosts`.** Answered on 2026-09-22 by §19: a parser beside `resolv_conf.zig` in
    `config`, and the engine consults it first.
-7. **Search-list order.** §5 records glibc's behaviour from memory. Worth pinning against a live
-   `getaddrinfo` on both hosts before v1 is called done.
+7. **Search-list order.** Answered on 2026-09-22 by measurement: §5 records glibc 2.39, musl
+   1.2.5, c-ares 1.34.8 and cocuyo walking the same search lists on the wire. cocuyo walks as
+   glibc and c-ares do, but for SERVFAIL, where it stops as c-ares does and glibc walks on.
+   macOS's `getaddrinfo` is not in it: it reads no `resolv.conf` (§14), and changing its search
+   domains takes an administrator.
 8. **A second example.** Answered: `examples/udp_rotor.zig` drives the same lookup over rotor's
    completion-based loop, cleared by the owner on 2026-09-22 as a dependency of that example
    alone. It is lazy, `zig build graph-check` still shows cocuyo's own modules cannot name it, and

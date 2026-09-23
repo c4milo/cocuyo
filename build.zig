@@ -35,14 +35,16 @@ const lint_rule_directories = [_][]const u8{ "build", "src", "tools", "examples"
 /// GitHub as written (CLAUDE.md, Conventions).
 const lint_rule_files = [_][]const u8{ "README.md", "CLAUDE.md" };
 
-/// Every tool built on pepegrillo whose own tests `zig build test` runs. A build that does not run
-/// the checkers' own tests lets a rule lose its test without the build reporting it.
+/// Every tool whose own tests `zig build test` runs. A build that does not run the checkers' own
+/// tests lets a rule lose its test without the build reporting it. The search-order recorder is
+/// here for the same reason; its two probes link a C library the gate does not require.
 const tool_test_roots = [_][]const u8{
     "tools/lint/main.zig",
     "tools/cognitive_complexity.zig",
     "tools/commit_lint.zig",
     "tools/graph_check.zig",
     "tools/consumer_check.zig",
+    "tools/search_order/recorder.zig",
 };
 
 /// The git revision range `zig build lint-commits` checks.
