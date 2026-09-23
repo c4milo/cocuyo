@@ -1039,6 +1039,23 @@ mutations, seven `CAUGHT`.
 | W6 | a draining socket's ended receive is armed on the current one | rule 5 | the committed walks | CAUGHT |
 | W7 | a query does not record the socket it left from | rule 4, what is owed | the rotation twin test; the committed walks | CAUGHT |
 
+## The `getaddrinfo` walks
+
+`AddressLookup` and `NameLookup` against the model of their rules (docs/design.md §19 step 14,
+The walk's rules). Broken against `zig build test-resolver`, `zig build test-tools`, which
+replays the committed slice of the walks' transcript, and `zig build spec`, which replays all of
+it. A1 and N1 put back the two defects the rules found. The committed slice catches all six; the
+unit tests miss A3, which only the replay reaches. Six mutations, six `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| A1 | each slot is released at its own lookup's end | rule 1 | the fills-the-table test; the committed slice, at line 4 | CAUGHT |
+| A2 | a name that does not exist leaves the other family running | rule 4 | the name-does-not-exist test; the committed slice | CAUGHT |
+| A3 | `NameNotFound` beside an answer moves the walk on | rule 5 | the committed slice, at line 19 | CAUGHT |
+| N1 | a reverse walk moves on after any failure | the reverse walk's failure rule | the reverse server-failure test; the full transcript | CAUGHT |
+| N2 | a reverse walk forgets NODATA | the reverse walk's `NoData` | the reverse server-failure test; the full transcript | CAUGHT |
+| N3 | a cancel after the answer came keeps the answer | the reverse walk's cancel | the cancel-after-answer test; the full transcript | CAUGHT |
+
 ## The epoll check
 
 `tools/epoll_check/run.sh`, run by CI's `epoll` job: the rotor example must resolve inside a

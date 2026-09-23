@@ -18,10 +18,10 @@ one, and nothing may depend on it in the other direction.
   ("§5 step 3"). §16 records decisions with the alternatives they beat: if you are about to do
   something §16 rejected, say so and stop, rather than reversing it in code.
 - `docs/mutations.md` — every check, the mutation that breaks it, and the test that catches it.
-- `spec/README.md` — the Lean models of `Lookup` and of the engine's streams, and the replays
-  that check the code against them. A change to a transition of §5, or to a rule of the stream
-  in §19 step 13, changes the design, then the model, then the code, in that order, and never
-  the model from the code.
+- `spec/README.md` — the Lean models of `Lookup`, of the engine, and of the `getaddrinfo` walks,
+  and the replays that check the code against them. A change to a transition of §5, or to a rule
+  of §19 steps 13 and 14, changes the design, then the model, then the code, in that order, and
+  never the model from the code.
 
 ## Non-negotiables
 
@@ -175,8 +175,8 @@ The architecture depends on every rule in this section.
   require, so it and its tests (`zig build test-cares`) run only when asked. The numbers go in
   design §11 beside cocuyo's, with the c-ares version the binary prints.
 - Model: `zig build spec` — the Lean proofs of `Lookup` and the pins on the axioms they rest on,
-  then every transition the lookup model reaches under 55 configurations, and 1.6 million events
-  of engine walks, replayed against the code. It needs `lake` at the version
+  then every transition the lookup model reaches under 55 configurations, 2.4 million events of
+  engine walks, and every transition of the `getaddrinfo` walks, replayed against the code. It needs `lake` at the version
   `spec/lean-toolchain` pins, so it runs only when asked and in CI's `spec` job; `zig build test`
   replays the committed slices without Lean.
 - Format: `zig build fmt`, or `zig fmt build.zig build src tools examples bench`.
@@ -299,8 +299,11 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   open a socket stopping the program. `reinit` puts its cache under its table again. §17
   question 15 was answered the same day: a port that has carried its share is replaced at once
   and the old socket drains, so `udp_queries_per_port` holds under steady load.
-- Next, in order (the owner's word of 2026-09-23): model `AddressLookup` and `NameLookup`, then
-  DoT.
+- `AddressLookup` and `NameLookup` are checked against a model of their rules (design §19 step
+  14, 2026-09-23), over every state of 95 configurations. Writing the rules down found two
+  defects: a consumer's lookup could take a pair's first slot before the second end came in, and
+  the walk stopped the program; and a reverse walk reported a timeout as `NameNotFound`.
+- Next (the owner's word of 2026-09-23): DoT.
 - After those, DoH's DNS half. The p99 of the comparison waits for a quiet machine.
 
 §17 holds the questions the owner has not answered.

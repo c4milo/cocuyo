@@ -1,10 +1,12 @@
 # The lookup and the engine, in Lean
 
-This directory holds two models in Lean 4, and `tools/spec_replay/` ties each to the Zig code:
+This directory holds three models in Lean 4, and `tools/spec_replay/` ties each to the Zig code:
 
 - `Lookup`, the state machine of docs/design.md §5, with proofs of what §5 promises of it.
 - The engine's streams and datagrams, the rules of §19 step 13, with invariants checked over
   every state the model reaches in small configurations.
+- The `getaddrinfo` walks, `AddressLookup` and `NameLookup`, the rules of §19 step 14, checked
+  the same way.
 
 ## The rule
 
@@ -33,6 +35,8 @@ would agree with the code by construction and prove nothing about it.
   operations, and a `Spec.Lookup` in each slot. `invariants` names what every state must keep.
 - `Spec/EngineWalk.lean` walks the engine model: breadth first to check the invariants in every
   state reached, and in seeded walks for the replay.
+- `Spec/Address.lean` is the model of both walks, and `Spec/AddressWalk.lean` walks it and
+  writes its transcript.
 - `Spec/Tokens.lean` spells states and events for the transcripts.
 - `Main.lean` writes the transcripts the replays read.
 
@@ -106,20 +110,39 @@ is how the replay reaches the orders rotor's rule 2 allows. After each event it 
 engine's state with the model's, and requires every buffer the event handed the engine to be
 back in its group.
 
+## The walks
+
+The walks' model abstracts each lookup to how it ends. An end arrives when the lookup settles in
+the table and is delivered when the consumer hands it to `on_event`, and the two are apart,
+because the walk's cancel of the other family reaches a lookup that has not settled and not one
+that has. Other consumers may take and give back the table's free slots between any two events.
+
+`cocuyo-spec walks` walks every state the model reaches, depth first, under 95 configurations:
+the sources in each order, with and without the name in the hosts table; one to three search
+candidates; either family or both; a table of two or three slots; and the reverse walk under
+each source order. Four invariants are checked in every state: the walk holds two slots at
+most, none once it has ended, never more than the table has, and it waits for an end while it
+runs. `tools/spec_replay/walk_replay.zig` drives both walks over a real table down all 66,565
+transitions, restoring the parent's frame for each line as the lookup's replay does, and
+compares the walk's whole state after each.
+
 ## Running it
 
 - `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 2,910
   transitions: one server, one pass and one name, over UDP and over TCP. It also replays
   `tools/spec_replay/engine_gate.txt`, ten engine walks of forty events in each of the six
-  engine configurations. It needs no Lean.
+  engine configurations, and `tools/spec_replay/walk_gate.txt`, the forward walk with two
+  candidates and both families and every reverse configuration. It needs no Lean.
 - `zig build spec` needs `lake` on the path, at the version `lean-toolchain` pins. It builds the
   proofs and the axiom pins, requires the committed slices to be the ones the models write, and
   replays the lookup's whole transcript and 2,000 engine walks of 200 events in each of the six
-  engine configurations, 2.4 million events. It took 1 minute 11 seconds on the machine of
-  design §11 on 2026-09-23, most of it the model writing the walks.
+  engine configurations, 2.4 million events, and the walks' whole transcript. It took about a
+  minute and a quarter on the machine of design §11 on 2026-09-23, most of it the model writing
+  the engine's walks.
 - After a change to a model, `lake exe cocuyo-spec gate 8 > ../tools/spec_replay/lookup_gate.txt`
-  and `lake exe cocuyo-spec engine-gate > ../tools/spec_replay/engine_gate.txt` in this directory
-  write the slices again.
+  `lake exe cocuyo-spec engine-gate > ../tools/spec_replay/engine_gate.txt` and
+  `lake exe cocuyo-spec walks-gate > ../tools/spec_replay/walk_gate.txt` in this directory write
+  the slices again.
 
 The `8` is `cname_hops_max` of `src/core/constants.zig`. The transcript records it, and the replay
 refuses a transcript written for another.

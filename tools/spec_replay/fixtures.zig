@@ -33,6 +33,14 @@ const record_a = [_]u8{
     0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x04, 192, 0, 2, 1,
 };
 
+/// An AAAA record owned by the question's name, 2001:db8::1, TTL 300 (RFC 3596 §2.2).
+const record_aaaa = [_]u8{ 0xc0, 0x0c, 0x00, 0x1c, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x10 } ++
+    [_]u8{ 0x20, 0x01, 0x0d, 0xb8 } ++ [_]u8{0} ** 11 ++ [_]u8{1};
+
+/// A PTR record owned by the question's name, pointing at `host.test`, TTL 300 (RFC 1035 §3.3.12).
+const record_ptr = [_]u8{ 0xc0, 0x0c, 0x00, 0x0c, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x0b } ++
+    "\x04host\x04test\x00".*;
+
 /// A CNAME from the question's name to `c.` plus that name: a target no record in the message
 /// owns, and a new one at every hop, so each reply moves the chain by exactly one.
 const record_cname = [_]u8{
@@ -50,10 +58,19 @@ const Shape = struct {
     id_offset: u16 = 0,
 };
 
-fn shape_of(reply: Reply) Shape {
+/// The record that answers a question of `kind`: an A record for anything but AAAA and PTR.
+fn answer_of(kind: core.Kind) []const u8 {
+    return switch (kind) {
+        .aaaa => &record_aaaa,
+        .ptr => &record_ptr,
+        else => &record_a,
+    };
+}
+
+fn shape_of(reply: Reply, kind: core.Kind) Shape {
     return switch (reply) {
         .unmatched => .{ .records = &record_a, .ancount = 1, .id_offset = 1 },
-        .answer => .{ .records = &record_a, .ancount = 1 },
+        .answer => .{ .records = answer_of(kind), .ancount = 1 },
         .cname => .{ .records = &record_cname, .ancount = 1 },
         .nxdomain => .{ .rcode = .name_error },
         .nodata => .{},
@@ -66,7 +83,7 @@ fn shape_of(reply: Reply) Shape {
 
 /// Builds `reply` to what `lookup` is asking into `out`.
 pub fn build(lookup: *const Lookup, reply: Reply, out: []u8) []const u8 {
-    const shape = shape_of(reply);
+    const shape = shape_of(reply, lookup.question.kind);
     const rcode: u16 = @intFromEnum(shape.rcode);
     const extended_high: u8 = @intCast(rcode >> wire.constants.extended_rcode_low_bits);
     var flags: u16 = wire.constants.flag_response | wire.constants.flag_recursion_desired |

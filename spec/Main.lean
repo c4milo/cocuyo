@@ -1,6 +1,7 @@
 import Spec
 import Spec.Tokens
 import Spec.EngineWalk
+import Spec.AddressWalk
 import Std.Data.HashSet
 
 /-!
@@ -118,7 +119,8 @@ def usage : String :=
   "       cocuyo-spec gate <cname_hops_max>\n" ++
   "       cocuyo-spec engine-walks <seed> <walks> <length>\n" ++
   "       cocuyo-spec engine-gate\n" ++
-  "       cocuyo-spec check <cname_hops_max> <lookup gate transcript> <engine gate transcript>"
+  "       cocuyo-spec walks | walks-gate\n" ++
+  "       cocuyo-spec check <cname_hops_max> <lookup gate> <engine gate> <walks gate>"
 
 def main (args : List String) : IO UInt32 := do
   match args with
@@ -146,11 +148,18 @@ def main (args : List String) : IO UInt32 := do
     let total ← engineWalks (← IO.getStdout) seed.toNat! count.toNat! length.toNat! false
     IO.eprintln s!"{total} events"
     return 0
+  | ["walks"] =>
+    let total ← Spec.Walks.transcript (← IO.getStdout) Spec.Walks.forwardAll
+    IO.eprintln s!"{total} events"
+    return 0
+  | ["walks-gate"] =>
+    let _ ← Spec.Walks.transcript (← IO.getStdout) Spec.Walks.forwardGate
+    return 0
   | ["engine-gate"] =>
     let (seed, count, length) := engineGate
     let _ ← engineWalks (← IO.getStdout) seed count length true
     return 0
-  | ["check", hops, lookupPath, enginePath] =>
+  | ["check", hops, lookupPath, enginePath, walksPath] =>
     let lookupSame ← same lookupPath fun out => do
       let _ ← transcript out hops.toNat! (configsGate hops.toNat!)
     let (seed, count, length) := engineGate
@@ -160,7 +169,11 @@ def main (args : List String) : IO UInt32 := do
       IO.eprintln s!"{lookupPath} is not the slice the model writes: run `cocuyo-spec gate {hops}`"
     unless engineSame do
       IO.eprintln s!"{enginePath} is not the walks the model writes: run `cocuyo-spec engine-gate`"
-    return if lookupSame ∧ engineSame then 0 else 1
+    let walksSame ← same walksPath fun out => do
+      let _ ← Spec.Walks.transcript out Spec.Walks.forwardGate
+    unless walksSame do
+      IO.eprintln s!"{walksPath} is not the slice the model writes: run `cocuyo-spec walks-gate`"
+    return if lookupSame ∧ engineSame ∧ walksSame then 0 else 1
   | _ =>
     IO.eprintln usage
     return 2

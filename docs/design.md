@@ -2272,9 +2272,12 @@ is where a consumer with a loop of its own can reach it now that the engine is h
   reason, the answer stands and `partial` names the failure, so the consumer can tell a
   missing half from an empty one.
 - **The join.** The addresses are copied out of the slots into the lookup's own storage, up
-  to `address_lookup_addresses_max` with `truncated` past it, and each slot is released the
-  moment its lookup ends, so a walk across candidates holds two slots and not two per
-  candidate. `canonical_name`, when asked for, is the end of the CNAME chain of the winning
+  to `address_lookup_addresses_max` with `truncated` past it. A pair's slots are released
+  together when the pair ends, and the next pair starts in them, so a walk holds two slots at
+  most and never needs one it has not got. Until 2026-09-23 each slot was released the moment
+  its lookup ended, and a consumer that started a lookup of its own between the pair's two ends
+  took the first slot; with the table full, the next pair then found one slot for two lookups,
+  and the walk stopped the program. `canonical_name`, when asked for, is the end of the CNAME chain of the winning
   candidate, that candidate's name when there was no chain, or the hosts entry's official
   name. `v4_mapped` with family `.ipv6` starts the `A` lookup as well and hands its addresses
   back as `::ffff:a.b.c.d` when no `AAAA` came (`getaddrinfo(3)`); with `all` too, both come
@@ -2291,6 +2294,50 @@ is where a consumer with a loop of its own can reach it now that the engine is h
   absolute, so there is no search walk. It answers with the name, the TTL and whether the table
   answered. §17 question 12 is settled: one call, because the recipe left the order of the two
   sources to every consumer that wrote it out.
+
+**The walk's rules, written on 2026-09-23** for the model of spec/Spec/Address.lean:
+
+1. The walk holds the slots of one pair at most: two, or one when one family is asked. It
+   releases them together when the pair ends, or when the walk does, and holds none once the
+   walk has ended.
+2. Until it has ended, the walk has a lookup in flight or an end not yet handed to it: it
+   never waits for nothing.
+3. A lookup's end is handed to `on_event` in whatever order the consumer polls them. The walk
+   decides the same way whichever end comes first, except where the rules below say which end
+   wins.
+4. `NameNotFound` from one family cancels the other family's lookup. A lookup that has ended
+   already keeps its end (`Resolver.cancel`), so the other end may be an answer, a failure or
+   `Canceled`.
+5. A pair ends when both of its lookups have. The consumer's cancel ends it `Canceled`; else an
+   answer from either family ends the walk answered, with `partial` the other family's failure
+   when that was neither `NameNotFound` nor `NoData`; else `NameNotFound` from either moves to
+   the next candidate; else any failure but `NoData` ends the walk with that failure; else the
+   next candidate.
+6. The candidates gone, the next source is tried; the sources gone, the walk fails
+   `NameNotFound`, or `NoData` when any candidate said `NoData`.
+7. The consumer's cancel cancels what is in flight, and the walk ends `Canceled` once the ends
+   are in, whatever they were.
+
+`NameLookup` is the same shape with one lookup: the hosts table and DNS in the `lookups` order,
+and one `PTR` question. Its `NameNotFound` or `NoData` moves on to the next source; any other
+failure ends the walk with that failure; the sources gone, the walk fails `NameNotFound`, or
+`NoData` when the lookup said `NoData`. The consumer's cancel ends it `Canceled` whatever end
+its lookup had. Until 2026-09-23 any failure moved on, and a walk whose last source was DNS
+ended `NameNotFound` when its lookup had timed out: a timeout reported as a name that does not
+exist.
+
+**Checked on 2026-09-23.** spec/Spec/Address.lean holds both walks as a model, each lookup
+abstracted to how it ends, since `Lookup`'s own model answers for the rest. The model keeps apart
+an end arriving in the table and the consumer handing it over, which is where a cancel of the
+other family reaches a lookup that has ended or one that has not, and lets other consumers take
+and give back the table's free slots between any two events. Its walk checks four invariants in
+every state of 95 configurations: the walk holds two slots at most, none once it has ended, never
+more than the table has, and it always waits for an end while it runs. The replay drives both
+walks over a real table down all 66,565 transitions, comparing the walk's whole state after each.
+
+Both defects this found were found writing the rules down, before the replay ran: the slot a
+consumer's lookup could take between a pair's two ends (rule 1), and a reverse walk that
+reported a timeout as a name that does not exist. The replay catches either when it is put back.
 
 **Gate.** On the fake server: the lockstep walk against a search list on which the families
 would diverge; NXDOMAIN on one family ending the candidate; `NoData` against `NameNotFound` at
