@@ -1477,6 +1477,40 @@ entries live at once.**
   key and a skip list node, and its size in bytes was not measured. A cocuyo slot is 2984 octets
   whatever the answer holds.
 
+### How far from the best
+
+`bench/cache_trace.zig` also replays the trace through Belady's rule, the optimal. It writes the
+trace down first, so at every eviction it knows each name's next request. A name whose next
+request comes after it expires is worth nothing, since that request misses whatever the cache
+holds; otherwise the name needed latest goes first, and a newcomer can be the one turned away. It
+reads the future, so no cache can run it. It is the bound: no policy, admission included, hits
+more often at the same size. A test holds the cache and every model at or under it.
+
+Beside it, the SIEVE model with an expiry index: before the hand moves, it takes the entry that
+expires soonest if that entry has expired. That is c-ares's order, borrowed.
+
+| Slots | Cache | SIEVE, expired first | Optimal |
+| --- | --- | --- | --- |
+| 64 | 38.77% | 35.96% | 45.89% |
+| 256 | 48.37% | 45.80% | 57.11% |
+| 1024 | 55.23% | 54.95% | 60.89% |
+| 4096 | 59.08% | 60.43% | 61.07% |
+| 16384 | 60.64% | 61.07% | 61.07% |
+
+What it says:
+
+- **There is room at the sizes that matter.** The optimal is 5.7 points over the cache at the
+  default 1024 slots, 8.7 at 256 and 7.1 at 64. At 4096 it already reaches the ceiling, c-ares's
+  61.07%, with fewer than half the entries c-ares holds; the cache is 2.0 under it there.
+- **The optimal wins by two moves.** It turns away a newcomer that is needed later than what it
+  holds, and it drops first a name whose next request comes after it expires. An online policy
+  closes the gap only as far as it can predict those two.
+- **Taking the soonest expired entry first is not the second move.** It gains 1.4 points at 4096
+  and reaches the ceiling at 16384, and loses 2.8 at 64 and 2.6 at 256. The reading, which no
+  measurement isolated: it throws a popular name out the moment it expires, so the next request
+  puts it back as new, which is the promotion §17 question 14 removed. It stays a model.
+- No online policy but SIEVE and S3-FIFO was measured against the bound.
+
 ### Memory
 
 Per slot: two `Name`s at 256 each — the key, and since §17 question 13 the end of the CNAME

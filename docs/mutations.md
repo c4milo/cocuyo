@@ -823,11 +823,12 @@ that replaces an entry in place, so the entry keeps the chain's end its first pu
 test puts one question three times — through one chain, through another, then through none — and
 reads the hit after each of the last two.
 
-## SIEVE against S3-FIFO, and c-ares's rule
+## SIEVE against S3-FIFO, c-ares's rule and the optimal
 
-Design §18: `bench/cache_policy.zig` models both policies over name indices, with the model of
-SIEVE as the control, and `bench/cache_policy_cares.zig` models c-ares's rule. Broken against
-`zig build test-tools`. Fifteen mutations, fifteen `CAUGHT`.
+Design §18: `bench/cache_policy.zig` models SIEVE, the control, with an expiry index it can take
+expired entries first by; `bench/cache_policy_s3fifo.zig` models S3-FIFO;
+`bench/cache_policy_cares.zig` models c-ares's rule; and `bench/cache_trace.zig` replays the
+optimal. Broken against `zig build test-tools`. Twenty-one mutations, twenty-one `CAUGHT`.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
@@ -844,8 +845,14 @@ SIEVE as the control, and `bench/cache_policy_cares.zig` models c-ares's rule. B
 | F11 | SIEVE's hand passes a visited entry that has expired | §18, expiry on sight | the control test | CAUGHT |
 | F12 | SIEVE's renewal leaves the bit | the cache's put in place sets it | the control test | CAUGHT |
 | F13 | c-ares's fetch drains nothing | every fetch drains what has expired | the drain test | CAUGHT |
-| F14 | the heap puts a later expiry above an earlier one | the skip list's expiry order | the drain test | CAUGHT |
+| F14 | the heap puts a later key above an earlier one | the skip list's expiry order | the optimal's newcomer test | CAUGHT |
 | F15 | the peak is not counted | what c-ares's rule holds is reported | the hit-inside-its-TTL test | CAUGHT |
+| B1 | a request after expiry counts as useful | a dead name is worth nothing | the worth test | CAUGHT |
+| B2 | the optimal admits every newcomer | the bound covers admission | the optimal's newcomer test | CAUGHT |
+| B3 | the optimal keeps the name needed latest | Belady's rule | the worth test | CAUGHT |
+| B4 | expired first takes the soonest entry though it is live | only an expired entry skips the hand | the live-soonest test | CAUGHT |
+| B5 | a key moved earlier is not sifted up | the heap's order | the heap test | CAUGHT |
+| B6 | a renewal leaves the expiry order stale | expired first follows a renewal | the renewal test | CAUGHT |
 
 F11 was `NOT CAUGHT` when the models first landed. The control test then ran the old rule, and a
 hand that clears an expired entry's bit and takes it on the next pass changed too little over a
@@ -858,8 +865,10 @@ and a full table hides the mutant: the hand evicts the expired entry the get sho
 It was `NOT CAUGHT` until a test with a free slot was written for it. Moving a test's subject
 can lose a catch as quietly as deleting the test would.
 
-F2 and F11 also failed to compile on their first try, because each left a name unused. A mutant
-the compiler refuses has tested nothing, so both are run with the name discarded.
+F2, F11 and B1 also failed to compile on their first try, because each left a name unused. A
+mutant the compiler refuses has tested nothing, so each is run with the name discarded. B2's
+first form did not put the newcomer in at all, which is a different bug; it is run as the
+optimal that makes room before it admits, which is the one it names.
 
 ## The expired entry keeps its slot
 
