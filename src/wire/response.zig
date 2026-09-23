@@ -198,19 +198,13 @@ pub fn collect(
 ) Error!Outcome {
     assert(kind.queryable());
     assert(chain.len >= 1);
-    const header = try header_codec.parse(message);
-    if (header.qdcount != 1) return Error.MalformedMessage;
+    const start = try sections(message, chain);
     out.reset(kind);
     out.hops_used = hops_before;
-    // The question's own name fixes where the answer section starts, and the response was already
-    // checked to carry that question byte for byte (docs/design.md §7 check 5). The sum is taken
-    // in a usize: a maximal name overflows the octet its length is held in.
-    const answer_offset = section_start(chain);
-    if (answer_offset > message.len) return Error.MalformedMessage;
 
     var hops: u8 = hops_before;
     while (hops <= core.constants.cname_hops_max) {
-        const pass = try one_pass(message, header.ancount, kind, out, answer_offset, chain);
+        const pass = try one_pass(message, start.header.ancount, kind, out, start.answer_offset, chain);
         if (pass.collected) return .answered;
         // Nothing for this name. If the chain moved to get here, the lookup asks again for
         // where it moved to; if it never moved, the name simply has no record of this type.
@@ -234,14 +228,11 @@ pub fn collect(
 /// sections start (§7 check 5).
 pub fn negative_ttl_seconds(message: []const u8, question: *const Name) Error!u32 {
     assert(question.len >= 1);
-    const header = try header_codec.parse(message);
-    if (header.qdcount != 1) return Error.MalformedMessage;
-    const answer_offset = section_start(question);
-    if (answer_offset > message.len) return Error.MalformedMessage;
-    var answers = record_codec.Iterator.init(message, answer_offset, header.ancount);
-    var authority_offset: usize = answer_offset;
+    const start = try sections(message, question);
+    var answers = record_codec.Iterator.init(message, start.answer_offset, start.header.ancount);
+    var authority_offset: usize = start.answer_offset;
     while (try answers.next()) |record| authority_offset = record.end;
-    var authority = record_codec.Iterator.init(message, authority_offset, header.nscount);
+    var authority = record_codec.Iterator.init(message, authority_offset, start.header.nscount);
     while (try authority.next()) |record| {
         if (record.is_kind(.soa)) return record.soa_negative_ttl(message);
     }
@@ -249,10 +240,28 @@ pub fn negative_ttl_seconds(message: []const u8, question: *const Name) Error!u3
 }
 
 /// Where the answer section starts: after the header and the one question the message echoes.
+/// The sum is taken in a usize: a maximal name overflows the octet its length is held in.
 pub fn section_start(question: *const Name) usize {
     const name_len: usize = question.len;
     assert(name_len <= core.constants.name_bytes_max);
     return core.constants.header_bytes + name_len + core.constants.question_fixed_bytes;
+}
+
+/// A message's header, and where its answer section starts.
+const Sections = struct { header: header_codec.Header, answer_offset: usize };
+
+/// The start every walk past the question shares. A message that echoes other than one question,
+/// or that ends inside the one it echoes, is malformed.
+fn sections(message: []const u8, question: *const Name) Error!Sections {
+    assert(question.len >= 1);
+    const header = try header_codec.parse(message);
+    if (header.qdcount != 1) return Error.MalformedMessage;
+    // The question's own name fixes where the answer section starts, and the response was already
+    // checked to carry that question byte for byte (docs/design.md §7 check 5).
+    const answer_offset = section_start(question);
+    if (answer_offset > message.len) return Error.MalformedMessage;
+    assert(answer_offset > core.constants.header_bytes);
+    return .{ .header = header, .answer_offset = answer_offset };
 }
 
 /// What one pass over the answer section found for the chain's current name.

@@ -152,18 +152,6 @@ pub const answer_name_error = [_]u8{ 0x12, 0x34, 0x81, 0x83, 0x00, 0x01, 0x00, 0
 /// NOERROR with no answer at all: NODATA, the name exists without a record of this type.
 pub const answer_no_data = answer_header(0) ++ question_a;
 
-/// TC set: the answer did not fit, so the lookup goes to TCP (RFC 1035 §4.1.1).
-pub const answer_truncated = [_]u8{ 0x12, 0x34, 0x83, 0x80, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 } ++
-    question_a;
-
-/// SERVFAIL: the server failed, so the lookup moves to the next server.
-pub const answer_server_failure = [_]u8{ 0x12, 0x34, 0x81, 0x82, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 } ++
-    question_a;
-
-/// FORMERR, which a server too old for EDNS0 answers a query carrying OPT (RFC 6891 §6.2.2).
-pub const answer_format_error = [_]u8{ 0x12, 0x34, 0x81, 0x81, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 } ++
-    question_a;
-
 /// Where the answer section starts in every fixture above: the header and one question.
 pub const answer_offset = core.constants.header_bytes + question_a.len;
 
