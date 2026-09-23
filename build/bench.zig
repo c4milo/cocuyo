@@ -73,8 +73,18 @@ fn add_cares(
         "cares",
         "The c-ares install prefix for bench-cares (default " ++ cares_prefix_default ++ ")",
     ) orelse cares_prefix_default;
+    // The comparison's driver shares state between two threads, ours and c-ares's, and every race
+    // it has had lived there. ThreadSanitizer sees an access to shared state that nothing orders,
+    // whether or not the bad interleaving happened in the run. Off by default: Zig 0.16 cannot
+    // build its runtime for arm64 macOS, and CI turns it on for Linux.
+    const sanitize_thread = b.option(
+        bool,
+        "sanitize-thread",
+        "Run the comparison's tests under ThreadSanitizer (Linux)",
+    ) orelse false;
 
     const test_module = cares_module(b, target, .Debug, prefix, debug_graph, rotor);
+    test_module.sanitize_thread = sanitize_thread;
     const tests = b.addTest(.{ .name = "cares", .root_module = test_module });
     const run_tests = b.addRunArtifact(tests);
 
