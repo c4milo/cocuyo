@@ -1230,6 +1230,12 @@ step until `zig build test` passes.
     and empty from one the cache answered; per §18's reading, c-ares keeps the whole response,
     chain included. The slot now keeps the chain's end: one `Name`, 256 octets, 2728 to 2984 a
     slot, and a thousand slots cost 2.9 MiB where they cost 2.7.
+14. **Should a get renew an expired entry in place?** Open, asked by §18's measurement against
+    S3-FIFO. Today a get that finds its entry expired evicts it, and the put after the miss
+    inserts the name as new, at the newest end. Keeping the slot for the put to replace in
+    place measures 3.0 points more hits at the default 1024 slots and 0.8 fewer at 4096 on the
+    synthetic trace. It is a change of behaviour and not of the public surface: an expired
+    entry then holds its slot until the name is asked again or the hand meets it.
 
 ## 18. The cache
 
@@ -1397,10 +1403,52 @@ was measured. The popularity curve is Zipf because that is what web object popul
 as for decades, not because anyone has measured DNS names here. A real trace replaces `Trace` and
 nothing else.
 
-**SIEVE against S3-FIFO is still unmeasured.** The policies differ in what they evict, and the
-rows above say the ceiling is set by expiry rather than by eviction, so the difference is likely
-small on this trace — but "likely" is not a measurement, and §17 question 9's second half stays
-open.
+### SIEVE against S3-FIFO
+
+Measured on 2026-09-22 by `zig build bench`, over the trace above with the same seed.
+`bench/cache_policy.zig` models both policies over name indices. The model of SIEVE is the
+control: it has to answer as the real cache does before the S3-FIFO columns mean anything. A
+test holds it to the same hit count on a short trace. Over the whole trace it matches to 0.01
+point at 64 slots, where the cause of the difference was not traced, and exactly at every other
+size.
+
+S3-FIFO is Algorithm 1 of Yang et al. (SOSP 2023), read from the paper: the small queue S a tenth
+of the cache, the main queue M the rest, and a ghost queue G of names as long as M, kept by
+insertion stamps as the paper's §4.2 builds it. The paper disagrees with itself on one rule.
+Algorithm 1 line 23 moves a name from S to M when `t.freq > 1`, and Figure 5 moves it when it
+was visited, which is `freq > 0`. Both are run: `l23` and `f5` below.
+
+Neither paper has an entry that dies on its own, so each model is run under both rules for what
+a get does with an entry it finds expired. It evicts the entry, as the cache does, so the put
+after the miss goes in as new. Or it renews the entry's life where it stands, with its place and
+its bits as they were.
+
+| Slots | Cache | SIEVE, evicted | S3-FIFO l23, evicted | S3-FIFO f5, evicted | SIEVE, in place | S3-FIFO l23, in place | S3-FIFO f5, in place |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 64 | 34.72% | 34.71% | 37.98% | 38.13% | 38.66% | 38.76% | 38.77% |
+| 256 | 43.77% | 43.75% | 46.42% | 46.90% | 48.43% | 48.62% | 48.67% |
+| 1024 | 52.21% | 52.21% | 51.36% | 52.04% | 55.25% | 55.29% | 55.37% |
+| 4096 | 60.07% | 60.07% | 56.73% | 57.03% | 59.23% | 58.90% | 58.95% |
+| 16384 | 60.66% | 60.66% | 60.78% | 60.80% | 60.67% | 60.73% | 60.75% |
+
+What it says:
+
+- **The policy is not what moves the hit rate on this trace.** With expired entries renewed in
+  place, SIEVE and both readings of S3-FIFO are within 0.4 points of each other at every size.
+- **The expiry rule is.** Renewed in place, SIEVE gains 4.0 points at 64 slots, 4.7 at 256 and
+  3.0 at the default 1024, and loses 0.8 at 4096. The reading, which no measurement isolated:
+  evicting on the get and putting the name back as new is a promotion given on a miss, which
+  SIEVE exists not to give. A tail name asked once more after it expired goes to the newest
+  end, the place farthest from the hand.
+- **Under the cache's rule S3-FIFO leads at small sizes and trails at 4096.** It is about 3
+  points ahead at 64 and 256 slots and about 3 behind at 4096. The same reading would say its
+  probation queue refuses the promotion SIEVE gives, and then makes every popular name that
+  expires earn M again.
+- The model's refresh leaves SIEVE's bit as it was. Setting it, as the cache's put in place does,
+  moved no row by more than 0.2 point.
+
+So S3-FIFO is not worth a second policy in the library. Whether the cache should renew an
+expired entry in place is a separate question, and §17 asks it.
 
 ### Memory
 

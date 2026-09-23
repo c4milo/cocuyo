@@ -15,6 +15,7 @@ const cocuyo = @import("cocuyo");
 const cache_module = cocuyo.cache;
 const Question = cocuyo.Question;
 const wire = cocuyo.wire;
+const policy = @import("cache_policy.zig");
 
 /// The sizes swept, in slots. The smallest is a cache too small to hold the working set and the
 /// largest holds it whole, so the table shows where the curve bends.
@@ -143,9 +144,16 @@ fn answers_with(ttl: u32) wire.Answers {
 var weights: [names_distinct]f64 = undefined;
 var slots: [slots_max]cache_module.Slot = undefined;
 var keys: [keys_max]cache_module.Key = undefined;
+var sieve_model: policy.Sieve(names_distinct) = undefined;
+var s3fifo_model: policy.S3Fifo(names_distinct) = undefined;
 
-/// Replays the whole trace through a cache of `slot_count` slots.
-fn replay(slot_count: usize, seed: u64) Outcome {
+/// S3-FIFO's two readings of when a name leaves the small queue for the main one: above one
+/// read, as Algorithm 1 line 23 has it, and above none, as Figure 5 has it.
+const s3fifo_line_23 = 1;
+const s3fifo_figure_5 = 0;
+
+/// Replays `request_count` questions of the trace through a cache of `slot_count` slots.
+fn replay(slot_count: usize, seed: u64, request_count: usize) Outcome {
     const key_count = std.math.ceilPowerOfTwoAssert(usize, slot_count * cache_module.constants.keys_per_slot_min);
     @memset(slots[0..slot_count], cache_module.Slot.empty);
     var store = cache_module.Cache.init(slots[0..slot_count], keys[0..key_count], seed, cache_module.constants.ttl_seconds_max_default);
@@ -153,7 +161,7 @@ fn replay(slot_count: usize, seed: u64) Outcome {
     var outcome: Outcome = .{};
     var now_ns: u64 = 0;
     var made: usize = 0;
-    while (made < requests) : (made += 1) {
+    while (made < request_count) : (made += 1) {
         now_ns += arrival_ns;
         const index = trace.next_name();
         var text: [name_prefix.len + name_digits + name_suffix.len]u8 = undefined;
@@ -169,6 +177,46 @@ fn replay(slot_count: usize, seed: u64) Outcome {
     return outcome;
 }
 
+/// Replays the same trace through a model of `bench/cache_policy.zig`, already sized.
+fn replay_model(model: anytype, seed: u64, request_count: usize) Outcome {
+    var trace = Trace.init(seed, &weights);
+    var outcome: Outcome = .{};
+    var now_ns: u64 = 0;
+    var made: usize = 0;
+    while (made < request_count) : (made += 1) {
+        now_ns += arrival_ns;
+        const index = trace.next_name();
+        const life_ns = @as(u64, ttl_of(index)) * std.time.ns_per_s;
+        if (model.access(@intCast(index), life_ns, now_ns)) outcome.hits += 1 else outcome.misses += 1;
+    }
+    return outcome;
+}
+
+/// SIEVE against S3-FIFO on the trace above, under each rule for an expired entry, with the
+/// model of SIEVE as the control: it must match the real cache's column before the other
+/// columns mean anything (docs/design.md §18).
+fn run_policies(seed: u64) void {
+    std.debug.print("\nthe same trace, hit rate by policy and by what a get does with an expired entry\n\n", .{});
+    std.debug.print("{s:>8} {s:>10} | {s:>36} | {s:>36}\n", .{ "", "", "evicted by the get, as the cache does", "refreshed in place" });
+    std.debug.print("{s:>8} {s:>10} | {s:>10} {s:>12} {s:>12} | {s:>10} {s:>12} {s:>12}\n", .{
+        "slots", "cache", "sieve", "s3-fifo l23", "s3-fifo f5", "sieve", "s3-fifo l23", "s3-fifo f5",
+    });
+    for (sizes) |slot_count| {
+        const cache_rate = replay(slot_count, seed, requests).rate_percent();
+        std.debug.print("{d:>8} {d:>9.2}% |", .{ slot_count, cache_rate });
+        for ([_]policy.Expiry{ .evict_on_get, .refresh_in_place }) |expiry| {
+            sieve_model.init(slot_count, expiry);
+            const sieve = replay_model(&sieve_model, seed, requests).rate_percent();
+            s3fifo_model.init(slot_count, s3fifo_line_23, expiry);
+            const line_23 = replay_model(&s3fifo_model, seed, requests).rate_percent();
+            s3fifo_model.init(slot_count, s3fifo_figure_5, expiry);
+            const figure_5 = replay_model(&s3fifo_model, seed, requests).rate_percent();
+            std.debug.print(" {d:>9.2}% {d:>11.2}% {d:>11.2}% |", .{ sieve, line_23, figure_5 });
+        }
+        std.debug.print("\n", .{});
+    }
+}
+
 pub fn run(seed: u64) void {
     build_weights(&weights);
     std.debug.print(
@@ -178,17 +226,35 @@ pub fn run(seed: u64) void {
     );
     std.debug.print("{s:>8} {s:>10} {s:>12} {s:>12}\n", .{ "slots", "hit rate", "hits", "misses" });
     for (sizes) |slot_count| {
-        const outcome = replay(slot_count, seed);
+        const outcome = replay(slot_count, seed, requests);
         std.debug.print(
             "{d:>8} {d:>9.1}% {d:>12} {d:>12}\n",
             .{ slot_count, outcome.rate_percent(), outcome.hits, outcome.misses },
         );
     }
+    run_policies(seed);
 }
 
 // Tests. The replay is a measurement, so what is tested is that its parts say what they claim.
 
 const testing = std.testing;
+
+test {
+    _ = policy;
+}
+
+/// The control's own check, on a trace short enough for a Debug test: the smallest size, where
+/// evictions are most frequent and a model that strayed would stray first.
+const control_requests = 50_000;
+
+test "the model of SIEVE answers every question as the cache does" {
+    build_weights(&weights);
+    const slot_count = sizes[0];
+    const cache_outcome = replay(slot_count, 1, control_requests);
+    sieve_model.init(slot_count, .evict_on_get);
+    const model_outcome = replay_model(&sieve_model, 1, control_requests);
+    try testing.expectEqual(cache_outcome.hits, model_outcome.hits);
+}
 
 test "the popularity curve is a running sum, so a draw against it is a Zipf draw" {
     build_weights(&weights);

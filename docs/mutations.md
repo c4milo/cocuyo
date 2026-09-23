@@ -823,6 +823,31 @@ that replaces an entry in place, so the entry keeps the chain's end its first pu
 test puts one question three times — through one chain, through another, then through none — and
 reads the hit after each of the last two.
 
+## SIEVE against S3-FIFO
+
+Design §18: `bench/cache_policy.zig` models both policies over name indices, with the model of
+SIEVE as the control. Broken against `zig build test-tools`. Eleven mutations, eleven `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| F1 | a get keeps an expired entry it should evict | the model answers as the cache does | the control test, on an assertion | CAUGHT |
+| F2 | the hand stays on an entry that is gone | the model answers as the cache does | **the control test** | CAUGHT |
+| F3 | a refresh in place renews nothing | the entry lives again | the refresh-in-place test | CAUGHT |
+| F4 | S3-FIFO promotes at the threshold, not above it | Algorithm 1 line 23 | the threshold test | CAUGHT |
+| F5 | a name moved to M keeps its bits | S3-FIFO §4.1, bits cleared on the move | the threshold test | CAUGHT |
+| F6 | an expired name in S is ghosted | expiry is taken on sight, and leaves no ghost | the expired-on-sight test | CAUGHT |
+| F7 | the frequency is not capped | Algorithm 1 line 3 | the cap test | CAUGHT |
+| F8 | G holds one ghost fewer | S3-FIFO §4.1, G as long as M | the ghost-length test | CAUGHT |
+| F9 | a ghost asked for again goes to S | Algorithm 1 lines 10 and 11 | the ghost-return test | CAUGHT |
+| F10 | a refresh in place clears S3-FIFO's bits | a refresh keeps the bits | the S3-FIFO refresh test | CAUGHT |
+| F11 | SIEVE's hand passes a visited entry that has expired | §18, expiry on sight | **a test written for it** | CAUGHT |
+
+F11 was `NOT CAUGHT` at first. The control test compares hit counts over a short trace, and a
+hand that clears an expired entry's bit and takes it on the next pass changes too little there
+to show. The test written for it states the rule the cache's own `cache_sweep.zig` test states.
+F2 and F11 also failed to compile on the first try, because each left a name unused. A mutant
+the compiler refuses has tested nothing, so both were run again with the name discarded.
+
 ## The end-to-end driver
 
 The comparison's own driver, not the library: `bench/end_to_end/rotor_loop.zig`. Broken against
