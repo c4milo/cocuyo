@@ -1,8 +1,8 @@
 //! c-ares's side of the comparison: one channel with its event thread, which is how c-ares
 //! recommends being driven since 1.26, and `ares_query_dnsrec` for one A lookup at a time, the
-//! callback starting the next until `total` have ended. The callbacks run on c-ares's thread
-//! under its channel lock, so the state below is touched by one thread at a time and read by the
-//! main thread only once the queue is empty.
+//! callback starting the next until `total` have ended. Two threads start lookups — the main
+//! thread the first batch, c-ares's event thread every one after — so everything they share is
+//! atomic, and a slot changes hands only by compare-and-exchange.
 const std = @import("std");
 const assert = std.debug.assert;
 const harness = @import("../harness.zig");
@@ -11,17 +11,28 @@ const c = @cImport(@cInclude("ares.h"));
 
 pub const Outcome = struct { elapsed_ns: u64, failures: u32 };
 
+/// Who is starting lookups on a slot. A slot has one query out at a time, and its answer starts
+/// the next; the answer can come inside `ares_query_dnsrec`, on the same thread, or on c-ares's
+/// thread while the holder is still at work. Either way exactly one more start must follow it.
+const Owner = enum(u8) {
+    /// Nobody holds the slot: the next `start_next` takes it.
+    idle,
+    /// A `start_next` holds it and is issuing.
+    issuing,
+    /// It is held, and an answer came meanwhile: the holder owes one more start.
+    owed,
+};
+
+/// How many times `take` looks. The only other hand on a slot is its holder, and the holder lets
+/// go at most once while `take` looks, so the second look always settles it.
+const take_rounds = 2;
+
 /// One lookup in flight: when it started, the name it asked, which c-ares copies at start, and
-/// the two flags that keep a start from nesting inside a start.
+/// who is starting lookups on it.
 const Slot = struct {
     started_ns: u64 = 0,
     text: [constants.name_bytes]u8 = undefined,
-    /// A query is being submitted on this slot right now. Atomic because two threads read it:
-    /// the first batch goes out from the main thread, and c-ares may answer on its event thread
-    /// before `ares_query_dnsrec` has returned here.
-    issuing: std.atomic.Value(bool) = .init(false),
-    /// Its answer came while that submission was still in progress.
-    answered_inline: std.atomic.Value(bool) = .init(false),
+    owner: std.atomic.Value(Owner) = .init(.idle),
 };
 
 const State = struct {
@@ -81,26 +92,51 @@ pub fn run(port: u16, in_flight: u32, total: u32, latencies: []u64) !Outcome {
     return .{ .elapsed_ns = harness.now_ns() - begin, .failures = state.failures.load(.monotonic) };
 }
 
-/// Starts lookups on `slot` until one of them does not answer inside the call that made it.
+/// Starts lookups on `slot` until none is left to claim, or until one is out and unanswered.
 ///
-/// c-ares may answer before `ares_query_dnsrec` returns: `ares_send_nolock` calls the callback
-/// itself when the answer is already there. The callback starts the next lookup, so calling this
-/// again from inside it is recursion with a frame per lookup, and at 20,000 it overflowed the
-/// stack. A start that happens inside a start now only says so, and the loop here makes the next
-/// one. The claims bound the loop: there are `total` of them and no more.
+/// Called for the first batch and from every answer. A call that finds the slot held does not
+/// issue: it leaves word that one more start is owed, and the holder issues it. That is what
+/// stops recursion when c-ares answers inside `ares_query_dnsrec` — at 20,000 lookups a call per
+/// answer overflowed the stack — and what stops an answer that lands while the holder is letting
+/// go from being lost, which two plain flags did not.
 fn start_next(slot: *Slot) void {
-    if (stopping.load(.acquire)) return;
-    if (slot.issuing.load(.acquire)) {
-        slot.answered_inline.store(true, .release);
-        return;
-    }
-    slot.issuing.store(true, .release);
-    defer slot.issuing.store(false, .release);
-    while (claim()) |index| {
-        slot.answered_inline.store(false, .release);
+    if (!take(slot)) return;
+    while (!stopping.load(.acquire)) {
+        const index = claim() orelse break;
         issue(slot, index);
-        if (!slot.answered_inline.load(.acquire)) return;
+        if (!settle(slot)) return;
     }
+    // Nothing left to claim, or the row is over, and no query of this slot is out.
+    slot.owner.store(.idle, .release);
+}
+
+/// Takes the slot, or, when it is held, tells the holder a start is owed.
+fn take(slot: *Slot) bool {
+    for (0..take_rounds) |_| {
+        const seen = slot.owner.cmpxchgStrong(.idle, .issuing, .acq_rel, .acquire) orelse return true;
+        // One query out per slot, so one answer per holding: a second owed start cannot arise.
+        assert(seen != .owed);
+        if (slot.owner.cmpxchgStrong(.issuing, .owed, .acq_rel, .acquire) == null) return false;
+        // The holder let go between the two looks, so the slot is idle and the next look takes it.
+    }
+    unreachable;
+}
+
+/// After a query goes out: true when its answer has already come and the holder must issue
+/// again, false when the slot was let go and the answer, when it comes, takes it.
+fn settle(slot: *Slot) bool {
+    if (let_go(slot)) return false;
+    // It could not be let go, so a start is owed: the answer has already come, and issuing for
+    // it is the holder's.
+    const taken = slot.owner.cmpxchgStrong(.owed, .issuing, .acq_rel, .acquire);
+    assert(taken == null);
+    return true;
+}
+
+/// Lets the slot go unless a start is owed on it. An answer that lands while the holder leaves
+/// must still be issued for, and a plain store here would erase the word it left.
+fn let_go(slot: *Slot) bool {
+    return slot.owner.cmpxchgStrong(.issuing, .idle, .acq_rel, .acquire) == null;
 }
 
 /// The next lookup's index, or null once `total` have been claimed. Two threads claim: the first
@@ -135,30 +171,65 @@ fn on_answer(arg: ?*anyopaque, status: c.ares_status_t, timeouts: usize, record:
     start_next(slot);
 }
 
-// Tests. The loop against the responder is in `end_to_end.zig`; this pins the guard that keeps a
-// start from nesting inside a start, which no run can be made to exercise on demand — c-ares
-// answers inline when it happens to, not when a test asks.
+// Tests. The loop against the responder is in `end_to_end.zig`; these pin the handoff, whose
+// interleavings no run can be made to produce on demand — c-ares answers inline, or on its own
+// thread mid-release, when it happens to and not when a test asks. So each step is driven from
+// the state an interleaving would leave behind.
 
 const testing = std.testing;
 
-test "a start that happens inside a start makes no query of its own" {
+/// Puts the row state where no claim succeeds and none is counted but the one a test makes.
+fn empty_row() void {
     stopping.store(false, .release);
-    var slot: Slot = .{ .issuing = .init(true) };
+    state.total = 0;
+    state.started.store(0, .release);
+}
+
+test "a start that happens inside a start makes no query of its own, and is owed" {
+    empty_row();
+    var slot: Slot = .{ .owner = .init(.issuing) };
     start_next(&slot);
-    try testing.expect(slot.answered_inline.load(.acquire));
-    // Still the outer start's to finish: the loop there makes the next query, not this call.
-    try testing.expect(slot.issuing.load(.acquire));
+    try testing.expectEqual(Owner.owed, slot.owner.load(.acquire));
+    // Not even a claim: the holder issues what is owed, not this call.
+    try testing.expectEqual(@as(u32, 0), state.started.load(.acquire));
+}
+
+test "an answer that lands while the holder lets go keeps the slot held" {
+    var slot: Slot = .{ .owner = .init(.owed) };
+    // The holder tries to leave with a start owed: it must not, and the word must survive.
+    try testing.expect(!let_go(&slot));
+    try testing.expectEqual(Owner.owed, slot.owner.load(.acquire));
+    slot.owner.store(.issuing, .release);
+    try testing.expect(let_go(&slot));
+    try testing.expectEqual(Owner.idle, slot.owner.load(.acquire));
+}
+
+test "settling issues again when the answer came, and lets go when it has not" {
+    var answered: Slot = .{ .owner = .init(.owed) };
+    try testing.expect(settle(&answered));
+    try testing.expectEqual(Owner.issuing, answered.owner.load(.acquire));
+    var waiting: Slot = .{ .owner = .init(.issuing) };
+    try testing.expect(!settle(&waiting));
+    try testing.expectEqual(Owner.idle, waiting.owner.load(.acquire));
+}
+
+test "an idle slot is taken, and a held one is marked owed" {
+    var idle: Slot = .{};
+    try testing.expect(take(&idle));
+    try testing.expectEqual(Owner.issuing, idle.owner.load(.acquire));
+    try testing.expect(!take(&idle));
+    try testing.expectEqual(Owner.owed, idle.owner.load(.acquire));
 }
 
 test "no lookup starts once the row is over" {
+    empty_row();
     stopping.store(true, .release);
     defer stopping.store(false, .release);
     // A channel being destroyed fails what is on it, and each failure reaches the callback,
-    // which must not answer a teardown with another query. The claim is what says so: with
-    // nothing left to claim the flags read the same either way, so the count is the check.
-    state.total = 0;
-    state.started.store(0, .release);
+    // which must not answer a teardown with another query. Not even a claim is made, and the
+    // slot is left as it was found.
     var slot: Slot = .{};
     start_next(&slot);
     try testing.expectEqual(@as(u32, 0), state.started.load(.acquire));
+    try testing.expectEqual(Owner.idle, slot.owner.load(.acquire));
 }
