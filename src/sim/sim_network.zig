@@ -62,6 +62,9 @@ pub const Network = struct {
     server_count: u8 = 0,
     datagrams: [constants.datagrams_pending_max]PendingDatagram = @splat(.{}),
     connections: [constants.connections_max]Connection = @splat(.{}),
+    /// Whether every socket open fails, as it does when a process has no descriptor left: set
+    /// by a caller driving the twin in manual mode (tools/spec_replay/).
+    refuse_open: bool = false,
 
     pub fn reset(self: *Network) void {
         self.* = .{};
@@ -95,6 +98,7 @@ pub const Network = struct {
     }
 
     fn open(self: *Network, kind: SocketKind, family: Address.Family) SocketError!Descriptor {
+        if (self.refuse_open) return error.DescriptorLimit;
         for (&self.sockets, 0..) |*entry, index| {
             if (entry.open) continue;
             entry.* = .{ .open = true, .kind = kind, .family = family };

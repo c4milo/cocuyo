@@ -90,6 +90,9 @@ pub const Loop = struct {
     /// tools/spec_replay/ drives the engine through the orders rotor decision 5, rule 2 allows,
     /// which the network's own timing never produces.
     manual: bool,
+    /// Whether `submit` refuses every operation but a timer, as a full ring refuses one: set by
+    /// a caller driving the twin in manual mode.
+    refuse_submissions: bool,
 
     /// The twin keeps its tables inside itself, so it needs none of the caller's memory; the
     /// signature is rotor's so a caller's arrays are sized the same.
@@ -116,6 +119,7 @@ pub const Loop = struct {
             .word = 0,
             .statistics_ = .{},
             .manual = false,
+            .refuse_submissions = false,
         };
         network_module.network.reset();
     }
@@ -155,6 +159,7 @@ pub const Loop = struct {
     pub fn submit(loop: *Loop, operations: []const Operation, handles: []Handle) u32 {
         var taken: u32 = 0;
         for (operations, 0..) |*operation, index| {
+            if (loop.refuse_submissions and operation.kind != .timer) break;
             const slot_index = loop.allocate(operation) orelse break;
             if (index < handles.len) {
                 handles[index] = .{ .index = slot_index, .generation = loop.slots[slot_index].generation };
