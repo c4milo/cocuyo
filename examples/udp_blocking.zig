@@ -81,11 +81,7 @@ fn resolve(io: std.Io, name: []const u8, config: *const cocuyo.Config, seed: u64
             },
             .done => |answer| return report(name, answer),
             .failed => |failure| {
-                std.debug.print("{s}: {t} after {d} attempts\n", .{
-                    name,
-                    failure.err,
-                    failure.attempts_made + 1,
-                });
+                std.debug.print("{s}: {t}\n", .{ name, failure.err });
                 std.process.exit(1);
             },
         }

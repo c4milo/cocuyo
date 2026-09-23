@@ -93,6 +93,9 @@ pub const Answer = struct {
 pub const Failure = struct {
     err: core.Error,
     server_index: u8,
+    /// The passes over the server list the lookup completed before it ended: `Config.attempts`
+    /// when it ran out of them, as `Timeout` and `AllServersFailed` do, and zero when it ended in
+    /// its first pass, as a name that does not exist usually does.
     attempts_made: u8,
     /// For `NameNotFound` and `NoData`, the TTL a cache may keep the negative answer for: the SOA
     /// minimum of the response that decided it (RFC 2308 §5), or zero when that response carried
