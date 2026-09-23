@@ -1096,9 +1096,10 @@ resolver, and on a Mac it is not even close to it.
 - **Linux with systemd-resolved.** `/etc/resolv.conf` usually points at the 127.0.0.53 stub, which
   does re-expand into per-link routing, so a cocuyo caller gets closer to parity there. Where
   `resolv.conf` is instead a static list, per-link domains are invisible.
-- **Everywhere.** cocuyo does not read `/etc/hosts`, does not consult nsswitch, and does not know
-  about NIS, LDAP or mDNS. A name that resolves for every other program on the box can fail here,
-  and that is by design, not a bug.
+- **Everywhere.** cocuyo reads the hosts file only when the caller parses it with
+  `config.hosts` and hands over the table (§19 step 11). It does not consult nsswitch, and does
+  not know about NIS, LDAP or mDNS. A name that resolves for every other program on the box can
+  fail here, and that is by design, not a bug.
 
 Choose cocuyo when you want a resolver that is explicit, testable and identical on every host: a
 server, a proxy, a container. Choose `getaddrinfo` on a thread when you need exactly what the rest
