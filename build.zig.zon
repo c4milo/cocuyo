@@ -27,5 +27,6 @@
         "build.zig.zon",
         "build",
         "src",
+        "LICENSE",
     },
 }

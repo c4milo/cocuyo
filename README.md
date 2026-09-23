@@ -10,8 +10,8 @@ any completion loop you already run.
 It is written from the RFCs, as a replacement for c-ares. The name is the Colombian word for the
 firefly, and for a car's hazard lights.
 
-> **Status: pre-release.** The library is feature-complete against its plan and is not yet tagged
-> or licensed (see [License](#license)). It needs Zig 0.16.0. The API may still change.
+> **Status: pre-release.** The library is feature-complete against its plan and is not yet tagged.
+> It needs Zig 0.16.0. The API may still change.
 
 ## Why cocuyo
 
@@ -260,4 +260,4 @@ unmodified.
 
 ## License
 
-Not yet chosen: this repository has no LICENSE file yet.
+cocuyo is licensed under the [Apache License, Version 2.0](LICENSE).
