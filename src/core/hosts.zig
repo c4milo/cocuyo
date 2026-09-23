@@ -12,7 +12,9 @@ const constants = @import("constants.zig");
 const address_module = @import("address.zig");
 const Address = address_module.Address;
 const Family = address_module.Family;
-const Name = @import("name.zig").Name;
+const name_module = @import("name.zig");
+const Name = name_module.Name;
+const wire_equal = name_module.wire_equal;
 
 /// A wire name inside `Storage.names`.
 pub const NameRef = struct { offset: u16, len: u8 };
@@ -84,16 +86,6 @@ pub const Hosts = struct {
         return name;
     }
 };
-
-/// Two wire names, compared with the case of their letters folded (RFC 1035 §2.3.3, as RFC 4343
-/// clarifies it). The length octets are below the letters and fold to themselves.
-fn wire_equal(a: []const u8, b: []const u8) bool {
-    if (a.len != b.len) return false;
-    for (a, b) |mine, theirs| {
-        if (std.ascii.toLower(mine) != std.ascii.toLower(theirs)) return false;
-    }
-    return true;
-}
 
 // Tests.
 

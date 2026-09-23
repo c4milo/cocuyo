@@ -100,20 +100,15 @@ pub const Name = struct {
         return if (labels == 0) 0 else labels - 1;
     }
 
-    /// Case-insensitive equality (RFC 1035 §2.3.3, clarified by RFC 4343): two names are the same
-    /// name whatever the case of their ASCII letters. The comparison folds every byte, length
-    /// octets included, which is sound because no length octet can be a letter (the comptime
-    /// block above).
+    /// Case-insensitive equality: two names are the same name whatever the case of their ASCII
+    /// letters (`wire_equal`).
     ///
     /// This is never the check a response is matched with. That check compares the question
     /// section byte for byte, case included, because the case is entropy (docs/design.md §7).
     pub fn equal(self: *const Name, other: *const Name) bool {
         if (self.len != other.len) return false;
         assert(self.len == other.len);
-        for (self.wire(), other.wire()) |mine, theirs| {
-            if (fold(mine) != fold(theirs)) return false;
-        }
-        return true;
+        return wire_equal(self.wire(), other.wire());
     }
 
     /// Lowercases every label byte, leaving the length octets alone.
@@ -211,6 +206,20 @@ pub const Name = struct {
 /// bit (`constants.ascii_case_bit`).
 fn fold(byte: u8) u8 {
     return if (byte >= 'A' and byte <= 'Z') byte | constants.ascii_case_bit else byte;
+}
+
+/// Two names in wire form, compared with the case of their ASCII letters folded (RFC 1035
+/// §2.3.3, clarified by RFC 4343). Every byte folds, length octets included, which is sound
+/// because no length octet can be a letter (the comptime block at the top of this file).
+/// `Name.equal` shares it with the hosts table, whose names sit in an arena rather than in a
+/// `Name`.
+pub fn wire_equal(a: []const u8, b: []const u8) bool {
+    if (a.len != b.len) return false;
+    assert(a.len <= constants.name_bytes_max);
+    for (a, b) |mine, theirs| {
+        if (fold(mine) != fold(theirs)) return false;
+    }
+    return true;
 }
 
 comptime {
