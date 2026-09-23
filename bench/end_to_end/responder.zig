@@ -4,6 +4,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
+const wire = cocuyo.wire;
 const constants = @import("constants.zig");
 const udp = @import("udp.zig");
 
@@ -63,12 +64,14 @@ pub fn build_reply(query: []const u8, reply: []u8) ?usize {
     const question_len = question_length(query) orelse return null;
     const copied = header_bytes + question_len;
     @memcpy(reply[0..copied], query[0..copied]);
-    reply[2] |= constants.flag_response_octet;
-    reply[3] = (reply[3] & constants.rcode_clear_mask) | constants.flag_recursion_available_octet;
+    var header = wire.header.parse(query) catch return null;
+    header.flags = (header.flags | wire.constants.flag_response | wire.constants.flag_recursion_available) &
+        ~@as(u16, wire.constants.rcode_mask);
     // qdcount stays one; ancount is one; nothing in the other two sections.
-    reply[6] = 0;
-    reply[7] = 1;
-    @memset(reply[8..header_bytes], 0);
+    header.ancount = 1;
+    header.nscount = 0;
+    header.arcount = 0;
+    wire.header.write(&header, reply);
     var at = copied;
     at += write(reply[at..], &constants.record_head);
     at += write(reply[at..], &ttl_octets());
@@ -89,19 +92,12 @@ fn ttl_octets() [4]u8 {
     return octets;
 }
 
-/// The octets of the question section after the header: the name's labels to the root, then
-/// the type and class. Null when the datagram is too short to hold one question.
+/// The octets of the question section after the header: the name to its end, then the type and
+/// class. Null when the datagram is too short to hold one question.
 fn question_length(query: []const u8) ?usize {
     if (query.len < header_bytes) return null;
-    var at: usize = header_bytes;
-    var labels: usize = 0;
-    while (labels < cocuyo.constants.labels_max) : (labels += 1) {
-        if (at >= query.len) return null;
-        const label_len = query[at];
-        if (label_len == 0) break;
-        at += 1 + label_len;
-    }
-    at += 1 + question_fixed_bytes;
-    if (at > query.len) return null;
-    return at - header_bytes;
+    const name_end = wire.name.skip(query, header_bytes) catch return null;
+    const end = name_end + question_fixed_bytes;
+    if (end > query.len) return null;
+    return end - header_bytes;
 }

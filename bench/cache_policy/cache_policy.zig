@@ -291,6 +291,18 @@ fn histogram_record(self: anytype, id: Id) void {
     self.recorded /= 2;
 }
 
+/// Xorshift64*: three shifts and a multiply, enough for a popularity draw and small enough to
+/// read. It moves `state` on and returns the next number. The trace draws its names with it and
+/// expected hits its evictions; the bench is not cryptography.
+pub fn xorshift_next(state: *u64) u64 {
+    var x = state.*;
+    x ^= x >> 12;
+    x ^= x << 25;
+    x ^= x >> 27;
+    state.* = x;
+    return x *% 0x2545_f491_4f6c_dd1d;
+}
+
 // Tests. Small tables whose every step can be followed by hand.
 
 const testing = std.testing;

@@ -47,7 +47,7 @@ const answer_address = cocuyo.Address.from_v4(.{ 192, 0, 2, 1 });
 pub fn replay(comptime digits: usize, recording: *const Recording, slot_count: usize, seed: u64) Outcome {
     std.debug.assert(slot_count >= 1 and slot_count <= slots_max);
     const key_count = std.math.ceilPowerOfTwoAssert(usize, slot_count * cache_module.constants.keys_per_slot_min);
-    @memset(slots[0..slot_count], cache_module.Slot.empty);
+    // `init` empties the slots it is handed, so a replay starts from an empty table.
     var store = cache_module.Cache.init(slots[0..slot_count], keys[0..key_count], seed, cache_module.constants.ttl_seconds_max_default);
     var outcome: Outcome = .{};
     for (recording.names, recording.times_ns) |index, now_ns| {

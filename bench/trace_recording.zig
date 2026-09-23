@@ -39,17 +39,6 @@ pub const Recording = struct {
     /// How long each name's answer lives, by name.
     lives_ns: []u64,
 
-    /// The first `count` questions, with every name's life.
-    pub fn prefix(self: *const Recording, count: usize) Recording {
-        assert(count <= self.names.len);
-        return .{
-            .names = self.names[0..count],
-            .times_ns = self.times_ns[0..count],
-            .next = self.next[0..count],
-            .lives_ns = self.lives_ns,
-        };
-    }
-
     /// Links each question to the next one for the same name, walking backward so that one pass
     /// does it. `last_seen` has room for every name.
     pub fn link(self: *const Recording, last_seen: []u32) void {
@@ -88,7 +77,4 @@ test "each question links to the next one for its name, and the last to none" {
     const recording: Recording = .{ .names = &names, .times_ns = &times, .next = &next, .lives_ns = &lives };
     recording.link(&last_seen);
     try testing.expectEqualSlices(u32, &.{ 2, 4, no_request, no_request, no_request }, &next);
-    const short = recording.prefix(2);
-    try testing.expectEqual(@as(usize, 2), short.names.len);
-    try testing.expectEqual(@as(usize, 3), short.lives_ns.len);
 }

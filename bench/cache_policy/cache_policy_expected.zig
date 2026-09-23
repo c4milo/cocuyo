@@ -95,28 +95,32 @@ fn worth(self: anytype, id: Id, now_ns: u64) u64 {
     return counted * (self.expires_ns[id] -| now_ns);
 }
 
-/// The entry worth least among every one held, or among `draws` of them drawn at random.
+/// The entry worth least among every one held, or among `draws` of them drawn at random. The
+/// first entry of the least worth wins a tie.
 fn least(self: anytype, now_ns: u64) Id {
     assert(self.len > 0);
     const everything = self.draws >= self.len;
     const reads = if (everything) self.len else self.draws;
     var found = self.members[if (everything) 0 else draw(self)];
+    var found_worth = worth(self, found, now_ns);
     var read: usize = 1;
     while (read < reads) : (read += 1) {
+        // Nothing is worth less than nothing, so a read of every entry stops at the first worth
+        // zero. A drawn eviction keeps drawing, so the draws after it stay what they were.
+        if (everything and found_worth == 0) break;
         const candidate = self.members[if (everything) read else draw(self)];
-        if (worth(self, candidate, now_ns) < worth(self, found, now_ns)) found = candidate;
+        const candidate_worth = worth(self, candidate, now_ns);
+        if (candidate_worth < found_worth) {
+            found = candidate;
+            found_worth = candidate_worth;
+        }
     }
     return found;
 }
 
-/// A position among the names held. Xorshift64*, as the trace draws its names.
+/// A position among the names held, drawn as the trace draws its names.
 fn draw(self: anytype) usize {
-    var x = self.state;
-    x ^= x >> 12;
-    x ^= x << 25;
-    x ^= x >> 27;
-    self.state = x;
-    return @intCast((x *% 0x2545_f491_4f6c_dd1d) % self.len);
+    return @intCast(policy.xorshift_next(&self.state) % self.len);
 }
 
 fn add(self: anytype, id: Id) void {

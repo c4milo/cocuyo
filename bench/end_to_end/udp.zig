@@ -1,5 +1,5 @@
 //! The libc sockets the comparison drives: IPv4 datagram sockets on the loopback, an address
-//! type for them, and the two calls the loops make. This is `bench/`, which may own a socket
+//! type for them, and the calls the responder makes. This is `bench/`, which may own a socket
 //! (CLAUDE.md, Layout); nothing under `src/` does.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -58,18 +58,4 @@ pub fn receive(socket: Socket, buffer: []u8, from: *Address) ?[]u8 {
     const got = c.recvfrom(socket, buffer.ptr, buffer.len, 0, @ptrCast(from), &len);
     if (got < 0) return null;
     return buffer[0..@intCast(got)];
-}
-
-/// One datagram if one is waiting, without blocking; null when the queue is empty.
-pub fn receive_now(socket: Socket, buffer: []u8, from: *Address) ?[]u8 {
-    var len: c.socklen_t = @sizeOf(Address);
-    const got = c.recvfrom(socket, buffer.ptr, buffer.len, c.MSG.DONTWAIT, @ptrCast(from), &len);
-    if (got < 0) return null;
-    return buffer[0..@intCast(got)];
-}
-
-/// Waits until the socket is readable, or `timeout_ms` passes.
-pub fn wait_readable(socket: Socket, timeout_ms: u32) void {
-    var fds = [_]c.pollfd{.{ .fd = socket, .events = c.POLL.IN, .revents = 0 }};
-    _ = c.poll(&fds, fds.len, @intCast(timeout_ms));
 }

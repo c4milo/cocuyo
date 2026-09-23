@@ -8,9 +8,6 @@ pub const in_flight_counts = [_]u32{ 1, 16, 128 };
 pub const in_flight_max = 128;
 pub const lookups_total = 20_000;
 
-/// The key table cocuyo's resolver asks for: a power of two at twice the slots.
-pub const keys_per_slot = 2;
-
 /// The responder: where it listens, what it answers, and the TTL it gives.
 pub const loopback_v4 = [_]u8{ 127, 0, 0, 1 };
 pub const answer_v4 = [_]u8{ 192, 0, 2, 1 };
@@ -22,17 +19,10 @@ pub const datagram_bytes_max = cocuyo.constants.udp_payload_bytes_default;
 pub const record_head = [_]u8{ 0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01 };
 pub const record_rdlength = [_]u8{ 0x00, 0x04 };
 
-/// The header's second octet with QR set, and the third with RA: the reply's flags are the
-/// query's with those two on and the rcode zero.
-pub const flag_response_octet = 0x80;
-pub const flag_recursion_available_octet = 0x80;
-pub const rcode_clear_mask = 0xf0;
-
 /// The room a name takes as text: `h20000.example.` and its terminator.
 pub const name_bytes = 32;
 
-/// The wait the loop hands `poll(2)` at most, and the units the clock is converted with.
-pub const poll_timeout_ms_max = 1000;
+/// The units the clock is converted with.
 pub const ns_per_ms = 1_000_000;
 pub const ns_per_us = 1_000;
 pub const ns_per_s = 1_000_000_000;

@@ -51,6 +51,10 @@ pub const ttl_share_total = 1000;
 /// The name every request asks about has five decimal digits, which covers the names above.
 const name_digits = 5;
 
+/// The seed the trace replays from, which is also the cache's hash key: one seed, one trace, so a
+/// rerun reads the same questions. `log_replay.zig` keys its caches with it too.
+pub const trace_seed = 0x5eed_c0c0;
+
 /// The questions asked, in order. Deterministic: one seed replays byte for byte, which is the
 /// rule the library keeps and a bench that decides a policy should keep too.
 const Trace = struct {
@@ -62,21 +66,10 @@ const Trace = struct {
         return .{ .state = seed, .weights = curve, .total_weight = curve[names_distinct - 1] };
     }
 
-    /// Xorshift64*: three shifts and a multiply, enough for a popularity draw and small enough to
-    /// read. The bench is not cryptography.
-    fn next_random(self: *Trace) u64 {
-        var x = self.state;
-        x ^= x >> 12;
-        x ^= x << 25;
-        x ^= x >> 27;
-        self.state = x;
-        return x *% 0x2545_f491_4f6c_dd1d;
-    }
-
     /// The next name's index, drawn from the popularity curve by binary search over its running
     /// sum. Bounded: the search is over a fixed array.
     fn next_name(self: *Trace) usize {
-        const draw = @as(f64, @floatFromInt(self.next_random() >> 11)) /
+        const draw = @as(f64, @floatFromInt(policy.xorshift_next(&self.state) >> 11)) /
             @as(f64, @floatFromInt(@as(u64, 1) << 53)) * self.total_weight;
         var low: usize = 0;
         var high: usize = names_distinct - 1;
@@ -128,7 +121,7 @@ var expected_model: expected_policy.ExpectedHits(names_distinct) = undefined;
 
 /// How many entries the affordable form of expected hits reads per eviction: few enough for a put
 /// path, and the number the replay reports beside reading them all.
-const expected_draws = 16;
+pub const expected_draws = 16;
 
 /// The trace written down once: `record` fills these, and every replay reads them.
 var trace_names: [requests]policy.Id = undefined;
@@ -140,7 +133,7 @@ var optimal: optimal_module.Optimal(names_distinct) = undefined;
 
 /// S3-FIFO's two readings of when a name leaves the small queue for the main one: above one
 /// read, as Algorithm 1 line 23 has it, and above none, as Figure 5 has it.
-const s3fifo_line_23 = 1;
+pub const s3fifo_line_23 = 1;
 const s3fifo_figure_5 = 0;
 
 /// Writes down `request_count` questions of the trace, one every `arrival_ns`, with every name's
@@ -168,13 +161,17 @@ fn replay(recording: *const Recording, slot_count: usize, seed: u64) Outcome {
     return cache_replay.replay(name_digits, recording, slot_count, seed);
 }
 
+/// The real cache over the recording at each of `sizes`, in the same order. Every table prints
+/// this column, so it is replayed once.
+const CacheColumn = [sizes.len]Outcome;
+
 /// The cache against what could be done better: the same SIEVE taking the soonest expired entry
 /// first, W-TinyLFU, and the optimal, which no policy can pass.
-fn run_bounds(recording: *const Recording, seed: u64) void {
+fn run_bounds(recording: *const Recording, cache_column: *const CacheColumn) void {
     std.debug.print("\nhow far from the best: the cache, two policies that might do better, and the optimal\n\n", .{});
     std.debug.print("{s:>8} {s:>10} {s:>14} {s:>10} {s:>10}\n", .{ "slots", "cache", "expired first", "w-tinylfu", "optimal" });
-    for (sizes) |slot_count| {
-        const cache_rate = replay(recording, slot_count, seed).rate_percent();
+    for (sizes, cache_column) |slot_count, cache_outcome| {
+        const cache_rate = cache_outcome.rate_percent();
         sieve_model.init(slot_count, .refresh_in_place, .expired_first);
         const expired_first = replay_model(&sieve_model, recording).rate_percent();
         tinylfu_model.init(slot_count);
@@ -186,11 +183,11 @@ fn run_bounds(recording: *const Recording, seed: u64) void {
 
 /// Expected hits, `cache_policy_expected.zig`: counting every ask, then counting reuse with every
 /// entry read, with admission, and with a few drawn at random, which is the form a cache could run.
-fn run_expected(recording: *const Recording, seed: u64) void {
+fn run_expected(recording: *const Recording, cache_column: *const CacheColumn) void {
     std.debug.print("\nexpected hits: a name's count times the time its answer has left\n\n", .{});
     std.debug.print("{s:>8} {s:>10} {s:>12} {s:>12} {s:>14} {s:>14}\n", .{ "slots", "cache", "every ask", "reuse", "reuse, admit", "reuse, 16" });
-    for (sizes) |slot_count| {
-        const cache_rate = replay(recording, slot_count, seed).rate_percent();
+    for (sizes, cache_column) |slot_count, cache_outcome| {
+        const cache_rate = cache_outcome.rate_percent();
         expected_model.init(slot_count, slot_count, false, .every_ask);
         const every_ask = replay_model(&expected_model, recording).rate_percent();
         expected_model.init(slot_count, slot_count, false, .reuse);
@@ -206,15 +203,14 @@ fn run_expected(recording: *const Recording, seed: u64) void {
 /// SIEVE against S3-FIFO on the trace above, under each rule for an expired entry, with the
 /// model of SIEVE as the control: it must match the real cache's column before the other
 /// columns mean anything (docs/design.md §18).
-fn run_policies(recording: *const Recording, seed: u64) void {
+fn run_policies(recording: *const Recording, cache_column: *const CacheColumn) void {
     std.debug.print("\nthe same trace, hit rate by policy and by what a get does with an expired entry\n\n", .{});
     std.debug.print("{s:>8} {s:>10} | {s:>36} | {s:>36}\n", .{ "", "", "evicted by the get", "renewed in place, as the cache does" });
     std.debug.print("{s:>8} {s:>10} | {s:>10} {s:>12} {s:>12} | {s:>10} {s:>12} {s:>12}\n", .{
         "slots", "cache", "sieve", "s3-fifo l23", "s3-fifo f5", "sieve", "s3-fifo l23", "s3-fifo f5",
     });
-    for (sizes) |slot_count| {
-        const cache_rate = replay(recording, slot_count, seed).rate_percent();
-        std.debug.print("{d:>8} {d:>9.2}% |", .{ slot_count, cache_rate });
+    for (sizes, cache_column) |slot_count, cache_outcome| {
+        std.debug.print("{d:>8} {d:>9.2}% |", .{ slot_count, cache_outcome.rate_percent() });
         for ([_]policy.Expiry{ .evict_on_get, .refresh_in_place }) |expiry| {
             sieve_model.init(slot_count, expiry, .hand);
             const sieve = replay_model(&sieve_model, recording).rate_percent();
@@ -226,8 +222,8 @@ fn run_policies(recording: *const Recording, seed: u64) void {
         }
         std.debug.print("\n", .{});
     }
-    run_bounds(recording, seed);
-    run_expected(recording, seed);
+    run_bounds(recording, cache_column);
+    run_expected(recording, cache_column);
     cares_model.init();
     const cares = replay_model(&cares_model, recording);
     std.debug.print(
@@ -245,14 +241,15 @@ pub fn run(seed: u64) void {
         .{ requests, names_distinct, zipf_exponent, arrival_ns / std.time.ns_per_ms, ttl_seconds[0], ttl_seconds[1], ttl_seconds[2] },
     );
     std.debug.print("{s:>8} {s:>10} {s:>12} {s:>12}\n", .{ "slots", "hit rate", "hits", "misses" });
-    for (sizes) |slot_count| {
-        const outcome = replay(&recording, slot_count, seed);
+    var cache_column: CacheColumn = undefined;
+    for (sizes, &cache_column) |slot_count, *outcome| {
+        outcome.* = replay(&recording, slot_count, seed);
         std.debug.print(
             "{d:>8} {d:>9.1}% {d:>12} {d:>12}\n",
             .{ slot_count, outcome.rate_percent(), outcome.hits, outcome.misses },
         );
     }
-    run_policies(&recording, seed);
+    run_policies(&recording, &cache_column);
 }
 
 // Tests. The replay is a measurement, so what is tested is that its parts say what they claim.
