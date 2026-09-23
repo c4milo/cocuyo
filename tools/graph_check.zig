@@ -13,14 +13,22 @@
 //! fixture imports `core`, which `resolver` does have, and must compile clean. A run in which the
 //! control fails is reported as a broken check, not as a pass.
 //!
-//! Usage: `graph_check <zig-exe> <src-root> <fixtures-dir>`
+//! Usage: `graph_check <zig-exe> <fixtures-dir> <core-root> <wire-root>`. The roots are the ones
+//! build/modules.zig names in `roots`, passed by build/graph_check.zig, so the check compiles the
+//! files the build does and never a path of its own.
 const std = @import("std");
 
-/// The import set build/modules.zig gives `resolver` (docs/design.md §2).
+/// The import set build/modules.zig gives `resolver` (docs/design.md §2). Each module's root
+/// source comes from the command line, in this order.
 const resolver_imports = [_]Import{
-    .{ .name = "core", .root = "core/core.zig", .deps = &.{} },
-    .{ .name = "wire", .root = "wire/wire.zig", .deps = &.{"core"} },
+    .{ .name = "core", .deps = &.{} },
+    .{ .name = "wire", .deps = &.{"core"} },
 };
+
+/// The arguments before the roots: the program, the compiler and the fixtures directory.
+const arguments_before_roots = 3;
+
+const usage = "usage: graph_check <zig-exe> <fixtures-dir> <core-root> <wire-root>\n";
 
 /// Every module name `resolver` must not be able to import. Each gets a fixture and each must
 /// fail. `config` is the split of §1 refinement 7: the state machine takes a server list and a
@@ -33,7 +41,6 @@ const control = "core";
 
 const Import = struct {
     name: []const u8,
-    root: []const u8,
     deps: []const []const u8,
 };
 
@@ -42,18 +49,18 @@ const Outcome = enum { compiled, rejected };
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const args = try init.minimal.args.toSlice(arena);
-    if (args.len < 4) {
-        std.debug.print("usage: graph_check <zig-exe> <src-root> <fixtures-dir>\n", .{});
+    if (args.len != arguments_before_roots + resolver_imports.len) {
+        std.debug.print(usage, .{});
         std.process.exit(2);
     }
     const zig_exe = args[1];
-    const src_root = args[2];
-    const fixtures = args[3];
+    const fixtures = args[2];
+    const roots = args[arguments_before_roots..];
 
     // The control first: if importing a module `resolver` does have does not compile, nothing this
     // tool reports afterwards means anything.
     const control_path = try fixture_path(arena, fixtures, control);
-    if (try compile(arena, init.io, zig_exe, src_root, control_path) != .compiled) {
+    if (try compile(arena, init.io, zig_exe, roots, control_path) != .compiled) {
         std.debug.print(
             "graph-check BROKEN: the control fixture importing '{s}' did not compile.\n" ++
                 "  Nothing else this check reports is meaningful until that is fixed.\n",
@@ -66,7 +73,7 @@ pub fn main(init: std.process.Init) !void {
     var failures: usize = 0;
     for (forbidden) |module_name| {
         const path = try fixture_path(arena, fixtures, module_name);
-        if (try compile(arena, init.io, zig_exe, src_root, path) == .rejected) {
+        if (try compile(arena, init.io, zig_exe, roots, path) == .rejected) {
             std.debug.print("graph-check: a resolver module cannot import '{s}'\n", .{module_name});
         } else {
             std.debug.print(
@@ -88,24 +95,25 @@ fn fixture_path(arena: std.mem.Allocator, fixtures: []const u8, module_name: []c
     });
 }
 
-/// Compiles `root_path` as the root of a module carrying exactly `resolver_imports`, and reports
-/// whether the compiler accepted it. A non-zero exit is `rejected`; anything else is `compiled`.
+/// Compiles `root_path` as the root of a module carrying exactly `resolver_imports`, whose root
+/// sources are `roots` in the same order, and reports whether the compiler accepted it. A
+/// non-zero exit is `rejected`; anything else is `compiled`.
 fn compile(
     arena: std.mem.Allocator,
     io: std.Io,
     zig_exe: []const u8,
-    src_root: []const u8,
+    roots: []const []const u8,
     root_path: []const u8,
 ) !Outcome {
+    std.debug.assert(roots.len == resolver_imports.len);
     // `--dep` flags apply to the next `-M`, and the first `-M` is the root module — so the root's
     // whole dependency list precedes it, and each dependency's own list precedes its own `-M`.
     var argv: std.ArrayList([]const u8) = .empty;
     try argv.appendSlice(arena, &.{ zig_exe, "build-obj", "-fno-emit-bin" });
     for (resolver_imports) |import| try argv.appendSlice(arena, &.{ "--dep", import.name });
     try argv.append(arena, try std.fmt.allocPrint(arena, "-Mroot={s}", .{root_path}));
-    for (resolver_imports) |import| {
+    for (resolver_imports, roots) |import, root| {
         for (import.deps) |dep| try argv.appendSlice(arena, &.{ "--dep", dep });
-        const root = try std.fs.path.join(arena, &.{ src_root, import.root });
         try argv.append(arena, try std.fmt.allocPrint(arena, "-M{s}={s}", .{ import.name, root }));
     }
 

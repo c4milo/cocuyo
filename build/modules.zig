@@ -26,8 +26,8 @@ pub const Graph = struct {
     io: *std.Build.Module,
 };
 
-/// The root source of each module, which `tools/graph_check.zig` reads back when it compiles a
-/// fixture as a module of the `resolver` shape.
+/// The root source of each module. build/graph_check.zig hands `core`'s and `wire`'s to
+/// `tools/graph_check.zig`, which compiles a fixture as a module of the `resolver` shape.
 pub const roots = .{
     .cocuyo = "src/cocuyo.zig",
     .core = "src/core/core.zig",
