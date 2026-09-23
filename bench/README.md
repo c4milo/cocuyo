@@ -58,5 +58,17 @@ shasum -a 256 dataset.csv
 ```
 
 The digest must be `f1bacba18d109f9f7017f08b7e14a8cf591c9d57b8c4ba79f50f3c657403cdec`, and the
-size 8,252,974,842 octets. The replay reads the first five columns of each row alone, so a copy
-trimmed to them replays the same.
+size 8,252,974,842 octets. The replay reads the first five columns of each row alone.
+
+A copy trimmed to those five columns, every row kept and compressed with zstd, is the asset of this
+repository's `bench-data-1` release, in case the source moves. It is shared under the same
+CC BY 4.0 license. The asset is 293,497,189 octets with SHA-256
+`ffaf3b2a638628e7f1abb924749128d6dbd2ddc6601454e4bddfe06080df4420`:
+
+```bash
+gh release download bench-data-1 --repo c4milo/cocuyo
+```
+
+```bash
+zstd -d dns-exfiltration-dataset-v3-5col.csv.zst -o dataset.csv
+```
