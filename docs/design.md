@@ -909,52 +909,65 @@ binary prints, with its event thread, which gives it a second thread of its own,
 are in every number and are the same for both. Lookups per second over the wall time, and the
 median and 99th-percentile latency from start to result, in microseconds, on the machine above.
 
-Measured on 2026-09-22, five runs back to back on the machine above. Each cell is the median of
-the runs that produced its row, and the last column says how many did: two of the fifteen c-ares
-rows never finished, for the reason below. Lookups per second, and microseconds:
+Measured on 2026-09-22, five runs back to back on the machine above, on the driver as it stood
+after the fixes listed below. Each cell is the median of the runs that produced its row, and the
+last column says how many did: four of the fifteen c-ares rows never finished, for the reason
+below. Lookups per second, and microseconds:
 
 | Stack | In flight | Lookups/s | Median | p99 | Failures | Runs |
 | --- | --- | --- | --- | --- | --- | --- |
-| cocuyo | 1 | 41,319 | 21 | 77 | 0 | 5 |
-| c-ares | 1 | 33,110 | 28 | 64 | 0 | 4 |
-| cocuyo | 16 | 86,702 | 206 | 255 | 0 | 5 |
-| c-ares | 16 | 71,028 | 222 | 318 | 0 | 4 |
-| cocuyo | 128 | 85,609 | 1,664 | 1,829 | 0 | 5 |
-| c-ares | 128 | 69,250 | 1,862 | 2,352 | 0 | 5 |
+| cocuyo | 1 | 45,199 | 20 | 78 | 0 | 5 |
+| c-ares | 1 | 36,304 | 27 | 42 | 0 | 2 |
+| cocuyo | 16 | 110,194 | 128 | 409 | 0 | 5 |
+| c-ares | 16 | 87,306 | 178 | 272 | 0 | 5 |
+| cocuyo | 128 | 122,089 | 1,023 | 1,724 | 0 | 5 |
+| c-ares | 128 | 82,554 | 1,498 | 2,038 | 0 | 4 |
 
 What the rows say, and what they do not:
 
-- cocuyo resolves 1.25 times as many lookups a second as c-ares at one in flight, 1.22 at
-  sixteen and 1.24 at 128, and its median latency is lower on every row. That is a far smaller
+- cocuyo resolves 1.24 times as many lookups a second as c-ares at one in flight, 1.26 at
+  sixteen and 1.48 at 128, and its median latency is lower on every row. That is a far smaller
   ratio than the decoder table above, and it is the honest one: the responder, two system calls
   per lookup and the kernel's loopback are in every number and are the same for both, so what is
   left to differ is the library and the loop around it.
-- c-ares has the better tail at one in flight — 64 microseconds against 77 — and cocuyo the
-  better tail at sixteen and at 128. Spread run to run is under 6% on every cell.
-- Neither stack scales from sixteen in flight to 128: cocuyo loses 1% and c-ares loses 2% while
-  latency grows eightfold. The responder is one thread, and past sixteen in flight it is what the
-  run measures rather than either resolver.
+- c-ares has the better tail at one in flight and at sixteen — 42 microseconds against 78, and
+  272 against 409 — and cocuyo the better tail at 128. cocuyo's p99 at sixteen is also its least
+  steady cell: two runs put it near 190 microseconds and three near 420.
+- From sixteen in flight to 128, cocuyo gains 11% and c-ares loses 5%, while latency grows about
+  eightfold for both. The responder is one thread, and past sixteen in flight it is much of what
+  the run measures.
+- c-ares at one in flight rests on two runs. Four more runs of that row alone, taken to diagnose
+  the stall below, finished three times at 35,876, 36,326 and 36,561: within 1% of the cell.
 - Nothing here says anything about Linux, about a real network, or about a working set that a
   cache would answer: the names are distinct, so neither cache is ever asked twice.
 
-**Two c-ares rows did not finish.** What was observed, and no more: `ares_queue_wait_empty`
-timed out, so c-ares's queue was not empty; a stack sample at that moment showed its event thread
-parked in `kevent` and the responder thread idle in `recvfrom`, with nothing in flight to answer.
-An unbounded wait there never returns, so the driver bounds it, gives the row up and says so.
-It happened twice in fifteen rows, at one in flight and at sixteen, and on Linux at 128.
+**This table replaced one measured earlier the same day, and was not averaged with it.** The
+earlier driver lost a lookup's start when c-ares answered while the slot was being let go, and
+held row one's first queries until the responder's thread began reading. Both stacks measured
+faster here at sixteen and at 128 — c-ares by about a fifth, cocuyo by more — while the ratios
+at one and at sixteen stayed within 0.04 of the earlier ones. The lost starts could have held
+c-ares back, but nothing measured says how much of the common rise they explain, so the claim is
+the ratio within this table and not a gain across the two.
 
-**Whose fault that is, is not settled.** Three defects in this driver were found and fixed the
-same day, so "c-ares stalls" is a claim this table has not earned: a driver with that history
-answers for itself first. The driver now prints how many of the row's lookups were answered when
-it gives up, which tells the two cases apart — every lookup answered and the queue still full is
-c-ares's bookkeeping, and a lookup that never came back is this driver's. Until a stalled row
-prints that, the rows above say only that two of them did not finish.
+**Four c-ares rows did not finish, and c-ares had the reply each time it was asked.** When a
+row gives up, the driver prints the lookups it claimed and those c-ares answered, and the
+responder the queries it answered. A stalled row at one in flight read: 5,215 claimed, 5,214
+answered by c-ares, 5,215 answered by the responder. So the driver lost nothing — every claim was
+issued — and c-ares sent the last query, was sent its reply, and neither handed the reply to the
+callback nor timed the query out in the sixty seconds the driver waited. A stack sample of an
+earlier stall showed c-ares's event thread parked in `kevent` and the responder idle. It happened
+in three of five rows at one in flight, once at 128, and once more at 128 on Linux. Every lookup
+after the first is started from inside the previous one's callback, which c-ares allows; whether
+that is what exposes it is not measured.
 
-**Three defects in the comparison's own driver had to go first**, and each of them would have
-made a row a lie: one second of wait per lookup at one in flight, a stack overflow from starting
-the next lookup inside c-ares's callback, and a panic from starting one on a channel being
-destroyed. docs/mutations.md records them as K1, K2 and K3. A harness is code, and until it is
-proved it measures itself.
+**Five defects in the comparison's own driver had to go first**, and each of them would have
+made a row a lie: one second of wait per lookup at one in flight (K1), a stack overflow from
+starting the next lookup inside c-ares's callback (K2), a panic from starting one on a channel
+being destroyed (K3), a lost start when an answer landed while the slot was let go (R1 to R4,
+with the handoff now checked in every order it can run), and the responder's start-up delay in
+row one. Separately, the engine's buffer group claimed an alignment no loader keeps, and the
+bench aborted in ReleaseSafe until it stopped (N1). A harness is code, and until it is proved
+it measures itself.
 
 What the first run found. The engine's `drive` polled the table up to 4,096 times per call, and a
 lookup that has ended and waits for `take` answers every poll with its end again, so every drive
@@ -1869,8 +1882,9 @@ Landed on 2026-09-22: `core/address_order.zig`, the policy table and the scope p
 whose `select_families` now keeps the order received so that `no_sort` means what it says. Rule
 4 is in after all: the RFC's own examples exercise it, and two flags on `Route` are all it costs.
 The comparison against c-ares landed the same day, and §11 carries both of its tables: the
-decoders, and end to end at one, sixteen and 128 lookups in flight. cocuyo resolves 1.22 to 1.25
-times as many lookups a second on every row, with the lower median latency on each.
+decoders, and end to end at one, sixteen and 128 lookups in flight. cocuyo resolves 1.24 to 1.48
+times as many lookups a second on every row, with the lower median latency on each; c-ares has
+the better tail at one and at sixteen.
 
 What the comparison states, which §11 has in full: the decoders against c-ares's, and end to end,
 both stacks against one in-process responder, lookups per second and latency at a number in

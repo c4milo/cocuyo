@@ -244,8 +244,10 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   of `Config.socket_receive_bytes` and `socket_send_bytes`. Nothing of c-ares is left but device
   binding by name, which stays out because rotor names no device.
 - **15**'s comparison is done: §11 carries the decoder table and the end-to-end one, measured
-  2026-09-22 over five runs. Three defects in the comparison's own driver had to be fixed first
-  (docs/mutations.md K1 to K3), which is what an end-to-end number costs.
+  2026-09-22 over five runs. Five defects in the comparison's own driver had to be fixed first
+  (docs/mutations.md K1 to K3, R1 to R4, and the responder's start-up delay), which is what an
+  end-to-end number costs. The handoff between the driver's two threads is checked in every order
+  it can run (X1 to X4), and `-Dsanitize-thread` runs its tests under ThreadSanitizer on Linux.
 - **16**, the package a consumer gets, §20, asked for by colibri's driver: the cache under every
   lookup as a `Memory` the caller supplies, the module surface closed to `cocuyo` alone, and
   `zig build consumer-check` compiling a dependent package. Landed 2026-09-22.
