@@ -4,6 +4,7 @@
 const std = @import("std");
 const testing = std.testing;
 const core = @import("core");
+const wire = @import("wire");
 const fixtures = @import("fixtures.zig");
 const Verdict = @import("lookup.zig").Verdict;
 
@@ -68,4 +69,19 @@ test "the failure a lookup reports names the configured server it was on" {
     _ = harness.send();
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.server_failure, servers[1].endpoint));
     try testing.expectEqual(@as(u8, 1), harness.poll().failed.server_index);
+}
+
+test "a server that answered FORMERR loses EDNS0 for itself, and the next server has it back" {
+    // That a server does not speak EDNS0 is a fact about that server (RFC 6891 §6.2.2): the next
+    // one is asked with the OPT record, cookie and all.
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
+    try harness.start("example.com.", .a, seed);
+    _ = harness.send();
+    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.format_error, harness.lookup.server()));
+    const retried = harness.send();
+    try testing.expectEqual(@as(u16, 0), (try wire.header.parse(retried.send_udp.message_bytes)).arcount);
+    harness.now_ns += harness.config.timeout_ns;
+    const moved = harness.poll();
+    try testing.expectEqual(@as(u8, 1), harness.lookup.server_index);
+    try testing.expectEqual(@as(u16, 1), (try wire.header.parse(moved.send_udp.message_bytes)).arcount);
 }

@@ -105,7 +105,9 @@ pub const Failure = struct {
 
 /// The flags one lookup carries, packed into an octet so the hot block stays inside a cache line.
 pub const Flags = packed struct(u8) {
-    /// Whether the query carries an OPT record. Cleared for one server that answers FORMERR.
+    /// Whether the query carries an OPT record. Cleared for one server that answers FORMERR, and
+    /// set again when the lookup moves to another server or another name: that a server does
+    /// not speak EDNS0 is a fact about that server (RFC 6891 §6.2.2).
     edns_enabled: bool,
     /// Whether the qname's case is randomised (RFC 5452 §9.2).
     mix_case: bool,
@@ -337,6 +339,7 @@ pub const Lookup = struct {
     pub fn next_server(self: *Lookup, now_ns: u64) void {
         assert(!self.is_settled());
         self.flags.cookie_retried = false;
+        self.flags.edns_enabled = true;
         self.server_index += 1;
         if (self.server_index == self.config.server_count()) {
             self.server_index = 0;
@@ -357,6 +360,7 @@ pub const Lookup = struct {
     pub fn next_candidate(self: *Lookup, now_ns: u64) void {
         assert(!self.is_settled());
         self.flags.cookie_retried = false;
+        self.flags.edns_enabled = true;
         self.server_index = 0;
         self.round = 0;
         self.cname_hops = 0;

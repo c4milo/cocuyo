@@ -61,3 +61,24 @@ test "the candidate walk ends in NameNotFound, or NoData when a name existed" {
     second.next_candidate(2);
     try testing.expectEqual(core.Error.NoData, second.failure_of().err);
 }
+
+test "the next candidate starts over at the first server, the first pass and with EDNS0" {
+    // A name that timed out once on every server must not leave the next candidate fewer passes
+    // (docs/design.md §5, search list policy), and a server that refused EDNS0 for one name is
+    // offered it again for the next (RFC 6891 §6.2.2).
+    const search = [_]Name{try Name.from_text("one.net")};
+    const config: Config = .{ .servers = &three_servers, .search = &search, .ndots = 1, .attempts = 2 };
+    var servers_config = Servers.init(&config, 1);
+    var lookup = Lookup.init(&config, &servers_config, try Question.from_text("host.example", .a), 1);
+    lookup.next_server(1);
+    lookup.next_server(2);
+    lookup.next_server(3);
+    lookup.next_server(4);
+    try testing.expectEqual(@as(u8, 1), lookup.round);
+    lookup.flags.edns_enabled = false;
+    lookup.next_candidate(5);
+    try testing.expectEqual(State.query_ready, lookup.state);
+    try testing.expectEqual(@as(u8, 0), lookup.server_index);
+    try testing.expectEqual(@as(u8, 0), lookup.round);
+    try testing.expect(lookup.flags.edns_enabled);
+}
