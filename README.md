@@ -10,8 +10,8 @@ any completion loop you already run.
 It is written from the RFCs, as a replacement for c-ares. The name is the Colombian word for the
 firefly, and for a car's hazard lights.
 
-> **Status: pre-release.** The library is feature-complete against its plan and is not yet tagged.
-> It needs Zig 0.16.0. The API may still change.
+> **Status: 0.1.0, the first release.** The library is feature-complete against its plan. It needs
+> Zig 0.16.0. Until 1.0, a minor version may change the API.
 
 ## Why cocuyo
 
@@ -126,10 +126,10 @@ else, and only this repository's examples and benchmarks fetch rotor.
 
 ## Quick start
 
-Add cocuyo to your package:
+Add cocuyo to your package, pinned to a release:
 
 ```bash
-zig fetch --save git+https://github.com/c4milo/cocuyo
+zig fetch --save "git+https://github.com/c4milo/cocuyo?ref=v0.1.0"
 ```
 
 Import its module in `build.zig`. cocuyo exports one module, `cocuyo`, and fetches nothing else

@@ -266,6 +266,8 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
 - §17 question 7 is answered by measurement: `tools/search_order/run.sh` watches glibc, musl,
   c-ares and cocuyo walk the same search lists, and cocuyo walks as glibc and c-ares do, but for
   SERVFAIL, where it stops as c-ares does (§5).
+- 0.1.0, the first release, tagged 2026-09-22: `build.zig.zon` carries the version, and the
+  README pins the tag.
 - Next: the p99 of the comparison on a quiet machine.
 
 §17 holds the questions the owner has not answered.
