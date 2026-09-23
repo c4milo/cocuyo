@@ -258,9 +258,9 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   container's seccomp profile refuses io_uring runs on epoll instead: the rotor example resolves
   in a container with Docker's default profile, where on rotor 0.2.0 it failed `PermissionDenied`.
 - §17 questions 13 and 14 are answered: the cache keeps the chain's end, and a get leaves an
-  expired entry for the put after the miss to renew in place. SIEVE is measured against S3-FIFO
-  and against c-ares's rule (§18): on the synthetic trace the policy moves the hit rate less than
-  the expiry rule does, and c-ares's rule, which evicts nothing, is the ceiling SIEVE approaches.
+  expired entry for the put after the miss to renew in place. SIEVE is measured against S3-FIFO,
+  W-TinyLFU, c-ares's rule and the offline optimal (§18): on the synthetic trace no online policy
+  measured beats it by a point, though the optimal is 5.7 points over it at the default size.
 - Next: the p99 of the comparison on a quiet machine.
 
 §17 holds the questions the owner has not answered.

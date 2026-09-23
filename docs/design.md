@@ -1409,7 +1409,7 @@ nothing else.
 ### SIEVE against S3-FIFO
 
 Measured on 2026-09-22 by `zig build bench`, over the trace above with the same seed.
-`bench/cache_policy.zig` models both policies over name indices. The model of SIEVE is the
+`bench/cache_policy/` models both policies over name indices. The model of SIEVE is the
 control: it has to answer as the real cache does before the S3-FIFO columns mean anything. A
 test holds it to the same hit count on a short trace, and over the whole trace it matches to
 within 0.01 point at every size. The cause of that difference was not traced.
@@ -1458,7 +1458,7 @@ was answered yes.
 ### Against c-ares's rule
 
 c-ares evicts nothing: its cache has no bound on the entry count, and every fetch drains the
-entries that have expired (§18, from `ares_qcache.c`). `bench/cache_policy_cares.zig` models that
+entries that have expired (§18, from `ares_qcache.c`). `bench/cache_policy/` models that
 rule over the same trace, with a binary heap where c-ares has a skip list; both keep the entries
 in expiry order, which is all the rule needs. It measures **61.07% hits, with at most 8,748
 entries live at once.**
@@ -1486,16 +1486,27 @@ holds; otherwise the name needed latest goes first, and a newcomer can be the on
 reads the future, so no cache can run it. It is the bound: no policy, admission included, hits
 more often at the same size. A test holds the cache and every model at or under it.
 
-Beside it, the SIEVE model with an expiry index: before the hand moves, it takes the entry that
-expires soonest if that entry has expired. That is c-ares's order, borrowed.
+Beside it, two policies that might do better:
 
-| Slots | Cache | SIEVE, expired first | Optimal |
-| --- | --- | --- | --- |
-| 64 | 38.77% | 35.96% | 45.89% |
-| 256 | 48.37% | 45.80% | 57.11% |
-| 1024 | 55.23% | 54.95% | 60.89% |
-| 4096 | 59.08% | 60.43% | 61.07% |
-| 16384 | 60.64% | 61.07% | 61.07% |
+- **SIEVE, expired first.** The SIEVE model with an expiry index: before the hand moves, it takes
+  the entry that expires soonest if that entry has expired. That is c-ares's order, borrowed.
+- **W-TinyLFU**, from Einziger, Friedman and Manes, "TinyLFU: A Highly Efficient Cache Admission
+  Policy" (arXiv 1512.00727v2), read from the paper. Every name enters a window of 1% of the
+  cache, LRU; the window's victim then competes with the main cache's, and the one asked for
+  more often recently stays, the victim keeping a tie (§3.1, §4). The main cache is segmented
+  LRU, 80% protected (§4). Frequencies are counted over a sample of ten times the cache, halved
+  when a sample has gone by and capped at ten (§3.3, §3.4.1, §5.1). The paper counts with a
+  sketch that approximates the histogram; the model keeps the histogram itself, so it measures
+  the policy with no counting error, which is the most the sketch could give. An expired name
+  loses the admission contest on either side.
+
+| Slots | Cache | SIEVE, expired first | W-TinyLFU | Optimal |
+| --- | --- | --- | --- | --- |
+| 64 | 38.77% | 35.96% | 38.79% | 45.89% |
+| 256 | 48.37% | 45.80% | 49.07% | 57.11% |
+| 1024 | 55.23% | 54.95% | 55.97% | 60.89% |
+| 4096 | 59.08% | 60.43% | 59.09% | 61.07% |
+| 16384 | 60.64% | 61.07% | 60.27% | 61.07% |
 
 What it says:
 
@@ -1509,7 +1520,14 @@ What it says:
   and reaches the ceiling at 16384, and loses 2.8 at 64 and 2.6 at 256. The reading, which no
   measurement isolated: it throws a popular name out the moment it expires, so the next request
   puts it back as new, which is the promotion §17 question 14 removed. It stays a model.
-- No online policy but SIEVE and S3-FIFO was measured against the bound.
+- **W-TinyLFU is not the first move either, on this trace.** It closes 0.74 of the 5.66 points
+  at 1024 slots and 0.70 at 256, gains nothing at 64 and 4096, and loses 0.37 at 16384. Its
+  admission knows how often a name is asked and not how long the answer lives. The optimal's
+  rule is about both: a name is worth keeping if it is asked again before it expires. The
+  reading, which no measurement isolated, is that a policy has to weigh a name's rate against
+  its remaining TTL to close the gap, and no paper read here does.
+- Of the online policies measured, none is worth a change to the library: S3-FIFO ties SIEVE,
+  expired first trades small sizes for large, and W-TinyLFU gains under a point where it gains.
 
 ### Memory
 

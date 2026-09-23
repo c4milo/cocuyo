@@ -15,9 +15,10 @@ const cocuyo = @import("cocuyo");
 const cache_module = cocuyo.cache;
 const Question = cocuyo.Question;
 const wire = cocuyo.wire;
-const policy = @import("cache_policy.zig");
-const cares_policy = @import("cache_policy_cares.zig");
-const s3fifo_policy = @import("cache_policy_s3fifo.zig");
+const policy = @import("cache_policy/cache_policy.zig");
+const cares_policy = @import("cache_policy/cache_policy_cares.zig");
+const s3fifo_policy = @import("cache_policy/cache_policy_s3fifo.zig");
+const tinylfu_policy = @import("cache_policy/cache_policy_tinylfu.zig");
 
 /// The sizes swept, in slots. The smallest is a cache too small to hold the working set and the
 /// largest holds it whole, so the table shows where the curve bends.
@@ -149,6 +150,7 @@ var keys: [keys_max]cache_module.Key = undefined;
 var sieve_model: policy.Sieve(names_distinct) = undefined;
 var s3fifo_model: s3fifo_policy.S3Fifo(names_distinct) = undefined;
 var cares_model: cares_policy.Unbounded(names_distinct) = undefined;
+var tinylfu_model: tinylfu_policy.WTinyLfu(names_distinct) = undefined;
 
 /// The trace written down once, and each request's link to the next request for the same name,
 /// which is what the optimal replay reads and no real cache can.
@@ -193,7 +195,7 @@ fn replay(slot_count: usize, seed: u64, request_count: usize) Outcome {
     return outcome;
 }
 
-/// Replays the same trace through a model of `bench/cache_policy*.zig`, already sized.
+/// Replays the same trace through a model of `bench/cache_policy/`, already sized.
 fn replay_model(model: anytype, seed: u64, request_count: usize) Outcome {
     var trace = Trace.init(seed, &weights);
     var outcome: Outcome = .{};
@@ -276,17 +278,19 @@ fn optimal_step(at: usize, slot_count: usize) bool {
 }
 
 /// The cache against what could be done better: the same SIEVE taking the soonest expired entry
-/// first, and the optimal, which no policy can pass.
+/// first, W-TinyLFU, and the optimal, which no policy can pass.
 fn run_bounds(seed: u64) void {
     record_trace(seed, requests);
-    std.debug.print("\nhow far from the best: the cache, SIEVE taking an expired entry first, and the optimal\n\n", .{});
-    std.debug.print("{s:>8} {s:>10} {s:>14} {s:>10}\n", .{ "slots", "cache", "expired first", "optimal" });
+    std.debug.print("\nhow far from the best: the cache, two policies that might do better, and the optimal\n\n", .{});
+    std.debug.print("{s:>8} {s:>10} {s:>14} {s:>10} {s:>10}\n", .{ "slots", "cache", "expired first", "w-tinylfu", "optimal" });
     for (sizes) |slot_count| {
         const cache_rate = replay(slot_count, seed, requests).rate_percent();
         sieve_model.init(slot_count, .refresh_in_place, .expired_first);
         const expired_first = replay_model(&sieve_model, seed, requests).rate_percent();
+        tinylfu_model.init(slot_count);
+        const tinylfu = replay_model(&tinylfu_model, seed, requests).rate_percent();
         const optimal = replay_optimal(slot_count, requests).rate_percent();
-        std.debug.print("{d:>8} {d:>9.2}% {d:>13.2}% {d:>9.2}%\n", .{ slot_count, cache_rate, expired_first, optimal });
+        std.debug.print("{d:>8} {d:>9.2}% {d:>13.2}% {d:>9.2}% {d:>9.2}%\n", .{ slot_count, cache_rate, expired_first, tinylfu, optimal });
     }
 }
 
@@ -348,6 +352,7 @@ test {
     _ = policy;
     _ = cares_policy;
     _ = s3fifo_policy;
+    _ = tinylfu_policy;
 }
 
 /// The control's own check, on a trace short enough for a Debug test: the smallest size, where
@@ -441,6 +446,9 @@ test "no policy beats the optimal on the trace" {
     const cache_outcome = replay(slot_count, 1, control_requests);
     sieve_model.init(slot_count, .refresh_in_place, .expired_first);
     const expired_first = replay_model(&sieve_model, 1, control_requests);
+    tinylfu_model.init(slot_count);
+    const tinylfu = replay_model(&tinylfu_model, 1, control_requests);
     try testing.expect(optimal.hits >= cache_outcome.hits);
     try testing.expect(optimal.hits >= expired_first.hits);
+    try testing.expect(optimal.hits >= tinylfu.hits);
 }

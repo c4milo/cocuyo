@@ -823,12 +823,12 @@ that replaces an entry in place, so the entry keeps the chain's end its first pu
 test puts one question three times — through one chain, through another, then through none — and
 reads the hit after each of the last two.
 
-## SIEVE against S3-FIFO, c-ares's rule and the optimal
+## SIEVE against S3-FIFO, W-TinyLFU, c-ares's rule and the optimal
 
-Design §18: `bench/cache_policy.zig` models SIEVE, the control, with an expiry index it can take
-expired entries first by; `bench/cache_policy_s3fifo.zig` models S3-FIFO;
-`bench/cache_policy_cares.zig` models c-ares's rule; and `bench/cache_trace.zig` replays the
-optimal. Broken against `zig build test-tools`. Twenty-one mutations, twenty-one `CAUGHT`.
+Design §18: `bench/cache_policy/` models SIEVE, the control, with an expiry index it can take
+expired entries first by, and S3-FIFO, W-TinyLFU and c-ares's rule beside it;
+`bench/cache_trace.zig` replays the optimal. Broken against `zig build test-tools`. Thirty
+mutations, thirty `CAUGHT`.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
@@ -853,6 +853,15 @@ optimal. Broken against `zig build test-tools`. Twenty-one mutations, twenty-one
 | B4 | expired first takes the soonest entry though it is live | only an expired entry skips the hand | the live-soonest test | CAUGHT |
 | B5 | a key moved earlier is not sifted up | the heap's order | the heap test | CAUGHT |
 | B6 | a renewal leaves the expiry order stale | expired first follows a renewal | the renewal test | CAUGHT |
+| W1 | a tie goes to the newcomer | the victim keeps a tie (§3.1) | the turned-away test | CAUGHT |
+| W2 | the counters never halve | the reset (§3.3) | the halving test | CAUGHT |
+| W3 | the halving zeroes the record count | the count is divided too (§3.3) | the halving test | CAUGHT |
+| W4 | the counters have no cap | W / C (§3.4.1) | the halving test | CAUGHT |
+| W5 | a hit in probation does not promote | segmented LRU (§2.1) | the promotion test | CAUGHT |
+| W6 | protected overflows without demoting | segmented LRU (§2.1) | the promotion test | CAUGHT |
+| W7 | an expired victim is not special | an expired name loses the contest | the expired-victim test | CAUGHT |
+| W8 | an expired newcomer is not dropped | an expired name loses the contest | the expired-newcomer test | CAUGHT |
+| W9 | a hit is not recorded | every arrival is counted (§3.4.2) | the takes-its-place test | CAUGHT |
 
 F11 was `NOT CAUGHT` when the models first landed. The control test then ran the old rule, and a
 hand that clears an expired entry's bit and takes it on the next pass changed too little over a
