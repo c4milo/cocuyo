@@ -1,7 +1,10 @@
-# The lookup, in Lean
+# The lookup and the engine, in Lean
 
-This directory holds a model of `Lookup`, the state machine of docs/design.md §5, in Lean 4, and
-proofs of what §5 promises of it. `tools/spec_replay/` ties the model to the Zig code.
+This directory holds two models in Lean 4, and `tools/spec_replay/` ties each to the Zig code:
+
+- `Lookup`, the state machine of docs/design.md §5, with proofs of what §5 promises of it.
+- The engine's streams, the rules of §19 step 13, with invariants checked over every state the
+  model reaches in small configurations.
 
 ## The rule
 
@@ -25,9 +28,15 @@ would agree with the code by construction and prove nothing about it.
     order is well-founded. So no sequence of answers makes a lookup send forever.
 - `Spec/Axioms.lean` pins the axioms each theorem rests on. A proof left unfinished rests on
   `sorryAx`, which changes a pinned line and fails the build.
-- `Main.lean` writes the transcript the replay reads.
+- `Spec/Engine.lean` and `Spec/EngineStep.lean` are the engine model: the table's slots, free
+  list and ready list, the connections, the loop's operations, and a `Spec.Lookup` in each slot.
+  `invariants` names what every state must keep.
+- `Spec/EngineWalk.lean` walks the engine model: breadth first to check the invariants in every
+  state reached, and in seeded walks for the replay.
+- `Spec/Tokens.lean` spells states and events for the transcripts.
+- `Main.lean` writes the transcripts the replays read.
 
-## What the model leaves out
+## What the lookup model leaves out
 
 - Time. A poll comes before the deadline or at it, and nothing else about the clock matters to a
   transition.
@@ -53,15 +62,47 @@ question the lookup is asking, and it compares the answer and the state after ev
 stage, the server's position, the pass, the candidate, the hops, and the flags EDNS0, NODATA seen,
 a server failed and the cookie retried. A field that drifts is caught at the event that moved it.
 
+## The engine
+
+The engine model is written from the stream's rules of §19 step 13 and rotor's decision 5, with
+two servers, every query over TCP and one pass. It leaves out the datagram path, the timer, the
+bytes of a message and the cache. Time moves in ticks, each the idle close's wait, and only when
+a deadline arrives or the caller lets a tick pass; a lookup waits two ticks.
+
+`cocuyo-spec engine <slots> <connections> <polls>` walks it breadth first and checks five
+invariants in every state: a connection's users are the lookups on it, a lookup is on a
+connection only while it streams to that connection's server, a buffer is lent to one send at
+most, an open connection has exactly one current operation, and a drive leaves nothing on the
+ready list. The walk stops at six operations in flight and two failures a server, since nothing
+else bounds the graph. It reported, on 2026-09-23:
+
+| Slots | Connections | States | Transitions | Invariants |
+| --- | --- | --- | --- | --- |
+| 1 | 1 | 96,148 | 1,385,573 | hold |
+| 1 | 2 | 4,542,534 | 66,683,526 | hold |
+
+The replay cannot visit that many states, so `cocuyo-spec engine-walks` writes seeded walks that
+take, at each step, an event leading to a state no walk has reached yet when there is one. Each
+line is an event and the model's whole state after it. `tools/spec_replay/engine_replay.zig`
+drives the engine of `io/` over the twin in manual mode, where every operation waits until the
+walk ends it with the outcome it names, which is how the replay reaches the orders rotor's rule 2
+allows. After each event it compares the engine's state with the model's, and requires every
+buffer the event handed the engine to be back in its group.
+
 ## Running it
 
 - `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 2,910
-  transitions: one server, one pass and one name, over UDP and over TCP. It needs no Lean.
+  transitions: one server, one pass and one name, over UDP and over TCP. It also replays
+  `tools/spec_replay/engine_gate.txt`, ten engine walks of forty events in each configuration.
+  It needs no Lean.
 - `zig build spec` needs `lake` on the path, at the version `lean-toolchain` pins. It builds the
-  proofs and the axiom pins, requires the committed slice to be the one the model writes, and
-  replays the whole transcript. It took 8 seconds on the machine of design §11 on 2026-09-23.
-- After a change to the model, `lake exe cocuyo-spec gate 8 > ../tools/spec_replay/lookup_gate.txt`
-  in this directory writes the slice again.
+  proofs and the axiom pins, requires the committed slices to be the ones the models write, and
+  replays the lookup's whole transcript and 2,000 engine walks of 200 events in each engine
+  configuration, 1.6 million events. It took 1 minute 39 seconds on the machine of design §11 on
+  2026-09-23, most of it the model writing the walks.
+- After a change to a model, `lake exe cocuyo-spec gate 8 > ../tools/spec_replay/lookup_gate.txt`
+  and `lake exe cocuyo-spec engine-gate > ../tools/spec_replay/engine_gate.txt` in this directory
+  write the slices again.
 
 The `8` is `cname_hops_max` of `src/core/constants.zig`. The transcript records it, and the replay
 refuses a transcript written for another.

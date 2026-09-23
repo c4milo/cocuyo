@@ -8,23 +8,23 @@ const constants = @import("constants.zig");
 const udp = @import("io_udp.zig");
 const tcp = @import("io_tcp.zig");
 const results_module = @import("io_results.zig");
+const send_module = @import("io_send.zig");
 
-/// Polls the table for what every lookup wants and does it: a send queued, an end handed to
-/// `results`, and the timer moved to the soonest deadline.
+/// Polls the table for what every lookup wants and does it, until nothing is left: a send out
+/// or held, a connection asked for, an end handed to `results`. Then the idle close, the port
+/// rotation, and the timer moved to the soonest deadline.
 ///
-/// Two lookups have nothing new to say and say it anyway. One whose send is queued and not yet
-/// completed asks to send again at every poll, because a queued send is not a sent one (rotor
-/// decision 5, rule 3) and the state machine has not moved. One that has ended and waits for
-/// `take` hands back its end at every poll, because the slot is freed there and not here. A
-/// drive that polled until the table fell silent walked the whole table over each of them, at
-/// 33,000 slot reads a lookup, which is what the end-to-end comparison of docs/design.md §11
-/// measured and what a unit test on the twin cannot see. Each poll rotates to the next lookup
-/// with something to say, so a run of refusals as long as the table is deep has offered every
-/// lookup its turn and found none able to move: the drive is over.
+/// The table offers a lookup once for each thing it has to do (§11, §16 decision 20), so the
+/// drive ends when the ready list does. A lookup can be offered again inside one drive, when a
+/// connection it asks for is already up or refuses it, and the bound counts that: one drive
+/// polls a lookup `drive_polls_per_lookup_max` times at most (the stream's rule 8). A lookup
+/// whose end was reported already is the one the drive refuses, and a run of refusals as long as
+/// the table is deep ends it as well.
 pub fn drive(self: anytype, now_ns: u64) void {
     var polls: usize = 0;
     var refused: usize = 0;
-    while (polls < self.slots.len and refused <= self.resolver.in_flight()) : (polls += 1) {
+    const polls_max = self.slots.len * constants.drive_polls_per_lookup_max;
+    while (polls < polls_max and refused <= self.resolver.in_flight()) : (polls += 1) {
         const event = self.resolver.poll(now_ns, &self.scratch) orelse break;
         if (act(self, event, now_ns)) refused = 0 else refused += 1;
     }
@@ -36,44 +36,16 @@ pub fn drive(self: anytype, now_ns: u64) void {
 /// True when the lookup moved on, false when it asked for what it has already been given.
 fn act(self: anytype, event: cocuyo.Event, now_ns: u64) bool {
     const index = event.handle.index;
+    tcp.follow(self, index, now_ns);
     switch (event.action) {
-        .send_udp => |send| {
-            if (self.send_in_flight[index]) return false;
-            queue_send(self, index, send, now_ns);
-        },
+        .send_udp => |send| send_module.ask(self, index, .{ .udp = .{ .server = send.server, .bytes = send.message_bytes } }, now_ns),
         .connect_tcp => tcp.want(self, index, now_ns),
-        .send_tcp => |send| {
-            if (self.send_in_flight[index]) return false;
-            tcp.send(self, index, send.message_bytes, now_ns);
-        },
+        .send_tcp => |send| send_module.ask(self, index, .{ .tcp = send.message_bytes }, now_ns),
         .done => |answer| return report(self, index, .{ .answer = answer }, now_ns),
         .failed => |failure| return report(self, index, .{ .failure = failure }, now_ns),
         .wait => unreachable,
     }
     return true;
-}
-
-fn queue_send(self: anytype, index: usize, send: anytype, now_ns: u64) void {
-    const bytes = send.message_bytes;
-    assert(bytes.len <= cocuyo.constants.query_bytes_max);
-    @memcpy(self.send_buffers[index][0..bytes.len], bytes);
-    self.outbounds[index] = udp.outbound_to(send.server);
-    const slot = self.resolver.lookup_of(self.handles[index]).server_slot();
-    const socket = self.sockets.descriptor_of(slot);
-    const operation: rotor.Operation = .{
-        .user_data = @TypeOf(self.*).user_data(.udp_send, index),
-        .kind = .{ .send_to = .{
-            .socket = socket,
-            .buffer = .{ .bytes = self.send_buffers[index][0..bytes.len] },
-            .to = &self.outbounds[index],
-        } },
-    };
-    if (self.loop.submit(&.{operation}, &.{}) == 1) {
-        self.send_in_flight[index] = true;
-        _ = self.sockets.count_sent(slot, self.config.udp_queries_per_port);
-    } else {
-        self.resolver.on_send_failed(self.handles[index], now_ns);
-    }
 }
 
 /// Hands one lookup's end to `results`, once. False when it was handed over already and the

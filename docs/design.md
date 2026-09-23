@@ -945,7 +945,10 @@ caller calls:
   lookup that stops waiting leaves it where it was. So the bound is never later than the true
   soonest, the caller's timer can fire early, and the poll that follows finds the exact minimum
   again with the one scan of the table. Firing early costs a wakeup; firing late would cost an
-  answer.
+  answer. A poll that starts a wait, as `connect_tcp` does, puts that deadline in the bound as
+  well as one that reports a wait. Until 2026-09-23 it did not, and with every query over TCP no
+  timer was armed for a connection, so a connect that never completed waited for the kernel's
+  own timeout; the engine's model found it (§19 step 13).
 
 The slot grew by eight octets for the links and the flag, which §9 records.
 
@@ -1118,8 +1121,10 @@ check. The starting list:
 The state machine is also checked against a model. spec/ states §5 in Lean 4, proves what §5
 promises of it, and writes every transition the model can reach under a set of small
 configurations; `tools/spec_replay/` drives `Lookup` down the same transitions and compares the
-whole state after each (§5, The model). A test above pins the cases someone thought of, and the
-replay pins the rest of the reachable graph.
+whole state after each (§5, The model). The engine's streams are checked the same way, against a
+model of their rules, over walks the model chooses and orders of completion the network never
+produces (§19 step 13). A test above pins the cases someone thought of, and a replay pins what
+the model reaches.
 
 The fuzz target drives the parser from a seeded generator that mixes pure random bytes with
 structured hostility: valid headers over lying counts, pointers at every offset, labels that run
@@ -2022,6 +2027,68 @@ longest a prefix can describe unless the caller knows its answers are smaller. A
 nobody is using is closed after `tcp_idle_ns` (§6.2.3). The chunks arrive in a buffer group of
 their own, since a datagram group carries rotor's prefix before every payload, and a group that
 runs dry is the ordinary end of a receive rather than a broken connection.
+
+**The stream's rules, written on 2026-09-23** from RFC 7766 and rotor's decision 5, for the
+model of spec/Spec/Engine.lean to be written from. They are what the engine is held to; where the
+code of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
+
+1. One connection per server, in one of `tcp_connections` slots. A lookup that needs a stream to
+   its server is put on that server's connection. If there is none, one is opened in the first
+   closed slot, or else in the first slot whose connection has no lookups on it, which is closed
+   to make room. When no slot can be had, the lookup is told its connection failed.
+2. Each opening of a slot is an incarnation, and every operation on the connection carries the
+   incarnation in its `user_data`. An event for another incarnation belongs to a connection
+   that is gone and changes nothing, whatever it holds: a cancelled connect can still end in
+   success (rotor decision 5, rule 2). A provided buffer the event carries goes back to the
+   loop all the same.
+3. A lookup is on a connection only while it is on a stream to that connection's server. The
+   drive takes it off before acting on its poll when the poll shows it anywhere else: its
+   deadline passed, its connection failed, it moved to the next name, it ended.
+4. A connection's users are the lookups on it. When the last leaves, the connection is idle from
+   that instant, and one idle for `tcp_idle_ns` is closed by the drive at an instant that late.
+5. When the connect succeeds, the receive is armed and every lookup on the connection that is
+   still connecting is told. When the connect fails, the receive fails, or the peer closes,
+   every lookup on the connection is told its connection failed and leaves it, and the
+   connection is closed.
+6. A send lends the lookup's send buffer to the loop until the send's final event (rotor
+   decision 5, rule 3). No send is submitted from that buffer before then. A send asked for
+   while the buffer is lent is held, and submitted when the buffer comes back if the attempt
+   that asked for it is still the lookup's; otherwise it is dropped, and the lookup's next poll
+   asks again.
+7. A send's completion speaks for the attempt that made it: the lookup in the slot, on the
+   transaction it had when the send was submitted. If the lookup has moved on, the completion
+   returns the buffer and tells nobody.
+8. The drive takes lookups in the table's ready order (§11), and the results reach `take` in the
+   order the drive reported them.
+
+**Checked on 2026-09-23.** spec/Spec/Engine.lean and spec/Spec/EngineStep.lean hold the rules
+above as a model. Each lookup is the model of §5, and around the lookups sit the table's ready
+list and free list (§11), the connections, and the operations the loop holds. The model's clock
+moves in ticks, each the idle close's wait, and a lookup waits two of them.
+
+- `cocuyo-spec engine` walks every state the model reaches with two servers, one or two slots and
+  one or two connections, and checks five invariants in each: a connection's users are the
+  lookups on it, a lookup is only on a connection to its server, a buffer is lent to one send at
+  most, an open connection has one current operation, and a drive leaves nothing on the ready
+  list. They hold in all 96,148 states of one slot and one connection, and in the 4.5 million of
+  one slot and two connections. This is model checking over bounded configurations, not a proof.
+- The replay drives the engine over the twin in manual mode, where the loop ends each operation
+  when and how the walk says, down 8,000 walks and 1.6 million events. After each event it
+  compares the engine's whole state with the model's, and checks every buffer the event handed
+  the engine is back in its group.
+
+The code of 2026-09-22 broke six of these, each fixed with the model:
+
+- A cancelled connect or receive that ended after its slot was reused was taken for the new
+  connection's own (rule 2).
+- A lookup whose deadline passed kept its old server's connection, and was sent on it (rule 3).
+- A send's completion was told to whatever attempt the lookup was on by then, and a new lookup in
+  a slot wrote into a buffer the loop could still be reading (rules 6 and 7).
+- The drive stopped after one poll a slot, so a lookup whose connection was already up was left
+  with its query unsent (rule 8).
+- A stale event's buffer was not given back.
+- The table's deadline bound missed a wait a poll starts (§11), so no timer was armed for a
+  connect.
 
 **The rest of the engine, landed on 2026-09-22.** `cancel_all` ends every lookup at once, which
 is `ares_cancel`, and each failure comes through `take` like any other. `reinit` takes a new

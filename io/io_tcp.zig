@@ -15,6 +15,7 @@ const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
 const udp = @import("io_udp.zig");
+const send_module = @import("io_send.zig");
 
 pub const Error = error{SocketFailed};
 
@@ -42,6 +43,10 @@ pub fn Connection(comptime message_bytes: u32) type {
         /// How many lookups are on it. One with none is closed when it has been idle long enough.
         users: u16 = 0,
         idle_since_ns: u64 = 0,
+        /// Which opening of the slot this is. Every operation on the connection carries it, so
+        /// the event of an opening that is gone is told from the current one's (docs/design.md
+        /// §19 step 13, the stream's rule 2). It outlives the connection, for that reason.
+        incarnation: u32 = 0,
     };
 }
 
@@ -120,21 +125,19 @@ fn open(self: anytype, server: u8) Error!u8 {
     const endpoint = self.config.servers[server].tcp_endpoint();
     const descriptor = rotor.sync.open_socket(family_of(endpoint)) catch return error.SocketFailed;
     udp.size_buffers(descriptor, self.config);
+    const incarnation = connection.incarnation +% 1;
     connection.* = .{
         .state = .connecting,
         .server = server,
         .descriptor = descriptor,
         .address = udp.address_of(endpoint),
+        .incarnation = incarnation,
     };
-    const operation: rotor.Operation = .connect(
-        @TypeOf(self.*).user_data(.tcp_connect, at),
-        descriptor,
-        &connection.address,
-    );
+    const operation: rotor.Operation = .connect(user_data_of(self, .tcp_connect, at), descriptor, &connection.address);
     var handles: [1]rotor.Handle = undefined;
     if (self.loop.submit(&.{operation}, &handles) != 1) {
         rotor.sync.close_now(descriptor);
-        connection.* = .{};
+        connection.* = .{ .incarnation = incarnation };
         return error.SocketFailed;
     }
     connection.handle = handles[0];
@@ -184,10 +187,20 @@ pub fn send(self: anytype, index: usize, bytes: []const u8, now_ns: u64) void {
         self.send_buffers[index][0..bytes.len],
     );
     if (self.loop.submit(&.{operation}, &.{}) == 1) {
-        self.send_in_flight[index] = true;
+        send_module.lend(self, index);
     } else {
         self.resolver.on_send_failed(handle, now_ns);
     }
+}
+
+/// Takes the lookup off its connection unless it is on a stream to that connection's server
+/// (the stream's rule 3): its deadline passed, its connection failed, it moved to the next name,
+/// or it ended. What it asks for next is then asked of the right server's connection.
+pub fn follow(self: anytype, index: usize, now_ns: u64) void {
+    const at = self.tcp_connection[index] orelse return;
+    const lookup = self.resolver.lookup_of(self.handles[index]);
+    if (lookup.is_on_stream() and self.connections[at].server == lookup.server_slot()) return;
+    release(self, index, now_ns);
 }
 
 /// A lookup has ended or been freed: it is off its connection, which may now be idle.
@@ -202,11 +215,31 @@ pub fn release(self: anytype, index: usize, now_ns: u64) void {
 
 // What the loop says.
 
-/// The connect ended. Every lookup on the connection is told, one way or the other.
-pub fn on_connect_event(self: anytype, at: usize, event: rotor.Event, now_ns: u64) void {
+/// The `user_data` of an operation on the connection in slot `at`: the slot, and its opening.
+fn user_data_of(self: anytype, kind: @import("io.zig").Kind, at: u8) u64 {
+    const incarnation: u64 = self.connections[at].incarnation;
+    return @TypeOf(self.*).user_data(kind, (incarnation << constants.tcp_incarnation_shift) | at);
+}
+
+/// The slot of the connection an event is for, or null when the event is for an opening of the
+/// slot that is gone. Such an event changes nothing, whatever it holds: a cancelled connect can
+/// still end in success (rotor decision 5, rule 2). A buffer it carries goes back all the same.
+fn current_of(self: anytype, index: usize, event: rotor.Event) ?u8 {
+    const at: u8 = @intCast(index & constants.tcp_slot_mask);
+    const incarnation: u32 = @truncate(index >> constants.tcp_incarnation_shift);
     assert(at < self.connections.len);
     const connection = &self.connections[at];
-    if (connection.state != .connecting) return;
+    if (connection.state != .closed and connection.incarnation == incarnation) return at;
+    if (event.flags.buffer) self.loop.give_back_buffer(constants.tcp_group_id, event.flags.buffer_id);
+    return null;
+}
+
+/// The connect ended. Every lookup on the connection is told, one way or the other.
+pub fn on_connect_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64) void {
+    const at = current_of(self, index, event) orelse return;
+    const connection = &self.connections[at];
+    // The current opening has one connect, and the receive replaces it when it ends.
+    assert(connection.state == .connecting);
     connection.handle = null;
     if (event.outcome()) |_| {
         connection.state = .up;
@@ -220,12 +253,10 @@ pub fn on_connect_event(self: anytype, at: usize, event: rotor.Event, now_ns: u6
 
 /// One chunk of a stream: kept with what came before it, and every whole message in them handed
 /// to the table, which decides whose it is.
-pub fn on_receive_event(self: anytype, at: usize, event: rotor.Event, now_ns: u64) void {
-    assert(at < self.connections.len);
+pub fn on_receive_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64) void {
+    const at = current_of(self, index, event) orelse return;
     const connection = &self.connections[at];
-    // An event for a connection that has been closed names one that is gone: its cancel and its
-    // close were asked for together, and this is what they answer with.
-    if (connection.state == .closed) return;
+    assert(connection.state == .up);
     if (event.outcome()) |count| {
         // Zero is the peer closing its side, which ends every lookup on the connection.
         if (count == 0) return fail(self, @intCast(at), now_ns);
@@ -281,11 +312,7 @@ fn receive_again(self: anytype, at: u8) void {
     const connection = &self.connections[at];
     if (connection.receiving or connection.state != .up) return;
     const descriptor = connection.descriptor orelse return;
-    const operation: rotor.Operation = .receive_group(
-        @TypeOf(self.*).user_data(.tcp_receive, at),
-        descriptor,
-        constants.tcp_group_id,
-    );
+    const operation: rotor.Operation = .receive_group(user_data_of(self, .tcp_receive, at), descriptor, constants.tcp_group_id);
     var handles: [1]rotor.Handle = undefined;
     if (self.loop.submit(&.{operation}, &handles) == 1) {
         connection.receiving = true;
@@ -326,7 +353,7 @@ fn shut(self: anytype, at: u8) void {
     const connection = &self.connections[at];
     if (connection.handle) |handle| self.loop.cancel(handle);
     if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);
-    connection.* = .{};
+    connection.* = .{ .incarnation = connection.incarnation };
 }
 
 /// Closes every connection nobody is using and has not used for `tcp_idle_ns` (RFC 7766 §6.2.3).
@@ -353,6 +380,6 @@ pub fn cancel_all(self: anytype) void {
 pub fn close_all(self: anytype) void {
     for (self.connections[0..]) |*connection| {
         if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);
-        connection.* = .{};
+        connection.* = .{ .incarnation = connection.incarnation };
     }
 }

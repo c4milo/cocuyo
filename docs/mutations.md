@@ -977,6 +977,28 @@ defects the replay found, put back. The model and proof mutations M1, M2 and P1 
 | P1 | `sent_lt` proved by `sorry` | every theorem rests on the standard axioms | `Spec/Axioms.lean`'s pin | CAUGHT |
 | G1 | the committed slice edited by hand | the slice is the model's | the slice's replay; the check in `zig build spec` | CAUGHT |
 
+## The engine model and its replay
+
+The engine's streams against the model of their rules (docs/design.md §19 step 13, Checked on
+2026-09-23). Each fix was broken on purpose and run against `zig build test-io`, the engine's own
+tests on the twin, `zig build test-tools`, which replays the committed walks, and `zig build
+spec`, which replays 1.6 million events. The committed walks catch all eight, which the engine's
+own tests alone did not: E1, E2, E4, E6, E7 and E8 were `NOT CAUGHT` by `zig build test-io`. E8
+needed a check the state line does not make, that every buffer an event hands the engine is back
+in its group when the event is over. E7 is in the table, and the test it came with catches it as
+well. Eight mutations, eight `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| E1 | an event for an opening that is gone is applied | rule 2, the incarnation | the committed walks, by an assertion; the full walks | CAUGHT |
+| E2 | a lookup stays on a connection it no longer streams to | rule 3 | the committed walks, at line 5; the full walks | CAUGHT |
+| E3 | a new lookup forgets its slot's buffer is lent | rule 6 | the committed walks; the twin tests | CAUGHT |
+| E4 | a send's completion speaks to whatever holds the slot | rule 7 | the committed walks, by an assertion; the full walks | CAUGHT |
+| E5 | a held send is dropped | rule 6 | the committed walks; the twin tests | CAUGHT |
+| E6 | the drive stops after one poll a slot | rule 8 | the committed walks; the full walks | CAUGHT |
+| E7 | the table misses the deadline of a wait a poll starts | §11, the bound | the connect-deadline test of `table_ready.zig`; the committed walks | CAUGHT |
+| E8 | a stale event keeps its buffer | rule 2, the buffer | the committed walks' buffer check | CAUGHT |
+
 ## The epoll check
 
 `tools/epoll_check/run.sh`, run by CI's `epoll` job: the rotor example must resolve inside a

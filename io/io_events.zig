@@ -9,6 +9,7 @@ const constants = @import("constants.zig");
 const udp = @import("io_udp.zig");
 const tcp = @import("io_tcp.zig");
 const drive_module = @import("io_drive.zig");
+const send_module = @import("io_send.zig");
 const Kind = @import("io.zig").Kind;
 
 /// One completion event. True when it was the engine's, in which case the engine has acted on
@@ -18,11 +19,11 @@ pub fn apply(self: anytype, event: rotor.Event, now_ns: u64) bool {
     const kind: Kind = @enumFromInt(@as(u8, @truncate(event.user_data >> constants.kind_shift)));
     const index: usize = @intCast(event.user_data & constants.index_mask);
     switch (kind) {
-        .udp_send => on_send_event(self, index, event, now_ns),
+        .udp_send => send_module.on_event(self, index, event, now_ns),
         .udp_receive => on_receive_event(self, index, event, now_ns),
         .timer => on_timer_event(self, index),
         .tcp_connect => tcp.on_connect_event(self, index, event, now_ns),
-        .tcp_send => on_send_event(self, index, event, now_ns),
+        .tcp_send => send_module.on_event(self, index, event, now_ns),
         .tcp_receive => tcp.on_receive_event(self, index, event, now_ns),
     }
     drive_module.drive(self, now_ns);
@@ -37,22 +38,6 @@ fn on_timer_event(self: anytype, generation: usize) void {
     if (generation != self.timer_generation) return;
     self.timer_handle = null;
     self.timer_due_ns = null;
-}
-
-fn on_send_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64) void {
-    assert(index < self.slots.len);
-    // A send the engine is not waiting for belongs to a lookup that is gone: `reinit` put a new
-    // table under the slot, or the slot was freed and taken. Its completion says nothing about
-    // whatever is there now.
-    if (!self.send_in_flight[index]) return;
-    self.send_in_flight[index] = false;
-    const handle = self.handles[index];
-    if (!self.slots[index].occupied or self.resolver.lookup_of(handle).is_settled()) return;
-    if (event.outcome()) |_| {
-        self.resolver.on_sent(handle, now_ns);
-    } else |_| {
-        self.resolver.on_send_failed(handle, now_ns);
-    }
 }
 
 fn on_receive_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64) void {

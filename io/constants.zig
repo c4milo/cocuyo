@@ -61,6 +61,20 @@ pub const tcp_idle_ns_default = 10_000_000_000;
 pub const receive_generation_shift = 8;
 pub const receive_index_mask = (1 << receive_generation_shift) - 1;
 
+/// Where a connection's incarnation sits in the `user_data` of its connect and its receive, above
+/// the connection's slot, so the event of an opening of the slot that is gone is told from the
+/// current one's (docs/design.md §19 step 13, the stream's rule 2). A slot fits in the octet
+/// below it.
+pub const tcp_incarnation_shift = 8;
+pub const tcp_slot_mask = (1 << tcp_incarnation_shift) - 1;
+
+/// The polls one drive makes for one lookup at most, which bounds the drive's loop: each server
+/// and pass the lookup can fail over to within one drive costs two, one to ask for the
+/// connection and one to send on it, and its end one more. A drive that stopped short of this
+/// left a lookup on the ready list with its query unsent and nothing to wake it (the stream's
+/// rule 8).
+pub const drive_polls_per_lookup_max = 2 * core.constants.servers_max * core.constants.attempts_max + 1;
+
 /// What one connection asks of the loop: the connect, and then the receive that replaces it.
 pub const loop_operations_per_connection = 2;
 

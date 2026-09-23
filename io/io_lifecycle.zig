@@ -6,6 +6,7 @@ const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
 const drive_module = @import("io_drive.zig");
 const tcp = @import("io_tcp.zig");
+const send_module = @import("io_send.zig");
 
 /// Settles every lookup as cancelled, which is `ares_cancel`. Each failure comes through
 /// `take` like any other, so the caller learns of all of them.
@@ -38,7 +39,9 @@ pub fn reinit(self: anytype, config: *const cocuyo.Config, seed: u64, now_ns: u6
     self.config = config;
     self.resolver = cocuyo.Resolver.init(&self.slots, &self.keys, config, seed);
     self.cache = cocuyo.Cache.init(&self.cache_slots, &self.cache_keys, seed, cocuyo.cache.constants.ttl_seconds_max_default);
-    self.send_in_flight = @splat(false);
+    // A send the old table made keeps its buffer until its final event, which then speaks for
+    // nobody (the stream's rules 6 and 7).
+    send_module.forget_all(self);
     self.reported = @splat(false);
     self.results = .{};
     self.last_taken = null;

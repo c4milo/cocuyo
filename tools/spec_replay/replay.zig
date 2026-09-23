@@ -41,7 +41,7 @@ const seed = 0x5eed_5eed;
 const line_bytes_max = 256;
 
 /// The longest state a line writes: the longest stage, four counters and the flags.
-const state_bytes_max = 64;
+pub const state_bytes_max = 64;
 
 /// Documentation addresses, from RFC 5737; a configuration takes the first `servers` of them.
 const servers_all = [_]core.Server{
@@ -296,8 +296,8 @@ pub const Replay = struct {
     }
 };
 
-/// The lookup's state as the model writes one (spec/Main.lean, `stateToken`).
-fn state_text(lookup: *const Lookup, out: *[state_bytes_max]u8) []const u8 {
+/// The lookup's state as the model writes one (spec/Spec/Tokens.lean, `stateToken`).
+pub fn state_text(lookup: *const Lookup, out: *[state_bytes_max]u8) []const u8 {
     return switch (lookup.state) {
         .done => "done - -",
         .failed => std.fmt.bufPrint(out, "failed {s} -", .{

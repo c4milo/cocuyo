@@ -1,4 +1,6 @@
 import Spec
+import Spec.Tokens
+import Spec.EngineWalk
 import Std.Data.HashSet
 
 /-!
@@ -19,45 +21,6 @@ line that differs. `gate` writes the slice of it that `zig build test` replays, 
 the one the model writes.
 -/
 open Spec.Lookup
-
-def replyToken : Reply → String
-  | .unmatched => "unmatched" | .answer => "answer" | .cname => "cname"
-  | .nxdomain => "nxdomain" | .nodata => "nodata" | .servfail => "servfail"
-  | .formerr => "formerr" | .truncated => "truncated" | .badcookie => "badcookie"
-
-def eventToken : Event → String
-  | .poll => "poll" | .expire => "expire" | .sent => "sent" | .sendFailed => "send_failed"
-  | .tcpConnected => "tcp_connected" | .tcpFailed => "tcp_failed" | .cancel => "cancel"
-  | .reply r => "reply_" ++ replyToken r
-
-def errToken : Err → String
-  | .nameNotFound => "name_not_found" | .noData => "no_data" | .timeout => "timeout"
-  | .allServersFailed => "all_servers_failed" | .chainTooLong => "chain_too_long"
-  | .canceled => "canceled" | .noServers => "no_servers"
-
-def outToken : Out → String
-  | .sendUdp => "send_udp" | .connectTcp => "connect_tcp" | .sendTcp => "send_tcp"
-  | .wait => "wait" | .done => "done" | .failed e => "failed_" ++ errToken e
-  | .accepted => "accepted" | .ignored => "ignored" | .none => "none"
-
-def stageToken : Stage → String
-  | .queryReady => "query_ready" | .awaitingUdp => "awaiting_udp" | .tcpNeeded => "tcp_needed"
-  | .connectingTcp => "connecting_tcp" | .tcpReady => "tcp_ready"
-  | .awaitingTcp => "awaiting_tcp" | .done => "done" | .failed => "failed"
-
-def flag (b : Bool) (c : Char) : String := if b then c.toString else "-"
-
-/-- A state as the transcript writes it, and as the replay reads the Zig lookup's back: the stage,
-then for a lookup still running the server's position, the pass, the candidate and the hops, and
-the flags EDNS0, NODATA seen, a server failed and the cookie retried. An ended lookup's counters
-are nobody's business, so it writes its error instead. What a poll handed out and the caller has
-not answered is the caller's to know, and it is not written. -/
-def stateToken (s : State) : String :=
-  match s.stage with
-  | .done => "done - -"
-  | .failed => s!"failed {errToken s.err} -"
-  | st => s!"{stageToken st} {s.server}/{s.round}/{s.candidate}/{s.hops} " ++
-      flag s.edns 'E' ++ flag s.hadNoData 'N' ++ flag s.serverFailed 'F' ++ flag s.cookieRetried 'K'
 
 /-- What makes two states the same for the walk. An ended state answers the same to everything
 whatever its counters say (`ended_absorbing`), so its stage and its error are all of it. -/
@@ -119,10 +82,33 @@ def transcript (out : IO.FS.Stream) (hops : Nat) (configs : List Config) : IO (N
     deepest := max deepest depth
   return (total, deepest)
 
+/-- The engine walks `zig build test` replays, committed as `tools/spec_replay/engine_gate.txt`:
+the seed, the walks in each configuration, and the most events in one. -/
+def engineGate : Nat × Nat × Nat := (1, 10, 40)
+
+/-- The engine's walks, in each configuration the model is walked in: one or two slots, one or
+two connections. -/
+def engineWalks (out : IO.FS.Stream) (seed count length : Nat) (quiet : Bool) : IO Nat := do
+  let mut total := 0
+  for (slots, conns) in [(1, 1), (1, 2), (2, 1), (2, 2)] do
+    let c : Spec.Engine.Config := { servers := 2, slots, conns, pollsMax := 1000, timeoutTicks := 2 }
+    let (events, states) ← Spec.Engine.walks out c seed.toUInt64 count length
+    unless quiet do IO.eprintln s!"config {slots} {conns}: {events} events, {states} states"
+    total := total + events
+  return total
+
+/-- Whether the file at `path` holds exactly what `write` writes. -/
+def same (path : String) (write : IO.FS.Stream → IO Unit) : IO Bool := do
+  let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
+  write (IO.FS.Stream.ofBuffer buffer)
+  return (← IO.FS.readBinFile path) == (← buffer.get).data
+
 def usage : String :=
   "usage: cocuyo-spec all <cname_hops_max>\n" ++
   "       cocuyo-spec gate <cname_hops_max>\n" ++
-  "       cocuyo-spec check <cname_hops_max> <committed gate transcript>"
+  "       cocuyo-spec engine-walks <seed> <walks> <length>\n" ++
+  "       cocuyo-spec engine-gate\n" ++
+  "       cocuyo-spec check <cname_hops_max> <lookup gate transcript> <engine gate transcript>"
 
 def main (args : List String) : IO UInt32 := do
   match args with
@@ -134,12 +120,37 @@ def main (args : List String) : IO UInt32 := do
     let (total, deepest) ← transcript (← IO.getStdout) hops.toNat! configs
     IO.eprintln s!"{total} events, {deepest} deep"
     return 0
-  | ["check", hops, path] =>
-    let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
-    let _ ← transcript (IO.FS.Stream.ofBuffer buffer) hops.toNat! (configsGate hops.toNat!)
-    if (← IO.FS.readBinFile path) == (← buffer.get).data then return 0
-    IO.eprintln s!"{path} is not the gate transcript the model writes: run `cocuyo-spec gate {hops}`"
-    return 1
+  | ["engine", slots, conns, polls] =>
+    let c : Spec.Engine.Config :=
+      { servers := 2, slots := slots.toNat!, conns := conns.toNat!, pollsMax := polls.toNat!,
+        timeoutTicks := 2 }
+    let found ← Spec.Engine.walk c { opsMax := 6, failuresMax := 2 }
+    IO.println s!"{found.states} states, {found.transitions} transitions"
+    match found.broken with
+    | none => IO.println "every invariant holds"; return 0
+    | some (name, path) =>
+      IO.println s!"broken: {name}"
+      for e in path do IO.println s!"  {repr e}"
+      return 1
+  | ["engine-walks", seed, count, length] =>
+    let total ← engineWalks (← IO.getStdout) seed.toNat! count.toNat! length.toNat! false
+    IO.eprintln s!"{total} events"
+    return 0
+  | ["engine-gate"] =>
+    let (seed, count, length) := engineGate
+    let _ ← engineWalks (← IO.getStdout) seed count length true
+    return 0
+  | ["check", hops, lookupPath, enginePath] =>
+    let lookupSame ← same lookupPath fun out => do
+      let _ ← transcript out hops.toNat! (configsGate hops.toNat!)
+    let (seed, count, length) := engineGate
+    let engineSame ← same enginePath fun out => do
+      let _ ← engineWalks out seed count length true
+    unless lookupSame do
+      IO.eprintln s!"{lookupPath} is not the slice the model writes: run `cocuyo-spec gate {hops}`"
+    unless engineSame do
+      IO.eprintln s!"{enginePath} is not the walks the model writes: run `cocuyo-spec engine-gate`"
+    return if lookupSame ∧ engineSame then 0 else 1
   | _ =>
     IO.eprintln usage
     return 2

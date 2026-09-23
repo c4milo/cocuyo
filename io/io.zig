@@ -23,6 +23,7 @@ const results_module = @import("io_results.zig");
 const drive_module = @import("io_drive.zig");
 const events_module = @import("io_events.zig");
 const lifecycle = @import("io_lifecycle.zig");
+const send_module = @import("io_send.zig");
 
 pub const Options = struct {
     lookups: u16 = constants.lookups_default,
@@ -58,9 +59,15 @@ pub fn Engine(comptime options: Options) type {
         cache_keys: [keys_for(options.cache_slots, cocuyo.cache.constants.keys_per_slot_min)]cocuyo.cache.Key,
         /// One handle per slot, kept so an event's index finds its lookup.
         handles: [options.lookups]cocuyo.Handle,
-        /// Whether a send is queued for the slot and not yet completed: the lookup is polled but
-        /// not sent again meanwhile (rotor decision 5, rule 3).
+        /// Whether the slot's send buffer is lent to the loop: from a send's submission to its
+        /// final event, whoever the slot holds meanwhile (rotor decision 5, rule 3).
         send_in_flight: [options.lookups]bool,
+        /// The attempt the send in flight speaks for, or null for none the engine still answers
+        /// to (`io_send.zig`).
+        send_owner: [options.lookups]?send_module.Owner,
+        /// A send asked for while the buffer was lent, and its octets, until the buffer is back.
+        held: [options.lookups]?send_module.Held,
+        held_buffers: [options.lookups][cocuyo.constants.query_bytes_max]u8,
         /// Whether the slot's end was handed to `results` already.
         reported: [options.lookups]bool,
         send_buffers: [options.lookups][cocuyo.constants.query_bytes_max]u8,
@@ -108,6 +115,7 @@ pub fn Engine(comptime options: Options) type {
             self.cache = cocuyo.Cache.init(&self.cache_slots, &self.cache_keys, seed, cocuyo.cache.constants.ttl_seconds_max_default);
             self.resolver.remember_with(cocuyo.remembered_by(&self.cache));
             self.send_in_flight = @splat(false);
+            send_module.forget_all(self);
             self.reported = @splat(false);
             self.results = .{};
             self.last_taken = null;
@@ -156,7 +164,9 @@ pub fn Engine(comptime options: Options) type {
             assert(!self.closing);
             const handle = self.resolver.start(question) catch return error.Full;
             self.handles[handle.index] = handle;
-            self.send_in_flight[handle.index] = false;
+            // The buffer may still be lent to a send of the lookup the slot held before: it stays
+            // lent until that send's final event (the stream's rule 6).
+            self.held[handle.index] = null;
             self.reported[handle.index] = false;
             self.tcp_connection[handle.index] = null;
             drive_module.drive(self, now_ns);
@@ -210,6 +220,11 @@ pub fn Engine(comptime options: Options) type {
             return result;
         }
 
+        comptime {
+            // A connection's slot shares its `user_data` with its incarnation (`io_tcp.zig`).
+            assert(options.tcp_connections <= constants.tcp_slot_mask + 1);
+        }
+
         pub fn user_data(kind: Kind, index: usize) u64 {
             assert(index <= constants.index_mask);
             return (@as(u64, options.tag) << constants.tag_shift) |
@@ -225,6 +240,7 @@ test {
     _ = drive_module;
     _ = events_module;
     _ = lifecycle;
+    _ = send_module;
     // The tests drive the engine on the twin, which is the only `rotor` that has scripts.
     if (comptime @hasDecl(rotor, "server")) {
         _ = @import("io_sim_test.zig");

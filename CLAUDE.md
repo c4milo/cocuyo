@@ -18,9 +18,10 @@ one, and nothing may depend on it in the other direction.
   ("§5 step 3"). §16 records decisions with the alternatives they beat: if you are about to do
   something §16 rejected, say so and stop, rather than reversing it in code.
 - `docs/mutations.md` — every check, the mutation that breaks it, and the test that catches it.
-- `spec/README.md` — the Lean model of `Lookup` and the replay that checks the code against it. A
-  change to a transition of §5 changes the design, then `spec/Spec/Lookup.lean`, then the code,
-  in that order, and never the model from the code.
+- `spec/README.md` — the Lean models of `Lookup` and of the engine's streams, and the replays
+  that check the code against them. A change to a transition of §5, or to a rule of the stream
+  in §19 step 13, changes the design, then the model, then the code, in that order, and never
+  the model from the code.
 
 ## Non-negotiables
 
@@ -127,9 +128,10 @@ The architecture depends on every rule in this section.
   build leaves packages beside it. `bench/` is outside the module
   graph and may read a clock; it is linted and formatted like `src/`, and it gets a module graph
   of its own at ReleaseSafe from `build/bench.zig`.
-- `spec/` holds the Lean model of design §5 and its proofs, a Lake package of its own, and
-  `tools/spec_replay/` the Zig replay that drives `Lookup` down the model's transcript, wired by
-  `build/spec.zig`.
+- `spec/` holds the Lean models of design §5 and of the engine's streams, and the lookup's
+  proofs, a Lake package of its own. `tools/spec_replay/` holds the Zig replays that drive
+  `Lookup` and the engine down the models' transcripts, the engine's over the twin in manual
+  mode, wired by `build/spec.zig`.
 
 ## Ask before
 
@@ -173,9 +175,10 @@ The architecture depends on every rule in this section.
   require, so it and its tests (`zig build test-cares`) run only when asked. The numbers go in
   design §11 beside cocuyo's, with the c-ares version the binary prints.
 - Model: `zig build spec` — the Lean proofs of `Lookup` and the pins on the axioms they rest on,
-  then every transition the model reaches under 55 configurations replayed against the code. It
-  needs `lake` at the version `spec/lean-toolchain` pins, so it runs only when asked and in CI's
-  `spec` job; `zig build test` replays the committed slice without Lean.
+  then every transition the lookup model reaches under 55 configurations, and 1.6 million events
+  of engine walks, replayed against the code. It needs `lake` at the version
+  `spec/lean-toolchain` pins, so it runs only when asked and in CI's `spec` job; `zig build test`
+  replays the committed slices without Lean.
 - Format: `zig build fmt`, or `zig fmt build.zig build src tools examples bench`.
 - Commit messages: `zig build hooks` once after clone; `zig build lint-commits` by hand.
 
@@ -286,10 +289,13 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   2026-09-23. The proofs cover the end, `use_tcp`, the counters and termination; the replay
   compares 1.77 million transitions and found two defects: a chain past `cname_hops_max` timed
   out instead of failing `ChainTooLong`, and EDNS0 stayed off for the whole lookup after one
-  FORMERR. The table's ready list, `AddressLookup`'s walk and the engine's connections are the
-  state machines still to model.
-- Next, in order (the owner's plan of 2026-09-23): the engine's TCP path, whose review found stale completions after a connection slot is reused,
-  a lookup kept on an old server's connection and a send that can be dropped; DoT; DoH's DNS
-  half. The p99 of the comparison waits for a quiet machine.
+  FORMERR.
+- The engine's streams are checked against a model of their rules (design §19 step 13,
+  2026-09-23), with the table's ready list and free list in it. Its replay ends the loop's
+  operations in the orders rotor's decision 5 allows, and found the review's three defects in
+  the stream path and three more: the drive's poll bound, a stale event's buffer, and the table's
+  deadline bound missing a connect. `AddressLookup`'s walk is the state machine still to model.
+- Next, in order (the owner's plan of 2026-09-23): DoT; DoH's DNS half. The p99 of the
+  comparison waits for a quiet machine.
 
 §17 holds the questions the owner has not answered.
