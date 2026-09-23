@@ -19,6 +19,7 @@ const policy = @import("cache_policy/cache_policy.zig");
 const cares_policy = @import("cache_policy/cache_policy_cares.zig");
 const s3fifo_policy = @import("cache_policy/cache_policy_s3fifo.zig");
 const tinylfu_policy = @import("cache_policy/cache_policy_tinylfu.zig");
+const expected_policy = @import("cache_policy/cache_policy_expected.zig");
 
 /// The sizes swept, in slots. The smallest is a cache too small to hold the working set and the
 /// largest holds it whole, so the table shows where the curve bends.
@@ -151,6 +152,11 @@ var sieve_model: policy.Sieve(names_distinct) = undefined;
 var s3fifo_model: s3fifo_policy.S3Fifo(names_distinct) = undefined;
 var cares_model: cares_policy.Unbounded(names_distinct) = undefined;
 var tinylfu_model: tinylfu_policy.WTinyLfu(names_distinct) = undefined;
+var expected_model: expected_policy.ExpectedHits(names_distinct) = undefined;
+
+/// How many entries the affordable form of expected hits reads per eviction: few enough for a put
+/// path, and the number the replay reports beside reading them all.
+const expected_draws = 16;
 
 /// The trace written down once, and each request's link to the next request for the same name,
 /// which is what the optimal replay reads and no real cache can.
@@ -294,6 +300,25 @@ fn run_bounds(seed: u64) void {
     }
 }
 
+/// Expected hits, `cache_policy_expected.zig`: counting every ask, then counting reuse with every
+/// entry read, with admission, and with a few drawn at random, which is the form a cache could run.
+fn run_expected(seed: u64) void {
+    std.debug.print("\nexpected hits: a name's count times the time its answer has left\n\n", .{});
+    std.debug.print("{s:>8} {s:>10} {s:>12} {s:>12} {s:>14} {s:>14}\n", .{ "slots", "cache", "every ask", "reuse", "reuse, admit", "reuse, 16" });
+    for (sizes) |slot_count| {
+        const cache_rate = replay(slot_count, seed, requests).rate_percent();
+        expected_model.init(slot_count, slot_count, false, .every_ask);
+        const every_ask = replay_model(&expected_model, seed, requests).rate_percent();
+        expected_model.init(slot_count, slot_count, false, .reuse);
+        const reuse = replay_model(&expected_model, seed, requests).rate_percent();
+        expected_model.init(slot_count, slot_count, true, .reuse);
+        const admitted = replay_model(&expected_model, seed, requests).rate_percent();
+        expected_model.init(slot_count, expected_draws, true, .reuse);
+        const drawn = replay_model(&expected_model, seed, requests).rate_percent();
+        std.debug.print("{d:>8} {d:>9.2}% {d:>11.2}% {d:>11.2}% {d:>13.2}% {d:>13.2}%\n", .{ slot_count, cache_rate, every_ask, reuse, admitted, drawn });
+    }
+}
+
 /// SIEVE against S3-FIFO on the trace above, under each rule for an expired entry, with the
 /// model of SIEVE as the control: it must match the real cache's column before the other
 /// columns mean anything (docs/design.md §18).
@@ -318,6 +343,7 @@ fn run_policies(seed: u64) void {
         std.debug.print("\n", .{});
     }
     run_bounds(seed);
+    run_expected(seed);
     cares_model.init();
     const cares = replay_model(&cares_model, seed, requests);
     std.debug.print(
@@ -353,6 +379,7 @@ test {
     _ = cares_policy;
     _ = s3fifo_policy;
     _ = tinylfu_policy;
+    _ = expected_policy;
 }
 
 /// The control's own check, on a trace short enough for a Debug test: the smallest size, where
@@ -451,4 +478,7 @@ test "no policy beats the optimal on the trace" {
     try testing.expect(optimal.hits >= cache_outcome.hits);
     try testing.expect(optimal.hits >= expired_first.hits);
     try testing.expect(optimal.hits >= tinylfu.hits);
+    expected_model.init(slot_count, slot_count, true, .reuse);
+    const expected = replay_model(&expected_model, 1, control_requests);
+    try testing.expect(optimal.hits >= expected.hits);
 }

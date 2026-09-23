@@ -252,6 +252,45 @@ fn sift_down(self: anytype, keys: []const u64, start: usize) void {
     }
 }
 
+/// The sample W over which `Histogram` counts, as a multiple of the cache size C: ten, as
+/// Caffeine keeps it (TinyLFU §5.1). A counter needs to reach no higher than W / C (§3.4.1), so
+/// that is its cap.
+pub const sample_per_slot = 10;
+pub const count_max = sample_per_slot;
+
+/// How often each name has been asked lately: TinyLFU's frequency histogram (Einziger, Friedman
+/// and Manes, arXiv 1512.00727v2), kept exactly, one counter a name. Every counter and the record
+/// count halve once a sample has gone by (§3.3), and no counter passes `count_max` (§3.4.1).
+pub fn Histogram(comptime names: usize) type {
+    return struct {
+        const Self = @This();
+
+        counts: [names]u8,
+        /// Records since the counters were last halved, which the halving halves too (§3.3).
+        recorded: usize,
+        sample: usize,
+
+        pub fn init(self: *Self, capacity: usize) void {
+            assert(capacity >= 1);
+            @memset(&self.counts, 0);
+            self.recorded = 0;
+            self.sample = capacity * sample_per_slot;
+        }
+
+        pub fn record(self: *Self, id: Id) void {
+            histogram_record(self, id);
+        }
+    };
+}
+
+fn histogram_record(self: anytype, id: Id) void {
+    self.counts[id] = @min(self.counts[id] + 1, count_max);
+    self.recorded += 1;
+    if (self.recorded < self.sample) return;
+    for (&self.counts) |*count| count.* /= 2;
+    self.recorded /= 2;
+}
+
 // Tests. Small tables whose every step can be followed by hand.
 
 const testing = std.testing;

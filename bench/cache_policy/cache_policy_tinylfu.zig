@@ -8,9 +8,10 @@
 //! a hit in probation promotes to; the victim is probation's oldest (§2.1, §4).
 //!
 //! The paper counts with a minimal-increment counting Bloom filter behind a doorkeeper (§3.2,
-//! §3.4.2), which approximate a histogram. This model keeps the histogram itself: one counter a
-//! name, halved every sample and capped as §3.3 and §3.4.1 say. What it measures is the policy
-//! with no counting error, which is the most the sketch could give.
+//! §3.4.2), which approximate a histogram. This model keeps the histogram itself,
+//! `cache_policy.Histogram`: one counter a name, halved every sample and capped as §3.3 and
+//! §3.4.1 say. What it measures is the policy with no counting error, which is the most the
+//! sketch could give.
 //!
 //! Two things the paper does not have are folded in as in the other models. An expired name is
 //! renewed where it stands when asked again, and the renewal counts as a use, as the cache's put
@@ -28,11 +29,6 @@ const window_share_percent = 1;
 const protected_share_percent = 80;
 const percent_whole = 100;
 
-/// The sample W, as a multiple of the cache size C: ten, as Caffeine keeps it (§5.1). A counter
-/// needs to reach no higher than W / C (§3.4.1), so that is its cap.
-const sample_per_slot = 10;
-const count_max = sample_per_slot;
-
 /// Where a name is.
 const Place = enum(u8) { out, window, probation, protected };
 
@@ -44,10 +40,7 @@ pub fn WTinyLfu(comptime names: usize) type {
         place: [names]Place,
         expires_ns: [names]u64,
         /// The frequency histogram TinyLFU approximates.
-        counts: [names]u8,
-        /// Records since the counters were last halved, which the halving halves too (§3.3).
-        recorded: usize,
-        sample: usize,
+        frequency: policy.Histogram(names),
         window: Queue,
         probation: Queue,
         protected: Queue,
@@ -71,9 +64,7 @@ fn tiny_init(self: anytype, capacity: usize) void {
     @memset(&self.links.older, policy.none);
     @memset(&self.links.newer, policy.none);
     @memset(&self.place, .out);
-    @memset(&self.counts, 0);
-    self.recorded = 0;
-    self.sample = capacity * sample_per_slot;
+    self.frequency.init(capacity);
     self.window = .{};
     self.probation = .{};
     self.protected = .{};
@@ -83,7 +74,7 @@ fn tiny_init(self: anytype, capacity: usize) void {
 }
 
 fn tiny_access(self: anytype, id: Id, life_ns: u64, now_ns: u64) bool {
-    record(self, id);
+    self.frequency.record(id);
     if (self.place[id] != .out) {
         const hit = now_ns < self.expires_ns[id];
         if (!hit) self.expires_ns[id] = now_ns + life_ns;
@@ -98,15 +89,6 @@ fn tiny_access(self: anytype, id: Id, life_ns: u64, now_ns: u64) bool {
         admit(self, candidate, now_ns);
     }
     return false;
-}
-
-/// One arrival into the histogram, and the halving once a sample has gone by (§3.3).
-fn record(self: anytype, id: Id) void {
-    self.counts[id] = @min(self.counts[id] + 1, count_max);
-    self.recorded += 1;
-    if (self.recorded < self.sample) return;
-    for (&self.counts) |*count| count.* /= 2;
-    self.recorded /= 2;
 }
 
 fn push(self: anytype, queue: *Queue, id: Id, place: Place) void {
@@ -152,7 +134,8 @@ fn admit(self: anytype, candidate: Id, now_ns: u64) void {
     if (now_ns >= self.expires_ns[candidate]) return;
     const victim = if (self.probation.len > 0) self.probation.oldest else self.protected.oldest;
     const victim_dead = now_ns >= self.expires_ns[victim];
-    if (!victim_dead and self.counts[candidate] <= self.counts[victim]) return;
+    const counts = &self.frequency.counts;
+    if (!victim_dead and counts[candidate] <= counts[victim]) return;
     take(self, victim);
     push(self, &self.probation, candidate, .probation);
 }
@@ -214,13 +197,13 @@ test "every counter halves once a sample has gone by, and none passes the cap" {
     var model: WTinyLfu(test_names) = undefined;
     model.init(test_capacity);
     var made: usize = 0;
-    while (made < model.sample / 2) : (made += 1) _ = model.access(0, life, 0);
-    try testing.expectEqual(@as(u8, count_max), model.counts[0]);
-    while (made < model.sample - 1) : (made += 1) _ = model.access(1, life, 0);
-    try testing.expectEqual(@as(u8, count_max), model.counts[1]);
+    while (made < model.frequency.sample / 2) : (made += 1) _ = model.access(0, life, 0);
+    try testing.expectEqual(@as(u8, policy.count_max), model.frequency.counts[0]);
+    while (made < model.frequency.sample - 1) : (made += 1) _ = model.access(1, life, 0);
+    try testing.expectEqual(@as(u8, policy.count_max), model.frequency.counts[1]);
     _ = model.access(1, life, 0);
-    try testing.expectEqual(@as(u8, count_max / 2), model.counts[0]);
-    try testing.expectEqual(model.sample / 2, model.recorded);
+    try testing.expectEqual(@as(u8, policy.count_max / 2), model.frequency.counts[0]);
+    try testing.expectEqual(model.frequency.sample / 2, model.frequency.recorded);
 }
 
 test "an expired victim loses to any newcomer" {

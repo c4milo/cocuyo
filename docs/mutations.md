@@ -823,12 +823,12 @@ that replaces an entry in place, so the entry keeps the chain's end its first pu
 test puts one question three times — through one chain, through another, then through none — and
 reads the hit after each of the last two.
 
-## SIEVE against S3-FIFO, W-TinyLFU, c-ares's rule and the optimal
+## SIEVE against S3-FIFO, W-TinyLFU, expected hits, c-ares's rule and the optimal
 
 Design §18: `bench/cache_policy/` models SIEVE, the control, with an expiry index it can take
-expired entries first by, and S3-FIFO, W-TinyLFU and c-ares's rule beside it;
-`bench/cache_trace.zig` replays the optimal. Broken against `zig build test-tools`. Thirty
-mutations, thirty `CAUGHT`.
+expired entries first by, and S3-FIFO, W-TinyLFU, expected hits and c-ares's rule beside it;
+`bench/cache_trace.zig` replays the optimal. Broken against `zig build test-tools`. Thirty-seven
+mutations, thirty-seven `CAUGHT`.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
@@ -862,6 +862,13 @@ mutations, thirty `CAUGHT`.
 | W7 | an expired victim is not special | an expired name loses the contest | the expired-victim test | CAUGHT |
 | W8 | an expired newcomer is not dropped | an expired name loses the contest | the expired-newcomer test | CAUGHT |
 | W9 | a hit is not recorded | every arrival is counted (§3.4.2) | the takes-its-place test | CAUGHT |
+| H1 | worth ignores the time left | worth is count times time left | the expired-entry test | CAUGHT |
+| H2 | reuse counts every ask | a name asked once is worth nothing | the reuse test | CAUGHT |
+| H3 | an admission tie goes to the newcomer | the entry held keeps a tie | the admission test | CAUGHT |
+| H4 | the least is the first entry read | the eviction takes the least worth | the asked-often test | CAUGHT |
+| H5 | a renewal renews nothing | renewed where it stands | the expired-entry test | CAUGHT |
+| H6 | a drawn eviction reads everything | only the drawn entries are read | the drawn-eviction test | CAUGHT |
+| H7 | admission is never asked | a newcomer worth no more is turned away | the admission test | CAUGHT |
 
 F11 was `NOT CAUGHT` when the models first landed. The control test then ran the old rule, and a
 hand that clears an expired entry's bit and takes it on the next pass changed too little over a
@@ -874,8 +881,9 @@ and a full table hides the mutant: the hand evicts the expired entry the get sho
 It was `NOT CAUGHT` until a test with a free slot was written for it. Moving a test's subject
 can lose a catch as quietly as deleting the test would.
 
-F2, F11 and B1 also failed to compile on their first try, because each left a name unused. A
-mutant the compiler refuses has tested nothing, so each is run with the name discarded. B2's
+F2, F11, B1 and H4 also failed to compile on their first try, because each left a name unused. A
+mutant the compiler refuses has tested nothing, so each is run with the name discarded. H3's
+tie had no test when the model was written; one was added before the mutation ran. B2's
 first form did not put the newcomer in at all, which is a different bug; it is run as the
 optimal that makes room before it admits, which is the one it names.
 

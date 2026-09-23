@@ -259,8 +259,9 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   in a container with Docker's default profile, where on rotor 0.2.0 it failed `PermissionDenied`.
 - §17 questions 13 and 14 are answered: the cache keeps the chain's end, and a get leaves an
   expired entry for the put after the miss to renew in place. SIEVE is measured against S3-FIFO,
-  W-TinyLFU, c-ares's rule and the offline optimal (§18): on the synthetic trace no online policy
-  measured beats it by a point, though the optimal is 5.7 points over it at the default size.
+  W-TinyLFU, an expected-hits experiment, c-ares's rule and the offline optimal (§18): on the
+  synthetic trace no online policy measured beats it by a point, though the optimal is 5.7
+  points over it at the default size. What decides more is a real DNS trace.
 - Next: the p99 of the comparison on a quiet machine.
 
 §17 holds the questions the owner has not answered.

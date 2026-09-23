@@ -1529,6 +1529,39 @@ What it says:
 - Of the online policies measured, none is worth a change to the library: S3-FIFO ties SIEVE,
   expired first trades small sizes for large, and W-TinyLFU gains under a point where it gains.
 
+### Expected hits
+
+An experiment of this repository's, not a published design, tried because the optimal's rule is
+about time: `bench/cache_policy/cache_policy_expected.zig` ranks each entry by an estimate of the
+hits it can still give, its name's count in the histogram W-TinyLFU keeps times the time its
+answer has left. An expired entry is worth nothing. The entry worth least is evicted, reading
+every entry or the least of 16 drawn at random, since the worths drift with time and no index
+keeps them sorted. With admission, a newcomer worth no more than that entry is turned away. The
+count is either every ask, or only the asks after the first, so that a name asked once is worth
+nothing until it is asked again.
+
+| Slots | Cache | Every ask | Reuse | Reuse, admission | Reuse, admission, 16 drawn |
+| --- | --- | --- | --- | --- | --- |
+| 64 | 38.77% | 33.29% | 36.45% | 37.25% | 38.07% |
+| 256 | 48.37% | 45.06% | 47.54% | 47.63% | 48.44% |
+| 1024 | 55.23% | 54.81% | 55.05% | 55.05% | 55.42% |
+| 4096 | 59.08% | 60.16% | 58.57% | 58.57% | 58.64% |
+| 16384 | 60.64% | 60.65% | 60.01% | 60.01% | 59.97% |
+
+What it says:
+
+- **Neither form beats the cache.** The best, reuse with admission and 16 drawn, is 0.19 points
+  over it at the default 1024 slots and 0.67 under it at 16384.
+- **Counting every ask is the worse estimate.** A name brought in by one ask reads as asked once a
+  sample, and a sample is ten times the cache size in asks: 6.4 seconds of the trace at 64 slots.
+  A one-hour TTL multiplies that into a worth above a popular name's with a one-minute TTL.
+- **The estimate is the whole difficulty.** The optimal knows when each name is asked next; this
+  knows a count over a few seconds. The reading, which no measurement isolated, is that the count
+  is too short-sighted to weigh against a TTL an hour long, and that tuning its window against
+  this trace would fit the Zipf assumption rather than DNS.
+
+It stays a model, and a real trace is what could say more.
+
 ### Memory
 
 Per slot: two `Name`s at 256 each — the key, and since §17 question 13 the end of the CNAME
