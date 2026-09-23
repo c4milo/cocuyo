@@ -53,16 +53,31 @@ pub const Cookie = struct {
 
 /// The octets an OPT record occupies with `cookie`, or without one.
 pub fn record_bytes(cookie: ?*const Cookie) usize {
+    return record_bytes_padded(cookie, null);
+}
+
+/// The octets an OPT record occupies with `cookie` or without, and with a Padding option of
+/// `padding` octets after it, or with none.
+pub fn record_bytes_padded(cookie: ?*const Cookie, padding: ?usize) usize {
     const option: usize = if (cookie) |c| c.option_bytes() else 0;
     assert(option <= core.constants.cookie_option_bytes_max);
-    return core.constants.opt_record_bytes + option;
+    const padded: usize = if (padding) |bytes| core.constants.opt_option_header_bytes + bytes else 0;
+    assert(padded < core.constants.opt_option_header_bytes + core.constants.padding_block_bytes);
+    return core.constants.opt_record_bytes + option + padded;
 }
 
 /// Writes the OPT record at the start of `out`, with one COOKIE option when `cookie` is given
 /// (RFC 7873 §5.1), and returns the octets written.
 pub fn write(payload_bytes: u16, cookie: ?*const Cookie, out: []u8) usize {
+    return write_padded(payload_bytes, cookie, null, out);
+}
+
+/// `write`, and a Padding option of `padding` zero octets after the cookie when it is given
+/// (RFC 7830 §3).
+pub fn write_padded(payload_bytes: u16, cookie: ?*const Cookie, padding: ?usize, out: []u8) usize {
     assert(payload_bytes >= core.constants.udp_payload_bytes_min);
     assert(out.len >= core.constants.opt_record_bytes_max);
+    assert(out.len >= record_bytes_padded(cookie, padding));
     var offset: usize = 0;
     out[offset] = 0; // the root owner name, one octet (RFC 6891 §6.1.2)
     offset += 1;
@@ -72,13 +87,25 @@ pub fn write(payload_bytes: u16, cookie: ?*const Cookie, out: []u8) usize {
     offset += constants.u16_bytes;
     integer.write_u32(out, offset, 0); // extended rcode 0, version 0, no flags
     offset += constants.u32_bytes;
-    const rdlength: usize = if (cookie) |c| c.option_bytes() else 0;
+    const rdlength = record_bytes_padded(cookie, padding) - core.constants.opt_record_bytes;
     integer.write_u16(out, offset, @intCast(rdlength));
     offset += constants.u16_bytes;
     assert(offset == core.constants.opt_record_bytes);
     if (cookie) |c| offset += write_cookie(c, out[offset..]);
-    assert(offset == record_bytes(cookie));
+    if (padding) |bytes| offset += write_padding(bytes, out[offset..]);
+    assert(offset == record_bytes_padded(cookie, padding));
     return offset;
+}
+
+/// The Padding option: its code, its length, and that many octets, zero as they SHOULD be
+/// (RFC 7830 §3).
+fn write_padding(bytes: usize, out: []u8) usize {
+    assert(bytes < core.constants.padding_block_bytes);
+    integer.write_u16(out, 0, constants.padding_option_code);
+    integer.write_u16(out, constants.u16_bytes, @intCast(bytes));
+    const header = core.constants.opt_option_header_bytes;
+    @memset(out[header..][0..bytes], 0);
+    return header + bytes;
 }
 
 fn write_cookie(cookie: *const Cookie, out: []u8) usize {

@@ -31,19 +31,27 @@ pub const udp_payload_bytes_default = 1232;
 pub const udp_payload_bytes_min = 512;
 
 /// The largest query cocuyo builds: the header, a maximal qname, qtype and qclass, an OPT record
-/// carrying the largest COOKIE option, and the TCP length prefix. 12 + 255 + 4 + 55 + 2.
-pub const query_bytes_max = 328;
+/// carrying the largest COOKIE option and a Padding option, padded to a whole block, and the TCP
+/// length prefix. 12 + 255 + 4 + 55 + 4 is 330, padded to 384, and 2 more (docs/design.md §21).
+pub const query_bytes_max = 386;
+
+/// A query to a TLS server is padded to a multiple of this many octets: "Clients SHOULD pad
+/// queries to the closest multiple of 128 octets" (RFC 8467 §4.1).
+pub const padding_block_bytes = 128;
+
+/// An EDNS(0) option's header: its code and its length, two octets each (RFC 6891 §6.1.2).
+pub const opt_option_header_bytes = 4;
 
 /// The OPT pseudo-record's fixed part: the root owner name, type, class, TTL and the rdlength.
 /// 1 + 2 + 2 + 4 + 2 (RFC 6891 §6.1.2).
 pub const opt_record_bytes = 11;
 
-/// The OPT record with the one option cocuyo writes, a COOKIE at its longest (RFC 7873 §4):
-/// the fixed part, the option's code and length, a client cookie and a 32-octet server cookie.
+/// The OPT record with a COOKIE at its longest (RFC 7873 §4), before any padding: the fixed
+/// part, the option's code and length, a client cookie and a 32-octet server cookie.
 pub const opt_record_bytes_max = opt_record_bytes + cookie_option_bytes_max;
 
 /// A COOKIE option at its longest: a 4-octet option header, then 8 + 32 octets of cookie.
-pub const cookie_option_bytes_max = 4 + cookie_client_bytes + cookie_server_bytes_max;
+pub const cookie_option_bytes_max = opt_option_header_bytes + cookie_client_bytes + cookie_server_bytes_max;
 
 /// The client cookie is fixed at eight octets; the server's is eight to thirty-two
 /// (RFC 7873 §4).
@@ -152,6 +160,10 @@ pub const port_ephemeral_max = 65535;
 
 /// The port a DNS server listens on (RFC 1035 §4.2.1).
 pub const port_dns_default = 53;
+
+/// The port a DNS-over-TLS server listens on, unless client and server agree on another
+/// (RFC 7858 §3.1).
+pub const port_dns_tls_default = 853;
 
 /// An IPv4 address, in octets: the "32 bit Internet address" an A record carries
 /// (RFC 1035 §3.4.1).
@@ -264,8 +276,10 @@ pub const bits_per_octet = 8;
 comptime {
     // The query bound must hold every part it is the sum of, or a maximal query would not fit the
     // buffer the caller is asked to provide.
-    const parts = header_bytes + name_bytes_max + question_fixed_bytes + opt_record_bytes_max +
-        tcp_prefix_bytes;
+    const unpadded = header_bytes + name_bytes_max + question_fixed_bytes + opt_record_bytes_max +
+        opt_option_header_bytes;
+    const blocks = (unpadded + padding_block_bytes - 1) / padding_block_bytes;
+    const parts = blocks * padding_block_bytes + tcp_prefix_bytes;
     if (query_bytes_max != parts) @compileError("query_bytes_max is not the sum of its parts");
     if (name_text_bytes_max != name_bytes_max * 4) @compileError("the escape bound is wrong");
     if (udp_payload_bytes_default < udp_payload_bytes_min) @compileError("payload below the floor");

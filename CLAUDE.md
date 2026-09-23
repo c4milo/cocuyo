@@ -306,7 +306,8 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
 - Next (the owner's word of 2026-09-23): DoT, design §21. The owner ruled that day that
   chapulin changes first: a record-mode `ch_read` that answers "need more bytes" instead of
   failing, resumption bound to the name, and RFC 7250 raw public keys. Until then cocuyo lands
-  what does not wait: `Server.tls` all or none, query padding, and the engine model's handshake.
+  what does not wait. `Server.tls` all or none and query padding landed the same day, with
+  `query_bytes_max` grown to 386 by the owner's ruling; the engine model's handshake is next.
 - After those, DoH's DNS half. The p99 of the comparison waits for a quiet machine.
 
 §17 holds the questions the owner has not answered.

@@ -695,7 +695,7 @@ The caller-provided buffer §19 keeps as the fallback is what would take it back
 | --- | --- | --- |
 | `[N]Resolver.Slot` | 3056 bytes each, measured | one per concurrent lookup: a lookup plus the table's own octets, the ready list's two links and its flag among them (§11) |
 | `[2N]MatchKey` | 4 bytes each | the id-to-slot table, power-of-two length |
-| send buffer | `query_bytes_max`, 284 | shared by the whole table |
+| send buffer | `query_bytes_max`, 386 | shared by the whole table |
 | receive buffer | `config.udp_payload_bytes`, 1232 by default | the caller's, per socket |
 | `[M]AddressLookup` | 1152 bytes each, measured | one per `getaddrinfo`-shaped lookup in flight: the name, the canonical name, 32 addresses, two handles and the walk's scalars, beside the two slots it takes; pinned by a test in `src/resolver/address_lookup_test.zig` |
 
@@ -1059,7 +1059,7 @@ written at the use site. Shared limits live in `src/core/constants.zig`.
 | `header_bytes` | 12 | RFC 1035 §4.1.1 |
 | `message_bytes_max` | 65535 | the TCP length prefix is 16 bits |
 | `udp_payload_bytes_default` | 1232 | the widely recommended EDNS0 size that avoids IPv6 fragmentation; recalled, not measured |
-| `query_bytes_max` | 284 | 12 header + 255 qname + 4 type and class + 11 OPT + 2 TCP prefix |
+| `query_bytes_max` | 386 | 12 header + 255 qname + 4 type and class + 55 OPT + 4 Padding option header, padded to 384 (§21), + 2 TCP prefix |
 | `name_bytes_max` | 255 | RFC 1035 §2.3.4 |
 | `name_text_bytes_max` | 1020 | four bytes per wire byte, the `\DDD` escape worst case |
 | `label_bytes_max` | 63 | RFC 1035 §2.3.4 |
@@ -1071,7 +1071,8 @@ written at the use site. Shared limits live in `src/core/constants.zig`.
 | `ptr_names_max` | 1 | a reverse lookup returns one name in practice, and `truncated` says when more existed |
 | `cookie_client_bytes` | 8 | RFC 7873 §4 |
 | `cookie_server_bytes_max` | 32 | RFC 7873 §4; a server cookie is 8 to 32 octets, 16 under RFC 9018 |
-| `opt_record_bytes_max` | 55 | the OPT record with the largest COOKIE option; `query_bytes_max` is 328 with it |
+| `opt_record_bytes_max` | 55 | the OPT record with the largest COOKIE option, before any padding |
+| `padding_block_bytes` | 128 | RFC 8467 §4.1: a query to a TLS server is a whole number of these |
 | `records_kept_max` | 32 | the records of one type a lookup keeps for every other type (§19 step 9); `truncated` past it |
 | `lookup_sources_max` | 2 | the hosts file and DNS, each named at most once in `Config.lookups` |
 | `failover_retry_chance_default` | 10 | c-ares's default: one query in ten retries a failed server first (§19 step 12) |
@@ -2643,12 +2644,29 @@ RFC 8310 §9's other items stand as follows. chapulin speaks TLS 1.3 only and ne
 which meets two MUSTs. It does not cite RFC 7525, and has neither False Start nor Cached
 Information, which are SHOULDs.
 
+### New limits
+
+The owner ruled on 2026-09-23 that `query_bytes_max` grows from 328 to 386 octets, so that the
+largest query pads to a whole block like every other. The alternative kept 328 and let a query
+past 256 octets pad short of its block. Every caller's send buffer grows by 58 octets, and so do
+the engine's send and held buffers, per slot.
+
+| Constant | Value | Why |
+| --- | --- | --- |
+| `padding_block_bytes` | 128 | RFC 8467 §4.1 |
+| `opt_option_header_bytes` | 4 | an EDNS(0) option's code and length (RFC 6891 §6.1.2) |
+| `port_dns_tls_default` | 853 | RFC 7858 §3.1 |
+| `query_bytes_max` | 328 to 386 | the largest query, padded to 384, and the stream's prefix |
+
 ### Order and checks
 
 1. chapulin's three pieces, in chapulin.
-2. `core`: `Server.tls`, and `assert_valid` refusing a list that mixes TLS and cleartext.
+2. `core`: `Server.tls`, and `assert_valid` refusing a list that mixes TLS and cleartext. A TLS
+   server's stream goes to its TLS port. Done 2026-09-23.
 3. `wire` and `resolver`: the Padding option on a query to a TLS server, and a TLS
-   configuration sending every query on the stream.
+   configuration sending every query on the stream. Done 2026-09-23. Until step 5 the engine
+   asserts that its configuration has no TLS server: a stream it opened to one would carry
+   cleartext on port 853, which RFC 7858 §3.1 forbids.
 4. The engine model: a connection handshakes between its connect and its first query, and a
    handshake that fails fails the connection. Design, model, code, in that order (§19 step 13).
 5. The engine over chapulin, behind a build option naming a chapulin checkout, as colibri's

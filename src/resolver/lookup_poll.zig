@@ -77,6 +77,9 @@ fn build(self: *const Lookup, tcp: bool, out: []u8) []const u8 {
         // (RFC 7873 §5.1).
         .cookie = if (self.flags.edns_enabled) self.servers.cookie(self.server_slot()) else null,
         .recursion_desired = self.config.recursion_desired,
+        // A query to a TLS server goes encrypted, and padding is for that alone (RFC 7830 §6,
+        // docs/design.md §21).
+        .padded = self.config.uses_tls(),
     };
     const written = wire.query.write(&query, out);
     assert(written >= core.constants.header_bytes);

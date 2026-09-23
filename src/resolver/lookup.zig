@@ -218,7 +218,7 @@ pub const Lookup = struct {
             return;
         }
         self.take_candidate(self.candidate_index);
-        if (self.state == .query_ready and config.use_tcp) self.state = .tcp_needed;
+        if (self.state == .query_ready and config.streams_only()) self.state = .tcp_needed;
         assert(self.state == .query_ready or self.state == .tcp_needed or self.state == .failed);
     }
 
@@ -374,9 +374,9 @@ pub const Lookup = struct {
     pub fn restart(self: *Lookup, now_ns: u64) void {
         assert(!self.is_settled());
         self.transaction = self.entropy.transaction();
-        // Every query over TCP when the configuration says so (§19 step 11): the connection
-        // comes first.
-        self.state = if (self.config.use_tcp) .tcp_needed else .query_ready;
+        // Every query on a stream when the configuration says so (§19 step 11) or its servers
+        // speak TLS (§21): the connection comes first.
+        self.state = if (self.config.streams_only()) .tcp_needed else .query_ready;
         self.deadline_ns = now_ns;
     }
 

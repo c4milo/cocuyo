@@ -25,6 +25,7 @@ pub const Kind = core.Kind;
 pub const Question = core.Question;
 pub const Config = core.Config;
 pub const Server = core.Server;
+pub const Tls = core.Tls;
 pub const Source = core.Source;
 pub const Hosts = core.Hosts;
 /// RFC 6724's destination address ordering over routes the consumer supplies (§19 step 15).

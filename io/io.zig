@@ -116,6 +116,9 @@ pub fn Engine(comptime options: Options) type {
 
         pub fn init(self: *Self, loop: *rotor.Loop, config: *const cocuyo.Config, seed: u64, now_ns: u64) InitError!void {
             config.assert_valid();
+            // The engine speaks no TLS until docs/design.md §21 step 5, and a stream it opened
+            // to a TLS server would carry cleartext on port 853 (RFC 7858 §3.1).
+            assert(!config.uses_tls());
             self.loop = loop;
             self.config = config;
             self.send_in_flight = @splat(false);

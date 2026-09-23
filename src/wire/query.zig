@@ -6,6 +6,9 @@
 //! by the lookup (docs/design.md §16 decision 3). That is what lets one send buffer serve a whole
 //! table of lookups.
 //!
+//! A query that goes encrypted is padded to a whole block with the Padding option (RFC 8467
+//! §4.1, RFC 7830 §3), so its length says less about the name in it (docs/design.md §21).
+//!
 //! EDNS0 can be turned off for one lookup. A server that answers FORMERR to a query carrying OPT
 //! is old enough that the retry without it is the only way to reach it (RFC 6891 §6.2.2), and
 //! `Query.payload_bytes` being null is how the state machine says so.
@@ -34,17 +37,34 @@ pub const Query = struct {
     /// The RD bit (RFC 1035 §4.1.1): a stub asks a recursive server to do the walking, unless
     /// the caller wants the server's own data alone.
     recursion_desired: bool = true,
+    /// Whether to pad the message to a multiple of `padding_block_bytes`, which is for a query
+    /// that goes encrypted (RFC 7830 §6). A query without OPT cannot carry the option, and goes
+    /// unpadded.
+    padded: bool = false,
 };
 
 /// The octets a query occupies.
 pub fn query_bytes(query: *const Query) usize {
     var total: usize = core.constants.header_bytes + question_codec.section_bytes(&query.name);
-    if (query.payload_bytes != null) {
-        total += edns.record_bytes(if (query.cookie) |*cookie| cookie else null);
-    }
+    if (query.payload_bytes != null) total += edns.record_bytes_padded(cookie_of(query), padding_bytes(query));
     if (query.tcp) total += core.constants.tcp_prefix_bytes;
     assert(total <= core.constants.query_bytes_max);
     return total;
+}
+
+fn cookie_of(query: *const Query) ?*const edns.Cookie {
+    return if (query.cookie) |*cookie| cookie else null;
+}
+
+/// The octets of padding the query's Padding option carries, or null when it carries none.
+fn padding_bytes(query: *const Query) ?usize {
+    if (!query.padded or query.payload_bytes == null) return null;
+    const unpadded = core.constants.header_bytes + question_codec.section_bytes(&query.name) +
+        edns.record_bytes(cookie_of(query)) + core.constants.opt_option_header_bytes;
+    // "Clients SHOULD pad queries to the closest multiple of 128 octets" (RFC 8467 §4.1).
+    const padded = std.mem.alignForward(usize, unpadded, core.constants.padding_block_bytes);
+    assert(padded - unpadded < core.constants.padding_block_bytes);
+    return padded - unpadded;
 }
 
 /// Writes `query` into `out` and returns the octets written. `out` must hold
@@ -70,7 +90,7 @@ pub fn write(query: *const Query, out: []u8) usize {
     var offset: usize = core.constants.header_bytes;
     offset += question_codec.write(&query.name, query.kind, body[offset..]);
     if (query.payload_bytes) |payload_bytes| {
-        offset += edns.write(payload_bytes, if (query.cookie) |*cookie| cookie else null, body[offset..]);
+        offset += edns.write_padded(payload_bytes, cookie_of(query), padding_bytes(query), body[offset..]);
     }
 
     if (query.tcp) {
@@ -144,10 +164,11 @@ test "a TCP query carries the length prefix, which counts the message after it" 
 }
 
 test "the largest query there is fits the buffer the caller provides" {
-    // A maximal name, EDNS0 on with the largest cookie, over TCP: the sum query_bytes_max is
-    // defined as.
+    // A maximal name, EDNS0 on with the largest cookie, padded, over TCP: the sum
+    // query_bytes_max is defined as.
     var query = try query_for("a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63 ++ "." ++ "d" ** 61);
     query.tcp = true;
+    query.padded = true;
     query.cookie = .{
         .client = fixtures.cookie_client,
         .server = @splat(0xcc),
@@ -157,6 +178,36 @@ test "the largest query there is fits the buffer the caller provides" {
     try testing.expectEqual(core.constants.query_bytes_max, query_bytes(&query));
     var out: [core.constants.query_bytes_max]u8 = @splat(0);
     try testing.expectEqual(core.constants.query_bytes_max, write(&query, &out));
+}
+
+test "a padded query is a whole number of blocks, its padding zero, and an unpadded one has none" {
+    const options = @import("edns_options.zig");
+    const names = [_][]const u8{ "example.com", "a" ** 63 ++ "." ++ "b" ** 63, "x" };
+    for (names) |text| {
+        var query = try query_for(text);
+        query.tcp = true;
+        query.padded = true;
+        var out: [core.constants.query_bytes_max]u8 = @splat(0xff);
+        const written = write(&query, &out);
+        const message = out[core.constants.tcp_prefix_bytes..written];
+        try testing.expectEqual(@as(usize, 0), message.len % core.constants.padding_block_bytes);
+        const opt_at = core.constants.header_bytes + question_codec.section_bytes(&query.name);
+        const padding = (try options.padding(message[opt_at + core.constants.opt_record_bytes ..])).?;
+        try testing.expect(std.mem.allEqual(u8, padding, 0));
+        query.padded = false;
+        const plain = write(&query, &out);
+        try testing.expectEqual(@as(?[]const u8, null), try options.padding(out[core.constants.tcp_prefix_bytes + opt_at + core.constants.opt_record_bytes .. plain]));
+    }
+}
+
+test "a padded query without EDNS carries no OPT record and no padding" {
+    var query = try query_for("example.com");
+    query.padded = true;
+    query.payload_bytes = null;
+    var out: [core.constants.query_bytes_max]u8 = @splat(0);
+    const written = write(&query, &out);
+    try testing.expectEqual(core.constants.header_bytes + 13 + core.constants.question_fixed_bytes, written);
+    try testing.expectEqual(@as(u16, 0), (try header_codec.parse(out[0..written])).arcount);
 }
 
 test "the question a query wrote is the question that matches it back" {

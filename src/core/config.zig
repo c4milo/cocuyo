@@ -12,15 +12,35 @@ const Address = @import("address.zig").Address;
 const Endpoint = @import("address.zig").Endpoint;
 const Name = @import("name.zig").Name;
 
+/// What a query to a DNS-over-TLS server needs (docs/design.md §21): the name the server's
+/// certificate must carry, which is the authentication domain name of RFC 8310 §7.1, and the
+/// port, 853 unless client and server agreed on another (RFC 7858 §3.1). The name is a DNS name:
+/// the certificate check reads a DNS-ID and nothing else.
+pub const Tls = struct {
+    name: Name,
+    port: u16 = constants.port_dns_tls_default,
+};
+
 /// One server: where a query goes over UDP, and the port a TCP connection uses when it differs,
-/// which c-ares configures apart (docs/design.md §19 step 11). Zero means the same port.
+/// which c-ares configures apart (docs/design.md §19 step 11). Zero means the same port. A
+/// server that speaks TLS takes its connections on its TLS port instead.
 pub const Server = struct {
     endpoint: Endpoint,
     tcp_port: u16 = 0,
+    /// The TLS every query to this server goes over, or null for none. A configuration has TLS
+    /// on every server or on none, which `Config.assert_valid` holds.
+    tls: ?Tls = null,
 
+    /// Where a stream to this server connects. A TLS server's is its TLS port, and never its
+    /// cleartext one: a client that asked for TLS does not send a query in the clear (RFC 8310
+    /// §5.1).
     pub fn tcp_endpoint(self: *const Server) Endpoint {
         var endpoint = self.endpoint;
-        if (self.tcp_port != 0) endpoint.port = self.tcp_port;
+        if (self.tls) |tls| {
+            endpoint.port = tls.port;
+        } else if (self.tcp_port != 0) {
+            endpoint.port = self.tcp_port;
+        }
         return endpoint;
     }
 };
@@ -108,6 +128,18 @@ pub const Config = struct {
         assert(self.udp_payload_bytes >= constants.udp_payload_bytes_min);
         assert(self.udp_payload_bytes <= constants.message_bytes_max);
         assert(self.lookups.len <= constants.lookup_sources_max);
+        assert(servers_agree_on_tls(self.servers));
+    }
+
+    /// Whether the servers are DNS-over-TLS servers. Every one is or none is.
+    pub fn uses_tls(self: *const Config) bool {
+        return self.servers.len >= 1 and self.servers[0].tls != null;
+    }
+
+    /// Whether every query goes on a stream: `use_tcp` says so, or the servers speak TLS, which
+    /// has no datagram form here.
+    pub fn streams_only(self: *const Config) bool {
+        return self.use_tcp or self.uses_tls();
     }
 
     /// How many servers a lookup may ask: with `primary`, the first is the only one.
@@ -116,6 +148,17 @@ pub const Config = struct {
         return self.servers.len;
     }
 };
+
+/// Whether every server has TLS or none has. A list that mixed them would let a lookup fail
+/// over from an encrypted server to a cleartext one: under RFC 8310's strict profile a server
+/// that cannot be reached encrypted is a hard failure (§5), and a query never falls back
+/// during its resolution (§5.1).
+pub fn servers_agree_on_tls(servers: []const Server) bool {
+    for (servers) |server| {
+        if ((server.tls != null) != (servers[0].tls != null)) return false;
+    }
+    return true;
+}
 
 // Tests.
 
@@ -153,6 +196,29 @@ test "a TCP port of its own replaces the UDP port for a connection, and zero kee
     const other: Server = .{ .endpoint = endpoint, .tcp_port = 5353 };
     try testing.expectEqual(@as(u16, 5353), other.tcp_endpoint().port);
     try testing.expect(other.tcp_endpoint().address.equal(&endpoint.address));
+}
+
+test "servers speak TLS all together or not at all, and TLS sends every query on a stream" {
+    const address = Address.from_v4(.{ 192, 0, 2, 53 });
+    const tls: Tls = .{ .name = try Name.from_text("dns.example.") };
+    const encrypted = [_]Server{ .{ .endpoint = .{ .address = address }, .tls = tls }, .{ .endpoint = .{ .address = address }, .tls = tls } };
+    const mixed = [_]Server{ .{ .endpoint = .{ .address = address }, .tls = tls }, .{ .endpoint = .{ .address = address } } };
+    const cleartext = [_]Server{ .{ .endpoint = .{ .address = address } }, .{ .endpoint = .{ .address = address } } };
+    try testing.expect(servers_agree_on_tls(&encrypted));
+    try testing.expect(servers_agree_on_tls(&cleartext));
+    try testing.expect(!servers_agree_on_tls(&mixed));
+    const reversed = [_]Server{ cleartext[0], encrypted[0] };
+    try testing.expect(!servers_agree_on_tls(&reversed));
+    const config: Config = .{ .servers = &encrypted };
+    config.assert_valid();
+    try testing.expect(config.uses_tls() and config.streams_only());
+    try testing.expectEqual(@as(u16, 853), encrypted[0].tcp_endpoint().port);
+    const ported: Server = .{ .endpoint = .{ .address = address }, .tcp_port = 5353, .tls = .{ .name = tls.name, .port = 8853 } };
+    try testing.expectEqual(@as(u16, 8853), ported.tcp_endpoint().port);
+    const plain: Config = .{ .servers = &cleartext };
+    try testing.expect(!plain.uses_tls() and !plain.streams_only());
+    const none: Config = .{ .servers = &.{} };
+    try testing.expect(!none.uses_tls());
 }
 
 test "primary asks one server, and a configuration may name none" {

@@ -1039,6 +1039,22 @@ mutations, seven `CAUGHT`.
 | W6 | a draining socket's ended receive is armed on the current one | rule 5 | the committed walks | CAUGHT |
 | W7 | a query does not record the socket it left from | rule 4, what is owed | the rotation twin test; the committed walks | CAUGHT |
 
+## DoT's configuration and padding
+
+Design §21 steps 2 and 3: servers speak TLS all together or not at all, a TLS server's queries go
+on the stream to its TLS port, and they are padded to a whole block. Broken against `zig build
+test-core`, `test-wire` and `test-resolver`. Seven mutations, seven `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| DT1 | the padding leaves out the option's own header | RFC 8467 §4.1, a whole block | the padded-query test; the TLS lookup test | CAUGHT |
+| DT2 | a lookup never pads | §21, padding on TLS | the TLS lookup test | CAUGHT |
+| DT3 | a lookup pads every query | RFC 7830 §6, padding only when encrypted | the `use_tcp` lookup test | CAUGHT |
+| DT4 | a list that mixes TLS and cleartext is valid | RFC 8310 §5.1, all or none | the all-or-none test | CAUGHT |
+| DT5 | TLS servers leave the lookup on datagrams | §21, every query on the stream | the all-or-none test; the TLS lookup test | CAUGHT |
+| DT6 | a TLS server's stream goes to its cleartext port | RFC 8310 §5.1 | the all-or-none test; the TLS lookup test | CAUGHT |
+| DT7 | the padding octets are left as the buffer held them | RFC 7830 §3, zero octets | the padded-query test | CAUGHT |
+
 ## One send a stream
 
 The stream's rule 9 (docs/design.md §19 step 13): a connection carries one send at a time, and a

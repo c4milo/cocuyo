@@ -1,6 +1,7 @@
 //! The configuration knobs of docs/design.md §19 step 11, each driven through the fake server:
-//! every query over TCP, a truncated answer taken as it is, the RD bit, a server's error as
-//! the answer, the first server alone, a TCP port of its own, the timeout cap, and no server.
+//! every query over TCP, every query to a TLS server on the stream (§21), a truncated answer
+//! taken as it is, the RD bit, a server's error as the answer, the first server alone, a TCP port
+//! of its own, the timeout cap, and no server.
 //! Split from `lookup_response.zig` by the file-length rule.
 const std = @import("std");
 const testing = std.testing;
@@ -30,8 +31,30 @@ test "use_tcp sends every query over TCP, the retries included" {
     try harness.start("example.com.", .a, seed);
     try testing.expectEqual(State.tcp_needed, harness.lookup.state);
     _ = connect_and_send(&harness);
+    // A query in the clear carries no padding (RFC 7830 §6): this one is 52 octets.
+    try testing.expect((harness.query_bytes - core.constants.tcp_prefix_bytes) % core.constants.padding_block_bytes != 0);
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.cname_only, servers[0].endpoint));
     // The re-query for the chain's target goes over TCP too.
+    try testing.expectEqual(State.tcp_needed, harness.lookup.state);
+}
+
+test "servers that speak TLS take every query on the stream, to their TLS port" {
+    const tls: core.Tls = .{ .name = try core.Name.from_text("dns.example.") };
+    const encrypted = [_]core.Server{
+        .{ .endpoint = servers[0].endpoint, .tls = tls },
+        .{ .endpoint = servers[1].endpoint, .tls = tls },
+    };
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &encrypted } };
+    try harness.start("example.com.", .a, seed);
+    try testing.expectEqual(State.tcp_needed, harness.lookup.state);
+    const endpoint = connect_and_send(&harness);
+    try testing.expectEqual(@as(u16, core.constants.port_dns_tls_default), endpoint.port);
+    // The query is padded to a whole block (RFC 8467 §4.1); the length prefix is not the
+    // message's.
+    const message_bytes = harness.query_bytes - core.constants.tcp_prefix_bytes;
+    try testing.expectEqual(@as(usize, 0), message_bytes % core.constants.padding_block_bytes);
+    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.cname_only, encrypted[0].tcp_endpoint()));
+    // The re-query for the chain's target goes on the stream too.
     try testing.expectEqual(State.tcp_needed, harness.lookup.state);
 }
 
