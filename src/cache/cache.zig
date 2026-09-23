@@ -126,16 +126,16 @@ pub const Cache = struct {
         return self.order.len;
     }
 
-    /// The entry for `question`, if the cache holds one that has not expired. An expired entry is
-    /// evicted on sight and is a miss; a hit sets the visited bit and moves nothing.
+    /// The entry for `question`, if the cache holds one that has not expired. A hit sets the
+    /// visited bit and moves nothing. An expired entry is a miss that keeps its slot, its place
+    /// and its bit: the put after the miss renews it where it stands, and the hand takes it on
+    /// sight if that put never comes (docs/design.md §17 question 14). Evicted here, the put
+    /// would go in as new at the newest end, which is a promotion earned by a miss.
     pub fn get(self: *Cache, question: *const Question, now_ns: u64) ?Hit {
         const index = self.find(question, self.hash_of(question)) orelse return null;
         const slot = &self.slots[index];
         assert(slot.occupied);
-        if (now_ns >= slot.expires_ns) {
-            self.evict(index);
-            return null;
-        }
+        if (now_ns >= slot.expires_ns) return null;
         slot.visited = true;
         return .{
             .outcome = slot.outcome,
@@ -366,24 +366,6 @@ test "a put is a hit whatever the case, and a miss for another type, name or abs
     try testing.expect(table.get(&absolute, 0) == null);
 }
 
-test "a hit reports what is left of the TTL, and an expired entry is evicted on sight" {
-    var fixture: fixtures.Fixture(slot_count) = .{};
-    var table = fixture.init();
-    const asked = ask("example.com");
-    const answers = fixtures.answers_v4(1, 300);
-    table.put(&asked, &answers, null, 0);
-    try testing.expectEqual(@as(u32, 200), table.get(&asked, 100 * second).?.ttl_seconds);
-    try testing.expectEqual(@as(u32, 0), table.get(&asked, 300 * second - 1).?.ttl_seconds);
-    try testing.expect(table.get(&asked, 300 * second) == null);
-    try testing.expectEqual(@as(usize, 0), table.len());
-    try testing.expect(table.get(&asked, 300 * second) == null);
-    // The slot went back: the table fills to its size again.
-    for ([_][]const u8{ "a.example", "b.example", "c.example", "d.example" }) |name| {
-        table.put(&ask(name), &answers, null, 0);
-    }
-    try testing.expectEqual(@as(usize, 4), table.len());
-}
-
 test "a hit sets the visited bit and moves nothing" {
     var fixture: fixtures.Fixture(slot_count) = .{};
     var table = fixture.init();
@@ -420,44 +402,6 @@ test "a put for a question the cache holds replaces it in place, sets the bit, a
     try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 2 }, hit.answers.addresses()[0].slice());
 }
 
-test "a TTL of zero and a truncated answer are not cached, and a TTL over the cap is capped" {
-    var fixture: fixtures.Fixture(slot_count) = .{};
-    var table = cache_init_capped(&fixture, 60);
-    const zero = fixtures.answers_v4(1, 0);
-    table.put(&ask("a.example"), &zero, null, 0);
-    var truncated = fixtures.answers_v4(1, 300);
-    truncated.truncated = true;
-    table.put(&ask("a.example"), &truncated, null, 0);
-    table.put_negative(&ask("b.example"), .name_not_found, 0, 0);
-    try testing.expectEqual(@as(usize, 0), table.len());
-    const long = fixtures.answers_v4(1, 300);
-    table.put(&ask("a.example"), &long, null, 0);
-    try testing.expectEqual(@as(u32, 60), table.get(&ask("a.example"), 0).?.ttl_seconds);
-    try testing.expect(table.get(&ask("a.example"), 60 * second) == null);
-}
-
-fn cache_init_capped(fixture: *fixtures.Fixture(slot_count), ttl_seconds_max: u32) Cache {
-    return Cache.init(&fixture.slots, &fixture.keys, fixtures.seed, ttl_seconds_max);
-}
-
-test "a negative answer is cached with its outcome, its TTL and no records" {
-    var fixture: fixtures.Fixture(slot_count) = .{};
-    var table = fixture.init();
-    table.put_negative(&ask("nx.example"), .name_not_found, 60, 0);
-    table.put_negative(&ask("nodata.example"), .no_data, 30, 0);
-    const nx = table.get(&ask("nx.example"), 0).?;
-    try testing.expectEqual(Outcome.name_not_found, nx.outcome);
-    try testing.expectEqual(@as(u32, 60), nx.ttl_seconds);
-    try testing.expectEqual(@as(usize, 0), nx.answers.addresses().len);
-    const nodata = table.get(&ask("nodata.example"), 0).?;
-    try testing.expectEqual(Outcome.no_data, nodata.outcome);
-    try testing.expectEqual(@as(u32, 30), nodata.ttl_seconds);
-    // An answer put over a negative entry replaces it, outcome included.
-    const answers = fixtures.answers_v4(1, 300);
-    table.put(&ask("nx.example"), &answers, null, 0);
-    try testing.expectEqual(Outcome.answered, table.get(&ask("nx.example"), 0).?.outcome);
-}
-
 test "flush empties the table, and a put after it works" {
     var fixture: fixtures.Fixture(slot_count) = .{};
     var table = fixture.init();
@@ -492,4 +436,5 @@ test "the hash is keyed: two seeds land one name in two places" {
 
 test {
     _ = @import("cache_probe_test.zig");
+    _ = @import("cache_ttl_test.zig");
 }

@@ -823,30 +823,59 @@ that replaces an entry in place, so the entry keeps the chain's end its first pu
 test puts one question three times — through one chain, through another, then through none — and
 reads the hit after each of the last two.
 
-## SIEVE against S3-FIFO
+## SIEVE against S3-FIFO, and c-ares's rule
 
 Design §18: `bench/cache_policy.zig` models both policies over name indices, with the model of
-SIEVE as the control. Broken against `zig build test-tools`. Eleven mutations, eleven `CAUGHT`.
+SIEVE as the control, and `bench/cache_policy_cares.zig` models c-ares's rule. Broken against
+`zig build test-tools`. Fifteen mutations, fifteen `CAUGHT`.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
-| F1 | a get keeps an expired entry it should evict | the model answers as the cache does | the control test, on an assertion | CAUGHT |
-| F2 | the hand stays on an entry that is gone | the model answers as the cache does | **the control test** | CAUGHT |
-| F3 | a refresh in place renews nothing | the entry lives again | the refresh-in-place test | CAUGHT |
+| F1 | under the old rule, a get keeps an expired entry it should evict | the old rule, as it was | **a test written for it** | CAUGHT |
+| F2 | the hand stays on an entry that is gone | the model answers as the cache does | the control test | CAUGHT |
+| F3 | a renewal in place renews nothing | the entry lives again | the control test | CAUGHT |
 | F4 | S3-FIFO promotes at the threshold, not above it | Algorithm 1 line 23 | the threshold test | CAUGHT |
 | F5 | a name moved to M keeps its bits | S3-FIFO §4.1, bits cleared on the move | the threshold test | CAUGHT |
 | F6 | an expired name in S is ghosted | expiry is taken on sight, and leaves no ghost | the expired-on-sight test | CAUGHT |
 | F7 | the frequency is not capped | Algorithm 1 line 3 | the cap test | CAUGHT |
 | F8 | G holds one ghost fewer | S3-FIFO §4.1, G as long as M | the ghost-length test | CAUGHT |
 | F9 | a ghost asked for again goes to S | Algorithm 1 lines 10 and 11 | the ghost-return test | CAUGHT |
-| F10 | a refresh in place clears S3-FIFO's bits | a refresh keeps the bits | the S3-FIFO refresh test | CAUGHT |
-| F11 | SIEVE's hand passes a visited entry that has expired | §18, expiry on sight | **a test written for it** | CAUGHT |
+| F10 | S3-FIFO's renewal counts no use | a renewal is a use, in every model | the S3-FIFO renewal test | CAUGHT |
+| F11 | SIEVE's hand passes a visited entry that has expired | §18, expiry on sight | the control test | CAUGHT |
+| F12 | SIEVE's renewal leaves the bit | the cache's put in place sets it | the control test | CAUGHT |
+| F13 | c-ares's fetch drains nothing | every fetch drains what has expired | the drain test | CAUGHT |
+| F14 | the heap puts a later expiry above an earlier one | the skip list's expiry order | the drain test | CAUGHT |
+| F15 | the peak is not counted | what c-ares's rule holds is reported | the hit-inside-its-TTL test | CAUGHT |
 
-F11 was `NOT CAUGHT` at first. The control test compares hit counts over a short trace, and a
-hand that clears an expired entry's bit and takes it on the next pass changes too little there
-to show. The test written for it states the rule the cache's own `cache_sweep.zig` test states.
-F2 and F11 also failed to compile on the first try, because each left a name unused. A mutant
-the compiler refuses has tested nothing, so both were run again with the name discarded.
+F11 was `NOT CAUGHT` when the models first landed. The control test then ran the old rule, and a
+hand that clears an expired entry's bit and takes it on the next pass changed too little over a
+short trace to show. A test was written that states the rule, as the cache's own
+`cache_sweep.zig` test does, and it stays.
+
+F1 went the other way. The control test caught it while it ran the old rule. Once §17 question 14
+moved the control to the new rule, nothing ran the old rule's get on a table with room to spare,
+and a full table hides the mutant: the hand evicts the expired entry the get should have removed.
+It was `NOT CAUGHT` until a test with a free slot was written for it. Moving a test's subject
+can lose a catch as quietly as deleting the test would.
+
+F2 and F11 also failed to compile on their first try, because each left a name unused. A mutant
+the compiler refuses has tested nothing, so both are run with the name discarded.
+
+## The expired entry keeps its slot
+
+Design §17 question 14, answered yes: a get that finds its entry expired misses and leaves it,
+and the put after the miss renews it where it stands. Broken against `zig build test-cache`.
+Three mutations, three `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| E1 | a get evicts an expired entry again | the miss keeps the slot | the expired-miss test and the renewal test | CAUGHT |
+| E2 | a get hands back an expired entry | a hit is a live entry | the expired-miss test and the renewal test | CAUGHT |
+| E3 | a put over an expired entry goes in as new | the renewal happens in place | **the renewal test** | CAUGHT |
+
+E3 is the change itself put back one call later: the get leaves the entry, and the put evicts it
+and inserts the name at the newest end. Only a test that reads where the entry stands after the
+put can tell the two apart.
 
 ## The end-to-end driver
 

@@ -8,9 +8,11 @@
 //!
 //! Neither paper models an entry that dies on its own, and both models fold it in the same way.
 //! An eviction that meets an expired entry takes it, whatever its bits say. A get that finds its
-//! entry expired misses, and then does one of two things, `Expiry` says which: removes the entry
-//! and keeps no memory of it, as the real cache does, so the put after the miss goes in as new;
-//! or renews the entry's life where it stands, with its place and its bits as they were.
+//! entry expired misses, and then does one of two things, `Expiry` says which. It removes the
+//! entry and keeps no memory of it, as the cache did before docs/design.md §17 question 14, so the
+//! put after the miss goes in as new. Or it renews the entry's life where it stands and counts
+//! the renewal as a use, as the cache's put in place does since: SIEVE's bit is set, and
+//! S3-FIFO's counter goes up by one.
 const std = @import("std");
 const assert = std.debug.assert;
 
@@ -110,6 +112,7 @@ fn sieve_access(self: anytype, id: Id, life_ns: u64, now_ns: u64) bool {
         }
         if (self.expiry == .refresh_in_place) {
             self.expires_ns[id] = now_ns + life_ns;
+            self.visited[id] = true;
             return false;
         }
         sieve_remove(self, id);
@@ -215,6 +218,7 @@ fn fifo_access(self: anytype, id: Id, life_ns: u64, now_ns: u64) bool {
         }
         if (self.expiry == .refresh_in_place) {
             self.expires_ns[id] = now_ns + life_ns;
+            self.frequency[id] = @min(self.frequency[id] + 1, frequency_max);
             return false;
         }
         const queue = if (self.place[id] == .small) &self.small else &self.main;
@@ -341,6 +345,19 @@ test "the SIEVE model misses on an expired entry and takes it before a live one"
     try testing.expect(model.access(0, second, 2 * second));
 }
 
+test "under the old rule an expired entry goes back in at the newest end" {
+    var model: Sieve(test_names) = undefined;
+    // Room to spare, so no sweep runs and only the get can have moved it.
+    model.init(4, .evict_on_get);
+    _ = model.access(0, second, 0);
+    _ = model.access(1, life, 0);
+    _ = model.access(2, life, 0);
+    try testing.expect(!model.access(0, second, 2 * second));
+    try testing.expectEqual(@as(Id, 1), model.order.oldest);
+    try testing.expectEqual(@as(Id, 0), model.order.newest);
+    try testing.expectEqual(@as(usize, 3), model.order.len);
+}
+
 test "the SIEVE model's hand takes an expired entry even when it was visited" {
     var model: Sieve(test_names) = undefined;
     model.init(2, .evict_on_get);
@@ -419,27 +436,28 @@ test "S3-FIFO evicts an expired name on sight, and does not ghost it" {
     try testing.expect(!fifo_in_ghost(&model, 0));
 }
 
-test "an entry refreshed in place keeps its place, and the entry behind it goes first" {
+test "an entry refreshed in place keeps its place and has its bit set" {
     var model: Sieve(test_names) = undefined;
     model.init(2, .refresh_in_place);
     _ = model.access(0, second, 0);
     _ = model.access(1, life, 0);
     try testing.expect(!model.access(0, second, 2 * second));
     try testing.expectEqual(3 * second, model.expires_ns[0]);
-    // 0 is still the oldest and unvisited, so the hand takes it rather than 1.
+    try testing.expect(model.visited[0]);
+    // 0 is still the oldest, and visited: the hand clears it and takes 1 behind it.
     _ = model.access(2, life, 2 * second);
-    try testing.expect(model.access(1, life, 2 * second));
-    try testing.expect(!model.access(0, second, 2 * second));
+    try testing.expect(model.access(0, second, 2 * second));
+    try testing.expect(!model.access(1, life, 2 * second));
 }
 
-test "S3-FIFO refreshes an expired name where it stands, bits and all" {
+test "S3-FIFO refreshes an expired name where it stands, and counts the refresh a use" {
     var model: S3Fifo(test_names) = undefined;
     model.init(share_whole, 1, .refresh_in_place);
     _ = model.access(0, second, 0);
     _ = model.access(0, second, 0);
     try testing.expect(!model.access(0, second, 2 * second));
     try testing.expectEqual(Place.small, model.place[0]);
-    try testing.expectEqual(@as(u8, 1), model.frequency[0]);
+    try testing.expectEqual(@as(u8, 2), model.frequency[0]);
 }
 
 test "a ghost leaves G once G's size more names have gone in after it" {

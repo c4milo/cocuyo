@@ -116,7 +116,7 @@ test "a sweep over a table where every entry was visited clears every bit and ev
     try testing.expectEqual(@as(usize, 4), table.len());
 }
 
-test "a get that finds the hand's own entry expired moves the hand on" {
+test "an expired entry a get has missed is still the hand's to take" {
     var fixture: fixtures.Fixture(2) = .{};
     var table = fixture.init();
     put_v4(&table, "a.example", 1, 300, 0);
@@ -124,13 +124,13 @@ test "a get that finds the hand's own entry expired moves the hand on" {
     // Full: the hand starts at a, unvisited, evicts it and comes to rest on b.
     put_v4(&table, "c.example", 3, 300, 0);
     try testing.expectEqual(table.hand, table.find(&ask("b.example"), table.hash_of(&ask("b.example"))).?);
-    // At twenty seconds b has expired: the get evicts it and the hand moves on to c.
+    // At twenty seconds b has expired: the get misses and b keeps its slot.
     try testing.expect(!hits(&table, "b.example", 20 * second));
-    try testing.expectEqual(@as(usize, 1), table.len());
-    // d takes b's slot without a sweep; e needs one, and it is c the hand meets, not d.
+    try testing.expectEqual(@as(usize, 2), table.len());
+    // No put renews b, so the next put that needs a slot takes it, and c stays.
     put_v4(&table, "d.example", 4, 300, 20 * second);
-    put_v4(&table, "e.example", 5, 300, 20 * second);
-    try testing.expect(!hits(&table, "c.example", 20 * second));
+    try testing.expect(hits(&table, "c.example", 20 * second));
     try testing.expect(hits(&table, "d.example", 20 * second));
-    try testing.expect(hits(&table, "e.example", 20 * second));
+    try testing.expect(!hits(&table, "b.example", 20 * second));
+    try testing.expectEqual(@as(usize, 2), table.len());
 }

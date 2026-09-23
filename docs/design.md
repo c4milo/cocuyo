@@ -1230,12 +1230,12 @@ step until `zig build test` passes.
     and empty from one the cache answered; per §18's reading, c-ares keeps the whole response,
     chain included. The slot now keeps the chain's end: one `Name`, 256 octets, 2728 to 2984 a
     slot, and a thousand slots cost 2.9 MiB where they cost 2.7.
-14. **Should a get renew an expired entry in place?** Open, asked by §18's measurement against
-    S3-FIFO. Today a get that finds its entry expired evicts it, and the put after the miss
-    inserts the name as new, at the newest end. Keeping the slot for the put to replace in
-    place measures 3.0 points more hits at the default 1024 slots and 0.8 fewer at 4096 on the
-    synthetic trace. It is a change of behaviour and not of the public surface: an expired
-    entry then holds its slot until the name is asked again or the hand meets it.
+14. **Should a get renew an expired entry in place?** Answered on 2026-09-22: yes. A get that
+    found its entry expired evicted it, and the put after the miss inserted the name as new, at
+    the newest end. The get now misses and leaves the entry, and the put renews it where it
+    stands. On the synthetic trace that is 3.0 points more hits at the default 1024 slots and
+    1.0 fewer at 4096 (§18). An expired entry holds its slot until its name is asked again or
+    the hand meets it. The public surface is unchanged.
 
 ## 18. The cache
 
@@ -1331,8 +1331,10 @@ pub const Cache = struct {
   entries. The hash is a keyed one, seeded by the caller's `u64` the way the transaction ids are,
   so a peer that chooses the names a process resolves cannot choose where they land. The probe is bounded by `cache_probe_max`; a chain longer than that is
   a miss on `get` and a refusal on `put`, never more work.
-- A `get` that finds an expired entry evicts it and misses. A `get` that hits sets the visited bit
-  and returns the remaining TTL, which is the expiry less `now_ns`, rounded down to a second.
+- A `get` that finds an expired entry misses and leaves it where it is, bit and all: the put
+  after the miss renews it in place, and the hand takes it on sight if no put comes (§17
+  question 14). A `get` that hits sets the visited bit and returns the remaining TTL, which is
+  the expiry less `now_ns`, rounded down to a second.
 - A `put` for a question the cache holds replaces the entry in place and sets the bit; it does not
   move it in the order. A `put` of a TTL of zero, or of an answer marked truncated, is refused.
   The TTL is capped at `ttl_seconds_max`.
@@ -1377,26 +1379,27 @@ claimed.
 million questions over 50,000 distinct names, drawn Zipf with an exponent of one, arriving one
 every 10 milliseconds — a little under three hours of virtual time — with TTLs of 60, 300 and
 3600 seconds over 40%, 40% and 20% of the names. `bench/cache_trace.zig` holds every one of those
-numbers as a named constant.
+numbers as a named constant. The rows are the cache since §17 question 14, which renews an expired
+entry in place.
 
 | Slots | Memory | Hit rate | Hits | Misses |
 | --- | --- | --- | --- | --- |
-| 64 | 186.5 KiB | 34.7% | 347,202 | 652,798 |
-| 256 | 746.0 KiB | 43.8% | 437,741 | 562,259 |
-| 1024 | 2.9 MiB | 52.2% | 522,138 | 477,862 |
-| 4096 | 11.7 MiB | 60.1% | 600,653 | 399,347 |
-| 16384 | 46.6 MiB | 60.7% | 606,573 | 393,427 |
+| 64 | 186.5 KiB | 38.8% | 387,687 | 612,313 |
+| 256 | 746.0 KiB | 48.4% | 483,654 | 516,346 |
+| 1024 | 2.9 MiB | 55.2% | 552,253 | 447,747 |
+| 4096 | 11.7 MiB | 59.1% | 590,785 | 409,215 |
+| 16384 | 46.6 MiB | 60.6% | 606,390 | 393,610 |
 
 What it says:
 
 - **The cache earns its keep.** At the 1024 slots the engine takes by default, 2.9 MiB of the
-  caller's memory answers half the questions without a packet. That is the answer §17 question 9
-  assumed and no measurement had given.
-- **The curve bends at 4096.** Sixteen times the memory of the default buys eight points; four
-  times that buys another 0.6. A caller with memory to spare should stop at 4096 on this trace.
-- **The ceiling is the workload's, not the policy's.** Nothing reaches 61%, because a name is a
-  hit only if it is asked again inside its own TTL, and the tail of a Zipf never is. A policy
-  change cannot lift that ceiling; only a longer TTL or a busier client can.
+  caller's memory answers 55% of the questions without a packet. That is the answer §17
+  question 9 assumed and no measurement had given. It was 52.2% before question 14.
+- **Each fourfold step buys less.** From 256 slots to 1024 buys 6.9 points, to 4096 another
+  3.9, and to 16384 another 1.6.
+- **The ceiling is the workload's, not the policy's.** A name is a hit only if it is asked again
+  inside its own TTL, and the tail of a Zipf never is. c-ares's rule, which evicts nothing,
+  reaches 61.1% on this trace (below), and no cache with the same TTLs can do better.
 
 **The trace is synthetic, and the table is worth exactly what its assumptions are.** No DNS trace
 was measured. The popularity curve is Zipf because that is what web object popularity has measured
@@ -1408,9 +1411,8 @@ nothing else.
 Measured on 2026-09-22 by `zig build bench`, over the trace above with the same seed.
 `bench/cache_policy.zig` models both policies over name indices. The model of SIEVE is the
 control: it has to answer as the real cache does before the S3-FIFO columns mean anything. A
-test holds it to the same hit count on a short trace. Over the whole trace it matches to 0.01
-point at 64 slots, where the cause of the difference was not traced, and exactly at every other
-size.
+test holds it to the same hit count on a short trace, and over the whole trace it matches to
+within 0.01 point at every size. The cause of that difference was not traced.
 
 S3-FIFO is Algorithm 1 of Yang et al. (SOSP 2023), read from the paper: the small queue S a tenth
 of the cache, the main queue M the rest, and a ghost queue G of names as long as M, kept by
@@ -1419,36 +1421,61 @@ Algorithm 1 line 23 moves a name from S to M when `t.freq > 1`, and Figure 5 mov
 was visited, which is `freq > 0`. Both are run: `l23` and `f5` below.
 
 Neither paper has an entry that dies on its own, so each model is run under both rules for what
-a get does with an entry it finds expired. It evicts the entry, as the cache does, so the put
-after the miss goes in as new. Or it renews the entry's life where it stands, with its place and
-its bits as they were.
+a get does with an entry it finds expired:
+
+- **Evicted.** The get evicts the entry, so the put after the miss goes in as new. This was the
+  cache's rule until §17 question 14.
+- **In place.** The get leaves the entry, and the put after the miss renews it where it stands
+  and counts the renewal as a use: SIEVE's bit is set, as the cache's put in place sets it, and
+  S3-FIFO's counter goes up by one. This is the cache's rule since. Left as they were instead,
+  the bit and the counter moved no row by more than 0.2 point.
 
 | Slots | Cache | SIEVE, evicted | S3-FIFO l23, evicted | S3-FIFO f5, evicted | SIEVE, in place | S3-FIFO l23, in place | S3-FIFO f5, in place |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 64 | 34.72% | 34.71% | 37.98% | 38.13% | 38.66% | 38.76% | 38.77% |
-| 256 | 43.77% | 43.75% | 46.42% | 46.90% | 48.43% | 48.62% | 48.67% |
-| 1024 | 52.21% | 52.21% | 51.36% | 52.04% | 55.25% | 55.29% | 55.37% |
-| 4096 | 60.07% | 60.07% | 56.73% | 57.03% | 59.23% | 58.90% | 58.95% |
-| 16384 | 60.66% | 60.66% | 60.78% | 60.80% | 60.67% | 60.73% | 60.75% |
+| 64 | 38.77% | 34.71% | 37.98% | 38.13% | 38.77% | 38.78% | 38.77% |
+| 256 | 48.37% | 43.75% | 46.42% | 46.90% | 48.36% | 48.62% | 48.68% |
+| 1024 | 55.23% | 52.21% | 51.36% | 52.04% | 55.24% | 55.27% | 55.37% |
+| 4096 | 59.08% | 60.07% | 56.73% | 57.03% | 59.07% | 58.92% | 58.97% |
+| 16384 | 60.64% | 60.66% | 60.78% | 60.80% | 60.64% | 60.75% | 60.78% |
 
 What it says:
 
 - **The policy is not what moves the hit rate on this trace.** With expired entries renewed in
   place, SIEVE and both readings of S3-FIFO are within 0.4 points of each other at every size.
-- **The expiry rule is.** Renewed in place, SIEVE gains 4.0 points at 64 slots, 4.7 at 256 and
-  3.0 at the default 1024, and loses 0.8 at 4096. The reading, which no measurement isolated:
+- **The expiry rule is.** Renewed in place, SIEVE gains 4.1 points at 64 slots, 4.6 at 256 and
+  3.0 at the default 1024, and loses 1.0 at 4096. The reading, which no measurement isolated:
   evicting on the get and putting the name back as new is a promotion given on a miss, which
   SIEVE exists not to give. A tail name asked once more after it expired goes to the newest
   end, the place farthest from the hand.
-- **Under the cache's rule S3-FIFO leads at small sizes and trails at 4096.** It is about 3
-  points ahead at 64 and 256 slots and about 3 behind at 4096. The same reading would say its
-  probation queue refuses the promotion SIEVE gives, and then makes every popular name that
-  expires earn M again.
-- The model's refresh leaves SIEVE's bit as it was. Setting it, as the cache's put in place does,
-  moved no row by more than 0.2 point.
+- **Under the old rule S3-FIFO leads at small sizes and trails at 4096.** It is about 3 points
+  ahead at 64 and 256 slots and about 3 behind at 4096. The same reading would say its probation
+  queue refuses the promotion SIEVE gives, and then makes every popular name that expires earn M
+  again.
 
-So S3-FIFO is not worth a second policy in the library. Whether the cache should renew an
-expired entry in place is a separate question, and §17 asks it.
+So S3-FIFO is not worth a second policy in the library. The expiry rows are why §17 question 14
+was answered yes.
+
+### Against c-ares's rule
+
+c-ares evicts nothing: its cache has no bound on the entry count, and every fetch drains the
+entries that have expired (§18, from `ares_qcache.c`). `bench/cache_policy_cares.zig` models that
+rule over the same trace, with a binary heap where c-ares has a skip list; both keep the entries
+in expiry order, which is all the rule needs. It measures **61.07% hits, with at most 8,748
+entries live at once.**
+
+- **SIEVE cannot beat it on hit rate, and does not.** A rule that never evicts a live entry is
+  the ceiling for a given trace and TTLs. The cache is 5.8 points under it at the default 1024
+  slots, 2.0 at 4096 and 0.4 at 16384.
+- **16384 slots, almost twice what c-ares ever holds, still fall 0.4 short.** The reading, which
+  no measurement isolated: the hand takes the first unvisited or expired entry it meets, so it
+  can take a live entry nobody has read yet while an expired one waits further along the order.
+  c-ares's skip list finds the expired entries first.
+- **What SIEVE buys is the bound.** c-ares holds as many entries as the traffic makes: 8,748
+  here, and without limit for a peer that makes a process resolve names of its choosing.
+  cocuyo holds the caller's number, whatever the traffic.
+- **Memory is not compared.** A c-ares entry is a duplicate of the parsed response, a formatted
+  key and a skip list node, and its size in bytes was not measured. A cocuyo slot is 2984 octets
+  whatever the answer holds.
 
 ### Memory
 

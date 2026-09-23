@@ -16,6 +16,7 @@ const cache_module = cocuyo.cache;
 const Question = cocuyo.Question;
 const wire = cocuyo.wire;
 const policy = @import("cache_policy.zig");
+const cares_policy = @import("cache_policy_cares.zig");
 
 /// The sizes swept, in slots. The smallest is a cache too small to hold the working set and the
 /// largest holds it whole, so the table shows where the curve bends.
@@ -146,6 +147,7 @@ var slots: [slots_max]cache_module.Slot = undefined;
 var keys: [keys_max]cache_module.Key = undefined;
 var sieve_model: policy.Sieve(names_distinct) = undefined;
 var s3fifo_model: policy.S3Fifo(names_distinct) = undefined;
+var cares_model: cares_policy.Unbounded(names_distinct) = undefined;
 
 /// S3-FIFO's two readings of when a name leaves the small queue for the main one: above one
 /// read, as Algorithm 1 line 23 has it, and above none, as Figure 5 has it.
@@ -197,7 +199,7 @@ fn replay_model(model: anytype, seed: u64, request_count: usize) Outcome {
 /// columns mean anything (docs/design.md §18).
 fn run_policies(seed: u64) void {
     std.debug.print("\nthe same trace, hit rate by policy and by what a get does with an expired entry\n\n", .{});
-    std.debug.print("{s:>8} {s:>10} | {s:>36} | {s:>36}\n", .{ "", "", "evicted by the get, as the cache does", "refreshed in place" });
+    std.debug.print("{s:>8} {s:>10} | {s:>36} | {s:>36}\n", .{ "", "", "evicted by the get", "renewed in place, as the cache does" });
     std.debug.print("{s:>8} {s:>10} | {s:>10} {s:>12} {s:>12} | {s:>10} {s:>12} {s:>12}\n", .{
         "slots", "cache", "sieve", "s3-fifo l23", "s3-fifo f5", "sieve", "s3-fifo l23", "s3-fifo f5",
     });
@@ -215,6 +217,12 @@ fn run_policies(seed: u64) void {
         }
         std.debug.print("\n", .{});
     }
+    cares_model.init();
+    const cares = replay_model(&cares_model, seed, requests);
+    std.debug.print(
+        "\nc-ares's rule, no bound on the entry count: {d:.2}% hits, at most {d} entries live at once\n",
+        .{ cares.rate_percent(), cares_model.entries_peak },
+    );
 }
 
 pub fn run(seed: u64) void {
@@ -241,6 +249,7 @@ const testing = std.testing;
 
 test {
     _ = policy;
+    _ = cares_policy;
 }
 
 /// The control's own check, on a trace short enough for a Debug test: the smallest size, where
@@ -251,7 +260,7 @@ test "the model of SIEVE answers every question as the cache does" {
     build_weights(&weights);
     const slot_count = sizes[0];
     const cache_outcome = replay(slot_count, 1, control_requests);
-    sieve_model.init(slot_count, .evict_on_get);
+    sieve_model.init(slot_count, .refresh_in_place);
     const model_outcome = replay_model(&sieve_model, 1, control_requests);
     try testing.expectEqual(cache_outcome.hits, model_outcome.hits);
 }
