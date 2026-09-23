@@ -85,6 +85,11 @@ pub const Loop = struct {
     /// The draws the network makes: delays, drops, chunk sizes. Seeded by `seed`.
     word: u64,
     statistics_: Statistics,
+    /// Whether the caller ends every operation itself, in the order it chooses: `submit` takes
+    /// an operation and performs nothing, `cancel` marks it, and `end` frees it. The replay of
+    /// tools/spec_replay/ drives the engine through the orders rotor decision 5, rule 2 allows,
+    /// which the network's own timing never produces.
+    manual: bool,
 
     /// The twin keeps its tables inside itself, so it needs none of the caller's memory; the
     /// signature is rotor's so a caller's arrays are sized the same.
@@ -110,6 +115,7 @@ pub const Loop = struct {
             .group_options = .{},
             .word = 0,
             .statistics_ = .{},
+            .manual = false,
         };
         network_module.network.reset();
     }
@@ -153,7 +159,7 @@ pub const Loop = struct {
             if (index < handles.len) {
                 handles[index] = .{ .index = slot_index, .generation = loop.slots[slot_index].generation };
             }
-            perform.perform(loop, slot_index, operation);
+            if (!loop.manual) perform.perform(loop, slot_index, operation);
             taken += 1;
         }
         assert(taken <= operations.len);
@@ -222,8 +228,19 @@ pub const Loop = struct {
         if (!slot.live or slot.generation != handle.generation or slot.cancelling) return;
         if (loop.has_ended(handle.index)) return;
         slot.cancelling = true;
+        if (loop.manual) return;
         perform.withdraw(loop, handle.index);
         loop.queue(handle.index, Event.failure(slot.user_data, .canceled), loop.now_ns, true);
+    }
+
+    /// Frees an operation the caller ended, in manual mode: what delivering its final event does
+    /// otherwise (rotor decision 5, rule 1).
+    pub fn end(loop: *Loop, slot_index: u32) void {
+        assert(loop.manual);
+        const slot = &loop.slots[slot_index];
+        assert(slot.live);
+        slot.* = .{};
+        loop.live -= 1;
     }
 
     pub fn cancel_all(loop: *Loop) void {
