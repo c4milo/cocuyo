@@ -11,12 +11,29 @@ const send_module = @import("io_send.zig");
 /// Settles every lookup as cancelled, which is `ares_cancel`. Each failure comes through
 /// `take` like any other, so the caller learns of all of them.
 pub fn cancel_all(self: anytype, now_ns: u64) void {
-    for (self.slots[0..], 0..) |*slot, index| {
-        if (!slot.occupied) continue;
-        if (self.resolver.lookup_of(self.handles[index]).is_settled()) continue;
-        self.resolver.cancel(self.handles[index]);
-    }
+    cancel_every(self);
     drive_module.drive(self, now_ns);
+}
+
+/// Cancels every lookup in the table. One that has ended keeps its end (`Resolver.cancel`).
+pub fn cancel_every(self: anytype) void {
+    for (self.slots[0..], 0..) |*slot, index| {
+        if (slot.occupied) self.resolver.cancel(self.handles[index]);
+    }
+}
+
+/// A new table over the engine's slots, and a new cache under it, which is what `init` starts
+/// with and what `reinit` starts again with. The cache is put under the table here, so no path
+/// builds one without the other (docs/design.md §20). A send the old table made keeps its buffer
+/// until its final event, which then speaks for nobody (the stream's rules 6 and 7).
+pub fn reset_tables(self: anytype, config: *const cocuyo.Config, seed: u64) void {
+    self.resolver = cocuyo.Resolver.init(&self.slots, &self.keys, config, seed);
+    self.cache = cocuyo.Cache.init(&self.cache_slots, &self.cache_keys, seed, cocuyo.cache.constants.ttl_seconds_max_default);
+    self.resolver.remember_with(cocuyo.remembered_by(&self.cache));
+    send_module.forget_all(self);
+    self.reported = @splat(false);
+    self.results = .{};
+    self.last_taken = null;
 }
 
 /// A new configuration, which is `ares_reinit`: the cache is emptied because its answers
@@ -37,13 +54,6 @@ pub fn reinit(self: anytype, config: *const cocuyo.Config, seed: u64, now_ns: u6
     self.sockets.cancel(self.loop);
     self.sockets.close();
     self.config = config;
-    self.resolver = cocuyo.Resolver.init(&self.slots, &self.keys, config, seed);
-    self.cache = cocuyo.Cache.init(&self.cache_slots, &self.cache_keys, seed, cocuyo.cache.constants.ttl_seconds_max_default);
-    // A send the old table made keeps its buffer until its final event, which then speaks for
-    // nobody (the stream's rules 6 and 7).
-    send_module.forget_all(self);
-    self.reported = @splat(false);
-    self.results = .{};
-    self.last_taken = null;
+    reset_tables(self, config, seed);
     try self.sockets.open(self.loop, config, seed, @TypeOf(self.*).tag);
 }

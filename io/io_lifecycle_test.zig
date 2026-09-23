@@ -60,6 +60,10 @@ test "reinit cancels what is in flight, empties the cache, and asks the new serv
     const answer = try rig.until_result();
     try testing.expect(answer.outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
+    // The new cache is under the new table: the answer the new server gave is remembered.
+    const again = try rig.engine.start(question("example.com."), rig.loop.now());
+    const hit = rig.engine.take(rig.loop.now()).?;
+    try testing.expectEqual(again, hit.handle);
     try rig.deinit();
 }
 

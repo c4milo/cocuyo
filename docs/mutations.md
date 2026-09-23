@@ -986,7 +986,7 @@ spec`, which replays 1.6 million events. The committed walks catch all eight, wh
 own tests alone did not: E1, E2, E4, E6, E7 and E8 were `NOT CAUGHT` by `zig build test-io`. E8
 needed a check the state line does not make, that every buffer an event hands the engine is back
 in its group when the event is over. E7 is in the table, and the test it came with catches it as
-well. Eight mutations, eight `CAUGHT`.
+well. R1 was found by review, not by the model. Nine mutations, nine `CAUGHT`.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
@@ -998,6 +998,7 @@ well. Eight mutations, eight `CAUGHT`.
 | E6 | the drive stops after one poll a slot | rule 8 | the committed walks; the full walks | CAUGHT |
 | E7 | the table misses the deadline of a wait a poll starts | §11, the bound | the connect-deadline test of `table_ready.zig`; the committed walks | CAUGHT |
 | E8 | a stale event keeps its buffer | rule 2, the buffer | the committed walks' buffer check | CAUGHT |
+| R1 | `reinit` builds a cache it never puts under the table | §20, the cache under the table | the twin's cache tests | CAUGHT |
 
 ## The epoll check
 

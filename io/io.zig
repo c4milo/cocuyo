@@ -111,14 +111,8 @@ pub fn Engine(comptime options: Options) type {
             config.assert_valid();
             self.loop = loop;
             self.config = config;
-            self.resolver = cocuyo.Resolver.init(&self.slots, &self.keys, config, seed);
-            self.cache = cocuyo.Cache.init(&self.cache_slots, &self.cache_keys, seed, cocuyo.cache.constants.ttl_seconds_max_default);
-            self.resolver.remember_with(cocuyo.remembered_by(&self.cache));
             self.send_in_flight = @splat(false);
-            send_module.forget_all(self);
-            self.reported = @splat(false);
-            self.results = .{};
-            self.last_taken = null;
+            lifecycle.reset_tables(self, config, seed);
             self.timer_handle = null;
             self.timer_due_ns = null;
             self.timer_generation = 0;
@@ -136,7 +130,7 @@ pub fn Engine(comptime options: Options) type {
         /// Ends every receive and the timer. The caller drains the loop, then calls `close`.
         pub fn deinit(self: *Self) void {
             self.closing = true;
-            self.resolver_cancel_all();
+            lifecycle.cancel_every(self);
             if (self.timer_handle) |handle| self.loop.cancel(handle);
             self.timer_handle = null;
             self.sockets.cancel(self.loop);
@@ -148,13 +142,6 @@ pub fn Engine(comptime options: Options) type {
             assert(self.closing);
             self.sockets.close();
             tcp.close_all(self);
-        }
-
-        fn resolver_cancel_all(self: *Self) void {
-            for (self.slots[0..], 0..) |*slot, index| {
-                if (!slot.occupied) continue;
-                self.resolver.cancel(self.handles[index]);
-            }
         }
 
         /// Starts a lookup. Its result comes through `take`, and one the cache already holds is

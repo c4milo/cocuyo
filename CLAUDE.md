@@ -294,7 +294,8 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   2026-09-23), with the table's ready list and free list in it. Its replay ends the loop's
   operations in the orders rotor's decision 5 allows, and found the review's three defects in
   the stream path and three more: the drive's poll bound, a stale event's buffer, and the table's
-  deadline bound missing a connect. `AddressLookup`'s walk is the state machine still to model.
+  deadline bound missing a connect. `reinit` puts its cache under its table again.
+  `AddressLookup`'s walk is the state machine still to model.
 - Next, in order (the owner's plan of 2026-09-23): DoT; DoH's DNS half. The p99 of the
   comparison waits for a quiet machine.
 
