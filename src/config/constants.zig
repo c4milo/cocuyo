@@ -15,13 +15,12 @@ pub const lines_max = 256;
 /// use (docs/design.md §10).
 pub const nameserver_default = [_]u8{ 127, 0, 0, 1 };
 
-/// The keywords a line may start with (`resolv.conf(5)`). `sortlist` is recognised only so that
-/// it is skipped by name rather than by falling through.
+/// The keywords a line may start with that the parser reads (`resolv.conf(5)`). A line that
+/// starts with any other is skipped.
 pub const keyword_nameserver = "nameserver";
 pub const keyword_search = "search";
 pub const keyword_domain = "domain";
 pub const keyword_options = "options";
-pub const keyword_sortlist = "sortlist";
 
 /// What separates tokens on a line, and what starts a comment.
 pub const token_separators = " \t\r";
@@ -38,3 +37,7 @@ pub const hosts_comment_start = '#';
 
 /// The `use-vc` option of `resolv.conf(5)`: every query over TCP.
 pub const option_use_vc = "use-vc";
+
+/// One second in nanoseconds, which a `timeout:` value is multiplied by. It is spelled out
+/// because nothing under `src/` may name `std.time` (CLAUDE.md non-negotiable 4).
+pub const ns_per_s = 1_000_000_000;

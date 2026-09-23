@@ -66,13 +66,7 @@ pub fn parse_with(bytes: []const u8, storage: *Storage, parse_options: ParseOpti
 /// the text here (§19 step 11).
 pub fn apply_options(text: []const u8, config: *Config) void {
     var tokens = std.mem.tokenizeAny(u8, text, constants.token_separators);
-    var read: usize = 0;
-    while (read < constants.options_max) : (read += 1) {
-        const token = tokens.next() orelse break;
-        const option = options.parse(token) orelse continue;
-        apply_option(option, config);
-    }
-    assert(read <= constants.options_max);
+    read_options(&tokens, config);
     config.assert_valid();
 }
 
@@ -80,17 +74,22 @@ pub fn apply_options(text: []const u8, config: *Config) void {
 /// variable (`resolv.conf(5)`): a `domain` or `search` line's worth of names.
 pub fn apply_search(text: []const u8, storage: *Storage, config: *Config) void {
     var tokens = std.mem.tokenizeAny(u8, text, constants.token_separators);
-    var count: usize = 0;
+    config.search = read_search(&tokens, storage);
+    assert(config.search.len <= core.constants.search_max);
+}
+
+const Tokens = std.mem.TokenIterator(u8, .any);
+
+/// Applies each option token in `tokens` to `config`, each independent of the others. A token
+/// cocuyo does not know is skipped, and so is every token past `options_max`.
+fn read_options(tokens: *Tokens, config: *Config) void {
     var read: usize = 0;
-    while (read <= core.constants.search_max) : (read += 1) {
+    while (read < constants.options_max) : (read += 1) {
         const token = tokens.next() orelse break;
-        if (count == core.constants.search_max) break;
-        const name = Name.from_text(token) catch continue;
-        storage.search[count] = name;
-        count += 1;
+        const option = options.parse(token) orelse continue;
+        apply_option(option, config);
     }
-    assert(count <= core.constants.search_max);
-    config.search = storage.search[0..count];
+    assert(read <= constants.options_max);
 }
 
 fn apply_option(option: options.Option, config: *Config) void {
@@ -103,17 +102,29 @@ fn apply_option(option: options.Option, config: *Config) void {
     }
 }
 
+/// Reads the names in `tokens` into `storage` from its first entry and returns them: a search
+/// list replaces the one before it rather than adding to it. A malformed name is skipped, and
+/// names past `search_max` are dropped.
+fn read_search(tokens: *Tokens, storage: *Storage) []const Name {
+    var count: usize = 0;
+    var read: usize = 0;
+    while (read <= core.constants.search_max) : (read += 1) {
+        const text = tokens.next() orelse break;
+        if (count == core.constants.search_max) break;
+        const name = Name.from_text(text) catch continue;
+        storage.search[count] = name;
+        count += 1;
+    }
+    assert(count <= core.constants.search_max);
+    return storage.search[0..count];
+}
+
 const Builder = struct {
     storage: *Storage,
+    /// The configuration the lines so far describe. Its server list is set by `finish`, which
+    /// adds the default server when the file named none.
+    config: Config = .{ .servers = &.{} },
     server_count: u8 = 0,
-    search_count: u8 = 0,
-    ndots: u8 = core.constants.ndots_default,
-    timeout_ns: u64 = core.constants.timeout_ns_default,
-    attempts: u8 = core.constants.attempts_default,
-    rotate: bool = false,
-    use_tcp: bool = false,
-
-    const Tokens = std.mem.TokenIterator(u8, .any);
 
     fn line(self: *Builder, text: []const u8) void {
         var tokens = std.mem.tokenizeAny(u8, text, constants.token_separators);
@@ -122,14 +133,14 @@ const Builder = struct {
         if (std.mem.eql(u8, keyword, constants.keyword_nameserver)) {
             self.nameserver(&tokens);
         } else if (std.mem.eql(u8, keyword, constants.keyword_search)) {
-            self.search(&tokens);
+            self.config.search = read_search(&tokens, self.storage);
         } else if (std.mem.eql(u8, keyword, constants.keyword_domain)) {
             self.domain(&tokens);
         } else if (std.mem.eql(u8, keyword, constants.keyword_options)) {
-            self.option_line(&tokens);
+            read_options(&tokens, &self.config);
         }
-        // `sortlist` and anything else is skipped: cocuyo does not order addresses, and a keyword
-        // it does not know is a line for something else.
+        // Any other keyword, `sortlist` among them, is skipped: a keyword the parser does not
+        // know is a line for something else.
     }
 
     /// `nameserver ADDRESS`. A line with no address, a malformed one, or one past the limit is
@@ -143,43 +154,13 @@ const Builder = struct {
         assert(self.server_count <= core.constants.servers_max);
     }
 
-    /// `search ONE TWO ...`. The last `search` or `domain` line in a file wins, so this replaces
-    /// whatever came before rather than adding to it.
-    fn search(self: *Builder, tokens: *Tokens) void {
-        self.search_count = 0;
-        var read: usize = 0;
-        while (read <= core.constants.search_max) : (read += 1) {
-            const text = tokens.next() orelse break;
-            if (self.search_count == core.constants.search_max) break;
-            const name = Name.from_text(text) catch continue;
-            self.storage.search[self.search_count] = name;
-            self.search_count += 1;
-        }
-        assert(self.search_count <= core.constants.search_max);
-    }
-
-    /// `domain NAME`: a search list of one.
+    /// `domain NAME`: a search list of one. The last `search` or `domain` line in a file wins.
     fn domain(self: *Builder, tokens: *Tokens) void {
         const text = tokens.next() orelse return;
         const name = Name.from_text(text) catch return;
         self.storage.search[0] = name;
-        self.search_count = 1;
-    }
-
-    /// `options ONE TWO ...`, each token independent of the others.
-    fn option_line(self: *Builder, tokens: *Tokens) void {
-        var read: usize = 0;
-        while (read < constants.options_max) : (read += 1) {
-            const text = tokens.next() orelse break;
-            const option = options.parse(text) orelse continue;
-            switch (option) {
-                .ndots => |ndots| self.ndots = ndots,
-                .timeout_ns => |timeout_ns| self.timeout_ns = timeout_ns,
-                .attempts => |attempts| self.attempts = attempts,
-                .rotate => self.rotate = true,
-                .use_tcp => self.use_tcp = true,
-            }
-        }
+        self.config.search = self.storage.search[0..1];
+        assert(self.config.search.len == 1);
     }
 
     fn finish(self: *Builder, parse_options: ParseOptions) Config {
@@ -191,18 +172,10 @@ const Builder = struct {
             self.server_count = 1;
         }
         assert(self.server_count >= 1 or !parse_options.default_server);
-        const config: Config = .{
-            .servers = self.storage.servers[0..self.server_count],
-            .search = self.storage.search[0..self.search_count],
-            .ndots = self.ndots,
-            .attempts = self.attempts,
-            .timeout_ns = self.timeout_ns,
-            .rotate = self.rotate,
-            .use_tcp = self.use_tcp,
-        };
+        self.config.servers = self.storage.servers[0..self.server_count];
         // Whatever the file said, the configuration handed back is one a lookup can run on.
-        config.assert_valid();
-        return config;
+        self.config.assert_valid();
+        return self.config;
     }
 };
 

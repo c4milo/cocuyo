@@ -32,10 +32,6 @@ const ndots_limit = 15;
 /// `resolv.conf(5)` caps timeout at 30 seconds, which is also cocuyo's `timeout_ns_max`.
 const timeout_seconds_limit = 30;
 
-/// One second in nanoseconds, spelled out because nothing under `src/` may name `std.time`
-/// (CLAUDE.md non-negotiable 4).
-const ns_per_s = 1_000_000_000;
-
 /// The base an option's value is written in.
 const decimal_base = 10;
 
@@ -51,7 +47,7 @@ pub fn parse(token: []const u8) ?Option {
         // A timeout of zero would make every query time out before it was sent, so it reads as
         // the smallest wait there is rather than as no wait.
         const clamped = @max(seconds, 1);
-        return .{ .timeout_ns = clamped * ns_per_s };
+        return .{ .timeout_ns = clamped * constants.ns_per_s };
     }
     if (value_of(token, attempts_keyword)) |text| {
         const attempts = number(text, core.constants.attempts_max) orelse return null;
@@ -86,7 +82,7 @@ const testing = std.testing;
 test "every option cocuyo knows parses" {
     try testing.expectEqual(Option{ .ndots = 3 }, parse("ndots:3").?);
     try testing.expectEqual(Option{ .attempts = 4 }, parse("attempts:4").?);
-    try testing.expectEqual(Option{ .timeout_ns = 2 * ns_per_s }, parse("timeout:2").?);
+    try testing.expectEqual(Option{ .timeout_ns = 2 * constants.ns_per_s }, parse("timeout:2").?);
     try testing.expectEqual(Option.rotate, parse("rotate").?);
 }
 
@@ -110,14 +106,14 @@ test "a value over the limit is clamped, not refused" {
     try testing.expectEqual(Option{ .ndots = ndots_limit }, parse("ndots:999999999999999999999").?);
     try testing.expectEqual(Option{ .attempts = core.constants.attempts_max }, parse("attempts:9").?);
     try testing.expectEqual(
-        Option{ .timeout_ns = timeout_seconds_limit * ns_per_s },
+        Option{ .timeout_ns = timeout_seconds_limit * constants.ns_per_s },
         parse("timeout:600").?,
     );
 }
 
 test "a zero timeout or zero attempts reads as the smallest there is" {
     // Zero would make a lookup give up before it sent anything, which no configuration can mean.
-    try testing.expectEqual(Option{ .timeout_ns = ns_per_s }, parse("timeout:0").?);
+    try testing.expectEqual(Option{ .timeout_ns = constants.ns_per_s }, parse("timeout:0").?);
     try testing.expectEqual(Option{ .attempts = 1 }, parse("attempts:0").?);
 }
 
