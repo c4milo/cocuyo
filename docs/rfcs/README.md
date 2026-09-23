@@ -12,6 +12,12 @@ RFC 5001 for the name server identifier, RFC 7830 for padding, RFC 7871 for the 
 RFC 8914 for the extended errors. Each was checked against `rfc-editor.org/rfc/rfcNNNN.json` that
 day: none is obsoleted.
 
+Added on 2026-09-23 for DNS over TLS, which the owner decided in that day: RFC 7858 for the
+transport, RFC 8310 for the strict profile and where the name a certificate is checked against
+comes from, and RFC 8467 for the padding a query carries. Each was checked against
+`rfc-editor.org/rfc/rfcNNNN.json` that day: none is obsoleted. RFC 7858 is updated by RFC 8310,
+which is here. RFC 8467 is Experimental, and RFC 8310 §9 points to it for the padding policy.
+
 Read these, never a summary and never another implementation's source. Cite the RFC that *states*
 a rule, not one that inherits it, and cite it by section on the line that does the checking
 (CLAUDE.md non-negotiable 8).
@@ -71,6 +77,9 @@ updates worth knowing about, none of which version one implements:
 | 7553 | The Uniform Resource Identifier (URI) DNS Resource Record | §4, the URI record's fields |
 | 7766 | DNS Transport over TCP, Implementation Requirements | §5 transport selection, §6.2.1 connection reuse and pipelining, §6.2.3 idle timeouts, §8 the two-octet length field |
 | 7873 | Domain Name System (DNS) Cookies | §4 the COOKIE option, §4.1 the client cookie, §5.1 sending one, §5.3 what a client does with the response, BADCOOKIE included |
+| 7858 | Specification for DNS over Transport Layer Security (TLS) | §3.1 port 853 and no cleartext on it, §3.3 the two-octet length on TLS, §3.4 reuse, pipelining and idle close |
+| 8310 | Usage Profiles for DNS over TLS and DNS over DTLS | §5 the strict profile and its hard failure, §6.6 authentication under it, §7 the authentication domain name, §8.1 the PKIX check against it, §9 the TLS profile |
+| 8467 | Padding Policies for Extension Mechanisms for DNS (EDNS(0)) | §4.1, queries padded to a multiple of 128 octets |
 | 8482 | Providing Minimal-Sized Responses to DNS Queries That Have QTYPE=ANY | §4, what an ANY question may get back, a synthesized HINFO included |
 | 8659 | DNS Certification Authority Authorization (CAA) Resource Record | §4.1, the CAA record's fields |
 | 9018 | Interoperable Domain Name System (DNS) Server Cookies | §3, the server cookie's length, which is all a client reads of it |
