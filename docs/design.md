@@ -1317,6 +1317,14 @@ step until `zig build test` passes.
     stands. On the synthetic trace that is 3.0 points more hits at the default 1024 slots and
     1.0 fewer at 4096 (§18). An expired entry holds its slot until its name is asked again or
     the hand meets it. The public surface is unchanged.
+15. **Should a port be replaced under load?** A port that has carried `udp_queries_per_port`
+    queries is replaced only once no lookup waits on its server (§19 step 13, the datagram's
+    rule 4). Under steady load one always does, so the port is never replaced, and the setting
+    does nothing when it matters most. The engine model shows it: nothing in the rules makes a
+    retiring port rotate. c-ares, as recalled rather than read, moves new queries to a new
+    socket at once and closes the old one when its last query ends. Doing the same takes two
+    sockets a server while one drains, which changes what `Sockets` holds and what a server's
+    receive is. Unanswered, so the rule stands.
 
 ## 18. The cache
 
@@ -2061,34 +2069,69 @@ code of 2026-09-22 broke one, the model found it, and the fix is recorded with i
 8. The drive takes lookups in the table's ready order (§11), and the results reach `take` in the
    order the drive reported them.
 
-**Checked on 2026-09-23.** spec/Spec/Engine.lean and spec/Spec/EngineStep.lean hold the rules
-above as a model. Each lookup is the model of §5, and around the lookups sit the table's ready
-list and free list (§11), the connections, and the operations the loop holds. The model's clock
-moves in ticks, each the idle close's wait, and a lookup waits two of them.
+**The datagram's rules, written on 2026-09-23** in the same way, for the same model. Rules 6 to 8
+of the stream hold for datagrams as they stand: a send lends its buffer, a completion speaks for
+the attempt that made it, and the drive goes on until nothing is left.
 
-- `cocuyo-spec engine` walks every state the model reaches with two servers, one or two slots and
-  one or two connections, and checks five invariants in each: a connection's users are the
-  lookups on it, a lookup is only on a connection to its server, a buffer is lent to one send at
-  most, an open connection has one current operation, and a drive leaves nothing on the ready
-  list. They hold in all 96,148 states of one slot and one connection, and in the 4.5 million of
-  one slot and two connections. This is model checking over bounded configurations, not a proof.
+1. One socket per server, each with one multishot receive into the datagram group. A socket that
+   is open always has a receive armed, or gets one at the next drive: a receive that ends is
+   armed again, and one the loop refuses is asked for again at the next drive, not forgotten.
+2. Each arming of a receive is a generation, carried in its `user_data`. An event of another
+   generation belongs to a receive that is gone and changes nothing, whatever it holds: a
+   cancelled multishot receive can still deliver datagrams before its final event (rotor
+   decision 5, rule 2).
+3. Every event that carries a buffer gives it back before the event is over, whatever the event
+   is for: a datagram once the table has read it, whatever its length, and a stale event's at
+   once.
+4. A port that has carried `udp_queries_per_port` queries is replaced once no lookup waits on
+   its server or has a send in flight to it. The receive is cancelled and the socket closed, and
+   another is opened. When the new socket cannot be opened, the server has none until a later
+   drive opens one, and a send to it fails as any send fails: the lookup moves on to the next
+   server. It is not a reason to stop the program.
+
+**Checked on 2026-09-23.** spec/Spec/Engine.lean, EngineSockets.lean and EngineStep.lean hold
+both sets of rules above as a model. Each lookup is the model of §5, and around the lookups sit
+the table's ready list and free list (§11), the connections, the sockets, and the operations the
+loop holds. A configuration asks every query over TCP, or every query over UDP with a port
+replaced every two queries. The model's clock moves in ticks, each the idle close's wait, and a
+lookup waits two of them. The loop may refuse every submission for the length of one event, and
+socket opens may fail for the length of one event.
+
+- `cocuyo-spec engine` walks every state the model reaches in a configuration and checks seven
+  invariants in each. A connection's users are the lookups on it. A lookup is only on a
+  connection to its server. A buffer is lent to one send at most. A connection and a socket each
+  have at most one current operation of each kind. A drive leaves nothing on the ready list. And
+  after a drive nothing refused, every server has a socket with its receive armed and every
+  connection that is up has its receive. They hold in all 2.48 million states of one slot and
+  one connection over TCP, and in all 1.77 million of one slot over UDP. This is model checking
+  over bounded configurations, not a proof.
 - The replay drives the engine over the twin in manual mode, where the loop ends each operation
-  when and how the walk says, down 8,000 walks and 1.6 million events. After each event it
-  compares the engine's whole state with the model's, and checks every buffer the event handed
-  the engine is back in its group.
+  when and how the walk says, and refuses what the walk says. It runs 12,000 walks and 2.4
+  million events. After each event it compares the engine's whole state with the model's, and
+  checks every buffer the event handed the engine is back in its group.
 
-The code of 2026-09-22 broke six of these, each fixed with the model:
+The code of 2026-09-22 broke nine of these rules, each fixed with the model:
 
 - A cancelled connect or receive that ended after its slot was reused was taken for the new
-  connection's own (rule 2).
+  connection's own (the stream's rule 2).
 - A lookup whose deadline passed kept its old server's connection, and was sent on it (rule 3).
 - A send's completion was told to whatever attempt the lookup was on by then, and a new lookup in
   a slot wrote into a buffer the loop could still be reading (rules 6 and 7).
 - The drive stopped after one poll a slot, so a lookup whose connection was already up was left
   with its query unsent (rule 8).
-- A stale event's buffer was not given back.
+- A stale event on a stream did not give its buffer back.
 - The table's deadline bound missed a wait a poll starts (§11), so no timer was armed for a
   connect.
+- A receive a replaced socket left behind kept the buffer of a datagram it delivered after its
+  cancel, so every port replacement under load could take a buffer from the group (the
+  datagram's rules 2 and 3).
+- A receive the loop refused to arm again was forgotten, so its socket or its connection heard
+  nothing more (the datagram's rule 1).
+- A port whose replacement could not be opened left its server with no socket, and the next send
+  to it stopped the program on an assertion (the datagram's rule 4).
+
+The model also shows what the rules leave open: nothing makes a retiring port rotate while its
+server stays busy, which §17 question 15 asks the owner about.
 
 **The rest of the engine, landed on 2026-09-22.** `cancel_all` ends every lookup at once, which
 is `ares_cancel`, and each failure comes through `take` like any other. `reinit` takes a new

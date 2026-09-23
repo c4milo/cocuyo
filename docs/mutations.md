@@ -1000,6 +1000,25 @@ well. R1 was found by review, not by the model. Nine mutations, nine `CAUGHT`.
 | E8 | a stale event keeps its buffer | rule 2, the buffer | the committed walks' buffer check | CAUGHT |
 | R1 | `reinit` builds a cache it never puts under the table | §20, the cache under the table | the twin's cache tests | CAUGHT |
 
+## The engine's datagrams
+
+The datagram's rules against the same model (docs/design.md §19 step 13). Broken against
+`zig build test-io`, `zig build test-tools` and `zig build spec`. The committed walks caught U1,
+U2, U4, U6 and U7. U3 was `NOT CAUGHT` by them, since no committed walk refuses a port's
+replacement and then sends to its server; the full walks caught it, and the twin test written
+for it catches it in the gate. A mutation that stopped clearing a receive's armed flag at its
+end was caught by nothing, because the arming sets the flag either way, so the line was removed
+rather than kept. Six mutations, six `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| U1 | a receive a replaced socket left behind keeps its datagram's buffer | rules 2 and 3 | the committed walks' buffer check; the full walks | CAUGHT |
+| U2 | a socket's receive the loop refused is never asked for again | rule 1 | the committed walks; the full walks | CAUGHT |
+| U3 | a send goes to a server whose socket could not be opened | rule 4 | the missing-socket twin test; the full walks, by an assertion | CAUGHT |
+| U4 | a server whose socket could not be opened is never given one | rule 4 | the missing-socket twin test; the committed walks | CAUGHT |
+| U6 | a connection's receive the loop refused is never asked for again | rule 1 | the committed walks; the full walks | CAUGHT |
+| U7 | a port is replaced under a lookup waiting on it | rule 4 | the rotation twin test; the committed walks | CAUGHT |
+
 ## The epoll check
 
 `tools/epoll_check/run.sh`, run by CI's `epoll` job: the rotor example must resolve inside a

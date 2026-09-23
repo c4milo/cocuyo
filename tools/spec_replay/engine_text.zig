@@ -1,6 +1,7 @@
 //! The engine's state, written the way the engine model writes its own (`stateLine` in
-//! spec/Spec/EngineWalk.lean): the slots, the connections, the loop's stream operations, then
-//! the ready list, the results, the slot taken last, the waits, the failures and the free list.
+//! spec/Spec/EngineWalk.lean): the slots, the connections, the sockets, the loop's operations,
+//! then the ready list, the results, the slot taken last, the waits, the failures, the free list
+//! and what the twin refuses.
 //!
 //! Each part is read off the engine and the table as they are, not as the engine says it is:
 //! an operation is current when its incarnation is its connection's, or when the attempt it was
@@ -56,6 +57,17 @@ pub fn write(world: anytype, out: *[world_module.text_bytes_max]u8) []const u8 {
         line.flag(connection.state != .closed and connection.idle_since_ns == world.now_ns, 'I');
     }
     line.print(" | ", .{});
+    for (0..world.config.servers.len) |server| {
+        if (server > 0) line.print(" ; ", .{});
+        const socket = &engine.sockets.items[server];
+        if (!socket.open) {
+            line.print("none", .{});
+            continue;
+        }
+        line.print("open s{d}", .{socket.sent});
+        line.flag(socket.retiring, 'R');
+    }
+    line.print(" | ", .{});
     operations(&line, world);
     line.print(" | ", .{});
     table(&line, world);
@@ -85,7 +97,7 @@ fn slot(line: *Line, world: anytype, index: usize) void {
 
 fn operations(line: *Line, world: anytype) void {
     var ordered: [rotor.constants.operations_max]u32 = undefined;
-    const count = world_module.stream_operations(world, &ordered);
+    const count = world_module.known_operations(world, &ordered);
     for (ordered[0..count], 0..) |loop_slot, position| {
         if (position > 0) line.print(" ", .{});
         const user_data = world.loop.slots[loop_slot].user_data;
@@ -99,6 +111,11 @@ fn operations(line: *Line, world: anytype) void {
                 line.print("{c}{d}{c}", .{ if (kind == .tcp_connect) @as(u8, 'C') else 'R', at, mark(current) });
             },
             .tcp_send => line.print("S{d}{c}", .{ index, mark(send_is_current(world, index)) }),
+            .udp_send => line.print("D{d}{c}", .{ index, mark(send_is_current(world, index)) }),
+            .udp_receive => {
+                const server = index & io.constants.receive_index_mask;
+                line.print("L{d}{c}", .{ server, mark(world.engine.sockets.is_current(index) != null) });
+            },
             else => unreachable,
         }
     }
@@ -150,6 +167,9 @@ fn table(line: *Line, world: anytype) void {
         count += 1;
     }
     line.list(items[0..count]);
+    line.print(" ", .{});
+    line.flag(world.loop.refuse_submissions, 'J');
+    line.flag(world.loop.network().refuse_open, 'Z');
 }
 
 /// The waiting lookups, grouped by the deadline they wait for, soonest first.

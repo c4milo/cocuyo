@@ -86,12 +86,22 @@ def transcript (out : IO.FS.Stream) (hops : Nat) (configs : List Config) : IO (N
 the seed, the walks in each configuration, and the most events in one. -/
 def engineGate : Nat × Nat × Nat := (1, 10, 40)
 
-/-- The engine's walks, in each configuration the model is walked in: one or two slots, one or
-two connections. -/
+/-- The engine configurations: every query over TCP with one or two slots and one or two
+connections, and every query over UDP with one or two slots and a port replaced every two
+queries. -/
+def engineConfigs : List Spec.Engine.Config :=
+  let tcp := [(1, 1), (1, 2), (2, 1), (2, 2)].map fun (slots, conns) =>
+    { servers := 2, slots, conns, pollsMax := 1000, timeoutTicks := 2, useTcp := true, perPort := 0 }
+  let udp := [1, 2].map fun slots =>
+    { servers := 2, slots, conns := 1, pollsMax := 1000, timeoutTicks := 2, useTcp := false,
+      perPort := 2 }
+  tcp ++ udp
+
+/-- The engine's walks, in each configuration. -/
 def engineWalks (out : IO.FS.Stream) (seed count length : Nat) (quiet : Bool) : IO Nat := do
   let mut total := 0
-  for (slots, conns) in [(1, 1), (1, 2), (2, 1), (2, 2)] do
-    let c : Spec.Engine.Config := { servers := 2, slots, conns, pollsMax := 1000, timeoutTicks := 2 }
+  for c in engineConfigs do
+    let (slots, conns) := (c.slots, c.conns)
     let (events, states) ← Spec.Engine.walks out c seed.toUInt64 count length
     unless quiet do IO.eprintln s!"config {slots} {conns}: {events} events, {states} states"
     total := total + events
@@ -120,11 +130,11 @@ def main (args : List String) : IO UInt32 := do
     let (total, deepest) ← transcript (← IO.getStdout) hops.toNat! configs
     IO.eprintln s!"{total} events, {deepest} deep"
     return 0
-  | ["engine", slots, conns, polls] =>
+  | ["engine", transport, slots, conns] =>
     let c : Spec.Engine.Config :=
-      { servers := 2, slots := slots.toNat!, conns := conns.toNat!, pollsMax := polls.toNat!,
-        timeoutTicks := 2 }
-    let found ← Spec.Engine.walk c { opsMax := 6, failuresMax := 2 }
+      { servers := 2, slots := slots.toNat!, conns := conns.toNat!, pollsMax := 1000,
+        timeoutTicks := 2, useTcp := transport = "tcp", perPort := if transport = "tcp" then 0 else 2 }
+    let found ← Spec.Engine.walk c { opsMax := 6, failuresMax := 2, sentMax := 3 }
     IO.println s!"{found.states} states, {found.transitions} transitions"
     match found.broken with
     | none => IO.println "every invariant holds"; return 0

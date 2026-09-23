@@ -12,11 +12,14 @@ pub const Socket = struct {
     open: bool = false,
     descriptor: rotor.Descriptor = 0,
     receive: rotor.Handle = rotor.Handle.none,
+    /// Whether its receive is armed. False when the loop refused the last arming, which the next
+    /// drive asks for again (docs/design.md §19 step 13, the datagram's rule 1).
+    receiving: bool = false,
     /// Queries sent from this port, for `Config.udp_queries_per_port`.
     sent: u32 = 0,
     /// Which receive this socket has armed, out of the table's count. The end of a receive a
     /// replaced socket left behind carries another, and there is nothing to do about it.
-    armed_generation: u8 = 0,
+    armed_generation: u32 = 0,
     /// Whether the port has carried its share and waits for its lookups to end before another
     /// is opened. A port is never taken from a query that is still waiting for its answer.
     retiring: bool = false,
@@ -29,7 +32,8 @@ pub const Sockets = struct {
     word: u64 = 0,
     /// Names every receive this table has ever armed, apart. It outlives the sockets, because
     /// what it tells apart is a receive from a socket that is gone (`reinit`, a port replaced).
-    next_generation: u8 = 0,
+    /// Thirty-two bits, so a receive left behind cannot come back to a count that wrapped.
+    next_generation: u32 = 0,
 
     /// Opens a socket per server and starts its receive. A port already in use is not a reason
     /// to fail: the kernel picks another.
@@ -91,7 +95,8 @@ pub const Sockets = struct {
 
     /// Replaces a retiring port with a new one, once nothing is waiting on it (c-ares
     /// `udp_max_queries`). The receive on the old socket is cancelled and the socket closed, so
-    /// nothing arrives on it afterwards.
+    /// nothing arrives on it afterwards. When the new one cannot be opened the server has no
+    /// socket until `tend` opens one (the datagram's rule 4).
     pub fn rotate(
         self: *Sockets,
         loop: *rotor.Loop,
@@ -120,6 +125,24 @@ pub const Sockets = struct {
         return self.items[index].retiring;
     }
 
+    pub fn is_open(self: *const Sockets, index: u8) bool {
+        assert(index < self.count);
+        return self.items[index].open;
+    }
+
+    /// What a drive does last for server `index`: a socket opened when it has none, and its
+    /// receive armed when it has none. What the moment refuses is asked for again at the next
+    /// drive (the datagram's rules 1 and 4).
+    pub fn tend(self: *Sockets, loop: *rotor.Loop, config: *const cocuyo.Config, index: u8, tag: u16) void {
+        assert(index < self.count);
+        const socket = &self.items[index];
+        if (!socket.open) {
+            self.open_one(loop, config, index, config.servers[index].endpoint.address.family, tag) catch {};
+        } else if (!socket.receiving) {
+            self.receive_again(loop, index, tag) catch {};
+        }
+    }
+
     /// Arms the multishot receive of server `index`'s socket, which every datagram from that
     /// server arrives on.
     pub fn receive_again(self: *Sockets, loop: *rotor.Loop, index: u8, tag: u16) error{ReceiveFailed}!void {
@@ -134,12 +157,16 @@ pub const Sockets = struct {
             constants.group_id,
         );
         var handles: [1]rotor.Handle = undefined;
-        if (loop.submit(&.{operation}, &handles) != 1) return error.ReceiveFailed;
+        if (loop.submit(&.{operation}, &handles) != 1) {
+            socket.receiving = false;
+            return error.ReceiveFailed;
+        }
         socket.receive = handles[0];
+        socket.receiving = true;
     }
 
     /// The `user_data` index of a receive: the server it is on, and which receive on it.
-    fn receive_index(index: u8, generation: u8) usize {
+    fn receive_index(index: u8, generation: u32) usize {
         return @as(usize, index) | (@as(usize, generation) << constants.receive_generation_shift);
     }
 
@@ -149,7 +176,7 @@ pub const Sockets = struct {
     pub fn is_current(self: *const Sockets, index: usize) ?u8 {
         const server: u8 = @intCast(index & constants.receive_index_mask);
         if (server >= self.count) return null;
-        const generation: u8 = @intCast(index >> constants.receive_generation_shift);
+        const generation: u32 = @truncate(index >> constants.receive_generation_shift);
         if (self.items[server].armed_generation != generation) return null;
         return server;
     }

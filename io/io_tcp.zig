@@ -356,6 +356,14 @@ fn shut(self: anytype, at: u8) void {
     connection.* = .{ .incarnation = connection.incarnation };
 }
 
+/// A receive for every connection that is up and has none: one the loop refused before is asked
+/// for again, as a socket's is (docs/design.md §19 step 13, the datagram's rule 1).
+pub fn tend(self: anytype) void {
+    for (self.connections[0..], 0..) |*connection, at| {
+        if (connection.state == .up and !connection.receiving) receive_again(self, @intCast(at));
+    }
+}
+
 /// Closes every connection nobody is using and has not used for `tcp_idle_ns` (RFC 7766 §6.2.3).
 pub fn close_idle(self: anytype, now_ns: u64) void {
     for (self.connections[0..], 0..) |*connection, at| {

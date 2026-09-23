@@ -1,12 +1,13 @@
 import Spec.Lookup
 
 /-!
-# The engine's streams
+# The engine
 
-The engine of docs/design.md §19 step 13 under every query over TCP, written from the stream's
+The engine of docs/design.md §19 step 13, written from the stream's rules and the datagram's
 rules there and from rotor's decision 5, never from the Zig source (spec/README.md). Each lookup
 is the model of `Spec.Lookup`; around them sit the table's slots, its free list and its ready
-list (§11), the connections, and the operations the loop holds.
+list (§11), the connections, the sockets, and the operations the loop holds. A configuration
+asks every query over TCP, or every query over UDP with no answer truncated.
 
 Time moves in ticks, each the idle close's wait, and only when the caller says it passes or a
 deadline arrives; every other event comes at the instant of the one before it. A lookup waits
@@ -33,18 +34,30 @@ structure Conn where
   idleNow : Bool := false
   deriving DecidableEq, Repr, Inhabited, Hashable
 
+/-- A stream's connect, receive and send; a datagram's send and a socket's receive. -/
 inductive OpKind where
-  | connect | receive | send
+  | connect | receive | send | sendTo | receiveFrom
   deriving DecidableEq, Repr, Inhabited, Hashable
 
 /-- An operation the loop holds. `current` is whether the engine still expects it: for a connect
-or a receive, whether its incarnation is still the slot's (rule 2); for a send, whether the
-attempt that made it is still the lookup's (rule 7). -/
+or a receive, whether its incarnation or generation is still its connection's or its socket's
+(the stream's rule 2, the datagram's rule 2); for a send, whether the attempt that made it is
+still the lookup's (rule 7). -/
 structure Op where
   kind : OpKind
-  /-- The connection slot of a connect or a receive, the table slot of a send. -/
+  /-- The connection slot of a connect or a stream's receive, the server of a socket's receive,
+  the table slot of a send. -/
   target : Nat
   current : Bool
+  deriving DecidableEq, Repr, Inhabited, Hashable
+
+/-- A server's socket (the datagram's rule 1). -/
+structure Sock where
+  isOpen : Bool := true
+  /-- The queries its port has carried. -/
+  sent : Nat := 0
+  /-- It has carried its share, and is replaced once nobody waits on it (the datagram's rule 4). -/
+  retiring : Bool := false
   deriving DecidableEq, Repr, Inhabited, Hashable
 
 structure Slot where
@@ -82,6 +95,11 @@ structure State where
   lastTaken : Option Nat
   /-- Each configured server's consecutive failures (§19 step 12). -/
   failures : List Nat
+  socks : List Sock
+  /-- The loop refuses every submission during the next event, as a full ring does. -/
+  jammed : Bool
+  /-- Every socket the engine opens during the next event fails to open. -/
+  starved : Bool
   deriving DecidableEq, Repr, Hashable
 
 structure Config where
@@ -92,10 +110,14 @@ structure Config where
   pollsMax : Nat
   /-- The ticks a lookup waits for its server. -/
   timeoutTicks : Nat
+  /-- Every query over TCP, or every query over UDP. -/
+  useTcp : Bool
+  /-- `udp_queries_per_port`: the queries a port carries before it is replaced; zero for never. -/
+  perPort : Nat
   deriving Repr
 
 def lookupConfig (c : Config) : Spec.Lookup.Config :=
-  { servers := c.servers, attempts := 1, candidates := 1, hopsMax := 8, useTcp := true }
+  { servers := c.servers, attempts := 1, candidates := 1, hopsMax := 8, useTcp := c.useTcp }
 
 /-- What the table makes of one message on a stream. -/
 inductive Reply where
@@ -106,9 +128,10 @@ def Reply.toLookup : Reply → Spec.Lookup.Reply
   | .answer => .answer | .servfail => .servfail | .nxdomain => .nxdomain
   | .unmatched => .unmatched
 
-/-- How an operation ends, as rotor decision 5, rule 2 allows it to. -/
+/-- How an operation ends, as rotor decision 5, rule 2 allows it to. A receive also ends when
+its group has no buffer left, which is not a broken connection. -/
 inductive Outcome where
-  | ok | failed | canceled
+  | ok | failed | canceled | exhausted
   deriving DecidableEq, Repr, Inhabited, Hashable
 
 inductive Event where
@@ -123,12 +146,22 @@ inductive Event where
   | finish (op : Nat) (outcome : Outcome)
   /-- A message on the receive at this position, for the lookup in `slot`. -/
   | message (op : Nat) (slot : Nat) (reply : Reply)
+  /-- A datagram or a chunk on a receive that is gone, before its end (rotor decision 5,
+  rule 2): the receive stays. -/
+  | straggle (op : Nat)
+  /-- The loop refuses every submission during the next event. -/
+  | jam
+  /-- Every socket open fails during the next event. -/
+  | starve
   deriving DecidableEq, Repr, Inhabited, Hashable
 
+/-- A socket per server, each with its receive armed, server by server. -/
 def init (c : Config) : State :=
-  { slots := List.replicate c.slots {}, conns := List.replicate c.conns {}, ops := [],
+  { slots := List.replicate c.slots {}, conns := List.replicate c.conns {},
+    ops := (List.range c.servers).map fun v => { kind := .receiveFrom, target := v, current := true },
     ready := [], free := List.range c.slots, results := [], lastTaken := none,
-    failures := List.replicate c.servers 0 }
+    failures := List.replicate c.servers 0, socks := List.replicate c.servers {},
+    jammed := false, starved := false }
 
 /-! ## Small helpers over lists by position -/
 
@@ -138,6 +171,11 @@ def setSlot (s : State) (l : Nat) (f : Slot → Slot) : State :=
   { s with slots := s.slots.set l (f (slotAt s l)) }
 def setConn (s : State) (k : Nat) (f : Conn → Conn) : State :=
   { s with conns := s.conns.set k (f (connAt s k)) }
+def sockAt (s : State) (v : Nat) : Sock := s.socks.getD v {}
+def setSock (s : State) (v : Nat) (f : Sock → Sock) : State :=
+  { s with socks := s.socks.set v (f (sockAt s v)) }
+
+def isSend (kind : OpKind) : Bool := kind = .send ∨ kind = .sendTo
 
 def waiting (st : Spec.Lookup.Stage) : Bool := Spec.Lookup.waiting st
 def onStream (st : Spec.Lookup.Stage) : Bool := Spec.Lookup.onStream st
@@ -193,7 +231,7 @@ dropped when the buffer comes back (rules 6 and 7). -/
 def forgetAttempt (s : State) (l : Nat) : State :=
   let s := setSlot s l (fun slot => { slot with heldCurrent := false })
   { s with ops := s.ops.map fun op =>
-      if op.kind = .send ∧ op.target = l then { op with current := false } else op }
+      if isSend op.kind ∧ op.target = l then { op with current := false } else op }
 
 /-- One event on one lookup, through the table: the lookup moves, the servers learn what it
 says of them, the lookup's wait follows it, and the table settles it. -/
@@ -204,13 +242,15 @@ def lookupEvent (c : Config) (s : State) (l : Nat) (e : Spec.Lookup.Event) : Sta
     let server := serverOf s l
     let (lk', out) := Spec.Lookup.step (lookupConfig c) lk e
     let s := match e with
-      | .sendFailed => if lk.stage = .tcpReady then recordFailure s server else s
+      | .sendFailed =>
+        if lk.stage = .tcpReady ∨ lk.stage = .queryReady then recordFailure s server else s
       | .tcpFailed => if onStream lk.stage then recordFailure s server else s
       | .expire => if waiting lk.stage then recordFailure s server else s
       | .reply r => if out = .accepted ∧ r ≠ .unmatched then recordSuccess s server else s
       | _ => s
     let s := setSlot s l (fun slot => { slot with lookup := some lk' })
-    let rearmed := out = .connectTcp ∨ (e = .sent ∧ lk'.stage = .awaitingTcp)
+    let rearmed := out = .connectTcp ∨
+      (e = .sent ∧ (lk'.stage = .awaitingTcp ∨ lk'.stage = .awaitingUdp))
     let s := if waiting lk'.stage ∧ ¬rearmed then s else
       setSlot s l (fun slot => { slot with expired := false })
     let s := if waiting lk'.stage then (if rearmed then arm c s l else s) else unwait s l
@@ -229,7 +269,8 @@ def tableEvent (c : Config) (s : State) (l : Nat) (e : Spec.Lookup.Event) : Stat
 and its event, whenever it comes, names an incarnation that is gone (rule 2). -/
 def cancelOps (s : State) (k : Nat) : State :=
   { s with ops := s.ops.map fun op =>
-      if op.kind ≠ .send ∧ op.target = k then { op with current := false } else op }
+      if (op.kind = .connect ∨ op.kind = .receive) ∧ op.target = k then { op with current := false }
+      else op }
 
 def shut (s : State) (k : Nat) : State :=
   setConn (cancelOps s k) k (fun _ => {})
@@ -259,10 +300,13 @@ def freeConn (s : State) : Option Nat × State :=
     | some k => (some k, shut s k)
     | none => (none, s)
 
+/-- Opens a connection to `server` in a free slot: its socket, then its connect, either of
+which the moment may refuse. -/
 def openConn (s : State) (server : Nat) : Option Nat × State :=
   match freeConn s with
   | (none, s) => (none, s)
   | (some k, s) =>
+    if s.starved ∨ s.jammed then (none, s) else
     let s := setConn s k fun _ => { stage := .connecting, server }
     (some k, { s with ops := s.ops ++ [{ kind := .connect, target := k, current := true }] })
 
@@ -309,19 +353,5 @@ def closeIdle (s : State) : State :=
   (List.range s.conns.length).foldl (fun s k =>
     let conn := connAt s k
     if conn.stage ≠ .closed ∧ conn.users = 0 ∧ ¬conn.idleNow then shut s k else s) s
-
-/-! ## Sends -/
-
-def submitSend (s : State) (l : Nat) : State :=
-  let s := setSlot s l (fun slot => { slot with busy := true })
-  { s with ops := s.ops ++ [{ kind := .send, target := l, current := true }] }
-
-/-- The lookup's query goes out on its connection, or waits for the buffer (rule 6). -/
-def send (c : Config) (s : State) (l : Nat) : State :=
-  let slot := slotAt s l
-  if slot.busy then setSlot s l (fun slot => { slot with held := true, heldCurrent := true }) else
-  match slot.conn with
-  | some k => if (connAt s k).stage = .up then submitSend s l else tableEvent c s l .tcpFailed
-  | none => tableEvent c s l .tcpFailed
 
 end Spec.Engine

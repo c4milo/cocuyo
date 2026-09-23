@@ -87,26 +87,15 @@ pub const Replay = struct {
     fn configure(replay: *Replay, fields: *std.mem.SplitIterator(u8, .scalar)) Error!void {
         const slots = fields.next() orelse return error.Malformed;
         const conns = fields.next() orelse return error.Malformed;
+        const transport = try transport_of(fields.next(), fields.next());
         if (fields.next() != null) return error.Malformed;
-        const key = [2]u8{ if (slots.len == 1) slots[0] else 0, if (conns.len == 1) conns[0] else 0 };
-        replay.current = switch (key[0]) {
-            '1' => switch (key[1]) {
-                '1' => .one_one,
-                '2' => .one_two,
-                else => return error.Malformed,
-            },
-            '2' => switch (key[1]) {
-                '1' => .two_one,
-                '2' => .two_two,
-                else => return error.Malformed,
-            },
-            else => return error.Malformed,
-        };
+        replay.current = which_of(slots, conns) orelse return error.Malformed;
         replay.depth = 0;
         replay.walks += 1;
         switch (replay.current) {
             .none => unreachable,
-            inline else => |which| world_module.begin(@field(replay, @tagName(which))) catch return error.Unexpected,
+            inline else => |which| world_module.begin(@field(replay, @tagName(which)), transport) catch
+                return error.Unexpected,
         }
     }
 
@@ -135,6 +124,29 @@ pub const Replay = struct {
         });
     }
 };
+
+/// The world of `slots` slots and `conns` connections, when the replay has one.
+fn which_of(slots: []const u8, conns: []const u8) ?Which {
+    const pairs = [_]struct { slots: []const u8, conns: []const u8, which: Which }{
+        .{ .slots = "1", .conns = "1", .which = .one_one },
+        .{ .slots = "1", .conns = "2", .which = .one_two },
+        .{ .slots = "2", .conns = "1", .which = .two_one },
+        .{ .slots = "2", .conns = "2", .which = .two_two },
+    };
+    for (pairs) |pair| {
+        if (std.mem.eql(u8, pair.slots, slots) and std.mem.eql(u8, pair.conns, conns)) return pair.which;
+    }
+    return null;
+}
+
+/// Every query over `tcp` or `udp`, and the queries a port carries before it is replaced.
+fn transport_of(name: ?[]const u8, per_port: ?[]const u8) Error!world_module.Transport {
+    const text = name orelse return error.Malformed;
+    const tcp = std.mem.eql(u8, text, "tcp");
+    if (!tcp and !std.mem.eql(u8, text, "udp")) return error.Malformed;
+    const count = std.fmt.parseInt(u32, per_port orelse return error.Malformed, 10) catch return error.Malformed;
+    return .{ .tcp = tcp, .per_port = count };
+}
 
 pub fn main(init: std.process.Init) !void {
     const gpa = init.arena.allocator();
@@ -184,8 +196,8 @@ test "the committed walks of the engine model replay against the engine" {
 test "a state the engine does not reach is a mismatch" {
     const replay = try Replay.create(testing.allocator);
     defer replay.destroy(testing.allocator);
-    const text = "config 1 1\n0 init free - | closed s0 u0- |  | r[] q[] t- w[] f[0,0] e[0]\n" ++
-        "1 start free - | closed s0 u0- |  | r[] q[] t- w[] f[0,0] e[0]\n";
+    const text = "config 1 1 tcp 0\n0 init free - | closed s0 u0- | open s0- ; open s0- | L0* L1* | r[] q[] t- w[] f[0,0] e[0] --\n" ++
+        "1 start free - | closed s0 u0- | open s0- ; open s0- | L0* L1* | r[] q[] t- w[] f[0,0] e[0] --\n";
     try testing.expectError(error.Mismatch, replay_text(replay, text));
 }
 
@@ -193,7 +205,8 @@ test "a line that skips a depth, or names no configuration, is refused" {
     const replay = try Replay.create(testing.allocator);
     defer replay.destroy(testing.allocator);
     try testing.expectError(error.Malformed, replay.line("0 init free"));
-    try testing.expectError(error.Malformed, replay.line("config 3 1"));
-    try replay.line("config 1 1");
+    try testing.expectError(error.Malformed, replay.line("config 3 1 tcp 0"));
+    try testing.expectError(error.Malformed, replay.line("config 1 1 sctp 0"));
+    try replay.line("config 1 1 tcp 0");
     try testing.expectError(error.Malformed, replay.line("2 start free"));
 }

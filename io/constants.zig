@@ -57,7 +57,8 @@ pub const tcp_idle_ns_default = 10_000_000_000;
 
 /// Where a receive's generation sits in its `user_data`, above the server's index: a socket
 /// that has been replaced has a generation of its own, so the end of the receive it left behind
-/// is told from the one now armed.
+/// is told from the one now armed. The generation is thirty-two bits, which the index's forty
+/// hold above the server's eight.
 pub const receive_generation_shift = 8;
 pub const receive_index_mask = (1 << receive_generation_shift) - 1;
 
@@ -83,6 +84,9 @@ pub const loop_operations_per_connection = 2;
 pub const tcp_messages_per_chunk_max = 32;
 
 comptime {
+    if (kind_shift - receive_generation_shift < 32) {
+        @compileError("a receive's user_data has no room for a thirty-two-bit generation");
+    }
     if (buffer_bytes < core.constants.udp_payload_bytes_default + 192) {
         @compileError("a group buffer cannot hold the payload cocuyo advertises after rotor's prefix");
     }

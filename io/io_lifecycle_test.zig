@@ -1,6 +1,6 @@
 //! What a consumer does to the engine besides asking it questions (docs/design.md §19 step 13):
 //! cancelling everything at once, taking a new configuration, binding to a local address of its
-//! own, and retiring a source port that has carried its share. The rig is the one
+//! own, and retiring a source port that has carried its share, or failing to. The rig is the one
 //! `io_sim_test.zig` builds, since these drive the same engine over the same scripted servers.
 const std = @import("std");
 const testing = std.testing;
@@ -148,5 +148,30 @@ test "a source port that has carried its share is replaced once nothing waits on
     _ = try rig.engine.start(question("other.example."), rig.loop.now());
     try testing.expect((try rig.until_result()).outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
+test "a port that cannot be replaced leaves its server no socket, and a send to it fails over" {
+    var rig: Rig = .{};
+    try rig.init(25, .{ .{}, .{} }, .{ .servers = &.{}, .udp_queries_per_port = 1 });
+    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.step(0);
+    try testing.expect(rig.engine.sockets.is_retiring(0));
+    // No descriptor is left when the port comes to be replaced (docs/design.md §19 step 13, the
+    // datagram's rule 4): the server has no socket, and the program goes on.
+    rig.loop.network().refuse_open = true;
+    try testing.expect((try rig.until_result()).outcome == .answer);
+    _ = rig.engine.take(rig.loop.now());
+    try testing.expect(!rig.engine.sockets.is_open(0));
+    // The next lookup asks server 0 first. Its send fails as any send fails, and server 1
+    // answers it.
+    _ = try rig.engine.start(question("other.example."), rig.loop.now());
+    try testing.expect((try rig.until_result()).outcome == .answer);
+    _ = rig.engine.take(rig.loop.now());
+    try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(0));
+    // Descriptors come back, and the next drive gives the server a socket again.
+    rig.loop.network().refuse_open = false;
+    rig.engine.drive(rig.loop.now());
+    try testing.expect(rig.engine.sockets.is_open(0));
     try rig.deinit();
 }

@@ -42,18 +42,23 @@ fn on_timer_event(self: anytype, generation: usize) void {
 
 fn on_receive_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64) void {
     // A receive the socket left behind, because the port was replaced or the configuration was:
-    // its bytes belong to a socket that is closed, and arming another is not this one's to do.
-    const server = self.sockets.is_current(index) orelse return;
+    // it changes nothing, and arming another is not this one's to do. A cancelled multishot can
+    // still deliver a datagram before its end (rotor decision 5, rule 2), and its buffer goes
+    // back to the group (docs/design.md §19 step 13, the datagram's rules 2 and 3).
+    const server = self.sockets.is_current(index) orelse {
+        if (event.flags.buffer) self.loop.give_back_buffer(constants.group_id, event.flags.buffer_id);
+        return;
+    };
     assert(server < cocuyo.constants.servers_max);
-    if (event.outcome()) |bytes| {
-        if (bytes > 0) deliver(self, event, now_ns);
-    } else |_| {}
-    // A multishot that ended is armed again, unless the engine is closing.
+    if (event.flags.buffer) deliver(self, event, now_ns);
+    // A multishot that ended is armed again, unless the engine is closing; one the loop refuses
+    // is asked for again at the next drive.
     if (event.is_final() and !self.closing) {
         self.sockets.receive_again(self.loop, server, @TypeOf(self.*).tag) catch {};
     }
 }
 
+/// Hands a datagram to the table, whatever its length, and its buffer back to the group.
 fn deliver(self: anytype, event: rotor.Event, now_ns: u64) void {
     const delivery = self.loop.datagram(constants.group_id, event);
     _ = self.resolver.on_datagram(delivery.bytes, udp.endpoint_of(delivery.from.peer), now_ns);

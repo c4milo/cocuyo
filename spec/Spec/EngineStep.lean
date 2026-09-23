@@ -1,4 +1,4 @@
-import Spec.Engine
+import Spec.EngineSockets
 
 /-!
 # The engine's drive, its events, and what must hold
@@ -27,7 +27,7 @@ def act (c : Config) (s : State) (l : Nat) (out : Spec.Lookup.Out) : State × Bo
     | _, _ => s
   match out with
   | .connectTcp => (want c s l, true)
-  | .sendTcp => (send c s l, true)
+  | .sendTcp | .sendUdp => (send c s l, true)
   | .done | .failed _ => report s l
   | _ => (s, true)
 
@@ -46,7 +46,7 @@ def pollOne (c : Config) (s : State) (l : Nat) : State × Spec.Lookup.Out :=
 
 /-- Polls the table until nothing is left to do or the bound is reached, as the code's drive
 does. -/
-def drive (c : Config) (s : State) : State :=
+def pollAll (c : Config) (s : State) : State :=
   let rec go (fuel polls refused : Nat) (s : State) : State :=
     match fuel with
     | 0 => s
@@ -61,6 +61,14 @@ def drive (c : Config) (s : State) : State :=
         let (s, moved) := act c s l out
         go fuel (polls + 1) (if moved then 0 else refused + 1) s
   go (4 * c.slots * (c.servers + 2) + 8) 0 0 s
+
+/-- The drive: every lookup polled, then, when time has moved, the connections idle since
+before it closed, then a receive for every connection that is up and has none, then each
+server's socket tended. -/
+def drive (c : Config) (s : State) (moved : Bool := false) : State :=
+  let s := pollAll c s
+  let s := if moved then closeIdle s else s
+  tendSockets c (tendConns s)
 
 /-! ## Events -/
 
@@ -77,19 +85,27 @@ def sendEnded (c : Config) (s : State) (i : Nat) (op : Op) (ok : Bool) : State :
   let s := setSlot s l (fun slot => { slot with held := false, heldCurrent := false })
   if slot.held ∧ slot.heldCurrent then send c s l else s
 
+/-- A socket's receive ended: the current one is armed again at once, and one that is gone
+ended as rule 2 allows and says nothing. -/
+def receiveFromEnded (s : State) (i : Nat) (op : Op) : State :=
+  let s := removeOp s i
+  if op.current then listen s op.target else s
+
 def connectEnded (c : Config) (s : State) (i : Nat) (op : Op) (ok : Bool) : State :=
   let k := op.target
   let s := removeOp s i
   if ¬op.current then s else
   if ok then
     let s := setConn s k (fun conn => { conn with stage := .up, idleNow := true })
-    let s := { s with ops := s.ops ++ [{ kind := .receive, target := k, current := true }] }
-    tellAll c s k true
+    tellAll c (armReceive s k) k true
   else failConn c s k
 
-def receiveEnded (c : Config) (s : State) (i : Nat) (op : Op) : State :=
+/-- A stream's receive ended: with its group dry, it is armed again; otherwise the connection is
+no good. One that is gone says nothing. -/
+def receiveEnded (c : Config) (s : State) (i : Nat) (op : Op) (outcome : Outcome) : State :=
   let s := removeOp s i
-  if op.current then failConn c s op.target else s
+  if ¬op.current then s else
+  if outcome = .exhausted then armReceive s op.target else failConn c s op.target
 
 /-- A message on a stream, which the table hands to the lookup it is for; an accepted one
 settles it. -/
@@ -144,36 +160,65 @@ def take (s : State) : State :=
 def tick (s : State) : State :=
   { s with conns := s.conns.map ({ · with idleNow := false }) }
 
-/-- One event, and the drive that follows it. -/
-def step (c : Config) (s : State) (e : Event) : State :=
-  let s := match e with
-    | .expire | .idle => tick s
-    | _ => s
+/-- One event and the drive that follows it, with what the moment refuses. -/
+def happen (c : Config) (s : State) (e : Event) : State :=
   match e with
   | .start => drive c (start s c)
   | .take => take s
   | .cancel l => drive c (match (slotAt s l).lookup with
     | some lk => if Spec.Lookup.ended lk.stage then s else tableEvent c s l .cancel
     | none => s)
-  | .expire => closeIdle (drive c (pass c s ((soonest s).getD 0)))
-  | .idle => closeIdle (drive c (pass c s 1))
+  | .expire => drive c (pass c (tick s) ((soonest s).getD 0)) true
+  | .idle => drive c (pass c (tick s) 1) true
   | .finish i outcome =>
     match s.ops[i]? with
     | none => s
     | some op =>
       let ok := outcome = .ok
       drive c <| match op.kind with
-        | .send => sendEnded c s i op ok
+        | .send | .sendTo => sendEnded c s i op ok
         | .connect => connectEnded c s i op ok
-        | .receive => receiveEnded c s i op
+        | .receive => receiveEnded c s i op outcome
+        | .receiveFrom => receiveFromEnded s i op
   | .message _ l r => drive c (message c s l r)
+  | .straggle _ => drive c s
+  | .jam => { s with jammed := true }
+  | .starve => { s with starved := true }
+
+/-- One event. A refusal lasts the one event after it. -/
+def step (c : Config) (s : State) (e : Event) : State :=
+  let t := happen c s e
+  match e with
+  | .jam | .starve => t
+  | _ => { t with jammed := false, starved := false }
 
 /-! ## What the caller and the loop may do -/
 
+/-- A message is for a lookup whose query went out to the receive's server: on the connection,
+or from the server's socket. -/
+def awaits (s : State) (op : Op) (l : Nat) : Bool :=
+  let slot := slotAt s l
+  match slot.lookup with
+  | some lk =>
+    (op.kind = .receive ∧ slot.conn = some op.target ∧ lk.stage = .awaitingTcp) ∨
+    (op.kind = .receiveFrom ∧ serverOf s l = op.target ∧ lk.stage = .awaitingUdp)
+  | none => false
+
+/-- How an operation may end: a current receive with its group dry, or a stream's with the
+connection broken; a send or a connect either way; and one that is gone any way rule 2 allows. -/
+def endings (op : Op) : List Outcome :=
+  match op.current, op.kind with
+  | true, .receive => [.failed, .exhausted]
+  | true, .receiveFrom => [.exhausted]
+  | true, _ => [.ok, .failed]
+  | false, .send | false, .sendTo => [.ok, .failed]
+  | false, _ => [.ok, .failed, .canceled]
+
 /-- The events the environment may deliver: a start while a slot is free, a take while a result
 waits, a cancel of a running lookup, the oldest deadline, the idle close when something is idle,
-any end of any operation the loop holds as rule 2 allows it, and a message for a lookup whose
-query went out on a connection that is up. -/
+any end of any operation the loop holds as rule 2 allows it, a message for a lookup whose query
+went out, a straggler on a receive that is gone, and a refusal of the next event's submissions
+or of its sockets. -/
 def enabled (c : Config) (s : State) : List Event :=
   let starts := if s.free ≠ [] then [Event.start] else []
   let takes := if s.results ≠ [] ∨ s.lastTaken.isSome then [Event.take] else []
@@ -186,31 +231,23 @@ def enabled (c : Config) (s : State) : List Event :=
     else []
   let finishes := (List.range s.ops.length).flatMap fun i =>
     match s.ops[i]? with
-    | some op =>
-      if op.current then
-        match op.kind with
-        | .receive => [Event.finish i .failed]
-        | _ => [Event.finish i .ok, Event.finish i .failed]
-      else
-        match op.kind with
-        | .send => [Event.finish i .ok, Event.finish i .failed]
-        | _ => [Event.finish i .ok, Event.finish i .failed, Event.finish i .canceled]
+    | some op => (endings op).map (Event.finish i)
     | none => []
+  let receives (op : Op) := op.kind = .receive ∨ op.kind = .receiveFrom
   let messages := (List.range s.ops.length).flatMap fun i =>
     match s.ops[i]? with
     | some op =>
-      if op.kind = .receive ∧ op.current then
-        (List.range c.slots).flatMap fun l =>
-          let slot := slotAt s l
-          match slot.lookup with
-          | some lk =>
-            if slot.conn = some op.target ∧ lk.stage = .awaitingTcp then
-              [Reply.answer, .servfail, .nxdomain, .unmatched].map (Event.message i l)
-            else []
-          | none => []
+      if receives op ∧ op.current then
+        ((List.range c.slots).filter (awaits s op)).flatMap fun l =>
+          [Reply.answer, .servfail, .nxdomain, .unmatched].map (Event.message i l)
       else []
     | none => []
-  starts ++ takes ++ cancels ++ expires ++ idles ++ finishes ++ messages
+  let stragglers := (List.range s.ops.length).filterMap fun i =>
+    match s.ops[i]? with
+    | some op => if receives op ∧ ¬op.current then some (Event.straggle i) else none
+    | none => none
+  let refusals := (if s.jammed then [] else [Event.jam]) ++ (if s.starved then [] else [Event.starve])
+  starts ++ takes ++ cancels ++ expires ++ idles ++ finishes ++ messages ++ stragglers ++ refusals
 
 /-! ## What must hold in every state -/
 
@@ -236,26 +273,46 @@ def attachedRight (s : State) : Bool :=
 (rule 6). -/
 def buffersLent (s : State) : Bool :=
   (List.range s.slots.length).all fun l =>
-    let sends := (s.ops.filter fun op => op.kind == .send && op.target == l).length
+    let sends := (s.ops.filter fun op => isSend op.kind && op.target == l).length
     sends ≤ 1 && ((slotAt s l).busy == (sends == 1))
 
-/-- A connection slot has one current operation while it is open and none while it is closed:
-the connect while it connects, the receive once it is up (rules 1 and 2). -/
+/-- A connection slot has its connect while it connects, at most its receive once it is up, and
+nothing current while it is closed (the stream's rules 1 and 2). -/
 def opsCurrent (s : State) : Bool :=
   (List.range s.conns.length).all fun k =>
-    let current := s.ops.filter fun op => op.kind ≠ .send ∧ op.target = k ∧ op.current
+    let current := s.ops.filter fun op =>
+      (op.kind = .connect ∨ op.kind = .receive) ∧ op.target = k ∧ op.current
     match (connAt s k).stage with
     | .closed => current = []
     | .connecting => current.map (·.kind) = [.connect]
-    | .up => current.map (·.kind) = [.receive]
+    | .up => current.map (·.kind) = [.receive] ∨ current = []
+
+/-- A socket has at most one current receive while it is open, and none while it is closed
+(the datagram's rules 1 and 2). -/
+def socksCurrent (s : State) : Bool :=
+  (List.range s.socks.length).all fun v =>
+    let current := (s.ops.filter fun op => op.kind = .receiveFrom ∧ op.target = v ∧ op.current).length
+    if (sockAt s v).isOpen then current ≤ 1 else current = 0
+
+/-- After a drive the moment did not refuse, every server has a socket with its receive armed,
+and every connection that is up has its receive (the datagram's rule 1). -/
+def listeningAll (s : State) : Bool :=
+  (List.range s.socks.length).all (fun v => (sockAt s v).isOpen && listening s v) &&
+  (List.range s.conns.length).all fun k => (connAt s k).stage != .up || receiving s k
 
 /-- Nothing is left on the ready list when a drive ends: every lookup the events gave something
 to do was polled (rule 8). -/
 def driveDone (s : State) : Bool := s.ready = []
 
-def invariants (s : State) : List (String × Bool) :=
+/-- What must hold after event `e` took `before` to `s`. The liveness of the receives is owed only
+after a drive that ran with nothing refused. -/
+def invariants (before : State) (e : Event) (s : State) : List (String × Bool) :=
+  let drove : Bool := match e with
+    | .take | .jam | .starve => false
+    | _ => !before.jammed && !before.starved
   [("users counted", usersCounted s), ("attached right", attachedRight s),
    ("buffers lent", buffersLent s), ("ops current", opsCurrent s),
-   ("drive done", driveDone s)]
+   ("sockets current", socksCurrent s), ("drive done", driveDone s),
+   ("listening", !drove || listeningAll s)]
 
 end Spec.Engine

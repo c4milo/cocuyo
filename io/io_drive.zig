@@ -29,7 +29,8 @@ pub fn drive(self: anytype, now_ns: u64) void {
         if (act(self, event, now_ns)) refused = 0 else refused += 1;
     }
     tcp.close_idle(self, now_ns);
-    rotate_ports(self);
+    tcp.tend(self);
+    tend_sockets(self);
     arm_timer(self, now_ns);
 }
 
@@ -61,15 +62,21 @@ fn report(self: anytype, index: usize, outcome: results_module.Outcome, now_ns: 
     return true;
 }
 
-/// Replaces a source port that has carried its share of queries, once no lookup is waiting on
-/// its server (`Config.udp_queries_per_port`, c-ares `udp_max_queries`). A port is never taken
-/// from a query that is still waiting: the answer would arrive at a socket that is gone.
-fn rotate_ports(self: anytype) void {
+/// What a drive does last, server by server (docs/design.md §19 step 13, the datagram's rules 1
+/// and 4). A source port that has carried its share of queries is replaced once no lookup is
+/// waiting on its server (`Config.udp_queries_per_port`, c-ares `udp_max_queries`): a port is
+/// never taken from a query that is still waiting, because the answer would arrive at a socket
+/// that is gone. Then a server with no socket is given one, and a socket with no receive is
+/// given one, since a refusal is not a reason to go deaf.
+fn tend_sockets(self: anytype) void {
+    const tag = @TypeOf(self.*).tag;
     var server: u8 = 0;
     while (server < self.config.servers.len) : (server += 1) {
-        if (!self.sockets.is_retiring(server)) continue;
-        if (waiting_on(self, server)) continue;
-        self.sockets.rotate(self.loop, self.config, server, @TypeOf(self.*).tag) catch return;
+        const retiring = self.sockets.is_open(server) and self.sockets.is_retiring(server);
+        if (retiring and !waiting_on(self, server)) {
+            self.sockets.rotate(self.loop, self.config, server, tag) catch {};
+        }
+        self.sockets.tend(self.loop, self.config, server, tag);
     }
 }
 

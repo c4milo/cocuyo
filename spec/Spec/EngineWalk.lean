@@ -18,9 +18,10 @@ namespace Spec.Engine
 structure Bounds where
   opsMax : Nat
   failuresMax : Nat
+  sentMax : Nat
 
 def within (b : Bounds) (s : State) : Bool :=
-  s.ops.length ≤ b.opsMax ∧ s.failures.all (· ≤ b.failuresMax)
+  s.ops.length ≤ b.opsMax ∧ s.failures.all (· ≤ b.failuresMax) ∧ s.socks.all (·.sent ≤ b.sentMax)
 
 structure Found where
   states : Nat
@@ -41,7 +42,7 @@ partial def walk (c : Config) (b : Bounds) : IO Found := do
         let t := step c s e
         transitions := transitions + 1
         let path' := e :: path
-        match (invariants t).find? (!·.2) with
+        match (invariants s e t).find? (!·.2) with
         | some (name, _) =>
           return { states, transitions, broken := some (name, path'.reverse) }
         | none => pure ()
@@ -81,7 +82,7 @@ def connToken (conn : Conn) : String :=
 
 def opToken (op : Op) : String :=
   let kind := match op.kind with
-    | .connect => "C" | .receive => "R" | .send => "S"
+    | .connect => "C" | .receive => "R" | .send => "S" | .sendTo => "D" | .receiveFrom => "L"
   kind ++ toString op.target ++ (if op.current then "*" else "x")
 
 /-- The waiting lookups, grouped by the ticks they have left, soonest first. -/
@@ -94,18 +95,24 @@ def waitGroups (s : State) : List (List Nat) :=
   let lefts := (waiting.map (·.1)).eraseDups.mergeSort (· ≤ ·)
   lefts.map fun left => (waiting.filter (·.1 = left)).map (·.2)
 
+/-- A server's socket: open with the queries its port has carried and whether it is retiring,
+or none. -/
+def sockToken (sock : Sock) : String :=
+  if sock.isOpen then s!"open s{sock.sent}" ++ flag sock.retiring 'R' else "none"
+
 /-- The whole of a state, as the replay spells the Zig engine's. -/
 def stateLine (s : State) : String :=
   " ; ".intercalate (s.slots.map slotToken) ++ " | " ++
   " ; ".intercalate (s.conns.map connToken) ++ " | " ++
+  " ; ".intercalate (s.socks.map sockToken) ++ " | " ++
   " ".intercalate (s.ops.map opToken) ++ " | " ++
   s!"r{listToken s.ready} q{listToken s.results} t" ++
   (match s.lastTaken with | some l => toString l | none => "-") ++
   " w[" ++ ",".intercalate ((waitGroups s).map listToken) ++ "]" ++
-  s!" f{listToken s.failures} e{listToken s.free}"
+  s!" f{listToken s.failures} e{listToken s.free} " ++ flag s.jammed 'J' ++ flag s.starved 'Z'
 
 def outcomeToken : Outcome → String
-  | .ok => "ok" | .failed => "failed" | .canceled => "canceled"
+  | .ok => "ok" | .failed => "failed" | .canceled => "canceled" | .exhausted => "exhausted"
 
 def replyName : Reply → String
   | .answer => "answer" | .servfail => "servfail" | .nxdomain => "nxdomain"
@@ -115,6 +122,7 @@ def eventToken : Event → String
   | .start => "start" | .take => "take" | .cancel l => s!"cancel:{l}" | .expire => "expire"
   | .idle => "idle" | .finish i o => s!"finish:{i}:{outcomeToken o}"
   | .message i l r => s!"message:{i}:{l}:{replyName r}"
+  | .straggle i => s!"straggle:{i}" | .jam => "jam" | .starve => "starve"
 
 /-! ## Walks that look for what they have not seen -/
 
@@ -137,7 +145,7 @@ def walks (out : IO.FS.Stream) (c : Config) (seed : UInt64) (count length : Nat)
   for _ in [0:count] do
     let mut s := init c
     seen := seen.insert s
-    out.putStrLn s!"config {c.slots} {c.conns}"
+    out.putStrLn s!"config {c.slots} {c.conns} {if c.useTcp then "tcp" else "udp"} {c.perPort}"
     out.putStrLn s!"0 init {stateLine s}"
     for depth in [1:length + 1] do
       let choices := enabled c s
@@ -147,7 +155,7 @@ def walks (out : IO.FS.Stream) (c : Config) (seed : UInt64) (count length : Nat)
       word := mix word
       let e := pool.getD (word.toNat % pool.length) .take
       let t := step c s e
-      if let some (name, _) := (invariants t).find? (!·.2) then
+      if let some (name, _) := (invariants s e t).find? (!·.2) then
         throw <| IO.userError s!"the model breaks {name} at {eventToken e}, depth {depth}"
       seen := seen.insert t
       out.putStrLn s!"{depth} {eventToken e} {stateLine t}"

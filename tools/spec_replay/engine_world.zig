@@ -29,8 +29,12 @@ pub const text_bytes_max = 1024;
 
 pub const Error = error{ Malformed, NoSuchOperation, NoBuffer, Full, BufferKept };
 
+/// Whether every query goes over TCP, or over UDP; and the queries a port carries before it is
+/// replaced. A walk's `config` line names both.
+pub const Transport = struct { tcp: bool, per_port: u32 };
+
 /// What ends an operation, as the transcript names it.
-const Outcome = enum { ok, failed, canceled };
+const Outcome = enum { ok, failed, canceled, exhausted };
 
 pub fn World(comptime slots: u16, comptime conns: u16) type {
     return struct {
@@ -56,7 +60,7 @@ pub fn World(comptime slots: u16, comptime conns: u16) type {
     };
 }
 
-pub fn begin(self: anytype) !void {
+pub fn begin(self: anytype, transport: Transport) !void {
     try self.loop.init(&self.memory, .{ .operations = @TypeOf(self.engine).loop_operations });
     self.loop.manual = true;
     for (&self.servers, 0..) |*server, index| {
@@ -68,10 +72,11 @@ pub fn begin(self: anytype) !void {
     }
     self.config = .{
         .servers = &self.servers,
-        .use_tcp = true,
+        .use_tcp = transport.tcp,
         .attempts = 1,
         .timeout_ns = timeout_ns,
         .failover_retry_chance = 0,
+        .udp_queries_per_port = transport.per_port,
     };
     // The clock starts past zero, which is what a connection's idle instant reads before
     // it has one.
@@ -85,9 +90,23 @@ pub fn begin(self: anytype) !void {
 /// buffer an event hands the engine is back in its group when the event is over: a chunk
 /// once its messages are out, and a stale event's buffer at once (the stream's rule 2).
 pub fn apply(self: anytype, token: []const u8) Error!void {
-    try dispatch(self, token);
-    const group = &self.loop.groups[io.constants.tcp_group_id];
-    if (group.free_count != group.count) return error.BufferKept;
+    // A refusal lasts the one event after it, as the model has it.
+    if (std.mem.eql(u8, token, "jam")) {
+        self.loop.refuse_submissions = true;
+        return;
+    }
+    if (std.mem.eql(u8, token, "starve")) {
+        self.loop.network().refuse_open = true;
+        return;
+    }
+    const result = dispatch(self, token);
+    self.loop.refuse_submissions = false;
+    self.loop.network().refuse_open = false;
+    try result;
+    for ([_]u16{ io.constants.group_id, io.constants.tcp_group_id }) |group_id| {
+        const group = &self.loop.groups[group_id];
+        if (group.free_count != group.count) return error.BufferKept;
+    }
 }
 
 fn dispatch(self: anytype, token: []const u8) Error!void {
@@ -118,6 +137,7 @@ fn instant(self: anytype, name: []const u8, parts: *std.mem.SplitIterator(u8, .s
         return self.engine.cancel(self.engine.handles[slot], self.now_ns);
     }
     const op = try number(parts.next());
+    if (std.mem.eql(u8, name, "straggle")) return straggle(self, op);
     if (std.mem.eql(u8, name, "finish")) {
         const outcome = std.meta.stringToEnum(Outcome, parts.next() orelse "") orelse return error.Malformed;
         return finish(self, op, outcome);
@@ -148,17 +168,18 @@ fn next_deadline(self: anytype) ?u64 {
     return soonest;
 }
 
-/// The operation at position `position` among the stream operations the loop holds,
-/// oldest first: the model's `ops`.
+/// The operation at position `position` among the operations the loop holds that the model
+/// knows, oldest first: the model's `ops`.
 fn operation(self: anytype, position: usize) Error!u32 {
     var ordered: [rotor.constants.operations_max]u32 = undefined;
-    const count = stream_operations(self, &ordered);
+    const count = known_operations(self, &ordered);
     if (position >= count) return error.NoSuchOperation;
     return ordered[position];
 }
 
-/// The loop's stream operations, oldest first, by the slot generation the loop gave them.
-pub fn stream_operations(self: anytype, out: []u32) usize {
+/// The loop's operations the model knows, every one but the timer, oldest first, by the slot
+/// generation the loop gave them.
+pub fn known_operations(self: anytype, out: []u32) usize {
     var count: usize = 0;
     for (self.loop.slots[0..], 0..) |*slot, index| {
         if (!slot.live or kind_of(slot.user_data) == null) continue;
@@ -178,34 +199,75 @@ pub fn stream_operations(self: anytype, out: []u32) usize {
 fn finish(self: anytype, position: usize, outcome: Outcome) Error!void {
     const slot = try operation(self, position);
     const user_data = self.loop.slots[slot].user_data;
+    const kind = kind_of(user_data).?;
     var event = switch (outcome) {
         .ok => rotor.Event.success(user_data, 0),
-        .failed => rotor.Event.failure(user_data, failure_of(kind_of(user_data).?)),
+        .failed => rotor.Event.failure(user_data, failure_of(kind)),
         .canceled => rotor.Event.failure(user_data, .canceled),
+        .exhausted => rotor.Event.failure(user_data, .buffers_exhausted),
     };
     // A receive that ends in success after a cancel carries the bytes it read (rule 2).
-    if (outcome == .ok and kind_of(user_data).? == .tcp_receive) {
-        const buffer_id = self.loop.groups[io.constants.tcp_group_id].take() orelse return error.NoBuffer;
-        event.result = 1;
-        event.flags = .{ .buffer = true, .buffer_id = buffer_id };
+    if (outcome == .ok and (kind == .tcp_receive or kind == .udp_receive)) {
+        event = try carrying(self, user_data, kind, false);
     }
     self.loop.end(slot);
     _ = self.engine.apply(event, self.now_ns);
 }
 
-/// A message on the receive at `position`, for the lookup in `slot`: one whole frame,
-/// length and all, in one buffer of the stream's group (RFC 7766 §8).
+/// A datagram or a chunk on a receive that is gone, before its end: the receive stays.
+fn straggle(self: anytype, position: usize) Error!void {
+    const slot = try operation(self, position);
+    const user_data = self.loop.slots[slot].user_data;
+    const kind = kind_of(user_data).?;
+    if (kind != .tcp_receive and kind != .udp_receive) return error.Malformed;
+    const event = try carrying(self, user_data, kind, true);
+    _ = self.engine.apply(event, self.now_ns);
+}
+
+/// An event that carries one octet in a buffer of its receive's group.
+fn carrying(self: anytype, user_data: u64, kind: io.Kind, more: bool) Error!rotor.Event {
+    const group_id: u16 = if (kind == .tcp_receive) io.constants.tcp_group_id else io.constants.group_id;
+    const buffer_id = self.loop.groups[group_id].take() orelse return error.NoBuffer;
+    const buffer = self.loop.provided_buffer(group_id, buffer_id);
+    var length: u32 = 1;
+    if (kind == .udp_receive) {
+        const peer = rotor.Network.server_address(0);
+        length = rotor.buffers.write_delivery(buffer, .{}, &peer, &.{0});
+    }
+    var event = rotor.Event.success(user_data, length);
+    event.flags = .{ .buffer = true, .more = more, .buffer_id = buffer_id };
+    return event;
+}
+
+/// A message on the receive at `position`, for the lookup in `slot`: on a stream, one whole
+/// frame, length and all, in one buffer of the stream's group (RFC 7766 §8); on a socket, one
+/// datagram from its server, laid out in the datagram group as rotor lays one out.
 fn message(self: anytype, position: usize, slot: usize, reply: fixtures.Reply) Error!void {
     const loop_slot = try operation(self, position);
     const user_data = self.loop.slots[loop_slot].user_data;
-    if (kind_of(user_data) != .tcp_receive) return error.Malformed;
-    const buffer_id = self.loop.groups[io.constants.tcp_group_id].take() orelse return error.NoBuffer;
-    const buffer = self.loop.provided_buffer(io.constants.tcp_group_id, buffer_id);
-    const prefix = cocuyo.constants.tcp_prefix_bytes;
     const lookup = self.engine.resolver.lookup_of(self.engine.handles[slot]);
-    const body = fixtures.build(lookup, reply, buffer[prefix..]);
-    std.mem.writeInt(u16, buffer[0..prefix], @intCast(body.len), .big);
-    var event = rotor.Event.success(user_data, @intCast(prefix + body.len));
+    var body_buffer: [512]u8 = undefined;
+    const body = fixtures.build(lookup, reply, &body_buffer);
+    const kind = kind_of(user_data) orelse return error.Malformed;
+    const group_id: u16 = switch (kind) {
+        .tcp_receive => io.constants.tcp_group_id,
+        .udp_receive => io.constants.group_id,
+        else => return error.Malformed,
+    };
+    const buffer_id = self.loop.groups[group_id].take() orelse return error.NoBuffer;
+    const buffer = self.loop.provided_buffer(group_id, buffer_id);
+    var length: u32 = undefined;
+    if (kind == .tcp_receive) {
+        const prefix = cocuyo.constants.tcp_prefix_bytes;
+        std.mem.writeInt(u16, buffer[0..prefix], @intCast(body.len), .big);
+        @memcpy(buffer[prefix..][0..body.len], body);
+        length = @intCast(prefix + body.len);
+    } else {
+        const server: u8 = @intCast((user_data & io.constants.index_mask) & io.constants.receive_index_mask);
+        const peer = rotor.Network.server_address(server);
+        length = rotor.buffers.write_delivery(buffer, .{}, &peer, body);
+    }
+    var event = rotor.Event.success(user_data, length);
     event.flags = .{ .buffer = true, .more = true, .buffer_id = buffer_id };
     _ = self.engine.apply(event, self.now_ns);
 }
@@ -230,12 +292,12 @@ fn kind_of_any(user_data: u64) io.Kind {
     return @enumFromInt(@as(u8, @truncate(user_data >> io.constants.kind_shift)));
 }
 
-/// The kind of a stream operation, or null for any other.
+/// The kind of an operation the model knows, or null for the timer, which it does not.
 pub fn kind_of(user_data: u64) ?io.Kind {
     const kind = kind_of_any(user_data);
     return switch (kind) {
-        .tcp_connect, .tcp_send, .tcp_receive => kind,
-        .udp_send, .udp_receive, .timer => null,
+        .tcp_connect, .tcp_send, .tcp_receive, .udp_send, .udp_receive => kind,
+        .timer => null,
     };
 }
 
@@ -243,6 +305,7 @@ fn failure_of(kind: io.Kind) rotor.Code {
     return switch (kind) {
         .tcp_connect => .connection_refused,
         .tcp_send => .broken_pipe,
+        .udp_send => .network_unreachable,
         else => .connection_reset,
     };
 }

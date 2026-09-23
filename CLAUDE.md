@@ -290,12 +290,15 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   compares 1.77 million transitions and found two defects: a chain past `cname_hops_max` timed
   out instead of failing `ChainTooLong`, and EDNS0 stayed off for the whole lookup after one
   FORMERR.
-- The engine's streams are checked against a model of their rules (design §19 step 13,
-  2026-09-23), with the table's ready list and free list in it. Its replay ends the loop's
-  operations in the orders rotor's decision 5 allows, and found the review's three defects in
-  the stream path and three more: the drive's poll bound, a stale event's buffer, and the table's
-  deadline bound missing a connect. `reinit` puts its cache under its table again.
-  `AddressLookup`'s walk is the state machine still to model.
+- The engine's streams and datagrams are checked against a model of their rules (design §19
+  step 13, 2026-09-23), with the table's ready list and free list in it. Its replay ends the
+  loop's operations in the orders rotor's decision 5 allows and refuses submissions and sockets
+  when the walk says. It found the review's three defects in the stream path and six more: the
+  drive's poll bound, the table's deadline bound missing a connect, a stale event's buffer on
+  either transport, a refused receive never armed again, and a port replacement that could not
+  open a socket stopping the program. `reinit` puts its cache under its table again. §17
+  question 15 asks whether a port should be replaced under load. `AddressLookup`'s walk is the
+  state machine still to model.
 - Next, in order (the owner's plan of 2026-09-23): DoT; DoH's DNS half. The p99 of the
   comparison waits for a quiet machine.
 

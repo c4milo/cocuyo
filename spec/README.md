@@ -3,8 +3,8 @@
 This directory holds two models in Lean 4, and `tools/spec_replay/` ties each to the Zig code:
 
 - `Lookup`, the state machine of docs/design.md §5, with proofs of what §5 promises of it.
-- The engine's streams, the rules of §19 step 13, with invariants checked over every state the
-  model reaches in small configurations.
+- The engine's streams and datagrams, the rules of §19 step 13, with invariants checked over
+  every state the model reaches in small configurations.
 
 ## The rule
 
@@ -28,9 +28,9 @@ would agree with the code by construction and prove nothing about it.
     order is well-founded. So no sequence of answers makes a lookup send forever.
 - `Spec/Axioms.lean` pins the axioms each theorem rests on. A proof left unfinished rests on
   `sorryAx`, which changes a pinned line and fails the build.
-- `Spec/Engine.lean` and `Spec/EngineStep.lean` are the engine model: the table's slots, free
-  list and ready list, the connections, the loop's operations, and a `Spec.Lookup` in each slot.
-  `invariants` names what every state must keep.
+- `Spec/Engine.lean`, `Spec/EngineSockets.lean` and `Spec/EngineStep.lean` are the engine
+  model: the table's slots, free list and ready list, the connections, the sockets, the loop's
+  operations, and a `Spec.Lookup` in each slot. `invariants` names what every state must keep.
 - `Spec/EngineWalk.lean` walks the engine model: breadth first to check the invariants in every
   state reached, and in seeded walks for the replay.
 - `Spec/Tokens.lean` spells states and events for the transcripts.
@@ -64,42 +64,55 @@ a server failed and the cookie retried. A field that drifts is caught at the eve
 
 ## The engine
 
-The engine model is written from the stream's rules of §19 step 13 and rotor's decision 5, with
-two servers, every query over TCP and one pass. It leaves out the datagram path, the timer, the
-bytes of a message and the cache. Time moves in ticks, each the idle close's wait, and only when
-a deadline arrives or the caller lets a tick pass; a lookup waits two ticks.
+The engine model is written from the stream's rules and the datagram's rules of §19 step 13 and
+rotor's decision 5, with two servers and one pass. A configuration asks every query over TCP, or
+every query over UDP with no answer truncated and a port replaced every two queries. It leaves
+out the timer, the bytes of a message and the cache. Time moves in ticks, each the idle close's
+wait, and only when a deadline arrives or the caller lets a tick pass; a lookup waits two ticks.
+Two faults stand in for a kernel under pressure: the loop refuses every submission for the length
+of one event, as a full ring does, and every socket open fails for the length of one event, as a
+process with no descriptor left sees.
 
-`cocuyo-spec engine <slots> <connections> <polls>` walks it breadth first and checks five
-invariants in every state: a connection's users are the lookups on it, a lookup is on a
-connection only while it streams to that connection's server, a buffer is lent to one send at
-most, an open connection has exactly one current operation, and a drive leaves nothing on the
-ready list. The walk stops at six operations in flight and two failures a server, since nothing
-else bounds the graph. It reported, on 2026-09-23:
+`cocuyo-spec engine <tcp|udp> <slots> <connections>` walks it breadth first and checks seven
+invariants in every state:
 
-| Slots | Connections | States | Transitions | Invariants |
-| --- | --- | --- | --- | --- |
-| 1 | 1 | 96,148 | 1,385,573 | hold |
-| 1 | 2 | 4,542,534 | 66,683,526 | hold |
+- A connection's users are the lookups on it.
+- A lookup is on a connection only while it streams to that connection's server.
+- A buffer is lent to one send at most, and is lent exactly when a send holds it.
+- A connection has its connect while it connects, and at most its receive once it is up.
+- A socket has at most one current receive while it is open, and none while it is closed.
+- A drive leaves nothing on the ready list.
+- After a drive nothing refused, every server has a socket with its receive armed, and every
+  connection that is up has its receive.
+
+The walk stops at six operations in flight, two failures a server and three queries a port,
+since nothing else bounds the graph. It reported, on 2026-09-23:
+
+| Transport | Slots | Connections | States | Transitions | Invariants |
+| --- | --- | --- | --- | --- | --- |
+| TCP | 1 | 1 | 2,482,268 | 35,319,340 | hold |
+| UDP | 1 | 1 | 1,771,292 | 28,616,208 | hold |
 
 The replay cannot visit that many states, so `cocuyo-spec engine-walks` writes seeded walks that
 take, at each step, an event leading to a state no walk has reached yet when there is one. Each
 line is an event and the model's whole state after it. `tools/spec_replay/engine_replay.zig`
 drives the engine of `io/` over the twin in manual mode, where every operation waits until the
-walk ends it with the outcome it names, which is how the replay reaches the orders rotor's rule 2
-allows. After each event it compares the engine's state with the model's, and requires every
-buffer the event handed the engine to be back in its group.
+walk ends it with the outcome it names, and the twin refuses what the walk says to refuse, which
+is how the replay reaches the orders rotor's rule 2 allows. After each event it compares the
+engine's state with the model's, and requires every buffer the event handed the engine to be
+back in its group.
 
 ## Running it
 
 - `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 2,910
   transitions: one server, one pass and one name, over UDP and over TCP. It also replays
-  `tools/spec_replay/engine_gate.txt`, ten engine walks of forty events in each configuration.
-  It needs no Lean.
+  `tools/spec_replay/engine_gate.txt`, ten engine walks of forty events in each of the six
+  engine configurations. It needs no Lean.
 - `zig build spec` needs `lake` on the path, at the version `lean-toolchain` pins. It builds the
   proofs and the axiom pins, requires the committed slices to be the ones the models write, and
-  replays the lookup's whole transcript and 2,000 engine walks of 200 events in each engine
-  configuration, 1.6 million events. It took 1 minute 39 seconds on the machine of design §11 on
-  2026-09-23, most of it the model writing the walks.
+  replays the lookup's whole transcript and 2,000 engine walks of 200 events in each of the six
+  engine configurations, 2.4 million events. It took 1 minute 11 seconds on the machine of
+  design §11 on 2026-09-23, most of it the model writing the walks.
 - After a change to a model, `lake exe cocuyo-spec gate 8 > ../tools/spec_replay/lookup_gate.txt`
   and `lake exe cocuyo-spec engine-gate > ../tools/spec_replay/engine_gate.txt` in this directory
   write the slices again.
