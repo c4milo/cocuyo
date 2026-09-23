@@ -83,7 +83,7 @@ test "a datagram to a scripted server comes back on the socket's receive, after 
     try testing.expect(events[0].flags.buffer and events[0].flags.more);
     const delivery = rig.loop.datagram(group_id, events[0]);
     try testing.expect(delivery.from.peer.equal(&rig.outbound.peer));
-    try testing.expectEqual(@as(u16, 0x4242), (try wire.header.parse(delivery.bytes)).id);
+    try testing.expectEqual(@as(u16, fixtures.query_id), (try wire.header.parse(delivery.bytes)).id);
     rig.loop.give_back_buffer(group_id, events[0].flags.buffer_id);
     rig.loop.cancel(handles[0]);
     try rig.loop.drain(&events);
@@ -163,13 +163,14 @@ test "a query over a stream is answered in framed chunks the seed sizes" {
     try testing.expectEqual(@as(u32, 1), try rig.collect(&events, 1000));
     try testing.expectEqual(@as(u32, 0), try events[0].outcome());
     var framed: [core.constants.query_bytes_max]u8 = undefined;
-    var query: wire.Query = .{ .id = 0x0707, .name = try core.Name.from_text("example.com"), .kind = .a, .tcp = true };
+    var query: wire.Query = .{ .id = fixtures.stream_query_id, .name = try core.Name.from_text("example.com"), .kind = .a, .tcp = true };
     const framed_len = wire.query.write(&query, &framed);
     var handles: [1]sim.Handle = undefined;
     const receive: Operation = .{ .user_data = receive_tag, .kind = .{ .receive = .{ .socket = socket, .target = .{ .group = group_id }, .multishot = true } } };
     _ = rig.loop.submit(&.{receive}, &handles);
     const send: Operation = .{ .user_data = send_tag, .kind = .{ .send = .{ .socket = socket, .buffer = .{ .bytes = framed[0..framed_len] } } } };
     _ = rig.loop.submit(&.{send}, &.{});
+    const prefix = core.constants.tcp_prefix_bytes;
     var assembled: [512]u8 = undefined;
     var assembled_len: usize = 0;
     var chunks: usize = 0;
@@ -185,11 +186,11 @@ test "a query over a stream is answered in framed chunks the seed sizes" {
             chunks += 1;
             rig.loop.give_back_buffer(group_id, event.flags.buffer_id);
         }
-        if (assembled_len >= 2 and assembled_len >= 2 + std.mem.readInt(u16, assembled[0..2], .big)) break;
+        if (assembled_len >= prefix and assembled_len >= prefix + @as(usize, wire.message_len(assembled[0..prefix]))) break;
     }
-    const reply_len = std.mem.readInt(u16, assembled[0..2], .big);
-    try testing.expectEqual(assembled_len, 2 + @as(usize, reply_len));
-    try testing.expectEqual(@as(u16, 0x0707), (try wire.header.parse(assembled[2..][0..reply_len])).id);
+    const reply_len = wire.message_len(assembled[0..prefix]);
+    try testing.expectEqual(assembled_len, prefix + @as(usize, reply_len));
+    try testing.expectEqual(@as(u16, fixtures.stream_query_id), (try wire.header.parse(assembled[prefix..][0..reply_len])).id);
     try testing.expect(chunks >= 1);
     rig.loop.cancel(handles[0]);
     try rig.loop.drain(&events);

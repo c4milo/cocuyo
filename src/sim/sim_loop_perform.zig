@@ -4,6 +4,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
+const wire = @import("wire");
 const constants = @import("constants.zig");
 const types = @import("sim_types.zig");
 const buffers = @import("sim_buffers.zig");
@@ -134,7 +135,7 @@ fn send_stream(loop: *Loop, slot: u32, send: *const Operation.Send) void {
 fn answer_frame(loop: *Loop, connection: *network_module.Connection) bool {
     const prefix = core.constants.tcp_prefix_bytes;
     if (connection.partial_len < prefix) return false;
-    const frame_len: usize = std.mem.readInt(u16, connection.partial[0..prefix], .big);
+    const frame_len: usize = wire.message_len(connection.partial[0..prefix]);
     if (connection.partial_len < prefix + frame_len) return false;
     const query = connection.partial[prefix..][0..frame_len];
     const script = &network().scripts[connection.server];
@@ -142,7 +143,7 @@ fn answer_frame(loop: *Loop, connection: *network_module.Connection) bool {
     if (room >= prefix + constants.datagram_bytes_max) {
         const out = connection.inbound[connection.inbound_len + prefix ..][0..constants.datagram_bytes_max];
         if (server.respond(script, &connection.peer, query, true, draw(loop), out)) |answer| {
-            std.mem.writeInt(u16, connection.inbound[connection.inbound_len..][0..prefix], @intCast(answer.len), .big);
+            wire.header.write_message_len(connection.inbound[connection.inbound_len..][0..prefix], @intCast(answer.len));
             connection.inbound_len += prefix + answer.len;
             connection.available_at_ns = loop.now_ns + answer.delay_ns;
         }
