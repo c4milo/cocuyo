@@ -54,10 +54,12 @@ pub const Memory = struct {
 };
 
 /// Asks the memory, once per lookup and before its first query. A hit ends the lookup where it
-/// stands, and a lookup ended this way never writes back what it was handed.
+/// stands, and a lookup ended this way never writes back what it was handed. A lookup that has
+/// already ended, cancelled or with no server to ask, is not asked about: it has its end.
 pub fn recall_into(memory: ?Memory, slot: *Slot, now_ns: u64) void {
     if (slot.asked_memory) return;
     slot.asked_memory = true;
+    if (slot.lookup.is_settled()) return;
     const source = memory orelse return;
     const found = source.recall(source.context, &slot.lookup.question, now_ns) orelse return;
     switch (found) {
@@ -204,6 +206,33 @@ test "a question the memory holds is answered at its first poll, and nothing is 
     const twice = rig.poll().?;
     try testing.expect(twice.action == .done);
     try testing.expectEqual(@as(u32, 1), stub.recalls);
+    rig.resolver.release(handle);
+}
+
+test "a question the memory holds is answered over TCP too, before any connection" {
+    var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
+    rig.open();
+    const answers = try answered_once(&rig);
+    var stub: Stub = .{ .held = .{ .answered = .{ .answers = &answers, .ttl_seconds = 42, .canonical_name = null } } };
+    rig.resolver.remember_with(stub.memory());
+    // Every query over TCP (§19 step 11): the lookup starts waiting for its connection.
+    rig.config.use_tcp = true;
+    const handle = try rig.start("example.com.");
+    try testing.expect(rig.poll().?.action == .done);
+    try testing.expectEqual(@as(u32, 1), stub.recalls);
+    rig.resolver.release(handle);
+}
+
+test "a lookup that ended before its first poll is not asked about" {
+    var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
+    rig.open();
+    const answers = try answered_once(&rig);
+    var stub: Stub = .{ .held = .{ .answered = .{ .answers = &answers, .ttl_seconds = 42, .canonical_name = null } } };
+    rig.resolver.remember_with(stub.memory());
+    const handle = try rig.start("example.com.");
+    rig.resolver.cancel(handle);
+    try testing.expectEqual(core.Error.Canceled, rig.poll().?.action.failed.err);
+    try testing.expectEqual(@as(u32, 0), stub.recalls);
     rig.resolver.release(handle);
 }
 

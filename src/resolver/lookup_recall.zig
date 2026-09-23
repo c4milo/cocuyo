@@ -8,6 +8,13 @@ const wire = @import("wire");
 const Name = core.Name;
 const Lookup = @import("lookup.zig").Lookup;
 
+/// Whether `lookup` is where a lookup stands before its first query: ready to build it, or, when
+/// every query goes over TCP (§19 step 11), waiting for its connection. The memory is asked only
+/// there, at the first poll.
+fn before_first_query(lookup: *const Lookup) bool {
+    return lookup.state == .query_ready or lookup.state == .tcp_needed;
+}
+
 /// Ends `lookup` with answers the memory remembered. `ttl_seconds` is what is left of them, not
 /// what they were given, so the answer reports the life it has now.
 ///
@@ -20,7 +27,7 @@ pub fn answer(
     ttl_seconds: u32,
     canonical: ?*const Name,
 ) void {
-    assert(lookup.state == .query_ready);
+    assert(before_first_query(lookup));
     assert(!lookup.flags.aliased);
     lookup.answers = answers.*;
     lookup.answers.ttl_seconds = ttl_seconds;
@@ -35,7 +42,7 @@ pub fn answer(
 /// Ends `lookup` with a negative the memory remembered: one of the two of RFC 2308 §5, with what
 /// is left of its life.
 pub fn failure(lookup: *Lookup, err: core.Error, ttl_seconds: u32) void {
-    assert(lookup.state == .query_ready);
+    assert(before_first_query(lookup));
     assert(err == core.Error.NameNotFound or err == core.Error.NoData);
     lookup.negative_ttl_seconds = ttl_seconds;
     lookup.fail(err);

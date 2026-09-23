@@ -933,6 +933,21 @@ test-resolver`. Three mutations, three `CAUGHT`.
 | C2 | `NameLookup.cancel` does not mark the walk | a cancel's outcome is `Canceled` | the name cancel test | CAUGHT |
 | C3 | an answer that comes after a cancel is taken | a cancel's outcome is `Canceled` | the name cancel test | CAUGHT |
 
+## A cache hit over TCP, and a lookup that ended first
+
+The table asks the memory only about a lookup that has not ended, and a recall accepts both of
+the states a lookup stands in before its first query: ready to build it, or waiting for its
+connection when every query goes over TCP. Before, a cache hit with `use_tcp`, and a hit for a
+lookup cancelled before its first poll, each tripped the recall's assertion; the engine always
+installs a cache, so with `use_tcp` its first remembered answer stopped the program. Found by
+the altitude review of `/simplify` on 2026-09-23. Broken against `zig build test-resolver`. Two
+mutations, two `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| M1 | a lookup that has ended is asked about | an ended lookup has its end | the ended-first test | CAUGHT |
+| M2 | only a lookup ready to build its query may be recalled | a TCP lookup starts waiting for its connection | the TCP recall test | CAUGHT |
+
 ## The epoll check
 
 `tools/epoll_check/run.sh`, run by CI's `epoll` job: the rotor example must resolve inside a
