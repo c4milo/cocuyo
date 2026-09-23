@@ -133,14 +133,9 @@ const CacheRig = struct {
 };
 
 /// One A record with the life given. The address is every octet set: these tests read the
-/// outcome and the life, never the address, and a corpus of octets belongs in a `fixtures.zig`,
-/// which the module whose root is this file has nowhere to put.
+/// outcome and the life, never the address.
 fn one_address(life_seconds: u32) wire.Answers {
-    var out = wire.Answers.init(.a);
-    out.items.addresses[0] = Address.from_v4(@splat(1));
-    out.count = 1;
-    out.ttl_seconds = life_seconds;
-    return out;
+    return wire.fixtures.answers_address(Address.from_v4(@splat(1)), life_seconds);
 }
 
 test "an answer put through the memory comes back with what is left of its life" {

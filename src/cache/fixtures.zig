@@ -30,9 +30,5 @@ pub fn question(text: []const u8) core.Question {
 
 /// One A record, `192.0.2.<last>` (RFC 5737), with the TTL given.
 pub fn answers_v4(last: u8, ttl_seconds: u32) wire.Answers {
-    var out = wire.Answers.init(.a);
-    out.items.addresses[0] = core.Address.from_v4(.{ 192, 0, 2, last });
-    out.count = 1;
-    out.ttl_seconds = ttl_seconds;
-    return out;
+    return wire.fixtures.answers_address(core.Address.from_v4(.{ 192, 0, 2, last }), ttl_seconds);
 }

@@ -56,10 +56,9 @@ pub const port_other = 5353;
 pub const seed = 0x5eed_5eed;
 
 /// An A record owned by whatever the question named: 192.0.2.1, TTL 300. The owner is the
-/// compression pointer every real server sends (RFC 1035 §4.1.4).
-pub const record_a = [_]u8{
-    0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x04, 192, 0, 2, 1,
-};
+/// compression pointer every real server sends (RFC 1035 §4.1.4). This record and the six others
+/// taken from `wire.fixtures` are the codec's corpus, octet for octet.
+pub const record_a = wire.fixtures.record_a;
 
 /// An AAAA record owned by whatever the question named: 2001:db8::1, TTL 60, so a join of the
 /// two families has a smaller TTL to take.
@@ -70,9 +69,7 @@ pub const record_aaaa = [_]u8{
 };
 
 /// A second A record for the same owner: 192.0.2.2.
-pub const record_a_second = [_]u8{
-    0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x04, 192, 0, 2, 2,
-};
+pub const record_a_second = wire.fixtures.record_a_second;
 
 /// A PTR record owned by whatever the question named, pointing at `host.example.net`, TTL 300.
 pub const record_ptr = [_]u8{
@@ -80,9 +77,7 @@ pub const record_ptr = [_]u8{
 } ++ "\x04host\x07example\x03net\x00".*;
 
 /// A CNAME from the question's name to `host.example.net`, TTL 60.
-pub const record_cname = [_]u8{
-    0xc0, 0x0c, 0x00, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x12,
-} ++ "\x04host\x07example\x03net\x00".*;
+pub const record_cname = wire.fixtures.record_cname;
 
 /// A CNAME to `host.` plus a pointer to offset 20, which is the `com` label of `example.com` in
 /// the question the harness echoes back. A server that compresses a target's suffix into the
@@ -93,9 +88,7 @@ pub const record_cname_into_question = [_]u8{
 } ++ "\x04host".* ++ [_]u8{ 0xc0, 0x14 };
 
 /// The A record for `host.example.net`, 192.0.2.3, TTL 300.
-pub const record_cname_target_a = "\x04host\x07example\x03net\x00".* ++ [_]u8{
-    0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x04, 192, 0, 2, 3,
-};
+pub const record_cname_target_a = wire.fixtures.record_cname_target_a;
 
 /// A CNAME from `host.example.net` back to whatever the question named, its rdata a pointer to
 /// the question's own name at offset 12. With the record above, this is a chain that loops.
@@ -104,16 +97,11 @@ pub const record_cname_back = "\x04host\x07example\x03net\x00".* ++ [_]u8{
 };
 
 /// An A record for a name nobody asked about.
-pub const record_injected_a = "\x08attacker\x07example\x03com\x00".* ++ [_]u8{
-    0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x04, 192, 0, 2, 9,
-};
+pub const record_injected_a = wire.fixtures.record_injected_a;
 
 /// An MX record owned by the question's name: preference 10, exchange `mail` then a pointer to
 /// the question's name, TTL 300 (RFC 1035 §3.3.9, §4.1.4).
-pub const record_mx = [_]u8{
-    0xc0, 0x0c, 0x00, 0x0f, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x09,
-    0x00, 0x0a, 0x04, 'm',  'a',  'i',  'l',  0xc0, 0x0c,
-};
+pub const record_mx = wire.fixtures.record_mx_compressed;
 
 /// An A record whose rdlength reaches past the end of the message.
 pub const record_long_rdlength = [_]u8{
@@ -122,12 +110,7 @@ pub const record_long_rdlength = [_]u8{
 
 /// An SOA owned by the question's name, TTL 300, MINIMUM 60: what an authoritative server puts in
 /// the authority section of a negative answer (RFC 2308 §2).
-pub const record_soa = [_]u8{
-    0xc0, 0x0c, 0x00, 0x06, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x21,
-    0x02, 'n',  's',  0xc0, 0x0c, 0x05, 'a',  'd',  'm',  'i',  'n',  0xc0,
-    0x0c, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x1c, 0x20, 0x00, 0x00, 0x03,
-    0x84, 0x00, 0x12, 0x75, 0x00, 0x00, 0x00, 0x00, 0x3c,
-};
+pub const record_soa = wire.fixtures.record_soa;
 
 /// The same SOA with an rdlength one octet over its rdata, so its minimum cannot be read.
 pub const record_soa_broken = record_soa[0..10].* ++ [_]u8{ 0x00, 0x22 } ++ record_soa[12..].* ++ [_]u8{0x00};
@@ -183,11 +166,7 @@ const cookie_client_wrong = [_]u8{ 0xba, 0xdc, 0x00, 0xc1, 0xe0, 0x00, 0x00, 0x0
 pub const cached_ttl_seconds = 300;
 
 pub fn cached_a(text: []const u8) wire.Answers {
-    var out = wire.Answers.init(.a);
-    out.items.addresses[0] = core.Address.from_text(text).?;
-    out.count = 1;
-    out.ttl_seconds = cached_ttl_seconds;
-    return out;
+    return wire.fixtures.answers_address(core.Address.from_text(text).?, cached_ttl_seconds);
 }
 
 pub const answer_a: Reply = .{ .records = &record_a, .ancount = 1 };

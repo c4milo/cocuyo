@@ -8,6 +8,7 @@
 //! the format (tools/lint/magic_numbers.zig). It is test-only: nothing outside a `test` block
 //! names it, so nothing here is compiled into a library build.
 const core = @import("core");
+const Answers = @import("response.zig").Answers;
 
 /// The transaction id every fixture here carries.
 pub const id = 0x1234;
@@ -44,7 +45,7 @@ const question_a = "\x07example\x03com\x00\x00\x01\x00\x01".*;
 const owner_pointer = [_]u8{ 0xc0, 0x0c };
 
 /// A: 192.0.2.1, TTL 300. The address is from the documentation range of RFC 5737.
-const record_a = owner_pointer ++ [_]u8{
+pub const record_a = owner_pointer ++ [_]u8{
     0x00, 0x01, // type A
     0x00, 0x01, // class IN
     0x00, 0x00, 0x01, 0x2c, // TTL 300
@@ -53,7 +54,7 @@ const record_a = owner_pointer ++ [_]u8{
 };
 
 /// A second A record for the same owner: 192.0.2.2, TTL 300.
-const record_a_second = owner_pointer ++ [_]u8{
+pub const record_a_second = owner_pointer ++ [_]u8{
     0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x04, 0xc0, 0x00, 0x02, 0x02,
 };
 
@@ -74,7 +75,7 @@ const record_aaaa = owner_pointer ++ [_]u8{
 };
 
 /// CNAME: `example.com` is an alias for `host.example.net`, TTL 60.
-const record_cname = owner_pointer ++ [_]u8{
+pub const record_cname = owner_pointer ++ [_]u8{
     0x00, 0x05, // type CNAME
     0x00, 0x01, // class IN
     0x00, 0x00, 0x00, 0x3c, // TTL 60
@@ -87,13 +88,13 @@ const record_cname = owner_pointer ++ [_]u8{
 /// Its TTL is 300 where the CNAME's is 60, on purpose: with both at 60, a collector reporting the
 /// largest TTL rather than the smallest would agree with one reporting the smallest, and no test
 /// could tell them apart.
-const record_cname_target_a = "\x04host\x07example\x03net\x00".* ++ [_]u8{
+pub const record_cname_target_a = "\x04host\x07example\x03net\x00".* ++ [_]u8{
     0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x04, 0xc0, 0x00, 0x02, 0x03,
 };
 
 /// An A record for a name nobody asked about. A response may carry extra records and an attacker
 /// will try to: the owner-name rule of RFC 5452 §6 is what drops this one.
-const record_injected_a = "\x08attacker\x07example\x03com\x00".* ++ [_]u8{
+pub const record_injected_a = "\x08attacker\x07example\x03com\x00".* ++ [_]u8{
     0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x04, 0xc0, 0x00, 0x02, 0x09,
 };
 
@@ -201,7 +202,7 @@ const soa_rdata = [_]u8{
 };
 
 /// An SOA owned by the question's name with TTL 300 and the 33 octets of rdata above.
-const record_soa = owner_pointer ++ [_]u8{
+pub const record_soa = owner_pointer ++ [_]u8{
     0x00, 0x06, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x21,
 } ++ soa_rdata;
 
@@ -288,7 +289,7 @@ pub const answer_offset_mx = answer_offset;
 
 /// MX, preference 10, exchange `mail` then a pointer to the question's name: `mail.example.com`
 /// compressed the way a server sends it (RFC 1035 §4.1.4).
-const record_mx_compressed = owner_pointer ++ [_]u8{
+pub const record_mx_compressed = owner_pointer ++ [_]u8{
     0x00, 0x0f, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c,
     0x00, 0x09, // rdlength
     0x00, 0x0a, // preference
@@ -477,3 +478,20 @@ pub const extended_error_text = "no reachable authority";
 pub const opt_extended_error = [_]u8{ 0x00, 0x0f, 0x00, extended_error_text.len + 2, 0x00, extended_error_code } ++ extended_error_text.*;
 pub const opt_extended_error_bare = [_]u8{ 0x00, 0x0f, 0x00, 0x02, 0x00, extended_error_code };
 pub const opt_extended_error_short = [_]u8{ 0x00, 0x0f, 0x00, 0x01, 0x00 };
+
+// Collected answers, for the layers above the codec: a cache, or a memory above the table, is
+// handed `Answers` rather than a message.
+
+/// Answers holding one address with the TTL given, as a lookup for that address's type collects
+/// them.
+pub fn answers_address(address: core.Address, ttl_seconds: u32) Answers {
+    const kind: core.Kind = switch (address.family) {
+        .ipv4 => .a,
+        .ipv6 => .aaaa,
+    };
+    var out = Answers.init(kind);
+    out.items.addresses[0] = address;
+    out.count = 1;
+    out.ttl_seconds = ttl_seconds;
+    return out;
+}

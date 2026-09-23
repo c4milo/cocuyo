@@ -40,14 +40,8 @@ pub fn question_of(comptime digits: usize, index: usize, text: *NameText(digits)
     return Question.from_text(text, .a) catch unreachable;
 }
 
-/// One answer, reused: a replay counts hits, not what they carry.
-fn answers_with(ttl_seconds: u32) wire.Answers {
-    var out = wire.Answers.init(.a);
-    out.items.addresses[0] = cocuyo.Address.from_text("192.0.2.1").?;
-    out.count = 1;
-    out.ttl_seconds = ttl_seconds;
-    return out;
-}
+/// The address every answer carries: a replay counts hits, not what they carry.
+const answer_address = cocuyo.Address.from_v4(.{ 192, 0, 2, 1 });
 
 /// Replays `recording` through a cache of `slot_count` slots, its hash keyed by `seed`.
 pub fn replay(comptime digits: usize, recording: *const Recording, slot_count: usize, seed: u64) Outcome {
@@ -65,7 +59,7 @@ pub fn replay(comptime digits: usize, recording: *const Recording, slot_count: u
         }
         outcome.misses += 1;
         const ttl: u32 = @intCast(recording.lives_ns[index] / std.time.ns_per_s);
-        const answers = answers_with(ttl);
+        const answers = wire.fixtures.answers_address(answer_address, ttl);
         store.put(&question, &answers, null, now_ns);
     }
     return outcome;

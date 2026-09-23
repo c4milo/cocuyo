@@ -56,10 +56,7 @@ var rotation: usize = 0;
 
 fn setup_cache() void {
     table = cache.Cache.init(&slots, &keys, seed, cache.constants.ttl_seconds_max_default);
-    answers = cocuyo.wire.Answers.init(.a);
-    answers.items.addresses[0] = cocuyo.Address.from_v4(.{ 192, 0, 2, 1 });
-    answers.count = 1;
-    answers.ttl_seconds = ttl_seconds;
+    answers = cocuyo.wire.fixtures.answers_address(cocuyo.Address.from_v4(.{ 192, 0, 2, 1 }), ttl_seconds);
     var buffer: [24]u8 = undefined;
     for (&questions, 0..) |*question, index| {
         const text = std.fmt.bufPrint(&buffer, "l{d}.example", .{index}) catch unreachable;
