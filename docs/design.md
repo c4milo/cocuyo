@@ -64,8 +64,15 @@ Each of these is out of scope on purpose, with the place it would attach.
   gaining the negative TTL a cache needs.
 - **No DNSSEC validation.** Seam: EDNS0 exists, the DO bit is a flag cocuyo never sets, and the
   record iterator hands out rdata unread, so a validator sits above the codec.
-- **No DNS-over-TLS and no DNS-over-HTTPS.** Seam: the TCP path already produces length-prefixed
-  messages, and the socket is the caller's, so DoT is the caller's TLS over the same bytes.
+- **DNS over TLS and DNS over HTTPS, since 2026-09-23.** Out of version one; the owner brought
+  both in on 2026-09-23, with three rulings. DoT (RFC 7858) is the engine's: rotor carries the
+  TCP, chapulin, the owner's TLS 1.3 client, carries the TLS through its non-blocking record
+  transport, and the library itself stays without TLS, since the stream path already produces
+  the length-prefixed messages DoT sends. Authentication is strict by default (RFC 8310): a
+  server whose name does not verify fails the lookup rather than falling back to plaintext.
+  DoH (RFC 8484) is split: cocuyo supplies its DNS half, and the HTTP/2 that carries it is
+  colibri's, in colibri's driver, because colibri depends on cocuyo and cocuyo may not depend
+  on it back. The plan and its checks come in the section that lands each.
 - **No mDNS and no zone transfers.** Out: neither is a stub resolver's.
 - **Record types beyond `A`, `AAAA`, `PTR` and `CNAME`; `/etc/hosts`; A-plus-AAAA in one call;
   TCP reuse and pipelining; DNS cookies; server failover.** Out of version one, and in since

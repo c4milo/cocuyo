@@ -132,8 +132,10 @@ The architecture depends on every rule in this section.
   ruled dependency of the tools, approved by the owner on 2026-09-21: `build.zig.zon` pins it by
   hash as a lazy dependency, the tools import it, and it is never linked into the library.
 - Weakening an assertion or a check to make a test pass.
-- Adding anything §1 puts out of scope: DNSSEC, DoT, DoH, mDNS, zone transfers, nsswitch, IDN,
-  the platform resolver configuration of §14. The cache (§18) and the gap with c-ares (§19:
+- Adding anything §1 puts out of scope: DNSSEC, mDNS, zone transfers, nsswitch, IDN, the
+  platform resolver configuration of §14. DoT and DoH were decided in on 2026-09-23: DoT in the
+  engine, over rotor with chapulin's non-blocking record transport, strict by default (RFC 8310);
+  DoH's DNS half in cocuyo and its HTTP/2 in colibri's driver, which cocuyo may never depend on. The cache (§18) and the gap with c-ares (§19:
   every record type, cookies, the hosts file, failover, the engine over rotor) were decided in on
   2026-09-22; what §19 lists as out stays out.
 
@@ -269,6 +271,9 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   SERVFAIL, where it stops as c-ares does (§5).
 - 0.1.0, the first release, tagged 2026-09-22: `build.zig.zon` carries the version, and the
   README pins the tag.
-- Next: the p99 of the comparison on a quiet machine.
+- Next, in order (the owner's plan of 2026-09-23): the `/simplify` cleanups outside the engine;
+  the engine's TCP path, whose review found stale completions after a connection slot is reused,
+  a lookup kept on an old server's connection and a send that can be dropped; DoT; DoH's DNS
+  half. The p99 of the comparison waits for a quiet machine.
 
 §17 holds the questions the owner has not answered.
