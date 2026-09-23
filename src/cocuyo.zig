@@ -71,7 +71,11 @@ fn recall_from_cache(context: *anyopaque, question: *const Question, now_ns: u64
     const store: *Cache = @ptrCast(@alignCast(context));
     const hit = store.get(question, now_ns) orelse return null;
     return switch (hit.outcome) {
-        .answered => .{ .answered = .{ .answers = hit.answers, .ttl_seconds = hit.ttl_seconds } },
+        .answered => .{ .answered = .{
+            .answers = hit.answers,
+            .ttl_seconds = hit.ttl_seconds,
+            .canonical_name = hit.canonical_name,
+        } },
         .name_not_found => .{ .negative = .{ .outcome = .name_not_found, .ttl_seconds = hit.ttl_seconds } },
         .no_data => .{ .negative = .{ .outcome = .no_data, .ttl_seconds = hit.ttl_seconds } },
     };
@@ -85,7 +89,7 @@ fn remember_in_cache(
 ) void {
     const store: *Cache = @ptrCast(@alignCast(context));
     switch (end) {
-        .answered => |answered| store.put(question, answered.answers, now_ns),
+        .answered => |answered| store.put(question, answered.answers, answered.canonical_name, now_ns),
         .negative => |negative| store.put_negative(question, switch (negative.outcome) {
             .name_not_found => .name_not_found,
             .no_data => .no_data,
@@ -149,6 +153,7 @@ test "an answer put through the memory comes back with what is left of its life"
     memory.remember(memory.context, &question, .{ .answered = .{
         .answers = &answers,
         .ttl_seconds = remembered_ttl_seconds,
+        .canonical_name = null,
     } }, 0);
 
     const half = @as(u64, remembered_ttl_seconds / 2) * cache.constants.ns_per_s;
@@ -191,7 +196,32 @@ test "what the memory has nothing for, and what has expired, is a miss" {
     memory.remember(memory.context, &question, .{ .answered = .{
         .answers = &answers,
         .ttl_seconds = remembered_ttl_seconds,
+        .canonical_name = null,
     } }, 0);
     const past = (@as(u64, remembered_ttl_seconds) + 1) * cache.constants.ns_per_s;
     try testing.expectEqual(@as(?Remembered, null), memory.recall(memory.context, &question, past));
+}
+
+test "the chain's end goes through the memory and comes back as it went in" {
+    var rig: CacheRig = .{};
+    rig.open();
+    const memory = remembered_by(&rig.store);
+    const aliased = try Question.from_text("www.example.", .a);
+    const plain = try Question.from_text("plain.example.", .a);
+    const answers = one_address(remembered_ttl_seconds);
+    const target = try Name.from_text("edge.cdn.example");
+
+    memory.remember(memory.context, &aliased, .{ .answered = .{
+        .answers = &answers,
+        .ttl_seconds = remembered_ttl_seconds,
+        .canonical_name = &target,
+    } }, 0);
+    memory.remember(memory.context, &plain, .{ .answered = .{
+        .answers = &answers,
+        .ttl_seconds = remembered_ttl_seconds,
+        .canonical_name = null,
+    } }, 0);
+
+    try testing.expect(memory.recall(memory.context, &aliased, 0).?.answered.canonical_name.?.equal(&target));
+    try testing.expectEqual(@as(?*const Name, null), memory.recall(memory.context, &plain, 0).?.answered.canonical_name);
 }

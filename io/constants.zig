@@ -5,7 +5,7 @@ const core = @import("cocuyo").core;
 /// The lookups an engine holds in flight, when the caller says nothing.
 pub const lookups_default = 256;
 
-/// The cache's slots, when the caller says nothing: a thousand, which §18 measures at 2.7 MiB.
+/// The cache's slots, when the caller says nothing: a thousand, which §18 measures at 2.9 MiB.
 pub const cache_slots_default = 1024;
 
 /// The high sixteen bits of every `user_data` the engine submits, so a caller sharing the loop

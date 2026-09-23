@@ -45,7 +45,7 @@ const second = fixtures.second;
 
 fn put_v4(table: *cache.Cache, text: []const u8, last: u8, ttl_seconds: u32, now_ns: u64) void {
     const answers = fixtures.answers_v4(last, ttl_seconds);
-    table.put(&ask(text), &answers, now_ns);
+    table.put(&ask(text), &answers, null, now_ns);
 }
 
 fn hits(table: *cache.Cache, text: []const u8, now_ns: u64) bool {

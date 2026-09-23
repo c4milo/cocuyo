@@ -164,7 +164,7 @@ fn replay(slot_count: usize, seed: u64) Outcome {
         }
         outcome.misses += 1;
         const answers = answers_with(ttl_of(index));
-        store.put(&question, &answers, now_ns);
+        store.put(&question, &answers, null, now_ns);
     }
     return outcome;
 }

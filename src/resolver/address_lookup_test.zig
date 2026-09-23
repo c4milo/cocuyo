@@ -403,7 +403,11 @@ const OneFamily = struct {
         const self: *OneFamily = @ptrCast(@alignCast(context));
         self.asked += 1;
         if (question.kind != self.kind) return null;
-        return .{ .answered = .{ .answers = &self.answers, .ttl_seconds = fixtures.cached_ttl_seconds } };
+        return .{ .answered = .{
+            .answers = &self.answers,
+            .ttl_seconds = fixtures.cached_ttl_seconds,
+            .canonical_name = null,
+        } };
     }
 
     fn remember(

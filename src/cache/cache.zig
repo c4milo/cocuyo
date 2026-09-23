@@ -29,24 +29,31 @@ pub const Outcome = enum { answered, name_not_found, no_data };
 pub const Slot = struct {
     name: Name,
     answers: wire.Answers,
+    /// The end of the CNAME chain the answers were reached through, when `aliased` says there
+    /// was one: what a lookup that went out reports as the canonical name, kept so that a hit
+    /// reports it too (docs/design.md §17 question 13).
+    canonical: Name,
     expires_ns: u64,
     hash: u32,
     links: Links,
     kind: Kind,
     outcome: Outcome,
     absolute: bool,
+    aliased: bool,
     visited: bool,
     occupied: bool,
 
     pub const empty: Slot = .{
         .name = Name.root,
         .answers = wire.Answers.init(.a),
+        .canonical = Name.root,
         .expires_ns = 0,
         .hash = 0,
         .links = .{},
         .kind = .a,
         .outcome = .answered,
         .absolute = false,
+        .aliased = false,
         .visited = false,
         .occupied = false,
     };
@@ -58,9 +65,18 @@ pub const Hit = struct {
     outcome: Outcome,
     answers: *const wire.Answers,
     name: *const Name,
+    /// The end of the CNAME chain, when the answers were reached through one.
+    canonical_name: ?*const Name,
     /// What is left, not what was put: the expiry less `now_ns`, rounded down to a second.
     ttl_seconds: u32,
 };
+
+/// Keeps the chain's end with the answers, or says there was none. The name is copied only
+/// when there is one: a slot that never held an aliased answer never pays the 256 octets' copy.
+fn keep_canonical(slot: *Slot, canonical: ?*const Name) void {
+    slot.aliased = canonical != null;
+    if (canonical) |name| slot.canonical = name.*;
+}
 
 pub const Cache = struct {
     slots: []Slot,
@@ -125,16 +141,24 @@ pub const Cache = struct {
             .outcome = slot.outcome,
             .answers = &slot.answers,
             .name = &slot.name,
+            .canonical_name = if (slot.aliased) &slot.canonical else null,
             .ttl_seconds = self.remaining(slot.expires_ns, now_ns),
         };
     }
 
-    /// Remembers `answers` for `question`. A TTL of zero, or an answer marked truncated, is not
-    /// cached (c-ares does the same); the TTL is capped at `ttl_seconds_max`.
-    pub fn put(self: *Cache, question: *const Question, answers: *const wire.Answers, now_ns: u64) void {
+    /// Remembers `answers` for `question`, with the end of the CNAME chain that reached them, or
+    /// null when none did. A TTL of zero, or an answer marked truncated, is not cached (c-ares
+    /// does the same); the TTL is capped at `ttl_seconds_max`.
+    pub fn put(
+        self: *Cache,
+        question: *const Question,
+        answers: *const wire.Answers,
+        canonical: ?*const Name,
+        now_ns: u64,
+    ) void {
         assert(question.kind.queryable());
         if (answers.truncated or answers.ttl_seconds == 0) return;
-        self.insert(question, .answered, answers, answers.ttl_seconds, now_ns);
+        self.insert(question, .answered, answers, canonical, answers.ttl_seconds, now_ns);
     }
 
     /// Remembers that `question` has no answer, for the SOA minimum a `Failure` carries
@@ -150,7 +174,7 @@ pub const Cache = struct {
         if (ttl_seconds == 0) return;
         var empty: wire.Answers = undefined;
         empty.reset(question.kind);
-        self.insert(question, outcome, &empty, ttl_seconds, now_ns);
+        self.insert(question, outcome, &empty, null, ttl_seconds, now_ns);
     }
 
     fn insert(
@@ -158,6 +182,7 @@ pub const Cache = struct {
         question: *const Question,
         outcome: Outcome,
         answers: *const wire.Answers,
+        canonical: ?*const Name,
         ttl_seconds: u32,
         now_ns: u64,
     ) void {
@@ -169,6 +194,7 @@ pub const Cache = struct {
             // Replaced in place, and the bit set: a name put twice is a name being used.
             const slot = &self.slots[index];
             slot.answers.assign(answers, question.kind);
+            keep_canonical(slot, canonical);
             slot.outcome = outcome;
             slot.expires_ns = expires_ns;
             slot.visited = true;
@@ -186,6 +212,7 @@ pub const Cache = struct {
         const slot = &self.slots[index];
         slot.name = question.name;
         slot.answers.assign(answers, question.kind);
+        keep_canonical(slot, canonical);
         slot.expires_ns = expires_ns;
         slot.hash = hash;
         slot.links = .{};
@@ -280,8 +307,39 @@ const second = fixtures.second;
 const slot_count = 4;
 
 test "the size of a slot is pinned" {
-    // Measured, not derived: Zig orders the fields (docs/design.md §18).
-    try testing.expectEqual(@as(usize, 2728), @sizeOf(Slot));
+    // Measured, not derived: Zig orders the fields (docs/design.md §18). 2984 since the slot
+    // keeps the chain's end: one `Name`, 256 octets, with its flag in padding that was there.
+    try testing.expectEqual(@as(usize, 2984), @sizeOf(Slot));
+}
+
+test "a hit reports the chain's end it was put with, and none when there was none" {
+    var fixture: fixtures.Fixture(slot_count) = .{};
+    var table = fixture.init();
+    const answers = fixtures.answers_v4(1, 300);
+    const target = try Name.from_text("edge.cdn.example");
+
+    table.put(&ask("www.example"), &answers, &target, 0);
+    table.put(&ask("plain.example"), &answers, null, 0);
+
+    const aliased = table.get(&ask("www.example"), 0).?;
+    try testing.expect(aliased.canonical_name.?.equal(&target));
+    const plain = table.get(&ask("plain.example"), 0).?;
+    try testing.expectEqual(@as(?*const Name, null), plain.canonical_name);
+}
+
+test "a put in place replaces the chain's end with the new one, or with none" {
+    var fixture: fixtures.Fixture(slot_count) = .{};
+    var table = fixture.init();
+    const answers = fixtures.answers_v4(1, 300);
+    const earlier = try Name.from_text("one.cdn.example");
+    const later = try Name.from_text("two.cdn.example");
+
+    table.put(&ask("www.example"), &answers, &earlier, 0);
+    table.put(&ask("www.example"), &answers, &later, 0);
+    try testing.expect(table.get(&ask("www.example"), 0).?.canonical_name.?.equal(&later));
+    // The same name answered later with no chain: what a hit says must follow the answer.
+    table.put(&ask("www.example"), &answers, null, 0);
+    try testing.expectEqual(@as(?*const Name, null), table.get(&ask("www.example"), 0).?.canonical_name);
 }
 
 test "a put is a hit whatever the case, and a miss for another type, name or absoluteness" {
@@ -290,7 +348,7 @@ test "a put is a hit whatever the case, and a miss for another type, name or abs
     const asked = ask("Example.COM");
     try testing.expect(table.get(&asked, 0) == null);
     const answers = fixtures.answers_v4(1, 300);
-    table.put(&asked, &answers, 0);
+    table.put(&asked, &answers, null, 0);
     try testing.expectEqual(@as(usize, 1), table.len());
 
     const hit = table.get(&ask("EXAMPLE.com"), 0).?;
@@ -313,7 +371,7 @@ test "a hit reports what is left of the TTL, and an expired entry is evicted on 
     var table = fixture.init();
     const asked = ask("example.com");
     const answers = fixtures.answers_v4(1, 300);
-    table.put(&asked, &answers, 0);
+    table.put(&asked, &answers, null, 0);
     try testing.expectEqual(@as(u32, 200), table.get(&asked, 100 * second).?.ttl_seconds);
     try testing.expectEqual(@as(u32, 0), table.get(&asked, 300 * second - 1).?.ttl_seconds);
     try testing.expect(table.get(&asked, 300 * second) == null);
@@ -321,7 +379,7 @@ test "a hit reports what is left of the TTL, and an expired entry is evicted on 
     try testing.expect(table.get(&asked, 300 * second) == null);
     // The slot went back: the table fills to its size again.
     for ([_][]const u8{ "a.example", "b.example", "c.example", "d.example" }) |name| {
-        table.put(&ask(name), &answers, 0);
+        table.put(&ask(name), &answers, null, 0);
     }
     try testing.expectEqual(@as(usize, 4), table.len());
 }
@@ -330,9 +388,9 @@ test "a hit sets the visited bit and moves nothing" {
     var fixture: fixtures.Fixture(slot_count) = .{};
     var table = fixture.init();
     const answers = fixtures.answers_v4(1, 300);
-    table.put(&ask("a.example"), &answers, 0);
-    table.put(&ask("b.example"), &answers, 0);
-    table.put(&ask("c.example"), &answers, 0);
+    table.put(&ask("a.example"), &answers, null, 0);
+    table.put(&ask("b.example"), &answers, null, 0);
+    table.put(&ask("c.example"), &answers, null, 0);
     const oldest = table.order.oldest;
     const newest = table.order.newest;
     try testing.expect(table.get(&ask("b.example"), 0) != null);
@@ -349,11 +407,11 @@ test "a put for a question the cache holds replaces it in place, sets the bit, a
     var fixture: fixtures.Fixture(slot_count) = .{};
     var table = fixture.init();
     const first = fixtures.answers_v4(1, 300);
-    table.put(&ask("a.example"), &first, 0);
-    table.put(&ask("b.example"), &first, 0);
+    table.put(&ask("a.example"), &first, null, 0);
+    table.put(&ask("b.example"), &first, null, 0);
     const oldest = table.order.oldest;
     const later = fixtures.answers_v4(2, 600);
-    table.put(&ask("A.EXAMPLE"), &later, 10 * second);
+    table.put(&ask("A.EXAMPLE"), &later, null, 10 * second);
     try testing.expectEqual(@as(usize, 2), table.len());
     try testing.expectEqual(oldest, table.order.oldest);
     try testing.expect(table.slots[oldest].visited);
@@ -366,14 +424,14 @@ test "a TTL of zero and a truncated answer are not cached, and a TTL over the ca
     var fixture: fixtures.Fixture(slot_count) = .{};
     var table = cache_init_capped(&fixture, 60);
     const zero = fixtures.answers_v4(1, 0);
-    table.put(&ask("a.example"), &zero, 0);
+    table.put(&ask("a.example"), &zero, null, 0);
     var truncated = fixtures.answers_v4(1, 300);
     truncated.truncated = true;
-    table.put(&ask("a.example"), &truncated, 0);
+    table.put(&ask("a.example"), &truncated, null, 0);
     table.put_negative(&ask("b.example"), .name_not_found, 0, 0);
     try testing.expectEqual(@as(usize, 0), table.len());
     const long = fixtures.answers_v4(1, 300);
-    table.put(&ask("a.example"), &long, 0);
+    table.put(&ask("a.example"), &long, null, 0);
     try testing.expectEqual(@as(u32, 60), table.get(&ask("a.example"), 0).?.ttl_seconds);
     try testing.expect(table.get(&ask("a.example"), 60 * second) == null);
 }
@@ -396,7 +454,7 @@ test "a negative answer is cached with its outcome, its TTL and no records" {
     try testing.expectEqual(@as(u32, 30), nodata.ttl_seconds);
     // An answer put over a negative entry replaces it, outcome included.
     const answers = fixtures.answers_v4(1, 300);
-    table.put(&ask("nx.example"), &answers, 0);
+    table.put(&ask("nx.example"), &answers, null, 0);
     try testing.expectEqual(Outcome.answered, table.get(&ask("nx.example"), 0).?.outcome);
 }
 
@@ -404,15 +462,15 @@ test "flush empties the table, and a put after it works" {
     var fixture: fixtures.Fixture(slot_count) = .{};
     var table = fixture.init();
     const answers = fixtures.answers_v4(1, 300);
-    table.put(&ask("a.example"), &answers, 0);
-    table.put(&ask("b.example"), &answers, 0);
+    table.put(&ask("a.example"), &answers, null, 0);
+    table.put(&ask("b.example"), &answers, null, 0);
     try testing.expect(table.get(&ask("a.example"), 0) != null);
     table.flush();
     try testing.expectEqual(@as(usize, 0), table.len());
     try testing.expect(table.get(&ask("a.example"), 0) == null);
     try testing.expect(table.get(&ask("b.example"), 0) == null);
     for (table.keys) |key| try testing.expectEqual(Key.State.empty, key.state);
-    table.put(&ask("a.example"), &answers, 0);
+    table.put(&ask("a.example"), &answers, null, 0);
     try testing.expectEqual(@as(usize, 1), table.len());
     try testing.expect(table.get(&ask("a.example"), 0) != null);
 }

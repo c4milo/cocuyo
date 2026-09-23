@@ -707,63 +707,64 @@ reports as stepping 42 ns; `CLOCK_MONOTONIC` on this macOS steps a whole microse
 version of this table was quantised by it. Twenty-one samples per case after one untimed warm-up,
 each sample 200,000 iterations, after one second of spinning so the machine has finished whatever
 ran before the bench. Two runs back to back; every median below is from the second, and every one
-of them sits within 5% of the first, most within 2%. The harness overhead, the first row, is included in every
-other row and not subtracted. The numbers are cocuyo's alone: nothing here is measured against
-c-ares or any other resolver, so the table supports no claim about speed relative to what cocuyo
-replaces. Nanoseconds per operation, from the commit that landed §19 step 12; the table was first
-measured by the commit that added it, and is re-measured whole whenever a change moves a row,
-because the rows move together (below):
+of them sits within 5% of the first, 15 of the 24 within 2%. The harness overhead, the first
+row, is included in every other row and not subtracted. The numbers are cocuyo's alone: nothing
+here is measured against c-ares or any other resolver, so the table supports no claim about speed
+relative to what cocuyo replaces. Nanoseconds per operation, from the commit that answered §17
+question 13 and grew the cache slot by the chain's end; the table was first measured by the
+commit that added it, and is re-measured whole whenever a change moves a row, because the rows
+move together (below):
 
 | Case | Fastest | Median |
 | --- | --- | --- |
-| harness overhead, an empty call through the same function pointer | 1.5 | 1.5 |
-| query build, `example.com`, EDNS0, no cookie | 8.4 | 8.6 |
-| query build, a 255-octet name, over TCP | 10.6 | 11.0 |
-| name decode, two labels | 15.8 | 16.3 |
-| name decode, through a compression pointer | 17.1 | 17.5 |
-| response parse, one A record | 49.6 | 50.9 |
-| response parse, a CNAME then its A record, with a 256-octet restore of the chain | 187.2 | 189.4 |
-| response parse, 17 A records, 16 kept | 587.4 | 593.9 |
-| datagram match, an id nobody holds, 1 in flight | 3.1 | 3.1 |
-| datagram match, an id nobody holds, 1024 in flight | 3.1 | 3.2 |
-| datagram match, right id and wrong question, 1 in flight | 36.7 | 37.9 |
-| datagram match, right id and wrong question, 64 in flight | 37.5 | 38.2 |
-| datagram match, right id and wrong question, 1024 in flight | 37.6 | 38.6 |
-| datagram match, right id and wrong question, rotating over all 1024 slots | 54.1 | 55.1 |
-| slot restore, a 3048-octet copy the accepted case pays and a caller does not | 52.0 | 53.6 |
-| datagram match, accepted, 1024 in flight, with the slot restore | 148.0 | 149.4 |
-| lookup round trip: `init_in_place`, `poll`, `on_sent`, `on_response` | 209.5 | 211.3 |
-| `resolv.conf` parse, three lines | 329.1 | 331.1 |
-| cache hit, one entry, hot | 30.9 | 31.7 |
-| cache hit, rotating over 1024 entries | 43.4 | 44.6 |
-| cache miss, 1024 entries, a young index | 12.4 | 12.8 |
-| cache miss, 1024 entries, after churn | 35.1 | 36.1 |
-| cache put, replacing an entry in place | 37.6 | 38.9 |
-| cache put, evicting, 1024 entries and the table full | 95.8 | 97.0 |
+| harness overhead, an empty call through the same function pointer | 1.5 | 1.6 |
+| query build, `example.com`, EDNS0, no cookie | 8.6 | 8.8 |
+| query build, a 255-octet name, over TCP | 10.5 | 10.9 |
+| name decode, two labels | 16.0 | 16.5 |
+| name decode, through a compression pointer | 17.6 | 18.4 |
+| response parse, one A record | 49.9 | 51.8 |
+| response parse, a CNAME then its A record, with a 256-octet restore of the chain | 190.2 | 192.3 |
+| response parse, 17 A records, 16 kept | 598.3 | 606.5 |
+| datagram match, an id nobody holds, 1 in flight | 3.2 | 3.3 |
+| datagram match, an id nobody holds, 1024 in flight | 3.2 | 3.3 |
+| datagram match, right id and wrong question, 1 in flight | 36.8 | 37.7 |
+| datagram match, right id and wrong question, 64 in flight | 37.6 | 38.1 |
+| datagram match, right id and wrong question, 1024 in flight | 37.8 | 38.5 |
+| datagram match, right id and wrong question, rotating over all 1024 slots | 56.6 | 58.3 |
+| slot restore, a 3048-octet copy the accepted case pays and a caller does not | 42.3 | 43.0 |
+| datagram match, accepted, 1024 in flight, with the slot restore | 142.8 | 144.3 |
+| lookup round trip: `init_in_place`, `poll`, `on_sent`, `on_response` | 223.9 | 225.5 |
+| `resolv.conf` parse, three lines | 340.8 | 348.6 |
+| cache hit, one entry, hot | 33.0 | 33.8 |
+| cache hit, rotating over 1024 entries | 46.1 | 47.3 |
+| cache miss, 1024 entries, a young index | 12.4 | 12.7 |
+| cache miss, 1024 entries, after churn | 36.4 | 37.5 |
+| cache put, replacing an entry in place | 35.3 | 36.1 |
+| cache put, evicting, 1024 entries and the table full | 91.6 | 93.5 |
 
 What the table says, against the estimates:
 
 - The estimates hold, and were pessimistic. A query builds in 9 ns. A response with one record
-  parses in 51 ns, and one with seventeen records, sixteen of them kept, in 588 ns: about 34 ns for
-  each record walked beyond the first — (588 − 51) / 16, the seventeenth walked and its owner
-  decoded before it is refused — which is a skip, an owner name decoded through a pointer at 17 ns,
-  and the address copied. A CNAME chain resolved in one message costs 186 ns: the chain moves
+  parses in 52 ns, and one with seventeen records, sixteen of them kept, in 607 ns: about 35 ns for
+  each record walked beyond the first — (607 − 52) / 16, the seventeenth walked and its owner
+  decoded before it is refused — which is a skip, an owner name decoded through a pointer at 18 ns,
+  and the address copied. A CNAME chain resolved in one message costs 192 ns: the chain moves
   once, the section is walked twice, five names are decoded on the way (the two owners on each of
   the two passes, and the CNAME's target once), three 256-octet copies move the chain, and the row
   carries the restore its name says.
 - The demultiplexer is the constant it was designed to be. An id nobody holds is refused in 3 ns
   whether 1 or 1024 lookups are in flight, and a real id with the wrong question — the probe plus
-  every check of §7 short of the answer walk — costs 37 ns at 1 in flight and 38 ns at 1024.
-  Accepting one at 1024 in flight costs 149 ns, of which 54 is the slot the harness puts back after
-  each iteration, so 95 ns is the match, check 6 and the answer walk.
+  every check of §7 short of the answer walk — costs 38 ns at 1 in flight and at 1024.
+  Accepting one at 1024 in flight costs 144 ns, of which 43 is the slot the harness puts back after
+  each iteration, so 101 ns is the match, check 6 and the answer walk.
 - Those rows aim every iteration at one slot, which sits in the first-level cache from the second
   iteration on. The rotating row aims each iteration at a different one of the 1024, whose 3 MiB
-  do not fit the 128 KiB first level and do fit the 12 MiB second: the same path costs 54 ns there,
-  so a slot read cold out of the first level adds 17 ns. A datagram arriving from the kernel finds
+  do not fit the 128 KiB first level and do fit the 12 MiB second: the same path costs 58 ns there,
+  so a slot read cold out of the first level adds 20 ns. A datagram arriving from the kernel finds
   its slot at least that cold.
 - A whole lookup, minus the network — made in its slot, its query built with its cookie, the
-  send heard, the answer read and its OPT record sought — is 211 ns. Against the shortest round
-  trip the estimate considered, one millisecond, that is 0.021%: the network is about 4,700 times
+  send heard, the answer read and its OPT record sought — is 226 ns. Against the shortest round
+  trip the estimate considered, one millisecond, that is 0.023%: the network is about 4,400 times
   the library.
 - The cookies of §19 step 10 cost 17 ns a lookup: the round trip read 185 ns before them and
   201 after, the accepted match 80 and 97 net of the restore. That is the COOKIE option written
@@ -771,7 +772,8 @@ What the table says, against the estimates:
   record sought across the three sections of every accepted response for check 6. The slot
   restore row fell from 52 to 41 while the slot grew from 3032 octets to 3040, and rose to 54
   again at 3048: a copy of a size that is a multiple of 32 is the faster one, which is the layout
-  effect below in another form.
+  effect below in another form. The table above reads 43 at the same 3048, so the size was not
+  the whole of it: the layout of the binary moves this row as it moves the others.
 - The failover of §19 step 12 costs 10 ns a lookup: the round trip read 201 ns before it and
   211 after. That is the order computed at the first poll — a sort of one server, the draw that
   decides a retry — and every read of the current server going through the order.
@@ -781,14 +783,14 @@ What the table says, against the estimates:
   `init_in_place` building a lookup in its slot instead of in a local that is then copied, the
   three rows read 51, 185 and 38, which is below where two of them stood before the buffer
   existed, because the copy `init_in_place` removes was there at 864 octets too.
-- The cache of §18 answers a hot hit in 32 ns — the keyed hash over the name, one probe, the
+- The cache of §18 answers a hot hit in 34 ns — the keyed hash over the name, one probe, the
   folded compare and the division that turns the expiry into seconds — and a miss in 13 ns when
   the index is young, because the walk stops at the first empty entry. After churn, when every
   entry the evictions freed is a tombstone the walk steps over, a miss walks to the probe bound and
-  costs 36 ns; that is the bound doing what §18 says, and `flush` is what resets it. A hit read
-  cold over 1024 entries, 2.7 MiB of slots, costs 44 ns, 12 ns over the hot one. A put that
-  replaces an entry in place costs 38 ns; one that has to evict, with the hand meeting an
-  unvisited entry at once, 96 ns: the miss, the eviction's unlink and key removal, the key insert,
+  costs 38 ns; that is the bound doing what §18 says, and `flush` is what resets it. A hit read
+  cold over 1024 entries, 2.9 MiB of slots, costs 47 ns, 13 ns over the hot one. A put that
+  replaces an entry in place costs 36 ns; one that has to evict, with the hand meeting an
+  unvisited entry at once, 94 ns: the miss, the eviction's unlink and key removal, the key insert,
   and the answer's live storage written.
 - The rows move with the binary they are built into, and by more than the run-to-run band. On
   the day the cache landed, the parse of one A record measured 45.0 ns in the binary before it,
@@ -1222,13 +1224,12 @@ step until `zig build test` passes.
 12. **Does `name_info` need an entry point?** Answered on 2026-09-22: yes. `NameLookup` sits
     beside `AddressLookup`, because the recipe left the `lookups` order to every consumer that
     wrote it out, and that order is configuration the library already holds.
-13. **Should the cache keep the chain end?** Open, asked by §20. The cache is keyed by the
-    question and stores the answers, so an answer reached through a CNAME loses its canonical
-    name once it is remembered, and `AddressLookup`'s `canonical_name` is filled from a lookup
-    that went out and empty from one the cache answered. Keeping it costs one `Name` a slot: 256
-    octets on a slot of 2728, a tenth more per entry: a thousand slots would cost 3.0 MiB rather
-    than the 2.7 §18 measures, and sixteen thousand 47 MiB rather than 43. Until it is
-    answered the answer is no, and §20 says so where a consumer will read it.
+13. **Should the cache keep the chain end?** Answered on 2026-09-22: yes. A cache keyed by the
+    question that stored only the answers lost the canonical name of any answer reached through
+    a CNAME, so `AddressLookup`'s `canonical_name` came back filled from a lookup that went out
+    and empty from one the cache answered; per §18's reading, c-ares keeps the whole response,
+    chain included. The slot now keeps the chain's end: one `Name`, 256 octets, 2728 to 2984 a
+    slot, and a thousand slots cost 2.9 MiB where they cost 2.7.
 
 ## 18. The cache
 
@@ -1349,13 +1350,18 @@ carries zero, and zero is not cached.
 
 ### Measured
 
-The cache rows of §11's table, on the same day and machine: a hot hit 31 ns, a hit read cold
-over 1024 entries 44 ns, a miss 13 ns on a young index and 36 ns after churn, a put in place
-37 ns, a put that evicts 97 ns. The first build of the hash copied the question's name, folded
-it octet by octet, and mixed the type, the flag and the length in three steps: the hit cost
-50 ns, the miss 23, the eviction 123. Folding eight octets at once as the name is read
-(`Name.fold_word`, in `core` because folding is `core`'s) and mixing the prefix once brought
-them to the numbers above, a third off every row. Nothing here was compared against c-ares's
+The cache rows of §11's table, on the day the cache landed and on the same machine: a hot hit
+31 ns, a hit read cold over 1024 entries 44 ns, a miss 13 ns on a young index and 36 ns after
+churn, a put in place 37 ns, a put that evicts 97 ns. The first build of the hash copied the
+question's name, folded it octet by octet, and mixed the type, the flag and the length in three
+steps: the hit cost 50 ns, the miss 23, the eviction 123. Folding eight octets at once as the
+name is read (`Name.fold_word`, in `core` because folding is `core`'s) and mixing the prefix
+once brought them to those numbers, a third off every row.
+
+The slot took the chain's end the same day (§17 question 13), and §11's table, measured again,
+reads a hot hit 34 ns, a cold one 47, a miss 13 and 38, a put in place 36 and an eviction 94.
+No row moved by more than 7%, and they moved in both directions, which is inside the fifth §11
+puts on a binary's layout: the chain's end costs memory and nothing this table can see. Nothing here was compared against c-ares's
 cache, whose entry is a parsed record tree and whose key is a formatted string, so no ratio is
 claimed.
 
@@ -1369,15 +1375,15 @@ numbers as a named constant.
 
 | Slots | Memory | Hit rate | Hits | Misses |
 | --- | --- | --- | --- | --- |
-| 64 | 175 KiB | 34.7% | 347,202 | 652,798 |
-| 256 | 699 KiB | 43.8% | 437,741 | 562,259 |
-| 1024 | 2.7 MiB | 52.2% | 522,138 | 477,862 |
-| 4096 | 11 MiB | 60.1% | 600,653 | 399,347 |
-| 16384 | 43 MiB | 60.7% | 606,573 | 393,427 |
+| 64 | 186.5 KiB | 34.7% | 347,202 | 652,798 |
+| 256 | 746.0 KiB | 43.8% | 437,741 | 562,259 |
+| 1024 | 2.9 MiB | 52.2% | 522,138 | 477,862 |
+| 4096 | 11.7 MiB | 60.1% | 600,653 | 399,347 |
+| 16384 | 46.6 MiB | 60.7% | 606,573 | 393,427 |
 
 What it says:
 
-- **The cache earns its keep.** At the 1024 slots the engine takes by default, 2.7 MiB of the
+- **The cache earns its keep.** At the 1024 slots the engine takes by default, 2.9 MiB of the
   caller's memory answers half the questions without a packet. That is the answer §17 question 9
   assumed and no measurement had given.
 - **The curve bends at 4096.** Sixteen times the memory of the default buys eight points; four
@@ -1398,12 +1404,13 @@ open.
 
 ### Memory
 
-Per slot: a `Name` at 256, an `Answers` at 2448 since §19 step 9 gave it the rdata buffer, and
-24 octets of scalars and padding: 2728, measured and pinned by a test in `src/cache/cache.zig`
-(568 before that step, with `Answers` at 284). The key index is eight octets an entry at two
-entries a slot, rounded up to a power of two. A thousand slots cost 2.7 MiB of slots and 16 KiB
-of keys; sixteen thousand, the most a `u16` slot index and the key index allow at
-`cache_slots_max`, cost 43 MiB and 256 KiB. The caller chooses, and an address-only cache pays
+Per slot: two `Name`s at 256 each — the key, and since §17 question 13 the end of the CNAME
+chain that reached the answers — an `Answers` at 2448 since §19 step 9 gave it the rdata buffer,
+and 24 octets of scalars and padding: 2984, measured and pinned by a test in
+`src/cache/cache.zig` (2728 before the chain's end, 568 before step 9). The key index is eight
+octets an entry at two entries a slot, rounded up to a power of two. A thousand slots cost
+2.9 MiB of slots and 16 KiB of keys; sixteen thousand, the most a `u16` slot index and the key
+index allow at `cache_slots_max`, cost 46.6 MiB and 256 KiB. The caller chooses, and an address-only cache pays
 for the buffer too, as §9 says of the lookup.
 
 ### Limits
@@ -1910,7 +1917,7 @@ unexported until one asks.
 | `udp_queries_per_port_default` | 0 | c-ares's default: never replace the socket |
 | `tcp_idle_ns_default` | 10 s | chosen, not measured: a burst's worth, and short by RFC 7766 §6.2.3's standard |
 | `engine_lookups_default` | 256 | in flight at once; the caller sizes the memory |
-| `engine_cache_slots_default` | 1024 | 2.7 MiB of slots, the cost §18 measures |
+| `engine_cache_slots_default` | 1024 | 2.9 MiB of slots, the cost §18 measures |
 | `address_lookup_addresses_max` | 32 | both families' `addresses_max`, bounded the way one answer is; `truncated` past it |
 | `address_policy_rows` | 9 | RFC 6724 §2.1's default table |
 | `common_prefix_bits_v6_max` | 64 | RFC 6724 §2.2 stops at the source's prefix, and RFC 4291 §2.5.1 makes the interface identifier the low 64 bits |
@@ -2002,14 +2009,13 @@ a `Failure` to what may be kept: `NameNotFound` and `NoData` with the TTL the SO
 (RFC 2308 §5), and nothing else — not a timeout, not a refusal, not a malformed answer.
 `io/` then drops its own copy of that policy and passes a `Memory` like any other caller.
 
-**What a recalled answer does not carry.** The cache is keyed by the question and stores the
-answers, not the chain that reached them, so an answer that came through a CNAME has no canonical
-name once it is remembered. `AddressLookup`'s `canonical_name` is therefore filled from a lookup
-that went out and empty from one the cache answered. That is today's behaviour through the
-engine's `Started.hit` too, and it is not new here, but it becomes visible to every consumer, so
-§17 asks the owner whether the cache should keep the chain end: one `Name` a slot, 256 octets on
-a slot of 2728, which is a tenth more per entry — a thousand slots would cost 3.0 MiB where §18
-measures 2.7, and sixteen thousand 47 MiB where it measures 43.
+**A recalled answer carries the chain's end.** The cache is keyed by the question, and until
+§17 question 13 was answered it stored the answers and not the chain that reached them, so an
+answer that came through a CNAME lost its canonical name once remembered. The slot now keeps the
+chain's end, and `Remembered` carries it both ways: the table writes `current` when the lookup
+was aliased, and a recalled lookup reports it back exactly as one that went out reports its own.
+The same question answers the same whether the cache held it or not. It costs one `Name` a slot,
+256 octets on 2728.
 
 **What it costs.** A hit now takes a slot and copies `Answers` into it, where the engine's
 `Started.hit` handed back a pointer and took no slot. §11 measures the copy at 53 ns and a hit

@@ -34,7 +34,7 @@ test "a chain longer than the probe bound is a refusal on put and the slot goes 
         if (@as(usize, hash) & (table.keys.len - 1) != 0) continue;
         found += 1;
         last = asked;
-        table.put(&asked, &answers, 0);
+        table.put(&asked, &answers, null, 0);
     }
     try testing.expectEqual(constants.probe_max + 1, found);
     // The first sixteen went in; the seventeenth was refused and misses.
@@ -43,7 +43,7 @@ test "a chain longer than the probe bound is a refusal on put and the slot goes 
     // The refused put released its slot: another name, off that chain, fills the table.
     const elsewhere = fixtures.question("elsewhere.example");
     try testing.expect(@as(usize, table.hash_of(&elsewhere)) & (table.keys.len - 1) != 0);
-    table.put(&elsewhere, &answers, 0);
+    table.put(&elsewhere, &answers, null, 0);
     try testing.expectEqual(@as(usize, slot_count), table.len());
     try testing.expect(table.get(&elsewhere, 0) != null);
 }
@@ -53,7 +53,7 @@ test "find checks the type and the flag the hash already mixed, because a hash i
     var table = fixture.init();
     const answers = fixtures.answers_v4(1, 300);
     const asked = fixtures.question("example.com");
-    table.put(&asked, &answers, 0);
+    table.put(&asked, &answers, null, 0);
     const hash = table.hash_of(&asked);
     try testing.expect(table.find(&asked, hash) != null);
     var absolute = asked;

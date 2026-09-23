@@ -59,6 +59,7 @@ test {
     _ = table_slots;
     _ = constants;
     _ = @import("lookup_poll.zig");
+    _ = @import("lookup_recall.zig");
     _ = @import("lookup_response.zig");
     _ = @import("fixtures.zig");
     _ = @import("lookup_records_test.zig");

@@ -802,6 +802,27 @@ used held nothing, so a second ask found nothing to trip over. The test now offe
 again and polls it twice with the memory holding an answer, which is the shape a caller that has
 not yet read its answer produces.
 
+## The chain's end in the cache
+
+Design §17 question 13, answered yes: a slot keeps the end of the CNAME chain that reached its
+answers, and `Remembered` carries it both ways. Broken against `zig build test-cache`,
+`zig build test-resolver` and `zig build test-cocuyo`. Seven mutations, seven `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| U1 | the cache never keeps the chain's end | §18, a hit is what was put | the chain's-end hit test | CAUGHT |
+| U2 | a hit never reports the chain's end | §18, a hit is what was put | the chain's-end hit test | CAUGHT |
+| U3 | a put in place keeps the old chain's end | §18, a put in place replaces the whole entry | the put-in-place chain's-end test | CAUGHT |
+| U4 | the table writes no chain's end | §20, what is written is what the lookup reached | the written-with-the-chain's-end test | CAUGHT |
+| U5 | a recalled lookup drops the chain's end | §20, a recall answers as a lookup that went out | the recalled chain's-end test | CAUGHT |
+| U6 | the glue drops the chain's end on the way back | §20, `remembered_by` hands back what it holds | the glue's chain's-end test | CAUGHT |
+| U7 | the glue drops the chain's end on the way in | §20, `remembered_by` keeps what it is given | the glue's chain's-end test | CAUGHT |
+
+U3 is the one a test written for U1 alone would miss. The mutant drops the call from the path
+that replaces an entry in place, so the entry keeps the chain's end its first put gave it. The
+test puts one question three times — through one chain, through another, then through none — and
+reads the hit after each of the last two.
+
 ## The end-to-end driver
 
 The comparison's own driver, not the library: `bench/end_to_end/rotor_loop.zig`. Broken against

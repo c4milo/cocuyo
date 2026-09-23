@@ -16,6 +16,7 @@ const wire = @import("wire");
 const Error = core.Error;
 const Question = core.Question;
 const lookup_module = @import("lookup.zig");
+const recall_module = @import("lookup_recall.zig");
 const Action = lookup_module.Action;
 const slots_module = @import("table_slots.zig");
 const Slot = slots_module.Slot;
@@ -30,7 +31,13 @@ pub const Negative = enum { name_not_found, no_data };
 /// `ttl_seconds` on `answered` is what is left of the answer's life, not what it was given: a
 /// recalled answer reports the time it has now, the way a caller of the cache would read it.
 pub const Remembered = union(enum) {
-    answered: struct { answers: *const wire.Answers, ttl_seconds: u32 },
+    /// `canonical_name` is the end of the CNAME chain that reached the answers, or null when
+    /// none did (§17 question 13).
+    answered: struct {
+        answers: *const wire.Answers,
+        ttl_seconds: u32,
+        canonical_name: ?*const core.Name,
+    },
     negative: struct { outcome: Negative, ttl_seconds: u32 },
 };
 
@@ -54,8 +61,13 @@ pub fn recall_into(memory: ?Memory, slot: *Slot, now_ns: u64) void {
     const source = memory orelse return;
     const found = source.recall(source.context, &slot.lookup.question, now_ns) orelse return;
     switch (found) {
-        .answered => |answered| slot.lookup.recall_answer(answered.answers, answered.ttl_seconds),
-        .negative => |negative| slot.lookup.recall_failure(error_of(negative.outcome), negative.ttl_seconds),
+        .answered => |answered| recall_module.answer(
+            &slot.lookup,
+            answered.answers,
+            answered.ttl_seconds,
+            answered.canonical_name,
+        ),
+        .negative => |negative| recall_module.failure(&slot.lookup, error_of(negative.outcome), negative.ttl_seconds),
     }
     assert(slot.lookup.is_settled());
     slot.remembered = true;
@@ -75,6 +87,7 @@ pub fn remember_end(memory: ?Memory, slot: *Slot, action: Action, now_ns: u64) v
         .done => .{ .answered = .{
             .answers = &slot.lookup.answers,
             .ttl_seconds = slot.lookup.answers.ttl_seconds,
+            .canonical_name = if (slot.lookup.flags.aliased) &slot.lookup.current else null,
         } },
         .failed => |failure| .{ .negative = .{
             .outcome = negative_of(failure.err) orelse return,
@@ -170,7 +183,7 @@ test "a question the memory holds is answered at its first poll, and nothing is 
     var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
     rig.open();
     const answers = try answered_once(&rig);
-    var stub: Stub = .{ .held = .{ .answered = .{ .answers = &answers, .ttl_seconds = 42 } } };
+    var stub: Stub = .{ .held = .{ .answered = .{ .answers = &answers, .ttl_seconds = 42, .canonical_name = null } } };
     rig.resolver.remember_with(stub.memory());
 
     const handle = try rig.start("example.com.");
@@ -191,6 +204,48 @@ test "a question the memory holds is answered at its first poll, and nothing is 
     const twice = rig.poll().?;
     try testing.expect(twice.action == .done);
     try testing.expectEqual(@as(u32, 1), stub.recalls);
+    rig.resolver.release(handle);
+}
+
+test "an answer reached through a chain is written with the chain's end" {
+    var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
+    rig.open();
+    var stub: Stub = .{};
+    rig.resolver.remember_with(stub.memory());
+
+    const handle = try rig.start("example.com.");
+    const sent = rig.poll().?;
+    rig.resolver.on_sent(sent.handle, rig.now_ns);
+    const lookup = rig.resolver.lookup_of(handle);
+    const message = rig.build(lookup, fixtures.cname_then_a);
+    rig.now_ns += 1;
+    try testing.expectEqual(lookup_module.Verdict.accepted, rig.resolver.on_datagram(message, lookup.server(), rig.now_ns));
+    const end = rig.poll().?;
+    try testing.expect(end.action == .done);
+
+    // What the memory is given is what a lookup that went out reports.
+    const target = try core.Name.from_text("host.example.net");
+    try testing.expect(end.action.done.canonical_name.?.equal(&target));
+    try testing.expect(stub.written.?.answered.canonical_name.?.equal(&target));
+    rig.resolver.release(handle);
+}
+
+test "a recalled answer reports the chain's end it was remembered with" {
+    var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
+    rig.open();
+    const answers = try answered_once(&rig);
+    const target = try core.Name.from_text("host.example.net");
+    var stub: Stub = .{ .held = .{ .answered = .{
+        .answers = &answers,
+        .ttl_seconds = 42,
+        .canonical_name = &target,
+    } } };
+    rig.resolver.remember_with(stub.memory());
+
+    const handle = try rig.start("example.com.");
+    const event = rig.poll().?;
+    try testing.expect(event.action == .done);
+    try testing.expect(event.action.done.canonical_name.?.equal(&target));
     rig.resolver.release(handle);
 }
 
