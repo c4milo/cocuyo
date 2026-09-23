@@ -20,8 +20,9 @@ pub const Responder = struct {
     /// the socket's buffer until the thread got there, and that start-up delay landed in the
     /// latencies of the first row alone.
     serving: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
-    /// How many queries were answered, for the tests; read after `stop`.
-    answered: u64 = 0,
+    /// How many queries were answered. Atomic because a row that gives up reads it while this
+    /// thread still runs: it is what tells a query c-ares never sent from a reply it never took.
+    answered: std.atomic.Value(u64) = .init(0),
 
     pub fn start(self: *Responder) !void {
         self.socket = try udp.open(0);
@@ -50,7 +51,7 @@ pub const Responder = struct {
             const bytes = udp.receive(self.socket, &query, &from) orelse continue;
             const len = build_reply(bytes, &reply) orelse continue;
             udp.send(self.socket, reply[0..len], &from) catch continue;
-            self.answered += 1;
+            _ = self.answered.fetchAdd(1, .monotonic);
         }
     }
 };

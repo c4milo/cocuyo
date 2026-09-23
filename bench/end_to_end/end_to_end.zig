@@ -33,8 +33,15 @@ pub fn run() void {
             continue;
         };
         report("cocuyo", in_flight, ours.elapsed_ns, ours.failures, latencies[0..constants.lookups_total]);
+        const answered_before = responder.answered.load(.monotonic);
         const theirs = cares_loop.run(responder.port, in_flight, constants.lookups_total, &latencies) catch |err| {
-            std.debug.print("c-ares: {t}\n", .{err});
+            // With the driver's own count of what it claimed, this says which side lost a stalled
+            // query: a responder that answered every claim means c-ares had the reply and did not
+            // take it, and one short means c-ares never sent the query.
+            std.debug.print("c-ares: {t}, the responder answered {d} of this row's queries\n", .{
+                err,
+                responder.answered.load(.monotonic) - answered_before,
+            });
             continue;
         };
         report("c-ares", in_flight, theirs.elapsed_ns, theirs.failures, latencies[0..constants.lookups_total]);
