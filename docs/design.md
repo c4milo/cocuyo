@@ -1566,8 +1566,10 @@ It stays a model, and a real trace is what could say more.
 ### Against a real log
 
 Every table above rests on the synthetic trace. `zig build bench-log -- <dataset.csv>` replays a
-real one through the same code: the DNS log of Mendeley Data c4n7fckkz3, version 3, a national
-ISP's primary DNS server over 26.3 hours in June 2021, published under CC BY 4.0. Of its
+real one through the same code: "DNS Exfiltration Dataset" by Kristijan Ziza, Pavle Vuletić and
+Predrag Tadić, version 3 on Mendeley Data (doi:10.17632/c4n7fckkz3.3), under CC BY 4.0, the log
+of a national ISP's primary DNS server over 26.3 hours in June 2021. `bench/README.md` says where
+to fetch it and the SHA-256 of the file measured here. Of its
 35,074,151 rows, 174,779 are injected exfiltration traffic and are dropped. `bench/log_csv.zig`
 reads it; measured 2026-09-22 on the machine §11 names, in eight and a half minutes.
 
