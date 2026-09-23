@@ -1,5 +1,9 @@
 # cocuyo
 
+[![CI](https://github.com/c4milo/cocuyo/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/c4milo/cocuyo/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/c4milo/cocuyo)](https://github.com/c4milo/cocuyo/releases/latest)
+[![License](https://img.shields.io/github/license/c4milo/cocuyo)](LICENSE)
+
 A DNS resolver library for Zig that owns the DNS protocol and none of the I/O.
 
 cocuyo builds queries, reads responses, and decides what to do next. It never opens a socket,
