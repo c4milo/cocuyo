@@ -1401,10 +1401,11 @@ What it says:
   inside its own TTL, and the tail of a Zipf never is. c-ares's rule, which evicts nothing,
   reaches 61.1% on this trace (below), and no cache with the same TTLs can do better.
 
-**The trace is synthetic, and the table is worth exactly what its assumptions are.** No DNS trace
-was measured. The popularity curve is Zipf because that is what web object popularity has measured
-as for decades, not because anyone has measured DNS names here. A real trace replaces `Trace` and
-nothing else.
+**The trace is synthetic, and the table is worth exactly what its assumptions are.** The
+popularity curve is Zipf because that is what web object popularity has measured as for decades,
+not because anyone has measured DNS names here, and the TTLs follow the rank: the most popular 40%
+of names take a minute, the next 40% five minutes and the rest an hour. "Against a real log"
+below replays a real one.
 
 ### SIEVE against S3-FIFO
 
@@ -1561,6 +1562,96 @@ What it says:
   this trace would fit the Zipf assumption rather than DNS.
 
 It stays a model, and a real trace is what could say more.
+
+### Against a real log
+
+Every table above rests on the synthetic trace. `zig build bench-log -- <dataset.csv>` replays a
+real one through the same code: the DNS log of Mendeley Data c4n7fckkz3, version 3, a national
+ISP's primary DNS server over 26.3 hours in June 2021, published under CC BY 4.0. Of its
+35,074,151 rows, 174,779 are injected exfiltration traffic and are dropped. `bench/log_csv.zig`
+reads it; measured 2026-09-22 on the machine §11 names, in eight and a half minutes.
+
+Two clients are set aside as stuck in a loop, by a rule `bench/log_replay.zig` states: at least
+a hundred thousand questions, nine in ten of them for one name. One asks `samba.local.local`
+6,779,414 times in the day, a fifth of the log; the other asks `belbi.bg.ac.rs` for 94.4% of its
+107,123. Every policy hits such a name nearly every time, so they would pad every table as though
+they were a workload: before they were set aside, the default size read 75.04% over every client
+where it reads 68.94% without them. 27,992,378 questions remain, in time order throughout; the
+whole log has 638,748 names and 35,987 clients.
+
+The log is far more concentrated than the Zipf trace: over the whole log, loops and all, its
+thousand most asked names carry 72.7% of the questions, while 62% of its names are asked once. It carries no TTLs, so each name takes one
+from the synthetic mixture, twice over: by a hash of its name, which leaves TTL and popularity
+unrelated, and by its rank, as the synthetic trace does. It is replayed two ways. Every client
+through one cache is a recursive resolver's workload. The hundred busiest clients, which ask
+16,720,927 of the questions, each through a cache of its own and summed, is closer to how cocuyo
+is deployed: one process on one host. The columns are the cache, the SIEVE model that must match
+it, S3-FIFO by Algorithm 1 line 23, W-TinyLFU, expected hits counting reuse with 16 drawn and
+admission, and the optimal.
+
+Every client, one cache, TTLs by hash:
+
+| Slots | Cache | SIEVE | S3-FIFO | W-TinyLFU | Expected hits | Optimal |
+| --- | --- | --- | --- | --- | --- | --- |
+| 64 | 36.43% | 36.43% | 39.65% | 36.63% | 29.41% | 51.09% |
+| 256 | 52.75% | 52.76% | 55.89% | 53.94% | 47.42% | 65.68% |
+| 1024 | 68.94% | 68.95% | 70.75% | 70.36% | 65.06% | 78.47% |
+| 4096 | 80.78% | 80.78% | 81.40% | 80.85% | 77.74% | 84.73% |
+| 16384 | 84.69% | 84.69% | 84.70% | 84.47% | 82.92% | 85.13% |
+
+The busiest hundred clients, a cache each, TTLs by hash:
+
+| Slots | Cache | SIEVE | S3-FIFO | W-TinyLFU | Expected hits | Optimal |
+| --- | --- | --- | --- | --- | --- | --- |
+| 64 | 47.34% | 47.36% | 49.40% | 47.59% | 42.72% | 56.81% |
+| 256 | 55.53% | 55.53% | 56.65% | 55.65% | 51.89% | 60.98% |
+| 1024 | 59.98% | 60.02% | 60.51% | 59.93% | 57.53% | 61.99% |
+| 4096 | 61.75% | 61.75% | 61.84% | 61.60% | 60.45% | 62.08% |
+| 16384 | 62.07% | 62.07% | 62.07% | 62.05% | 61.56% | 62.08% |
+
+Every client, one cache, TTLs by rank:
+
+| Slots | Cache | SIEVE | S3-FIFO | W-TinyLFU | Expected hits | Optimal |
+| --- | --- | --- | --- | --- | --- | --- |
+| 64 | 36.41% | 36.41% | 39.56% | 36.57% | 29.34% | 51.08% |
+| 256 | 52.51% | 52.52% | 55.46% | 53.57% | 47.22% | 65.50% |
+| 1024 | 67.62% | 67.63% | 69.09% | 68.68% | 64.05% | 76.44% |
+| 4096 | 76.55% | 76.55% | 76.56% | 76.46% | 73.66% | 78.01% |
+| 16384 | 78.00% | 78.01% | 77.99% | 77.97% | 76.62% | 78.01% |
+
+The busiest hundred clients, a cache each, TTLs by rank:
+
+| Slots | Cache | SIEVE | S3-FIFO | W-TinyLFU | Expected hits | Optimal |
+| --- | --- | --- | --- | --- | --- | --- |
+| 64 | 43.54% | 43.54% | 44.16% | 42.97% | 38.48% | 48.83% |
+| 256 | 47.64% | 47.68% | 47.73% | 47.62% | 43.60% | 49.26% |
+| 1024 | 49.01% | 49.02% | 49.04% | 49.05% | 46.36% | 49.26% |
+| 4096 | 49.26% | 49.26% | 49.26% | 49.25% | 48.02% | 49.26% |
+| 16384 | 49.26% | 49.26% | 49.26% | 49.26% | 48.82% | 49.26% |
+
+c-ares's rule, which evicts nothing, reaches 85.13% over every client with at most 28,810 entries
+live, TTLs by hash, and 78.01% with at most 33,116, TTLs by rank.
+
+What it says:
+
+- **Where cocuyo is deployed, SIEVE is close to the best there is.** A cache a client, at the
+  default 1024 slots, is 2.0 points under the optimal with TTLs by hash and a quarter of a point
+  with TTLs by rank. Past 4096 slots nothing is left to win. S3-FIFO gains 0.5 points at 1024
+  and 2.1 at 64; W-TinyLFU nothing.
+- **At a resolver's scale S3-FIFO earns its place.** Every client through one cache, it leads
+  SIEVE by 3.2 points at 64 slots, 3.1 at 256 and 1.8 at 1024 with TTLs by hash, 1.5 at 1024 by
+  rank, and the lead is gone by 4096. That is the workload its paper is about: many names asked
+  once, which its probation queue keeps out.
+- **The TTL rule moves the numbers and not the order.** Every policy ranks where it did under
+  both rules; the rank rule lowers the ceiling, since the most asked names expire soonest.
+- **Expected hits is worse everywhere**, by up to seven points: the count behind it is too
+  short-sighted on real traffic too.
+- **The control holds.** The SIEVE model is within 0.04 points of the cache in every row.
+
+So the cache keeps SIEVE: in one process on one host, which is what cocuyo is, the most any
+policy could add at the default size is two points, and S3-FIFO's lead is a resolver's. This is
+one log, from one ISP over one day, with TTLs it did not carry; a second log could say otherwise.
+The busiest clients are weighed by what they ask.
 
 ### Memory
 

@@ -39,6 +39,14 @@ const name_digits = 7;
 const clients_replayed = 100;
 /// The affordable form of expected hits, as the synthetic tables run it.
 const expected_draws = 16;
+/// A client stuck in a loop: one that asks a single name for nine questions in ten, a hundred
+/// thousand times or more in the log. Every policy hits such a name nearly every time, so the
+/// client would pad every table as though it were a workload. The Mendeley log has one, asking
+/// `samba.local.local` 6.78 million times in a day, a fifth of all its questions.
+const loop_questions_min = 100_000;
+const loop_share_permille = 900;
+const permille = 1000;
+
 /// S3-FIFO as Algorithm 1 line 23 has it.
 const s3fifo_line_23 = 1;
 /// The cache's hash key, as the synthetic trace's.
@@ -130,6 +138,41 @@ fn whole(gpa: std.mem.Allocator, log: *const log_csv.Log, lives: []u64) !Recordi
     return recording;
 }
 
+/// Which clients are stuck in a loop, by client: at least `questions_min` questions, and one name
+/// asked for `share_permille` in a thousand of them or more.
+pub fn looping_clients(gpa: std.mem.Allocator, log: *const log_csv.Log, questions_min: usize, share_permille: usize) ![]bool {
+    const volumes = try gpa.alloc(u64, log.client_count());
+    @memset(volumes, 0);
+    for (log.clients.items) |client| volumes[client] += 1;
+    const looping = try gpa.alloc(bool, log.client_count());
+    @memset(looping, false);
+    // Counted only for the clients past the minimum, keyed by client and name together.
+    var counts: std.AutoHashMapUnmanaged(u64, u64) = .empty;
+    for (log.names.items, log.clients.items) |name, client| {
+        if (volumes[client] < questions_min) continue;
+        const entry = try counts.getOrPut(gpa, (@as(u64, client) << 32) | name);
+        if (!entry.found_existing) entry.value_ptr.* = 0;
+        entry.value_ptr.* += 1;
+        if (entry.value_ptr.* * permille >= share_permille * volumes[client]) looping[client] = true;
+    }
+    return looping;
+}
+
+/// The log without the questions of the clients `excluded` marks. The names keep their indices.
+pub fn without(gpa: std.mem.Allocator, log: *const log_csv.Log, excluded: []const bool) !log_csv.Log {
+    var kept = log.*;
+    kept.names = .empty;
+    kept.times_ns = .empty;
+    kept.clients = .empty;
+    for (log.names.items, log.times_ns.items, log.clients.items) |name, time, client| {
+        if (excluded[client]) continue;
+        try kept.names.append(gpa, name);
+        try kept.times_ns.append(gpa, time);
+        try kept.clients.append(gpa, client);
+    }
+    return kept;
+}
+
 /// The `count` clients that asked most, busiest first.
 fn busiest(gpa: std.mem.Allocator, log: *const log_csv.Log, count: usize) ![]u32 {
     const volumes = try gpa.alloc(u32, log.client_count());
@@ -216,8 +259,13 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("usage: bench-log <dataset.csv>\n", .{});
         return error.Usage;
     }
-    const log = try log_csv.load(init.io, gpa, arguments[1]);
-    if (log.name_count() > names_max) return error.TooManyNames;
+    const loaded = try log_csv.load(init.io, gpa, arguments[1]);
+    if (loaded.name_count() > names_max) return error.TooManyNames;
+    const looping = try looping_clients(gpa, &loaded, loop_questions_min, loop_share_permille);
+    const log = try without(gpa, &loaded, looping);
+    std.debug.print("{d} clients stuck in a loop set aside, with {d} questions\n", .{
+        std.mem.count(bool, looping, &.{true}), loaded.names.items.len - log.names.items.len,
+    });
     const clients = try busiest(gpa, &log, clients_replayed);
     var asked: usize = 0;
     for (log.clients.items) |client| {
@@ -271,4 +319,27 @@ test "one client's recording holds its questions alone, its names renumbered fro
     try testing.expectEqualSlices(u64, &.{ lives[0], lives[2] }, alone.lives_ns);
     const clients = try busiest(arena.allocator(), &log, 1);
     try testing.expectEqualSlices(u32, &.{1}, clients);
+}
+
+test "a client asking one name nine times in ten, often enough, is stuck in a loop" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+    var log: log_csv.Log = .{};
+    // c1: x nine times, y once. c2: x five times, y five. c3: x nine times, under the minimum.
+    const plan = [_]struct { client: []const u8, name: []const u8, times: usize }{
+        .{ .client = "c1", .name = "x.example", .times = 9 },
+        .{ .client = "c1", .name = "y.example", .times = 1 },
+        .{ .client = "c2", .name = "x.example", .times = 5 },
+        .{ .client = "c2", .name = "y.example", .times = 5 },
+        .{ .client = "c3", .name = "x.example", .times = 9 },
+    };
+    for (plan) |step| {
+        for (0..step.times) |_| try log.add(gpa, .{ .client = step.client, .time_ms = 1, .attack = false, .name = step.name });
+    }
+    const looping = try looping_clients(gpa, &log, 10, 900);
+    try testing.expectEqualSlices(bool, &.{ true, false, false }, looping);
+    const kept = try without(gpa, &log, looping);
+    try testing.expectEqual(@as(usize, 19), kept.names.items.len);
+    for (kept.clients.items) |client| try testing.expect(client != 0);
 }

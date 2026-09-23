@@ -891,7 +891,7 @@ optimal that makes room before it admits, which is the one it names.
 
 Design §18: `bench/log_csv.zig` reads the Mendeley c4n7fckkz3 DNS log, and `bench/log_replay.zig`
 replays it through the cache, the models and the optimal, over `bench/trace_recording.zig`.
-Broken against `zig build test-tools`. Eleven mutations, eleven `CAUGHT`.
+Broken against `zig build test-tools`. Fourteen mutations, fourteen `CAUGHT`.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
@@ -906,6 +906,13 @@ Broken against `zig build test-tools`. Eleven mutations, eleven `CAUGHT`.
 | L9 | the busiest clients are the least busy | the busiest are replayed | the client test | CAUGHT |
 | L10 | the hash rule ignores the hash | TTL unrelated to popularity | the TTL rule test | CAUGHT |
 | L11 | a name is refused past 254 characters | RFC 1035 §5.1, `\DDD` is four for one | **a test written for it** | CAUGHT |
+| L12 | exactly nine in ten is not a loop | the loop rule's share | the loop test | CAUGHT |
+| L13 | the loop rule ignores its minimum | a loop asks often | the loop test | CAUGHT |
+| L14 | a looping client's questions are kept | a loop is not a workload | the loop test | CAUGHT |
+
+L12 to L14 check the rule that sets aside a client stuck in a loop: the log's busiest client asks
+`samba.local.local` 6.78 million times in a day, and every policy hits it. L14 failed to compile on
+its first try, and was run with the name discarded.
 
 L11 is the one the log itself found. The first replay stopped on 53 rows whose names write each
 octet of a tunnelling payload as `\DDD`: over 254 characters in text and within 255 octets on
