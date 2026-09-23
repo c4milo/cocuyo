@@ -444,8 +444,10 @@ test "a family the memory holds costs no query, and the walk asks for the other 
 
     try rig.start(null, "host", null, .{});
     try rig.drive();
-    // The A side never reached a server: it ended at its first poll and its slot is free.
-    try testing.expectEqual(@as(?Handle, null), rig.lookup.a.handle);
+    // The A side never reached a server: it ended at its first poll, and the walk holds its
+    // slot until the pair ends (docs/design.md §19 step 14, the walk's rule 1).
+    try testing.expect(rig.lookup.a.ended);
+    try testing.expect(rig.lookup.a.handle != null);
     // The other family is where a walk leaves it, on the first candidate and waiting.
     try rig.asking(rig.lookup.aaaa.handle, "host.a.example");
     try testing.expect(held.asked >= 2);
@@ -455,4 +457,28 @@ test "a family the memory holds costs no query, and the walk asks for the other 
     const info = rig.lookup.outcome().?.answered;
     try expect_address(info, 0, "192.0.2.7");
     try testing.expectEqual(@as(usize, 0), rig.table.resolver.in_flight());
+}
+
+test "a lookup that fills the table between a pair's two ends leaves the next pair whole" {
+    var rig: Rig = .{ .table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } } };
+    try rig.open();
+    try rig.start(null, "host", null, .{});
+    try rig.drive();
+    // The consumer's own lookups fill the table beside the walk's pair.
+    _ = try rig.table.start("one.other.");
+    _ = try rig.table.start("two.other.");
+    try rig.reply(rig.lookup.a.handle, fixtures.name_error);
+    const cancelled = rig.lookup.aaaa.handle.?;
+    var polls: usize = 0;
+    while (!rig.lookup.aaaa.ended and polls < fixtures.address_polls_max) : (polls += 1) {
+        const event = rig.table.poll() orelse break;
+        if (event.action == .send_udp) continue;
+        try testing.expect(rig.lookup.on_event(event));
+        // The A's end is in and the AAAA cancelled: the A's slot stays the walk's, so a lookup
+        // the consumer starts now finds the table full (the walk's rule 1).
+        if (!rig.lookup.aaaa.ended) try testing.expectError(error.NoSlot, rig.table.start("three.other."));
+    }
+    try testing.expect(rig.lookup.aaaa.handle != cancelled);
+    try rig.asking(rig.lookup.a.handle, "host.b.example");
+    try rig.asking(rig.lookup.aaaa.handle, "host.b.example");
 }

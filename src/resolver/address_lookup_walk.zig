@@ -159,6 +159,18 @@ fn other_of(self: *AddressLookup, pending: *const Pending) *Pending {
     return if (pending.kind == .a) &self.aaaa else &self.a;
 }
 
+/// Releases both slots of a pair that has ended. Together, and only then: a slot released at
+/// its own lookup's end could be taken by another of the consumer's lookups before the other
+/// end came in, and the next pair would find one slot for two lookups.
+pub fn release_pair(self: *AddressLookup) void {
+    assert(self.a.ended and self.aaaa.ended);
+    for ([_]*Pending{ &self.a, &self.aaaa }) |pending| {
+        const handle = pending.handle orelse continue;
+        self.resolver.release(handle);
+        pending.handle = null;
+    }
+}
+
 /// Cancels a lookup still in flight; its `Canceled` end comes through `on_event` like any end.
 pub fn cancel_pending(self: *AddressLookup, pending: *Pending) void {
     if (pending.ended) return;
@@ -199,8 +211,8 @@ fn hard_error_of(pending: *const Pending) ?core.Error {
 
 fn next_candidate(self: *AddressLookup) void {
     self.candidate_index += 1;
-    // Both slots of the last pair were released before this, so the next pair cannot want for
-    // one: nothing runs between a release and the start that follows it.
+    // Both slots of the last pair were released just before this, together, so the next pair
+    // cannot want for one: nothing runs between that release and the start that follows it.
     const started = start_candidate(self) catch unreachable;
     if (started) return;
     next_source(self) catch unreachable;

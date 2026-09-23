@@ -150,9 +150,9 @@ pub const AddressLookup = struct {
     }
 
     /// A `.done` or `.failed` event of the resolver. True when the handle was one of this
-    /// lookup's, and then its slot is released here: the consumer releases only what this
-    /// refused. Any other action for one of its handles is the consumer's I/O to do, and handing
-    /// it here is a programmer error.
+    /// lookup's, and then its slot is released here, with the other's of the pair when both have
+    /// ended: the consumer releases only what this refused. Any other action for one of its
+    /// handles is the consumer's I/O to do, and handing it here is a programmer error.
     pub fn on_event(self: *AddressLookup, event: Event) bool {
         const pending = self.pending_of(event.handle) orelse return false;
         assert(!pending.ended);
@@ -161,10 +161,13 @@ pub const AddressLookup = struct {
             .failed => |failure| walk.take_failure(self, pending, failure),
             else => unreachable,
         }
-        self.resolver.release(event.handle);
-        pending.handle = null;
+        // The slot stays the walk's until the pair ends, so the next pair starts in slots the
+        // walk still holds (docs/design.md §19 step 14, the walk's rule 1).
         pending.ended = true;
-        if (self.a.ended and self.aaaa.ended) walk.end_candidate(self);
+        if (self.a.ended and self.aaaa.ended) {
+            walk.release_pair(self);
+            walk.end_candidate(self);
+        }
         assert(self.ended != null or self.in_flight() >= 1);
         return true;
     }
@@ -203,11 +206,9 @@ pub const AddressLookup = struct {
     }
 
     fn pending_of(self: *AddressLookup, handle: Handle) ?*Pending {
-        if (self.a.handle) |mine| {
-            if (mine == handle) return &self.a;
-        }
-        if (self.aaaa.handle) |mine| {
-            if (mine == handle) return &self.aaaa;
+        for ([_]*Pending{ &self.a, &self.aaaa }) |pending| {
+            const mine = pending.handle orelse continue;
+            if (mine == handle and !pending.ended) return pending;
         }
         return null;
     }
