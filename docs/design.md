@@ -72,7 +72,8 @@ Each of these is out of scope on purpose, with the place it would attach.
   server whose name does not verify fails the lookup rather than falling back to plaintext.
   DoH (RFC 8484) is split: cocuyo supplies its DNS half, and the HTTP/2 that carries it is
   colibri's, in colibri's driver, because colibri depends on cocuyo and cocuyo may not depend
-  on it back. The plan and its checks come in the section that lands each.
+  on it back. §21 is DoT's plan and the rulings that shape it; DoH's comes in the section that
+  lands it.
 - **No mDNS and no zone transfers.** Out: neither is a stub resolver's.
 - **Record types beyond `A`, `AAAA`, `PTR` and `CNAME`; `/etc/hosts`; A-plus-AAAA in one call;
   TCP reuse and pipelining; DNS cookies; server failover.** Out of version one, and in since
@@ -2579,3 +2580,88 @@ and nothing else, and `Started` goes away.
 - A lookup seeded from the cache does not write back what it was handed.
 - `zig build consumer-check` builds the dependent fixture, and the fixture that imports `sim`
   fails to build.
+
+## 21. DNS over TLS
+
+§1 brought DoT in on 2026-09-23. This section is its plan, step 17, and it records the owner's
+rulings of that day with the facts that led to them. Each piece lands with its checks.
+
+### The owner's rulings of 2026-09-23
+
+- The TLS is chapulin's, through its record transport, and the engine drives it. The library
+  stays without TLS: the stream path already produces the length-prefixed messages DoT sends
+  (RFC 7858 §3.3).
+- Strict by default (RFC 8310 §5): a server that does not authenticate fails, and the lookup
+  never falls back to cleartext.
+- A configuration names its DoT servers per server, all or none. `Server` gains `tls: ?Tls`,
+  and `Tls` holds the authentication domain name of RFC 8310 §7.1 and the port, 853 unless set
+  (RFC 7858 §3.1). A `Config` with one TLS server has only TLS servers, so failover never
+  reaches port 53. A mixed list was the alternative, and it lets a lookup leak to cleartext.
+- The caller hands in what TLS needs and cocuyo does not read. A handshake needs 256 bits of
+  fresh randomness, which a `u64` seed cannot give: the engine takes a 32-byte seed from a
+  CSPRNG at init and expands it with ChaCha20 behind chapulin's `ch_rand_bytes`, one stream per
+  engine. A certificate's validity needs the wall clock: the caller gives Unix seconds pinned to
+  a `now_ns` at init and at `reinit`, and the engine adds the elapsed `now_ns`. chapulin's own
+  DRBG was the alternative, and it is one stream for every session in the process.
+- chapulin changes first, in three pieces, before DoT lands here:
+  1. After the handshake, `ch_read` pulls records through a `recv` callback. A record that
+     holds only a session ticket makes it read another, and a `recv` with nothing to give fails
+     the session. An engine over a completion loop holds only what has arrived, so `ch_read`
+     must answer "need more bytes" and leave the session alive.
+  2. RFC 8310 §9 makes session resumption a MUST. chapulin's webpki build refuses it, because
+     nothing binds a ticket to the name it was issued for. The ticket gets bound to the name.
+  3. RFC 8310 §9 makes RFC 7250 raw public keys a MUST, offered only when an SPKI pin is
+     configured. chapulin has none in any build.
+
+### What a TLS server changes
+
+- **The lookup.** Every query to a TLS server goes on the stream. All or none makes a TLS
+  configuration a stream configuration, so the lookup is §5's with `use_tcp` on, and its model
+  is unchanged. Truncation, cookies and failover behave as they do over TCP.
+- **The query.** It carries the EDNS(0) Padding option (RFC 7830 §3), sized so the message is a
+  multiple of 128 octets (RFC 8467 §4.1). Padding is only for an encrypted transport (RFC 7830
+  §6), so a query over UDP or plain TCP carries none. A query sent without EDNS after a FORMERR
+  cannot carry the option, and goes unpadded.
+- **The answer.** A Padding option in it is accepted, whatever its octets (RFC 7830 §3).
+- **The engine.** A connection to a TLS server connects, then handshakes, then is up. The
+  handshake's flights go out through the connection's one send (§19 step 13, the stream's rule
+  9). Once it is up, each query is sealed into records as it reaches the head of the queue, and
+  records go out in the order they were sealed, since each record's nonce is its sequence
+  number. A handshake that fails fails the connection, which every lookup on it hears as a
+  failed connection, and each fails over to the next server, which is also a TLS server.
+
+### Limits chapulin sets
+
+- The authentication name is a DNS name. chapulin checks a DNS-ID against the certificate's
+  subjectAltName and has no IP-address form, so `dns.google` works and `8.8.8.8` does not.
+- At most 12 trust anchors, the caller's to choose.
+- At most 3 certificates verified in a chain, each at most 3072 octets.
+- A connection holds a `ch_record` of 2744 octets (measured with clang on arm64, 2026-09-23),
+  a buffer of at least 12338 octets for chapulin, and room for one whole record in.
+
+RFC 8310 §9's other items stand as follows. chapulin speaks TLS 1.3 only and never compresses,
+which meets two MUSTs. It does not cite RFC 7525, and has neither False Start nor Cached
+Information, which are SHOULDs.
+
+### Order and checks
+
+1. chapulin's three pieces, in chapulin.
+2. `core`: `Server.tls`, and `assert_valid` refusing a list that mixes TLS and cleartext.
+3. `wire` and `resolver`: the Padding option on a query to a TLS server, and a TLS
+   configuration sending every query on the stream.
+4. The engine model: a connection handshakes between its connect and its first query, and a
+   handshake that fails fails the connection. Design, model, code, in that order (§19 step 13).
+5. The engine over chapulin, behind a build option naming a chapulin checkout, as colibri's
+   driver links it: the headers are read in place and nothing is vendored.
+6. A live check against the public resolvers that serve DoT: `dns.google`, `cloudflare-dns.com`
+   and `dns.quad9.net`.
+
+Checks, one for each piece:
+
+- A mixed list trips `assert_valid`, and an all-TLS list passes it.
+- A padded query's length is a multiple of 128 octets, and one over UDP has no Padding option.
+- A TLS configuration never asks for a datagram, which the lookup model's `use_tcp` theorem
+  already states.
+- The engine model's invariants hold with the handshake stage in, and the replay agrees.
+- A certificate that does not match the name fails the lookup over to the next server, and no
+  query goes out on port 53.

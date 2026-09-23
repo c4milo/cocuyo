@@ -303,7 +303,10 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   14, 2026-09-23), over every state of 95 configurations. Writing the rules down found two
   defects: a consumer's lookup could take a pair's first slot before the second end came in, and
   the walk stopped the program; and a reverse walk reported a timeout as `NameNotFound`.
-- Next (the owner's word of 2026-09-23): DoT.
+- Next (the owner's word of 2026-09-23): DoT, design §21. The owner ruled that day that
+  chapulin changes first: a record-mode `ch_read` that answers "need more bytes" instead of
+  failing, resumption bound to the name, and RFC 7250 raw public keys. Until then cocuyo lands
+  what does not wait: `Server.tls` all or none, query padding, and the engine model's handshake.
 - After those, DoH's DNS half. The p99 of the comparison waits for a quiet machine.
 
 §17 holds the questions the owner has not answered.
