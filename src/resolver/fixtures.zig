@@ -209,6 +209,15 @@ pub const answer_any: Reply = .{ .records = &(record_a ++ record_mx), .ancount =
 /// A reply carrying a CNAME and no record for its target.
 pub const cname_only: Reply = .{ .records = &record_cname, .ancount = 1 };
 
+/// A CNAME from the question's name to `c.` plus that name, TTL 60: a target at every hop that no
+/// earlier hop named, so a chain of these moves one hop per reply and never loops.
+pub const record_cname_fresh = [_]u8{
+    0xc0, 0x0c, 0x00, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x04, 0x01, 'c', 0xc0, 0x0c,
+};
+
+/// A reply carrying that CNAME and no record for its target.
+pub const cname_fresh: Reply = .{ .records = &record_cname_fresh, .ancount = 1 };
+
 /// A reply whose CNAME target borrows its suffix from the question.
 pub const cname_into_question: Reply = .{ .records = &record_cname_into_question, .ancount = 1 };
 

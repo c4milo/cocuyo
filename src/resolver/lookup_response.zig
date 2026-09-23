@@ -181,8 +181,15 @@ fn collect(self: *Lookup, message: []const u8, cased: *const core.Name, now_ns: 
         self.question.kind,
         self.cname_hops,
         &self.answers,
-    ) catch {
+    ) catch |err| {
         self.current = before;
+        // A chain past `cname_hops_max`, a loop above all, is the server's answer and not a
+        // malformed one: it passed every check of §7. Alias loops are an error passed back to
+        // the client (RFC 1034 §3.6.2, §5.2.2), and §5 names it.
+        if (err == error.ChainTooLong) {
+            self.fail(core.Error.ChainTooLong);
+            return .accepted;
+        }
         return .ignored;
     };
     // A name the chain moved to came off the wire, and a server that compressed it to a pointer
@@ -437,20 +444,33 @@ test "a truncated response over TCP is not a reason to connect again" {
     try testing.expect(harness.poll() == .done);
 }
 
-test "a CNAME chain that loops is ignored, and the name is left where it was" {
+test "a CNAME chain that loops fails the lookup, with the name left where it was" {
     // The chain moves before the hop bound stops it, which is the one path where the collector
-    // has to put the name back: a lookup left pointing halfway around a loop would ask the next
-    // server about a name the caller never mentioned.
+    // has to put the name back: a lookup must not end pointing halfway around a loop.
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     const before = harness.lookup.current;
-    const deadline = harness.lookup.deadline_ns;
-    try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.cname_loop, servers[0].endpoint));
+    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.cname_loop, servers[0].endpoint));
     try testing.expectEqualSlices(u8, before.wire(), harness.lookup.current.wire());
     try testing.expectEqual(@as(u8, 0), harness.lookup.cname_hops);
-    try testing.expectEqual(deadline, harness.lookup.deadline_ns);
-    try testing.expect(harness.poll() == .wait);
+    try testing.expectEqual(core.Error.ChainTooLong, harness.poll().failed.err);
+}
+
+test "a chain one hop past the bound across messages fails the lookup" {
+    // Each reply moves the chain one hop, to a name no earlier reply named, so no loop is in any
+    // one message: the bound across messages is what stops it (§5, CNAME policy).
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
+    try harness.start("example.com.", .a, seed);
+    var hops: u8 = 0;
+    while (hops < core.constants.cname_hops_max) : (hops += 1) {
+        _ = harness.send();
+        try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.cname_fresh, servers[0].endpoint));
+        try testing.expectEqual(hops + 1, harness.lookup.cname_hops);
+    }
+    _ = harness.send();
+    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.cname_fresh, servers[0].endpoint));
+    try testing.expectEqual(core.Error.ChainTooLong, harness.poll().failed.err);
 }
 
 test "a chain name compressed into the question comes back without cocuyo's own case" {
