@@ -2619,7 +2619,12 @@ rulings of that day with the facts that led to them. Each piece lands with its c
   1. After the handshake, `ch_read` pulls records through a `recv` callback. A record that
      holds only a session ticket makes it read another, and a `recv` with nothing to give fails
      the session. An engine over a completion loop holds only what has arrived, so `ch_read`
-     must answer "need more bytes" and leave the session alive.
+     must answer "need more bytes" and leave the session alive. Landed in chapulin at `73a36a8`
+     the same day. A `recv` that returns 0 at a record boundary makes `ch_read` return
+     `CH_RECORD_AGAIN`, and the session stays connected. A ticket or a KeyUpdate in the records
+     before that is handled first, and a KeyUpdate's reply goes out through `send`. A message
+     split across records keeps its first part in chapulin's buffer, which the caller leaves
+     alone between calls. A `recv` that returns 0 inside a record kills the session.
   2. RFC 8310 §9 makes session resumption a MUST. chapulin's webpki build refuses it, because
      nothing binds a ticket to the name it was issued for. The ticket gets bound to the name.
   3. RFC 8310 §9 makes RFC 7250 raw public keys a MUST, offered only when an SPKI pin is
@@ -2670,7 +2675,9 @@ written from before the code is.
    for each of its servers, and the engine asserts it has them.
 7. Records received go to the session whole. The connection reads each record's length from
    its five-octet header, and keeps a partial record until the rest arrives. A record longer
-   than the buffer fails the connection.
+   than the buffer fails the connection. The session's `recv` hands over whole records and
+   answers 0 only at a record boundary, which chapulin reads as "no record yet"; a 0 inside a
+   record would kill the session.
 
 The model holds rules 1 to 6. Rule 7 is about octets, which the model does not count. Four
 invariants were added for them: a slot a send of records still borrows stays closed; the sealed
