@@ -63,7 +63,11 @@ open Spec.Lookup (flag stateToken)
 def listToken (xs : List Nat) : String := "[" ++ ",".intercalate (xs.map toString) ++ "]"
 
 def stageName : Stage → String
-  | .closed => "closed" | .connecting => "connecting" | .up => "up"
+  | .closed => "closed" | .connecting => "connecting" | .handshaking => "handshaking"
+  | .up => "up" | .closing => "closing"
+
+def entryToken : Entry → String
+  | .query l => toString l | .records => "r"
 
 def ageToken : Age → String
   | .current => "c" | .draining => "d" | .gone => "g"
@@ -84,13 +88,16 @@ def slotToken (sl : Slot) : String :=
     s!"{stateToken lk} o{listToken sl.order} c{conn} u{sent} " ++
       flag sl.busy 'B' ++ flag sl.held 'H' ++ flag sl.reported 'R'
 
-def connToken (conn : Conn) : String :=
+/-- A connection. Over TLS it also shows how many of its queue's entries are sealed. -/
+def connToken (tls : Bool) (conn : Conn) : String :=
   s!"{stageName conn.stage} s{conn.server} u{conn.users}" ++ flag conn.idleNow 'I' ++
-    flag conn.partSent 'P' ++ s!" q{listToken conn.queue}"
+    flag conn.partSent 'P' ++ " q[" ++ ",".intercalate (conn.queue.map entryToken) ++ "]" ++
+    (if tls then s!" k{conn.sealed}" else "")
 
 def opToken (op : Op) : String :=
   let kind := match op.kind with
     | .connect => "C" | .receive => "R" | .send => "S" | .sendTo => "D" | .receiveFrom => "L"
+    | .sendRecords => "T"
   -- A receive that is gone is spelt as the code can see it: it names no socket any more.
   let kind := if op.kind = .receiveFrom ∧ op.draining ∧ op.current then "M" else kind
   kind ++ toString op.target ++ (if op.current then "*" else "x")
@@ -111,9 +118,9 @@ def sockToken (sock : Sock) : String :=
   s!"open s{sock.sent}" ++ flag sock.retiring 'R' ++ flag sock.draining 'D'
 
 /-- The whole of a state, as the replay spells the Zig engine's. -/
-def stateLine (s : State) : String :=
+def stateLine (s : State) (tls : Bool := false) : String :=
   " ; ".intercalate (s.slots.map slotToken) ++ " | " ++
-  " ; ".intercalate (s.conns.map connToken) ++ " | " ++
+  " ; ".intercalate (s.conns.map (connToken tls)) ++ " | " ++
   " ; ".intercalate (s.socks.map sockToken) ++ " | " ++
   " ".intercalate (s.ops.map opToken) ++ " | " ++
   s!"r{listToken s.ready} q{listToken s.results} t" ++
@@ -129,10 +136,14 @@ def replyName : Reply → String
   | .answer => "answer" | .servfail => "servfail" | .nxdomain => "nxdomain"
   | .unmatched => "unmatched"
 
+def tlsStepName : TlsStep → String
+  | .flight => "flight" | .done => "done" | .failed => "failed" | .rekey => "rekey"
+
 def eventToken : Event → String
   | .start => "start" | .take => "take" | .cancel l => s!"cancel:{l}" | .expire => "expire"
   | .idle => "idle" | .finish i o => s!"finish:{i}:{outcomeToken o}"
   | .message i l r => s!"message:{i}:{l}:{replyName r}"
+  | .tls i t => s!"tls:{i}:{tlsStepName t}"
   | .straggle i => s!"straggle:{i}" | .jam => "jam" | .starve => "starve"
 
 /-! ## Walks that look for what they have not seen -/
@@ -156,8 +167,9 @@ def walks (out : IO.FS.Stream) (c : Config) (seed : UInt64) (count length : Nat)
   for _ in [0:count] do
     let mut s := init c
     seen := seen.insert s
-    out.putStrLn s!"config {c.slots} {c.conns} {if c.useTcp then "tcp" else "udp"} {c.perPort}"
-    out.putStrLn s!"0 init {stateLine s}"
+    let transport := if c.tls then "tls" else if c.useTcp then "tcp" else "udp"
+    out.putStrLn s!"config {c.slots} {c.conns} {transport} {c.perPort}"
+    out.putStrLn s!"0 init {stateLine s c.tls}"
     for depth in [1:length + 1] do
       let choices := enabled c s
       if choices.isEmpty then break
@@ -169,7 +181,7 @@ def walks (out : IO.FS.Stream) (c : Config) (seed : UInt64) (count length : Nat)
       if let some (name, _) := (invariants s e t).find? (!·.2) then
         throw <| IO.userError s!"the model breaks {name} at {eventToken e}, depth {depth}"
       seen := seen.insert t
-      out.putStrLn s!"{depth} {eventToken e} {stateLine t}"
+      out.putStrLn s!"{depth} {eventToken e} {stateLine t c.tls}"
       events := events + 1
       s := t
   return (events, seen.size)

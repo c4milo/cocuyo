@@ -2635,12 +2635,49 @@ rulings of that day with the facts that led to them. Each piece lands with its c
   §6), so a query over UDP or plain TCP carries none. A query sent without EDNS after a FORMERR
   cannot carry the option, and goes unpadded.
 - **The answer.** A Padding option in it is accepted, whatever its octets (RFC 7830 §3).
-- **The engine.** A connection to a TLS server connects, then handshakes, then is up. The
-  handshake's flights go out through the connection's one send (§19 step 13, the stream's rule
-  9). Once it is up, each query is sealed into records as it reaches the head of the queue, and
-  records go out in the order they were sealed, since each record's nonce is its sequence
-  number. A handshake that fails fails the connection, which every lookup on it hears as a
-  failed connection, and each fails over to the next server, which is also a TLS server.
+- **The engine.** A connection to a TLS server connects, then handshakes, then is up, and the
+  rules below hold it to that.
+
+### The engine's TLS rules, written on 2026-09-23
+
+These extend the stream's rules of §19 step 13, for the model of spec/Spec/Engine.lean to be
+written from before the code is.
+
+1. A connection to a TLS server handshakes between its connect and its first query. When the
+   connect succeeds, the receive is armed and the session starts, which makes its first flight.
+   The connection is up when the handshake has ended, and only then are the lookups on it told.
+   A lookup that joins it meanwhile waits, as one that joins a connection still connecting does
+   (the stream's rule 5).
+2. The session's own records are sealed when the session makes them: its flights, and later a
+   record it makes of its own accord, such as a KeyUpdate's answer or a `close_notify`. A query
+   is sealed when it reaches the head of the queue with nothing in flight. Records go out in the
+   order they were sealed, since each record's nonce is its sequence number (RFC 9846 §5.3). So
+   records the session makes while a send is in flight go out right after that send, ahead of
+   every query not yet sealed.
+3. A connection's sealed records wait in a buffer of the connection's own, which a send lends to
+   the loop until its final event (rotor decision 5, rule 3). The slot is not opened again while
+   a send of an earlier incarnation's records is in flight, as the stream's rule 10 keeps it for
+   a connect.
+4. A handshake that fails fails the connection (the stream's rule 5): a record the session
+   refuses, a certificate or a name that does not verify. No query was sent on it, and each
+   lookup on it fails over to the next server.
+5. An idle connection that is up makes the session's `close_notify` (RFC 9846 §6.1). It closes
+   when that record has gone, and no lookup joins it meanwhile. One whose handshake has not
+   ended has no session to close, and closes at once. A connection that fails closes at once
+   too: a party that has sent an error alert owes no `close_notify` (§6.1), and one whose peer
+   has gone has nobody to send it to.
+6. A TLS connection is never closed to make room for another. A TLS configuration needs a slot
+   for each of its servers, and the engine asserts it has them.
+7. Records received go to the session whole. The connection reads each record's length from
+   its five-octet header, and keeps a partial record until the rest arrives. A record longer
+   than the buffer fails the connection.
+
+The model holds rules 1 to 6. Rule 7 is about octets, which the model does not count. Four
+invariants were added for them: a slot a send of records still borrows stays closed; the sealed
+entries lead each queue, so records go out in the order they were sealed; no query waits on a
+connection that is not up; and no event leaves the session owing an answer. The last came from a
+mutation nothing caught without it (docs/mutations.md TM3). The replay drives no TLS
+configuration until step 5, when the engine speaks TLS.
 
 ### Limits chapulin sets
 
@@ -2680,6 +2717,7 @@ the engine's send and held buffers, per slot.
    cleartext on port 853, which RFC 7858 §3.1 forbids.
 4. The engine model: a connection handshakes between its connect and its first query, and a
    handshake that fails fails the connection. Design, model, code, in that order (§19 step 13).
+   The rules and the model landed 2026-09-23; the code is step 5's.
 5. The engine over chapulin, behind a build option naming a chapulin checkout, as colibri's
    driver links it: the headers are read in place and nothing is vendored.
 6. A live check against the public resolvers that serve DoT: `dns.google`, `cloudflare-dns.com`

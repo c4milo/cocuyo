@@ -1039,6 +1039,21 @@ mutations, seven `CAUGHT`.
 | W6 | a draining socket's ended receive is armed on the current one | rule 5 | the committed walks | CAUGHT |
 | W7 | a query does not record the socket it left from | rule 4, what is owed | the rotation twin test; the committed walks | CAUGHT |
 
+## The TLS rules in the engine model
+
+Design §21's engine rules, held by the model before any engine code speaks TLS. The code has
+nothing to break yet, so these mutations break the model, and the invariants must catch them:
+each run is `cocuyo-spec engine-probe tls 2 2 1 2000 200`. TM3 was `NOT CAUGHT` at first. No
+invariant said the client's last flight goes before the first query, so the `answered`
+invariant was written for it, and it catches TM3. Three mutations, three `CAUGHT`. The engine's
+own mutations come with its code, in step 5.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| TM1 | the session's records go to the back of the queue, behind queries not yet sealed | TLS rule 2, records in sealed order | `sealed in order`, at depth 194 | CAUGHT |
+| TM2 | a slot is opened again while a send of its records is in flight | TLS rule 3 | `borrow kept`, at depth 50 | CAUGHT |
+| TM3 | the handshake's end tells the lookups without sealing the client's last flight | TLS rules 1 and 2 | `answered`, at depth 33 | CAUGHT |
+
 ## A connect's address
 
 The stream's rule 10 (docs/design.md §19 step 13): a connect borrows its slot's address until

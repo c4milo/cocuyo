@@ -67,7 +67,7 @@ before it closed, then a receive for every connection that is up and has none, t
 server's socket tended. -/
 def drive (c : Config) (s : State) (moved : Bool := false) : State :=
   let s := pollAll c s
-  let s := if moved then closeIdle s else s
+  let s := if moved then closeIdle c s else s
   tendSockets c (tendConns s)
 
 /-! ## Events -/
@@ -85,7 +85,24 @@ def returnBuffer (c : Config) (s : State) (l : Nat) (op : Op) (ok : Bool) : Stat
 
 /-- The connection whose queue `l`'s query heads, when it is still there. -/
 def headOf (s : State) (l : Nat) : Option Nat :=
-  firstIndex s.conns fun conn => conn.queue.head? = some l
+  firstIndex s.conns fun conn => conn.queue.head? = some (.query l)
+
+/-- The head of connection `k`'s queue went whole: it leaves the queue. -/
+def dequeue (s : State) (k : Nat) : State :=
+  setConn s k fun conn =>
+    { conn with queue := conn.queue.drop 1, sealed := conn.sealed - 1, partSent := false }
+
+/-- After a whole send: a closing connection whose queue is empty closes, since its
+`close_notify` has gone (§21, TLS rule 5); any other sends its next. -/
+def afterSend (c : Config) (s : State) (k : Nat) : State :=
+  let conn := connAt s k
+  if conn.stage = .closing ∧ conn.queue = [] then shut s k else pump c s k
+
+/-- The rest of a short send goes out, unless the loop refuses it, which fails the connection. -/
+def sendRest (c : Config) (s : State) (k : Nat) (op : Op) : State :=
+  if s.jammed then failConn c s k else
+  let s := setConn s k fun conn => { conn with partSent := true }
+  { s with ops := s.ops ++ [op] }
 
 /-- A stream's send ended (the stream's rule 9): a short one sends the rest of the same message,
 and a loop that refuses it fails the connection; a whole one leaves the queue, returns its buffer
@@ -96,20 +113,27 @@ def streamSendEnded (c : Config) (s : State) (op : Op) (outcome : Outcome) : Sta
   match headOf s l with
   | none => returnBuffer c s l { op with current := false } false
   | some k =>
-    let dequeue (s : State) := setConn s k fun conn =>
-      { conn with queue := conn.queue.drop 1, partSent := false }
     match outcome with
-    | .short =>
-      if s.jammed then failConn c s k else
-      let s := setConn s k fun conn => { conn with partSent := true }
-      { s with ops := s.ops ++ [{ kind := .send, target := l, current := op.current }] }
-    | .ok => pump c (returnBuffer c (dequeue s) l op true) k
-    | _ => failConn c (setSlot (dequeue s) l fun slot => { slot with busy := false }) k
+    | .short => sendRest c s k op
+    | .ok => afterSend c (returnBuffer c (dequeue s k) l op true) k
+    | _ => failConn c (setSlot (dequeue s k) l fun slot => { slot with busy := false }) k
+
+/-- A send of the session's records ended, the same way; one of an incarnation that is gone only
+gives the slot's memory back (§21, TLS rule 3). -/
+def recordsSendEnded (c : Config) (s : State) (op : Op) (outcome : Outcome) : State :=
+  let k := op.target
+  if ¬op.current then s else
+  match outcome with
+  | .short => sendRest c s k op
+  | .ok => afterSend c (dequeue s k) k
+  | _ => failConn c s k
 
 def sendEnded (c : Config) (s : State) (i : Nat) (op : Op) (outcome : Outcome) : State :=
   let s := removeOp s i
-  if op.kind = .sendTo then returnBuffer c s op.target op (outcome = .ok)
-  else streamSendEnded c s op outcome
+  match op.kind with
+  | .sendTo => returnBuffer c s op.target op (outcome = .ok)
+  | .sendRecords => recordsSendEnded c s op outcome
+  | _ => streamSendEnded c s op outcome
 
 /-- A socket's receive ended: the current one is armed again at once, and one that is gone
 ended as rule 2 allows and says nothing. -/
@@ -121,10 +145,28 @@ def connectEnded (c : Config) (s : State) (i : Nat) (op : Op) (ok : Bool) : Stat
   let k := op.target
   let s := removeOp s i
   if ¬op.current then s else
-  if ok then
+  if ¬ok then failConn c s k else
+  -- Over TLS the session starts, and its first flight goes; the lookups wait for the handshake's
+  -- end (§21, TLS rule 1).
+  if c.tls then
+    makeRecords c (armReceive (setConn s k fun conn => { conn with stage := .handshaking, idleNow := true }) k) k
+  else
     let s := setConn s k (fun conn => { conn with stage := .up, idleNow := true })
     tellAll c (armReceive s k) k true
-  else failConn c s k
+
+/-- The session's step on what connection `k` received: a flight to answer, the handshake's end,
+after which the connection is up and its lookups are told, a failure, or a KeyUpdate to answer
+(§21, TLS rules 1, 2 and 4). -/
+def tlsStep (c : Config) (s : State) (k : Nat) (t : TlsStep) : State :=
+  let s := if t = .failed then s else setConn s k fun conn => { conn with owes := true }
+  match t with
+  | .flight | .rekey => makeRecords c s k
+  | .failed => failConn c s k
+  | .done =>
+    let s := makeRecords c s k
+    -- The client's last flight may have failed the connection as it went.
+    if (connAt s k).stage ≠ .handshaking then s else
+    tellAll c (setConn s k fun conn => { conn with stage := .up }) k true
 
 /-- A stream's receive ended: with its group dry, it is armed again; otherwise the connection is
 no good. One that is gone says nothing. -/
@@ -202,11 +244,15 @@ def happen (c : Config) (s : State) (e : Event) : State :=
     | some op =>
       let ok := outcome = .ok
       drive c <| match op.kind with
-        | .send | .sendTo => sendEnded c s i op outcome
+        | .send | .sendTo | .sendRecords => sendEnded c s i op outcome
         | .connect => connectEnded c s i op ok
         | .receive => receiveEnded c s i op outcome
         | .receiveFrom => receiveFromEnded s i op
   | .message _ l r => drive c (message c s l r)
+  | .tls i t =>
+    match s.ops[i]? with
+    | some op => drive c (tlsStep c s op.target t)
+    | none => s
   | .straggle _ => drive c s
   | .jam => { s with jammed := true }
   | .starve => { s with starved := true }
@@ -239,6 +285,8 @@ def endings (s : State) (op : Op) : List Outcome :=
   let rest := (headOf s op.target).any fun k => (connAt s k).partSent
   match op.current, op.kind with
   | _, .send => if rest then [.ok, .failed] else [.ok, .short, .failed]
+  | true, .sendRecords => if (connAt s op.target).partSent then [.ok, .failed] else [.ok, .short, .failed]
+  | false, .sendRecords => [.ok, .failed]
   | _, .sendTo => [.ok, .failed]
   | true, .receive => [.failed, .exhausted]
   | true, .receiveFrom => [.exhausted]
@@ -273,12 +321,23 @@ def enabled (c : Config) (s : State) : List Event :=
           [Reply.answer, .servfail, .nxdomain, .unmatched].map (Event.message i l)
       else []
     | none => []
+  -- What the session makes of what a TLS connection's current receive brought (§21).
+  let steps := (List.range s.ops.length).flatMap fun i =>
+    match s.ops[i]? with
+    | some op =>
+      if ¬(c.tls ∧ op.kind = .receive ∧ op.current) then [] else
+      match (connAt s op.target).stage with
+      | .handshaking => [TlsStep.flight, .done, .failed].map (Event.tls i)
+      | .up => [Event.tls i .rekey]
+      | _ => []
+    | none => []
   let stragglers := (List.range s.ops.length).filterMap fun i =>
     match s.ops[i]? with
     | some op => if receives op ∧ ¬op.current then some (Event.straggle i) else none
     | none => none
   let refusals := (if s.jammed then [] else [Event.jam]) ++ (if s.starved then [] else [Event.starve])
-  starts ++ takes ++ cancels ++ expires ++ idles ++ finishes ++ messages ++ stragglers ++ refusals
+  starts ++ takes ++ cancels ++ expires ++ idles ++ finishes ++ messages ++ steps ++ stragglers ++
+    refusals
 
 /-! ## What must hold in every state -/
 
@@ -305,22 +364,49 @@ def attachedRight (s : State) : Bool :=
 def buffersLent (s : State) : Bool :=
   (List.range s.slots.length).all fun l =>
     let sends := (s.ops.filter fun op => isSend op.kind && op.target == l).length
-    let queued := s.conns.any (·.queue.contains l)
+    let queued := s.conns.any (·.queue.contains (.query l))
     sends ≤ 1 && ((slotAt s l).busy == (sends == 1 || queued))
 
-/-- A connect that is gone still borrows its slot's address until its final event, so its slot
-stays closed until then (the stream's rule 10). -/
-def addressKept (s : State) : Bool :=
-  s.ops.all fun op => op.kind != .connect || op.current || (connAt s op.target).stage == .closed
+/-- A connect or a send of records that is gone still borrows its slot's memory until its final
+event, so its slot stays closed until then (the stream's rule 10, §21's TLS rule 3). -/
+def borrowKept (s : State) : Bool :=
+  s.ops.all fun op =>
+    (op.kind != .connect && op.kind != .sendRecords) || op.current ||
+      (connAt s op.target).stage == .closed
 
 /-- A stream has one send in flight at most, and it is its queue's head's; no query waits in two
 queues or twice in one (the stream's rule 9). -/
 def oneSendAStream (s : State) : Bool :=
-  let queued := s.conns.flatMap (·.queue)
-  queued.eraseDups.length == queued.length &&
+  let waiting := (List.range s.conns.length).flatMap (queued s ·)
+  waiting.eraseDups.length == waiting.length &&
+  (List.range s.conns.length).all fun k =>
+    let conn := connAt s k
+    let queries := (queued s k).filter (sending s ·)
+    let records := (s.ops.filter fun op => op.kind == .sendRecords && op.target == k && op.current).length
+    queries.length + records ≤ 1 &&
+      queries.all (fun l => conn.queue.head? == some (.query l)) &&
+      (records == 0 || conn.queue.head? == some .records)
+
+/-- Records go out in the order they were sealed (§21, TLS rule 2): the sealed entries lead the
+queue, only its head among them a query, and nothing is sealed but while a send is in flight. -/
+def sealedInOrder (s : State) : Bool :=
+  (List.range s.conns.length).all fun k =>
+    let conn := connAt s k
+    conn.sealed ≤ conn.queue.length &&
+      (conn.queue.drop conn.sealed).all (·.isQuery) &&
+      ((conn.queue.take conn.sealed).drop 1).all (!·.isQuery) &&
+      ((conn.sealed > 0) == inFlight s k || s.jammed)
+
+/-- Every step of the session that asks an answer has its answer sealed by the end of the event:
+the handshake's last flight before the connection is up and any query goes (§21, TLS rules 1
+and 2). -/
+def answered (s : State) : Bool := s.conns.all (!·.owes)
+
+/-- No query waits on a connection that is not up yet: over TLS none goes before the handshake
+has ended (§21, TLS rule 1). -/
+def queriesAfterUp (s : State) : Bool :=
   s.conns.all fun conn =>
-    let inFlight := conn.queue.filter (sending s ·)
-    inFlight.length ≤ 1 && inFlight.all (some · == conn.queue.head?)
+    conn.stage == .up || conn.stage == .closing || conn.queue.all (!·.isQuery)
 
 /-- A connection slot has its connect while it connects, at most its receive once it is up, and
 nothing current while it is closed (the stream's rules 1 and 2). -/
@@ -331,7 +417,7 @@ def opsCurrent (s : State) : Bool :=
     match (connAt s k).stage with
     | .closed => current = []
     | .connecting => current.map (·.kind) = [.connect]
-    | .up => current.map (·.kind) = [.receive] ∨ current = []
+    | .handshaking | .up | .closing => current.map (·.kind) = [.receive] ∨ current = []
 
 /-- A server's current socket has at most one current receive, and its draining socket at most
 one while it drains and none once it is gone (the datagram's rules 1, 2 and 4). -/
@@ -346,7 +432,7 @@ connection that is up has its receive (the datagram's rules 1 and 5). -/
 def listeningAll (s : State) : Bool :=
   (List.range s.socks.length).all (fun v =>
     listening s v false && (!(sockAt s v).draining || listening s v true)) &&
-  (List.range s.conns.length).all fun k => (connAt s k).stage != .up || receiving s k
+  (List.range s.conns.length).all fun k => !reads (connAt s k).stage || receiving s k
 
 /-- After a drive the moment did not refuse, a port that has carried its share is replaced unless
 an older one still drains, whoever waits on it, and a draining socket nothing is owed is gone
@@ -368,7 +454,8 @@ def invariants (before : State) (e : Event) (s : State) : List (String × Bool) 
     | _ => !before.jammed && !before.starved
   [("users counted", usersCounted s), ("attached right", attachedRight s),
    ("buffers lent", buffersLent s), ("one send a stream", oneSendAStream s),
-   ("address kept", addressKept s),
+   ("borrow kept", borrowKept s), ("sealed in order", sealedInOrder s),
+   ("queries after up", queriesAfterUp s), ("answered", answered s),
    ("ops current", opsCurrent s),
    ("sockets current", socksCurrent s), ("drive done", driveDone s),
    ("listening", !drove || listeningAll s), ("rotated", !drove || rotatedAll s)]

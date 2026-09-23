@@ -17,6 +17,8 @@ transport, RFC 8310 for the strict profile and where the name a certificate is c
 comes from, and RFC 8467 for the padding a query carries. Each was checked against
 `rfc-editor.org/rfc/rfcNNNN.json` that day: none is obsoleted. RFC 7858 is updated by RFC 8310,
 which is here. RFC 8467 is Experimental, and RFC 8310 §9 points to it for the padding policy.
+RFC 9846, TLS 1.3, came the same day for what the engine owes the session it carries. It
+obsoletes RFC 8446, and RFC 5077 with it, which is the resumption RFC 8310 §9 cites.
 
 Read these, never a summary and never another implementation's source. Cite the RFC that *states*
 a rule, not one that inherits it, and cite it by section on the line that does the checking
@@ -82,6 +84,7 @@ updates worth knowing about, none of which version one implements:
 | 8467 | Padding Policies for Extension Mechanisms for DNS (EDNS(0)) | §4.1, queries padded to a multiple of 128 octets |
 | 8482 | Providing Minimal-Sized Responses to DNS Queries That Have QTYPE=ANY | §4, what an ANY question may get back, a synthesized HINFO included |
 | 8659 | DNS Certification Authority Authorization (CAA) Resource Record | §4.1, the CAA record's fields |
+| 9846 | The Transport Layer Security (TLS) Protocol Version 1.3 | §5.3 each record's nonce is its sequence number, so records go out in the order they were sealed; §6.1 a `close_notify` before a party closes its write side |
 | 9018 | Interoperable Domain Name System (DNS) Server Cookies | §3, the server cookie's length, which is all a client reads of it |
 | 9460 | Service Binding and Parameter Specification via the DNS (SVCB and HTTPS) | §2.2 the record's fields, §7 the parameters, §2.2 the uncompressed target |
 | 9499 | DNS Terminology | the vocabulary this repository uses in prose; it obsoletes RFC 8499, which is why 8499 is not here |

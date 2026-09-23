@@ -117,6 +117,7 @@ def same (path : String) (write : IO.FS.Stream → IO Unit) : IO Bool := do
 def usage : String :=
   "usage: cocuyo-spec all <cname_hops_max>\n" ++
   "       cocuyo-spec gate <cname_hops_max>\n" ++
+  "       cocuyo-spec engine <tcp|udp|tls> <slots> <connections>\n" ++
   "       cocuyo-spec engine-walks <seed> <walks> <length>\n" ++
   "       cocuyo-spec engine-gate\n" ++
   "       cocuyo-spec walks | walks-gate\n" ++
@@ -133,9 +134,14 @@ def main (args : List String) : IO UInt32 := do
     IO.eprintln s!"{total} events, {deepest} deep"
     return 0
   | ["engine", transport, slots, conns] =>
+    let stream := transport = "tcp" ∨ transport = "tls"
     let c : Spec.Engine.Config :=
       { servers := 2, slots := slots.toNat!, conns := conns.toNat!, pollsMax := 1000,
-        timeoutTicks := 2, useTcp := transport = "tcp", perPort := if transport = "tcp" then 0 else 2 }
+        timeoutTicks := 2, useTcp := stream, perPort := if stream then 0 else 2,
+        tls := transport = "tls" }
+    -- A TLS configuration has a connection slot for each server (§21, TLS rule 6).
+    if c.tls ∧ c.conns < c.servers then
+      IO.eprintln s!"a TLS configuration needs {c.servers} connections"; return 2
     let found ← Spec.Engine.walk c { opsMax := 6, failuresMax := 2, sentMax := 3 }
     IO.println s!"{found.states} states, {found.transitions} transitions"
     match found.broken with
@@ -144,6 +150,17 @@ def main (args : List String) : IO UInt32 := do
       IO.println s!"broken: {name}"
       for e in path do IO.println s!"  {repr e}"
       return 1
+  | ["engine-probe", transport, slots, conns, seed, count, length] =>
+    -- Seeded walks over one configuration, for a quick look before the breadth-first walk.
+    let stream := transport = "tcp" ∨ transport = "tls"
+    let c : Spec.Engine.Config :=
+      { servers := 2, slots := slots.toNat!, conns := conns.toNat!, pollsMax := 1000,
+        timeoutTicks := 2, useTcp := stream, perPort := if stream then 0 else 2,
+        tls := transport = "tls" }
+    let sink := IO.FS.Stream.ofBuffer (← IO.mkRef {})
+    let (events, states) ← Spec.Engine.walks sink c seed.toNat!.toUInt64 count.toNat! length.toNat!
+    IO.println s!"{events} events, {states} states, every invariant holds"
+    return 0
   | ["engine-walks", seed, count, length] =>
     let total ← engineWalks (← IO.getStdout) seed.toNat! count.toNat! length.toNat! false
     IO.eprintln s!"{total} events"

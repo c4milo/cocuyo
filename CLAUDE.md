@@ -307,7 +307,8 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   chapulin changes first: a record-mode `ch_read` that answers "need more bytes" instead of
   failing, resumption bound to the name, and RFC 7250 raw public keys. Until then cocuyo lands
   what does not wait. `Server.tls` all or none and query padding landed the same day, with
-  `query_bytes_max` grown to 386 by the owner's ruling; the engine model's handshake is next.
+  `query_bytes_max` grown to 386 by the owner's ruling, and so did the engine's TLS rules (§21)
+  in the model. The engine's TLS code waits on chapulin.
 - After those, DoH's DNS half. The p99 of the comparison waits for a quiet machine.
 
 §17 holds the questions the owner has not answered.

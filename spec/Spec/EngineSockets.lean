@@ -82,30 +82,56 @@ def tendSockets (c : Config) (s : State) : State :=
     let s := if listening s v false then s else listen s v false
     if (sockAt s v).draining ∧ ¬listening s v true then listen s v true else s) s
 
-/-- Every connection that is up gets its receive, if the loop refused it before. -/
+/-- Whether a connection reads what its server sends: while it handshakes and once it is up. -/
+def reads (stage : Stage) : Bool := stage = .handshaking ∨ stage = .up
+
+/-- Every connection that reads gets its receive, if the loop refused it before. -/
 def tendConns (s : State) : State :=
   (List.range s.conns.length).foldl (fun s k =>
-    if (connAt s k).stage = .up ∧ ¬receiving s k then armReceive s k else s) s
+    if reads (connAt s k).stage ∧ ¬receiving s k then armReceive s k else s) s
 
 /-! ## Sends -/
 
-/-- Sends the head of connection `k`'s queue. A send the loop refuses fails the connection: the
-stream cannot go on without it (the stream's rule 9). -/
+/-- Sends the head of connection `k`'s queue unless a send is in flight. A query is sealed as it
+goes (§21, TLS rule 2). A send the loop refuses fails the connection: the stream cannot go on
+without it (the stream's rule 9). -/
 def pump (c : Config) (s : State) (k : Nat) : State :=
+  if inFlight s k then s else
   match (connAt s k).queue.head? with
   | none => s
-  | some l =>
-    if sending s l then s else
+  | some entry =>
     if s.jammed then failConn c s k else
-    { s with ops := s.ops ++ [{ kind := .send, target := l, current := true }] }
+    match entry with
+    | .query l =>
+      let s := setConn s k fun conn => { conn with sealed := 1 }
+      { s with ops := s.ops ++ [{ kind := .send, target := l, current := true }] }
+    | .records => { s with ops := s.ops ++ [{ kind := .sendRecords, target := k, current := true }] }
+
+/-- The session made records: sealed now, they go after what is sealed already and ahead of every
+query that is not (§21, TLS rule 2). -/
+def makeRecords (c : Config) (s : State) (k : Nat) : State :=
+  let s := setConn s k fun conn =>
+    { conn with queue := conn.queue.take conn.sealed ++ [.records] ++ conn.queue.drop conn.sealed,
+                sealed := conn.sealed + 1, owes := false }
+  pump c s k
 
 /-- The query joins its connection's queue, lending its buffer from now, and goes at once when
 nothing is ahead of it (the stream's rule 9). -/
 def submitStream (c : Config) (s : State) (l k : Nat) : State :=
   let s := setSlot s l (fun slot => { slot with busy := true })
-  let first := (connAt s k).queue = []
-  let s := setConn s k (fun conn => { conn with queue := conn.queue ++ [l] })
-  if first then pump c s k else s
+  let s := setConn s k (fun conn => { conn with queue := conn.queue ++ [.query l] })
+  pump c s k
+
+/-- Closes every connection nobody has used since before this instant (rule 4). A TLS connection
+that is up makes its `close_notify` and closes once that has gone; one still handshaking has no
+session to close (§21, TLS rule 5). -/
+def closeIdle (c : Config) (s : State) : State :=
+  (List.range s.conns.length).foldl (fun s k =>
+    let conn := connAt s k
+    if conn.stage = .closed ∨ conn.stage = .closing ∨ conn.users ≠ 0 ∨ conn.idleNow then s else
+    if c.tls ∧ conn.stage = .up then
+      makeRecords c (setConn s k fun conn => { conn with stage := .closing }) k
+    else shut s k) s
 
 /-- The query goes out from the current socket of the lookup's server, which counts it. -/
 def submitDatagram (c : Config) (s : State) (l : Nat) : State :=

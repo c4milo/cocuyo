@@ -68,18 +68,21 @@ a server failed and the cookie retried. A field that drifts is caught at the eve
 
 ## The engine
 
-The engine model is written from the stream's rules and the datagram's rules of §19 step 13 and
-rotor's decision 5, with two servers and one pass. A configuration asks every query over TCP, or
-every query over UDP with no answer truncated and a port replaced every two queries, the old one
-draining beside the new. It leaves
-out the timer, the bytes of a message and the cache. Time moves in ticks, each the idle close's
+The engine model is written from the stream's rules and the datagram's rules of §19 step 13, the
+TLS rules of §21, and rotor's decision 5, with two servers and one pass. A configuration asks
+every query over TCP, every query over TLS, or every query over UDP with no answer truncated and
+a port replaced every two queries, the old one draining beside the new. A TLS session is what it
+does to the queue: the records it makes, which are sealed as it makes them, and the steps its
+handshake takes, a flight to answer, the handshake's end or a failure, and later a KeyUpdate to
+answer. It leaves out the timer, the bytes of a message, the TLS records' contents and the
+cache. Time moves in ticks, each the idle close's
 wait, and only when a deadline arrives or the caller lets a tick pass; a lookup waits two ticks.
 Two faults stand in for a kernel under pressure: the loop refuses every submission for the length
 of one event, as a full ring does, and every socket open fails for the length of one event, as a
 process with no descriptor left sees.
 
-`cocuyo-spec engine <tcp|udp> <slots> <connections>` walks it breadth first and checks ten
-invariants in every state:
+`cocuyo-spec engine <tcp|udp|tls> <slots> <connections>` walks it breadth first and checks
+thirteen invariants in every state:
 
 - A connection's users are the lookups on it.
 - A lookup is on a connection only while it streams to that connection's server.
@@ -94,8 +97,12 @@ invariants in every state:
   drains, and a draining socket nothing is owed on is gone.
 - A stream has one send in flight at most, and it is its queue's head's; no query waits in two
   queues or twice in one.
-- A connect that is gone keeps its slot closed until its final event, since it borrows the slot's
-  address until then.
+- A connect or a send of records that is gone keeps its slot closed until its final event, since
+  it borrows the slot's memory until then.
+- The sealed entries lead each queue, only its head among them a query, and something is sealed
+  only while a send is in flight: records go out in the order they were sealed.
+- No query waits on a connection that is not up.
+- No event leaves the session owing an answer to a flight, the handshake's end or a KeyUpdate.
 
 The walk stops at six operations in flight, two failures a server and three queries a port,
 since nothing else bounds the graph. A stream's send may come back short once a message, since a
@@ -106,6 +113,13 @@ reported, on 2026-09-23:
 | --- | --- | --- | --- | --- | --- |
 | TCP | 1 | 1 | 1,038,503 | 14,908,528 | hold |
 | UDP | 1 | 1 | 5,848,772 | 85,609,860 | hold |
+
+`cocuyo-spec engine-probe <tcp|udp|tls> <slots> <connections> <seed> <walks> <length>` walks one
+configuration the seeded way below and stops at the first invariant broken, for a quick look before
+the breadth-first walk.
+
+The TLS configurations are model-checked alone for now: the engine speaks no TLS until §21 step
+5, so the replay has nothing to drive, and `engine-walks` writes the other six.
 
 The replay cannot visit that many states, so `cocuyo-spec engine-walks` writes seeded walks that
 take, at each step, an event leading to a state no walk has reached yet when there is one. Each
