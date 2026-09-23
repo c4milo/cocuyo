@@ -57,6 +57,7 @@ test {
     _ = table_ready;
     _ = table_memory;
     _ = table_slots;
+    _ = @import("table_cancel_test.zig");
     _ = constants;
     _ = @import("lookup_poll.zig");
     _ = @import("lookup_recall.zig");

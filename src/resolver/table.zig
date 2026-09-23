@@ -182,9 +182,12 @@ pub const Resolver = struct {
     }
 
     /// Settles a lookup as cancelled. The caller still sees one `.failed` for it, and then frees
-    /// the slot with `release`.
+    /// the slot with `release`. A lookup that has already ended keeps its end: the answer or the
+    /// failure stands and is offered once, as it would have been, so every caller may cancel
+    /// whatever it holds without first asking whether its end has come.
     pub fn cancel(self: *Resolver, handle: Handle) void {
         const slot = self.slot_of(handle);
+        if (slot.lookup.is_settled()) return;
         slot.lookup.cancel();
         ready_module.settle(self, handle.index);
     }
@@ -402,17 +405,6 @@ test "a datagram for a released slot is ignored rather than delivered" {
         Verdict.ignored,
         table.resolver.on_datagram(message, servers[0].endpoint, table.now_ns),
     );
-}
-
-test "cancelling settles a lookup and the caller sees it once" {
-    var table: Table = .{ .config = .{ .servers = &servers } };
-    table.open();
-    const handle = try table.start("example.com.");
-    table.resolver.cancel(handle);
-    const event = table.poll().?;
-    try testing.expectEqual(core.Error.Canceled, event.action.failed.err);
-    table.resolver.release(handle);
-    try testing.expectEqual(@as(usize, 0), table.resolver.in_flight());
 }
 
 test "every slot and key is usable, and the key table survives churn" {

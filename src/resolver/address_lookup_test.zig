@@ -315,6 +315,19 @@ test "a cancel after one family answered is Canceled all the same, not half an a
     try testing.expectEqual(@as(usize, 0), rig.table.resolver.in_flight());
 }
 
+test "a cancel after one family's answer came, before it was routed, is Canceled" {
+    var rig: Rig = .{ .table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } } };
+    try rig.open();
+    try rig.start(null, "host.example.", null, .{});
+    try rig.drive();
+    try rig.reply(rig.lookup.a.handle, fixtures.answer_a);
+    // The A lookup has ended and nobody has routed its end yet; the cancel reaches it all the same.
+    rig.lookup.cancel();
+    try rig.drive();
+    try testing.expectEqual(core.Error.Canceled, rig.lookup.outcome().?.failed.err);
+    try testing.expectEqual(@as(usize, 0), rig.table.resolver.in_flight());
+}
+
 test "a numeric host is answered at once, mapped or refused by family, and numeric_host insists" {
     var rig: Rig = .{ .table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } } };
     try rig.open();

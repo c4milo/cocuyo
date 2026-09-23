@@ -918,6 +918,21 @@ L11 is the one the log itself found. The first replay stopped on 53 rows whose n
 octet of a tunnelling payload as `\DDD`: over 254 characters in text and within 255 octets on
 the wire. The limit was on the text, where it should have been on what the text stands for.
 
+## A cancel after the end
+
+`Resolver.cancel` leaves a lookup that has already ended alone, so its answer or failure stands
+and is offered once. Before, a cancel that reached an ended lookup tripped `Lookup.cancel`'s
+assertion: an `AddressLookup` or `NameLookup` cancelled between an answer's arrival and its
+routing, and an engine's `deinit` with an answer not yet taken, each stopped the program.
+Found by the altitude review of `/simplify` on 2026-09-23. Broken against `zig build
+test-resolver`. Three mutations, three `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| C1 | a cancel reaches a lookup that has ended | an ended lookup keeps its end | the table, address and name cancel tests | CAUGHT |
+| C2 | `NameLookup.cancel` does not mark the walk | a cancel's outcome is `Canceled` | the name cancel test | CAUGHT |
+| C3 | an answer that comes after a cancel is taken | a cancel's outcome is `Canceled` | the name cancel test | CAUGHT |
+
 ## The epoll check
 
 `tools/epoll_check/run.sh`, run by CI's `epoll` job: the rotor example must resolve inside a

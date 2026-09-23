@@ -44,6 +44,8 @@ pub const NameLookup = struct {
     /// lookup, so the outcome is built when it is asked for rather than kept: a pointer into a
     /// value that is still being returned would name the copy nobody keeps.
     ended: ?End,
+    /// Whether the caller cancelled, so the lookup's end, whatever it was, is `Canceled`.
+    cancelled: bool,
 
     pub const End = union(enum) { answered, failed: Failure };
     pub const InitError = error{NoSlot} || core.Error;
@@ -61,6 +63,7 @@ pub const NameLookup = struct {
             .ttl_seconds = 0,
             .from_hosts = false,
             .ended = null,
+            .cancelled = false,
         };
         try next_source(&self);
         assert(self.ended != null or self.handle != null);
@@ -73,7 +76,7 @@ pub const NameLookup = struct {
         const mine = self.handle orelse return false;
         if (@as(u32, @bitCast(mine)) != @as(u32, @bitCast(event.handle))) return false;
         switch (event.action) {
-            .done => |answer| take_answer(self, &answer),
+            .done => |answer| if (self.cancelled) end_failed(self, core.Error.Canceled) else take_answer(self, &answer),
             .failed => |failure| take_failure(self, failure),
             else => unreachable,
         }
@@ -99,6 +102,7 @@ pub const NameLookup = struct {
     /// `on_event`, so a caller keeps routing events here.
     pub fn cancel(self: *NameLookup) void {
         if (self.ended != null) return;
+        self.cancelled = true;
         const handle = self.handle orelse return;
         self.resolver.cancel(handle);
     }
@@ -149,8 +153,10 @@ fn take_answer(self: *NameLookup, answer: *const @import("lookup.zig").Answer) v
 }
 
 fn take_failure(self: *NameLookup, failure: Failure) void {
-    // A cancel is the caller's word and ends the walk; anything else lets the next source try.
+    // A cancel is the caller's word and ends the walk, even when the lookup failed on its own
+    // before the cancel reached it; anything else lets the next source try.
     if (failure.err == core.Error.Canceled) return end_failed_with(self, failure);
+    if (self.cancelled) return end_failed(self, core.Error.Canceled);
     next_source(self) catch return end_failed_with(self, failure);
     if (self.ended == null and self.handle == null) end_failed_with(self, failure);
 }
@@ -283,5 +289,21 @@ test "an address nothing answers for ends as NameNotFound, and a cancel ends as 
     second.cancel();
     try drive(&rig, &second);
     try testing.expectEqual(core.Error.Canceled, second.outcome().?.failed.err);
+    try testing.expectEqual(@as(usize, 0), rig.resolver.in_flight());
+}
+
+test "a cancel after the answer came, before it was routed, still ends as Canceled" {
+    var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
+    rig.open();
+    const address = Address.from_v4(.{ 192, 0, 2, 1 });
+    var lookup = try NameLookup.init(&rig.resolver, null, &address);
+    const event = rig.poll().?;
+    rig.resolver.on_sent(event.handle, rig.now_ns);
+    const message = rig.build(rig.resolver.lookup_of(lookup.handle.?), fixtures.answer_ptr);
+    rig.now_ns += 1;
+    _ = rig.resolver.on_datagram(message, rig.resolver.lookup_of(lookup.handle.?).server(), rig.now_ns);
+    lookup.cancel();
+    try drive(&rig, &lookup);
+    try testing.expectEqual(core.Error.Canceled, lookup.outcome().?.failed.err);
     try testing.expectEqual(@as(usize, 0), rig.resolver.in_flight());
 }
