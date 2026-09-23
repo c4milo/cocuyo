@@ -181,3 +181,19 @@ test "the deadline offered is never later than the soonest, and is found again w
     table.resolver.release(first);
     table.resolver.release(second);
 }
+
+test "a poll that asks for a connection puts its deadline in the bound" {
+    // Every query over TCP: the first poll asks for a connection and leaves the lookup waiting
+    // for it. A bound that missed that wait left the caller no timer to arm, and a connect that
+    // never completed was never given up on.
+    var table: Table = .{ .config = .{ .servers = &servers, .use_tcp = true } };
+    table.open();
+    const handle = try table.start("example.com.");
+    try testing.expect(table.poll().?.action == .connect_tcp);
+    const deadline = table.resolver.lookup_of(handle).deadline_ns;
+    try testing.expectEqual(@as(?u64, deadline), table.resolver.next_deadline_ns());
+    table.now_ns = deadline;
+    try testing.expect(table.poll().?.action == .connect_tcp);
+    try testing.expectEqual(@as(u8, 1), table.resolver.lookup_of(handle).server_index);
+    table.resolver.release(handle);
+}
