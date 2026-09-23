@@ -49,15 +49,24 @@ structure Op where
   the table slot of a send. -/
   target : Nat
   current : Bool
+  /-- For a socket's receive: whether it is the draining socket's (the datagram's rule 4). -/
+  draining : Bool := false
   deriving DecidableEq, Repr, Inhabited, Hashable
 
-/-- A server's socket (the datagram's rule 1). -/
+/-- A server's sockets (the datagram's rules 1 and 4): the one every query leaves from, and
+whether an older one drains beside it. -/
 structure Sock where
-  isOpen : Bool := true
-  /-- The queries its port has carried. -/
+  /-- The queries the current port has carried. -/
   sent : Nat := 0
-  /-- It has carried its share, and is replaced once nobody waits on it (the datagram's rule 4). -/
+  /-- The current port has carried its share, and is replaced as soon as no older one drains. -/
   retiring : Bool := false
+  /-- An older socket drains, keeping its receive for the answers to its queries. -/
+  draining : Bool := false
+  deriving DecidableEq, Repr, Inhabited, Hashable
+
+/-- Which of its server's sockets a slot's last datagram left from, as that socket stands now. -/
+inductive Age where
+  | current | draining | gone
   deriving DecidableEq, Repr, Inhabited, Hashable
 
 structure Slot where
@@ -78,6 +87,9 @@ structure Slot where
   expired : Bool := false
   /-- The ticks left before its deadline, while it waits; zero while it does not. -/
   remaining : Nat := 0
+  /-- The server and the socket its last datagram left from. It outlives the lookup, because a
+  send in flight from a freed slot still holds the socket open. -/
+  sentFrom : Option (Nat × Age) := none
   deriving DecidableEq, Repr, Inhabited, Hashable
 
 structure State where

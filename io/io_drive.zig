@@ -62,32 +62,41 @@ fn report(self: anytype, index: usize, outcome: results_module.Outcome, now_ns: 
     return true;
 }
 
-/// What a drive does last, server by server (docs/design.md §19 step 13, the datagram's rules 1
-/// and 4). A source port that has carried its share of queries is replaced once no lookup is
-/// waiting on its server (`Config.udp_queries_per_port`, c-ares `udp_max_queries`): a port is
-/// never taken from a query that is still waiting, because the answer would arrive at a socket
-/// that is gone. Then a server with no socket is given one, and a socket with no receive is
-/// given one, since a refusal is not a reason to go deaf.
+/// What a drive does last, server by server (docs/design.md §19 step 13, the datagram's rules 1,
+/// 4 and 5). A draining socket nothing is owed on is closed, which makes room for a port that
+/// has carried its share (`Config.udp_queries_per_port`, c-ares `udp_max_queries`) to be
+/// replaced at once, whoever waits on it: the old one drains. A port replaced with nothing owed
+/// on it is closed at once. Then each socket with no receive is given one, since a refusal is not
+/// a reason to go deaf.
 fn tend_sockets(self: anytype) void {
     const tag = @TypeOf(self.*).tag;
     var server: u8 = 0;
     while (server < self.config.servers.len) : (server += 1) {
-        const retiring = self.sockets.is_open(server) and self.sockets.is_retiring(server);
-        if (retiring and !waiting_on(self, server)) {
-            self.sockets.rotate(self.loop, self.config, server, tag) catch {};
-        }
-        self.sockets.tend(self.loop, self.config, server, tag);
+        close_if_drained(self, server);
+        if (self.sockets.is_due(server)) self.sockets.rotate(self.loop, self.config, server, tag) catch {};
+        close_if_drained(self, server);
+        self.sockets.tend(self.loop, server, tag);
     }
 }
 
-/// Whether any lookup is waiting for an answer from server `server`, or has a query on its way
-/// there.
-fn waiting_on(self: anytype, server: u8) bool {
+fn close_if_drained(self: anytype, server: u8) void {
+    if (!self.sockets.draining[server].open) return;
+    if (drain_owed(self, server)) return;
+    self.sockets.close_draining(self.loop, server);
+}
+
+/// Whether server `server`'s draining socket is still owed something: the answer to a query that
+/// left from it for a lookup still waiting on that server, or the end of a send from it that
+/// still holds a slot's buffer.
+fn drain_owed(self: anytype, server: u8) bool {
+    const epoch = self.sockets.draining[server].epoch;
     for (self.slots[0..], 0..) |*slot, index| {
+        const from = self.sent_from[index] orelse continue;
+        if (from.server != server or from.epoch != epoch) continue;
+        if (self.send_in_flight[index]) return true;
         if (!slot.occupied) continue;
-        const lookup = self.resolver.lookup_of(self.handles[index]);
-        if (lookup.server_slot() != server) continue;
-        if (self.send_in_flight[index] or lookup.is_waiting()) return true;
+        const lookup = &slot.lookup;
+        if (lookup.state == .awaiting_udp and lookup.server_slot() == server) return true;
     }
     return false;
 }

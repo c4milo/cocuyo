@@ -1317,14 +1317,13 @@ step until `zig build test` passes.
     stands. On the synthetic trace that is 3.0 points more hits at the default 1024 slots and
     1.0 fewer at 4096 (§18). An expired entry holds its slot until its name is asked again or
     the hand meets it. The public surface is unchanged.
-15. **Should a port be replaced under load?** A port that has carried `udp_queries_per_port`
-    queries is replaced only once no lookup waits on its server (§19 step 13, the datagram's
-    rule 4). Under steady load one always does, so the port is never replaced, and the setting
-    does nothing when it matters most. The engine model shows it: nothing in the rules makes a
-    retiring port rotate. c-ares, as recalled rather than read, moves new queries to a new
-    socket at once and closes the old one when its last query ends. Doing the same takes two
-    sockets a server while one drains, which changes what `Sockets` holds and what a server's
-    receive is. Unanswered, so the rule stands.
+15. **Should a port be replaced under load?** Answered on 2026-09-23: yes. A port that had
+    carried `udp_queries_per_port` queries was replaced only once no lookup waited on its
+    server, so under steady load it was never replaced, and the setting did nothing when it
+    mattered most; the engine model showed nothing made a retiring port rotate. Now a new socket
+    takes every query at once and the old one drains, as c-ares does as recalled rather than
+    read (§19 step 13, the datagram's rule 4). A server holds two sockets at most while one
+    drains.
 
 ## 18. The cache
 
@@ -2083,11 +2082,16 @@ the attempt that made it, and the drive goes on until nothing is left.
 3. Every event that carries a buffer gives it back before the event is over, whatever the event
    is for: a datagram once the table has read it, whatever its length, and a stale event's at
    once.
-4. A port that has carried `udp_queries_per_port` queries is replaced once no lookup waits on
-   its server or has a send in flight to it. The receive is cancelled and the socket closed, and
-   another is opened. When the new socket cannot be opened, the server has none until a later
-   drive opens one, and a send to it fails as any send fails: the lookup moves on to the next
-   server. It is not a reason to stop the program.
+4. A port that has carried `udp_queries_per_port` queries is replaced at the end of the drive
+   that sent its share, whoever waits on it. A new socket on a new port takes every query from
+   then on, and the old one drains: it keeps its receive, since the answers to its queries come
+   back to it, until no lookup that sent from it still waits for an answer or has a send in
+   flight from it. Then its receive is cancelled and it is closed. A server has one socket
+   draining at most, so a port that carries its share while an older one still drains carries
+   queries on until that one is closed. The new socket is opened before the old one steps
+   aside: when it cannot be opened, the old one stays in use and the replacement is tried again
+   at the next drive, so a server always has a socket to send from.
+5. A draining socket's receive is held to rule 1 as the current one's is.
 
 **Checked on 2026-09-23.** spec/Spec/Engine.lean, EngineSockets.lean and EngineStep.lean hold
 both sets of rules above as a model. Each lookup is the model of §5, and around the lookups sit
@@ -2097,14 +2101,16 @@ replaced every two queries. The model's clock moves in ticks, each the idle clos
 lookup waits two of them. The loop may refuse every submission for the length of one event, and
 socket opens may fail for the length of one event.
 
-- `cocuyo-spec engine` walks every state the model reaches in a configuration and checks seven
+- `cocuyo-spec engine` walks every state the model reaches in a configuration and checks eight
   invariants in each. A connection's users are the lookups on it. A lookup is only on a
   connection to its server. A buffer is lent to one send at most. A connection and a socket each
-  have at most one current operation of each kind. A drive leaves nothing on the ready list. And
-  after a drive nothing refused, every server has a socket with its receive armed and every
-  connection that is up has its receive. They hold in all 2.48 million states of one slot and
-  one connection over TCP, and in all 1.77 million of one slot over UDP. This is model checking
-  over bounded configurations, not a proof.
+  have at most one current operation of each kind. A drive leaves nothing on the ready list.
+  After a drive nothing refused, every socket has its receive armed and every connection that is
+  up has its receive. And after such a drive, a port that has carried its share is replaced
+  unless an older one still drains, and a draining socket nothing is owed on is gone. They hold
+  in every state of one slot and one connection over TCP, and in all 5.85 million of one slot
+  over UDP; spec/README.md has the counts. This is model checking over bounded configurations,
+  not a proof.
 - The replay drives the engine over the twin in manual mode, where the loop ends each operation
   when and how the walk says, and refuses what the walk says. It runs 12,000 walks and 2.4
   million events. After each event it compares the engine's whole state with the model's, and
@@ -2130,8 +2136,12 @@ The code of 2026-09-22 broke nine of these rules, each fixed with the model:
 - A port whose replacement could not be opened left its server with no socket, and the next send
   to it stopped the program on an assertion (the datagram's rule 4).
 
-The model also shows what the rules leave open: nothing makes a retiring port rotate while its
-server stays busy, which §17 question 15 asks the owner about.
+The model also showed what the first rule 4 left open: nothing made a retiring port rotate while
+its server stayed busy. §17 question 15 put it to the owner, who answered it the same day, and
+rule 4 now replaces the port at once and lets the old one drain; the eighth invariant holds the
+model to that, and the first check of it found the model's own order wrong, a draining socket
+owed nothing kept for a drive. The missing-socket path of the first rule 4 went with it: the new
+socket is opened before the old one steps aside, so a server always has one.
 
 **The rest of the engine, landed on 2026-09-22.** `cancel_all` ends every lookup at once, which
 is `ares_cancel`, and each failure comes through `take` like any other. `reinit` takes a new
@@ -2140,8 +2150,9 @@ may be gone, closes the streams and opens the sockets again. It requires an idle
 a lookup in flight was started against servers that are going away and its handle names a slot
 the new table has never heard of; a caller with lookups in flight calls `cancel_all` and takes
 their failures first, which is what tells it what it lost. `Config.udp_queries_per_port` is
-c-ares's `udp_max_queries`: a port that has carried its share is replaced once no lookup is
-waiting on it, never taken from a query that is. `Config.local_address` is `ARES_OPT_LOCAL_IP4`
+c-ares's `udp_max_queries`: a port that has carried its share is replaced at once, and the old
+socket drains, keeping its receive until the last query sent from it has its answer or its
+end (the datagram's rule 4). `Config.local_address` is `ARES_OPT_LOCAL_IP4`
 and `LOCAL_IP6`, and `socket_receive_bytes` and `socket_send_bytes` are the two buffer sizes,
 which rotor 0.2.0 made expressible. What a kernel grants is rarely what it was asked for: Linux
 doubles and caps, macOS grants and then refuses, and a socket that would not take the size is

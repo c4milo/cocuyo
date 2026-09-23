@@ -66,24 +66,28 @@ a server failed and the cookie retried. A field that drifts is caught at the eve
 
 The engine model is written from the stream's rules and the datagram's rules of §19 step 13 and
 rotor's decision 5, with two servers and one pass. A configuration asks every query over TCP, or
-every query over UDP with no answer truncated and a port replaced every two queries. It leaves
+every query over UDP with no answer truncated and a port replaced every two queries, the old one
+draining beside the new. It leaves
 out the timer, the bytes of a message and the cache. Time moves in ticks, each the idle close's
 wait, and only when a deadline arrives or the caller lets a tick pass; a lookup waits two ticks.
 Two faults stand in for a kernel under pressure: the loop refuses every submission for the length
 of one event, as a full ring does, and every socket open fails for the length of one event, as a
 process with no descriptor left sees.
 
-`cocuyo-spec engine <tcp|udp> <slots> <connections>` walks it breadth first and checks seven
+`cocuyo-spec engine <tcp|udp> <slots> <connections>` walks it breadth first and checks eight
 invariants in every state:
 
 - A connection's users are the lookups on it.
 - A lookup is on a connection only while it streams to that connection's server.
 - A buffer is lent to one send at most, and is lent exactly when a send holds it.
 - A connection has its connect while it connects, and at most its receive once it is up.
-- A socket has at most one current receive while it is open, and none while it is closed.
+- A server's current socket has at most one current receive, and so does its draining socket
+  while it drains; one that is gone has none.
 - A drive leaves nothing on the ready list.
-- After a drive nothing refused, every server has a socket with its receive armed, and every
-  connection that is up has its receive.
+- After a drive nothing refused, every socket has its receive armed, and every connection that
+  is up has its receive.
+- After such a drive, a port that has carried its share is replaced unless an older one still
+  drains, and a draining socket nothing is owed on is gone.
 
 The walk stops at six operations in flight, two failures a server and three queries a port,
 since nothing else bounds the graph. It reported, on 2026-09-23:
@@ -91,7 +95,7 @@ since nothing else bounds the graph. It reported, on 2026-09-23:
 | Transport | Slots | Connections | States | Transitions | Invariants |
 | --- | --- | --- | --- | --- | --- |
 | TCP | 1 | 1 | 2,482,268 | 35,319,340 | hold |
-| UDP | 1 | 1 | 1,771,292 | 28,616,208 | hold |
+| UDP | 1 | 1 | 5,848,772 | 85,609,860 | hold |
 
 The replay cannot visit that many states, so `cocuyo-spec engine-walks` writes seeded walks that
 take, at each step, an event leading to a state no walk has reached yet when there is one. Each

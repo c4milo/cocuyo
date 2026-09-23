@@ -45,16 +45,16 @@ fn on_receive_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64
     // it changes nothing, and arming another is not this one's to do. A cancelled multishot can
     // still deliver a datagram before its end (rotor decision 5, rule 2), and its buffer goes
     // back to the group (docs/design.md §19 step 13, the datagram's rules 2 and 3).
-    const server = self.sockets.is_current(index) orelse {
+    const found = self.sockets.find(index) orelse {
         if (event.flags.buffer) self.loop.give_back_buffer(constants.group_id, event.flags.buffer_id);
         return;
     };
-    assert(server < cocuyo.constants.servers_max);
+    assert(found.server < cocuyo.constants.servers_max);
     if (event.flags.buffer) deliver(self, event, now_ns);
-    // A multishot that ended is armed again, unless the engine is closing; one the loop refuses
-    // is asked for again at the next drive.
+    // A multishot that ended is armed again on the same socket, current or draining, unless the
+    // engine is closing; one the loop refuses is asked for again at the next drive.
     if (event.is_final() and !self.closing) {
-        self.sockets.receive_again(self.loop, server, @TypeOf(self.*).tag) catch {};
+        self.sockets.arm(self.loop, found.socket, found.server, @TypeOf(self.*).tag) catch {};
     }
 }
 

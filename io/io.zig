@@ -68,6 +68,10 @@ pub fn Engine(comptime options: Options) type {
         /// A send asked for while the buffer was lent, and its octets, until the buffer is back.
         held: [options.lookups]?send_module.Held,
         held_buffers: [options.lookups][cocuyo.constants.query_bytes_max]u8,
+        /// The socket each slot's last datagram left from, which a draining socket stays open
+        /// for while the answer is owed (the datagram's rule 4). It outlives the lookup, since a
+        /// send in flight from a freed slot still needs its socket.
+        sent_from: [options.lookups]?udp.SentFrom,
         /// Whether the slot's end was handed to `results` already.
         reported: [options.lookups]bool,
         send_buffers: [options.lookups][cocuyo.constants.query_bytes_max]u8,
@@ -112,6 +116,7 @@ pub fn Engine(comptime options: Options) type {
             self.loop = loop;
             self.config = config;
             self.send_in_flight = @splat(false);
+            self.sent_from = @splat(null);
             lifecycle.reset_tables(self, config, seed);
             self.timer_handle = null;
             self.timer_due_ns = null;

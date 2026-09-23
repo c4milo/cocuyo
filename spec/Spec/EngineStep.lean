@@ -89,7 +89,7 @@ def sendEnded (c : Config) (s : State) (i : Nat) (op : Op) (ok : Bool) : State :
 ended as rule 2 allows and says nothing. -/
 def receiveFromEnded (s : State) (i : Nat) (op : Op) : State :=
   let s := removeOp s i
-  if op.current then listen s op.target else s
+  if op.current then listen s op.target op.draining else s
 
 def connectEnded (c : Config) (s : State) (i : Nat) (op : Op) (ok : Bool) : State :=
   let k := op.target
@@ -195,13 +195,15 @@ def step (c : Config) (s : State) (e : Event) : State :=
 /-! ## What the caller and the loop may do -/
 
 /-- A message is for a lookup whose query went out to the receive's server: on the connection,
-or from the server's socket. -/
+or from the very socket the receive is on, since a server answers the port that asked. -/
 def awaits (s : State) (op : Op) (l : Nat) : Bool :=
   let slot := slotAt s l
+  let age : Age := if op.draining then .draining else .current
   match slot.lookup with
   | some lk =>
     (op.kind = .receive ∧ slot.conn = some op.target ∧ lk.stage = .awaitingTcp) ∨
-    (op.kind = .receiveFrom ∧ serverOf s l = op.target ∧ lk.stage = .awaitingUdp)
+    (op.kind = .receiveFrom ∧ serverOf s l = op.target ∧ lk.stage = .awaitingUdp ∧
+      slot.sentFrom = some (op.target, age))
   | none => false
 
 /-- How an operation may end: a current receive with its group dry, or a stream's with the
@@ -287,18 +289,28 @@ def opsCurrent (s : State) : Bool :=
     | .connecting => current.map (·.kind) = [.connect]
     | .up => current.map (·.kind) = [.receive] ∨ current = []
 
-/-- A socket has at most one current receive while it is open, and none while it is closed
-(the datagram's rules 1 and 2). -/
+/-- A server's current socket has at most one current receive, and its draining socket at most
+one while it drains and none once it is gone (the datagram's rules 1, 2 and 4). -/
 def socksCurrent (s : State) : Bool :=
   (List.range s.socks.length).all fun v =>
-    let current := (s.ops.filter fun op => op.kind = .receiveFrom ∧ op.target = v ∧ op.current).length
-    if (sockAt s v).isOpen then current ≤ 1 else current = 0
+    let count (draining : Bool) := (s.ops.filter fun op =>
+      op.kind = .receiveFrom ∧ op.target = v ∧ op.current ∧ op.draining = draining).length
+    count false ≤ 1 && (if (sockAt s v).draining then count true ≤ 1 else count true == 0)
 
-/-- After a drive the moment did not refuse, every server has a socket with its receive armed,
-and every connection that is up has its receive (the datagram's rule 1). -/
+/-- After a drive the moment did not refuse, every socket has its receive armed, and every
+connection that is up has its receive (the datagram's rules 1 and 5). -/
 def listeningAll (s : State) : Bool :=
-  (List.range s.socks.length).all (fun v => (sockAt s v).isOpen && listening s v) &&
+  (List.range s.socks.length).all (fun v =>
+    listening s v false && (!(sockAt s v).draining || listening s v true)) &&
   (List.range s.conns.length).all fun k => (connAt s k).stage != .up || receiving s k
+
+/-- After a drive the moment did not refuse, a port that has carried its share is replaced unless
+an older one still drains, whoever waits on it, and a draining socket nothing is owed is gone
+(the datagram's rule 4). This is what steady load could not stop. -/
+def rotatedAll (s : State) : Bool :=
+  (List.range s.socks.length).all fun v =>
+    let sock := sockAt s v
+    (!sock.retiring || sock.draining) && (!sock.draining || drainNeeded s v)
 
 /-- Nothing is left on the ready list when a drive ends: every lookup the events gave something
 to do was polled (rule 8). -/
@@ -313,6 +325,6 @@ def invariants (before : State) (e : Event) (s : State) : List (String × Bool) 
   [("users counted", usersCounted s), ("attached right", attachedRight s),
    ("buffers lent", buffersLent s), ("ops current", opsCurrent s),
    ("sockets current", socksCurrent s), ("drive done", driveDone s),
-   ("listening", !drove || listeningAll s)]
+   ("listening", !drove || listeningAll s), ("rotated", !drove || rotatedAll s)]
 
 end Spec.Engine

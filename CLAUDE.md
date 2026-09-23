@@ -297,9 +297,10 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   drive's poll bound, the table's deadline bound missing a connect, a stale event's buffer on
   either transport, a refused receive never armed again, and a port replacement that could not
   open a socket stopping the program. `reinit` puts its cache under its table again. §17
-  question 15 asks whether a port should be replaced under load. `AddressLookup`'s walk is the
-  state machine still to model.
-- Next, in order (the owner's plan of 2026-09-23): DoT; DoH's DNS half. The p99 of the
-  comparison waits for a quiet machine.
+  question 15 was answered the same day: a port that has carried its share is replaced at once
+  and the old socket drains, so `udp_queries_per_port` holds under steady load.
+- Next, in order (the owner's word of 2026-09-23): model `AddressLookup` and `NameLookup`, then
+  DoT.
+- After those, DoH's DNS half. The p99 of the comparison waits for a quiet machine.
 
 §17 holds the questions the owner has not answered.

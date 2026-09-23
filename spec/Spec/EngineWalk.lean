@@ -65,16 +65,23 @@ def listToken (xs : List Nat) : String := "[" ++ ",".intercalate (xs.map toStrin
 def stageName : Stage → String
   | .closed => "closed" | .connecting => "connecting" | .up => "up"
 
-/-- A slot: free, with whether its buffer is still lent; or its lookup, the order of its walk,
-its connection, and whether its buffer is lent, a send is held and its end was reported. -/
+def ageToken : Age → String
+  | .current => "c" | .draining => "d" | .gone => "g"
+
+/-- A slot: free, with whether its buffer is still lent and the socket its last datagram left
+from; or its lookup, the order of its walk, its connection, that socket, and whether its buffer
+is lent, a send is held and its end was reported. -/
 def slotToken (sl : Slot) : String :=
+  let sent := match sl.sentFrom with
+    | some (v, a) => s!"{v}{ageToken a}"
+    | none => "-"
   match sl.lookup with
-  | none => s!"free {flag sl.busy 'B'}"
+  | none => s!"free {flag sl.busy 'B'} u{sent}"
   | some lk =>
     let conn := match sl.conn with
       | some k => toString k
       | none => "-"
-    s!"{stateToken lk} o{listToken sl.order} c{conn} " ++
+    s!"{stateToken lk} o{listToken sl.order} c{conn} u{sent} " ++
       flag sl.busy 'B' ++ flag sl.held 'H' ++ flag sl.reported 'R'
 
 def connToken (conn : Conn) : String :=
@@ -83,6 +90,8 @@ def connToken (conn : Conn) : String :=
 def opToken (op : Op) : String :=
   let kind := match op.kind with
     | .connect => "C" | .receive => "R" | .send => "S" | .sendTo => "D" | .receiveFrom => "L"
+  -- A receive that is gone is spelt as the code can see it: it names no socket any more.
+  let kind := if op.kind = .receiveFrom ∧ op.draining ∧ op.current then "M" else kind
   kind ++ toString op.target ++ (if op.current then "*" else "x")
 
 /-- The waiting lookups, grouped by the ticks they have left, soonest first. -/
@@ -95,10 +104,10 @@ def waitGroups (s : State) : List (List Nat) :=
   let lefts := (waiting.map (·.1)).eraseDups.mergeSort (· ≤ ·)
   lefts.map fun left => (waiting.filter (·.1 = left)).map (·.2)
 
-/-- A server's socket: open with the queries its port has carried and whether it is retiring,
-or none. -/
+/-- A server's sockets: the queries the current port has carried, whether it is retiring, and
+whether an older one drains. -/
 def sockToken (sock : Sock) : String :=
-  if sock.isOpen then s!"open s{sock.sent}" ++ flag sock.retiring 'R' else "none"
+  s!"open s{sock.sent}" ++ flag sock.retiring 'R' ++ flag sock.draining 'D'
 
 /-- The whole of a state, as the replay spells the Zig engine's. -/
 def stateLine (s : State) : String :=

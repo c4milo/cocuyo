@@ -1008,7 +1008,9 @@ U2, U4, U6 and U7. U3 was `NOT CAUGHT` by them, since no committed walk refuses 
 replacement and then sends to its server; the full walks caught it, and the twin test written
 for it catches it in the gate. A mutation that stopped clearing a receive's armed flag at its
 end was caught by nothing, because the arming sets the flag either way, so the line was removed
-rather than kept. Six mutations, six `CAUGHT`.
+rather than kept. Six mutations, six `CAUGHT`. U3 and U4 checked the missing-socket path of the
+first rule 4, which the draining rotation below removed: a server always has a socket now, and
+W4 checks what took its place.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
@@ -1018,6 +1020,24 @@ rather than kept. Six mutations, six `CAUGHT`.
 | U4 | a server whose socket could not be opened is never given one | rule 4 | the missing-socket twin test; the committed walks | CAUGHT |
 | U6 | a connection's receive the loop refused is never asked for again | rule 1 | the committed walks; the full walks | CAUGHT |
 | U7 | a port is replaced under a lookup waiting on it | rule 4 | the rotation twin test; the committed walks | CAUGHT |
+
+## A port replaced under load
+
+The datagram's rule 4 as §17 question 15's answer made it (docs/design.md §19 step 13): a port
+that has carried its share is replaced at once and the old socket drains. Broken against `zig
+build test-io`, `zig build test-tools` and `zig build spec`. The committed walks and the full
+walks caught all seven; the twin tests caught five, and W5 and W6 only through the walks. Seven
+mutations, seven `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| W1 | a port that has carried its share is never replaced | rule 4, the replacement | the rotation twin test; the committed walks | CAUGHT |
+| W2 | a replaced socket is closed at once, and its answers are lost | rule 4, the drain | the rotation twin test; the committed walks | CAUGHT |
+| W3 | a draining socket is never closed | rule 4, the close | the rotation twin test; the committed walks | CAUGHT |
+| W4 | a replacement that cannot open leaves the server no socket | rule 4, the order | the stays-in-use twin test, by an assertion | CAUGHT |
+| W5 | a draining socket's refused receive is never asked for again | rule 5 | the committed walks | CAUGHT |
+| W6 | a draining socket's ended receive is armed on the current one | rule 5 | the committed walks | CAUGHT |
+| W7 | a query does not record the socket it left from | rule 4, what is owed | the rotation twin test; the committed walks | CAUGHT |
 
 ## The epoll check
 

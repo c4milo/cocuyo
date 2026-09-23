@@ -60,12 +60,9 @@ pub fn write(world: anytype, out: *[world_module.text_bytes_max]u8) []const u8 {
     for (0..world.config.servers.len) |server| {
         if (server > 0) line.print(" ; ", .{});
         const socket = &engine.sockets.items[server];
-        if (!socket.open) {
-            line.print("none", .{});
-            continue;
-        }
         line.print("open s{d}", .{socket.sent});
         line.flag(socket.retiring, 'R');
+        line.flag(engine.sockets.draining[server].open, 'D');
     }
     line.print(" | ", .{});
     operations(&line, world);
@@ -80,6 +77,8 @@ fn slot(line: *Line, world: anytype, index: usize) void {
     if (!table_slot.occupied) {
         line.print("free ", .{});
         line.flag(engine.send_in_flight[index], 'B');
+        line.print(" u", .{});
+        sent_from(line, world, index);
         return;
     }
     const lookup = &table_slot.lookup;
@@ -89,10 +88,24 @@ fn slot(line: *Line, world: anytype, index: usize) void {
     const ordered: usize = if (lookup.flags.ordered) world.config.servers.len else 0;
     for (order[0..ordered], 0..) |*position, at| position.* = lookup.order[at];
     line.list(order[0..ordered]);
-    if (engine.tcp_connection[index]) |at| line.print(" c{d} ", .{at}) else line.print(" c- ", .{});
+    if (engine.tcp_connection[index]) |at| line.print(" c{d} u", .{at}) else line.print(" c- u", .{});
+    sent_from(line, world, index);
+    line.print(" ", .{});
     line.flag(engine.send_in_flight[index], 'B');
     line.flag(engine.held[index] != null, 'H');
     line.flag(engine.reported[index], 'R');
+}
+
+/// The socket a slot's last datagram left from, as it stands now: its server, then `c` for the
+/// current socket, `d` for the draining one, `g` for one that is gone.
+fn sent_from(line: *Line, world: anytype, index: usize) void {
+    const from = world.engine.sent_from[index] orelse return line.print("-", .{});
+    const sockets = &world.engine.sockets;
+    const draining = &sockets.draining[from.server];
+    const age: u8 = if (sockets.items[from.server].epoch == from.epoch)
+        'c'
+    else if (draining.open and draining.epoch == from.epoch) 'd' else 'g';
+    line.print("{d}{c}", .{ from.server, age });
 }
 
 fn operations(line: *Line, world: anytype) void {
@@ -114,7 +127,9 @@ fn operations(line: *Line, world: anytype) void {
             .udp_send => line.print("D{d}{c}", .{ index, mark(send_is_current(world, index)) }),
             .udp_receive => {
                 const server = index & io.constants.receive_index_mask;
-                line.print("L{d}{c}", .{ server, mark(world.engine.sockets.is_current(index) != null) });
+                const found = world.engine.sockets.find(index);
+                const draining = found != null and found.?.which == .draining;
+                line.print("{c}{d}{c}", .{ if (draining) @as(u8, 'M') else 'L', server, mark(found != null) });
             },
             else => unreachable,
         }

@@ -196,8 +196,8 @@ test "the committed walks of the engine model replay against the engine" {
 test "a state the engine does not reach is a mismatch" {
     const replay = try Replay.create(testing.allocator);
     defer replay.destroy(testing.allocator);
-    const text = "config 1 1 tcp 0\n0 init free - | closed s0 u0- | open s0- ; open s0- | L0* L1* | r[] q[] t- w[] f[0,0] e[0] --\n" ++
-        "1 start free - | closed s0 u0- | open s0- ; open s0- | L0* L1* | r[] q[] t- w[] f[0,0] e[0] --\n";
+    const text = "config 1 1 tcp 0\n0 init free - u- | closed s0 u0- | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[0,0] e[0] --\n" ++
+        "1 start free - u- | closed s0 u0- | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[0,0] e[0] --\n";
     try testing.expectError(error.Mismatch, replay_text(replay, text));
 }
 

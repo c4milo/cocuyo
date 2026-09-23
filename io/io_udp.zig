@@ -1,6 +1,7 @@
 //! The engine's UDP side: one socket per configured server, bound to an ephemeral port the seed
 //! chooses (RFC 5452 §9.2), with one multishot receive each into the engine's datagram group,
-//! which is the example's shape with a socket per server (docs/design.md §19 step 13).
+//! which is the example's shape with a socket per server (docs/design.md §19 step 13). While a
+//! replaced port drains, its server has a second socket beside it.
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
@@ -20,13 +21,25 @@ pub const Socket = struct {
     /// Which receive this socket has armed, out of the table's count. The end of a receive a
     /// replaced socket left behind carries another, and there is nothing to do about it.
     armed_generation: u32 = 0,
-    /// Whether the port has carried its share and waits for its lookups to end before another
-    /// is opened. A port is never taken from a query that is still waiting for its answer.
+    /// Which opening of a socket this is, out of the table's count: what a lookup's query
+    /// remembers of the socket it left from, so a draining socket knows what it is still owed.
+    epoch: u32 = 0,
+    /// Whether the port has carried its share, and is replaced as soon as no older one drains.
     retiring: bool = false,
 };
 
+/// Which socket of a server an event or a query names.
+pub const Which = enum { current, draining };
+
+/// The socket a lookup's datagram left from: its server, and which opening of a socket.
+pub const SentFrom = struct { server: u8, epoch: u32 };
+
 pub const Sockets = struct {
+    /// The socket every query to a server leaves from.
     items: [cocuyo.constants.servers_max]Socket,
+    /// The socket a server's last port drains on, keeping its receive for the answers to the
+    /// queries that left from it; closed when there is none (the datagram's rule 4).
+    draining: [cocuyo.constants.servers_max]Socket,
     count: u8,
     /// Where the next port comes from: the seed's stream, so a run is a run.
     word: u64 = 0,
@@ -34,6 +47,8 @@ pub const Sockets = struct {
     /// what it tells apart is a receive from a socket that is gone (`reinit`, a port replaced).
     /// Thirty-two bits, so a receive left behind cannot come back to a count that wrapped.
     next_generation: u32 = 0,
+    /// Names every socket this table has opened, apart, for the same reason.
+    next_epoch: u32 = 0,
 
     /// Opens a socket per server and starts its receive. A port already in use is not a reason
     /// to fail: the kernel picks another.
@@ -41,29 +56,24 @@ pub const Sockets = struct {
         // The generation counter is not reset: it tells a receive from one a socket that is
         // gone left behind, and `reinit` is exactly when there are some.
         self.items = @splat(.{});
+        self.draining = @splat(.{});
         self.count = @intCast(config.servers.len);
         self.word = seed;
         for (config.servers, 0..) |*server, index| {
-            try self.open_one(loop, config, @intCast(index), server.endpoint.address.family, tag);
+            self.items[index] = try self.open_port(config, server.endpoint.address.family);
+            try self.arm(loop, &self.items[index], @intCast(index), tag);
         }
     }
 
-    /// Opens server `index`'s socket on a port the seed chooses and arms its receive.
-    fn open_one(
-        self: *Sockets,
-        loop: *rotor.Loop,
-        config: *const cocuyo.Config,
-        index: u8,
-        family: cocuyo.Family,
-        tag: u16,
-    ) error{ SocketFailed, ReceiveFailed }!void {
+    /// A socket on a port the seed chooses, not yet receiving.
+    fn open_port(self: *Sockets, config: *const cocuyo.Config, family: cocuyo.Family) error{SocketFailed}!Socket {
         self.word = cocuyo.core.mix.next(self.word);
         const local = local_for(config, family);
         const descriptor = open_bound(family, port_from(self.word), local) catch
             open_bound(family, 0, local) catch return error.SocketFailed;
         size_buffers(descriptor, config);
-        self.items[index] = .{ .open = true, .descriptor = descriptor };
-        try self.receive_again(loop, index, tag);
+        self.next_epoch +%= 1;
+        return .{ .open = true, .descriptor = descriptor, .epoch = self.next_epoch };
     }
 
     /// Where a socket of `family` binds: the caller's local address when it named one of that
@@ -82,8 +92,8 @@ pub const Sockets = struct {
         return rotor.sync.open_datagram(rotor_family(family), &bind_to, .{});
     }
 
-    /// One more query has gone out from server `index`'s port. True when the port has carried
-    /// its share and should be replaced once nothing is waiting on it.
+    /// One more query has gone out from server `index`'s current port. True when the port has
+    /// carried its share and is to be replaced.
     pub fn count_sent(self: *Sockets, index: u8, per_port: u32) bool {
         assert(index < self.count);
         const socket = &self.items[index];
@@ -93,61 +103,56 @@ pub const Sockets = struct {
         return true;
     }
 
-    /// Replaces a retiring port with a new one, once nothing is waiting on it (c-ares
-    /// `udp_max_queries`). The receive on the old socket is cancelled and the socket closed, so
-    /// nothing arrives on it afterwards. When the new one cannot be opened the server has no
-    /// socket until `tend` opens one (the datagram's rule 4).
-    pub fn rotate(
-        self: *Sockets,
-        loop: *rotor.Loop,
-        config: *const cocuyo.Config,
-        index: u8,
-        tag: u16,
-    ) error{ SocketFailed, ReceiveFailed }!void {
+    /// Whether server `index`'s port has carried its share and is free to be replaced: no older
+    /// one still drains.
+    pub fn is_due(self: *const Sockets, index: u8) bool {
         assert(index < self.count);
-        const socket = &self.items[index];
-        assert(socket.retiring);
-        const family = config.servers[index].endpoint.address.family;
-        loop.cancel(socket.receive);
+        return self.items[index].retiring and !self.draining[index].open;
+    }
+
+    /// Replaces server `index`'s port (c-ares `udp_max_queries`): a new socket takes every
+    /// query from now on, and the old one drains, keeping its receive for the answers to its
+    /// queries (the datagram's rule 4). The new socket is opened first, so when it cannot be the
+    /// old one stays in use and the next drive tries again.
+    pub fn rotate(self: *Sockets, loop: *rotor.Loop, config: *const cocuyo.Config, index: u8, tag: u16) error{SocketFailed}!void {
+        assert(self.is_due(index));
+        const fresh = try self.open_port(config, config.servers[index].endpoint.address.family);
+        self.draining[index] = self.items[index];
+        self.items[index] = fresh;
+        self.arm(loop, &self.items[index], index, tag) catch {};
+    }
+
+    /// Closes server `index`'s draining socket: nothing is owed on it any more.
+    pub fn close_draining(self: *Sockets, loop: *rotor.Loop, index: u8) void {
+        assert(index < self.count);
+        const socket = &self.draining[index];
+        assert(socket.open);
+        if (socket.receiving) loop.cancel(socket.receive);
         rotor.sync.close_now(socket.descriptor);
-        self.items[index] = .{};
-        try self.open_one(loop, config, index, family, tag);
+        socket.* = .{};
     }
 
     /// Before the first `open`, when nothing is in flight and the struct holds whatever the
     /// caller's memory held.
     pub fn reset_generation(self: *Sockets) void {
         self.next_generation = 0;
+        self.next_epoch = 0;
     }
 
-    pub fn is_retiring(self: *const Sockets, index: u8) bool {
+    /// What a drive does last for server `index`: a receive armed on each of its sockets that
+    /// has none. What the moment refuses is asked for again at the next drive (the datagram's
+    /// rules 1 and 5).
+    pub fn tend(self: *Sockets, loop: *rotor.Loop, index: u8, tag: u16) void {
         assert(index < self.count);
-        return self.items[index].retiring;
+        if (!self.items[index].receiving) self.arm(loop, &self.items[index], index, tag) catch {};
+        const draining = &self.draining[index];
+        if (draining.open and !draining.receiving) self.arm(loop, draining, index, tag) catch {};
     }
 
-    pub fn is_open(self: *const Sockets, index: u8) bool {
+    /// Arms the multishot receive of one of server `index`'s sockets, which every datagram to
+    /// that socket arrives on.
+    pub fn arm(self: *Sockets, loop: *rotor.Loop, socket: *Socket, index: u8, tag: u16) error{ReceiveFailed}!void {
         assert(index < self.count);
-        return self.items[index].open;
-    }
-
-    /// What a drive does last for server `index`: a socket opened when it has none, and its
-    /// receive armed when it has none. What the moment refuses is asked for again at the next
-    /// drive (the datagram's rules 1 and 4).
-    pub fn tend(self: *Sockets, loop: *rotor.Loop, config: *const cocuyo.Config, index: u8, tag: u16) void {
-        assert(index < self.count);
-        const socket = &self.items[index];
-        if (!socket.open) {
-            self.open_one(loop, config, index, config.servers[index].endpoint.address.family, tag) catch {};
-        } else if (!socket.receiving) {
-            self.receive_again(loop, index, tag) catch {};
-        }
-    }
-
-    /// Arms the multishot receive of server `index`'s socket, which every datagram from that
-    /// server arrives on.
-    pub fn receive_again(self: *Sockets, loop: *rotor.Loop, index: u8, tag: u16) error{ReceiveFailed}!void {
-        assert(index < self.count);
-        const socket = &self.items[index];
         assert(socket.open);
         self.next_generation +%= 1;
         socket.armed_generation = self.next_generation;
@@ -170,15 +175,20 @@ pub const Sockets = struct {
         return @as(usize, index) | (@as(usize, generation) << constants.receive_generation_shift);
     }
 
-    /// Whether a receive event names the receive this server has armed now. An event from one
-    /// the socket left behind names a generation that has moved on, and there is nothing to do
-    /// about it: the socket it belonged to is closed.
-    pub fn is_current(self: *const Sockets, index: usize) ?u8 {
+    /// The socket a receive event names, and its server, or null for a receive a socket that is
+    /// gone left behind: the generation has moved on, and the socket it belonged to is closed.
+    pub fn find(self: *Sockets, index: usize) ?struct { server: u8, socket: *Socket, which: Which } {
         const server: u8 = @intCast(index & constants.receive_index_mask);
         if (server >= self.count) return null;
         const generation: u32 = @truncate(index >> constants.receive_generation_shift);
-        if (self.items[server].armed_generation != generation) return null;
-        return server;
+        if (self.items[server].armed_generation == generation) {
+            return .{ .server = server, .socket = &self.items[server], .which = .current };
+        }
+        const draining = &self.draining[server];
+        if (draining.open and draining.armed_generation == generation) {
+            return .{ .server = server, .socket = draining, .which = .draining };
+        }
+        return null;
     }
 
     pub fn descriptor_of(self: *const Sockets, index: u8) rotor.Descriptor {
@@ -187,19 +197,29 @@ pub const Sockets = struct {
         return self.items[index].descriptor;
     }
 
+    /// The opening every query to server `index` leaves from now.
+    pub fn epoch_of(self: *const Sockets, index: u8) u32 {
+        assert(index < self.count);
+        return self.items[index].epoch;
+    }
+
     pub fn cancel(self: *Sockets, loop: *rotor.Loop) void {
-        for (self.items[0..self.count]) |*socket| {
-            if (!socket.open) continue;
-            loop.cancel(socket.receive);
-            socket.receive = rotor.Handle.none;
+        for (self.items[0..self.count], self.draining[0..self.count]) |*current, *draining| {
+            for ([_]*Socket{ current, draining }) |socket| {
+                if (!socket.open) continue;
+                loop.cancel(socket.receive);
+                socket.receive = rotor.Handle.none;
+            }
         }
     }
 
     pub fn close(self: *Sockets) void {
-        for (self.items[0..self.count]) |*socket| {
-            if (!socket.open) continue;
-            rotor.sync.close_now(socket.descriptor);
-            socket.open = false;
+        for (self.items[0..self.count], self.draining[0..self.count]) |*current, *draining| {
+            for ([_]*Socket{ current, draining }) |socket| {
+                if (!socket.open) continue;
+                rotor.sync.close_now(socket.descriptor);
+                socket.open = false;
+            }
         }
     }
 };

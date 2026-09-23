@@ -127,23 +127,24 @@ test "a size the kernel caps or refuses leaves the socket working with what it h
     try refused.deinit();
 }
 
-test "a source port that has carried its share is replaced once nothing waits on it" {
+test "a source port that has carried its share is replaced at once, and the old one drains" {
     var rig: Rig = .{};
     try rig.init(24, .{ .{}, .{} }, .{ .servers = &.{}, .udp_queries_per_port = 1 });
     const before = rig.loop.network().socket(rig.engine.sockets.descriptor_of(0)).local.port;
     _ = try rig.engine.start(question("example.com."), rig.loop.now());
-    // The query has gone out, so the port has carried its share; the lookup is still waiting for
-    // its answer, and a port is never taken from a query that is.
+    // The query has gone out, so the port has carried its share, and a new one takes every
+    // query from now on while the lookup still waits (docs/design.md §19 step 13, the datagram's
+    // rule 4). The old socket drains: its answer comes back to it.
     _ = try rig.step(0);
-    try testing.expect(rig.engine.sockets.is_retiring(0));
-    try testing.expectEqual(before, rig.loop.network().socket(rig.engine.sockets.descriptor_of(0)).local.port);
+    const after = rig.loop.network().socket(rig.engine.sockets.descriptor_of(0)).local.port;
+    try testing.expect(after != before);
+    try testing.expect(rig.engine.sockets.draining[0].open);
+    try testing.expect(!rig.engine.sockets.items[0].retiring);
     const result = try rig.until_result();
     try testing.expect(result.outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
-    // The twin hands out descriptor numbers again once they are closed, so the port is what
-    // says the socket is another one.
-    try testing.expect(rig.loop.network().socket(rig.engine.sockets.descriptor_of(0)).local.port != before);
-    try testing.expect(!rig.engine.sockets.is_retiring(0));
+    // Nothing is owed on the old socket any more, so it is gone.
+    try testing.expect(!rig.engine.sockets.draining[0].open);
     // The new port answers as the old one did.
     _ = try rig.engine.start(question("other.example."), rig.loop.now());
     try testing.expect((try rig.until_result()).outcome == .answer);
@@ -151,27 +152,22 @@ test "a source port that has carried its share is replaced once nothing waits on
     try rig.deinit();
 }
 
-test "a port that cannot be replaced leaves its server no socket, and a send to it fails over" {
+test "a port that cannot be replaced stays in use until one can be opened" {
     var rig: Rig = .{};
     try rig.init(25, .{ .{}, .{} }, .{ .servers = &.{}, .udp_queries_per_port = 1 });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
-    _ = try rig.step(0);
-    try testing.expect(rig.engine.sockets.is_retiring(0));
-    // No descriptor is left when the port comes to be replaced (docs/design.md §19 step 13, the
-    // datagram's rule 4): the server has no socket, and the program goes on.
+    const before = rig.loop.network().socket(rig.engine.sockets.descriptor_of(0)).local.port;
+    // No descriptor is left when the port comes to be replaced: the old socket stays the one
+    // queries leave from, and the program goes on (the datagram's rule 4).
     rig.loop.network().refuse_open = true;
+    _ = try rig.engine.start(question("example.com."), rig.loop.now());
     try testing.expect((try rig.until_result()).outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
-    try testing.expect(!rig.engine.sockets.is_open(0));
-    // The next lookup asks server 0 first. Its send fails as any send fails, and server 1
-    // answers it.
-    _ = try rig.engine.start(question("other.example."), rig.loop.now());
-    try testing.expect((try rig.until_result()).outcome == .answer);
-    _ = rig.engine.take(rig.loop.now());
-    try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(0));
-    // Descriptors come back, and the next drive gives the server a socket again.
+    try testing.expect(rig.engine.sockets.items[0].retiring);
+    try testing.expectEqual(before, rig.loop.network().socket(rig.engine.sockets.descriptor_of(0)).local.port);
+    // Descriptors come back, and the next drive replaces the port.
     rig.loop.network().refuse_open = false;
     rig.engine.drive(rig.loop.now());
-    try testing.expect(rig.engine.sockets.is_open(0));
+    try testing.expect(!rig.engine.sockets.items[0].retiring);
+    try testing.expect(rig.loop.network().socket(rig.engine.sockets.descriptor_of(0)).local.port != before);
     try rig.deinit();
 }

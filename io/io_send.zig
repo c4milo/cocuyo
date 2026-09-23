@@ -67,9 +67,6 @@ fn submit(self: anytype, index: usize, asked: Asked, now_ns: u64) void {
 fn send_datagram(self: anytype, index: usize, server: cocuyo.Endpoint, bytes: []const u8, now_ns: u64) void {
     assert(bytes.len <= cocuyo.constants.query_bytes_max);
     const slot = self.resolver.lookup_of(self.handles[index]).server_slot();
-    // A server whose new port could not be opened has no socket until a drive opens one, and a
-    // send to it fails as any send fails (the datagram's rule 4).
-    if (!self.sockets.is_open(slot)) return self.resolver.on_send_failed(self.handles[index], now_ns);
     @memcpy(self.send_buffers[index][0..bytes.len], bytes);
     self.outbounds[index] = udp.outbound_to(server);
     const operation: rotor.Operation = .{
@@ -82,6 +79,7 @@ fn send_datagram(self: anytype, index: usize, server: cocuyo.Endpoint, bytes: []
     };
     if (self.loop.submit(&.{operation}, &.{}) == 1) {
         lend(self, index);
+        self.sent_from[index] = .{ .server = slot, .epoch = self.sockets.epoch_of(slot) };
         _ = self.sockets.count_sent(slot, self.config.udp_queries_per_port);
     } else {
         self.resolver.on_send_failed(self.handles[index], now_ns);
