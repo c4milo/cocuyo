@@ -9,14 +9,19 @@
 #     feature: the twin is a virtual clock and a virtual network, so the same run happens on both.
 #
 #   - `engine`: the engine of docs/design.md §19 step 13 over rotor itself, and the comparison
-#     against c-ares. This is the only job that opens a socket, and the only one that runs rotor
-#     on Linux: io_uring on the runner, or epoll where a kernel or a container's seccomp profile
-#     refuses io_uring, which rotor 0.3.0 falls back to for the whole process.
+#     against c-ares, on the runner's kernel, where rotor runs io_uring.
 #
 #     It runs the comparison's tests twice, the second time under ThreadSanitizer, which sees
 #     an access two threads share that nothing orders. The build first runs a planted race and
 #     requires the report, because on Zig 0.16's default Debug backend the sanitizer instruments
 #     nothing and says nothing (docs/mutations.md T1).
+#
+#   - `epoll`: the rotor example resolves inside a container where io_uring is refused, once under
+#     Docker's default seccomp profile and once under a profile that refuses every io_uring call,
+#     so rotor 0.3.0 falls back to epoll for the whole process (tools/epoll_check/run.sh). It needs
+#     no network: a recorder in the container answers the one name asked.
+#
+#   `engine` and `epoll` are the only jobs that open a socket.
 #
 # **No number from CI enters docs/design.md §11.** A measured row there names the machine, the
 # command and the day, and a shared runner is neither named nor quiet. What this job proves is
@@ -84,6 +89,24 @@ jobs:
       - run: zig version
       - name: The whole local gate
         run: zig build test
+
+  epoll:
+    name: Linux, the rotor example where io_uring is refused
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Zig
+        run: |
+          set -euo pipefail
+          url="https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          sha="70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+          curl -fsSL "$url" -o zig.tar.xz
+          echo "$sha  zig.tar.xz" | sha256sum -c -
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+      - run: zig version
+      - name: The rotor example resolves over epoll, with io_uring refused
+        run: tools/epoll_check/run.sh
 
   engine:
     name: Linux, the engine over rotor and c-ares

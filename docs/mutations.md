@@ -918,6 +918,17 @@ L11 is the one the log itself found. The first replay stopped on 53 rows whose n
 octet of a tunnelling payload as `\DDD`: over 254 characters in text and within 255 octets on
 the wire. The limit was on the text, where it should have been on what the text stands for.
 
+## The epoll check
+
+`tools/epoll_check/run.sh`, run by CI's `epoll` job: the rotor example must resolve inside a
+container where io_uring is refused, over rotor's epoll fallback. A probe in the container must
+first see io_uring refused, which is the control: without it, a pass under a profile that allowed
+io_uring would prove nothing. One mutation, one `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| P1 | rotor pinned back to 0.2.0, which has no epoll fallback | the example resolves where io_uring is refused | the check: the example fails `PermissionDenied` | CAUGHT |
+
 ## The search-order recorder
 
 Design §5, §17 question 7: `tools/search_order/recorder.zig` answers the resolvers the probe

@@ -257,6 +257,7 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   loader keeps (docs/mutations.md N1). Since rotor 0.3.0 a process that the kernel or a
   container's seccomp profile refuses io_uring runs on epoll instead: the rotor example resolves
   in a container with Docker's default profile, where on rotor 0.2.0 it failed `PermissionDenied`.
+  CI's `epoll` job checks it on every push (`tools/epoll_check/run.sh`).
 - §17 questions 13 and 14 are answered: the cache keeps the chain's end, and a get leaves an
   expired entry for the put after the miss to renew in place. SIEVE is measured against S3-FIFO,
   W-TinyLFU, an expected-hits experiment, c-ares's rule and the offline optimal (§18), over the
