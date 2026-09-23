@@ -18,6 +18,9 @@ one, and nothing may depend on it in the other direction.
   ("§5 step 3"). §16 records decisions with the alternatives they beat: if you are about to do
   something §16 rejected, say so and stop, rather than reversing it in code.
 - `docs/mutations.md` — every check, the mutation that breaks it, and the test that catches it.
+- `spec/README.md` — the Lean model of `Lookup` and the replay that checks the code against it. A
+  change to a transition of §5 changes the design, then `spec/Spec/Lookup.lean`, then the code,
+  in that order, and never the model from the code.
 
 ## Non-negotiables
 
@@ -124,6 +127,9 @@ The architecture depends on every rule in this section.
   build leaves packages beside it. `bench/` is outside the module
   graph and may read a clock; it is linted and formatted like `src/`, and it gets a module graph
   of its own at ReleaseSafe from `build/bench.zig`.
+- `spec/` holds the Lean model of design §5 and its proofs, a Lake package of its own, and
+  `tools/spec_replay/` the Zig replay that drives `Lookup` down the model's transcript, wired by
+  `build/spec.zig`.
 
 ## Ask before
 
@@ -166,6 +172,10 @@ The architecture depends on every rule in this section.
   built privately for the bench (`bench/end_to_end/`). It links libraries the gate must not
   require, so it and its tests (`zig build test-cares`) run only when asked. The numbers go in
   design §11 beside cocuyo's, with the c-ares version the binary prints.
+- Model: `zig build spec` — the Lean proofs of `Lookup` and the pins on the axioms they rest on,
+  then every transition the model reaches under 55 configurations replayed against the code. It
+  needs `lake` at the version `spec/lean-toolchain` pins, so it runs only when asked and in CI's
+  `spec` job; `zig build test` replays the committed slice without Lean.
 - Format: `zig build fmt`, or `zig fmt build.zig build src tools examples bench`.
 - Commit messages: `zig build hooks` once after clone; `zig build lint-commits` by hand.
 
@@ -271,8 +281,14 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   SERVFAIL, where it stops as c-ares does (§5).
 - 0.1.0, the first release, tagged 2026-09-22: `build.zig.zon` carries the version, and the
   README pins the tag.
-- Next, in order (the owner's plan of 2026-09-23): the `/simplify` cleanups outside the engine;
-  the engine's TCP path, whose review found stale completions after a connection slot is reused,
+- The `/simplify` cleanups outside the engine landed on 2026-09-23.
+- The lookup is checked against a model in Lean 4 (spec/, design §5, The model), asked for on
+  2026-09-23. The proofs cover the end, `use_tcp`, the counters and termination; the replay
+  compares 1.77 million transitions and found two defects: a chain past `cname_hops_max` timed
+  out instead of failing `ChainTooLong`, and EDNS0 stayed off for the whole lookup after one
+  FORMERR. The table's ready list, `AddressLookup`'s walk and the engine's connections are the
+  state machines still to model.
+- Next, in order (the owner's plan of 2026-09-23): the engine's TCP path, whose review found stale completions after a connection slot is reused,
   a lookup kept on an old server's connection and a send that can be dropped; DoT; DoH's DNS
   half. The p99 of the comparison waits for a quiet machine.
 

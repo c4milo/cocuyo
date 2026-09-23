@@ -950,6 +950,33 @@ mutations, two `CAUGHT`.
 | M1 | a lookup that has ended is asked about | an ended lookup has its end | the ended-first test | CAUGHT |
 | M2 | only a lookup ready to build its query may be recalled | a TCP lookup starts waiting for its connection | the TCP recall test | CAUGHT |
 
+## The Lean model and the replay
+
+`zig build spec` checks `Lookup` against the model in spec/ (docs/design.md §5, The model), and
+`zig build test` replays the committed slice of it. The code mutations S1 to S9 were run against
+`zig build test-resolver`, `zig build test-tools` and `zig build spec`, and each is caught by
+the gate and by `zig build spec`. The slice holds one server, so it misses what only a second
+server or a second name can show: S4 to S7 are caught in the gate by unit tests, and S5 to S7
+needed theirs written. S3 is caught in the gate by the slice alone. S1 and S6 are the two
+defects the replay found, put back. The model and proof mutations M1, M2 and P1 are caught by
+`zig build spec`. Thirteen mutations, thirteen `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| S1 | a chain past `cname_hops_max` is ignored | a chain past the bound fails `ChainTooLong` | the slice, at line 83; the loop and the across-messages tests | CAUGHT |
+| S2 | TC=1 over TCP is ignored | TC=1 means nothing on a stream | the slice; the TC-over-TCP test | CAUGHT |
+| S3 | a connection attempt never expires | the deadline covers `connecting_tcp` | the slice, at line 111 | CAUGHT |
+| S4 | the next server keeps the cookie retry | one BADCOOKIE retry per server | the BADCOOKIE test; the full replay | CAUGHT |
+| S5 | the next name keeps the pass | the next name starts at the first pass | the next-candidate test; the full replay | CAUGHT |
+| S6 | EDNS0 stays off at the next server | EDNS0 off for one server | the FORMERR failover test; the full replay | CAUGHT |
+| S7 | EDNS0 stays off at the next name | EDNS0 off for one server | the next-candidate test; the full replay | CAUGHT |
+| S8 | FORMERR without EDNS0 is taken as BADCOOKIE | FORMERR without EDNS0 is a server failure | the slice, at line 107; the FORMERR test | CAUGHT |
+| S9 | a second BADCOOKIE is retried again | the second goes to TCP | the slice, at line 205; the BADCOOKIE test | CAUGHT |
+| M1 | the model keeps EDNS0 off at the next server | the model is the design | the full replay, at line 270,627 | CAUGHT |
+| M2 | the model ignores TC=1 over a stream | the model is the design | the proofs, which no longer type-check | CAUGHT |
+| P1 | `sent_lt` proved by `sorry` | every theorem rests on the standard axioms | `Spec/Axioms.lean`'s pin | CAUGHT |
+| G1 | the committed slice edited by hand | the slice is the model's | the slice's replay; the check in `zig build spec` | CAUGHT |
+
 ## The epoll check
 
 `tools/epoll_check/run.sh`, run by CI's `epoll` job: the rotor example must resolve inside a

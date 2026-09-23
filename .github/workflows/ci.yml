@@ -21,6 +21,10 @@
 #     so rotor 0.3.0 falls back to epoll for the whole process (tools/epoll_check/run.sh). It needs
 #     no network: a recorder in the container answers the one name asked.
 #
+#   - `spec`: `zig build spec`, the Lean proofs of the lookup's state machine and the replay of
+#     every transition the model reaches against the code (spec/README.md). Lean is a tool the
+#     gate must not require, so the two gates above replay only the committed slice.
+#
 #   `engine` and `epoll` are the only jobs that open a socket.
 #
 # **No number from CI enters docs/design.md §11.** A measured row there names the machine, the
@@ -36,7 +40,9 @@
 # measurements in §11 were made against.
 #
 # Zig is downloaded from ziglang.org and checked against the SHA-256 the release index published
-# for 0.16.0, and c-ares against the SHA-256 of its release asset, so both are pinned. No
+# for 0.16.0, c-ares against the SHA-256 of its release asset, and Lean against the SHA-256 GitHub
+# records for its release asset, so all three are pinned. The Lean version must be the one
+# spec/lean-toolchain names, and the job checks that it is. No
 # third-party action runs here; `actions/checkout` is GitHub's own.
 name: ci
 
@@ -52,6 +58,7 @@ permissions:
 env:
   ZIG_VERSION: "0.16.0"
   CARES_VERSION: "1.34.8"
+  LEAN_VERSION: "4.33.0"
 
 jobs:
   macos:
@@ -147,3 +154,31 @@ jobs:
         run: zig build test-cares "-Dcares=$CARES_PREFIX" -Dsanitize-thread=true
       - name: The comparison, for the log and not for the record
         run: zig build bench-cares "-Dcares=$CARES_PREFIX"
+
+  spec:
+    name: Linux, the lookup against its Lean model
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Zig
+        run: |
+          set -euo pipefail
+          url="https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          sha="70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+          curl -fsSL "$url" -o zig.tar.xz
+          echo "$sha  zig.tar.xz" | sha256sum -c -
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+      - name: Install Lean
+        run: |
+          set -euo pipefail
+          grep -qx "leanprover/lean4:v${LEAN_VERSION}" spec/lean-toolchain
+          url="https://github.com/leanprover/lean4/releases/download/v${LEAN_VERSION}/lean-${LEAN_VERSION}-linux.tar.zst"
+          sha="4b3fb03c29a1e0a253fb1d11f9bae3725f19a0dc6fc09b3ea16d2c9df3349e2c"
+          curl -fsSL "$url" -o lean.tar.zst
+          echo "$sha  lean.tar.zst" | sha256sum -c -
+          tar --zstd -xf lean.tar.zst
+          echo "$PWD/lean-${LEAN_VERSION}-linux/bin" >> "$GITHUB_PATH"
+      - run: zig version && lean --version
+      - name: The proofs, the committed slice, and the whole transcript replayed
+        run: zig build spec

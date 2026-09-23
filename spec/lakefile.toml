@@ -1,0 +1,9 @@
+name = "cocuyo-spec"
+defaultTargets = ["cocuyo-spec"]
+
+[[lean_lib]]
+name = "Spec"
+
+[[lean_exe]]
+name = "cocuyo-spec"
+root = "Main"

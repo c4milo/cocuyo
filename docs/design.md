@@ -271,6 +271,10 @@ pub const Failure = struct {
 };
 ```
 
+`cancel` is for a lookup that has not ended, and cancelling one that is done is a programmer
+error. `Resolver.cancel` is the one to call with a handle whose lookup may have ended: it leaves
+that lookup's end standing.
+
 `on_response` never changes what the caller does next: the caller always calls `poll` afterwards.
 `ignored` exists for counters and tests. A response that arrives after `.done`, for a cancelled
 lookup, or from the wrong place, is `ignored` in any state — a stray late datagram is normal for a
@@ -432,12 +436,17 @@ Eight states: `query_ready`, `awaiting_udp`, `tcp_needed`, `connecting_tcp`, `tc
 | `awaiting_udp` | `on_response` NXDOMAIN or NODATA | `query_ready` or `failed` | advance the search candidate |
 | `awaiting_udp` | `on_response` SERVFAIL, REFUSED, NOTIMP | `query_ready` or `failed` | advance the server |
 | `awaiting_udp` | `on_response` FORMERR and EDNS0 was on | `query_ready` | same server, EDNS0 off |
+| `awaiting_udp` | `on_response` FORMERR and EDNS0 was off | `query_ready` or `failed` | advance the server, as SERVFAIL does |
+| `awaiting_udp` | `on_response` BADCOOKIE, the first from this server | `query_ready` | same server, the fresh cookie |
+| `awaiting_udp` | `on_response` BADCOOKIE again | `tcp_needed` | same server, over TCP |
 | `tcp_needed` | `poll` | `connecting_tcp` | return `connect_tcp`, arm the deadline |
 | `connecting_tcp` | `on_tcp_connected` | `tcp_ready` | re-arm the deadline |
 | `connecting_tcp` | `on_tcp_failed` or deadline | `query_ready` or `failed` | advance the server |
 | `tcp_ready` | `poll` | `tcp_ready` | build with the length prefix, return `send_tcp` |
 | `tcp_ready` | `on_sent` | `awaiting_tcp` | arm the deadline |
-| `awaiting_tcp` | `on_response` | as the UDP rows | TC=1 here is malformed, so `ignored` |
+| `tcp_ready`, `awaiting_tcp` | `on_tcp_failed` | `query_ready` or `failed` | advance the server |
+| `awaiting_tcp` | `on_response` | as the UDP rows | TC=1 means nothing here, so the message is read as if it were clear |
+| `awaiting_tcp` | `on_response` BADCOOKIE | `query_ready` or `failed` | advance the server, as SERVFAIL does |
 | `done`, `failed` | any | unchanged | `poll` returns the same value; `on_response` is `ignored` |
 
 After `send_tcp` the caller reads two bytes, calls `wire.message_len(prefix)`, reads that many
@@ -451,7 +460,11 @@ governs the read, and the framing rule is three lines in the example (§15 step 
   glibc does; this is recalled, not measured.
 - On expiry: `server_index += 1`. On wrap: `server_index = 0`, `round += 1`. When
   `round == config.attempts` the lookup fails with `Timeout`, or with `AllServersFailed` if any
-  server answered SERVFAIL, REFUSED or NOTIMP.
+  server answered SERVFAIL, REFUSED or NOTIMP, FORMERR without EDNS0, or BADCOOKIE over TCP.
+- EDNS0 is off for the server that answered FORMERR, and on again at the next server and the
+  next name. RFC 6891 §6.2.2 makes a server's lack of EDNS0 a fact about that server, and a
+  lookup that kept it off would ask every later server without a cookie and with a 512-octet
+  limit.
 - `rotate` starts the first try at `seed % servers.len` instead of server 0, so a process with many
   lookups does not aim all of them at one server.
 
@@ -506,7 +519,28 @@ and it stops at NODATA.
   target on the same server with a fresh id, port hint and case pattern. The server just answered,
   so it is the healthy one.
 - `cname_hops_max` counts hops across messages as well as inside them. Exceeding it fails with
-  `ChainTooLong`.
+  `ChainTooLong`, and so does a loop inside one message: RFC 1034 §3.6.2 and §5.2.2 have alias
+  loops signalled as an error to the client. The message passed every check of §7, so it is the
+  server's answer and not a malformed one, and §16 decision 10 does not apply.
+
+### The model
+
+spec/ holds a model of this section in Lean 4, written from the table and the RFCs rather than from
+the code, and proofs of what the table promises: an ended lookup stays ended, a lookup under
+`use_tcp` never asks for a datagram, its counters stay inside the configuration, and every send
+lowers a measure in a well-founded order, so no sequence of answers makes a lookup retry forever.
+`zig build spec` builds the proofs, then walks every state the model reaches under 55
+configurations and replays each of the 1.77 million transitions against `Lookup`, comparing the
+answer and the whole state after every event. `zig build test` replays a committed slice of
+2,910 of them without Lean. spec/README.md says what the model abstracts and why.
+
+Building the model and the replay found two defects in the code, fixed on 2026-09-23. A chain
+past `cname_hops_max` was ignored, so the lookup timed out instead of failing with
+`ChainTooLong`. EDNS0 stayed off for the rest of the lookup after one FORMERR, where the flag's
+own comment and RFC 6891 §6.2.2 have it off for one server. It also found this table wrong in
+one row: TC=1 over TCP, which the code reads as if the bit were clear rather than ignoring the
+message. And the table lacked rows the code already had: FORMERR without EDNS0, BADCOOKIE, and a
+connection that fails after it opened.
 
 ## 6. Errors and assertions
 
@@ -1080,6 +1114,12 @@ check. The starting list:
 | 10 | re-arm the deadline on an ignored datagram | the flood-does-not-extend-the-wait test |
 | 11 | keep the same transaction id across a CNAME re-query | the re-query entropy test |
 | 12 | advance the search candidate on SERVFAIL | the policy table test |
+
+The state machine is also checked against a model. spec/ states §5 in Lean 4, proves what §5
+promises of it, and writes every transition the model can reach under a set of small
+configurations; `tools/spec_replay/` drives `Lookup` down the same transitions and compares the
+whole state after each (§5, The model). A test above pins the cases someone thought of, and the
+replay pins the rest of the reachable graph.
 
 The fuzz target drives the parser from a seeded generator that mixes pure random bytes with
 structured hostility: valid headers over lying counts, pointers at every offset, labels that run

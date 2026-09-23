@@ -23,6 +23,7 @@ const graph_check = @import("build/graph_check.zig");
 const consumer_check = @import("build/consumer_check.zig");
 const examples = @import("build/examples.zig");
 const bench = @import("build/bench.zig");
+const spec = @import("build/spec.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "build", "src", "tools", "examples", "bench", "io" };
@@ -33,7 +34,7 @@ const lint_rule_directories = [_][]const u8{ "build", "src", "tools", "examples"
 
 /// Markdown outside `docs/` that the markdown rule reads all the same, because both render on
 /// GitHub as written (CLAUDE.md, Conventions).
-const lint_rule_files = [_][]const u8{ "README.md", "CLAUDE.md" };
+const lint_rule_files = [_][]const u8{ "README.md", "CLAUDE.md", "spec/README.md" };
 
 /// Every tool whose own tests `zig build test` runs. A build that does not run the checkers' own
 /// tests lets a rule lose its test without the build reporting it. The search-order recorder is
@@ -125,6 +126,7 @@ pub fn build(b: *std.Build) void {
     const rotor = b.lazyDependency("rotor", .{ .target = target });
     examples.add(b, graph.cocuyo, target, optimize, test_step, rotor);
     bench.add(b, target, test_step, tool_test_step, rotor);
+    spec.add(b, target, test_step, tool_test_step);
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_commit_lint_step(b, pepegrillo, install_step);
     add_hooks_step(b);
