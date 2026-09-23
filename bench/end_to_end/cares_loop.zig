@@ -337,3 +337,41 @@ test "no lookup starts once the row is over" {
     try testing.expectEqual(@as(u32, 0), state.started.load(.acquire));
     try testing.expectEqual(Owner.idle, slot.owner.load(.acquire));
 }
+
+/// How many claims each of the two threads makes in the claim test: enough that the two runs
+/// overlap after the barrier, and few enough that the test stays under a millisecond.
+const race_claims_per_thread = 4096;
+const race_threads = 2;
+const race_total = race_claims_per_thread * race_threads;
+
+/// Each index's claims in the claim test, which two threads write at once.
+var race_claimed: [race_total]std.atomic.Value(u8) = @splat(.init(0));
+var race_arrived: std.atomic.Value(u32) = .init(0);
+
+fn claim_many() void {
+    // Both threads start claiming together, so the counter is contended rather than handed over.
+    _ = race_arrived.fetchAdd(1, .acq_rel);
+    while (race_arrived.load(.acquire) < race_threads) std.atomic.spinLoopHint();
+    for (0..race_claims_per_thread) |_| {
+        const index = claim() orelse std.debug.panic("a claim failed below the total", .{});
+        _ = race_claimed[index].fetchAdd(1, .monotonic);
+    }
+}
+
+test "two threads claiming at once lose no claim and give none twice" {
+    // The first batch is claimed on the main thread while callbacks claim on c-ares's. No run
+    // against c-ares can be made to overlap them on demand, so two threads here do it. Under
+    // `-Dsanitize-thread` a plain counter is a report whether or not a claim was lost.
+    empty_row();
+    defer empty_row();
+    state.total = race_total;
+    race_arrived.store(0, .release);
+    for (&race_claimed) |*count| count.store(0, .release);
+
+    const other = try std.Thread.spawn(.{}, claim_many, .{});
+    claim_many();
+    other.join();
+
+    for (&race_claimed) |*count| try testing.expectEqual(@as(u8, 1), count.load(.acquire));
+    try testing.expectEqual(@as(?u32, null), claim());
+}

@@ -13,6 +13,11 @@
 #     on Linux: io_uring on the runner, or epoll where a kernel or a container's seccomp profile
 #     refuses io_uring, which rotor 0.3.0 falls back to for the whole process.
 #
+#     It runs the comparison's tests twice, the second time under ThreadSanitizer, which sees
+#     an access two threads share that nothing orders. The build first runs a planted race and
+#     requires the report, because on Zig 0.16's default Debug backend the sanitizer instruments
+#     nothing and says nothing (docs/mutations.md T1).
+#
 # **No number from CI enters docs/design.md §11.** A measured row there names the machine, the
 # command and the day, and a shared runner is neither named nor quiet. What this job proves is
 # that the engine works against a real kernel, not how fast it is: its tests assert that every
@@ -115,5 +120,7 @@ jobs:
           echo "LD_LIBRARY_PATH=$PWD/cares-prefix/lib" >> "$GITHUB_ENV"
       - name: The comparison's own tests, and the engine against a real kernel
         run: zig build test-cares "-Dcares=$CARES_PREFIX"
+      - name: The same tests under ThreadSanitizer, after a race it must report
+        run: zig build test-cares "-Dcares=$CARES_PREFIX" -Dsanitize-thread=true
       - name: The comparison, for the log and not for the record
         run: zig build bench-cares "-Dcares=$CARES_PREFIX"

@@ -841,6 +841,7 @@ The comparison's own driver, not the library: `bench/end_to_end/rotor_loop.zig`.
 | X2 | let `take` look only once | the answer's second look finds the slot idle | **the every-order test** | CAUGHT |
 | X3 | mark a start owed with a plain store | a mark lands only on a held slot | **the every-order test** | CAUGHT |
 | X4 | take an idle slot by a load and then a store | each step is one atomic operation | nothing | NOT CAUGHT |
+| X5 | put the claim counter back as a plain integer | no claim is lost or given twice | **the two-thread claim test** | CAUGHT |
 
 The bug this records was real and it hid for a day. With several lookups in flight the others keep
 the loop busy and no test saw anything; with one, every iteration that took a result left nothing
@@ -868,8 +869,15 @@ using the real steps, copied per branch. X2 is why it exists: `take` looks twice
 holder can let go between the looks, and no example-based test could put it there. X4 is not
 caught and is kept as the tool's boundary: `every_order` treats each step as atomic, so it
 proves the protocol and cannot prove a step is one atomic operation. Here the mutant is also
-harmless, since only one actor ever takes an idle slot. ThreadSanitizer is what sees a step that
-is not atomic, and it runs on Linux, not on this toolchain's arm64 macOS.
+harmless, since only one actor ever takes an idle slot. ThreadSanitizer would not see it either:
+an atomic load and an atomic store are not a data race, only a lost update, and a data race is
+what it reports.
+
+X5 is the race the counter had before it was made atomic. The sanitizer did not see it put back,
+because no test ran a callback while the main thread was still claiming its first batch, and a
+sanitizer judges only the accesses a run makes. The claim test runs two threads claiming at once.
+On arm64 macOS, with no sanitizer, it caught the mutant in 3 runs of 3 by an index claimed twice;
+on Linux the sanitizer reports the plain counter whether or not a claim was lost.
 
 K3 came out of the same crash, which K2 did not cure. Destroying a channel fails the queries
 still on it, each failure reaches the callback, and the callback started another lookup on the
@@ -877,6 +885,19 @@ channel that was going away. Its first test was vacuous: with nothing left to cl
 flags read the same whether the guard was there or not, and only counting the claims tells them
 apart. That is the second `NOT CAUGHT` of the day to come from a test that watched the wrong
 thing rather than from a missing test.
+
+## The sanitizer's own control
+
+`-Dsanitize-thread` puts the comparison's tests under ThreadSanitizer on Linux. On 2026-09-22 a
+planted race — two threads writing one plain integer after a barrier — passed under it, both
+alone and through the build. Zig 0.16 builds Debug for x86_64 Linux with its own backend, which
+instruments no access and says nothing about it. LLVM instruments. The tests and a control built
+from `bench/end_to_end/race_control.zig` now share one backend setting, and the build requires
+the control's report, exit status 66, before the tests run.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| T1 | build the sanitized tests on the default backend again | the sanitizer instruments the tests | the build's control, which exits 0 | CAUGHT |
 
 ## Planned, later steps
 

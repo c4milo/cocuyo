@@ -76,7 +76,8 @@ fn add_cares(
     // The comparison's driver shares state between two threads, ours and c-ares's, and every race
     // it has had lived there. ThreadSanitizer sees an access to shared state that nothing orders,
     // whether or not the bad interleaving happened in the run. Off by default: Zig 0.16 cannot
-    // build its runtime for arm64 macOS, and CI turns it on for Linux.
+    // build its runtime for arm64 macOS, and CI turns it on for Linux. Only the driver's module is
+    // instrumented; the engine and rotor under it are not, and hold no state two threads share.
     const sanitize_thread = b.option(
         bool,
         "sanitize-thread",
@@ -85,8 +86,13 @@ fn add_cares(
 
     const test_module = cares_module(b, target, .Debug, prefix, debug_graph, rotor);
     test_module.sanitize_thread = sanitize_thread;
-    const tests = b.addTest(.{ .name = "cares", .root_module = test_module });
+    // Zig 0.16's own x86_64 backend, the default for Debug there, instruments nothing and says
+    // nothing about it; LLVM does the instrumenting. The control is built the same way, so it
+    // fails wherever the tests would be blind.
+    const use_llvm: ?bool = if (sanitize_thread) true else null;
+    const tests = b.addTest(.{ .name = "cares", .root_module = test_module, .use_llvm = use_llvm });
     const run_tests = b.addRunArtifact(tests);
+    if (sanitize_thread) run_tests.step.dependOn(sanitizer_control(b, target, use_llvm));
 
     const test_cares = b.step("test-cares", "Run the comparison's own tests alone");
     test_cares.dependOn(&run_tests.step);
@@ -98,6 +104,30 @@ fn add_cares(
 
     const step = b.step("bench-cares", "Measure query build and response parse against c-ares");
     step.dependOn(&run.step);
+}
+
+/// ThreadSanitizer's exit status when it has reported a race.
+const sanitizer_reported_exit = 66;
+
+/// A planted race the sanitizer must report before its silence over the tests means anything,
+/// as the lint's canary does for the lint (docs/mutations.md T1).
+fn sanitizer_control(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    use_llvm: ?bool,
+) *std.Build.Step {
+    const module = b.createModule(.{
+        .root_source_file = b.path("bench/end_to_end/race_control.zig"),
+        .target = target,
+        .optimize = .Debug,
+        .link_libc = true,
+        .sanitize_thread = true,
+    });
+    const exe = b.addExecutable(.{ .name = "race-control", .root_module = module, .use_llvm = use_llvm });
+    const run = b.addRunArtifact(exe);
+    run.setEnvironmentVariable("TSAN_OPTIONS", "halt_on_error=1");
+    run.expectExitCode(sanitizer_reported_exit);
+    return &run.step;
 }
 
 /// The comparison's module. Its end-to-end run drives the engine of docs/design.md §19 step 13

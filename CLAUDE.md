@@ -247,7 +247,8 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   2026-09-22 over five runs. Five defects in the comparison's own driver had to be fixed first
   (docs/mutations.md K1 to K3, R1 to R4, and the responder's start-up delay), which is what an
   end-to-end number costs. The handoff between the driver's two threads is checked in every order
-  it can run (X1 to X4), and `-Dsanitize-thread` runs its tests under ThreadSanitizer on Linux.
+  it can run (X1 to X5), and `-Dsanitize-thread` runs its tests under ThreadSanitizer on Linux,
+  on the LLVM backend and after a planted race it must report (T1).
 - **16**, the package a consumer gets, §20, asked for by colibri's driver: the cache under every
   lookup as a `Memory` the caller supplies, the module surface closed to `cocuyo` alone, and
   `zig build consumer-check` compiling a dependent package. Landed 2026-09-22.
