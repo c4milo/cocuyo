@@ -2067,6 +2067,17 @@ code of 2026-09-22 broke one, the model found it, and the fix is recorded with i
    returns the buffer and tells nobody.
 8. The drive takes lookups in the table's ready order (§11), and the results reach `take` in the
    order the drive reported them.
+9. A stream carries one send at a time, because rotor's contract says two sends in flight on
+   one socket may reach the peer in either order, and a short one leaves a gap the other
+   fills. A query joins its connection's queue in the order the drive asked for it, and the
+   buffer is lent from then. The connection sends the queue's head. A send that comes back
+   short sends the rest of the same message before the next one starts. A message finished,
+   its buffer comes back, its attempt hears it went out if still current (rule 7), and the
+   next one goes. A message whose lookup moved on before any of it went out leaves the queue
+   and gives its buffer back; one that has started is sent to its end, since half a message
+   would break the stream for every lookup on it. A send that fails, or that the loop refuses,
+   fails the connection (rule 5). TLS needs the same order for its own reason: each record's
+   nonce is its sequence number, so records reach the peer in the order they were sealed.
 
 **The datagram's rules, written on 2026-09-23** in the same way, for the same model. Rules 6 to 8
 of the stream hold for datagrams as they stand: a send lends its buffer, a completion speaks for
@@ -2099,15 +2110,17 @@ the table's ready list and free list (§11), the connections, the sockets, and t
 loop holds. A configuration asks every query over TCP, or every query over UDP with a port
 replaced every two queries. The model's clock moves in ticks, each the idle close's wait, and a
 lookup waits two of them. The loop may refuse every submission for the length of one event, and
-socket opens may fail for the length of one event.
+socket opens may fail for the length of one event. A stream's send may come back short once a
+message, its rest then whole or failed: a second short send takes the same path as the first.
 
-- `cocuyo-spec engine` walks every state the model reaches in a configuration and checks eight
+- `cocuyo-spec engine` walks every state the model reaches in a configuration and checks nine
   invariants in each. A connection's users are the lookups on it. A lookup is only on a
   connection to its server. A buffer is lent to one send at most. A connection and a socket each
   have at most one current operation of each kind. A drive leaves nothing on the ready list.
   After a drive nothing refused, every socket has its receive armed and every connection that is
   up has its receive. And after such a drive, a port that has carried its share is replaced
-  unless an older one still drains, and a draining socket nothing is owed on is gone. They hold
+  unless an older one still drains, and a draining socket nothing is owed on is gone. A stream
+  has one send in flight at most, its queue's head's, and no query waits twice. They hold
   in every state of one slot and one connection over TCP, and in all 5.85 million of one slot
   over UDP; spec/README.md has the counts. This is model checking over bounded configurations,
   not a proof.
@@ -2116,7 +2129,7 @@ socket opens may fail for the length of one event.
   million events. After each event it compares the engine's whole state with the model's, and
   checks every buffer the event handed the engine is back in its group.
 
-The code of 2026-09-22 broke nine of these rules, each fixed with the model:
+The code of 2026-09-22 broke ten of these rules, each fixed with the model:
 
 - A cancelled connect or receive that ended after its slot was reused was taken for the new
   connection's own (the stream's rule 2).
@@ -2135,6 +2148,9 @@ The code of 2026-09-22 broke nine of these rules, each fixed with the model:
   nothing more (the datagram's rule 1).
 - A port whose replacement could not be opened left its server with no socket, and the next send
   to it stopped the program on an assertion (the datagram's rule 4).
+- Every query pipelined onto a connection was sent at once, and a short send was taken for a
+  whole one, so under backpressure the queries could interleave or be cut and the length
+  prefixes stopped lining up (the stream's rule 9).
 
 The model also showed what the first rule 4 left open: nothing made a retiring port rotate while
 its server stayed busy. §17 question 15 put it to the owner, who answered it the same day, and

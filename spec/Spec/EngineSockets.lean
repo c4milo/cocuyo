@@ -89,11 +89,23 @@ def tendConns (s : State) : State :=
 
 /-! ## Sends -/
 
-/-- The query goes out on the lookup's connection. -/
-def submitStream (c : Config) (s : State) (l : Nat) : State :=
-  if s.jammed then tableEvent c s l .sendFailed else
+/-- Sends the head of connection `k`'s queue. A send the loop refuses fails the connection: the
+stream cannot go on without it (the stream's rule 9). -/
+def pump (c : Config) (s : State) (k : Nat) : State :=
+  match (connAt s k).queue.head? with
+  | none => s
+  | some l =>
+    if sending s l then s else
+    if s.jammed then failConn c s k else
+    { s with ops := s.ops ++ [{ kind := .send, target := l, current := true }] }
+
+/-- The query joins its connection's queue, lending its buffer from now, and goes at once when
+nothing is ahead of it (the stream's rule 9). -/
+def submitStream (c : Config) (s : State) (l k : Nat) : State :=
   let s := setSlot s l (fun slot => { slot with busy := true })
-  { s with ops := s.ops ++ [{ kind := .send, target := l, current := true }] }
+  let first := (connAt s k).queue = []
+  let s := setConn s k (fun conn => { conn with queue := conn.queue ++ [l] })
+  if first then pump c s k else s
 
 /-- The query goes out from the current socket of the lookup's server, which counts it. -/
 def submitDatagram (c : Config) (s : State) (l : Nat) : State :=
@@ -114,7 +126,7 @@ def send (c : Config) (s : State) (l : Nat) : State :=
   | some lk =>
     if lk.stage = .queryReady then submitDatagram c s l else
     match slot.conn with
-    | some k => if (connAt s k).stage = .up then submitStream c s l else tableEvent c s l .tcpFailed
+    | some k => if (connAt s k).stage = .up then submitStream c s l k else tableEvent c s l .tcpFailed
     | none => tableEvent c s l .tcpFailed
   | none => s
 

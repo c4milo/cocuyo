@@ -32,6 +32,11 @@ structure Conn where
   /-- Whether it went idle, or came up, at the current instant: the idle close spares it. An
   instant lasts until time next moves (`tick`). -/
   idleNow : Bool := false
+  /-- The slots whose query waits to go out on it, oldest first; the head's is the one send in
+  flight (the stream's rule 9). -/
+  queue : List Nat := []
+  /-- Whether some of the head's message went out and not all: its rest is in flight. -/
+  partSent : Bool := false
   deriving DecidableEq, Repr, Inhabited, Hashable
 
 /-- A stream's connect, receive and send; a datagram's send and a socket's receive. -/
@@ -144,6 +149,9 @@ def Reply.toLookup : Reply → Spec.Lookup.Reply
 its group has no buffer left, which is not a broken connection. -/
 inductive Outcome where
   | ok | failed | canceled | exhausted
+  /-- A send that moved some of its bytes and not all (rotor: "may be fewer than the buffer
+  holds"). -/
+  | short
   deriving DecidableEq, Repr, Inhabited, Hashable
 
 inductive Event where
@@ -284,18 +292,29 @@ def cancelOps (s : State) (k : Nat) : State :=
       if (op.kind = .connect ∨ op.kind = .receive) ∧ op.target = k then { op with current := false }
       else op }
 
+/-- Whether a send of slot `l`'s buffer is in flight. -/
+def sending (s : State) (l : Nat) : Bool := s.ops.any fun op => isSend op.kind ∧ op.target = l
+
+/-- Closes connection `k`. A query in its queue that is not being sent gives its buffer back; the
+one in flight keeps it until its send's final event. -/
 def shut (s : State) (k : Nat) : State :=
+  let s := (connAt s k).queue.foldl (fun s l =>
+    if sending s l then s else setSlot s l (fun slot => { slot with busy := false })) s
   setConn (cancelOps s k) k (fun _ => {})
 
-/-- The lookup leaves its connection (rules 3 and 4). -/
+/-- The lookup leaves its connection (rules 3 and 4). A query of its that waits in the queue and
+has not started goes with it, and gives its buffer back (rule 9). -/
 def release (s : State) (l : Nat) : State :=
   match (slotAt s l).conn with
   | none => s
   | some k =>
     let s := setSlot s l (fun slot => { slot with conn := none })
+    let waiting := (connAt s k).queue.contains l ∧ ¬sending s l
+    let s := if waiting then setSlot s l (fun slot => { slot with busy := false }) else s
     setConn s k fun conn =>
       let users := conn.users - 1
-      { conn with users, idleNow := conn.idleNow || users = 0 }
+      { conn with users, idleNow := conn.idleNow || users = 0,
+                  queue := if waiting then conn.queue.filter (· ≠ l) else conn.queue }
 
 def firstIndex (xs : List α) (p : α → Bool) : Option Nat :=
   (List.range xs.length).find? fun i => match xs[i]? with

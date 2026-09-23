@@ -1039,6 +1039,29 @@ mutations, seven `CAUGHT`.
 | W6 | a draining socket's ended receive is armed on the current one | rule 5 | the committed walks | CAUGHT |
 | W7 | a query does not record the socket it left from | rule 4, what is owed | the rotation twin test; the committed walks | CAUGHT |
 
+## One send a stream
+
+The stream's rule 9 (docs/design.md §19 step 13): a connection carries one send at a time, and a
+short send finishes its message before the next starts. Broken against `zig build test-io`, `zig
+build test-tools` and `zig build spec`. The committed walks caught eight. SQ3 is out of their
+reach, since the model counts no octets; the short-send twin test, where every send moves five
+octets, catches it. SQ6 was `NOT CAUGHT` by the gate at first, and caught by the full walks; the
+queued-cancel twin test was written for it and catches it in the gate. Ten mutations, ten
+`CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| SQ1 | the head goes out while a send is in flight | one send a stream | the committed walks; the twin tests, by an assertion | CAUGHT |
+| SQ2 | a short send is taken for a whole one | the rest goes first | the short-send twin test; the committed walks | CAUGHT |
+| SQ3 | the rest is sent from the message's start | the rest goes first | the short-send twin test | CAUGHT |
+| SQ4 | the octets sent are counted from the last send alone | the rest goes first | the short-send twin test; the committed walks | CAUGHT |
+| SQ5 | a failed send leaves the connection up | a failed send fails the connection | the committed walks | CAUGHT |
+| SQ6 | a lookup that leaves keeps its waiting query queued | a waiting query leaves with its lookup | the queued-cancel twin test; the full walks | CAUGHT |
+| SQ7 | a closed connection keeps its waiting queries' buffers lent | the buffers come back | the committed walks | CAUGHT |
+| SQ8 | a lookup that leaves takes its started query with it | a started message is sent to its end | the committed walks | CAUGHT |
+| SQ9 | a send the loop refuses leaves the queue stuck | a refused send fails the connection | the committed walks | CAUGHT |
+| SQ10 | a whole send does not let the next go | the next one goes | the committed walks; the shared-connection twin test | CAUGHT |
+
 ## The `getaddrinfo` walks
 
 `AddressLookup` and `NameLookup` against the model of their rules (docs/design.md §19 step 14,

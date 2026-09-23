@@ -15,7 +15,7 @@ const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 const udp = @import("io_udp.zig");
-const tcp = @import("io_tcp.zig");
+const tcp_queue = @import("io_tcp_queue.zig");
 
 /// The attempt a send was made for: the lookup, and the transaction it was on.
 pub const Owner = struct {
@@ -59,7 +59,7 @@ fn submit(self: anytype, index: usize, asked: Asked, now_ns: u64) void {
     assert(!self.send_in_flight[index]);
     switch (asked) {
         .udp => |datagram| send_datagram(self, index, datagram.server, datagram.bytes, now_ns),
-        .tcp => |stream| tcp.send(self, index, stream, now_ns),
+        .tcp => |stream| tcp_queue.send(self, index, stream, now_ns),
     }
 }
 
@@ -107,25 +107,39 @@ fn is_current(self: anytype, index: usize, owner: Owner) bool {
     return std.meta.eql(lookup.transaction, owner.transaction);
 }
 
-/// A send's final event: the buffer comes back, the attempt that made the send hears how it
-/// went if it is still the lookup's, and a held send goes out if its attempt still is.
+/// A datagram's send ended: its final event returns the buffer.
 pub fn on_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64) void {
     assert(index < self.slots.len);
-    // Every send the engine submits lends the buffer, and only its final event returns it.
+    const went = if (event.outcome()) |_| true else |_| false;
+    finish(self, index, went, now_ns);
+}
+
+/// The buffer comes back: the attempt that made the send hears whether it went, if `went` says
+/// and the attempt is still the lookup's, and a held send goes out if its attempt still is.
+pub fn finish(self: anytype, index: usize, went: ?bool, now_ns: u64) void {
+    // Every send the engine submits lends the buffer, and only its end returns it.
     assert(self.send_in_flight[index]);
     self.send_in_flight[index] = false;
     const owner = self.send_owner[index];
     self.send_owner[index] = null;
     if (owner) |made| {
-        if (is_current(self, index, made)) {
-            if (event.outcome()) |_| {
+        if (went != null and is_current(self, index, made)) {
+            if (went.?) {
                 self.resolver.on_sent(made.handle, now_ns);
-            } else |_| {
+            } else {
                 self.resolver.on_send_failed(made.handle, now_ns);
             }
         }
     }
     flush(self, index, now_ns);
+}
+
+/// The buffer comes back from a query that never went out, or whose connection failed: nobody
+/// is told, and a held send waits for the lookup's next poll.
+pub fn give_back(self: anytype, index: usize) void {
+    assert(self.send_in_flight[index]);
+    self.send_in_flight[index] = false;
+    self.send_owner[index] = null;
 }
 
 /// The held send goes out, if the attempt that asked for it is still the lookup's; otherwise

@@ -76,14 +76,40 @@ def removeOp (s : State) (i : Nat) : State := { s with ops := s.ops.eraseIdx i }
 
 /-- A send ended: the buffer comes back, the attempt that made it hears how it went if it is
 still the lookup's, and a held send goes out (rules 6 and 7). -/
-def sendEnded (c : Config) (s : State) (i : Nat) (op : Op) (ok : Bool) : State :=
-  let l := op.target
-  let s := removeOp s i
+def returnBuffer (c : Config) (s : State) (l : Nat) (op : Op) (ok : Bool) : State :=
   let s := setSlot s l (fun slot => { slot with busy := false })
   let s := if op.current then tableEvent c s l (if ok then .sent else .sendFailed) else s
   let slot := slotAt s l
   let s := setSlot s l (fun slot => { slot with held := false, heldCurrent := false })
   if slot.held ∧ slot.heldCurrent then send c s l else s
+
+/-- The connection whose queue `l`'s query heads, when it is still there. -/
+def headOf (s : State) (l : Nat) : Option Nat :=
+  firstIndex s.conns fun conn => conn.queue.head? = some l
+
+/-- A stream's send ended (the stream's rule 9): a short one sends the rest of the same message,
+and a loop that refuses it fails the connection; a whole one leaves the queue, returns its buffer
+and lets the next go; a failed one fails the connection. One whose connection is gone only
+returns its buffer. -/
+def streamSendEnded (c : Config) (s : State) (op : Op) (outcome : Outcome) : State :=
+  let l := op.target
+  match headOf s l with
+  | none => returnBuffer c s l { op with current := false } false
+  | some k =>
+    let dequeue (s : State) := setConn s k fun conn =>
+      { conn with queue := conn.queue.drop 1, partSent := false }
+    match outcome with
+    | .short =>
+      if s.jammed then failConn c s k else
+      let s := setConn s k fun conn => { conn with partSent := true }
+      { s with ops := s.ops ++ [{ kind := .send, target := l, current := op.current }] }
+    | .ok => pump c (returnBuffer c (dequeue s) l op true) k
+    | _ => failConn c (setSlot (dequeue s) l fun slot => { slot with busy := false }) k
+
+def sendEnded (c : Config) (s : State) (i : Nat) (op : Op) (outcome : Outcome) : State :=
+  let s := removeOp s i
+  if op.kind = .sendTo then returnBuffer c s op.target op (outcome = .ok)
+  else streamSendEnded c s op outcome
 
 /-- A socket's receive ended: the current one is armed again at once, and one that is gone
 ended as rule 2 allows and says nothing. -/
@@ -176,7 +202,7 @@ def happen (c : Config) (s : State) (e : Event) : State :=
     | some op =>
       let ok := outcome = .ok
       drive c <| match op.kind with
-        | .send | .sendTo => sendEnded c s i op ok
+        | .send | .sendTo => sendEnded c s i op outcome
         | .connect => connectEnded c s i op ok
         | .receive => receiveEnded c s i op outcome
         | .receiveFrom => receiveFromEnded s i op
@@ -207,13 +233,16 @@ def awaits (s : State) (op : Op) (l : Nat) : Bool :=
   | none => false
 
 /-- How an operation may end: a current receive with its group dry, or a stream's with the
-connection broken; a send or a connect either way; and one that is gone any way rule 2 allows. -/
-def endings (op : Op) : List Outcome :=
+connection broken; a send or a connect either way, and a stream's send short once, its rest then
+whole or failed; and one that is gone any way rule 2 allows. -/
+def endings (s : State) (op : Op) : List Outcome :=
+  let rest := (headOf s op.target).any fun k => (connAt s k).partSent
   match op.current, op.kind with
+  | _, .send => if rest then [.ok, .failed] else [.ok, .short, .failed]
+  | _, .sendTo => [.ok, .failed]
   | true, .receive => [.failed, .exhausted]
   | true, .receiveFrom => [.exhausted]
   | true, _ => [.ok, .failed]
-  | false, .send | false, .sendTo => [.ok, .failed]
   | false, _ => [.ok, .failed, .canceled]
 
 /-- The events the environment may deliver: a start while a slot is free, a take while a result
@@ -233,7 +262,7 @@ def enabled (c : Config) (s : State) : List Event :=
     else []
   let finishes := (List.range s.ops.length).flatMap fun i =>
     match s.ops[i]? with
-    | some op => (endings op).map (Event.finish i)
+    | some op => (endings s op).map (Event.finish i)
     | none => []
   let receives (op : Op) := op.kind = .receive ∨ op.kind = .receiveFrom
   let messages := (List.range s.ops.length).flatMap fun i =>
@@ -276,7 +305,17 @@ def attachedRight (s : State) : Bool :=
 def buffersLent (s : State) : Bool :=
   (List.range s.slots.length).all fun l =>
     let sends := (s.ops.filter fun op => isSend op.kind && op.target == l).length
-    sends ≤ 1 && ((slotAt s l).busy == (sends == 1))
+    let queued := s.conns.any (·.queue.contains l)
+    sends ≤ 1 && ((slotAt s l).busy == (sends == 1 || queued))
+
+/-- A stream has one send in flight at most, and it is its queue's head's; no query waits in two
+queues or twice in one (the stream's rule 9). -/
+def oneSendAStream (s : State) : Bool :=
+  let queued := s.conns.flatMap (·.queue)
+  queued.eraseDups.length == queued.length &&
+  s.conns.all fun conn =>
+    let inFlight := conn.queue.filter (sending s ·)
+    inFlight.length ≤ 1 && inFlight.all (some · == conn.queue.head?)
 
 /-- A connection slot has its connect while it connects, at most its receive once it is up, and
 nothing current while it is closed (the stream's rules 1 and 2). -/
@@ -323,7 +362,8 @@ def invariants (before : State) (e : Event) (s : State) : List (String × Bool) 
     | .take | .jam | .starve => false
     | _ => !before.jammed && !before.starved
   [("users counted", usersCounted s), ("attached right", attachedRight s),
-   ("buffers lent", buffersLent s), ("ops current", opsCurrent s),
+   ("buffers lent", buffersLent s), ("one send a stream", oneSendAStream s),
+   ("ops current", opsCurrent s),
    ("sockets current", socksCurrent s), ("drive done", driveDone s),
    ("listening", !drove || listeningAll s), ("rotated", !drove || rotatedAll s)]
 

@@ -111,7 +111,8 @@ fn connect_stream(loop: *Loop, slot: u32, connect: *const Operation.Connect) voi
 }
 
 /// Bytes to the server: whole frames are answered, a partial one waits for the rest
-/// (RFC 7766 §8). The send succeeds now.
+/// (RFC 7766 §8). The send succeeds now, and moves no more than the socket's send buffer when
+/// the caller sized one: the short send rotor's contract allows, which a caller has to finish.
 fn send_stream(loop: *Loop, slot: u32, send: *const Operation.Send) void {
     const entry = network().socket(send.socket);
     const user_data = loop.slots[slot].user_data;
@@ -120,7 +121,8 @@ fn send_stream(loop: *Loop, slot: u32, send: *const Operation.Send) void {
         return;
     };
     const connection = network().connection(index);
-    const bytes = send.buffer.bytes;
+    const whole = send.buffer.bytes;
+    const bytes = if (entry.send_buffer_bytes == 0) whole else whole[0..@min(whole.len, entry.send_buffer_bytes)];
     assert(connection.partial_len + bytes.len <= connection.partial.len);
     @memcpy(connection.partial[connection.partial_len..][0..bytes.len], bytes);
     connection.partial_len += bytes.len;

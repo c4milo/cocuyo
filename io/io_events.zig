@@ -10,6 +10,7 @@ const udp = @import("io_udp.zig");
 const tcp = @import("io_tcp.zig");
 const drive_module = @import("io_drive.zig");
 const send_module = @import("io_send.zig");
+const tcp_queue = @import("io_tcp_queue.zig");
 const Kind = @import("io.zig").Kind;
 
 /// One completion event. True when it was the engine's, in which case the engine has acted on
@@ -23,7 +24,7 @@ pub fn apply(self: anytype, event: rotor.Event, now_ns: u64) bool {
         .udp_receive => on_receive_event(self, index, event, now_ns),
         .timer => on_timer_event(self, index),
         .tcp_connect => tcp.on_connect_event(self, index, event, now_ns),
-        .tcp_send => send_module.on_event(self, index, event, now_ns),
+        .tcp_send => tcp_queue.on_send_event(self, index, event, now_ns),
         .tcp_receive => tcp.on_receive_event(self, index, event, now_ns),
     }
     drive_module.drive(self, now_ns);

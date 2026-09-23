@@ -55,6 +55,13 @@ pub fn write(world: anytype, out: *[world_module.text_bytes_max]u8) []const u8 {
         if (index > 0) line.print(" ; ", .{});
         line.print("{s} s{d} u{d}", .{ @tagName(connection.state), connection.server, connection.users });
         line.flag(connection.state != .closed and connection.idle_since_ns == world.now_ns, 'I');
+        line.flag(connection.sent_bytes > 0, 'P');
+        line.print(" q[", .{});
+        for (0..connection.queue.count) |position| {
+            if (position > 0) line.print(",", .{});
+            line.print("{d}", .{connection.queue.at(@intCast(position))});
+        }
+        line.print("]", .{});
     }
     line.print(" | ", .{});
     for (0..world.config.servers.len) |server| {

@@ -60,6 +60,49 @@ test "two lookups that need the stream share one connection" {
     try rig.deinit();
 }
 
+test "a stream send that goes short sends the rest, and the next query waits its turn" {
+    var rig: Rig = .{};
+    // Every send moves five octets, so each query takes several, and the second lookup's query
+    // is asked for while the first's is in flight (the stream's rule 9).
+    try rig.init(18, .{ .{ .truncate_per_256 = fixtures.always }, .{ .down = true } }, .{
+        .servers = &.{},
+        .timeout_ns = 1_000_000_000,
+        .attempts = 1,
+        .socket_send_bytes = fixtures.socket_send_bytes_short,
+    });
+    _ = try rig.engine.start(question("one.example."), rig.loop.now());
+    _ = try rig.engine.start(question("two.example."), rig.loop.now());
+    var answered: usize = 0;
+    while (answered < 2) : (answered += 1) {
+        const result = try rig.until_result();
+        try testing.expect(result.outcome == .answer);
+    }
+    try testing.expectEqual(@as(u16, 0), rig.engine.connections[0].queue.count);
+    try testing.expect(!rig.engine.connections[0].sending);
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
+test "a lookup that leaves its connection takes its waiting query out of the queue" {
+    var rig: Rig = .{};
+    try rig.init(19, .{ .{}, .{ .down = true } }, .{ .servers = &.{}, .use_tcp = true, .attempts = 1 });
+    const first = try rig.engine.start(question("one.example."), rig.loop.now());
+    const second = try rig.engine.start(question("two.example."), rig.loop.now());
+    // The connect ends, and both queries are asked for: the first goes, the second waits.
+    _ = try rig.step(fixtures.wait_ns);
+    const connection = &rig.engine.connections[0];
+    try testing.expectEqual(@as(u16, 2), connection.queue.count);
+    rig.engine.cancel(second, rig.loop.now());
+    // The second's query had not started, so it leaves the queue and its buffer comes back.
+    try testing.expectEqual(@as(u16, 1), connection.queue.count);
+    try testing.expectEqual(@as(?u16, first.index), connection.queue.first());
+    try testing.expect(!rig.engine.send_in_flight[second.index]);
+    var ended: usize = 0;
+    while (ended < 2) : (ended += 1) _ = try rig.until_result();
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
 test "a server that refuses the connection costs it the lookup, and the next server answers" {
     var rig: Rig = .{};
     try rig.init(13, .{ .{ .truncate_per_256 = fixtures.always, .tcp = false }, .{} }, .{ .servers = &.{}, .failover_retry_chance = 0 });

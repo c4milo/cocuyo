@@ -15,14 +15,15 @@ const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
 const udp = @import("io_udp.zig");
-const send_module = @import("io_send.zig");
+const queue_module = @import("io_tcp_queue.zig");
 
 pub const Error = error{SocketFailed};
 
-/// One connection, and the bytes it has read and not yet framed. `message_bytes` is what it can
-/// assemble: the longest a length prefix can describe, unless the caller knows its answers are
-/// smaller and would rather not hold 64 KiB a connection.
-pub fn Connection(comptime message_bytes: u32) type {
+/// One connection, the queries waiting to go out on it, and the bytes it has read and not yet
+/// framed. `message_bytes` is what it can assemble: the longest a length prefix can describe,
+/// unless the caller knows its answers are smaller and would rather not hold 64 KiB a
+/// connection. `lookups` is the table's size, which bounds its queue.
+pub fn Connection(comptime message_bytes: u32, comptime lookups: u16) type {
     return struct {
         const Self = @This();
         pub const State = enum { closed, connecting, up };
@@ -47,6 +48,11 @@ pub fn Connection(comptime message_bytes: u32) type {
         /// the event of an opening that is gone is told from the current one's (docs/design.md
         /// §19 step 13, the stream's rule 2). It outlives the connection, for that reason.
         incarnation: u32 = 0,
+        /// The slots whose query waits to go out, oldest first, and how much of the head's has
+        /// gone. The head's is in flight while `sending` (`io_tcp_queue.zig`).
+        queue: queue_module.Queue(lookups) = .{},
+        sent_bytes: u16 = 0,
+        sending: bool = false,
     };
 }
 
@@ -166,33 +172,6 @@ fn family_of(endpoint: cocuyo.Endpoint) rotor.Address.Family {
     };
 }
 
-/// Sends one lookup's framed query on its connection. The bytes carry the length prefix that
-/// `poll` wrote (RFC 7766 §8), and the lookup's own send buffer holds them until the send ends.
-pub fn send(self: anytype, index: usize, bytes: []const u8, now_ns: u64) void {
-    const handle = self.handles[index];
-    const at = self.tcp_connection[index] orelse {
-        self.resolver.on_tcp_failed(handle, now_ns);
-        return;
-    };
-    const connection = &self.connections[at];
-    if (connection.state != .up or connection.descriptor == null) {
-        self.resolver.on_tcp_failed(handle, now_ns);
-        return;
-    }
-    assert(bytes.len <= cocuyo.constants.query_bytes_max);
-    @memcpy(self.send_buffers[index][0..bytes.len], bytes);
-    const operation: rotor.Operation = .send(
-        @TypeOf(self.*).user_data(.tcp_send, index),
-        connection.descriptor.?,
-        self.send_buffers[index][0..bytes.len],
-    );
-    if (self.loop.submit(&.{operation}, &.{}) == 1) {
-        send_module.lend(self, index);
-    } else {
-        self.resolver.on_send_failed(handle, now_ns);
-    }
-}
-
 /// Takes the lookup off its connection unless it is on a stream to that connection's server
 /// (the stream's rule 3): its deadline passed, its connection failed, it moved to the next name,
 /// or it ended. What it asks for next is then asked of the right server's connection.
@@ -203,10 +182,12 @@ pub fn follow(self: anytype, index: usize, now_ns: u64) void {
     release(self, index, now_ns);
 }
 
-/// A lookup has ended or been freed: it is off its connection, which may now be idle.
+/// A lookup has ended or been freed: it is off its connection, which may now be idle, and a
+/// query of its still waiting there goes with it.
 pub fn release(self: anytype, index: usize, now_ns: u64) void {
     const at = self.tcp_connection[index] orelse return;
     self.tcp_connection[index] = null;
+    queue_module.drop(self, at, index);
     const connection = &self.connections[at];
     assert(connection.users >= 1);
     connection.users -= 1;
@@ -338,7 +319,7 @@ fn tell_all(self: anytype, at: u8, now_ns: u64, connected: bool) void {
 }
 
 /// The connection is no good: every lookup on it is told, and it is closed.
-fn fail(self: anytype, at: u8, now_ns: u64) void {
+pub fn fail(self: anytype, at: u8, now_ns: u64) void {
     tell_all(self, at, now_ns, false);
     for (self.tcp_connection[0..], 0..) |held, index| {
         if (held == at) self.tcp_connection[index] = null;
@@ -347,11 +328,12 @@ fn fail(self: anytype, at: u8, now_ns: u64) void {
 }
 
 /// Ends a connection: the operation on it is cancelled, which is what makes the loop let it go
-/// (rotor decision 5, rule 1), and the socket is closed. The events that follow name a
-/// connection that is closed, and are ignored.
+/// (rotor decision 5, rule 1), the queries waiting on it give their buffers back, and the socket
+/// is closed. The events that follow name a connection that is closed, and are ignored.
 fn shut(self: anytype, at: u8) void {
     const connection = &self.connections[at];
     if (connection.handle) |handle| self.loop.cancel(handle);
+    queue_module.release_all(self, at);
     if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);
     connection.* = .{ .incarnation = connection.incarnation };
 }
@@ -386,7 +368,8 @@ pub fn cancel_all(self: anytype) void {
 
 /// Closes every connection's socket, whatever it was doing: the engine is going away.
 pub fn close_all(self: anytype) void {
-    for (self.connections[0..]) |*connection| {
+    for (self.connections[0..], 0..) |*connection, at| {
+        queue_module.release_all(self, @intCast(at));
         if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);
         connection.* = .{ .incarnation = connection.incarnation };
     }

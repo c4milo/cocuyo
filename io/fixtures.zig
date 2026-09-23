@@ -66,6 +66,10 @@ pub const socket_bytes_capped = 1 << 24;
 pub const socket_bytes_refused = 1 << 29;
 pub const local_v6_octets = [_]u8{ 0x20, 0x01, 0x0d, 0xb8 } ++ [_]u8{0} ** 11 ++ [_]u8{9};
 
+/// A send buffer so small that every query goes out on a stream in several sends: the twin moves
+/// no more than it a send.
+pub const socket_send_bytes_short = 5;
+
 /// A connection that can assemble only a small message, so an ordinary answer will not fit.
 pub const tiny_message_bytes = 64;
 

@@ -34,7 +34,7 @@ pub const Error = error{ Malformed, NoSuchOperation, NoBuffer, Full, BufferKept 
 pub const Transport = struct { tcp: bool, per_port: u32 };
 
 /// What ends an operation, as the transcript names it.
-const Outcome = enum { ok, failed, canceled, exhausted };
+const Outcome = enum { ok, failed, canceled, exhausted, short };
 
 pub fn World(comptime slots: u16, comptime conns: u16) type {
     return struct {
@@ -201,7 +201,8 @@ fn finish(self: anytype, position: usize, outcome: Outcome) Error!void {
     const user_data = self.loop.slots[slot].user_data;
     const kind = kind_of(user_data).?;
     var event = switch (outcome) {
-        .ok => rotor.Event.success(user_data, 0),
+        .ok => rotor.Event.success(user_data, moved(self, user_data, kind, false)),
+        .short => rotor.Event.success(user_data, moved(self, user_data, kind, true)),
         .failed => rotor.Event.failure(user_data, failure_of(kind)),
         .canceled => rotor.Event.failure(user_data, .canceled),
         .exhausted => rotor.Event.failure(user_data, .buffers_exhausted),
@@ -212,6 +213,20 @@ fn finish(self: anytype, position: usize, outcome: Outcome) Error!void {
     }
     self.loop.end(slot);
     _ = self.engine.apply(event, self.now_ns);
+}
+
+/// The octets a stream's send reports: what is left of its message, or half of it when short,
+/// which is at least one and fewer than all, since a query is longer than two octets. A send
+/// whose connection is gone, and every other operation, reports none.
+fn moved(self: anytype, user_data: u64, kind: io.Kind, short: bool) u32 {
+    if (kind != .tcp_send) return 0;
+    const slot: u16 = @intCast(user_data & io.constants.index_mask);
+    for (self.engine.connections[0..]) |*connection| {
+        if (!connection.sending or connection.queue.first() != slot) continue;
+        const left: u32 = self.engine.send_lengths[slot] - connection.sent_bytes;
+        return if (short) left / 2 else left;
+    }
+    return 0;
 }
 
 /// A datagram or a chunk on a receive that is gone, before its end: the receive stays.

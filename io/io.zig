@@ -24,6 +24,7 @@ const drive_module = @import("io_drive.zig");
 const events_module = @import("io_events.zig");
 const lifecycle = @import("io_lifecycle.zig");
 const send_module = @import("io_send.zig");
+const tcp_queue = @import("io_tcp_queue.zig");
 
 pub const Options = struct {
     lookups: u16 = constants.lookups_default,
@@ -75,11 +76,13 @@ pub fn Engine(comptime options: Options) type {
         /// Whether the slot's end was handed to `results` already.
         reported: [options.lookups]bool,
         send_buffers: [options.lookups][cocuyo.constants.query_bytes_max]u8,
+        /// How long the query in each slot's buffer is, for a stream's send that went short.
+        send_lengths: [options.lookups]u16,
         outbounds: [options.lookups]rotor.datagram.Outbound,
         sockets: udp.Sockets,
         group: udp.Group(options.group_buffers),
         /// The streams of RFC 7766, and which one each lookup is on (`io_tcp.zig`).
-        connections: [options.tcp_connections]tcp.Connection(options.tcp_message_bytes),
+        connections: [options.tcp_connections]tcp.Connection(options.tcp_message_bytes, options.lookups),
         tcp_connection: [options.lookups]?u8,
         tcp_group: tcp.Group(options.tcp_group_buffers),
         tcp_idle_ns: u64,
@@ -233,6 +236,7 @@ test {
     _ = events_module;
     _ = lifecycle;
     _ = send_module;
+    _ = tcp_queue;
     // The tests drive the engine on the twin, which is the only `rotor` that has scripts.
     if (comptime @hasDecl(rotor, "server")) {
         _ = @import("io_sim_test.zig");

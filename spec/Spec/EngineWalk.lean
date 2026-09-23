@@ -85,7 +85,8 @@ def slotToken (sl : Slot) : String :=
       flag sl.busy 'B' ++ flag sl.held 'H' ++ flag sl.reported 'R'
 
 def connToken (conn : Conn) : String :=
-  s!"{stageName conn.stage} s{conn.server} u{conn.users}" ++ flag conn.idleNow 'I'
+  s!"{stageName conn.stage} s{conn.server} u{conn.users}" ++ flag conn.idleNow 'I' ++
+    flag conn.partSent 'P' ++ s!" q{listToken conn.queue}"
 
 def opToken (op : Op) : String :=
   let kind := match op.kind with
@@ -122,6 +123,7 @@ def stateLine (s : State) : String :=
 
 def outcomeToken : Outcome → String
   | .ok => "ok" | .failed => "failed" | .canceled => "canceled" | .exhausted => "exhausted"
+  | .short => "short"
 
 def replyName : Reply → String
   | .answer => "answer" | .servfail => "servfail" | .nxdomain => "nxdomain"
