@@ -46,6 +46,9 @@ pub const NameLookup = struct {
     ended: ?End,
     /// Whether the caller cancelled, so the lookup's end, whatever it was, is `Canceled`.
     cancelled: bool,
+    /// Whether the lookup said `NoData`, which ends a walk out of sources as `NoData` rather than
+    /// `NameNotFound` (docs/design.md §5).
+    saw_no_data: bool,
 
     pub const End = union(enum) { answered, failed: Failure };
     pub const InitError = error{NoSlot} || core.Error;
@@ -64,6 +67,7 @@ pub const NameLookup = struct {
             .from_hosts = false,
             .ended = null,
             .cancelled = false,
+            .saw_no_data = false,
         };
         try next_source(&self);
         assert(self.ended != null or self.handle != null);
@@ -120,7 +124,7 @@ fn next_source(self: *NameLookup) NameLookup.InitError!void {
         };
         if (found) return;
     }
-    end_failed(self, core.Error.NameNotFound);
+    end_failed(self, if (self.saw_no_data) core.Error.NoData else core.Error.NameNotFound);
 }
 
 /// The hosts table, when there is one and it names the address.
@@ -154,9 +158,14 @@ fn take_answer(self: *NameLookup, answer: *const @import("lookup.zig").Answer) v
 
 fn take_failure(self: *NameLookup, failure: Failure) void {
     // A cancel is the caller's word and ends the walk, even when the lookup failed on its own
-    // before the cancel reached it; anything else lets the next source try.
+    // before the cancel reached it.
     if (failure.err == core.Error.Canceled) return end_failed_with(self, failure);
     if (self.cancelled) return end_failed(self, core.Error.Canceled);
+    // A name that does not exist, or has no `PTR`, lets the next source try; any other failure
+    // says nothing about the name and ends the walk with it (docs/design.md §19 step 14).
+    const negative = failure.err == core.Error.NameNotFound or failure.err == core.Error.NoData;
+    if (!negative) return end_failed_with(self, failure);
+    if (failure.err == core.Error.NoData) self.saw_no_data = true;
     next_source(self) catch return end_failed_with(self, failure);
     if (self.ended == null and self.handle == null) end_failed_with(self, failure);
 }
@@ -289,6 +298,30 @@ test "an address nothing answers for ends as NameNotFound, and a cancel ends as 
     second.cancel();
     try drive(&rig, &second);
     try testing.expectEqual(core.Error.Canceled, second.outcome().?.failed.err);
+    try testing.expectEqual(@as(usize, 0), rig.resolver.in_flight());
+}
+
+test "a server that fails ends the reverse walk with its failure, and NODATA ends it NoData" {
+    // Only a name that does not exist, or has no PTR, lets the next source try; a failure that
+    // says nothing about the name is the walk's end (docs/design.md §19 step 14).
+    var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{}, .attempts = 1 } };
+    rig.open();
+    const address = Address.from_v4(.{ 192, 0, 2, 1 });
+    const cases = [_]struct { reply: fixtures.Reply, err: core.Error }{
+        .{ .reply = fixtures.server_failure, .err = core.Error.AllServersFailed },
+        .{ .reply = fixtures.no_data, .err = core.Error.NoData },
+    };
+    for (cases) |case| {
+        var lookup = try NameLookup.init(&rig.resolver, null, &address);
+        const event = rig.poll().?;
+        rig.resolver.on_sent(event.handle, rig.now_ns);
+        const asked = rig.resolver.lookup_of(lookup.handle.?);
+        const message = rig.build(asked, case.reply);
+        rig.now_ns += 1;
+        _ = rig.resolver.on_datagram(message, asked.server(), rig.now_ns);
+        try drive(&rig, &lookup);
+        try testing.expectEqual(case.err, lookup.outcome().?.failed.err);
+    }
     try testing.expectEqual(@as(usize, 0), rig.resolver.in_flight());
 }
 
