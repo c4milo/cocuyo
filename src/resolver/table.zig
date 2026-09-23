@@ -134,12 +134,12 @@ pub const Resolver = struct {
         return null;
     }
 
-    /// The soonest instant any lookup is waiting for, or null when none is. A caller arms one
-    /// timer for the whole table rather than one per lookup.
-    /// The instant the caller's one timer is armed for: a bound on the soonest deadline, never
-    /// later than it. A lookup that stops waiting leaves the bound where it was, so the timer can
-    /// fire with nothing expired; the poll that follows finds the soonest again and the caller
-    /// arms it anew. Firing early costs a wakeup, and never firing would cost an answer.
+    /// The instant the caller's one timer is armed for, or null when no lookup is waiting: one
+    /// timer for the whole table rather than one per lookup. It is a bound on the soonest
+    /// deadline, never later than it. A lookup that stops waiting leaves the bound where it was,
+    /// so the timer can fire with nothing expired; the poll that follows finds the soonest again
+    /// and the caller arms it anew. Firing early costs a wakeup, and never firing would cost an
+    /// answer.
     pub fn next_deadline_ns(self: *const Resolver) ?u64 {
         return self.soonest_ns;
     }

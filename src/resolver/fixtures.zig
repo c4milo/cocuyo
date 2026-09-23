@@ -160,15 +160,16 @@ pub const server_cookie_fresh = [_]u8{0xf0} ++ [_]u8{0xff} ** 15;
 /// The record rewritten at the harness's cookie: the client's own, or a wrong one.
 const cookie_client_wrong = [_]u8{ 0xba, 0xdc, 0x00, 0xc1, 0xe0, 0x00, 0x00, 0x01 };
 
-/// A reply carrying one A record.
-/// Answers as a memory above the table hands them back: one A record, with a life to spare so
-/// nothing expires while a test runs (docs/design.md §20).
+/// The life a remembered answer has left: enough to spare that nothing expires while a test runs.
 pub const cached_ttl_seconds = 300;
 
+/// Answers as a memory above the table hands them back: one A record, for the address `text`
+/// (docs/design.md §20).
 pub fn cached_a(text: []const u8) wire.Answers {
     return wire.fixtures.answers_address(core.Address.from_text(text).?, cached_ttl_seconds);
 }
 
+/// A reply carrying one A record.
 pub const answer_a: Reply = .{ .records = &record_a, .ancount = 1 };
 pub const answer_ptr: Reply = .{ .records = &record_ptr, .ancount = 1 };
 pub const answer_aaaa: Reply = .{ .records = &record_aaaa, .ancount = 1 };

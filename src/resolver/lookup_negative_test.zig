@@ -3,18 +3,13 @@
 const std = @import("std");
 const testing = std.testing;
 const core = @import("core");
-const Config = core.Config;
 const fixtures = @import("fixtures.zig");
 
 const servers = fixtures.servers_two;
 const seed = fixtures.seed;
 
-fn harness_for(config: Config) !fixtures.Harness {
-    return .{ .config = config };
-}
-
 test "a negative answer's SOA minimum reaches the failure, for NXDOMAIN and for NODATA" {
-    var harness = try harness_for(.{ .servers = &servers });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     _ = harness.respond(fixtures.name_error_soa, servers[0].endpoint);
@@ -22,7 +17,7 @@ test "a negative answer's SOA minimum reaches the failure, for NXDOMAIN and for 
     try testing.expectEqual(core.Error.NameNotFound, failure.err);
     try testing.expectEqual(@as(u32, 60), failure.negative_ttl_seconds);
 
-    var no_data = try harness_for(.{ .servers = &servers });
+    var no_data: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try no_data.start("example.com.", .a, seed);
     _ = no_data.send();
     _ = no_data.respond(fixtures.no_data_soa, servers[0].endpoint);
@@ -32,13 +27,13 @@ test "a negative answer's SOA minimum reaches the failure, for NXDOMAIN and for 
 }
 
 test "a negative answer with no SOA, or a broken one, carries a TTL of zero" {
-    var harness = try harness_for(.{ .servers = &servers });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     _ = harness.respond(fixtures.name_error, servers[0].endpoint);
     try testing.expectEqual(@as(u32, 0), harness.poll().failed.negative_ttl_seconds);
 
-    var broken = try harness_for(.{ .servers = &servers });
+    var broken: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try broken.start("example.com.", .a, seed);
     _ = broken.send();
     _ = broken.respond(fixtures.name_error_soa_broken, servers[0].endpoint);
@@ -48,7 +43,7 @@ test "a negative answer with no SOA, or a broken one, carries a TTL of zero" {
 }
 
 test "a failure that is not a negative answer carries a TTL of zero" {
-    var harness = try harness_for(.{ .servers = &servers, .attempts = 1 });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .attempts = 1 } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     _ = harness.respond(fixtures.server_failure, servers[0].endpoint);

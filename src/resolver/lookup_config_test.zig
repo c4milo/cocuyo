@@ -17,10 +17,6 @@ const policy = @import("lookup_policy.zig");
 const servers = fixtures.servers_two;
 const seed = fixtures.seed;
 
-fn harness_for(config: Config) fixtures.Harness {
-    return .{ .config = config };
-}
-
 /// Runs a lookup over TCP up to the point where the fake server may answer.
 fn connect_and_send(harness: *fixtures.Harness) Endpoint {
     const action = harness.poll();
@@ -30,7 +26,7 @@ fn connect_and_send(harness: *fixtures.Harness) Endpoint {
 }
 
 test "use_tcp sends every query over TCP, the retries included" {
-    var harness = harness_for(.{ .servers = &servers, .use_tcp = true });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .use_tcp = true } };
     try harness.start("example.com.", .a, seed);
     try testing.expectEqual(State.tcp_needed, harness.lookup.state);
     _ = connect_and_send(&harness);
@@ -40,13 +36,13 @@ test "use_tcp sends every query over TCP, the retries included" {
 }
 
 test "ignore_truncation takes a truncated UDP answer as it is" {
-    var harness = harness_for(.{ .servers = &servers, .ignore_truncation = true });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .ignore_truncation = true } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a_truncated, servers[0].endpoint));
     try testing.expectEqual(@as(usize, 1), harness.poll().done.addresses.len);
 
-    var asks_again = harness_for(.{ .servers = &servers });
+    var asks_again: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try asks_again.start("example.com.", .a, seed);
     _ = asks_again.send();
     try testing.expectEqual(Verdict.accepted, asks_again.respond(fixtures.answer_a_truncated, servers[0].endpoint));
@@ -54,7 +50,7 @@ test "ignore_truncation takes a truncated UDP answer as it is" {
 }
 
 test "recursion_desired off clears the RD bit of the query" {
-    var harness = harness_for(.{ .servers = &servers, .recursion_desired = false });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .recursion_desired = false } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     const header = try wire.header.parse(harness.query[0..harness.query_bytes]);
@@ -62,7 +58,7 @@ test "recursion_desired off clears the RD bit of the query" {
 }
 
 test "check_response off ends the lookup with the server's error rather than moving on" {
-    var harness = harness_for(.{ .servers = &servers, .check_response = false });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .check_response = false } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.server_failure, servers[0].endpoint));
@@ -72,7 +68,7 @@ test "check_response off ends the lookup with the server's error rather than mov
 }
 
 test "primary asks the first server alone" {
-    var harness = harness_for(.{ .servers = &servers, .primary = true, .attempts = 1 });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .primary = true, .attempts = 1 } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.server_failure, servers[0].endpoint));
@@ -86,7 +82,7 @@ test "a server's own TCP port is where the connection goes, and where its answer
         .{ .endpoint = servers[0].endpoint, .tcp_port = fixtures.port_other },
         servers[1],
     };
-    var harness = harness_for(.{ .servers = &ported, .use_tcp = true });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &ported, .use_tcp = true } };
     try harness.start("example.com.", .a, seed);
     const connected = connect_and_send(&harness);
     try testing.expectEqual(@as(u16, fixtures.port_other), connected.port);
@@ -105,7 +101,7 @@ test "the timeout cap is the configuration's, not the constant's" {
 }
 
 test "a configuration with no server fails every lookup at once" {
-    var harness = harness_for(.{ .servers = &.{} });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &.{} } };
     try harness.start("example.com.", .a, seed);
     try testing.expectEqual(State.failed, harness.lookup.state);
     try testing.expectEqual(core.Error.NoServers, harness.poll().failed.err);

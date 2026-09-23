@@ -35,10 +35,7 @@ pub fn poll(self: *Lookup, now_ns: u64, out: []u8) Action {
 /// Whether the wait is over. Only a state that is waiting can expire, so a lookup nobody polls
 /// for an hour does not lose its answer.
 fn expired(self: *const Lookup, now_ns: u64) bool {
-    return switch (self.state) {
-        .awaiting_udp, .awaiting_tcp, .connecting_tcp => now_ns >= self.deadline_ns,
-        .query_ready, .tcp_needed, .tcp_ready, .done, .failed => false,
-    };
+    return self.is_waiting() and now_ns >= self.deadline_ns;
 }
 
 fn send_udp(self: *Lookup, out: []u8) Action {

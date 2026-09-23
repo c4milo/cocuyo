@@ -74,7 +74,7 @@ pub const NameLookup = struct {
     /// then its slot is released here.
     pub fn on_event(self: *NameLookup, event: Event) bool {
         const mine = self.handle orelse return false;
-        if (@as(u32, @bitCast(mine)) != @as(u32, @bitCast(event.handle))) return false;
+        if (mine != event.handle) return false;
         switch (event.action) {
             .done => |answer| if (self.cancelled) end_failed(self, core.Error.Canceled) else take_answer(self, &answer),
             .failed => |failure| take_failure(self, failure),
@@ -305,5 +305,31 @@ test "a cancel after the answer came, before it was routed, still ends as Cancel
     lookup.cancel();
     try drive(&rig, &lookup);
     try testing.expectEqual(core.Error.Canceled, lookup.outcome().?.failed.err);
+    try testing.expectEqual(@as(usize, 0), rig.resolver.in_flight());
+}
+
+test "an end that is another lookup's is refused and left for its owner" {
+    var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
+    rig.open();
+    const address = Address.from_v4(.{ 192, 0, 2, 1 });
+    var first = try NameLookup.init(&rig.resolver, null, &address);
+    var second = try NameLookup.init(&rig.resolver, null, &address);
+    second.cancel();
+    var polls: usize = 0;
+    while (second.outcome() == null and polls < fixtures.address_polls_max) : (polls += 1) {
+        const event = rig.poll() orelse break;
+        switch (event.action) {
+            .send_udp => rig.resolver.on_sent(event.handle, rig.now_ns),
+            .done, .failed => {
+                try testing.expect(!first.on_event(event));
+                try testing.expect(second.on_event(event));
+            },
+            else => return error.UnexpectedAction,
+        }
+    }
+    try testing.expectEqual(core.Error.Canceled, second.outcome().?.failed.err);
+    try testing.expectEqual(@as(?NameOutcome, null), first.outcome());
+    first.cancel();
+    try drive(&rig, &first);
     try testing.expectEqual(@as(usize, 0), rig.resolver.in_flight());
 }

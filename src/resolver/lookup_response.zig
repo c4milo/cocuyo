@@ -218,7 +218,6 @@ fn collect(self: *Lookup, message: []const u8, cased: *const core.Name, now_ns: 
 // DNS-0x20 on, which is what a caller gets by default.
 
 const testing = std.testing;
-const Config = core.Config;
 const Address = core.Address;
 const Name = core.Name;
 const Kind = core.Kind;
@@ -228,12 +227,8 @@ const fixtures = @import("fixtures.zig");
 const servers = fixtures.servers_two;
 const seed = fixtures.seed;
 
-fn harness_for(config: Config) !fixtures.Harness {
-    return .{ .config = config };
-}
-
 test "a response that matches is accepted and answers the lookup" {
-    var harness = try harness_for(.{ .servers = &servers });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a, servers[0].endpoint));
@@ -246,7 +241,7 @@ test "a response that matches is accepted and answers the lookup" {
 }
 
 test "a response with the wrong id is ignored and the wait stands" {
-    var harness = try harness_for(.{ .servers = &servers });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     var reply = fixtures.answer_a;
@@ -256,7 +251,7 @@ test "a response with the wrong id is ignored and the wait stands" {
 }
 
 test "a response from another server, or another port, is ignored" {
-    var harness = try harness_for(.{ .servers = &servers });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.answer_a, servers[1].endpoint));
@@ -266,7 +261,7 @@ test "a response from another server, or another port, is ignored" {
 }
 
 test "a response echoing the question with its case folded is ignored" {
-    var harness = try harness_for(.{ .servers = &servers });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     var reply = fixtures.answer_a;
@@ -276,14 +271,14 @@ test "a response echoing the question with its case folded is ignored" {
 
     // The same reply is accepted when the caller turned 0x20 off, which shows the fold is the
     // only thing the check refused.
-    var without = try harness_for(.{ .servers = &servers, .mix_case = false });
+    var without: fixtures.Harness = .{ .config = .{ .servers = &servers, .mix_case = false } };
     try without.start("example.com.", .a, seed);
     _ = without.send();
     try testing.expectEqual(Verdict.accepted, without.respond(reply, servers[0].endpoint));
 }
 
 test "a response to a question nobody asked is ignored" {
-    var harness = try harness_for(.{ .servers = &servers });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     var reply = fixtures.answer_a;
@@ -292,7 +287,7 @@ test "a response to a question nobody asked is ignored" {
 }
 
 test "a truncated response sends the lookup to TCP" {
-    var harness = try harness_for(.{ .servers = &servers });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.truncated, servers[0].endpoint));
@@ -301,7 +296,7 @@ test "a truncated response sends the lookup to TCP" {
 
 test "NXDOMAIN moves to the next candidate, and the last one fails the lookup" {
     const search = [_]Name{try Name.from_text("one.net")};
-    var harness = try harness_for(.{ .servers = &servers, .search = &search, .ndots = 1 });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .search = &search, .ndots = 1 } };
     try harness.start("example.com", .a, seed);
     _ = harness.send();
     _ = harness.respond(fixtures.name_error, servers[0].endpoint);
@@ -312,7 +307,7 @@ test "NXDOMAIN moves to the next candidate, and the last one fails the lookup" {
 }
 
 test "NOERROR with no record of this type is NODATA, and ends as NoData" {
-    var harness = try harness_for(.{ .servers = &servers });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.no_data, servers[0].endpoint));
@@ -321,7 +316,7 @@ test "NOERROR with no record of this type is NODATA, and ends as NoData" {
 }
 
 test "SERVFAIL moves to the next server and is what the lookup fails with" {
-    var harness = try harness_for(.{ .servers = &servers, .attempts = 1 });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .attempts = 1 } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     _ = harness.respond(fixtures.server_failure, servers[0].endpoint);
@@ -332,7 +327,7 @@ test "SERVFAIL moves to the next server and is what the lookup fails with" {
 }
 
 test "FORMERR asks the same server again without EDNS0, and only once" {
-    var harness = try harness_for(.{ .servers = &servers });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     _ = harness.respond(fixtures.format_error, servers[0].endpoint);
@@ -346,7 +341,7 @@ test "FORMERR asks the same server again without EDNS0, and only once" {
 }
 
 test "a CNAME with no target asks the same server about where the chain went" {
-    var harness = try harness_for(.{ .servers = &servers });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     _ = harness.respond(fixtures.cname_only, servers[0].endpoint);
@@ -357,7 +352,7 @@ test "a CNAME with no target asks the same server about where the chain went" {
 }
 
 test "a CNAME re-query draws a new transaction" {
-    var harness = try harness_for(.{ .servers = &servers });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     const before = harness.lookup.transaction;
@@ -368,7 +363,7 @@ test "a CNAME re-query draws a new transaction" {
 }
 
 test "a chain resolved in one message answers with the canonical name" {
-    var harness = try harness_for(.{ .servers = &servers });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     _ = harness.respond(fixtures.cname_then_a, servers[0].endpoint);
@@ -379,7 +374,7 @@ test "a chain resolved in one message answers with the canonical name" {
 }
 
 test "a record for a name nobody asked about is not part of the answer" {
-    var harness = try harness_for(.{ .servers = &servers });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     _ = harness.respond(fixtures.injected, servers[0].endpoint);
@@ -389,7 +384,7 @@ test "a record for a name nobody asked about is not part of the answer" {
 }
 
 test "a malformed answer section is ignored and leaves the name alone" {
-    var harness = try harness_for(.{ .servers = &servers });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     const before = harness.lookup.current;
@@ -399,7 +394,7 @@ test "a malformed answer section is ignored and leaves the name alone" {
 }
 
 test "a response arriving after the lookup settled is ignored" {
-    var harness = try harness_for(.{ .servers = &servers });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     _ = harness.respond(fixtures.answer_a, servers[0].endpoint);
@@ -408,7 +403,7 @@ test "a response arriving after the lookup settled is ignored" {
 }
 
 test "a flood of unmatched datagrams neither extends nor shortens the wait" {
-    var harness = try harness_for(.{ .servers = &servers });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     const deadline = harness.lookup.deadline_ns;
@@ -425,7 +420,7 @@ test "a flood of unmatched datagrams neither extends nor shortens the wait" {
 test "a truncated response over TCP is not a reason to connect again" {
     // RFC 7766 §5: a stream has no size limit to overflow, so TC over TCP means nothing. A lookup
     // that took it seriously would connect again and again to the same server.
-    var harness = try harness_for(.{ .servers = &servers });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     _ = harness.respond(fixtures.truncated, servers[0].endpoint);
@@ -446,7 +441,7 @@ test "a CNAME chain that loops is ignored, and the name is left where it was" {
     // The chain moves before the hop bound stops it, which is the one path where the collector
     // has to put the name back: a lookup left pointing halfway around a loop would ask the next
     // server about a name the caller never mentioned.
-    var harness = try harness_for(.{ .servers = &servers });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     const before = harness.lookup.current;
@@ -466,7 +461,7 @@ test "a chain name compressed into the question comes back without cocuyo's own 
     const seed_count = 16;
     var lookup_seed: u64 = 0;
     while (lookup_seed < seed_count) : (lookup_seed += 1) {
-        var harness = try harness_for(.{ .servers = &servers });
+        var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
         try harness.start("example.com.", .a, lookup_seed);
         _ = harness.send();
         _ = harness.respond(fixtures.cname_into_question, servers[0].endpoint);

@@ -125,9 +125,9 @@ pub const Flags = packed struct(u8) {
 
 pub const Lookup = struct {
     // The fields `poll`, the timer and the response check read. They are declared together, but
-    // Zig orders a struct's fields as it likes, and it does reorder these: the measurement in the
-    // test at the bottom of this file found `state` well past the names. What keeps the
-    // demultiplexer cheap is the side table of §11, not this declaration order.
+    // Zig orders a struct's fields as it likes, and it does reorder these: the measurement that
+    // pinned a lookup's first size found `state` well past the names (docs/design.md §9). What
+    // keeps the demultiplexer cheap is the side table of §11, not this declaration order.
     state: State,
     flags: Flags,
     /// Where the walk over the servers stands: a position in `order`, not a configured server.

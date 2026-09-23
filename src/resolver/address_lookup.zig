@@ -204,18 +204,14 @@ pub const AddressLookup = struct {
 
     fn pending_of(self: *AddressLookup, handle: Handle) ?*Pending {
         if (self.a.handle) |mine| {
-            if (handle_equal(mine, handle)) return &self.a;
+            if (mine == handle) return &self.a;
         }
         if (self.aaaa.handle) |mine| {
-            if (handle_equal(mine, handle)) return &self.aaaa;
+            if (mine == handle) return &self.aaaa;
         }
         return null;
     }
 };
-
-fn handle_equal(a: Handle, b: Handle) bool {
-    return @as(u32, @bitCast(a)) == @as(u32, @bitCast(b));
-}
 
 test {
     _ = walk;

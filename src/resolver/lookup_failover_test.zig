@@ -10,12 +10,8 @@ const Verdict = @import("lookup.zig").Verdict;
 const servers = fixtures.servers_two;
 const seed = fixtures.seed;
 
-fn harness_for(config: core.Config) fixtures.Harness {
-    return .{ .config = config };
-}
-
 test "a server that timed out is asked last by the next lookup on the same table" {
-    var harness = harness_for(.{ .servers = &servers, .failover_retry_chance = 0 });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .failover_retry_chance = 0 } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     harness.now_ns += harness.config.timeout_ns;
@@ -36,7 +32,7 @@ test "a server that timed out is asked last by the next lookup on the same table
 }
 
 test "an answer of any kind resets a server's failures" {
-    var harness = harness_for(.{ .servers = &servers, .failover_retry_chance = 0 });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .failover_retry_chance = 0 } };
     try harness.start("example.com.", .a, seed);
     harness.servers.record_failure(0, 0);
     _ = harness.send();
@@ -51,14 +47,14 @@ test "an answer of any kind resets a server's failures" {
 }
 
 test "a failed send and a failed connection are failures of the server they were for" {
-    var harness = harness_for(.{ .servers = &servers, .failover_retry_chance = 0 });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .failover_retry_chance = 0 } };
     try harness.start("example.com.", .a, seed);
     _ = harness.poll();
     harness.lookup.on_send_failed(harness.now_ns);
     try testing.expectEqual(@as(u8, 1), harness.servers.failures(0));
     try testing.expectEqual(@as(u8, 0), harness.servers.failures(1));
 
-    var over_tcp = harness_for(.{ .servers = &servers, .use_tcp = true, .failover_retry_chance = 0 });
+    var over_tcp: fixtures.Harness = .{ .config = .{ .servers = &servers, .use_tcp = true, .failover_retry_chance = 0 } };
     try over_tcp.start("example.com.", .a, seed);
     _ = over_tcp.poll();
     over_tcp.lookup.on_tcp_failed(over_tcp.now_ns);
@@ -66,7 +62,7 @@ test "a failed send and a failed connection are failures of the server they were
 }
 
 test "the failure a lookup reports names the configured server it was on" {
-    var harness = harness_for(.{ .servers = &servers, .check_response = false, .failover_retry_chance = 0 });
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .check_response = false, .failover_retry_chance = 0 } };
     try harness.start("example.com.", .a, seed);
     harness.servers.record_failure(0, 0);
     _ = harness.send();

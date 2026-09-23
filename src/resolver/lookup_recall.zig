@@ -29,7 +29,8 @@ pub fn answer(
 ) void {
     assert(before_first_query(lookup));
     assert(!lookup.flags.aliased);
-    lookup.answers = answers.*;
+    // Only the storage in use is copied, as a cache put does, not the whole union.
+    lookup.answers.assign(answers, lookup.question.kind);
     lookup.answers.ttl_seconds = ttl_seconds;
     if (canonical) |name| {
         lookup.current = name.*;

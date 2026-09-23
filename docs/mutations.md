@@ -750,7 +750,8 @@ the fixture now carries exactly the octets its prefix needs.
 ## Step 14, the reverse lookup
 
 Design §19 step 14's `NameLookup`, which settles §17 question 12. Broken against
-`zig build test-resolver`. Five mutations, five `CAUGHT`.
+`zig build test-resolver`. Six mutations, six `CAUGHT`. H6 was `NOT CAUGHT` until the cleanup of
+2026-09-23 wrote a test for it: no test had handed a `NameLookup` an end that was not its own.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
@@ -759,6 +760,7 @@ Design §19 step 14's `NameLookup`, which settles §17 question 12. Broken again
 | H3 | a failure ends the walk rather than trying the next source | §19 step 14 | the DNS-first test | CAUGHT |
 | H4 | a cancel is answered by the next source | §19 step 14 | the cancel test | CAUGHT |
 | H5 | the question is built for a name rather than an address | `Question.from_address` | the PTR question test | CAUGHT |
+| H6 | an end for another lookup's handle is taken | an end reaches only its own lookup | **the other-lookup test** | CAUGHT |
 
 One check went the other way and was removed. A lookup that is done carries a name, because a
 response with no record of the type asked for is NODATA and the state machine fails it (§5), so

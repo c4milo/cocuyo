@@ -12,10 +12,6 @@ const State = @import("lookup.zig").State;
 const servers = fixtures.servers_two;
 const seed = fixtures.seed;
 
-fn harness_for() fixtures.Harness {
-    return .{ .config = .{ .servers = &servers } };
-}
-
 /// The COOKIE option of the query the harness last sent, or null when it carried none.
 fn query_cookie(harness: *const fixtures.Harness) !?wire.CookieView {
     const body = harness.query[harness.query_body_offset..harness.query_bytes];
@@ -25,14 +21,14 @@ fn query_cookie(harness: *const fixtures.Harness) !?wire.CookieView {
 }
 
 test "the first query carries the client cookie alone, and a lookup without EDNS carries none" {
-    var harness = harness_for();
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     const cookie = (try query_cookie(&harness)).?;
     try testing.expectEqualSlices(u8, &harness.servers.state(0).cookie_client, cookie.client);
     try testing.expectEqual(@as(usize, 0), cookie.server.len);
 
-    var plain = harness_for();
+    var plain: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try plain.start("example.com.", .a, seed);
     plain.lookup.flags.edns_enabled = false;
     _ = plain.send();
@@ -44,7 +40,7 @@ test "the first query carries the client cookie alone, and a lookup without EDNS
 }
 
 test "a response echoing the cookie is accepted, its server cookie learned, and the next query carries it" {
-    var harness = harness_for();
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     try testing.expect(!harness.servers.expecting(0));
@@ -57,7 +53,7 @@ test "a response echoing the cookie is accepted, its server cookie learned, and 
 }
 
 test "a wrong client cookie, or a malformed option, is ignored and teaches nothing" {
-    var harness = harness_for();
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.answer_a_cookie_wrong, servers[0].endpoint));
@@ -68,12 +64,12 @@ test "a wrong client cookie, or a malformed option, is ignored and teaches nothi
 }
 
 test "no cookie is accepted before one is learned, and ignored after" {
-    var harness = harness_for();
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a_opt_only, servers[0].endpoint));
 
-    var learned = harness_for();
+    var learned: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try learned.start("example.com.", .a, seed);
     _ = learned.send();
     try testing.expectEqual(Verdict.accepted, learned.respond(fixtures.cname_only_cookie, servers[0].endpoint));
@@ -84,7 +80,7 @@ test "no cookie is accepted before one is learned, and ignored after" {
 }
 
 test "BADCOOKIE is retried once with the fresh cookie, then over TCP, then the next server" {
-    var harness = harness_for();
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.bad_cookie_fresh, servers[0].endpoint));

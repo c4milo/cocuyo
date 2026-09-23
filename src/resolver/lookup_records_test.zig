@@ -12,12 +12,8 @@ const fixtures = @import("fixtures.zig");
 const servers = fixtures.servers_two;
 const seed = fixtures.seed;
 
-fn harness_for() fixtures.Harness {
-    return .{ .config = .{ .servers = &servers } };
-}
-
 test "a lookup for MX ends with the record kept and readable" {
-    var harness = harness_for();
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .mx, seed);
     _ = harness.send();
     _ = harness.respond(fixtures.answer_mx, servers[0].endpoint);
@@ -34,7 +30,7 @@ test "a lookup for MX ends with the record kept and readable" {
 }
 
 test "an ANY lookup keeps every record the name owns, each with its own type" {
-    var harness = harness_for();
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .any, seed);
     _ = harness.send();
     _ = harness.respond(fixtures.answer_any, servers[0].endpoint);
@@ -46,7 +42,7 @@ test "an ANY lookup keeps every record the name owns, each with its own type" {
 }
 
 test "a CNAME question is answered by the CNAME and follows nothing" {
-    var harness = harness_for();
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .cname, seed);
     _ = harness.send();
     _ = harness.respond(fixtures.cname_only, servers[0].endpoint);
@@ -58,7 +54,7 @@ test "a CNAME question is answered by the CNAME and follows nothing" {
 }
 
 test "an address lookup has no records view, and a PTR lookup has names" {
-    var harness = harness_for();
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     _ = harness.respond(fixtures.answer_a, servers[0].endpoint);
