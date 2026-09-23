@@ -99,6 +99,31 @@ while (true) {
 For many lookups at once, `Resolver` does the same with one `poll` for the whole table, one
 deadline to arm one timer, and one `on_datagram` call per datagram received.
 
+## An event loop to drive it: rotor
+
+cocuyo works with any loop, and it was built alongside one:
+[rotor](https://github.com/c4milo/rotor), a completion-based event loop for Zig by the same author.
+rotor runs on io_uring on Linux, falling back to epoll where io_uring is refused, as in a container
+under Docker's default security profile, and on kqueue on macOS.
+
+- **One lookup over rotor.** [`examples/udp_rotor.zig`](examples/udp_rotor.zig) drives the same
+  lookup as the blocking example, over rotor's loop. It shows the three things a completion loop
+  changes: a send is queued and completes later, one receive delivers every datagram, and replies
+  arrive in buffers the loop picks. cocuyo cannot tell the two examples apart.
+
+  ```bash
+  zig build example-udp-rotor -- example.com
+  ```
+
+- **Many lookups over rotor.** The engine in [`io/`](io) runs a whole `Resolver` over rotor: one
+  UDP socket per server with source-port rotation, one reused TCP connection per server, one timer
+  for every deadline, and the cache in front. It is tested on a deterministic twin of rotor, and end
+  to end over rotor itself on macOS and Linux; the throughput comparison with c-ares below runs on
+  it. It is not exported as a library yet, and will be when a consumer asks for it.
+
+rotor is optional. cocuyo does not depend on it: a project that depends on cocuyo fetches nothing
+else, and only this repository's examples and benchmarks fetch rotor.
+
 ## Quick start
 
 Add cocuyo to your package:
@@ -137,7 +162,7 @@ const event = table.poll(now_ns, &query).?; // event.action is .send_udp: the by
 ```
 
 [`examples/`](examples) holds two complete programs that resolve real names against real servers:
-one over a blocking UDP socket, one over a completion-based event loop.
+one over a blocking UDP socket, one over [rotor](#an-event-loop-to-drive-it-rotor).
 
 > **The seed must come from a cryptographically secure random source, never from the clock.**
 > cocuyo draws the transaction id, the source-port hint and the DNS-0x20 case pattern from it. A
@@ -213,9 +238,9 @@ options, cookies, failover, the hosts file and a cache. What it does not cover, 
 
 - **The platform's own configuration.** c-ares also reads the macOS system configuration, the
   Windows registry and Android's settings. cocuyo reads `resolv.conf` alone.
-- **A ready-made event loop.** c-ares ships one. cocuyo's engine over the rotor event loop exists
-  and is tested, with one reused TCP connection per server, but it is not exported yet. Until it
-  is, you drive the library yourself, as the examples do.
+- **A ready-made event loop.** c-ares ships one. cocuyo's engine over
+  [rotor](#an-event-loop-to-drive-it-rotor) exists and is tested, but it is not exported yet.
+  Until it is, you drive the library yourself, as the examples do.
 - **A C interface.** cocuyo is a Zig library. There is no C header.
 - **Windows.** The library does no I/O of its own, so it depends on no platform; the engine runs
   on macOS and Linux.
@@ -245,6 +270,7 @@ that depends on cocuyo, and every unit test. Other steps:
 | --- | --- |
 | `zig build examples` | Build the examples into `zig-out/bin` |
 | `zig build example-udp-blocking -- example.com` | Resolve a name over a blocking socket |
+| `zig build example-udp-rotor -- example.com` | Resolve a name over rotor's event loop |
 | `zig build bench` | The microbenchmarks and the cache replays |
 | `zig build bench-cares` | The comparison with the installed c-ares |
 | `zig build bench-log -- <dataset.csv>` | The cache over a real DNS log |
