@@ -5,27 +5,28 @@
 //! question a cache exists to answer. This replays a stream of questions through the real
 //! `cocuyo.Cache` at several sizes and reports the hit rate, the evictions and the expiries.
 //!
-//! **The trace is synthetic, and that is the weakness of this table.** No DNS trace was measured
-//! to make it. What it models is stated below and nothing else: a popularity distribution, a TTL
-//! mixture and an arrival rate, each a named constant a reader can disagree with. A real trace
-//! replaces `Trace.next` and nothing else, so the day one exists the table can be remade.
+//! **The trace is synthetic, and that is the weakness of this table.** What it models is stated
+//! below and nothing else: a popularity distribution, a TTL mixture and an arrival rate, each a
+//! named constant a reader can disagree with. The trace is written down once as a
+//! `trace_recording.Recording` and every replay reads that, so `log_replay.zig` puts a real log
+//! through the same replays.
 const std = @import("std");
 const assert = std.debug.assert;
-const cocuyo = @import("cocuyo");
-const cache_module = cocuyo.cache;
-const Question = cocuyo.Question;
-const wire = cocuyo.wire;
 const policy = @import("cache_policy/cache_policy.zig");
 const cares_policy = @import("cache_policy/cache_policy_cares.zig");
 const s3fifo_policy = @import("cache_policy/cache_policy_s3fifo.zig");
 const tinylfu_policy = @import("cache_policy/cache_policy_tinylfu.zig");
 const expected_policy = @import("cache_policy/cache_policy_expected.zig");
+const recording_module = @import("trace_recording.zig");
+const cache_replay = @import("cache_replay.zig");
+const optimal_module = @import("cache_optimal.zig");
+const Outcome = recording_module.Outcome;
+const Recording = recording_module.Recording;
+const replay_model = recording_module.replay_model;
 
 /// The sizes swept, in slots. The smallest is a cache too small to hold the working set and the
 /// largest holds it whole, so the table shows where the curve bends.
-const sizes = [_]usize{ 64, 256, 1024, 4096, 16384 };
-const slots_max = sizes[sizes.len - 1];
-const keys_max = slots_max * cache_module.constants.keys_per_slot_min;
+pub const sizes = [_]usize{ 64, 256, 1024, 4096, 16384 };
 
 /// How many distinct names the trace draws from, and how many questions it asks. A resolver on a
 /// laptop sees a few tens of thousands of distinct names in a day.
@@ -43,26 +44,12 @@ const arrival_ns = 10 * std.time.ns_per_ms;
 
 /// The TTL mixture, in seconds, and how many of the thousand names take each. A minute is what a
 /// CDN gives, five minutes what most zones give, and an hour what infrastructure names give.
-const ttl_seconds = [_]u32{ 60, 300, 3600 };
+pub const ttl_seconds = [_]u32{ 60, 300, 3600 };
 const ttl_shares = [_]u32{ 400, 400, 200 };
-const ttl_share_total = 1000;
+pub const ttl_share_total = 1000;
 
-/// The name every request asks about: `n` and five decimal digits, which covers the names above.
-const name_prefix = "n";
-const name_suffix = ".example.";
+/// The name every request asks about has five decimal digits, which covers the names above.
 const name_digits = 5;
-
-/// What the replay counts.
-const Outcome = struct {
-    hits: u64 = 0,
-    misses: u64 = 0,
-
-    fn rate_percent(self: Outcome) f64 {
-        const total: f64 = @floatFromInt(self.hits + self.misses);
-        if (total == 0) return 0;
-        return @as(f64, @floatFromInt(self.hits)) * 100.0 / total;
-    }
-};
 
 /// The questions asked, in order. Deterministic: one seed replays byte for byte, which is the
 /// rule the library keeps and a bench that decides a policy should keep too.
@@ -113,8 +100,17 @@ fn build_weights(into: *[names_distinct]f64) void {
 
 /// The TTL a name keeps for the whole run, by the shares above. A name's TTL does not change
 /// under it, which is what a zone's own configuration does.
+///
+/// The share follows the name's rank, and the names are drawn in rank order, so the most popular
+/// 40% of names take a minute, the next 40% five minutes and the least popular 20% an hour. That
+/// is an assumption of its own, and `log_replay.zig` measures a real log both ways.
 fn ttl_of(index: usize) u32 {
-    const bucket: u32 = @intCast((index * ttl_share_total / names_distinct) % ttl_share_total);
+    return ttl_for_share(@intCast((index * ttl_share_total / names_distinct) % ttl_share_total));
+}
+
+/// The TTL of a name whose place in the mixture is `bucket`, out of `ttl_share_total`.
+pub fn ttl_for_share(bucket: u32) u32 {
+    std.debug.assert(bucket < ttl_share_total);
     var edge: u32 = 0;
     for (ttl_shares, ttl_seconds) |share, seconds| {
         edge += share;
@@ -123,31 +119,7 @@ fn ttl_of(index: usize) u32 {
     return ttl_seconds[ttl_seconds.len - 1];
 }
 
-fn question_of(index: usize, text: *[name_prefix.len + name_digits + name_suffix.len]u8) Question {
-    @memcpy(text[0..name_prefix.len], name_prefix);
-    var value = index;
-    var at = name_prefix.len + name_digits;
-    while (at > name_prefix.len) {
-        at -= 1;
-        text[at] = '0' + @as(u8, @intCast(value % 10));
-        value /= 10;
-    }
-    @memcpy(text[name_prefix.len + name_digits ..], name_suffix);
-    return Question.from_text(text, .a) catch unreachable;
-}
-
-/// One answer, reused: this table counts hits, not what they carry.
-fn answers_with(ttl: u32) wire.Answers {
-    var out = wire.Answers.init(.a);
-    out.items.addresses[0] = cocuyo.Address.from_text("192.0.2.1").?;
-    out.count = 1;
-    out.ttl_seconds = ttl;
-    return out;
-}
-
 var weights: [names_distinct]f64 = undefined;
-var slots: [slots_max]cache_module.Slot = undefined;
-var keys: [keys_max]cache_module.Key = undefined;
 var sieve_model: policy.Sieve(names_distinct) = undefined;
 var s3fifo_model: s3fifo_policy.S3Fifo(names_distinct) = undefined;
 var cares_model: cares_policy.Unbounded(names_distinct) = undefined;
@@ -158,163 +130,75 @@ var expected_model: expected_policy.ExpectedHits(names_distinct) = undefined;
 /// path, and the number the replay reports beside reading them all.
 const expected_draws = 16;
 
-/// The trace written down once, and each request's link to the next request for the same name,
-/// which is what the optimal replay reads and no real cache can.
+/// The trace written down once: `record` fills these, and every replay reads them.
 var trace_names: [requests]policy.Id = undefined;
+var trace_times_ns: [requests]u64 = undefined;
 var trace_next: [requests]u32 = undefined;
+var trace_lives_ns: [names_distinct]u64 = undefined;
 var last_seen: [names_distinct]u32 = undefined;
-const no_request = std.math.maxInt(u32);
-
-/// The optimal replay's state: what it holds, until when, and how soon each name is needed.
-var optimal_resident: [names_distinct]bool = undefined;
-var optimal_expires_ns: [names_distinct]u64 = undefined;
-var optimal_keys: [names_distinct]u64 = undefined;
-var optimal_heap: policy.KeyedHeap(names_distinct) = undefined;
+var optimal: optimal_module.Optimal(names_distinct) = undefined;
 
 /// S3-FIFO's two readings of when a name leaves the small queue for the main one: above one
 /// read, as Algorithm 1 line 23 has it, and above none, as Figure 5 has it.
 const s3fifo_line_23 = 1;
 const s3fifo_figure_5 = 0;
 
-/// Replays `request_count` questions of the trace through a cache of `slot_count` slots.
-fn replay(slot_count: usize, seed: u64, request_count: usize) Outcome {
-    const key_count = std.math.ceilPowerOfTwoAssert(usize, slot_count * cache_module.constants.keys_per_slot_min);
-    @memset(slots[0..slot_count], cache_module.Slot.empty);
-    var store = cache_module.Cache.init(slots[0..slot_count], keys[0..key_count], seed, cache_module.constants.ttl_seconds_max_default);
-    var trace = Trace.init(seed, &weights);
-    var outcome: Outcome = .{};
-    var now_ns: u64 = 0;
-    var made: usize = 0;
-    while (made < request_count) : (made += 1) {
-        now_ns += arrival_ns;
-        const index = trace.next_name();
-        var text: [name_prefix.len + name_digits + name_suffix.len]u8 = undefined;
-        const question = question_of(index, &text);
-        if (store.get(&question, now_ns) != null) {
-            outcome.hits += 1;
-            continue;
-        }
-        outcome.misses += 1;
-        const answers = answers_with(ttl_of(index));
-        store.put(&question, &answers, null, now_ns);
-    }
-    return outcome;
-}
-
-/// Replays the same trace through a model of `bench/cache_policy/`, already sized.
-fn replay_model(model: anytype, seed: u64, request_count: usize) Outcome {
-    var trace = Trace.init(seed, &weights);
-    var outcome: Outcome = .{};
-    var now_ns: u64 = 0;
-    var made: usize = 0;
-    while (made < request_count) : (made += 1) {
-        now_ns += arrival_ns;
-        const index = trace.next_name();
-        const life_ns = @as(u64, ttl_of(index)) * std.time.ns_per_s;
-        if (model.access(@intCast(index), life_ns, now_ns)) outcome.hits += 1 else outcome.misses += 1;
-    }
-    return outcome;
-}
-
-/// Writes down `request_count` questions of the trace and links each to the next one for the
-/// same name, walking backward so that one pass does it.
-fn record_trace(seed: u64, request_count: usize) void {
+/// Writes down `request_count` questions of the trace, one every `arrival_ns`, with every name's
+/// life from `ttl_of`, and links each to the next one for the same name.
+fn record(seed: u64, request_count: usize) Recording {
     assert(request_count <= requests);
     var trace = Trace.init(seed, &weights);
-    for (trace_names[0..request_count]) |*name| name.* = @intCast(trace.next_name());
-    link_next(request_count);
-}
-
-fn link_next(request_count: usize) void {
-    @memset(&last_seen, no_request);
-    var at = request_count;
-    while (at > 0) {
-        at -= 1;
-        const name = trace_names[at];
-        trace_next[at] = last_seen[name];
-        last_seen[name] = @intCast(at);
+    for (trace_names[0..request_count], trace_times_ns[0..request_count], 0..) |*name, *time, at| {
+        name.* = @intCast(trace.next_name());
+        time.* = (@as(u64, at) + 1) * arrival_ns;
     }
+    for (&trace_lives_ns, 0..) |*life, index| life.* = @as(u64, ttl_of(index)) * std.time.ns_per_s;
+    const recording: Recording = .{
+        .names = trace_names[0..request_count],
+        .times_ns = trace_times_ns[0..request_count],
+        .next = trace_next[0..request_count],
+        .lives_ns = &trace_lives_ns,
+    };
+    recording.link(&last_seen);
+    return recording;
 }
 
-/// When request `at` arrives, as `replay` counts time.
-fn arrival_of(at: usize) u64 {
-    return (@as(u64, at) + 1) * arrival_ns;
-}
-
-/// How much a name is worth keeping after request `at`, smallest first to go. A name whose next
-/// request comes after it expires is worth nothing: that request misses whatever the cache
-/// holds. Otherwise the later the next request, the less it is worth: Belady's rule.
-fn useful_key(at: usize, expires_ns: u64) u64 {
-    const next = trace_next[at];
-    if (next == no_request or arrival_of(next) >= expires_ns) return 0;
-    return std.math.maxInt(u64) - @as(u64, next);
-}
-
-/// The most hits any policy could make at `slot_count` slots on the recorded trace. It reads the
-/// future, so no cache can run it; it is the bound a real policy is measured against. An expired
-/// name it holds is renewed in place, and a newcomer may be the one turned away.
-fn replay_optimal(slot_count: usize, request_count: usize) Outcome {
-    @memset(&optimal_resident, false);
-    optimal_heap.len = 0;
-    var outcome: Outcome = .{};
-    for (0..request_count) |at| {
-        if (optimal_step(at, slot_count)) outcome.hits += 1 else outcome.misses += 1;
-    }
-    return outcome;
-}
-
-fn optimal_step(at: usize, slot_count: usize) bool {
-    const name = trace_names[at];
-    const now_ns = arrival_of(at);
-    const hit = optimal_resident[name] and now_ns < optimal_expires_ns[name];
-    if (!hit) optimal_expires_ns[name] = now_ns + @as(u64, ttl_of(name)) * std.time.ns_per_s;
-    optimal_keys[name] = useful_key(at, optimal_expires_ns[name]);
-    if (optimal_resident[name]) {
-        optimal_heap.update(&optimal_keys, name);
-        return hit;
-    }
-    optimal_resident[name] = true;
-    optimal_heap.push(&optimal_keys, name);
-    if (optimal_heap.len > slot_count) {
-        const least = optimal_heap.smallest().?;
-        optimal_heap.remove(&optimal_keys, least);
-        optimal_resident[least] = false;
-    }
-    return false;
+/// The real cache over the recording.
+fn replay(recording: *const Recording, slot_count: usize, seed: u64) Outcome {
+    return cache_replay.replay(name_digits, recording, slot_count, seed);
 }
 
 /// The cache against what could be done better: the same SIEVE taking the soonest expired entry
 /// first, W-TinyLFU, and the optimal, which no policy can pass.
-fn run_bounds(seed: u64) void {
-    record_trace(seed, requests);
+fn run_bounds(recording: *const Recording, seed: u64) void {
     std.debug.print("\nhow far from the best: the cache, two policies that might do better, and the optimal\n\n", .{});
     std.debug.print("{s:>8} {s:>10} {s:>14} {s:>10} {s:>10}\n", .{ "slots", "cache", "expired first", "w-tinylfu", "optimal" });
     for (sizes) |slot_count| {
-        const cache_rate = replay(slot_count, seed, requests).rate_percent();
+        const cache_rate = replay(recording, slot_count, seed).rate_percent();
         sieve_model.init(slot_count, .refresh_in_place, .expired_first);
-        const expired_first = replay_model(&sieve_model, seed, requests).rate_percent();
+        const expired_first = replay_model(&sieve_model, recording).rate_percent();
         tinylfu_model.init(slot_count);
-        const tinylfu = replay_model(&tinylfu_model, seed, requests).rate_percent();
-        const optimal = replay_optimal(slot_count, requests).rate_percent();
-        std.debug.print("{d:>8} {d:>9.2}% {d:>13.2}% {d:>9.2}% {d:>9.2}%\n", .{ slot_count, cache_rate, expired_first, tinylfu, optimal });
+        const tinylfu = replay_model(&tinylfu_model, recording).rate_percent();
+        const best = optimal.replay(recording, slot_count).rate_percent();
+        std.debug.print("{d:>8} {d:>9.2}% {d:>13.2}% {d:>9.2}% {d:>9.2}%\n", .{ slot_count, cache_rate, expired_first, tinylfu, best });
     }
 }
 
 /// Expected hits, `cache_policy_expected.zig`: counting every ask, then counting reuse with every
 /// entry read, with admission, and with a few drawn at random, which is the form a cache could run.
-fn run_expected(seed: u64) void {
+fn run_expected(recording: *const Recording, seed: u64) void {
     std.debug.print("\nexpected hits: a name's count times the time its answer has left\n\n", .{});
     std.debug.print("{s:>8} {s:>10} {s:>12} {s:>12} {s:>14} {s:>14}\n", .{ "slots", "cache", "every ask", "reuse", "reuse, admit", "reuse, 16" });
     for (sizes) |slot_count| {
-        const cache_rate = replay(slot_count, seed, requests).rate_percent();
+        const cache_rate = replay(recording, slot_count, seed).rate_percent();
         expected_model.init(slot_count, slot_count, false, .every_ask);
-        const every_ask = replay_model(&expected_model, seed, requests).rate_percent();
+        const every_ask = replay_model(&expected_model, recording).rate_percent();
         expected_model.init(slot_count, slot_count, false, .reuse);
-        const reuse = replay_model(&expected_model, seed, requests).rate_percent();
+        const reuse = replay_model(&expected_model, recording).rate_percent();
         expected_model.init(slot_count, slot_count, true, .reuse);
-        const admitted = replay_model(&expected_model, seed, requests).rate_percent();
+        const admitted = replay_model(&expected_model, recording).rate_percent();
         expected_model.init(slot_count, expected_draws, true, .reuse);
-        const drawn = replay_model(&expected_model, seed, requests).rate_percent();
+        const drawn = replay_model(&expected_model, recording).rate_percent();
         std.debug.print("{d:>8} {d:>9.2}% {d:>11.2}% {d:>11.2}% {d:>13.2}% {d:>13.2}%\n", .{ slot_count, cache_rate, every_ask, reuse, admitted, drawn });
     }
 }
@@ -322,30 +206,30 @@ fn run_expected(seed: u64) void {
 /// SIEVE against S3-FIFO on the trace above, under each rule for an expired entry, with the
 /// model of SIEVE as the control: it must match the real cache's column before the other
 /// columns mean anything (docs/design.md §18).
-fn run_policies(seed: u64) void {
+fn run_policies(recording: *const Recording, seed: u64) void {
     std.debug.print("\nthe same trace, hit rate by policy and by what a get does with an expired entry\n\n", .{});
     std.debug.print("{s:>8} {s:>10} | {s:>36} | {s:>36}\n", .{ "", "", "evicted by the get", "renewed in place, as the cache does" });
     std.debug.print("{s:>8} {s:>10} | {s:>10} {s:>12} {s:>12} | {s:>10} {s:>12} {s:>12}\n", .{
         "slots", "cache", "sieve", "s3-fifo l23", "s3-fifo f5", "sieve", "s3-fifo l23", "s3-fifo f5",
     });
     for (sizes) |slot_count| {
-        const cache_rate = replay(slot_count, seed, requests).rate_percent();
+        const cache_rate = replay(recording, slot_count, seed).rate_percent();
         std.debug.print("{d:>8} {d:>9.2}% |", .{ slot_count, cache_rate });
         for ([_]policy.Expiry{ .evict_on_get, .refresh_in_place }) |expiry| {
             sieve_model.init(slot_count, expiry, .hand);
-            const sieve = replay_model(&sieve_model, seed, requests).rate_percent();
+            const sieve = replay_model(&sieve_model, recording).rate_percent();
             s3fifo_model.init(slot_count, s3fifo_line_23, expiry);
-            const line_23 = replay_model(&s3fifo_model, seed, requests).rate_percent();
+            const line_23 = replay_model(&s3fifo_model, recording).rate_percent();
             s3fifo_model.init(slot_count, s3fifo_figure_5, expiry);
-            const figure_5 = replay_model(&s3fifo_model, seed, requests).rate_percent();
+            const figure_5 = replay_model(&s3fifo_model, recording).rate_percent();
             std.debug.print(" {d:>9.2}% {d:>11.2}% {d:>11.2}% |", .{ sieve, line_23, figure_5 });
         }
         std.debug.print("\n", .{});
     }
-    run_bounds(seed);
-    run_expected(seed);
+    run_bounds(recording, seed);
+    run_expected(recording, seed);
     cares_model.init();
-    const cares = replay_model(&cares_model, seed, requests);
+    const cares = replay_model(&cares_model, recording);
     std.debug.print(
         "\nc-ares's rule, no bound on the entry count: {d:.2}% hits, at most {d} entries live at once\n",
         .{ cares.rate_percent(), cares_model.entries_peak },
@@ -354,6 +238,7 @@ fn run_policies(seed: u64) void {
 
 pub fn run(seed: u64) void {
     build_weights(&weights);
+    const recording = record(seed, requests);
     std.debug.print(
         "\ncache over a synthetic trace: {d} questions, {d} distinct names, Zipf {d:.1}, " ++
             "one every {d} ms, TTLs {d}/{d}/{d} s\n\n",
@@ -361,13 +246,13 @@ pub fn run(seed: u64) void {
     );
     std.debug.print("{s:>8} {s:>10} {s:>12} {s:>12}\n", .{ "slots", "hit rate", "hits", "misses" });
     for (sizes) |slot_count| {
-        const outcome = replay(slot_count, seed, requests);
+        const outcome = replay(&recording, slot_count, seed);
         std.debug.print(
             "{d:>8} {d:>9.1}% {d:>12} {d:>12}\n",
             .{ slot_count, outcome.rate_percent(), outcome.hits, outcome.misses },
         );
     }
-    run_policies(seed);
+    run_policies(&recording, seed);
 }
 
 // Tests. The replay is a measurement, so what is tested is that its parts say what they claim.
@@ -375,6 +260,9 @@ pub fn run(seed: u64) void {
 const testing = std.testing;
 
 test {
+    _ = recording_module;
+    _ = cache_replay;
+    _ = optimal_module;
     _ = policy;
     _ = cares_policy;
     _ = s3fifo_policy;
@@ -388,10 +276,11 @@ const control_requests = 50_000;
 
 test "the model of SIEVE answers every question as the cache does" {
     build_weights(&weights);
+    const recording = record(1, control_requests);
     const slot_count = sizes[0];
-    const cache_outcome = replay(slot_count, 1, control_requests);
+    const cache_outcome = replay(&recording, slot_count, 1);
     sieve_model.init(slot_count, .refresh_in_place, .hand);
-    const model_outcome = replay_model(&sieve_model, 1, control_requests);
+    const model_outcome = replay_model(&sieve_model, &recording);
     try testing.expectEqual(cache_outcome.hits, model_outcome.hits);
 }
 
@@ -417,16 +306,6 @@ test "a name's TTL is one of the mixture, and the same every time it is asked" {
     }
 }
 
-test "a name's question is its own, and reads back as the index it came from" {
-    var text: [name_prefix.len + name_digits + name_suffix.len]u8 = undefined;
-    const first = question_of(0, &text);
-    var other: [name_prefix.len + name_digits + name_suffix.len]u8 = undefined;
-    const second = question_of(1, &other);
-    try testing.expect(!first.name.equal(&second.name));
-    _ = question_of(42, &text);
-    try testing.expectEqualStrings("n00042.example.", &text);
-}
-
 test "one seed replays the same questions" {
     build_weights(&weights);
     var first = Trace.init(1, &weights);
@@ -437,48 +316,31 @@ test "one seed replays the same questions" {
     }
 }
 
-test "a name is worth nothing when its next request comes after it expires, or never" {
-    trace_names[0] = 0;
-    trace_names[1] = 1;
-    trace_names[2] = 0;
-    link_next(3);
-    try testing.expectEqual(@as(u32, 2), trace_next[0]);
-    try testing.expectEqual(no_request, trace_next[1]);
-    try testing.expectEqual(@as(u64, 0), useful_key(1, std.math.maxInt(u64)));
-    try testing.expectEqual(@as(u64, 0), useful_key(0, arrival_of(2)));
-    try testing.expectEqual(std.math.maxInt(u64) - 2, useful_key(0, arrival_of(2) + 1));
-}
-
-test "the optimal turns a newcomer away when it is needed later than what it would replace" {
-    // A, B, A in one slot. Any real cache takes B in and loses A; the optimal keeps A.
-    trace_names[0] = 0;
-    trace_names[1] = 1;
-    trace_names[2] = 0;
-    link_next(3);
-    const outcome = replay_optimal(1, 3);
-    try testing.expectEqual(@as(u64, 1), outcome.hits);
-    sieve_model.init(1, .refresh_in_place, .hand);
-    var hits: u64 = 0;
-    for (trace_names[0..3], 0..) |name, at| {
-        if (sieve_model.access(name, @as(u64, ttl_of(name)) * std.time.ns_per_s, arrival_of(at))) hits += 1;
+test "the recording holds the trace's questions, one every arrival" {
+    build_weights(&weights);
+    const recording = record(1, control_requests);
+    var trace = Trace.init(1, &weights);
+    for (recording.names[0..1000], recording.times_ns[0..1000], 0..) |name, time, at| {
+        try testing.expectEqual(@as(policy.Id, @intCast(trace.next_name())), name);
+        try testing.expectEqual((@as(u64, at) + 1) * arrival_ns, time);
     }
-    try testing.expectEqual(@as(u64, 0), hits);
+    try testing.expectEqual(@as(u64, ttl_of(0)) * std.time.ns_per_s, recording.lives_ns[0]);
 }
 
 test "no policy beats the optimal on the trace" {
     build_weights(&weights);
+    const recording = record(1, control_requests);
     const slot_count = sizes[0];
-    record_trace(1, control_requests);
-    const optimal = replay_optimal(slot_count, control_requests);
-    const cache_outcome = replay(slot_count, 1, control_requests);
+    const best = optimal.replay(&recording, slot_count);
+    const cache_outcome = replay(&recording, slot_count, 1);
     sieve_model.init(slot_count, .refresh_in_place, .expired_first);
-    const expired_first = replay_model(&sieve_model, 1, control_requests);
+    const expired_first = replay_model(&sieve_model, &recording);
     tinylfu_model.init(slot_count);
-    const tinylfu = replay_model(&tinylfu_model, 1, control_requests);
-    try testing.expect(optimal.hits >= cache_outcome.hits);
-    try testing.expect(optimal.hits >= expired_first.hits);
-    try testing.expect(optimal.hits >= tinylfu.hits);
+    const tinylfu = replay_model(&tinylfu_model, &recording);
+    try testing.expect(best.hits >= cache_outcome.hits);
+    try testing.expect(best.hits >= expired_first.hits);
+    try testing.expect(best.hits >= tinylfu.hits);
     expected_model.init(slot_count, slot_count, true, .reuse);
-    const expected = replay_model(&expected_model, 1, control_requests);
-    try testing.expect(optimal.hits >= expected.hits);
+    const expected = replay_model(&expected_model, &recording);
+    try testing.expect(best.hits >= expected.hits);
 }

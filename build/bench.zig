@@ -52,6 +52,25 @@ pub fn add(
     tool_test_step.dependOn(run_tests);
 
     add_cares(b, target, graph, debug_graph, rotor);
+    add_log(b, target, graph, test_step);
+}
+
+/// `zig build bench-log -- <dataset.csv>`: the cache and its policy models over a real DNS log
+/// (docs/design.md §18). The log is not in the tree, so the gate compiles the replay and never
+/// runs it; its tests run with the harness's.
+fn add_log(b: *std.Build, target: std.Build.ResolvedTarget, graph: modules.Graph, test_step: *std.Build.Step) void {
+    const module = b.createModule(.{
+        .root_source_file = b.path("bench/log_replay.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    module.addImport("cocuyo", graph.cocuyo);
+    const exe = b.addExecutable(.{ .name = "bench-log", .root_module = module });
+    test_step.dependOn(&exe.step);
+    const run = b.addRunArtifact(exe);
+    if (b.args) |arguments| run.addArgs(arguments);
+    const step = b.step("bench-log", "Replay a real DNS log through the cache and its models: -- <dataset.csv>");
+    step.dependOn(&run.step);
 }
 
 /// Where a Homebrew c-ares lives on Apple Silicon. Any prefix with `include/ares.h` and

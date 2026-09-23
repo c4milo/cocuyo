@@ -28,4 +28,6 @@ test {
     _ = cases;
     _ = cache_cases;
     _ = cache_trace;
+    _ = @import("log_replay.zig");
+    _ = @import("log_csv.zig");
 }

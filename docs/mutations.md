@@ -887,6 +887,30 @@ tie had no test when the model was written; one was added before the mutation ra
 first form did not put the newcomer in at all, which is a different bug; it is run as the
 optimal that makes room before it admits, which is the one it names.
 
+## The real log
+
+Design §18: `bench/log_csv.zig` reads the Mendeley c4n7fckkz3 DNS log, and `bench/log_replay.zig`
+replays it through the cache, the models and the optimal, over `bench/trace_recording.zig`.
+Broken against `zig build test-tools`. Eleven mutations, eleven `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| L1 | attack rows are kept | injected traffic is not a workload | the log test | CAUGHT |
+| L2 | names keep their case | RFC 1035 §2.3.3, as clarified by RFC 4343 | the log test | CAUGHT |
+| L3 | a trailing dot is kept | one name, one index | the row test | CAUGHT |
+| L4 | time may go backward | a replay's clock never decreases | the backward test | CAUGHT |
+| L5 | an unknown flag reads as benign | a row is refused unless it says | the refused-row test | CAUGHT |
+| L6 | by rank puts the least asked first | the most asked takes the shortest TTL | the TTL rule test | CAUGHT |
+| L7 | a client's names keep their global index | a client's names are renumbered | the client test | CAUGHT |
+| L8 | the link walks forward | each question links to the next | the bound test | CAUGHT |
+| L9 | the busiest clients are the least busy | the busiest are replayed | the client test | CAUGHT |
+| L10 | the hash rule ignores the hash | TTL unrelated to popularity | the TTL rule test | CAUGHT |
+| L11 | a name is refused past 254 characters | RFC 1035 §5.1, `\DDD` is four for one | **a test written for it** | CAUGHT |
+
+L11 is the one the log itself found. The first replay stopped on 53 rows whose names write each
+octet of a tunnelling payload as `\DDD`: over 254 characters in text and within 255 octets on
+the wire. The limit was on the text, where it should have been on what the text stands for.
+
 ## The expired entry keeps its slot
 
 Design §17 question 14, answered yes: a get that finds its entry expired misses and leaves it,
