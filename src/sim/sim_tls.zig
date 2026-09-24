@@ -1,8 +1,8 @@
-//! The twin's TLS (docs/design.md §21, the session seam): a session with the functions the
-//! engine asks of chapulin, whose records carry their plaintext unsealed, and the server side a
-//! scripted server answers it with. A record keeps a real record's header (RFC 9846 §5.1), so
-//! the engine frames the twin's records as it frames chapulin's. A handshake step is one octet in
-//! a handshake record. The replay spells the model's TLS steps with them (spec/Spec/Engine.lean,
+//! The twin's TLS (docs/design.md §21, the session seam): a session with the functions the engine
+//! asks of chapulin, whose records carry their plaintext unsealed, and the server side a scripted
+//! server answers it with. A record keeps a real record's header (RFC 9846 §5.1), so the engine
+//! frames the twin's records as it frames chapulin's. A handshake step is one octet in a handshake
+//! record. The replay spells the model's TLS steps with them (spec/lean/Spec/Engine.lean,
 //! `TlsStep`), and a scripted server answers a hello with them.
 //!
 //! What the twin cannot show is chapulin's to show: the ciphers, the certificate and pin checks,

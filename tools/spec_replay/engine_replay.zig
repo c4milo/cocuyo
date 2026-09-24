@@ -1,6 +1,6 @@
 //! The engine replay: drives the engine of `io/` down the walks the engine model writes
-//! (`cocuyo-spec engine-walks`, spec/Spec/EngineWalk.lean) and fails on the first line where the
-//! engine's state is not the model's (spec/README.md).
+//! (`cocuyo-spec engine-walks`, spec/lean/Spec/EngineWalk.lean) and fails on the first line where
+//! the engine's state is not the model's (spec/README.md).
 //!
 //! A walk is a chain from `init`: each line is one event on what the line above it left, so the
 //! replay keeps one engine and needs no frames. A `config` line starts a walk on a fresh engine

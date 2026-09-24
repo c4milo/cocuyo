@@ -1,6 +1,7 @@
 # The lookup and the engine, in Lean
 
-This directory holds three models in Lean 4, and `tools/spec_replay/` ties each to the Zig code:
+`lean/` holds three models in Lean 4, a Lake package, and `tools/spec_replay/` ties each to the Zig
+code:
 
 - `Lookup`, the state machine of docs/design.md §5, with proofs of what §5 promises of it.
 - The engine's streams and datagrams, the rules of §19 step 13, with invariants checked over
@@ -17,9 +18,9 @@ would agree with the code by construction and prove nothing about it.
 
 ## What is here
 
-- `Spec/Lookup.lean` is the model: the eight states, the events a caller delivers, what each
+- `lean/Spec/Lookup.lean` is the model: the eight states, the events a caller delivers, what each
   answers, and `enabled`, the events the contract of §4 lets a caller deliver in each state.
-- `Spec/LookupProofs.lean` holds the proofs:
+- `lean/Spec/LookupProofs.lean` holds the proofs:
   - `ended_absorbing`: a lookup that is done or has failed is changed by nothing.
   - `cancel_after_end` and `cancel_before_end`: a cancel leaves an end standing, and ends
     anything else as cancelled.
@@ -30,17 +31,18 @@ would agree with the code by construction and prove nothing about it.
     configuration.
   - `step_le`, `sent_lt` and `lexLt_wf`: no event raises a measure, every send lowers it, and its
     order is well-founded. So no sequence of answers makes a lookup send forever.
-- `Spec/Axioms.lean` pins the axioms each theorem rests on. A proof left unfinished rests on
+- `lean/Spec/Axioms.lean` pins the axioms each theorem rests on. A proof left unfinished rests on
   `sorryAx`, which changes a pinned line and fails the build.
-- `Spec/Engine.lean`, `Spec/EngineSockets.lean` and `Spec/EngineStep.lean` are the engine
-  model: the table's slots, free list and ready list, the connections, the sockets, the loop's
-  operations, and a `Spec.Lookup` in each slot. `invariants` names what every state must keep.
-- `Spec/EngineWalk.lean` walks the engine model: breadth first to check the invariants in every
+- `lean/Spec/Engine.lean`, `lean/Spec/EngineSockets.lean` and `lean/Spec/EngineStep.lean` are the
+  engine model: the table's slots, free list and ready list, the connections, the sockets, the
+  loop's operations, and a `Spec.Lookup` in each slot. `invariants` names what every state must
+  keep.
+- `lean/Spec/EngineWalk.lean` walks the engine model: breadth first to check the invariants in every
   state reached, and in seeded walks for the replay.
-- `Spec/Address.lean` is the model of both walks, and `Spec/AddressWalk.lean` walks it and
+- `lean/Spec/Address.lean` is the model of both walks, and `lean/Spec/AddressWalk.lean` walks it and
   writes its transcript.
-- `Spec/Tokens.lean` spells states and events for the transcripts.
-- `Main.lean` writes the transcripts the replays read.
+- `lean/Spec/Tokens.lean` spells states and events for the transcripts.
+- `lean/Main.lean` writes the transcripts the replays read.
 
 ## What the lookup model leaves out
 
@@ -54,10 +56,10 @@ would agree with the code by construction and prove nothing about it.
 - Entropy, the cookies' values and the answers' records.
 - What a poll handed out and the caller has not answered yet. The model keeps it to know when
   `on_sent` may come, and the replay does not compare it, because the lookup does not keep it.
-- A DoH or DoQ transaction's number. The model delivers an answer or a failed request to the
-  current transaction, and an unmatched reply is one for another. DoH and DoQ move alike, so the
-  model's `quic` names which servers the replay asks and no transition reads it. That a late answer names a number the
-  lookup has left is the unit tests' to show (docs/mutations.md DH8, DH9, DH21).
+- A DoH or DoQ transaction's number. The model delivers an answer or a failed request to the current
+  transaction, and an unmatched reply is one for another. DoH and DoQ move alike, so the model's
+  `quic` names which servers the replay asks and no transition reads it. That a late answer names a
+  number the lookup has left is the unit tests' to show (docs/mutations.md DH8, DH9, DH21).
 
 ## The replay
 
@@ -75,19 +77,18 @@ a server failed and the cookie retried. A field that drifts is caught at the eve
 
 ## The engine
 
-The engine model is written from the stream's rules and the datagram's rules of §19 step 13, the
-TLS rules of §21, and rotor's decision 5, with two servers and one pass. A configuration asks
-every query over TCP, every query over TLS, or every query over UDP with no answer truncated and
-a port replaced every two queries, the old one draining beside the new. A TLS session is what it
-does to the queue: the records it makes, which are sealed as it makes them, and the steps its
-handshake takes, a flight to answer, the handshake's end or a failure, and later a KeyUpdate to
-answer or a ticket to keep. A kept ticket may lapse at any moment, which stands for its lifetime
-and the 7-day cap. It leaves out the timer, the bytes of a message, the TLS records' contents and the
-cache. Time moves in ticks, each the idle close's
-wait, and only when a deadline arrives or the caller lets a tick pass; a lookup waits two ticks.
-Two faults stand in for a kernel under pressure: the loop refuses every submission for the length
-of one event, as a full ring does, and every socket open fails for the length of one event, as a
-process with no descriptor left sees.
+The engine model is written from the stream's rules and the datagram's rules of §19 step 13, the TLS
+rules of §21, and rotor's decision 5, with two servers and one pass. A configuration asks every
+query over TCP, every query over TLS, or every query over UDP with no answer truncated and a port
+replaced every two queries, the old one draining beside the new. A TLS session is what it does to
+the queue: the records it makes, which are sealed as it makes them, and the steps its handshake
+takes, a flight to answer, the handshake's end or a failure, and later a KeyUpdate to answer or a
+ticket to keep. A kept ticket may lapse at any moment, which stands for its lifetime and the 7-day
+cap. It leaves out the timer, the bytes of a message, the TLS records' contents and the cache. Time
+moves in ticks, each the idle close's wait, and only when a deadline arrives or the caller lets a
+tick pass; a lookup waits two ticks. Two faults stand in for a kernel under pressure: the loop
+refuses every submission for the length of one event, as a full ring does, and every socket open
+fails for the length of one event, as a process with no descriptor left sees.
 
 `cocuyo-spec engine <tcp|udp|tls> <slots> <connections>` walks it breadth first and checks
 sixteen invariants in every state:
@@ -116,10 +117,10 @@ sixteen invariants in every state:
 - A resumed handshake that fails counts no failure against its server and keeps its lookups on
   the connection, unless the loop refuses the connect again.
 
-The walk stops at six operations in flight, two failures a server and three queries a port,
-since nothing else bounds the graph; `engine` takes the first two as its last two arguments, for a
-configuration too big to walk at the defaults. A stream's send may come back short once a message, since a
-second short send takes the path the first took and the model does not count octets. It
+The walk stops at six operations in flight, two failures a server and three queries a port, since
+nothing else bounds the graph; `engine` takes the first two as its last two arguments, for a
+configuration too big to walk at the defaults. A stream's send may come back short once a message,
+since a second short send takes the path the first took and the model does not count octets. It
 reported, on 2026-09-23:
 
 | Transport | Slots | Connections | Operations, failures | States | Transitions | Invariants |
@@ -195,22 +196,23 @@ compares the walk's whole state after each.
 ## Running it
 
 - `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 3,694
-  transitions: one server, one pass and one name, over UDP, over TCP, over DoH and over DoQ. It also replays
-  `tools/spec_replay/engine_gate.txt`, ten engine walks of forty events in each of the eight
-  engine configurations, and three walks of the full run that `engineGatePicks` in `Main.lean`
+  transitions: one server, one pass and one name, over UDP, over TCP, over DoH and over DoQ. It also
+  replays `tools/spec_replay/engine_gate.txt`, ten engine walks of forty events in each of the eight
+  engine configurations, and three walks of the full run that `engineGatePicks` in `lean/Main.lean`
   names: each is where the full run caught a mutation of the engine that the short walks miss
   (docs/mutations.md ET8, ET10, ET11 and ET14). The model regenerates a picked walk by walking its
-  configuration up to it, so it is the full run's walk byte for byte. The gate also holds `tools/spec_replay/walk_gate.txt`, the forward walk with two
-  candidates and both families and every reverse configuration. It needs no Lean.
-- `zig build spec` needs `lake` on the path, at the version `lean-toolchain` pins. It builds the
-  proofs and the axiom pins, requires the committed slices to be the ones the models write, and
-  replays the lookup's whole transcript and 2,000 engine walks of 200 events in each of the eight
-  engine configurations, 3.2 million events, and the walks' whole transcript. It took about a
-  minute and a quarter on the machine of design §11 on 2026-09-23, with six configurations, most
-  of it the model writing the engine's walks.
-- After a change to a model, `lake exe cocuyo-spec gate 8 > ../tools/spec_replay/lookup_gate.txt`
-  `lake exe cocuyo-spec engine-gate > ../tools/spec_replay/engine_gate.txt` and
-  `lake exe cocuyo-spec walks-gate > ../tools/spec_replay/walk_gate.txt` in this directory write
+  configuration up to it, so it is the full run's walk byte for byte. The gate also holds
+  `tools/spec_replay/walk_gate.txt`, the forward walk with two candidates and both families and
+  every reverse configuration. It needs no Lean.
+- `zig build spec` needs `lake` on the path, at the version `lean/lean-toolchain` pins. pepegrillo's
+  `lean` tool builds the proofs and the axiom pins first. Then the step requires the committed
+  slices to be the ones the models write, and replays the lookup's whole transcript and 2,000 engine
+  walks of 200 events in each of the eight engine configurations, 3.2 million events, and the walks'
+  whole transcript. It took about a minute and a quarter on the machine of design §11 on 2026-09-23,
+  with six configurations, most of it the model writing the engine's walks.
+- After a change to a model, `lake exe cocuyo-spec gate 8 > ../../tools/spec_replay/lookup_gate.txt`
+  `lake exe cocuyo-spec engine-gate > ../../tools/spec_replay/engine_gate.txt` and
+  `lake exe cocuyo-spec walks-gate > ../../tools/spec_replay/walk_gate.txt` in `lean/` write
   the slices again.
 
 The `8` is `cname_hops_max` of `src/core/constants.zig`. The transcript records it, and the replay

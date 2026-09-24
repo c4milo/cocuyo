@@ -1,6 +1,6 @@
 //! The `getaddrinfo` walks of `resolver` over a real table, driven by the events of the walks'
-//! transcript (spec/Spec/AddressWalk.lean), and their state written the way the model writes its
-//! own (`stateLine`), so the two can be compared line by line.
+//! transcript (spec/lean/Spec/AddressWalk.lean), and their state written the way the model writes
+//! its own (`stateLine`), so the two can be compared line by line.
 //!
 //! Each of the walk's lookups is answered through the table by a message its server would send:
 //! an answer of the family asked, NXDOMAIN, NODATA, or SERVFAIL from the one server there is, a

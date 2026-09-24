@@ -1006,7 +1006,7 @@ Issue #8, 2026-09-24. The breadth-first walk of the engine model counts a state 
 operations sorted as one state, which is sound only while the model reads `ops` as a multiset.
 `cocuyo-spec check`, the first step of `zig build spec`, walks three small graphs whole, one for
 each transport, and asks every state whether it and its sort agree. Broken in
-`spec/Spec/EngineStep.lean` by giving the model an order-dependent rule. Two mutations, two
+`spec/lean/Spec/EngineStep.lean` by giving the model an order-dependent rule. Two mutations, two
 `CAUGHT`.
 
 | # | Mutation | Check it breaks | Caught by | Status |
@@ -1243,7 +1243,7 @@ parameter; they were rewritten to discard it. Twenty-one mutations, twenty-one `
 | DH20 | the table does not follow an HTTP failure | §4, every event through the table | the table's failure test | CAUGHT |
 | DH21 | an HTTP failure for a transaction left moves the lookup | §22, the answer by transaction | the HTTP-failure test | CAUGHT |
 
-The lookup model's DoH rules, broken in `spec/Spec/Lookup.lean`. Each fails a proof, so the
+The lookup model's DoH rules, broken in `spec/lean/Spec/Lookup.lean`. Each fails a proof, so the
 transcript tool does not build. Each was then replayed against the code from a copy of `spec/`
 without the proofs, and the replay refused each at its first DoH line. DM3 breaks only proof
 scripts written against the rule's shape: no theorem states that an HTTP failure moves the

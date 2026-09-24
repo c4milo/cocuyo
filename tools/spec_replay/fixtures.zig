@@ -1,5 +1,5 @@
 //! The servers the replay asks and the replies they answer with: one message per reply the model
-//! names (spec/Spec/Lookup.lean, `Reply`), built around the question the lookup is asking now.
+//! names (spec/lean/Spec/Lookup.lean, `Reply`), built around the question the lookup is asking now.
 //!
 //! A reply must echo the name as it went out, case included, and carry the transaction's id, so a
 //! message cannot be written until the lookup has drawn both (docs/design.md §7). Each builder

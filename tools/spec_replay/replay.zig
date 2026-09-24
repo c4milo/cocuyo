@@ -1,6 +1,6 @@
-//! The replay: drives the Zig `Lookup` down the transcript the Lean model writes (spec/Main.lean)
-//! and fails on the first line where the two disagree about what the lookup answers or the state
-//! it lands in (spec/README.md).
+//! The replay: drives the Zig `Lookup` down the transcript the Lean model writes
+//! (spec/lean/Main.lean) and fails on the first line where the two disagree about what the lookup
+//! answers or the state it lands in (spec/README.md).
 //!
 //! The state is the model's, read off the lookup's fields: the stage, where the walk over servers,
 //! passes, candidates and CNAME hops stands, and the four flags the model keeps. So each line
@@ -29,8 +29,8 @@ const Lookup = resolver.Lookup;
 const Servers = resolver.servers.Servers;
 const fixtures = @import("fixtures.zig");
 
-/// The deepest line the replay can follow. The walk over spec/Main.lean's configurations went 168
-/// deep when it was measured on 2026-09-23; this leaves room for a model that grows.
+/// The deepest line the replay can follow. The walk over spec/lean/Main.lean's configurations went
+/// 168 deep when it was measured on 2026-09-23; this leaves room for a model that grows.
 const depth_max = 512;
 
 /// The seed every lookup of the replay starts from. One seed is enough: the model abstracts the
@@ -43,7 +43,7 @@ const line_bytes_max = 256;
 /// The longest state a line writes: the longest stage, four counters and the flags.
 pub const state_bytes_max = 64;
 
-/// How a configuration's queries go: the model's `transportToken` (spec/Spec/Tokens.lean).
+/// How a configuration's queries go: the model's `transportToken` (spec/lean/Spec/Tokens.lean).
 const Transport = enum { udp, tcp, https, quic };
 
 /// The search list; a configuration with `candidates` names takes `candidates - 1` of it.
@@ -304,7 +304,7 @@ pub const Replay = struct {
     }
 };
 
-/// The lookup's state as the model writes one (spec/Spec/Tokens.lean, `stateToken`).
+/// The lookup's state as the model writes one (spec/lean/Spec/Tokens.lean, `stateToken`).
 pub fn state_text(lookup: *const Lookup, out: *[state_bytes_max]u8) []const u8 {
     return switch (lookup.state) {
         .done => "done - -",

@@ -2078,9 +2078,9 @@ nobody is using is closed after `tcp_idle_ns` (§6.2.3). The chunks arrive in a 
 their own, since a datagram group carries rotor's prefix before every payload, and a group that
 runs dry is the ordinary end of a receive rather than a broken connection.
 
-**The stream's rules, written on 2026-09-23** from RFC 7766 and rotor's decision 5, for the
-model of spec/Spec/Engine.lean to be written from. They are what the engine is held to; where the
-code of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
+**The stream's rules, written on 2026-09-23** from RFC 7766 and rotor's decision 5, for the model of
+spec/lean/Spec/Engine.lean to be written from. They are what the engine is held to; where the code
+of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
 
 1. One connection per server, in one of `tcp_connections` slots. A lookup that needs a stream to
    its server is put on that server's connection. If there is none, one is opened in the first
@@ -2153,7 +2153,7 @@ the attempt that made it, and the drive goes on until nothing is left.
    at the next drive, so a server always has a socket to send from.
 5. A draining socket's receive is held to rule 1 as the current one's is.
 
-**Checked on 2026-09-23.** spec/Spec/Engine.lean, EngineSockets.lean and EngineStep.lean hold
+**Checked on 2026-09-23.** spec/lean/Spec/Engine.lean, EngineSockets.lean and EngineStep.lean hold
 both sets of rules above as a model. Each lookup is the model of §5, and around the lookups sit
 the table's ready list and free list (§11), the connections, the sockets, and the operations the
 loop holds. A configuration asks every query over TCP, or every query over UDP with a port
@@ -2373,7 +2373,7 @@ is where a consumer with a loop of its own can reach it now that the engine is h
   answered. §17 question 12 is settled: one call, because the recipe left the order of the two
   sources to every consumer that wrote it out.
 
-**The walk's rules, written on 2026-09-23** for the model of spec/Spec/Address.lean:
+**The walk's rules, written on 2026-09-23** for the model of spec/lean/Spec/Address.lean:
 
 1. The walk holds the slots of one pair at most: two, or one when one family is asked. It
    releases them together when the pair ends, or when the walk does, and holds none once the
@@ -2404,7 +2404,7 @@ its lookup had. Until 2026-09-23 any failure moved on, and a walk whose last sou
 ended `NameNotFound` when its lookup had timed out: a timeout reported as a name that does not
 exist.
 
-**Checked on 2026-09-23.** spec/Spec/Address.lean holds both walks as a model, each lookup
+**Checked on 2026-09-23.** spec/lean/Spec/Address.lean holds both walks as a model, each lookup
 abstracted to how it ends, since `Lookup`'s own model answers for the rest. The model keeps apart
 an end arriving in the table and the consumer handing it over, which is where a cancel of the
 other family reaches a lookup that has ended or one that has not, and lets other consumers take
@@ -2708,7 +2708,7 @@ rulings of that day with the facts that led to them. Each piece lands with its c
 
 ### The engine's TLS rules, written on 2026-09-23
 
-These extend the stream's rules of §19 step 13, for the model of spec/Spec/Engine.lean to be
+These extend the stream's rules of §19 step 13, for the model of spec/lean/Spec/Engine.lean to be
 written from before the code is.
 
 1. A connection to a TLS server handshakes between its connect and its first query. When the

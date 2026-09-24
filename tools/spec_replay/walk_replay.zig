@@ -1,5 +1,5 @@
 //! The walks' replay: drives `AddressLookup` and `NameLookup` down the transcript the walks'
-//! model writes (`cocuyo-spec walks`, spec/Spec/AddressWalk.lean) and fails on the first line
+//! model writes (`cocuyo-spec walks`, spec/lean/Spec/AddressWalk.lean) and fails on the first line
 //! where a walk's state is not the model's (spec/README.md).
 //!
 //! The transcript is a depth-first walk over every state the model reaches, so a line at depth

@@ -128,10 +128,10 @@ The architecture depends on every rule in this section.
   build leaves packages beside it. `bench/` is outside the module
   graph and may read a clock; it is linted and formatted like `src/`, and it gets a module graph
   of its own at ReleaseSafe from `build/bench.zig`.
-- `spec/` holds the Lean models of design §5 and of the engine's streams, and the lookup's
-  proofs, a Lake package of its own. `tools/spec_replay/` holds the Zig replays that drive
-  `Lookup` and the engine down the models' transcripts, the engine's over the twin in manual
-  mode, wired by `build/spec.zig`.
+- `spec/lean/` holds the Lean models of design §5 and of the engine's streams, and the lookup's
+  proofs, a Lake package of its own that pepegrillo's `lean` tool builds (`tools/lean.zig`).
+  `tools/spec_replay/` holds the Zig replays that drive `Lookup` and the engine down the models'
+  transcripts, the engine's over the twin in manual mode, wired by `build/spec.zig`.
 
 ## Ask before
 
@@ -179,7 +179,7 @@ The architecture depends on every rule in this section.
 - Model: `zig build spec` — the Lean proofs of `Lookup` and the pins on the axioms they rest on,
   then every transition the lookup model reaches, the engine's walks, and every transition of
   the `getaddrinfo` walks, replayed against the code (spec/README.md has the counts). It needs
-  `lake` at the version `spec/lean-toolchain` pins, so it runs only when asked and in CI's
+  `lake` at the version `spec/lean/lean-toolchain` pins, so it runs only when asked and in CI's
   `spec` job; `zig build test` replays the committed slices without Lean.
 - DNS over TLS: `-Dchapulin=<checkout>` names a chapulin checkout whose `bin/chapulin-record.o`
   `build/dot.zig` says how to make. With it, `zig build test-chapulin` runs the session's tests

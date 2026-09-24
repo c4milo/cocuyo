@@ -4,8 +4,8 @@ import Spec.Lookup
 # What the lookup state machine guarantees
 
 Each theorem is a property docs/design.md promises of `Lookup`, proved of the model in
-`Spec.Lookup`. The sequence check (`spec/Main.lean`, `zig build spec`) is what ties the model to
-the Zig code; these tie the model to the promises.
+`Spec.Lookup`. The sequence check (`spec/lean/Main.lean`, `zig build spec`) is what ties the model
+to the Zig code; these tie the model to the promises.
 -/
 namespace Spec.Lookup
 

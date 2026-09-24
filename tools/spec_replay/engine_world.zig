@@ -1,5 +1,5 @@
 //! One engine of `io/` over the twin in manual mode, driven by the events of the engine model's
-//! transcript (spec/Spec/EngineWalk.lean), and its state written the way the model writes its
+//! transcript (spec/lean/Spec/EngineWalk.lean), and its state written the way the model writes its
 //! own (`stateLine`), so the two can be compared line by line.
 //!
 //! The twin performs nothing in manual mode: every operation the engine submits waits until the

@@ -130,7 +130,10 @@ pub fn build(b: *std.Build) void {
     const rotor = b.lazyDependency("rotor", .{ .target = target });
     examples.add(b, graph.cocuyo, target, optimize, test_step, rotor);
     bench.add(b, target, test_step, tool_test_step, rotor);
-    spec.add(b, target, test_step, tool_test_step);
+    spec.add(b, target, test_step, tool_test_step, b.addExecutable(.{
+        .name = "lean",
+        .root_module = tool_module(b, pepegrillo, "tools/lean.zig"),
+    }));
     dot.add(b, target, optimize, graph, chapulin, rotor);
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_commit_lint_step(b, pepegrillo, install_step);

@@ -1,13 +1,14 @@
-//! `zig build spec`: the Lean model of `Lookup` under spec/, its proofs, and the replay that ties
-//! the model to the Zig code (spec/README.md). build.zig stays short (CLAUDE.md, Layout), so the
-//! wiring is here.
+//! `zig build spec`: the Lean models under spec/lean/, the lookup's proofs, and the replays that
+//! tie the models to the Zig code (spec/README.md). build.zig stays short (CLAUDE.md, Layout), so
+//! the wiring is here.
 //!
 //! Lean is a tool the gate must not require, as c-ares is for `bench-cares`. So `zig build test`
 //! compiles the replay and runs its own tests, which replay the committed slice of the model's
 //! transcript in `tools/spec_replay/lookup_gate.txt`, and needs nothing but Zig. `zig build spec`
-//! needs `lake` on the path, at the version spec/lean-toolchain pins. It builds the proofs, which
-//! includes the module that pins the axioms each one rests on, requires the committed slice to be
-//! the one the model writes, and then replays the whole transcript, ReleaseSafe.
+//! needs `lake` on the path, at the version spec/lean/lean-toolchain pins. pepegrillo's `lean` tool
+//! builds the proofs first (`tools/lean.zig`), which includes the module that pins the axioms each
+//! one rests on. Then the step requires the committed slices to be the ones the models write, and
+//! replays the whole transcripts, ReleaseSafe.
 const std = @import("std");
 const modules = @import("modules.zig");
 
@@ -34,6 +35,7 @@ pub fn add(
     target: std.Build.ResolvedTarget,
     test_step: *std.Build.Step,
     tool_test_step: *std.Build.Step,
+    lean_tool: *std.Build.Step.Compile,
 ) void {
     const debug_graph = modules.add_private(b, target, .Debug);
     for ([_][]const u8{ lookup_root, engine_root, walk_root }) |root| {
@@ -64,9 +66,14 @@ pub fn add(
     test_step.dependOn(&engine_exe.step);
     test_step.dependOn(&walk_exe.step);
 
-    // `lake exe` builds what it runs first, the proofs and the axiom pins with it. The two runs
-    // go one after the other, so two builds never race over spec/.lake.
+    // The proofs and the axiom pins first, through pepegrillo's `lean` tool from the repository's
+    // root. Every lake run after it goes one after the other, so two never race over
+    // spec/lean/.lake.
+    const proofs = b.addRunArtifact(lean_tool);
+    proofs.setCwd(b.path("."));
+    proofs.has_side_effects = true;
     const check = lake(b, &.{ "exe", "cocuyo-spec", "check", cname_hops_max });
+    check.step.dependOn(&proofs.step);
     check.addFileArg(b.path(gate_transcript));
     check.addFileArg(b.path(engine_gate_transcript));
     check.addFileArg(b.path(walk_gate_transcript));
@@ -109,12 +116,12 @@ fn replay_module(
     return module;
 }
 
-/// A `lake` command run in spec/. It always runs: lake knows what it has built, and the build
+/// A `lake` command run in spec/lean/. It always runs: lake knows what it has built, and the build
 /// graph here does not see the Lean sources.
 fn lake(b: *std.Build, arguments: []const []const u8) *std.Build.Step.Run {
     const run = b.addSystemCommand(&.{"lake"});
     run.addArgs(arguments);
-    run.setCwd(b.path("spec"));
+    run.setCwd(b.path("spec/lean"));
     run.has_side_effects = true;
     return run;
 }

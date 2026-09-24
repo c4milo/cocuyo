@@ -1,5 +1,5 @@
 //! The engine's state, written the way the engine model writes its own (`stateLine` in
-//! spec/Spec/EngineWalk.lean): the slots, the connections, the sockets, the loop's operations,
+//! spec/lean/Spec/EngineWalk.lean): the slots, the connections, the sockets, the loop's operations,
 //! then the ready list, the results, the slot taken last, the waits, the failures, the free list
 //! and what the twin refuses.
 //!

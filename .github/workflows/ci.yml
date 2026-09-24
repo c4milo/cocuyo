@@ -42,7 +42,7 @@
 # Zig is downloaded from ziglang.org and checked against the SHA-256 the release index published
 # for 0.16.0, c-ares against the SHA-256 of its release asset, and Lean against the SHA-256 GitHub
 # records for its release asset, so all three are pinned. The Lean version must be the one
-# spec/lean-toolchain names, and the job checks that it is. No
+# spec/lean/lean-toolchain names, and the job checks that it is. No
 # third-party action runs here; `actions/checkout` is GitHub's own.
 name: ci
 
@@ -172,7 +172,7 @@ jobs:
       - name: Install Lean
         run: |
           set -euo pipefail
-          grep -qx "leanprover/lean4:v${LEAN_VERSION}" spec/lean-toolchain
+          grep -qx "leanprover/lean4:v${LEAN_VERSION}" spec/lean/lean-toolchain
           url="https://github.com/leanprover/lean4/releases/download/v${LEAN_VERSION}/lean-${LEAN_VERSION}-linux.tar.zst"
           sha="4b3fb03c29a1e0a253fb1d11f9bae3725f19a0dc6fc09b3ea16d2c9df3349e2c"
           curl -fsSL "$url" -o lean.tar.zst
