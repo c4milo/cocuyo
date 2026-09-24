@@ -1,6 +1,6 @@
 //! A lookup over DoH and over DoQ through the fake server (docs/design.md §22, §23): the query's
-//! shape, the answer by transaction, DoH's `Age`, the exchange that failed, and a stream's reading
-//! of TC and BADCOOKIE. Split from `lookup_exchange.zig` so the fixtures stay out of it.
+//! shape, the answer by transaction, DoH's `Age`, the request that failed, and a stream's reading
+//! of TC and BADCOOKIE. Split from `lookup_request.zig` so the fixtures stay out of it.
 const std = @import("std");
 const testing = std.testing;
 const core = @import("core");
@@ -20,7 +20,7 @@ const servers_quic = [_]core.Server{
     .{ .endpoint = fixtures.servers_two[0].endpoint, .quic = quic },
     .{ .endpoint = fixtures.servers_two[1].endpoint, .quic = quic },
 };
-/// Both kinds of exchange, for what they do alike.
+/// Both kinds of request, for what they do alike.
 const both = [_][]const core.Server{ &servers, &servers_quic };
 const seed = fixtures.seed;
 
@@ -35,12 +35,12 @@ fn start_over(harness: *fixtures.Harness, list: []const core.Server, text: []con
     try harness.start(text, kind, lookup_seed);
 }
 
-/// Polls, requires an exchange, remembers its message and tells the lookup it went out. A DoQ
+/// Polls, requires a request, remembers its message and tells the lookup it went out. A DoQ
 /// message starts after its length prefix (RFC 9250 §4.2).
 fn send(harness: *fixtures.Harness) !Action {
     const action = harness.poll();
-    try testing.expect(action == .send_exchange);
-    harness.query_bytes = action.send_exchange.message_bytes.len;
+    try testing.expect(action == .send_request);
+    harness.query_bytes = action.send_request.message_bytes.len;
     harness.query_body_offset = if (harness.config.uses_quic()) core.constants.tcp_prefix_bytes else 0;
     harness.lookup.on_sent(harness.now_ns);
     return action;
@@ -52,7 +52,7 @@ fn answer(harness: *fixtures.Harness, reply: fixtures.Reply, transaction: u16, a
     echoed.id = 0;
     const message = harness.build(echoed);
     harness.now_ns += 1;
-    return harness.lookup.on_exchange_answer(transaction, message, age_seconds, harness.now_ns);
+    return harness.lookup.on_request_answer(transaction, message, age_seconds, harness.now_ns);
 }
 
 test "a query over DoH or DoQ has ID 0, the name as given and no cookie, and is padded to 128" {
@@ -60,19 +60,19 @@ test "a query over DoH or DoQ has ID 0, the name as given and no cookie, and is 
         var harness: fixtures.Harness = undefined;
         try start_over(&harness, list, "Example.COM.", .a, seed);
         const action = try send(&harness);
-        const bytes = action.send_exchange.message_bytes;
+        const bytes = action.send_request.message_bytes;
         const message = bytes[harness.query_body_offset..];
         // Over DoQ, "a 2-octet length field followed by the message" (RFC 9250 §4.2).
         if (harness.query_body_offset > 0) try testing.expectEqual(message.len, wire.message_len(bytes));
         try testing.expectEqual(@as(u16, 0), (try wire.header.parse(message)).id);
-        try testing.expectEqual(@as(u8, 0), action.send_exchange.server_index);
-        try testing.expectEqual(harness.lookup.transaction.number, action.send_exchange.transaction);
+        try testing.expectEqual(@as(u8, 0), action.send_request.server_index);
+        try testing.expectEqual(harness.lookup.transaction.number, action.send_request.transaction);
         try expect_shape(&harness, message);
         // Another lookup, from another seed, asks the same question in the same octets, which is
         // what lets an HTTP cache share the answer.
         var other: fixtures.Harness = undefined;
         try start_over(&other, list, "Example.COM.", .a, seed + 1);
-        try testing.expectEqualSlices(u8, bytes, (try send(&other)).send_exchange.message_bytes);
+        try testing.expectEqualSlices(u8, bytes, (try send(&other)).send_request.message_bytes);
     }
 }
 
@@ -89,10 +89,10 @@ test "an answer to a transaction the lookup has left is ignored; one to its own 
     for (both) |list| {
         var harness: fixtures.Harness = undefined;
         try start_over(&harness, list, "example.com.", .a, seed);
-        const first = (try send(&harness)).send_exchange.transaction;
+        const first = (try send(&harness)).send_request.transaction;
         // The deadline moves the lookup to the second server and a new transaction.
         harness.now_ns = harness.lookup.deadline_ns - 1;
-        const second = (try send(&harness)).send_exchange;
+        const second = (try send(&harness)).send_request;
         try testing.expectEqual(@as(u8, 1), second.server_index);
         try testing.expect(second.transaction != first);
         try testing.expectEqual(Verdict.ignored, answer(&harness, fixtures.answer_a, first, 0));
@@ -118,7 +118,7 @@ test "an Age of 250 turns a TTL of 600 into 350, and an Age past the TTL into 0"
     for (cases) |case| {
         var harness: fixtures.Harness = undefined;
         try start(&harness, "example.com.", .a, seed);
-        const transaction = (try send(&harness)).send_exchange.transaction;
+        const transaction = (try send(&harness)).send_request.transaction;
         try testing.expectEqual(Verdict.accepted, answer(&harness, reply, transaction, case[0]));
         try testing.expectEqual(case[1], harness.poll().done.ttl_seconds);
     }
@@ -127,18 +127,18 @@ test "an Age of 250 turns a TTL of 600 into 350, and an Age past the TTL into 0"
 test "the Age lowers a kept record's TTL, and a negative answer's" {
     var harness: fixtures.Harness = undefined;
     try start(&harness, "example.com.", .mx, seed);
-    var transaction = (try send(&harness)).send_exchange.transaction;
+    var transaction = (try send(&harness)).send_request.transaction;
     _ = answer(&harness, fixtures.answer_mx, transaction, 100);
     const done = harness.poll().done;
     try testing.expectEqual(@as(u32, 200), done.ttl_seconds);
     try testing.expectEqual(@as(u32, 200), done.records.?.at(0).ttl_seconds);
 
     try start(&harness, "example.com.", .a, seed);
-    transaction = (try send(&harness)).send_exchange.transaction;
+    transaction = (try send(&harness)).send_request.transaction;
     _ = answer(&harness, fixtures.name_error_soa, transaction, 25);
     try testing.expectEqual(@as(u32, 35), harness.poll().failed.negative_ttl_seconds);
     try start(&harness, "example.com.", .a, seed);
-    transaction = (try send(&harness)).send_exchange.transaction;
+    transaction = (try send(&harness)).send_request.transaction;
     _ = answer(&harness, fixtures.no_data_soa, transaction, 25);
     try testing.expectEqual(@as(u32, 35), harness.poll().failed.negative_ttl_seconds);
 }
@@ -148,25 +148,25 @@ test "each message of a chain over DoH loses its own Age before the chain bounds
     // instead would take the 15 to 0.
     var harness: fixtures.Harness = undefined;
     try start(&harness, "example.com.", .a, seed);
-    var transaction = (try send(&harness)).send_exchange.transaction;
+    var transaction = (try send(&harness)).send_request.transaction;
     try testing.expectEqual(Verdict.accepted, answer(&harness, fixtures.cname_short, transaction, 5));
-    transaction = (try send(&harness)).send_exchange.transaction;
+    transaction = (try send(&harness)).send_request.transaction;
     try testing.expectEqual(Verdict.accepted, answer(&harness, fixtures.answer_a_600, transaction, 100));
     try testing.expectEqual(@as(u32, 15), harness.poll().done.ttl_seconds);
 }
 
-test "an exchange that failed moves the lookup to the next server and counts one failure" {
+test "a request that failed moves the lookup to the next server and counts one failure" {
     for (both) |list| {
         var harness: fixtures.Harness = undefined;
         try start_over(&harness, list, "example.com.", .a, seed);
-        const transaction = (try send(&harness)).send_exchange.transaction;
+        const transaction = (try send(&harness)).send_request.transaction;
         // A failure for a transaction the lookup is not on is nobody's.
-        harness.lookup.on_exchange_failed(transaction +% 1, harness.now_ns);
+        harness.lookup.on_request_failed(transaction +% 1, harness.now_ns);
         try testing.expectEqual(@as(u8, 0), harness.lookup.server_index);
-        harness.lookup.on_exchange_failed(transaction, harness.now_ns);
+        harness.lookup.on_request_failed(transaction, harness.now_ns);
         try testing.expectEqual(@as(u8, 1), harness.lookup.server_index);
         try testing.expectEqual(@as(u8, 1), harness.servers.failures(0));
-        try testing.expectEqual(@as(u8, 1), (try send(&harness)).send_exchange.server_index);
+        try testing.expectEqual(@as(u8, 1), (try send(&harness)).send_request.server_index);
     }
 }
 
@@ -175,12 +175,12 @@ test "over DoH or DoQ a truncated answer is read as it stands, and BADCOOKIE fai
     for (both) |list| {
         var harness: fixtures.Harness = undefined;
         try start_over(&harness, list, "example.com.", .a, seed);
-        var transaction = (try send(&harness)).send_exchange.transaction;
+        var transaction = (try send(&harness)).send_request.transaction;
         try testing.expectEqual(Verdict.accepted, answer(&harness, fixtures.answer_a_truncated, transaction, 0));
         try testing.expectEqual(@as(usize, 1), harness.poll().done.addresses.len);
 
         try start_over(&harness, list, "example.com.", .a, seed);
-        transaction = (try send(&harness)).send_exchange.transaction;
+        transaction = (try send(&harness)).send_request.transaction;
         try testing.expectEqual(Verdict.accepted, answer(&harness, bad_cookie, transaction, 0));
         try testing.expectEqual(@as(u8, 1), harness.lookup.server_index);
         try testing.expect(harness.lookup.flags.had_server_failure);

@@ -58,8 +58,8 @@ def configsAll (hops : Nat) : List Config := Id.run do
   for servers in [1, 2, 3] do
     for attempts in [1, 2, 3] do
       for candidates in [1, 2, 3] do
-        for (useTcp, exchange, quic) in transports do
-          all := all ++ [{ servers, attempts, candidates, hopsMax := hops, useTcp, exchange, quic }]
+        for (useTcp, request, quic) in transports do
+          all := all ++ [{ servers, attempts, candidates, hopsMax := hops, useTcp, request, quic }]
   return all
 
 /-- The configurations `gate` walks: the slice `zig build test` replays without Lean. One
@@ -69,8 +69,8 @@ def configsGate (hops : Nat) : List Config :=
   [{ servers := 0, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false },
    { servers := 1, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false },
    { servers := 1, attempts := 1, candidates := 1, hopsMax := hops, useTcp := true },
-   { servers := 1, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false, exchange := true },
-   { servers := 1, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false, exchange := true,
+   { servers := 1, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false, request := true },
+   { servers := 1, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false, request := true,
      quic := true }]
 
 /-- Writes the transcript of `configs` to `out`. Returns the events written and the deepest. -/

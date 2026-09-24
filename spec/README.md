@@ -24,7 +24,7 @@ would agree with the code by construction and prove nothing about it.
   - `cancel_after_end` and `cancel_before_end`: a cancel leaves an end standing, and ends
     anything else as cancelled.
   - `useTcp_never_udp`: under `use_tcp`, no event leads to a datagram.
-  - `exchange_never_stream`: over DoH or DoQ (design §22, §23), no event leads to a datagram, a
+  - `request_never_stream`: over DoH or DoQ (design §22, §23), no event leads to a datagram, a
     connection or a stream, and a reply is read as one over a stream is.
   - `step_good` and `init_good`: the server, pass, candidate and hop counters stay inside the
     configuration.
@@ -54,7 +54,7 @@ would agree with the code by construction and prove nothing about it.
 - Entropy, the cookies' values and the answers' records.
 - What a poll handed out and the caller has not answered yet. The model keeps it to know when
   `on_sent` may come, and the replay does not compare it, because the lookup does not keep it.
-- A DoH or DoQ transaction's number. The model delivers an answer or a failed exchange to the
+- A DoH or DoQ transaction's number. The model delivers an answer or a failed request to the
   current transaction, and an unmatched reply is one for another. DoH and DoQ move alike, so the
   model's `quic` names which servers the replay asks and no transition reads it. That a late answer names a number the
   lookup has left is the unit tests' to show (docs/mutations.md DH8, DH9, DH21).

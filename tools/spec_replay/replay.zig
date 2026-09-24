@@ -64,7 +64,7 @@ pub const Event = enum {
     send_failed,
     tcp_connected,
     tcp_failed,
-    exchange_failed,
+    request_failed,
     cancel,
     reply_unmatched,
     reply_answer,
@@ -82,7 +82,7 @@ pub const Out = enum {
     send_udp,
     connect_tcp,
     send_tcp,
-    send_exchange,
+    send_request,
     wait,
     done,
     failed_name_not_found,
@@ -263,7 +263,7 @@ pub const Replay = struct {
             .send_failed => lookup.on_send_failed(self.now_ns),
             .tcp_connected => lookup.on_tcp_connected(self.now_ns),
             .tcp_failed => lookup.on_tcp_failed(self.now_ns),
-            .exchange_failed => lookup.on_exchange_failed(lookup.transaction.number, self.now_ns),
+            .request_failed => lookup.on_request_failed(lookup.transaction.number, self.now_ns),
             .cancel => lookup.cancel(),
             else => return self.respond(reply_of(event)),
         }
@@ -272,8 +272,8 @@ pub const Replay = struct {
 
     fn respond(self: *Replay, reply: fixtures.Reply) Out {
         const message = fixtures.build(&self.lookup, reply, &self.reply);
-        const verdict = if (self.config.exchanges())
-            self.lookup.on_exchange_answer(transaction_of(&self.lookup, reply), message, 0, self.now_ns)
+        const verdict = if (self.config.sends_requests())
+            self.lookup.on_request_answer(transaction_of(&self.lookup, reply), message, 0, self.now_ns)
         else
             self.lookup.on_response(message, self.source(), self.now_ns);
         return switch (verdict) {
@@ -372,7 +372,7 @@ fn out_of(action: resolver.Action) Out {
         .send_udp => .send_udp,
         .connect_tcp => .connect_tcp,
         .send_tcp => .send_tcp,
-        .send_exchange => .send_exchange,
+        .send_request => .send_request,
         .wait => .wait,
         .done => .done,
         .failed => |failure| failed_out(failure.err),

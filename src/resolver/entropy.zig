@@ -25,7 +25,7 @@ pub const Transaction = struct {
     case_seed: u64,
     /// Which of its lookup's transactions this is, counted from zero: what a DoH or DoQ answer
     /// names, since HTTP or QUIC and not the id pairs it with its query (§22, §23). The lookup
-    /// numbers it, and `lookup_exchange.zig` shows the count never wraps. It sits in what would
+    /// numbers it, and `lookup_request.zig` shows the count never wraps. It sits in what would
     /// be padding.
     number: u16 = 0,
 };

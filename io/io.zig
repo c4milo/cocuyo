@@ -188,7 +188,7 @@ pub fn Engine(comptime options: Options) type {
         pub fn assert_tls(config: *const cocuyo.Config) void {
             // The engine speaks neither HTTP nor QUIC: colibri's driver drives DoH and DoQ
             // (docs/design.md §22, §23).
-            assert(!config.exchanges());
+            assert(!config.sends_requests());
             if (!config.uses_tls()) return;
             assert(options.tls.enabled);
             assert(config.servers.len <= options.tcp_connections);

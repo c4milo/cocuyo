@@ -125,7 +125,7 @@ const Driver = struct {
                 },
                 .wait => |deadline_ns| deadline_ns -| self.clock.read(),
                 // Cleartext servers alone: DoH and DoQ are colibri's to drive (§22, §23).
-                .send_exchange => unreachable,
+                .send_request => unreachable,
                 .connect_tcp, .send_tcp => {
                     std.debug.print("{s}: the answer needs TCP, which this example does not do\n", .{name});
                     std.process.exit(1);

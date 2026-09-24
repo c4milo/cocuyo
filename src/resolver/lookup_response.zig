@@ -53,7 +53,7 @@ fn accepted_header(
     if (self.state != .awaiting_udp and self.state != .awaiting_tcp) return null;
     // Over DoH or DoQ an answer comes by its transaction, and never as a datagram
     // (docs/design.md §22, §23).
-    if (self.config.exchanges()) return null;
+    if (self.config.sends_requests()) return null;
     const header = header_of(message) orelse return null;
     // 2. The transaction id: sixteen bits, and the most selective check there is.
     if (header.id != self.transaction.id) return null;
@@ -188,7 +188,7 @@ fn on_bad_cookie(self: *Lookup, now_ns: u64) void {
 /// Whether the answer is read as one over a stream: it came over TCP, or over DoH or DoQ, where
 /// there is nowhere else to ask (docs/design.md §22, §23).
 fn over_stream(self: *const Lookup) bool {
-    return self.state == .awaiting_tcp or self.config.exchanges();
+    return self.state == .awaiting_tcp or self.config.sends_requests();
 }
 
 /// The negative TTL a message carries, or zero, less its `Age` over DoH (RFC 8484 §5.1) and

@@ -33,11 +33,11 @@ const identity_order: [core.constants.servers_max]u8 = blk: {
 const policy = @import("lookup_policy.zig");
 const poll_module = @import("lookup_poll.zig");
 const response_module = @import("lookup_response.zig");
-const exchange_module = @import("lookup_exchange.zig");
+const request_module = @import("lookup_request.zig");
 
 pub const State = enum {
     /// A query is ready to be sent to the current server over UDP, or over DoH or DoQ as one
-    /// exchange (docs/design.md §22, §23).
+    /// request (docs/design.md §22, §23).
     query_ready,
     /// The query was sent; the wait is on.
     awaiting_udp,
@@ -65,13 +65,13 @@ pub const Action = union(enum) {
     /// (RFC 7766 §8). Then read two octets, call `wire.message_len`, read that many, and hand
     /// them to `on_response`.
     send_tcp: struct { message_bytes: []const u8 },
-    /// Send these bytes to this server as one exchange, the server being
+    /// Send these bytes to this server as one request, the server being
     /// `config.servers[server_index]`. Over DoH it is an HTTP request, whose GET carries
     /// `wire.doh.dns_variable` of the bytes (docs/design.md §22). Over DoQ it is a new QUIC
     /// stream, ended with FIN, and the bytes carry their length prefix (RFC 9250 §4.2, §23). Then
-    /// call `on_sent`, and hand the answer to `on_exchange_answer` with `transaction`, the number
-    /// of the lookup's transaction, or say the exchange failed with `on_exchange_failed`.
-    send_exchange: struct { server_index: u8, message_bytes: []const u8, transaction: u16 },
+    /// call `on_sent`, and hand the answer to `on_request_answer` with `transaction`, the number
+    /// of the lookup's transaction, or say the request failed with `on_request_failed`.
+    send_request: struct { server_index: u8, message_bytes: []const u8, transaction: u16 },
     /// Nothing to do until this instant, in the caller's own monotonic nanoseconds.
     wait: u64,
     done: Answer,
@@ -197,7 +197,7 @@ pub const Lookup = struct {
                 .edns_enabled = true,
                 // A query over DoH or DoQ asks for the name as it was given, so the same
                 // question makes the same octets for an HTTP cache (docs/design.md §22, §23).
-                .mix_case = config.mix_case and !config.exchanges(),
+                .mix_case = config.mix_case and !config.sends_requests(),
                 .had_no_data = false,
                 .had_server_failure = false,
                 .aliased = false,
@@ -271,21 +271,21 @@ pub const Lookup = struct {
         self.next_server(now_ns);
     }
 
-    /// The answer to an exchange over DoH or DoQ, and its `Age` in seconds, zero over DoQ
+    /// The answer to a request over DoH or DoQ, and its `Age` in seconds, zero over DoQ
     /// (docs/design.md §22, §23).
-    pub fn on_exchange_answer(
+    pub fn on_request_answer(
         self: *Lookup,
         transaction: u16,
         message: []const u8,
         age_seconds: u32,
         now_ns: u64,
     ) Verdict {
-        return exchange_module.on_exchange_answer(self, transaction, message, age_seconds, now_ns);
+        return request_module.on_request_answer(self, transaction, message, age_seconds, now_ns);
     }
 
-    /// The exchange of a query over DoH or DoQ ended without an answer (docs/design.md §22, §23).
-    pub fn on_exchange_failed(self: *Lookup, transaction: u16, now_ns: u64) void {
-        exchange_module.on_exchange_failed(self, transaction, now_ns);
+    /// A request over DoH or DoQ ended without an answer (docs/design.md §22, §23).
+    pub fn on_request_failed(self: *Lookup, transaction: u16, now_ns: u64) void {
+        request_module.on_request_failed(self, transaction, now_ns);
     }
 
     pub fn on_tcp_connected(self: *Lookup, now_ns: u64) void {
@@ -355,7 +355,7 @@ pub const Lookup = struct {
     /// Whether the query carries this server's cookies: they ride in the OPT record, so there
     /// are none without it (RFC 7873 §5.1), and none over DoH or DoQ (docs/design.md §22, §23).
     pub fn carries_cookie(self: *const Lookup) bool {
-        return self.flags.edns_enabled and !self.config.exchanges();
+        return self.flags.edns_enabled and !self.config.sends_requests();
     }
 
     /// The name as it goes on the wire: the current name with its case set from this

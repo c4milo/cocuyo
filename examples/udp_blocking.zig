@@ -73,7 +73,7 @@ fn resolve(io: std.Io, name: []const u8, config: *const cocuyo.Config, seed: u64
             .wait => |deadline_ns| try wait(io, &lookup, socket.?, &reply, clock, deadline_ns),
             // The servers this example names are cleartext ones: DoH and DoQ are an HTTP or a
             // QUIC client's to drive (docs/design.md §22, §23).
-            .send_exchange => unreachable,
+            .send_request => unreachable,
             .connect_tcp, .send_tcp => {
                 // A truncated answer needs TCP: connect, write the length-prefixed query, read two
                 // octets, call `cocuyo.message_len`, read that many, and hand them to

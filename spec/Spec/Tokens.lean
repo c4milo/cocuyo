@@ -17,7 +17,7 @@ def replyToken : Reply → String
 def eventToken : Event → String
   | .poll => "poll" | .expire => "expire" | .sent => "sent" | .sendFailed => "send_failed"
   | .tcpConnected => "tcp_connected" | .tcpFailed => "tcp_failed" | .cancel => "cancel"
-  | .exchangeFailed => "exchange_failed" | .reply r => "reply_" ++ replyToken r
+  | .requestFailed => "request_failed" | .reply r => "reply_" ++ replyToken r
 
 def errToken : Err → String
   | .nameNotFound => "name_not_found" | .noData => "no_data" | .timeout => "timeout"
@@ -26,7 +26,7 @@ def errToken : Err → String
 
 def outToken : Out → String
   | .sendUdp => "send_udp" | .connectTcp => "connect_tcp" | .sendTcp => "send_tcp"
-  | .sendExchange => "send_exchange" | .wait => "wait" | .done => "done" | .failed e => "failed_" ++ errToken e
+  | .sendRequest => "send_request" | .wait => "wait" | .done => "done" | .failed e => "failed_" ++ errToken e
   | .accepted => "accepted" | .ignored => "ignored" | .none => "none"
 
 def stageToken : Stage → String
@@ -36,7 +36,7 @@ def stageToken : Stage → String
 
 /-- How a configuration's queries go, as the transcript's `config` line names it. -/
 def transportToken (c : Config) : String :=
-  if c.useTcp then "tcp" else if !c.exchange then "udp" else if c.quic then "quic" else "https"
+  if c.useTcp then "tcp" else if !c.request then "udp" else if c.quic then "quic" else "https"
 
 def flag (b : Bool) (c : Char) : String := if b then c.toString else "-"
 

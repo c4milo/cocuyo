@@ -240,10 +240,10 @@ pub const Lookup = struct {
     pub fn on_response(self: *Lookup, message: []const u8, from: Endpoint, now_ns: u64) Verdict;
     pub fn on_tcp_connected(self: *Lookup, now_ns: u64) void;
     pub fn on_tcp_failed(self: *Lookup, now_ns: u64) void;
-    /// Over DoH or DoQ (§22, §23): the answer to the transaction `send_exchange` named, and its
-    /// `Age` over DoH; or the exchange ended without one.
-    pub fn on_exchange_answer(self: *Lookup, transaction: u16, message: []const u8, age_seconds: u32, now_ns: u64) Verdict;
-    pub fn on_exchange_failed(self: *Lookup, transaction: u16, now_ns: u64) void;
+    /// Over DoH or DoQ (§22, §23): the answer to the transaction `send_request` named, and its
+    /// `Age` over DoH; or the request ended without one.
+    pub fn on_request_answer(self: *Lookup, transaction: u16, message: []const u8, age_seconds: u32, now_ns: u64) Verdict;
+    pub fn on_request_failed(self: *Lookup, transaction: u16, now_ns: u64) void;
     pub fn cancel(self: *Lookup) void;
 };
 
@@ -251,10 +251,10 @@ pub const Action = union(enum) {
     send_udp: struct { server: Endpoint, local_port_hint: u16, message_bytes: []const u8 },
     connect_tcp: Endpoint,
     send_tcp: struct { message_bytes: []const u8 }, // length prefix included
-    // One exchange with `config.servers[server_index]`: an HTTP request over DoH (§22), whose GET
+    // One request to `config.servers[server_index]`: an HTTP request over DoH (§22), whose GET
     // carries the bytes' `wire.doh.dns_variable`, or a QUIC stream over DoQ (§23), whose bytes
     // carry the length prefix. The answer names `transaction`.
-    send_exchange: struct { server_index: u8, message_bytes: []const u8, transaction: u16 },
+    send_request: struct { server_index: u8, message_bytes: []const u8, transaction: u16 },
     wait: u64,                                      // absolute deadline, monotonic nanoseconds
     done: Answer,
     failed: Failure,
@@ -328,8 +328,8 @@ pub const Resolver = struct {
     pub fn on_tcp_connected(self: *Resolver, handle: Handle, now_ns: u64) void;
     pub fn on_tcp_failed(self: *Resolver, handle: Handle, now_ns: u64) void;
     // Over DoH or DoQ (§22, §23) an answer comes by handle: HTTP or QUIC paired it with its query.
-    pub fn on_exchange_answer(self: *Resolver, handle: Handle, transaction: u16, message: []const u8, age_seconds: u32, now_ns: u64) Verdict;
-    pub fn on_exchange_failed(self: *Resolver, handle: Handle, transaction: u16, now_ns: u64) void;
+    pub fn on_request_answer(self: *Resolver, handle: Handle, transaction: u16, message: []const u8, age_seconds: u32, now_ns: u64) Verdict;
+    pub fn on_request_failed(self: *Resolver, handle: Handle, transaction: u16, now_ns: u64) void;
 
     pub fn cancel(self: *Resolver, handle: Handle) void;
     /// Frees the slot. Every slice an answer handed out points into it and dies here.
@@ -467,13 +467,13 @@ Eight states: `query_ready`, `awaiting_udp`, `tcp_needed`, `connecting_tcp`, `tc
 | `done`, `failed` | any | unchanged | `poll` returns the same value; `on_response` is `ignored` |
 
 Over DoH or DoQ (§22, §23) the lookup keeps the UDP states, and three rows change. `poll` in
-`query_ready` returns `send_exchange`. An answer comes through `on_exchange_answer`, and only for
+`query_ready` returns `send_request`. An answer comes through `on_request_answer`, and only for
 the transaction the lookup waits on; it is read as one over TCP is, so TC=1 means nothing and
 BADCOOKIE advances the server. And one row is added:
 
 | State | Event | Next state | Effect |
 | --- | --- | --- | --- |
-| `awaiting_udp` | `on_exchange_failed` for the current transaction | `query_ready` or `failed` | advance the server |
+| `awaiting_udp` | `on_request_failed` for the current transaction | `query_ready` or `failed` | advance the server |
 
 After `send_tcp` the caller reads two bytes, calls `wire.message_len(prefix)`, reads that many
 bytes and passes them to `on_response`. There is no `read` action: the `wait` deadline already
@@ -2897,7 +2897,7 @@ and it records the owner's rulings of 2026-09-24. Each piece lands with its chec
 
 - **The lookup.** A lookup over DoH moves as one over UDP does: one request for each
   transaction, one answer, and a deadline that moves it on. Its poll asks for `send_https`
-  (`send_exchange` since §23), which carries the message, the server, and the transaction the
+  (`send_request` since §23), which carries the message, the server, and the transaction the
   answer must name: the transaction's number within the lookup, which sits in padding
   `Transaction` already had, so a lookup is no larger. The driver says when the request went
   out, as it says a datagram did.
@@ -2907,7 +2907,7 @@ and it records the owner's rulings of 2026-09-24. Each piece lands with its chec
   checks, the ID and the source endpoint are HTTP's, and every other check stands: the question
   must be the one asked. A truncated answer is taken as one over a stream is, since there is
   nowhere else to ask. A handle is the caller's until it releases it, as for every other event:
-  an exchange still open then is the driver's to forget.
+  a request still open then is the driver's to forget.
 - **The TTLs.** Every TTL of an answer, and the negative TTL of RFC 2308, is lowered by the HTTP
   `Age` the driver reports, and never below zero (RFC 8484 §5.1, a MUST). The cache keeps what
   is left.
@@ -2966,11 +2966,15 @@ needed. This section is the DNS half's plan, and it records the owner's rulings 
 - QUIC is colibri's driver's, over rotor, as DoH's HTTP is (§22). cocuyo supplies the DNS half,
   and its engine (§19 step 13) does not speak DoQ. The alternative was a QUIC seam in the
   engine, as chapulin's TLS has one. It is much larger, and the engine is not exported.
-- DoH and DoQ share one action. A lookup over either asks for one exchange for each
+- DoH and DoQ share one action. A lookup over either asks for one request for each
   transaction and takes the answer by the transaction's number. So `send_https`,
-  `on_https_answer` and `on_https_failed` became `send_exchange`, `on_exchange_answer` and
-  `on_exchange_failed` before either was released. The alternative was one action for each
+  `on_https_answer` and `on_https_failed` became `send_request`, `on_request_answer` and
+  `on_request_failed` before either was released. The alternative was one action for each
   transport: two paths that differ in nothing the lookup reads.
+- The name is "request", the word RFC 8484 and RFC 9250 share: a "DoH request", and an
+  "outstanding request" a DoQ client cancels (RFC 9250 §4.3.1). "Exchange" was the first name,
+  and the owner turned it down: it is RFC 8484's word for HTTP, and RFC 9250 never uses it this
+  way. "Transaction" names every query cocuyo makes, and "stream" is cocuyo's word for TCP.
 - A DoQ server is named as a DoT server is: `Server.quic: ?Tls`. It has a name, SPKI pins or
   both, and port 853, which is UDP here (RFC 9250 §4.1.1). DoQ authenticates as DoT does, and
   a stub should use the strict profile (RFC 9250 §5.1). A `Config`'s servers are still all one
@@ -2982,7 +2986,7 @@ needed. This section is the DNS half's plan, and it records the owner's rulings 
 
 ### What a QUIC server changes
 
-- **The lookup.** It moves as over DoH (§22): one exchange for each transaction, one answer,
+- **The lookup.** It moves as over DoH (§22): one request for each transaction, one answer,
   and a deadline that moves it on. Its message carries the two-octet length prefix every DoQ
   message has (RFC 9250 §4.2). The driver writes it on a new client-initiated stream and ends
   the stream with FIN. It hands back the response's message, without the prefix, with an `Age`
@@ -2990,7 +2994,7 @@ needed. This section is the DNS half's plan, and it records the owner's rulings 
 - **The answer.** An answer for a transaction the lookup has left is dropped, as over DoH. The
   driver cancels that stream with STOP_SENDING (§4.3.1): that is QUIC's, and the driver's.
 - **A failure.** A stream the server resets (§4.3.2), a connection that fails (§4.4) and a
-  handshake that fails each end the exchange without an answer. The driver says so, and the
+  handshake that fails each end the request without an answer. The driver says so, and the
   lookup moves to the next server, counting a failure against this one.
 - **0-RTT.** Only a QUERY or a NOTIFY may go in 0-RTT data (§4.5), and every message cocuyo
   builds is a QUERY. So the driver may use 0-RTT; the privacy trade-off of §7.1 is its own.
@@ -3005,9 +3009,9 @@ needed. This section is the DNS half's plan, and it records the owner's rulings 
 1. `core`: `Server.quic` and `Transport.quic`. `assert_valid` refuses a list of more than one
    kind, a QUIC server it cannot authenticate, a QUIC server on port 53 (RFC 9250 §4.1.1), and
    `use_tcp` beside QUIC. Done 2026-09-24.
-2. The rename, and the lookup model: its HTTPS transport becomes the exchange transport, and
-   the walk runs every exchange configuration for DoH servers and for DoQ servers. Done
-   2026-09-24: `exchange_never_stream` holds, and 27 DoQ configurations join the 82, for 109.
+2. The rename, and the lookup model: its HTTPS transport becomes the request transport, and
+   the walk runs every request configuration for DoH servers and for DoQ servers. Done
+   2026-09-24: `request_never_stream` holds, and 27 DoQ configurations join the 82, for 109.
 3. `resolver`: a DoQ message with its prefix, in DoH's shape. Done 2026-09-24. The replay of
    all 2.2 million transitions agrees with the lookup, and docs/mutations.md QU1 to QU9 record
    the checks broken.
@@ -3018,6 +3022,6 @@ Checks, one for each piece:
   servers passes it, and a QUIC server with neither a name nor a pin does not.
 - A query over DoQ has ID 0, its length prefix, the name as given and no cookie, and its message
   is padded to 128 octets.
-- An answer by transaction, an exchange that failed, and a truncated answer read as it stands,
+- An answer by transaction, a request that failed, and a truncated answer read as it stands,
   over DoQ as over DoH.
 - The lookup model's theorems hold, and the replay agrees over the DoQ configurations.

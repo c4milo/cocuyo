@@ -23,7 +23,7 @@ pub fn poll(self: *Lookup, now_ns: u64, out: []u8) Action {
         self.next_server(now_ns);
     }
     return switch (self.state) {
-        .query_ready => if (self.config.exchanges()) send_exchange(self, out) else send_udp(self, out),
+        .query_ready => if (self.config.sends_requests()) send_request(self, out) else send_udp(self, out),
         .tcp_needed => connect_tcp(self, now_ns),
         .tcp_ready => send_tcp(self, out),
         .awaiting_udp, .awaiting_tcp, .connecting_tcp => .{ .wait = self.deadline_ns },
@@ -49,14 +49,15 @@ fn send_udp(self: *Lookup, out: []u8) Action {
     } };
 }
 
-/// One exchange: an HTTP request carrying the message a datagram would, or a QUIC stream carrying
-/// it after the length prefix every DoQ message has (RFC 9250 §4.2; docs/design.md §22, §23).
-fn send_exchange(self: *Lookup, out: []u8) Action {
+/// One request: over DoH an HTTP request carrying the message a datagram would, over DoQ a QUIC
+/// stream carrying it after the length prefix every DoQ message has (RFC 9250 §4.2; docs/design.md
+/// §22, §23).
+fn send_request(self: *Lookup, out: []u8) Action {
     assert(self.state == .query_ready);
     const prefixed = self.config.uses_quic();
     const message_bytes = build(self, prefixed, out);
     assert(prefixed or message_bytes.len <= core.constants.query_bytes_max - core.constants.tcp_prefix_bytes);
-    return .{ .send_exchange = .{
+    return .{ .send_request = .{
         .server_index = self.server_slot(),
         .message_bytes = message_bytes,
         .transaction = self.transaction.number,
@@ -85,7 +86,7 @@ fn build(self: *const Lookup, tcp: bool, out: []u8) []const u8 {
         // A DoH client "SHOULD use a DNS ID of 0 in every DNS request" (RFC 8484 §4.1), so an
         // HTTP cache can share the answer, and over DoQ "the DNS Message ID MUST be set to 0"
         // (RFC 9250 §4.2.1; docs/design.md §22, §23).
-        .id = if (self.config.exchanges()) 0 else self.transaction.id,
+        .id = if (self.config.sends_requests()) 0 else self.transaction.id,
         .name = self.cased_name(),
         .kind = self.question.kind,
         .payload_bytes = if (self.flags.edns_enabled) self.config.udp_payload_bytes else null,

@@ -177,8 +177,8 @@ pub const Config = struct {
         assert(self.lookups.len <= constants.lookup_sources_max);
         assert(servers_agree(self.servers));
         // Every query on a stream means TCP, and a DoH or DoQ server takes each query as an
-        // exchange of its own (docs/design.md §22, §23).
-        assert(!(self.use_tcp and self.exchanges()));
+        // request of its own (docs/design.md §22, §23).
+        assert(!(self.use_tcp and self.sends_requests()));
         for (self.servers) |server| {
             if (server.tls) |tls| assert(tls.valid());
             if (server.quic) |quic| {
@@ -210,9 +210,9 @@ pub const Config = struct {
         return self.transport() == .quic;
     }
 
-    /// Whether each query is an exchange of its own, over DoH or DoQ: HTTP or QUIC pairs it with
+    /// Whether each query is a request of its own, over DoH or DoQ: HTTP or QUIC pairs it with
     /// its answer, and not its ID (docs/design.md §22, §23).
-    pub fn exchanges(self: *const Config) bool {
+    pub fn sends_requests(self: *const Config) bool {
         return switch (self.transport()) {
             .https, .quic => true,
             .cleartext, .tls => false,
@@ -352,7 +352,7 @@ test "servers speak QUIC all together, known as a TLS server is, and never besid
     try testing.expect(servers_agree(&over_quic));
     const config: Config = .{ .servers = &over_quic };
     config.assert_valid();
-    try testing.expect(config.uses_quic() and config.exchanges() and config.encrypted());
+    try testing.expect(config.uses_quic() and config.sends_requests() and config.encrypted());
     try testing.expect(!config.uses_https() and !config.uses_tls() and !config.streams_only());
     // Port 853 unless agreed otherwise (RFC 9250 §4.1.1), and no server known by nothing.
     try testing.expectEqual(constants.port_dns_tls_default, quic.port);

@@ -47,7 +47,7 @@ fn act(self: anytype, event: cocuyo.Event, now_ns: u64) bool {
         .wait => unreachable,
         // The engine speaks neither HTTP nor QUIC, and `assert_tls` refused a configuration of
         // DoH or DoQ servers (docs/design.md §22, §23).
-        .send_exchange => unreachable,
+        .send_request => unreachable,
     }
     return true;
 }

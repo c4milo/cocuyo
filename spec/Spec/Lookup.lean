@@ -48,16 +48,16 @@ inductive Event where
   | sendFailed
   | tcpConnected
   | tcpFailed
-  /-- The exchange of a query over DoH or DoQ ended without an answer: an HTTP status that is not
-  2xx, a QUIC stream the server reset, or the connection lost (docs/design.md §22, §23). -/
-  | exchangeFailed
+  /-- A request over DoH or DoQ ended without an answer: an HTTP status that is not 2xx, a QUIC
+  stream the server reset, or the connection lost (docs/design.md §22, §23). -/
+  | requestFailed
   | reply (r : Reply)
   | cancel
   deriving DecidableEq, Repr, Inhabited
 
 /-- What a lookup answers: an action for a poll, a verdict for a reply, nothing for the rest. -/
 inductive Out where
-  | sendUdp | connectTcp | sendTcp | sendExchange | wait | done
+  | sendUdp | connectTcp | sendTcp | sendRequest | wait | done
   | failed (e : Err)
   | accepted | ignored
   | none
@@ -71,10 +71,10 @@ structure Config where
   candidates : Nat
   hopsMax : Nat
   useTcp : Bool
-  /-- Every query is an exchange of its own, over DoH or DoQ (docs/design.md §22, §23), which
+  /-- Every query is a request of its own, over DoH or DoQ (docs/design.md §22, §23), which
   never goes with `useTcp`. -/
-  exchange : Bool := false
-  /-- Which exchange: DoQ's QUIC rather than DoH's HTTP. No transition reads it, since the two
+  request : Bool := false
+  /-- Which kind of request: DoQ's QUIC rather than DoH's HTTP. No transition reads it, since the two
   move alike; the transcript names it, so the replay asks servers of that kind. -/
   quic : Bool := false
   deriving Repr
@@ -159,11 +159,11 @@ def onReply (c : Config) (s : State) (stream : Bool) : Reply → State × Out
     else ({ s with cookieRetried := true, stage := fresh c }, .accepted)
 
 /-- A poll: the action the lookup wants now. A query over DoH or DoQ is ready as a datagram is,
-one exchange a transaction, and goes as an HTTP request or a QUIC stream (docs/design.md §22,
+one request a transaction, and goes as an HTTP request or a QUIC stream (docs/design.md §22,
 §23). -/
 def poll (c : Config) (s : State) : State × Out :=
   match s.stage with
-  | .queryReady => ({ s with offered := true }, if c.exchange then .sendExchange else .sendUdp)
+  | .queryReady => ({ s with offered := true }, if c.request then .sendRequest else .sendUdp)
   | .tcpNeeded => ({ s with stage := .connectingTcp }, .connectTcp)
   | .tcpReady => ({ s with offered := true }, .sendTcp)
   | .awaitingUdp | .connectingTcp | .awaitingTcp => (s, .wait)
@@ -205,12 +205,12 @@ def step (c : Config) (s : State) : Event → State × Out
     | _ => (s, .none)
   | .tcpFailed => if onStream s.stage then (advanceServer c s, .none) else (s, .none)
   -- An HTTP failure is the server's: the next one (docs/design.md §22).
-  | .exchangeFailed =>
-    if c.exchange ∧ s.stage = .awaitingUdp then (advanceServer c s, .none) else (s, .none)
+  | .requestFailed =>
+    if c.request ∧ s.stage = .awaitingUdp then (advanceServer c s, .none) else (s, .none)
   | .reply r =>
     match s.stage with
     -- Over DoH or DoQ an answer is read as one over a stream: there is nowhere else to ask.
-    | .awaitingUdp => onReply c s c.exchange r
+    | .awaitingUdp => onReply c s c.request r
     | .awaitingTcp => onReply c s true r
     | _ => (s, .ignored)
   | .cancel => if ended s.stage then (s, .none) else (fail s .canceled, .none)
@@ -218,7 +218,7 @@ def step (c : Config) (s : State) : Event → State × Out
 /-- The events a caller may deliver to a `Lookup`, by the contract of §4: a poll at any time, a
 poll past the deadline while the lookup waits, `on_sent` and `on_send_failed` only for a send a
 poll handed out, `on_tcp_connected` while it connects, `on_tcp_failed` while it is on a stream,
-`on_exchange_failed` while it waits on an exchange, a datagram at any time, and a cancel until
+`on_request_failed` while it waits on a request, a datagram at any time, and a cancel until
 it ends. `Resolver.cancel` takes a cancel after the end
 as well, which `step` answers with nothing. -/
 def enabled (c : Config) (s : State) : List Event :=
@@ -229,7 +229,7 @@ def enabled (c : Config) (s : State) : List Event :=
     ++ (if s.offered then [Event.sent, .sendFailed] else [])
     ++ (if s.stage = .connectingTcp then [Event.tcpConnected] else [])
     ++ (if onStream s.stage then [Event.tcpFailed] else [])
-    ++ (if c.exchange ∧ s.stage = .awaitingUdp then [Event.exchangeFailed] else [])
+    ++ (if c.request ∧ s.stage = .awaitingUdp then [Event.requestFailed] else [])
     ++ (if waiting s.stage then replies else [Event.reply .unmatched])
     ++ (if ended s.stage then [] else [Event.cancel])
 
