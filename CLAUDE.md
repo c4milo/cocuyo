@@ -195,7 +195,8 @@ The architecture depends on every rule in this section.
 - DNS over TLS: `-Dchapulin=<checkout>` names a chapulin checkout whose `bin/chapulin-record.o`
   `build/dot.zig` says how to make. With it, `zig build test-chapulin` runs the session's tests
   and `zig build example-dot-rotor` resolves over DoT; `tools/dot_live/run.sh <checkout>` runs
-  the live check of design §21 step 6. Neither is in the gate, which needs no chapulin.
+  the live check of design §21 step 6. Neither is in the gate, which needs no chapulin. The
+  `dot-live` workflow runs both once a day on macOS, against chapulin at the commit it pins.
 - Format: `zig build fmt`, or `zig fmt build.zig build src tools examples bench`.
 - Commit messages: `zig build hooks` once after clone; `zig build lint-commits` by hand.
 

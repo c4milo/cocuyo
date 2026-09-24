@@ -18,7 +18,8 @@
 //! `io/io_chapulin.zig` reads chapulin's headers with the defines that command sets. Since
 //! chapulin b29ab76 the object exports its build record, and the session's context compares it
 //! with those headers when it is made: an object built another way stops the program there,
-//! rather than lay its sessions out otherwise unnoticed.
+//! rather than lay its sessions out otherwise unnoticed. CI's `dot-live` workflow pins the
+//! chapulin commit it builds; it moves when cocuyo needs a newer chapulin.
 const std = @import("std");
 const modules = @import("modules.zig");
 

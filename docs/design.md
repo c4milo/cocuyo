@@ -2890,7 +2890,9 @@ the engine's send and held buffers, per slot.
    the schemes and which completes a declined ticket as a full handshake in the same connection
    (its docs/decisions.md 55), all three resumed, `dns.google` in 9 lookups of 9. The example
    reads whether a handshake resumed from chapulin's `psk_selected`. TLS rule 8's reconnect stays,
-   for a resumed handshake that fails some other way.
+   for a resumed handshake that fails some other way. Since the same day the check runs once a
+   day on macOS in CI's `dot-live` workflow, against chapulin at a pinned commit. It is not a
+   gate: a failure there can be a resolver changing what it does, as Google's refusal was.
 
 Checks, one for each piece:
 
