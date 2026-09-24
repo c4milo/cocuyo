@@ -2877,8 +2877,13 @@ the engine's send and held buffers, per slot.
    `dns.google` over an RSA chain ending at GTS Root R1, the other two over ECDSA chains ending at
    SSL.com's ECC root and DigiCert Global Root G3. A name the certificate does not carry, and a
    root the chain does not end at, each failed the lookup, with no query sent in the clear. Only
-   IPv4 was tried: the machine had no IPv6 route. Resumption was not tried live, since one lookup
-   makes one connection.
+   IPv4 was tried: the machine had no IPv6 route. Resumption was tried live the same day, with
+   chapulin at `0cc5355`: the example resolves a second name once the first connection has closed
+   idle, over a connection that spends the ticket the first kept. `cloudflare-dns.com` and
+   `dns.quad9.net` resumed. `dns.google` answered the resumed hello with a `handshake_failure`
+   alert, and the engine opened the connection again in full, as TLS rule 8 says, and was
+   answered. chapulin offers no `signature_algorithms` beside a ticket, so a server that declines
+   the ticket cannot fall back to its certificate within the handshake.
 
 Checks, one for each piece:
 

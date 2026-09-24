@@ -1,12 +1,16 @@
-//! One lookup over DNS over TLS: the engine of docs/design.md §19 step 13 on rotor's loop, with
+//! Lookups over DNS over TLS: the engine of docs/design.md §19 step 13 on rotor's loop, with
 //! chapulin's session behind the seam of §21 (`io/io_chapulin.zig`), strict as RFC 8310 §5 asks.
 //!
 //!     zig build example-dot-rotor -Dchapulin=<checkout> -- \
-//!         <name> <server address> <authentication name> <root certificate>...
+//!         <name>[,<name>...] <server address> <authentication name> <root certificate>...
 //!
 //! for instance `dns.google 8.8.8.8 dns.google gts-root-r1.der`. Each root is a DER certificate
 //! the server's chain is expected to end at; its subject Name and its SubjectPublicKeyInfo are the
 //! trust anchor chapulin checks the chain against, and the name is what the leaf must carry.
+//!
+//! Names after the first are resolved in turn, each once the server's ticket is kept and the
+//! connection before has closed idle, so each opens a connection that resumes with the ticket
+//! (§21, TLS rule 8). After each answer the example says whether its handshake resumed.
 //!
 //! What cocuyo does not read, the caller hands in (§21): the wall clock for the certificate's
 //! dates, and 32 octets from a CSPRNG for the handshake's keys.
@@ -34,7 +38,12 @@ const certificate_bytes_max = 8192;
 /// How long a lookup is given, in ticks of `tick_ns`, before the example gives up on it.
 const tick_ns = 100_000_000;
 const ticks_max = 200;
+/// How long the example waits between two names for the ticket and the idle close: past the
+/// engine's idle wait of ten seconds (`tcp_idle_ns_default`).
+const close_ticks_max = 200;
 const events_max = 16;
+/// The names one run resolves.
+const names_max = 4;
 
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
@@ -74,16 +83,61 @@ pub fn main(init: std.process.Init) !void {
         loop.drain(&events) catch {};
         engine.close();
     }
-    _ = try engine.start(try cocuyo.Question.from_text(arguments[1], .a), clock.read());
-    var ticks: usize = 0;
-    while (ticks < ticks_max) : (ticks += 1) {
-        if (engine.take(clock.read())) |result| return report(arguments[1], result);
-        const count = try loop.tick(&events, tick_ns);
-        const now = clock.read();
-        for (events[0..count]) |event| _ = engine.apply(event, now);
+    var names = std.mem.splitScalar(u8, arguments[1], ',');
+    for (0..names_max) |position| {
+        const name = names.next() orelse return;
+        if (position > 0) try wait_for_close(&loop, &events, clock);
+        const result = try resolve(&loop, &events, clock, name) orelse {
+            std.debug.print("{s}: no answer in {d} ticks\n", .{ name, ticks_max });
+            std.process.exit(1);
+        };
+        report(name, result);
+        std.debug.print("{s}: {s} handshake\n", .{ name, if (resumed()) "resumed" else "full" });
     }
-    std.debug.print("{s}: no answer in {d} ticks\n", .{ arguments[1], ticks_max });
-    std.process.exit(1);
+    if (names.next() != null) return error.TooManyNames;
+}
+
+/// One lookup, driven until its result, or null when it has none in `ticks_max` ticks.
+fn resolve(loop: *rotor.Loop, events: []rotor.Event, clock: Clock, name: []const u8) !?Engine.Result {
+    _ = try engine.start(try cocuyo.Question.from_text(name, .a), clock.read());
+    for (0..ticks_max) |_| {
+        if (engine.take(clock.read())) |result| return result;
+        try tick(loop, events, clock);
+    }
+    return null;
+}
+
+/// Ticks until the server's ticket is kept and every connection has closed idle, so the next
+/// lookup opens a connection that resumes. Says so when that never happens.
+fn wait_for_close(loop: *rotor.Loop, events: []rotor.Event, clock: Clock) !void {
+    for (0..close_ticks_max) |_| {
+        if (engine.tls_tickets[0] != null and all_closed()) return;
+        try tick(loop, events, clock);
+    }
+    std.debug.print("no ticket kept and no idle close in {d} ticks\n", .{close_ticks_max});
+}
+
+fn tick(loop: *rotor.Loop, events: []rotor.Event, clock: Clock) !void {
+    const count = try loop.tick(events, tick_ns);
+    const now = clock.read();
+    for (events[0..count]) |event| _ = engine.apply(event, now);
+    engine.drive(now);
+}
+
+fn all_closed() bool {
+    for (engine.connections) |connection| {
+        if (connection.state != .closed) return false;
+    }
+    return true;
+}
+
+/// Whether a connection that is up handshook with a ticket: a resumed handshake the server
+/// declines fails in chapulin, and the engine opens the connection again in full, without it.
+fn resumed() bool {
+    for (engine.connections) |connection| {
+        if (connection.state == .up and connection.tls.ticket != null) return true;
+    }
+    return false;
 }
 
 fn report(name: []const u8, result: Engine.Result) void {

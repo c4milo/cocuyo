@@ -6,9 +6,12 @@
 #
 #     tools/dot_live/run.sh <chapulin checkout>
 #
-# Three lookups must resolve, one through each resolver with the root its chain ends at. Two must
-# fail, and fail rather than fall back: the right root with a name the certificate does not carry,
-# and the right name with a root the chain does not end at (RFC 8310 §5).
+# Two names must resolve through each resolver, with the root its chain ends at: the first over a
+# full handshake, the second once the first connection has closed idle, over a connection that
+# spends the ticket the first one kept (§21, TLS rule 8). At least one resolver must resume. One
+# that declines the ticket must be answered anyway, over a full handshake the engine opens again.
+# Two lookups must fail, and fail rather than fall back: the right root with a name the certificate
+# does not carry, and the right name with a root the chain does not end at (RFC 8310 §5).
 set -eu
 
 checkout=${1:?usage: tools/dot_live/run.sh <chapulin checkout>}
@@ -28,20 +31,31 @@ root_der "DigiCert Global Root G3" quad9
 root_der "ISRG Root X1" unrelated
 
 lookup() {
-    (cd "$root" && zig build -Dchapulin="$checkout" example-dot-rotor -- example.com "$@" 2>&1)
+    (cd "$root" && zig build -Dchapulin="$checkout" example-dot-rotor -- example.com,example.org "$@" 2>&1)
 }
 
 failures=0
+resumed=0
 for resolver in "8.8.8.8 dns.google google" "1.1.1.1 cloudflare-dns.com cloudflare" \
     "9.9.9.9 dns.quad9.net quad9"; do
     set -- $resolver
-    if answer=$(lookup "$1" "$2" "$out/$3.der") && echo "$answer" | grep -q "example.com A"; then
-        echo "resolves through $2"
+    if answer=$(lookup "$1" "$2" "$out/$3.der") && echo "$answer" | grep -q "example.com A" &&
+        echo "$answer" | grep -q "example.org A"; then
+        if echo "$answer" | grep -q "example.org: resumed handshake"; then
+            echo "resolves through $2, and resumes"
+            resumed=$((resumed + 1))
+        else
+            echo "resolves through $2, which declines the ticket: a full handshake again"
+        fi
     else
         echo "FAILS through $2: $answer" >&2
         failures=$((failures + 1))
     fi
 done
+if [ "$resumed" -eq 0 ]; then
+    echo "NO RESOLVER RESUMED" >&2
+    failures=$((failures + 1))
+fi
 
 refuse() {
     if lookup "$@" >/dev/null; then

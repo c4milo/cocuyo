@@ -1074,6 +1074,21 @@ now an assertion. Eight mutations, seven `CAUGHT`.
 | CH7 | the anchors never reach chapulin | RFC 8310 §8.1, the chain | the live check | CAUGHT |
 | CH8 | chapulin is given no clock | RFC 8310 §8.1, the dates | the live check | CAUGHT |
 
+## Resumption, live
+
+Design §21 step 6, 2026-09-24: `tools/dot_live/run.sh` resolves two names through each resolver,
+the second over a connection that spends the first one's ticket, and requires one resolver at
+least to resume. Broken against the live check. DL2 is ET4 again, and the live check cannot see
+what it breaks: the lookup's retry opens a new connection, which handshakes in full because the
+ticket is spent, so the second name still resolves. What ET4 breaks is that the decline counts
+no failure against the server, which the ticket twin test and the picked walk 8573 see. Two
+mutations, one `CAUGHT` by the live check and the other by the gate.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| DL1 | a ticket is never kept | TLS rule 8 | the live check: no resolver resumed | CAUGHT |
+| DL2 | a resumed handshake that fails fails the connection | TLS rule 8, forgiven | not the live check; the ticket twin test and walk 8573, as ET4 | CAUGHT |
+
 ## The engine over TLS
 
 Design §21 step 5, the engine's side of it: the TLS rules in `io/`, driven with the twin's
