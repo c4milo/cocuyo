@@ -190,6 +190,13 @@ pub const Session = struct {
         };
     }
 
+    /// Whether the handshake resumed with the ticket it offered: chapulin completes a declined
+    /// ticket as a full handshake in the same connection (its docs/decisions.md 55), so an
+    /// offered ticket says nothing of whether it was taken.
+    pub fn resumed(self: *const Session) bool {
+        return self.record.t.psk_selected == 1;
+    }
+
     pub fn seal(self: *Session, plaintext: []const u8) Error!void {
         assert(self.live);
         if (c.ch_write(&self.record.t, plaintext.ptr, plaintext.len) != c.CH_OK) return self.fail();

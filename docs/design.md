@@ -2882,8 +2882,13 @@ the engine's send and held buffers, per slot.
    idle, over a connection that spends the ticket the first kept. `cloudflare-dns.com` and
    `dns.quad9.net` resumed. `dns.google` answered the resumed hello with a `handshake_failure`
    alert, and the engine opened the connection again in full, as TLS rule 8 says, and was
-   answered. chapulin offers no `signature_algorithms` beside a ticket, so a server that declines
-   the ticket cannot fall back to its certificate within the handshake.
+   answered. chapulin offered no `signature_algorithms` beside a ticket, and Google refuses such a
+   hello even with a good ticket: OpenSSL resumed 6 times of 9 against it, chapulin 0 of 10, and
+   chapulin with the schemes added 5 of 6. With chapulin at `20df0b8`, whose resumed hello offers
+   the schemes and which completes a declined ticket as a full handshake in the same connection
+   (its docs/decisions.md 55), all three resumed, `dns.google` in 9 lookups of 9. The example
+   reads whether a handshake resumed from chapulin's `psk_selected`. TLS rule 8's reconnect stays,
+   for a resumed handshake that fails some other way.
 
 Checks, one for each piece:
 

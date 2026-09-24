@@ -1081,13 +1081,16 @@ the second over a connection that spends the first one's ticket, and requires on
 least to resume. Broken against the live check. DL2 is ET4 again, and the live check cannot see
 what it breaks: the lookup's retry opens a new connection, which handshakes in full because the
 ticket is spent, so the second name still resolves. What ET4 breaks is that the decline counts
-no failure against the server, which the ticket twin test and the picked walk 8573 see. Two
-mutations, one `CAUGHT` by the live check and the other by the gate.
+no failure against the server, which the ticket twin test and the picked walk 8573 see. With
+chapulin at `20df0b8` all three resolvers resume, and the example reads whether a handshake
+resumed from chapulin's `psk_selected`, which DL3 breaks. Three mutations, two `CAUGHT` by the
+live check and the third by the gate.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
 | DL1 | a ticket is never kept | TLS rule 8 | the live check: no resolver resumed | CAUGHT |
 | DL2 | a resumed handshake that fails fails the connection | TLS rule 8, forgiven | not the live check; the ticket twin test and walk 8573, as ET4 | CAUGHT |
+| DL3 | the session never says it resumed | the resumed handshake, read from chapulin | the live check: no resolver resumed | CAUGHT |
 
 ## The engine over TLS
 

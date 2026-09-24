@@ -10,7 +10,7 @@
 //!
 //! Names after the first are resolved in turn, each once the server's ticket is kept and the
 //! connection before has closed idle, so each opens a connection that resumes with the ticket
-//! (§21, TLS rule 8). After each answer the example says whether its handshake resumed.
+//! (§21, TLS rule 8). After each answer the example says how its handshake went.
 //!
 //! What cocuyo does not read, the caller hands in (§21): the wall clock for the certificate's
 //! dates, and 32 octets from a CSPRNG for the handshake's keys.
@@ -92,7 +92,7 @@ pub fn main(init: std.process.Init) !void {
             std.process.exit(1);
         };
         report(name, result);
-        std.debug.print("{s}: {s} handshake\n", .{ name, if (resumed()) "resumed" else "full" });
+        std.debug.print("{s}: handshake {s}\n", .{ name, handshake() });
     }
     if (names.next() != null) return error.TooManyNames;
 }
@@ -131,13 +131,17 @@ fn all_closed() bool {
     return true;
 }
 
-/// Whether a connection that is up handshook with a ticket: a resumed handshake the server
-/// declines fails in chapulin, and the engine opens the connection again in full, without it.
-fn resumed() bool {
+/// How the connection that is up handshook: resumed with its ticket, as chapulin's session says;
+/// in full within the same connection, the ticket it offered declined; or in full with no ticket,
+/// which is also how the engine opens a connection again after a resumed handshake failed.
+fn handshake() []const u8 {
     for (engine.connections) |connection| {
-        if (connection.state == .up and connection.tls.ticket != null) return true;
+        if (connection.state != .up) continue;
+        if (connection.tls.session.resumed()) return "resumed";
+        if (connection.tls.ticket != null) return "in full, its ticket declined";
+        return "in full";
     }
-    return false;
+    return "in full";
 }
 
 fn report(name: []const u8, result: Engine.Result) void {

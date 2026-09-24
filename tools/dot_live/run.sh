@@ -41,11 +41,11 @@ for resolver in "8.8.8.8 dns.google google" "1.1.1.1 cloudflare-dns.com cloudfla
     set -- $resolver
     if answer=$(lookup "$1" "$2" "$out/$3.der") && echo "$answer" | grep -q "example.com A" &&
         echo "$answer" | grep -q "example.org A"; then
-        if echo "$answer" | grep -q "example.org: resumed handshake"; then
+        if echo "$answer" | grep -q "example.org: handshake resumed"; then
             echo "resolves through $2, and resumes"
             resumed=$((resumed + 1))
         else
-            echo "resolves through $2, which declines the ticket: a full handshake again"
+            echo "resolves through $2, which declines the ticket: $(echo "$answer" | grep "example.org: handshake" | sed 's/.*handshake //')"
         fi
     else
         echo "FAILS through $2: $answer" >&2
