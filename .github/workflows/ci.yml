@@ -23,9 +23,12 @@
 #
 #   - `spec`: `zig build spec`, the Lean proofs of the lookup's state machine and the replay of
 #     every transition the model reaches against the code, and TLC's walks of the engine model
-#     replayed against the engine (spec/README.md); then `zig build tla`, TLC over every
-#     configuration of the engine model and every mutant of it. Lean and TLC are tools the gate
-#     must not require, so the two gates above replay only the committed slices.
+#     replayed against the engine (spec/README.md). Lean and TLC are tools the gate must not
+#     require, so the two gates above replay only the committed slices.
+#
+#   - `tla`: `zig build tla`, TLC over every configuration of the engine model and every mutant of
+#     it. It is a job of its own beside `spec`, since each is mostly TLC on the runner's four cores
+#     and together they took 39 minutes one after the other.
 #
 #   `engine` and `epoll` are the only jobs that open a socket.
 #
@@ -187,5 +190,23 @@ jobs:
       - run: zig version && lean --version && java -version
       - name: The proofs, the committed slices, and the whole transcripts replayed
         run: zig build spec
+
+  tla:
+    name: Linux, the engine model checked by TLC
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Zig
+        run: |
+          set -euo pipefail
+          url="https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          sha="70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+          curl -fsSL "$url" -o zig.tar.xz
+          echo "$sha  zig.tar.xz" | sha256sum -c -
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+      - name: Use the image's Java 21, for TLC
+        run: echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
+      - run: zig version && java -version
       - name: The engine model checked by TLC, and its mutants refused
         run: zig build tla
