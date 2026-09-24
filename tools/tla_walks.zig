@@ -86,7 +86,8 @@ pub fn run(
         try errors.writeAll(usage);
         return exit_usage;
     };
-    const jar = try verified_jar(init, project);
+    const context: pepegrillo.tla.Context = .{ .arena = arena, .io = init.io, .environ = init.environ_map, .out = out, .errors = errors };
+    const jar = try pepegrillo.tla.verified_jar(context, project);
     const names = try configurations(arena, init.io);
     if (beyond(request, names.len)) |walk| {
         try errors.print("there is no walk {d}: {d} configurations of {d} walks\n", .{ walk, names.len, request.walks });
@@ -141,23 +142,6 @@ const Picking = struct {
     }
 };
 
-/// The jar `$TLA2TOOLS_JAR` names, or the pinned release fetched into the cache, refused unless its
-/// SHA-256 is the pin: what pepegrillo's `tla` tool does before it checks a model.
-fn verified_jar(init: std.process.Init, comptime project: pepegrillo.tla.Config) ![]const u8 {
-    const arena = init.arena.allocator();
-    const path = try tlc.jar_path(arena, init.environ_map, project.tlc_release);
-    Io.Dir.cwd().access(init.io, path, .{}) catch |failure| switch (failure) {
-        error.FileNotFound => if (init.environ_map.get(tlc.jar_variable) != null)
-            return failure
-        else
-            try tlc.fetch(arena, init.io, project.tlc_release, path),
-        else => return failure,
-    };
-    const digest = try tlc.file_sha256(arena, init.io, path);
-    if (!std.mem.eql(u8, &digest, project.tlc_sha256)) return error.JarDoesNotMatchPin;
-    return path;
-}
-
 /// The trace configurations' paths from the model's directory, sorted, so the walks come out in
 /// one order.
 fn configurations(arena: std.mem.Allocator, io: Io) ![]const []const u8 {
@@ -205,15 +189,22 @@ fn start(
     const output = try std.fs.path.join(arena, &.{ states, "walks.out" });
     const file = try Io.Dir.cwd().createFile(init.io, output, .{});
     defer file.close(init.io);
-    const argv = [_][]const u8{
-        project.java_program, java_heap,        "-XX:+UseParallelGC", "-cp",     jar,
-        "tlc2.TLC",           "-simulate",      try std.fmt.allocPrint(arena, "num={d}", .{request.walks}),
-        "-depth",             request.depth,    "-seed",              request.seed,
-        "-workers",           "1",              "-metadir",           states,
-        "-config",            configuration,    trace_module,
-    };
+    const argv = try tlc.argv(arena, .{
+        .java_program = project.java_program,
+        .java_options = try std.mem.concat(arena, []const u8, &.{ &.{java_heap}, project.java_options }),
+        .workers = "1",
+        .jar = jar,
+        .states = states,
+        .configuration = configuration,
+        .module = trace_module,
+        .tlc_options = &.{
+            "-simulate", try std.fmt.allocPrint(arena, "num={d}", .{request.walks}),
+            "-depth",    request.depth,
+            "-seed",     request.seed,
+        },
+    });
     const child = try std.process.spawn(init.io, .{
-        .argv = &argv,
+        .argv = argv,
         .cwd = .{ .path = model_directory },
         .stdin = .ignore,
         .stdout = .{ .file = file },
