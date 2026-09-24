@@ -51,9 +51,12 @@ pub const prefix_head_bytes = 16;
 pub const name_reserve_default = 32;
 pub const control_reserve_default = 144;
 
-/// The longest a wait may be, and the longest an operation's own timeout may be: rotor's
-/// bounds, kept so an operation valid there is valid here.
-pub const wait_ns_max = 60 * ns_per_s;
+/// The longest one `tick` may wait: rotor's `wait_ns_max`, ten seconds, kept so a tick valid here
+/// is valid there. A caller that waits longer ticks again, as a caller of rotor must.
+pub const wait_ns_max = 10 * ns_per_s;
+
+/// The most events one `tick` may be handed room for: rotor's `batch_max`.
+pub const batch_max = 4096;
 
 /// How many ticks `drain` runs before it gives up on an operation that will not end.
 pub const drain_rounds_max = 64;

@@ -258,6 +258,9 @@ pub const Loop = struct {
     /// Delivers what is due, moving the clock to the next event when nothing is, by at most
     /// `wait_ns`.
     pub fn tick(loop: *Loop, events: []Event, wait_ns: u64) TickError!u32 {
+        // What rotor checks on a tick's entry, on every backend since 0.4.0: room for one event
+        // and for no more than a batch, and a wait no longer than `wait_ns_max`. Each halts there.
+        assert(events.len >= 1 and events.len <= constants.batch_max);
         assert(wait_ns <= constants.wait_ns_max);
         perform.materialize(loop);
         if (loop.next_due() == null or loop.next_due().? > loop.now_ns) {

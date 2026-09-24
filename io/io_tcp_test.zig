@@ -209,7 +209,7 @@ test "the stream receive is armed again after its group runs dry" {
             answered += 1;
         }
         if (answered == fixtures.small_lookups) break;
-        const count = try loop.tick(&events, fixtures.wait_ns);
+        const count = try sim_test.tick_for(&loop, &events, fixtures.wait_ns);
         for (events[0..count]) |event| _ = engine.apply(event, loop.now());
     }
     try testing.expectEqual(@as(usize, fixtures.small_lookups), answered);
@@ -238,7 +238,7 @@ test "a message longer than the connection can assemble ends the lookups on it" 
     while (rounds < fixtures.until_rounds_max and outcome == null) : (rounds += 1) {
         outcome = engine.take(loop.now());
         if (outcome != null) break;
-        const count = try loop.tick(&events, fixtures.wait_ns);
+        const count = try sim_test.tick_for(&loop, &events, fixtures.wait_ns);
         for (events[0..count]) |event| _ = engine.apply(event, loop.now());
     }
     // The answer will not fit, so the connection is no good and the lookup ends without one.

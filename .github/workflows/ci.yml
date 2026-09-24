@@ -18,8 +18,8 @@
 #
 #   - `epoll`: the rotor example resolves inside a container where io_uring is refused, once under
 #     Docker's default seccomp profile and once under a profile that refuses every io_uring call,
-#     so rotor 0.3.0 falls back to epoll for the whole process (tools/epoll_check/run.sh). It needs
-#     no network: a recorder in the container answers the one name asked.
+#     so rotor, since 0.3.0, falls back to epoll for the whole process (tools/epoll_check/run.sh).
+#     It needs no network: a recorder in the container answers the one name asked.
 #
 #   - `spec`: `zig build spec`, the Lean proofs of the lookup's state machine and the replay of
 #     every transition the model reaches against the code (spec/README.md). Lean is a tool the

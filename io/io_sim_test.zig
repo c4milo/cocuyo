@@ -19,6 +19,22 @@ const Engine = io.Engine(options);
 /// Two scripted servers, which are the twin's first two, and the engine the tests use over them.
 pub const Rig = RigOf(Engine);
 
+/// Waits up to `wait_ns` for events, in ticks of rotor's `wait_ns_max` at most, as a caller of
+/// rotor must: a longer tick halts there, and the twin holds the same bound. A tick moves the
+/// clock to the next event due within its wait, so this ends where one long wait would.
+pub fn tick_for(loop: *rotor.Loop, events: []rotor.Event, wait_ns: u64) !u32 {
+    const slices_max = wait_ns / rotor.constants.wait_ns_max + 1;
+    var left = wait_ns;
+    var slices: u64 = 0;
+    while (slices < slices_max) : (slices += 1) {
+        const slice = @min(left, rotor.constants.wait_ns_max);
+        const count = try loop.tick(events, slice);
+        left -= slice;
+        if (count > 0 or left == 0) return count;
+    }
+    return 0;
+}
+
 /// Two scripted servers and an engine of type `EngineType` over them.
 pub fn RigOf(comptime EngineType: type) type {
     return struct {
@@ -53,9 +69,9 @@ pub fn RigOf(comptime EngineType: type) type {
             rig.loop.deinit();
         }
 
-        /// One tick, every event applied. How many were the engine's.
+        /// One wait of up to `wait_ns`, every event applied. How many were the engine's.
         pub fn step(rig: *RigType, wait_ns: u64) !u32 {
-            const count = try rig.loop.tick(&rig.events, wait_ns);
+            const count = try tick_for(&rig.loop, &rig.events, wait_ns);
             var applied: u32 = 0;
             for (rig.events[0..count]) |event| {
                 if (rig.engine.apply(event, rig.loop.now())) applied += 1;
@@ -208,7 +224,7 @@ test "a timer that fires before the caller's clock reaches the deadline is armed
     try rig.init(10, .{ .{ .down = true }, .{ .down = true } }, .{ .servers = &.{}, .timeout_ns = 2_000_000_000, .attempts = 1 });
     _ = try rig.engine.start(question("example.com."), rig.loop.now());
     _ = try rig.step(0);
-    try testing.expectEqual(@as(u32, 1), try rig.loop.tick(&rig.events, fixtures.wait_ns));
+    try testing.expectEqual(@as(u32, 1), try tick_for(&rig.loop, &rig.events, fixtures.wait_ns));
     try testing.expectEqual(@as(u64, 2_000_000_000), rig.loop.now());
     // The caller's clock is a nanosecond short of the deadline the loop's has reached: nothing
     // times out yet, and the timer must be armed again rather than left for dead.
@@ -312,7 +328,7 @@ test "the receive is armed again after the group runs dry, and every answer stil
             answers += 1;
         }
         if (answers == fixtures.small_lookups) break;
-        const count = try loop.tick(&events, fixtures.wait_ns);
+        const count = try tick_for(&loop, &events, fixtures.wait_ns);
         for (events[0..count]) |event| _ = engine.apply(event, loop.now());
     }
     try testing.expectEqual(@as(usize, fixtures.small_lookups), answers);

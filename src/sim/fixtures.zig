@@ -12,6 +12,8 @@ pub const receive_tag = 1;
 pub const send_tag = 2;
 pub const timer_tag = 3;
 pub const connect_tag = 4;
+/// A timer that fills the one event a tick has room for, so another waits in the loop.
+pub const filler_tag = 5;
 
 /// The ids the scenarios' queries carry, over UDP and over the stream.
 pub const query_id = 0x4242;

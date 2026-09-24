@@ -20,6 +20,7 @@ const receive_tag = fixtures.receive_tag;
 const send_tag = fixtures.send_tag;
 const timer_tag = fixtures.timer_tag;
 const connect_tag = fixtures.connect_tag;
+const filler_tag = fixtures.filler_tag;
 
 /// One loop with one group provided and one scripted server, in a struct so a test holds it.
 const Rig = struct {
@@ -121,12 +122,19 @@ test "a timer cancelled before it fires ends with Canceled now, and one that fir
     try testing.expectEqual(@as(u64, 1000), rig.loop.now());
     try testing.expectError(error.Canceled, events[0].outcome());
     try testing.expectEqual(@as(u32, 0), rig.loop.in_flight());
-    // Fired and not yet delivered: the cancel finds nothing, and the fire is the final event.
-    _ = rig.loop.submit(&.{timer}, &handles);
-    try testing.expectEqual(@as(u32, 0), try rig.collect(events[0..0], 100_000));
+    // Fired and not yet delivered: a filler due at the same instant and queued first takes the one
+    // event the tick has room for, so the timer's fire waits in the loop. (An empty `events` did
+    // it in one call, and rotor halts on that since 0.4.0.) The cancel finds nothing, and the fire
+    // is the final event.
+    const filler: Operation = .{ .user_data = filler_tag, .kind = .{ .timer = .{ .after_ns = 5000 } } };
+    var both: [2]sim.Handle = undefined;
+    _ = rig.loop.submit(&.{ filler, timer }, &both);
+    try testing.expectEqual(@as(u32, 1), try rig.collect(events[0..1], 100_000));
+    try testing.expectEqual(@as(u64, filler_tag), events[0].user_data);
     try testing.expectEqual(@as(u64, 6000), rig.loop.now());
-    rig.loop.cancel(handles[0]);
+    rig.loop.cancel(both[1]);
     try testing.expectEqual(@as(u32, 1), try rig.collect(&events, 100_000));
+    try testing.expectEqual(@as(u64, timer_tag), events[0].user_data);
     try testing.expectEqual(@as(u32, 0), try events[0].outcome());
     try testing.expectEqual(@as(u32, 0), rig.loop.in_flight());
     rig.loop.deinit();
