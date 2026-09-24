@@ -10,7 +10,8 @@
 //! axioms each one rests on. Then the step requires the committed slices to be the ones the models
 //! write, and replays the whole transcripts, ReleaseSafe.
 //!
-//! `zig build spec-engine` is the engine's part alone, which needs Java and not Lean. With
+//! `zig build spec-lean` is the Lean half alone, which needs no Java, and `zig build spec-engine`
+//! the engine's part alone, which needs Java and not Lean. With
 //! `-Dengine-walks=<file>` it replays walks written before instead of having TLC write them, which
 //! is how a mutation of the engine is measured.
 const std = @import("std");
@@ -96,9 +97,12 @@ pub fn add(
     walk_transcript.step.dependOn(&transcript.step);
     const walk_replay = b.addRunArtifact(walk_exe);
     walk_replay.addFileArg(walk_transcript.captureStdOut(.{}));
-    const step = b.step("spec", "Build the Lean proofs and models, and replay the models against the code");
-    step.dependOn(&replay.step);
-    step.dependOn(&walk_replay.step);
+    // The Lean half alone, which needs no Java: the Lean model's mutations are measured on it.
+    const lean_step = b.step("spec-lean", "Build the Lean proofs and models, and replay the lookup and the walks against the code");
+    lean_step.dependOn(&replay.step);
+    lean_step.dependOn(&walk_replay.step);
+    const step = b.step("spec", "Build the Lean proofs and models, have TLC walk the engine's, and replay them against the code");
+    step.dependOn(lean_step);
     step.dependOn(add_engine(b, tla_tool, engine_exe));
     add_mutations(b);
 }

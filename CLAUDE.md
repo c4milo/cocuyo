@@ -182,9 +182,10 @@ The architecture depends on every rule in this section.
   transition of the `getaddrinfo` walks, replayed against the code (spec/README.md has the
   counts). It needs `lake` at the version `spec/lean/lean-toolchain` pins and Java, so it runs
   only when asked and in CI's `spec` job; `zig build test` replays the committed slices without
-  either. `zig build spec-engine` is the engine's part alone, and with `-Dengine-walks=<file>` it
-  replays walks written before, which is how an engine mutation is measured.
-- Mutations: `zig build mutations -- <engine|lookup|address> [<id>...]` runs the mutations of
+  either. `zig build spec-lean` is the Lean half alone, and `zig build spec-engine` the engine's
+  part alone, which with `-Dengine-walks=<file>` replays walks written before, which is how an
+  engine mutation is measured.
+- Mutations: `zig build mutations -- <engine|lookup|address|lean> [<id>...]` runs the mutations of
   `tools/mutations/<set>.zon` again, each against the check it names, and for the engine names the
   walks to pick when the model changes.
 - TLA+: `zig build tla` — TLC over every model under `spec/tla/`, each configuration with the

@@ -1,0 +1,59 @@
+// The mutations of the Lean model of design §5 and its proofs: each breaks the model one way,
+// and must be caught by `zig build spec-lean`, its proofs or its replay (docs/mutations.md).
+// tools/mutations.zig runs them. An edit replaces `old`, which must occur once, with `new`.
+.{
+    .{
+        .section = "The Lean model and the replay",
+        .id = "M1",
+        .what = "the model keeps EDNS0 off at the next server",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    { s with server := s.server + 1, stage := fresh c, edns := true, cookieRetried := false,\n", .new = "    { s with server := s.server + 1, stage := fresh c, cookieRetried := false,\n" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "The Lean model and the replay",
+        .id = "M2",
+        .what = "the model ignores TC=1 over a stream",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    if stream then (nextCandidate c s true, .accepted)\n    else ({ s with stage := .tcpNeeded }, .accepted)", .new = "    if stream then (s, .ignored)\n    else ({ s with stage := .tcpNeeded }, .accepted)" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "The Lean model and the replay",
+        .id = "P1",
+        .what = "sent_lt proved by sorry",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/LookupProofs.lean", .old = "    LexLt (measure c (step c s .sent).1) (measure c s) := by\n  rcases h with h | h <;> simp [step, measure, LexLt, phase, stagePhase, h]", .new = "    LexLt (measure c (step c s .sent).1) (measure c s) := by\n  sorry" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DM1",
+        .what = "a reply over DoH is read as a datagram's",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .awaitingUdp => onReply c s c.request r", .new = "  | .awaitingUdp => onReply c s false r" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DM2",
+        .what = "a poll over DoH asks for a datagram",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "if c.request then .sendRequest else .sendUdp)", .new = "if false then .sendRequest else .sendUdp)" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DM3",
+        .what = "an HTTP failure changes nothing",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    if c.request ∧ s.stage = .awaitingUdp then (advanceServer c s, .none) else (s, .none)", .new = "    if c.request ∧ s.stage = .awaitingUdp then (s, .none) else (s, .none)" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+}

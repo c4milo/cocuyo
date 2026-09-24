@@ -295,7 +295,8 @@ compares the walk's whole state after each.
   lookup's whole transcript, the walks' whole transcript, and TLC's full run: 2,000 engine walks
   of 200 events in each of the eight engine configurations, 3.2 million events. TLC wrote the
   full run in 241 seconds on an Apple M1 Pro busy with other work on 2026-09-24, and the replay
-  took 17. `zig build spec-engine` is the engine's part alone, and needs no Lean.
+  took 17. `zig build spec-lean` is the Lean half alone, which needs no Java, and `zig build
+  spec-engine` the engine's part alone, which needs no Lean.
 - After a change to a model, `lake exe cocuyo-spec gate 8 > ../../tools/spec_replay/lookup_gate.txt`
   and `lake exe cocuyo-spec walks-gate > ../../tools/spec_replay/walk_gate.txt` in `lean/` write
   the Lean slices again. From the repository's root, `zig build tla -- walks 1 10 41 >

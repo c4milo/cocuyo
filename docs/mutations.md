@@ -149,11 +149,12 @@ rebuilt from them against the code as it is, and a rebuilt one is the mutation k
 - An answer's TTL and DoQ's DNS half: TT1 to TT8 and QU1 to QU9.
 - Step 14: A1 to A24 but A6, and H1 to H6; and the walks' A1 to A3 and N1 to N3.
 
-Left out: the Lean model's own mutations, M1, M2, P1 and DM1 to DM3, which break the model and its
-proofs rather than the code, and each want a whole `zig build spec`; and A6, whose code step 15
-replaced. `zig build mutations -- lookup` and `zig build mutations -- address` run them, each
-against the step its row names. Run on 2026-09-24, all 99 were caught where the data says, S8 of
-step 3 after the test above was written.
+The Lean model's own mutations, M1, M2, P1 and DM1 to DM3, break the model and its proofs rather
+than the code. `tools/mutations/lean.zon` holds them, and each is run against `zig build
+spec-lean`, the Lean half of `zig build spec` with no TLC. A6 is left out, since step 15 replaced
+its code. `zig build mutations -- <set>` runs a set, each mutation against the step its row
+names. Run on 2026-09-24, all 105 were caught where the data says, S8 of step 3 after the test
+above was written. The six of the model took 23 seconds.
 
 ## Step 4, the table
 
