@@ -26,6 +26,24 @@ test "a negative answer's SOA minimum reaches the failure, for NXDOMAIN and for 
     try testing.expectEqual(@as(u32, 60), nodata_failure.negative_ttl_seconds);
 }
 
+test "a negative answer is kept no longer than the alias that led to it, in its message or before" {
+    // The alias's TTL is 20, the SOA's MINIMUM 60 (RFC 1035 §3.2.1, RFC 2308 §5).
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
+    try harness.start("example.com.", .a, seed);
+    _ = harness.send();
+    _ = harness.respond(fixtures.name_error_cname_soa, servers[0].endpoint);
+    try testing.expectEqual(@as(u32, 20), harness.poll().failed.negative_ttl_seconds);
+    const ends = [_]fixtures.Reply{ fixtures.name_error_soa, fixtures.no_data_soa };
+    for (ends) |end| {
+        try harness.start("example.com.", .a, seed);
+        _ = harness.send();
+        _ = harness.respond(fixtures.cname_short, servers[0].endpoint);
+        _ = harness.send();
+        _ = harness.respond(end, servers[0].endpoint);
+        try testing.expectEqual(@as(u32, 20), harness.poll().failed.negative_ttl_seconds);
+    }
+}
+
 test "a negative answer with no SOA, or a broken one, carries a TTL of zero" {
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);

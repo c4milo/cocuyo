@@ -1155,6 +1155,25 @@ test-core`, `test-wire` and `test-resolver`. Seven mutations, seven `CAUGHT`.
 | DT6 | a TLS server's stream goes to its cleartext port | RFC 8310 §5.1 | the all-or-none test; the TLS lookup test | CAUGHT |
 | DT7 | the padding octets are left as the buffer held them | RFC 7830 §3, zero octets | the padded-query test | CAUGHT |
 
+## An answer's TTL
+
+Issues #1 and #2, fixed on 2026-09-24. A record with a TTL of zero kept the answer's TTL at zero
+only when nothing came after it: `note_ttl` read zero as "nothing noted yet". And a CNAME chain
+that spanned messages kept only the last message's TTLs, for the answer and for a negative at the
+chain's end. Broken against `zig build test-wire` and `test-resolver`. TT8 first stopped the
+build with an unused parameter and was rewritten to discard it. Eight mutations, eight `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| TT1 | zero reads as "nothing noted", as before the fix | RFC 1035 §3.2.1, zero is not cached | the zero-TTL test | CAUGHT |
+| TT2 | an empty collection's smallest TTL is zero | the smallest of nothing is the largest | every collecting test | CAUGHT |
+| TT3 | a negative's TTL ignores the CNAMEs in its own message | RFC 1035 §3.2.1, the chain bounds the end | the negative chain test | CAUGHT |
+| TT4 | nothing is bounded by the chain earlier messages moved | RFC 1035 §3.2.1 | the chain test | CAUGHT |
+| TT5 | an answer is not bounded by the chain | RFC 1035 §3.2.1 | the chain test | CAUGHT |
+| TT6 | a second alias forgets the first one's TTL | RFC 1035 §3.2.1 | the chain test, over three messages | CAUGHT |
+| TT7 | a DoH answer loses its `Age` after the chain bounds it | RFC 8484 §5.1, each message its own `Age` | the DoH chain test | CAUGHT |
+| TT8 | a negative's TTL is not bounded by the chain | RFC 1035 §3.2.1, RFC 2308 §5 | the negative chain test | CAUGHT |
+
 ## DoH's DNS half
 
 Design §22: servers speak DoH all together, a query over DoH is cache-friendly, an answer comes

@@ -149,7 +149,7 @@ pub fn apply(
             // NXDOMAIN. The SOA in the authority section says how long a cache may remember it
             // (RFC 2308 §5); a message with no SOA, or a malformed one, says nothing, and nothing
             // is zero, which is not cached.
-            self.negative_ttl_seconds = negative_ttl(message, cased) -| accepted.age_seconds;
+            self.negative_ttl_seconds = negative_ttl(self, message, cased, accepted.age_seconds);
             self.next_candidate(now_ns);
         },
         .next_server => {
@@ -189,10 +189,20 @@ fn over_stream(self: *const Lookup) bool {
     return self.state == .awaiting_tcp or self.config.uses_https();
 }
 
-/// The negative TTL a message carries, or zero. A malformed authority section is not a reason
-/// to refuse a message whose rcode was already acted on; it is a reason not to cache it.
-fn negative_ttl(message: []const u8, cased: *const core.Name) u32 {
-    return wire.response.negative_ttl_seconds(message, cased) catch 0;
+/// The negative TTL a message carries, or zero, less its `Age` over DoH (RFC 8484 §5.1) and
+/// bounded by the chain. A malformed authority section is not a reason to refuse a message whose
+/// rcode was already acted on; it is a reason not to cache it.
+fn negative_ttl(self: *const Lookup, message: []const u8, cased: *const core.Name, age_seconds: u32) u32 {
+    const carried = wire.response.negative_ttl_seconds(message, cased) catch 0;
+    return bounded_by_chain(self, carried -| age_seconds);
+}
+
+/// A TTL no longer than the CNAMEs earlier messages moved the chain through. The end is cached
+/// under the name asked, which reaches it through them, and each may be kept no longer than its
+/// own TTL (RFC 1035 §3.2.1). Read before `cname_hops` takes this message's hops.
+fn bounded_by_chain(self: *const Lookup, ttl_seconds: u32) u32 {
+    if (self.cname_hops == 0) return ttl_seconds;
+    return @min(ttl_seconds, self.chain_ttl_seconds);
 }
 
 fn collect(
@@ -226,16 +236,20 @@ fn collect(
     // into the question it echoed handed back cocuyo's own case randomisation. That case is noise
     // cocuyo made, not the server's spelling, so it is folded away before anyone reads it.
     if (self.flags.mix_case and self.answers.aliased) self.current.fold_case();
+    // "DoH clients MUST account for the Age response header field's value" (RFC 8484 §5.1): this
+    // message's TTLs lose it before the chain's earlier ones, which lost their own, bound them.
+    self.answers.age(self.question.kind, accepted.age_seconds);
     switch (outcome) {
         .answered => {
+            assert(self.answers.count > 0);
+            self.answers.ttl_seconds = bounded_by_chain(self, self.answers.ttl_seconds);
             self.flags.aliased = self.answers.aliased or self.flags.aliased;
             self.cname_hops = self.answers.hops_used;
-            // "DoH clients MUST account for the Age response header field's value" (RFC 8484
-            // §5.1).
-            self.answers.age(self.question.kind, accepted.age_seconds);
             self.state = .done;
         },
         .chain_incomplete => {
+            assert(self.answers.aliased);
+            self.chain_ttl_seconds = bounded_by_chain(self, self.answers.ttl_seconds);
             self.flags.aliased = true;
             self.cname_hops = self.answers.hops_used;
             // The server just answered, so it is the healthy one: ask it about where the chain
@@ -247,7 +261,7 @@ fn collect(
             self.flags.had_no_data = true;
             // NODATA takes the SOA minimum too (RFC 2308 §2.2), which is where this differs from
             // c-ares (docs/design.md §18).
-            self.negative_ttl_seconds = negative_ttl(message, cased) -| accepted.age_seconds;
+            self.negative_ttl_seconds = negative_ttl(self, message, cased, accepted.age_seconds);
             self.next_candidate(now_ns);
         },
     }

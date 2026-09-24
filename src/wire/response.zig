@@ -44,6 +44,7 @@ pub const Answers = struct {
     items: Items,
     count: u8,
     /// The smallest TTL over every record used, which is what a cache above cocuyo would honour.
+    /// Before any record, the smallest of nothing: `ttl_none`, the largest a TTL can be.
     ttl_seconds: u32,
     /// Whether the chain moved: a CNAME was followed.
     aliased: bool,
@@ -70,7 +71,7 @@ pub const Answers = struct {
                 .rdata => .{ .records = Records.empty },
             },
             .count = 0,
-            .ttl_seconds = 0,
+            .ttl_seconds = ttl_none,
             .aliased = false,
             .hops_used = 0,
             .truncated = false,
@@ -93,7 +94,7 @@ pub const Answers = struct {
             },
         }
         self.count = 0;
-        self.ttl_seconds = 0;
+        self.ttl_seconds = ttl_none;
         self.aliased = false;
         self.hops_used = 0;
         self.truncated = false;
@@ -229,20 +230,26 @@ pub fn collect(
 
 /// The TTL a negative answer is cached for: the MINIMUM of the first SOA in the authority section,
 /// capped by that record's TTL (RFC 2308 §5), or zero when the message carries no SOA, which is a
-/// message that cannot be cached negatively (RFC 2308 §5, last paragraph).
+/// message that cannot be cached negatively (RFC 2308 §5, last paragraph). The CNAMEs a chain took
+/// in the answer section on its way to the negative bound it as well: the negative is cached under
+/// the name asked, which reaches it through them (RFC 1035 §3.2.1).
 ///
-/// The authority section starts where the answer section ends, so the answer records are skipped
-/// on the way, never decoded. `question` is the name the message echoes, which fixes where the
-/// sections start (§7 check 5).
+/// The authority section starts where the answer section ends, so the answer records are stepped
+/// over on the way, their TTLs read and nothing else. `question` is the name the message echoes,
+/// which fixes where the sections start (§7 check 5).
 pub fn negative_ttl_seconds(message: []const u8, question: *const Name) Error!u32 {
     assert(question.len >= 1);
     const start = try sections(message, question);
     var answers = record_codec.Iterator.init(message, start.answer_offset, start.header.ancount);
     var authority_offset: usize = start.answer_offset;
-    while (try answers.next()) |record| authority_offset = record.end;
+    var chain_ttl_seconds: u32 = std.math.maxInt(u32);
+    while (try answers.next()) |record| {
+        authority_offset = record.end;
+        chain_ttl_seconds = @min(chain_ttl_seconds, record.ttl_seconds);
+    }
     var authority = record_codec.Iterator.init(message, authority_offset, start.header.nscount);
     while (try authority.next()) |record| {
-        if (record.is_kind(.soa)) return record.soa_negative_ttl(message);
+        if (record.is_kind(.soa)) return @min(try record.soa_negative_ttl(message), chain_ttl_seconds);
     }
     return 0;
 }
@@ -326,12 +333,16 @@ fn one_pass(
     return pass;
 }
 
-/// The smallest TTL over the records used. Zero means nothing has been noted yet, and a record
-/// with a TTL of zero is one nothing may cache, so it stays the smallest.
+/// The smallest TTL over the records used. A record with a TTL of zero is one nothing may cache
+/// (RFC 1035 §3.2.1), so it stays the smallest whatever comes after it.
 pub fn note_ttl(ttl_seconds: u32, out: *Answers) void {
-    if (out.ttl_seconds == 0 or ttl_seconds < out.ttl_seconds) out.ttl_seconds = ttl_seconds;
-    assert(out.ttl_seconds <= ttl_seconds or ttl_seconds == 0);
+    out.ttl_seconds = @min(out.ttl_seconds, ttl_seconds);
+    assert(out.ttl_seconds <= ttl_seconds);
 }
+
+/// The smallest TTL of no record at all: the largest a TTL, "a 32 bit unsigned integer" (RFC 1035
+/// §4.1.3), can be, so the first record noted is the smallest so far whatever it is.
+const ttl_none = std.math.maxInt(u32);
 
 // Tests.
 
@@ -457,23 +468,16 @@ test "the hop count follows the chain across messages" {
     try testing.expectEqual(@as(u8, 4), collected.hops_used);
 }
 
-test "a negative answer's TTL is the SOA minimum, for NXDOMAIN and for NODATA alike" {
+test "a negative answer's TTL is the SOA minimum, and zero with no SOA, which is not cached" {
     const question = try Name.from_text("example.com");
     try testing.expectEqual(@as(u32, 60), try negative_ttl_seconds(&fixtures.answer_name_error_soa, &question));
     try testing.expectEqual(@as(u32, 60), try negative_ttl_seconds(&fixtures.answer_no_data_soa, &question));
     try testing.expectEqual(@as(u32, 30), try negative_ttl_seconds(&fixtures.answer_no_data_soa_short, &question));
-}
-
-test "a negative answer with no SOA has a TTL of zero, which is not cached" {
-    const question = try Name.from_text("example.com");
     try testing.expectEqual(@as(u32, 0), try negative_ttl_seconds(&fixtures.answer_name_error, &question));
     try testing.expectEqual(@as(u32, 0), try negative_ttl_seconds(&fixtures.answer_no_data, &question));
-}
-
-test "the authority walk starts after the answers, not at the first record" {
-    // A message with answers: the walk must step over them to reach the authority section, and
-    // a message whose only records are answers has no SOA to find.
-    const question = try Name.from_text("example.com");
+    // The walk steps over the answers to the authority section, and a message whose only
+    // records are answers has no SOA to find.
+    try testing.expectEqual(@as(u32, 60), try negative_ttl_seconds(&fixtures.answer_a_with_soa, &question));
     try testing.expectEqual(@as(u32, 0), try negative_ttl_seconds(&fixtures.answer_a_twice, &question));
 }
 
@@ -485,11 +489,6 @@ test "a response echoing a maximal name parses, and its offsets do not overflow 
     try testing.expectEqual(Outcome.answered, outcome);
     try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 1 }, collected.addresses()[0].slice());
     try testing.expectEqual(@as(u32, 0), try negative_ttl_seconds(&fixtures.answer_a_long_name, &test_chain));
-}
-
-test "the negative TTL walk steps over the answers to reach the SOA" {
-    const question = try Name.from_text("example.com");
-    try testing.expectEqual(@as(u32, 60), try negative_ttl_seconds(&fixtures.answer_a_with_soa, &question));
 }
 
 test {

@@ -156,6 +156,9 @@ pub const Lookup = struct {
     failure: core.Error,
     /// The SOA minimum of the last negative answer, for `Failure.negative_ttl_seconds`.
     negative_ttl_seconds: u32,
+    /// The smallest TTL of the CNAMEs earlier messages moved the chain through, while
+    /// `cname_hops` is above zero: what the chain's end is reached through bounds it.
+    chain_ttl_seconds: u32,
     config: *const Config,
     /// The per-server state shared with every other lookup of the caller: the cookies of
     /// RFC 7873 (docs/design.md §19 step 10).
@@ -211,6 +214,7 @@ pub const Lookup = struct {
             .entropy = entropy_module.Entropy.init(seed),
             .failure = core.Error.Timeout,
             .negative_ttl_seconds = 0,
+            .chain_ttl_seconds = 0,
             .config = config,
             .servers = servers,
             .question = question,

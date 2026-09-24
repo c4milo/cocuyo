@@ -116,6 +116,18 @@ test "the Age lowers a kept record's TTL, and a negative answer's" {
     try testing.expectEqual(@as(u32, 35), harness.poll().failed.negative_ttl_seconds);
 }
 
+test "each message of a chain over DoH loses its own Age before the chain bounds the answer" {
+    // The alias, 20 aged 5, is 15; the A record, 600 aged 100, is 500. Aging the bounded answer
+    // instead would take the 15 to 0.
+    var harness: fixtures.Harness = undefined;
+    try start(&harness, "example.com.", .a, seed);
+    var transaction = (try send(&harness)).send_https.transaction;
+    try testing.expectEqual(Verdict.accepted, answer(&harness, fixtures.cname_short, transaction, 5));
+    transaction = (try send(&harness)).send_https.transaction;
+    try testing.expectEqual(Verdict.accepted, answer(&harness, fixtures.answer_a_600, transaction, 100));
+    try testing.expectEqual(@as(u32, 15), harness.poll().done.ttl_seconds);
+}
+
 test "an HTTP failure moves the lookup to the next server and counts one failure" {
     var harness: fixtures.Harness = undefined;
     try start(&harness, "example.com.", .a, seed);

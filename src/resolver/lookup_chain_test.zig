@@ -33,6 +33,19 @@ test "a CNAME re-query draws a new transaction" {
     try testing.expect(before.case_seed != after.case_seed);
 }
 
+test "a chain across messages is kept no longer than the alias an earlier message gave" {
+    // RFC 1035 §3.2.1: the answer is cached under the name asked, and reaches its records through
+    // the aliases. The first, TTL 20, bounds the second, TTL 60, and the A record's 300.
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
+    try harness.start("example.com.", .a, seed);
+    for ([_]fixtures.Reply{ fixtures.cname_short, fixtures.cname_fresh, fixtures.answer_a }) |reply| {
+        _ = harness.send();
+        try testing.expectEqual(Verdict.accepted, harness.respond(reply, servers[0].endpoint));
+    }
+    try testing.expectEqual(@as(u8, 2), harness.lookup.cname_hops);
+    try testing.expectEqual(@as(u32, 20), harness.poll().done.ttl_seconds);
+}
+
 test "a chain resolved in one message answers with the canonical name" {
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);

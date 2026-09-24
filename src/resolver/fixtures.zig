@@ -214,6 +214,16 @@ pub const answer_any: Reply = .{ .records = &(record_a ++ record_mx), .ancount =
 /// A reply carrying a CNAME and no record for its target.
 pub const cname_only: Reply = .{ .records = &record_cname, .ancount = 1 };
 
+/// The same CNAME with a TTL of 20, under every other TTL here, so what it bounds shows: alone,
+/// and on its way to NXDOMAIN with the SOA, whose MINIMUM is 60.
+pub const record_cname_short = blk: {
+    var record = record_cname;
+    record[9] = 20; // the TTL's last octet: the owner pointer, type and class come first
+    break :blk record;
+};
+pub const cname_short: Reply = .{ .records = &record_cname_short, .ancount = 1 };
+pub const name_error_cname_soa: Reply = .{ .rcode = .name_error, .records = &record_cname_short, .ancount = 1, .authority = &record_soa, .nscount = 1 };
+
 /// A CNAME from the question's name to `c.` plus that name, TTL 60: a target at every hop that no
 /// earlier hop named, so a chain of these moves one hop per reply and never loops.
 pub const record_cname_fresh = [_]u8{

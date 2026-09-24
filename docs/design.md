@@ -548,6 +548,12 @@ and it stops at NODATA.
   `ChainTooLong`, and so does a loop inside one message: RFC 1034 §3.6.2 and §5.2.2 have alias
   loops signalled as an error to the client. The message passed every check of §7, so it is the
   server's answer and not a malformed one, and §16 decision 10 does not apply.
+- The chain's CNAMEs bound what its end is kept for, across messages as well as inside one. The
+  end is cached under the name asked, which reaches it through them, and each may be kept no
+  longer than its own TTL (RFC 1035 §3.2.1). So the answer's TTL, and the negative TTL of an
+  NXDOMAIN or NODATA at the chain's end, is no larger than the smallest alias on the way. Until
+  2026-09-24 a chain that spanned messages kept only the last message's TTLs (issue #2), and a
+  record with a TTL of zero lost it to any record after it (issue #1).
 
 ### The model
 
@@ -703,11 +709,11 @@ up as a diff rather than as a surprise. The pins that exist are in `src/core/cor
 
 | Part of `Lookup` | Bytes | Note |
 | --- | --- | --- |
-| the scalars | 80 | state, flags, four indices, the server order, the transaction, two instants, the generator, the failure, the negative TTL, the config pointer, the servers pointer |
+| the scalars | 84 | state, flags, four indices, the server order, the transaction, two instants, the generator, the failure, the negative TTL, the chain's TTL, the config pointer, the servers pointer |
 | `question` | 260 | the name as asked, its type, and whether it was absolute |
 | `current` | 256 | the current candidate, or where the CNAME chain has reached |
 | `answers` | 2448 | a union: `[addresses_max]Address` is 272, `[ptr_names_max]Name` is 256, and the records of §19 step 9 are 2436 — 32 references of 12 and a buffer of `rdata_bytes_max` — plus the count, the TTL, the hop count and two flags |
-| total | 3040, measured | pinned by a test in `src/resolver/lookup_init_test.zig` |
+| total | 3048, measured | pinned by a test in `src/resolver/lookup_init_test.zig` |
 
 The total is larger than the parts because Zig chooses a struct's field order and pads accordingly.
 It also means a declaration order cannot be relied on for locality: the measurement that pinned
@@ -719,7 +725,7 @@ The caller-provided buffer §19 keeps as the fallback is what would take it back
 
 | Caller allocation | Size | For |
 | --- | --- | --- |
-| `[N]Resolver.Slot` | 3056 bytes each, measured | one per concurrent lookup: a lookup plus the table's own octets, the ready list's two links and its flag among them (§11) |
+| `[N]Resolver.Slot` | 3064 bytes each, measured | one per concurrent lookup: a lookup plus the table's own octets, the ready list's two links and its flag among them (§11) |
 | `[2N]MatchKey` | 4 bytes each | the id-to-slot table, power-of-two length |
 | send buffer | `query_bytes_max`, 386 | shared by the whole table |
 | receive buffer | `config.udp_payload_bytes`, 1232 by default | the caller's, per socket |

@@ -77,7 +77,7 @@ test "the size of a lookup slot is pinned" {
     // docs/design.md §9 budgets the memory a caller provides, and a caller sizing a table needs
     // this number. It is measured, not computed: Zig chooses the field order, so a field added
     // here can cost more than its own width in padding.
-    try testing.expectEqual(@as(usize, 3040), @sizeOf(Lookup));
+    try testing.expectEqual(@as(usize, 3048), @sizeOf(Lookup));
     try testing.expectEqual(@as(usize, 2448), @sizeOf(wire.Answers));
     try testing.expectEqual(@as(usize, 16), @sizeOf(entropy_module.Transaction));
 }

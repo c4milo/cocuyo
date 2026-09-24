@@ -67,6 +67,8 @@ fn refuse(out: *Answers) bool {
 const testing = std.testing;
 const fixtures = @import("fixtures.zig");
 const rdata = @import("rdata/rdata.zig");
+const constants = @import("constants.zig");
+const integer = @import("integer.zig");
 const Name = core.Name;
 const Outcome = response.Outcome;
 
@@ -75,6 +77,22 @@ var test_chain: Name = Name.empty;
 fn collect_from(message: []const u8, kind: Kind, out: *Answers) !Outcome {
     test_chain = try Name.from_text("example.com");
     return response.collect(message, &test_chain, kind, 0, out);
+}
+
+test "a record with a TTL of zero keeps the answer's TTL at zero, whatever comes after it" {
+    // RFC 1035 §3.2.1: zero means the record "should not be cached". The round-robin fixture's
+    // two records carry 300; the first is written to zero, then the second, in turn.
+    const question = try Name.from_text("example.com");
+    const first_ttl_at = response.section_start(&question) + constants.pointer_bytes + constants.record_ttl_offset;
+    const record_bytes = fixtures.record_a.len;
+    for ([_]usize{ first_ttl_at, first_ttl_at + record_bytes }) |ttl_at| {
+        var message = fixtures.answer_a_twice;
+        integer.write_u32(&message, ttl_at, 0);
+        var collected: Answers = undefined;
+        try testing.expectEqual(Outcome.answered, try collect_from(&message, .a, &collected));
+        try testing.expectEqual(@as(u8, 2), collected.count);
+        try testing.expectEqual(@as(u32, 0), collected.ttl_seconds);
+    }
 }
 
 test "an MX record is kept with its exchange written out in full, and reads back typed" {
