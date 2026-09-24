@@ -104,7 +104,8 @@ pub const tls_record_overhead_bytes = tls_record_header_bytes + 1 + 16;
 /// The sealed records a TLS connection holds before they go: what the session stages at once, a
 /// ClientHello at its longest among it, beside a query sealed at its longest, and the few octets
 /// of a KeyUpdate's answer and a `close_notify`. Past it the connection fails rather than hold
-/// more (§21, TLS rule 3). The check at the end of this file holds it to that sum.
+/// more (§21, TLS rule 3). `io_chapulin.zig` holds it to that sum at compile time, against
+/// chapulin's own staging bound.
 pub const tls_records_out_bytes = 4096;
 
 /// The entries of the session's own records one queue holds at once beside its queries: the one
@@ -116,13 +117,6 @@ pub const tls_records_per_chunk_max = 32;
 
 /// A client MUST NOT use a ticket more than seven days after it was issued (RFC 9846 §4.7.1).
 pub const tls_ticket_age_ns_max = 7 * 24 * 60 * 60 * 1_000_000_000;
-
-/// What chapulin's session stages between two of the engine's calls: a ClientHello at chapulin's
-/// staging bound, `CH_TX_STAGE`, which is 2,396 octets at most for a webpki build (its session.h
-/// at `20df0b8`), or a query sealed at its longest. Rounded up to a multiple of 512 octets.
-/// `io_chapulin.zig` holds it to `CH_TX_STAGE` at compile time, so a bound chapulin grows past it
-/// stops the build.
-pub const chapulin_out_bytes_max = 2560;
 
 /// The reads one record may take from chapulin's session: one for its plaintext and one to hear
 /// that no record follows, with room for plaintext longer than the frame's room.
@@ -143,8 +137,5 @@ comptime {
     }
     if (buffer_bytes < core.constants.udp_payload_bytes_default + 192) {
         @compileError("a group buffer cannot hold the payload cocuyo advertises after rotor's prefix");
-    }
-    if (tls_records_out_bytes < chapulin_out_bytes_max + core.constants.query_bytes_max + tls_record_overhead_bytes) {
-        @compileError("a connection's records cannot hold what chapulin stages beside a query sealed at its longest");
     }
 }

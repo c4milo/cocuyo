@@ -1096,15 +1096,15 @@ live check and the third by the gate.
 
 Design §21, 2026-09-24. chapulin's `CH_TX_STAGE` for a webpki build grew to 2,394 octets, plus 2
 for a second cipher suite, once its resumed hello offered signature schemes. cocuyo staged at
-most 2,048, and its own worst hello is about 2,134. So `chapulin_out_bytes_max` is now 2,560, held
-to `CH_TX_STAGE` at compile time, and `tls_records_out_bytes` is held to fit it beside a query
-sealed at its longest. Broken against `zig build test-chapulin` and `zig build test-io`. Two
-mutations, two `CAUGHT`, each by the build.
+most a number of its own, 2,048, below it. By the owner's ruling the session now stages exactly
+`CH_TX_STAGE`, read from chapulin's header, so it follows every change to chapulin's hello, and a
+connection's records buffer is held at compile time to fit it beside a query sealed at its
+longest. CK1 broke the number cocuyo kept, which is gone, and is retired. Broken against `zig
+build test-chapulin`. One mutation, one `CAUGHT`, by the build.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
-| CK1 | `chapulin_out_bytes_max` back to 2,048 | at least chapulin's staging bound | the build with `-Dchapulin` | CAUGHT |
-| CK2 | `tls_records_out_bytes` down to 2,900 | the staging beside a sealed query | every build of the engine | CAUGHT |
+| CK2 | `tls_records_out_bytes` down to 2,700, below 2,802 | the staging beside a sealed query | the build with `-Dchapulin` | CAUGHT |
 
 ## The engine over TLS
 

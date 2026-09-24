@@ -40,14 +40,16 @@ export fn ch_assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_
 }
 
 comptime {
-    if (constants.chapulin_out_bytes_max < c.CH_TX_STAGE) {
-        @compileError("chapulin_out_bytes_max is below chapulin's staging bound, CH_TX_STAGE");
+    if (constants.tls_records_out_bytes < c.CH_TX_STAGE + cocuyo.constants.query_bytes_max + constants.tls_record_overhead_bytes) {
+        @compileError("a connection's records cannot hold what chapulin stages beside a query sealed at its longest");
     }
 }
 
 pub const Session = struct {
     pub const enabled = true;
-    pub const out_bytes_max = constants.chapulin_out_bytes_max;
+    /// What the session stages between two of the engine's calls: at most chapulin's own staging
+    /// bound, read from its header, a ClientHello at its longest or a query sealed.
+    pub const out_bytes_max = c.CH_TX_STAGE;
     pub const Error = error{Failed};
     pub const Handshake = enum { going, done };
     pub const Opened = union(enum) { data: usize, nothing, closed };
