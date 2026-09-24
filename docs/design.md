@@ -2187,7 +2187,13 @@ the Lean model by count: for each configuration and bound, TLC's distinct states
 Lean walker's with its operations sorted. Then the replay reads its walks from TLC's traces
 rather than the Lean model's, and CI's `spec` job runs TLC. The model landed the same day: its
 count equalled the Lean walker's in all six configurations spec/README.md lists, over TLS, TCP
-and UDP, and TLC finds each of the Lean model's TLS mutations with the check that caught it.
+and UDP, and TLC finds each of the Lean model's TLS mutations with the check that caught it. The
+replay followed the same day: TLC's simulation mode takes seeded walks through the model
+(`spec/tla/engine/EngineTrace.tla`), and the replay drives the engine down them. TLC's walks are
+uniformly random where the Lean walker sought states no walk had reached, so its short walks
+catch fewer of the engine's mutations. The committed walks keep the full run's walks that catch
+the ones they miss. The full run catches three mutations only the twin tests caught before, and
+misses one the Lean walks caught, which no walk the model allows can reach (docs/mutations.md).
 
 The code of 2026-09-22 broke eleven of these rules, each fixed with the model:
 

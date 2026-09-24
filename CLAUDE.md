@@ -130,9 +130,9 @@ The architecture depends on every rule in this section.
   of its own at ReleaseSafe from `build/bench.zig`.
 - `spec/lean/` holds the Lean models of design §5 and of the engine's streams, and the lookup's
   proofs, a Lake package of its own that pepegrillo's `lean` tool builds (`tools/lean.zig`).
-  `spec/tla/engine/` holds the engine model in TLA+, which TLC checks (design §16 decision 24).
-  `tools/spec_replay/` holds the Zig replays that drive `Lookup` and the engine down the models'
-  transcripts, the engine's over the twin in manual mode, wired by `build/spec.zig`.
+  `spec/tla/engine/` holds the engine model in TLA+, which TLC checks and walks (design §16
+  decision 24). `tools/spec_replay/` holds the Zig replays that drive `Lookup` and the engine down
+  the models' transcripts, the engine's over the twin in manual mode, wired by `build/spec.zig`.
 
 ## Ask before
 
@@ -178,13 +178,16 @@ The architecture depends on every rule in this section.
   require, so it and its tests (`zig build test-cares`) run only when asked. The numbers go in
   design §11 beside cocuyo's, with the c-ares version the binary prints.
 - Model: `zig build spec` — the Lean proofs of `Lookup` and the pins on the axioms they rest on,
-  then every transition the lookup model reaches, the engine's walks, and every transition of
-  the `getaddrinfo` walks, replayed against the code (spec/README.md has the counts). It needs
-  `lake` at the version `spec/lean/lean-toolchain` pins, so it runs only when asked and in CI's
-  `spec` job; `zig build test` replays the committed slices without Lean.
+  then every transition the lookup model reaches, the engine's walks TLC takes, and every
+  transition of the `getaddrinfo` walks, replayed against the code (spec/README.md has the
+  counts). It needs `lake` at the version `spec/lean/lean-toolchain` pins and Java, so it runs
+  only when asked and in CI's `spec` job; `zig build test` replays the committed slices without
+  either. `zig build spec-engine` is the engine's part alone, and with `-Dengine-walks=<file>` it
+  replays walks written before, which is how an engine mutation is measured.
 - TLA+: `zig build tla` — TLC over every model under `spec/tla/`, each configuration with the
   verdict its header expects, through pepegrillo's `tla` tool (`tools/tla.zig`), which pins TLC
-  by SHA-256 and fetches it once. It needs Java 11 or newer, so it runs only when asked.
+  by SHA-256 and fetches it once. It needs Java 11 or newer, so it runs only when asked. `zig
+  build tla -- walks <seed> <walks> <depth>` writes the engine's walks instead.
 - DNS over TLS: `-Dchapulin=<checkout>` names a chapulin checkout whose `bin/chapulin-record.o`
   `build/dot.zig` says how to make. With it, `zig build test-chapulin` runs the session's tests
   and `zig build example-dot-rotor` resolves over DoT; `tools/dot_live/run.sh <checkout>` runs

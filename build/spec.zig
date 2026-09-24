@@ -1,14 +1,18 @@
-//! `zig build spec`: the Lean models under spec/lean/, the lookup's proofs, and the replays that
-//! tie the models to the Zig code (spec/README.md). build.zig stays short (CLAUDE.md, Layout), so
-//! the wiring is here.
+//! `zig build spec`: the Lean models under spec/lean/, the lookup's proofs, the engine model's walks
+//! under spec/tla/engine/, and the replays that tie the models to the Zig code (spec/README.md).
+//! build.zig stays short (CLAUDE.md, Layout), so the wiring is here.
 //!
-//! Lean is a tool the gate must not require, as c-ares is for `bench-cares`. So `zig build test`
-//! compiles the replay and runs its own tests, which replay the committed slice of the model's
-//! transcript in `tools/spec_replay/lookup_gate.txt`, and needs nothing but Zig. `zig build spec`
-//! needs `lake` on the path, at the version spec/lean/lean-toolchain pins. pepegrillo's `lean` tool
-//! builds the proofs first (`tools/lean.zig`), which includes the module that pins the axioms each
-//! one rests on. Then the step requires the committed slices to be the ones the models write, and
-//! replays the whole transcripts, ReleaseSafe.
+//! Lean and TLC are tools the gate must not require, as c-ares is for `bench-cares`. So `zig build
+//! test` compiles the replays and runs their own tests, which replay the committed slices of the
+//! models' transcripts in `tools/spec_replay/`, and needs nothing but Zig. `zig build spec` needs
+//! `lake` on the path, at the version spec/lean/lean-toolchain pins, and Java for TLC. pepegrillo's
+//! `lean` tool builds the proofs first (`tools/lean.zig`), which includes the module that pins the
+//! axioms each one rests on. Then the step requires the committed slices to be the ones the models
+//! write, and replays the whole transcripts, ReleaseSafe.
+//!
+//! `zig build spec-engine` is the engine's part alone, which needs Java and not Lean. With
+//! `-Dengine-walks=<file>` it replays walks written before instead of having TLC write them, which
+//! is how a mutation of the engine is measured.
 const std = @import("std");
 const modules = @import("modules.zig");
 
@@ -19,6 +23,7 @@ const cname_hops_max = "8";
 /// The committed slices `zig build test` replays, and `zig build spec` checks.
 const gate_transcript = "tools/spec_replay/lookup_gate.txt";
 const engine_gate_transcript = "tools/spec_replay/engine_gate.txt";
+const engine_picks_transcript = "tools/spec_replay/engine_picks.txt";
 const walk_gate_transcript = "tools/spec_replay/walk_gate.txt";
 
 /// The replays' roots: the lookup's, and the engine's.
@@ -26,9 +31,15 @@ const lookup_root = "tools/spec_replay/replay.zig";
 const engine_root = "tools/spec_replay/engine_replay.zig";
 const walk_root = "tools/spec_replay/walk_replay.zig";
 
-/// The engine walks `zig build spec` has the model write: the seed, the walks per
-/// configuration, and the most events in one walk.
-const engine_walks = .{ "1", "2000", "200" };
+/// The engine walks `zig build spec` has TLC write (`tools/tla_walks.zig`): the seed, the walks
+/// per configuration, and the states in one walk, which is one more than its events.
+const engine_walks = .{ "1", "2000", "201" };
+/// The committed engine walks: the same seed, ten walks per configuration, forty events each.
+const engine_gate_walks = .{ "1", "10", "41" };
+/// The full run's walks the committed ones keep as well, by their place in the run, counted from 1
+/// in the configurations' order: each is where the full run caught a mutation of the engine that
+/// the short walks miss (docs/mutations.md, the engine replay on TLC's walks).
+const engine_picks = .{ "51", "79", "359", "4011", "8095", "8279", "8573" };
 
 pub fn add(
     b: *std.Build,
@@ -36,6 +47,7 @@ pub fn add(
     test_step: *std.Build.Step,
     tool_test_step: *std.Build.Step,
     lean_tool: *std.Build.Step.Compile,
+    tla_tool: *std.Build.Step.Compile,
 ) void {
     const debug_graph = modules.add_private(b, target, .Debug);
     for ([_][]const u8{ lookup_root, engine_root, walk_root }) |root| {
@@ -75,24 +87,60 @@ pub fn add(
     const check = lake(b, &.{ "exe", "cocuyo-spec", "check", cname_hops_max });
     check.step.dependOn(&proofs.step);
     check.addFileArg(b.path(gate_transcript));
-    check.addFileArg(b.path(engine_gate_transcript));
     check.addFileArg(b.path(walk_gate_transcript));
     const transcript = lake(b, &.{ "exe", "cocuyo-spec", "all", cname_hops_max });
     transcript.step.dependOn(&check.step);
     const replay = b.addRunArtifact(exe);
     replay.addFileArg(transcript.captureStdOut(.{}));
-    const engine_transcript = lake(b, &(.{ "exe", "cocuyo-spec", "engine-walks" } ++ engine_walks));
-    engine_transcript.step.dependOn(&transcript.step);
-    const engine_replay = b.addRunArtifact(engine_exe);
-    engine_replay.addFileArg(engine_transcript.captureStdOut(.{}));
     const walk_transcript = lake(b, &.{ "exe", "cocuyo-spec", "walks" });
-    walk_transcript.step.dependOn(&engine_transcript.step);
+    walk_transcript.step.dependOn(&transcript.step);
     const walk_replay = b.addRunArtifact(walk_exe);
     walk_replay.addFileArg(walk_transcript.captureStdOut(.{}));
     const step = b.step("spec", "Build the Lean proofs and models, and replay the models against the code");
     step.dependOn(&replay.step);
-    step.dependOn(&engine_replay.step);
     step.dependOn(&walk_replay.step);
+    step.dependOn(add_engine(b, tla_tool, engine_exe));
+}
+
+/// `zig build spec-engine`: the committed engine walks, the short ones and the picked ones,
+/// required to be the ones TLC writes, then TLC's full run replayed against the engine, or the
+/// walks `-Dengine-walks` names.
+fn add_engine(b: *std.Build, tla_tool: *std.Build.Step.Compile, engine_exe: *std.Build.Step.Compile) *std.Build.Step {
+    const step = b.step("spec-engine", "Have TLC walk the engine model, and replay the walks against the engine");
+    const engine_replay = b.addRunArtifact(engine_exe);
+    if (b.option([]const u8, "engine-walks", "Replay these engine walks instead of having TLC write them")) |path| {
+        engine_replay.addFileArg(.{ .cwd_relative = path });
+    } else {
+        const full = tla_walks(b, tla_tool, &engine_walks);
+        full.addArg("--pick");
+        const picked = full.addOutputFileArg("engine_picks.txt");
+        full.addArgs(&engine_picks);
+        engine_replay.addFileArg(full.captureStdOut(.{}));
+        const gate = tla_walks(b, tla_tool, &engine_gate_walks).captureStdOut(.{});
+        engine_replay.step.dependOn(same(b, engine_gate_transcript, gate));
+        engine_replay.step.dependOn(same(b, engine_picks_transcript, picked));
+    }
+    step.dependOn(&engine_replay.step);
+    return step;
+}
+
+/// Requires the committed walks at `committed` to be the ones TLC wrote, and shows how they differ.
+fn same(b: *std.Build, committed: []const u8, written: std.Build.LazyPath) *std.Build.Step {
+    const diff = b.addSystemCommand(&.{ "diff", "-u" });
+    diff.addFileArg(b.path(committed));
+    diff.addFileArg(written);
+    return &diff.step;
+}
+
+/// The engine model's walks, which the `tla` tool has TLC write from the repository's root. They
+/// are TLC's to write each time: the build graph does not see the model's sources.
+fn tla_walks(b: *std.Build, tla_tool: *std.Build.Step.Compile, arguments: []const []const u8) *std.Build.Step.Run {
+    const run = b.addRunArtifact(tla_tool);
+    run.setCwd(b.path("."));
+    run.addArg("walks");
+    run.addArgs(arguments);
+    run.has_side_effects = true;
+    return run;
 }
 
 fn replay_module(

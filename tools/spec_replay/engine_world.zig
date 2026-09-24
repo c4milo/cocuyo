@@ -14,6 +14,7 @@ const rotor = @import("rotor");
 const io = @import("io");
 const lookup_text = @import("replay.zig");
 const fixtures = @import("fixtures.zig");
+const text_module = @import("engine_text.zig");
 
 /// The seed every engine of the replay starts from; the model abstracts the entropy away.
 const seed = 0x5eed_e791;
@@ -145,7 +146,7 @@ fn instant(self: anytype, name: []const u8, parts: *std.mem.SplitIterator(u8, .s
         const slot = try number(parts.next());
         return self.engine.cancel(self.engine.handles[slot], self.now_ns);
     }
-    const op = try number(parts.next());
+    const op = parts.next() orelse return error.Malformed;
     if (std.mem.eql(u8, name, "straggle")) return straggle(self, op);
     if (std.mem.eql(u8, name, "finish")) {
         const outcome = std.meta.stringToEnum(Outcome, parts.next() orelse "") orelse return error.Malformed;
@@ -178,13 +179,17 @@ fn next_deadline(self: anytype) ?u64 {
     return soonest;
 }
 
-/// The operation at position `position` among the operations the loop holds that the model
-/// knows, oldest first: the model's `ops`.
-fn operation(self: anytype, position: usize) Error!u32 {
+/// The oldest operation the loop holds whose token is `name`. The model's operations are a bag, so
+/// an event names one by its token; two with one token are one to the model, and the replay shows
+/// whether the engine treats them alike.
+fn operation(self: anytype, name: []const u8) Error!u32 {
     var ordered: [rotor.constants.operations_max]u32 = undefined;
     const count = known_operations(self, &ordered);
-    if (position >= count) return error.NoSuchOperation;
-    return ordered[position];
+    for (ordered[0..count]) |loop_slot| {
+        var text: [16]u8 = undefined;
+        if (std.mem.eql(u8, text_module.token_of(self, loop_slot).write(&text), name)) return loop_slot;
+    }
+    return error.NoSuchOperation;
 }
 
 /// The loop's operations the model knows, every one but the timer, oldest first, by the slot
@@ -206,8 +211,8 @@ pub fn known_operations(self: anytype, out: []u32) usize {
     return count;
 }
 
-fn finish(self: anytype, position: usize, outcome: Outcome) Error!void {
-    const slot = try operation(self, position);
+fn finish(self: anytype, op: []const u8, outcome: Outcome) Error!void {
+    const slot = try operation(self, op);
     const user_data = self.loop.slots[slot].user_data;
     const kind = kind_of(user_data).?;
     var event = switch (outcome) {
@@ -266,8 +271,8 @@ fn head_left(self: anytype, connection: anytype, head: anytype) u32 {
 
 /// The session's step on a TLS connection's receive, as the model names it: one handshake step
 /// in a record of its own, in one buffer of the stream's group.
-fn tls_step(self: anytype, position: usize, name: []const u8) Error!void {
-    const loop_slot = try operation(self, position);
+fn tls_step(self: anytype, op: []const u8, name: []const u8) Error!void {
+    const loop_slot = try operation(self, op);
     const user_data = self.loop.slots[loop_slot].user_data;
     if (kind_of(user_data) != .tcp_receive) return error.Malformed;
     const steps = [_]struct { name: []const u8, step: rotor.tls.Step }{
@@ -288,8 +293,8 @@ fn tls_step(self: anytype, position: usize, name: []const u8) Error!void {
 }
 
 /// A datagram or a chunk on a receive that is gone, before its end: the receive stays.
-fn straggle(self: anytype, position: usize) Error!void {
-    const slot = try operation(self, position);
+fn straggle(self: anytype, op: []const u8) Error!void {
+    const slot = try operation(self, op);
     const user_data = self.loop.slots[slot].user_data;
     const kind = kind_of(user_data).?;
     if (kind != .tcp_receive and kind != .udp_receive) return error.Malformed;
@@ -315,8 +320,8 @@ fn carrying(self: anytype, user_data: u64, kind: io.Kind, more: bool) Error!roto
 /// A message on the receive at `position`, for the lookup in `slot`: on a stream, one whole
 /// frame, length and all, in one buffer of the stream's group (RFC 7766 §8); on a socket, one
 /// datagram from its server, laid out in the datagram group as rotor lays one out.
-fn message(self: anytype, position: usize, slot: usize, reply: fixtures.Reply) Error!void {
-    const loop_slot = try operation(self, position);
+fn message(self: anytype, op: []const u8, slot: usize, reply: fixtures.Reply) Error!void {
+    const loop_slot = try operation(self, op);
     const user_data = self.loop.slots[loop_slot].user_data;
     const lookup = self.engine.resolver.lookup_of(self.engine.handles[slot]);
     var body_buffer: [512]u8 = undefined;

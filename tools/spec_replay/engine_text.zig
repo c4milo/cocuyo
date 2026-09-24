@@ -131,37 +131,72 @@ fn sent_from(line: *Line, world: anytype, index: usize) void {
     line.print("{d}{c}", .{ from.server, age });
 }
 
+/// One of the loop's operations as the model names it: its kind's letter, its target, and whether
+/// it is current. The model's operations are a bag, so an event names one by this token and a state
+/// writes them in `key` order (spec/tla/engine/EngineTrace.tla, `OpKey`).
+pub const Token = struct {
+    letter: u8,
+    target: usize,
+    current: bool,
+
+    /// The letters in the order the model writes them.
+    const letters = "CRSDLMT";
+
+    pub fn key(token: Token) usize {
+        const rank = std.mem.indexOfScalar(u8, letters, token.letter).?;
+        return (rank * 256 + token.target) * 2 + @intFromBool(token.current);
+    }
+
+    pub fn write(token: Token, out: []u8) []const u8 {
+        return std.fmt.bufPrint(out, "{c}{d}{c}", .{ token.letter, token.target, mark(token.current) }) catch unreachable;
+    }
+};
+
+/// The token of the operation the loop holds in `loop_slot`, read off the engine as it stands.
+pub fn token_of(world: anytype, loop_slot: u32) Token {
+    const user_data = world.loop.slots[loop_slot].user_data;
+    const index: usize = @intCast(user_data & io.constants.index_mask);
+    return switch (world_module.kind_of(user_data).?) {
+        .tcp_connect, .tcp_receive, .tls_send => |kind| blk: {
+            const at = index & io.constants.tcp_slot_mask;
+            const incarnation: u32 = @truncate(index >> io.constants.tcp_incarnation_shift);
+            const connection = &world.engine.connections[at];
+            const live = connection.state != .closed and connection.state != .reopening;
+            const letter: u8 = switch (kind) {
+                .tcp_connect => 'C',
+                .tcp_receive => 'R',
+                else => 'T',
+            };
+            break :blk .{ .letter = letter, .target = at, .current = live and connection.incarnation == incarnation };
+        },
+        .tcp_send => .{ .letter = 'S', .target = index, .current = send_is_current(world, index) },
+        .udp_send => .{ .letter = 'D', .target = index, .current = send_is_current(world, index) },
+        .udp_receive => blk: {
+            const found = world.engine.sockets.find(index);
+            const draining = found != null and found.?.which == .draining;
+            const letter: u8 = if (draining) 'M' else 'L';
+            break :blk .{ .letter = letter, .target = index & io.constants.receive_index_mask, .current = found != null };
+        },
+        else => unreachable,
+    };
+}
+
+/// The loop's operations the model knows, in the model's order.
 fn operations(line: *Line, world: anytype) void {
     var ordered: [rotor.constants.operations_max]u32 = undefined;
     const count = world_module.known_operations(world, &ordered);
-    for (ordered[0..count], 0..) |loop_slot, position| {
-        if (position > 0) line.print(" ", .{});
-        const user_data = world.loop.slots[loop_slot].user_data;
-        const index: usize = @intCast(user_data & io.constants.index_mask);
-        switch (world_module.kind_of(user_data).?) {
-            .tcp_connect, .tcp_receive, .tls_send => |kind| {
-                const at = index & io.constants.tcp_slot_mask;
-                const incarnation: u32 = @truncate(index >> io.constants.tcp_incarnation_shift);
-                const connection = &world.engine.connections[at];
-                const live = connection.state != .closed and connection.state != .reopening;
-                const current = live and connection.incarnation == incarnation;
-                const letter: u8 = switch (kind) {
-                    .tcp_connect => 'C',
-                    .tcp_receive => 'R',
-                    else => 'T',
-                };
-                line.print("{c}{d}{c}", .{ letter, at, mark(current) });
-            },
-            .tcp_send => line.print("S{d}{c}", .{ index, mark(send_is_current(world, index)) }),
-            .udp_send => line.print("D{d}{c}", .{ index, mark(send_is_current(world, index)) }),
-            .udp_receive => {
-                const server = index & io.constants.receive_index_mask;
-                const found = world.engine.sockets.find(index);
-                const draining = found != null and found.?.which == .draining;
-                line.print("{c}{d}{c}", .{ if (draining) @as(u8, 'M') else 'L', server, mark(found != null) });
-            },
-            else => unreachable,
+    var tokens: [rotor.constants.operations_max]Token = undefined;
+    for (ordered[0..count], tokens[0..count]) |loop_slot, *token| token.* = token_of(world, loop_slot);
+    const Context = struct {
+        fn before(_: void, left: Token, right: Token) bool {
+            return left.key() < right.key();
         }
+    };
+    std.mem.sort(Token, tokens[0..count], {}, Context.before);
+    for (tokens[0..count], 0..) |token, position| {
+        if (position > 0) line.print(" ", .{});
+        var text: [16]u8 = undefined;
+        line.print("{s}", .{token.write(&text)});
     }
 }
 

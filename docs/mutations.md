@@ -1139,6 +1139,98 @@ the rule they replace, and so themselves; each is whole now. Seven mutations, se
 | R8c | the connection opened again resumes again | `reopened in full` | 14 states | CAUGHT |
 | R8d | the connection opened again takes its slot while its records are held | `borrow kept` | 13 states | CAUGHT |
 
+## The engine replay on TLC's walks
+
+Issue #9's stage 4, 2026-09-24: the engine replay follows walks TLC takes through the TLA+ model
+(spec/README.md) instead of the Lean walker's. Every engine mutation of the sections above was
+broken again against `zig build spec-engine -Dengine-walks=<file>` over three sets of walks. The
+first is the committed short walks, ten of forty events in each configuration. The second is the
+seven committed picked walks. The third is TLC's full run, 2,000 walks of 200 events in each
+configuration, 3.2 million events.
+
+TLC's walks are uniformly random. The Lean walker's took, at each step, an event leading to a
+state no walk had reached when there was one. So the short walks miss nine mutations that the full
+run catches. For each of the nine, the committed picked walks keep the first walk of the full run
+that catches it, and the picked walks catch all nine; ET4, ET10 and ET11 share walk 8573. A walk
+is numbered by its place in the full run, from 1 in the configurations' order.
+
+The full run catches ET4, ET5 and W4, which only the twin tests caught before. It misses SQ4,
+which the Lean committed walks caught. The model gives a message one short send at most, and
+`advance` ends a message on the octets its send had left, so counting from the last send alone
+differs only on a second short send. The short-send twin test catches it, as it catches SQ3.
+ET12 and ET13 are out of the model's reach, as before.
+
+Four mutations retired. The draining rotation removed the code U3 and U4 broke, and U5 was taken
+out of its table. U7 broke the rule that a port is never replaced under a waiting lookup, and §17
+question 15's answer replaced that rule; W2 breaks the drain that took its place. E1, E4, ET3,
+U1, U2, CR1, CR2 and CR4 were written again for the code as it stands. SQ1 to SQ10, whose diffs
+were not kept, were written again from their descriptions.
+
+Forty-seven mutations, forty-seven `CAUGHT`: forty-three by the walks, and ET12, ET13, SQ3 and
+SQ4 by `zig build test-io`.
+
+| # | Mutation | The short walks | The full run | Status |
+| --- | --- | --- | --- | --- |
+| E1 | an event for an opening that is gone is applied | an assertion | an assertion | CAUGHT |
+| E2 | a lookup stays on a connection it no longer streams to | walk 8 | walk 1 | CAUGHT |
+| E3 | a new lookup forgets its slot's buffer is lent | no | walk 79, picked | CAUGHT |
+| E4 | a send's completion speaks to whatever holds the slot | no | walk 359, picked | CAUGHT |
+| E5 | a held send is dropped | no | walk 51, picked | CAUGHT |
+| E6 | the drive stops after one poll a slot | walk 1 | walk 1 | CAUGHT |
+| E7 | the table misses the deadline of a wait a poll starts | walk 8 | walk 1 | CAUGHT |
+| E8 | a stale event keeps its buffer | walk 1, the buffer check | walk 1 | CAUGHT |
+| ET1 | lookups hear the connection is up before the handshake | walk 42 | walk 8001 | CAUGHT |
+| ET2 | the session's records go to the back of the queue | walk 42 | walk 8001 | CAUGHT |
+| ET3 | records made behind a waiting records entry take one of their own | walk 48 | walk 8006 | CAUGHT |
+| ET4 | a declined ticket fails the connection | no | walk 8573, picked | CAUGHT |
+| ET5 | a spent ticket stays kept | no | walk 8095, picked | CAUGHT |
+| ET6 | an idle TLS connection closes without `close_notify` | walk 48 | walk 8001 | CAUGHT |
+| ET7 | a TLS configuration opens UDP sockets | walk 41 | walk 8001 | CAUGHT |
+| ET8 | a TLS connection is closed to make room | no | walk 8279, picked | CAUGHT |
+| ET9 | a records send's end leaves its slot borrowed | walk 42 | walk 8001 | CAUGHT |
+| ET10 | a reopening connection takes its old opening's events | no | walk 8573, by an assertion, picked | CAUGHT |
+| ET11 | a reopening connection connects while its old records are in flight | no | walk 8573, by an assertion, picked | CAUGHT |
+| ET12 | a record longer than 2^14 + 256 octets is waited for | no: the record-length test | no | CAUGHT |
+| ET13 | a ticket older than seven days is spent | no: the seven-day test | no | CAUGHT |
+| ET14 | a closing connection reads what the peer sends | an assertion | an assertion | CAUGHT |
+| SQ1 | the head goes out while a send is in flight | an assertion | an assertion | CAUGHT |
+| SQ2 | a short send is taken for a whole one | walk 9 | walk 2 | CAUGHT |
+| SQ3 | the rest is sent from the message's start | no: the short-send twin test | no | CAUGHT |
+| SQ4 | the octets sent are counted from the last send alone | no: the short-send twin test | no | CAUGHT |
+| SQ5 | a failed send leaves the connection up | walk 1 | walk 1 | CAUGHT |
+| SQ6 | a lookup that leaves keeps its waiting query queued | no | walk 4011, picked | CAUGHT |
+| SQ7 | a closed connection keeps its waiting queries' buffers lent | walk 29 | walk 9 | CAUGHT |
+| SQ8 | a lookup that leaves takes its started query with it | walk 6 | walk 3 | CAUGHT |
+| SQ9 | a send the loop refuses leaves the queue stuck | walk 29 | walk 9 | CAUGHT |
+| SQ10 | a whole send does not let the next go | walk 38 | walk 4007 | CAUGHT |
+| U1 | a receive a replaced socket left behind keeps its datagram's buffer | walk 64, the buffer check | walk 12001 | CAUGHT |
+| U2 | a socket's receive the loop refused is never asked for again | walk 1 | walk 1 | CAUGHT |
+| U6 | a connection's receive the loop refused is never asked for again | walk 9 | walk 7 | CAUGHT |
+| W1 | a port that has carried its share is never replaced | walk 61 | walk 12001 | CAUGHT |
+| W2 | a replaced socket is closed at once, and its answers are lost | walk 61 | walk 12001 | CAUGHT |
+| W3 | a draining socket is never closed | walk 61 | walk 12001 | CAUGHT |
+| W4 | a replacement that cannot open leaves the server no socket | an assertion | an assertion | CAUGHT |
+| W5 | a draining socket's refused receive is never asked for again | walk 68 | walk 12001 | CAUGHT |
+| W6 | a draining socket's ended receive is armed on the current one | walk 61 | walk 12001 | CAUGHT |
+| W7 | a query does not record the socket it left from | walk 61 | walk 12001 | CAUGHT |
+| CR1 | a closed slot is taken while its connect is in flight | walk 4 | walk 19 | CAUGHT |
+| CR2 | a slot nobody uses is taken while its connect is in flight | walk 4 | walk 1 | CAUGHT |
+| CR3 | a connect's event leaves its slot marked | walk 4 | walk 1 | CAUGHT |
+| CR4 | closing a slot forgets its connect is in flight | walk 4 | an assertion | CAUGHT |
+| CR5 | a connect's submission does not mark its slot | walk 4 | walk 1 | CAUGHT |
+
+The replay's own checks, and the tool's, broken against `zig build test-tools`, and the build's
+comparisons against `zig build spec-engine`. Six mutations, six `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| TK1 | an event's operation is the oldest, whatever its token | an event names its operation | the short walks | CAUGHT |
+| TK2 | the engine's operations are written in the order they were submitted | the model's order | the short walks | CAUGHT |
+| TK3 | a current operation is written before a stale one | the model's order | the short walks | CAUGHT |
+| TW1 | a picked walk is numbered from 0 | picks count from 1 | the tool's pick test | CAUGHT |
+| D1 | the committed short walks lose their last line | the short walks are TLC's | `spec-engine`, the comparison | CAUGHT |
+| D2 | the committed picked walks lose their last line | the picked walks are TLC's | `spec-engine`, the comparison | CAUGHT |
+
 ## A connect's address
 
 The stream's rule 10 (docs/design.md §19 step 13): a connect borrows its slot's address until

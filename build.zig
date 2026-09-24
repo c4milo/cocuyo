@@ -47,6 +47,7 @@ const tool_test_roots = [_][]const u8{
     "tools/graph_check.zig",
     "tools/consumer_check.zig",
     "tools/search_order/recorder.zig",
+    "tools/tla.zig",
 };
 
 /// The git revision range `zig build lint-commits` checks.
@@ -130,14 +131,15 @@ pub fn build(b: *std.Build) void {
     const rotor = b.lazyDependency("rotor", .{ .target = target });
     examples.add(b, graph.cocuyo, target, optimize, test_step, rotor);
     bench.add(b, target, test_step, tool_test_step, rotor);
+    const tla_tool = b.addExecutable(.{ .name = "tla", .root_module = tool_module(b, pepegrillo, "tools/tla.zig") });
     spec.add(b, target, test_step, tool_test_step, b.addExecutable(.{
         .name = "lean",
         .root_module = tool_module(b, pepegrillo, "tools/lean.zig"),
-    }));
+    }), tla_tool);
     dot.add(b, target, optimize, graph, chapulin, rotor);
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_commit_lint_step(b, pepegrillo, install_step);
-    add_tla_step(b, pepegrillo);
+    add_tla_step(b, tla_tool);
     add_hooks_step(b);
 
     const fmt_step = b.step("fmt", "Check formatting of every Zig source");
@@ -150,8 +152,7 @@ pub fn build(b: *std.Build) void {
 /// `zig build tla`: TLC over every model under spec/tla/, through pepegrillo's `tla` tool
 /// (`tools/tla.zig`). It needs Java, and the pinned TLC, which the tool fetches once, so it runs
 /// only when asked, as `zig build spec` does.
-fn add_tla_step(b: *std.Build, pepegrillo: *std.Build.Module) void {
-    const tool = b.addExecutable(.{ .name = "tla", .root_module = tool_module(b, pepegrillo, "tools/tla.zig") });
+fn add_tla_step(b: *std.Build, tool: *std.Build.Step.Compile) void {
     const run = b.addRunArtifact(tool);
     run.setCwd(b.path("."));
     run.has_side_effects = true;

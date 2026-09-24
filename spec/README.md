@@ -153,11 +153,13 @@ operations sorted:
 | 3, 0 | 1,164,712 | 11,978,040 | 66 | hold |
 | 3, 1 | 6,835,766 | 71,454,920 | 472 | hold |
 | 4, 0 | 4,467,223 | 58,243,444 | 260 | hold |
+| 4, 1 | 26,769,958 | 354,070,484 | 2,852 | hold |
 
 Every row took every kind of event and reached every stage, a resumed connection and a kept
 ticket among them. Unsorted, three operations and none was 3,463,580 states and 151 seconds.
-Before the sorting, four and one ran an hour without finishing. The engine model moves to TLA+
-(docs/design.md §16 decision 24), and these counts are what TLC's must equal.
+Before the sorting, four and one ran an hour without finishing; the row above took 6.6 GB, on a
+machine busy with other work. The engine model moves to TLA+ (docs/design.md §16 decision 24),
+and these counts are what TLC's must equal.
 
 `cocuyo-spec engine-probe <tcp|udp|tls> <slots> <connections> <seed> <walks> <length>` walks one
 configuration the seeded way below and stops at the first invariant broken, for a quick look before
@@ -168,14 +170,13 @@ session (`src/sim/sim_tls.zig`), whose records carry their plaintext unsealed an
 steps are one octet each. A walk's `tls:i:step` puts one step in a record on the receive at `i`,
 an answer comes in a data record, and `lapse:v` drops the ticket kept for server `v`.
 
-The replay cannot visit that many states, so `cocuyo-spec engine-walks` writes seeded walks that
-take, at each step, an event leading to a state no walk has reached yet when there is one. Each
-line is an event and the model's whole state after it. `tools/spec_replay/engine_replay.zig`
-drives the engine of `io/` over the twin in manual mode, where every operation waits until the
-walk ends it with the outcome it names, and the twin refuses what the walk says to refuse, which
-is how the replay reaches the orders rotor's rule 2 allows. After each event it compares the
-engine's state with the model's, and requires every buffer the event handed the engine to be
-back in its group.
+The replay cannot visit that many states, so it follows walks TLC takes through the TLA+ model
+(below). Each line is an event and the model's whole state after it.
+`tools/spec_replay/engine_replay.zig` drives the engine of `io/` over the twin in manual mode,
+where every operation waits until the walk ends it with the outcome it names, and the twin refuses
+what the walk says to refuse, which is how the replay reaches the orders rotor's rule 2 allows.
+After each event it compares the engine's state with the model's, and requires every buffer the
+event handed the engine to be back in its group.
 
 ## The engine in TLA+
 
@@ -184,7 +185,7 @@ back in its group.
 `EngineStep.lean` say, definition by definition: `EngineTable.tla` holds the configuration, the
 lookup's transitions the engine asks of it, the table and the connections; `EngineIo.tla` the
 sockets and the sends; and `Engine.tla` the drive, the events, the checks and the specification.
-The Lean engine model retires once the replay reads its walks from TLC.
+The replay reads its walks from TLC, and the Lean engine model retires next (issue #9).
 
 Three choices make TLC count what the Lean walker counts:
 
@@ -211,11 +212,40 @@ walker's, its operations sorted:
 | TCP | 1 | 1 | 4, 1 | 19,767 | 4 |
 | UDP | 1 | 1 | 3, 1 | 38,457 | 5 |
 | UDP | 1 | 1 | 4, 1 | 115,774 | 12 |
+| TLS | 1 | 2 | 4, 1 | 26,769,958 | 4,897 |
 
 TLC walks these at about half the Lean walker's speed. What it adds is a fingerprint per state in
 place of the whole state, a queue on disk, worker threads, and a shortest counterexample for
-free. `tla/engine/mutants/` breaks the TLS rules the Lean model's mutations broke, TM1 to TM3 and
-R8a to R8d, and TLC must find each broken (docs/mutations.md).
+free. The last row is not in `zig build tla`: it took 4.3 GB and ran on a machine busy with other
+work, beside the Lean walker's run of the same row. `tla/engine/mutants/` breaks the TLS rules the
+Lean model's mutations broke, TM1 to TM3 and R8a to R8d, and TLC must find each broken
+(docs/mutations.md).
+
+### The walks TLC takes
+
+`tla/engine/EngineTrace.tla` runs the specification in TLC's simulation mode, which takes seeded
+random walks, and prints each state as the replay reads it, with the event that led to it. An
+event names an operation by its token, such as `finish:C0*:ok`, since the model's operations are
+a bag. The replay applies it to the oldest of the engine's operations with that token, and writes
+the engine's operations in the order the model writes them. Each configuration of the replay has
+a file in `tla/engine/trace/`.
+
+`zig build tla -- walks <seed> <walks> <depth>` (`tools/tla_walks.zig`) runs every configuration
+at once, each on one worker, so a seed always writes the same walks. A walk of depth `d` holds
+`d` states, its `init` and `d - 1` events. With `--pick <file> <walk>...` it also writes the
+walks named to the file, each by its place in the whole run, counted from 1 in the
+configurations' order.
+
+TLC holds a function built as `[x \in S |-> e]` as that expression, and stacks each `EXCEPT` on it
+as another layer. A check writes each state it keeps out whole, but a walk keeps none, so each
+step built on the layers of every step before it: one walk of 200 events took four minutes.
+`EngineTrace.tla` holds each of the state's functions whole with TLC's `@@`, which builds its
+result whole, and the same walk takes under a second.
+
+TLC's walks are uniformly random. The Lean walker's took, at each step, an event leading to a
+state no walk had reached when there was one. So TLC's short walks catch fewer mutations of the
+engine than the Lean walker's did, and the committed walks keep more of the full run's
+(docs/mutations.md).
 
 ## The walks
 
@@ -237,23 +267,25 @@ compares the walk's whole state after each.
 
 - `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 3,694
   transitions: one server, one pass and one name, over UDP, over TCP, over DoH and over DoQ. It also
-  replays `tools/spec_replay/engine_gate.txt`, ten engine walks of forty events in each of the eight
-  engine configurations, and three walks of the full run that `engineGatePicks` in `lean/Main.lean`
-  names: each is where the full run caught a mutation of the engine that the short walks miss
-  (docs/mutations.md ET8, ET10, ET11 and ET14). The model regenerates a picked walk by walking its
-  configuration up to it, so it is the full run's walk byte for byte. The gate also holds
-  `tools/spec_replay/walk_gate.txt`, the forward walk with two candidates and both families and
-  every reverse configuration. It needs no Lean.
-- `zig build spec` needs `lake` on the path, at the version `lean/lean-toolchain` pins. pepegrillo's
-  `lean` tool builds the proofs and the axiom pins first. Then the step requires the committed
-  slices to be the ones the models write, and replays the lookup's whole transcript and 2,000 engine
-  walks of 200 events in each of the eight engine configurations, 3.2 million events, and the walks'
-  whole transcript. It took about a minute and a quarter on the machine of design §11 on 2026-09-23,
-  with six configurations, most of it the model writing the engine's walks.
+  replays two sets of engine walks TLC wrote. `tools/spec_replay/engine_gate.txt` holds ten walks
+  of forty events in each of the eight engine configurations. `tools/spec_replay/engine_picks.txt`
+  holds seven walks of the full run, which `engine_picks` in `build/spec.zig` names: each is where
+  the full run caught a mutation of the engine that the short walks miss (docs/mutations.md). The
+  gate also holds `tools/spec_replay/walk_gate.txt`, the forward walk with two candidates and both
+  families and every reverse configuration. It needs neither Lean nor Java.
+- `zig build spec` needs `lake` on the path, at the version `lean/lean-toolchain` pins, and Java
+  11 or newer for TLC. pepegrillo's `lean` tool builds the proofs and the axiom pins first. Then
+  the step requires the committed slices to be the ones the models write, and replays the
+  lookup's whole transcript, the walks' whole transcript, and TLC's full run: 2,000 engine walks
+  of 200 events in each of the eight engine configurations, 3.2 million events. TLC wrote the
+  full run in 241 seconds on an Apple M1 Pro busy with other work on 2026-09-24, and the replay
+  took 17. `zig build spec-engine` is the engine's part alone, and needs no Lean.
 - After a change to a model, `lake exe cocuyo-spec gate 8 > ../../tools/spec_replay/lookup_gate.txt`
-  `lake exe cocuyo-spec engine-gate > ../../tools/spec_replay/engine_gate.txt` and
-  `lake exe cocuyo-spec walks-gate > ../../tools/spec_replay/walk_gate.txt` in `lean/` write
-  the slices again.
+  and `lake exe cocuyo-spec walks-gate > ../../tools/spec_replay/walk_gate.txt` in `lean/` write
+  the Lean slices again. From the repository's root, `zig build tla -- walks 1 10 41 >
+  tools/spec_replay/engine_gate.txt` writes the short engine walks, and `zig build tla -- walks 1
+  2000 201 --pick tools/spec_replay/engine_picks.txt <walk>... > /dev/null` the picked ones, the
+  walks named being `engine_picks`.
 
 The `8` is `cname_hops_max` of `src/core/constants.zig`. The transcript records it, and the replay
 refuses a transcript written for another.

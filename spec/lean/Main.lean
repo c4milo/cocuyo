@@ -148,7 +148,7 @@ def usage : String :=
   "       cocuyo-spec engine-walks <seed> <walks> <length>\n" ++
   "       cocuyo-spec engine-gate\n" ++
   "       cocuyo-spec walks | walks-gate\n" ++
-  "       cocuyo-spec check <cname_hops_max> <lookup gate> <engine gate> <walks gate>"
+  "       cocuyo-spec check <cname_hops_max> <lookup gate> <walks gate>"
 
 /-- The configuration `engine` and the canon check walk: two servers, over `transport`. -/
 def engineConfig (transport : String) (slots conns : Nat) : Spec.Engine.Config :=
@@ -231,23 +231,17 @@ def main (args : List String) : IO UInt32 := do
     let _ ← engineWalks (← IO.getStdout) seed count length true
     engineGatePicked (← IO.getStdout)
     return 0
-  | ["check", hops, lookupPath, enginePath, walksPath] =>
+  | ["check", hops, lookupPath, walksPath] =>
     unless ← canonChecks do return 1
     let lookupSame ← same lookupPath fun out => do
       let _ ← transcript out hops.toNat! (configsGate hops.toNat!)
-    let (seed, count, length) := engineGate
-    let engineSame ← same enginePath fun out => do
-      let _ ← engineWalks out seed count length true
-      engineGatePicked out
     unless lookupSame do
       IO.eprintln s!"{lookupPath} is not the slice the model writes: run `cocuyo-spec gate {hops}`"
-    unless engineSame do
-      IO.eprintln s!"{enginePath} is not the walks the model writes: run `cocuyo-spec engine-gate`"
     let walksSame ← same walksPath fun out => do
       let _ ← Spec.Walks.transcript out Spec.Walks.forwardGate
     unless walksSame do
       IO.eprintln s!"{walksPath} is not the slice the model writes: run `cocuyo-spec walks-gate`"
-    return if lookupSame ∧ engineSame ∧ walksSame then 0 else 1
+    return if lookupSame ∧ walksSame then 0 else 1
   | _ =>
     IO.eprintln usage
     return 2

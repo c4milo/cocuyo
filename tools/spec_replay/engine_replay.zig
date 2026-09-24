@@ -1,6 +1,6 @@
-//! The engine replay: drives the engine of `io/` down the walks the engine model writes
-//! (`cocuyo-spec engine-walks`, spec/lean/Spec/EngineWalk.lean) and fails on the first line where
-//! the engine's state is not the model's (spec/README.md).
+//! The engine replay: drives the engine of `io/` down the walks TLC takes through the engine
+//! model (`zig build tla -- walks`, spec/tla/engine/EngineTrace.tla) and fails on the first line
+//! where the engine's state is not the model's (spec/README.md).
 //!
 //! A walk is a chain from `init`: each line is one event on what the line above it left, so the
 //! replay keeps one engine and needs no frames. A `config` line starts a walk on a fresh engine
@@ -8,8 +8,9 @@
 //! the line after the event is the model's whole state, which `engine_text.zig` writes for the
 //! engine in the same spelling.
 //!
-//! `zig build spec` runs this over the walks it has the model write, and `zig build test` runs
-//! the tests below, which replay the committed walks of `engine_gate.txt` without Lean.
+//! `zig build spec` runs this over the walks it has TLC write, and `zig build test` runs the
+//! tests below, which replay the committed walks of `engine_gate.txt` and `engine_picks.txt`
+//! without Java.
 //!
 //! This is developer tooling. It is never linked into the library, so it allocates and reads the
 //! filesystem.
@@ -192,6 +193,16 @@ test "the committed walks of the engine model replay against the engine" {
         return err;
     };
     try testing.expect(replay.walks >= 4);
+}
+
+test "the full run's picked walks replay against the engine" {
+    const replay = try Replay.create(testing.allocator);
+    defer replay.destroy(testing.allocator);
+    replay_text(replay, @embedFile("engine_picks.txt")) catch |err| {
+        replay.report(err);
+        return err;
+    };
+    try testing.expect(replay.walks >= 1);
 }
 
 test "a state the engine does not reach is a mismatch" {

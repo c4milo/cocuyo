@@ -22,8 +22,9 @@
 #     It needs no network: a recorder in the container answers the one name asked.
 #
 #   - `spec`: `zig build spec`, the Lean proofs of the lookup's state machine and the replay of
-#     every transition the model reaches against the code (spec/README.md). Lean is a tool the
-#     gate must not require, so the two gates above replay only the committed slice.
+#     every transition the model reaches against the code, and TLC's walks of the engine model
+#     replayed against the engine (spec/README.md). Lean and TLC are tools the gate must not
+#     require, so the two gates above replay only the committed slices.
 #
 #   `engine` and `epoll` are the only jobs that open a socket.
 #
@@ -42,7 +43,8 @@
 # Zig is downloaded from ziglang.org and checked against the SHA-256 the release index published
 # for 0.16.0, c-ares against the SHA-256 of its release asset, and Lean against the SHA-256 GitHub
 # records for its release asset, so all three are pinned. The Lean version must be the one
-# spec/lean/lean-toolchain names, and the job checks that it is. No
+# spec/lean/lean-toolchain names, and the job checks that it is. TLC's jar is pinned by SHA-256 in
+# tools/tla.zig, which fetches it; the Java that runs it is the runner image's 21. No
 # third-party action runs here; `actions/checkout` is GitHub's own.
 name: ci
 
@@ -156,7 +158,7 @@ jobs:
         run: zig build bench-cares "-Dcares=$CARES_PREFIX"
 
   spec:
-    name: Linux, the lookup against its Lean model
+    name: Linux, the Lean and TLA+ models against the code
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -179,6 +181,8 @@ jobs:
           echo "$sha  lean.tar.zst" | sha256sum -c -
           tar --zstd -xf lean.tar.zst
           echo "$PWD/lean-${LEAN_VERSION}-linux/bin" >> "$GITHUB_PATH"
-      - run: zig version && lean --version
-      - name: The proofs, the committed slice, and the whole transcript replayed
+      - name: Use the image's Java 21, for TLC
+        run: echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
+      - run: zig version && lean --version && java -version
+      - name: The proofs, the committed slices, and the whole transcripts replayed
         run: zig build spec
