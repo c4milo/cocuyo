@@ -12,13 +12,28 @@ const Address = @import("address.zig").Address;
 const Endpoint = @import("address.zig").Endpoint;
 const Name = @import("name.zig").Name;
 
-/// What a query to a DNS-over-TLS server needs (docs/design.md §21): the name the server's
-/// certificate must carry, which is the authentication domain name of RFC 8310 §7.1, and the
-/// port, 853 unless client and server agreed on another (RFC 7858 §3.1). The name is a DNS name:
-/// the certificate check reads a DNS-ID and nothing else.
+/// An SPKI pin: the SHA-256 of a DER SubjectPublicKeyInfo (RFC 7858 §4.2).
+pub const Pin = [constants.spki_pin_bytes]u8;
+
+/// What a query to a DNS-over-TLS server needs (docs/design.md §21): how the server is known, by
+/// its name, its SPKI pins, or both, and the port, 853 unless client and server agreed on
+/// another (RFC 7858 §3.1).
 pub const Tls = struct {
-    name: Name,
+    /// The name the server's certificate must carry, the authentication domain name of RFC 8310
+    /// §7.1. It is a DNS name: the certificate check reads a DNS-ID and nothing else. Null with
+    /// pins alone, RFC 8310 §6.3's "SPKI + IP": the server is known by its key.
+    name: ?Name = null,
+    /// The SPKI pin set (RFC 7858 §4.2): the server's raw public key, or a key on its validated
+    /// chain, must hash to one of them. With a name as well, both must pass (RFC 8310 §6.4). The
+    /// slice is the caller's, as `Config.servers` is.
+    pins: []const Pin = &.{},
     port: u16 = constants.port_dns_tls_default,
+
+    /// Whether the server can be authenticated at all: a strict client connects only to a
+    /// server it can authenticate (RFC 8310 §5), by a name, by pins, or by both.
+    pub fn valid(self: *const Tls) bool {
+        return (self.name != null or self.pins.len >= 1) and self.pins.len <= constants.spki_pins_max;
+    }
 };
 
 /// One server: where a query goes over UDP, and the port a TCP connection uses when it differs,
@@ -129,6 +144,9 @@ pub const Config = struct {
         assert(self.udp_payload_bytes <= constants.message_bytes_max);
         assert(self.lookups.len <= constants.lookup_sources_max);
         assert(servers_agree_on_tls(self.servers));
+        for (self.servers) |server| {
+            if (server.tls) |tls| assert(tls.valid());
+        }
     }
 
     /// Whether the servers are DNS-over-TLS servers. Every one is or none is.
@@ -219,6 +237,22 @@ test "servers speak TLS all together or not at all, and TLS sends every query on
     try testing.expect(!plain.uses_tls() and !plain.streams_only());
     const none: Config = .{ .servers = &.{} };
     try testing.expect(!none.uses_tls());
+}
+
+test "a TLS server is known by its name, its pins, or both, and by no more pins than the bound" {
+    const name = try Name.from_text("dns.example.");
+    const pins: [constants.spki_pins_max + 1]Pin = @splat(@splat(0xab));
+    const by_name: Tls = .{ .name = name };
+    const by_pins: Tls = .{ .pins = pins[0..1] };
+    const by_both: Tls = .{ .name = name, .pins = pins[0..constants.spki_pins_max] };
+    try testing.expect(by_name.valid() and by_pins.valid() and by_both.valid());
+    const by_nothing: Tls = .{};
+    const too_many: Tls = .{ .name = name, .pins = &pins };
+    try testing.expect(!by_nothing.valid());
+    try testing.expect(!too_many.valid());
+    const servers = [_]Server{.{ .endpoint = .{ .address = Address.from_v4(.{ 192, 0, 2, 53 }) }, .tls = by_pins }};
+    const config: Config = .{ .servers = &servers };
+    config.assert_valid();
 }
 
 test "primary asks one server, and a configuration may name none" {

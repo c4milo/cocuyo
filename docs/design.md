@@ -2612,8 +2612,8 @@ rulings of that day with the facts that led to them. Each piece lands with its c
 - Strict by default (RFC 8310 §5): a server that does not authenticate fails, and the lookup
   never falls back to cleartext.
 - A configuration names its DoT servers per server, all or none. `Server` gains `tls: ?Tls`,
-  and `Tls` holds the authentication domain name of RFC 8310 §7.1 and the port, 853 unless set
-  (RFC 7858 §3.1). A `Config` with one TLS server has only TLS servers, so failover never
+  and `Tls` holds the authentication domain name of RFC 8310 §7.1, the SPKI pins of RFC 7858
+  §4.2, and the port, 853 unless set (RFC 7858 §3.1). A `Config` with one TLS server has only TLS servers, so failover never
   reaches port 53. A mixed list was the alternative, and it lets a lookup leak to cleartext.
 - The caller hands in what TLS needs and cocuyo does not read. A handshake needs 256 bits of
   fresh randomness, which a `u64` seed cannot give: the engine takes a 32-byte seed from a
@@ -2639,7 +2639,16 @@ rulings of that day with the facts that led to them. Each piece lands with its c
      handshake, and the caller drops the ticket and connects again in full. The caller owns the
      ticket's age, its 7-day cap and its single use.
   3. RFC 8310 §9 makes RFC 7250 raw public keys a MUST, offered only when an SPKI pin is
-     configured. chapulin has none in any build.
+     configured. chapulin has none in any build. Landed in chapulin at `b6f2b11` the same day.
+     A caller gives up to 4 pins, each the SHA-256 of a DER SubjectPublicKeyInfo. With pins
+     alone, and no anchors and no clock, the hello offers a raw public key only. With pins
+     beside anchors it offers a raw key first and X.509 after, and a chain must pass as before
+     with a pin naming a key on its validated path. A ticket's binding covers the pins too.
+- A TLS server is known by its name, by its SPKI pins, or by both, the owner ruled the same day.
+  Pins alone is RFC 8310 §6.3's "SPKI + IP" profile: raw public keys, no certificate authority
+  and no clock. A name alone is its "ADN + IP". With both, both must pass (§6.4). A name was
+  the only alternative, and it leaves the raw-key MUST of §9 unused. RFC 7858 §4.2 asks that a
+  pin be accepted as base64 text too, so `config` reads one (RFC 4648 §4).
 
 ### What a TLS server changes
 
@@ -2735,6 +2744,8 @@ the engine's send and held buffers, per slot.
 | Constant | Value | Why |
 | --- | --- | --- |
 | `padding_block_bytes` | 128 | RFC 8467 §4.1 |
+| `spki_pin_bytes` | 32 | an SPKI pin is a SHA-256 (RFC 7858 §4.2) |
+| `spki_pins_max` | 4 | a primary pin and the backup RFC 7858 §4.2 asks for, each with room to rotate; chapulin's own bound |
 | `opt_option_header_bytes` | 4 | an EDNS(0) option's code and length (RFC 6891 §6.1.2) |
 | `port_dns_tls_default` | 853 | RFC 7858 §3.1 |
 | `query_bytes_max` | 328 to 386 | the largest query, padded to 384, and the stream's prefix |
@@ -2759,6 +2770,9 @@ the engine's send and held buffers, per slot.
 Checks, one for each piece:
 
 - A mixed list trips `assert_valid`, and an all-TLS list passes it.
+- A TLS server with neither a name nor a pin, or with more pins than the bound, is invalid.
+- RFC 7858 Appendix A's two pins read to their bytes, and a pin in any other text is refused:
+  the wrong length, a character outside RFC 4648's alphabet, missing padding, nonzero pad bits.
 - A padded query's length is a multiple of 128 octets, and one over UDP has no Padding option.
 - A TLS configuration never asks for a datagram, which the lookup model's `use_tcp` theorem
   already states.

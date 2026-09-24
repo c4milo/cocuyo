@@ -1075,6 +1075,22 @@ of them opens a slot again while a connect is out. Five mutations, five `CAUGHT`
 | CR4 | closing a slot forgets its connect is in flight | rule 10 | the committed walks, at line 76 | CAUGHT |
 | CR5 | a connect's submission does not mark its slot | rule 10 | the committed walks, at line 10 | CAUGHT |
 
+## SPKI pins
+
+Design §21: a TLS server is known by its name, its SPKI pins, or both, and a pin's base64 text
+is read strictly. Broken against `zig build test-core` and `zig build test-config`. PN3 was `NOT
+CAUGHT`: base64 with its padding decodes to 32 octets only from 44 characters, so the length check
+said what the size check says. It is gone. PN5 shows which of the two carries the weight: without
+it the decoder writes past the pin. Five mutations, four `CAUGHT`, and the fifth's check removed.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| PN1 | a TLS server with neither a name nor a pin is valid | RFC 8310 §5, a strict client authenticates | the name-or-pins test | CAUGHT |
+| PN2 | a TLS server may carry more pins than the bound | `spki_pins_max` | the name-or-pins test | CAUGHT |
+| PN3 | a pin's text of another length is decoded | RFC 7858 §4.2, one length | nothing: **the size check says the same, and the length check is gone** | CAUGHT |
+| PN4 | a pin is read in the URL-safe alphabet | RFC 4648 §4 | the refusal test; the Appendix A test | CAUGHT |
+| PN5 | a text that decodes to another size is read | RFC 7858 §4.2, 32 octets | the refusal test, by a bounds panic | CAUGHT |
+
 ## DoT's configuration and padding
 
 Design §21 steps 2 and 3: servers speak TLS all together or not at all, a TLS server's queries go

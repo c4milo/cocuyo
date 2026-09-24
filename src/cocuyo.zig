@@ -14,6 +14,7 @@ pub const wire = @import("wire");
 pub const resolver = @import("resolver");
 pub const resolv_conf = @import("config");
 pub const hosts = resolv_conf.hosts;
+pub const spki_pin = resolv_conf.spki_pin;
 pub const cache = @import("cache");
 
 // The names a consumer reaches for, flattened. Everything else is behind the module it belongs to.
@@ -26,6 +27,7 @@ pub const Question = core.Question;
 pub const Config = core.Config;
 pub const Server = core.Server;
 pub const Tls = core.Tls;
+pub const Pin = core.Pin;
 pub const Source = core.Source;
 pub const Hosts = core.Hosts;
 /// RFC 6724's destination address ordering over routes the consumer supplies (§19 step 15).

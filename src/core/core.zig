@@ -30,6 +30,7 @@ pub const Question = question.Question;
 pub const Config = @import("config.zig").Config;
 pub const Server = @import("config.zig").Server;
 pub const Tls = @import("config.zig").Tls;
+pub const Pin = @import("config.zig").Pin;
 pub const Source = @import("config.zig").Source;
 
 test {

@@ -309,7 +309,9 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   failing, resumption bound to the name, and RFC 7250 raw public keys. Until then cocuyo lands
   what does not wait. `Server.tls` all or none and query padding landed the same day, with
   `query_bytes_max` grown to 386 by the owner's ruling, and so did the engine's TLS rules (§21)
-  in the model. The engine's TLS code waits on chapulin.
+  in the model. chapulin's three pieces landed the same day (`73a36a8`, `756ad91`, `b6f2b11`),
+  and `Tls` takes SPKI pins beside or instead of the name, by the owner's ruling. Step 5, the
+  engine over chapulin, is next.
 - After those, DoH's DNS half, the same over HTTP/2 and HTTP/3, whose HTTP is colibri's; then DNS
   over QUIC (RFC 9250). The owner put DoH over HTTP/3 and DoQ on the roadmap on 2026-09-23. The p99 of the comparison waits for a quiet machine.
 

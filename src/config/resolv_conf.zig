@@ -24,6 +24,7 @@ const Name = core.Name;
 pub const constants = @import("constants.zig");
 pub const options = @import("resolv_conf_options.zig");
 pub const hosts = @import("hosts.zig");
+pub const spki_pin = @import("spki_pin.zig");
 
 /// The memory a parse fills. The `Config` it returns holds slices into this, so it must outlive
 /// every lookup that reads it. cocuyo allocates nothing.
@@ -369,4 +370,5 @@ test "a malformed search entry is skipped and the rest are kept" {
 
 test {
     _ = hosts;
+    _ = spki_pin;
 }

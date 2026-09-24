@@ -165,6 +165,13 @@ pub const port_dns_default = 53;
 /// (RFC 7858 §3.1).
 pub const port_dns_tls_default = 853;
 
+/// An SPKI pin is the SHA-256 of a DER SubjectPublicKeyInfo (RFC 7858 §4.2).
+pub const spki_pin_bytes = 32;
+
+/// The pins one TLS server may carry: a primary pin and the backup RFC 7858 §4.2 asks to deploy
+/// with it, each with room to rotate. It is also chapulin's own bound (docs/design.md §21).
+pub const spki_pins_max = 4;
+
 /// An IPv4 address, in octets: the "32 bit Internet address" an A record carries
 /// (RFC 1035 §3.4.1).
 pub const address_v4_bytes = 4;

@@ -21,6 +21,7 @@ RFC 9846, TLS 1.3, came the same day for what the engine owes the session it car
 obsoletes RFC 8446, and RFC 5077 with it, which is the resumption RFC 8310 §9 cites. RFC 9250,
 DNS over QUIC, came the same day too, when the owner put DoQ on the roadmap, and RFC 8484, DoH,
 when the owner added DoH over HTTP/3. Both were checked the same way: not obsoleted, not updated.
+RFC 4648 came the same day for the base64 an SPKI pin is written in, checked the same way.
 
 Read these, never a summary and never another implementation's source. Cite the RFC that *states*
 a rule, not one that inherits it, and cite it by section on the line that does the checking
@@ -67,6 +68,7 @@ updates worth knowing about, none of which version one implements:
 | 3403 | Dynamic Delegation Discovery System (DDDS) Part Three | §4.1, the NAPTR record's fields |
 | 3597 | Handling of Unknown DNS Resource Record (RR) Types | §4, which types a receiver decompresses names in, and the raw rdata a caller gets for every other type |
 | 3849 | IPv6 Address Prefix Reserved for Documentation | `2001:db8::/32`, the addresses the fixtures and the tests spell |
+| 4648 | The Base16, Base32, and Base64 Data Encodings | §4 the base64 alphabet a pin is written in, §3.5 the zero pad bits a pin's text must have |
 | 4291 | IP Version 6 Addressing Architecture | §2.2 the text form `address_text` parses, `::` included |
 | 5737 | IPv4 Address Blocks Reserved for Documentation | `192.0.2.0/24`, the addresses the fixtures and the tests spell |
 | 6698 | The DNS-Based Authentication of Named Entities (DANE) TLSA | §2.1, the TLSA record's fields |
