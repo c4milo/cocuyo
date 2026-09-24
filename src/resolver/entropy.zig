@@ -23,9 +23,9 @@ pub const Transaction = struct {
     /// The pattern the qname's letters are cased with, and the pattern the response's question
     /// section must come back with (RFC 5452 §9.2).
     case_seed: u64,
-    /// Which of its lookup's transactions this is, counted from zero: what a DoH answer names,
-    /// since HTTP and not the id pairs it with its request (docs/design.md §22). The lookup
-    /// numbers it, and `lookup_https.zig` shows the count never wraps. It sits in what would
+    /// Which of its lookup's transactions this is, counted from zero: what a DoH or DoQ answer
+    /// names, since HTTP or QUIC and not the id pairs it with its query (§22, §23). The lookup
+    /// numbers it, and `lookup_exchange.zig` shows the count never wraps. It sits in what would
     /// be padding.
     number: u16 = 0,
 };

@@ -119,7 +119,7 @@ theorem useTcp_never_udp (c : Config) (s : State) (e : Event) (h : c.useTcp = tr
     split
     · exact ⟨hadv s, by simp⟩
     · exact ⟨⟨hq, ha⟩, by simp⟩
-  | httpsFailed =>
+  | exchangeFailed =>
     simp only [step]
     split
     · exact ⟨hadv s, by simp⟩
@@ -136,13 +136,14 @@ theorem useTcp_never_udp (c : Config) (s : State) (e : Event) (h : c.useTcp = tr
     · exact ⟨⟨hq, ha⟩, by simp⟩
     · exact ⟨by simp [NoUdp, fail], by simp⟩
 
-/-! ## Over DoH, no stream and no datagram -/
+/-! ## Over DoH or DoQ, no stream and no datagram -/
 
-/-- A state a lookup over DoH can be in: never one that connects, sends or waits on a stream. -/
+/-- A state a lookup over DoH or DoQ can be in: never one that connects, sends or waits on a
+stream. -/
 def NoStream (s : State) : Prop :=
   s.stage ≠ .tcpNeeded ∧ s.stage ≠ .connectingTcp ∧ s.stage ≠ .tcpReady ∧ s.stage ≠ .awaitingTcp
 
-/-- What a lookup over DoH never asks for: a datagram, a connection or a stream's send. -/
+/-- What a lookup over DoH or DoQ never asks for: a datagram, a connection or a stream's send. -/
 def NotPlain (o : Out) : Prop := o ≠ .sendUdp ∧ o ≠ .connectTcp ∧ o ≠ .sendTcp
 
 theorem noStream_of_stage (c : Config) (s : State) (h : c.useTcp = false)
@@ -153,7 +154,7 @@ theorem init_noStream (c : Config) (h : c.useTcp = false) : NoStream (init c) :=
   unfold init NoStream fail
   split <;> simp [fresh, h]
 
-theorem poll_https (c : Config) (s : State) (hh : c.https = true) (inv : NoStream s) :
+theorem poll_exchange (c : Config) (s : State) (hh : c.exchange = true) (inv : NoStream s) :
     NoStream (poll c s).1 ∧ NotPlain (poll c s).2 := by
   obtain ⟨h1, h2, h3, h4⟩ := inv
   unfold poll NoStream NotPlain
@@ -184,9 +185,9 @@ theorem onReply_noStream (c : Config) (s : State) (r : Reply) (h : c.useTcp = fa
     · exact ⟨hadv _, by simp [NotPlain]⟩
   | badcookie => exact ⟨hadv _, by simp [onReply, NotPlain]⟩
 
-/-- Over DoH (docs/design.md §22), a lookup never asks for a datagram, a connection or a stream's
-send, whatever the caller tells it: every query it makes is an HTTP request. -/
-theorem https_never_stream (c : Config) (s : State) (e : Event) (hh : c.https = true)
+/-- Over DoH or DoQ (docs/design.md §22, §23), a lookup never asks for a datagram, a connection
+or a stream's send, whatever the caller tells it: every query it makes is an exchange of its own. -/
+theorem exchange_never_stream (c : Config) (s : State) (e : Event) (hh : c.exchange = true)
     (ht : c.useTcp = false) (inv : NoStream s) :
     NoStream (step c s e).1 ∧ NotPlain (step c s e).2 := by
   have hadv : ∀ t, NoStream (advanceServer c t) :=
@@ -196,12 +197,12 @@ theorem https_never_stream (c : Config) (s : State) (e : Event) (hh : c.https = 
   obtain ⟨h1, h2, h3, h4⟩ := inv
   have keep : NoStream s := ⟨h1, h2, h3, h4⟩
   cases e with
-  | poll => exact poll_https c s hh keep
+  | poll => exact poll_exchange c s hh keep
   | expire =>
     simp only [step]
     split
-    · exact poll_https c _ hh (hadv s)
-    · exact poll_https c s hh keep
+    · exact poll_exchange c _ hh (hadv s)
+    · exact poll_exchange c s hh keep
   | sent => cases hs : s.stage <;> simp_all [step, NoStream, NotPlain]
   | sendFailed =>
     cases hs : s.stage <;> simp only [step, hs] <;>
@@ -212,7 +213,7 @@ theorem https_never_stream (c : Config) (s : State) (e : Event) (hh : c.https = 
     split
     · exact ⟨hadv s, none⟩
     · exact ⟨keep, none⟩
-  | httpsFailed =>
+  | exchangeFailed =>
     simp only [step]
     split
     · exact ⟨hadv s, none⟩
@@ -391,7 +392,7 @@ theorem step_le (c : Config) (s : State) (e : Event) (g : Good c s) :
       split
       · exact lexLt_le _ _ (advanceServer_lt c s h2)
       · exact lexLe_refl _
-    | httpsFailed =>
+    | exchangeFailed =>
       simp only [step]
       split
       · exact lexLt_le _ _ (advanceServer_lt c s h2)
@@ -399,7 +400,7 @@ theorem step_le (c : Config) (s : State) (e : Event) (g : Good c s) :
     | reply r =>
       cases hs : s.stage <;> simp only [step, hs]
       · exact lexLe_refl _
-      · exact onReply_le c s c.https r h2 h4 (fun _ => hs)
+      · exact onReply_le c s c.exchange r h2 h4 (fun _ => hs)
       · exact lexLe_refl _
       · exact lexLe_refl _
       · exact lexLe_refl _
@@ -524,7 +525,7 @@ theorem step_good (c : Config) (s : State) (e : Event) (hc : Sane c) (g : Good c
       split
       · exact advanceServer_good c s hc h2 h4 h3
       · exact gs
-    | httpsFailed =>
+    | exchangeFailed =>
       simp only [step]
       split
       · exact advanceServer_good c s hc h2 h4 h3
@@ -532,7 +533,7 @@ theorem step_good (c : Config) (s : State) (e : Event) (hc : Sane c) (g : Good c
     | reply r =>
       cases hs : s.stage <;> simp only [step, hs]
       · exact gs
-      · exact onReply_good c s c.https r hc h1 h2 h3 h4
+      · exact onReply_good c s c.exchange r hc h1 h2 h3 h4
       · exact gs
       · exact gs
       · exact gs

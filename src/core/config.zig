@@ -43,8 +43,9 @@ pub const Https = struct {
     template: []const u8,
 };
 
-/// How a configuration's servers are spoken to: every one the same way (docs/design.md §22).
-pub const Transport = enum { cleartext, tls, https };
+/// How a configuration's servers are spoken to: every one the same way (docs/design.md §22,
+/// §23).
+pub const Transport = enum { cleartext, tls, https, quic };
 
 /// One server: where a query goes over UDP, and the port a TCP connection uses when it differs,
 /// which c-ares configures apart (docs/design.md §19 step 11). Zero means the same port. A
@@ -57,13 +58,24 @@ pub const Server = struct {
     tls: ?Tls = null,
     /// The HTTPS every query to this server goes over, or null for none (docs/design.md §22).
     https: ?Https = null,
+    /// The QUIC every query to this server goes over, or null for none (docs/design.md §23).
+    /// It is known as a TLS server is (RFC 9250 §5.1), and its port is UDP's.
+    quic: ?Tls = null,
 
-    /// How this server is spoken to: TLS or HTTPS, never both, or in the clear.
+    /// How this server is spoken to: over TLS, HTTPS or QUIC, one of them at most, or in the
+    /// clear.
     pub fn transport(self: *const Server) Transport {
-        assert(self.tls == null or self.https == null);
+        assert(self.kinds() <= 1);
         if (self.tls != null) return .tls;
         if (self.https != null) return .https;
+        if (self.quic != null) return .quic;
         return .cleartext;
+    }
+
+    /// How many encrypted transports the server names: one at most is valid.
+    fn kinds(self: *const Server) u8 {
+        return @as(u8, @intFromBool(self.tls != null)) + @intFromBool(self.https != null) +
+            @intFromBool(self.quic != null);
     }
 
     /// Where a stream to this server connects. A TLS server's is its TLS port, and never its
@@ -164,10 +176,16 @@ pub const Config = struct {
         assert(self.udp_payload_bytes <= constants.message_bytes_max);
         assert(self.lookups.len <= constants.lookup_sources_max);
         assert(servers_agree(self.servers));
-        // Every query on a stream means TCP, and a DoH server takes HTTP (docs/design.md §22).
-        assert(!(self.use_tcp and self.uses_https()));
+        // Every query on a stream means TCP, and a DoH or DoQ server takes each query as an
+        // exchange of its own (docs/design.md §22, §23).
+        assert(!(self.use_tcp and self.exchanges()));
         for (self.servers) |server| {
             if (server.tls) |tls| assert(tls.valid());
+            if (server.quic) |quic| {
+                assert(quic.valid());
+                // "DoQ connections MUST NOT use UDP port 53" (RFC 9250 §4.1.1).
+                assert(quic.port != constants.port_dns_default);
+            }
         }
     }
 
@@ -185,6 +203,20 @@ pub const Config = struct {
     /// Whether the servers are DNS-over-HTTPS servers (docs/design.md §22).
     pub fn uses_https(self: *const Config) bool {
         return self.transport() == .https;
+    }
+
+    /// Whether the servers are DNS-over-QUIC servers (docs/design.md §23).
+    pub fn uses_quic(self: *const Config) bool {
+        return self.transport() == .quic;
+    }
+
+    /// Whether each query is an exchange of its own, over DoH or DoQ: HTTP or QUIC pairs it with
+    /// its answer, and not its ID (docs/design.md §22, §23).
+    pub fn exchanges(self: *const Config) bool {
+        return switch (self.transport()) {
+            .https, .quic => true,
+            .cleartext, .tls => false,
+        };
     }
 
     /// Whether a query goes encrypted, which is when it is padded (RFC 7830 §6).
@@ -205,14 +237,14 @@ pub const Config = struct {
     }
 };
 
-/// Whether every server is spoken to one way: in the clear, over TLS or over HTTPS. A list that mixed them would let a
-/// lookup fail over from an encrypted server to a cleartext one: under RFC 8310's strict profile
-/// a server that cannot be reached encrypted is a hard failure (§5), and a query never falls back
-/// during its resolution (§5.1). DoH is held to the same (docs/design.md §22). A server that
-/// named both TLS and HTTPS is refused.
+/// Whether every server is spoken to one way: in the clear, or over TLS, HTTPS or QUIC. A list
+/// that mixed them would let a lookup fail over from an encrypted server to a cleartext one:
+/// under RFC 8310's strict profile a server that cannot be reached encrypted is a hard failure
+/// (§5), and a query never falls back during its resolution (§5.1). DoH and DoQ are held to the
+/// same (docs/design.md §22, §23; RFC 9250 §5.1). A server that names two transports is refused.
 pub fn servers_agree(servers: []const Server) bool {
     for (servers) |server| {
-        if (server.tls != null and server.https != null) return false;
+        if (server.kinds() > 1) return false;
         if (server.transport() != servers[0].transport()) return false;
     }
     return true;
@@ -309,6 +341,27 @@ test "servers speak HTTPS all together, never beside TLS or the clear, and never
     const beside_clear = [_]Server{ .{ .endpoint = .{ .address = address } }, .{ .endpoint = .{ .address = address }, .https = https } };
     const both = [_]Server{.{ .endpoint = .{ .address = address }, .tls = tls, .https = https }};
     try testing.expect(!servers_agree(&beside_tls));
+    try testing.expect(!servers_agree(&beside_clear));
+    try testing.expect(!servers_agree(&both));
+}
+
+test "servers speak QUIC all together, known as a TLS server is, and never beside another kind" {
+    const address = Address.from_v4(.{ 192, 0, 2, 53 });
+    const quic: Tls = .{ .name = try Name.from_text("dns.example.") };
+    const over_quic = [_]Server{ .{ .endpoint = .{ .address = address }, .quic = quic }, .{ .endpoint = .{ .address = address }, .quic = quic } };
+    try testing.expect(servers_agree(&over_quic));
+    const config: Config = .{ .servers = &over_quic };
+    config.assert_valid();
+    try testing.expect(config.uses_quic() and config.exchanges() and config.encrypted());
+    try testing.expect(!config.uses_https() and !config.uses_tls() and !config.streams_only());
+    // Port 853 unless agreed otherwise (RFC 9250 §4.1.1), and no server known by nothing.
+    try testing.expectEqual(constants.port_dns_tls_default, quic.port);
+    try testing.expect(!(Tls{}).valid());
+    const https: Https = .{ .template = "https://dns.example/dns-query{?dns}" };
+    const beside_https = [_]Server{ .{ .endpoint = .{ .address = address }, .quic = quic }, .{ .endpoint = .{ .address = address }, .https = https } };
+    const beside_clear = [_]Server{ .{ .endpoint = .{ .address = address }, .quic = quic }, .{ .endpoint = .{ .address = address } } };
+    const both = [_]Server{.{ .endpoint = .{ .address = address }, .tls = quic, .quic = quic }};
+    try testing.expect(!servers_agree(&beside_https));
     try testing.expect(!servers_agree(&beside_clear));
     try testing.expect(!servers_agree(&both));
 }

@@ -76,10 +76,9 @@ Each of these is out of scope on purpose, with the place it would attach.
   version it recommends (§5.2), so HTTP/3 carries DoH as it is: the HTTP stays colibri's, and
   cocuyo's DNS half is the same for both. §21 is DoT's plan and the rulings that shape it, and
   §22 is DoH's DNS half.
-- **DNS over QUIC, on the roadmap since 2026-09-23.** The owner put DoQ (RFC 9250) after DoT
-  and DoH's DNS half. RFC 9250 already settles two things. DoQ authenticates as DoT does
-  (§5.1), so §21's strict profile carries over. It runs on UDP port 853 with the ALPN token
-  `doq` (§4.1). Its home and its plan come in the section that lands it.
+- **DNS over QUIC, since 2026-09-23.** The owner put DoQ (RFC 9250) after DoT and DoH's DNS
+  half, and split it as DoH is: cocuyo supplies the DNS half, and colibri's driver carries it
+  over QUIC. §23 is its plan and the rulings that shape it.
 - **No mDNS and no zone transfers.** Out: neither is a stub resolver's.
 - **Record types beyond `A`, `AAAA`, `PTR` and `CNAME`; `/etc/hosts`; A-plus-AAAA in one call;
   TCP reuse and pipelining; DNS cookies; server failover.** Out of version one, and in since
@@ -241,10 +240,10 @@ pub const Lookup = struct {
     pub fn on_response(self: *Lookup, message: []const u8, from: Endpoint, now_ns: u64) Verdict;
     pub fn on_tcp_connected(self: *Lookup, now_ns: u64) void;
     pub fn on_tcp_failed(self: *Lookup, now_ns: u64) void;
-    /// Over DoH (§22): the response's body to the transaction `send_https` named, and its `Age`;
-    /// or the exchange ended without one.
-    pub fn on_https_answer(self: *Lookup, transaction: u16, message: []const u8, age_seconds: u32, now_ns: u64) Verdict;
-    pub fn on_https_failed(self: *Lookup, transaction: u16, now_ns: u64) void;
+    /// Over DoH or DoQ (§22, §23): the answer to the transaction `send_exchange` named, and its
+    /// `Age` over DoH; or the exchange ended without one.
+    pub fn on_exchange_answer(self: *Lookup, transaction: u16, message: []const u8, age_seconds: u32, now_ns: u64) Verdict;
+    pub fn on_exchange_failed(self: *Lookup, transaction: u16, now_ns: u64) void;
     pub fn cancel(self: *Lookup) void;
 };
 
@@ -252,9 +251,10 @@ pub const Action = union(enum) {
     send_udp: struct { server: Endpoint, local_port_hint: u16, message_bytes: []const u8 },
     connect_tcp: Endpoint,
     send_tcp: struct { message_bytes: []const u8 }, // length prefix included
-    // One HTTP request to `config.servers[server_index]` (§22); a GET carries the bytes'
-    // `wire.doh.dns_variable`, and the answer names `transaction`.
-    send_https: struct { server_index: u8, message_bytes: []const u8, transaction: u16 },
+    // One exchange with `config.servers[server_index]`: an HTTP request over DoH (§22), whose GET
+    // carries the bytes' `wire.doh.dns_variable`, or a QUIC stream over DoQ (§23), whose bytes
+    // carry the length prefix. The answer names `transaction`.
+    send_exchange: struct { server_index: u8, message_bytes: []const u8, transaction: u16 },
     wait: u64,                                      // absolute deadline, monotonic nanoseconds
     done: Answer,
     failed: Failure,
@@ -327,9 +327,9 @@ pub const Resolver = struct {
     pub fn on_send_failed(self: *Resolver, handle: Handle, now_ns: u64) void;
     pub fn on_tcp_connected(self: *Resolver, handle: Handle, now_ns: u64) void;
     pub fn on_tcp_failed(self: *Resolver, handle: Handle, now_ns: u64) void;
-    // Over DoH (§22) an answer comes by handle: HTTP paired it with its request.
-    pub fn on_https_answer(self: *Resolver, handle: Handle, transaction: u16, message: []const u8, age_seconds: u32, now_ns: u64) Verdict;
-    pub fn on_https_failed(self: *Resolver, handle: Handle, transaction: u16, now_ns: u64) void;
+    // Over DoH or DoQ (§22, §23) an answer comes by handle: HTTP or QUIC paired it with its query.
+    pub fn on_exchange_answer(self: *Resolver, handle: Handle, transaction: u16, message: []const u8, age_seconds: u32, now_ns: u64) Verdict;
+    pub fn on_exchange_failed(self: *Resolver, handle: Handle, transaction: u16, now_ns: u64) void;
 
     pub fn cancel(self: *Resolver, handle: Handle) void;
     /// Frees the slot. Every slice an answer handed out points into it and dies here.
@@ -466,14 +466,14 @@ Eight states: `query_ready`, `awaiting_udp`, `tcp_needed`, `connecting_tcp`, `tc
 | `awaiting_tcp` | `on_response` BADCOOKIE | `query_ready` or `failed` | advance the server, as SERVFAIL does |
 | `done`, `failed` | any | unchanged | `poll` returns the same value; `on_response` is `ignored` |
 
-Over DoH (§22) the lookup keeps the UDP states, and three rows change. `poll` in `query_ready`
-returns `send_https`. An answer comes through `on_https_answer`, and only for the transaction the
-lookup waits on; it is read as one over TCP is, so TC=1 means nothing and BADCOOKIE advances the
-server. And one row is added:
+Over DoH or DoQ (§22, §23) the lookup keeps the UDP states, and three rows change. `poll` in
+`query_ready` returns `send_exchange`. An answer comes through `on_exchange_answer`, and only for
+the transaction the lookup waits on; it is read as one over TCP is, so TC=1 means nothing and
+BADCOOKIE advances the server. And one row is added:
 
 | State | Event | Next state | Effect |
 | --- | --- | --- | --- |
-| `awaiting_udp` | `on_https_failed` for the current transaction | `query_ready` or `failed` | advance the server |
+| `awaiting_udp` | `on_exchange_failed` for the current transaction | `query_ready` or `failed` | advance the server |
 
 After `send_tcp` the caller reads two bytes, calls `wire.message_len(prefix)`, reads that many
 bytes and passes them to `on_response`. There is no `read` action: the `wait` deadline already
@@ -559,12 +559,12 @@ and it stops at NODATA.
 
 spec/ holds a model of this section in Lean 4, written from the table and the RFCs rather than from
 the code, and proofs of what the table promises: an ended lookup stays ended, a lookup under
-`use_tcp` never asks for a datagram, a lookup over DoH never asks for a datagram or a stream
-(§22), its counters stay inside the configuration, and every send lowers a measure in a
+`use_tcp` never asks for a datagram, a lookup over DoH or DoQ never asks for a datagram or a
+stream (§22, §23), its counters stay inside the configuration, and every send lowers a measure in a
 well-founded order, so no sequence of answers makes a lookup retry forever. `zig build spec`
-builds the proofs, then walks every state the model reaches under 82 configurations and replays
-each of the 2.0 million transitions against `Lookup`, comparing the answer and the whole state
-after every event. `zig build test` replays a committed slice of 3,302 of them without Lean.
+builds the proofs, then walks every state the model reaches under 109 configurations and replays
+each of the 2.2 million transitions against `Lookup`, comparing the answer and the whole state
+after every event. `zig build test` replays a committed slice of 3,694 of them without Lean.
 spec/README.md says what the model abstracts and why.
 
 Building the model and the replay found two defects in the code, fixed on 2026-09-23. A chain
@@ -2895,11 +2895,12 @@ and it records the owner's rulings of 2026-09-24. Each piece lands with its chec
 
 ### What an HTTPS server changes
 
-- **The lookup.** A lookup over DoH moves as one over UDP does: one request for each attempt,
-  one answer, and a deadline that moves it on. Its poll asks for `send_https`, which carries the
-  message, the server, and the transaction the answer must name: the transaction's number
-  within the lookup, which sits in padding `Transaction` already had, so a lookup is no larger.
-  The driver says when the request went out, as it says a datagram did.
+- **The lookup.** A lookup over DoH moves as one over UDP does: one request for each
+  transaction, one answer, and a deadline that moves it on. Its poll asks for `send_https`
+  (`send_exchange` since §23), which carries the message, the server, and the transaction the
+  answer must name: the transaction's number within the lookup, which sits in padding
+  `Transaction` already had, so a lookup is no larger. The driver says when the request went
+  out, as it says a datagram did.
 - **The answer.** HTTP correlates a request and its response (RFC 8484 §4.1), so an answer comes
   back by the lookup's handle and the transaction it answers, and not through the key table. An
   answer for a transaction the lookup has left is dropped, and so is any datagram. Of §7's
@@ -2935,8 +2936,8 @@ and it records the owner's rulings of 2026-09-24. Each piece lands with its chec
    never asks for a datagram or a stream, and 27 DoH configurations among the 82 walked.
 3. `wire`: the `dns` variable, base64url without padding (RFC 4648 §5, RFC 8484 §6). Done
    2026-09-24, as `wire.doh.dns_variable`.
-4. `resolver`: `send_https`, `on_https_answer` and `on_https_failed`, the query's shape, and the
-   `Age`. Done 2026-09-24. The replay of every DoH transition the model reaches agrees with the
+4. `resolver`: `send_https`, `on_https_answer` and `on_https_failed` (renamed for DoQ in §23),
+   the query's shape, and the `Age`. Done 2026-09-24. The replay of every DoH transition the model reaches agrees with the
    lookup, and docs/mutations.md DH1 to DH21 and DM1 to DM3 record the checks broken.
 
 Checks, one for each piece:
@@ -2952,3 +2953,71 @@ Checks, one for each piece:
 - An `Age` of 250 turns a TTL of 600 into 350, and an `Age` past the TTL into 0.
 - An HTTP failure moves the lookup to the next server and counts one failure.
 - The lookup model's theorems hold with HTTPS in, and the replay agrees.
+
+## 23. DNS over QUIC, the DNS half
+
+§1 brought DoQ (RFC 9250) in on 2026-09-23. For a stub, DoQ has DoH's shape with QUIC where
+HTTP was: each query goes on a QUIC stream of its own, and its response comes back on the same
+stream (RFC 9250 §4.2). So QUIC pairs a query with its answer, as HTTP does, and the ID is not
+needed. This section is the DNS half's plan, and it records the owner's rulings of 2026-09-24.
+
+### The owner's rulings of 2026-09-24
+
+- QUIC is colibri's driver's, over rotor, as DoH's HTTP is (§22). cocuyo supplies the DNS half,
+  and its engine (§19 step 13) does not speak DoQ. The alternative was a QUIC seam in the
+  engine, as chapulin's TLS has one. It is much larger, and the engine is not exported.
+- DoH and DoQ share one action. A lookup over either asks for one exchange for each
+  transaction and takes the answer by the transaction's number. So `send_https`,
+  `on_https_answer` and `on_https_failed` became `send_exchange`, `on_exchange_answer` and
+  `on_exchange_failed` before either was released. The alternative was one action for each
+  transport: two paths that differ in nothing the lookup reads.
+- A DoQ server is named as a DoT server is: `Server.quic: ?Tls`. It has a name, SPKI pins or
+  both, and port 853, which is UDP here (RFC 9250 §4.1.1). DoQ authenticates as DoT does, and
+  a stub should use the strict profile (RFC 9250 §5.1). A `Config`'s servers are still all one
+  kind: cleartext, TLS, HTTPS or QUIC.
+- A query over DoQ has DoH's shape: ID 0, which RFC 9250 §4.2.1 makes a MUST, no 0x20, no
+  cookie, and padded to 128 octets (§5.4). QUIC's encryption, and its address validation
+  (§5.3), cover what 0x20 and cookies defend against. The alternative kept 0x20 and cookies as
+  DoT does.
+
+### What a QUIC server changes
+
+- **The lookup.** It moves as over DoH (§22): one exchange for each transaction, one answer,
+  and a deadline that moves it on. Its message carries the two-octet length prefix every DoQ
+  message has (RFC 9250 §4.2). The driver writes it on a new client-initiated stream and ends
+  the stream with FIN. It hands back the response's message, without the prefix, with an `Age`
+  of zero.
+- **The answer.** An answer for a transaction the lookup has left is dropped, as over DoH. The
+  driver cancels that stream with STOP_SENDING (§4.3.1): that is QUIC's, and the driver's.
+- **A failure.** A stream the server resets (§4.3.2), a connection that fails (§4.4) and a
+  handshake that fails each end the exchange without an answer. The driver says so, and the
+  lookup moves to the next server, counting a failure against this one.
+- **0-RTT.** Only a QUERY or a NOTIFY may go in 0-RTT data (§4.5), and every message cocuyo
+  builds is a QUERY. So the driver may use 0-RTT; the privacy trade-off of §7.1 is its own.
+- **No fallback.** RFC 9250 §5.2 lets a client fall back to DoT, then to cleartext, by its usage
+  profile. A strict profile does not fall back, and the servers are all one kind (§21).
+- **No keepalive.** A DoQ message must not carry edns-tcp-keepalive (§5.5.2). cocuyo sends it
+  on no transport.
+- **The engine.** It asserts that its configuration has no QUIC server, as it does for HTTPS.
+
+### Order and checks
+
+1. `core`: `Server.quic` and `Transport.quic`. `assert_valid` refuses a list of more than one
+   kind, a QUIC server it cannot authenticate, a QUIC server on port 53 (RFC 9250 §4.1.1), and
+   `use_tcp` beside QUIC. Done 2026-09-24.
+2. The rename, and the lookup model: its HTTPS transport becomes the exchange transport, and
+   the walk runs every exchange configuration for DoH servers and for DoQ servers. Done
+   2026-09-24: `exchange_never_stream` holds, and 27 DoQ configurations join the 82, for 109.
+3. `resolver`: a DoQ message with its prefix, in DoH's shape. Done 2026-09-24. The replay of
+   all 2.2 million transitions agrees with the lookup, and docs/mutations.md QU1 to QU9 record
+   the checks broken.
+
+Checks, one for each piece:
+
+- A list with a QUIC server and a server of another kind trips `assert_valid`. A list of QUIC
+  servers passes it, and a QUIC server with neither a name nor a pin does not.
+- A query over DoQ has ID 0, its length prefix, the name as given and no cookie, and its message
+  is padded to 128 octets.
+- An answer by transaction, an exchange that failed, and a truncated answer read as it stands,
+  over DoQ as over DoH.
+- The lookup model's theorems hold, and the replay agrees over the DoQ configurations.

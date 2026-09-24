@@ -1,5 +1,5 @@
-//! The server the replay answers with: one message per reply the model names (spec/Spec/Lookup.lean,
-//! `Reply`), built around the question the lookup is asking now.
+//! The servers the replay asks and the replies they answer with: one message per reply the model
+//! names (spec/Spec/Lookup.lean, `Reply`), built around the question the lookup is asking now.
 //!
 //! A reply must echo the name as it went out, case included, and carry the transaction's id, so a
 //! message cannot be written until the lookup has drawn both (docs/design.md §7). Each builder
@@ -13,10 +13,33 @@ const core = @import("core");
 const wire = @import("wire");
 const Lookup = @import("resolver").Lookup;
 
+/// The servers a configuration takes the first of: documentation addresses from RFC 5737.
+pub const servers = [_]core.Server{
+    .{ .endpoint = .{ .address = core.Address.from_v4(.{ 192, 0, 2, 53 }) } },
+    .{ .endpoint = .{ .address = core.Address.from_v4(.{ 192, 0, 2, 54 }) } },
+    .{ .endpoint = .{ .address = core.Address.from_v4(.{ 192, 0, 2, 55 }) } },
+};
+
+/// The same servers over DoH (docs/design.md §22).
+const https: core.Https = .{ .template = "https://dns.example/dns-query{?dns}" };
+pub const servers_https = [_]core.Server{
+    .{ .endpoint = servers[0].endpoint, .https = https },
+    .{ .endpoint = servers[1].endpoint, .https = https },
+    .{ .endpoint = servers[2].endpoint, .https = https },
+};
+
+/// The same servers over DoQ (docs/design.md §23), known by a name as a DoT server is.
+const quic: core.Tls = .{ .name = core.Name.from_text("dns.example.") catch unreachable };
+pub const servers_quic = [_]core.Server{
+    .{ .endpoint = servers[0].endpoint, .quic = quic },
+    .{ .endpoint = servers[1].endpoint, .quic = quic },
+    .{ .endpoint = servers[2].endpoint, .quic = quic },
+};
+
 /// What a reply is, once §7's checks and §5's rcode policy have read it: the model's `Reply`.
 pub const Reply = enum {
-    /// The right server and question with an id one off: it fails check 2 of §7. Over DoH, where
-    /// the id is not checked, the replay hands it over as the answer to another transaction.
+    /// The right server and question with an id one off: it fails check 2 of §7. Over DoH or
+    /// DoQ, where the id is not checked, the replay hands it over as another transaction's answer.
     unmatched,
     answer,
     cname,

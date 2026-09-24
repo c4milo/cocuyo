@@ -182,10 +182,10 @@ pub const Resolver = struct {
         self.event(handle, now_ns, Lookup.on_tcp_failed);
     }
 
-    /// Hands the body of a DoH response to the lookup whose request it answers, with the
-    /// transaction `send_https` named and the response's `Age` (docs/design.md §22). HTTP paired
-    /// it with its request, so it comes by handle and not through the key table.
-    pub fn on_https_answer(
+    /// Hands the answer to an exchange over DoH or DoQ to the lookup whose query it answers, with
+    /// the transaction `send_exchange` named and the `Age` (docs/design.md §22, §23). HTTP or
+    /// QUIC paired it with its query, so it comes by handle and not through the key table.
+    pub fn on_exchange_answer(
         self: *Resolver,
         handle: Handle,
         transaction: u16,
@@ -193,14 +193,14 @@ pub const Resolver = struct {
         age_seconds: u32,
         now_ns: u64,
     ) Verdict {
-        const verdict = self.slot_of(handle).lookup.on_https_answer(transaction, message, age_seconds, now_ns);
+        const verdict = self.slot_of(handle).lookup.on_exchange_answer(transaction, message, age_seconds, now_ns);
         if (verdict == .accepted) self.follow(handle.index);
         return verdict;
     }
 
-    /// The exchange of a DoH request ended without an answer (docs/design.md §22).
-    pub fn on_https_failed(self: *Resolver, handle: Handle, transaction: u16, now_ns: u64) void {
-        self.slot_of(handle).lookup.on_https_failed(transaction, now_ns);
+    /// The exchange of a query over DoH or DoQ ended without an answer (docs/design.md §22, §23).
+    pub fn on_exchange_failed(self: *Resolver, handle: Handle, transaction: u16, now_ns: u64) void {
+        self.slot_of(handle).lookup.on_exchange_failed(transaction, now_ns);
         self.follow(handle.index);
     }
 

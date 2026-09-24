@@ -1,9 +1,10 @@
-//! DNS over HTTPS, the lookup's half (docs/design.md §22): the answer to a request, and the
-//! exchange that ended without one. The request is `poll`'s `send_https` (`lookup_poll.zig`).
+//! A query that is an exchange of its own, over DoH or DoQ, the lookup's half (docs/design.md §22,
+//! §23): the answer to an exchange, and the exchange that ended without one. The exchange is
+//! `poll`'s `send_exchange` (`lookup_poll.zig`).
 //!
-//! HTTP pairs a response with its request (RFC 8484 §4.1), so of §7's checks the id and the
-//! source are HTTP's, and an answer names the transaction it answers instead. The rest of §7
-//! stands: the question must be the one asked.
+//! HTTP pairs a response with its request (RFC 8484 §4.1), and QUIC with the stream its query went
+//! on (RFC 9250 §4.2). So of §7's checks the id and the source are theirs, and an answer names the
+//! transaction it answers instead. The rest of §7 stands: the question must be the one asked.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -22,9 +23,10 @@ comptime {
     assert(most <= std.math.maxInt(u16));
 }
 
-/// The body of a DoH response to `transaction`, and its `Age`. An answer to a transaction the
-/// lookup has left is ignored: HTTP delivers late what a datagram would have lost.
-pub fn on_https_answer(
+/// The answer to `transaction`: a DoH response's body and its `Age`, or a DoQ stream's message
+/// without its length prefix and an `Age` of zero. An answer to a transaction the lookup has left
+/// is ignored: HTTP and QUIC deliver late what a datagram would have lost.
+pub fn on_exchange_answer(
     self: *Lookup,
     transaction: u16,
     message: []const u8,
@@ -32,7 +34,7 @@ pub fn on_https_answer(
     now_ns: u64,
 ) Verdict {
     self.see(now_ns);
-    assert(self.config.uses_https());
+    assert(self.config.exchanges());
     if (!waits_on(self, transaction)) return .ignored;
     const header = response_module.header_of(message) orelse return .ignored;
     const cased = self.cased_name();
@@ -41,12 +43,13 @@ pub fn on_https_answer(
     return response_module.apply(self, message, accepted, &cased, now_ns);
 }
 
-/// The exchange of `transaction` ended without an answer: a status that is not 2xx carries none
-/// (RFC 8484 §4.2.1), and the driver has retried what HTTP retries. The server failed this
-/// transaction, as a connection that failed does, and the lookup moves to the next one.
-pub fn on_https_failed(self: *Lookup, transaction: u16, now_ns: u64) void {
+/// The exchange of `transaction` ended without an answer: an HTTP status that is not 2xx carries
+/// none (RFC 8484 §4.2.1), once the driver has retried what HTTP retries, and neither does a
+/// stream the server reset (RFC 9250 §4.3.2) or a connection that failed (§4.4). The server
+/// failed this transaction, as a connection that failed does, and the lookup moves on.
+pub fn on_exchange_failed(self: *Lookup, transaction: u16, now_ns: u64) void {
     self.see(now_ns);
-    assert(self.config.uses_https());
+    assert(self.config.exchanges());
     if (!waits_on(self, transaction)) return;
     self.servers.record_failure(self.server_slot(), now_ns);
     self.next_server(now_ns);

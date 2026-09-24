@@ -24,8 +24,8 @@ would agree with the code by construction and prove nothing about it.
   - `cancel_after_end` and `cancel_before_end`: a cancel leaves an end standing, and ends
     anything else as cancelled.
   - `useTcp_never_udp`: under `use_tcp`, no event leads to a datagram.
-  - `https_never_stream`: over DoH (design §22), no event leads to a datagram, a connection or a
-    stream, and a reply is read as one over a stream is.
+  - `exchange_never_stream`: over DoH or DoQ (design §22, §23), no event leads to a datagram, a
+    connection or a stream, and a reply is read as one over a stream is.
   - `step_good` and `init_good`: the server, pass, candidate and hop counters stay inside the
     configuration.
   - `step_le`, `sent_lt` and `lexLt_wf`: no event raises a measure, every send lowers it, and its
@@ -54,18 +54,19 @@ would agree with the code by construction and prove nothing about it.
 - Entropy, the cookies' values and the answers' records.
 - What a poll handed out and the caller has not answered yet. The model keeps it to know when
   `on_sent` may come, and the replay does not compare it, because the lookup does not keep it.
-- A DoH transaction's number. The model delivers an answer or an HTTP failure to the current
-  transaction, and an unmatched reply is one for another. That a late answer names a number the
+- A DoH or DoQ transaction's number. The model delivers an answer or a failed exchange to the
+  current transaction, and an unmatched reply is one for another. DoH and DoQ move alike, so the
+  model's `quic` names which servers the replay asks and no transition reads it. That a late answer names a number the
   lookup has left is the unit tests' to show (docs/mutations.md DH8, DH9, DH21).
 
 ## The replay
 
-`cocuyo-spec all 8` walks every state the model reaches from `init` under 82 configurations:
+`cocuyo-spec all 8` walks every state the model reaches from `init` under 109 configurations:
 none, one, two or three servers, one to three passes and one to three names, over UDP, under
-`use_tcp`, or over DoH. It tries every enabled event in every state and writes one line per
-transition, with the model's answer and its whole state after it. A state reached a second time
-is written but not walked again, so each transition appears once, 2,004,806 of them in all, 168
-deep at most.
+`use_tcp`, over DoH, or over DoQ. It tries every enabled event in every state and writes one line
+per transition, with the model's answer and its whole state after it. A state reached a second
+time is written but not walked again, so each transition appears once, 2,237,654 of them in all,
+168 deep at most.
 
 `tools/spec_replay/replay.zig` drives `Lookup` down the same tree. It builds each reply around the
 question the lookup is asking, and it compares the answer and the state after every event: the
@@ -170,8 +171,8 @@ compares the walk's whole state after each.
 
 ## Running it
 
-- `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 3,302
-  transitions: one server, one pass and one name, over UDP, over TCP and over DoH. It also replays
+- `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 3,694
+  transitions: one server, one pass and one name, over UDP, over TCP, over DoH and over DoQ. It also replays
   `tools/spec_replay/engine_gate.txt`, ten engine walks of forty events in each of the eight
   engine configurations, and three walks of the full run that `engineGatePicks` in `Main.lean`
   names: each is where the full run caught a mutation of the engine that the short walks miss

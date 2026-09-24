@@ -144,7 +144,8 @@ The architecture depends on every rule in this section.
   platform resolver configuration of §14. DoT and DoH were decided in on 2026-09-23: DoT in the
   engine, over rotor with chapulin's non-blocking record transport, strict by default (RFC 8310);
   DoH's DNS half in cocuyo and its HTTP/2 and HTTP/3 in colibri's driver, which cocuyo may never
-  depend on. DNS over QUIC (RFC 9250) joined the roadmap the same day. The cache (§18) and the gap with c-ares (§19:
+  depend on. DNS over QUIC (RFC 9250) joined the same day, split the same way by the owner's
+  ruling of 2026-09-24: its DNS half in cocuyo, its QUIC in colibri's driver. The cache (§18) and the gap with c-ares (§19:
   every record type, cookies, the hosts file, failover, the engine over rotor) were decided in on
   2026-09-22; what §19 lists as out stays out.
 

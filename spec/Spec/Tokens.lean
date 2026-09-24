@@ -17,7 +17,7 @@ def replyToken : Reply → String
 def eventToken : Event → String
   | .poll => "poll" | .expire => "expire" | .sent => "sent" | .sendFailed => "send_failed"
   | .tcpConnected => "tcp_connected" | .tcpFailed => "tcp_failed" | .cancel => "cancel"
-  | .httpsFailed => "https_failed" | .reply r => "reply_" ++ replyToken r
+  | .exchangeFailed => "exchange_failed" | .reply r => "reply_" ++ replyToken r
 
 def errToken : Err → String
   | .nameNotFound => "name_not_found" | .noData => "no_data" | .timeout => "timeout"
@@ -26,13 +26,17 @@ def errToken : Err → String
 
 def outToken : Out → String
   | .sendUdp => "send_udp" | .connectTcp => "connect_tcp" | .sendTcp => "send_tcp"
-  | .sendHttps => "send_https" | .wait => "wait" | .done => "done" | .failed e => "failed_" ++ errToken e
+  | .sendExchange => "send_exchange" | .wait => "wait" | .done => "done" | .failed e => "failed_" ++ errToken e
   | .accepted => "accepted" | .ignored => "ignored" | .none => "none"
 
 def stageToken : Stage → String
   | .queryReady => "query_ready" | .awaitingUdp => "awaiting_udp" | .tcpNeeded => "tcp_needed"
   | .connectingTcp => "connecting_tcp" | .tcpReady => "tcp_ready"
   | .awaitingTcp => "awaiting_tcp" | .done => "done" | .failed => "failed"
+
+/-- How a configuration's queries go, as the transcript's `config` line names it. -/
+def transportToken (c : Config) : String :=
+  if c.useTcp then "tcp" else if !c.exchange then "udp" else if c.quic then "quic" else "https"
 
 def flag (b : Bool) (c : Char) : String := if b then c.toString else "-"
 

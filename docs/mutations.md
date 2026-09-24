@@ -1155,6 +1155,27 @@ test-core`, `test-wire` and `test-resolver`. Seven mutations, seven `CAUGHT`.
 | DT6 | a TLS server's stream goes to its cleartext port | RFC 8310 §5.1 | the all-or-none test; the TLS lookup test | CAUGHT |
 | DT7 | the padding octets are left as the buffer held them | RFC 7830 §3, zero octets | the padded-query test | CAUGHT |
 
+## DoQ's DNS half
+
+Design §23: servers speak QUIC all together, and a query over DoQ is an exchange of its own in
+DoH's shape, with the length prefix RFC 9250 §4.2 gives every DoQ message. DoH's
+`send_https`, `on_https_answer` and `on_https_failed` became `send_exchange`,
+`on_exchange_answer` and `on_exchange_failed` by the owner's ruling, so DH1 to DH21 name the
+checks by their first names. Broken against `zig build test-core` and `test-resolver`. Nine
+mutations, nine `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| QU1 | a server naming TLS and QUIC agrees with itself | §23, one kind a server | the QUIC config test | CAUGHT |
+| QU2 | a QUIC configuration is not one of exchanges | §23 | the query-shape test | CAUGHT |
+| QU3 | a DoQ message goes without its length prefix | RFC 9250 §4.2 | the query-shape test | CAUGHT |
+| QU4 | a DoQ query carries the transaction id | RFC 9250 §4.2.1, ID 0 | the query-shape test | CAUGHT |
+| QU5 | a DoQ query mixes the name's case | §23, DoH's shape | the query-shape test | CAUGHT |
+| QU6 | a DoQ query carries the server's cookie | §23, DoH's shape | the query-shape test | CAUGHT |
+| QU7 | TC=1 over DoQ sends the lookup to TCP | §23, read as a stream | the stream-reading test, by an assertion | CAUGHT |
+| QU8 | a datagram answers a lookup over DoQ | §23, no datagram | the datagram test | CAUGHT |
+| QU9 | a lookup over DoQ asks for a datagram | §23, `send_exchange` | the query-shape test | CAUGHT |
+
 ## An answer's TTL
 
 Issues #1 and #2, fixed on 2026-09-24. A record with a TTL of zero kept the answer's TTL at zero

@@ -37,7 +37,8 @@ pub const Accepted = struct {
     cookie: ?wire.CookieView,
     /// The rcode's eight high bits, from the OPT record's TTL (RFC 6891 §6.1.3).
     extended_rcode_high: u8,
-    /// How long an HTTP cache held a DoH answer, which every TTL loses (RFC 8484 §5.1).
+    /// How long an HTTP cache held a DoH answer, which every TTL loses (RFC 8484 §5.1); zero
+    /// over every other transport.
     age_seconds: u32 = 0,
 };
 
@@ -50,8 +51,9 @@ fn accepted_header(
     cased: *const core.Name,
 ) ?Accepted {
     if (self.state != .awaiting_udp and self.state != .awaiting_tcp) return null;
-    // Over DoH an answer comes by its transaction, and never as a datagram (docs/design.md §22).
-    if (self.config.uses_https()) return null;
+    // Over DoH or DoQ an answer comes by its transaction, and never as a datagram
+    // (docs/design.md §22, §23).
+    if (self.config.exchanges()) return null;
     const header = header_of(message) orelse return null;
     // 2. The transaction id: sixteen bits, and the most selective check there is.
     if (header.id != self.transaction.id) return null;
@@ -68,7 +70,7 @@ pub fn header_of(message: []const u8) ?wire.Header {
     return wire.header.parse(message) catch null;
 }
 
-/// Checks 4 to 6 of §7, which an answer over DoH passes as well (docs/design.md §22).
+/// Checks 4 to 6 of §7, which an answer over DoH or DoQ passes as well (docs/design.md §22, §23).
 pub fn accepted_shape(
     self: *const Lookup,
     message: []const u8,
@@ -183,10 +185,10 @@ fn on_bad_cookie(self: *Lookup, now_ns: u64) void {
     assert(self.state != .awaiting_udp);
 }
 
-/// Whether the answer is read as one over a stream: it came over TCP, or over DoH, where there is
-/// nowhere else to ask (docs/design.md §22).
+/// Whether the answer is read as one over a stream: it came over TCP, or over DoH or DoQ, where
+/// there is nowhere else to ask (docs/design.md §22, §23).
 fn over_stream(self: *const Lookup) bool {
-    return self.state == .awaiting_tcp or self.config.uses_https();
+    return self.state == .awaiting_tcp or self.config.exchanges();
 }
 
 /// The negative TTL a message carries, or zero, less its `Age` over DoH (RFC 8484 §5.1) and
