@@ -2627,6 +2627,11 @@ rulings of that day with the facts that led to them. Each piece lands with its c
      alone between calls. A `recv` that returns 0 inside a record kills the session.
   2. RFC 8310 §9 makes session resumption a MUST. chapulin's webpki build refuses it, because
      nothing binds a ticket to the name it was issued for. The ticket gets bound to the name.
+     Landed in chapulin at `756ad91` the same day. A ticket carries a binding over the hostname
+     and every trust anchor, and a resumption with a binding that does not match refuses to
+     start. A resumed hello offers the ticket alone, so a server that declines it fails the
+     handshake, and the caller drops the ticket and connects again in full. The caller owns the
+     ticket's age, its 7-day cap and its single use.
   3. RFC 8310 §9 makes RFC 7250 raw public keys a MUST, offered only when an SPKI pin is
      configured. chapulin has none in any build.
 
@@ -2678,8 +2683,16 @@ written from before the code is.
    than the buffer fails the connection. The session's `recv` hands over whole records and
    answers 0 only at a record boundary, which chapulin reads as "no record yet"; a 0 inside a
    record would kill the session.
+8. Each server keeps the newest ticket its sessions were given, and the next connection to that
+   server resumes with it. A ticket is used once, since reuse lets an observer link two
+   connections (RFC 9846 §C.4). It is dropped at its lifetime, or 7 days after it came,
+   whichever is sooner (§4.7.1). Its age is the engine's clock since it came, not the wall
+   clock. A resumed handshake that fails drops the ticket, and the connection is opened again
+   with a full handshake before its lookups hear anything: a server that declines a ticket has
+   said nothing yet about its certificate, and the full handshake is what decides.
 
-The model holds rules 1 to 6. Rule 7 is about octets, which the model does not count. Four
+The model holds rules 1 to 6, and rule 8 joins it with step 5. Rule 7 is about octets, which the
+model does not count. Four
 invariants were added for them: a slot a send of records still borrows stays closed; the sealed
 entries lead each queue, so records go out in the order they were sealed; no query waits on a
 connection that is not up; and no event leaves the session owing an answer. The last came from a
