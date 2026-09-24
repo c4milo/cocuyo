@@ -1234,6 +1234,14 @@ SQ4 by `zig build test-io`.
 | CR4 | closing a slot forgets its connect is in flight | walk 4 | an assertion | CAUGHT |
 | CR5 | a connect's submission does not mark its slot | walk 4 | walk 1 | CAUGHT |
 
+The mutations are kept as data since the same day: `tools/engine_mutations.zon` holds each one's
+edits and the check that must catch it, and `zig build engine-mutations` runs them again. It has
+TLC write the full run, breaks the engine each way, and replays the short walks, then, for a
+mutation they miss, the full run and the picked walks. It names the full run's first walk that
+catches each miss, and a replay that panics names its walk too, so the picks are chosen again in
+one run after the model changes. Run over all 47 on the full run above, every one was caught
+where the data says.
+
 The replay's own checks, and the tool's, broken against `zig build test-tools`, and the build's
 comparisons against `zig build spec-engine`. Six mutations, six `CAUGHT`.
 
@@ -1245,6 +1253,19 @@ comparisons against `zig build spec-engine`. Six mutations, six `CAUGHT`.
 | TW1 | a picked walk is numbered from 0 | picks count from 1 | the tool's pick test | CAUGHT |
 | D1 | the committed short walks lose their last line | the short walks are TLC's | `spec-engine`, the comparison | CAUGHT |
 | D2 | the committed picked walks lose their last line | the picked walks are TLC's | `spec-engine`, the comparison | CAUGHT |
+
+`tools/engine_mutations.zig` broken against `zig build test-tools`. EM4 broke a line that could
+never matter, since the tool runs the full run only when the short walks miss, and the line was
+removed. Six mutations, five `CAUGHT`, and the sixth's line removed.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| EM1 | the files are put back first edit first | a file two edits share ends as it began | the put-back test | CAUGHT |
+| EM2 | an edit applies wherever its text occurs | an edit's text occurs once | the put-back test | CAUGHT |
+| EM3 | an edit that cannot apply leaves the edits before it | nothing is left edited | the put-back test | CAUGHT |
+| EM4 | a mutation the short walks catch is picked too | only a miss is picked | nothing: **the line was dead, and is removed** | NOT CAUGHT |
+| EM5 | the replay's walk is not read | a miss names its walk | the walk test | CAUGHT |
+| EM6 | a picked mutation must be caught by the picked walks alone | the short walks may catch it now | the pick test | CAUGHT |
 
 ## A connect's address
 

@@ -1,0 +1,384 @@
+// The engine's mutations: each breaks the engine of io/, or the table under it, one way, and must be
+// caught by the check `caught_by` names (docs/mutations.md, the engine replay on TLC's walks).
+// tools/engine_mutations.zig runs them. An edit replaces `old`, which must occur once, with `new`.
+.{
+    .{
+        .id = "E1",
+        .what = "an event for an opening that is gone is applied",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    if (live and connection.incarnation == incarnation) return at;", .new = "    _ = incarnation;\n    if (live) return at;" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "E2",
+        .what = "a lookup stays on a connection it no longer streams to",
+        .edits = .{
+            .{ .file = "io/io_drive.zig", .old = "    tcp.follow(self, index, now_ns);\n", .new = "" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "E3",
+        .what = "a new lookup forgets its slot's buffer is lent",
+        .edits = .{
+            .{ .file = "io/io.zig", .old = "            self.held[handle.index] = null;\n            self.reported[handle.index] = false;", .new = "            self.held[handle.index] = null;\n            self.send_in_flight[handle.index] = false;\n            self.reported[handle.index] = false;" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .id = "E4",
+        .what = "a send's completion speaks to whatever holds the slot",
+        .edits = .{
+            .{ .file = "io/io_send.zig", .old = "        if (went != null and is_current(self, index, made)) {\n            if (went.?) {\n                self.resolver.on_sent(made.handle, now_ns);\n            } else {\n                self.resolver.on_send_failed(made.handle, now_ns);\n            }\n        }", .new = "        _ = made;\n        const handle = self.handles[index];\n        if (went != null and self.slots[index].occupied and !self.resolver.lookup_of(handle).is_settled()) {\n            if (went.?) {\n                self.resolver.on_sent(handle, now_ns);\n            } else {\n                self.resolver.on_send_failed(handle, now_ns);\n            }\n        }" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .id = "E5",
+        .what = "a held send is dropped",
+        .edits = .{
+            .{ .file = "io/io_send.zig", .old = "    if (!is_current(self, index, held.owner)) return;\n    const bytes", .new = "    if (true) return;\n    const bytes" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .id = "E6",
+        .what = "the drive stops after one poll a slot",
+        .edits = .{
+            .{ .file = "io/io_drive.zig", .old = "    const polls_max = self.slots.len * constants.drive_polls_per_lookup_max;", .new = "    const polls_max = self.slots.len;" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "E7",
+        .what = "the table misses the deadline of a wait a poll starts",
+        .edits = .{
+            .{ .file = "src/resolver/table.zig", .old = "            if (slot.lookup.is_waiting()) ready_module.note_deadline(self, slot.lookup.deadline_ns);\n            if (action == .wait) continue;", .new = "            if (action == .wait) {\n                ready_module.note_deadline(self, action.wait);\n                continue;\n            }" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "E8",
+        .what = "a stale event keeps its buffer",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    if (event.flags.buffer) self.loop.give_back_buffer(constants.tcp_group_id, event.flags.buffer_id);\n    return null;", .new = "    _ = event;\n    return null;" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "ET1",
+        .what = "lookups hear the connection is up before the handshake",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "            receive_again(self, @intCast(at));\n            return tls_module.begin(self, @intCast(at), now_ns);", .new = "            receive_again(self, @intCast(at));\n            tls_module.begin(self, @intCast(at), now_ns);\n            return tell_all(self, @intCast(at), now_ns, true);" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "ET2",
+        .what = "the session's records go to the back of the queue",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "    queue.insert_sealed(.{ .slot = ring.records, .end = end });", .new = "    queue.push(.{ .slot = ring.records, .end = end });" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "ET3",
+        .what = "records made behind a waiting records entry take one of their own",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "    if (queue.sealed > 1 and !queue.at(queue.sealed - 1).is_query()) {", .new = "    if (false and queue.sealed > 1 and !queue.at(queue.sealed - 1).is_query()) {" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "ET4",
+        .what = "a declined ticket fails the connection",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "        if (connection.tls.ticket != null) tcp.retry_full(self, at, now_ns) else tcp.fail(self, at, now_ns);", .new = "        tcp.fail(self, at, now_ns);" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .id = "ET5",
+        .what = "a spent ticket stays kept",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "    self.tls_tickets[server] = null;\n    const age_ns", .new = "    const age_ns" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .id = "ET6",
+        .what = "an idle TLS connection closes without close_notify",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        if (connection.state == .up and tls_module.speaks(self)) {", .new = "        if (false and connection.state == .up and tls_module.speaks(self)) {" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "ET7",
+        .what = "a TLS configuration opens UDP sockets",
+        .edits = .{
+            .{ .file = "io/io_udp.zig", .old = "        self.count = if (config.uses_tls()) 0 else @intCast(config.servers.len);", .new = "        self.count = @intCast(config.servers.len);" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "ET8",
+        .what = "a TLS connection is closed to make room",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    if (tls_module.speaks(self)) return null;\n    for (self.connections[0..], 0..) |*connection, at| {", .new = "    for (self.connections[0..], 0..) |*connection, at| {" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .id = "ET9",
+        .what = "a records send's end leaves its slot borrowed",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "    assert(borrower.records_in_flight);\n    borrower.records_in_flight = false;", .new = "    assert(borrower.records_in_flight);" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "ET10",
+        .what = "a reopening connection takes its old opening's events",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    const live = connection.state != .closed and connection.state != .reopening;", .new = "    const live = connection.state != .closed;" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .id = "ET11",
+        .what = "a reopening connection connects while its old records are in flight",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    if (connection.state != .reopening or connection.borrowed()) return;", .new = "    if (connection.state != .reopening or connection.connect_in_flight) return;" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .id = "ET12",
+        .what = "a record longer than 2^14 + 256 octets is waited for",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "    if (body > constants.tls_record_body_bytes_max) return error.Overflow;", .new = "    if (false and body > constants.tls_record_body_bytes_max) return error.Overflow;" },
+        },
+        .caught_by = .test_io,
+    },
+    .{
+        .id = "ET13",
+        .what = "a ticket older than seven days is spent",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "    if (age_ns >= lifetime_ns) return;", .new = "    if (false and age_ns >= lifetime_ns) return;" },
+        },
+        .caught_by = .test_io,
+    },
+    .{
+        .id = "ET14",
+        .what = "a closing connection reads what the peer sends",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "        .up => open(self, at, record, now_ns),", .new = "        .up => open(self, at, record, now_ns),\n        .closing => open(self, at, record, now_ns)," },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "SQ1",
+        .what = "the head goes out while a send is in flight",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "    if (connection.sending) return;\n    const head = connection.queue.first() orelse return;", .new = "    const head = connection.queue.first() orelse return;" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "SQ2",
+        .what = "a short send is taken for a whole one",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "    return count == left;", .new = "    return count > 0;" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "SQ3",
+        .what = "the rest is sent from the message's start",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "    return self.send_buffers[head.slot][connection.sent_bytes..length];", .new = "    return self.send_buffers[head.slot][0 .. length - connection.sent_bytes];" },
+        },
+        .caught_by = .test_io,
+    },
+    .{
+        .id = "SQ4",
+        .what = "the octets sent are counted from the last send alone",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "    connection.sent_bytes += @intCast(count);", .new = "    connection.sent_bytes = @intCast(count);" },
+        },
+        .caught_by = .test_io,
+    },
+    .{
+        .id = "SQ5",
+        .what = "a failed send leaves the connection up",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "        send_module.give_back(self, slot);\n        return tcp.fail(self, at, now_ns);", .new = "        send_module.give_back(self, slot);\n        return after_send(self, at, now_ns);" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "SQ6",
+        .what = "a lookup that leaves keeps its waiting query queued",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "    if (!connection.queue.contains(slot)) return;", .new = "    if (true) return;" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .id = "SQ7",
+        .what = "a closed connection keeps its waiting queries' buffers lent",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "        if (connection.sending and position == 0) continue;\n        send_module.give_back(self, entry.slot);", .new = "        if (connection.sending and position == 0) continue;" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "SQ8",
+        .what = "a lookup that leaves takes its started query with it",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "    if (connection.sending and head.slot == slot) return;\n", .new = "" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "SQ9",
+        .what = "a send the loop refuses leaves the queue stuck",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "    if (self.loop.submit(&.{operation}, &.{}) != 1) return tcp.fail(self, at, now_ns);", .new = "    _ = now_ns;\n    if (self.loop.submit(&.{operation}, &.{}) != 1) return;" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "SQ10",
+        .what = "a whole send does not let the next go",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "    send_module.finish(self, slot, true, now_ns);\n    after_send(self, at, now_ns);", .new = "    send_module.finish(self, slot, true, now_ns);" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "U1",
+        .what = "a receive a replaced socket left behind keeps its datagram's buffer",
+        .edits = .{
+            .{ .file = "io/io_events.zig", .old = "    const found = self.sockets.find(index) orelse {\n        if (event.flags.buffer) self.loop.give_back_buffer(constants.group_id, event.flags.buffer_id);\n        return;\n    };", .new = "    const found = self.sockets.find(index) orelse return;" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "U2",
+        .what = "a socket's receive the loop refused is never asked for again",
+        .edits = .{
+            .{ .file = "io/io_udp.zig", .old = "        if (!self.items[index].receiving) self.arm(loop, &self.items[index], index, tag) catch {};", .new = "        if (!self.items[index].receiving and self.items[index].armed_generation == 0) self.arm(loop, &self.items[index], index, tag) catch {};" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "U6",
+        .what = "a connection's receive the loop refused is never asked for again",
+        .edits = .{
+            .{ .file = "io/io_drive.zig", .old = "    tcp.tend(self);\n", .new = "" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "W1",
+        .what = "a port that has carried its share is never replaced",
+        .edits = .{
+            .{ .file = "io/io_udp.zig", .old = "        return self.items[index].retiring and !self.draining[index].open;", .new = "        return self.items[index].retiring and !self.draining[index].open and index > constants.receive_index_mask;" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "W2",
+        .what = "a replaced socket is closed at once, and its answers are lost",
+        .edits = .{
+            .{ .file = "io/io_drive.zig", .old = "    const epoch = self.sockets.draining[server].epoch;\n", .new = "    if (server < 255) return false;\n    const epoch = self.sockets.draining[server].epoch;\n" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "W3",
+        .what = "a draining socket is never closed",
+        .edits = .{
+            .{ .file = "io/io_drive.zig", .old = "    if (drain_owed(self, server)) return;\n", .new = "    if (drain_owed(self, server) or server < 255) return;\n" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "W4",
+        .what = "a replacement that cannot open leaves the server no socket",
+        .edits = .{
+            .{ .file = "io/io_udp.zig", .old = "        const fresh = try self.open_port(config, config.servers[index].endpoint.address.family);\n        self.draining[index] = self.items[index];\n        self.items[index] = fresh;", .new = "        self.draining[index] = self.items[index];\n        self.items[index] = .{};\n        const fresh = try self.open_port(config, config.servers[index].endpoint.address.family);\n        self.items[index] = fresh;" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "W5",
+        .what = "a draining socket's refused receive is never asked for again",
+        .edits = .{
+            .{ .file = "io/io_udp.zig", .old = "        if (draining.open and !draining.receiving) self.arm(loop, draining, index, tag) catch {};", .new = "        _ = draining;" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "W6",
+        .what = "a draining socket's ended receive is armed on the current one",
+        .edits = .{
+            .{ .file = "io/io_events.zig", .old = "        self.sockets.arm(self.loop, found.socket, found.server, @TypeOf(self.*).tag) catch {};", .new = "        self.sockets.arm(self.loop, &self.sockets.items[found.server], found.server, @TypeOf(self.*).tag) catch {};" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "W7",
+        .what = "a query does not record the socket it left from",
+        .edits = .{
+            .{ .file = "io/io_send.zig", .old = "        self.sent_from[index] = .{ .server = slot, .epoch = self.sockets.epoch_of(slot) };\n", .new = "" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "CR1",
+        .what = "a closed slot is taken while its connect is in flight",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        if (connection.state == .closed and !connection.borrowed()) return @intCast(at);", .new = "        if (connection.state == .closed) return @intCast(at);" },
+            .{ .file = "io/io_tcp.zig", .old = "    assert(!connection.borrowed());\n", .new = "" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "CR2",
+        .what = "a slot nobody uses is taken while its connect is in flight",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        if (connection.users == 0 and !connection.borrowed()) {", .new = "        if (connection.users == 0) {" },
+            .{ .file = "io/io_tcp.zig", .old = "    assert(!connection.borrowed());\n", .new = "" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "CR3",
+        .what = "a connect's event leaves its slot marked",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    assert(slot.connect_in_flight);\n    slot.connect_in_flight = false;", .new = "    assert(slot.connect_in_flight);" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "CR4",
+        .what = "closing a slot forgets its connect is in flight",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "            self.connect_in_flight = connect_in_flight;\n", .new = "            _ = connect_in_flight;\n" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .id = "CR5",
+        .what = "a connect's submission does not mark its slot",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    connection.handle = handles[0];\n    connection.connect_in_flight = true;", .new = "    connection.handle = handles[0];" },
+            .{ .file = "io/io_tcp.zig", .old = "    assert(slot.connect_in_flight);\n    slot.connect_in_flight = false;", .new = "    slot.connect_in_flight = false;" },
+        },
+        .caught_by = .short_walks,
+    },
+}

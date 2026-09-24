@@ -183,7 +183,9 @@ The architecture depends on every rule in this section.
   counts). It needs `lake` at the version `spec/lean/lean-toolchain` pins and Java, so it runs
   only when asked and in CI's `spec` job; `zig build test` replays the committed slices without
   either. `zig build spec-engine` is the engine's part alone, and with `-Dengine-walks=<file>` it
-  replays walks written before, which is how an engine mutation is measured.
+  replays walks written before, which is how an engine mutation is measured. `zig build
+  engine-mutations` runs every engine mutation of `tools/engine_mutations.zon` again, and names
+  the walks to pick when the model changes.
 - TLA+: `zig build tla` — TLC over every model under `spec/tla/`, each configuration with the
   verdict its header expects, through pepegrillo's `tla` tool (`tools/tla.zig`), which pins TLC
   by SHA-256 and fetches it once. It needs Java 11 or newer, so it runs only when asked. `zig

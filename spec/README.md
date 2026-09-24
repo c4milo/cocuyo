@@ -281,7 +281,10 @@ compares the walk's whole state after each.
   the Lean slices again. From the repository's root, `zig build tla -- walks 1 10 41 >
   tools/spec_replay/engine_gate.txt` writes the short engine walks, and `zig build tla -- walks 1
   2000 201 --pick tools/spec_replay/engine_picks.txt <walk>... > /dev/null` the picked ones, the
-  walks named being `engine_picks`.
+  walks named being `engine_picks`. A change to the engine model changes TLC's walks, so the picks
+  are chosen again: `zig build engine-mutations` breaks the engine each way
+  `tools/engine_mutations.zon` says, and names the full run's first walk that catches each
+  mutation the short walks miss.
 
 The `8` is `cname_hops_max` of `src/core/constants.zig`. The transcript records it, and the replay
 refuses a transcript written for another.

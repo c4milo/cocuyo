@@ -100,6 +100,7 @@ pub fn add(
     step.dependOn(&replay.step);
     step.dependOn(&walk_replay.step);
     step.dependOn(add_engine(b, tla_tool, engine_exe));
+    add_mutations(b);
 }
 
 /// `zig build spec-engine`: the committed engine walks, the short ones and the picked ones,
@@ -122,6 +123,26 @@ fn add_engine(b: *std.Build, tla_tool: *std.Build.Step.Compile, engine_exe: *std
     }
     step.dependOn(&engine_replay.step);
     return step;
+}
+
+/// `zig build engine-mutations`: the engine's mutations of `tools/engine_mutations.zon` run again
+/// over the committed walks and TLC's full run, which the tool has TLC write first unless `--
+/// --walks <file>` names one. It edits `io/` while it runs, and puts each file back.
+fn add_mutations(b: *std.Build) void {
+    const tool = b.addExecutable(.{ .name = "engine-mutations", .root_module = b.createModule(.{
+        .root_source_file = b.path("tools/engine_mutations.zig"),
+        .target = b.graph.host,
+    }) });
+    const run = b.addRunArtifact(tool);
+    run.setCwd(b.path("."));
+    run.has_side_effects = true;
+    run.addArgs(&.{ "--short", engine_gate_transcript, "--picked", engine_picks_transcript, "--full" });
+    run.addArgs(&engine_walks);
+    run.addArg("--full-out");
+    _ = run.addOutputFileArg("engine_walks.txt");
+    if (b.args) |arguments| run.addArgs(arguments);
+    const step = b.step("engine-mutations", "Break the engine each way tools/engine_mutations.zon says, and require each caught");
+    step.dependOn(&run.step);
 }
 
 /// Requires the committed walks at `committed` to be the ones TLC wrote, and shows how they differ.

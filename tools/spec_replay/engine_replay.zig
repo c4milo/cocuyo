@@ -19,6 +19,17 @@ const assert = std.debug.assert;
 const world_module = @import("engine_world.zig");
 const text_module = @import("engine_text.zig");
 
+/// The walk the replay is in, which a panic names: an assertion the engine trips is a mutation
+/// the walk caught, and the walk is what a picked walk is chosen by (tools/engine_mutations.zig).
+var walk_now: usize = 0;
+
+pub const panic = std.debug.FullPanic(panic_in_walk);
+
+fn panic_in_walk(message: []const u8, first_trace_address: ?usize) noreturn {
+    std.debug.print("engine replay: panic in walk {d}\n", .{walk_now});
+    std.debug.defaultPanic(message, first_trace_address);
+}
+
 /// The longest line of a transcript: an event and a state.
 const line_bytes_max = world_module.text_bytes_max + 64;
 
@@ -93,6 +104,7 @@ pub const Replay = struct {
         replay.current = which_of(slots, conns) orelse return error.Malformed;
         replay.depth = 0;
         replay.walks += 1;
+        walk_now = replay.walks;
         switch (replay.current) {
             .none => unreachable,
             inline else => |which| world_module.begin(@field(replay, @tagName(which)), transport) catch
