@@ -176,10 +176,10 @@ The architecture depends on every rule in this section.
   require, so it and its tests (`zig build test-cares`) run only when asked. The numbers go in
   design §11 beside cocuyo's, with the c-ares version the binary prints.
 - Model: `zig build spec` — the Lean proofs of `Lookup` and the pins on the axioms they rest on,
-  then every transition the lookup model reaches under 55 configurations, 3.2 million events of
-  engine walks, and every transition of the `getaddrinfo` walks, replayed against the code. It needs `lake` at the version
-  `spec/lean-toolchain` pins, so it runs only when asked and in CI's `spec` job; `zig build test`
-  replays the committed slices without Lean.
+  then every transition the lookup model reaches, the engine's walks, and every transition of
+  the `getaddrinfo` walks, replayed against the code (spec/README.md has the counts). It needs
+  `lake` at the version `spec/lean-toolchain` pins, so it runs only when asked and in CI's
+  `spec` job; `zig build test` replays the committed slices without Lean.
 - DNS over TLS: `-Dchapulin=<checkout>` names a chapulin checkout whose `bin/chapulin-record.o`
   `build/dot.zig` says how to make. With it, `zig build test-chapulin` runs the session's tests
   and `zig build example-dot-rotor` resolves over DoT; `tools/dot_live/run.sh <checkout>` runs
@@ -187,145 +187,10 @@ The architecture depends on every rule in this section.
 - Format: `zig build fmt`, or `zig fmt build.zig build src tools examples bench`.
 - Commit messages: `zig build hooks` once after clone; `zig build lint-commits` by hand.
 
-## Current task
+## Where work is tracked
 
-docs/design.md §15 names the steps, each with the check that proves it, and docs/mutations.md
-records what each step's checks were broken against.
-
-Steps 0 to 7 are done:
-
-- **0**, the build: the module graph the compiler enforces, the lint rules with their canary, the
-  graph check, the commit linter and the pre-push hook.
-- **1**, `core`: the types, the limits, `Name` between text and wire form, and the reverse name.
-- **2**, `wire`: the header, name decoding with its two bounds, the question compare, the query
-  builder, EDNS0, the record walk, the answer walk, and a seeded fuzz target whose gate runs
-  4096 seeds inside `zig build test`.
-- **3**, `Lookup`: the eight states of §5, the response checks of §7, the retry, search and CNAME
-  policies.
-- **4**, `Resolver`: the slot table, the key table and the demultiplexer.
-- **5**, `config`: the `resolv.conf` parser and the address text parser it needs.
-- **6**, `examples/udp_blocking.zig`, which resolves real names against real servers.
-
-- **7**, `bench/`: query build, response parse and datagram match in nanoseconds per operation,
-  measured ReleaseSafe on the machine §11 names. Every estimate in §11 is now a measurement, and
-  the layout question §11 left open is closed on the cold-slot row, the one measurement that can
-  see a cache line.
-
-- **8**, `cache`: the SIEVE cache of §18 above the state machine, with the negative TTL of
-  RFC 2308 read from the SOA in `wire` and carried in `Failure` by `resolver`. Question 9 of §17
-  was answered yes on 2026-09-22, because c-ares has had a cache on by default since 1.31.0 and a
-  replacement without one is not one.
-
-Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
-
-- **9**, every record type, done the same day: `Kind` names every type c-ares parses,
-  `src/wire/rdata/` decodes each from stored rdata, `record_copy.zig` writes a record out of a
-  message with its names in full, and a lookup for any type keeps its records in the rdata
-  buffer of `Answers`, which grew the lookup to 3024 octets (§9).
-- **10**, DNS cookies, done the same day: every query with EDNS carries the client cookie of
-  its server, and the server cookie once learned (`resolver/servers.zig`, owned by `Resolver`
-  and handed to every lookup); `on_response` discards a wrong or, once expected, a missing
-  cookie (§7 check 6), learns from what it accepts, and answers BADCOOKIE with one retry, then
-  TCP, then the next server.
-- **11**, configuration parity and the hosts file, done the same day: `Config.servers` is a
-  list of `Server`, each with a TCP port of its own; `use_tcp`, `ignore_truncation`,
-  `recursion_desired`, `check_response`, `primary`, `timeout_ns_max` and `lookups` join it and
-  the lookup honours each; `resolv.conf` reads `use-vc` and may refuse the default server;
-  `apply_options` and `apply_search` take `RES_OPTIONS` and `LOCALDOMAIN`; `config.hosts`
-  parses the hosts file into the caller's storage.
-- **12**, server failover, done the same day: `Servers` counts consecutive failures per
-  server (a timeout, a failed send, a failed connection) and an answer resets them; a lookup
-  walks its servers in `lookup_order.zig`'s order, computed at its first poll: sorted by
-  failures, rotated among the fewest, and one query in `failover_retry_chance` a failed server
-  whose delay has passed goes first with the real query.
-- **13**, the engine, first slice done the same day: `src/sim/` is the twin of rotor's loop, a
-  virtual clock and scripted servers behind rotor's surface, and `io/` is the engine over it,
-  with one UDP socket per server, a buffer group, one timer and the cache in front, run on the
-  twin by `zig build test-io`. The owner ruled the same day that no library bound to rotor is
-  exposed until a consumer asks for one, so the engine is not exported. Still to come in 13: the
-  TCP path, port rotation, `reinit` and `cancel_all`.
-- **14**, the `getaddrinfo` shape, done the same day: the address text parser and the hosts
-  table moved to `core` (the parser of the table stays in `config`), and `AddressLookup` in
-  `resolver` composes a numeric host, the hosts table in `Config.lookups` order, and one
-  absolute `A` and `AAAA` lookup per search candidate in lockstep, joined with `v4_mapped`,
-  `all` and the canonical name as `getaddrinfo(3)` has them; it holds two slots at most and is
-  1152 bytes (§9).
-- **15**, the ordering, done the same day: `core.address_order` applies the ten rules of
-  RFC 6724 §6 over routes the consumer supplies, since the source per destination is I/O, with
-  the policy table and the scopes of the RFC as named constants; `AddressLookup` applies the
-  route-free rules unless `no_sort`. The nine worked examples of the RFC are the gate. The
-  end-to-end comparison against c-ares is the part of 15 still open.
-- **13**, the engine, second slice done the same day: `io/io_tcp.zig` is the stream path, one
-  connection per server shared by the lookups that need it, framed by RFC 7766 §8 and closed
-  when idle; and the table hands out work from a ready list, so what one completion event costs
-  no longer grows with the lookups in flight (§11, §16 decisions 20 and 21).
-- **13** also has `cancel_all` and `reinit`, the port rotation of `udp_queries_per_port` and the
-  local address of `Config.local_address`. Since rotor 0.2.0 it also has the socket buffer sizes
-  of `Config.socket_receive_bytes` and `socket_send_bytes`. Nothing of c-ares is left but device
-  binding by name, which stays out because rotor names no device.
-- **15**'s comparison is done: §11 carries the decoder table and the end-to-end one, measured
-  2026-09-22 over five runs. Five defects in the comparison's own driver had to be fixed first
-  (docs/mutations.md K1 to K3, R1 to R4, and the responder's start-up delay), which is what an
-  end-to-end number costs. The handoff between the driver's two threads is checked in every order
-  it can run (X1 to X5), and `-Dsanitize-thread` runs its tests under ThreadSanitizer on Linux,
-  on the LLVM backend and after a planted race it must report (T1).
-- **16**, the package a consumer gets, §20, asked for by colibri's driver: the cache under every
-  lookup as a `Memory` the caller supplies, the module surface closed to `cocuyo` alone, and
-  `zig build consumer-check` compiling a dependent package. Landed 2026-09-22.
-- The cache's hit rate is measured (§18, over a synthetic trace), and the engine runs on Linux
-  over io_uring in CI. Both needed the buffer group's storage to stop claiming an alignment no
-  loader keeps (docs/mutations.md N1). Since rotor 0.3.0 a process that the kernel or a
-  container's seccomp profile refuses io_uring runs on epoll instead: the rotor example resolves
-  in a container with Docker's default profile, where on rotor 0.2.0 it failed `PermissionDenied`.
-  CI's `epoll` job checks it on every push (`tools/epoll_check/run.sh`).
-- §17 questions 13 and 14 are answered: the cache keeps the chain's end, and a get leaves an
-  expired entry for the put after the miss to renew in place. SIEVE is measured against S3-FIFO,
-  W-TinyLFU, an expected-hits experiment, c-ares's rule and the offline optimal (§18), over the
-  synthetic trace and a real ISP log (`zig build bench-log`). A cache a client, as cocuyo is
-  deployed, SIEVE is within 2.0 points of the optimal at the default size, so it stays; S3-FIFO
-  leads by up to 3.2 only at a resolver's scale.
-- §17 question 7 is answered by measurement: `tools/search_order/run.sh` watches glibc, musl,
-  c-ares and cocuyo walk the same search lists, and cocuyo walks as glibc and c-ares do, but for
-  SERVFAIL, where it stops as c-ares does (§5).
-- 0.1.0, the first release, tagged 2026-09-22: `build.zig.zon` carries the version, and the
-  README pins the tag.
-- The `/simplify` cleanups outside the engine landed on 2026-09-23.
-- The lookup is checked against a model in Lean 4 (spec/, design §5, The model), asked for on
-  2026-09-23. The proofs cover the end, `use_tcp`, the counters and termination; the replay
-  compares 1.77 million transitions and found two defects: a chain past `cname_hops_max` timed
-  out instead of failing `ChainTooLong`, and EDNS0 stayed off for the whole lookup after one
-  FORMERR.
-- The engine's streams and datagrams are checked against a model of their rules (design §19
-  step 13, 2026-09-23), with the table's ready list and free list in it. Its replay ends the
-  loop's operations in the orders rotor's decision 5 allows and refuses submissions and sockets
-  when the walk says. It found the review's three defects in the stream path and six more: the
-  drive's poll bound, the table's deadline bound missing a connect, a stale event's buffer on
-  either transport, a refused receive never armed again, and a port replacement that could not
-  open a socket stopping the program. `reinit` puts its cache under its table again. §17
-  question 15 was answered the same day: a port that has carried its share is replaced at once
-  and the old socket drains, so `udp_queries_per_port` holds under steady load.
-- `AddressLookup` and `NameLookup` are checked against a model of their rules (design §19 step
-  14, 2026-09-23), over every state of 95 configurations. Writing the rules down found two
-  defects: a consumer's lookup could take a pair's first slot before the second end came in, and
-  the walk stopped the program; and a reverse walk reported a timeout as `NameNotFound`.
-- Next (the owner's word of 2026-09-23): DoT, design §21. The owner ruled that day that
-  chapulin changes first: a record-mode `ch_read` that answers "need more bytes" instead of
-  failing, resumption bound to the name, and RFC 7250 raw public keys. Until then cocuyo lands
-  what does not wait. `Server.tls` all or none and query padding landed the same day, with
-  `query_bytes_max` grown to 386 by the owner's ruling, and so did the engine's TLS rules (§21)
-  in the model. chapulin's three pieces landed the same day (`73a36a8`, `756ad91`, `b6f2b11`),
-  and `Tls` takes SPKI pins beside or instead of the name, by the owner's ruling. Step 5 landed
-  on 2026-09-24: the engine speaks TLS over a session seam, replayed against the model with the
-  twin's session, and `io/io_chapulin.zig` puts chapulin behind it (`-Dchapulin`). Step 6 too:
-  `tools/dot_live/run.sh` resolves through `dns.google`, `cloudflare-dns.com` and
-  `dns.quad9.net` and is refused a wrong name and a wrong root. DoT is done.
-- DoH's DNS half, design §22, landed on 2026-09-24, the same over HTTP/2 and HTTP/3, whose
-  HTTP is colibri's. The owner ruled that the resolver speaks DoH, that colibri's driver expands
-  the URI template while cocuyo supplies the `dns` variable, that a query is cache-friendly (ID
-  0, no 0x20, no cookie, padded), and that a `Config`'s servers are all one kind. `Lookup` asks
-  for `send_https` and takes an answer by its transaction's number; the lookup model gained the
-  transport, and the replay agrees over 82 configurations.
-- Next: DNS over QUIC (RFC 9250), on the roadmap since 2026-09-23. The p99 of the comparison
-  waits for a quiet machine.
-
-§17 holds the questions the owner has not answered.
+- Open work, known bugs and later steps are GitHub issues on github.com/c4milo/cocuyo. This
+  file holds rules, layout and commands, and never a log of what is done or next.
+- docs/design.md names each step of the plan with the check that proves it (§15, §19, §21,
+  §22), docs/mutations.md records what each step's checks were broken against, and §17 holds
+  the questions the owner has not answered.

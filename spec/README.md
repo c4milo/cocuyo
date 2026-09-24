@@ -130,9 +130,9 @@ reported, on 2026-09-23:
 Two lookups on one TCP connection is where queries queue behind each other (the stream's rule 9),
 and it did not finish at six and two in nine hours, so it was walked at five and one. The TLS
 model has not been walked whole. One lookup on two connections ran an hour at four operations and
-one failure without finishing, and broke no invariant in what it reached. Until the replay drives
-TLS in §21 step 5, the TLS model rests on `engine-probe` walks of 400,000 events over seeds 1, 7
-and 42, and on the mutations of docs/mutations.md that break it on purpose.
+one failure without finishing, and broke no invariant in what it reached. So the TLS model rests
+on `engine-probe` walks of 400,000 events over seeds 1, 7 and 42, on the replay, which drives TLS
+since §21 step 5, and on the mutations of docs/mutations.md that break it on purpose.
 
 `cocuyo-spec engine-probe <tcp|udp|tls> <slots> <connections> <seed> <walks> <length>` walks one
 configuration the seeded way below and stops at the first invariant broken, for a quick look before
