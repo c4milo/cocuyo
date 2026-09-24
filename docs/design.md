@@ -2185,7 +2185,9 @@ retired once the TLA+ one stands. The loop's operations become a bag, so TLC cou
 its operations reordered as one, as the Lean walker learned to the same day. The port is held to
 the Lean model by count: for each configuration and bound, TLC's distinct states must equal the
 Lean walker's with its operations sorted. Then the replay reads its walks from TLC's traces
-rather than the Lean model's, and CI's `spec` job runs TLC.
+rather than the Lean model's, and CI's `spec` job runs TLC. The model landed the same day: its
+count equalled the Lean walker's in all six configurations spec/README.md lists, over TLS, TCP
+and UDP, and TLC finds each of the Lean model's TLS mutations with the check that caught it.
 
 The code of 2026-09-22 broke eleven of these rules, each fixed with the model:
 

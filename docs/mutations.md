@@ -1121,6 +1121,24 @@ Seven mutations, seven `CAUGHT`. The engine's own mutations come with its code, 
 | R8c | the connection opened again resumes again | TLS rule 8, in full | `reopened in full`, at depth 154 | CAUGHT |
 | R8d | the connection opened again takes its slot while the loop still holds its records | TLS rules 3 and 8 | `borrow kept`, at depth 154 | CAUGHT |
 
+## The engine model in TLA+
+
+Issue #9, 2026-09-24. The TLS rules the Lean model's mutations broke (TM1 to TM3, R8a to R8d
+above), broken again in `spec/tla/engine/EngineMutants.tla`, each put in its rule's place by a
+configuration in `spec/tla/engine/mutants/`. TLC walks breadth first, so each counterexample is a
+shortest one, where the Lean probes found them 33 to 194 events deep. Two mutants first called
+the rule they replace, and so themselves; each is whole now. Seven mutations, seven `CAUGHT`.
+
+| # | Mutation | Caught by | Counterexample | Status |
+| --- | --- | --- | --- | --- |
+| TM1 | the session's records go behind queries not yet sealed | `sealed in order` | 6 states | CAUGHT |
+| TM2 | a slot is opened again while a send of its records is in flight | `borrow kept` | 4 states | CAUGHT |
+| TM3 | the handshake's end tells the lookups without sealing the last flight | `answered` | 4 states | CAUGHT |
+| R8a | a declined ticket fails the connection | `decline forgiven` | 13 states | CAUGHT |
+| R8b | a connection that resumes leaves its server's ticket kept | `ticket spent` | 10 states | CAUGHT |
+| R8c | the connection opened again resumes again | `reopened in full` | 14 states | CAUGHT |
+| R8d | the connection opened again takes its slot while its records are held | `borrow kept` | 13 states | CAUGHT |
+
 ## A connect's address
 
 The stream's rule 10 (docs/design.md §19 step 13): a connect borrows its slot's address until

@@ -1,7 +1,7 @@
-# The lookup and the engine, in Lean
+# The lookup and the engine, in Lean and TLA+
 
-`lean/` holds three models in Lean 4, a Lake package, and `tools/spec_replay/` ties each to the Zig
-code:
+`lean/` holds three models in Lean 4, a Lake package; `tla/` holds the engine's in TLA+ as well;
+and `tools/spec_replay/` ties each to the Zig code:
 
 - `Lookup`, the state machine of docs/design.md §5, with proofs of what §5 promises of it.
 - The engine's streams and datagrams, the rules of §19 step 13, with invariants checked over
@@ -176,6 +176,46 @@ walk ends it with the outcome it names, and the twin refuses what the walk says 
 is how the replay reaches the orders rotor's rule 2 allows. After each event it compares the
 engine's state with the model's, and requires every buffer the event handed the engine to be
 back in its group.
+
+## The engine in TLA+
+
+`tla/engine/` holds the engine model in TLA+, checked by TLC through pepegrillo's `tla` tool
+(docs/design.md §16 decision 24). It says what `lean/Spec/Engine.lean`, `EngineSockets.lean` and
+`EngineStep.lean` say, definition by definition: `EngineTable.tla` holds the configuration, the
+lookup's transitions the engine asks of it, the table and the connections; `EngineIo.tla` the
+sockets and the sends; and `Engine.tla` the drive, the events, the checks and the specification.
+The Lean engine model retires once the replay reads its walks from TLC.
+
+Three choices make TLC count what the Lean walker counts:
+
+- The loop's operations are a bag, so an event names an operation by its value, and a state is one
+  state whatever order its operations came in: the Lean walker's sorting, made native.
+- The bound guards `Next` rather than being a `CONSTRAINT`. A state beyond it is reached, counted
+  and checked, and has no successor, as in the Lean walker; TLC leaves a state that breaks a
+  `CONSTRAINT` out, and the check on the event that reached it with it. So every configuration
+  says `CHECK_DEADLOCK FALSE`.
+- Four of the sixteen checks read the event or the state before it, which a TLC invariant cannot.
+  So `broken` holds the names of the checks the last event broke, and `Clean` asks it be empty.
+  In a model that keeps its rules it always is, so it splits no state.
+
+`zig build tla` runs every configuration, each with the verdict its header expects, on TLC
+v1.7.4, which `tools/tla.zig` pins by SHA-256 and the tool fetches once. It needs Java 11 or
+newer. On 2026-09-24, on an Apple M1 Pro, TLC's count of each configuration equalled the Lean
+walker's, its operations sorted:
+
+| Transport | Slots | Connections | Operations, failures | States, both | TLC seconds |
+| --- | --- | --- | --- | --- | --- |
+| TLS | 1 | 2 | 2, 0 | 51,406 | 10 |
+| TLS | 1 | 2 | 2, 1 | 275,126 | 45 |
+| TLS | 1 | 2 | 3, 0 | 1,164,712 | 138 |
+| TCP | 1 | 1 | 4, 1 | 19,767 | 4 |
+| UDP | 1 | 1 | 3, 1 | 38,457 | 5 |
+| UDP | 1 | 1 | 4, 1 | 115,774 | 12 |
+
+TLC walks these at about half the Lean walker's speed. What it adds is a fingerprint per state in
+place of the whole state, a queue on disk, worker threads, and a shortest counterexample for
+free. `tla/engine/mutants/` breaks the TLS rules the Lean model's mutations broke, TM1 to TM3 and
+R8a to R8d, and TLC must find each broken (docs/mutations.md).
 
 ## The walks
 

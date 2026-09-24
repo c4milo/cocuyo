@@ -137,6 +137,7 @@ pub fn build(b: *std.Build) void {
     dot.add(b, target, optimize, graph, chapulin, rotor);
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_commit_lint_step(b, pepegrillo, install_step);
+    add_tla_step(b, pepegrillo);
     add_hooks_step(b);
 
     const fmt_step = b.step("fmt", "Check formatting of every Zig source");
@@ -144,6 +145,18 @@ pub fn build(b: *std.Build) void {
         .paths = &(.{"build.zig"} ++ source_directories),
         .check = true,
     }).step);
+}
+
+/// `zig build tla`: TLC over every model under spec/tla/, through pepegrillo's `tla` tool
+/// (`tools/tla.zig`). It needs Java, and the pinned TLC, which the tool fetches once, so it runs
+/// only when asked, as `zig build spec` does.
+fn add_tla_step(b: *std.Build, pepegrillo: *std.Build.Module) void {
+    const tool = b.addExecutable(.{ .name = "tla", .root_module = tool_module(b, pepegrillo, "tools/tla.zig") });
+    const run = b.addRunArtifact(tool);
+    run.setCwd(b.path("."));
+    run.has_side_effects = true;
+    if (b.args) |arguments| run.addArgs(arguments);
+    b.step("tla", "Check the TLA+ models with TLC").dependOn(&run.step);
 }
 
 /// `zig build test-<name>`: the tests of one module, or of the tools, with nothing else in the
