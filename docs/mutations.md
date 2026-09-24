@@ -1092,6 +1092,20 @@ live check and the third by the gate.
 | DL2 | a resumed handshake that fails fails the connection | TLS rule 8, forgiven | not the live check; the ticket twin test and walk 8573, as ET4 | CAUGHT |
 | DL3 | the session never says it resumed | the resumed handshake, read from chapulin | the live check: no resolver resumed | CAUGHT |
 
+## chapulin's staging bound
+
+Design §21, 2026-09-24. chapulin's `CH_TX_STAGE` for a webpki build grew to 2,394 octets, plus 2
+for a second cipher suite, once its resumed hello offered signature schemes. cocuyo staged at
+most 2,048, and its own worst hello is about 2,134. So `chapulin_out_bytes_max` is now 2,560, held
+to `CH_TX_STAGE` at compile time, and `tls_records_out_bytes` is held to fit it beside a query
+sealed at its longest. Broken against `zig build test-chapulin` and `zig build test-io`. Two
+mutations, two `CAUGHT`, each by the build.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CK1 | `chapulin_out_bytes_max` back to 2,048 | at least chapulin's staging bound | the build with `-Dchapulin` | CAUGHT |
+| CK2 | `tls_records_out_bytes` down to 2,900 | the staging beside a sealed query | every build of the engine | CAUGHT |
+
 ## The engine over TLS
 
 Design §21 step 5, the engine's side of it: the TLS rules in `io/`, driven with the twin's

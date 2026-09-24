@@ -39,6 +39,12 @@ export fn ch_assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_
     std.debug.panic("chapulin: {s} at {s}:{d}", .{ condition, file, line });
 }
 
+comptime {
+    if (constants.chapulin_out_bytes_max < c.CH_TX_STAGE) {
+        @compileError("chapulin_out_bytes_max is below chapulin's staging bound, CH_TX_STAGE");
+    }
+}
+
 pub const Session = struct {
     pub const enabled = true;
     pub const out_bytes_max = constants.chapulin_out_bytes_max;
