@@ -42,7 +42,8 @@ would agree with the code by construction and prove nothing about it.
   loop's operations, and the lookup's transitions in each slot. `Checks` names what every event
   must keep.
 - `tla/engine/Engine_*.cfg` are the configurations TLC walks breadth first, and
-  `tla/engine/mutants/` breaks the model's TLS rules with `tla/engine/EngineMutants.tla`.
+  `tla/engine/mutants/` breaks the model's TLS rules and the stream's rule 9 with
+  `tla/engine/EngineMutants.tla`.
 - `tla/engine/EngineTrace.tla` writes TLC's walks for the replay, one configuration of
   `tla/engine/trace/` for each of the replay's.
 
@@ -193,7 +194,7 @@ Three choices make TLC count what the Lean walker counts:
   and checked, and has no successor, as in the Lean walker; TLC leaves a state that breaks a
   `CONSTRAINT` out, and the check on the event that reached it with it. So every configuration
   says `CHECK_DEADLOCK FALSE`.
-- Four of the seventeen checks read the event or the state before it, which a TLC invariant cannot.
+- Five of the seventeen checks read the event or the state before it, which a TLC invariant cannot.
   So `broken` holds the names of the checks the last event broke, and `Clean` asks it be empty.
   In a model that keeps its rules it always is, so it splits no state.
 
@@ -212,16 +213,17 @@ walker's, its operations sorted:
 | UDP | 1 | 1 | 4, 1 | 115,774 | 12 |
 | TLS | 1 | 2 | 4, 1 | 26,769,958 | 4,897 |
 
-TLC walks these at about half the Lean walker's speed. What it adds is a fingerprint per state in
-place of the whole state, a queue on disk, worker threads, and a shortest counterexample for
-free. The last row is not in `zig build tla`: it took 4.3 GB and ran on a machine busy with other
+TLC walked these 1.7 to 5.6 times slower than the Lean walker, the gap narrowing as the graph
+grows. It adds a fingerprint per state in place of the whole state, a queue on disk and worker
+threads, and it reports a shortest counterexample. The last row is not in `zig build tla`: it took 4.3 GB and ran on a machine busy with other
 work, beside the Lean walker's run of the same row. `tla/engine/mutants/` breaks the TLS rules the
-Lean model's mutations broke, TM1 to TM3 and R8a to R8d, and TLC must find each broken
-(docs/mutations.md).
+Lean model's mutations broke, TM1 to TM3 and R8a to R8d, and the stream's rule 9 as TQ1 breaks
+it (below). TLC must find each broken (docs/mutations.md).
 
 Every configuration above has one lookup. Two lookups are where queries wait behind each other on
 a stream (the stream's rule 9) and share a server's socket, so `zig build tla` checks four
-configurations with two as well. The Lean walker checked none of them to the end. Measured on
+configurations with two as well. The Lean walker walked one of them, TCP with one connection, at
+five operations and one failure (the table above), and none over UDP or TLS. Measured on
 2026-09-24 on the same machine, busy with other work, one configuration at a time:
 
 | Transport | Slots | Connections | Operations, failures | States | TLC seconds |

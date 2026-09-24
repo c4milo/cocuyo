@@ -86,7 +86,7 @@ The architecture depends on every rule in this section.
   it appears.
 - Every Markdown file must render on GitHub as written: real list markers only, pipes inside a
   table cell escaped as `\|`, fenced code blocks with a language, no definition lists, no LaTeX.
-  `tools/lint/markdown.zig` checks it over `docs/`, `README.md` and this file.
+  `tools/lint/markdown.zig` checks it over `docs/`, `README.md`, `spec/README.md` and this file.
 
 ### Commits
 
@@ -182,22 +182,24 @@ The architecture depends on every rule in this section.
   transition of the `getaddrinfo` walks, replayed against the code (spec/README.md has the
   counts). It needs `lake` at the version `spec/lean/lean-toolchain` pins and Java, so it runs
   only when asked and in CI's `spec` job; `zig build test` replays the committed slices without
-  either. `zig build spec-lean` is the Lean half alone, and `zig build spec-engine` the engine's
-  part alone, which with `-Dengine-walks=<file>` replays walks written before, which is how an
+  either. `zig build spec-lean` is the Lean half alone. `zig build spec-engine` is the engine's
+  part alone; with `-Dengine-walks=<file>` it replays walks written before, which is how an
   engine mutation is measured.
-- Mutations: `zig build mutations -- <engine|lookup|address|lean> [<id>...]` runs the mutations of
-  `tools/mutations/<set>.zon` again, each against the check it names, and for the engine names the
-  walks to pick when the model changes.
+- Mutations: `zig build mutations -- <engine|lookup|address|lean> [--walks <file>]
+  [<id>|<section>/<id>...]` runs the mutations of `tools/mutations/<set>.zon` again, each against
+  the check it names, after running each check once with nothing mutated. For the engine it names
+  the walks to pick when the model changes, and it needs Java for TLC's full run.
 - TLA+: `zig build tla` — TLC over every model under `spec/tla/`, each configuration with the
   verdict its header expects, through pepegrillo's `tla` tool (`tools/tla.zig`), which pins TLC
-  by SHA-256 and fetches it once. It needs Java 11 or newer, so it runs only when asked. `zig
-  build tla -- walks <seed> <walks> <depth>` writes the engine's walks instead.
+  by SHA-256 and fetches it once. It needs Java 11 or newer, so it runs only when asked and in
+  CI's `tla` job. `zig build tla -- walks <seed> <walks> <depth> [--pick <file> <walk>...]` writes
+  the engine's walks instead.
 - DNS over TLS: `-Dchapulin=<checkout>` names a chapulin checkout whose `bin/chapulin-record.o`
   `build/dot.zig` says how to make. With it, `zig build test-chapulin` runs the session's tests
   and `zig build example-dot-rotor` resolves over DoT; `tools/dot_live/run.sh <checkout>` runs
   the live check of design §21 step 6. Neither is in the gate, which needs no chapulin. The
   `dot-live` workflow runs both once a day on macOS, against chapulin at the commit it pins.
-- Format: `zig build fmt`, or `zig fmt build.zig build src tools examples bench`.
+- Format: `zig build fmt`, or `zig fmt build.zig build src tools examples bench io`.
 - Commit messages: `zig build hooks` once after clone; `zig build lint-commits` by hand.
 
 ## Where work is tracked

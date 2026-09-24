@@ -1295,10 +1295,10 @@ step until `zig build test` passes.
     learn a second control path, consuming an answer inside their own `init`. The copy is 53 ns
     against a round trip of a millisecond, and it buys every lookup shape a cache. §20.
 24. **The engine model is TLA+, checked by TLC; the lookup's stays Lean.** Ruled by the owner on
-    2026-09-24 (issue #9). The engine model is only ever checked, never proved, and checking is
-    TLC's trade: symmetry, fingerprints in place of whole states, worker threads, and liveness.
-    The Lean walker it replaces holds every state whole on one thread, and its TLS graph at four
-    operations and one failure did not finish in an hour. Rejected: extending that walker, which
+    2026-09-24 (issue #9). The engine model is only ever checked, never proved, and TLC is made
+    for checking: symmetry, fingerprints in place of whole states, worker threads, and liveness.
+    The Lean walker it replaces holds every state whole on one thread, and before it sorted its
+    states its TLS graph at four operations and one failure did not finish in an hour. Rejected: extending that walker, which
     rebuilds TLC by hand; and a TLA+ model beside the Lean one, two models of one set of rules
     that can drift. The lookup's model carries proofs no bounded check gives, so it stays in
     Lean. pepegrillo's `tla` and `lean` tools run both, from `spec/tla/` and `spec/lean/`.
@@ -2162,17 +2162,18 @@ lookup waits two of them. The loop may refuse every submission for the length of
 socket opens may fail for the length of one event. A stream's send may come back short once a
 message, its rest then whole or failed: a second short send takes the same path as the first.
 
-- `cocuyo-spec engine` walks every state the model reaches in a configuration and checks ten
-  invariants in each. A connection's users are the lookups on it. A lookup is only on a
+- The Lean walker, `cocuyo-spec engine` until it retired on 2026-09-24, walked every state the
+  model reached in a configuration and checked ten invariants in each; TLC checks seventeen now
+  (spec/README.md). A connection's users are the lookups on it. A lookup is only on a
   connection to its server. A buffer is lent to one send at most. A connection and a socket each
   have at most one current operation of each kind. A drive leaves nothing on the ready list.
   After a drive nothing refused, every socket has its receive armed and every connection that is
   up has its receive. And after such a drive, a port that has carried its share is replaced
   unless an older one still drains, and a draining socket nothing is owed on is gone. A stream
   has one send in flight at most, its queue's head's, and no query waits twice. A slot whose
-  address a connect that is gone still borrows stays closed. They hold
-  in every state of one slot and one connection over TCP, and in all 5.85 million of one slot
-  over UDP; spec/README.md has the counts. This is model checking over bounded configurations,
+  address a connect that is gone still borrows stays closed. They held in every state of one slot
+  and one connection over TCP, and in all 5.85 million of one slot over UDP; spec/README.md has
+  the counts. This is model checking over bounded configurations,
   not a proof.
 - The replay drives the engine over the twin in manual mode, where the loop ends each operation
   when and how the walk says, and refuses what the walk says. It runs 16,000 walks and 3.2
@@ -2186,7 +2187,7 @@ its operations reordered as one, as the Lean walker learned to the same day. The
 the Lean model by count: for each configuration and bound, TLC's distinct states must equal the
 Lean walker's with its operations sorted. Then the replay reads its walks from TLC's traces
 rather than the Lean model's, and CI's `spec` job runs TLC. The model landed the same day: its
-count equalled the Lean walker's in all six configurations spec/README.md lists, over TLS, TCP
+count equalled the Lean walker's in all six configurations it was first held to, over TLS, TCP
 and UDP, and TLC finds each of the Lean model's TLS mutations with the check that caught it. The
 replay followed the same day: TLC's simulation mode takes seeded walks through the model
 (`spec/tla/engine/EngineTrace.tla`), and the replay drives the engine down them. TLC's walks are
@@ -2194,9 +2195,10 @@ uniformly random where the Lean walker sought states no walk had reached, so its
 catch fewer of the engine's mutations. The committed walks keep the full run's walks that catch
 the ones they miss. The full run catches three mutations only the twin tests caught before, and
 misses one the Lean walks caught, which no walk the model allows can reach (docs/mutations.md).
-Then the Lean model retired, and CI's `spec` job runs `zig build tla` beside `zig build spec`.
-The check then took configurations of two lookups, which the Lean walker never finished, and they
-showed rule 9's removal of a waiting query was kept but never checked; the model checks it now.
+Then the Lean model retired. CI runs `zig build spec` in its `spec` job, and `zig build tla` in a
+`tla` job beside it. The check then took four configurations of two lookups. The Lean walker had
+walked one of them, TCP with one connection, and no TLS or UDP one. They showed rule 9's removal
+of a waiting query was kept but never checked; the model checks it now.
 
 The code of 2026-09-22 broke eleven of these rules, each fixed with the model:
 
@@ -2886,9 +2888,13 @@ the engine's send and held buffers, per slot.
    alert, and the engine opened the connection again in full, as TLS rule 8 says, and was
    answered. chapulin offered no `signature_algorithms` beside a ticket, and Google refuses such a
    hello even with a good ticket: OpenSSL resumed 6 times of 9 against it, chapulin 0 of 10, and
-   chapulin with the schemes added 5 of 6. With chapulin at `20df0b8`, whose resumed hello offers
-   the schemes and which completes a declined ticket as a full handshake in the same connection
-   (its docs/decisions.md 55), all three resumed, `dns.google` in 9 lookups of 9. The example
+   chapulin with the schemes added 5 of 6. chapulin `20df0b8` changed two things
+   (its docs/decisions.md 55). Its resumed hello offers the schemes, and it completes a declined
+   ticket as a full handshake in the same connection. With it all three resumed, `dns.google` in
+   9 lookups of 9. On GitHub's macOS runner the same day, `dns.google` and `dns.quad9.net` each
+   declined the ticket, and chapulin finished each handshake in full on the same connection: the
+   fallback for a declined ticket, seen live. An earlier run there timed out through `dns.google`
+   once, which the next run did not repeat. The example
    reads whether a handshake resumed from chapulin's `psk_selected`. TLS rule 8's reconnect stays,
    for a resumed handshake that fails some other way. Since the same day the check runs once a
    day on macOS in CI's `dot-live` workflow, against chapulin at a pinned commit. It is not a

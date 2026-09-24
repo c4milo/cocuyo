@@ -317,7 +317,7 @@ fn carrying(self: anytype, user_data: u64, kind: io.Kind, more: bool) Error!roto
     return event;
 }
 
-/// A message on the receive at `position`, for the lookup in `slot`: on a stream, one whole
+/// A message on the receive `op` names by its token, for the lookup in `slot`: on a stream, one whole
 /// frame, length and all, in one buffer of the stream's group (RFC 7766 §8); on a socket, one
 /// datagram from its server, laid out in the datagram group as rotor lays one out.
 fn message(self: anytype, op: []const u8, slot: usize, reply: fixtures.Reply) Error!void {

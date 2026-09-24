@@ -101,8 +101,8 @@ bound that does the work.
 ## Step 3, the state machine
 
 The lookup's checks and transitions, broken against `zig build test-resolver`. Sixteen mutations,
-sixteen `CAUGHT` — two after a test was written, and one of those after a fixture that could reach
-the path at all.
+sixteen `CAUGHT` — three after a test was written, one of those after a fixture that could reach
+the path at all, and S8 again on 2026-09-24, below.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
@@ -113,7 +113,7 @@ the path at all.
 | S5 | the qname goes out uncased | RFC 5452 §9.2 | the folded-case test | CAUGHT |
 | S6 | a response is read whatever the state | §5 | the after-settled test | CAUGHT |
 | S7 | truncation over TCP is obeyed | RFC 7766 §5 | **a test written for it** | CAUGHT |
-| S8 | a malformed answer fails the lookup | §16 decision 10 | the malformed-section test | CAUGHT |
+| S8 | a malformed answer fails the lookup | §16 decision 10 | the malformed-section test; since 2026-09-24 the wrong-length address test | CAUGHT |
 | S9 | a failed chain walk leaves the name moved | §5 CNAME policy | **the CNAME-loop fixture** | CAUGHT |
 | S10 | NXDOMAIN moves to the next server | §5 search policy | the candidate walk test | CAUGHT |
 | S11 | FORMERR does not turn EDNS0 off | RFC 6891 §6.2.2 | the FORMERR test | CAUGHT |
@@ -147,12 +147,12 @@ rebuilt from them against the code as it is, and a rebuilt one is the mutation k
   replay.
 - DoH's DNS half: DH1 to DH21.
 - An answer's TTL and DoQ's DNS half: TT1 to TT8 and QU1 to QU9.
-- Step 14: A1 to A24 but A6, and H1 to H6; and the walks' A1 to A3 and N1 to N3.
+- Step 14: A1 to A24 but A6, whose code step 15 replaced, and H1 to H6; and the walks' A1 to A3
+  and N1 to N3.
 
 The Lean model's own mutations, M1, M2, P1 and DM1 to DM3, break the model and its proofs rather
 than the code. `tools/mutations/lean.zon` holds them, and each is run against `zig build
-spec-lean`, the Lean half of `zig build spec` with no TLC. A6 is left out, since step 15 replaced
-its code. `zig build mutations -- <set>` runs a set, each mutation against the step its row
+spec-lean`, the Lean half of `zig build spec` with no TLC. `zig build mutations -- <set>` runs a set, each mutation against the step its row
 names. Run on 2026-09-24, all 105 were caught where the data says, S8 of step 3 after the test
 above was written. The six of the model took 23 seconds.
 
@@ -1028,12 +1028,12 @@ well. R1 was found by review, not by the model. Nine mutations, nine `CAUGHT`.
 
 ## The engine walk's counting
 
-Issue #8, 2026-09-24. The breadth-first walk of the engine model counts a state and its loop
-operations sorted as one state, which is sound only while the model reads `ops` as a multiset.
-`cocuyo-spec check`, the first step of `zig build spec`, walks three small graphs whole, one for
-each transport, and asks every state whether it and its sort agree. Broken in
-`spec/lean/Spec/EngineStep.lean` by giving the model an order-dependent rule. Two mutations, two
-`CAUGHT`.
+Issue #8, 2026-09-24. The Lean walker of the engine model counted a state and its loop operations
+sorted as one state, which is sound only while the model reads `ops` as a multiset. `cocuyo-spec
+check` walked three small graphs whole, one for each transport, and asked every state whether it
+and its sort agreed. Broken in `spec/lean/Spec/EngineStep.lean` by giving the model an
+order-dependent rule. Two mutations, two `CAUGHT`. The walker and its check retired the same day,
+with the Lean engine model: the TLA+ model holds its operations as a bag, so the claim is its own.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |

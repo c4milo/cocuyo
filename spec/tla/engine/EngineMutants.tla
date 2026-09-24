@@ -1,7 +1,8 @@
 ---------------------------- MODULE EngineMutants -----------------------------
 \* The engine's rules broken on purpose, one operator each: the TLS rules as docs/mutations.md's
-\* TM1 to TM3 and R8a to R8d broke the Lean model, and the stream's rule 9 as TQ1 breaks it. A configuration in mutants/ puts one in place of the rule
-\* with TLC's `Rule <- Mutant`, and TLC must find the check that catches it.
+\* TM1 to TM3 and R8a to R8d broke the Lean model, and the stream's rule 9 as TQ1 breaks it. A
+\* configuration in mutants/ puts one in place of the rule with TLC's `Rule <- Mutant`, and TLC
+\* must find the check that catches it.
 EXTENDS Engine
 
 \* TM1: the session's records go to the back of the queue, behind queries not yet sealed.
