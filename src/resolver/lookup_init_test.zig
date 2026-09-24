@@ -1,11 +1,12 @@
-//! What `init` sets up beyond the first candidate: the rotation, the cancel, and the sizes
-//! pinned. Split from `lookup.zig` by the file-length rule.
+//! What `init` sets up: the first query, the case of the name on the wire, the rotation, the
+//! cancel, and the sizes pinned. Split from `lookup.zig` by the file-length rule.
 const std = @import("std");
 const testing = std.testing;
 const core = @import("core");
 const wire = @import("wire");
 const Config = core.Config;
 const Question = core.Question;
+const Name = core.Name;
 const lookup_module = @import("lookup.zig");
 const Lookup = lookup_module.Lookup;
 const State = lookup_module.State;
@@ -15,6 +16,32 @@ const fixtures = @import("fixtures.zig");
 
 const one_server = fixtures.servers_one;
 const three_servers = fixtures.servers_three;
+
+test "a lookup starts ready to send its first query" {
+    const config: Config = .{ .servers = &one_server };
+    var servers_config = Servers.init(&config, 1);
+    var lookup = Lookup.init(&config, &servers_config, try Question.from_text("example.com", .a), 1);
+    try testing.expectEqual(State.query_ready, lookup.state);
+    try testing.expect(lookup.current.equal(&try Name.from_text("example.com")));
+    try testing.expect(lookup.flags.edns_enabled);
+    try testing.expect(lookup.flags.mix_case);
+    try testing.expectEqual(@as(u8, 0), lookup.server_index);
+    try testing.expect(!lookup.is_settled());
+}
+
+test "the name on the wire is cased and the name held is not" {
+    const config: Config = .{ .servers = &one_server };
+    var servers_config = Servers.init(&config, 1);
+    var lookup = Lookup.init(&config, &servers_config, try Question.from_text("example.com", .a), 1);
+    const cased = lookup.cased_name();
+    try testing.expect(cased.equal(&lookup.current));
+    try testing.expect(!std.mem.eql(u8, cased.wire(), lookup.current.wire()));
+
+    const plain: Config = .{ .servers = &one_server, .mix_case = false };
+    var servers_plain = Servers.init(&plain, 1);
+    var without = Lookup.init(&plain, &servers_plain, lookup.question, 1);
+    try testing.expectEqualSlices(u8, without.current.wire(), without.cased_name().wire());
+}
 
 test "rotation starts somewhere in the list, and a lookup without it starts at the first" {
     const rotating: Config = .{ .servers = &three_servers, .rotate = true };

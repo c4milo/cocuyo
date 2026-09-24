@@ -37,7 +37,7 @@ partial def walk (out : IO.FS.Stream) (c : Config) (seen : IO.Ref (Std.HashSet S
     (s : State) (depth : Nat) : IO (Nat × Nat) := do
   let mut lines := 0
   let mut deepest := depth
-  for e in enabled s do
+  for e in enabled c s do
     let (t, o) := step c s e
     out.putStrLn s!"{depth + 1} {eventToken e} {outToken o} {stateToken t}"
     lines := lines + 1
@@ -50,23 +50,24 @@ partial def walk (out : IO.FS.Stream) (c : Config) (seen : IO.Ref (Std.HashSet S
   return (lines, deepest)
 
 /-- The configurations `all` walks: none, one, two or three servers; one to three attempts and
-search candidates; with and without every query over TCP. -/
+search candidates; every query over UDP, over TCP, or over DoH (docs/design.md §22). -/
 def configsAll (hops : Nat) : List Config := Id.run do
   let mut all := [{ servers := 0, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false }]
   for servers in [1, 2, 3] do
     for attempts in [1, 2, 3] do
       for candidates in [1, 2, 3] do
-        for useTcp in [false, true] do
-          all := all ++ [{ servers, attempts, candidates, hopsMax := hops, useTcp }]
+        for (useTcp, https) in [(false, false), (true, false), (false, true)] do
+          all := all ++ [{ servers, attempts, candidates, hopsMax := hops, useTcp, https }]
   return all
 
 /-- The configurations `gate` walks: the slice `zig build test` replays without Lean. One
-server, one attempt and one name reach every reply in every state, the whole CNAME chain and the
-TCP path, in three thousand lines. -/
+server, one attempt and one name reach every reply in every state, the whole CNAME chain, the
+TCP path and the DoH path. -/
 def configsGate (hops : Nat) : List Config :=
   [{ servers := 0, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false },
    { servers := 1, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false },
-   { servers := 1, attempts := 1, candidates := 1, hopsMax := hops, useTcp := true }]
+   { servers := 1, attempts := 1, candidates := 1, hopsMax := hops, useTcp := true },
+   { servers := 1, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false, https := true }]
 
 /-- Writes the transcript of `configs` to `out`. Returns the events written and the deepest. -/
 def transcript (out : IO.FS.Stream) (hops : Nat) (configs : List Config) : IO (Nat × Nat) := do
@@ -74,7 +75,7 @@ def transcript (out : IO.FS.Stream) (hops : Nat) (configs : List Config) : IO (N
   let mut total := 0
   let mut deepest := 0
   for c in configs do
-    out.putStrLn s!"config {c.servers} {c.attempts} {c.candidates} {c.useTcp}"
+    out.putStrLn s!"config {c.servers} {c.attempts} {c.candidates} {c.useTcp} {c.https}"
     let s := init c
     out.putStrLn s!"0 init none {stateToken s}"
     let seen ← IO.mkRef (({} : Std.HashSet State).insert (key s))

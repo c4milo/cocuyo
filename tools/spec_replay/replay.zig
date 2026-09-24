@@ -50,6 +50,14 @@ const servers_all = [_]core.Server{
     .{ .endpoint = .{ .address = core.Address.from_v4(.{ 192, 0, 2, 55 }) } },
 };
 
+/// The same servers spoken to over DoH (docs/design.md §22), for a configuration that asks for it.
+const https: core.Https = .{ .template = "https://dns.example/dns-query{?dns}" };
+const servers_https = [_]core.Server{
+    .{ .endpoint = servers_all[0].endpoint, .https = https },
+    .{ .endpoint = servers_all[1].endpoint, .https = https },
+    .{ .endpoint = servers_all[2].endpoint, .https = https },
+};
+
 /// The search list; a configuration with `candidates` names takes `candidates - 1` of it.
 const search_all = [_][]const u8{ "a.test", "b.test" };
 
@@ -68,6 +76,7 @@ pub const Event = enum {
     send_failed,
     tcp_connected,
     tcp_failed,
+    https_failed,
     cancel,
     reply_unmatched,
     reply_answer,
@@ -85,6 +94,7 @@ pub const Out = enum {
     send_udp,
     connect_tcp,
     send_tcp,
+    send_https,
     wait,
     done,
     failed_name_not_found,
@@ -175,12 +185,16 @@ pub const Replay = struct {
         const attempts = try count(fields.next(), 1, core.constants.attempts_max);
         const candidates = try count(fields.next(), 1, search_all.len + 1);
         const use_tcp = parse(enum { false, true }, fields.next()) orelse return error.Malformed;
+        const over_https = parse(enum { false, true }, fields.next()) orelse return error.Malformed;
         if (fields.next() != null) return error.Malformed;
+        // Every query on a stream and every query over DoH cannot both hold (§22).
+        if (use_tcp == .true and over_https == .true) return error.Malformed;
         for (search_all[0 .. candidates - 1], 0..) |entry, index| {
             self.search[index] = core.Name.from_text(entry) catch unreachable;
         }
+        const servers = if (over_https == .true) &servers_https else &servers_all;
         self.config = .{
-            .servers = servers_all[0..server_count],
+            .servers = servers[0..server_count],
             .attempts = @intCast(attempts),
             .search = self.search[0 .. candidates - 1],
             .ndots = ndots,
@@ -260,6 +274,7 @@ pub const Replay = struct {
             .send_failed => lookup.on_send_failed(self.now_ns),
             .tcp_connected => lookup.on_tcp_connected(self.now_ns),
             .tcp_failed => lookup.on_tcp_failed(self.now_ns),
+            .https_failed => lookup.on_https_failed(lookup.transaction.number, self.now_ns),
             .cancel => lookup.cancel(),
             else => return self.respond(reply_of(event)),
         }
@@ -268,7 +283,11 @@ pub const Replay = struct {
 
     fn respond(self: *Replay, reply: fixtures.Reply) Out {
         const message = fixtures.build(&self.lookup, reply, &self.reply);
-        return switch (self.lookup.on_response(message, self.source(), self.now_ns)) {
+        const verdict = if (self.config.uses_https())
+            self.lookup.on_https_answer(transaction_of(&self.lookup, reply), message, 0, self.now_ns)
+        else
+            self.lookup.on_response(message, self.source(), self.now_ns);
+        return switch (verdict) {
             .accepted => .accepted,
             .ignored => .ignored,
         };
@@ -337,6 +356,13 @@ fn count(token: ?[]const u8, min: usize, max: usize) Error!usize {
     return value;
 }
 
+/// The transaction a DoH answer names: the lookup's own, and for the reply the model calls
+/// unmatched, one the lookup is not on, since over DoH the id is not what is checked (§22).
+fn transaction_of(lookup: *const Lookup, reply: fixtures.Reply) u16 {
+    const number = lookup.transaction.number;
+    return if (reply == .unmatched) number -% 1 else number;
+}
+
 fn reply_of(event: Event) fixtures.Reply {
     return switch (event) {
         .reply_unmatched => .unmatched,
@@ -357,6 +383,7 @@ fn out_of(action: resolver.Action) Out {
         .send_udp => .send_udp,
         .connect_tcp => .connect_tcp,
         .send_tcp => .send_tcp,
+        .send_https => .send_https,
         .wait => .wait,
         .done => .done,
         .failed => |failure| failed_out(failure.err),
@@ -422,7 +449,7 @@ test "the committed slice of the model's transcript replays against the lookup" 
         replay.report(err);
         return err;
     };
-    try testing.expectEqual(@as(usize, 3), replay.configs);
+    try testing.expectEqual(@as(usize, 4), replay.configs);
     try testing.expect(replay.events > 2900);
 }
 
@@ -430,7 +457,7 @@ test "a line where the lookup answers otherwise than the model is a mismatch" {
     const replay = try testing.allocator.create(Replay);
     defer testing.allocator.destroy(replay);
     replay.* = .{};
-    const text = "hops 8\nconfig 1 1 1 false\n0 init none query_ready 0/0/0/0 E---\n" ++
+    const text = "hops 8\nconfig 1 1 1 false false\n0 init none query_ready 0/0/0/0 E---\n" ++
         "1 poll send_tcp query_ready 0/0/0/0 E---\n";
     try testing.expectError(error.Mismatch, replay_text(replay, text));
     try testing.expectEqual(Out.send_udp, replay.mismatch.?.got_out);
@@ -441,7 +468,7 @@ test "a line where the lookup's state drifts from the model's is a mismatch, wha
     const replay = try testing.allocator.create(Replay);
     defer testing.allocator.destroy(replay);
     replay.* = .{};
-    const text = "hops 8\nconfig 1 1 1 false\n0 init none query_ready 0/0/0/0 E---\n" ++
+    const text = "hops 8\nconfig 1 1 1 false false\n0 init none query_ready 0/0/0/0 E---\n" ++
         "1 poll send_udp query_ready 0/0/0/0 ----\n";
     try testing.expectError(error.Mismatch, replay_text(replay, text));
     const mismatch = replay.mismatch.?;
@@ -453,13 +480,15 @@ test "a line in the wrong place, a transcript for other hops, and an empty one a
     defer testing.allocator.destroy(replay);
     const cases = [_]struct { text: []const u8, err: Error }{
         .{ .text = "hops 7\n", .err = error.WrongHops },
-        .{ .text = "config 1 1 1 false\n", .err = error.WrongHops },
-        .{ .text = "hops 8\nconfig 1 1 1 false\n2 poll send_udp query_ready 0/0/0/0 E---\n", .err = error.Malformed },
-        .{ .text = "hops 8\nconfig 1 1 1 false\n1 poll send_udp query_ready 0/0/0/0 E---\n", .err = error.Malformed },
-        .{ .text = "hops 8\nconfig 1 1 1 false\n0 init none\n", .err = error.Malformed },
-        .{ .text = "hops 8\nconfig 4 1 1 false\n", .err = error.Malformed },
-        .{ .text = "hops 8\nconfig 1 1 1 maybe\n", .err = error.Malformed },
-        .{ .text = "hops 8\nconfig 1 1 1 false\n", .err = error.Empty },
+        .{ .text = "config 1 1 1 false false\n", .err = error.WrongHops },
+        .{ .text = "hops 8\nconfig 1 1 1 false false\n2 poll send_udp query_ready 0/0/0/0 E---\n", .err = error.Malformed },
+        .{ .text = "hops 8\nconfig 1 1 1 false false\n1 poll send_udp query_ready 0/0/0/0 E---\n", .err = error.Malformed },
+        .{ .text = "hops 8\nconfig 1 1 1 false false\n0 init none\n", .err = error.Malformed },
+        .{ .text = "hops 8\nconfig 4 1 1 false false\n", .err = error.Malformed },
+        .{ .text = "hops 8\nconfig 1 1 1 maybe false\n", .err = error.Malformed },
+        .{ .text = "hops 8\nconfig 1 1 1 false\n", .err = error.Malformed },
+        .{ .text = "hops 8\nconfig 1 1 1 true true\n", .err = error.Malformed },
+        .{ .text = "hops 8\nconfig 1 1 1 false false\n", .err = error.Empty },
     };
     for (cases) |case| {
         replay.* = .{};

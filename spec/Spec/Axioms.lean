@@ -22,6 +22,9 @@ namespace Spec.Lookup
 /-- info: 'Spec.Lookup.useTcp_never_udp' depends on axioms: [propext] -/
 #guard_msgs in #print axioms useTcp_never_udp
 
+/-- info: 'Spec.Lookup.https_never_stream' depends on axioms: [propext] -/
+#guard_msgs in #print axioms https_never_stream
+
 /-- info: 'Spec.Lookup.step_le' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms step_le
 

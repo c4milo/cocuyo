@@ -14,6 +14,7 @@ pub const edns_options = @import("edns_options.zig");
 pub const ClientSubnet = edns_options.ClientSubnet;
 pub const ExtendedError = edns_options.ExtendedError;
 pub const query = @import("query.zig");
+pub const doh = @import("doh.zig");
 pub const record = @import("record.zig");
 pub const record_copy = @import("record_copy.zig");
 pub const response = @import("response.zig");
@@ -46,6 +47,7 @@ test {
     _ = edns;
     _ = edns_options;
     _ = query;
+    _ = doh;
     _ = record;
     _ = record_copy;
     _ = response;

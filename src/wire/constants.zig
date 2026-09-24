@@ -201,6 +201,13 @@ pub const pointer_offset_mask = 0x3fff;
 /// A pointer is two octets (RFC 1035 §4.1.4).
 pub const pointer_bytes = 2;
 
+/// The longest `dns` variable a DoH GET carries (RFC 8484 §6): the largest query without the TCP
+/// length prefix, 384 octets, in base64url without padding, four characters for three octets,
+/// which is 512 (docs/design.md §22).
+pub const dns_variable_bytes_max = std.base64.url_safe_no_pad.Encoder.calcSize(
+    @import("core").constants.query_bytes_max - @import("core").constants.tcp_prefix_bytes,
+);
+
 comptime {
     const core = @import("core");
     // The header's fields must tile the header exactly, or a parser would read past one of them.

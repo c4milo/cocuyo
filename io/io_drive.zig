@@ -45,6 +45,9 @@ fn act(self: anytype, event: cocuyo.Event, now_ns: u64) bool {
         .done => |answer| return report(self, index, .{ .answer = answer }, now_ns),
         .failed => |failure| return report(self, index, .{ .failure = failure }, now_ns),
         .wait => unreachable,
+        // The engine speaks no HTTP, and `assert_tls` refused a configuration of DoH servers
+        // (docs/design.md §22).
+        .send_https => unreachable,
     }
     return true;
 }

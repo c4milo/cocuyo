@@ -200,6 +200,11 @@ pub const bad_cookie_fresh: Reply = .{ .rcode = .bad_cookie, .cookie = .echo, .s
 /// The A record with the TC bit set: over UDP, the answer that sends a lookup to TCP.
 pub const answer_a_truncated: Reply = .{ .records = &record_a, .ancount = 1, .truncated = true };
 
+/// An A record owned by the question's name, 192.0.2.1, TTL 600: RFC 8484 §5.1's example of a
+/// TTL an HTTP `Age` lowers.
+pub const record_a_600 = [_]u8{ 0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x58, 0x00, 0x04, 192, 0, 2, 1 };
+pub const answer_a_600: Reply = .{ .records = &record_a_600, .ancount = 1 };
+
 /// A reply carrying one MX record, for a question of that type.
 pub const answer_mx: Reply = .{ .records = &record_mx, .ancount = 1 };
 
@@ -320,7 +325,7 @@ pub const Harness = struct {
         return self.lookup.on_response(message, from, self.now_ns);
     }
 
-    fn build(self: *Harness, reply: Reply) []const u8 {
+    pub fn build(self: *Harness, reply: Reply) []const u8 {
         const question = self.question_section();
         // The rcode's low four bits go in the header and the rest in the OPT record's TTL
         // (RFC 6891 §6.1.3), so BADCOOKIE forces an OPT record.

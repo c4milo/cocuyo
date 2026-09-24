@@ -319,7 +319,13 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   twin's session, and `io/io_chapulin.zig` puts chapulin behind it (`-Dchapulin`). Step 6 too:
   `tools/dot_live/run.sh` resolves through `dns.google`, `cloudflare-dns.com` and
   `dns.quad9.net` and is refused a wrong name and a wrong root. DoT is done.
-- Next, DoH's DNS half, the same over HTTP/2 and HTTP/3, whose HTTP is colibri's; then DNS
-  over QUIC (RFC 9250). The owner put DoH over HTTP/3 and DoQ on the roadmap on 2026-09-23. The p99 of the comparison waits for a quiet machine.
+- DoH's DNS half, design §22, landed on 2026-09-24, the same over HTTP/2 and HTTP/3, whose
+  HTTP is colibri's. The owner ruled that the resolver speaks DoH, that colibri's driver expands
+  the URI template while cocuyo supplies the `dns` variable, that a query is cache-friendly (ID
+  0, no 0x20, no cookie, padded), and that a `Config`'s servers are all one kind. `Lookup` asks
+  for `send_https` and takes an answer by its transaction's number; the lookup model gained the
+  transport, and the replay agrees over 82 configurations.
+- Next: DNS over QUIC (RFC 9250), on the roadmap since 2026-09-23. The p99 of the comparison
+  waits for a quiet machine.
 
 §17 holds the questions the owner has not answered.

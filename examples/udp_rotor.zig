@@ -124,6 +124,8 @@ const Driver = struct {
                     break :wait 0;
                 },
                 .wait => |deadline_ns| deadline_ns -| self.clock.read(),
+                // Cleartext servers alone: DoH is an HTTP client's to drive (docs/design.md §22).
+                .send_https => unreachable,
                 .connect_tcp, .send_tcp => {
                     std.debug.print("{s}: the answer needs TCP, which this example does not do\n", .{name});
                     std.process.exit(1);

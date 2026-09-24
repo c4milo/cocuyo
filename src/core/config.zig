@@ -36,6 +36,16 @@ pub const Tls = struct {
     }
 };
 
+/// What a query to a DNS-over-HTTPS server needs (docs/design.md §22): the URI template the
+/// driver expands with the `dns` variable, or POSTs to (RFC 8484 §3, §4.1). cocuyo never reads
+/// it: a URI is HTTP's. The slice is the caller's, as `Config.servers` is.
+pub const Https = struct {
+    template: []const u8,
+};
+
+/// How a configuration's servers are spoken to: every one the same way (docs/design.md §22).
+pub const Transport = enum { cleartext, tls, https };
+
 /// One server: where a query goes over UDP, and the port a TCP connection uses when it differs,
 /// which c-ares configures apart (docs/design.md §19 step 11). Zero means the same port. A
 /// server that speaks TLS takes its connections on its TLS port instead.
@@ -45,6 +55,16 @@ pub const Server = struct {
     /// The TLS every query to this server goes over, or null for none. A configuration has TLS
     /// on every server or on none, which `Config.assert_valid` holds.
     tls: ?Tls = null,
+    /// The HTTPS every query to this server goes over, or null for none (docs/design.md §22).
+    https: ?Https = null,
+
+    /// How this server is spoken to: TLS or HTTPS, never both, or in the clear.
+    pub fn transport(self: *const Server) Transport {
+        assert(self.tls == null or self.https == null);
+        if (self.tls != null) return .tls;
+        if (self.https != null) return .https;
+        return .cleartext;
+    }
 
     /// Where a stream to this server connects. A TLS server's is its TLS port, and never its
     /// cleartext one: a client that asked for TLS does not send a query in the clear (RFC 8310
@@ -143,15 +163,33 @@ pub const Config = struct {
         assert(self.udp_payload_bytes >= constants.udp_payload_bytes_min);
         assert(self.udp_payload_bytes <= constants.message_bytes_max);
         assert(self.lookups.len <= constants.lookup_sources_max);
-        assert(servers_agree_on_tls(self.servers));
+        assert(servers_agree(self.servers));
+        // Every query on a stream means TCP, and a DoH server takes HTTP (docs/design.md §22).
+        assert(!(self.use_tcp and self.uses_https()));
         for (self.servers) |server| {
             if (server.tls) |tls| assert(tls.valid());
         }
     }
 
+    /// How every server of the configuration is spoken to.
+    pub fn transport(self: *const Config) Transport {
+        if (self.servers.len == 0) return .cleartext;
+        return self.servers[0].transport();
+    }
+
     /// Whether the servers are DNS-over-TLS servers. Every one is or none is.
     pub fn uses_tls(self: *const Config) bool {
-        return self.servers.len >= 1 and self.servers[0].tls != null;
+        return self.transport() == .tls;
+    }
+
+    /// Whether the servers are DNS-over-HTTPS servers (docs/design.md §22).
+    pub fn uses_https(self: *const Config) bool {
+        return self.transport() == .https;
+    }
+
+    /// Whether a query goes encrypted, which is when it is padded (RFC 7830 §6).
+    pub fn encrypted(self: *const Config) bool {
+        return self.transport() != .cleartext;
     }
 
     /// Whether every query goes on a stream: `use_tcp` says so, or the servers speak TLS, which
@@ -167,13 +205,15 @@ pub const Config = struct {
     }
 };
 
-/// Whether every server has TLS or none has. A list that mixed them would let a lookup fail
-/// over from an encrypted server to a cleartext one: under RFC 8310's strict profile a server
-/// that cannot be reached encrypted is a hard failure (§5), and a query never falls back
-/// during its resolution (§5.1).
-pub fn servers_agree_on_tls(servers: []const Server) bool {
+/// Whether every server is spoken to one way: in the clear, over TLS or over HTTPS. A list that mixed them would let a
+/// lookup fail over from an encrypted server to a cleartext one: under RFC 8310's strict profile
+/// a server that cannot be reached encrypted is a hard failure (§5), and a query never falls back
+/// during its resolution (§5.1). DoH is held to the same (docs/design.md §22). A server that
+/// named both TLS and HTTPS is refused.
+pub fn servers_agree(servers: []const Server) bool {
     for (servers) |server| {
-        if ((server.tls != null) != (servers[0].tls != null)) return false;
+        if (server.tls != null and server.https != null) return false;
+        if (server.transport() != servers[0].transport()) return false;
     }
     return true;
 }
@@ -222,11 +262,11 @@ test "servers speak TLS all together or not at all, and TLS sends every query on
     const encrypted = [_]Server{ .{ .endpoint = .{ .address = address }, .tls = tls }, .{ .endpoint = .{ .address = address }, .tls = tls } };
     const mixed = [_]Server{ .{ .endpoint = .{ .address = address }, .tls = tls }, .{ .endpoint = .{ .address = address } } };
     const cleartext = [_]Server{ .{ .endpoint = .{ .address = address } }, .{ .endpoint = .{ .address = address } } };
-    try testing.expect(servers_agree_on_tls(&encrypted));
-    try testing.expect(servers_agree_on_tls(&cleartext));
-    try testing.expect(!servers_agree_on_tls(&mixed));
+    try testing.expect(servers_agree(&encrypted));
+    try testing.expect(servers_agree(&cleartext));
+    try testing.expect(!servers_agree(&mixed));
     const reversed = [_]Server{ cleartext[0], encrypted[0] };
-    try testing.expect(!servers_agree_on_tls(&reversed));
+    try testing.expect(!servers_agree(&reversed));
     const config: Config = .{ .servers = &encrypted };
     config.assert_valid();
     try testing.expect(config.uses_tls() and config.streams_only());
@@ -253,6 +293,24 @@ test "a TLS server is known by its name, its pins, or both, and by no more pins 
     const servers = [_]Server{.{ .endpoint = .{ .address = Address.from_v4(.{ 192, 0, 2, 53 }) }, .tls = by_pins }};
     const config: Config = .{ .servers = &servers };
     config.assert_valid();
+}
+
+test "servers speak HTTPS all together, never beside TLS or the clear, and never both at once" {
+    const address = Address.from_v4(.{ 192, 0, 2, 53 });
+    const https: Https = .{ .template = "https://dns.example/dns-query{?dns}" };
+    const tls: Tls = .{ .name = try Name.from_text("dns.example.") };
+    const over_https = [_]Server{ .{ .endpoint = .{ .address = address }, .https = https }, .{ .endpoint = .{ .address = address }, .https = https } };
+    try testing.expect(servers_agree(&over_https));
+    const config: Config = .{ .servers = &over_https };
+    config.assert_valid();
+    try testing.expect(config.uses_https() and !config.uses_tls() and config.encrypted());
+    try testing.expect(!config.streams_only());
+    const beside_tls = [_]Server{ .{ .endpoint = .{ .address = address }, .https = https }, .{ .endpoint = .{ .address = address }, .tls = tls } };
+    const beside_clear = [_]Server{ .{ .endpoint = .{ .address = address } }, .{ .endpoint = .{ .address = address }, .https = https } };
+    const both = [_]Server{.{ .endpoint = .{ .address = address }, .tls = tls, .https = https }};
+    try testing.expect(!servers_agree(&beside_tls));
+    try testing.expect(!servers_agree(&beside_clear));
+    try testing.expect(!servers_agree(&both));
 }
 
 test "primary asks one server, and a configuration may name none" {

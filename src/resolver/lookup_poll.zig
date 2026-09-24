@@ -23,7 +23,7 @@ pub fn poll(self: *Lookup, now_ns: u64, out: []u8) Action {
         self.next_server(now_ns);
     }
     return switch (self.state) {
-        .query_ready => send_udp(self, out),
+        .query_ready => if (self.config.uses_https()) send_https(self, out) else send_udp(self, out),
         .tcp_needed => connect_tcp(self, now_ns),
         .tcp_ready => send_tcp(self, out),
         .awaiting_udp, .awaiting_tcp, .connecting_tcp => .{ .wait = self.deadline_ns },
@@ -49,6 +49,19 @@ fn send_udp(self: *Lookup, out: []u8) Action {
     } };
 }
 
+/// One HTTP request, carrying the message a datagram would, without a length prefix
+/// (docs/design.md §22).
+fn send_https(self: *Lookup, out: []u8) Action {
+    assert(self.state == .query_ready);
+    const message_bytes = build(self, false, out);
+    assert(message_bytes.len <= core.constants.query_bytes_max - core.constants.tcp_prefix_bytes);
+    return .{ .send_https = .{
+        .server_index = self.server_slot(),
+        .message_bytes = message_bytes,
+        .transaction = self.transaction.number,
+    } };
+}
+
 fn connect_tcp(self: *Lookup, now_ns: u64) Action {
     assert(self.state == .tcp_needed);
     self.state = .connecting_tcp;
@@ -68,18 +81,18 @@ fn send_tcp(self: *Lookup, out: []u8) Action {
 /// in the same state builds the same octets every time (docs/design.md §16 decision 3).
 fn build(self: *const Lookup, tcp: bool, out: []u8) []const u8 {
     const query: wire.Query = .{
-        .id = self.transaction.id,
+        // A DoH client "SHOULD use a DNS ID of 0 in every DNS request" (RFC 8484 §4.1), so
+        // that an HTTP cache can share the answer (docs/design.md §22).
+        .id = if (self.config.uses_https()) 0 else self.transaction.id,
         .name = self.cased_name(),
         .kind = self.question.kind,
         .payload_bytes = if (self.flags.edns_enabled) self.config.udp_payload_bytes else null,
         .tcp = tcp,
-        // The cookies of this server ride in the OPT record, so there are none without it
-        // (RFC 7873 §5.1).
-        .cookie = if (self.flags.edns_enabled) self.servers.cookie(self.server_slot()) else null,
+        .cookie = if (self.carries_cookie()) self.servers.cookie(self.server_slot()) else null,
         .recursion_desired = self.config.recursion_desired,
-        // A query to a TLS server goes encrypted, and padding is for that alone (RFC 7830 §6,
-        // docs/design.md §21).
-        .padded = self.config.uses_tls(),
+        // A query to a TLS or an HTTPS server goes encrypted, and padding is for that alone
+        // (RFC 7830 §6, docs/design.md §21 and §22).
+        .padded = self.config.encrypted(),
     };
     const written = wire.query.write(&query, out);
     assert(written >= core.constants.header_bytes);

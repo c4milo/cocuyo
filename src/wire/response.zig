@@ -100,6 +100,14 @@ pub const Answers = struct {
         assert(self.count == 0);
     }
 
+    /// Lowers every TTL by `seconds`, and never below zero: the time an HTTP cache held a DoH
+    /// answer is gone from its lifetime (RFC 8484 §5.1).
+    pub fn age(self: *Answers, kind: Kind, seconds: u32) void {
+        self.ttl_seconds -|= seconds;
+        if (kind.storage() != .rdata) return;
+        for (self.items.records.refs[0..self.count]) |*ref| ref.ttl_seconds -|= seconds;
+    }
+
     /// Copies `src` into `dst` for a question of `kind`: the scalars and the storage in use, and
     /// nothing past `count` or `used`, so a cache put costs what the answer holds and not what
     /// the union can hold.

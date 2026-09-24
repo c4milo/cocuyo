@@ -31,12 +31,14 @@ pub fn on_response(self: *Lookup, message: []const u8, from: Endpoint, now_ns: u
 
 /// What the checks of §7 let through: the header, and what the OPT record said when there was
 /// one.
-const Accepted = struct {
+pub const Accepted = struct {
     header: wire.Header,
     /// The COOKIE option the OPT carried; null for no OPT, or an OPT with no cookie.
     cookie: ?wire.CookieView,
     /// The rcode's eight high bits, from the OPT record's TTL (RFC 6891 §6.1.3).
     extended_rcode_high: u8,
+    /// How long an HTTP cache held a DoH answer, which every TTL loses (RFC 8484 §5.1).
+    age_seconds: u32 = 0,
 };
 
 /// Every check of §7, in order. Returns what was read when the message is ours, and null when it
@@ -48,15 +50,31 @@ fn accepted_header(
     cased: *const core.Name,
 ) ?Accepted {
     if (self.state != .awaiting_udp and self.state != .awaiting_tcp) return null;
-    // 1. A message too short to hold a header, or longer than a message can be.
-    if (message.len > core.constants.message_bytes_max) return null;
-    const header = wire.header.parse(message) catch return null;
+    // Over DoH an answer comes by its transaction, and never as a datagram (docs/design.md §22).
+    if (self.config.uses_https()) return null;
+    const header = header_of(message) orelse return null;
     // 2. The transaction id: sixteen bits, and the most selective check there is.
     if (header.id != self.transaction.id) return null;
     // 3. The source: this server, on this port. An answer from the right host on the wrong port is
     //    not an answer to our query (RFC 5452 §4.4, §4.5).
     const server = if (self.state == .awaiting_tcp) self.server_tcp() else self.server();
     if (!server.equal(&from)) return null;
+    return accepted_shape(self, message, header, cased);
+}
+
+/// 1. A message too short to hold a header, or longer than a message can be.
+pub fn header_of(message: []const u8) ?wire.Header {
+    if (message.len > core.constants.message_bytes_max) return null;
+    return wire.header.parse(message) catch null;
+}
+
+/// Checks 4 to 6 of §7, which an answer over DoH passes as well (docs/design.md §22).
+pub fn accepted_shape(
+    self: *const Lookup,
+    message: []const u8,
+    header: wire.Header,
+    cased: *const core.Name,
+) ?Accepted {
     // 4. A response to a standard query, not a query and not another opcode.
     if (!header.is_response()) return null;
     if (header.opcode() != wire.constants.opcode_query) return null;
@@ -88,7 +106,7 @@ fn opt_of(message: []const u8, cased: *const core.Name) ?OptFields {
 /// server cookie (RFC 7873 §5.3). Before that, a response with no cookie is a server without
 /// them, and it stands. A lookup that sent no OPT record expects nothing back.
 fn cookie_accepted(self: *const Lookup, cookie: ?wire.CookieView) bool {
-    if (!self.flags.edns_enabled) return true;
+    if (!self.carries_cookie()) return true;
     const mine = self.servers.state(self.server_slot());
     if (cookie) |view| return std.mem.eql(u8, view.client, &mine.cookie_client);
     return !self.servers.expecting(self.server_slot());
@@ -97,14 +115,14 @@ fn cookie_accepted(self: *const Lookup, cookie: ?wire.CookieView) bool {
 /// Caches the server cookie a response carried, even an error response (RFC 7873 §5.3). The
 /// client cookie beside it was checked already.
 fn learn_cookie(self: *Lookup, cookie: ?wire.CookieView) void {
-    if (!self.flags.edns_enabled) return;
+    if (!self.carries_cookie()) return;
     const view = cookie orelse return;
     if (view.server.len == 0) return;
     self.servers.learn(self.server_slot(), view.server);
     assert(self.servers.expecting(self.server_slot()));
 }
 
-fn apply(
+pub fn apply(
     self: *Lookup,
     message: []const u8,
     accepted: Accepted,
@@ -118,7 +136,7 @@ fn apply(
     learn_cookie(self, accepted.cookie);
     // Truncation over UDP sends this server's answer to TCP. Over TCP it means nothing: a stream
     // has no size limit to overflow (RFC 7766 §5), so the bit is ignored there.
-    if (header.truncated() and self.state == .awaiting_udp and !self.config.ignore_truncation) {
+    if (header.truncated() and !over_stream(self) and !self.config.ignore_truncation) {
         self.state = .tcp_needed;
         return .accepted;
     }
@@ -126,12 +144,12 @@ fn apply(
         header.rcode_bits();
     const rcode = wire.Rcode.from_bits(bits) orelse return .ignored;
     switch (policy.rcode_action(rcode, self.flags.edns_enabled, self.config.check_response)) {
-        .collect => return collect(self, message, cased, now_ns),
+        .collect => return collect(self, message, accepted, cased, now_ns),
         .next_candidate => {
             // NXDOMAIN. The SOA in the authority section says how long a cache may remember it
             // (RFC 2308 §5); a message with no SOA, or a malformed one, says nothing, and nothing
             // is zero, which is not cached.
-            self.negative_ttl_seconds = negative_ttl(message, cased);
+            self.negative_ttl_seconds = negative_ttl(message, cased) -| accepted.age_seconds;
             self.next_candidate(now_ns);
         },
         .next_server => {
@@ -153,7 +171,7 @@ fn apply(
 /// BADCOOKIE (RFC 7873 §5.3): once more with the server cookie just learned, then over TCP, and
 /// a server that answers BADCOOKIE over TCP as well is one that will not answer at all.
 fn on_bad_cookie(self: *Lookup, now_ns: u64) void {
-    if (self.state == .awaiting_tcp) {
+    if (over_stream(self)) {
         self.flags.had_server_failure = true;
         self.next_server(now_ns);
     } else if (self.flags.cookie_retried) {
@@ -165,13 +183,25 @@ fn on_bad_cookie(self: *Lookup, now_ns: u64) void {
     assert(self.state != .awaiting_udp);
 }
 
+/// Whether the answer is read as one over a stream: it came over TCP, or over DoH, where there is
+/// nowhere else to ask (docs/design.md §22).
+fn over_stream(self: *const Lookup) bool {
+    return self.state == .awaiting_tcp or self.config.uses_https();
+}
+
 /// The negative TTL a message carries, or zero. A malformed authority section is not a reason
 /// to refuse a message whose rcode was already acted on; it is a reason not to cache it.
 fn negative_ttl(message: []const u8, cased: *const core.Name) u32 {
     return wire.response.negative_ttl_seconds(message, cased) catch 0;
 }
 
-fn collect(self: *Lookup, message: []const u8, cased: *const core.Name, now_ns: u64) Verdict {
+fn collect(
+    self: *Lookup,
+    message: []const u8,
+    accepted: Accepted,
+    cased: *const core.Name,
+    now_ns: u64,
+) Verdict {
     // The chain walk moves `current`, so it is restored when the walk fails: a lookup must not be
     // left pointing at half a chain by a message it then ignores.
     const before = self.current;
@@ -200,6 +230,9 @@ fn collect(self: *Lookup, message: []const u8, cased: *const core.Name, now_ns: 
         .answered => {
             self.flags.aliased = self.answers.aliased or self.flags.aliased;
             self.cname_hops = self.answers.hops_used;
+            // "DoH clients MUST account for the Age response header field's value" (RFC 8484
+            // §5.1).
+            self.answers.age(self.question.kind, accepted.age_seconds);
             self.state = .done;
         },
         .chain_incomplete => {
@@ -214,7 +247,7 @@ fn collect(self: *Lookup, message: []const u8, cased: *const core.Name, now_ns: 
             self.flags.had_no_data = true;
             // NODATA takes the SOA minimum too (RFC 2308 §2.2), which is where this differs from
             // c-ares (docs/design.md §18).
-            self.negative_ttl_seconds = negative_ttl(message, cased);
+            self.negative_ttl_seconds = negative_ttl(message, cased) -| accepted.age_seconds;
             self.next_candidate(now_ns);
         },
     }
@@ -347,39 +380,6 @@ test "FORMERR asks the same server again without EDNS0, and only once" {
     try testing.expectEqual(@as(u8, 1), harness.lookup.server_index);
 }
 
-test "a CNAME with no target asks the same server about where the chain went" {
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    _ = harness.respond(fixtures.cname_only, servers[0].endpoint);
-    try testing.expect(harness.lookup.current.equal(&try Name.from_text("host.example.net")));
-    try testing.expectEqual(@as(u8, 1), harness.lookup.cname_hops);
-    try testing.expectEqual(@as(u8, 0), harness.lookup.server_index);
-    try testing.expect(harness.poll() == .send_udp);
-}
-
-test "a CNAME re-query draws a new transaction" {
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    const before = harness.lookup.transaction;
-    _ = harness.respond(fixtures.cname_only, servers[0].endpoint);
-    const after = harness.lookup.transaction;
-    try testing.expect(before.id != after.id or before.case_seed != after.case_seed);
-    try testing.expect(before.case_seed != after.case_seed);
-}
-
-test "a chain resolved in one message answers with the canonical name" {
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    _ = harness.respond(fixtures.cname_then_a, servers[0].endpoint);
-    const action = harness.poll();
-    try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 3 }, action.done.addresses[0].slice());
-    try testing.expect(action.done.canonical_name.?.equal(&try Name.from_text("host.example.net")));
-    try testing.expectEqual(@as(u32, 60), action.done.ttl_seconds);
-}
-
 test "a record for a name nobody asked about is not part of the answer" {
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
@@ -442,53 +442,4 @@ test "a truncated response over TCP is not a reason to connect again" {
     try testing.expectEqual(Verdict.accepted, harness.respond(reply, servers[0].endpoint));
     // The answer is read rather than the bit obeyed, so the lookup finishes here.
     try testing.expect(harness.poll() == .done);
-}
-
-test "a CNAME chain that loops fails the lookup, with the name left where it was" {
-    // The chain moves before the hop bound stops it, which is the one path where the collector
-    // has to put the name back: a lookup must not end pointing halfway around a loop.
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    const before = harness.lookup.current;
-    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.cname_loop, servers[0].endpoint));
-    try testing.expectEqualSlices(u8, before.wire(), harness.lookup.current.wire());
-    try testing.expectEqual(@as(u8, 0), harness.lookup.cname_hops);
-    try testing.expectEqual(core.Error.ChainTooLong, harness.poll().failed.err);
-}
-
-test "a chain one hop past the bound across messages fails the lookup" {
-    // Each reply moves the chain one hop, to a name no earlier reply named, so no loop is in any
-    // one message: the bound across messages is what stops it (§5, CNAME policy).
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    var hops: u8 = 0;
-    while (hops < core.constants.cname_hops_max) : (hops += 1) {
-        _ = harness.send();
-        try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.cname_fresh, servers[0].endpoint));
-        try testing.expectEqual(hops + 1, harness.lookup.cname_hops);
-    }
-    _ = harness.send();
-    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.cname_fresh, servers[0].endpoint));
-    try testing.expectEqual(core.Error.ChainTooLong, harness.poll().failed.err);
-}
-
-test "a chain name compressed into the question comes back without cocuyo's own case" {
-    // A server may answer a CNAME whose target shares a suffix with the question, and compress
-    // that suffix to a pointer into the question it echoed. The question carries the case
-    // DNS-0x20 randomised, so the target decodes wearing it. Over sixteen seeds at least one
-    // randomisation puts a capital in that suffix, and none of them may reach the caller.
-    const seed_count = 16;
-    var lookup_seed: u64 = 0;
-    while (lookup_seed < seed_count) : (lookup_seed += 1) {
-        var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-        try harness.start("example.com.", .a, lookup_seed);
-        _ = harness.send();
-        _ = harness.respond(fixtures.cname_into_question, servers[0].endpoint);
-        try testing.expectEqualSlices(
-            u8,
-            (try Name.from_text("host.com")).wire(),
-            harness.lookup.current.wire(),
-        );
-    }
 }

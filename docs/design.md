@@ -74,8 +74,8 @@ Each of these is out of scope on purpose, with the place it would attach.
   colibri's, in colibri's driver, because colibri depends on cocuyo and cocuyo may not depend
   on it back. The owner added DoH over HTTP/3 the same day. RFC 8484 names HTTP/2 as the least
   version it recommends (§5.2), so HTTP/3 carries DoH as it is: the HTTP stays colibri's, and
-  cocuyo's DNS half is the same for both. §21 is DoT's plan and the rulings that shape it;
-  DoH's comes in the section that lands it.
+  cocuyo's DNS half is the same for both. §21 is DoT's plan and the rulings that shape it, and
+  §22 is DoH's DNS half.
 - **DNS over QUIC, on the roadmap since 2026-09-23.** The owner put DoQ (RFC 9250) after DoT
   and DoH's DNS half. RFC 9250 already settles two things. DoQ authenticates as DoT does
   (§5.1), so §21's strict profile carries over. It runs on UDP port 853 with the ALPN token
@@ -241,6 +241,10 @@ pub const Lookup = struct {
     pub fn on_response(self: *Lookup, message: []const u8, from: Endpoint, now_ns: u64) Verdict;
     pub fn on_tcp_connected(self: *Lookup, now_ns: u64) void;
     pub fn on_tcp_failed(self: *Lookup, now_ns: u64) void;
+    /// Over DoH (§22): the response's body to the transaction `send_https` named, and its `Age`;
+    /// or the exchange ended without one.
+    pub fn on_https_answer(self: *Lookup, transaction: u16, message: []const u8, age_seconds: u32, now_ns: u64) Verdict;
+    pub fn on_https_failed(self: *Lookup, transaction: u16, now_ns: u64) void;
     pub fn cancel(self: *Lookup) void;
 };
 
@@ -248,6 +252,9 @@ pub const Action = union(enum) {
     send_udp: struct { server: Endpoint, local_port_hint: u16, message_bytes: []const u8 },
     connect_tcp: Endpoint,
     send_tcp: struct { message_bytes: []const u8 }, // length prefix included
+    // One HTTP request to `config.servers[server_index]` (§22); a GET carries the bytes'
+    // `wire.doh.dns_variable`, and the answer names `transaction`.
+    send_https: struct { server_index: u8, message_bytes: []const u8, transaction: u16 },
     wait: u64,                                      // absolute deadline, monotonic nanoseconds
     done: Answer,
     failed: Failure,
@@ -320,6 +327,9 @@ pub const Resolver = struct {
     pub fn on_send_failed(self: *Resolver, handle: Handle, now_ns: u64) void;
     pub fn on_tcp_connected(self: *Resolver, handle: Handle, now_ns: u64) void;
     pub fn on_tcp_failed(self: *Resolver, handle: Handle, now_ns: u64) void;
+    // Over DoH (§22) an answer comes by handle: HTTP paired it with its request.
+    pub fn on_https_answer(self: *Resolver, handle: Handle, transaction: u16, message: []const u8, age_seconds: u32, now_ns: u64) Verdict;
+    pub fn on_https_failed(self: *Resolver, handle: Handle, transaction: u16, now_ns: u64) void;
 
     pub fn cancel(self: *Resolver, handle: Handle) void;
     /// Frees the slot. Every slice an answer handed out points into it and dies here.
@@ -456,6 +466,15 @@ Eight states: `query_ready`, `awaiting_udp`, `tcp_needed`, `connecting_tcp`, `tc
 | `awaiting_tcp` | `on_response` BADCOOKIE | `query_ready` or `failed` | advance the server, as SERVFAIL does |
 | `done`, `failed` | any | unchanged | `poll` returns the same value; `on_response` is `ignored` |
 
+Over DoH (§22) the lookup keeps the UDP states, and three rows change. `poll` in `query_ready`
+returns `send_https`. An answer comes through `on_https_answer`, and only for the transaction the
+lookup waits on; it is read as one over TCP is, so TC=1 means nothing and BADCOOKIE advances the
+server. And one row is added:
+
+| State | Event | Next state | Effect |
+| --- | --- | --- | --- |
+| `awaiting_udp` | `on_https_failed` for the current transaction | `query_ready` or `failed` | advance the server |
+
 After `send_tcp` the caller reads two bytes, calls `wire.message_len(prefix)`, reads that many
 bytes and passes them to `on_response`. There is no `read` action: the `wait` deadline already
 governs the read, and the framing rule is three lines in the example (§15 step 6).
@@ -534,12 +553,13 @@ and it stops at NODATA.
 
 spec/ holds a model of this section in Lean 4, written from the table and the RFCs rather than from
 the code, and proofs of what the table promises: an ended lookup stays ended, a lookup under
-`use_tcp` never asks for a datagram, its counters stay inside the configuration, and every send
-lowers a measure in a well-founded order, so no sequence of answers makes a lookup retry forever.
-`zig build spec` builds the proofs, then walks every state the model reaches under 55
-configurations and replays each of the 1.77 million transitions against `Lookup`, comparing the
-answer and the whole state after every event. `zig build test` replays a committed slice of
-2,910 of them without Lean. spec/README.md says what the model abstracts and why.
+`use_tcp` never asks for a datagram, a lookup over DoH never asks for a datagram or a stream
+(§22), its counters stay inside the configuration, and every send lowers a measure in a
+well-founded order, so no sequence of answers makes a lookup retry forever. `zig build spec`
+builds the proofs, then walks every state the model reaches under 82 configurations and replays
+each of the 2.0 million transitions against `Lookup`, comparing the answer and the whole state
+after every event. `zig build test` replays a committed slice of 3,302 of them without Lean.
+spec/README.md says what the model abstracts and why.
 
 Building the model and the replay found two defects in the code, fixed on 2026-09-23. A chain
 past `cname_hops_max` was ignored, so the lookup timed out instead of failing with
@@ -2840,3 +2860,89 @@ Checks, one for each piece:
 - The engine model's invariants hold with the handshake stage in, and the replay agrees.
 - A certificate that does not match the name fails the lookup over to the next server, and no
   query goes out on port 53.
+
+## 22. DNS over HTTPS, the DNS half
+
+§1 brought DoH in on 2026-09-23, split: the HTTP that carries it is colibri's, in colibri's
+driver, over HTTP/2 or HTTP/3, and the DNS is cocuyo's. This section is the DNS half's plan,
+and it records the owner's rulings of 2026-09-24. Each piece lands with its checks.
+
+### The owner's rulings of 2026-09-24
+
+- The resolver speaks DoH. DoH servers go in `Config`. The table hands the driver an HTTP request
+  to make for each transaction, and the driver hands each answer back by handle. Search lists, CNAME
+  chains, failover, the cache and the `getaddrinfo` shape all work over DoH as over UDP. A codec
+  alone was the alternative, and it leaves the driver to rebuild cocuyo's policy.
+- The URI template is the driver's to expand (RFC 8484 §3, RFC 6570). cocuyo carries it in
+  `Config` as text it never reads, and hands the driver the `dns` variable's value: the message
+  in base64url, without padding (RFC 8484 §6). A GET expands the template with it; a POST sends
+  the message itself as the body.
+- A query over DoH is cache-friendly. Its ID is 0 (RFC 8484 §4.1). Its name is asked in the case
+  it was given, with no 0x20, and it carries no DNS cookie. So the same question makes the same
+  octets, and an HTTP cache can share the answer. The three anti-spoofing measures it goes
+  without are for a datagram anyone can forge, and TLS already covers them. It is padded to 128
+  octets, as a query over DoT is (RFC 8467 §4.1). A query as over UDP was the alternative, and
+  RFC 8484 §4.1 advises against it: no two requests would be alike.
+- A `Config` names its servers per server, and every server is one kind: cleartext, TLS or
+  HTTPS. `Server` gains `https: ?Https`, and `Https` holds the URI template. Failover never
+  crosses from an encrypted server to a cleartext one, which extends §21's all-or-none rule.
+
+### What an HTTPS server changes
+
+- **The lookup.** A lookup over DoH moves as one over UDP does: one request for each attempt,
+  one answer, and a deadline that moves it on. Its poll asks for `send_https`, which carries the
+  message, the server, and the transaction the answer must name: the transaction's number
+  within the lookup, which sits in padding `Transaction` already had, so a lookup is no larger.
+  The driver says when the request went out, as it says a datagram did.
+- **The answer.** HTTP correlates a request and its response (RFC 8484 §4.1), so an answer comes
+  back by the lookup's handle and the transaction it answers, and not through the key table. An
+  answer for a transaction the lookup has left is dropped, and so is any datagram. Of §7's
+  checks, the ID and the source endpoint are HTTP's, and every other check stands: the question
+  must be the one asked. A truncated answer is taken as one over a stream is, since there is
+  nowhere else to ask. A handle is the caller's until it releases it, as for every other event:
+  an exchange still open then is the driver's to forget.
+- **The TTLs.** Every TTL of an answer, and the negative TTL of RFC 2308, is lowered by the HTTP
+  `Age` the driver reports, and never below zero (RFC 8484 §5.1, a MUST). The cache keeps what
+  is left.
+- **An HTTP failure.** A response that is not 2xx carries no answer (RFC 8484 §4.2.1). The driver
+  retries what HTTP retries, such as a 401 once it has credentials. What reaches the lookup is
+  that this server failed this transaction, and the lookup moves to the next server, counting
+  the failure against this one, as for a connection that failed.
+- **`use_tcp`.** Every query on a stream means TCP, and a DoH server takes HTTP, so
+  `assert_valid` refuses the two together.
+- **The engine.** The engine of §19 step 13 speaks no HTTP, and asserts that its configuration
+  has no HTTPS server. colibri's driver is the one that drives DoH.
+
+### New limits
+
+| Constant | Value | Why |
+| --- | --- | --- |
+| `dns_variable_bytes_max` | 512 | the largest query without its prefix, 384 octets, in base64url without padding |
+| `transactions_per_server_max` | 3 | the query and its two retries on one server, EDNS0 off and a server cookie; it shows a transaction's number never wraps |
+
+### Order and checks
+
+1. `core`: `Server.https`, and `assert_valid` refusing a list of more than one kind. Done
+   2026-09-24.
+2. The lookup's model: an HTTPS transport, its answer by transaction, and its HTTP failure.
+   Design, model, code, in that order (§5). Done 2026-09-24: the theorem that a lookup over DoH
+   never asks for a datagram or a stream, and 27 DoH configurations among the 82 walked.
+3. `wire`: the `dns` variable, base64url without padding (RFC 4648 §5, RFC 8484 §6). Done
+   2026-09-24, as `wire.doh.dns_variable`.
+4. `resolver`: `send_https`, `on_https_answer` and `on_https_failed`, the query's shape, and the
+   `Age`. Done 2026-09-24. The replay of every DoH transition the model reaches agrees with the
+   lookup, and docs/mutations.md DH1 to DH21 and DM1 to DM3 record the checks broken.
+
+Checks, one for each piece:
+
+- A list of two kinds trips `assert_valid`, and a list of one kind passes it.
+- The `dns` variable of a known message is the base64url RFC 4648 §10 gives for its octets,
+  without `=`.
+- A query over DoH has ID 0, the name as given and no cookie, and is padded to 128 octets.
+  RFC 8484 §4.1.1's query for `www.example.com` is, octet for octet, the query cocuyo builds
+  for it without EDNS0.
+- An answer for a transaction the lookup has left is dropped; one for its current transaction
+  is taken.
+- An `Age` of 250 turns a TTL of 600 into 350, and an `Age` past the TTL into 0.
+- An HTTP failure moves the lookup to the next server and counts one failure.
+- The lookup model's theorems hold with HTTPS in, and the replay agrees.

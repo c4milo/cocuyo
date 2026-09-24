@@ -17,7 +17,7 @@ def replyToken : Reply → String
 def eventToken : Event → String
   | .poll => "poll" | .expire => "expire" | .sent => "sent" | .sendFailed => "send_failed"
   | .tcpConnected => "tcp_connected" | .tcpFailed => "tcp_failed" | .cancel => "cancel"
-  | .reply r => "reply_" ++ replyToken r
+  | .httpsFailed => "https_failed" | .reply r => "reply_" ++ replyToken r
 
 def errToken : Err → String
   | .nameNotFound => "name_not_found" | .noData => "no_data" | .timeout => "timeout"
@@ -26,7 +26,7 @@ def errToken : Err → String
 
 def outToken : Out → String
   | .sendUdp => "send_udp" | .connectTcp => "connect_tcp" | .sendTcp => "send_tcp"
-  | .wait => "wait" | .done => "done" | .failed e => "failed_" ++ errToken e
+  | .sendHttps => "send_https" | .wait => "wait" | .done => "done" | .failed e => "failed_" ++ errToken e
   | .accepted => "accepted" | .ignored => "ignored" | .none => "none"
 
 def stageToken : Stage → String

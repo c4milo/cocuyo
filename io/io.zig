@@ -186,6 +186,8 @@ pub fn Engine(comptime options: Options) type {
         /// cleartext on port 853 (RFC 7858 §3.1). And it needs a connection slot for each of its
         /// servers, since a TLS connection is never closed to make room (§21, TLS rule 6).
         pub fn assert_tls(config: *const cocuyo.Config) void {
+            // The engine speaks no HTTP: colibri's driver drives DoH (docs/design.md §22).
+            assert(!config.uses_https());
             if (!config.uses_tls()) return;
             assert(options.tls.enabled);
             assert(config.servers.len <= options.tcp_connections);

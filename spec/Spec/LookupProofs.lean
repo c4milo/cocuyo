@@ -58,7 +58,8 @@ theorem noUdp_of_stage (c : Config) (s : State) (h : c.useTcp = true)
     (hs : s.stage = fresh c ∨ s.stage = .failed) : NoUdp s := by
   rcases hs with hs | hs <;> simp [NoUdp, hs, fresh, h]
 
-theorem poll_noUdp (s : State) (inv : NoUdp s) : NoUdp (poll s).1 ∧ (poll s).2 ≠ .sendUdp := by
+theorem poll_noUdp (c : Config) (s : State) (inv : NoUdp s) :
+    NoUdp (poll c s).1 ∧ (poll c s).2 ≠ .sendUdp := by
   obtain ⟨hq, ha⟩ := inv
   unfold poll NoUdp
   cases hs : s.stage <;> simp_all
@@ -103,17 +104,22 @@ theorem useTcp_never_udp (c : Config) (s : State) (e : Event) (h : c.useTcp = tr
   have hadv : ∀ t, NoUdp (advanceServer c t) := fun t => noUdp_of_stage c _ h (advanceServer_stage c t)
   obtain ⟨hq, ha⟩ := inv
   cases e with
-  | poll => exact poll_noUdp s ⟨hq, ha⟩
+  | poll => exact poll_noUdp c s ⟨hq, ha⟩
   | expire =>
     simp only [step]
     split
-    · exact poll_noUdp _ (hadv s)
-    · exact poll_noUdp s ⟨hq, ha⟩
+    · exact poll_noUdp c _ (hadv s)
+    · exact poll_noUdp c s ⟨hq, ha⟩
   | sent => cases hs : s.stage <;> simp_all [step, NoUdp]
   | sendFailed =>
     cases hs : s.stage <;> simp only [step, hs] <;> first | exact ⟨hadv s, by simp⟩ | exact ⟨⟨hq, ha⟩, by simp⟩ | simp_all
   | tcpConnected => cases hs : s.stage <;> simp_all [step, NoUdp]
   | tcpFailed =>
+    simp only [step]
+    split
+    · exact ⟨hadv s, by simp⟩
+    · exact ⟨⟨hq, ha⟩, by simp⟩
+  | httpsFailed =>
     simp only [step]
     split
     · exact ⟨hadv s, by simp⟩
@@ -129,6 +135,99 @@ theorem useTcp_never_udp (c : Config) (s : State) (e : Event) (h : c.useTcp = tr
     split
     · exact ⟨⟨hq, ha⟩, by simp⟩
     · exact ⟨by simp [NoUdp, fail], by simp⟩
+
+/-! ## Over DoH, no stream and no datagram -/
+
+/-- A state a lookup over DoH can be in: never one that connects, sends or waits on a stream. -/
+def NoStream (s : State) : Prop :=
+  s.stage ≠ .tcpNeeded ∧ s.stage ≠ .connectingTcp ∧ s.stage ≠ .tcpReady ∧ s.stage ≠ .awaitingTcp
+
+/-- What a lookup over DoH never asks for: a datagram, a connection or a stream's send. -/
+def NotPlain (o : Out) : Prop := o ≠ .sendUdp ∧ o ≠ .connectTcp ∧ o ≠ .sendTcp
+
+theorem noStream_of_stage (c : Config) (s : State) (h : c.useTcp = false)
+    (hs : s.stage = fresh c ∨ s.stage = .failed) : NoStream s := by
+  rcases hs with hs | hs <;> simp [NoStream, hs, fresh, h]
+
+theorem init_noStream (c : Config) (h : c.useTcp = false) : NoStream (init c) := by
+  unfold init NoStream fail
+  split <;> simp [fresh, h]
+
+theorem poll_https (c : Config) (s : State) (hh : c.https = true) (inv : NoStream s) :
+    NoStream (poll c s).1 ∧ NotPlain (poll c s).2 := by
+  obtain ⟨h1, h2, h3, h4⟩ := inv
+  unfold poll NoStream NotPlain
+  cases hs : s.stage <;> simp_all
+
+theorem onReply_noStream (c : Config) (s : State) (r : Reply) (h : c.useTcp = false)
+    (inv : NoStream s) : NoStream (onReply c s true r).1 ∧ NotPlain (onReply c s true r).2 := by
+  have hadv : ∀ t, NoStream (advanceServer c t) :=
+    fun t => noStream_of_stage c _ h (advanceServer_stage c t)
+  have hnxt : ∀ t b, NoStream (nextCandidate c t b) :=
+    fun t b => noStream_of_stage c _ h (nextCandidate_stage c t b)
+  cases r with
+  | unmatched => exact ⟨inv, by simp [onReply, NotPlain]⟩
+  | truncated => exact ⟨hnxt s true, by simp [onReply, NotPlain]⟩
+  | answer => exact ⟨by simp [onReply, NoStream], by simp [onReply, NotPlain]⟩
+  | cname =>
+    simp only [onReply]
+    split
+    · exact ⟨by simp [NoStream, fail], by simp [NotPlain]⟩
+    · exact ⟨by simp [NoStream, fresh, h], by simp [NotPlain]⟩
+  | nxdomain => exact ⟨hnxt s false, by simp [onReply, NotPlain]⟩
+  | nodata => exact ⟨hnxt s true, by simp [onReply, NotPlain]⟩
+  | servfail => exact ⟨hadv _, by simp [onReply, NotPlain]⟩
+  | formerr =>
+    simp only [onReply]
+    split
+    · exact ⟨by simp [NoStream, fresh, h], by simp [NotPlain]⟩
+    · exact ⟨hadv _, by simp [NotPlain]⟩
+  | badcookie => exact ⟨hadv _, by simp [onReply, NotPlain]⟩
+
+/-- Over DoH (docs/design.md §22), a lookup never asks for a datagram, a connection or a stream's
+send, whatever the caller tells it: every query it makes is an HTTP request. -/
+theorem https_never_stream (c : Config) (s : State) (e : Event) (hh : c.https = true)
+    (ht : c.useTcp = false) (inv : NoStream s) :
+    NoStream (step c s e).1 ∧ NotPlain (step c s e).2 := by
+  have hadv : ∀ t, NoStream (advanceServer c t) :=
+    fun t => noStream_of_stage c _ ht (advanceServer_stage c t)
+  have none : NotPlain Out.none := by simp [NotPlain]
+  have ignored : NotPlain Out.ignored := by simp [NotPlain]
+  obtain ⟨h1, h2, h3, h4⟩ := inv
+  have keep : NoStream s := ⟨h1, h2, h3, h4⟩
+  cases e with
+  | poll => exact poll_https c s hh keep
+  | expire =>
+    simp only [step]
+    split
+    · exact poll_https c _ hh (hadv s)
+    · exact poll_https c s hh keep
+  | sent => cases hs : s.stage <;> simp_all [step, NoStream, NotPlain]
+  | sendFailed =>
+    cases hs : s.stage <;> simp only [step, hs] <;>
+      first | exact ⟨hadv s, none⟩ | exact ⟨keep, none⟩ | simp_all
+  | tcpConnected => cases hs : s.stage <;> simp_all [step, NoStream, NotPlain]
+  | tcpFailed =>
+    simp only [step]
+    split
+    · exact ⟨hadv s, none⟩
+    · exact ⟨keep, none⟩
+  | httpsFailed =>
+    simp only [step]
+    split
+    · exact ⟨hadv s, none⟩
+    · exact ⟨keep, none⟩
+  | reply r =>
+    cases hs : s.stage <;> simp only [step, hs]
+    all_goals first
+      | (rw [hh]; exact onReply_noStream c s r ht keep)
+      | exact ⟨keep, ignored⟩
+      | simp_all
+  | cancel =>
+    simp only [step]
+    split
+    · exact ⟨keep, none⟩
+    · exact ⟨by simp [NoStream, fail], none⟩
 
 /-! ## A lookup cannot retry forever
 
@@ -222,7 +321,7 @@ theorem lexLe_trans (a b d : Nat × Nat × Nat × Nat × Nat) (h1 : LexLe a b) (
   simp only [LexLe] at h1 h2 ⊢
   omega
 
-theorem poll_le (c : Config) (s : State) : LexLe (measure c (poll s).1) (measure c s) := by
+theorem poll_le (c : Config) (s : State) : LexLe (measure c (poll c s).1) (measure c s) := by
   unfold poll
   cases hs : s.stage <;> simp [measure, LexLe, phase, stagePhase, hs]
 
@@ -292,10 +391,15 @@ theorem step_le (c : Config) (s : State) (e : Event) (g : Good c s) :
       split
       · exact lexLt_le _ _ (advanceServer_lt c s h2)
       · exact lexLe_refl _
+    | httpsFailed =>
+      simp only [step]
+      split
+      · exact lexLt_le _ _ (advanceServer_lt c s h2)
+      · exact lexLe_refl _
     | reply r =>
       cases hs : s.stage <;> simp only [step, hs]
       · exact lexLe_refl _
-      · exact onReply_le c s false r h2 h4 (fun _ => hs)
+      · exact onReply_le c s c.https r h2 h4 (fun _ => hs)
       · exact lexLe_refl _
       · exact lexLe_refl _
       · exact lexLe_refl _
@@ -352,7 +456,7 @@ theorem nextCandidate_good (c : Config) (s : State) (b : Bool) (hc : Sane c) :
   · right; simp; omega
   · left; simp [fail, ended]
 
-theorem poll_good (c : Config) (s : State) (g : Good c s) : Good c (poll s).1 := by
+theorem poll_good (c : Config) (s : State) (g : Good c s) : Good c (poll c s).1 := by
   rcases g with hend | ⟨h1, h2, h3, h4⟩
   · left; unfold poll; cases hs : s.stage <;> simp_all [ended]
   · right; unfold poll; cases hs : s.stage <;> simp_all
@@ -420,10 +524,15 @@ theorem step_good (c : Config) (s : State) (e : Event) (hc : Sane c) (g : Good c
       split
       · exact advanceServer_good c s hc h2 h4 h3
       · exact gs
+    | httpsFailed =>
+      simp only [step]
+      split
+      · exact advanceServer_good c s hc h2 h4 h3
+      · exact gs
     | reply r =>
       cases hs : s.stage <;> simp only [step, hs]
       · exact gs
-      · exact onReply_good c s false r hc h1 h2 h3 h4
+      · exact onReply_good c s c.https r hc h1 h2 h3 h4
       · exact gs
       · exact gs
       · exact gs

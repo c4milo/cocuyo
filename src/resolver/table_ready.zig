@@ -197,3 +197,45 @@ test "a poll that asks for a connection puts its deadline in the bound" {
     try testing.expectEqual(@as(u8, 1), table.resolver.lookup_of(handle).server_index);
     table.resolver.release(handle);
 }
+
+test "the table reports one deadline for every lookup waiting" {
+    var table: Table = .{ .config = .{ .servers = &servers } };
+    table.open();
+    const first = try table.start("one.example.");
+    const second = try table.start("two.example.");
+    try testing.expectEqual(@as(?u64, null), table.resolver.next_deadline_ns());
+    _ = table.poll();
+    table.resolver.on_sent(first, 10);
+    _ = table.poll();
+    table.resolver.on_sent(second, 20);
+    const soonest = table.resolver.next_deadline_ns().?;
+    try testing.expectEqual(table.resolver.lookup_of(first).deadline_ns, soonest);
+    try testing.expect(soonest < table.resolver.lookup_of(second).deadline_ns);
+}
+
+test "a deadline armed after the cache was filled is not missed" {
+    // A lookup on its second pass waits twice as long as a fresh one, so a table that did not
+    // drop its cached deadline when the fresh lookup was sent would hand the caller a timer
+    // running past the fresh lookup's timeout.
+    // One server, so the first wait that expires starts a second pass, which waits twice as long
+    // (docs/design.md §5). With two servers the retry only moves along the list and the two waits
+    // would be the same length.
+    var table: Table = .{ .config = .{ .servers = &fixtures.servers_one } };
+    table.open();
+    const slow = try table.start("slow.example.");
+    _ = table.poll();
+    table.resolver.on_sent(slow, table.now_ns);
+    // Let the first wait expire, which sends the same lookup to the next server on a longer wait.
+    table.now_ns = table.resolver.lookup_of(slow).deadline_ns;
+    _ = table.poll();
+    table.resolver.on_sent(slow, table.now_ns);
+    const slow_deadline = table.resolver.lookup_of(slow).deadline_ns;
+    try testing.expectEqual(slow_deadline, table.resolver.next_deadline_ns().?);
+
+    const fresh = try table.start("fresh.example.");
+    _ = table.poll();
+    table.resolver.on_sent(fresh, table.now_ns);
+    const fresh_deadline = table.resolver.lookup_of(fresh).deadline_ns;
+    try testing.expect(fresh_deadline < slow_deadline);
+    try testing.expectEqual(fresh_deadline, table.resolver.next_deadline_ns().?);
+}

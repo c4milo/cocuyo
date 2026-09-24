@@ -1155,6 +1155,52 @@ test-core`, `test-wire` and `test-resolver`. Seven mutations, seven `CAUGHT`.
 | DT6 | a TLS server's stream goes to its cleartext port | RFC 8310 §5.1 | the all-or-none test; the TLS lookup test | CAUGHT |
 | DT7 | the padding octets are left as the buffer held them | RFC 7830 §3, zero octets | the padded-query test | CAUGHT |
 
+## DoH's DNS half
+
+Design §22: servers speak DoH all together, a query over DoH is cache-friendly, an answer comes
+by its transaction's number and loses its `Age`, and an HTTP failure fails the server. Broken
+against `zig build test-core`, `test-wire` and `test-resolver`, and DH8, DH9, DH15, DH16, DH18
+and DH21 against the lookup replay alone (`zig build test-tools`). The replay catches DH8, DH15
+and DH18. The model abstracts a transaction's number and delivers no datagram over DoH, so the
+other three are the unit tests' alone. DH8 and DH21 first stopped the build with an unused
+parameter; they were rewritten to discard it. Twenty-one mutations, twenty-one `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| DH1 | a server naming both TLS and HTTPS agrees with itself | §22, one kind a server | the all-together test, by `transport`'s assertion | CAUGHT |
+| DH2 | the `dns` variable is standard base64 | RFC 8484 §6, base64url | RFC 8484 §4.1.1's dash test | CAUGHT |
+| DH3 | the `dns` variable keeps its padding | RFC 8484 §6, no `=` | RFC 4648 §10's vectors | CAUGHT |
+| DH4 | a query over DoH carries the transaction id | RFC 8484 §4.1, ID 0 | the query-shape test | CAUGHT |
+| DH5 | a query over DoH mixes the name's case | §22, the same octets | the query-shape test | CAUGHT |
+| DH6 | a query over DoH carries the server's cookie | §22, no cookie | the query-shape test | CAUGHT |
+| DH7 | a query over DoH goes unpadded | RFC 8467 §4.1 | the query-shape test | CAUGHT |
+| DH8 | an answer to any transaction is taken | §22, the answer by transaction | the table's DoH test; the replay | CAUGHT |
+| DH9 | a new transaction keeps the old number | §22, the answer by transaction | the table's failure test | CAUGHT |
+| DH10 | an answer's TTL keeps its `Age` | RFC 8484 §5.1 | the `Age` test | CAUGHT |
+| DH11 | an `Age` past the TTL wraps it | RFC 8484 §5.1, never below zero | the `Age` test | CAUGHT |
+| DH12 | a kept record's TTL keeps its `Age` | RFC 8484 §5.1 | the kept-record test | CAUGHT |
+| DH13 | NXDOMAIN's negative TTL keeps its `Age` | RFC 8484 §5.1, RFC 2308 §5 | the kept-record test | CAUGHT |
+| DH14 | NODATA's negative TTL keeps its `Age` | RFC 8484 §5.1, RFC 2308 §5 | the kept-record test | CAUGHT |
+| DH15 | TC=1 over DoH sends the lookup to TCP | §22, read as a stream | the stream-reading test; the replay | CAUGHT |
+| DH16 | a datagram answers a lookup over DoH | §22, no datagram | the table's DoH test; the datagram test | CAUGHT |
+| DH17 | an HTTP failure counts no failure | §22, the server's failure | the HTTP-failure test | CAUGHT |
+| DH18 | a lookup over DoH asks for a datagram | §22, `send_https` | the table's DoH test; the replay | CAUGHT |
+| DH19 | the table does not follow an accepted DoH answer | §4, every event through the table | the table's DoH test | CAUGHT |
+| DH20 | the table does not follow an HTTP failure | §4, every event through the table | the table's failure test | CAUGHT |
+| DH21 | an HTTP failure for a transaction left moves the lookup | §22, the answer by transaction | the HTTP-failure test | CAUGHT |
+
+The lookup model's DoH rules, broken in `spec/Spec/Lookup.lean`. Each fails a proof, so the
+transcript tool does not build. Each was then replayed against the code from a copy of `spec/`
+without the proofs, and the replay refused each at its first DoH line. DM3 breaks only proof
+scripts written against the rule's shape: no theorem states that an HTTP failure moves the
+lookup on, and the replay is what holds it. Three mutations, three `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| DM1 | a reply over DoH is read as a datagram's | §22, read as a stream | `https_never_stream`; the replay, TC=1 after a chain | CAUGHT |
+| DM2 | a poll over DoH asks for a datagram | §22, `send_https` | `poll_https`, the lemma under `https_never_stream`; the replay, the first poll | CAUGHT |
+| DM3 | an HTTP failure changes nothing | §22, the next server | the replay, the first `https_failed`; the proofs' scripts alone | CAUGHT |
+
 ## One send a stream
 
 The stream's rule 9 (docs/design.md §19 step 13): a connection carries one send at a time, and a

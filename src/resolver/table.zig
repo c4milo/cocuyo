@@ -182,6 +182,28 @@ pub const Resolver = struct {
         self.event(handle, now_ns, Lookup.on_tcp_failed);
     }
 
+    /// Hands the body of a DoH response to the lookup whose request it answers, with the
+    /// transaction `send_https` named and the response's `Age` (docs/design.md §22). HTTP paired
+    /// it with its request, so it comes by handle and not through the key table.
+    pub fn on_https_answer(
+        self: *Resolver,
+        handle: Handle,
+        transaction: u16,
+        message: []const u8,
+        age_seconds: u32,
+        now_ns: u64,
+    ) Verdict {
+        const verdict = self.slot_of(handle).lookup.on_https_answer(transaction, message, age_seconds, now_ns);
+        if (verdict == .accepted) self.follow(handle.index);
+        return verdict;
+    }
+
+    /// The exchange of a DoH request ended without an answer (docs/design.md §22).
+    pub fn on_https_failed(self: *Resolver, handle: Handle, transaction: u16, now_ns: u64) void {
+        self.slot_of(handle).lookup.on_https_failed(transaction, now_ns);
+        self.follow(handle.index);
+    }
+
     /// Settles a lookup as cancelled. The caller still sees one `.failed` for it, and then frees
     /// the slot with `release`. A lookup that has already ended keeps its end: the answer or the
     /// failure stands and is offered once, as it would have been, so every caller may cancel
@@ -222,10 +244,14 @@ pub const Resolver = struct {
         now_ns: u64,
         comptime apply: fn (*Lookup, u64) void,
     ) void {
-        const slot = self.slot_of(handle);
-        apply(&slot.lookup, now_ns);
-        self.rekey(handle.index);
-        ready_module.settle(self, handle.index);
+        apply(&self.slot_of(handle).lookup, now_ns);
+        self.follow(handle.index);
+    }
+
+    /// Follows a lookup an event moved: its new transaction, and where it belongs now.
+    fn follow(self: *Resolver, index: u16) void {
+        self.rekey(index);
+        ready_module.settle(self, index);
     }
 
     fn slot_of(self: *Resolver, handle: Handle) *Slot {
@@ -246,10 +272,7 @@ pub const Resolver = struct {
         // `undefined` until something takes it.
         assert(slot.occupied);
         const verdict = slot.lookup.on_response(message, from, now_ns);
-        if (verdict == .accepted) {
-            self.rekey(index);
-            ready_module.settle(self, index);
-        }
+        if (verdict == .accepted) self.follow(index);
         return verdict;
     }
 
@@ -356,21 +379,6 @@ test "a lookup that drew a new transaction is still reachable" {
     try testing.expectEqual(Verdict.accepted, table.answer(handle));
 }
 
-test "the table reports one deadline for every lookup waiting" {
-    var table: Table = .{ .config = .{ .servers = &servers } };
-    table.open();
-    const first = try table.start("one.example.");
-    const second = try table.start("two.example.");
-    try testing.expectEqual(@as(?u64, null), table.resolver.next_deadline_ns());
-    _ = table.poll();
-    table.resolver.on_sent(first, 10);
-    _ = table.poll();
-    table.resolver.on_sent(second, 20);
-    const soonest = table.resolver.next_deadline_ns().?;
-    try testing.expectEqual(table.resolver.lookup_of(first).deadline_ns, soonest);
-    try testing.expect(soonest < table.resolver.lookup_of(second).deadline_ns);
-}
-
 test "the poll rotates, so one lookup cannot starve another" {
     var table: Table = .{ .config = .{ .servers = &servers } };
     table.open();
@@ -452,31 +460,4 @@ test "two lookups sharing a transaction id are both offered the datagram" {
     // and ignores this datagram, so a walk that stopped there would drop `first`'s answer.
     try testing.expectEqual(Verdict.accepted, table.answer(first));
     try testing.expect(table.resolver.lookup_of(first).state == .done);
-}
-
-test "a deadline armed after the cache was filled is not missed" {
-    // A lookup on its second pass waits twice as long as a fresh one, so a table that did not
-    // drop its cached deadline when the fresh lookup was sent would hand the caller a timer
-    // running past the fresh lookup's timeout.
-    // One server, so the first wait that expires starts a second pass, which waits twice as long
-    // (docs/design.md §5). With two servers the retry only moves along the list and the two waits
-    // would be the same length.
-    var table: Table = .{ .config = .{ .servers = &fixtures.servers_one } };
-    table.open();
-    const slow = try table.start("slow.example.");
-    _ = table.poll();
-    table.resolver.on_sent(slow, table.now_ns);
-    // Let the first wait expire, which sends the same lookup to the next server on a longer wait.
-    table.now_ns = table.resolver.lookup_of(slow).deadline_ns;
-    _ = table.poll();
-    table.resolver.on_sent(slow, table.now_ns);
-    const slow_deadline = table.resolver.lookup_of(slow).deadline_ns;
-    try testing.expectEqual(slow_deadline, table.resolver.next_deadline_ns().?);
-
-    const fresh = try table.start("fresh.example.");
-    _ = table.poll();
-    table.resolver.on_sent(fresh, table.now_ns);
-    const fresh_deadline = table.resolver.lookup_of(fresh).deadline_ns;
-    try testing.expect(fresh_deadline < slow_deadline);
-    try testing.expectEqual(fresh_deadline, table.resolver.next_deadline_ns().?);
 }

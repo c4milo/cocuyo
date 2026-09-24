@@ -27,6 +27,7 @@ pub const Question = core.Question;
 pub const Config = core.Config;
 pub const Server = core.Server;
 pub const Tls = core.Tls;
+pub const Https = core.Https;
 pub const Pin = core.Pin;
 pub const Source = core.Source;
 pub const Hosts = core.Hosts;

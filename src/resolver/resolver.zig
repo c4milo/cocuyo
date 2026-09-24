@@ -58,6 +58,7 @@ test {
     _ = table_memory;
     _ = table_slots;
     _ = @import("table_cancel_test.zig");
+    _ = @import("table_https_test.zig");
     _ = constants;
     _ = @import("lookup_poll.zig");
     _ = @import("lookup_recall.zig");
@@ -65,6 +66,9 @@ test {
     _ = @import("fixtures.zig");
     _ = @import("lookup_records_test.zig");
     _ = @import("lookup_cookie_test.zig");
+    _ = @import("lookup_chain_test.zig");
+    _ = @import("lookup_https.zig");
+    _ = @import("lookup_https_test.zig");
     _ = @import("lookup_init_test.zig");
     _ = @import("lookup_negative_test.zig");
     _ = @import("lookup_config_test.zig");

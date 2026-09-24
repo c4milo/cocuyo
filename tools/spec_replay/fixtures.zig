@@ -15,7 +15,8 @@ const Lookup = @import("resolver").Lookup;
 
 /// What a reply is, once §7's checks and §5's rcode policy have read it: the model's `Reply`.
 pub const Reply = enum {
-    /// The right server and question with an id one off: it fails check 2 of §7.
+    /// The right server and question with an id one off: it fails check 2 of §7. Over DoH, where
+    /// the id is not checked, the replay hands it over as the answer to another transaction.
     unmatched,
     answer,
     cname,

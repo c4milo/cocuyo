@@ -33,9 +33,11 @@ const identity_order: [core.constants.servers_max]u8 = blk: {
 const policy = @import("lookup_policy.zig");
 const poll_module = @import("lookup_poll.zig");
 const response_module = @import("lookup_response.zig");
+const https_module = @import("lookup_https.zig");
 
 pub const State = enum {
-    /// A query is ready to be sent to the current server over UDP.
+    /// A query is ready to be sent to the current server over UDP, or over DoH as one HTTP request
+    /// (docs/design.md §22).
     query_ready,
     /// The query was sent; the wait is on.
     awaiting_udp,
@@ -63,6 +65,12 @@ pub const Action = union(enum) {
     /// (RFC 7766 §8). Then read two octets, call `wire.message_len`, read that many, and hand
     /// them to `on_response`.
     send_tcp: struct { message_bytes: []const u8 },
+    /// Send these bytes to this server over DoH, in one HTTP request (docs/design.md §22): the
+    /// server is `config.servers[server_index]`, and a GET carries `wire.doh.dns_variable` of the
+    /// bytes. Then call `on_sent`, and hand the answer to `on_https_answer` with `transaction`,
+    /// the number of the lookup's transaction, or say the exchange failed with
+    /// `on_https_failed`.
+    send_https: struct { server_index: u8, message_bytes: []const u8, transaction: u16 },
     /// Nothing to do until this instant, in the caller's own monotonic nanoseconds.
     wait: u64,
     done: Answer,
@@ -183,7 +191,9 @@ pub const Lookup = struct {
             .state = .query_ready,
             .flags = .{
                 .edns_enabled = true,
-                .mix_case = config.mix_case,
+                // A query over DoH asks for the name as it was given, so the same question
+                // makes the same octets for an HTTP cache (docs/design.md §22).
+                .mix_case = config.mix_case and !config.uses_https(),
                 .had_no_data = false,
                 .had_server_failure = false,
                 .aliased = false,
@@ -256,6 +266,23 @@ pub const Lookup = struct {
         self.next_server(now_ns);
     }
 
+    /// The answer to a DoH request, the HTTP response's body, and its `Age` in seconds
+    /// (docs/design.md §22).
+    pub fn on_https_answer(
+        self: *Lookup,
+        transaction: u16,
+        message: []const u8,
+        age_seconds: u32,
+        now_ns: u64,
+    ) Verdict {
+        return https_module.on_https_answer(self, transaction, message, age_seconds, now_ns);
+    }
+
+    /// The HTTP exchange of a DoH request ended without an answer (docs/design.md §22).
+    pub fn on_https_failed(self: *Lookup, transaction: u16, now_ns: u64) void {
+        https_module.on_https_failed(self, transaction, now_ns);
+    }
+
     pub fn on_tcp_connected(self: *Lookup, now_ns: u64) void {
         self.see(now_ns);
         assert(self.state == .connecting_tcp);
@@ -320,6 +347,12 @@ pub const Lookup = struct {
         return slot;
     }
 
+    /// Whether the query carries this server's cookies: they ride in the OPT record, so there
+    /// are none without it (RFC 7873 §5.1), and none over DoH (docs/design.md §22).
+    pub fn carries_cookie(self: *const Lookup) bool {
+        return self.flags.edns_enabled and !self.config.uses_https();
+    }
+
     /// The name as it goes on the wire: the current name with its case set from this
     /// transaction's seed.
     pub fn cased_name(self: *const Lookup) Name {
@@ -373,7 +406,9 @@ pub const Lookup = struct {
     /// and case pattern, which is what a re-query must have (docs/design.md §7).
     pub fn restart(self: *Lookup, now_ns: u64) void {
         assert(!self.is_settled());
+        const number = self.transaction.number +% 1;
         self.transaction = self.entropy.transaction();
+        self.transaction.number = number;
         // Every query on a stream when the configuration says so (§19 step 11) or its servers
         // speak TLS (§21): the connection comes first.
         self.state = if (self.config.streams_only()) .tcp_needed else .query_ready;
@@ -442,38 +477,3 @@ pub const Lookup = struct {
         };
     }
 };
-
-// Tests. The transitions are driven in lookup_poll.zig and lookup_response.zig; these pin what
-// `init` sets up and what the advance rules do.
-
-const testing = std.testing;
-
-const fixtures = @import("fixtures.zig");
-const one_server = fixtures.servers_one;
-const three_servers = fixtures.servers_three;
-
-test "a lookup starts ready to send its first query" {
-    const config: Config = .{ .servers = &one_server };
-    var servers_config = Servers.init(&config, 1);
-    var lookup = Lookup.init(&config, &servers_config, try Question.from_text("example.com", .a), 1);
-    try testing.expectEqual(State.query_ready, lookup.state);
-    try testing.expect(lookup.current.equal(&try Name.from_text("example.com")));
-    try testing.expect(lookup.flags.edns_enabled);
-    try testing.expect(lookup.flags.mix_case);
-    try testing.expectEqual(@as(u8, 0), lookup.server_index);
-    try testing.expect(!lookup.is_settled());
-}
-
-test "the name on the wire is cased and the name held is not" {
-    const config: Config = .{ .servers = &one_server };
-    var servers_config = Servers.init(&config, 1);
-    var lookup = Lookup.init(&config, &servers_config, try Question.from_text("example.com", .a), 1);
-    const cased = lookup.cased_name();
-    try testing.expect(cased.equal(&lookup.current));
-    try testing.expect(!std.mem.eql(u8, cased.wire(), lookup.current.wire()));
-
-    const plain: Config = .{ .servers = &one_server, .mix_case = false };
-    var servers_plain = Servers.init(&plain, 1);
-    var without = Lookup.init(&plain, &servers_plain, lookup.question, 1);
-    try testing.expectEqualSlices(u8, without.current.wire(), without.cased_name().wire());
-}
