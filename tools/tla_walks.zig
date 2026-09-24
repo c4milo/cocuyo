@@ -29,6 +29,9 @@ const configurations_max: usize = 32;
 const java_heap = "-Xmx1g";
 /// The bytes the picked walks are written through.
 const output_buffer_bytes: usize = 64 * 1024;
+/// Where Java keeps its temporary files, given for each run: TLC unpacks its standard modules
+/// there, and runs that share a directory read a module another is still writing, and fail.
+const java_temporary_option = "-Djava.io.tmpdir=";
 /// The longest line of a run's output. A state line is a few hundred bytes; TLC's own lines about
 /// an error it met can be longer, and are read only to be reported.
 const line_bytes_max: usize = 64 * 1024;
@@ -191,7 +194,10 @@ fn start(
     defer file.close(init.io);
     const argv = try tlc.argv(arena, .{
         .java_program = project.java_program,
-        .java_options = try std.mem.concat(arena, []const u8, &.{ &.{java_heap}, project.java_options }),
+        .java_options = try std.mem.concat(arena, []const u8, &.{
+            &.{ java_heap, try std.fmt.allocPrint(arena, "{s}{s}", .{ java_temporary_option, states }) },
+            project.java_options,
+        }),
         .workers = "1",
         .jar = jar,
         .states = states,
