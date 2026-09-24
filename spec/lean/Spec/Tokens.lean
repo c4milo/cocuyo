@@ -4,8 +4,8 @@ import Spec.Lookup
 # How a transcript spells things
 
 The tokens the transcripts of `Main.lean` write and `tools/spec_replay/` reads back: one
-spelling each for the lookup's events, answers, stages and states, shared by the lookup's
-transcript and the engine's.
+spelling each for the lookup's events, answers, stages and states. The engine's walks, which TLC
+writes (`spec/tla/engine/EngineTrace.tla`), spell a lookup the same way.
 -/
 namespace Spec.Lookup
 

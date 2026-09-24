@@ -1,7 +1,7 @@
 ----------------------------- MODULE EngineTrace ------------------------------
 \* The engine's walks for the replay (tools/spec_replay/engine_replay.zig): TLC's simulation mode
 \* takes seeded random walks through the model, and `Emit` writes each state as the replay reads
-\* it, the way spec/lean/Spec/EngineWalk.lean wrote them. A walk is not bounded as the check is:
+\* it, the way the Lean walker before it wrote them. A walk is not bounded as the check is:
 \* it ends at its depth. `event` is the token of the event that led to the state, which the replay
 \* applies to the code; an operation is named by its token, since the model's are a bag.
 EXTENDS Engine, TLC

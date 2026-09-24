@@ -1,5 +1,5 @@
 ------------------------------- MODULE EngineIo -------------------------------
-\* The engine's sockets and sends, as spec/lean/Spec/EngineSockets.lean had them: a socket per
+\* The engine's sockets and sends, as the Lean model before it had them: a socket per
 \* server with its receive, the port replaced once it has carried its share while the old one
 \* drains, a receive or a replacement the moment refused asked for again at the next drive, and
 \* the sends of both transports, which lend the slot's buffer (docs/design.md §19 step 13, the

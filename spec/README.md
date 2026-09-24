@@ -1,7 +1,7 @@
 # The lookup and the engine, in Lean and TLA+
 
-`lean/` holds three models in Lean 4, a Lake package; `tla/` holds the engine's in TLA+ as well;
-and `tools/spec_replay/` ties each to the Zig code:
+`lean/` holds two models in Lean 4, a Lake package; `tla/` holds the engine's in TLA+; and
+`tools/spec_replay/` ties each to the Zig code:
 
 - `Lookup`, the state machine of docs/design.md §5, with proofs of what §5 promises of it.
 - The engine's streams and datagrams, the rules of §19 step 13, with invariants checked over
@@ -33,16 +33,18 @@ would agree with the code by construction and prove nothing about it.
     order is well-founded. So no sequence of answers makes a lookup send forever.
 - `lean/Spec/Axioms.lean` pins the axioms each theorem rests on. A proof left unfinished rests on
   `sorryAx`, which changes a pinned line and fails the build.
-- `lean/Spec/Engine.lean`, `lean/Spec/EngineSockets.lean` and `lean/Spec/EngineStep.lean` are the
-  engine model: the table's slots, free list and ready list, the connections, the sockets, the
-  loop's operations, and a `Spec.Lookup` in each slot. `invariants` names what every state must
-  keep.
-- `lean/Spec/EngineWalk.lean` walks the engine model: breadth first to check the invariants in every
-  state reached, and in seeded walks for the replay.
 - `lean/Spec/Address.lean` is the model of both walks, and `lean/Spec/AddressWalk.lean` walks it and
   writes its transcript.
 - `lean/Spec/Tokens.lean` spells states and events for the transcripts.
 - `lean/Main.lean` writes the transcripts the replays read.
+- `tla/engine/EngineTable.tla`, `tla/engine/EngineIo.tla` and `tla/engine/Engine.tla` are the
+  engine model: the table's slots, free list and ready list, the connections, the sockets, the
+  loop's operations, and the lookup's transitions in each slot. `Checks` names what every event
+  must keep.
+- `tla/engine/Engine_*.cfg` are the configurations TLC walks breadth first, and
+  `tla/engine/mutants/` breaks the model's TLS rules with `tla/engine/EngineMutants.tla`.
+- `tla/engine/EngineTrace.tla` writes TLC's walks for the replay, one configuration of
+  `tla/engine/trace/` for each of the replay's.
 
 ## What the lookup model leaves out
 
@@ -90,8 +92,8 @@ tick pass; a lookup waits two ticks. Two faults stand in for a kernel under pres
 refuses every submission for the length of one event, as a full ring does, and every socket open
 fails for the length of one event, as a process with no descriptor left sees.
 
-`cocuyo-spec engine <tcp|udp|tls> <slots> <connections>` walks it breadth first and checks
-sixteen invariants in every state:
+TLC walks it breadth first (`zig build tla`) and checks sixteen rules in every state and every
+event:
 
 - A connection's users are the lookups on it.
 - A lookup is on a connection only while it streams to that connection's server.
@@ -117,11 +119,15 @@ sixteen invariants in every state:
 - A resumed handshake that fails counts no failure against its server and keeps its lookups on
   the connection, unless the loop refuses the connect again.
 
-The walk stops at six operations in flight, two failures a server and three queries a port, since
-nothing else bounds the graph; `engine` takes the first two as its last two arguments, for a
-configuration too big to walk at the defaults. A stream's send may come back short once a message,
-since a second short send takes the path the first took and the model does not count octets. It
-reported, on 2026-09-23:
+Each configuration bounds the operations in flight, the failures a server and the queries a port
+(`OpsMax`, `FailuresMax` and `SentMax`), since nothing else bounds the graph. A stream's send may
+come back short once a message, since a second short send takes the path the first took and the
+model does not count octets.
+
+The model was first written in Lean, and a hand-written walker checked it. It retired on
+2026-09-24, once TLC counted what it counted and the replay read TLC's walks (§16 decision 24).
+Its last results stand. At six operations and two failures, or five and one, it reported on
+2026-09-23:
 
 | Transport | Slots | Connections | Operations, failures | States | Transitions | Invariants |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -132,16 +138,10 @@ reported, on 2026-09-23:
 Two lookups on one TCP connection is where queries queue behind each other (the stream's rule 9),
 and it did not finish at six and two in nine hours, so it was walked at five and one.
 
-Since 2026-09-24 the walk counts a state and the same state with its operations sorted as one.
-The model reads the loop's operations as a multiset: every rule reads them by `any`, `all`, a
-count or an element-wise map, an operation joins at the end, and an event names one by a position
-`enabled` enumerates in full. So the two have the same futures and break the same invariants. The
-walk looks a state up sorted and walks it as the step left it, so a path it reports is one the
-model takes. `cocuyo-spec check`, the first step of `zig build spec`, holds the claim: it walks
-three small graphs whole and asks every state whether it and its sort agree. They are TCP at four
-operations and one failure, UDP at three and one, and TLS at two and none, about 77,000 states
-each, which at those bounds is every state there is (docs/mutations.md CN1 and CN2). Each walk
-also names the kinds of event it never took and the connection stages it never reached.
+From 2026-09-24 the Lean walker counted a state and the same state with its operations sorted as
+one, since the rules read the loop's operations as a multiset. It checked that claim on three
+small graphs whole (docs/mutations.md CN1 and CN2). The TLA+ model makes the claim native: its
+operations are a bag.
 
 The TLS model, one lookup on two connections, walked on 2026-09-24 on an Apple M1 Pro, the
 operations sorted:
@@ -158,17 +158,13 @@ operations sorted:
 Every row took every kind of event and reached every stage, a resumed connection and a kept
 ticket among them. Unsorted, three operations and none was 3,463,580 states and 151 seconds.
 Before the sorting, four and one ran an hour without finishing; the row above took 6.6 GB, on a
-machine busy with other work. The engine model moves to TLA+ (docs/design.md §16 decision 24),
-and these counts are what TLC's must equal.
-
-`cocuyo-spec engine-probe <tcp|udp|tls> <slots> <connections> <seed> <walks> <length>` walks one
-configuration the seeded way below and stops at the first invariant broken, for a quick look before
-the breadth-first walk.
+machine busy with other work. These counts are what TLC's had to equal.
 
 The TLS configurations are walked and replayed like the others. The engine drives the twin's
 session (`src/sim/sim_tls.zig`), whose records carry their plaintext unsealed and whose handshake
-steps are one octet each. A walk's `tls:i:step` puts one step in a record on the receive at `i`,
-an answer comes in a data record, and `lapse:v` drops the ticket kept for server `v`.
+steps are one octet each. A walk's `tls:R0*:flight` puts one step in a record on the receive that
+`R0*` names, an answer comes in a data record, and `lapse:v` drops the ticket kept for server
+`v`.
 
 The replay cannot visit that many states, so it follows walks TLC takes through the TLA+ model
 (below). Each line is an event and the model's whole state after it.
@@ -181,11 +177,11 @@ event handed the engine to be back in its group.
 ## The engine in TLA+
 
 `tla/engine/` holds the engine model in TLA+, checked by TLC through pepegrillo's `tla` tool
-(docs/design.md §16 decision 24). It says what `lean/Spec/Engine.lean`, `EngineSockets.lean` and
-`EngineStep.lean` say, definition by definition: `EngineTable.tla` holds the configuration, the
-lookup's transitions the engine asks of it, the table and the connections; `EngineIo.tla` the
-sockets and the sends; and `Engine.tla` the drive, the events, the checks and the specification.
-The replay reads its walks from TLC, and the Lean engine model retires next (issue #9).
+(docs/design.md §16 decision 24). It was ported from the Lean model, definition by definition:
+`EngineTable.tla` holds the configuration, the lookup's transitions the engine asks of it, the
+table and the connections; `EngineIo.tla` the sockets and the sends; and `Engine.tla` the drive,
+the events, the checks and the specification. The Lean model retired once the replay read its
+walks from TLC.
 
 Three choices make TLC count what the Lean walker counts:
 

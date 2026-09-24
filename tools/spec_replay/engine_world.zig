@@ -1,6 +1,6 @@
 //! One engine of `io/` over the twin in manual mode, driven by the events of the engine model's
-//! transcript (spec/lean/Spec/EngineWalk.lean), and its state written the way the model writes its
-//! own (`stateLine`), so the two can be compared line by line.
+//! walks (spec/tla/engine/EngineTrace.tla), and its state written the way the model writes its
+//! own (`Line`), so the two can be compared line by line.
 //!
 //! The twin performs nothing in manual mode: every operation the engine submits waits until the
 //! transcript ends it, with the outcome it names, which is how the replay reaches the orders

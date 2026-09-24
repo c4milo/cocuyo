@@ -1,6 +1,6 @@
 -------------------------------- MODULE Engine --------------------------------
 \* The engine's drive, its events, the events the caller and the loop may deliver, and what must
-\* hold, as spec/lean/Spec/EngineStep.lean had them. `s` is the engine; `broken` names the checks
+\* hold, as the Lean model before it had them. `s` is the engine; `broken` names the checks
 \* the last event broke, empty in every state of a model that keeps its rules, so it splits no
 \* state and TLC counts what the Lean walker counted. The checks read the event as well as the two
 \* states, which an invariant of TLC's cannot, so the step writes them down and `Clean` asks.

@@ -18,10 +18,10 @@ one, and nothing may depend on it in the other direction.
   ("§5 step 3"). §16 records decisions with the alternatives they beat: if you are about to do
   something §16 rejected, say so and stop, rather than reversing it in code.
 - `docs/mutations.md` — every check, the mutation that breaks it, and the test that catches it.
-- `spec/README.md` — the Lean models of `Lookup`, of the engine, and of the `getaddrinfo` walks,
-  and the replays that check the code against them. A change to a transition of §5, or to a rule
-  of §19 steps 13 and 14, changes the design, then the model, then the code, in that order, and
-  never the model from the code.
+- `spec/README.md` — the Lean models of `Lookup` and of the `getaddrinfo` walks, the TLA+ model of
+  the engine, and the replays that check the code against them. A change to a transition of §5,
+  or to a rule of §19 steps 13 and 14, changes the design, then the model, then the code, in that
+  order, and never the model from the code.
 
 ## Non-negotiables
 
@@ -128,7 +128,7 @@ The architecture depends on every rule in this section.
   build leaves packages beside it. `bench/` is outside the module
   graph and may read a clock; it is linted and formatted like `src/`, and it gets a module graph
   of its own at ReleaseSafe from `build/bench.zig`.
-- `spec/lean/` holds the Lean models of design §5 and of the engine's streams, and the lookup's
+- `spec/lean/` holds the Lean models of design §5 and of §19 step 14, and the lookup's
   proofs, a Lake package of its own that pepegrillo's `lean` tool builds (`tools/lean.zig`).
   `spec/tla/engine/` holds the engine model in TLA+, which TLC checks and walks (design §16
   decision 24). `tools/spec_replay/` holds the Zig replays that drive `Lookup` and the engine down

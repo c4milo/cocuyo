@@ -1,6 +1,5 @@
 import Spec
 import Spec.Tokens
-import Spec.EngineWalk
 import Spec.AddressWalk
 import Std.Data.HashSet
 
@@ -88,53 +87,6 @@ def transcript (out : IO.FS.Stream) (hops : Nat) (configs : List Config) : IO (N
     deepest := max deepest depth
   return (total, deepest)
 
-/-- The engine walks `zig build test` replays, committed as `tools/spec_replay/engine_gate.txt`:
-the seed, the walks in each configuration, and the most events in one. -/
-def engineGate : Nat × Nat × Nat := (1, 10, 40)
-
-/-- Walks of the full run (`engine-walks 1 2000 200`) the gate keeps as well, each named by its
-configuration's place in `engineConfigs` and its own place among that configuration's walks:
-each is where the full run caught a mutation of the engine that the short slice misses
-(docs/mutations.md). -/
-def engineGatePicks : List (Nat × Nat) := [(6, 120), (6, 329), (6, 392)]
-
-/-- The full run's seed and walk length, which a picked walk is regenerated with. -/
-def engineFull : Nat × Nat := (1, 200)
-
-/-- The engine configurations: every query over TCP with one or two slots and one or two
-connections, every query over UDP with one or two slots and a port replaced every two queries,
-and every query over TLS with one or two slots and a connection for each server (§21, TLS rule
-6). -/
-def engineConfigs : List Spec.Engine.Config :=
-  let tcp := [(1, 1), (1, 2), (2, 1), (2, 2)].map fun (slots, conns) =>
-    { servers := 2, slots, conns, pollsMax := 1000, timeoutTicks := 2, useTcp := true, perPort := 0 }
-  let udp := [1, 2].map fun slots =>
-    { servers := 2, slots, conns := 1, pollsMax := 1000, timeoutTicks := 2, useTcp := false,
-      perPort := 2 }
-  let tls := [1, 2].map fun slots =>
-    { servers := 2, slots, conns := 2, pollsMax := 1000, timeoutTicks := 2, useTcp := true,
-      perPort := 0, tls := true }
-  tcp ++ udp ++ tls
-
-/-- The walks `engineGatePicks` names, each regenerated from its configuration's first walk. -/
-def engineGatePicked (out : IO.FS.Stream) : IO Unit := do
-  let (seed, length) := engineFull
-  for (config, walk) in engineGatePicks do
-    match engineConfigs[config]? with
-    | some c =>
-      let _ ← Spec.Engine.walks out c seed.toUInt64 (walk + 1) length (· = walk)
-    | none => throw <| IO.userError s!"no engine configuration {config}"
-
-/-- The engine's walks, in each configuration. -/
-def engineWalks (out : IO.FS.Stream) (seed count length : Nat) (quiet : Bool) : IO Nat := do
-  let mut total := 0
-  for c in engineConfigs do
-    let (slots, conns) := (c.slots, c.conns)
-    let (events, states) ← Spec.Engine.walks out c seed.toUInt64 count length
-    unless quiet do IO.eprintln s!"config {slots} {conns}: {events} events, {states} states"
-    total := total + events
-  return total
-
 /-- Whether the file at `path` holds exactly what `write` writes. -/
 def same (path : String) (write : IO.FS.Stream → IO Unit) : IO Bool := do
   let buffer ← IO.mkRef ({} : IO.FS.Stream.Buffer)
@@ -144,52 +96,8 @@ def same (path : String) (write : IO.FS.Stream → IO Unit) : IO Bool := do
 def usage : String :=
   "usage: cocuyo-spec all <cname_hops_max>\n" ++
   "       cocuyo-spec gate <cname_hops_max>\n" ++
-  "       cocuyo-spec engine <tcp|udp|tls> <slots> <connections> [<ops_max> <failures_max>]\n" ++
-  "       cocuyo-spec engine-walks <seed> <walks> <length>\n" ++
-  "       cocuyo-spec engine-gate\n" ++
   "       cocuyo-spec walks | walks-gate\n" ++
   "       cocuyo-spec check <cname_hops_max> <lookup gate> <walks gate>"
-
-/-- The configuration `engine` and the canon check walk: two servers, over `transport`. -/
-def engineConfig (transport : String) (slots conns : Nat) : Spec.Engine.Config :=
-  let stream := transport = "tcp" ∨ transport = "tls"
-  { servers := 2, slots, conns, pollsMax := 1000, timeoutTicks := 2, useTcp := stream,
-    perPort := if stream then 0 else 2, tls := transport = "tls" }
-
-/-- Walks one engine configuration breadth first, within `opsMax` operations in flight and
-`failuresMax` failures a server. -/
-def engineCheck (transport slots conns : String) (opsMax failuresMax : Nat) : IO UInt32 := do
-  let c := engineConfig transport slots.toNat! conns.toNat!
-  -- A TLS configuration has a connection slot for each server (§21, TLS rule 6).
-  if c.tls ∧ c.conns < c.servers then
-    IO.eprintln s!"a TLS configuration needs {c.servers} connections"; return 2
-  let found ← Spec.Engine.walk c { opsMax, failuresMax, sentMax := 3 }
-  IO.println s!"{found.states} states, {found.transitions} transitions"
-  let events := Spec.Engine.missing Spec.Engine.eventNames found.events
-  let stages := Spec.Engine.missing Spec.Engine.stageNames found.stages
-  IO.println s!"events never taken: {if events.isEmpty then "none" else ", ".intercalate events}"
-  IO.println s!"stages never reached: {if stages.isEmpty then "none" else ", ".intercalate stages}"
-  match found.broken with
-  | none => IO.println "every invariant holds"; return 0
-  | some (name, path) =>
-    IO.println s!"broken: {name}"
-    for e in path do IO.println s!"  {repr e}"
-    return 1
-
-/-- The claim `Spec.Engine.walk` counts by, that a state and its operations sorted are one, checked
-on every state of three small graphs whole: one for each transport (spec/README.md). -/
-def canonChecks : IO Bool := do
-  let runs := [("tcp", 1, 1, 4, 1), ("udp", 1, 1, 3, 1), ("tls", 1, 2, 2, 0)]
-  for (transport, slots, conns, opsMax, failuresMax) in runs do
-    let c := engineConfig transport slots conns
-    let (checked, broken) ← Spec.Engine.canonCheck c { opsMax, failuresMax, sentMax := 3 }
-    match broken with
-    | none => IO.eprintln s!"canon: {transport} agrees in all {checked} states"
-    | some path =>
-      IO.eprintln s!"canon: {transport} disagrees with its sort after {path.length} events:"
-      for e in path do IO.eprintln s!"  {repr e}"
-      return false
-  return true
 
 def main (args : List String) : IO UInt32 := do
   match args with
@@ -201,24 +109,6 @@ def main (args : List String) : IO UInt32 := do
     let (total, deepest) ← transcript (← IO.getStdout) hops.toNat! configs
     IO.eprintln s!"{total} events, {deepest} deep"
     return 0
-  | ["engine", transport, slots, conns] => engineCheck transport slots conns 6 2
-  | ["engine", transport, slots, conns, ops, failures] =>
-    engineCheck transport slots conns ops.toNat! failures.toNat!
-  | ["engine-probe", transport, slots, conns, seed, count, length] =>
-    -- Seeded walks over one configuration, for a quick look before the breadth-first walk.
-    let stream := transport = "tcp" ∨ transport = "tls"
-    let c : Spec.Engine.Config :=
-      { servers := 2, slots := slots.toNat!, conns := conns.toNat!, pollsMax := 1000,
-        timeoutTicks := 2, useTcp := stream, perPort := if stream then 0 else 2,
-        tls := transport = "tls" }
-    let sink := IO.FS.Stream.ofBuffer (← IO.mkRef {})
-    let (events, states) ← Spec.Engine.walks sink c seed.toNat!.toUInt64 count.toNat! length.toNat!
-    IO.println s!"{events} events, {states} states, every invariant holds"
-    return 0
-  | ["engine-walks", seed, count, length] =>
-    let total ← engineWalks (← IO.getStdout) seed.toNat! count.toNat! length.toNat! false
-    IO.eprintln s!"{total} events"
-    return 0
   | ["walks"] =>
     let total ← Spec.Walks.transcript (← IO.getStdout) Spec.Walks.forwardAll
     IO.eprintln s!"{total} events"
@@ -226,13 +116,7 @@ def main (args : List String) : IO UInt32 := do
   | ["walks-gate"] =>
     let _ ← Spec.Walks.transcript (← IO.getStdout) Spec.Walks.forwardGate
     return 0
-  | ["engine-gate"] =>
-    let (seed, count, length) := engineGate
-    let _ ← engineWalks (← IO.getStdout) seed count length true
-    engineGatePicked (← IO.getStdout)
-    return 0
   | ["check", hops, lookupPath, walksPath] =>
-    unless ← canonChecks do return 1
     let lookupSame ← same lookupPath fun out => do
       let _ ← transcript out hops.toNat! (configsGate hops.toNat!)
     unless lookupSame do

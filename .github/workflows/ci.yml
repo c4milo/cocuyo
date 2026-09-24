@@ -23,8 +23,9 @@
 #
 #   - `spec`: `zig build spec`, the Lean proofs of the lookup's state machine and the replay of
 #     every transition the model reaches against the code, and TLC's walks of the engine model
-#     replayed against the engine (spec/README.md). Lean and TLC are tools the gate must not
-#     require, so the two gates above replay only the committed slices.
+#     replayed against the engine (spec/README.md); then `zig build tla`, TLC over every
+#     configuration of the engine model and every mutant of it. Lean and TLC are tools the gate
+#     must not require, so the two gates above replay only the committed slices.
 #
 #   `engine` and `epoll` are the only jobs that open a socket.
 #
@@ -186,3 +187,5 @@ jobs:
       - run: zig version && lean --version && java -version
       - name: The proofs, the committed slices, and the whole transcripts replayed
         run: zig build spec
+      - name: The engine model checked by TLC, and its mutants refused
+        run: zig build tla

@@ -2078,8 +2078,8 @@ nobody is using is closed after `tcp_idle_ns` (§6.2.3). The chunks arrive in a 
 their own, since a datagram group carries rotor's prefix before every payload, and a group that
 runs dry is the ordinary end of a receive rather than a broken connection.
 
-**The stream's rules, written on 2026-09-23** from RFC 7766 and rotor's decision 5, for the model of
-spec/lean/Spec/Engine.lean to be written from. They are what the engine is held to; where the code
+**The stream's rules, written on 2026-09-23** from RFC 7766 and rotor's decision 5, for the engine
+model to be written from, in Lean then and in `spec/tla/engine/` since 2026-09-24. They are what the engine is held to; where the code
 of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
 
 1. One connection per server, in one of `tcp_connections` slots. A lookup that needs a stream to
@@ -2153,8 +2153,8 @@ the attempt that made it, and the drive goes on until nothing is left.
    at the next drive, so a server always has a socket to send from.
 5. A draining socket's receive is held to rule 1 as the current one's is.
 
-**Checked on 2026-09-23.** spec/lean/Spec/Engine.lean, EngineSockets.lean and EngineStep.lean hold
-both sets of rules above as a model. Each lookup is the model of §5, and around the lookups sit
+**Checked on 2026-09-23.** The engine model, in Lean then and in `spec/tla/engine/` since
+2026-09-24, holds both sets of rules above. Each lookup is the model of §5, and around the lookups sit
 the table's ready list and free list (§11), the connections, the sockets, and the operations the
 loop holds. A configuration asks every query over TCP, or every query over UDP with a port
 replaced every two queries. The model's clock moves in ticks, each the idle close's wait, and a
@@ -2194,6 +2194,7 @@ uniformly random where the Lean walker sought states no walk had reached, so its
 catch fewer of the engine's mutations. The committed walks keep the full run's walks that catch
 the ones they miss. The full run catches three mutations only the twin tests caught before, and
 misses one the Lean walks caught, which no walk the model allows can reach (docs/mutations.md).
+Then the Lean model retired, and CI's `spec` job runs `zig build tla` beside `zig build spec`.
 
 The code of 2026-09-22 broke eleven of these rules, each fixed with the model:
 
@@ -2716,8 +2717,8 @@ rulings of that day with the facts that led to them. Each piece lands with its c
 
 ### The engine's TLS rules, written on 2026-09-23
 
-These extend the stream's rules of §19 step 13, for the model of spec/lean/Spec/Engine.lean to be
-written from before the code is.
+These extend the stream's rules of §19 step 13, for the engine model to be written from before the
+code is.
 
 1. A connection to a TLS server handshakes between its connect and its first query. When the
    connect succeeds, the receive is armed and the session starts, which makes its first flight.

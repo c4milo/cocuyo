@@ -3,8 +3,8 @@
 \* datagram's rules and the TLS rules, and never from the Zig source (spec/README.md). This
 \* module holds the configuration, the lookup's transitions the engine asks of it, the table and
 \* the connections; EngineIo.tla holds the sockets and the sends, and Engine.tla the drive, the
-\* events and the checks. It says what spec/lean/Spec/Engine.lean said, and is held to it by
-\* count (§16 decision 24).
+\* events and the checks. It was ported from the Lean model that came before it, and held to it by
+\* count until that one retired (§16 decision 24).
 \*
 \* Three choices of the port. An absent value is the empty set and a present one a set of one.
 \* The loop's operations are a bag: every rule reads them as a multiset, so an event names an
