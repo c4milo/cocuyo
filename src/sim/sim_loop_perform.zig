@@ -10,6 +10,7 @@ const types = @import("sim_types.zig");
 const buffers = @import("sim_buffers.zig");
 const network_module = @import("sim_network.zig");
 const server = @import("sim_server.zig");
+const tls_module = @import("sim_tls.zig");
 const Loop = @import("sim_loop.zig").Loop;
 const Pending = @import("sim_loop.zig").Pending;
 const Operation = types.Operation;
@@ -100,7 +101,8 @@ fn connect_stream(loop: *Loop, slot: u32, connect: *const Operation.Connect) voi
         loop.queue(slot, refused, loop.now_ns + script.delay_ns_min, true);
         return;
     }
-    const connection = network().open_connection(connect.socket, index) orelse {
+    const tls = connect.address.port == constants.server_tls_port;
+    const connection = network().open_connection(connect.socket, index, tls) orelse {
         loop.queue(slot, Event.failure(user_data, .system_resources), loop.now_ns, true);
         return;
     };
@@ -128,7 +130,8 @@ fn send_stream(loop: *Loop, slot: u32, send: *const Operation.Send) void {
     connection.partial_len += bytes.len;
     var frames: usize = 0;
     while (frames < frames_per_send_max) : (frames += 1) {
-        if (!answer_frame(loop, connection)) break;
+        const answered = if (connection.tls != null) answer_record(loop, connection) else answer_frame(loop, connection);
+        if (!answered) break;
     }
     loop.queue(slot, Event.success(user_data, @intCast(bytes.len)), loop.now_ns, true);
 }
@@ -154,6 +157,49 @@ fn answer_frame(loop: *Loop, connection: *network_module.Connection) bool {
     std.mem.copyForwards(u8, connection.partial[0 .. connection.partial_len - consumed], connection.partial[consumed..connection.partial_len]);
     connection.partial_len -= consumed;
     return true;
+}
+
+/// Answers the first whole record of a TLS connection's partial bytes (docs/design.md §21):
+/// the server side says its handshake steps, and answers the query a data record carries.
+fn answer_record(loop: *Loop, connection: *network_module.Connection) bool {
+    const whole = tls_module.record_len(connection.partial[0..connection.partial_len]) orelse return false;
+    const script = &network().scripts[connection.server];
+    switch (connection.tls.?.hear(&script.tls, connection.partial[0..whole])) {
+        .steps => |steps| {
+            write_inbound_step(loop, connection, script, steps.first);
+            if (steps.second) |second| write_inbound_step(loop, connection, script, second);
+        },
+        .data => |data| answer_sealed(loop, connection, script, data),
+        .nothing, .close => {},
+    }
+    consume(connection, whole);
+    return true;
+}
+
+fn write_inbound_step(loop: *Loop, connection: *network_module.Connection, script: *const server.Script, step: tls_module.Step) void {
+    const room = connection.inbound.len - connection.inbound_len;
+    if (room < constants.tls_record_header_bytes + 1) return;
+    connection.inbound_len += tls_module.write_step(step, connection.inbound[connection.inbound_len..]);
+    connection.available_at_ns = loop.now_ns + script.delay_ns_min;
+}
+
+/// The one framed query a data record carries, answered in a data record of its own.
+fn answer_sealed(loop: *Loop, connection: *network_module.Connection, script: *const server.Script, data: []const u8) void {
+    const prefix = core.constants.tcp_prefix_bytes;
+    if (data.len < prefix or data.len != prefix + wire.message_len(data[0..prefix])) return;
+    var frame: [constants.tls_payload_bytes_max]u8 = undefined;
+    const answer = server.respond(script, &connection.peer, data[prefix..], true, draw(loop), frame[prefix..]) orelse return;
+    wire.header.write_message_len(frame[0..prefix], @intCast(answer.len));
+    const room = connection.inbound.len - connection.inbound_len;
+    if (room < constants.tls_record_header_bytes + prefix + answer.len) return;
+    connection.inbound_len += tls_module.write_record(constants.tls_content_application, frame[0 .. prefix + answer.len], connection.inbound[connection.inbound_len..]);
+    connection.available_at_ns = loop.now_ns + answer.delay_ns;
+}
+
+fn consume(connection: *network_module.Connection, count: usize) void {
+    assert(count <= connection.partial_len);
+    std.mem.copyForwards(u8, connection.partial[0 .. connection.partial_len - count], connection.partial[count..connection.partial_len]);
+    connection.partial_len -= count;
 }
 
 fn receive_stream(loop: *Loop, slot: u32, user_data: u64, receive: *const Operation.Receive) void {

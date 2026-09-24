@@ -102,3 +102,29 @@ pub const dice_servfail_shift = 8;
 pub const dice_nxdomain_shift = 16;
 pub const dice_truncate_shift = 24;
 pub const dice_delay_shift = 32;
+
+/// The port a scripted server speaks the twin's TLS on, and nothing else: RFC 7858 §3.1 keeps it
+/// for DNS over TLS alone.
+pub const server_tls_port = core.constants.port_dns_tls_default;
+
+/// The twin's TLS records keep the shape of a real one (RFC 9846 §5.1): a content type, two
+/// octets of legacy version, and a two-octet length, then that many octets unsealed.
+pub const tls_record_header_bytes = 5;
+pub const tls_content_alert = 21;
+pub const tls_content_handshake = 22;
+pub const tls_content_application = 23;
+pub const tls_legacy_version = 0x0303;
+/// Where the version and the length sit in the header.
+pub const tls_record_version_at = 1;
+pub const tls_record_length_at = 3;
+
+/// A `close_notify` alert: level warning, description `close_notify` (RFC 9846 §6).
+pub const tls_close_notify = [_]u8{ 1, 0 };
+
+/// The most the twin's TLS carries in one record: a framed query at its longest, or a framed
+/// answer the size of the twin's largest datagram.
+pub const tls_payload_bytes_max = core.constants.tcp_prefix_bytes + datagram_bytes_max;
+
+/// What one call to the twin's session may make before the engine takes it out: one record at
+/// its longest.
+pub const tls_out_bytes_max = tls_record_header_bytes + tls_payload_bytes_max;

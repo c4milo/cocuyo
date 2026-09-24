@@ -2721,6 +2721,36 @@ handshakes in full; and a declined ticket counts no failure and keeps its lookup
 connection. The replay drives no TLS
 configuration until step 5, when the engine speaks TLS.
 
+### The session seam, written on 2026-09-24
+
+The engine does not call chapulin by name. It is generic over a `Session` type in its
+`Options`, whose functions are chapulin's record transport in the engine's words:
+
+- `start` stages the first flight, from the server's `Tls`, the wall clock, the engine's seeded
+  stream and a kept ticket;
+- `take_out` hands over the records the session made, in the order it sealed them;
+- `handshake` takes one whole record during the handshake, and says whether the handshake goes
+  on, has ended, or failed;
+- `seal` makes the records of one query;
+- `open` takes one whole record once the session is up, and says what it held: a query's answer,
+  nothing the engine sees (a ticket to keep, a KeyUpdate whose answer it made), the peer's
+  close, or a failure;
+- `close` makes the `close_notify`, and `wipe` drops every secret.
+
+Two types fill it:
+
+- `io/io_chapulin.zig` fills it from chapulin's record transport. It is built only when
+  `-Dchapulin` names a checkout, as colibri's driver links chapulin: the headers are read in
+  place and nothing is vendored.
+- The twin fills it with `sim.tls`, a session whose records carry their plaintext unsealed and
+  whose handshake steps are spelled in the records the twin's server sends. The twin's servers
+  script it, and the replay drives the model's steps with it one by one, so the gate needs no
+  chapulin.
+
+What the fake cannot show is chapulin's to show, in its own suite and in step 6's live check:
+the ciphers, the certificate and pin checks, and the resumption binding. The engine's own work
+is what the fake does show: which records go when, what a lookup hears, and when a slot is free.
+
 ### Limits chapulin sets
 
 - The authentication name is a DNS name. chapulin checks a DNS-ID against the certificate's

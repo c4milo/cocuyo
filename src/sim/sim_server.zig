@@ -34,6 +34,8 @@ pub const Script = struct {
     /// What a connect to it costs, when it is slower than an answer. Zero is `delay_ns_min`.
     connect_delay_ns: u64 = 0,
     ttl_seconds: u32 = constants.answer_ttl_seconds,
+    /// How it speaks the twin's TLS on its TLS port.
+    tls: @import("sim_tls.zig").Behaviour = .{},
 };
 
 pub const Answer = struct { len: usize, delay_ns: u64 };

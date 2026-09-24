@@ -8,6 +8,7 @@ const core = @import("core");
 const constants = @import("constants.zig");
 const types = @import("sim_types.zig");
 const server = @import("sim_server.zig");
+const tls_module = @import("sim_tls.zig");
 const Address = types.Address;
 const Descriptor = types.Descriptor;
 
@@ -53,6 +54,8 @@ pub const Connection = struct {
     inbound_len: usize = 0,
     /// When the bytes queued may be read: the last reply's delay.
     available_at_ns: u64 = 0,
+    /// The server side of the twin's TLS, on a connection to the TLS port (sim_tls.zig).
+    tls: ?tls_module.Peer = null,
 };
 
 pub const Network = struct {
@@ -80,7 +83,8 @@ pub const Network = struct {
     /// sent into the void, and a connection there is refused.
     pub fn server_of(self: *const Network, address: *const Address) ?u8 {
         if (address.family != .ipv4) return null;
-        if (address.port != constants.server_port and address.port != constants.server_tcp_port) return null;
+        const ports = [_]u16{ constants.server_port, constants.server_tcp_port, constants.server_tls_port };
+        if (std.mem.indexOfScalar(u16, &ports, address.port) == null) return null;
         if (!std.mem.eql(u8, address.bytes[0..constants.server_prefix.len], &constants.server_prefix)) return null;
         const octet = address.bytes[constants.server_prefix.len];
         if (octet < constants.server_octet_first) return null;
@@ -131,10 +135,16 @@ pub const Network = struct {
         return null;
     }
 
-    pub fn open_connection(self: *Network, descriptor: Descriptor, server_index: u8) ?u8 {
+    pub fn open_connection(self: *Network, descriptor: Descriptor, server_index: u8, tls: bool) ?u8 {
         for (&self.connections, 0..) |*entry, index| {
             if (entry.open) continue;
-            entry.* = .{ .open = true, .socket = descriptor, .server = server_index, .peer = server_address(server_index) };
+            entry.* = .{
+                .open = true,
+                .socket = descriptor,
+                .server = server_index,
+                .peer = server_address(server_index),
+                .tls = if (tls) .{} else null,
+            };
             return @intCast(index);
         }
         return null;

@@ -12,6 +12,10 @@ pub const Registry = loop_module.Registry;
 pub const Remote = loop_module.Remote;
 pub const sync = network;
 pub const buffers = @import("sim_buffers.zig");
+/// The twin's TLS: a session the engine drives in place of chapulin's, and the server side a
+/// scripted server answers it with (docs/design.md §21). Real rotor has no such thing, which is
+/// how the engine's tests tell the twin from it.
+pub const tls = @import("sim_tls.zig");
 pub const files_block = false;
 pub const supported = true;
 
@@ -46,5 +50,6 @@ test {
     _ = network;
     _ = buffers;
     _ = server;
+    _ = tls;
     _ = @import("sim_scenarios_test.zig");
 }
