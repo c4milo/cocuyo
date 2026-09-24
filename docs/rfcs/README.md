@@ -18,7 +18,9 @@ comes from, and RFC 8467 for the padding a query carries. Each was checked again
 `rfc-editor.org/rfc/rfcNNNN.json` that day: none is obsoleted. RFC 7858 is updated by RFC 8310,
 which is here. RFC 8467 is Experimental, and RFC 8310 §9 points to it for the padding policy.
 RFC 9846, TLS 1.3, came the same day for what the engine owes the session it carries. It
-obsoletes RFC 8446, and RFC 5077 with it, which is the resumption RFC 8310 §9 cites.
+obsoletes RFC 8446, and RFC 5077 with it, which is the resumption RFC 8310 §9 cites. RFC 9250,
+DNS over QUIC, came the same day too, when the owner put DoQ on the roadmap, and RFC 8484, DoH,
+when the owner added DoH over HTTP/3. Both were checked the same way: not obsoleted, not updated.
 
 Read these, never a summary and never another implementation's source. Cite the RFC that *states*
 a rule, not one that inherits it, and cite it by section on the line that does the checking
@@ -82,8 +84,10 @@ updates worth knowing about, none of which version one implements:
 | 7858 | Specification for DNS over Transport Layer Security (TLS) | §3.1 port 853 and no cleartext on it, §3.3 the two-octet length on TLS, §3.4 reuse, pipelining and idle close |
 | 8310 | Usage Profiles for DNS over TLS and DNS over DTLS | §5 the strict profile and its hard failure, §6.6 authentication under it, §7 the authentication domain name, §8.1 the PKIX check against it, §9 the TLS profile |
 | 8467 | Padding Policies for Extension Mechanisms for DNS (EDNS(0)) | §4.1, queries padded to a multiple of 128 octets |
+| 8484 | DNS Queries over HTTPS (DoH) | §5.2 HTTP/2 the minimum recommended version, so HTTP/3 carries DoH as it is; the rest is read when DoH's DNS half lands |
 | 8482 | Providing Minimal-Sized Responses to DNS Queries That Have QTYPE=ANY | §4, what an ANY question may get back, a synthesized HINFO included |
 | 8659 | DNS Certification Authority Authorization (CAA) Resource Record | §4.1, the CAA record's fields |
+| 9250 | DNS over Dedicated QUIC Connections | §4.1 the ALPN token `doq` and UDP port 853, §5.1 authentication as DoT's, the strict profile a SHOULD, §5.2 fallback by usage profile; on the roadmap, not yet implemented |
 | 9846 | The Transport Layer Security (TLS) Protocol Version 1.3 | §5.3 each record's nonce is its sequence number, so records go out in the order they were sealed; §6.1 a `close_notify` before a party closes its write side |
 | 9018 | Interoperable Domain Name System (DNS) Server Cookies | §3, the server cookie's length, which is all a client reads of it |
 | 9460 | Service Binding and Parameter Specification via the DNS (SVCB and HTTPS) | §2.2 the record's fields, §7 the parameters, §2.2 the uncompressed target |

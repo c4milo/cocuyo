@@ -143,7 +143,8 @@ The architecture depends on every rule in this section.
 - Adding anything §1 puts out of scope: DNSSEC, mDNS, zone transfers, nsswitch, IDN, the
   platform resolver configuration of §14. DoT and DoH were decided in on 2026-09-23: DoT in the
   engine, over rotor with chapulin's non-blocking record transport, strict by default (RFC 8310);
-  DoH's DNS half in cocuyo and its HTTP/2 in colibri's driver, which cocuyo may never depend on. The cache (§18) and the gap with c-ares (§19:
+  DoH's DNS half in cocuyo and its HTTP/2 and HTTP/3 in colibri's driver, which cocuyo may never
+  depend on. DNS over QUIC (RFC 9250) joined the roadmap the same day. The cache (§18) and the gap with c-ares (§19:
   every record type, cookies, the hosts file, failover, the engine over rotor) were decided in on
   2026-09-22; what §19 lists as out stays out.
 
@@ -309,6 +310,7 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   what does not wait. `Server.tls` all or none and query padding landed the same day, with
   `query_bytes_max` grown to 386 by the owner's ruling, and so did the engine's TLS rules (§21)
   in the model. The engine's TLS code waits on chapulin.
-- After those, DoH's DNS half. The p99 of the comparison waits for a quiet machine.
+- After those, DoH's DNS half, the same over HTTP/2 and HTTP/3, whose HTTP is colibri's; then DNS
+  over QUIC (RFC 9250). The owner put DoH over HTTP/3 and DoQ on the roadmap on 2026-09-23. The p99 of the comparison waits for a quiet machine.
 
 §17 holds the questions the owner has not answered.

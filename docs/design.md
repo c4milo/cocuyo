@@ -72,8 +72,14 @@ Each of these is out of scope on purpose, with the place it would attach.
   server whose name does not verify fails the lookup rather than falling back to plaintext.
   DoH (RFC 8484) is split: cocuyo supplies its DNS half, and the HTTP/2 that carries it is
   colibri's, in colibri's driver, because colibri depends on cocuyo and cocuyo may not depend
-  on it back. §21 is DoT's plan and the rulings that shape it; DoH's comes in the section that
-  lands it.
+  on it back. The owner added DoH over HTTP/3 the same day. RFC 8484 names HTTP/2 as the least
+  version it recommends (§5.2), so HTTP/3 carries DoH as it is: the HTTP stays colibri's, and
+  cocuyo's DNS half is the same for both. §21 is DoT's plan and the rulings that shape it;
+  DoH's comes in the section that lands it.
+- **DNS over QUIC, on the roadmap since 2026-09-23.** The owner put DoQ (RFC 9250) after DoT
+  and DoH's DNS half. RFC 9250 already settles two things. DoQ authenticates as DoT does
+  (§5.1), so §21's strict profile carries over. It runs on UDP port 853 with the ALPN token
+  `doq` (§4.1). Its home and its plan come in the section that lands it.
 - **No mDNS and no zone transfers.** Out: neither is a stub resolver's.
 - **Record types beyond `A`, `AAAA`, `PTR` and `CNAME`; `/etc/hosts`; A-plus-AAAA in one call;
   TCP reuse and pipelining; DNS cookies; server failover.** Out of version one, and in since
