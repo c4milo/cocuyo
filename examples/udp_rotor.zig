@@ -123,7 +123,10 @@ const Driver = struct {
                     if (!self.sending) try self.queue_send(request);
                     break :wait 0;
                 },
-                .wait => |deadline_ns| deadline_ns -| self.clock.read(),
+                // A tick waits `wait_ns_max` at most, ten seconds, and a longer one halts rotor. A
+                // lookup's deadline can be further off, up to `timeout_ns_max`, so the loop ticks
+                // again until it comes.
+                .wait => |deadline_ns| @min(deadline_ns -| self.clock.read(), rotor.constants.wait_ns_max),
                 // Cleartext servers alone: DoH and DoQ are colibri's to drive (§22, §23).
                 .send_request => unreachable,
                 .connect_tcp, .send_tcp => {
