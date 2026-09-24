@@ -14,6 +14,11 @@
 //! client's side of a handshake 1.5 to 1.9 times faster with it on an Apple M1 Pro
 //! (bench/notes-primitives.md there). cocuyo makes that statement for no part, so the command
 //! above keeps the default, and a builder who can vouch for theirs adds `WIDEMUL=native`.
+//!
+//! `io/io_chapulin.zig` reads chapulin's headers with the defines that command sets. Since
+//! chapulin b29ab76 the object exports its build record, and the session's context compares it
+//! with those headers when it is made: an object built another way stops the program there,
+//! rather than lay its sessions out otherwise unnoticed.
 const std = @import("std");
 const modules = @import("modules.zig");
 

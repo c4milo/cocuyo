@@ -24,6 +24,7 @@ pub const c = @cImport({
     @cDefine("CH_RAND_EXTERN", "1");
     @cInclude("rec.h");
     @cInclude("tls.h");
+    @cInclude("build.h");
 });
 
 /// The stream `ch_rand_bytes` draws from: the starting session's engine's, and only while it
@@ -66,9 +67,20 @@ pub const Session = struct {
         /// `now_ns`.
         pub fn init(anchors: []const c.ch_trust_anchor, seed: [std.Random.ChaCha.secret_seed_length]u8, unix_seconds: u64, now_ns: u64) Context {
             assert(anchors.len <= c.CH_WEBPKI_ANCHOR_MAX);
+            // The object linked must be the one these headers describe: an object built with
+            // other defines lays its sessions out otherwise, and nothing else would say so.
+            if (!built_as_read(&c.ch_build)) {
+                std.debug.panic("chapulin's object was built with other defines than cocuyo reads its headers with: rebuild it as build/dot.zig says", .{});
+            }
             return .{ .anchors = anchors, .stream = std.Random.ChaCha.init(seed), .unix_seconds = unix_seconds, .at_ns = now_ns };
         }
     };
+
+    /// Whether the build record chapulin's object exports matches what its headers give under the
+    /// defines of the import above (chapulin's build.h).
+    fn built_as_read(record: *const c.ch_build_info) bool {
+        return c.ch_build_matches(record) != 0;
+    }
 
     /// A ticket as chapulin handed it to `on_ticket`, copied: the identity, the resumption
     /// secret, the lifetime, the age mask and the binding to the hostname, the anchors and the
@@ -313,6 +325,13 @@ fn keep_ticket(io: ?*anyopaque, ticket: [*c]const c.ch_ticket) callconv(.c) void
 // refuses.
 
 const testing = std.testing;
+
+test "the linked object's build record matches these headers, and one that differs does not" {
+    try testing.expect(Session.built_as_read(&c.ch_build));
+    var other = c.ch_build;
+    other.sizeof_ch_tls += 1;
+    try testing.expect(!Session.built_as_read(&other));
+}
 
 test "a session starts and stages a hello, a TLS handshake record" {
     var context = Session.Context.init(&.{}, @splat(7), 1_700_000_000, 0);
