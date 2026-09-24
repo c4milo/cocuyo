@@ -1,0 +1,582 @@
+// The mutations of the state machine of design §5 and its transports: each breaks the
+// code one way, and must be caught by the check `caught_by` names (docs/mutations.md).
+// tools/mutations.zig runs them. An edit replaces `old`, which must occur once, with `new`.
+.{
+    .{
+        .section = "Step 3, the state machine",
+        .id = "S1",
+        .what = "the transaction id is not checked",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (header.id != self.transaction.id) return null;", .new = "    if (false and header.id != self.transaction.id) return null;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 3, the state machine",
+        .id = "S2",
+        .what = "the source address is not checked",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (!server.equal(&from)) return null;", .new = "    if (server.port != from.port) return null;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 3, the state machine",
+        .id = "S3",
+        .what = "the source port is not compared",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (!server.equal(&from)) return null;", .new = "    if (!server.address.equal(&from.address)) return null;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 3, the state machine",
+        .id = "S4",
+        .what = "the question section is not compared",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (!wire.question.matches(message, cased, self.question.kind)) return null;", .new = "    if (false and !wire.question.matches(message, cased, self.question.kind)) return null;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 3, the state machine",
+        .id = "S5",
+        .what = "the qname goes out uncased",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        if (self.flags.mix_case) wire.name.mix_case(&name, self.transaction.case_seed);", .new = "        if (false and self.flags.mix_case) wire.name.mix_case(&name, self.transaction.case_seed);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 3, the state machine",
+        .id = "S6",
+        .what = "a response is read whatever the state",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (self.state != .awaiting_udp and self.state != .awaiting_tcp) return null;", .new = "    if (false and self.state != .awaiting_udp and self.state != .awaiting_tcp) return null;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    assert(!self.is_settled());\n    return apply(self, message, accepted, &cased, now_ns);", .new = "    return apply(self, message, accepted, &cased, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 3, the state machine",
+        .id = "S7",
+        .what = "truncation over TCP is obeyed",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (header.truncated() and !over_stream(self) and !self.config.ignore_truncation) {", .new = "    if (header.truncated() and !self.config.sends_requests() and !self.config.ignore_truncation) {" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 3, the state machine",
+        .id = "S8",
+        .what = "a malformed answer fails the lookup",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            return .accepted;\n        }\n        return .ignored;\n    };", .new = "            return .accepted;\n        }\n        self.fail(core.Error.MalformedMessage);\n        return .accepted;\n    };" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 3, the state machine",
+        .id = "S9",
+        .what = "a failed chain walk leaves the name moved",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    ) catch |err| {\n        self.current = before;\n", .new = "    ) catch |err| {\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 3, the state machine",
+        .id = "S10",
+        .what = "NXDOMAIN moves to the next server",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_policy.zig", .old = "        .name_error => .next_candidate,", .new = "        .name_error => .next_server," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 3, the state machine",
+        .id = "S11",
+        .what = "FORMERR does not turn EDNS0 off",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            self.flags.edns_enabled = false;\n            self.restart(now_ns);", .new = "            self.restart(now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 3, the state machine",
+        .id = "S12",
+        .what = "a chain re-query keeps its transaction",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            // went, with a new transaction.\n            self.restart(now_ns);", .new = "            // went, with a new transaction.\n            self.state = if (self.config.streams_only()) .tcp_needed else .query_ready;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 3, the state machine",
+        .id = "S13",
+        .what = "the deadline is not armed on a send",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.deadline_ns = policy.deadline_ns(self.config, self.round, now_ns);\n        assert(self.deadline_ns > now_ns);\n    }\n", .new = "    }\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 3, the state machine",
+        .id = "S14",
+        .what = "the wait ends one instant late",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "    return self.is_waiting() and now_ns >= self.deadline_ns;", .new = "    return self.is_waiting() and now_ns > self.deadline_ns;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 3, the state machine",
+        .id = "S15",
+        .what = "the server index does not wrap",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "            self.server_index = 0;\n            self.round += 1;", .new = "            self.round += 1;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 3, the state machine",
+        .id = "S16",
+        .what = "a settled lookup can time out",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "    return self.is_waiting() and now_ns >= self.deadline_ns;", .new = "    return (self.is_waiting() or self.is_settled()) and now_ns >= self.deadline_ns;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The Lean model and the replay",
+        .id = "S1",
+        .what = "a chain past cname_hops_max is ignored",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        if (err == error.ChainTooLong) {", .new = "        if (err == error.MalformedMessage) {" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "The Lean model and the replay",
+        .id = "S2",
+        .what = "TC=1 over TCP is ignored",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (header.truncated() and !over_stream(self) and !self.config.ignore_truncation) {", .new = "    if (header.truncated() and self.state == .awaiting_tcp) return .ignored;\n    if (header.truncated() and !over_stream(self) and !self.config.ignore_truncation) {" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "The Lean model and the replay",
+        .id = "S3",
+        .what = "a connection attempt never expires",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "    return self.is_waiting() and now_ns >= self.deadline_ns;", .new = "    return self.is_waiting() and self.state != .connecting_tcp and now_ns >= self.deadline_ns;" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "The Lean model and the replay",
+        .id = "S4",
+        .what = "the next server keeps the cookie retry",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.flags.cookie_retried = false;\n        self.flags.edns_enabled = true;\n        self.server_index += 1;", .new = "        self.flags.edns_enabled = true;\n        self.server_index += 1;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The Lean model and the replay",
+        .id = "S5",
+        .what = "the next name keeps the pass",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.server_index = 0;\n        self.round = 0;\n        self.cname_hops = 0;", .new = "        self.server_index = 0;\n        self.cname_hops = 0;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The Lean model and the replay",
+        .id = "S6",
+        .what = "EDNS0 stays off at the next server",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.flags.edns_enabled = true;\n        self.server_index += 1;", .new = "        self.server_index += 1;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The Lean model and the replay",
+        .id = "S7",
+        .what = "EDNS0 stays off at the next name",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.flags.edns_enabled = true;\n        self.server_index = 0;", .new = "        self.server_index = 0;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The Lean model and the replay",
+        .id = "S8",
+        .what = "FORMERR without EDNS0 is taken as BADCOOKIE",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_policy.zig", .old = "        .format_error => if (edns_enabled) .retry_without_edns else .next_server,", .new = "        .format_error => if (edns_enabled) .retry_without_edns else .retry_with_cookie," },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "The Lean model and the replay",
+        .id = "S9",
+        .what = "a second BADCOOKIE is retried again",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    } else if (self.flags.cookie_retried) {", .new = "    } else if (false and self.flags.cookie_retried) {" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "The Lean model and the replay",
+        .id = "G1",
+        .what = "the committed slice edited by hand",
+        .edits = .{
+            .{ .file = "tools/spec_replay/lookup_gate.txt", .old = "\n30 reply_truncated accepted tcp_needed 0/0/0/8 ----\n", .new = "\n30 reply_truncated ignored tcp_needed 0/0/0/8 ----\n" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH1",
+        .what = "a server naming both TLS and HTTPS agrees with itself",
+        .edits = .{
+            .{ .file = "src/core/config.zig", .old = "        if (server.kinds() > 1) return false;\n", .new = "        if (false and server.kinds() > 1) return false;\n" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH2",
+        .what = "the dns variable is standard base64",
+        .edits = .{
+            .{ .file = "src/wire/doh.zig", .old = "const encoder = std.base64.url_safe_no_pad.Encoder;", .new = "const encoder = std.base64.standard_no_pad.Encoder;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH3",
+        .what = "the dns variable keeps its padding",
+        .edits = .{
+            .{ .file = "src/wire/doh.zig", .old = "const encoder = std.base64.url_safe_no_pad.Encoder;", .new = "const encoder = std.base64.url_safe.Encoder;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH4",
+        .what = "a query over DoH carries the transaction id",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        .id = if (self.config.sends_requests()) 0 else self.transaction.id,", .new = "        .id = self.transaction.id," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH5",
+        .what = "a query over DoH mixes the name's case",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "                .mix_case = config.mix_case and !config.sends_requests(),", .new = "                .mix_case = config.mix_case," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH6",
+        .what = "a query over DoH carries the server's cookie",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        return self.flags.edns_enabled and !self.config.sends_requests();", .new = "        return self.flags.edns_enabled;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH7",
+        .what = "a query over DoH goes unpadded",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        .padded = self.config.encrypted(),", .new = "        .padded = self.config.encrypted() and !self.config.uses_https()," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH8",
+        .what = "an answer to any transaction is taken",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_request.zig", .old = "    if (!waits_on(self, transaction)) return .ignored;\n", .new = "    _ = transaction;\n    if (self.state != .awaiting_udp) return .ignored;\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH9",
+        .what = "a new transaction keeps the old number",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        const number = self.transaction.number +% 1;", .new = "        const number = self.transaction.number;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH10",
+        .what = "an answer's TTL keeps its Age",
+        .edits = .{
+            .{ .file = "src/wire/response.zig", .old = "        self.ttl_seconds -|= seconds;\n        if (kind.storage() != .rdata) return;", .new = "        if (kind.storage() != .rdata) return;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH11",
+        .what = "an Age past the TTL wraps it",
+        .edits = .{
+            .{ .file = "src/wire/response.zig", .old = "        self.ttl_seconds -|= seconds;\n        if (kind.storage() != .rdata) return;", .new = "        self.ttl_seconds -%= seconds;\n        if (kind.storage() != .rdata) return;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH12",
+        .what = "a kept record's TTL keeps its Age",
+        .edits = .{
+            .{ .file = "src/wire/response.zig", .old = "        for (self.items.records.refs[0..self.count]) |*ref| ref.ttl_seconds -|= seconds;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH13",
+        .what = "NXDOMAIN's negative TTL keeps its Age",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            // is zero, which is not cached.\n            self.negative_ttl_seconds = negative_ttl(self, message, cased, accepted.age_seconds);", .new = "            // is zero, which is not cached.\n            self.negative_ttl_seconds = negative_ttl(self, message, cased, 0);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH14",
+        .what = "NODATA's negative TTL keeps its Age",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            // c-ares (docs/design.md §18).\n            self.negative_ttl_seconds = negative_ttl(self, message, cased, accepted.age_seconds);", .new = "            // c-ares (docs/design.md §18).\n            self.negative_ttl_seconds = negative_ttl(self, message, cased, 0);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH15",
+        .what = "TC=1 over DoH sends the lookup to TCP",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (header.truncated() and !over_stream(self) and !self.config.ignore_truncation) {", .new = "    if (header.truncated() and self.state == .awaiting_udp and !self.config.ignore_truncation) {" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH16",
+        .what = "a datagram answers a lookup over DoH",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (self.config.sends_requests()) return null;", .new = "    if (false and self.config.sends_requests()) return null;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH17",
+        .what = "an HTTP failure counts no failure",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_request.zig", .old = "    if (!waits_on(self, transaction)) return;\n    self.servers.record_failure(self.server_slot(), now_ns);\n", .new = "    if (!waits_on(self, transaction)) return;\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH18",
+        .what = "a lookup over DoH asks for a datagram",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        .query_ready => if (self.config.sends_requests()) send_request(self, out) else send_udp(self, out),", .new = "        .query_ready => send_udp(self, out)," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH19",
+        .what = "the table does not follow an accepted DoH answer",
+        .edits = .{
+            .{ .file = "src/resolver/table.zig", .old = "        if (verdict == .accepted) self.follow(handle.index);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH20",
+        .what = "the table does not follow an HTTP failure",
+        .edits = .{
+            .{ .file = "src/resolver/table.zig", .old = "        self.slot_of(handle).lookup.on_request_failed(transaction, now_ns);\n        self.follow(handle.index);\n", .new = "        self.slot_of(handle).lookup.on_request_failed(transaction, now_ns);\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoH's DNS half",
+        .id = "DH21",
+        .what = "an HTTP failure for a transaction left moves the lookup",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_request.zig", .old = "    if (!waits_on(self, transaction)) return;\n", .new = "    _ = transaction;\n    if (self.state != .awaiting_udp) return;\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoQ's DNS half",
+        .id = "QU1",
+        .what = "a server naming TLS and QUIC agrees with itself",
+        .edits = .{
+            .{ .file = "src/core/config.zig", .old = "            @intFromBool(self.quic != null);", .new = "            0;" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "DoQ's DNS half",
+        .id = "QU2",
+        .what = "a QUIC configuration sends no requests",
+        .edits = .{
+            .{ .file = "src/core/config.zig", .old = "            .https, .quic => true,\n            .cleartext, .tls => false,", .new = "            .https => true,\n            .cleartext, .tls, .quic => false," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoQ's DNS half",
+        .id = "QU3",
+        .what = "a DoQ message goes without its length prefix",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "    const prefixed = self.config.uses_quic();", .new = "    const prefixed = false;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoQ's DNS half",
+        .id = "QU4",
+        .what = "a DoQ query carries the transaction id",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = ".id = if (self.config.sends_requests()) 0 else self.transaction.id,", .new = ".id = if (self.config.uses_https()) 0 else self.transaction.id," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoQ's DNS half",
+        .id = "QU5",
+        .what = "a DoQ query mixes the name's case",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = ".mix_case = config.mix_case and !config.sends_requests(),", .new = ".mix_case = config.mix_case and !config.uses_https()," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoQ's DNS half",
+        .id = "QU6",
+        .what = "a DoQ query carries the server's cookie",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "return self.flags.edns_enabled and !self.config.sends_requests();", .new = "return self.flags.edns_enabled and !self.config.uses_https();" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoQ's DNS half",
+        .id = "QU7",
+        .what = "TC=1 over DoQ sends the lookup to TCP",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    return self.state == .awaiting_tcp or self.config.sends_requests();", .new = "    return self.state == .awaiting_tcp or self.config.uses_https();" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoQ's DNS half",
+        .id = "QU8",
+        .what = "a datagram answers a lookup over DoQ",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (self.config.sends_requests()) return null;", .new = "    if (self.config.uses_https()) return null;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "DoQ's DNS half",
+        .id = "QU9",
+        .what = "a lookup over DoQ asks for a datagram",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = ".query_ready => if (self.config.sends_requests()) send_request(self, out) else send_udp(self, out),", .new = ".query_ready => if (self.config.uses_https()) send_request(self, out) else send_udp(self, out)," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "An answer's TTL",
+        .id = "TT1",
+        .what = "zero reads as \"nothing noted\", as before the fix",
+        .edits = .{
+            .{ .file = "src/wire/response.zig", .old = "    out.ttl_seconds = @min(out.ttl_seconds, ttl_seconds);", .new = "    if (out.ttl_seconds == 0 or ttl_seconds < out.ttl_seconds) out.ttl_seconds = ttl_seconds;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "An answer's TTL",
+        .id = "TT2",
+        .what = "an empty collection's smallest TTL is zero",
+        .edits = .{
+            .{ .file = "src/wire/response.zig", .old = "const ttl_none = std.math.maxInt(u32);", .new = "const ttl_none = 0;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "An answer's TTL",
+        .id = "TT3",
+        .what = "a negative's TTL ignores the CNAMEs in its own message",
+        .edits = .{
+            .{ .file = "src/wire/response.zig", .old = "if (record.is_kind(.soa)) return @min(try record.soa_negative_ttl(message), chain_ttl_seconds);", .new = "if (record.is_kind(.soa)) return try record.soa_negative_ttl(message);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "An answer's TTL",
+        .id = "TT4",
+        .what = "nothing is bounded by the chain earlier messages moved",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (self.cname_hops == 0) return ttl_seconds;\n    return @min(ttl_seconds, self.chain_ttl_seconds);", .new = "    if (true) return ttl_seconds;\n    return @min(ttl_seconds, self.chain_ttl_seconds);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "An answer's TTL",
+        .id = "TT5",
+        .what = "an answer is not bounded by the chain",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            assert(self.answers.count > 0);\n            self.answers.ttl_seconds = bounded_by_chain(self, self.answers.ttl_seconds);\n", .new = "            assert(self.answers.count > 0);\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "An answer's TTL",
+        .id = "TT6",
+        .what = "a second alias forgets the first one's TTL",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            self.chain_ttl_seconds = bounded_by_chain(self, self.answers.ttl_seconds);", .new = "            self.chain_ttl_seconds = self.answers.ttl_seconds;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "An answer's TTL",
+        .id = "TT7",
+        .what = "a DoH answer loses its `Age` after the chain bounds it",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    self.answers.age(self.question.kind, accepted.age_seconds);\n    switch (outcome) {\n        .answered => {\n            assert(self.answers.count > 0);\n            self.answers.ttl_seconds = bounded_by_chain(self, self.answers.ttl_seconds);\n", .new = "    if (outcome != .answered) self.answers.age(self.question.kind, accepted.age_seconds);\n    switch (outcome) {\n        .answered => {\n            assert(self.answers.count > 0);\n            self.answers.ttl_seconds = bounded_by_chain(self, self.answers.ttl_seconds);\n            self.answers.age(self.question.kind, accepted.age_seconds);\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "An answer's TTL",
+        .id = "TT8",
+        .what = "a negative's TTL is not bounded by the chain",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    const carried = wire.response.negative_ttl_seconds(message, cased) catch 0;\n    return bounded_by_chain(self, carried -| age_seconds);", .new = "    _ = self;\n    const carried = wire.response.negative_ttl_seconds(message, cased) catch 0;\n    return carried -| age_seconds;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+}

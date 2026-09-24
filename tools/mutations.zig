@@ -1,15 +1,16 @@
-//! The engine's mutations, kept as data in `engine_mutations.zon` and run again on demand: each
-//! breaks the engine of `io/`, or the table under it, one way, and must be caught by the check it
-//! names (docs/mutations.md, the engine replay on TLC's walks). TLC's walks change whenever the
-//! engine model does, so the picked walks are chosen again this way: for each mutation the short
-//! walks miss, the run names the first walk of the full run that catches it.
+//! The mutations of docs/mutations.md, kept as data and run again on demand: each breaks the code
+//! one way, and must be caught by the check it names. A set is one file of `mutations/`, each
+//! mutation named by its section of docs/mutations.md and its row there.
 //!
-//! Run:  zig build engine-mutations [-- <id>...]
+//! Run:  zig build mutations -- <set> [--walks <file>] [<id>...]
 //!
-//! It has TLC write the full run first, unless `--walks <file>` names one written before. Then for
-//! each mutation it applies the edits, runs `zig build spec-engine -Dengine-walks=<file>` over the
-//! short walks and, when they miss it, over the full run and the picked walks, or `zig build
-//! test-io` for one no walk can reach, and puts the files back.
+//! The sets: `engine`, the engine of `io/` and the table under it, caught by the replay of TLC's
+//! walks (docs/mutations.md, the engine replay on TLC's walks) or by a build step; `lookup`, the
+//! state machine and its transports; `address`, the `getaddrinfo` shape and its walks. A mutation
+//! caught by a build step fails that step. One caught by the walks fails the replay of the short
+//! walks; when they miss it, the full run and the picked walks are replayed, and the run names the
+//! full run's first walk that catches it, a walk to pick. TLC writes the full run the first time a
+//! mutation needs it, unless `--walks <file>` names one written before.
 //!
 //! Exit status: 0 when every mutation is caught where it should be, 1 otherwise, 2 on a bad
 //! command line.
@@ -22,17 +23,38 @@ const Allocator = std.mem.Allocator;
 
 pub const Edit = struct { file: []const u8, old: []const u8, new: []const u8 };
 
-/// The check a mutation must fail.
-pub const Check = enum { short_walks, picked_walks, test_io };
+/// The check a mutation must fail: the short walks, the picked walks when the short walks miss
+/// it, or a `zig build` step.
+pub const Check = union(enum) {
+    short_walks,
+    picked_walks,
+    step: []const u8,
+
+    pub fn format(check: Check, writer: *Io.Writer) Io.Writer.Error!void {
+        switch (check) {
+            .short_walks => try writer.writeAll("the short walks"),
+            .picked_walks => try writer.writeAll("the picked walks"),
+            .step => |name| try writer.print("zig build {s}", .{name}),
+        }
+    }
+};
 
 pub const Mutation = struct {
+    /// The heading of docs/mutations.md the mutation's row is under, and its row's name.
+    section: []const u8,
     id: []const u8,
     what: []const u8,
     edits: []const Edit,
     caught_by: Check,
 };
 
-const mutations: []const Mutation = @import("engine_mutations.zon");
+const Set = struct { name: []const u8, mutations: []const Mutation };
+
+const sets = [_]Set{
+    .{ .name = "engine", .mutations = @import("mutations/engine.zon") },
+    .{ .name = "lookup", .mutations = @import("mutations/lookup.zon") },
+    .{ .name = "address", .mutations = @import("mutations/address.zon") },
+};
 
 /// The bytes of one source file the tool edits, and of what a `zig` it runs prints.
 const file_bytes_max: usize = 16 * 1024 * 1024;
@@ -48,14 +70,15 @@ const exit_failure: u8 = 1;
 const exit_usage: u8 = 2;
 
 const usage =
-    \\usage: engine-mutations --short <file> --picked <file> --full <seed> <walks> <depth>
-    \\           (--walks <file> | --full-out <file>) [<id>...]
+    \\usage: mutations <engine|lookup|address> --short <file> --picked <file>
+    \\           --full <seed> <walks> <depth> (--walks <file> | --full-out <file>) [<id>...]
     \\
 ;
 
-/// What the command line names: the committed walks, the full run's parameters or a file of it,
-/// and the mutations to run, every one when it names none.
+/// What the command line names: the set, the committed walks, the full run's parameters and a
+/// file of it or a place for one, and the mutations to run, every one when it names none.
 const Options = struct {
+    set: []const u8 = "",
     short: []const u8 = "",
     picked: []const u8 = "",
     full: [3][]const u8 = .{ "", "", "" },
@@ -98,44 +121,37 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn run(arena: Allocator, io: Io, arguments: []const []const u8, out: *Io.Writer) !u8 {
-    const options = options_of(arguments) orelse {
+    var options = options_of(arguments) orelse {
         try out.writeAll(usage);
         return exit_usage;
     };
-    for (options.ids) |id| if (find(id) == null) {
-        try out.print("no mutation {s}\n", .{id});
+    const set = find_set(options.set) orelse {
+        try out.print("no set {s}\n", .{options.set});
         return exit_usage;
     };
-    const walks = options.walks orelse try write_full_run(io, options, out);
+    for (options.ids) |id| if (!has(set, id)) {
+        try out.print("no mutation {s} in {s}\n", .{ id, set.name });
+        return exit_usage;
+    };
     var picks: std.ArrayList(u64) = .empty;
     var status = exit_success;
-    for (mutations) |mutation| {
+    for (set.mutations) |mutation| {
         if (options.ids.len > 0 and !named(options.ids, mutation.id)) continue;
-        const result = try run_one(arena, io, options, walks, mutation);
+        const result = try run_one(arena, io, &options, mutation, out);
         try write_result(out, mutation, result);
         if (!result.as_expected(mutation.caught_by)) status = exit_failure;
         if (result.pick()) |walk| try picks.append(arena, walk);
     }
-    try write_picks(out, picks.items);
+    if (picks.items.len > 0) try write_picks(out, picks.items);
     return status;
 }
 
 fn options_of(arguments: []const []const u8) ?Options {
-    var options: Options = .{};
-    var at: usize = 0;
+    if (arguments.len == 0 or std.mem.startsWith(u8, arguments[0], "--")) return null;
+    var options: Options = .{ .set = arguments[0] };
+    var at: usize = 1;
     while (at < arguments.len and std.mem.startsWith(u8, arguments[at], "--")) {
-        const flag = std.meta.stringToEnum(Flag, arguments[at]) orelse return null;
-        const values: usize = if (flag == .@"--full") 3 else 1;
-        if (at + values >= arguments.len) return null;
-        const value = arguments[at + 1];
-        switch (flag) {
-            .@"--short" => options.short = value,
-            .@"--picked" => options.picked = value,
-            .@"--walks" => options.walks = value,
-            .@"--full-out" => options.full_out = value,
-            .@"--full" => options.full = arguments[at + 1 ..][0..3].*,
-        }
-        at += values + 1;
+        at = read_flag(&options, arguments, at) orelse return null;
     }
     options.ids = arguments[at..];
     const complete = options.short.len > 0 and options.picked.len > 0 and options.full[0].len > 0;
@@ -143,9 +159,30 @@ fn options_of(arguments: []const []const u8) ?Options {
     return options;
 }
 
-fn find(id: []const u8) ?Mutation {
-    for (mutations) |mutation| if (std.mem.eql(u8, mutation.id, id)) return mutation;
+/// Reads the flag at `at` and its values into `options`, and returns where the next begins.
+fn read_flag(options: *Options, arguments: []const []const u8, at: usize) ?usize {
+    const flag = std.meta.stringToEnum(Flag, arguments[at]) orelse return null;
+    const values: usize = if (flag == .@"--full") 3 else 1;
+    if (at + values >= arguments.len) return null;
+    const value = arguments[at + 1];
+    switch (flag) {
+        .@"--short" => options.short = value,
+        .@"--picked" => options.picked = value,
+        .@"--walks" => options.walks = value,
+        .@"--full-out" => options.full_out = value,
+        .@"--full" => options.full = arguments[at + 1 ..][0..3].*,
+    }
+    return at + values + 1;
+}
+
+fn find_set(name: []const u8) ?Set {
+    for (sets) |set| if (std.mem.eql(u8, set.name, name)) return set;
     return null;
+}
+
+fn has(set: Set, id: []const u8) bool {
+    for (set.mutations) |mutation| if (std.mem.eql(u8, mutation.id, id)) return true;
+    return false;
 }
 
 fn named(ids: []const []const u8, id: []const u8) bool {
@@ -153,8 +190,10 @@ fn named(ids: []const []const u8, id: []const u8) bool {
     return false;
 }
 
-/// Has TLC write the full run to `--full-out`, as `zig build spec` has it written, and names it.
-fn write_full_run(io: Io, options: Options, out: *Io.Writer) ![]const u8 {
+/// The full run: the file `--walks` names, or one TLC writes to `--full-out` the first time a
+/// mutation needs it, as `zig build spec` has it written.
+fn full_run(io: Io, options: *Options, out: *Io.Writer) ![]const u8 {
+    if (options.walks) |path| return path;
     const path = options.full_out.?;
     try out.print("TLC writes the full run, {s} walks of {s} states, to {s}\n", .{ options.full[1], options.full[2], path });
     try out.flush();
@@ -170,6 +209,7 @@ fn write_full_run(io: Io, options: Options, out: *Io.Writer) ![]const u8 {
         .exited => |code| if (code != 0) return error.WalksFailed,
         else => return error.WalksFailed,
     }
+    options.walks = path;
     return path;
 }
 
@@ -178,13 +218,13 @@ const Result = struct {
     short: Verdict = .skipped,
     full: Verdict = .skipped,
     picked: Verdict = .skipped,
-    test_io: Verdict = .skipped,
+    step: Verdict = .skipped,
 
     fn as_expected(result: Result, expected: Check) bool {
         return switch (expected) {
             .short_walks => result.short == .caught,
             .picked_walks => result.short == .caught or result.picked == .caught,
-            .test_io => result.test_io == .caught,
+            .step => result.step == .caught,
         };
     }
 
@@ -198,18 +238,19 @@ const Result = struct {
     }
 };
 
-fn run_one(arena: Allocator, io: Io, options: Options, walks: []const u8, mutation: Mutation) !Result {
+fn run_one(arena: Allocator, io: Io, options: *Options, mutation: Mutation, out: *Io.Writer) !Result {
     const originals = try apply(arena, io, Io.Dir.cwd(), mutation.edits);
     defer restore(io, Io.Dir.cwd(), mutation.edits, originals);
     var result: Result = .{};
-    if (mutation.caught_by == .test_io) {
-        result.test_io = try run_check(arena, io, &.{ "zig", "build", "test-io" });
-        return result;
+    switch (mutation.caught_by) {
+        .step => |name| result.step = try run_check(arena, io, &.{ "zig", "build", name }),
+        .short_walks, .picked_walks => {
+            result.short = try replay(arena, io, options.short);
+            if (result.short != .missed) return result;
+            result.full = try replay(arena, io, try full_run(io, options, out));
+            result.picked = try replay(arena, io, options.picked);
+        },
     }
-    result.short = try replay(arena, io, options.short);
-    if (result.short != .missed) return result;
-    result.full = try replay(arena, io, walks);
-    result.picked = try replay(arena, io, options.picked);
     return result;
 }
 
@@ -279,9 +320,13 @@ fn walk_after(text: []const u8) ?u64 {
 
 fn write_result(out: *Io.Writer, mutation: Mutation, result: Result) !void {
     const verdict = if (result.as_expected(mutation.caught_by)) "CAUGHT" else "NOT CAUGHT as it should be";
-    try out.print("{s} {s}: short walks {f}, full run {f}, picked walks {f}, test-io {f}. {s} ({t})\n", .{
-        mutation.id, mutation.what, result.short, result.full, result.picked, result.test_io, verdict, mutation.caught_by,
-    });
+    try out.print("{s} ({s}) {s}: {s} by {f}.", .{ mutation.id, mutation.section, mutation.what, verdict, mutation.caught_by });
+    switch (mutation.caught_by) {
+        .step => try out.print(" The step {f}.\n", .{result.step}),
+        .short_walks, .picked_walks => try out.print(" Short walks {f}, full run {f}, picked walks {f}.\n", .{
+            result.short, result.full, result.picked,
+        }),
+    }
     try out.flush();
 }
 
@@ -302,11 +347,12 @@ fn write_picks(out: *Io.Writer, picks: []u64) !void {
 
 const testing = std.testing;
 
-test "every mutation names its edits and each edit changes something" {
-    for (mutations) |mutation| {
-        try testing.expect(mutation.id.len > 0 and mutation.what.len > 0 and mutation.edits.len > 0);
+test "every mutation names its section and its edits, and each edit changes something" {
+    for (sets) |set| for (set.mutations) |mutation| {
+        try testing.expect(mutation.section.len > 0 and mutation.id.len > 0 and mutation.what.len > 0);
+        try testing.expect(mutation.edits.len > 0);
         for (mutation.edits) |edit| try testing.expect(!std.mem.eql(u8, edit.old, edit.new));
-    }
+    };
 }
 
 test "a replay's failure names its walk, on a mismatch and on a panic" {
@@ -323,6 +369,10 @@ test "a mutation the short walks miss is picked at the full run's walk" {
     const caught: Result = .{ .short = .{ .caught = 8 } };
     try testing.expectEqual(null, caught.pick());
     try testing.expect(caught.as_expected(.short_walks) and caught.as_expected(.picked_walks));
+    const step: Result = .{ .step = .{ .caught = null } };
+    try testing.expect(step.as_expected(.{ .step = "test-resolver" }) and !step.as_expected(.short_walks));
+    const missed_step: Result = .{ .step = .missed };
+    try testing.expect(!missed_step.as_expected(.{ .step = "test-resolver" }));
 }
 
 test "two edits to one file apply in turn, and the file is put back as it began" {
@@ -349,12 +399,15 @@ test "two edits to one file apply in turn, and the file is put back as it began"
     try testing.expectEqualStrings(source, kept);
 }
 
-test "the command line needs the committed walks, the full run, and a place for it" {
-    const full = [_][]const u8{ "--short", "g", "--picked", "p", "--full", "1", "2000", "201" };
+test "the command line names a set first, then the committed walks, the full run and its place" {
+    const full = [_][]const u8{ "engine", "--short", "g", "--picked", "p", "--full", "1", "2000", "201" };
     try testing.expectEqual(null, options_of(&full));
     const options = options_of(&(full ++ [_][]const u8{ "--walks", "w", "E3", "ET4" })).?;
+    try testing.expectEqualStrings("engine", options.set);
     try testing.expectEqualStrings("w", options.walks.?);
     try testing.expectEqualStrings("2000", options.full[1]);
     try testing.expectEqual(2, options.ids.len);
-    try testing.expectEqual(null, options_of(&.{ "--short", "g", "--bogus", "x" }));
+    try testing.expectEqual(null, options_of(&.{ "--short", "g" }));
+    try testing.expectEqual(null, options_of(&.{ "engine", "--short", "g", "--bogus", "x" }));
+    try testing.expect(find_set("lookup") != null and find_set("nothing") == null);
 }

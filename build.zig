@@ -48,7 +48,7 @@ const tool_test_roots = [_][]const u8{
     "tools/consumer_check.zig",
     "tools/search_order/recorder.zig",
     "tools/tla.zig",
-    "tools/engine_mutations.zig",
+    "tools/mutations.zig",
 };
 
 /// The git revision range `zig build lint-commits` checks.

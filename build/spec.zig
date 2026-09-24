@@ -125,23 +125,27 @@ fn add_engine(b: *std.Build, tla_tool: *std.Build.Step.Compile, engine_exe: *std
     return step;
 }
 
-/// `zig build engine-mutations`: the engine's mutations of `tools/engine_mutations.zon` run again
-/// over the committed walks and TLC's full run, which the tool has TLC write first unless `--
-/// --walks <file>` names one. It edits `io/` while it runs, and puts each file back.
+/// `zig build mutations -- <set>`: the mutations of `tools/mutations/<set>.zon` run again, each
+/// against the check it names: the committed walks and TLC's full run, which the tool has TLC
+/// write the first time a mutation needs it unless `--walks <file>` names one, or a build step. It
+/// edits the tree while it runs, and puts each file back.
 fn add_mutations(b: *std.Build) void {
-    const tool = b.addExecutable(.{ .name = "engine-mutations", .root_module = b.createModule(.{
-        .root_source_file = b.path("tools/engine_mutations.zig"),
+    const tool = b.addExecutable(.{ .name = "mutations", .root_module = b.createModule(.{
+        .root_source_file = b.path("tools/mutations.zig"),
         .target = b.graph.host,
     }) });
     const run = b.addRunArtifact(tool);
     run.setCwd(b.path("."));
     run.has_side_effects = true;
+    const arguments = b.args orelse &.{};
+    // The set comes first, then the walks the build knows, then what else the caller named.
+    if (arguments.len > 0) run.addArg(arguments[0]);
     run.addArgs(&.{ "--short", engine_gate_transcript, "--picked", engine_picks_transcript, "--full" });
     run.addArgs(&engine_walks);
     run.addArg("--full-out");
     _ = run.addOutputFileArg("engine_walks.txt");
-    if (b.args) |arguments| run.addArgs(arguments);
-    const step = b.step("engine-mutations", "Break the engine each way tools/engine_mutations.zon says, and require each caught");
+    if (arguments.len > 1) run.addArgs(arguments[1..]);
+    const step = b.step("mutations", "Break the code each way a set of tools/mutations/ says, and require each caught");
     step.dependOn(&run.step);
 }
 

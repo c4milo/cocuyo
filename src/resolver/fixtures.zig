@@ -108,6 +108,12 @@ pub const record_long_rdlength = [_]u8{
     0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x01, 0x90, 192, 0, 2, 1,
 };
 
+/// An A record whose rdata is three octets: every length in the message is sound, but an A record's
+/// address is four (RFC 1035 §3.4.1).
+pub const record_short_a = [_]u8{
+    0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x03, 192, 0, 2,
+};
+
 /// An SOA owned by the question's name, TTL 300, MINIMUM 60: what an authoritative server puts in
 /// the authority section of a negative answer (RFC 2308 §2).
 pub const record_soa = wire.fixtures.record_soa;
@@ -253,6 +259,7 @@ pub const injected: Reply = .{ .records = &(record_injected_a ++ record_a), .anc
 
 /// A reply whose only record has an rdlength past the end of the message.
 pub const long_rdlength: Reply = .{ .records = &record_long_rdlength, .ancount = 1 };
+pub const short_address: Reply = .{ .records = &record_short_a, .ancount = 1 };
 
 pub const truncated: Reply = .{ .truncated = true };
 pub const name_error: Reply = .{ .rcode = .name_error };

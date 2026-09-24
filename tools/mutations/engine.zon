@@ -1,8 +1,9 @@
 // The engine's mutations: each breaks the engine of io/, or the table under it, one way, and must be
 // caught by the check `caught_by` names (docs/mutations.md, the engine replay on TLC's walks).
-// tools/engine_mutations.zig runs them. An edit replaces `old`, which must occur once, with `new`.
+// tools/mutations.zig runs them. An edit replaces `old`, which must occur once, with `new`.
 .{
     .{
+        .section = "The engine model and its replay",
         .id = "E1",
         .what = "an event for an opening that is gone is applied",
         .edits = .{
@@ -11,6 +12,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "The engine model and its replay",
         .id = "E2",
         .what = "a lookup stays on a connection it no longer streams to",
         .edits = .{
@@ -19,6 +21,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "The engine model and its replay",
         .id = "E3",
         .what = "a new lookup forgets its slot's buffer is lent",
         .edits = .{
@@ -27,6 +30,7 @@
         .caught_by = .picked_walks,
     },
     .{
+        .section = "The engine model and its replay",
         .id = "E4",
         .what = "a send's completion speaks to whatever holds the slot",
         .edits = .{
@@ -35,6 +39,7 @@
         .caught_by = .picked_walks,
     },
     .{
+        .section = "The engine model and its replay",
         .id = "E5",
         .what = "a held send is dropped",
         .edits = .{
@@ -43,6 +48,7 @@
         .caught_by = .picked_walks,
     },
     .{
+        .section = "The engine model and its replay",
         .id = "E6",
         .what = "the drive stops after one poll a slot",
         .edits = .{
@@ -51,6 +57,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "The engine model and its replay",
         .id = "E7",
         .what = "the table misses the deadline of a wait a poll starts",
         .edits = .{
@@ -59,6 +66,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "The engine model and its replay",
         .id = "E8",
         .what = "a stale event keeps its buffer",
         .edits = .{
@@ -67,6 +75,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "The engine over TLS",
         .id = "ET1",
         .what = "lookups hear the connection is up before the handshake",
         .edits = .{
@@ -75,6 +84,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "The engine over TLS",
         .id = "ET2",
         .what = "the session's records go to the back of the queue",
         .edits = .{
@@ -83,6 +93,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "The engine over TLS",
         .id = "ET3",
         .what = "records made behind a waiting records entry take one of their own",
         .edits = .{
@@ -91,6 +102,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "The engine over TLS",
         .id = "ET4",
         .what = "a declined ticket fails the connection",
         .edits = .{
@@ -99,6 +111,7 @@
         .caught_by = .picked_walks,
     },
     .{
+        .section = "The engine over TLS",
         .id = "ET5",
         .what = "a spent ticket stays kept",
         .edits = .{
@@ -107,6 +120,7 @@
         .caught_by = .picked_walks,
     },
     .{
+        .section = "The engine over TLS",
         .id = "ET6",
         .what = "an idle TLS connection closes without close_notify",
         .edits = .{
@@ -115,6 +129,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "The engine over TLS",
         .id = "ET7",
         .what = "a TLS configuration opens UDP sockets",
         .edits = .{
@@ -123,6 +138,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "The engine over TLS",
         .id = "ET8",
         .what = "a TLS connection is closed to make room",
         .edits = .{
@@ -131,6 +147,7 @@
         .caught_by = .picked_walks,
     },
     .{
+        .section = "The engine over TLS",
         .id = "ET9",
         .what = "a records send's end leaves its slot borrowed",
         .edits = .{
@@ -139,6 +156,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "The engine over TLS",
         .id = "ET10",
         .what = "a reopening connection takes its old opening's events",
         .edits = .{
@@ -147,6 +165,7 @@
         .caught_by = .picked_walks,
     },
     .{
+        .section = "The engine over TLS",
         .id = "ET11",
         .what = "a reopening connection connects while its old records are in flight",
         .edits = .{
@@ -155,22 +174,25 @@
         .caught_by = .picked_walks,
     },
     .{
+        .section = "The engine over TLS",
         .id = "ET12",
         .what = "a record longer than 2^14 + 256 octets is waited for",
         .edits = .{
             .{ .file = "io/io_tls.zig", .old = "    if (body > constants.tls_record_body_bytes_max) return error.Overflow;", .new = "    if (false and body > constants.tls_record_body_bytes_max) return error.Overflow;" },
         },
-        .caught_by = .test_io,
+        .caught_by = .{ .step = "test-io" },
     },
     .{
+        .section = "The engine over TLS",
         .id = "ET13",
         .what = "a ticket older than seven days is spent",
         .edits = .{
             .{ .file = "io/io_tls.zig", .old = "    if (age_ns >= lifetime_ns) return;", .new = "    if (false and age_ns >= lifetime_ns) return;" },
         },
-        .caught_by = .test_io,
+        .caught_by = .{ .step = "test-io" },
     },
     .{
+        .section = "The engine over TLS",
         .id = "ET14",
         .what = "a closing connection reads what the peer sends",
         .edits = .{
@@ -179,6 +201,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "One send a stream",
         .id = "SQ1",
         .what = "the head goes out while a send is in flight",
         .edits = .{
@@ -187,6 +210,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "One send a stream",
         .id = "SQ2",
         .what = "a short send is taken for a whole one",
         .edits = .{
@@ -195,22 +219,25 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "One send a stream",
         .id = "SQ3",
         .what = "the rest is sent from the message's start",
         .edits = .{
             .{ .file = "io/io_tcp_queue.zig", .old = "    return self.send_buffers[head.slot][connection.sent_bytes..length];", .new = "    return self.send_buffers[head.slot][0 .. length - connection.sent_bytes];" },
         },
-        .caught_by = .test_io,
+        .caught_by = .{ .step = "test-io" },
     },
     .{
+        .section = "One send a stream",
         .id = "SQ4",
         .what = "the octets sent are counted from the last send alone",
         .edits = .{
             .{ .file = "io/io_tcp_queue.zig", .old = "    connection.sent_bytes += @intCast(count);", .new = "    connection.sent_bytes = @intCast(count);" },
         },
-        .caught_by = .test_io,
+        .caught_by = .{ .step = "test-io" },
     },
     .{
+        .section = "One send a stream",
         .id = "SQ5",
         .what = "a failed send leaves the connection up",
         .edits = .{
@@ -219,6 +246,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "One send a stream",
         .id = "SQ6",
         .what = "a lookup that leaves keeps its waiting query queued",
         .edits = .{
@@ -227,6 +255,7 @@
         .caught_by = .picked_walks,
     },
     .{
+        .section = "One send a stream",
         .id = "SQ7",
         .what = "a closed connection keeps its waiting queries' buffers lent",
         .edits = .{
@@ -235,6 +264,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "One send a stream",
         .id = "SQ8",
         .what = "a lookup that leaves takes its started query with it",
         .edits = .{
@@ -243,6 +273,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "One send a stream",
         .id = "SQ9",
         .what = "a send the loop refuses leaves the queue stuck",
         .edits = .{
@@ -251,6 +282,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "One send a stream",
         .id = "SQ10",
         .what = "a whole send does not let the next go",
         .edits = .{
@@ -259,6 +291,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "The engine's datagrams",
         .id = "U1",
         .what = "a receive a replaced socket left behind keeps its datagram's buffer",
         .edits = .{
@@ -267,6 +300,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "The engine's datagrams",
         .id = "U2",
         .what = "a socket's receive the loop refused is never asked for again",
         .edits = .{
@@ -275,6 +309,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "The engine's datagrams",
         .id = "U6",
         .what = "a connection's receive the loop refused is never asked for again",
         .edits = .{
@@ -283,6 +318,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "A port replaced under load",
         .id = "W1",
         .what = "a port that has carried its share is never replaced",
         .edits = .{
@@ -291,6 +327,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "A port replaced under load",
         .id = "W2",
         .what = "a replaced socket is closed at once, and its answers are lost",
         .edits = .{
@@ -299,6 +336,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "A port replaced under load",
         .id = "W3",
         .what = "a draining socket is never closed",
         .edits = .{
@@ -307,6 +345,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "A port replaced under load",
         .id = "W4",
         .what = "a replacement that cannot open leaves the server no socket",
         .edits = .{
@@ -315,6 +354,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "A port replaced under load",
         .id = "W5",
         .what = "a draining socket's refused receive is never asked for again",
         .edits = .{
@@ -323,6 +363,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "A port replaced under load",
         .id = "W6",
         .what = "a draining socket's ended receive is armed on the current one",
         .edits = .{
@@ -331,6 +372,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "A port replaced under load",
         .id = "W7",
         .what = "a query does not record the socket it left from",
         .edits = .{
@@ -339,6 +381,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "A connect's address",
         .id = "CR1",
         .what = "a closed slot is taken while its connect is in flight",
         .edits = .{
@@ -348,6 +391,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "A connect's address",
         .id = "CR2",
         .what = "a slot nobody uses is taken while its connect is in flight",
         .edits = .{
@@ -357,6 +401,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "A connect's address",
         .id = "CR3",
         .what = "a connect's event leaves its slot marked",
         .edits = .{
@@ -365,6 +410,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "A connect's address",
         .id = "CR4",
         .what = "closing a slot forgets its connect is in flight",
         .edits = .{
@@ -373,6 +419,7 @@
         .caught_by = .short_walks,
     },
     .{
+        .section = "A connect's address",
         .id = "CR5",
         .what = "a connect's submission does not mark its slot",
         .edits = .{

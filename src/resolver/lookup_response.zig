@@ -416,6 +416,18 @@ test "a malformed answer section is ignored and leaves the name alone" {
     try testing.expect(harness.poll() == .wait);
 }
 
+test "an address of the wrong length is ignored, though every length in the message is sound" {
+    // The scan for the OPT record walks the sections by their lengths and lets this through; the
+    // answer's collection refuses it, and a malformed answer is ignored (§16 decision 10).
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
+    try harness.start("example.com.", .a, seed);
+    _ = harness.send();
+    const before = harness.lookup.current;
+    try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.short_address, servers[0].endpoint));
+    try testing.expectEqualSlices(u8, before.wire(), harness.lookup.current.wire());
+    try testing.expect(harness.poll() == .wait);
+}
+
 test "a response arriving after the lookup settled is ignored" {
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);

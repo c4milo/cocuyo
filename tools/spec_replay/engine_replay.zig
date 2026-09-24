@@ -20,7 +20,7 @@ const world_module = @import("engine_world.zig");
 const text_module = @import("engine_text.zig");
 
 /// The walk the replay is in, which a panic names: an assertion the engine trips is a mutation
-/// the walk caught, and the walk is what a picked walk is chosen by (tools/engine_mutations.zig).
+/// the walk caught, and the walk is what a picked walk is chosen by (tools/mutations.zig).
 var walk_now: usize = 0;
 
 pub const panic = std.debug.FullPanic(panic_in_walk);

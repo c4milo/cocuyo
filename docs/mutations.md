@@ -130,6 +130,31 @@ chain that *loops*, where every pass succeeds and the hop bound is what finally 
 restore removed, the lookup is left asking the next server about a name halfway around the loop,
 which is a name the caller never mentioned. The fixture is now two CNAMEs pointing at each other.
 
+S8 was `NOT CAUGHT` when it was run again on 2026-09-24. The malformed-section test's record
+reaches past the message, and since step 10 the scan for the OPT record refuses it first, walking
+every record by its length. So the answer's collection, whose failure S8 breaks, was no longer
+reached. The wrong-length address test was written for it: an A record of three octets passes the
+scan and fails the collection (RFC 1035 §3.4.1), and it catches S8.
+
+## The lookup's and `getaddrinfo`'s mutations as data
+
+2026-09-24. The mutations of the sections above that break the lookup and its transports, and
+the `getaddrinfo` shape and its walks, were written again as data: `tools/mutations/lookup.zon`
+holds 64 and `tools/mutations/address.zon` 35. Only descriptions had been kept, so most were
+rebuilt from them against the code as it is, and a rebuilt one is the mutation kept now:
+
+- Step 3 and the Lean model's replay: the sixteen of the state machine, and S1 to S9 and G1 of the
+  replay.
+- DoH's DNS half: DH1 to DH21.
+- An answer's TTL and DoQ's DNS half: TT1 to TT8 and QU1 to QU9.
+- Step 14: A1 to A24 but A6, and H1 to H6; and the walks' A1 to A3 and N1 to N3.
+
+Left out: the Lean model's own mutations, M1, M2, P1 and DM1 to DM3, which break the model and its
+proofs rather than the code, and each want a whole `zig build spec`; and A6, whose code step 15
+replaced. `zig build mutations -- lookup` and `zig build mutations -- address` run them, each
+against the step its row names. Run on 2026-09-24, all 99 were caught where the data says, S8 of
+step 3 after the test above was written.
+
 ## Step 4, the table
 
 The slot table, the key table and the demultiplexer, broken against `zig build test-resolver`.
@@ -1259,8 +1284,8 @@ SQ4 by `zig build test-io`.
 | CR4 | closing a slot forgets its connect is in flight | walk 4 | an assertion | CAUGHT |
 | CR5 | a connect's submission does not mark its slot | walk 4 | walk 1 | CAUGHT |
 
-The mutations are kept as data since the same day: `tools/engine_mutations.zon` holds each one's
-edits and the check that must catch it, and `zig build engine-mutations` runs them again. It has
+The mutations are kept as data since the same day: `tools/mutations/engine.zon` holds each one's
+edits and the check that must catch it, and `zig build mutations -- engine` runs them again. It has
 TLC write the full run, breaks the engine each way, and replays the short walks, then, for a
 mutation they miss, the full run and the picked walks. It names the full run's first walk that
 catches each miss, and a replay that panics names its walk too, so the picks are chosen again in
@@ -1279,9 +1304,11 @@ comparisons against `zig build spec-engine`. Six mutations, six `CAUGHT`.
 | D1 | the committed short walks lose their last line | the short walks are TLC's | `spec-engine`, the comparison | CAUGHT |
 | D2 | the committed picked walks lose their last line | the picked walks are TLC's | `spec-engine`, the comparison | CAUGHT |
 
-`tools/engine_mutations.zig` broken against `zig build test-tools`. EM4 broke a line that could
+The tool, then `tools/engine_mutations.zig` and now `tools/mutations.zig`, broken against `zig
+build test-tools`. EM4 broke a line that could
 never matter, since the tool runs the full run only when the short walks miss, and the line was
-removed. Six mutations, five `CAUGHT`, and the sixth's line removed.
+removed. EM7 came with the sets of the lookup and `getaddrinfo`, whose mutations a build step
+catches. Seven mutations, six `CAUGHT`, and the seventh's line removed.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
@@ -1291,6 +1318,7 @@ removed. Six mutations, five `CAUGHT`, and the sixth's line removed.
 | EM4 | a mutation the short walks catch is picked too | only a miss is picked | nothing: **the line was dead, and is removed** | NOT CAUGHT |
 | EM5 | the replay's walk is not read | a miss names its walk | the walk test | CAUGHT |
 | EM6 | a picked mutation must be caught by the picked walks alone | the short walks may catch it now | the pick test | CAUGHT |
+| EM7 | a mutation caught by a step counts as caught whatever the step did | a step that misses is a miss | the pick test, since the step sets | CAUGHT |
 
 ## A connect's address
 

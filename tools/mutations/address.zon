@@ -1,0 +1,320 @@
+// The mutations of the `getaddrinfo` shape of design §19 step 14 and its walks: each breaks the
+// code one way, and must be caught by the check `caught_by` names (docs/mutations.md).
+// tools/mutations.zig runs them. An edit replaces `old`, which must occur once, with `new`.
+.{
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A1",
+        .what = "the families walk the search list on their own",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    if (asks_aaaa(self)) {\n        self.aaaa = start_one(self, name, .aaaa) catch |err| {", .new = "    if (asks_aaaa(self)) {\n        const own: Name = switch (policy.candidate(self.resolver.config, &self.question, @min(self.candidate_index + 1, core.constants.candidates_max))) {\n            .name => |next| next,\n            .skip, .exhausted => name.*,\n        };\n        self.aaaa = start_one(self, &own, .aaaa) catch |err| {" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A2",
+        .what = "a name that does not exist leaves the other family running",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    if (failure.err == core.Error.NameNotFound) {\n        cancel_pending(self, other_of(self, pending));\n    }", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A3",
+        .what = "NODATA seen is forgotten at the end of the walk",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    end_failed(self, if (self.saw_no_data) core.Error.NoData else core.Error.NameNotFound);", .new = "    end_failed(self, core.Error.NameNotFound);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A4",
+        .what = "a hard failure on one family is dropped",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    if (hard_error(self)) |err| return end_failed(self, err);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A5",
+        .what = "the half that failed is not reported",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    self.partial = hard_error(self);", .new = "    self.partial = null;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A7",
+        .what = "`v4_mapped` maps for any family",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    return self.family == .ipv6 and self.flags.v4_mapped;", .new = "    return self.flags.v4_mapped;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A8",
+        .what = "the mapped `A` comes back beside an `AAAA` without `all`",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "        } else if (!has_v6 or self.flags.all) {", .new = "        } else if (!has_v6 or self.flags.all or true) {" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A9",
+        .what = "`all` is ignored",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "        } else if (!has_v6 or self.flags.all) {", .new = "        } else if (!has_v6) {" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A10",
+        .what = "the candidate's own name is never the canonical one",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    if (self.flags.canonical_name and !self.has_canonical) set_canonical(self, &candidate_name(self));\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A11",
+        .what = "the chain's end is not taken as the canonical name",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    if (self.flags.canonical_name and !self.has_canonical) {\n        if (answer.canonical_name) |name| set_canonical(self, name);\n    }\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A12",
+        .what = "the hosts table is never consulted",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "            .file => consult_file(self),", .new = "            .file => false," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A13",
+        .what = "the table is consulted first whatever the order",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    assert(self.source_index == 0);\n    try next_source(self);", .new = "    assert(self.source_index == 0);\n    if (consult_file(self)) return;\n    try next_source(self);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A14",
+        .what = "the table answers in a family that was not asked",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "hosts.find(&self.question.name, if (mapping(self)) null else self.family, &found)", .new = "hosts.find(&self.question.name, null, &found)" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A15",
+        .what = "the table's official name is not the canonical one",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    if (self.flags.canonical_name) {\n        if (hosts.canonical(&self.question.name)) |official| set_canonical(self, &official);\n    }\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A16",
+        .what = "a numeric host is queried anyway",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup.zig", .old = "            walk.answer_numeric(&self, address);\n            return self;\n", .new = "            walk.answer_numeric(&self, address);\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A17",
+        .what = "`numeric_host` does not insist",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup.zig", .old = "        if (flags.numeric_host) {\n            walk.end_failed(&self, core.Error.NameNotFound);\n            return self;\n        }\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A18",
+        .what = "a numeric host of another family is answered anyway",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    } else {\n        return end_failed(self, core.Error.NoData);\n    }", .new = "    } else {\n        keep(self, address);\n    }" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A19",
+        .what = "a pair short of a slot leaks the first",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "            if (self.a.handle) |handle| self.resolver.release(handle);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A20",
+        .what = "a lookup's slot is never released",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup.zig", .old = "            walk.release_pair(self);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A21",
+        .what = "a full table is not marked truncated",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    if (count == found.len) self.truncated = true;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A22",
+        .what = "`v4_mapped` does not widen the table's ask",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "hosts.find(&self.question.name, if (mapping(self)) null else self.family, &found)", .new = "hosts.find(&self.question.name, self.family, &found)" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A23",
+        .what = "the join keeps the larger TTL",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "@min(self.ttl_seconds, answer.ttl_seconds)", .new = "@max(self.ttl_seconds, answer.ttl_seconds)" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the `getaddrinfo` shape",
+        .id = "A24",
+        .what = "the consumer's cancel is not the outcome",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    if (self.cancelled) return end_failed(self, core.Error.Canceled);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the reverse lookup",
+        .id = "H1",
+        .what = "the hosts table is never consulted",
+        .edits = .{
+            .{ .file = "src/resolver/name_lookup.zig", .old = "            .file => consult_file(self),", .new = "            .file => false," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the reverse lookup",
+        .id = "H2",
+        .what = "the sources are tried in the order they are written",
+        .edits = .{
+            .{ .file = "src/resolver/name_lookup.zig", .old = "    const sources = self.resolver.config.lookups;", .new = "    const sources: []const core.Source = &.{ .file, .dns };" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the reverse lookup",
+        .id = "H3",
+        .what = "a failure ends the walk rather than trying the next source",
+        .edits = .{
+            .{ .file = "src/resolver/name_lookup.zig", .old = "    next_source(self) catch return end_failed_with(self, failure);\n    if (self.ended == null and self.handle == null) end_failed_with(self, failure);\n", .new = "    end_failed_with(self, failure);\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the reverse lookup",
+        .id = "H4",
+        .what = "a cancel is answered by the next source",
+        .edits = .{
+            .{ .file = "src/resolver/name_lookup.zig", .old = "    if (failure.err == core.Error.Canceled) return end_failed_with(self, failure);", .new = "    if (failure.err == core.Error.Canceled) return next_source(self) catch end_failed_with(self, failure);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the reverse lookup",
+        .id = "H5",
+        .what = "the question is built for a name rather than an address",
+        .edits = .{
+            .{ .file = "src/resolver/name_lookup.zig", .old = "    const question = try Question.from_address(&self.address);", .new = "    var question = try Question.from_address(&self.address);\n    question.kind = .a;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Step 14, the reverse lookup",
+        .id = "H6",
+        .what = "an end for another lookup's handle is taken",
+        .edits = .{
+            .{ .file = "src/resolver/name_lookup.zig", .old = "        const mine = self.handle orelse return false;\n        if (mine != event.handle) return false;\n", .new = "        _ = self.handle orelse return false;\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The `getaddrinfo` walks",
+        .id = "A1",
+        .what = "each slot is released at its own lookup's end",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup.zig", .old = "        pending.ended = true;\n        if (self.a.ended and self.aaaa.ended) {", .new = "        pending.ended = true;\n        self.resolver.release(event.handle);\n        pending.handle = null;\n        if (self.a.ended and self.aaaa.ended) {" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The `getaddrinfo` walks",
+        .id = "A2",
+        .what = "a name that does not exist leaves the other family running",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    if (failure.err == core.Error.NameNotFound) {\n        cancel_pending(self, other_of(self, pending));\n    }", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The `getaddrinfo` walks",
+        .id = "A3",
+        .what = "`NameNotFound` beside an answer moves the walk on",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    if (self.a.answered or self.aaaa.answered) return finish_answered(self);\n    if (said_not_found(&self.a) or said_not_found(&self.aaaa)) return next_candidate(self);", .new = "    if (said_not_found(&self.a) or said_not_found(&self.aaaa)) return next_candidate(self);\n    if (self.a.answered or self.aaaa.answered) return finish_answered(self);" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "The `getaddrinfo` walks",
+        .id = "N1",
+        .what = "a reverse walk moves on after any failure",
+        .edits = .{
+            .{ .file = "src/resolver/name_lookup.zig", .old = "    if (!negative) return end_failed_with(self, failure);\n", .new = "    _ = negative;\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The `getaddrinfo` walks",
+        .id = "N2",
+        .what = "a reverse walk forgets NODATA",
+        .edits = .{
+            .{ .file = "src/resolver/name_lookup.zig", .old = "    if (failure.err == core.Error.NoData) self.saw_no_data = true;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The `getaddrinfo` walks",
+        .id = "N3",
+        .what = "a cancel after the answer came keeps the answer",
+        .edits = .{
+            .{ .file = "src/resolver/name_lookup.zig", .old = "            .done => |answer| if (self.cancelled) end_failed(self, core.Error.Canceled) else take_answer(self, &answer),", .new = "            .done => |answer| take_answer(self, &answer)," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+}
