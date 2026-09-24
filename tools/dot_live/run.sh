@@ -9,9 +9,11 @@
 # Two names must resolve through each resolver, with the root its chain ends at: the first over a
 # full handshake, the second once the first connection has closed idle, over a connection that
 # spends the ticket the first one kept (§21, TLS rule 8). At least one resolver must resume. One
-# that declines the ticket must be answered anyway, over a full handshake the engine opens again.
-# Two lookups must fail, and fail rather than fall back: the right root with a name the certificate
-# does not carry, and the right name with a root the chain does not end at (RFC 8310 §5).
+# that declines the ticket must be answered anyway: chapulin finishes a declined ticket as a full
+# handshake on the same connection. Two lookups must fail, and fail rather than fall back: the
+# right root with a name the certificate does not carry, and the right name with a root the chain
+# does not end at (RFC 8310 §5). A refused lookup ends at its deadline, as one whose server does
+# not answer does, so a refusal counts only through a resolver that answered in the same run.
 set -eu
 
 checkout=${1:?usage: tools/dot_live/run.sh <chapulin checkout>}
@@ -36,17 +38,23 @@ lookup() {
 
 failures=0
 resumed=0
+answered=" "
 for resolver in "8.8.8.8 dns.google google" "1.1.1.1 cloudflare-dns.com cloudflare" \
     "9.9.9.9 dns.quad9.net quad9"; do
     set -- $resolver
     if answer=$(lookup "$1" "$2" "$out/$3.der") && echo "$answer" | grep -q "example.com A" &&
         echo "$answer" | grep -q "example.org A"; then
-        if echo "$answer" | grep -q "example.org: handshake resumed"; then
+        answered="$answered$1 "
+        how=$(echo "$answer" | sed -n 's/^example\.org: handshake //p')
+        case $how in
+        resumed)
             echo "resolves through $2, and resumes"
-            resumed=$((resumed + 1))
-        else
-            echo "resolves through $2, which declines the ticket: $(echo "$answer" | grep "example.org: handshake" | sed 's/.*handshake //')"
-        fi
+            resumed=$((resumed + 1)) ;;
+        "in full, its ticket declined")
+            echo "resolves through $2, which declined the ticket: in full on the same connection" ;;
+        *)
+            echo "resolves through $2, but spends no ticket: $how $(echo "$answer" | grep "ticks" | tr '\n' ' ')" ;;
+        esac
     else
         echo "FAILS through $2: $answer" >&2
         failures=$((failures + 1))
@@ -58,6 +66,12 @@ if [ "$resumed" -eq 0 ]; then
 fi
 
 refuse() {
+    case $answered in
+    *" $1 "*) ;;
+    *)
+        echo "cannot tell a refusal of $2 from the network: $1 did not answer" >&2
+        return ;;
+    esac
     if lookup "$@" >/dev/null; then
         echo "RESOLVED what strict mode refuses: $*" >&2
         failures=$((failures + 1))

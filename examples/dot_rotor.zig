@@ -49,7 +49,7 @@ pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const arguments = try init.minimal.args.toSlice(arena);
     if (arguments.len < 5) {
-        std.debug.print("usage: dot-rotor <name> <server address> <authentication name> <root certificate>...\n", .{});
+        std.debug.print("usage: dot-rotor <name>[,<name>...] <server address> <authentication name> <root certificate>...\n", .{});
         std.process.exit(2);
     }
     const address = cocuyo.Address.from_text(arguments[2]) orelse return error.BadAddress;
@@ -83,6 +83,7 @@ pub fn main(init: std.process.Init) !void {
         loop.drain(&events) catch {};
         engine.close();
     }
+    if (std.mem.count(u8, arguments[1], ",") >= names_max) return error.TooManyNames;
     var names = std.mem.splitScalar(u8, arguments[1], ',');
     for (0..names_max) |position| {
         const name = names.next() orelse return;
@@ -94,7 +95,6 @@ pub fn main(init: std.process.Init) !void {
         report(name, result);
         std.debug.print("{s}: handshake {s}\n", .{ name, handshake() });
     }
-    if (names.next() != null) return error.TooManyNames;
 }
 
 /// One lookup, driven until its result, or null when it has none in `ticks_max` ticks.
@@ -104,17 +104,18 @@ fn resolve(loop: *rotor.Loop, events: []rotor.Event, clock: Clock, name: []const
         if (engine.take(clock.read())) |result| return result;
         try tick(loop, events, clock);
     }
-    return null;
+    return engine.take(clock.read());
 }
 
 /// Ticks until the server's ticket is kept and every connection has closed idle, so the next
-/// lookup opens a connection that resumes. Says so when that never happens.
+/// lookup opens a connection that resumes. Says which did not happen when one does not.
 fn wait_for_close(loop: *rotor.Loop, events: []rotor.Event, clock: Clock) !void {
     for (0..close_ticks_max) |_| {
         if (engine.tls_tickets[0] != null and all_closed()) return;
         try tick(loop, events, clock);
     }
-    std.debug.print("no ticket kept and no idle close in {d} ticks\n", .{close_ticks_max});
+    if (engine.tls_tickets[0] == null) std.debug.print("in {d} ticks no ticket was kept\n", .{close_ticks_max});
+    if (!all_closed()) std.debug.print("in {d} ticks the connection did not close\n", .{close_ticks_max});
 }
 
 fn tick(loop: *rotor.Loop, events: []rotor.Event, clock: Clock) !void {
@@ -133,7 +134,8 @@ fn all_closed() bool {
 
 /// How the connection that is up handshook: resumed with its ticket, as chapulin's session says;
 /// in full within the same connection, the ticket it offered declined; or in full with no ticket,
-/// which is also how the engine opens a connection again after a resumed handshake failed.
+/// which is also how the engine opens a connection again after a resumed handshake failed. With
+/// none up, the answer came from the cache or the connection has closed since.
 fn handshake() []const u8 {
     for (engine.connections) |connection| {
         if (connection.state != .up) continue;
@@ -141,7 +143,7 @@ fn handshake() []const u8 {
         if (connection.tls.ticket != null) return "in full, its ticket declined";
         return "in full";
     }
-    return "in full";
+    return "not seen: no connection is up";
 }
 
 fn report(name: []const u8, result: Engine.Result) void {
