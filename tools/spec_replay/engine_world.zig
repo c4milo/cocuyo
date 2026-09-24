@@ -29,9 +29,9 @@ pub const text_bytes_max = 1024;
 
 pub const Error = error{ Malformed, NoSuchOperation, NoBuffer, Full, BufferKept };
 
-/// Whether every query goes over TCP, or over UDP; and the queries a port carries before it is
-/// replaced. A walk's `config` line names both.
-pub const Transport = struct { tcp: bool, per_port: u32 };
+/// Whether every query goes over TCP, over TLS, or over UDP; and the queries a port carries before
+/// it is replaced. A walk's `config` line names both.
+pub const Transport = struct { tcp: bool, per_port: u32, tls: bool = false };
 
 /// What ends an operation, as the transcript names it.
 const Outcome = enum { ok, failed, canceled, exhausted, short };
@@ -46,6 +46,8 @@ pub fn World(comptime slots: u16, comptime conns: u16) type {
             .tcp_connections = conns,
             .tcp_group_buffers = 2,
             .tcp_message_bytes = 512,
+            // The twin's session: every configuration may speak TLS (docs/design.md §21).
+            .tls = rotor.tls.Session,
         });
 
         loop: rotor.Loop,
@@ -69,6 +71,7 @@ pub fn begin(self: anytype, transport: Transport) !void {
             .address = cocuyo.Address.from_v4(address.bytes[0..cocuyo.constants.address_v4_bytes].*),
             .port = address.port,
         } };
+        if (transport.tls) server.tls = .{ .name = cocuyo.Name.from_text("dns.example.") catch unreachable };
     }
     self.config = .{
         .servers = &self.servers,
@@ -128,6 +131,12 @@ fn dispatch(self: anytype, token: []const u8) Error!void {
 
 fn instant(self: anytype, name: []const u8, parts: *std.mem.SplitIterator(u8, .scalar)) Error!void {
     if (std.mem.eql(u8, name, "start")) return start(self);
+    if (std.mem.eql(u8, name, "lapse")) {
+        // A kept ticket reaches its lifetime, or seven days: the model's lapse, which no drive
+        // follows (docs/design.md §21, TLS rule 8).
+        self.engine.tls_tickets[try number(parts.next())] = null;
+        return;
+    }
     if (std.mem.eql(u8, name, "take")) {
         _ = self.engine.take(self.now_ns);
         return;
@@ -147,6 +156,7 @@ fn instant(self: anytype, name: []const u8, parts: *std.mem.SplitIterator(u8, .s
         const reply = std.meta.stringToEnum(fixtures.Reply, parts.next() orelse "") orelse return error.Malformed;
         return message(self, op, slot, reply);
     }
+    if (std.mem.eql(u8, name, "tls")) return tls_step(self, op, parts.next() orelse "");
     return error.Malformed;
 }
 
@@ -215,18 +225,66 @@ fn finish(self: anytype, position: usize, outcome: Outcome) Error!void {
     _ = self.engine.apply(event, self.now_ns);
 }
 
-/// The octets a stream's send reports: what is left of its message, or half of it when short,
-/// which is at least one and fewer than all, since a query is longer than two octets. A send
-/// whose connection is gone, and every other operation, reports none.
+/// The octets a stream's send reports: what is left of its head, or half of it when short, which
+/// is at least one and fewer than all, since a query or a record is longer than two octets. A
+/// send whose connection is gone, and every other operation, reports none.
 fn moved(self: anytype, user_data: u64, kind: io.Kind, short: bool) u32 {
-    if (kind != .tcp_send) return 0;
-    const slot: u16 = @intCast(user_data & io.constants.index_mask);
+    const index: usize = @intCast(user_data & io.constants.index_mask);
+    const left = switch (kind) {
+        .tcp_send => query_left(self, index),
+        .tls_send => records_left(self, index),
+        else => null,
+    } orelse return 0;
+    return if (short) left / 2 else left;
+}
+
+/// What is left of the query in slot `slot` on the connection sending it, if one is.
+fn query_left(self: anytype, slot: usize) ?u32 {
     for (self.engine.connections[0..]) |*connection| {
-        if (!connection.sending or connection.queue.first() != slot) continue;
-        const left: u32 = self.engine.send_lengths[slot] - connection.sent_bytes;
-        return if (short) left / 2 else left;
+        if (!connection.sending) continue;
+        const head = connection.queue.first() orelse continue;
+        if (head.slot != slot) continue;
+        return head_left(self, connection, head);
     }
-    return 0;
+    return null;
+}
+
+/// What is left of the records a send of the connection's opening `index` names, if the opening
+/// is still the connection's.
+fn records_left(self: anytype, index: usize) ?u32 {
+    const connection = &self.engine.connections[index & io.constants.tcp_slot_mask];
+    const incarnation: u32 = @truncate(index >> io.constants.tcp_incarnation_shift);
+    const live = connection.state != .closed and connection.state != .reopening;
+    if (!live or connection.incarnation != incarnation or !connection.sending) return null;
+    return head_left(self, connection, connection.queue.first() orelse return null);
+}
+
+fn head_left(self: anytype, connection: anytype, head: anytype) u32 {
+    if (self.config.uses_tls()) return head.end - connection.tls.out_head - connection.sent_bytes;
+    return self.engine.send_lengths[head.slot] - connection.sent_bytes;
+}
+
+/// The session's step on a TLS connection's receive, as the model names it: one handshake step
+/// in a record of its own, in one buffer of the stream's group.
+fn tls_step(self: anytype, position: usize, name: []const u8) Error!void {
+    const loop_slot = try operation(self, position);
+    const user_data = self.loop.slots[loop_slot].user_data;
+    if (kind_of(user_data) != .tcp_receive) return error.Malformed;
+    const steps = [_]struct { name: []const u8, step: rotor.tls.Step }{
+        .{ .name = "flight", .step = .flight },
+        .{ .name = "done", .step = .done },
+        .{ .name = "failed", .step = .refused },
+        .{ .name = "rekey", .step = .rekey },
+        .{ .name = "ticket", .step = .ticket },
+    };
+    const step = for (steps) |entry| {
+        if (std.mem.eql(u8, entry.name, name)) break entry.step;
+    } else return error.Malformed;
+    const buffer_id = self.loop.groups[io.constants.tcp_group_id].take() orelse return error.NoBuffer;
+    const buffer = self.loop.provided_buffer(io.constants.tcp_group_id, buffer_id);
+    var event = rotor.Event.success(user_data, @intCast(rotor.tls.write_step(step, buffer)));
+    event.flags = .{ .buffer = true, .more = true, .buffer_id = buffer_id };
+    _ = self.engine.apply(event, self.now_ns);
 }
 
 /// A datagram or a chunk on a receive that is gone, before its end: the receive stays.
@@ -273,10 +331,7 @@ fn message(self: anytype, position: usize, slot: usize, reply: fixtures.Reply) E
     const buffer = self.loop.provided_buffer(group_id, buffer_id);
     var length: u32 = undefined;
     if (kind == .tcp_receive) {
-        const prefix = cocuyo.constants.tcp_prefix_bytes;
-        std.mem.writeInt(u16, buffer[0..prefix], @intCast(body.len), .big);
-        @memcpy(buffer[prefix..][0..body.len], body);
-        length = @intCast(prefix + body.len);
+        length = stream_frame(self, body, buffer);
     } else {
         const server: u8 = @intCast((user_data & io.constants.index_mask) & io.constants.receive_index_mask);
         const peer = rotor.Network.server_address(server);
@@ -285,6 +340,21 @@ fn message(self: anytype, position: usize, slot: usize, reply: fixtures.Reply) E
     var event = rotor.Event.success(user_data, length);
     event.flags = .{ .buffer = true, .more = true, .buffer_id = buffer_id };
     _ = self.engine.apply(event, self.now_ns);
+}
+
+/// One whole frame, length and all (RFC 7766 §8), and over TLS in a data record of its own
+/// (RFC 7858 §3.3).
+fn stream_frame(self: anytype, body: []const u8, buffer: []u8) u32 {
+    const prefix = cocuyo.constants.tcp_prefix_bytes;
+    var frame: [512 + prefix]u8 = undefined;
+    std.mem.writeInt(u16, frame[0..prefix], @intCast(body.len), .big);
+    @memcpy(frame[prefix..][0..body.len], body);
+    const framed = frame[0 .. prefix + body.len];
+    if (!self.config.uses_tls()) {
+        @memcpy(buffer[0..framed.len], framed);
+        return @intCast(framed.len);
+    }
+    return @intCast(rotor.tls.write_record(rotor.constants.tls_content_application, framed, buffer));
 }
 
 /// A timer the engine moved away from ends as rotor ends it, `Canceled`, and says
@@ -311,7 +381,7 @@ fn kind_of_any(user_data: u64) io.Kind {
 pub fn kind_of(user_data: u64) ?io.Kind {
     const kind = kind_of_any(user_data);
     return switch (kind) {
-        .tcp_connect, .tcp_send, .tcp_receive, .udp_send, .udp_receive => kind,
+        .tcp_connect, .tcp_send, .tcp_receive, .udp_send, .udp_receive, .tls_send => kind,
         .timer => null,
     };
 }
@@ -319,7 +389,7 @@ pub fn kind_of(user_data: u64) ?io.Kind {
 fn failure_of(kind: io.Kind) rotor.Code {
     return switch (kind) {
         .tcp_connect => .connection_refused,
-        .tcp_send => .broken_pipe,
+        .tcp_send, .tls_send => .broken_pipe,
         .udp_send => .network_unreachable,
         else => .connection_reset,
     };

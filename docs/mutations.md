@@ -1039,6 +1039,33 @@ mutations, seven `CAUGHT`.
 | W6 | a draining socket's ended receive is armed on the current one | rule 5 | the committed walks | CAUGHT |
 | W7 | a query does not record the socket it left from | rule 4, what is owed | the rotation twin test; the committed walks | CAUGHT |
 
+## The engine over TLS
+
+Design §21 step 5, the engine's side of it: the TLS rules in `io/`, driven with the twin's
+session. Broken against `zig build test-io`, `zig build test-tools`, and `zig build spec` for any
+the first two missed. The twin tests caught nine and the committed walks nine; ET8, ET10, ET11
+and ET14 were `NOT CAUGHT` by either, and caught by the full walks only. ET14 needed the model to
+send a record to a closing connection first, which it never did. The committed gate now keeps
+the full run's walks that caught those four (`engineGatePicks`), and catches them. Fourteen
+mutations, fourteen `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| ET1 | lookups hear the connection is up at the connect, before the handshake | TLS rule 1 | the refused-handshake twin test; the committed walks | CAUGHT |
+| ET2 | the session's records go to the back of the queue | TLS rule 2 | the committed walks | CAUGHT |
+| ET3 | records made behind a waiting records entry take an entry of their own | TLS rule 2, two entries | the committed walks | CAUGHT |
+| ET4 | a declined ticket fails the connection | TLS rule 8 | the ticket twin test | CAUGHT |
+| ET5 | a spent ticket stays kept | TLS rule 8, used once | the ticket twin test; the seven-day test | CAUGHT |
+| ET6 | an idle TLS connection closes without `close_notify` | TLS rule 5, RFC 9846 §6.1 | the `close_notify` twin test; the committed walks | CAUGHT |
+| ET7 | a TLS configuration opens UDP sockets | TLS rule 9 | the first TLS twin test; the committed walks | CAUGHT |
+| ET8 | a TLS connection is closed to make room | TLS rule 6 | the picked walk 392 | CAUGHT |
+| ET9 | a records send's end leaves its slot borrowed | TLS rule 3 | the twin tests; the committed walks, by an assertion | CAUGHT |
+| ET10 | a reopening connection takes its old opening's events for its own | TLS rule 8 | the picked walk 120, by an assertion | CAUGHT |
+| ET11 | a reopening connection connects while its old records are in flight | TLS rules 3 and 8 | the picked walk 120, by an assertion | CAUGHT |
+| ET12 | a record longer than 2^14 + 256 octets is waited for | RFC 9846 §5.2 | the record-length test | CAUGHT |
+| ET13 | a ticket older than seven days is spent | RFC 9846 §4.7.1 | the seven-day test | CAUGHT |
+| ET14 | a closing connection reads what the peer sends | TLS rule 5 | the picked walk 329, by an assertion | CAUGHT |
+
 ## The TLS rules in the engine model
 
 Design §21's engine rules, held by the model before any engine code speaks TLS. The code has

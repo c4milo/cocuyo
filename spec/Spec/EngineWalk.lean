@@ -161,12 +161,16 @@ def mix (x : UInt64) : UInt64 :=
 leads to a state no walk has reached, when there is one, and any event otherwise, the seed
 choosing among them. Every state a walk reaches is checked against the invariants. Returns the
 events written and the states reached. -/
-def walks (out : IO.FS.Stream) (c : Config) (seed : UInt64) (count length : Nat) :
-    IO (Nat × Nat) := do
+def walks (out : IO.FS.Stream) (c : Config) (seed : UInt64) (count length : Nat)
+    (keep : Nat → Bool := fun _ => true) : IO (Nat × Nat) := do
   let mut word := seed
   let mut seen : Std.HashSet State := {}
   let mut events := 0
-  for _ in [0:count] do
+  -- Only the walks `keep` names are written, and the others are walked all the same, so a walk
+  -- written alone is the walk the whole run has at its place.
+  let sink := IO.FS.Stream.ofBuffer (← IO.mkRef {})
+  for index in [0:count] do
+    let out := if keep index then out else sink
     let mut s := init c
     seen := seen.insert s
     let transport := if c.tls then "tls" else if c.useTcp then "tcp" else "udp"

@@ -57,9 +57,11 @@ pub const Sockets = struct {
         // gone left behind, and `reinit` is exactly when there are some.
         self.items = @splat(.{});
         self.draining = @splat(.{});
-        self.count = @intCast(config.servers.len);
+        // A TLS configuration opens no UDP socket: every query goes on a stream (docs/design.md
+        // §21, TLS rule 9).
+        self.count = if (config.uses_tls()) 0 else @intCast(config.servers.len);
         self.word = seed;
-        for (config.servers, 0..) |*server, index| {
+        for (config.servers[0..self.count], 0..) |*server, index| {
             self.items[index] = try self.open_port(config, server.endpoint.address.family);
             try self.arm(loop, &self.items[index], @intCast(index), tag);
         }

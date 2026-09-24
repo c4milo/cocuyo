@@ -25,6 +25,7 @@ const events_module = @import("io_events.zig");
 const lifecycle = @import("io_lifecycle.zig");
 const send_module = @import("io_send.zig");
 const tcp_queue = @import("io_tcp_queue.zig");
+pub const tls = @import("io_tls.zig");
 
 pub const Options = struct {
     lookups: u16 = constants.lookups_default,
@@ -36,12 +37,15 @@ pub const Options = struct {
     tcp_group_buffers: u16 = constants.tcp_group_buffers_default,
     /// The longest message one connection can assemble (RFC 7766 §8).
     tcp_message_bytes: u32 = constants.tcp_message_bytes_max,
+    /// The TLS session type of docs/design.md §21, the session seam: chapulin's when the build
+    /// links it, the twin's in its tests, and `tls.None`, which refuses a TLS configuration.
+    tls: type = tls.None,
 };
 
 pub const InitError = error{ SocketFailed, ReceiveFailed };
 
 /// What one of the engine's `user_data` values says.
-pub const Kind = enum(u8) { udp_send, udp_receive, timer, tcp_connect, tcp_send, tcp_receive };
+pub const Kind = enum(u8) { udp_send, udp_receive, timer, tcp_connect, tcp_send, tcp_receive, tls_send };
 
 pub fn Engine(comptime options: Options) type {
     return struct {
@@ -82,9 +86,13 @@ pub fn Engine(comptime options: Options) type {
         sockets: udp.Sockets,
         group: udp.Group(options.group_buffers),
         /// The streams of RFC 7766, and which one each lookup is on (`io_tcp.zig`).
-        connections: [options.tcp_connections]tcp.Connection(options.tcp_message_bytes, options.lookups),
+        connections: [options.tcp_connections]tcp.Connection(options.tcp_message_bytes, options.lookups, options.tls),
         tcp_connection: [options.lookups]?u8,
         tcp_group: tcp.Group(options.tcp_group_buffers),
+        /// The newest ticket each server's sessions were given, kept for its next connection,
+        /// and what every session starts from (docs/design.md §21, TLS rule 8).
+        tls_tickets: [cocuyo.constants.servers_max]?tls.Kept(options.tls),
+        tls_context: options.tls.Context,
         tcp_idle_ns: u64,
         results: results_module.Queue(options.lookups),
         /// The result handed out last, whose slot is freed at the next `take`.
@@ -107,6 +115,9 @@ pub fn Engine(comptime options: Options) type {
         /// The high bits of every `user_data` this engine submits.
         pub const tag = options.tag;
 
+        /// The TLS session type, which `io_tls.zig` reads through the engine.
+        pub const Tls = options.tls;
+
         /// The operations and entries a loop needs for this engine: what `Loop.Options` takes.
         /// What `Loop.Options.operations` needs for this engine: a send per lookup, a receive
         /// per server, a connect and a receive per connection, one timer, and slack.
@@ -116,9 +127,7 @@ pub fn Engine(comptime options: Options) type {
 
         pub fn init(self: *Self, loop: *rotor.Loop, config: *const cocuyo.Config, seed: u64, now_ns: u64) InitError!void {
             config.assert_valid();
-            // The engine speaks no TLS until docs/design.md §21 step 5, and a stream it opened
-            // to a TLS server would carry cleartext on port 853 (RFC 7858 §3.1).
-            assert(!config.uses_tls());
+            assert_tls(config);
             self.loop = loop;
             self.config = config;
             self.send_in_flight = @splat(false);
@@ -131,6 +140,8 @@ pub fn Engine(comptime options: Options) type {
             self.connections = @splat(.{});
             self.tcp_connection = @splat(null);
             self.tcp_idle_ns = constants.tcp_idle_ns_default;
+            self.tls_tickets = @splat(null);
+            self.tls_context = .{};
             self.sockets.reset_generation();
             try self.group.provide(loop);
             try self.tcp_group.provide(loop);
@@ -169,6 +180,21 @@ pub fn Engine(comptime options: Options) type {
             self.tcp_connection[handle.index] = null;
             drive_module.drive(self, now_ns);
             return handle;
+        }
+
+        /// A TLS configuration needs an engine that speaks TLS: one without it would carry
+        /// cleartext on port 853 (RFC 7858 §3.1). And it needs a connection slot for each of its
+        /// servers, since a TLS connection is never closed to make room (§21, TLS rule 6).
+        pub fn assert_tls(config: *const cocuyo.Config) void {
+            if (!config.uses_tls()) return;
+            assert(options.tls.enabled);
+            assert(config.servers.len <= options.tcp_connections);
+        }
+
+        /// What every TLS session starts from (docs/design.md §21): for chapulin, the anchors,
+        /// the wall clock and the seed's stream. The twin's needs nothing.
+        pub fn use_tls(self: *Self, context: options.tls.Context) void {
+            self.tls_context = context;
         }
 
         /// Settles every lookup as cancelled, which is `ares_cancel`. Each failure comes through
@@ -240,10 +266,13 @@ test {
     _ = lifecycle;
     _ = send_module;
     _ = tcp_queue;
+    _ = tls;
+    _ = @import("io_tcp_queue_ring.zig");
     // The tests drive the engine on the twin, which is the only `rotor` that has scripts.
     if (comptime @hasDecl(rotor, "server")) {
         _ = @import("io_sim_test.zig");
         _ = @import("io_tcp_test.zig");
         _ = @import("io_lifecycle_test.zig");
+        _ = @import("io_tls_test.zig");
     }
 }

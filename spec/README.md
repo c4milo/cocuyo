@@ -132,8 +132,10 @@ and 42, and on the mutations of docs/mutations.md that break it on purpose.
 configuration the seeded way below and stops at the first invariant broken, for a quick look before
 the breadth-first walk.
 
-The TLS configurations are model-checked alone for now: the engine speaks no TLS until §21 step
-5, so the replay has nothing to drive, and `engine-walks` writes the other six.
+The TLS configurations are walked and replayed like the others. The engine drives the twin's
+session (`src/sim/sim_tls.zig`), whose records carry their plaintext unsealed and whose handshake
+steps are one octet each. A walk's `tls:i:step` puts one step in a record on the receive at `i`,
+an answer comes in a data record, and `lapse:v` drops the ticket kept for server `v`.
 
 The replay cannot visit that many states, so `cocuyo-spec engine-walks` writes seeded walks that
 take, at each step, an event leading to a state no walk has reached yet when there is one. Each
@@ -164,15 +166,18 @@ compares the walk's whole state after each.
 
 - `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 2,910
   transitions: one server, one pass and one name, over UDP and over TCP. It also replays
-  `tools/spec_replay/engine_gate.txt`, ten engine walks of forty events in each of the six
-  engine configurations, and `tools/spec_replay/walk_gate.txt`, the forward walk with two
+  `tools/spec_replay/engine_gate.txt`, ten engine walks of forty events in each of the eight
+  engine configurations, and three walks of the full run that `engineGatePicks` in `Main.lean`
+  names: each is where the full run caught a mutation of the engine that the short walks miss
+  (docs/mutations.md ET8, ET10, ET11 and ET14). The model regenerates a picked walk by walking its
+  configuration up to it, so it is the full run's walk byte for byte. The gate also holds `tools/spec_replay/walk_gate.txt`, the forward walk with two
   candidates and both families and every reverse configuration. It needs no Lean.
 - `zig build spec` needs `lake` on the path, at the version `lean-toolchain` pins. It builds the
   proofs and the axiom pins, requires the committed slices to be the ones the models write, and
-  replays the lookup's whole transcript and 2,000 engine walks of 200 events in each of the six
-  engine configurations, 2.4 million events, and the walks' whole transcript. It took about a
-  minute and a quarter on the machine of design §11 on 2026-09-23, most of it the model writing
-  the engine's walks.
+  replays the lookup's whole transcript and 2,000 engine walks of 200 events in each of the eight
+  engine configurations, 3.2 million events, and the walks' whole transcript. It took about a
+  minute and a quarter on the machine of design §11 on 2026-09-23, with six configurations, most
+  of it the model writing the engine's walks.
 - After a change to a model, `lake exe cocuyo-spec gate 8 > ../tools/spec_replay/lookup_gate.txt`
   `lake exe cocuyo-spec engine-gate > ../tools/spec_replay/engine_gate.txt` and
   `lake exe cocuyo-spec walks-gate > ../tools/spec_replay/walk_gate.txt` in this directory write

@@ -2140,8 +2140,8 @@ message, its rest then whole or failed: a second short send takes the same path 
   over UDP; spec/README.md has the counts. This is model checking over bounded configurations,
   not a proof.
 - The replay drives the engine over the twin in manual mode, where the loop ends each operation
-  when and how the walk says, and refuses what the walk says. It runs 12,000 walks and 2.4
-  million events. After each event it compares the engine's whole state with the model's, and
+  when and how the walk says, and refuses what the walk says. It runs 16,000 walks and 3.2
+  million events, 4,000 walks of them over TLS since 2026-09-24. After each event it compares the engine's whole state with the model's, and
   checks every buffer the event handed the engine is back in its group.
 
 The code of 2026-09-22 broke eleven of these rules, each fixed with the model:
@@ -2678,7 +2678,12 @@ written from before the code is.
    is sealed when it reaches the head of the queue with nothing in flight. Records go out in the
    order they were sealed, since each record's nonce is its sequence number (RFC 9846 §5.3). So
    records the session makes while a send is in flight go out right after that send, ahead of
-   every query not yet sealed.
+   every query not yet sealed. Records made while another entry of the session's own records
+   waits behind the send in flight join that entry, since the two go out together and in the
+   order they were made. A queue holds two entries of the session's records at most, then:
+   the one in flight and the one behind it. Until 2026-09-24 each made its own entry, and a peer
+   asking one KeyUpdate after another while a send stalled filled the queue; the model's walks
+   found it.
 3. A connection's sealed records wait in a buffer of the connection's own, which a send lends to
    the loop until its final event (rotor decision 5, rule 3). The slot is not opened again while
    a send of an earlier incarnation's records is in flight, as the stream's rule 10 keeps it for
@@ -2687,7 +2692,8 @@ written from before the code is.
    refuses, a certificate or a name that does not verify. No query was sent on it, and each
    lookup on it fails over to the next server.
 5. An idle connection that is up makes the session's `close_notify` (RFC 9846 §6.1). It closes
-   when that record has gone, and no lookup joins it meanwhile. One whose handshake has not
+   when that record has gone, and no lookup joins it meanwhile. A record the peer sends
+   meanwhile is not read: the session has said its last. One whose handshake has not
    ended has no session to close, and closes at once. A connection that fails closes at once
    too: a party that has sent an error alert owes no `close_notify` (§6.1), and one whose peer
    has gone has nobody to send it to.
@@ -2793,7 +2799,12 @@ the engine's send and held buffers, per slot.
    handshake that fails fails the connection. Design, model, code, in that order (§19 step 13).
    The rules and the model landed 2026-09-23; the code is step 5's.
 5. The engine over chapulin, behind a build option naming a chapulin checkout, as colibri's
-   driver links it: the headers are read in place and nothing is vendored.
+   driver links it: the headers are read in place and nothing is vendored. The engine's side
+   landed on 2026-09-24, over the session seam and checked with the twin's session: the TLS
+   rules in `io/io_tls.zig`, the queue's sealed entries in `io/io_tcp_queue_ring.zig`, twin
+   tests in `io/io_tls_test.zig`, and the replay over the model's two TLS configurations. The
+   full walks found one defect in the rules as first written, the queue filled by KeyUpdates
+   (TLS rule 2). chapulin's own session, `io/io_chapulin.zig`, is what is left of the step.
 6. A live check against the public resolvers that serve DoT: `dns.google`, `cloudflare-dns.com`
    and `dns.quad9.net`.
 

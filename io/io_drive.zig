@@ -71,7 +71,7 @@ fn report(self: anytype, index: usize, outcome: results_module.Outcome, now_ns: 
 fn tend_sockets(self: anytype) void {
     const tag = @TypeOf(self.*).tag;
     var server: u8 = 0;
-    while (server < self.config.servers.len) : (server += 1) {
+    while (server < self.sockets.count) : (server += 1) {
         close_if_drained(self, server);
         if (self.sockets.is_due(server)) self.sockets.rotate(self.loop, self.config, server, tag) catch {};
         close_if_drained(self, server);

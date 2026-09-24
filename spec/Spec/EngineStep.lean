@@ -175,6 +175,7 @@ def connectEnded (c : Config) (s : State) (i : Nat) (op : Op) (ok : Bool) : Stat
 after which the connection is up and its lookups are told, a failure, or a KeyUpdate to answer
 (§21, TLS rules 1, 2 and 4). -/
 def tlsStep (c : Config) (s : State) (k : Nat) (t : TlsStep) : State :=
+  if (connAt s k).stage = .closing then s else
   let s := if t = .failed ∨ t = .ticket then s else setConn s k fun conn => { conn with owes := true }
   match t with
   | .flight | .rekey => makeRecords c s k
@@ -348,6 +349,8 @@ def enabled (c : Config) (s : State) : List Event :=
       match (connAt s op.target).stage with
       | .handshaking => [TlsStep.flight, .done, .failed].map (Event.tls i)
       | .up => [Event.tls i .rekey, .tls i .ticket]
+      -- A record after the `close_notify`, which is not read (§21, TLS rule 5).
+      | .closing => [Event.tls i .rekey]
       | _ => []
     | none => []
   let stragglers := (List.range s.ops.length).filterMap fun i =>
@@ -409,11 +412,13 @@ def oneSendAStream (s : State) : Bool :=
       (records == 0 || conn.queue.head? == some .records)
 
 /-- Records go out in the order they were sealed (§21, TLS rule 2): the sealed entries lead the
-queue, only its head among them a query, and nothing is sealed but while a send is in flight. -/
+queue, only its head among them a query, and nothing is sealed but while a send is in flight. The
+session's own records take two entries at most: the one in flight and the one behind it. -/
 def sealedInOrder (s : State) : Bool :=
   (List.range s.conns.length).all fun k =>
     let conn := connAt s k
     conn.sealed ≤ conn.queue.length &&
+      (conn.queue.filter (!·.isQuery)).length ≤ 2 &&
       (conn.queue.drop conn.sealed).all (·.isQuery) &&
       ((conn.queue.take conn.sealed).drop 1).all (!·.isQuery) &&
       ((conn.sealed > 0) == inFlight s k || s.jammed)

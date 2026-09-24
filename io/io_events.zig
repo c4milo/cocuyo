@@ -26,6 +26,7 @@ pub fn apply(self: anytype, event: rotor.Event, now_ns: u64) bool {
         .tcp_connect => tcp.on_connect_event(self, index, event, now_ns),
         .tcp_send => tcp_queue.on_send_event(self, index, event, now_ns),
         .tcp_receive => tcp.on_receive_event(self, index, event, now_ns),
+        .tls_send => tcp_queue.on_records_event(self, index, event, now_ns),
     }
     drive_module.drive(self, now_ns);
     return true;

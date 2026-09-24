@@ -16,58 +16,64 @@ const options: io.Options = .{
 };
 const Engine = io.Engine(options);
 
-const loop_options: rotor.Loop.Options = .{ .operations = Engine.loop_operations };
+/// Two scripted servers, which are the twin's first two, and the engine the tests use over them.
+pub const Rig = RigOf(Engine);
 
-/// Two scripted servers, which are the twin's first two, and an engine over them.
-pub const Rig = struct {
-    loop: rotor.Loop = undefined,
-    memory: [0]u8 align(rotor.memory_alignment) = undefined,
-    servers: [fixtures.servers]cocuyo.Server = .{
-        .{ .endpoint = endpoint_of(rotor.Network.server_address(0)) },
-        .{ .endpoint = endpoint_of(rotor.Network.server_address(1)) },
-    },
-    config: cocuyo.Config = undefined,
-    engine: Engine = undefined,
-    events: [fixtures.events_max]rotor.Event = undefined,
+/// Two scripted servers and an engine of type `EngineType` over them.
+pub fn RigOf(comptime EngineType: type) type {
+    return struct {
+        const RigType = @This();
+        const loop_options: rotor.Loop.Options = .{ .operations = EngineType.loop_operations };
 
-    pub fn init(rig: *Rig, seed: u64, scripts: [fixtures.servers]rotor.server.Script, config: cocuyo.Config) !void {
-        try rig.loop.init(&rig.memory, loop_options);
-        rig.loop.seed(seed);
-        rig.loop.network().scripts[0] = scripts[0];
-        rig.loop.network().scripts[1] = scripts[1];
-        rig.loop.network().server_count = fixtures.servers;
-        rig.config = config;
-        rig.config.servers = &rig.servers;
-        try rig.engine.init(&rig.loop, &rig.config, seed, rig.loop.now());
-    }
+        loop: rotor.Loop = undefined,
+        memory: [0]u8 align(rotor.memory_alignment) = undefined,
+        servers: [fixtures.servers]cocuyo.Server = .{
+            .{ .endpoint = endpoint_of(rotor.Network.server_address(0)) },
+            .{ .endpoint = endpoint_of(rotor.Network.server_address(1)) },
+        },
+        config: cocuyo.Config = undefined,
+        engine: EngineType = undefined,
+        events: [fixtures.events_max]rotor.Event = undefined,
 
-    pub fn deinit(rig: *Rig) !void {
-        rig.engine.deinit();
-        try rig.loop.drain(&rig.events);
-        rig.engine.close();
-        rig.loop.deinit();
-    }
-
-    /// One tick, every event applied. How many were the engine's.
-    pub fn step(rig: *Rig, wait_ns: u64) !u32 {
-        const count = try rig.loop.tick(&rig.events, wait_ns);
-        var applied: u32 = 0;
-        for (rig.events[0..count]) |event| {
-            if (rig.engine.apply(event, rig.loop.now())) applied += 1;
+        pub fn init(rig: *RigType, seed: u64, scripts: [fixtures.servers]rotor.server.Script, config: cocuyo.Config) !void {
+            try rig.loop.init(&rig.memory, loop_options);
+            rig.loop.seed(seed);
+            rig.loop.network().scripts[0] = scripts[0];
+            rig.loop.network().scripts[1] = scripts[1];
+            rig.loop.network().server_count = fixtures.servers;
+            rig.config = config;
+            rig.config.servers = &rig.servers;
+            try rig.engine.init(&rig.loop, &rig.config, seed, rig.loop.now());
         }
-        return applied;
-    }
 
-    /// Runs until a result is ready, or the rounds run out.
-    pub fn until_result(rig: *Rig) !Engine.Result {
-        var rounds: usize = 0;
-        while (rounds < fixtures.until_rounds_max) : (rounds += 1) {
-            if (rig.engine.take(rig.loop.now())) |result| return result;
-            _ = try rig.step(fixtures.wait_ns);
+        pub fn deinit(rig: *RigType) !void {
+            rig.engine.deinit();
+            try rig.loop.drain(&rig.events);
+            rig.engine.close();
+            rig.loop.deinit();
         }
-        return error.NoResult;
-    }
-};
+
+        /// One tick, every event applied. How many were the engine's.
+        pub fn step(rig: *RigType, wait_ns: u64) !u32 {
+            const count = try rig.loop.tick(&rig.events, wait_ns);
+            var applied: u32 = 0;
+            for (rig.events[0..count]) |event| {
+                if (rig.engine.apply(event, rig.loop.now())) applied += 1;
+            }
+            return applied;
+        }
+
+        /// Runs until a result is ready, or the rounds run out.
+        pub fn until_result(rig: *RigType) !EngineType.Result {
+            var rounds: usize = 0;
+            while (rounds < fixtures.until_rounds_max) : (rounds += 1) {
+                if (rig.engine.take(rig.loop.now())) |result| return result;
+                _ = try rig.step(fixtures.wait_ns);
+            }
+            return error.NoResult;
+        }
+    };
+}
 
 pub fn endpoint_of(address: rotor.Address) cocuyo.Endpoint {
     return .{ .address = cocuyo.Address.from_v4(address.bytes[0..cocuyo.constants.address_v4_bytes].*), .port = address.port };

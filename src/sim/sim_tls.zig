@@ -61,7 +61,12 @@ pub fn record_len(bytes: []const u8) ?usize {
 
 /// The client: a session with the functions the engine asks of one (docs/design.md §21).
 pub const Session = struct {
+    pub const enabled = true;
+    /// The most one call makes before the engine takes it out.
+    pub const out_bytes_max = constants.tls_out_bytes_max;
     pub const Error = error{Failed};
+    /// What the engine hands every session it starts: nothing, for the twin.
+    pub const Context = struct {};
     /// A ticket the server gave. The twin's carries nothing: it only has to be kept and spent.
     pub const Ticket = struct {};
     pub const Handshake = enum { going, done };
@@ -75,10 +80,17 @@ pub const Session = struct {
     ticket: ?Ticket = null,
 
     /// Stages the hello: a resumed one when the engine hands over a ticket.
-    pub fn start(self: *Session, context: anytype) void {
+    pub fn start(self: *Session, context: anytype) Error!void {
         assert(self.state == .idle);
         self.* = .{ .state = .handshaking };
         self.make(if (context.ticket != null) .hello_resumed else .hello);
+    }
+
+    /// How long a ticket may be used for, in nanoseconds: the twin's never lapse on their own,
+    /// so the engine's seven-day cap is what ends one.
+    pub fn lifetime_ns(ticket: *const Ticket) u64 {
+        _ = ticket;
+        return std.math.maxInt(u64);
     }
 
     /// Hands over what the session made since the last call, in the order it made it.
@@ -109,7 +121,7 @@ pub const Session = struct {
     }
 
     /// The records of one query.
-    pub fn seal(self: *Session, plaintext: []const u8) void {
+    pub fn seal(self: *Session, plaintext: []const u8) Error!void {
         assert(self.state == .up);
         assert(self.out_len + header_bytes + plaintext.len <= self.out.len);
         self.out_len += write_record(constants.tls_content_application, plaintext, self.out[self.out_len..]);
@@ -246,7 +258,7 @@ fn step_record(step: Step, out: []u8) []const u8 {
 
 test "a hello, a flight and the handshake's end, with a ticket after it" {
     var session: Session = .{};
-    session.start(.{ .ticket = @as(?Session.Ticket, null) });
+    try session.start(.{ .ticket = @as(?Session.Ticket, null) });
     try testing.expectEqual(Step.hello, try take_step(&session));
     var record: [constants.tls_out_bytes_max]u8 = undefined;
     try testing.expectEqual(Session.Handshake.going, try session.handshake(step_record(.flight, &record)));
@@ -260,7 +272,7 @@ test "a hello, a flight and the handshake's end, with a ticket after it" {
 
 test "a refused handshake fails, and a resumed hello says it resumes" {
     var session: Session = .{};
-    session.start(.{ .ticket = @as(?Session.Ticket, .{}) });
+    try session.start(.{ .ticket = @as(?Session.Ticket, .{}) });
     try testing.expectEqual(Step.hello_resumed, try take_step(&session));
     var record: [constants.tls_out_bytes_max]u8 = undefined;
     try testing.expectError(Session.Error.Failed, session.handshake(step_record(.refused, &record)));
@@ -268,7 +280,7 @@ test "a refused handshake fails, and a resumed hello says it resumes" {
 
 test "a sealed query opens on the other side as its plaintext, and a server walks its script" {
     var session: Session = .{};
-    session.start(.{ .ticket = @as(?Session.Ticket, null) });
+    try session.start(.{ .ticket = @as(?Session.Ticket, null) });
     var out: [constants.tls_out_bytes_max]u8 = undefined;
     var peer: Peer = .{};
     const behaviour: Behaviour = .{ .flights = 1, .tickets = true };
@@ -281,7 +293,7 @@ test "a sealed query opens on the other side as its plaintext, and a server walk
     try testing.expectEqual(@as(?Step, .ticket), heard.steps.second);
     _ = try session.handshake(step_record(.done, &record));
     _ = session.take_out(&out);
-    session.seal("query");
+    try session.seal("query");
     const sealed = out[0..session.take_out(&out)];
     try testing.expectEqual(@as(?usize, sealed.len), record_len(sealed));
     try testing.expectEqualStrings("query", peer.hear(&behaviour, sealed).data);

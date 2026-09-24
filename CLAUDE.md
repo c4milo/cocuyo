@@ -176,7 +176,7 @@ The architecture depends on every rule in this section.
   require, so it and its tests (`zig build test-cares`) run only when asked. The numbers go in
   design §11 beside cocuyo's, with the c-ares version the binary prints.
 - Model: `zig build spec` — the Lean proofs of `Lookup` and the pins on the axioms they rest on,
-  then every transition the lookup model reaches under 55 configurations, 2.4 million events of
+  then every transition the lookup model reaches under 55 configurations, 3.2 million events of
   engine walks, and every transition of the `getaddrinfo` walks, replayed against the code. It needs `lake` at the version
   `spec/lean-toolchain` pins, so it runs only when asked and in CI's `spec` job; `zig build test`
   replays the committed slices without Lean.

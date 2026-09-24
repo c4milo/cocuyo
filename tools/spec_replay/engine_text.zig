@@ -53,29 +53,45 @@ pub fn write(world: anytype, out: *[world_module.text_bytes_max]u8) []const u8 {
     line.print(" | ", .{});
     for (engine.connections[0..], 0..) |*connection, index| {
         if (index > 0) line.print(" ; ", .{});
-        line.print("{s} s{d} u{d}", .{ @tagName(connection.state), connection.server, connection.users });
-        line.flag(connection.state != .closed and connection.idle_since_ns == world.now_ns, 'I');
-        line.flag(connection.sent_bytes > 0, 'P');
-        line.print(" q[", .{});
-        for (0..connection.queue.count) |position| {
-            if (position > 0) line.print(",", .{});
-            line.print("{d}", .{connection.queue.at(@intCast(position))});
-        }
-        line.print("]", .{});
+        connection_text(&line, world, connection);
     }
     line.print(" | ", .{});
-    for (0..world.config.servers.len) |server| {
+    sockets_text(&line, world);
+    line.print(" | ", .{});
+    operations(&line, world);
+    line.print(" | ", .{});
+    table(&line, world);
+    return line.buffer[0..line.len];
+}
+
+/// A connection: its stage, server and users, whether it went idle now and a head went short,
+/// its queue, and over TLS how many entries are sealed and whether this opening resumes (§21).
+fn connection_text(line: *Line, world: anytype, connection: anytype) void {
+    line.print("{s} s{d} u{d}", .{ @tagName(connection.state), connection.server, connection.users });
+    line.flag(connection.state != .closed and connection.idle_since_ns == world.now_ns, 'I');
+    line.flag(connection.sent_bytes > 0, 'P');
+    line.print(" q[", .{});
+    for (0..connection.queue.count) |position| {
+        if (position > 0) line.print(",", .{});
+        const entry = connection.queue.at(@intCast(position));
+        if (entry.is_query()) line.print("{d}", .{entry.slot}) else line.print("r", .{});
+    }
+    line.print("]", .{});
+    if (!world.config.uses_tls()) return;
+    line.print(" k{d}", .{connection.queue.sealed});
+    line.flag(connection.tls.ticket != null, 'M');
+}
+
+/// Each server's sockets: none over TLS (§21, TLS rule 9).
+fn sockets_text(line: *Line, world: anytype) void {
+    const engine = &world.engine;
+    for (0..engine.sockets.count) |server| {
         if (server > 0) line.print(" ; ", .{});
         const socket = &engine.sockets.items[server];
         line.print("open s{d}", .{socket.sent});
         line.flag(socket.retiring, 'R');
         line.flag(engine.sockets.draining[server].open, 'D');
     }
-    line.print(" | ", .{});
-    operations(&line, world);
-    line.print(" | ", .{});
-    table(&line, world);
-    return line.buffer[0..line.len];
 }
 
 fn slot(line: *Line, world: anytype, index: usize) void {
@@ -123,12 +139,18 @@ fn operations(line: *Line, world: anytype) void {
         const user_data = world.loop.slots[loop_slot].user_data;
         const index: usize = @intCast(user_data & io.constants.index_mask);
         switch (world_module.kind_of(user_data).?) {
-            .tcp_connect, .tcp_receive => |kind| {
+            .tcp_connect, .tcp_receive, .tls_send => |kind| {
                 const at = index & io.constants.tcp_slot_mask;
                 const incarnation: u32 = @truncate(index >> io.constants.tcp_incarnation_shift);
                 const connection = &world.engine.connections[at];
-                const current = connection.state != .closed and connection.incarnation == incarnation;
-                line.print("{c}{d}{c}", .{ if (kind == .tcp_connect) @as(u8, 'C') else 'R', at, mark(current) });
+                const live = connection.state != .closed and connection.state != .reopening;
+                const current = live and connection.incarnation == incarnation;
+                const letter: u8 = switch (kind) {
+                    .tcp_connect => 'C',
+                    .tcp_receive => 'R',
+                    else => 'T',
+                };
+                line.print("{c}{d}{c}", .{ letter, at, mark(current) });
             },
             .tcp_send => line.print("S{d}{c}", .{ index, mark(send_is_current(world, index)) }),
             .udp_send => line.print("D{d}{c}", .{ index, mark(send_is_current(world, index)) }),
@@ -192,6 +214,13 @@ fn table(line: *Line, world: anytype) void {
     line.print(" ", .{});
     line.flag(world.loop.refuse_submissions, 'J');
     line.flag(world.loop.network().refuse_open, 'Z');
+    if (!world.config.uses_tls()) return;
+    line.print(" tk[", .{});
+    for (0..world.config.servers.len) |server| {
+        if (server > 0) line.print(",", .{});
+        line.print("{d}", .{@intFromBool(engine.tls_tickets[server] != null)});
+    }
+    line.print("]", .{});
 }
 
 /// The waiting lookups, grouped by the deadline they wait for, soonest first.

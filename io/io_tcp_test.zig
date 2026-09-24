@@ -95,7 +95,7 @@ test "a lookup that leaves its connection takes its waiting query out of the que
     rig.engine.cancel(second, rig.loop.now());
     // The second's query had not started, so it leaves the queue and its buffer comes back.
     try testing.expectEqual(@as(u16, 1), connection.queue.count);
-    try testing.expectEqual(@as(?u16, first.index), connection.queue.first());
+    try testing.expectEqual(first.index, connection.queue.first().?.slot);
     try testing.expect(!rig.engine.send_in_flight[second.index]);
     var ended: usize = 0;
     while (ended < 2) : (ended += 1) _ = try rig.until_result();

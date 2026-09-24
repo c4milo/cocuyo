@@ -108,8 +108,13 @@ def pump (c : Config) (s : State) (k : Nat) : State :=
     | .records => { s with ops := s.ops ++ [{ kind := .sendRecords, target := k, current := true }] }
 
 /-- The session made records: sealed now, they go after what is sealed already and ahead of every
-query that is not (§21, TLS rule 2). -/
+query that is not. Behind an entry of the session's own records that has not started, they join
+it (§21, TLS rule 2). -/
 def makeRecords (c : Config) (s : State) (k : Nat) : State :=
+  let conn := connAt s k
+  if conn.sealed ≥ 2 ∧ conn.queue[conn.sealed - 1]? = some .records then
+    setConn s k fun conn => { conn with owes := false }
+  else
   let s := setConn s k fun conn =>
     { conn with queue := conn.queue.take conn.sealed ++ [.records] ++ conn.queue.drop conn.sealed,
                 sealed := conn.sealed + 1, owes := false }

@@ -76,12 +76,42 @@ pub const tcp_slot_mask = (1 << tcp_incarnation_shift) - 1;
 /// rule 8).
 pub const drive_polls_per_lookup_max = 2 * core.constants.servers_max * core.constants.attempts_max + 1;
 
-/// What one connection asks of the loop: the connect, and then the receive that replaces it.
-pub const loop_operations_per_connection = 2;
+/// What one connection asks of the loop: the connect, and then the receive that replaces it, and
+/// over TLS a send of the session's own records (docs/design.md §21).
+pub const loop_operations_per_connection = 3;
 
 /// The most whole messages taken out of one chunk, which bounds the framing loop. A chunk is one
 /// read, and a pipelined server can answer several queries in one.
 pub const tcp_messages_per_chunk_max = 32;
+
+/// A TLS record's header: its content type, two octets of legacy version and two of length
+/// (RFC 9846 §5.1), and where the length sits.
+pub const tls_record_header_bytes = 5;
+pub const tls_record_length_at = 3;
+
+/// The longest record body a TLS 1.3 peer may send: 2^14 octets of plaintext, one of content type
+/// and 255 of expansion (RFC 9846 §5.2).
+pub const tls_record_body_bytes_max = (1 << 14) + 256;
+
+/// What a TLS connection keeps of a record until the rest arrives: one at its longest, header and
+/// all (docs/design.md §21, TLS rule 7).
+pub const tls_record_in_bytes = tls_record_header_bytes + tls_record_body_bytes_max;
+
+/// The sealed records a TLS connection holds before they go: a ClientHello at chapulin's staging
+/// bound of 1154 octets (read in its session.h on 2026-09-23), a query sealed at its longest, and
+/// the few octets of a KeyUpdate's answer and a `close_notify`, with room to spare. Past it the
+/// connection fails rather than hold more (§21, TLS rule 3).
+pub const tls_records_out_bytes = 4096;
+
+/// The entries of the session's own records one queue holds at once beside its queries: the one
+/// in flight, and the one behind it, which every record made meanwhile joins (§21, TLS rule 2).
+pub const tls_records_entries_max = 2;
+
+/// The most whole records handed to the session from one chunk, which bounds the framing loop.
+pub const tls_records_per_chunk_max = 32;
+
+/// A client MUST NOT use a ticket more than seven days after it was issued (RFC 9846 §4.7.1).
+pub const tls_ticket_age_ns_max = 7 * 24 * 60 * 60 * 1_000_000_000;
 
 comptime {
     if (kind_shift - receive_generation_shift < 32) {

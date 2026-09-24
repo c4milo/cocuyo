@@ -87,16 +87,38 @@ def transcript (out : IO.FS.Stream) (hops : Nat) (configs : List Config) : IO (N
 the seed, the walks in each configuration, and the most events in one. -/
 def engineGate : Nat × Nat × Nat := (1, 10, 40)
 
+/-- Walks of the full run (`engine-walks 1 2000 200`) the gate keeps as well, each named by its
+configuration's place in `engineConfigs` and its own place among that configuration's walks:
+each is where the full run caught a mutation of the engine that the short slice misses
+(docs/mutations.md). -/
+def engineGatePicks : List (Nat × Nat) := [(6, 120), (6, 329), (6, 392)]
+
+/-- The full run's seed and walk length, which a picked walk is regenerated with. -/
+def engineFull : Nat × Nat := (1, 200)
+
 /-- The engine configurations: every query over TCP with one or two slots and one or two
-connections, and every query over UDP with one or two slots and a port replaced every two
-queries. -/
+connections, every query over UDP with one or two slots and a port replaced every two queries,
+and every query over TLS with one or two slots and a connection for each server (§21, TLS rule
+6). -/
 def engineConfigs : List Spec.Engine.Config :=
   let tcp := [(1, 1), (1, 2), (2, 1), (2, 2)].map fun (slots, conns) =>
     { servers := 2, slots, conns, pollsMax := 1000, timeoutTicks := 2, useTcp := true, perPort := 0 }
   let udp := [1, 2].map fun slots =>
     { servers := 2, slots, conns := 1, pollsMax := 1000, timeoutTicks := 2, useTcp := false,
       perPort := 2 }
-  tcp ++ udp
+  let tls := [1, 2].map fun slots =>
+    { servers := 2, slots, conns := 2, pollsMax := 1000, timeoutTicks := 2, useTcp := true,
+      perPort := 0, tls := true }
+  tcp ++ udp ++ tls
+
+/-- The walks `engineGatePicks` names, each regenerated from its configuration's first walk. -/
+def engineGatePicked (out : IO.FS.Stream) : IO Unit := do
+  let (seed, length) := engineFull
+  for (config, walk) in engineGatePicks do
+    match engineConfigs[config]? with
+    | some c =>
+      let _ ← Spec.Engine.walks out c seed.toUInt64 (walk + 1) length (· = walk)
+    | none => throw <| IO.userError s!"no engine configuration {config}"
 
 /-- The engine's walks, in each configuration. -/
 def engineWalks (out : IO.FS.Stream) (seed count length : Nat) (quiet : Bool) : IO Nat := do
@@ -181,6 +203,7 @@ def main (args : List String) : IO UInt32 := do
   | ["engine-gate"] =>
     let (seed, count, length) := engineGate
     let _ ← engineWalks (← IO.getStdout) seed count length true
+    engineGatePicked (← IO.getStdout)
     return 0
   | ["check", hops, lookupPath, enginePath, walksPath] =>
     let lookupSame ← same lookupPath fun out => do
@@ -188,6 +211,7 @@ def main (args : List String) : IO UInt32 := do
     let (seed, count, length) := engineGate
     let engineSame ← same enginePath fun out => do
       let _ ← engineWalks out seed count length true
+      engineGatePicked out
     unless lookupSame do
       IO.eprintln s!"{lookupPath} is not the slice the model writes: run `cocuyo-spec gate {hops}`"
     unless engineSame do

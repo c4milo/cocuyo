@@ -46,8 +46,7 @@ pub fn reset_tables(self: anytype, config: *const cocuyo.Config, seed: u64) void
 /// is what tells it what it lost.
 pub fn reinit(self: anytype, config: *const cocuyo.Config, seed: u64, now_ns: u64) @TypeOf(self.*).InitErrorType!void {
     config.assert_valid();
-    // No TLS yet (docs/design.md §21 step 5): see `Engine.init`.
-    assert(!config.uses_tls());
+    @TypeOf(self.*).assert_tls(config);
     assert(self.resolver.in_flight() == 0);
     _ = now_ns;
     tcp.cancel_all(self);
@@ -56,6 +55,8 @@ pub fn reinit(self: anytype, config: *const cocuyo.Config, seed: u64, now_ns: u6
     self.sockets.cancel(self.loop);
     self.sockets.close();
     self.config = config;
+    // A ticket was a server's of the old configuration (docs/design.md §21, TLS rule 8).
+    self.tls_tickets = @splat(null);
     reset_tables(self, config, seed);
     try self.sockets.open(self.loop, config, seed, @TypeOf(self.*).tag);
 }
