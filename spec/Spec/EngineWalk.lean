@@ -28,30 +28,138 @@ structure Found where
   transitions : Nat
   /-- The first invariant broken, with the events that break it. -/
   broken : Option (String × List Event)
+  /-- The kinds of event taken, one bit each by `eventBit`. -/
+  events : Nat := 0
+  /-- The connection stages reached, one bit each by `stageBit`, and two facts of TLS beside them:
+  a connection that opened resuming, and a ticket kept. -/
+  stages : Nat := 0
 
-partial def walk (c : Config) (b : Bounds) : IO Found := do
+/-! ## One state for every order of the loop's operations
+
+The model reads `ops` as a multiset. Every rule reads it by `any`, `all`, a count or an element-wise
+map; an operation joins at the end; and an event names one by its position, over every position
+`enabled` enumerates, and the step takes it out wherever it is. So two states whose operations
+differ only in their order have the same futures and the same invariants, and the walk counts
+them as one: it looks a state up by its operations sorted, and walks the state as the step left
+it, so a path it reports is one the model takes. -/
+
+def kindRank : OpKind → Nat
+  | .connect => 0 | .receive => 1 | .send => 2 | .sendTo => 3 | .receiveFrom => 4
+  | .sendRecords => 5
+
+/-- A total order on operations: by kind, target, and the two flags. -/
+def opLe (a b : Op) : Bool :=
+  if kindRank a.kind != kindRank b.kind then kindRank a.kind < kindRank b.kind
+  else if a.target != b.target then a.target < b.target
+  else if a.current != b.current then !a.current
+  else !a.draining || b.draining
+
+/-- A state with its operations sorted: the one the walk looks it up by. -/
+def canon (s : State) : State := { s with ops := s.ops.mergeSort opLe }
+
+/-! ## What a walk reached -/
+
+def eventBit : Event → Nat
+  | .start => 0 | .take => 1 | .cancel _ => 2 | .expire => 3 | .idle => 4
+  | .finish _ .ok => 5 | .finish _ .failed => 6 | .finish _ .canceled => 7
+  | .finish _ .exhausted => 8 | .finish _ .short => 9
+  | .message _ _ .answer => 10 | .message _ _ .servfail => 11 | .message _ _ .nxdomain => 12
+  | .message _ _ .unmatched => 13 | .straggle _ => 14
+  | .tls _ .flight => 15 | .tls _ .done => 16 | .tls _ .failed => 17 | .tls _ .rekey => 18
+  | .tls _ .ticket => 19 | .lapse _ => 20 | .jam => 21 | .starve => 22
+
+def eventNames : List String :=
+  ["start", "take", "cancel", "expire", "idle", "finish:ok", "finish:failed", "finish:canceled",
+   "finish:exhausted", "finish:short", "message:answer", "message:servfail", "message:nxdomain",
+   "message:unmatched", "straggle", "tls:flight", "tls:done", "tls:failed", "tls:rekey",
+   "tls:ticket", "lapse", "jam", "starve"]
+
+def stageBit : Stage → Nat
+  | .closed => 0 | .connecting => 1 | .handshaking => 2 | .up => 3 | .closing => 4
+  | .reopening => 5
+
+def stageNames : List String :=
+  ["closed", "connecting", "handshaking", "up", "closing", "reopening", "resumed", "ticket kept"]
+
+/-- The stages and TLS facts `s` shows, as `Found.stages` counts them. -/
+def stagesOf (s : State) : Nat :=
+  let conns := s.conns.foldl (fun m conn =>
+    m ||| (1 <<< stageBit conn.stage) ||| (if conn.resumed then 1 <<< 6 else 0)) 0
+  conns ||| (if s.tickets.any id then 1 <<< 7 else 0)
+
+/-- The names of `names` whose bits `mask` lacks. -/
+def missing (names : List String) (mask : Nat) : List String :=
+  (names.zip (List.range names.length)).filterMap fun (name, bit) =>
+    if mask &&& (1 <<< bit) == 0 then some name else none
+
+/-- What `s` leads to, up to the order of the loop's operations: each successor sorted, and the
+invariants its event breaks. -/
+def successors (c : Config) (s : State) : List (State × List String) :=
+  (enabled c s).map fun e =>
+    let t := step c s e
+    (canon t, ((invariants s e t).filter (!·.2)).map (·.1))
+
+/-- Whether `s` and its sort agree: as many events, the same successors once sorted, and the same
+invariants broken, taken as sets. -/
+def agrees (c : Config) (s : State) : Bool :=
+  let mine := successors c s
+  let sorted := successors c (canon s)
+  mine.length == sorted.length && mine.all (sorted.contains ·) && sorted.all (mine.contains ·)
+
+/-- The check the walk's counting rests on. It walks the graph whole, a state and its sort as two,
+and asks every state it reaches whether it and its sort agree. At these bounds that is every state
+there is, so a walk within them may count the two as one; beyond them it is evidence, and a rule
+that read the operations' order would break it here first. Returns the states checked, and the
+first that disagrees with the events that reach it. -/
+partial def canonCheck (c : Config) (b : Bounds) : IO (Nat × Option (List Event)) := do
   let first := init c
   let mut seen : Std.HashSet State := ({} : Std.HashSet State).insert first
   let mut frontier : Array (State × List Event) := #[(first, [])]
+  let mut checked := 0
+  while frontier.size > 0 do
+    let mut next : Array (State × List Event) := #[]
+    for (s, path) in frontier do
+      checked := checked + 1
+      unless agrees c s do return (checked, some path.reverse)
+      for e in enabled c s do
+        let t := step c s e
+        unless seen.contains t do
+          seen := seen.insert t
+          if within b t then next := next.push (t, e :: path)
+          else
+            checked := checked + 1
+            unless agrees c t do return (checked, some (e :: path).reverse)
+    frontier := next
+  return (checked, none)
+
+partial def walk (c : Config) (b : Bounds) : IO Found := do
+  let first := init c
+  let mut seen : Std.HashSet State := ({} : Std.HashSet State).insert (canon first)
+  let mut frontier : Array (State × List Event) := #[(first, [])]
   let mut states := 1
   let mut transitions := 0
+  let mut events := 0
+  let mut stages := stagesOf first
   while frontier.size > 0 do
     let mut next : Array (State × List Event) := #[]
     for (s, path) in frontier do
       for e in enabled c s do
         let t := step c s e
         transitions := transitions + 1
+        events := events ||| (1 <<< eventBit e)
         let path' := e :: path
         match (invariants s e t).find? (!·.2) with
         | some (name, _) =>
-          return { states, transitions, broken := some (name, path'.reverse) }
+          return { states, transitions, broken := some (name, path'.reverse), events, stages }
         | none => pure ()
-        unless seen.contains t do
-          seen := seen.insert t
+        let key := canon t
+        unless seen.contains key do
+          seen := seen.insert key
           states := states + 1
+          stages := stages ||| stagesOf t
           if within b t then next := next.push (t, path')
     frontier := next
-  return { states, transitions, broken := none }
+  return { states, transitions, broken := none, events, stages }
 
 end Spec.Engine
 

@@ -150,25 +150,46 @@ def usage : String :=
   "       cocuyo-spec walks | walks-gate\n" ++
   "       cocuyo-spec check <cname_hops_max> <lookup gate> <engine gate> <walks gate>"
 
+/-- The configuration `engine` and the canon check walk: two servers, over `transport`. -/
+def engineConfig (transport : String) (slots conns : Nat) : Spec.Engine.Config :=
+  let stream := transport = "tcp" ∨ transport = "tls"
+  { servers := 2, slots, conns, pollsMax := 1000, timeoutTicks := 2, useTcp := stream,
+    perPort := if stream then 0 else 2, tls := transport = "tls" }
+
 /-- Walks one engine configuration breadth first, within `opsMax` operations in flight and
 `failuresMax` failures a server. -/
 def engineCheck (transport slots conns : String) (opsMax failuresMax : Nat) : IO UInt32 := do
-  let stream := transport = "tcp" ∨ transport = "tls"
-  let c : Spec.Engine.Config :=
-    { servers := 2, slots := slots.toNat!, conns := conns.toNat!, pollsMax := 1000,
-      timeoutTicks := 2, useTcp := stream, perPort := if stream then 0 else 2,
-      tls := transport = "tls" }
+  let c := engineConfig transport slots.toNat! conns.toNat!
   -- A TLS configuration has a connection slot for each server (§21, TLS rule 6).
   if c.tls ∧ c.conns < c.servers then
     IO.eprintln s!"a TLS configuration needs {c.servers} connections"; return 2
   let found ← Spec.Engine.walk c { opsMax, failuresMax, sentMax := 3 }
   IO.println s!"{found.states} states, {found.transitions} transitions"
+  let events := Spec.Engine.missing Spec.Engine.eventNames found.events
+  let stages := Spec.Engine.missing Spec.Engine.stageNames found.stages
+  IO.println s!"events never taken: {if events.isEmpty then "none" else ", ".intercalate events}"
+  IO.println s!"stages never reached: {if stages.isEmpty then "none" else ", ".intercalate stages}"
   match found.broken with
   | none => IO.println "every invariant holds"; return 0
   | some (name, path) =>
     IO.println s!"broken: {name}"
     for e in path do IO.println s!"  {repr e}"
     return 1
+
+/-- The claim `Spec.Engine.walk` counts by, that a state and its operations sorted are one, checked
+on every state of three small graphs whole: one for each transport (spec/README.md). -/
+def canonChecks : IO Bool := do
+  let runs := [("tcp", 1, 1, 4, 1), ("udp", 1, 1, 3, 1), ("tls", 1, 2, 2, 0)]
+  for (transport, slots, conns, opsMax, failuresMax) in runs do
+    let c := engineConfig transport slots conns
+    let (checked, broken) ← Spec.Engine.canonCheck c { opsMax, failuresMax, sentMax := 3 }
+    match broken with
+    | none => IO.eprintln s!"canon: {transport} agrees in all {checked} states"
+    | some path =>
+      IO.eprintln s!"canon: {transport} disagrees with its sort after {path.length} events:"
+      for e in path do IO.eprintln s!"  {repr e}"
+      return false
+  return true
 
 def main (args : List String) : IO UInt32 := do
   match args with
@@ -211,6 +232,7 @@ def main (args : List String) : IO UInt32 := do
     engineGatePicked (← IO.getStdout)
     return 0
   | ["check", hops, lookupPath, enginePath, walksPath] =>
+    unless ← canonChecks do return 1
     let lookupSame ← same lookupPath fun out => do
       let _ ← transcript out hops.toNat! (configsGate hops.toNat!)
     let (seed, count, length) := engineGate

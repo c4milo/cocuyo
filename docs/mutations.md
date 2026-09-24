@@ -1000,6 +1000,20 @@ well. R1 was found by review, not by the model. Nine mutations, nine `CAUGHT`.
 | E8 | a stale event keeps its buffer | rule 2, the buffer | the committed walks' buffer check | CAUGHT |
 | R1 | `reinit` builds a cache it never puts under the table | §20, the cache under the table | the twin's cache tests | CAUGHT |
 
+## The engine walk's counting
+
+Issue #8, 2026-09-24. The breadth-first walk of the engine model counts a state and its loop
+operations sorted as one state, which is sound only while the model reads `ops` as a multiset.
+`cocuyo-spec check`, the first step of `zig build spec`, walks three small graphs whole, one for
+each transport, and asks every state whether it and its sort agree. Broken in
+`spec/Spec/EngineStep.lean` by giving the model an order-dependent rule. Two mutations, two
+`CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CN1 | only the first operation in the list may end | the model reads `ops` as a multiset | the canon check, TCP, after one event | CAUGHT |
+| CN2 | an ending takes the first operation of its kind, not the one the event names | the model reads `ops` as a multiset | the canon check, TCP, after one event | CAUGHT |
+
 ## The engine's datagrams
 
 The datagram's rules against the same model (docs/design.md §19 step 13). Broken against

@@ -129,11 +129,34 @@ reported, on 2026-09-23:
 | TCP | 2 | 1 | 5, 1 | 11,014,930 | 125,509,380 | hold |
 
 Two lookups on one TCP connection is where queries queue behind each other (the stream's rule 9),
-and it did not finish at six and two in nine hours, so it was walked at five and one. The TLS
-model has not been walked whole. One lookup on two connections ran an hour at four operations and
-one failure without finishing, and broke no invariant in what it reached. So the TLS model rests
-on `engine-probe` walks of 400,000 events over seeds 1, 7 and 42, on the replay, which drives TLS
-since §21 step 5, and on the mutations of docs/mutations.md that break it on purpose.
+and it did not finish at six and two in nine hours, so it was walked at five and one.
+
+Since 2026-09-24 the walk counts a state and the same state with its operations sorted as one.
+The model reads the loop's operations as a multiset: every rule reads them by `any`, `all`, a
+count or an element-wise map, an operation joins at the end, and an event names one by a position
+`enabled` enumerates in full. So the two have the same futures and break the same invariants. The
+walk looks a state up sorted and walks it as the step left it, so a path it reports is one the
+model takes. `cocuyo-spec check`, the first step of `zig build spec`, holds the claim: it walks
+three small graphs whole and asks every state whether it and its sort agree. They are TCP at four
+operations and one failure, UDP at three and one, and TLS at two and none, about 77,000 states
+each, which at those bounds is every state there is (docs/mutations.md CN1 and CN2). Each walk
+also names the kinds of event it never took and the connection stages it never reached.
+
+The TLS model, one lookup on two connections, walked on 2026-09-24 on an Apple M1 Pro, the
+operations sorted:
+
+| Operations, failures | States | Transitions | Seconds | Invariants |
+| --- | --- | --- | --- | --- |
+| 2, 0 | 51,406 | 376,976 | 1.8 | hold |
+| 2, 1 | 275,126 | 2,054,004 | 10 | hold |
+| 3, 0 | 1,164,712 | 11,978,040 | 66 | hold |
+| 3, 1 | 6,835,766 | 71,454,920 | 472 | hold |
+| 4, 0 | 4,467,223 | 58,243,444 | 260 | hold |
+
+Every row took every kind of event and reached every stage, a resumed connection and a kept
+ticket among them. Unsorted, three operations and none was 3,463,580 states and 151 seconds.
+Before the sorting, four and one ran an hour without finishing. The engine model moves to TLA+
+(docs/design.md §16 decision 24), and these counts are what TLC's must equal.
 
 `cocuyo-spec engine-probe <tcp|udp|tls> <slots> <connections> <seed> <walks> <length>` walks one
 configuration the seeded way below and stops at the first invariant broken, for a quick look before
