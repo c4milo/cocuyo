@@ -1326,7 +1326,11 @@ The tool, then `tools/engine_mutations.zig` and now `tools/mutations.zig`, broke
 build test-tools`. EM4 broke a line that could
 never matter, since the tool runs the full run only when the short walks miss, and the line was
 removed. EM7 came with the sets of the lookup and `getaddrinfo`, whose mutations a build step
-catches. Seven mutations, six `CAUGHT`, and the seventh's line removed.
+catches. EM8 to EM10 came with the review of the same day. It found that a set ran with no check
+of its own checks, so a missing `lake` made every Lean mutation look caught, and that a compile
+error was told from a failed test by the text after it. EM8 is shown by a run and not by a test,
+since the baseline runs builds. Ten mutations: eight `CAUGHT`, EM4's line removed, and EM8 shown
+by the run.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
@@ -1337,6 +1341,9 @@ catches. Seven mutations, six `CAUGHT`, and the seventh's line removed.
 | EM5 | the replay's walk is not read | a miss names its walk | the walk test | CAUGHT |
 | EM6 | a picked mutation must be caught by the picked walks alone | the short walks may catch it now | the pick test | CAUGHT |
 | EM7 | a mutation caught by a step counts as caught whatever the step did | a step that misses is a miss | the pick test, since the step sets | CAUGHT |
+| EM8 | a set runs without its checks run first on the tree as it is | a check that fails anyway proves nothing | no unit test: the run with no `lake` on the path, where `spec-lean` fails before any mutation | NOT CAUGHT |
+| EM9 | any file's `line:column: error:` is taken for the compiler's | a compile error is a Zig file's | the walk test | CAUGHT |
+| EM10 | a `<section>/<id>` name matches whatever the section | an id two sections share is named by its section | the naming test | CAUGHT |
 
 ## A connect's address
 

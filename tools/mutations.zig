@@ -72,8 +72,8 @@ const exit_failure: u8 = 1;
 const exit_usage: u8 = 2;
 
 const usage =
-    \\usage: mutations <engine|lookup|address|lean> --short <file> --picked <file>
-    \\           --full <seed> <walks> <depth> (--walks <file> | --full-out <file>) [<id>...]
+    \\usage: zig build mutations -- <engine|lookup|address|lean> [--walks <file>] [<id>|<section>/<id>...]
+    \\  (the build adds --short, --picked, --full and --full-out, the walks it knows)
     \\
 ;
 
@@ -135,11 +135,24 @@ fn run(arena: Allocator, io: Io, arguments: []const []const u8, out: *Io.Writer)
         try out.print("no mutation {s} in {s}\n", .{ id, set.name });
         return exit_usage;
     };
+    if (!try baseline(arena, io, &options, set, out)) return exit_usage;
+    return run_set(arena, io, &options, set, out);
+}
+
+/// Runs the set's chosen mutations, and returns the exit status.
+fn run_set(arena: Allocator, io: Io, options: *Options, set: Set, out: *Io.Writer) !u8 {
     var picks: std.ArrayList(u64) = .empty;
     var status = exit_success;
     for (set.mutations) |mutation| {
-        if (options.ids.len > 0 and !named(options.ids, mutation.id)) continue;
-        const result = try run_one(arena, io, &options, mutation, out);
+        if (!chosen(options.ids, mutation)) continue;
+        const result = run_one(arena, io, options, mutation, out) catch |failure| switch (failure) {
+            error.EditDoesNotApply => {
+                try out.print("{s} ({s}): an edit no longer applies, so the mutation must be written again\n", .{ mutation.id, mutation.section });
+                status = exit_failure;
+                continue;
+            },
+            else => return failure,
+        };
         try write_result(out, mutation, result);
         if (!result.as_expected(mutation.caught_by)) status = exit_failure;
         if (result.pick()) |walk| try picks.append(arena, walk);
@@ -182,13 +195,51 @@ fn find_set(name: []const u8) ?Set {
     return null;
 }
 
-fn has(set: Set, id: []const u8) bool {
-    for (set.mutations) |mutation| if (std.mem.eql(u8, mutation.id, id)) return true;
+fn has(set: Set, name: []const u8) bool {
+    for (set.mutations) |mutation| if (is_named(name, mutation)) return true;
     return false;
 }
 
-fn named(ids: []const []const u8, id: []const u8) bool {
-    for (ids) |one| if (std.mem.eql(u8, one, id)) return true;
+/// Whether the command line names the mutation, or names none and so every one.
+fn chosen(names: []const []const u8, mutation: Mutation) bool {
+    if (names.len == 0) return true;
+    for (names) |name| if (is_named(name, mutation)) return true;
+    return false;
+}
+
+/// Whether `name` is the mutation's id, or `<section>/<id>`, a section's start and its row, for an
+/// id two sections share.
+fn is_named(name: []const u8, mutation: Mutation) bool {
+    const slash = std.mem.lastIndexOfScalar(u8, name, '/') orelse return std.mem.eql(u8, name, mutation.id);
+    return std.mem.eql(u8, name[slash + 1 ..], mutation.id) and std.mem.startsWith(u8, mutation.section, name[0..slash]);
+}
+
+/// Runs each check the chosen mutations name once with nothing mutated, and says so when one
+/// fails: a check that fails anyway, for a tool not installed or a step misspelled, catches
+/// every mutation and proves nothing.
+fn baseline(arena: Allocator, io: Io, options: *Options, set: Set, out: *Io.Writer) !bool {
+    var seen: std.ArrayList([]const u8) = .empty;
+    for (set.mutations) |mutation| {
+        if (!chosen(options.ids, mutation)) continue;
+        const name = switch (mutation.caught_by) {
+            .step => |step| step,
+            .short_walks, .picked_walks => "spec-engine",
+        };
+        if (listed(seen.items, name)) continue;
+        try seen.append(arena, name);
+        const verdict = switch (mutation.caught_by) {
+            .step => |step| try run_check(arena, io, &.{ "zig", "build", step }),
+            .short_walks, .picked_walks => try replay(arena, io, options.short),
+        };
+        if (verdict == .missed) continue;
+        try out.print("zig build {s} fails with no mutation applied, so it can catch nothing: {f}\n", .{ name, verdict });
+        return false;
+    }
+    return true;
+}
+
+fn listed(names: []const []const u8, name: []const u8) bool {
+    for (names) |one| if (std.mem.eql(u8, one, name)) return true;
     return false;
 }
 
@@ -241,7 +292,7 @@ const Result = struct {
 };
 
 fn run_one(arena: Allocator, io: Io, options: *Options, mutation: Mutation, out: *Io.Writer) !Result {
-    const originals = try apply(arena, io, Io.Dir.cwd(), mutation.edits);
+    var originals = try apply(arena, io, Io.Dir.cwd(), mutation.edits);
     defer restore(io, Io.Dir.cwd(), mutation.edits, originals);
     var result: Result = .{};
     switch (mutation.caught_by) {
@@ -249,7 +300,13 @@ fn run_one(arena: Allocator, io: Io, options: *Options, mutation: Mutation, out:
         .short_walks, .picked_walks => {
             result.short = try replay(arena, io, options.short);
             if (result.short != .missed) return result;
-            result.full = try replay(arena, io, try full_run(io, options, out));
+            if (options.walks == null) {
+                // TLC writes the full run from the tree as it is, so the mutation steps aside.
+                restore(io, Io.Dir.cwd(), mutation.edits, originals);
+                _ = try full_run(io, options, out);
+                originals = try apply(arena, io, Io.Dir.cwd(), mutation.edits);
+            }
+            result.full = try replay(arena, io, options.walks.?);
             result.picked = try replay(arena, io, options.picked);
         },
     }
@@ -270,14 +327,19 @@ fn apply(arena: Allocator, io: Io, dir: Io.Dir, edits: []const Edit) ![]const []
     return originals;
 }
 
-/// Puts the files back, the last edited first, so a file two edits share ends as it began.
+/// Puts the files back, the last edited first, so a file two edits share ends as it began. Every
+/// file is tried before a failure stops the program, so one that cannot be written leaves the
+/// others back as they were.
 fn restore(io: Io, dir: Io.Dir, edits: []const Edit, originals: []const []const u8) void {
+    var failed: ?[]const u8 = null;
     var index = edits.len;
     while (index > 0) {
         index -= 1;
-        dir.writeFile(io, .{ .sub_path = edits[index].file, .data = originals[index] }) catch
-            std.debug.panic("could not put {s} back", .{edits[index].file});
+        dir.writeFile(io, .{ .sub_path = edits[index].file, .data = originals[index] }) catch {
+            failed = edits[index].file;
+        };
     }
+    if (failed) |file| std.debug.panic("could not put {s} back; `git diff` shows what is left", .{file});
 }
 
 fn replay(arena: Allocator, io: Io, walks: []const u8) !Verdict {
@@ -303,10 +365,23 @@ fn run_check(arena: Allocator, io: Io, argv: []const []const u8) !Verdict {
 /// What a failed run's output says: the walk the replay failed in, a compile error, or neither.
 fn verdict_of(output: []const u8) Verdict {
     if (std.mem.indexOf(u8, output, replay_marker)) |at| return .{ .caught = walk_after(output[at..]) };
-    if (std.mem.indexOf(u8, output, ": error: ") != null and std.mem.indexOf(u8, output, ".zig:") != null) {
-        if (std.mem.indexOf(u8, output, "error: '") == null) return .compile;
-    }
+    var lines = std.mem.splitScalar(u8, output, '\n');
+    while (lines.next()) |line| if (is_compile_error(line)) return .compile;
     return .{ .caught = null };
+}
+
+/// Whether `line` is the compiler's: `<file>.zig:<line>:<column>: error: ...`. A failed test says
+/// `error: '<name>' failed`, with no place before it.
+fn is_compile_error(line: []const u8) bool {
+    const at = std.mem.indexOf(u8, line, ": error: ") orelse return false;
+    var place = std.mem.splitScalar(u8, line[0..at], ':');
+    const file = place.next() orelse return false;
+    const row = place.next() orelse return false;
+    const column = place.next() orelse return false;
+    if (place.next() != null or !std.mem.endsWith(u8, file, ".zig")) return false;
+    _ = std.fmt.parseInt(u32, row, 10) catch return false;
+    _ = std.fmt.parseInt(u32, column, 10) catch return false;
+    return true;
 }
 
 /// The number after the first `walk ` in `text`.
@@ -362,6 +437,16 @@ test "a replay's failure names its walk, on a mismatch and on a panic" {
     try testing.expectEqual(Verdict{ .caught = 8573 }, verdict_of("x\nengine replay: panic in walk 8573\nthread 1 panic: reached unreachable code\n"));
     try testing.expectEqual(Verdict.compile, verdict_of("io/io_tcp.zig:57:39: error: unused function parameter\n"));
     try testing.expectEqual(Verdict{ .caught = null }, verdict_of("error: 'io_tcp_test.test.a stream send' failed:\n"));
+    try testing.expectEqual(Verdict.compile, verdict_of("src/a.zig:3:9: error: 'x' is not marked 'pub'\n"));
+    try testing.expectEqual(Verdict{ .caught = null }, verdict_of("error: no step named 'test-nothing'\n"));
+    try testing.expectEqual(Verdict{ .caught = null }, verdict_of("tools/run.sh:3:9: error: not the compiler's\n"));
+}
+
+test "a mutation is named by its id, or by its section's start and its id" {
+    const mutation: Mutation = .{ .section = "Step 3, the state machine", .id = "S1", .what = "w", .edits = &.{}, .caught_by = .short_walks };
+    try testing.expect(is_named("S1", mutation) and is_named("Step 3/S1", mutation));
+    try testing.expect(!is_named("The Lean model/S1", mutation) and !is_named("S10", mutation));
+    try testing.expect(chosen(&.{}, mutation) and chosen(&.{ "X9", "S1" }, mutation) and !chosen(&.{"X9"}, mutation));
 }
 
 test "a mutation the short walks miss is picked at the full run's walk" {
