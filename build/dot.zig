@@ -6,6 +6,14 @@
 //! The checkout's object is made by
 //!
 //!     make RAND=extern TRUST=webpki TRANSPORT=record lib && cp bin/chapulin.o bin/chapulin-record.o
+//!
+//! which keeps chapulin's default multiply: every widening product in 16x16 pieces, which claims
+//! nothing about the CPU. Since chapulin 0734728, `WIDEMUL=native` among those variables defines
+//! `CH_NATIVE_WIDEMUL` in the object instead: "the builder states that this part's widening
+//! multiply runs in constant time" (chapulin's README, its build variables). chapulin measured the
+//! client's side of a handshake 1.5 to 1.9 times faster with it on an Apple M1 Pro
+//! (bench/notes-primitives.md there). cocuyo makes that statement for no part, so the command
+//! above keeps the default, and a builder who can vouch for theirs adds `WIDEMUL=native`.
 const std = @import("std");
 const modules = @import("modules.zig");
 
