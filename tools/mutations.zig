@@ -22,7 +22,11 @@ const std = @import("std");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
-pub const Edit = struct { file: []const u8, old: []const u8, new: []const u8 };
+const mutations_check = @import("mutations_check.zig");
+const mutations_edit = @import("mutations_edit.zig");
+
+pub const Edit = mutations_edit.Edit;
+const Verdict = mutations_check.Verdict;
 
 /// The check a mutation must fail: the short walks, the picked walks when the short walks miss
 /// it, or a `zig build` step.
@@ -58,14 +62,8 @@ const sets = [_]Set{
     .{ .name = "lean", .mutations = @import("mutations/lean.zon") },
 };
 
-/// The bytes of one source file the tool edits, and of what a `zig` it runs prints.
-const file_bytes_max: usize = 16 * 1024 * 1024;
-const output_bytes_max: usize = 64 * 1024 * 1024;
 /// The bytes the tool's report is written through.
 const output_buffer_bytes: usize = 4096;
-/// What the replay prints before the walk it failed in, on a mismatch and on a panic alike.
-const replay_marker = "engine replay:";
-const walk_marker = "walk ";
 
 const exit_success: u8 = 0;
 const exit_failure: u8 = 1;
@@ -87,26 +85,6 @@ const Options = struct {
     walks: ?[]const u8 = null,
     full_out: ?[]const u8 = null,
     ids: []const []const u8 = &.{},
-};
-
-/// How one check ended.
-const Verdict = union(enum) {
-    /// The check failed, in this walk when a replay said which.
-    caught: ?u64,
-    missed,
-    /// The mutation did not compile: its `old` text no longer says what the code does.
-    compile,
-    /// Not run, since an earlier check settled the mutation.
-    skipped,
-
-    pub fn format(verdict: Verdict, writer: *Io.Writer) Io.Writer.Error!void {
-        switch (verdict) {
-            .caught => |walk| if (walk) |number| try writer.print("caught, walk {d}", .{number}) else try writer.writeAll("caught"),
-            .missed => try writer.writeAll("missed"),
-            .compile => try writer.writeAll("did not compile"),
-            .skipped => try writer.writeAll("not run"),
-        }
-    }
 };
 
 /// The options the command line may name, each followed by its value, `--full` by three.
@@ -228,8 +206,8 @@ fn baseline(arena: Allocator, io: Io, options: *Options, set: Set, out: *Io.Writ
         if (listed(seen.items, name)) continue;
         try seen.append(arena, name);
         const verdict = switch (mutation.caught_by) {
-            .step => |step| try run_check(arena, io, &.{ "zig", "build", step }),
-            .short_walks, .picked_walks => try replay(arena, io, options.short),
+            .step => |step| try mutations_check.run_check(arena, io, &.{ "zig", "build", step }),
+            .short_walks, .picked_walks => try mutations_check.replay(arena, io, options.short),
         };
         if (verdict == .missed) continue;
         try out.print("zig build {s} fails with no mutation applied, so it can catch nothing: {f}\n", .{ name, verdict });
@@ -292,107 +270,25 @@ const Result = struct {
 };
 
 fn run_one(arena: Allocator, io: Io, options: *Options, mutation: Mutation, out: *Io.Writer) !Result {
-    var originals = try apply(arena, io, Io.Dir.cwd(), mutation.edits);
-    defer restore(io, Io.Dir.cwd(), mutation.edits, originals);
+    var originals = try mutations_edit.apply(arena, io, Io.Dir.cwd(), mutation.edits);
+    defer mutations_edit.restore(io, Io.Dir.cwd(), mutation.edits, originals);
     var result: Result = .{};
     switch (mutation.caught_by) {
-        .step => |name| result.step = try run_check(arena, io, &.{ "zig", "build", name }),
+        .step => |name| result.step = try mutations_check.run_check(arena, io, &.{ "zig", "build", name }),
         .short_walks, .picked_walks => {
-            result.short = try replay(arena, io, options.short);
+            result.short = try mutations_check.replay(arena, io, options.short);
             if (result.short != .missed) return result;
             if (options.walks == null) {
                 // TLC writes the full run from the tree as it is, so the mutation steps aside.
-                restore(io, Io.Dir.cwd(), mutation.edits, originals);
+                mutations_edit.restore(io, Io.Dir.cwd(), mutation.edits, originals);
                 _ = try full_run(io, options, out);
-                originals = try apply(arena, io, Io.Dir.cwd(), mutation.edits);
+                originals = try mutations_edit.apply(arena, io, Io.Dir.cwd(), mutation.edits);
             }
-            result.full = try replay(arena, io, options.walks.?);
-            result.picked = try replay(arena, io, options.picked);
+            result.full = try mutations_check.replay(arena, io, options.walks.?);
+            result.picked = try mutations_check.replay(arena, io, options.picked);
         },
     }
     return result;
-}
-
-/// Applies each edit, and returns each file's bytes as they were. Every file is put back before
-/// an edit that cannot apply is reported.
-fn apply(arena: Allocator, io: Io, dir: Io.Dir, edits: []const Edit) ![]const []const u8 {
-    const originals = try arena.alloc([]const u8, edits.len);
-    for (edits, 0..) |edit, index| {
-        errdefer restore(io, dir, edits[0..index], originals[0..index]);
-        originals[index] = try dir.readFileAlloc(io, edit.file, arena, .limited(file_bytes_max));
-        if (std.mem.count(u8, originals[index], edit.old) != 1) return error.EditDoesNotApply;
-        const edited = try std.mem.replaceOwned(u8, arena, originals[index], edit.old, edit.new);
-        try dir.writeFile(io, .{ .sub_path = edit.file, .data = edited });
-    }
-    return originals;
-}
-
-/// Puts the files back, the last edited first, so a file two edits share ends as it began. Every
-/// file is tried before a failure stops the program, so one that cannot be written leaves the
-/// others back as they were.
-fn restore(io: Io, dir: Io.Dir, edits: []const Edit, originals: []const []const u8) void {
-    var failed: ?[]const u8 = null;
-    var index = edits.len;
-    while (index > 0) {
-        index -= 1;
-        dir.writeFile(io, .{ .sub_path = edits[index].file, .data = originals[index] }) catch {
-            failed = edits[index].file;
-        };
-    }
-    if (failed) |file| std.debug.panic("could not put {s} back; `git diff` shows what is left", .{file});
-}
-
-fn replay(arena: Allocator, io: Io, walks: []const u8) !Verdict {
-    const option = try std.fmt.allocPrint(arena, "-Dengine-walks={s}", .{walks});
-    return run_check(arena, io, &.{ "zig", "build", "spec-engine", option });
-}
-
-/// Runs `argv` and says how it ended: caught when it failed, in the walk the replay names.
-fn run_check(arena: Allocator, io: Io, argv: []const []const u8) !Verdict {
-    const result = try std.process.run(arena, io, .{
-        .argv = argv,
-        .stdout_limit = .limited(output_bytes_max),
-        .stderr_limit = .limited(output_bytes_max),
-    });
-    const ended = switch (result.term) {
-        .exited => |code| code == 0,
-        else => false,
-    };
-    if (ended) return .missed;
-    return verdict_of(result.stderr);
-}
-
-/// What a failed run's output says: the walk the replay failed in, a compile error, or neither.
-fn verdict_of(output: []const u8) Verdict {
-    if (std.mem.indexOf(u8, output, replay_marker)) |at| return .{ .caught = walk_after(output[at..]) };
-    var lines = std.mem.splitScalar(u8, output, '\n');
-    while (lines.next()) |line| if (is_compile_error(line)) return .compile;
-    return .{ .caught = null };
-}
-
-/// Whether `line` is the compiler's: `<file>.zig:<line>:<column>: error: ...`. A failed test says
-/// `error: '<name>' failed`, with no place before it.
-fn is_compile_error(line: []const u8) bool {
-    const at = std.mem.indexOf(u8, line, ": error: ") orelse return false;
-    var place = std.mem.splitScalar(u8, line[0..at], ':');
-    const file = place.next() orelse return false;
-    const row = place.next() orelse return false;
-    const column = place.next() orelse return false;
-    if (place.next() != null or !std.mem.endsWith(u8, file, ".zig")) return false;
-    _ = std.fmt.parseInt(u32, row, 10) catch return false;
-    _ = std.fmt.parseInt(u32, column, 10) catch return false;
-    return true;
-}
-
-/// The number after the first `walk ` in `text`.
-fn walk_after(text: []const u8) ?u64 {
-    const line_end = std.mem.indexOfScalar(u8, text, '\n') orelse text.len;
-    const line = text[0..line_end];
-    const at = std.mem.indexOf(u8, line, walk_marker) orelse return null;
-    const digits = line[at + walk_marker.len ..];
-    var end: usize = 0;
-    while (end < digits.len and std.ascii.isDigit(digits[end])) end += 1;
-    return std.fmt.parseInt(u64, digits[0..end], 10) catch null;
 }
 
 fn write_result(out: *Io.Writer, mutation: Mutation, result: Result) !void {
@@ -432,16 +328,6 @@ test "every mutation names its section and its edits, and each edit changes some
     };
 }
 
-test "a replay's failure names its walk, on a mismatch and on a panic" {
-    try testing.expectEqual(Verdict{ .caught = 79 }, verdict_of("engine replay: Mismatch at line 15867, walk 79, depth 109, after start\n"));
-    try testing.expectEqual(Verdict{ .caught = 8573 }, verdict_of("x\nengine replay: panic in walk 8573\nthread 1 panic: reached unreachable code\n"));
-    try testing.expectEqual(Verdict.compile, verdict_of("io/io_tcp.zig:57:39: error: unused function parameter\n"));
-    try testing.expectEqual(Verdict{ .caught = null }, verdict_of("error: 'io_tcp_test.test.a stream send' failed:\n"));
-    try testing.expectEqual(Verdict.compile, verdict_of("src/a.zig:3:9: error: 'x' is not marked 'pub'\n"));
-    try testing.expectEqual(Verdict{ .caught = null }, verdict_of("error: no step named 'test-nothing'\n"));
-    try testing.expectEqual(Verdict{ .caught = null }, verdict_of("tools/run.sh:3:9: error: not the compiler's\n"));
-}
-
 test "a mutation is named by its id, or by its section's start and its id" {
     const mutation: Mutation = .{ .section = "Step 3, the state machine", .id = "S1", .what = "w", .edits = &.{}, .caught_by = .short_walks };
     try testing.expect(is_named("S1", mutation) and is_named("Step 3/S1", mutation));
@@ -462,30 +348,6 @@ test "a mutation the short walks miss is picked at the full run's walk" {
     try testing.expect(!missed_step.as_expected(.{ .step = "test-resolver" }));
 }
 
-test "two edits to one file apply in turn, and the file is put back as it began" {
-    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const source = "const a = 1;\nconst b = 2;\n";
-    try tmp.dir.writeFile(testing.io, .{ .sub_path = "x.zig", .data = source });
-    const edits = [_]Edit{
-        .{ .file = "x.zig", .old = "a = 1", .new = "a = 3" },
-        .{ .file = "x.zig", .old = "b = 2", .new = "b = 4" },
-    };
-    const originals = try apply(arena, testing.io, tmp.dir, &edits);
-    const edited = try tmp.dir.readFileAlloc(testing.io, "x.zig", arena, .limited(file_bytes_max));
-    try testing.expectEqualStrings("const a = 3;\nconst b = 4;\n", edited);
-    restore(testing.io, tmp.dir, &edits, originals);
-    const back = try tmp.dir.readFileAlloc(testing.io, "x.zig", arena, .limited(file_bytes_max));
-    try testing.expectEqualStrings(source, back);
-    const twice = [_]Edit{ .{ .file = "x.zig", .old = "a = 1", .new = "a = 3" }, .{ .file = "x.zig", .old = "const", .new = "var" } };
-    try testing.expectError(error.EditDoesNotApply, apply(arena, testing.io, tmp.dir, &twice));
-    const kept = try tmp.dir.readFileAlloc(testing.io, "x.zig", arena, .limited(file_bytes_max));
-    try testing.expectEqualStrings(source, kept);
-}
-
 test "the command line names a set first, then the committed walks, the full run and its place" {
     const full = [_][]const u8{ "engine", "--short", "g", "--picked", "p", "--full", "1", "2000", "201" };
     try testing.expectEqual(null, options_of(&full));
@@ -497,4 +359,9 @@ test "the command line names a set first, then the committed walks, the full run
     try testing.expectEqual(null, options_of(&.{ "--short", "g" }));
     try testing.expectEqual(null, options_of(&.{ "engine", "--short", "g", "--bogus", "x" }));
     try testing.expect(find_set("lookup") != null and find_set("nothing") == null);
+}
+
+test {
+    _ = mutations_check;
+    _ = mutations_edit;
 }
