@@ -2693,16 +2693,23 @@ written from before the code is.
    server resumes with it. A ticket is used once, since reuse lets an observer link two
    connections (RFC 9846 §C.4). It is dropped at its lifetime, or 7 days after it came,
    whichever is sooner (§4.7.1). Its age is the engine's clock since it came, not the wall
-   clock. A resumed handshake that fails drops the ticket, and the connection is opened again
-   with a full handshake before its lookups hear anything: a server that declines a ticket has
-   said nothing yet about its certificate, and the full handshake is what decides.
+   clock. A resumed handshake that fails is not the server's failure. A server that declines a
+   ticket has said nothing yet about its certificate, and a full handshake is what decides. So
+   the connection is opened again in the same slot, in full. That happens as soon as the loop
+   has given back any records the failed session had in flight (TLS rule 3). Its lookups stay on
+   it meanwhile, count no failure, and hear only how the full handshake ends.
+9. A TLS configuration opens no UDP socket. Every query goes on a stream (all or none), so a
+   datagram socket would only hold a descriptor and a receive that nothing may use. The owner
+   ruled so on 2026-09-23.
 
-The model holds rules 1 to 6, and rule 8 joins it with step 5. Rule 7 is about octets, which the
-model does not count. Four
+The model holds rules 1 to 6, 8 and 9. Rule 7 is about octets, which the model does not count. Four
 invariants were added for them: a slot a send of records still borrows stays closed; the sealed
 entries lead each queue, so records go out in the order they were sealed; no query waits on a
 connection that is not up; and no event leaves the session owing an answer. The last came from a
-mutation nothing caught without it (docs/mutations.md TM3). The replay drives no TLS
+mutation nothing caught without it (docs/mutations.md TM3). Three more hold rule 8: a connection
+that opens resuming spends its server's ticket; one opened again after a declined ticket
+handshakes in full; and a declined ticket counts no failure and keeps its lookups on the
+connection. The replay drives no TLS
 configuration until step 5, when the engine speaks TLS.
 
 ### Limits chapulin sets

@@ -64,7 +64,7 @@ def listToken (xs : List Nat) : String := "[" ++ ",".intercalate (xs.map toStrin
 
 def stageName : Stage → String
   | .closed => "closed" | .connecting => "connecting" | .handshaking => "handshaking"
-  | .up => "up" | .closing => "closing"
+  | .up => "up" | .closing => "closing" | .reopening => "reopening"
 
 def entryToken : Entry → String
   | .query l => toString l | .records => "r"
@@ -92,7 +92,7 @@ def slotToken (sl : Slot) : String :=
 def connToken (tls : Bool) (conn : Conn) : String :=
   s!"{stageName conn.stage} s{conn.server} u{conn.users}" ++ flag conn.idleNow 'I' ++
     flag conn.partSent 'P' ++ " q[" ++ ",".intercalate (conn.queue.map entryToken) ++ "]" ++
-    (if tls then s!" k{conn.sealed}" else "")
+    (if tls then s!" k{conn.sealed}" ++ flag conn.resumed 'M' else "")
 
 def opToken (op : Op) : String :=
   let kind := match op.kind with
@@ -126,7 +126,8 @@ def stateLine (s : State) (tls : Bool := false) : String :=
   s!"r{listToken s.ready} q{listToken s.results} t" ++
   (match s.lastTaken with | some l => toString l | none => "-") ++
   " w[" ++ ",".intercalate ((waitGroups s).map listToken) ++ "]" ++
-  s!" f{listToken s.failures} e{listToken s.free} " ++ flag s.jammed 'J' ++ flag s.starved 'Z'
+  s!" f{listToken s.failures} e{listToken s.free} " ++ flag s.jammed 'J' ++ flag s.starved 'Z' ++
+  (if tls then " tk[" ++ ",".intercalate (s.tickets.map fun t => if t then "1" else "0") ++ "]" else "")
 
 def outcomeToken : Outcome → String
   | .ok => "ok" | .failed => "failed" | .canceled => "canceled" | .exhausted => "exhausted"
@@ -138,12 +139,13 @@ def replyName : Reply → String
 
 def tlsStepName : TlsStep → String
   | .flight => "flight" | .done => "done" | .failed => "failed" | .rekey => "rekey"
+  | .ticket => "ticket"
 
 def eventToken : Event → String
   | .start => "start" | .take => "take" | .cancel l => s!"cancel:{l}" | .expire => "expire"
   | .idle => "idle" | .finish i o => s!"finish:{i}:{outcomeToken o}"
   | .message i l r => s!"message:{i}:{l}:{replyName r}"
-  | .tls i t => s!"tls:{i}:{tlsStepName t}"
+  | .tls i t => s!"tls:{i}:{tlsStepName t}" | .lapse v => s!"lapse:{v}"
   | .straggle i => s!"straggle:{i}" | .jam => "jam" | .starve => "starve"
 
 /-! ## Walks that look for what they have not seen -/

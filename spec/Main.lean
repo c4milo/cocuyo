@@ -117,11 +117,31 @@ def same (path : String) (write : IO.FS.Stream → IO Unit) : IO Bool := do
 def usage : String :=
   "usage: cocuyo-spec all <cname_hops_max>\n" ++
   "       cocuyo-spec gate <cname_hops_max>\n" ++
-  "       cocuyo-spec engine <tcp|udp|tls> <slots> <connections>\n" ++
+  "       cocuyo-spec engine <tcp|udp|tls> <slots> <connections> [<ops_max> <failures_max>]\n" ++
   "       cocuyo-spec engine-walks <seed> <walks> <length>\n" ++
   "       cocuyo-spec engine-gate\n" ++
   "       cocuyo-spec walks | walks-gate\n" ++
   "       cocuyo-spec check <cname_hops_max> <lookup gate> <engine gate> <walks gate>"
+
+/-- Walks one engine configuration breadth first, within `opsMax` operations in flight and
+`failuresMax` failures a server. -/
+def engineCheck (transport slots conns : String) (opsMax failuresMax : Nat) : IO UInt32 := do
+  let stream := transport = "tcp" ∨ transport = "tls"
+  let c : Spec.Engine.Config :=
+    { servers := 2, slots := slots.toNat!, conns := conns.toNat!, pollsMax := 1000,
+      timeoutTicks := 2, useTcp := stream, perPort := if stream then 0 else 2,
+      tls := transport = "tls" }
+  -- A TLS configuration has a connection slot for each server (§21, TLS rule 6).
+  if c.tls ∧ c.conns < c.servers then
+    IO.eprintln s!"a TLS configuration needs {c.servers} connections"; return 2
+  let found ← Spec.Engine.walk c { opsMax, failuresMax, sentMax := 3 }
+  IO.println s!"{found.states} states, {found.transitions} transitions"
+  match found.broken with
+  | none => IO.println "every invariant holds"; return 0
+  | some (name, path) =>
+    IO.println s!"broken: {name}"
+    for e in path do IO.println s!"  {repr e}"
+    return 1
 
 def main (args : List String) : IO UInt32 := do
   match args with
@@ -133,23 +153,9 @@ def main (args : List String) : IO UInt32 := do
     let (total, deepest) ← transcript (← IO.getStdout) hops.toNat! configs
     IO.eprintln s!"{total} events, {deepest} deep"
     return 0
-  | ["engine", transport, slots, conns] =>
-    let stream := transport = "tcp" ∨ transport = "tls"
-    let c : Spec.Engine.Config :=
-      { servers := 2, slots := slots.toNat!, conns := conns.toNat!, pollsMax := 1000,
-        timeoutTicks := 2, useTcp := stream, perPort := if stream then 0 else 2,
-        tls := transport = "tls" }
-    -- A TLS configuration has a connection slot for each server (§21, TLS rule 6).
-    if c.tls ∧ c.conns < c.servers then
-      IO.eprintln s!"a TLS configuration needs {c.servers} connections"; return 2
-    let found ← Spec.Engine.walk c { opsMax := 6, failuresMax := 2, sentMax := 3 }
-    IO.println s!"{found.states} states, {found.transitions} transitions"
-    match found.broken with
-    | none => IO.println "every invariant holds"; return 0
-    | some (name, path) =>
-      IO.println s!"broken: {name}"
-      for e in path do IO.println s!"  {repr e}"
-      return 1
+  | ["engine", transport, slots, conns] => engineCheck transport slots conns 6 2
+  | ["engine", transport, slots, conns, ops, failures] =>
+    engineCheck transport slots conns ops.toNat! failures.toNat!
   | ["engine-probe", transport, slots, conns, seed, count, length] =>
     -- Seeded walks over one configuration, for a quick look before the breadth-first walk.
     let stream := transport = "tcp" ∨ transport = "tls"

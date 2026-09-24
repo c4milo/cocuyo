@@ -75,7 +75,7 @@ def closeIfDrained (s : State) (v : Nat) : State :=
 makes room for a retiring port to be replaced; the replaced one closed at once if nothing is
 owed on it either; and a receive armed on each socket that has none. -/
 def tendSockets (c : Config) (s : State) : State :=
-  (List.range c.servers).foldl (fun s v =>
+  (List.range s.socks.length).foldl (fun s v =>
     let s := closeIfDrained s v
     let s := if (sockAt s v).retiring ∧ ¬(sockAt s v).draining then rotate s v else s
     let s := closeIfDrained s v

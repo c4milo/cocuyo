@@ -118,11 +118,28 @@ def streamSendEnded (c : Config) (s : State) (op : Op) (outcome : Outcome) : Sta
     | .ok => afterSend c (returnBuffer c (dequeue s k) l op true) k
     | _ => failConn c (setSlot (dequeue s k) l fun slot => { slot with busy := false }) k
 
+/-- A connection waiting to be opened again connects, in full, once the loop holds nothing of its
+slot's; a connect the moment refuses fails it, and its lookups hear so (TLS rule 8). -/
+def connectAgain (c : Config) (s : State) (k : Nat) : State :=
+  if (connAt s k).stage ≠ .reopening ∨ borrowed s k then s else
+  if s.starved ∨ s.jammed then failConn c s k else
+  let s := setConn s k fun conn => { conn with stage := .connecting, resumed := false }
+  { s with ops := s.ops ++ [{ kind := .connect, target := k, current := true }] }
+
+/-- A resumed handshake failed: the session is dropped, and the connection waits, its lookups on
+it, to connect again in full (TLS rule 8). -/
+def retryFull (c : Config) (s : State) (k : Nat) : State :=
+  let s := cancelOps s k
+  let s := setConn s k fun conn =>
+    { stage := .reopening, server := conn.server, users := conn.users, idleNow := conn.idleNow }
+  connectAgain c s k
+
 /-- A send of the session's records ended, the same way; one of an incarnation that is gone only
-gives the slot's memory back (§21, TLS rule 3). -/
+gives the slot's memory back, which may let a connection waiting on it connect again (§21, TLS
+rules 3 and 8). -/
 def recordsSendEnded (c : Config) (s : State) (op : Op) (outcome : Outcome) : State :=
   let k := op.target
-  if ¬op.current then s else
+  if ¬op.current then connectAgain c s k else
   match outcome with
   | .short => sendRest c s k op
   | .ok => afterSend c (dequeue s k) k
@@ -158,10 +175,11 @@ def connectEnded (c : Config) (s : State) (i : Nat) (op : Op) (ok : Bool) : Stat
 after which the connection is up and its lookups are told, a failure, or a KeyUpdate to answer
 (§21, TLS rules 1, 2 and 4). -/
 def tlsStep (c : Config) (s : State) (k : Nat) (t : TlsStep) : State :=
-  let s := if t = .failed then s else setConn s k fun conn => { conn with owes := true }
+  let s := if t = .failed ∨ t = .ticket then s else setConn s k fun conn => { conn with owes := true }
   match t with
   | .flight | .rekey => makeRecords c s k
-  | .failed => failConn c s k
+  | .ticket => { s with tickets := s.tickets.set (connAt s k).server true }
+  | .failed => if (connAt s k).resumed then retryFull c s k else failConn c s k
   | .done =>
     let s := makeRecords c s k
     -- The client's last flight may have failed the connection as it went.
@@ -253,6 +271,7 @@ def happen (c : Config) (s : State) (e : Event) : State :=
     match s.ops[i]? with
     | some op => drive c (tlsStep c s op.target t)
     | none => s
+  | .lapse v => { s with tickets := s.tickets.set v false }
   | .straggle _ => drive c s
   | .jam => { s with jammed := true }
   | .starve => { s with starved := true }
@@ -328,16 +347,18 @@ def enabled (c : Config) (s : State) : List Event :=
       if ¬(c.tls ∧ op.kind = .receive ∧ op.current) then [] else
       match (connAt s op.target).stage with
       | .handshaking => [TlsStep.flight, .done, .failed].map (Event.tls i)
-      | .up => [Event.tls i .rekey]
+      | .up => [Event.tls i .rekey, .tls i .ticket]
       | _ => []
     | none => []
   let stragglers := (List.range s.ops.length).filterMap fun i =>
     match s.ops[i]? with
     | some op => if receives op ∧ ¬op.current then some (Event.straggle i) else none
     | none => none
+  let lapses := (List.range c.servers).filterMap fun v =>
+    if s.tickets.getD v false then some (Event.lapse v) else none
   let refusals := (if s.jammed then [] else [Event.jam]) ++ (if s.starved then [] else [Event.starve])
   starts ++ takes ++ cancels ++ expires ++ idles ++ finishes ++ messages ++ steps ++ stragglers ++
-    refusals
+    lapses ++ refusals
 
 /-! ## What must hold in every state -/
 
@@ -372,7 +393,7 @@ event, so its slot stays closed until then (the stream's rule 10, §21's TLS rul
 def borrowKept (s : State) : Bool :=
   s.ops.all fun op =>
     (op.kind != .connect && op.kind != .sendRecords) || op.current ||
-      (connAt s op.target).stage == .closed
+      (connAt s op.target).stage == .closed || (connAt s op.target).stage == .reopening
 
 /-- A stream has one send in flight at most, and it is its queue's head's; no query waits in two
 queues or twice in one (the stream's rule 9). -/
@@ -418,6 +439,7 @@ def opsCurrent (s : State) : Bool :=
     | .closed => current = []
     | .connecting => current.map (·.kind) = [.connect]
     | .handshaking | .up | .closing => current.map (·.kind) = [.receive] ∨ current = []
+    | .reopening => current = []
 
 /-- A server's current socket has at most one current receive, and its draining socket at most
 one while it drains and none once it is gone (the datagram's rules 1, 2 and 4). -/
@@ -446,16 +468,47 @@ def rotatedAll (s : State) : Bool :=
 to do was polled (rule 8). -/
 def driveDone (s : State) : Bool := s.ready = []
 
+/-- A ticket is used once: a connection that opened resuming spent its server's ticket (TLS rule
+8). -/
+def ticketSpent (before s : State) : Bool :=
+  (List.range s.conns.length).all fun k =>
+    let conn := connAt s k
+    !(conn.resumed && (connAt before k).stage == .closed) || !s.tickets.getD conn.server false
+
+/-- A connection opened again after a resumed handshake failed handshakes in full (TLS rule 8). -/
+def reopenedInFull (before s : State) : Bool :=
+  (List.range s.conns.length).all fun k =>
+    let conn := connAt s k
+    (conn.stage != .reopening || !conn.resumed) &&
+      ((connAt before k).stage != .reopening || conn.stage == .reopening || !conn.resumed)
+
+/-- A resumed handshake that fails is not the server's failure: nothing is counted against it,
+and its lookups stay on the connection, unless the moment refused the connect again (TLS rule 8). -/
+def declineForgiven (before : State) (e : Event) (s : State) : Bool :=
+  match e with
+  | .tls i .failed =>
+    match before.ops[i]? with
+    | some op =>
+      let k := op.target
+      !(connAt before k).resumed || before.jammed || before.starved ||
+        (s.failures == before.failures &&
+          (List.range before.slots.length).all fun l =>
+            (slotAt before l).conn != some k || (slotAt s l).conn == some k)
+    | none => true
+  | _ => true
+
 /-- What must hold after event `e` took `before` to `s`. The liveness of the receives is owed only
 after a drive that ran with nothing refused. -/
 def invariants (before : State) (e : Event) (s : State) : List (String × Bool) :=
   let drove : Bool := match e with
-    | .take | .jam | .starve => false
+    | .take | .jam | .starve | .lapse _ => false
     | _ => !before.jammed && !before.starved
   [("users counted", usersCounted s), ("attached right", attachedRight s),
    ("buffers lent", buffersLent s), ("one send a stream", oneSendAStream s),
    ("borrow kept", borrowKept s), ("sealed in order", sealedInOrder s),
    ("queries after up", queriesAfterUp s), ("answered", answered s),
+   ("ticket spent", ticketSpent before s), ("reopened in full", reopenedInFull before s),
+   ("decline forgiven", declineForgiven before e s),
    ("ops current", opsCurrent s),
    ("sockets current", socksCurrent s), ("drive done", driveDone s),
    ("listening", !drove || listeningAll s), ("rotated", !drove || rotatedAll s)]

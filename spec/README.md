@@ -74,7 +74,8 @@ every query over TCP, every query over TLS, or every query over UDP with no answ
 a port replaced every two queries, the old one draining beside the new. A TLS session is what it
 does to the queue: the records it makes, which are sealed as it makes them, and the steps its
 handshake takes, a flight to answer, the handshake's end or a failure, and later a KeyUpdate to
-answer. It leaves out the timer, the bytes of a message, the TLS records' contents and the
+answer or a ticket to keep. A kept ticket may lapse at any moment, which stands for its lifetime
+and the 7-day cap. It leaves out the timer, the bytes of a message, the TLS records' contents and the
 cache. Time moves in ticks, each the idle close's
 wait, and only when a deadline arrives or the caller lets a tick pass; a lookup waits two ticks.
 Two faults stand in for a kernel under pressure: the loop refuses every submission for the length
@@ -82,7 +83,7 @@ of one event, as a full ring does, and every socket open fails for the length of
 process with no descriptor left sees.
 
 `cocuyo-spec engine <tcp|udp|tls> <slots> <connections>` walks it breadth first and checks
-thirteen invariants in every state:
+sixteen invariants in every state:
 
 - A connection's users are the lookups on it.
 - A lookup is on a connection only while it streams to that connection's server.
@@ -103,16 +104,29 @@ thirteen invariants in every state:
   only while a send is in flight: records go out in the order they were sealed.
 - No query waits on a connection that is not up.
 - No event leaves the session owing an answer to a flight, the handshake's end or a KeyUpdate.
+- A connection that opens resuming spends its server's ticket, so a ticket is used once.
+- A connection opened again after its resumed handshake failed handshakes in full.
+- A resumed handshake that fails counts no failure against its server and keeps its lookups on
+  the connection, unless the loop refuses the connect again.
 
 The walk stops at six operations in flight, two failures a server and three queries a port,
-since nothing else bounds the graph. A stream's send may come back short once a message, since a
+since nothing else bounds the graph; `engine` takes the first two as its last two arguments, for a
+configuration too big to walk at the defaults. A stream's send may come back short once a message, since a
 second short send takes the path the first took and the model does not count octets. It
 reported, on 2026-09-23:
 
-| Transport | Slots | Connections | States | Transitions | Invariants |
-| --- | --- | --- | --- | --- | --- |
-| TCP | 1 | 1 | 1,038,503 | 14,908,528 | hold |
-| UDP | 1 | 1 | 5,848,772 | 85,609,860 | hold |
+| Transport | Slots | Connections | Operations, failures | States | Transitions | Invariants |
+| --- | --- | --- | --- | --- | --- | --- |
+| TCP | 1 | 1 | 6, 2 | 1,038,503 | 14,908,528 | hold |
+| UDP | 1 | 1 | 6, 2 | 5,848,772 | 85,609,860 | hold |
+| TCP | 2 | 1 | 5, 1 | 11,014,930 | 125,509,380 | hold |
+
+Two lookups on one TCP connection is where queries queue behind each other (the stream's rule 9),
+and it did not finish at six and two in nine hours, so it was walked at five and one. The TLS
+model has not been walked whole. One lookup on two connections ran an hour at four operations and
+one failure without finishing, and broke no invariant in what it reached. Until the replay drives
+TLS in §21 step 5, the TLS model rests on `engine-probe` walks of 400,000 events over seeds 1, 7
+and 42, and on the mutations of docs/mutations.md that break it on purpose.
 
 `cocuyo-spec engine-probe <tcp|udp|tls> <slots> <connections> <seed> <walks> <length>` walks one
 configuration the seeded way below and stops at the first invariant broken, for a quick look before

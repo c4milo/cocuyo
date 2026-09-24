@@ -23,9 +23,11 @@ namespace Spec.Engine
 abbrev LState := Spec.Lookup.State
 
 /-- A connection's life. Over TLS it handshakes between its connect and its first query, and an
-idle one closes after its `close_notify` has gone (§21, TLS rules 1 and 5). -/
+idle one closes after its `close_notify` has gone (§21, TLS rules 1 and 5). One whose resumed
+handshake failed waits, its lookups still on it, to connect again in full once the loop gives its
+slot back (TLS rule 8). -/
 inductive Stage where
-  | closed | connecting | handshaking | up | closing
+  | closed | connecting | handshaking | up | closing | reopening
   deriving DecidableEq, Repr, Inhabited, Hashable
 
 /-- What waits to go out on a stream: a lookup's query, or records the TLS session made of its own
@@ -57,6 +59,8 @@ structure Conn where
   /-- Whether the session was given something it must answer and has not sealed the answer: a
   flight, the handshake's end, a KeyUpdate. Nothing leaves an event owing (§21, TLS rule 2). -/
   owes : Bool := false
+  /-- Whether this opening resumes with a ticket rather than handshaking in full (TLS rule 8). -/
+  resumed : Bool := false
   deriving DecidableEq, Repr, Inhabited, Hashable
 
 /-- A stream's connect, receive and send; a datagram's send and a socket's receive; and a TLS
@@ -138,6 +142,8 @@ structure State where
   jammed : Bool
   /-- Every socket the engine opens during the next event fails to open. -/
   starved : Bool
+  /-- Whether each configured server has a ticket kept for its next connection (TLS rule 8). -/
+  tickets : List Bool
   deriving DecidableEq, Repr, Hashable
 
 structure Config where
@@ -179,9 +185,10 @@ inductive Outcome where
 
 /-- What the session makes of the records a TLS connection receives: during the handshake, a
 flight to answer, the handshake's end with the client's last flight, or a failure (a record it
-refuses, a certificate or a name that does not verify); once up, a KeyUpdate to answer. -/
+refuses, a certificate or a name that does not verify); once up, a KeyUpdate to answer, or a
+ticket for the next connection. -/
 inductive TlsStep where
-  | flight | done | failed | rekey
+  | flight | done | failed | rekey | ticket
   deriving DecidableEq, Repr, Inhabited, Hashable
 
 inductive Event where
@@ -201,19 +208,23 @@ inductive Event where
   | straggle (op : Nat)
   /-- The session's step on the records the receive at this position brought. -/
   | tls (op : Nat) (step : TlsStep)
+  /-- The ticket kept for this server reaches its lifetime, or 7 days (TLS rule 8). -/
+  | lapse (server : Nat)
   /-- The loop refuses every submission during the next event. -/
   | jam
   /-- Every socket open fails during the next event. -/
   | starve
   deriving DecidableEq, Repr, Inhabited, Hashable
 
-/-- A socket per server, each with its receive armed, server by server. -/
+/-- A socket per server, each with its receive armed, server by server; none over TLS, which asks
+nothing of a datagram (§21, TLS rule 9). -/
 def init (c : Config) : State :=
+  let sockets := if c.tls then 0 else c.servers
   { slots := List.replicate c.slots {}, conns := List.replicate c.conns {},
-    ops := (List.range c.servers).map fun v => { kind := .receiveFrom, target := v, current := true },
+    ops := (List.range sockets).map fun v => { kind := .receiveFrom, target := v, current := true },
     ready := [], free := List.range c.slots, results := [], lastTaken := none,
-    failures := List.replicate c.servers 0, socks := List.replicate c.servers {},
-    jammed := false, starved := false }
+    failures := List.replicate c.servers 0, socks := List.replicate sockets {},
+    jammed := false, starved := false, tickets := List.replicate c.servers false }
 
 /-! ## Small helpers over lists by position -/
 
@@ -391,13 +402,16 @@ def freeConn (c : Config) (s : State) : Option Nat × State :=
     | none => (none, s)
 
 /-- Opens a connection to `server` in a free slot: its socket, then its connect, either of
-which the moment may refuse. -/
+which the moment may refuse. Over TLS it resumes with the server's ticket when one is kept, and
+spends it: a ticket is used once (TLS rule 8). -/
 def openConn (c : Config) (s : State) (server : Nat) : Option Nat × State :=
   match freeConn c s with
   | (none, s) => (none, s)
   | (some k, s) =>
     if s.starved ∨ s.jammed then (none, s) else
-    let s := setConn s k fun _ => { stage := .connecting, server }
+    let resumed := c.tls ∧ s.tickets.getD server false
+    let s := { s with tickets := if resumed then s.tickets.set server false else s.tickets }
+    let s := setConn s k fun _ => { stage := .connecting, server, resumed }
     (some k, { s with ops := s.ops ++ [{ kind := .connect, target := k, current := true }] })
 
 /-- The connection to `server` a lookup may join: not one that is closing (§21, TLS rule 5). -/

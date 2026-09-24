@@ -1045,14 +1045,19 @@ Design §21's engine rules, held by the model before any engine code speaks TLS.
 nothing to break yet, so these mutations break the model, and the invariants must catch them:
 each run is `cocuyo-spec engine-probe tls 2 2 1 2000 200`. TM3 was `NOT CAUGHT` at first. No
 invariant said the client's last flight goes before the first query, so the `answered`
-invariant was written for it, and it catches TM3. Three mutations, three `CAUGHT`. The engine's
-own mutations come with its code, in step 5.
+invariant was written for it, and it catches TM3. Rule 8, resumption, came the same day with
+three invariants of its own, and R8a to R8d break it; each was probed over seeds 1, 7 and 42.
+Seven mutations, seven `CAUGHT`. The engine's own mutations come with its code, in step 5.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
 | TM1 | the session's records go to the back of the queue, behind queries not yet sealed | TLS rule 2, records in sealed order | `sealed in order`, at depth 194 | CAUGHT |
 | TM2 | a slot is opened again while a send of its records is in flight | TLS rule 3 | `borrow kept`, at depth 50 | CAUGHT |
 | TM3 | the handshake's end tells the lookups without sealing the client's last flight | TLS rules 1 and 2 | `answered`, at depth 33 | CAUGHT |
+| R8a | a declined ticket fails the connection | TLS rule 8 | `decline forgiven`, at depth 154 | CAUGHT |
+| R8b | a connection that resumes leaves its server's ticket kept | TLS rule 8, used once | `ticket spent`, at depth 153 | CAUGHT |
+| R8c | the connection opened again resumes again | TLS rule 8, in full | `reopened in full`, at depth 154 | CAUGHT |
+| R8d | the connection opened again takes its slot while the loop still holds its records | TLS rules 3 and 8 | `borrow kept`, at depth 154 | CAUGHT |
 
 ## A connect's address
 
