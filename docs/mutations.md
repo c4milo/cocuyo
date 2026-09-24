@@ -1159,7 +1159,8 @@ Issue #9, 2026-09-24. The TLS rules the Lean model's mutations broke (TM1 to TM3
 above), broken again in `spec/tla/engine/EngineMutants.tla`, each put in its rule's place by a
 configuration in `spec/tla/engine/mutants/`. TLC walks breadth first, so each counterexample is a
 shortest one, where the Lean probes found them 33 to 194 events deep. Two mutants first called
-the rule they replace, and so themselves; each is whole now. Seven mutations, seven `CAUGHT`.
+the rule they replace, and so themselves; each is whole now. Eight mutations, eight `CAUGHT`,
+TQ1 once its check was written.
 
 | # | Mutation | Caught by | Counterexample | Status |
 | --- | --- | --- | --- | --- |
@@ -1170,6 +1171,13 @@ the rule they replace, and so themselves; each is whole now. Seven mutations, se
 | R8b | a connection that resumes leaves its server's ticket kept | `ticket spent` | 10 states | CAUGHT |
 | R8c | the connection opened again resumes again | `reopened in full` | 14 states | CAUGHT |
 | R8d | the connection opened again takes its slot while its records are held | `borrow kept` | 13 states | CAUGHT |
+| TQ1 | a lookup that leaves keeps its waiting query queued | `queued for its lookup`, with two lookups | 5 states | CAUGHT |
+
+TQ1 came with the configurations of two lookups, the same day. It is the stream's rule 9 as the
+code's SQ6 broke it. It was `NOT CAUGHT` at first: over TCP with two lookups it changed the states
+TLC reached, 1,199,595 against 758,374, and broke no check, because the model removed a waiting
+query without any check saying it must. The check `queued for its lookup` was written for it, and
+catches it. With one lookup TQ1 is equivalent, since no query ever waits on a plain stream.
 
 ## The engine replay on TLC's walks
 

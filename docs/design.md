@@ -2195,6 +2195,8 @@ catch fewer of the engine's mutations. The committed walks keep the full run's w
 the ones they miss. The full run catches three mutations only the twin tests caught before, and
 misses one the Lean walks caught, which no walk the model allows can reach (docs/mutations.md).
 Then the Lean model retired, and CI's `spec` job runs `zig build tla` beside `zig build spec`.
+The check then took configurations of two lookups, which the Lean walker never finished, and they
+showed rule 9's removal of a waiting query was kept but never checked; the model checks it now.
 
 The code of 2026-09-22 broke eleven of these rules, each fixed with the model:
 

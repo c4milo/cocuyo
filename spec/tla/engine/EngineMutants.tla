@@ -1,6 +1,6 @@
 ---------------------------- MODULE EngineMutants -----------------------------
-\* The engine's TLS rules broken on purpose, one operator each, as docs/mutations.md's TM1 to TM3
-\* and R8a to R8d broke the Lean model. A configuration in mutants/ puts one in place of the rule
+\* The engine's rules broken on purpose, one operator each: the TLS rules as docs/mutations.md's
+\* TM1 to TM3 and R8a to R8d broke the Lean model, and the stream's rule 9 as TQ1 breaks it. A configuration in mutants/ puts one in place of the rule
 \* with TLC's `Rule <- Mutant`, and TLC must find the check that catches it.
 EXTENDS Engine
 
@@ -67,5 +67,16 @@ ConnectAgainBorrowed(st, k) ==
     ELSE IF st.starved \/ st.jammed THEN FailConn(st, k)
     ELSE [st EXCEPT !.conns[k].stage = "connecting", !.conns[k].resumed = FALSE,
                     !.ops = Add(@, Op("connect", k))]
+
+\* TQ1: a lookup that leaves keeps its waiting query queued, the stream's rule 9 as the code's SQ6
+\* broke it. On a plain stream a query waits only behind another lookup's, so one lookup never
+\* shows it.
+ReleaseKeepsQueued(st, l) ==
+    IF st.slots[l].conn = {} THEN st
+    ELSE
+    LET k == Get(st.slots[l].conn)
+        left == [st EXCEPT !.slots[l].conn = {}]
+        users == Sub(left.conns[k].users, 1)
+    IN [left EXCEPT !.conns[k].users = users, !.conns[k].idleNow = @ \/ users = 0]
 
 ===============================================================================

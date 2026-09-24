@@ -355,6 +355,15 @@ OneSendAStream(st) ==
            /\ \A i \in queries : HeadIs(q, Query(Queued(st, k)[i]))
            /\ (records = 0 \/ HeadIs(q, Records))
 
+\* A query waits in a connection's queue only while its lookup is on that connection, or once it has
+\* started going out: a message whose lookup moved on before any of it went out left the queue
+\* and gave its buffer back (the stream's rule 9).
+QueuedForItsLookup(st) ==
+    \A k \in 0..Conns - 1 :
+        \A i \in 1..Len(st.conns[k].queue) :
+            LET e == st.conns[k].queue[i] IN
+            e.kind = "query" => st.slots[e.slot].conn = {k} \/ Sending(st, e.slot)
+
 SealedInOrder(st) ==
     \A k \in 0..Conns - 1 :
         LET c == st.conns[k] IN
@@ -426,6 +435,7 @@ Checks(before, e, st) ==
     << <<"users counted", UsersCounted(st)>>, <<"attached right", AttachedRight(st)>>,
        <<"buffers lent", BuffersLent(st)>>, <<"one send a stream", OneSendAStream(st)>>,
        <<"borrow kept", BorrowKept(st)>>, <<"sealed in order", SealedInOrder(st)>>,
+       <<"queued for its lookup", QueuedForItsLookup(st)>>,
        <<"queries after up", QueriesAfterUp(st)>>, <<"answered", Answered(st)>>,
        <<"ticket spent", TicketSpent(before, st)>>,
        <<"reopened in full", ReopenedInFull(before, st)>>,

@@ -92,7 +92,7 @@ tick pass; a lookup waits two ticks. Two faults stand in for a kernel under pres
 refuses every submission for the length of one event, as a full ring does, and every socket open
 fails for the length of one event, as a process with no descriptor left sees.
 
-TLC walks it breadth first (`zig build tla`) and checks sixteen rules in every state and every
+TLC walks it breadth first (`zig build tla`) and checks seventeen rules in every state and every
 event:
 
 - A connection's users are the lookups on it.
@@ -108,6 +108,8 @@ event:
   drains, and a draining socket nothing is owed on is gone.
 - A stream has one send in flight at most, and it is its queue's head's; no query waits in two
   queues or twice in one.
+- A query waits in a connection's queue only while its lookup is on that connection, or once it
+  has started going out.
 - A connect or a send of records that is gone keeps its slot closed until its final event, since
   it borrows the slot's memory until then.
 - The sealed entries lead each queue, only its head among them a query, and something is sealed
@@ -191,7 +193,7 @@ Three choices make TLC count what the Lean walker counts:
   and checked, and has no successor, as in the Lean walker; TLC leaves a state that breaks a
   `CONSTRAINT` out, and the check on the event that reached it with it. So every configuration
   says `CHECK_DEADLOCK FALSE`.
-- Four of the sixteen checks read the event or the state before it, which a TLC invariant cannot.
+- Four of the seventeen checks read the event or the state before it, which a TLC invariant cannot.
   So `broken` holds the names of the checks the last event broke, and `Clean` asks it be empty.
   In a model that keeps its rules it always is, so it splits no state.
 
@@ -216,6 +218,24 @@ free. The last row is not in `zig build tla`: it took 4.3 GB and ran on a machin
 work, beside the Lean walker's run of the same row. `tla/engine/mutants/` breaks the TLS rules the
 Lean model's mutations broke, TM1 to TM3 and R8a to R8d, and TLC must find each broken
 (docs/mutations.md).
+
+Every configuration above has one lookup. Two lookups are where queries wait behind each other on
+a stream (the stream's rule 9) and share a server's socket, so `zig build tla` checks four
+configurations with two as well. The Lean walker checked none of them to the end. Measured on
+2026-09-24 on the same machine, busy with other work, one configuration at a time:
+
+| Transport | Slots | Connections | Operations, failures | States | TLC seconds |
+| --- | --- | --- | --- | --- | --- |
+| TCP | 2 | 1 | 4, 1 | 758,374 | 66 |
+| TCP | 2 | 2 | 4, 0 | 223,480 | 18 |
+| UDP | 2 | 1 | 4, 0 | 1,534,175 | 94 |
+| TLS | 2 | 2 | 2, 0 | 1,315,522 | 97 |
+
+They found a rule the model kept without checking. A lookup that moved on took its waiting query
+out of the queue, but no check said it must. So TQ1, which leaves the query queued, changed what
+the model reached with two lookups and broke nothing. The check that a query waits only for a
+lookup on its connection catches TQ1 in 5 states. With one lookup no query ever waits on a plain
+stream, and TQ1 changes nothing.
 
 ### The walks TLC takes
 
