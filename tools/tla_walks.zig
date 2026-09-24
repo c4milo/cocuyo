@@ -96,8 +96,16 @@ pub fn run(
         try errors.print("there is no walk {d}: {d} configurations of {d} walks\n", .{ walk, names.len, request.walks });
         return exit_usage;
     }
+    // The checkout's own state directories: two checkouts may ask for the same walks at once.
+    const checkout = std.hash.Wyhash.hash(0, try std.process.currentPathAlloc(init.io, arena));
     var runs: [configurations_max]Run = undefined;
-    for (names, runs[0..names.len]) |name, *one| one.* = try start(init, project, jar, name, request);
+    var started: usize = 0;
+    // A run an error leaves behind is stopped; `kill` does nothing to one already waited for.
+    errdefer for (runs[0..started]) |*one| one.child.kill(init.io);
+    for (names, runs[0..names.len]) |name, *one| {
+        one.* = try start(init, project, jar, name, request, checkout);
+        started += 1;
+    }
     var status = exit_success;
     for (runs[0..names.len]) |*one| {
         if (!try finish(arena, init.io, one, errors)) status = exit_failure;
@@ -180,11 +188,13 @@ fn start(
     jar: []const u8,
     configuration: []const u8,
     request: Request,
+    checkout: u64,
 ) !Run {
     const arena = init.arena.allocator();
-    // Named for the request as well: the build runs the committed walks and the full run at once.
-    const label = try std.fmt.allocPrint(arena, "walks-{s}-{s}-{d}-{s}", .{
-        std.fs.path.stem(configuration), request.seed, request.walks, request.depth,
+    // Named for the checkout and the request as well: the build runs the committed walks and the
+    // full run at once, and two checkouts may run the same.
+    const label = try std.fmt.allocPrint(arena, "walks-{x}-{s}-{s}-{d}-{s}", .{
+        checkout, std.fs.path.stem(configuration), request.seed, request.walks, request.depth,
     });
     const states = try tlc.states_path(arena, init.environ_map, label);
     Io.Dir.cwd().deleteTree(init.io, states) catch {};

@@ -116,13 +116,15 @@ fn add_engine(b: *std.Build, tla_tool: *std.Build.Step.Compile, engine_exe: *std
     if (b.option([]const u8, "engine-walks", "Replay these engine walks instead of having TLC write them")) |path| {
         engine_replay.addFileArg(.{ .cwd_relative = path });
     } else {
+        const gate = tla_walks(b, tla_tool, &engine_gate_walks);
         const full = tla_walks(b, tla_tool, &engine_walks);
+        // One after the other: on a machine without TLC's jar each would fetch it to one place.
+        full.step.dependOn(&gate.step);
         full.addArg("--pick");
         const picked = full.addOutputFileArg("engine_picks.txt");
         full.addArgs(&engine_picks);
         engine_replay.addFileArg(full.captureStdOut(.{}));
-        const gate = tla_walks(b, tla_tool, &engine_gate_walks).captureStdOut(.{});
-        engine_replay.step.dependOn(same(b, engine_gate_transcript, gate));
+        engine_replay.step.dependOn(same(b, engine_gate_transcript, gate.captureStdOut(.{})));
         engine_replay.step.dependOn(same(b, engine_picks_transcript, picked));
     }
     step.dependOn(&engine_replay.step);

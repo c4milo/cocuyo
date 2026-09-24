@@ -3,7 +3,7 @@
 //! `walks` first, it writes the engine model's walks for the replay instead (`tla_walks.zig`).
 //!
 //! Run:  zig build tla
-//!       zig build tla -- walks <seed> <walks> <depth>
+//!       zig build tla -- walks <seed> <walks> <depth> [--pick <file> <walk>...]
 //!
 //! TLC is the jar `$TLA2TOOLS_JAR` names, or else the pinned release, which the tool fetches into
 //! its cache and refuses unless its SHA-256 is the one below. It needs Java 11 or newer.
