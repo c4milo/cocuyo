@@ -113,6 +113,24 @@ pub const tls_records_per_chunk_max = 32;
 /// A client MUST NOT use a ticket more than seven days after it was issued (RFC 9846 §4.7.1).
 pub const tls_ticket_age_ns_max = 7 * 24 * 60 * 60 * 1_000_000_000;
 
+/// What chapulin's session stages between two of the engine's calls: a ClientHello at
+/// chapulin's staging bound of 1154 octets (its session.h, read on 2026-09-23), or a query sealed
+/// at its longest, one record of 386 octets and 22 of overhead, with room to spare.
+pub const chapulin_out_bytes_max = 2048;
+
+/// The reads one record may take from chapulin's session: one for its plaintext and one to hear
+/// that no record follows, with room for plaintext longer than the frame's room.
+pub const chapulin_reads_per_record_max = 4;
+
+/// The staging a handshake step may drain from chapulin at once, in pieces of any size: a bound on
+/// the loop that collects it, far past a flight's records.
+pub const chapulin_out_pieces_max = 64;
+
+/// A second and a millisecond, in nanoseconds: chapulin's clock is Unix seconds, and a resumed
+/// hello states a ticket's age in milliseconds (RFC 9846 §4.3.11.1).
+pub const ns_per_second = 1_000_000_000;
+pub const ns_per_millisecond = 1_000_000;
+
 comptime {
     if (kind_shift - receive_generation_shift < 32) {
         @compileError("a receive's user_data has no room for a thirty-two-bit generation");

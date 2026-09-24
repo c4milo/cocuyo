@@ -2753,6 +2753,19 @@ Two types fill it:
   script it, and the replay drives the model's steps with it one by one, so the gate needs no
   chapulin.
 
+chapulin's session starts from a `Context` the caller hands `Engine.use_tls`:
+
+- the trust anchors, at most 12, each a root's subject Name and SubjectPublicKeyInfo as DER;
+- the wall clock, as Unix seconds pinned to a `now_ns`, which the session carries forward by
+  the elapsed `now_ns` when it starts a handshake;
+- a ChaCha20 stream the caller's 32-byte seed keys. chapulin draws randomness through
+  `ch_rand_bytes`, and only while a handshake starts, so the session points that function at
+  the stream for the length of the start.
+
+The session collects what chapulin makes as soon as chapulin makes it. chapulin says it is
+connected only once the client's last flight has been collected, so a session that left it for
+`take_out` could not tell the engine the handshake had ended.
+
 What the fake cannot show is chapulin's to show, in its own suite and in step 6's live check:
 the ciphers, the certificate and pin checks, and the resumption binding. The engine's own work
 is what the fake does show: which records go when, what a lookup hears, and when a slot is free.
@@ -2804,9 +2817,16 @@ the engine's send and held buffers, per slot.
    rules in `io/io_tls.zig`, the queue's sealed entries in `io/io_tcp_queue_ring.zig`, twin
    tests in `io/io_tls_test.zig`, and the replay over the model's two TLS configurations. The
    full walks found one defect in the rules as first written, the queue filled by KeyUpdates
-   (TLS rule 2). chapulin's own session, `io/io_chapulin.zig`, is what is left of the step.
+   (TLS rule 2). chapulin's own session, `io/io_chapulin.zig`, landed the same day, with
+   `-Dchapulin`, `zig build test-chapulin` and `examples/dot_rotor.zig` (`build/dot.zig`).
 6. A live check against the public resolvers that serve DoT: `dns.google`, `cloudflare-dns.com`
-   and `dns.quad9.net`.
+   and `dns.quad9.net`. `tools/dot_live/run.sh` runs it, on macOS, with each resolver's root from
+   the system store. On 2026-09-24, with chapulin at `5f8e824`, all three resolved `example.com`:
+   `dns.google` over an RSA chain ending at GTS Root R1, the other two over ECDSA chains ending at
+   SSL.com's ECC root and DigiCert Global Root G3. A name the certificate does not carry, and a
+   root the chain does not end at, each failed the lookup, with no query sent in the clear. Only
+   IPv4 was tried: the machine had no IPv6 route. Resumption was not tried live, since one lookup
+   makes one connection.
 
 Checks, one for each piece:
 

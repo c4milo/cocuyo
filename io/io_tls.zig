@@ -34,13 +34,13 @@ pub const None = struct {
     pub fn take_out(_: *None, _: []u8) usize {
         unreachable;
     }
-    pub fn handshake(_: *None, _: []const u8) Error!Handshake {
+    pub fn handshake(_: *None, _: []u8) Error!Handshake {
         unreachable;
     }
     pub fn seal(_: *None, _: []const u8) Error!void {
         unreachable;
     }
-    pub fn open(_: *None, _: []const u8, _: []u8) Error!Opened {
+    pub fn open(_: *None, _: []u8, _: []u8) Error!Opened {
         unreachable;
     }
     pub fn take_ticket(_: *None) ?Ticket {
@@ -59,8 +59,10 @@ pub fn State(comptime Session: type) type {
     const out_bytes = if (Session.enabled) constants.tls_records_out_bytes else 0;
     return struct {
         session: Session = .{},
-        /// The ticket this opening resumes with, spent from its server's (rule 8).
+        /// The ticket this opening resumes with, spent from its server's, and when it came
+        /// (rule 8).
         ticket: ?Session.Ticket = null,
+        ticket_since_ns: u64 = 0,
         record_in: [in_bytes]u8 = undefined,
         record_in_used: usize = 0,
         /// Sealed records, oldest first, from `out_head` to `out_tail`: the head entry's are the
@@ -101,6 +103,7 @@ pub fn spend(self: anytype, at: u8, server: u8, now_ns: u64) void {
     const lifetime_ns = @min(Session.lifetime_ns(&kept.ticket), constants.tls_ticket_age_ns_max);
     if (age_ns >= lifetime_ns) return;
     connection.tls.ticket = kept.ticket;
+    connection.tls.ticket_since_ns = kept.since_ns;
 }
 
 // The handshake (rules 1 and 4).
@@ -114,7 +117,9 @@ pub fn begin(self: anytype, at: u8, now_ns: u64) void {
     connection.tls.session.start(.{
         .tls = &server.tls.?,
         .ticket = connection.tls.ticket,
+        .ticket_age_ns = now_ns -| connection.tls.ticket_since_ns,
         .context = &self.tls_context,
+        .now_ns = now_ns,
     }) catch return tcp.fail(self, at, now_ns);
     _ = make_records(self, at, now_ns);
 }
@@ -150,7 +155,7 @@ fn record_len(bytes: []const u8) error{Overflow}!usize {
 
 /// One whole record, as the connection's stage reads it. False when the connection is no longer
 /// the one that read it, and the rest of the chunk is not its to read.
-fn hear(self: anytype, at: u8, record: []const u8, now_ns: u64) bool {
+fn hear(self: anytype, at: u8, record: []u8, now_ns: u64) bool {
     return switch (self.connections[at].state) {
         .handshaking => shake(self, at, record, now_ns),
         .up => open(self, at, record, now_ns),
@@ -159,7 +164,7 @@ fn hear(self: anytype, at: u8, record: []const u8, now_ns: u64) bool {
     };
 }
 
-fn shake(self: anytype, at: u8, record: []const u8, now_ns: u64) bool {
+fn shake(self: anytype, at: u8, record: []u8, now_ns: u64) bool {
     const connection = &self.connections[at];
     const step = connection.tls.session.handshake(record) catch {
         // A resumed handshake that fails is not the server's failure (rule 8).
@@ -177,7 +182,7 @@ fn shake(self: anytype, at: u8, record: []const u8, now_ns: u64) bool {
 /// A record once up: an answer's octets go to the connection's framing, a ticket is kept, and
 /// what the session answered of its own accord goes out (rule 2). The peer's close or a record
 /// the session refuses fails the connection.
-fn open(self: anytype, at: u8, record: []const u8, now_ns: u64) bool {
+fn open(self: anytype, at: u8, record: []u8, now_ns: u64) bool {
     const connection = &self.connections[at];
     const opened = connection.tls.session.open(record, connection.frame[connection.used..]) catch {
         tcp.fail(self, at, now_ns);

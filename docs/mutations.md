@@ -1039,6 +1039,27 @@ mutations, seven `CAUGHT`.
 | W6 | a draining socket's ended receive is armed on the current one | rule 5 | the committed walks | CAUGHT |
 | W7 | a query does not record the socket it left from | rule 4, what is owed | the rotation twin test; the committed walks | CAUGHT |
 
+## chapulin's session
+
+Design §21 steps 5 and 6: `io/io_chapulin.zig`, chapulin's record transport behind the seam.
+Broken against `zig build test-chapulin`, which starts sessions without a network, and
+`tools/dot_live/run.sh`, which resolves through the three public resolvers and must be refused
+twice. Neither runs in the gate: both need a chapulin checkout, and the live check needs the
+network. CH5 was `NOT CAUGHT` by either, because the engine hands chapulin one whole record at a
+time and chapulin takes it whole: a record taken in part is a programmer's error, so the check is
+now an assertion. Eight mutations, seven `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CH1 | the hostname keeps the root label's dot | the name chapulin checks | the live check | CAUGHT |
+| CH2 | a handshake step leaves chapulin's flight uncollected | §21, the session collects at once | the live check | CAUGHT |
+| CH3 | chapulin draws randomness with no stream behind it | §21, the seeded stream | the start test, by a panic; the live check | CAUGHT |
+| CH4 | the pins never reach chapulin | RFC 8310 §6.3, SPKI + IP | the start test | CAUGHT |
+| CH5 | a record chapulin took in part is taken for whole | the whole-record rule | nothing: **a programmer's error, now an assertion** | NOT CAUGHT |
+| CH6 | "no record yet" is taken for a failure | chapulin's `CH_RECORD_AGAIN` | the live check | CAUGHT |
+| CH7 | the anchors never reach chapulin | RFC 8310 §8.1, the chain | the live check | CAUGHT |
+| CH8 | chapulin is given no clock | RFC 8310 §8.1, the dates | the live check | CAUGHT |
+
 ## The engine over TLS
 
 Design §21 step 5, the engine's side of it: the TLS rules in `io/`, driven with the twin's

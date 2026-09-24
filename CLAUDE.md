@@ -180,6 +180,10 @@ The architecture depends on every rule in this section.
   engine walks, and every transition of the `getaddrinfo` walks, replayed against the code. It needs `lake` at the version
   `spec/lean-toolchain` pins, so it runs only when asked and in CI's `spec` job; `zig build test`
   replays the committed slices without Lean.
+- DNS over TLS: `-Dchapulin=<checkout>` names a chapulin checkout whose `bin/chapulin-record.o`
+  `build/dot.zig` says how to make. With it, `zig build test-chapulin` runs the session's tests
+  and `zig build example-dot-rotor` resolves over DoT; `tools/dot_live/run.sh <checkout>` runs
+  the live check of design §21 step 6. Neither is in the gate, which needs no chapulin.
 - Format: `zig build fmt`, or `zig fmt build.zig build src tools examples bench`.
 - Commit messages: `zig build hooks` once after clone; `zig build lint-commits` by hand.
 
@@ -310,9 +314,12 @@ Steps 9 to 15 are §19, the gap with c-ares, decided on 2026-09-22:
   what does not wait. `Server.tls` all or none and query padding landed the same day, with
   `query_bytes_max` grown to 386 by the owner's ruling, and so did the engine's TLS rules (§21)
   in the model. chapulin's three pieces landed the same day (`73a36a8`, `756ad91`, `b6f2b11`),
-  and `Tls` takes SPKI pins beside or instead of the name, by the owner's ruling. Step 5, the
-  engine over chapulin, is next.
-- After those, DoH's DNS half, the same over HTTP/2 and HTTP/3, whose HTTP is colibri's; then DNS
+  and `Tls` takes SPKI pins beside or instead of the name, by the owner's ruling. Step 5 landed
+  on 2026-09-24: the engine speaks TLS over a session seam, replayed against the model with the
+  twin's session, and `io/io_chapulin.zig` puts chapulin behind it (`-Dchapulin`). Step 6 too:
+  `tools/dot_live/run.sh` resolves through `dns.google`, `cloudflare-dns.com` and
+  `dns.quad9.net` and is refused a wrong name and a wrong root. DoT is done.
+- Next, DoH's DNS half, the same over HTTP/2 and HTTP/3, whose HTTP is colibri's; then DNS
   over QUIC (RFC 9250). The owner put DoH over HTTP/3 and DoQ on the roadmap on 2026-09-23. The p99 of the comparison waits for a quiet machine.
 
 §17 holds the questions the owner has not answered.

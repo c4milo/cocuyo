@@ -24,6 +24,7 @@ const consumer_check = @import("build/consumer_check.zig");
 const examples = @import("build/examples.zig");
 const bench = @import("build/bench.zig");
 const spec = @import("build/spec.zig");
+const dot = @import("build/dot.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "build", "src", "tools", "examples", "bench", "io" };
@@ -63,6 +64,9 @@ pub fn build(b: *std.Build) void {
     // ReleaseSafe only: `-Drelease` selects ReleaseSafe, and the `-Doptimize` option that would
     // admit ReleaseFast or ReleaseSmall is never declared.
     const release = b.option(bool, "release", "Build ReleaseSafe rather than Debug") orelse false;
+    // DNS over TLS links chapulin from a checkout the caller names, and nothing does otherwise
+    // (docs/design.md §21 step 5, `build/dot.zig`).
+    const chapulin = b.option([]const u8, "chapulin", "A chapulin checkout whose bin/chapulin-record.o the DoT session links");
     const optimize: std.builtin.OptimizeMode = if (release) .ReleaseSafe else .Debug;
     assert(optimize == .Debug or optimize == .ReleaseSafe);
 
@@ -127,6 +131,7 @@ pub fn build(b: *std.Build) void {
     examples.add(b, graph.cocuyo, target, optimize, test_step, rotor);
     bench.add(b, target, test_step, tool_test_step, rotor);
     spec.add(b, target, test_step, tool_test_step);
+    dot.add(b, target, optimize, graph, chapulin, rotor);
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_commit_lint_step(b, pepegrillo, install_step);
     add_hooks_step(b);
