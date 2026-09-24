@@ -1294,6 +1294,15 @@ step until `zig build test` passes.
     `start`, which saves a slot and a 3 KiB copy and makes `AddressLookup` and `NameLookup` each
     learn a second control path, consuming an answer inside their own `init`. The copy is 53 ns
     against a round trip of a millisecond, and it buys every lookup shape a cache. §20.
+24. **The engine model is TLA+, checked by TLC; the lookup's stays Lean.** Ruled by the owner on
+    2026-09-24 (issue #9). The engine model is only ever checked, never proved, and checking is
+    TLC's trade: symmetry, fingerprints in place of whole states, worker threads, and liveness.
+    The Lean walker it replaces holds every state whole on one thread, and its TLS graph at four
+    operations and one failure did not finish in an hour. Rejected: extending that walker, which
+    rebuilds TLC by hand; and a TLA+ model beside the Lean one, two models of one set of rules
+    that can drift. The lookup's model carries proofs no bounded check gives, so it stays in
+    Lean. pepegrillo's `tla` and `lean` tools run both, from `spec/tla/` and `spec/lean/`.
+    §19 step 13.
 
 ## 17. Questions for the owner
 
@@ -2169,6 +2178,14 @@ message, its rest then whole or failed: a second short send takes the same path 
   when and how the walk says, and refuses what the walk says. It runs 16,000 walks and 3.2
   million events, 4,000 walks of them over TLS since 2026-09-24. After each event it compares the engine's whole state with the model's, and
   checks every buffer the event handed the engine is back in its group.
+
+**Moving to TLA+, ruled on 2026-09-24** (§16 decision 24, issue #9). The model moves to
+`spec/tla/engine/`, checked by TLC through pepegrillo's `tla` tool, and the Lean one above is
+retired once the TLA+ one stands. The loop's operations become a bag, so TLC counts a state and
+its operations reordered as one, as the Lean walker learned to the same day. The port is held to
+the Lean model by count: for each configuration and bound, TLC's distinct states must equal the
+Lean walker's with its operations sorted. Then the replay reads its walks from TLC's traces
+rather than the Lean model's, and CI's `spec` job runs TLC.
 
 The code of 2026-09-22 broke eleven of these rules, each fixed with the model:
 
