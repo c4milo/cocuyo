@@ -41,16 +41,17 @@ export fn ch_assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_
 }
 
 comptime {
-    if (constants.tls_records_out_bytes < c.CH_TX_STAGE + cocuyo.constants.query_bytes_max + constants.tls_record_overhead_bytes) {
+    if (constants.tls_records_out_bytes < c.REC_HDR + c.CH_TX_STAGE + cocuyo.constants.query_bytes_max + constants.tls_record_overhead_bytes) {
         @compileError("a connection's records cannot hold what chapulin stages beside a query sealed at its longest");
     }
 }
 
 pub const Session = struct {
     pub const enabled = true;
-    /// What the session stages between two of the engine's calls: at most chapulin's own staging
-    /// bound, read from its header, a ClientHello at its longest or a query sealed.
-    pub const out_bytes_max = c.CH_TX_STAGE;
+    /// What the session stages between two of the engine's calls: at most what chapulin's own
+    /// buffer holds, a record's header and its staging bound (its session.h), which is a
+    /// ClientHello at its longest or a query sealed.
+    pub const out_bytes_max = c.REC_HDR + c.CH_TX_STAGE;
     pub const Error = error{Failed};
     pub const Handshake = enum { going, done };
     pub const Opened = union(enum) { data: usize, nothing, closed };
@@ -67,11 +68,6 @@ pub const Session = struct {
         /// `now_ns`.
         pub fn init(anchors: []const c.ch_trust_anchor, seed: [std.Random.ChaCha.secret_seed_length]u8, unix_seconds: u64, now_ns: u64) Context {
             assert(anchors.len <= c.CH_WEBPKI_ANCHOR_MAX);
-            // The object linked must be the one these headers describe: an object built with
-            // other defines lays its sessions out otherwise, and nothing else would say so.
-            if (!built_as_read(&c.ch_build)) {
-                std.debug.panic("chapulin's object was built with other defines than cocuyo reads its headers with: rebuild it as build/dot.zig says", .{});
-            }
             return .{ .anchors = anchors, .stream = std.Random.ChaCha.init(seed), .unix_seconds = unix_seconds, .at_ns = now_ns };
         }
     };
@@ -119,6 +115,12 @@ pub const Session = struct {
     pub fn start(self: *Session, start_with: anytype) Error!void {
         const tls: *const cocuyo.Tls = start_with.tls;
         const context = start_with.context;
+        // The object linked must be the one these headers describe: an object built with other
+        // defines lays its sessions out otherwise, and nothing else would say so. Every session
+        // starts here, whatever made its context.
+        if (!built_as_read(&c.ch_build)) {
+            std.debug.panic("chapulin's object was built with other defines than cocuyo reads its headers with: rebuild it as build/dot.zig says", .{});
+        }
         self.* = .{};
         self.config = std.mem.zeroes(c.ch_cfg);
         self.config.buf = &self.buffer;

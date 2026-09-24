@@ -1130,23 +1130,24 @@ build test-chapulin`. One mutation, one `CAUGHT`, by the build.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
-| CK2 | `tls_records_out_bytes` down to 2,700, below 2,802 | the staging beside a sealed query | the build with `-Dchapulin` | CAUGHT |
+| CK2 | `tls_records_out_bytes` down to 2,700, below 2,807 | the staging beside a sealed query | the build with `-Dchapulin` | CAUGHT |
 
 ## chapulin's build record
 
 Design §21, 2026-09-24. cocuyo reads chapulin's headers with the defines `io/io_chapulin.zig`
 writes, and links an object built by the command `build/dot.zig` gives. Nothing checked that the
-two agree. Since chapulin `b29ab76` the object exports `ch_build`, its build record, and the
-session's context compares it with the headers' view when it is made. Broken against `zig build
+two agree. Since chapulin `b29ab76` the object exports `ch_build`, its build record, and every
+session compares it with the headers' view when it starts. It was first made in the session's
+context, which a context written as a literal would skip; the review of the same day moved it. Broken against `zig build
 test-chapulin`. CB3 removes the comparison, and no test can catch it: every object a test here
-links is the one the headers describe, so none can show the context refusing another. Three
+links is the one the headers describe, so none can show a session refusing another. Three
 mutations, two `CAUGHT`.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
-| CB1 | the import defines `CH_EXPORTER`, which the object was not built with | the object matches the headers | the build-record test; the session test, stopped at the context | CAUGHT |
+| CB1 | the import defines `CH_EXPORTER`, which the object was not built with | the object matches the headers | the build-record test; the session test, stopped at its start | CAUGHT |
 | CB2 | any build record is taken for a match | a record that differs is refused | the build-record test | CAUGHT |
-| CB3 | the context never compares the record | the comparison is made | nothing: **the object linked always matches** | NOT CAUGHT |
+| CB3 | a session never compares the record | the comparison is made | nothing: **the object linked always matches** | NOT CAUGHT |
 
 ## The engine over TLS
 

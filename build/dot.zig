@@ -16,9 +16,9 @@
 //! above keeps the default, and a builder who can vouch for theirs adds `WIDEMUL=native`.
 //!
 //! `io/io_chapulin.zig` reads chapulin's headers with the defines that command sets. Since
-//! chapulin b29ab76 the object exports its build record, and the session's context compares it
-//! with those headers when it is made: an object built another way stops the program there,
-//! rather than lay its sessions out otherwise unnoticed. CI's `dot-live` workflow pins the
+//! chapulin b29ab76 the object exports its build record, and every session compares it with those
+//! headers when it starts: an object built another way stops the program there, rather than lay
+//! its sessions out otherwise unnoticed. CI's `dot-live` workflow pins the
 //! chapulin commit it builds; it moves when cocuyo needs a newer chapulin.
 const std = @import("std");
 const modules = @import("modules.zig");
@@ -27,7 +27,7 @@ const modules = @import("modules.zig");
 const object = "bin/chapulin-record.o";
 
 /// `zig build test-chapulin`, the session's own tests, which need no network; and, where rotor
-/// resolved, `zig build example-dot-rotor`, one lookup over DNS over TLS.
+/// resolved, `zig build example-dot-rotor`, lookups over DNS over TLS.
 pub fn add(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -75,7 +75,7 @@ fn add_example(
     const exe = b.addExecutable(.{ .name = "dot-rotor", .root_module = module });
     const run = b.addRunArtifact(exe);
     if (b.args) |arguments| run.addArgs(arguments);
-    const step = b.step("example-dot-rotor", "One lookup over DNS over TLS: -- <name> <address> <auth name> <root.der>...");
+    const step = b.step("example-dot-rotor", "Lookups over DNS over TLS: -- <name>[,<name>...] <address> <auth name> <root.der>...");
     step.dependOn(&run.step);
 }
 

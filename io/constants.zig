@@ -102,10 +102,10 @@ pub const tls_record_in_bytes = tls_record_header_bytes + tls_record_body_bytes_
 pub const tls_record_overhead_bytes = tls_record_header_bytes + 1 + 16;
 
 /// The sealed records a TLS connection holds before they go: what the session stages at once, a
-/// ClientHello at its longest among it, beside a query sealed at its longest, and the few octets
-/// of a KeyUpdate's answer and a `close_notify`. Past it the connection fails rather than hold
-/// more (§21, TLS rule 3). `io_chapulin.zig` holds it to that sum at compile time, against
-/// chapulin's own staging bound.
+/// ClientHello at its longest among it, beside a query sealed at its longest. `io_chapulin.zig`
+/// holds it to that sum at compile time, against chapulin's own staging bound. What is left, more
+/// than a thousand octets today, holds the few of a KeyUpdate's answer and a `close_notify`. Past
+/// it the connection fails rather than hold more (§21, TLS rule 3).
 pub const tls_records_out_bytes = 4096;
 
 /// The entries of the session's own records one queue holds at once beside its queries: the one
