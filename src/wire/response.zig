@@ -340,8 +340,8 @@ pub fn note_ttl(ttl_seconds: u32, out: *Answers) void {
     assert(out.ttl_seconds <= ttl_seconds);
 }
 
-/// The smallest TTL of no record at all: the largest a TTL, "a 32 bit unsigned integer" (RFC 1035
-/// §4.1.3), can be, so the first record noted is the smallest so far whatever it is.
+/// The smallest TTL of no record at all: the largest a TTL, "a 32-bit unsigned integer" (RFC 8767
+/// §4), can be, so the first record noted is the smallest so far whatever it is.
 const ttl_none = std.math.maxInt(u32);
 
 // Tests.

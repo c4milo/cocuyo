@@ -15,7 +15,8 @@ pub const keys_per_slot_min = 2;
 pub const probe_max = 16;
 
 /// The TTL cap when the caller sets none: an hour, which is c-ares's default (§18), so a consumer
-/// replacing it sees the same ceiling.
+/// replacing it sees the same ceiling. RFC 8767 §4 asks for a cap and recommends seven days at
+/// most, so an hour is inside it.
 pub const ttl_seconds_max_default = 3600;
 
 /// Where the type and the flag sit in the word the hash starts from: the flag's one bit at 40,

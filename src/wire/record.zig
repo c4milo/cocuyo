@@ -124,6 +124,8 @@ pub const Iterator = struct {
             .owner_offset = owner_offset,
             .kind_code = integer.read_u16(self.message, after_name + constants.record_kind_offset),
             .class = integer.read_u16(self.message, after_name + constants.record_class_offset),
+            // All 32 bits, the high one read as positive: RFC 8767 §4 amends RFC 1035 §3.2.1 and
+            // §4.1.3, and undoes RFC 2181 §8, which read it as zero. The cache caps what it keeps.
             .ttl_seconds = integer.read_u32(self.message, after_name + constants.record_ttl_offset),
             .rdata = self.message[rdata_start..][0..rdlength],
             .end = rdata_start + rdlength,

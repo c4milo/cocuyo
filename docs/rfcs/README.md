@@ -23,6 +23,12 @@ DNS over QUIC, came the same day too, when the owner put DoQ on the roadmap, and
 when the owner added DoH over HTTP/3. Both were checked the same way: not obsoleted, not updated.
 RFC 4648 came the same day for the base64 an SPKI pin is written in, checked the same way.
 
+Added on 2026-09-24: RFC 8767, whose §4 amends the TTL of RFC 1035 §3.2.1 and §4.1.3. A TTL is a
+32-bit unsigned number, its high bit read as positive where RFC 2181 §8 read it as zero, and it
+should be capped, at seven days by recommendation. Checked against `rfc-editor.org/rfc/rfc8767.json`
+that day: not obsoleted, not updated. RFC 2181 itself is not here: nothing cocuyo does rests on
+what RFC 8767 left of its §8.
+
 Read these, never a summary and never another implementation's source. Cite the RFC that *states*
 a rule, not one that inherits it, and cite it by section on the line that does the checking
 (CLAUDE.md non-negotiable 8).

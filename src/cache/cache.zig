@@ -186,6 +186,7 @@ pub const Cache = struct {
         ttl_seconds: u32,
         now_ns: u64,
     ) void {
+        // "Values SHOULD be capped on the order of days to weeks" (RFC 8767 §4); an hour by default.
         const ttl = @min(ttl_seconds, self.ttl_seconds_max);
         assert(ttl >= 1);
         const expires_ns = now_ns + @as(u64, ttl) * constants.ns_per_s;
