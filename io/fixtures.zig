@@ -95,3 +95,7 @@ pub const quic_datagrams_lost = 2;
 
 /// Lookups cancelled in turn on one connection: past the 128 streams colibri holds at once.
 pub const quic_cancelled_streams = 140;
+
+/// A DoH connection's answer buffers in the tests over colibri's HTTP/3: fewer than the engine's
+/// lookups, so some requests wait for one.
+pub const doh_answers = 2;

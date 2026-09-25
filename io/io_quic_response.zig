@@ -4,6 +4,10 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+/// What a DoH response says of its content, which the engine reads (docs/design.md §24, DoH over
+/// HTTP/3): its final status, its `Age`, and whether it is a DNS message in no content coding.
+pub const Http = struct { status: u16, age_seconds: u32, dns_message: bool };
+
 /// The `Age` in seconds, from the value of the response's first `Age` line, or null for none. 0
 /// when there is none, or when it is not a number.
 pub fn age_seconds(value: ?[]const u8) u32 {

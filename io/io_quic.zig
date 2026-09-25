@@ -14,11 +14,15 @@ const cocuyo = @import("cocuyo");
 const quic = @import("quic");
 const streams_module = @import("io_quic_streams.zig");
 const connection_module = @import("io_quic_connection.zig");
+/// colibri's `h3` under the interface, read only by a type that speaks HTTP/3.
+const h3_module = @import("io_quic_h3.zig");
 pub const constants = @import("io_quic_constants.zig");
 /// A TLS session that encrypts nothing, and a DoQ server over it, for tests (`io_quic_plain.zig`,
 /// `io_quic_server.zig`).
 pub const plain = @import("io_quic_plain.zig");
 pub const server = @import("io_quic_server.zig");
+/// A DoH server over colibri's `h3`, for tests (`io_quic_server_h3.zig`).
+pub const server_h3 = @import("io_quic_server_h3.zig");
 /// A DoH server's URI template, split and expanded (`io_quic_template.zig`).
 pub const template = @import("io_quic_template.zig");
 /// What a DoH response's header section says of its content (`io_quic_response.zig`).
@@ -32,6 +36,11 @@ pub const Options = struct {
     streams: u16,
     /// colibri's receive pool, a multiple of its 1,024-octet blocks.
     receive_bytes: usize = constants.receive_bytes_default,
+    /// Whether a connection speaks HTTP/3 as well, for DoH: colibri's `h3`, which the consumer
+    /// then binds beside `quic` (docs/design.md §24, DoH over HTTP/3).
+    http3: bool = false,
+    /// A DoH connection's answer buffers: the responses it has in flight at once.
+    answers: u16 = constants.answers_default,
 };
 
 /// `plain.Session` behind the interface a connection's session has.
@@ -67,11 +76,14 @@ pub fn Connection(comptime options: Options) type {
     return struct {
         const Self = @This();
         const Session = options.Session;
-        pub const Streams = streams_module.Streams(options.streams);
+        /// A request's slot holds a DoQ query, or a DoH GET's HEADERS frame.
+        const slot_bytes = if (options.http3) @max(cocuyo.constants.query_bytes_max, constants.doh_request_bytes_max) else cocuyo.constants.query_bytes_max;
+        pub const Streams = streams_module.Streams(options.streams, slot_bytes);
+        const H3 = if (options.http3) h3_module.State(options.answers) else void;
 
         pub const enabled = true;
         /// Whether the connection speaks HTTP/3, which DoH goes over (docs/design.md §24, step 5).
-        pub const http3 = false;
+        pub const http3 = options.http3;
         /// colibri never makes a datagram longer than this (RFC 9000 §14.1's smallest).
         pub const datagram_bytes_max = quic.constants.datagram_len_min;
         pub const request_bytes_max = cocuyo.constants.query_bytes_max;
@@ -85,7 +97,7 @@ pub fn Connection(comptime options: Options) type {
         };
         pub const Ticket = Session.Ticket;
         /// What a DoH response says of its content (`response.zig`).
-        pub const Http = struct { status: u16, age_seconds: u32, dns_message: bool };
+        pub const Http = response.Http;
         pub const Answered = struct { stream: u64, len: usize, http: ?Http = null };
         pub const Next = union(enum) { up: []const u8, refused, answered: Answered, reset: u64, closed, ticket: Ticket };
 
@@ -106,6 +118,9 @@ pub fn Connection(comptime options: Options) type {
         streams: Streams = .{},
         /// The connection's next deadline, read after each call that can move it.
         due_ns: ?u64 = null,
+        /// Whether this opening is to a DoH server, and speaks HTTP/3.
+        https: bool = false,
+        h3: H3 = if (options.http3) .{} else {},
 
         pub fn start(self: *Self, context: anytype) Error!void {
             return connection_module.start(self, context);
@@ -225,7 +240,7 @@ test "a client over colibri handshakes on doq, and a query on a stream is answer
 
 test "a server that selects another protocol is heard, and a stream it resets is told once" {
     var pair: Pair = .{};
-    pair.server.other_protocol = true;
+    pair.server.script.other_protocol = true;
     var echo: Echo = .{ .decline = true };
     try pair.start();
     try pair.exchange(echo.answerer());
@@ -245,4 +260,6 @@ test {
     _ = server;
     _ = template;
     _ = response;
+    _ = h3_module;
+    _ = server_h3;
 }

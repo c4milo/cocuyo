@@ -3555,11 +3555,15 @@ The engine hands a 2xx answer that is a DNS message to the lookup, with its `Age
 fails the request (RFC 8484 §4.2.1, request rule 12), and counts as the server's failure
 (decision 25). Content longer than the buffer fails the connection, as request rule 5 has it.
 
-**GOAWAY is the server's close.** After a GOAWAY a server takes no new stream, and colibri
-refuses one (RFC 9114 §5.2). `next` says the connection closed, and each request on it fails,
-as rule 7 has it for the server's close. A request below the GOAWAY's stream ID may still be
-answered by the server, and failing it costs a retry. Letting those finish needs a connection
-state the model does not have: c4milo/cocuyo#17 tracks it.
+**GOAWAY is the server's close, once what it promised is answered.** A GOAWAY names the first
+stream the server will not process, and it answers those before it (RFC 9114 §5.2). So a request
+from that stream on is cancelled and hears its stream reset, no new request opens, and once the
+requests before it are answered `next` says the connection closed, as rule 7 has it for the
+server's close. A request that waits on the connection then fails, and costs a retry: letting it
+wait for a new connection needs a connection state the model does not have, which
+c4milo/cocuyo#17 tracks. colibri's `h3` reads the control stream before the request streams, and a
+server can send its GOAWAY ahead of the answers it promised, so the close waits for them rather
+than for the datagram's end.
 
 **The idle close** sends H3_NO_ERROR in its CONNECTION_CLOSE (request rule 9, RFC 9114 §8.1).
 

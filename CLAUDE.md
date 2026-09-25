@@ -120,9 +120,10 @@ The architecture depends on every rule in this section.
   twin, and to rotor itself for `zig build bench-cares` alone. It is exported as `cocuyo_rotor`,
   whose type is `Resolver`, into the caller's loop: the consumer binds its `rotor` import
   (design §24). One engine runs on each loop and one loop on each core, and nothing is shared
-  between them. `io/io_quic.zig` and the files beside it are `cocuyo_quic`, colibri's QUIC under
-  the engine's request interface: a module of its own, whose `quic` import a consumer that speaks
-  DoQ binds to colibri's, so `cocuyo_rotor` never imports colibri.
+  between them. `io/io_quic.zig` and the files beside it are `cocuyo_quic`, colibri's QUIC and
+  HTTP/3 under the engine's request interface: a module of its own, whose `quic` import a
+  consumer that speaks DoQ or DoH binds to colibri's, and whose `h3` import one that speaks DoH
+  binds too, so `cocuyo_rotor` never imports colibri.
 - Each module owns its `constants.zig`. A limit two modules share lives in `src/core/constants.zig`.
 - `examples/` holds worked examples, `bench/` the microbenchmarks, `docs/` the design set, and
   `tools/` developer tooling that is never linked into the library. `test/` holds fixtures that

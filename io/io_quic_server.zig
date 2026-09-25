@@ -32,6 +32,14 @@ const Request = struct {
     answered: bool = false,
 };
 
+/// What a test has the server do.
+pub const Script = struct {
+    /// Selects a protocol other than the one offered.
+    other_protocol: bool = false,
+    /// Reads each query and leaves it unanswered, neither answer nor reset.
+    hold: bool = false,
+};
+
 pub fn Server(comptime streams: u16) type {
     return struct {
         const Self = @This();
@@ -48,10 +56,9 @@ pub fn Server(comptime streams: u16) type {
         client: [connection_id_bytes_max]u8 = undefined,
         client_len: usize = 0,
         started: bool = false,
-        /// Selects a protocol other than the one offered, for a test.
-        other_protocol: bool = false,
-        /// Reads each query and leaves it unanswered, neither answer nor reset, for a test.
-        hold: bool = false,
+        script: Script = .{},
+        /// The code of the client's CONNECTION_CLOSE, once one came.
+        close_code: ?u64 = null,
         next_index: u64 = 0,
         requests: [streams]Request = @splat(.{}),
         answered: usize = 0,
@@ -71,6 +78,11 @@ pub fn Server(comptime streams: u16) type {
             return next_deadline(self);
         }
 
+        /// A new connection on a socket an old one used: the script stays.
+        pub fn renew(self: *Self) void {
+            self.* = .{ .script = self.script };
+        }
+
         pub fn expire(self: *Self, now_ns: u64) void {
             expire_due(self, now_ns);
         }
@@ -85,15 +97,22 @@ pub fn Server(comptime streams: u16) type {
 }
 
 fn receive_datagram(self: anytype, bytes: []const u8, now_ns: u64, answerer: Answerer) void {
-    if (bytes.len > self.inbound.len) return;
+    if (take(self, bytes, now_ns, parameters(@intCast(self.requests.len)))) step(self, answerer);
+}
+
+/// One datagram from the client, which colibri reads. The first, an Initial, starts the connection
+/// with `local` as the server's transport parameters (RFC 9000 §7.2). A datagram colibri refuses
+/// closes the connection. True when colibri took it, and the server reads what it changed.
+pub fn take(self: anytype, bytes: []const u8, now_ns: u64, local: quic.transport_parameters.Parameters) bool {
+    if (bytes.len > self.inbound.len) return false;
     @memcpy(self.inbound[0..bytes.len], bytes);
     // A client names a connection by its Destination Connection ID: the one its first
     // Initial chose, and the server's own after the server's first Initial (RFC 9000
     // §7.2). An Initial that names neither is a new connection, from a socket that reuses
     // a closed one's descriptor.
-    if (self.started and is_new(self, bytes)) self.* = .{ .other_protocol = self.other_protocol, .hold = self.hold };
-    if (!self.started and !start(self, bytes, now_ns)) return;
-    _ = quic.connection_datagram.receive(
+    if (self.started and is_new(self, bytes)) self.renew();
+    if (!self.started and !start(self, bytes, now_ns, local)) return false;
+    const received = quic.connection_datagram.receive(
         &self.connection,
         self.session.suite(),
         self.session.provider(),
@@ -104,15 +123,16 @@ fn receive_datagram(self: anytype, bytes: []const u8, now_ns: u64, answerer: Ans
             quic.connection_datagram.connection_error_code(&self.connection, err),
             null,
         ));
-        return;
+        return false;
     };
-    step(self, answerer);
+    if (received.close) |close| self.close_code = close.error_code;
+    return true;
 }
 
 /// Starts the connection from the client's first Initial: its Destination Connection ID
 /// derives the Initial keys (RFC 9001 §5.2), and its Source Connection ID is the server's
 /// destination (RFC 9000 §7.2).
-fn start(self: anytype, bytes: []const u8, now_ns: u64) bool {
+fn start(self: anytype, bytes: []const u8, now_ns: u64, local: quic.transport_parameters.Parameters) bool {
     const parsed = quic.packet.header.read(bytes, constants.connection_id_bytes) catch return false;
     const long = switch (parsed) {
         .long => |held| held,
@@ -123,10 +143,10 @@ fn start(self: anytype, bytes: []const u8, now_ns: u64) bool {
     self.original_len = long.dcid.len;
     @memcpy(self.client[0..long.scid.len], long.scid);
     self.client_len = long.scid.len;
-    self.session = plain.Session.init(.server, "", self.other_protocol);
+    self.session = plain.Session.init(.server, "", self.script.other_protocol);
     self.connection.init(.{
         .role = .server,
-        .local_parameters = parameters(@intCast(self.requests.len)),
+        .local_parameters = local,
         .now_ns = now_ns,
         .identity = .{
             .local_initial_source = &self.source,
@@ -158,7 +178,7 @@ fn is_new(self: anytype, bytes: []const u8) bool {
 
 /// A stream for each of the client's queries at once, each query whole, and an idle
 /// timeout (RFC 9000 §18.2).
-fn parameters(streams: u16) quic.transport_parameters.Parameters {
+pub fn parameters(streams: u16) quic.transport_parameters.Parameters {
     var local = quic.transport_parameters.Parameters.initial();
     local.max_idle_timeout_ms = constants.idle_timeout_ms;
     local.max_udp_payload_size = constants.datagram_receive_bytes;
@@ -209,7 +229,7 @@ fn read_query(self: anytype, request: *Request, answerer: Answerer) void {
         return;
     };
     request.query_len += got.len;
-    if (!got.fin or self.hold) return;
+    if (!got.fin or self.script.hold) return;
     const prefix = cocuyo.constants.tcp_prefix_bytes;
     const query = request.query[0..request.query_len];
     if (query.len < prefix) return refuse(self, request);
@@ -238,8 +258,13 @@ fn release_if_done(self: anytype, request: *Request) void {
 }
 
 fn send_datagram(self: anytype, out: []u8, now_ns: u64) usize {
-    if (!self.started) return 0;
     const provider: quic.stream.stream_provider.StreamProvider = .{ .context = self, .vtable = &@TypeOf(self.*).stream_vtable };
+    return send(self, out, now_ns, provider);
+}
+
+/// The next datagram the server owes, its streams read through `provider`, or nothing.
+pub fn send(self: anytype, out: []u8, now_ns: u64, provider: quic.stream.stream_provider.StreamProvider) usize {
+    if (!self.started) return 0;
     const sent = quic.connection_send.send(
         &self.connection,
         self.session.suite(),
@@ -265,13 +290,13 @@ fn provide(requests: []Request, stream_id: u64, offset: u64, output: []u8) usize
     return 0;
 }
 
-fn next_deadline(self: anytype) ?u64 {
+pub fn next_deadline(self: anytype) ?u64 {
     if (!self.started) return null;
     const due = quic.connection_timer.next(&self.connection) orelse return null;
     return due.at_ns;
 }
 
-fn expire_due(self: anytype, now_ns: u64) void {
+pub fn expire_due(self: anytype, now_ns: u64) void {
     if (!self.started) return;
     _ = quic.connection_timer.on_instant(&self.connection, self.session.suite(), &self.scratch.recovery, now_ns) catch {};
 }

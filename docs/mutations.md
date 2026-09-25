@@ -2049,3 +2049,41 @@ Design §24 step 5, 2026-09-25. `io/io_quic_response.zig` reads a DoH response's
 | HR9 | an empty member is a coding | empty list elements are ignored (§5.6.1.2) | the coding test | CAUGHT |
 | HR10 | only the first coding is read | every coding applied is listed (§8.4) | the coding test | CAUGHT |
 | HR11 | a longer media type that starts the same is taken | the type is `application/dns-message` (RFC 8484 §6) | the media type test | CAUGHT |
+
+## colibri's HTTP/3 under the request interface
+
+Design §24 step 5, 2026-09-25. `cocuyo_quic` speaks DoH over colibri's `h3` when its options ask
+(`io/io_quic_h3.zig`): the GET, the answer buffers a request waits for, the response's status,
+`Age` and media type, a cancel, a GOAWAY and the idle close. Seven tests run a client against
+colibri's `h3` server in memory, and nine the engine over both on the twin. Four were `NOT CAUGHT`
+at first. QH2 and QH18, `h3` never started or its streams never sent, go unseen by colibri's
+server, which answers without the client's SETTINGS, so a test now requires them to arrive (RFC
+9114 §6.2.1). QH21, the idle close with DoQ's code, needed the server to keep the code it heard.
+QH16 needed more answered requests on one connection than it has slots. And one check guarded
+nothing: an interim response's fields are written over by the final one's, which always comes, so
+skipping it was removed. QC1 to QC8 were broken again after the streams and the test server
+changed under them, and each is still `CAUGHT`. Broken against `zig build test-cocuyo_quic` and
+`zig build test-io`. Twenty mutations, twenty `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| QH1 | a DoH connection lets the server open no unidirectional stream | RFC 9114 §6.2 asks for 3 | the in-memory GET test | CAUGHT |
+| QH2 | `h3` is never started | SETTINGS go first on the control stream (RFC 9114 §6.2.1) | the in-memory GET test | CAUGHT |
+| QH3 | a request takes a buffer another holds | a request waits for a free one | the buffer test, the more-lookups test | CAUGHT |
+| QH4 | `:path` may be indexed | its N bit (RFC 9204 §4.5.4, request rule 12) | the GET's lines test | CAUGHT |
+| QH5 | the GET asks for `gzip` | `accept-encoding: identity` (request rule 12) | the GET's lines test | CAUGHT |
+| QH6 | the `Age` is not read | TTLs are lowered by it (RFC 8484 §5.1) | the in-memory response test, the engine's `Age` test | CAUGHT |
+| QH7 | a coding is not read | a coded answer is no DNS message (request rule 12) | the in-memory response test, the engine's fail-over test | CAUGHT |
+| QH9 | content past the buffer is not counted | the engine fails an answer too long (request rule 5) | the past-the-buffer test | CAUGHT |
+| QH10 | a cancel keeps its answer buffer | the buffer comes back | the buffer test | CAUGHT |
+| QH11 | a cancel keeps its request slot | the slot comes back | the cancelled-lookups test | CAUGHT |
+| QH12 | a stream past a GOAWAY is left open | the server will not process it (RFC 9114 §5.2) | the GOAWAY reset test | CAUGHT |
+| QH13 | a request opens after a GOAWAY | the server takes no new stream (§5.2) | the GOAWAY reset test | CAUGHT |
+| QH14 | a GOAWAY closes at once | the answers it promised come first (§5.2) | the engine's GOAWAY test | CAUGHT |
+| QH15 | an answered stream keeps its buffer | the buffer comes back | the in-memory GOAWAY test, the more-lookups test | CAUGHT |
+| QH16 | a stream's sending half is never read | a slot comes back once the server has its GET | the more-lookups test | CAUGHT |
+| QH17 | a slot comes back once its answer is told | colibri reads its bytes until the server has them | the unacknowledged-answer tests | CAUGHT |
+| QH18 | colibri reads `h3`'s streams from the slots | `h3` serves its own (colibri decision 79) | the in-memory GET test | CAUGHT |
+| QH19 | a template too long is taken | its GET must fit a slot | the template-too-long test | CAUGHT |
+| QH20 | a GOAWAY closes while answers are still due | the close waits for them | the engine's GOAWAY test | CAUGHT |
+| QH21 | the idle close carries DOQ_NO_ERROR | H3_NO_ERROR (RFC 9114 §8.1) | the engine's idle test | CAUGHT |
