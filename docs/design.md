@@ -3196,7 +3196,7 @@ handlers when `apply` says the event is not the engine's.
 4. **The engine speaks DoQ and DoH.** §22 and §23 wrote the DNS half. This is the rest:
    - A connection to a server is one QUIC connection over one UDP socket. It is up when the
      handshake has ended and the negotiated ALPN is `doq` (RFC 9250 §4.1) or `h3` (RFC 9114
-     §3.1). colibri does not check the ALPN, so the engine does.
+     §3.2). colibri does not check the ALPN, so the engine does.
    - A request goes on a new client-initiated bidirectional stream.
      - Over DoQ the stream carries the message with its prefix, then FIN (RFC 9250 §4.2), and
        the answer is read to FIN.
@@ -3214,6 +3214,74 @@ handlers when `apply` says the event is not the engine's.
      request.
    - DoH goes over HTTP/3 first. HTTP/2 joins when colibri's h2 client has its TLS
      (c4milo/colibri#7).
+
+### The engine's request rules, written on 2026-09-25
+
+These extend the stream's and the datagram's rules of §19 step 13, and the TLS rules of §21, for
+the engine model to be written from before the code is. A request configuration's servers are
+all DoQ or all DoH (§22, §23), and the rules hold for both. Where they differ, the rule says so.
+
+1. **A connection for each server.** Each server of a request configuration has a connection
+   slot of its own, as TLS rule 6 has it, and a connection is never closed to make room. A
+   connection is one QUIC connection over a datagram socket of its own, whose receive is held to
+   the datagram's rules 1 to 3. It opens when the drive first takes a request for its server:
+   the socket is opened, its receive armed, and colibri makes the client's first flight.
+2. **Up once the handshake ends, on the right protocol.** The connection is up when colibri says
+   the handshake has ended and the ALPN negotiated is the transport's: `doq` (RFC 9250 §4.1) or
+   `h3` (RFC 9114 §3.2). colibri does not check it. Any other protocol fails the connection
+   (rule 7).
+3. **A request is taken at once.** The drive takes a lookup's request onto its server's
+   connection whatever the connection's state, and tells the lookup it went out, so the lookup's
+   deadline covers the handshake as well. The request's bytes are copied into a request slot,
+   one for each lookup slot: over DoQ the message with its prefix, over DoH the HEADERS frame of
+   a GET. colibri reads a stream's bytes by offset until the server acknowledges them, so they
+   cannot stay in the lookup's send buffer, which the lookup's next poll writes over.
+4. **A request waits for its connection.** A request taken while its connection opens or
+   handshakes waits in the connection's queue. When the connection is up, each waiting request
+   opens its stream in the order it was taken, and supplies its bytes, then FIN. A stream colibri
+   cannot open yet, for want of the server's stream credit, waits for the next credit.
+5. **The answer by its stream.** A stream the server ends with FIN is read whole, into one buffer
+   the engine keeps for the purpose, and handed over at once: the table reads an answer before
+   the call returns. Over DoQ the message goes to the lookup without its prefix, with the
+   transaction the request carried and an `Age` of zero. Over DoH a 2xx response's body goes with
+   its `Age` (RFC 8484 §5.1), and any other status fails the request (§4.2.1). The lookup hears
+   it only if the request's attempt is still its own, as stream rule 7 has it for a send.
+6. **A request the lookup left is cancelled.** When the drive finds a lookup has left the
+   transaction its request carries, because its deadline passed, it moved on, it ended, or it was
+   cancelled or released, the engine cancels the stream. It sends STOP_SENDING and resets its own
+   side, so colibri needs the request's bytes no more. Over DoQ STOP_SENDING is a MUST, with
+   DOQ_REQUEST_CANCELLED (RFC 9250 §4.3.1). Over HTTP/3 ending both directions is a SHOULD (RFC
+   9114 §4.1.1), with H3_REQUEST_CANCELLED (§8.1). The request slot is free
+   from then, and whatever the stream carries later tells nobody.
+7. **A failure fails each request on it, once.** A stream the server resets fails its request. A
+   connection fails for a handshake that fails, a connection error, the server's close, an idle
+   timeout, a receive or a send that fails, or a socket the system refuses. Then each request on
+   it whose attempt is current hears it failed, once, and the connection closes. Decision 25
+   counts each as the server's failure. A request taken later opens the connection again.
+8. **A datagram at a time.** A connection sends one datagram at a time, from a buffer of its own
+   that is lent to the loop from the send's submission to its final event (rotor decision 5,
+   rule 3). The next datagram is asked of colibri when the buffer comes back. A send that fails,
+   or that the loop refuses, fails the connection (rule 7).
+9. **An idle connection closes.** A connection with no request on it for `quic_idle_ns`, or one
+   near the idle timeout it negotiated (RFC 9250 §4.4), closes. The engine has colibri make
+   CONNECTION_CLOSE, with DOQ_NO_ERROR (RFC 9250 §4.4) or H3_NO_ERROR (RFC 9114 §8.1), and closes
+   the socket once that datagram has gone. A request taken meanwhile waits, and opens the connection again once it has closed.
+10. **Tickets.** Each server keeps the newest ticket its connections were given, spent once, and
+    dropped at its lifetime or 7 days after it came, as TLS rule 8 has it. chapulin finishes a
+    declined ticket as a full handshake on the same connection, so a decline is no failure.
+11. **One timer.** The engine keeps one timer, due at the sooner of the table's deadline and each
+    connection's next QUIC deadline. When it fires, colibri is told of each connection that is
+    due, and a connection colibri closes there fails as rule 7 says.
+
+The model holds rules 1 to 4 and 6 to 11. Rule 5 is about octets, and the model reads a stream's
+answer as an event, with no octets. The invariants the model gains:
+
+- A request slot is free, or holds one request, on its lookup's server's connection.
+- A request has a stream only on a connection that is up.
+- A stream's request is its lookup's current attempt, or it has been cancelled.
+- A connection that fails leaves no request on it, and each current attempt heard of it once.
+- A connection's datagram buffer is lent exactly when a send of it is in flight.
+- A connection is up only with its transport's ALPN.
 
 A spike on 2026-09-24 ran both through colibri's test client and chapulin's QUIC object, outside
 every repository. Cloudflare and Google answered DoH over HTTP/3. AdGuard and NextDNS answered

@@ -97,6 +97,7 @@ updates worth knowing about, none of which version one implements:
 | 8484 | DNS Queries over HTTPS (DoH) | §5.2 HTTP/2 the minimum recommended version, so HTTP/3 carries DoH as it is; the rest is read when DoH's DNS half lands |
 | 8482 | Providing Minimal-Sized Responses to DNS Queries That Have QTYPE=ANY | §4, what an ANY question may get back, a synthesized HINFO included |
 | 8659 | DNS Certification Authority Authorization (CAA) Resource Record | §4.1, the CAA record's fields |
+| 9114 | HTTP/3 | §3.2 the ALPN token `h3`, §4.1.1 cancelling a request, §8.1 the error codes; read for DoH over HTTP/3 in the engine (design §24) |
 | 9250 | DNS over Dedicated QUIC Connections | §4.1 the ALPN token `doq` and UDP port 853, §5.1 authentication as DoT's, the strict profile a SHOULD, §5.2 fallback by usage profile; on the roadmap, not yet implemented |
 | 9846 | The Transport Layer Security (TLS) Protocol Version 1.3 | §5.3 each record's nonce is its sequence number, so records go out in the order they were sealed; §6.1 a `close_notify` before a party closes its write side |
 | 9018 | Interoperable Domain Name System (DNS) Server Cookies | §3, the server cookie's length, which is all a client reads of it |
