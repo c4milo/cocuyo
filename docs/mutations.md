@@ -2087,3 +2087,21 @@ changed under them, and each is still `CAUGHT`. Broken against `zig build test-c
 | QH19 | a template too long is taken | its GET must fit a slot | the template-too-long test | CAUGHT |
 | QH20 | a GOAWAY closes while answers are still due | the close waits for them | the engine's GOAWAY test | CAUGHT |
 | QH21 | the idle close carries DOQ_NO_ERROR | H3_NO_ERROR (RFC 9114 §8.1) | the engine's idle test | CAUGHT |
+
+## Pins over QUIC
+
+2026-09-25. chapulin's QUIC mode takes pins as its record transport does since `3d5db4e` (its
+decisions 64 and 65), so the DoQ session tells it what the DoT session does: a name with the
+context's anchors and the clock, and pins as they are, a server known by pins alone getting no
+anchors and no clock. The refusal CQ1 and CQ2 broke is gone, and with it those two mutations; CQ3
+stands. The tests now start chapulin, which reads the configuration at its start. The live checks
+resolve through AdGuard over DoQ and Cloudflare over DoT by each one's leaf key alone, with a
+backup pin, and refuse each by the backup alone and by its issuer's key. Broken against `zig build
+-Dchapulin=<checkout> test-chapulin-quic`. Four mutations, four `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CP1 | a server known by pins alone gets the context's anchors | chapulin refuses pins beside anchors with no name (its decision 64) | the pins-alone test | CAUGHT |
+| CP2 | the pins are not handed to chapulin | RFC 7858 §4.2, RFC 8310 §6.4 | the pins-alone test, the name-and-pins test | CAUGHT |
+| CP3 | a name is not handed to chapulin | the leaf must carry it (RFC 8310 §6.4) | the name-and-pins test | CAUGHT |
+| CP4 | a name gets no anchors | the chain is checked against them | the name-and-pins test | CAUGHT |

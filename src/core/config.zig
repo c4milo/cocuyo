@@ -23,9 +23,12 @@ pub const Tls = struct {
     /// §7.1. It is a DNS name: the certificate check reads a DNS-ID and nothing else. Null with
     /// pins alone, RFC 8310 §6.3's "SPKI + IP": the server is known by its key.
     name: ?Name = null,
-    /// The SPKI pin set (RFC 7858 §4.2): the server's raw public key, or a key on its validated
-    /// chain, must hash to one of them. With a name as well, both must pass (RFC 8310 §6.4). The
-    /// slice is the caller's, as `Config.servers` is.
+    /// The SPKI pin set (RFC 7858 §4.2). With a name as well, the chain is validated against the
+    /// name and a key on it must hash to one of the pins: both must pass (RFC 8310 §6.4). With pins
+    /// alone, the server's raw public key, or its leaf certificate's key, must: the rest of the
+    /// chain, its dates and its names are not read, and a pin on an intermediate or a root key
+    /// matches nothing (chapulin's decision 65). The slice is the caller's, as `Config.servers`
+    /// is.
     pins: []const Pin = &.{},
     port: u16 = constants.port_dns_tls_default,
 

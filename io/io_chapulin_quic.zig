@@ -92,23 +92,23 @@ pub const Session = struct {
     /// Whether the object linked is the one these headers describe (chapulin's build.h): an
     /// object built with other defines lays its sessions out otherwise. translate-c cannot read
     /// the `ch_build` macro, so the record's name is written here.
-    fn built_as_read() bool {
+    pub fn built_as_read() bool {
         return c.ch_build_matches(&c.ch_build_info_quic_nonblocking) != 0;
     }
 
     /// Prepares a client session for `start.tls`'s server, offering `start.alpn`, resuming with
     /// `start.ticket` when there is one. chapulin starts at `set_transport_params`, once colibri
-    /// has the parameters it carries (RFC 9001 §4.1.3). A server known by SPKI pins, or with no
-    /// name, is refused: chapulin's QUIC mode checks a chain against anchors and a hostname, and
-    /// takes no pins (docs/design.md §24, chapulin under colibri).
+    /// has the parameters it carries (RFC 9001 §4.1.3), and refuses there a configuration it
+    /// cannot check a server by (docs/design.md §24, chapulin under colibri).
     pub fn start(self: *Session, start_with: anytype) error{Failed}!void {
         if (!built_as_read()) {
             std.debug.panic("chapulin's QUIC object was built with other defines than cocuyo reads its headers with: rebuild it as io/io_chapulin_quic.zig says", .{});
         }
         const server: *const cocuyo.Tls = start_with.tls;
         const context = &start_with.context.session;
-        if (server.pins.len > 0 or context.anchors.len == 0) return error.Failed;
-        const name = server.name orelse return error.Failed;
+        // A strict client knows a server by a name, by pins, or by both (RFC 8310 §5), which
+        // `Config.assert_valid` holds.
+        assert(server.valid());
         self.* = .{};
         self.config = std.mem.zeroes(c.ch_cfg);
         self.config.buf = &self.buffer;
@@ -121,16 +121,32 @@ pub const Session = struct {
         self.alpn[0] = .{ .name = alpn.ptr, .name_len = alpn.len };
         self.config.alpn_protocols = &self.alpn;
         self.config.alpn_count = self.alpn.len;
-        self.config.anchors = context.anchors.ptr;
-        self.config.anchor_count = context.anchors.len;
-        self.config.now_seconds = context.unix_seconds + (start_with.now_ns -| context.at_ns) / constants.ns_per_second;
-        var length = name.write_text(&self.hostname);
-        // chapulin takes a hostname, which has no root label's dot.
-        if (length > 1 and self.hostname[length - 1] == '.') length -= 1;
-        self.config.hostname = &self.hostname;
-        self.config.hostname_len = length;
+        self.trust(server, context, start_with.now_ns);
         if (start_with.ticket) |ticket| self.resume_with(ticket, start_with.ticket_age_ns);
         self.stream = &context.stream;
+    }
+
+    /// How chapulin checks the server, as the DoT session tells it (`io_chapulin.zig`): a name
+    /// against the context's anchors, at the wall clock, and pins as they are. A server known by
+    /// pins alone, RFC 8310 §6.3's "SPKI + IP", gets no anchors and no clock: chapulin then takes
+    /// the leaf key a pin names, and reads nothing else of the chain (its decision 65).
+    fn trust(self: *Session, server: *const cocuyo.Tls, context: anytype, now_ns: u64) void {
+        if (server.name) |name| {
+            if (context.anchors.len > 0) {
+                self.config.anchors = context.anchors.ptr;
+                self.config.anchor_count = context.anchors.len;
+                self.config.now_seconds = context.unix_seconds + (now_ns -| context.at_ns) / constants.ns_per_second;
+            }
+            var length = name.write_text(&self.hostname);
+            // chapulin takes a hostname, which has no root label's dot.
+            if (length > 1 and self.hostname[length - 1] == '.') length -= 1;
+            self.config.hostname = &self.hostname;
+            self.config.hostname_len = length;
+        }
+        if (server.pins.len > 0) {
+            self.config.spki_pins = @ptrCast(server.pins.ptr);
+            self.config.spki_pin_count = server.pins.len;
+        }
     }
 
     /// The obfuscated age is the ticket's age in milliseconds plus its age mask, modulo 2^32
@@ -447,37 +463,6 @@ fn discard_keys(context: *anyopaque, level: Level) void {
 
 // Tests.
 
-const testing = std.testing;
-
-test "the object linked is the one the headers describe" {
-    try testing.expect(Session.built_as_read());
-}
-
-/// What the engine hands a session's start, for a server known as `server` is.
-fn start_for(server: *const cocuyo.Tls, context: anytype) !void {
-    var session: Session = .{};
-    try session.start(.{
-        .tls = server,
-        .alpn = "doq",
-        .ticket = @as(?Session.Ticket, null),
-        .ticket_age_ns = 0,
-        .context = context,
-        .now_ns = 1,
-    });
-    session.wipe();
-}
-
-test "a server known by SPKI pins, or by no name, is refused before chapulin starts" {
-    // chapulin's QUIC mode checks a chain against anchors and a hostname, and takes no pins
-    // (docs/design.md §24, chapulin under colibri).
-    const octet = [_]u8{0x30};
-    const anchors = [_]c.ch_trust_anchor{.{ .name = &octet, .name_len = octet.len, .spki = &octet, .spki_len = octet.len }};
-    var context: struct { session: Session.Context } = .{ .session = .init(&anchors, @splat(0), 1, 1) };
-    const pin: cocuyo.Pin = @splat(0);
-    const name = try cocuyo.Name.from_text("dns.example.");
-    try testing.expectError(error.Failed, start_for(&.{ .name = name, .pins = &.{pin} }, &context));
-    try testing.expectError(error.Failed, start_for(&.{ .pins = &.{pin} }, &context));
-    try testing.expectError(error.Failed, start_for(&.{}, &context));
-    // A name and anchors start it.
-    try start_for(&.{ .name = name }, &context);
+test {
+    _ = @import("io_chapulin_quic_test.zig");
 }

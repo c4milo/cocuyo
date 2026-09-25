@@ -4,7 +4,7 @@
 //! ask, and as HTTPS is (RFC 9110 §4.3.4).
 //!
 //!     zig build example-doq-rotor -Dchapulin=<checkout> -- \
-//!         <name>[,<name>...] <server address> <authentication name> <root certificate>...
+//!         <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...
 //!     zig build example-doh-rotor -Dchapulin=<checkout> -- \
 //!         <name>[,<name>...] <server address> <URI template> <root certificate>...
 //!
@@ -12,7 +12,8 @@
 //! `example.com 1.1.1.1 https://cloudflare-dns.com/dns-query{?dns} ssl-com-ecc.der` over DoH. Each
 //! root is a DER certificate the server's chain is expected to end at; its subject Name and its
 //! SubjectPublicKeyInfo are the trust anchor chapulin checks the chain against. The leaf must carry
-//! the authentication name, or the template's host. A DoQ server's port is UDP's 853 (RFC 9250
+//! the authentication name, or the template's host. A DoQ server known by its key alone takes pins
+//! in place of the name, and no root. A DoQ server's port is UDP's 853 (RFC 9250
 //! §4.1.1), and a DoH server's the template's, 443 when it names none (RFC 9114 §3.1).
 //!
 //! Names after the first are resolved in turn, each once the server's ticket is kept and the
@@ -57,17 +58,18 @@ const names_max = 4;
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const arguments = try init.minimal.args.toSlice(arena);
-    if (arguments.len < 5) {
-        std.debug.print("usage: doq-rotor <name>[,<name>...] <server address> <authentication name | URI template> <root certificate>...\n", .{});
+    if (arguments.len < 4) {
+        std.debug.print("usage: doq-rotor <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,... | URI template> <root certificate>...\n", .{});
         std.process.exit(2);
     }
     const address = cocuyo.Address.from_text(arguments[2]) orelse return error.BadAddress;
     // A template names a DoH server (RFC 8484 §3), and a name a DoQ server (RFC 9250 §5.1).
     const known_as = arguments[3];
+    var pins: [cocuyo.constants.spki_pins_max]cocuyo.Pin = undefined;
     const servers = [_]cocuyo.Server{if (std.mem.startsWith(u8, known_as, "https://"))
         .{ .endpoint = .{ .address = address }, .https = .{ .template = known_as } }
     else
-        .{ .endpoint = .{ .address = address }, .quic = .{ .name = try cocuyo.Name.from_text(known_as) } }};
+        .{ .endpoint = .{ .address = address }, .quic = try known_by(known_as, &pins) }};
     const config: cocuyo.Config = .{ .servers = &servers, .search = &.{} };
 
     var anchors: [anchors_max]chapulin.c.ch_trust_anchor = undefined;
@@ -179,6 +181,24 @@ fn report(name: []const u8, result: Resolver.Result) void {
             std.process.exit(1);
         },
     }
+}
+
+/// How a server is known, from its argument: by its name, or by its key alone, RFC 8310 §6.3's
+/// "SPKI + IP", as `pin-sha256:<base64>[,<base64>...]`, each pin the base64 of the SHA-256 of a
+/// SubjectPublicKeyInfo (RFC 7858 §4.2), which chapulin matches against the leaf's key.
+fn known_by(text: []const u8, pins: *[cocuyo.constants.spki_pins_max]cocuyo.Pin) !cocuyo.Tls {
+    const prefix = "pin-sha256:";
+    if (!std.mem.startsWith(u8, text, prefix)) return .{ .name = try cocuyo.Name.from_text(text) };
+    var each = std.mem.splitScalar(u8, text[prefix.len..], ',');
+    var count: usize = 0;
+    // Bounded by the pins a server may have, and one more to say there were too many.
+    for (0..pins.len + 1) |_| {
+        const pin = each.next() orelse break;
+        if (count == pins.len) return error.TooManyPins;
+        pins[count] = try cocuyo.spki_pin.from_base64(pin);
+        count += 1;
+    }
+    return .{ .pins = pins[0..count] };
 }
 
 /// A root certificate's subject Name and SubjectPublicKeyInfo, each a whole DER TLV, which is

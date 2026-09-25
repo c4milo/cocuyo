@@ -14,6 +14,7 @@
 # right root with a name the certificate does not carry, and the right name with a root the chain
 # does not end at (RFC 8310 §5). Each must end in AllServersFailed, a refusal: one that ends in
 # Timeout was not answered at all, which is the network and not strict mode (§16 decision 25).
+# Cloudflare is then known by its leaf key alone.
 set -eu
 
 checkout=${1:?usage: tools/dot_live/run.sh <chapulin checkout>}
@@ -76,5 +77,43 @@ refuse() {
 }
 refuse 8.8.8.8 dns.example "$out/google.der"
 refuse 8.8.8.8 dns.google "$out/unrelated.der"
+
+# A server known by its key alone, RFC 8310 §6.3's "SPKI + IP": the pin of its leaf key, read
+# from the chain it shows, with a backup pin that matches nothing here, the unrelated root's, as
+# RFC 7858 §4.2 asks a pin set to carry. The pin of the key that issued the leaf is refused: under pins alone
+# chapulin matches the leaf's key, and reads nothing else of the chain.
+spki_pin() {
+    openssl x509 -pubkey -noout | openssl pkey -pubin -outform DER | openssl dgst -sha256 -binary | base64
+}
+shown() {
+    openssl s_client -connect "$1:853" -servername "$2" -showcerts </dev/null 2>/dev/null |
+        awk -v n="$3" '/BEGIN CERTIFICATE/ { i++ } i == n { print } /END CERTIFICATE/ && i == n { exit }'
+}
+backup=$(openssl x509 -in "$out/unrelated.der" -inform DER | spki_pin)
+pinned() {
+    address=$1 name=$2
+    leaf=$(shown "$address" "$name" 1 | spki_pin)
+    issuer=$(shown "$address" "$name" 2 | spki_pin)
+    if answer=$(lookup "$address" "pin-sha256:$leaf,$backup") && echo "$answer" | grep -q "example.com A" &&
+        echo "$answer" | grep -q "example.org A"; then
+        echo "resolves through $address by its leaf key alone, $(echo "$answer" | sed -n 's/^example\.org: handshake //p')"
+    else
+        echo "FAILS through $address by its leaf key alone: $answer" >&2
+        failures=$((failures + 1))
+    fi
+    for refused in "the backup pin:$backup" "its issuer's pin:$issuer"; do
+        what=${refused%%:*} pin=${refused#*:}
+        if answer=$(lookup "$address" "pin-sha256:$pin"); then
+            echo "RESOLVED through $address by $what alone" >&2
+            failures=$((failures + 1))
+        elif echo "$answer" | grep -q "^example.com: AllServersFailed$"; then
+            echo "refuses $address by $what alone"
+        else
+            echo "DID NOT SEE a refusal of $address by $what alone: $answer" >&2
+            failures=$((failures + 1))
+        fi
+    done
+}
+pinned 1.1.1.1 cloudflare-dns.com
 
 exit "$failures"

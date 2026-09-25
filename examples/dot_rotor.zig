@@ -2,11 +2,12 @@
 //! chapulin's session behind the session interface of §21 (`io/io_chapulin.zig`), strict as RFC 8310 §5 asks.
 //!
 //!     zig build example-dot-rotor -Dchapulin=<checkout> -- \
-//!         <name>[,<name>...] <server address> <authentication name> <root certificate>...
+//!         <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...
 //!
 //! for instance `dns.google 8.8.8.8 dns.google gts-root-r1.der`. Each root is a DER certificate
 //! the server's chain is expected to end at; its subject Name and its SubjectPublicKeyInfo are the
-//! trust anchor chapulin checks the chain against, and the name is what the leaf must carry.
+//! trust anchor chapulin checks the chain against, and the name is what the leaf must carry. A
+//! server known by its key alone takes pins in place of the name, and no root.
 //!
 //! Names after the first are resolved in turn, each once the server's ticket is kept and the
 //! connection before has closed idle, so each opens a connection that resumes with the ticket
@@ -48,12 +49,13 @@ const names_max = 4;
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const arguments = try init.minimal.args.toSlice(arena);
-    if (arguments.len < 5) {
-        std.debug.print("usage: dot-rotor <name>[,<name>...] <server address> <authentication name> <root certificate>...\n", .{});
+    if (arguments.len < 4) {
+        std.debug.print("usage: dot-rotor <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...\n", .{});
         std.process.exit(2);
     }
     const address = cocuyo.Address.from_text(arguments[2]) orelse return error.BadAddress;
-    const tls: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(arguments[3]) };
+    var pins: [cocuyo.constants.spki_pins_max]cocuyo.Pin = undefined;
+    const tls = try known_by(arguments[3], &pins);
     const servers = [_]cocuyo.Server{.{ .endpoint = .{ .address = address }, .tls = tls }};
     const config: cocuyo.Config = .{ .servers = &servers, .search = &.{} };
 
@@ -161,6 +163,24 @@ fn report(name: []const u8, result: Resolver.Result) void {
             std.process.exit(1);
         },
     }
+}
+
+/// How a server is known, from its argument: by its name, or by its key alone, RFC 8310 §6.3's
+/// "SPKI + IP", as `pin-sha256:<base64>[,<base64>...]`, each pin the base64 of the SHA-256 of a
+/// SubjectPublicKeyInfo (RFC 7858 §4.2), which chapulin matches against the leaf's key.
+fn known_by(text: []const u8, pins: *[cocuyo.constants.spki_pins_max]cocuyo.Pin) !cocuyo.Tls {
+    const prefix = "pin-sha256:";
+    if (!std.mem.startsWith(u8, text, prefix)) return .{ .name = try cocuyo.Name.from_text(text) };
+    var each = std.mem.splitScalar(u8, text[prefix.len..], ',');
+    var count: usize = 0;
+    // Bounded by the pins a server may have, and one more to say there were too many.
+    for (0..pins.len + 1) |_| {
+        const pin = each.next() orelse break;
+        if (count == pins.len) return error.TooManyPins;
+        pins[count] = try cocuyo.spki_pin.from_base64(pin);
+        count += 1;
+    }
+    return .{ .pins = pins[0..count] };
 }
 
 /// A root certificate's subject Name and SubjectPublicKeyInfo, each a whole DER TLV, which is

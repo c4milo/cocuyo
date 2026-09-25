@@ -2749,6 +2749,11 @@ rulings of that day with the facts that led to them. Each piece lands with its c
      alone, and no anchors and no clock, the hello offers a raw public key only. With pins
      beside anchors it offers a raw key first and X.509 after, and a chain must pass as before
      with a pin naming a key on its validated path. A ticket's binding covers the pins too.
+     Since chapulin `3d5db4e`, on 2026-09-25 (its decision 65), a hello under pins alone offers
+     a raw key first and X.509 after as well, and a chain passes when a pin names its leaf's key.
+     The rest of the chain, its dates and its names are not read, and a pin on an intermediate
+     or a root key matches nothing. Public resolvers send chains, so a resolver known by its key
+     is known by its leaf's.
 - A TLS server is known by its name, by its SPKI pins, or by both, the owner ruled the same day.
   Pins alone is RFC 8310 §6.3's "SPKI + IP" profile: raw public keys, no certificate authority
   and no clock. A name alone is its "ADN + IP". With both, both must pass (§6.4). A name was
@@ -3421,11 +3426,13 @@ the session, and what its build and its checks give it:
   hooks of `chapulin_hooks`. The session compares the object's build record,
   `ch_build_info_quic_nonblocking`, with the defines it reads the headers with, as the DoT session
   does.
-- **A name and anchors, never pins.** chapulin's QUIC mode checks a chain against anchors and a
-  hostname, and refuses SPKI pins. So a DoQ server known by pins alone, RFC 8310 §6.3's "SPKI +
-  IP", cannot be reached over it: the session refuses one at its start, which fails the
-  connection, and the lookup ends in `AllServersFailed`. The DoT session, over chapulin's record
-  transport, takes pins.
+- **A name, pins, or both, as over DoT.** Since chapulin `3d5db4e` its QUIC mode takes a
+  configuration as its record transport does (its decisions 64 and 65). The session tells it what
+  the DoT session does: a name with the context's anchors and the clock, and pins as they are. A
+  DoQ server known by pins alone, RFC 8310 §6.3's "SPKI + IP", gets no anchors and no clock, and
+  is known by its leaf's key. A configuration chapulin refuses, such as a name with no anchor,
+  fails the session's start, and the lookup ends in `AllServersFailed`. Until then the session
+  refused pins, because chapulin's QUIC mode did.
 - **The engine's stream, around the calls that draw.** chapulin draws at the session's start and
   when handshake octets arrive, a HelloRetryRequest for P-256 among them, and nowhere else. The
   session enters the engine's stream around those two calls, as §21's does around its own.
@@ -3473,7 +3480,7 @@ request rules and the model hold for both as they stand.
 
 **The template, read when the connection opens.** The engine splits a server's template when it
 opens a connection to it (`io/io_request_template.zig`). A template it refuses fails the
-connection before a socket opens, as a DoQ server known by pins alone fails at the session's
+connection before a socket opens, as a configuration chapulin refuses fails at the session's
 start. The lookup counts it as the server's failure and ends in `AllServersFailed`.
 
 - It begins with the scheme `https`, in any case (RFC 3986 §3.1): DoH "MUST be used with the
