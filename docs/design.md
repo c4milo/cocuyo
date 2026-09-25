@@ -3272,9 +3272,19 @@ all DoQ or all DoH (§22, §23), and the rules hold for both. Where they differ,
 11. **One timer.** The engine keeps one timer, due at the sooner of the table's deadline and each
     connection's next QUIC deadline. When it fires, colibri is told of each connection that is
     due, and a connection colibri closes there fails as rule 7 says.
+12. **A DoH request asks for no compression it can avoid.** Its GET carries `accept-encoding:
+    identity`. A request with no Accept-Encoding leaves the server free to apply any content
+    coding (RFC 9110 §12.5.3), and the engine decodes none. A 2xx response whose Content-Encoding
+    names a coding other than `identity` fails the request, since its body is not the DNS
+    message (§8.4). `:path` carries the query in the `dns` variable, and it goes as a literal
+    with QPACK's N bit (RFC 9204 §4.5.4): never in the dynamic table, where its value could be
+    probed through what compresses (§7.1, §7.1.3). colibri's encoder takes that choice for each
+    field line. HPACK has the same literal, for when HTTP/2 joins. The rest stays as it is: a
+    DNS message compresses its names (RFC 1035 §4.1.4), which the codec reads, and TLS 1.3
+    compresses nothing (RFC 9846 §4.2.2).
 
-The model holds rules 1 to 4 and 6 to 11. Rule 5 is about octets, and the model reads a stream's
-answer as an event, with no octets. The invariants the model gains:
+The model holds rules 1 to 4 and 6 to 11. Rules 5 and 12 are about octets, and the model reads a
+stream's answer as an event, with no octets. The invariants the model gains:
 
 - A request slot is free, or holds one request, on its lookup's server's connection.
 - A request has a stream only on a connection that is up.
