@@ -14,7 +14,8 @@ const modules = @import("modules.zig");
 const object = "bin/chapulin-quic-nonblocking.o";
 
 /// `zig build test-chapulin-quic`, the session's own tests; and, where rotor resolved, `zig build
-/// example-doq-rotor`, lookups over DNS over QUIC.
+/// example-doq-rotor` and `zig build example-doh-rotor`, lookups over DNS over QUIC and over DoH on
+/// HTTP/3.
 pub fn add(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -50,6 +51,9 @@ pub fn add(
     if (b.args) |arguments| run.addArgs(arguments);
     const example = b.step("example-doq-rotor", "Lookups over DNS over QUIC: -- <name>[,<name>...] <address> <auth name> <root.der>...");
     example.dependOn(&run.step);
+    // DoH over HTTP/3 is the same program, handed a URI template where DoQ takes a name.
+    const doh = b.step("example-doh-rotor", "Lookups over DoH on HTTP/3: -- <name>[,<name>...] <address> <URI template> <root.der>...");
+    doh.dependOn(&run.step);
 }
 
 /// chapulin's QUIC session: `io/io_chapulin_quic.zig`, the checkout's headers and its object, and

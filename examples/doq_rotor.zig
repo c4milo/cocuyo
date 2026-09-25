@@ -1,14 +1,19 @@
-//! Lookups over DNS over QUIC: the engine of docs/design.md §19 step 13 on rotor's loop, carrying
-//! each query on a stream of colibri's QUIC (`cocuyo_quic`), with chapulin's QUIC object as its TLS
-//! (`io/io_chapulin_quic.zig`), strict as RFC 9250 §5.1 and RFC 8310 §5 ask.
+//! Lookups over DNS over QUIC, or over DoH on HTTP/3: the engine of docs/design.md §19 step 13 on
+//! rotor's loop, carrying each query on a stream of colibri's QUIC (`cocuyo_quic`), with chapulin's
+//! QUIC object as its TLS (`io/io_chapulin_quic.zig`), strict as RFC 9250 §5.1 and RFC 8310 §5
+//! ask, and as HTTPS is (RFC 9110 §4.3.4).
 //!
 //!     zig build example-doq-rotor -Dchapulin=<checkout> -- \
 //!         <name>[,<name>...] <server address> <authentication name> <root certificate>...
+//!     zig build example-doh-rotor -Dchapulin=<checkout> -- \
+//!         <name>[,<name>...] <server address> <URI template> <root certificate>...
 //!
-//! for instance `example.com 94.140.14.14 dns.adguard-dns.com usertrust-ecc.der`. Each root is a
-//! DER certificate the server's chain is expected to end at; its subject Name and its
-//! SubjectPublicKeyInfo are the trust anchor chapulin checks the chain against, and the name is
-//! what the leaf must carry. The server's QUIC port is UDP's 853 (RFC 9250 §4.1.1).
+//! for instance `example.com 94.140.14.14 dns.adguard-dns.com usertrust-ecc.der` over DoQ, or
+//! `example.com 1.1.1.1 https://cloudflare-dns.com/dns-query{?dns} ssl-com-ecc.der` over DoH. Each
+//! root is a DER certificate the server's chain is expected to end at; its subject Name and its
+//! SubjectPublicKeyInfo are the trust anchor chapulin checks the chain against. The leaf must carry
+//! the authentication name, or the template's host. A DoQ server's port is UDP's 853 (RFC 9250
+//! §4.1.1), and a DoH server's the template's, 443 when it names none (RFC 9114 §3.1).
 //!
 //! Names after the first are resolved in turn, each once the server's ticket is kept and the
 //! connection before has closed idle, so each opens a connection that resumes with the ticket
@@ -23,7 +28,7 @@ const io = @import("io");
 const cocuyo_quic = @import("cocuyo_quic");
 const chapulin = @import("chapulin_quic");
 
-const Quic = cocuyo_quic.Connection(.{ .Session = chapulin.Session, .streams = 2 });
+const Quic = cocuyo_quic.Connection(.{ .Session = chapulin.Session, .streams = 2, .http3 = true });
 const Resolver = io.Resolver(.{
     .lookups = 2,
     .cache_slots = 2,
@@ -53,12 +58,16 @@ pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const arguments = try init.minimal.args.toSlice(arena);
     if (arguments.len < 5) {
-        std.debug.print("usage: doq-rotor <name>[,<name>...] <server address> <authentication name> <root certificate>...\n", .{});
+        std.debug.print("usage: doq-rotor <name>[,<name>...] <server address> <authentication name | URI template> <root certificate>...\n", .{});
         std.process.exit(2);
     }
     const address = cocuyo.Address.from_text(arguments[2]) orelse return error.BadAddress;
-    const tls: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(arguments[3]) };
-    const servers = [_]cocuyo.Server{.{ .endpoint = .{ .address = address }, .quic = tls }};
+    // A template names a DoH server (RFC 8484 §3), and a name a DoQ server (RFC 9250 §5.1).
+    const known_as = arguments[3];
+    const servers = [_]cocuyo.Server{if (std.mem.startsWith(u8, known_as, "https://"))
+        .{ .endpoint = .{ .address = address }, .https = .{ .template = known_as } }
+    else
+        .{ .endpoint = .{ .address = address }, .quic = .{ .name = try cocuyo.Name.from_text(known_as) } }};
     const config: cocuyo.Config = .{ .servers = &servers, .search = &.{} };
 
     var anchors: [anchors_max]chapulin.c.ch_trust_anchor = undefined;

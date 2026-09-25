@@ -213,6 +213,10 @@ The architecture depends on every rule in this section.
   `zig build example-doq-rotor` resolves over DoQ through colibri; `tools/doq_live/run.sh
   <checkout>` runs the live check of design §24 step 4, against AdGuard and NextDNS. The `doq-live`
   workflow runs both once a day on macOS.
+- DoH over HTTP/3: the same checkout and object. `zig build example-doh-rotor` resolves over DoH
+  through colibri's HTTP/3, given a URI template where DoQ takes a name; `tools/doh_live/run.sh
+  <checkout>` runs the live check of design §24 step 5, against Google and Cloudflare. The
+  `doh-live` workflow runs both once a day on macOS.
 - Format: `zig build fmt`, or `zig fmt build.zig build src tools examples bench io`.
 - Commit messages: `zig build hooks` once after clone; `zig build lint-commits` by hand.
 

@@ -3648,7 +3648,16 @@ An image runs one loop on each core and one engine on each loop. Nothing crosses
    resumed with the first one's ticket, and a name the certificate does not carry and a root the
    chain does not end at each ended in `AllServersFailed` (`tools/doq_live/run.sh`, and the
    `doq-live` workflow once a day). Both chains end at USERTrust ECC Certification Authority.
-5. DoH over HTTP/3, with a live check against Cloudflare and Google.
+5. DoH over HTTP/3, with a live check against Cloudflare and Google. Done 2026-09-25. The engine
+   reads a server's template for the port, the name and the path (docs/mutations.md UT1 to UT23),
+   and speaks DoH on the twin (DE1 to DE8). `cocuyo_quic` reads a response's `Age` and media type
+   (HR1 to HR11), and puts colibri's `h3` under the interface with a test server over it: seven
+   tests run the client against that server in memory, and nine the engine over both on the twin
+   (QH1 to QH21). The live check passed the same day, over chapulin's QUIC object at `3a3fa40`:
+   Google and Cloudflare each answered two names over DoH on HTTP/3, the second over a connection
+   that resumed with the first one's ticket, and a template whose host the certificate does not
+   carry and a root the chain does not end at each ended in `AllServersFailed`
+   (`tools/doh_live/run.sh`, and the `doh-live` workflow once a day).
 6. Two engines on two threads of one image, each on its own loop, resolving at once.
 7. DoH over HTTP/2, after colibri#7.
 
