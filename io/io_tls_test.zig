@@ -75,6 +75,18 @@ test "a refused handshake fails the connection, and the next server answers over
     try rig.deinit();
 }
 
+test "a lookup every server refused over TLS ends in AllServersFailed, not Timeout" {
+    // Strict mode's refusal is the server failing the lookup, as SERVFAIL is: the lookup did not
+    // run out of time (docs/design.md §16 decision 25).
+    var rig: Rig = .{};
+    try start(&rig, 47, .{ .{ .tls = .{ .refuse = true } }, .{ .tls = .{ .refuse = true } } });
+    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    const result = try rig.until_result();
+    try testing.expectEqual(cocuyo.Error.AllServersFailed, result.outcome.failure.err);
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
 /// Whether a connection to `server` is up, in whichever slot.
 fn up_to(rig: *const Rig, server: u8) bool {
     for (rig.engine.connections) |connection| {

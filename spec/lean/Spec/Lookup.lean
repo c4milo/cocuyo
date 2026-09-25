@@ -89,8 +89,10 @@ structure State where
   hops : Nat
   edns : Bool
   hadNoData : Bool
-  /-- Whether a server answered SERVFAIL, REFUSED or NOTIMP, which decides the failure when the
-  attempts run out (§5, retry policy). -/
+  /-- Whether a server failed the lookup, which decides the failure when the attempts run out (§5,
+  retry policy): it answered SERVFAIL, REFUSED or NOTIMP, FORMERR without EDNS0 or BADCOOKIE over
+  a stream, or it refused the lookup, a connection, a handshake or a request failing (§16
+  decision 25). -/
   serverFailed : Bool
   /-- Whether this server already answered BADCOOKIE once and was asked again (RFC 7873 §5.3). -/
   cookieRetried : Bool
@@ -203,10 +205,15 @@ def step (c : Config) (s : State) : Event → State × Out
     match s.stage with
     | .connectingTcp => ({ s with stage := .tcpReady }, .none)
     | _ => (s, .none)
-  | .tcpFailed => if onStream s.stage then (advanceServer c s, .none) else (s, .none)
-  -- An HTTP failure is the server's: the next one (docs/design.md §22).
+  -- A connection or a handshake that failed is the server refusing the lookup, which counts as
+  -- SERVFAIL does (§16 decision 25).
+  | .tcpFailed =>
+    if onStream s.stage then (advanceServer c { s with serverFailed := true }, .none) else (s, .none)
+  -- An HTTP or a QUIC failure is the server's: the next one (docs/design.md §22, §23), counted as
+  -- the stream's is.
   | .requestFailed =>
-    if c.request ∧ s.stage = .awaitingUdp then (advanceServer c s, .none) else (s, .none)
+    if c.request ∧ s.stage = .awaitingUdp then (advanceServer c { s with serverFailed := true }, .none)
+    else (s, .none)
   | .reply r =>
     match s.stage with
     -- Over DoH or DoQ an answer is read as one over a stream: there is nowhere else to ask.

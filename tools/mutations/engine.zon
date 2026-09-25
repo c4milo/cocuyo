@@ -428,4 +428,13 @@
         },
         .caught_by = .short_walks,
     },
+    .{
+        .section = "A refusal is a failure",
+        .id = "RF5",
+        .what = "the engine model counts a failed connection as silence",
+        .edits = .{
+            .{ .file = "spec/tla/engine/EngineTable.tla", .old = "            THEN <<AdvanceServer([lk EXCEPT !.serverFailed = TRUE]), \"none\">>", .new = "            THEN <<AdvanceServer(lk), \"none\">>" },
+        },
+        .caught_by = .{ .step = "spec-engine" },
+    },
 }

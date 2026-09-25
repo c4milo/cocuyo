@@ -1,12 +1,12 @@
-import Spec.LookupProofs
+import Spec.LookupProofsTimeout
 
 /-!
 # What the proofs rest on
 
-Each theorem of `Spec.LookupProofs` with the axioms its proof uses, pinned. A proof left
-unfinished compiles to `sorryAx`, which would change a line below and fail `lake build`. The three
-that may appear are the ones every Lean proof about functions and propositions uses: `propext`,
-`Classical.choice` and `Quot.sound`.
+Each theorem of `Spec.LookupProofs` and `Spec.LookupProofsTimeout` with the axioms its proof
+uses, pinned. A proof left unfinished compiles to `sorryAx`, which would change a line below and
+fail `lake build`. The three that may appear are the ones every Lean proof about functions and
+propositions uses: `propext`, `Classical.choice` and `Quot.sound`.
 -/
 namespace Spec.Lookup
 
@@ -39,5 +39,8 @@ namespace Spec.Lookup
 
 /-- info: 'Spec.Lookup.step_good' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms step_good
+
+/-- info: 'Spec.Lookup.refused_never_timeout' depends on axioms: [propext] -/
+#guard_msgs in #print axioms refused_never_timeout
 
 end Spec.Lookup

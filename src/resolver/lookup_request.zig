@@ -46,12 +46,14 @@ pub fn on_request_answer(
 /// The request that carried `transaction` ended without an answer. An HTTP status that is not
 /// 2xx carries none (RFC 8484 §4.2.1), once the driver has retried what HTTP retries, and neither
 /// does a stream the server reset (RFC 9250 §4.3.2) or a connection that failed (§4.4). The
-/// server failed this transaction, as a connection that failed does, and the lookup moves on.
+/// server failed this transaction, as a connection that failed does, which counts as SERVFAIL
+/// does (docs/design.md §16 decision 25), and the lookup moves on.
 pub fn on_request_failed(self: *Lookup, transaction: u16, now_ns: u64) void {
     self.see(now_ns);
     assert(self.config.sends_requests());
     if (!waits_on(self, transaction)) return;
     self.servers.record_failure(self.server_slot(), now_ns);
+    self.flags.had_server_failure = true;
     self.next_server(now_ns);
     assert(self.state != .awaiting_udp);
 }

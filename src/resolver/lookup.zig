@@ -122,7 +122,9 @@ pub const Flags = packed struct(u8) {
     mix_case: bool,
     /// Whether any candidate answered NOERROR with no record of this type.
     had_no_data: bool,
-    /// Whether any server answered SERVFAIL, REFUSED or NOTIMP.
+    /// Whether any server failed the lookup: answered SERVFAIL, REFUSED or NOTIMP, FORMERR
+    /// without EDNS0 or BADCOOKIE over a stream, or refused it, a connection, a handshake or a
+    /// request failing (docs/design.md §5, retry policy).
     had_server_failure: bool,
     /// Whether a CNAME was followed, which makes the current name the canonical one.
     aliased: bool,
@@ -295,11 +297,14 @@ pub const Lookup = struct {
         self.deadline_ns = policy.deadline_ns(self.config, self.round, now_ns);
     }
 
+    /// The connection failed: refused, reset, or its handshake failed. The server refused the
+    /// lookup, which counts as SERVFAIL does (docs/design.md §16 decision 25).
     pub fn on_tcp_failed(self: *Lookup, now_ns: u64) void {
         self.see(now_ns);
         assert(self.state == .connecting_tcp or self.state == .tcp_ready or
             self.state == .awaiting_tcp);
         self.servers.record_failure(self.server_slot(), now_ns);
+        self.flags.had_server_failure = true;
         self.next_server(now_ns);
     }
 

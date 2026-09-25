@@ -52,7 +52,25 @@
         .id = "DM3",
         .what = "an HTTP failure changes nothing",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    if c.request ∧ s.stage = .awaitingUdp then (advanceServer c s, .none) else (s, .none)", .new = "    if c.request ∧ s.stage = .awaitingUdp then (s, .none) else (s, .none)" },
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    if c.request ∧ s.stage = .awaitingUdp then (advanceServer c { s with serverFailed := true }, .none)\n    else (s, .none)", .new = "    if c.request ∧ s.stage = .awaitingUdp then (s, .none)\n    else (s, .none)" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "A refusal is a failure",
+        .id = "RF1",
+        .what = "the model counts a failed connection as silence",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    if onStream s.stage then (advanceServer c { s with serverFailed := true }, .none) else (s, .none)", .new = "    if onStream s.stage then (advanceServer c s, .none) else (s, .none)" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "A refusal is a failure",
+        .id = "RF2",
+        .what = "the model counts a failed request as silence",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    if c.request ∧ s.stage = .awaitingUdp then (advanceServer c { s with serverFailed := true }, .none)", .new = "    if c.request ∧ s.stage = .awaitingUdp then (advanceServer c s, .none)" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },

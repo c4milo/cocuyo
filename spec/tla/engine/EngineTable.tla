@@ -107,8 +107,12 @@ LStep(lk, ev, r) ==
       [] ev = "tcpConnected" ->
             IF lk.stage = "connectingTcp" THEN <<[lk EXCEPT !.stage = "tcpReady"], "none">>
             ELSE <<lk, "none">>
+      \* A connection or a handshake that failed is the server refusing the lookup, which counts
+      \* as SERVFAIL does (§16 decision 25).
       [] ev = "tcpFailed" ->
-            IF OnStream(lk.stage) THEN <<AdvanceServer(lk), "none">> ELSE <<lk, "none">>
+            IF OnStream(lk.stage)
+            THEN <<AdvanceServer([lk EXCEPT !.serverFailed = TRUE]), "none">>
+            ELSE <<lk, "none">>
       [] ev = "reply" ->
             IF lk.stage \in {"awaitingUdp", "awaitingTcp"} THEN LReply(lk, r) ELSE <<lk, "ignored">>
       [] ev = "cancel" ->

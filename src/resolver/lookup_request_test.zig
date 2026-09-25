@@ -170,6 +170,21 @@ test "a request that failed moves the lookup to the next server and counts one f
     }
 }
 
+test "a lookup whose every request failed ends in AllServersFailed" {
+    // A request that ended without an answer is the server failing the lookup, as SERVFAIL is:
+    // the lookup did not run out of time (docs/design.md §16 decision 25).
+    for (both) |list| {
+        var harness: fixtures.Harness = undefined;
+        try start_over(&harness, list, "example.com.", .a, seed);
+        const tries = @as(usize, harness.config.attempts) * list.len;
+        for (0..tries) |_| {
+            const transaction = (try send(&harness)).send_request.transaction;
+            harness.lookup.on_request_failed(transaction, harness.now_ns);
+        }
+        try testing.expectEqual(core.Error.AllServersFailed, harness.poll().failed.err);
+    }
+}
+
 test "over DoH or DoQ a truncated answer is read as it stands, and BADCOOKIE fails the server" {
     const bad_cookie: fixtures.Reply = .{ .rcode = .bad_cookie, .cookie = .opt_only };
     for (both) |list| {

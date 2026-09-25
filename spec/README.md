@@ -31,6 +31,10 @@ would agree with the code by construction and prove nothing about it.
     configuration.
   - `step_le`, `sent_lt` and `lexLt_wf`: no event raises a measure, every send lowers it, and its
     order is well-founded. So no sequence of answers makes a lookup send forever.
+- `lean/Spec/LookupProofsTimeout.lean` holds `refused_never_timeout`: a lookup that a server
+  refused, its connection, its handshake or its request failing, never ends in `timeout`,
+  whatever it hears afterwards (design §16 decision 25). It is `Timeout`'s promise, that every try
+  went unanswered, which nothing checked before the decision.
 - `lean/Spec/Axioms.lean` pins the axioms each theorem rests on. A proof left unfinished rests on
   `sorryAx`, which changes a pinned line and fails the build.
 - `lean/Spec/Address.lean` is the model of both walks, and `lean/Spec/AddressWalk.lean` walks it and

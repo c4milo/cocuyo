@@ -579,4 +579,22 @@
         },
         .caught_by = .{ .step = "test-resolver" },
     },
+    .{
+        .section = "A refusal is a failure",
+        .id = "RF3",
+        .what = "a failed connection is counted as silence",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.servers.record_failure(self.server_slot(), now_ns);\n        self.flags.had_server_failure = true;\n        self.next_server(now_ns);\n    }\n\n    /// Gives up", .new = "        self.servers.record_failure(self.server_slot(), now_ns);\n        self.next_server(now_ns);\n    }\n\n    /// Gives up" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A refusal is a failure",
+        .id = "RF4",
+        .what = "a failed request is counted as silence",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_request.zig", .old = "    self.servers.record_failure(self.server_slot(), now_ns);\n    self.flags.had_server_failure = true;\n", .new = "    self.servers.record_failure(self.server_slot(), now_ns);\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
 }

@@ -117,12 +117,12 @@ theorem useTcp_never_udp (c : Config) (s : State) (e : Event) (h : c.useTcp = tr
   | tcpFailed =>
     simp only [step]
     split
-    · exact ⟨hadv s, by simp⟩
+    · exact ⟨hadv _, by simp⟩
     · exact ⟨⟨hq, ha⟩, by simp⟩
   | requestFailed =>
     simp only [step]
     split
-    · exact ⟨hadv s, by simp⟩
+    · exact ⟨hadv _, by simp⟩
     · exact ⟨⟨hq, ha⟩, by simp⟩
   | reply r =>
     cases hs : s.stage <;> simp only [step, hs]
@@ -211,12 +211,12 @@ theorem request_never_stream (c : Config) (s : State) (e : Event) (hh : c.reques
   | tcpFailed =>
     simp only [step]
     split
-    · exact ⟨hadv s, none⟩
+    · exact ⟨hadv _, none⟩
     · exact ⟨keep, none⟩
   | requestFailed =>
     simp only [step]
     split
-    · exact ⟨hadv s, none⟩
+    · exact ⟨hadv _, none⟩
     · exact ⟨keep, none⟩
   | reply r =>
     cases hs : s.stage <;> simp only [step, hs]
@@ -390,12 +390,12 @@ theorem step_le (c : Config) (s : State) (e : Event) (g : Good c s) :
     | tcpFailed =>
       simp only [step]
       split
-      · exact lexLt_le _ _ (advanceServer_lt c s h2)
+      · exact lexLt_le _ _ (advanceServer_lt c _ h2)
       · exact lexLe_refl _
     | requestFailed =>
       simp only [step]
       split
-      · exact lexLt_le _ _ (advanceServer_lt c s h2)
+      · exact lexLt_le _ _ (advanceServer_lt c _ h2)
       · exact lexLe_refl _
     | reply r =>
       cases hs : s.stage <;> simp only [step, hs]
@@ -523,12 +523,12 @@ theorem step_good (c : Config) (s : State) (e : Event) (hc : Sane c) (g : Good c
     | tcpFailed =>
       simp only [step]
       split
-      · exact advanceServer_good c s hc h2 h4 h3
+      · exact advanceServer_good c _ hc h2 h4 h3
       · exact gs
     | requestFailed =>
       simp only [step]
       split
-      · exact advanceServer_good c s hc h2 h4 h3
+      · exact advanceServer_good c _ hc h2 h4 h3
       · exact gs
     | reply r =>
       cases hs : s.stage <;> simp only [step, hs]

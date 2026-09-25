@@ -1345,6 +1345,29 @@ by the run.
 | EM9 | any file's `line:column: error:` is taken for the compiler's | a compile error is a Zig file's | the walk test | CAUGHT |
 | EM10 | a `<section>/<id>` name matches whatever the section | an id two sections share is named by its section | the naming test | CAUGHT |
 
+## A refusal is a failure
+
+Design §16 decision 25, ruled on 2026-09-24 (issue #11). A connection or a handshake that
+failed, and a request over DoH or DoQ that ended without an answer, count as the server failing
+the lookup, as SERVFAIL does. A lookup whose passes run out after one ends in
+`AllServersFailed`, and `Timeout` means every try went unanswered. `refused_never_timeout` states
+that promise in the Lean model.
+
+RF1 and RF2 break the model, against `zig build spec-lean`, and fail that theorem alone. The
+older proofs were written again to name no flag, so a mark dropped is the new theorem's to find.
+RF3 and RF4 break the code, against `zig build test-resolver`. The committed slices catch both
+as well, and RF3 fails the twin's TLS test and the live check, where both refusals ended in
+`Timeout`. RF5 breaks the lookup the engine model carries, against `zig build spec-engine`. DM3
+was written again, since the line it breaks changed. Five mutations, five `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| RF1 | the model counts a failed connection as silence | decision 25 | `refused_never_timeout` | CAUGHT |
+| RF2 | the model counts a failed request as silence | decision 25 | `refused_never_timeout` | CAUGHT |
+| RF3 | a failed connection is counted as silence | §5, retry policy | the refusal test, the twin's TLS refusal test, both replays, the live check | CAUGHT |
+| RF4 | a failed request is counted as silence | §5, retry policy | the failed-request test, the lookup's replay | CAUGHT |
+| RF5 | the engine model counts a failed connection as silence | decision 25 | `spec-engine`, the comparison | CAUGHT |
+
 ## A connect's address
 
 The stream's rule 10 (docs/design.md §19 step 13): a connect borrows its slot's address until

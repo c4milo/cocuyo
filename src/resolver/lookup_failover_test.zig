@@ -62,6 +62,27 @@ test "a failed send and a failed connection are failures of the server they were
     try testing.expectEqual(@as(u8, 1), over_tcp.servers.failures(0));
 }
 
+test "a lookup a server refused ends in AllServersFailed, and one none answered in Timeout" {
+    // A refused connection is the server failing the lookup, as SERVFAIL is; silence is not
+    // (docs/design.md §16 decision 25).
+    const config: core.Config = .{ .servers = &servers, .use_tcp = true, .attempts = 1, .failover_retry_chance = 0 };
+    var refused: fixtures.Harness = .{ .config = config };
+    try refused.start("example.com.", .a, seed);
+    try testing.expect(refused.poll() == .connect_tcp);
+    refused.lookup.on_tcp_failed(refused.now_ns);
+    try testing.expect(refused.poll() == .connect_tcp);
+    refused.now_ns += config.timeout_ns;
+    try testing.expectEqual(core.Error.AllServersFailed, refused.poll().failed.err);
+
+    var silent: fixtures.Harness = .{ .config = config };
+    try silent.start("example.com.", .a, seed);
+    try testing.expect(silent.poll() == .connect_tcp);
+    silent.now_ns += config.timeout_ns;
+    try testing.expect(silent.poll() == .connect_tcp);
+    silent.now_ns += config.timeout_ns;
+    try testing.expectEqual(core.Error.Timeout, silent.poll().failed.err);
+}
+
 test "the failure a lookup reports names the configured server it was on" {
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .check_response = false, .failover_retry_chance = 0 } };
     try harness.start("example.com.", .a, seed);

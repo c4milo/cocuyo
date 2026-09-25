@@ -12,8 +12,8 @@
 # that declines the ticket must be answered anyway: chapulin finishes a declined ticket as a full
 # handshake on the same connection. Two lookups must fail, and fail rather than fall back: the
 # right root with a name the certificate does not carry, and the right name with a root the chain
-# does not end at (RFC 8310 §5). A refused lookup ends at its deadline, as one whose server does
-# not answer does, so a refusal counts only through a resolver that answered in the same run.
+# does not end at (RFC 8310 §5). Each must end in AllServersFailed, a refusal: one that ends in
+# Timeout was not answered at all, which is the network and not strict mode (§16 decision 25).
 set -eu
 
 checkout=${1:?usage: tools/dot_live/run.sh <chapulin checkout>}
@@ -38,13 +38,11 @@ lookup() {
 
 failures=0
 resumed=0
-answered=" "
 for resolver in "8.8.8.8 dns.google google" "1.1.1.1 cloudflare-dns.com cloudflare" \
     "9.9.9.9 dns.quad9.net quad9"; do
     set -- $resolver
     if answer=$(lookup "$1" "$2" "$out/$3.der") && echo "$answer" | grep -q "example.com A" &&
         echo "$answer" | grep -q "example.org A"; then
-        answered="$answered$1 "
         how=$(echo "$answer" | sed -n 's/^example\.org: handshake //p')
         case $how in
         resumed)
@@ -66,17 +64,14 @@ if [ "$resumed" -eq 0 ]; then
 fi
 
 refuse() {
-    case $answered in
-    *" $1 "*) ;;
-    *)
-        echo "cannot tell a refusal of $2 from the network: $1 did not answer" >&2
-        return ;;
-    esac
-    if lookup "$@" >/dev/null; then
+    if answer=$(lookup "$@"); then
         echo "RESOLVED what strict mode refuses: $*" >&2
         failures=$((failures + 1))
-    else
+    elif echo "$answer" | grep -q "^example.com: AllServersFailed$"; then
         echo "refuses $2 with $(basename "$3")"
+    else
+        echo "DID NOT SEE a refusal of $2 with $(basename "$3"): $answer" >&2
+        failures=$((failures + 1))
     fi
 }
 refuse 8.8.8.8 dns.example "$out/google.der"

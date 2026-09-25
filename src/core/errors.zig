@@ -17,9 +17,12 @@ pub const Error = error{
     NotImplemented,
     /// A server answered FORMERR, and the retry without EDNS0 did not help.
     FormatError,
-    /// Every pass over every server ran out of time.
+    /// Every pass over every server went unanswered: each try ran out of time, or its send
+    /// failed.
     Timeout,
-    /// Every server was tried and each one failed rather than timed out.
+    /// Every pass over every server ended, and a server failed the lookup on the way: it answered
+    /// SERVFAIL, REFUSED or NOTIMP, FORMERR without EDNS0 or BADCOOKIE over a stream, or refused
+    /// the lookup, a connection, a handshake or a request failing (docs/design.md §5).
     AllServersFailed,
     /// The CNAME chain was longer than `constants.cname_hops_max`.
     ChainTooLong,
