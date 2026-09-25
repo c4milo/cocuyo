@@ -3526,11 +3526,12 @@ An image runs one loop on each core and one engine on each loop. Nothing crosses
    257,212 and 5,295,912 states. colibri over the twin (decision 29) and the live check are the
    rest of the step. colibri under the interface landed on 2026-09-25: `cocuyo_quic`
    (`io/io_quic.zig` and the files beside it) over colibri `d2c1431`, pinned by hash, a session
-   that encrypts nothing and a test server over it, and the twin's responder. Eight tests run the
+   that encrypts nothing and a test server over it, and the twin's responder. Nine tests run the
    engine over colibri's client and server on the twin: an answer, six lookups on one connection,
    another protocol refused, lost datagrams resent through the engine's timer, the idle close, a
-   hundred and forty cancelled streams drained, STOP_SENDING, and a close held back while
-   colibri's closing period ended (docs/mutations.md QC1 to QC8). The live check passed the same
+   hundred and forty cancelled streams drained, STOP_SENDING, a close held back while colibri's
+   closing period ended, and a request sent again after its answer, because the server's
+   acknowledgement was lost (docs/mutations.md QC1 to QC8). The live check passed the same
    day, over chapulin's QUIC object at `3a3fa40` behind colibri (`io/io_chapulin_quic.zig`):
    AdGuard and NextDNS each answered two names over DoQ, the second over a connection that
    resumed with the first one's ticket, and a name the certificate does not carry and a root the

@@ -6,6 +6,7 @@ const std = @import("std");
 const testing = std.testing;
 const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
+const quic = @import("quic");
 const cocuyo_quic = @import("cocuyo_quic");
 const io = @import("io.zig");
 
@@ -38,6 +39,10 @@ const Side = struct {
     drop_first: usize = 0,
     other_protocol: bool = false,
     hold: bool = false,
+    /// Answers whose datagrams go out with their ACK frames lost, as a server's would that sent
+    /// its acknowledgements apart and lost them, and the ACK frames lost so.
+    answers_unacknowledged: usize = 0,
+    acks_lost: usize = 0,
 
     fn responder(side: *Side) rotor.Responder {
         return .{ .context = side, .hear = hear, .deadline = deadline, .expire = expire };
@@ -50,8 +55,11 @@ const Side = struct {
             return;
         }
         const entry = side.entry_of(socket) orelse return;
+        const answered = entry.server.answered;
         entry.server.receive(bytes, now_ns, .{ .context = side, .answer = answer });
-        side.pump(entry, now_ns);
+        const lose_acks = side.answers_unacknowledged > 0 and entry.server.answered > answered;
+        if (lose_acks) side.answers_unacknowledged -= 1;
+        side.pump(entry, now_ns, lose_acks);
     }
 
     /// The connection from `socket`, or a new one for a socket the side has not heard from.
@@ -69,13 +77,15 @@ const Side = struct {
         return null;
     }
 
-    /// Sends what the server owes, each datagram after the scripted server's delay.
-    fn pump(side: *Side, entry: *Entry, now_ns: u64) void {
+    /// Sends what the server owes, each datagram after the scripted server's delay, and loses their
+    /// ACK frames when `lose_acks` says so.
+    fn pump(side: *Side, entry: *Entry, now_ns: u64, lose_acks: bool) void {
         var datagram: [cocuyo_quic.constants.datagram_receive_bytes]u8 = undefined;
         var sent: usize = 0;
         while (sent < fixtures.quic_pump_max) : (sent += 1) {
             const len = entry.server.send(&datagram, now_ns);
             if (len == 0) return;
+            if (lose_acks) side.acks_lost += lose_ack_frames(datagram[0..len]);
             const delay_ns = side.network.scripts[side.index].delay_ns_min;
             _ = side.network.reply(entry.socket.?, side.index, datagram[0..len], now_ns + delay_ns);
         }
@@ -108,10 +118,47 @@ const Side = struct {
             const due = entry.server.deadline() orelse continue;
             if (due > now_ns) continue;
             entry.server.expire(now_ns);
-            side.pump(entry, now_ns);
+            side.pump(entry, now_ns, false);
         }
     }
 };
+
+/// Turns the ACK frames of a datagram's 1-RTT packet into PADDING of the same length, which the
+/// session that encrypts nothing leaves in the clear, and says how many it turned. A packet's
+/// frames lie after its packet number and before its tag (RFC 9000 §17.3.1, RFC 9001 §5.3).
+fn lose_ack_frames(datagram: []u8) usize {
+    var at: usize = 0;
+    // Bounded by the packets a datagram holds (RFC 9000 §12.2).
+    for (0..quic.constants.coalesced_packets_max) |_| {
+        if (at == datagram.len) return 0;
+        const packet = quic.packet.header.read(datagram[at..], cocuyo_quic.constants.connection_id_bytes) catch return 0;
+        switch (packet) {
+            .long => |long| at += long.packet_len,
+            .short => |short| {
+                const number_len = (short.first_octet & quic.constants.packet_number_len_mask) + 1;
+                const frames = datagram[at + short.packet_number_offset + number_len .. datagram.len - quic.constants.aead_tag_len];
+                return padding_for_acks(frames);
+            },
+            else => return 0,
+        }
+    }
+    return 0;
+}
+
+fn padding_for_acks(frames: []u8) usize {
+    var reader = quic.core.Reader.init(frames);
+    var lost: usize = 0;
+    // Bounded by the octets, since every frame takes one at least.
+    for (0..frames.len) |_| {
+        const start = frames.len - reader.remaining_len();
+        if (start == frames.len) break;
+        const frame = quic.frame.read(&reader) catch break;
+        if (frame != .ack) continue;
+        @memset(frames[start .. frames.len - reader.remaining_len()], 0);
+        lost += 1;
+    }
+    return lost;
+}
 
 /// A rig and a side for each of its scripted servers, on the heap: an engine over colibri holds a
 /// connection of half a megabyte for each server it may ask.
@@ -123,8 +170,8 @@ const World = struct {
         const world = try testing.allocator.create(World);
         errdefer testing.allocator.destroy(world);
         world.* = .{};
-        const quic: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
-        for (&world.rig.servers) |*server| server.quic = quic;
+        const tls: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
+        for (&world.rig.servers) |*server| server.quic = tls;
         try world.rig.init(seed, scripts, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
         for (&world.sides, 0..) |*side, index| {
             side.* = .{ .index = @intCast(index), .network = world.rig.loop.network() };
@@ -301,6 +348,34 @@ test "a request taken while an idle close is held back reopens the connection, t
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expectEqual(@as(u8, 0), engine.resolver.servers.failures(0));
     try testing.expectEqual(@as(u32, 2), connection.incarnation);
+    _ = engine.take(world.rig.loop.now());
+    try world.rig.deinit();
+}
+
+test "a request's bytes outlive its answer, and colibri sends them again until the server has them" {
+    // The server's acknowledgement of the first query is lost and its answer arrives. colibri
+    // sends the query again at its probe timeout (RFC 9000 §13.3, RFC 9002 §6.2.4), reading the
+    // bytes the answer has not freed. Freed, they would leave the range owed ahead of every
+    // other stream's octets, and the second query would never go.
+    const world = try World.create(99, .{ .{}, .{} });
+    defer world.free();
+    world.sides[0].answers_unacknowledged = 1;
+    const engine = &world.rig.engine;
+    _ = try engine.start(question("one.example."), world.rig.loop.now());
+    _ = try world.rig.until_result();
+    _ = engine.take(world.rig.loop.now());
+    try testing.expect(world.sides[0].acks_lost > 0);
+    const client = &engine.quic_connections[0].quic.connection;
+    const first = cocuyo_quic.server.StreamId.of(.client, .bidirectional, 0);
+    var rounds: usize = 0;
+    while (client.streams.lookup(first) != .closed and rounds < fixtures.until_rounds_max) : (rounds += 1) {
+        _ = try world.rig.step(fixtures.wait_ns);
+    }
+    try testing.expect(client.streams.lookup(first) == .closed);
+    _ = try engine.start(question("two.example."), world.rig.loop.now());
+    const result = try world.rig.until_result();
+    try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
+    try testing.expectEqual(@as(usize, 2), world.sides[0].entries[0].server.answered);
     _ = engine.take(world.rig.loop.now());
     try world.rig.deinit();
 }
