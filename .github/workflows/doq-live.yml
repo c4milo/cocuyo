@@ -1,0 +1,56 @@
+# DNS over QUIC, live (docs/design.md §24 step 4), once a day and on demand: `tools/doq_live/run.sh`
+# resolves through the public resolvers that serve DoQ, over colibri's QUIC with chapulin's QUIC
+# object as its TLS, resumes a ticket over a second connection, and refuses what strict mode
+# refuses. It runs on macOS, whose system root store the check reads each resolver's root from,
+# against chapulin at the commit below, built as build/doq.zig says, and colibri at the commit
+# build.zig.zon pins.
+#
+# It is not a gate, because it depends on two public resolvers and the network. A failure here can
+# be a resolver changing what it does, or the network failing.
+#
+# Zig is pinned as ci.yml pins it, and chapulin is cloned at a pinned commit, the first cocuyo built
+# its QUIC object at: its build record, `ch_build_info_quic_nonblocking`, is what
+# `io/io_chapulin_quic.zig` compares with its headers. No third-party action runs here;
+# `actions/checkout` is GitHub's own.
+name: doq-live
+
+on:
+  schedule:
+    - cron: "47 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ZIG_VERSION: "0.16.0"
+  CHAPULIN_COMMIT: "3a3fa40cd6b152883b893fcfc2104658c2fcdf93"
+
+jobs:
+  live:
+    name: macOS, DNS over QUIC against the public resolvers
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Zig
+        run: |
+          set -euo pipefail
+          url="https://ziglang.org/download/${ZIG_VERSION}/zig-aarch64-macos-${ZIG_VERSION}.tar.xz"
+          sha="b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489"
+          curl -fsSL "$url" -o zig.tar.xz
+          echo "$sha  zig.tar.xz" | shasum -a 256 -c -
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-aarch64-macos-${ZIG_VERSION}" >> "$GITHUB_PATH"
+      - name: Build chapulin's non-blocking QUIC object
+        run: |
+          set -euo pipefail
+          git clone --quiet https://github.com/c4milo/chapulin.git "$RUNNER_TEMP/chapulin"
+          git -C "$RUNNER_TEMP/chapulin" checkout --quiet "$CHAPULIN_COMMIT"
+          make -C "$RUNNER_TEMP/chapulin" RAND=extern TRUST=webpki TRANSPORT=quic-nonblocking lib
+          cp "$RUNNER_TEMP/chapulin/bin/chapulin.o" "$RUNNER_TEMP/chapulin/bin/chapulin-quic-nonblocking.o"
+      - run: zig version
+      - name: The session's tests, then the live check
+        run: |
+          set -euo pipefail
+          zig build "-Dchapulin=$RUNNER_TEMP/chapulin" test-chapulin-quic
+          tools/doq_live/run.sh "$RUNNER_TEMP/chapulin"

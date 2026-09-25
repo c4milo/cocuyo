@@ -207,6 +207,11 @@ The architecture depends on every rule in this section.
   and `zig build example-dot-rotor` resolves over DoT; `tools/dot_live/run.sh <checkout>` runs
   the live check of design §21 step 6. Neither is in the gate, which needs no chapulin. The
   `dot-live` workflow runs both once a day on macOS, against chapulin at the commit it pins.
+- DNS over QUIC: the same checkout, holding `bin/chapulin-quic-nonblocking.o` as `build/doq.zig`
+  says how to make it. With it, `zig build test-chapulin-quic` runs the session's tests and
+  `zig build example-doq-rotor` resolves over DoQ through colibri; `tools/doq_live/run.sh
+  <checkout>` runs the live check of design §24 step 4, against AdGuard and NextDNS. The `doq-live`
+  workflow runs both once a day on macOS.
 - Format: `zig build fmt`, or `zig fmt build.zig build src tools examples bench io`.
 - Commit messages: `zig build hooks` once after clone; `zig build lint-commits` by hand.
 

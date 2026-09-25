@@ -3408,6 +3408,32 @@ So `io/io_quic.zig` is generic over the provider and its suite:
   the length of the tag every QUIC cipher suite adds (RFC 9001 §5.3), which check nothing but the
   length. It is written from colibri's two vtables and RFC 9001, and it is test-only.
 
+### chapulin under colibri, written on 2026-09-25
+
+chapulin's QUIC object fills both of colibri's vtables almost one to one: it owns every key,
+derives the Initial keys from the Destination Connection ID (RFC 9001 §5.2), applies and removes
+header protection, and moves handshake octets one level at a time. `io/io_chapulin_quic.zig` is
+the session, and what its build and its checks give it:
+
+- **The object.** `make RAND=extern TRUST=webpki TRANSPORT=quic-nonblocking lib`, copied to
+  `bin/chapulin-quic-nonblocking.o`, beside the DoT object. Both are `RAND=extern` and share the
+  hooks of `chapulin_hooks`. The session compares the object's build record,
+  `ch_build_info_quic_nonblocking`, with the defines it reads the headers with, as the DoT session
+  does.
+- **A name and anchors, never pins.** chapulin's QUIC mode checks a chain against anchors and a
+  hostname, and refuses SPKI pins. So a DoQ server known by pins alone, RFC 8310 §6.3's "SPKI +
+  IP", cannot be reached over it: the session refuses one at its start, which fails the
+  connection, and the lookup ends in `AllServersFailed`. The DoT session, over chapulin's record
+  transport, takes pins.
+- **The engine's stream, around the calls that draw.** chapulin draws at the session's start and
+  when handshake octets arrive, a HelloRetryRequest for P-256 among them, and nowhere else. The
+  session enters the engine's stream around those two calls, as §21's does around its own.
+- **One QUIC object in an image.** Two would define the same calls. When DoH over HTTP/3 joins,
+  colibri's `h3` and cocuyo's session use the one object, built with the defines both read.
+- **ChaCha20-Poly1305 alone,** unless the object is built `SUITE=aesgcm AES=hw`, which states that
+  the machine's AES runs in constant time. The spike of 2026-09-24 found every server accepted
+  ChaCha20-Poly1305.
+
 ### colibri over the twin
 
 The twin is in `src/`, which depends on nothing, so it cannot hold a colibri server. The twin's
@@ -3504,7 +3530,12 @@ An image runs one loop on each core and one engine on each loop. Nothing crosses
    engine over colibri's client and server on the twin: an answer, six lookups on one connection,
    another protocol refused, lost datagrams resent through the engine's timer, the idle close, a
    hundred and forty cancelled streams drained, STOP_SENDING, and a close held back while
-   colibri's closing period ended (docs/mutations.md QC1 to QC8). The live check is left.
+   colibri's closing period ended (docs/mutations.md QC1 to QC8). The live check passed the same
+   day, over chapulin's QUIC object at `3a3fa40` behind colibri (`io/io_chapulin_quic.zig`):
+   AdGuard and NextDNS each answered two names over DoQ, the second over a connection that
+   resumed with the first one's ticket, and a name the certificate does not carry and a root the
+   chain does not end at each ended in `AllServersFailed` (`tools/doq_live/run.sh`, and the
+   `doq-live` workflow once a day). Both chains end at USERTrust ECC Certification Authority.
 5. DoH over HTTP/3, with a live check against Cloudflare and Google.
 6. Two engines on two threads of one image, each on its own loop, resolving at once.
 7. DoH over HTTP/2, after colibri#7.

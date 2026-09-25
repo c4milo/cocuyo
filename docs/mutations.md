@@ -1940,3 +1940,19 @@ test-cocuyo_quic`. Eight mutations, seven `CAUGHT`.
 | QC6 | colibri's deadline is never read | the engine's timer covers colibri's (request rule 11) | the loss test, and the held-close test | CAUGHT |
 | QC7 | the handshake's end is never told | the connection comes up | every test over colibri | CAUGHT |
 | QC8 | the test server takes a new connection on a reused socket for the old one | a reopening is heard | the held-close test | CAUGHT |
+
+## chapulin under colibri
+
+Design §24 step 4, 2026-09-25. `io/io_chapulin_quic.zig` puts chapulin's QUIC object, at
+`3a3fa40`, behind colibri's TLS provider and packet suite. What it checks of its own is its build
+record and the servers chapulin's QUIC mode can reach: one with a name and anchors, never one
+known by pins. The rest is chapulin's, and `tools/doq_live/run.sh` shows it against AdGuard and
+NextDNS: both answered over DoQ and resumed, and a wrong name and a wrong root each ended in
+`AllServersFailed`. Broken against `zig build -Dchapulin=<checkout> test-chapulin-quic`. Three
+mutations, three `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CQ1 | a server known by SPKI pins is started | chapulin's QUIC mode takes no pins | the refusal test | CAUGHT |
+| CQ2 | a server known by no name is started | chapulin's QUIC mode checks a hostname | the refusal test, by chapulin's own assertion | CAUGHT |
+| CQ3 | the build record is not compared | the object is the one the headers describe | the build-record test | CAUGHT |
