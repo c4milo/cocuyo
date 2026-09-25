@@ -131,3 +131,33 @@ pub const tls_payload_bytes_max = core.constants.tcp_prefix_bytes + datagram_byt
 /// What one call to the twin's session may make before the engine takes it out: one record at
 /// its longest.
 pub const tls_out_bytes_max = tls_record_header_bytes + tls_payload_bytes_max;
+
+/// The port a scripted server speaks the twin's QUIC on: UDP's 853, which RFC 9250 §4.1.1 names
+/// for DoQ. It is TCP's 853 for DoT as well, and the socket's kind tells them apart.
+pub const server_quic_port = core.constants.port_dns_tls_default;
+
+/// The longest datagram the twin's QUIC makes, which is what a pending datagram holds.
+pub const quic_datagram_bytes_max = datagram_bytes_max;
+
+/// A QUIC item of the twin's: one octet naming what happened, four naming the stream it happened
+/// on, and two giving the length of the octets after them (sim_quic.zig).
+pub const quic_item_header_bytes = 7;
+pub const quic_item_stream_at = 1;
+pub const quic_item_length_at = 5;
+
+/// The most items one datagram holds, which bounds every walk over one: a datagram of items with
+/// nothing after their headers.
+pub const quic_items_per_datagram_max = quic_datagram_bytes_max / quic_item_header_bytes;
+
+/// What a client connection keeps to send, and how much of it a request may not take: room for
+/// every short item it still owes, a cancel for each of the engine's streams among them.
+pub const quic_pending_bytes_max = 16384;
+pub const quic_pending_reserve_bytes = 2048;
+
+/// The distance between two of a client's bidirectional streams: 0, 4, 8, and on (RFC 9000 §2.1).
+pub const quic_stream_step = 4;
+
+/// The longest ALPN token a scripted server keeps from a client's hello, and the one it names
+/// when its script says to negotiate another protocol than the one offered.
+pub const quic_alpn_bytes_max = 16;
+pub const quic_alpn_other = "h2";

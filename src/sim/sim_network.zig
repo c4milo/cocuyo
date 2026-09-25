@@ -10,6 +10,7 @@ const constants = @import("constants.zig");
 const types = @import("sim_types.zig");
 const server = @import("sim_server.zig");
 const tls_module = @import("sim_tls.zig");
+const quic_module = @import("sim_quic.zig");
 const Address = types.Address;
 const Descriptor = types.Descriptor;
 
@@ -59,6 +60,15 @@ pub const Connection = struct {
     tls: ?tls_module.Peer = null,
 };
 
+/// The server side of one of the twin's QUIC connections: the client's socket it answers, and
+/// the scripted server it is (sim_quic.zig).
+pub const QuicPeer = struct {
+    open: bool = false,
+    socket: Descriptor = 0,
+    server: u8 = 0,
+    peer: quic_module.Peer = .{},
+};
+
 pub const Network = struct {
     sockets: [constants.sockets_max]Socket = @splat(.{}),
     next_port: u16 = constants.client_port_first,
@@ -66,6 +76,7 @@ pub const Network = struct {
     server_count: u8 = 0,
     datagrams: [constants.datagrams_pending_max]PendingDatagram = @splat(.{}),
     connections: [constants.connections_max]Connection = @splat(.{}),
+    quic_peers: [constants.connections_max]QuicPeer = @splat(.{}),
     /// Whether every socket open fails, as it does when a process has no descriptor left: set
     /// by a caller driving the twin in manual mode (tools/spec_replay/).
     refuse_open: bool = false,
@@ -151,6 +162,20 @@ pub const Network = struct {
         return null;
     }
 
+    /// The server side of the QUIC connection from `descriptor` to server `server_index`, opened
+    /// when the first datagram comes. Null when every one is taken, which drops the datagram.
+    pub fn quic_peer(self: *Network, descriptor: Descriptor, server_index: u8) ?*QuicPeer {
+        for (&self.quic_peers) |*entry| {
+            if (entry.open and entry.socket == descriptor and entry.server == server_index) return entry;
+        }
+        for (&self.quic_peers) |*entry| {
+            if (entry.open) continue;
+            entry.* = .{ .open = true, .socket = descriptor, .server = server_index };
+            return entry;
+        }
+        return null;
+    }
+
     pub fn connection(self: *Network, index: u8) *Connection {
         assert(index < constants.connections_max);
         assert(self.connections[index].open);
@@ -161,6 +186,9 @@ pub const Network = struct {
         const entry = self.socket(descriptor);
         assert(entry.receiver == null);
         if (entry.connection) |index| self.connections[index].open = false;
+        for (&self.quic_peers) |*peer| {
+            if (peer.open and peer.socket == descriptor) peer.open = false;
+        }
         for (&self.datagrams) |*pending| {
             if (pending.live and pending.socket == descriptor) pending.live = false;
         }

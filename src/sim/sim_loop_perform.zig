@@ -11,6 +11,7 @@ const buffers = @import("sim_buffers.zig");
 const network_module = @import("sim_network.zig");
 const server = @import("sim_server.zig");
 const tls_module = @import("sim_tls.zig");
+const quic_module = @import("sim_loop_quic.zig");
 const Loop = @import("sim_loop.zig").Loop;
 const Pending = @import("sim_loop.zig").Pending;
 const Operation = types.Operation;
@@ -24,7 +25,7 @@ fn network() *Network {
     return &network_module.network;
 }
 
-fn draw(loop: *Loop) u64 {
+pub fn draw(loop: *Loop) u64 {
     loop.word = core.mix.next(loop.word);
     return loop.word;
 }
@@ -53,31 +54,41 @@ pub fn perform(loop: *Loop, slot: u32, operation: *const Operation) void {
 }
 
 /// A datagram to a scripted server is answered as the script says, the reply queued for the
-/// socket it came from; to anywhere else it goes into the void. The send itself succeeds now.
+/// socket it came from; to anywhere else it goes into the void. One to its QUIC port is the
+/// twin's QUIC (sim_loop_quic.zig). The send itself succeeds now.
 fn send_datagram(loop: *Loop, slot: u32, send: *const Operation.SendTo) void {
     const entry = network().socket(send.socket);
     assert(entry.kind == .datagram);
     const bytes = send.buffer.bytes;
     const user_data = loop.slots[slot].user_data;
     if (network().server_of(&send.to.peer)) |index| {
-        const script = &network().scripts[index];
-        if (script.no_route) {
+        if (network().scripts[index].no_route) {
             loop.queue(slot, Event.failure(user_data, .network_unreachable), loop.now_ns, true);
             return;
         }
-        const from = Network.server_address(index);
-        if (network().queue_datagram()) |pending| {
-            if (server.respond(script, &from, bytes, false, draw(loop), &pending.bytes)) |answer| {
-                pending.socket = send.socket;
-                pending.from = from;
-                pending.due_ns = loop.now_ns + answer.delay_ns;
-                pending.len = @intCast(answer.len);
-            } else {
-                pending.live = false;
-            }
+        if (send.to.peer.port == constants.server_quic_port) {
+            quic_module.answer(loop, send.socket, index, bytes);
+        } else {
+            answer_datagram(loop, send.socket, index, bytes);
         }
     }
     loop.queue(slot, Event.success(user_data, @intCast(bytes.len)), loop.now_ns, true);
+}
+
+/// A query in a datagram, answered as server `index`'s script says, the reply queued for the
+/// socket it came from.
+fn answer_datagram(loop: *Loop, socket: types.Descriptor, index: u8, bytes: []const u8) void {
+    const script = &network().scripts[index];
+    const from = Network.server_address(index);
+    const pending = network().queue_datagram() orelse return;
+    const answer = server.respond(script, &from, bytes, false, draw(loop), &pending.bytes) orelse {
+        pending.live = false;
+        return;
+    };
+    pending.socket = socket;
+    pending.from = from;
+    pending.due_ns = loop.now_ns + answer.delay_ns;
+    pending.len = @intCast(answer.len);
 }
 
 fn register(loop: *Loop, slot: u32, user_data: u64, socket: types.Descriptor, group: u16, multishot: bool) void {

@@ -36,6 +36,8 @@ pub const Script = struct {
     ttl_seconds: u32 = constants.answer_ttl_seconds,
     /// How it speaks the twin's TLS on its TLS port.
     tls: @import("sim_tls.zig").Behaviour = .{},
+    /// How it speaks the twin's QUIC on its QUIC port.
+    quic: @import("sim_quic.zig").Behaviour = .{},
 };
 
 pub const Answer = struct { len: usize, delay_ns: u64 };

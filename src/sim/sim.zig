@@ -16,6 +16,9 @@ pub const buffers = @import("sim_buffers.zig");
 /// scripted server answers it with (docs/design.md §21). Real rotor has no such thing, which is
 /// how the engine's tests tell the twin from it.
 pub const tls = @import("sim_tls.zig");
+/// The twin's QUIC: a connection the engine drives in place of colibri's, and the server side a
+/// scripted server answers it with (docs/design.md §24).
+pub const quic = @import("sim_quic.zig");
 pub const files_block = false;
 pub const supported = true;
 
@@ -51,5 +54,7 @@ test {
     _ = buffers;
     _ = server;
     _ = tls;
+    _ = quic;
+    _ = @import("sim_loop_quic.zig");
     _ = @import("sim_scenarios_test.zig");
 }
