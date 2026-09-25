@@ -8,7 +8,7 @@
 //!
 //! Version one sets no flags. The DO bit stays clear, because cocuyo does not validate DNSSEC and
 //! asking for records it will not check would be dishonest as well as wasteful (docs/design.md
-//! §1). That is the seam a validator would attach to.
+//! §1). A validator would build on that.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");

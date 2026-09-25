@@ -38,8 +38,8 @@ pub const Options = struct {
     tcp_group_buffers: u16 = constants.tcp_group_buffers_default,
     /// The longest message one connection can assemble (RFC 7766 §8).
     tcp_message_bytes: u32 = constants.tcp_message_bytes_max,
-    /// The TLS session type of docs/design.md §21, the session seam: chapulin's when the build
-    /// links it, the twin's in its tests, and `tls.None`, which refuses a TLS configuration.
+    /// The TLS session type of docs/design.md §21, the session interface: chapulin's when the
+    /// build links it, the twin's in its tests, and `tls.None`, which refuses a TLS configuration.
     tls: type = tls.None,
 };
 

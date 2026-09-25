@@ -1,4 +1,4 @@
-//! The engine's TLS, over a session type (docs/design.md §21: the session seam and the TLS rules).
+//! The engine's TLS, over a session type (docs/design.md §21: the session interface and the TLS rules).
 //! A connection to a TLS server handshakes between its connect and its first query (rule 1).
 //! The records the session makes are sealed as it makes them and wait in the connection's
 //! records buffer with the queries sealed after them, going out in the order they were sealed

@@ -1,7 +1,7 @@
-//! chapulin's TLS session, over its record transport, behind the seam of docs/design.md §21. The
-//! engine hands it whole records and takes the records it makes; chapulin does the handshake,
-//! the ciphers, and the certificate, pin and ticket checks. Built only when `-Dchapulin` names a
-//! checkout whose `bin/chapulin-tcp-nonblocking.o` was made by
+//! chapulin's TLS session, over its record transport, behind the session interface of
+//! docs/design.md §21. The engine hands it whole records and takes the records it makes; chapulin
+//! does the handshake, the ciphers, and the certificate, pin and ticket checks. Built only when
+//! `-Dchapulin` names a checkout whose `bin/chapulin-tcp-nonblocking.o` was made by
 //!
 //!     make RAND=extern TRUST=webpki TRANSPORT=tcp-nonblocking lib && cp bin/chapulin.o bin/chapulin-tcp-nonblocking.o
 //!

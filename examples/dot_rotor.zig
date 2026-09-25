@@ -1,5 +1,5 @@
 //! Lookups over DNS over TLS: the engine of docs/design.md §19 step 13 on rotor's loop, with
-//! chapulin's session behind the seam of §21 (`io/io_chapulin.zig`), strict as RFC 8310 §5 asks.
+//! chapulin's session behind the session interface of §21 (`io/io_chapulin.zig`), strict as RFC 8310 §5 asks.
 //!
 //!     zig build example-dot-rotor -Dchapulin=<checkout> -- \
 //!         <name>[,<name>...] <server address> <authentication name> <root certificate>...

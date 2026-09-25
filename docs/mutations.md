@@ -1081,7 +1081,7 @@ mutations, seven `CAUGHT`.
 
 ## chapulin's session
 
-Design §21 steps 5 and 6: `io/io_chapulin.zig`, chapulin's record transport behind the seam.
+Design §21 steps 5 and 6: `io/io_chapulin.zig`, chapulin's record transport behind the session interface.
 Broken against `zig build test-chapulin`, which starts sessions without a network, and
 `tools/dot_live/run.sh`, which resolves through the three public resolvers and must be refused
 twice. Neither runs in the gate: both need a chapulin checkout, and the live check needs the

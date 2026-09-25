@@ -62,7 +62,7 @@ Each of these is out of scope on purpose, with the place it would attach.
   send every query it used to answer from memory. §17 asked; the owner answered yes; §18 is the
   design, and the `cache` module of §2 is the one place the answer touched, with `Failure`
   gaining the negative TTL a cache needs.
-- **No DNSSEC validation.** Seam: EDNS0 exists, the DO bit is a flag cocuyo never sets, and the
+- **No DNSSEC validation.** What a validator would build on: EDNS0 exists, the DO bit is a flag cocuyo never sets, and the
   record iterator hands out rdata unread, so a validator sits above the codec.
 - **DNS over TLS and DNS over HTTPS, since 2026-09-23.** Out of version one; the owner brought
   both in on 2026-09-23, with three rulings. DoT (RFC 7858) is the engine's: rotor carries the
@@ -2825,7 +2825,7 @@ handshakes in full; and a declined ticket counts no failure and keeps its lookup
 connection. The replay drives no TLS
 configuration until step 5, when the engine speaks TLS.
 
-### The session seam, written on 2026-09-24
+### The session interface, written on 2026-09-24
 
 The engine does not call chapulin by name. It is generic over a `Session` type in its
 `Options`, whose functions are chapulin's record transport in the engine's words:
@@ -2920,7 +2920,7 @@ the engine's send and held buffers, per slot.
    The rules and the model landed 2026-09-23; the code is step 5's.
 5. The engine over chapulin, behind a build option naming a chapulin checkout, as colibri's own
    endpoints link it: the headers are read in place and nothing is vendored. The engine's side
-   landed on 2026-09-24, over the session seam and checked with the twin's session: the TLS
+   landed on 2026-09-24, over the session interface and checked with the twin's session: the TLS
    rules in `io/io_tls.zig`, the queue's sealed entries in `io/io_tcp_queue_ring.zig`, twin
    tests in `io/io_tls_test.zig`, and the replay over the model's two TLS configurations. The
    full walks found one defect in the rules as first written, the queue filled by KeyUpdates
@@ -3065,7 +3065,7 @@ needed. This section is the DNS half's plan, and it records the owner's rulings 
 ### The owner's rulings of 2026-09-24
 
 - QUIC is colibri's driver's, over rotor, as DoH's HTTP is (§22). cocuyo supplies the DNS half,
-  and its engine (§19 step 13) does not speak DoQ. The alternative was a QUIC seam in the
+  and its engine (§19 step 13) does not speak DoQ. The alternative was a QUIC interface in the
   engine, as chapulin's TLS has one. It is much larger, and the engine is not exported.
   Reversed on 2026-09-25 (§16 decision 26): colibri declined the driver, and the engine carries
   DoQ over colibri's QUIC (§24).
@@ -3186,8 +3186,8 @@ handlers when `apply` says the event is not the engine's.
    chapulin sets around the calls that can draw (§21), and one `ch_rand_bytes` that reads it.
    cocuyo ships the module. An image with other users of chapulin binds cocuyo's for every
    user, or its own with the same surface.
-3. **A request seam.** The TLS session seam of §21 lets the engine speak TLS without naming
-   chapulin. A request seam lets it carry DoH and DoQ without naming colibri. `Options` gains
+3. **A request interface.** The TLS session interface of §21 lets the engine speak TLS without
+   naming chapulin. A request interface lets it carry DoH and DoQ without naming colibri. `Options` gains
    the request transport's type:
    - colibri's QUIC and HTTP/3, over chapulin's QUIC object, fill it when the build names a
      colibri checkout and a chapulin checkout;
@@ -3295,6 +3295,46 @@ stream's answer as an event, with no octets. The invariants the model gains:
 - A connection that fails leaves no request on it, and each current attempt heard of it once.
 - A connection's datagram buffer is lent exactly when a send of it is in flight.
 - A connection is up only with its transport's ALPN.
+
+### The request interface, written on 2026-09-25
+
+The engine does not call colibri by name. It is generic over a QUIC connection type in its
+`Options`, as §21's session interface makes it generic over a TLS session. The type's functions are
+colibri's `quic` and `h3` over chapulin's QUIC object, in the engine's words:
+
+- `start` begins a connection to a server, from its `Tls` (the name, the pins), the protocol the
+  configuration's kind asks (`doq` for a QUIC server, `h3` for an HTTPS one), a kept ticket, the
+  wall clock and the engine's seeded stream. It makes the first flight.
+- `receive` takes one datagram. What it did is read with `next`, one thing at a time: the
+  handshake ended, and on which protocol; the handshake failed; a stream was answered; a stream was
+  reset; the server closed; a ticket came. An answer carries its message, and over DoH its status,
+  its `Age` and whether a content coding was applied (request rules 5 and 12).
+- `request` opens a stream for a request slot, or says the server's stream credit has run out. Over
+  DoQ it carries the lookup's message with its prefix, then FIN. Over DoH it carries a GET built
+  from the server's template and the `dns` variable, with `accept-encoding: identity` and a
+  never-indexed `:path` (request rule 12). The request's bytes stay in the slot until the stream
+  no longer needs them (request rule 3).
+- `cancel` sends STOP_SENDING and resets the engine's side of a stream (request rule 6).
+- `datagram` hands over the next datagram the connection owes, or nothing.
+- `deadline` gives the connection's next QUIC deadline, and `expire` tells it the instant came.
+  What that did is read with `next` (request rule 11).
+- `close` makes the CONNECTION_CLOSE of an idle close (request rule 9), and `wipe` drops every
+  secret.
+
+Three types fill it:
+
+- `io/io_quic.zig` fills it from colibri's `quic` and `h3` and chapulin's QUIC object. It is built
+  only when the build names a colibri checkout and a chapulin checkout, as `io/io_chapulin.zig` is
+  built only when it names chapulin's.
+- The twin fills it with `sim.quic`, whose datagrams carry what happened in one octet and the
+  stream it happened on, as `sim.tls`'s records carry a handshake step. The twin's servers script
+  it, and the replay drives the model's steps with it one by one.
+- `quic.None` refuses a request configuration at `init`, as `tls.None` refuses a TLS one. It is
+  the default.
+
+The model's QUIC timer takes no time: the lookups' deadlines are the model's only clock. So the
+replay makes a twin connection due at the instant the walk reaches its `qtime`, and the engine's
+one timer fires there, with the outcome the walk names.
 
 A spike on 2026-09-24 ran both through colibri's test client and chapulin's QUIC object, outside
 every repository. Cloudflare and Google answered DoH over HTTP/3. AdGuard and NextDNS answered
