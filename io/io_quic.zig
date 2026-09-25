@@ -21,6 +21,8 @@ pub const plain = @import("io_quic_plain.zig");
 pub const server = @import("io_quic_server.zig");
 /// A DoH server's URI template, split and expanded (`io_quic_template.zig`).
 pub const template = @import("io_quic_template.zig");
+/// What a DoH response's header section says of its content (`io_quic_response.zig`).
+pub const response = @import("io_quic_response.zig");
 
 pub const Options = struct {
     /// The TLS: colibri's provider and suite at once, with `start`, `provider`, `suite`,
@@ -237,4 +239,5 @@ test {
     _ = plain;
     _ = server;
     _ = template;
+    _ = response;
 }

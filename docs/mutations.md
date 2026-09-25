@@ -2003,3 +2003,24 @@ now each has one. Broken against `zig build test-cocuyo_quic`. Twenty mutations,
 | UT18 | a `%` literal is not checked | `pct-encoded` (RFC 3986 §2.1) | the path refusals | CAUGHT |
 | UT19 | a dec-octet may have a leading zero | `dec-octet` (RFC 3986 §3.2.2) | the registered-name test | CAUGHT |
 | UT20 | a varspec that is none is skipped | `varspec` (RFC 6570 §2.3) | the path refusals | CAUGHT |
+
+## What a DoH response says of its content
+
+Design §24 step 5, 2026-09-25. `io/io_quic_response.zig` reads a DoH response's `Age` (RFC 9111
+§5.1, §1.2.2), and whether its content is a DNS message in no content coding: its `Content-Type`
+(RFC 8484 §6, RFC 9110 §8.3.1) and each `Content-Encoding` line (RFC 9110 §8.4). Broken against
+`zig build test-cocuyo_quic`. Eleven mutations, eleven `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| HR1 | an `Age` list is read whole | its first member counts (RFC 9111 §5.1) | the `Age` test | CAUGHT |
+| HR2 | an `Age` that is not digits is read | an invalid `Age` is ignored (§5.1) | the `Age` test | CAUGHT |
+| HR3 | an `Age` too long to parse is 0 | it is 2^31 (§1.2.2) | the 2^31 test | CAUGHT |
+| HR4 | an `Age` past 2^31 wraps | it is 2^31 (§1.2.2) | the 2^31 test | CAUGHT |
+| HR5 | no `Content-Type` is a DNS message | the recipient may assume octets (RFC 9110 §8.3) | the media type test | CAUGHT |
+| HR6 | the media type is compared by case | type and subtype are case-insensitive (§8.3.1) | the media type test | CAUGHT |
+| HR7 | a parameter is read as the subtype | parameters follow `;` (§8.3.1) | the media type test | CAUGHT |
+| HR8 | a coding is compared by case | codings are case-insensitive (§8.4.1) | the coding test | CAUGHT |
+| HR9 | an empty member is a coding | empty list elements are ignored (§5.6.1.2) | the coding test | CAUGHT |
+| HR10 | only the first coding is read | every coding applied is listed (§8.4) | the coding test | CAUGHT |
+| HR11 | a longer media type that starts the same is taken | the type is `application/dns-message` (RFC 8484 §6) | the media type test | CAUGHT |
