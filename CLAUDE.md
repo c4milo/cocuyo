@@ -117,10 +117,10 @@ The architecture depends on every rule in this section.
   the compiler rejects it.
 - `io/` holds the engine of §19 step 13, outside `src/` because it owns sockets. It reads
   `cocuyo` and a `rotor` import the build binds to `sim`, so `zig build test-io` runs it on the
-  twin, and to rotor itself for `zig build bench-cares` alone. It is not exported yet: the owner
-  ruled on 2026-09-25 that it will be, into the caller's loop, with the consumer binding its
-  `rotor` (design §24). One engine runs on each loop and one loop on each core, and nothing is
-  shared between them.
+  twin, and to rotor itself for `zig build bench-cares` alone. It is exported as `cocuyo_rotor`,
+  whose type is `Resolver`, into the caller's loop: the consumer binds its `rotor` import
+  (design §24). One engine runs on each loop and one loop on each core, and nothing is shared
+  between them.
 - Each module owns its `constants.zig`. A limit two modules share lives in `src/core/constants.zig`.
 - `examples/` holds worked examples, `bench/` the microbenchmarks, `docs/` the design set, and
   `tools/` developer tooling that is never linked into the library. `test/` holds fixtures that
@@ -167,8 +167,8 @@ The architecture depends on every rule in this section.
   `test-cache`, `test-sim`, `test-cocuyo`, `test-io`) and `zig build test-tools` run one target's tests with
   nothing else in the graph, which is what a mutation is measured against. `zig build
   consumer-check` alone builds `test/consumer/`, the package that depends on cocuyo the way a
-  consumer does, and requires the same package to fail when it reaches for a module the surface
-  does not export (design §20).
+  consumer does, with `cocuyo_rotor` over a rotor of its own, and requires the same package to
+  fail when it reaches for a module the surface does not export (design §20, §24).
 - Bench: `zig build bench` — the microbenchmarks of design §15 step 7, built ReleaseSafe
   whatever `-Drelease` says. `zig build test` compiles the bench and runs the harness's own tests,
   so it cannot rot. A number goes into design §11 with the machine, the command and the date, or it

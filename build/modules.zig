@@ -8,10 +8,12 @@
 //! (build.zig.zon `paths` lists `src`, and `sim` lives under it, so the packaging claim is the
 //! consumer never importing it rather than the file never shipping).
 const std = @import("std");
+const manifest = @import("../build.zig.zon");
 
-/// The module graph as a value. `cocuyo` is the one a consumer imports and the one this build
-/// registers by name; the rest are this build's own, named by `zig build test-<name>` through
-/// this struct rather than through the package (docs/design.md §20).
+/// The module graph as a value. `cocuyo` and `cocuyo_rotor` are the ones a consumer imports and
+/// the ones this build registers by name; the rest are this build's own, named by
+/// `zig build test-<name>` through this struct rather than through the package (docs/design.md
+/// §20, §24).
 pub const Graph = struct {
     cocuyo: *std.Build.Module,
     core: *std.Build.Module,
@@ -21,9 +23,12 @@ pub const Graph = struct {
     cache: *std.Build.Module,
     sim: *std.Build.Module,
     /// The driver of docs/design.md §19 step 13, compiled against the twin: `sim` stands in for
-    /// `rotor`, so its tests run with no socket and no kernel. It is not exported: nothing binds
-    /// it to rotor itself until a consumer asks for that (owner, 2026-09-22).
+    /// `rotor`, so its tests run with no socket and no kernel.
     io: *std.Build.Module,
+    /// The same driver as a consumer imports it (docs/design.md §24). Its `rotor` import is left
+    /// for the consumer to bind, so the loop it runs on is the consumer's own type, and an image
+    /// holds one rotor. Nothing in this build compiles it; `zig build consumer-check` does.
+    cocuyo_rotor: *std.Build.Module,
 };
 
 /// The root source of each module. build/graph_check.zig hands `core`'s and `wire`'s to
@@ -38,6 +43,23 @@ pub const roots = .{
     .sim = "src/sim/sim.zig",
     .io = "io/io.zig",
 };
+
+// Every module this build registers has its root under a path the manifest ships. A dependent
+// that fetches cocuyo gets those paths and nothing else, and `zig build consumer-check` cannot
+// show a path left out: it depends on cocuyo by path, which reads the whole tree
+// (docs/mutations.md EX2).
+comptime {
+    for ([_][]const u8{ roots.cocuyo, roots.io }) |root| {
+        if (!shipped(root)) @compileError("build.zig.zon's paths do not ship " ++ root);
+    }
+}
+
+fn shipped(comptime root: []const u8) bool {
+    for (manifest.paths) |path| {
+        if (std.mem.startsWith(u8, root, path) and root.len > path.len and root[path.len] == '/') return true;
+    }
+    return false;
+}
 
 /// The graph, registered: a consumer names `cocuyo`, and `zig build test-<name>` names the rest.
 pub fn add(
@@ -64,9 +86,10 @@ fn build(
     optimize: std.builtin.OptimizeMode,
     register: bool,
 ) Graph {
-    // Only `cocuyo` is registered, so `cocuyo` is the only name a dependent can import
-    // (docs/design.md §20). The rest are created: this build holds the graph as a value, so
-    // `zig build test-<name>` still names each one without the name being part of the package.
+    // Only `cocuyo` and `cocuyo_rotor` are registered, so they are the only names a dependent can
+    // import (docs/design.md §20, §24). The rest are created: this build holds the graph as a
+    // value, so `zig build test-<name>` still names each one without the name being part of the
+    // package.
     const graph: Graph = .{
         .cocuyo = module(b, target, optimize, "cocuyo", roots.cocuyo, register),
         .core = module(b, target, optimize, "core", roots.core, false),
@@ -76,6 +99,7 @@ fn build(
         .cache = module(b, target, optimize, "cache", roots.cache, false),
         .sim = module(b, target, optimize, "sim", roots.sim, false),
         .io = module(b, target, optimize, "io", roots.io, false),
+        .cocuyo_rotor = module(b, target, optimize, "cocuyo_rotor", roots.io, register),
     };
 
     // core imports nothing, and that is the point of it: every limit and every type that two
@@ -96,6 +120,7 @@ fn build(
     graph.cocuyo.addImport("cache", graph.cache);
     graph.io.addImport("cocuyo", graph.cocuyo);
     graph.io.addImport("rotor", graph.sim);
+    graph.cocuyo_rotor.addImport("cocuyo", graph.cocuyo);
 
     return graph;
 }

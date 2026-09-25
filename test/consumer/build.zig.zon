@@ -5,11 +5,18 @@
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .cocuyo = .{ .path = "../.." },
+        // The consumer's own loop, at the pin cocuyo's comparison uses, bound into
+        // `cocuyo_rotor` by build.zig.
+        .rotor = .{
+            .url = "git+https://github.com/c4milo/rotor?ref=v0.4.0#8cde9a67b6fe36cee32196e054ea8c32d5b82145",
+            .hash = "rotor-0.4.0-YZkxRB4NEQD0HGJ9C9Ih29POJZbRpyOh5GUSvy_wjD2q",
+        },
     },
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "main.zig",
         "inside.zig",
+        "embed.zig",
     },
 }

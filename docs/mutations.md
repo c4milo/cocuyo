@@ -1756,3 +1756,22 @@ that would catch it. Four mutations, three `CAUGHT`.
 | FL1 | the rule leaves `.lean` files unread | a model is bounded | the models' fixture test | CAUGHT |
 | FL2 | the rule's scope leaves `spec/` out | a model is bounded | the models' fixture test | CAUGHT |
 | FL3 | the lint walks no directory under `spec/` | a model is bounded | nothing: **the list of directories is checked by nothing, issue #12** | NOT CAUGHT |
+
+## The resolver in the caller's loop
+
+Design §24 step 2, 2026-09-25. The engine is exported as `cocuyo_rotor`, its type `Resolver`,
+with its `rotor` import left for the consumer to bind. `test/consumer/` builds a program that
+binds its own rotor and runs the resolver on its loop beside a timer of its own. Broken against
+`zig build test-io` and `zig build consumer-check`. EX2 was `NOT CAUGHT` at first: the consumer
+depends on cocuyo by path, and a path dependency reads the whole tree, so a path the manifest
+left out was invisible to it. The build now refuses to compile when a registered module's root
+is not under a shipped path, which catches EX2 and its twin for `src/` in every build. Five
+mutations, five `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| TG1 | `apply` does not read the tag | another component's event goes back untouched | the foreign-event test | CAUGHT |
+| EX1 | `cocuyo_rotor` is not registered | a consumer can import the resolver | `consumer-check`, the control | CAUGHT |
+| EX2 | the manifest does not ship `io/` | a fetched package holds the resolver | the build, at compile time | CAUGHT |
+| EX2b | the manifest does not ship `src/` | a fetched package holds the library | the build, at compile time | CAUGHT |
+| EX3 | the consumer binds no rotor into `cocuyo_rotor` | the loop is the consumer's type | `consumer-check`, the control | CAUGHT |

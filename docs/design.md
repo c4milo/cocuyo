@@ -2571,7 +2571,9 @@ for one — and this consumer does not ask for one.
 - `build.zig` registers one module, `cocuyo`, rooted at `src/cocuyo.zig`, and returns before the
   tools' dependency when cocuyo is not the root build, so a dependent resolves the library and
   fetches nothing else. `build.zig.zon` ships `build.zig`, `build/` and `src/`; pepegrillo and
-  rotor are lazy, and only the root build asks for either.
+  rotor are lazy, and only the root build asks for either. Since 2026-09-25 it registers
+  `cocuyo_rotor` too, rooted at `io/io.zig`, and ships `io/` (§24). The build refuses to compile
+  when a registered module's root is not under a path the manifest ships.
 - `src/cocuyo.zig` holds no logic. It re-exports each module of §2 as a namespace and flattens
   the names a consumer reaches for beside them.
 
@@ -3246,7 +3248,11 @@ An image runs one loop on each core and one engine on each loop. Nothing crosses
    mutable state in its library, so threads that drive their own connections share nothing.
 2. The engine exported, with the hooks module and the lint rule on global state. `test/consumer/`
    binds a rotor of its own, runs the engine on a loop it ticks itself beside an operation of
-   its own, and requires each event to reach its owner.
+   its own, and requires each event to reach its owner. The export landed on 2026-09-25:
+   `cocuyo_rotor` is registered with its `rotor` import unbound, `test/consumer/` builds a
+   program that binds its own rotor and runs the resolver on its loop, and a twin test hands the
+   resolver an event of another component's and requires it back untouched. The hooks module
+   and the lint rule are still to come.
 3. The engine model gains the request transport: connections and their streams, the cancel and
    the failure. Design, model, code, in that order (§19 step 13).
 4. DoQ over colibri and chapulin, with twin tests and a live check against AdGuard and NextDNS.

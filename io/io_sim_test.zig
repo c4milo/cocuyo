@@ -219,6 +219,31 @@ test "the end of a timer the engine has replaced is not taken for the current on
     try rig.deinit();
 }
 
+test "an event another component submitted is handed back untouched" {
+    // A consumer's loop carries its own operations beside the resolver's, told apart by the tag
+    // in the high bits of `user_data` (docs/design.md §24). This one is the resolver's own
+    // current timer in every bit but the tag: taken for the resolver's, it would end that timer.
+    var rig: Rig = .{};
+    try rig.init(11, .{ .{ .down = true }, .{ .down = true } }, .{ .servers = &.{}, .timeout_ns = 2_000_000_000, .attempts = 1 });
+    const started = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.step(0);
+    const armed = rig.engine.timer_handle;
+    try testing.expect(armed != null);
+    const own = Resolver.user_data(.timer, rig.engine.timer_generation);
+    const other_tag: u64 = Resolver.tag +% 1;
+    const below_tag: u64 = (@as(u64, 1) << io.constants.tag_shift) - 1;
+    const foreign: rotor.Event = .{ .user_data = (other_tag << io.constants.tag_shift) | (own & below_tag), .result = 0, .flags = .{} };
+    try testing.expect(!rig.engine.apply(foreign, rig.loop.now()));
+    try testing.expectEqual(armed, rig.engine.timer_handle);
+    try testing.expectEqual(@as(?u64, 2_000_000_000), rig.engine.timer_due_ns);
+    try testing.expectEqual(@as(usize, 1), rig.engine.active());
+
+    rig.engine.cancel(started, rig.loop.now());
+    try testing.expectEqual(cocuyo.Error.Canceled, (try rig.until_result()).outcome.failure.err);
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
 test "a timer that fires before the caller's clock reaches the deadline is armed again" {
     var rig: Rig = .{};
     try rig.init(10, .{ .{ .down = true }, .{ .down = true } }, .{ .servers = &.{}, .timeout_ns = 2_000_000_000, .attempts = 1 });
