@@ -458,10 +458,11 @@ Eight states: `query_ready`, `awaiting_udp`, `tcp_needed`, `connecting_tcp`, `tc
 | `awaiting_udp` | `on_response` BADCOOKIE again | `tcp_needed` | same server, over TCP |
 | `tcp_needed` | `poll` | `connecting_tcp` | return `connect_tcp`, arm the deadline |
 | `connecting_tcp` | `on_tcp_connected` | `tcp_ready` | re-arm the deadline |
-| `connecting_tcp` | `on_tcp_failed` or deadline | `query_ready` or `failed` | advance the server |
+| `connecting_tcp` | `on_tcp_failed` | `query_ready` or `failed` | advance the server, as SERVFAIL does |
+| `connecting_tcp` | deadline | `query_ready` or `failed` | advance the server |
 | `tcp_ready` | `poll` | `tcp_ready` | build with the length prefix, return `send_tcp` |
 | `tcp_ready` | `on_sent` | `awaiting_tcp` | arm the deadline |
-| `tcp_ready`, `awaiting_tcp` | `on_tcp_failed` | `query_ready` or `failed` | advance the server |
+| `tcp_ready`, `awaiting_tcp` | `on_tcp_failed` | `query_ready` or `failed` | advance the server, as SERVFAIL does |
 | `awaiting_tcp` | `on_response` | as the UDP rows | TC=1 means nothing here, so the message is read as if it were clear |
 | `awaiting_tcp` | `on_response` BADCOOKIE | `query_ready` or `failed` | advance the server, as SERVFAIL does |
 | `done`, `failed` | any | unchanged | `poll` returns the same value; `on_response` is `ignored` |
@@ -473,7 +474,7 @@ BADCOOKIE advances the server. And one row is added:
 
 | State | Event | Next state | Effect |
 | --- | --- | --- | --- |
-| `awaiting_udp` | `on_request_failed` for the current transaction | `query_ready` or `failed` | advance the server |
+| `awaiting_udp` | `on_request_failed` for the current transaction | `query_ready` or `failed` | advance the server, as SERVFAIL does |
 
 After `send_tcp` the caller reads two bytes, calls `wire.message_len(prefix)`, reads that many
 bytes and passes them to `on_response`. There is no `read` action: the `wait` deadline already
@@ -486,7 +487,11 @@ governs the read, and the framing rule is three lines in the example (§15 step 
   glibc does; this is recalled, not measured.
 - On expiry: `server_index += 1`. On wrap: `server_index = 0`, `round += 1`. When
   `round == config.attempts` the lookup fails with `Timeout`, or with `AllServersFailed` if any
-  server answered SERVFAIL, REFUSED or NOTIMP, FORMERR without EDNS0, or BADCOOKIE over TCP.
+  server answered SERVFAIL, REFUSED or NOTIMP, FORMERR without EDNS0, or BADCOOKIE over TCP,
+  or refused the lookup: a connection or a handshake that failed, or a DoH or DoQ request that
+  ended without an answer (§16 decision 25). So `Timeout` means that every try went unanswered.
+  A failed send is not a refusal: the loop or the local stack refused it, and the server said
+  nothing.
 - EDNS0 is off for the server that answered FORMERR, and on again at the next server and the
   next name. RFC 6891 §6.2.2 makes a server's lack of EDNS0 a fact about that server, and a
   lookup that kept it off would ask every later server without a cookie and with a 512-octet
@@ -1303,6 +1308,19 @@ step until `zig build test` passes.
     that can drift. The lookup's model carries proofs no bounded check gives, so it stays in
     Lean. pepegrillo's `tla` and `lean` tools run both, from `spec/tla/` and `spec/lean/`.
     §19 step 13.
+25. **A server that refuses a lookup has failed it, as one that answers SERVFAIL has.** Ruled
+    by the owner on 2026-09-24 (issue #11). A connection or a handshake that fails, or a DoH or
+    DoQ request that ends without an answer, makes a lookup whose passes run out end in
+    `AllServersFailed`, and `Timeout` means that every try went unanswered. Before, only an
+    answer counted: a lookup every server refused, strict DoT's refusal of each certificate
+    included, ended in `Timeout`, as one no server answered does, and `Timeout`'s own comment
+    said every pass ran out of time. Rejected: a new error for strict mode's refusal, which
+    needs the lookup to learn why a stream failed, a second change to the API in a call every
+    consumer that owns its sockets makes; and the engine reporting each server's last failure
+    beside the result, which leaves `Timeout` saying time ran out to every consumer outside it.
+    A socket the system refuses reaches the lookup as a failed connection too, and counts,
+    though the server said nothing: the call carries no reason. A failed send stays silence.
+    The lookup model proves that a lookup any server refused never ends in `Timeout`. §5.
 
 ## 17. Questions for the owner
 
@@ -2746,7 +2764,8 @@ code is.
    a connect.
 4. A handshake that fails fails the connection (the stream's rule 5): a record the session
    refuses, a certificate or a name that does not verify. No query was sent on it, and each
-   lookup on it fails over to the next server.
+   lookup on it fails over to the next server. The server has refused the lookup, so one whose
+   passes run out ends in `AllServersFailed` (§16 decision 25).
 5. An idle connection that is up makes the session's `close_notify` (RFC 9846 §6.1). It closes
    when that record has gone, and no lookup joins it meanwhile. A record the peer sends
    meanwhile is not read: the session has said its last. One whose handshake has not
@@ -2912,6 +2931,8 @@ Checks, one for each piece:
 - The engine model's invariants hold with the handshake stage in, and the replay agrees.
 - A certificate that does not match the name fails the lookup over to the next server, and no
   query goes out on port 53.
+- A lookup whose every handshake failed ends in `AllServersFailed`, and one no server answered
+  in `Timeout` (§16 decision 25).
 
 ## 22. DNS over HTTPS, the DNS half
 
@@ -2960,7 +2981,8 @@ and it records the owner's rulings of 2026-09-24. Each piece lands with its chec
 - **An HTTP failure.** A response that is not 2xx carries no answer (RFC 8484 §4.2.1). The driver
   retries what HTTP retries, such as a 401 once it has credentials. What reaches the lookup is
   that this server failed this transaction, and the lookup moves to the next server, counting
-  the failure against this one, as for a connection that failed.
+  the failure against this one, as for a connection that failed. A lookup whose passes run out
+  after one ends in `AllServersFailed` (§16 decision 25).
 - **`use_tcp`.** Every query on a stream means TCP, and a DoH server takes HTTP, so
   `assert_valid` refuses the two together.
 - **The engine.** The engine of §19 step 13 speaks no HTTP, and asserts that its configuration
@@ -3041,7 +3063,8 @@ needed. This section is the DNS half's plan, and it records the owner's rulings 
   driver cancels that stream with STOP_SENDING (§4.3.1): that is QUIC's, and the driver's.
 - **A failure.** A stream the server resets (§4.3.2), a connection that fails (§4.4) and a
   handshake that fails each end the request without an answer. The driver says so, and the
-  lookup moves to the next server, counting a failure against this one.
+  lookup moves to the next server, counting a failure against this one. A lookup whose passes
+  run out after one ends in `AllServersFailed` (§16 decision 25).
 - **0-RTT.** Only a QUERY or a NOTIFY may go in 0-RTT data (§4.5), and every message cocuyo
   builds is a QUERY. So the driver may use 0-RTT; the privacy trade-off of §7.1 is its own.
 - **No fallback.** RFC 9250 §5.2 lets a client fall back to DoT, then to cleartext, by its usage
