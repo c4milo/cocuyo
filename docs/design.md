@@ -1340,6 +1340,14 @@ step until `zig build test` passes.
     connections and seeds. Rejected: an engine or a cache shared across threads, which needs a
     lock or atomics in the lookup's path. The cost is a cache on each core, and a connection
     from each core to each encrypted server. §24.
+29. **The gate runs the engine over two QUIC transports: the twin's, and colibri's.** Ruled by
+    the owner on 2026-09-25. The twin's `sim.quic` carries the model's replay and the failure
+    paths, since the replay needs each step of the model when the walk names it: a handshake on
+    another protocol, a stream reset, a QUIC timer due at a chosen instant. colibri's QUIC runs
+    on the twin as an integration test, with a TLS provider of cocuyo's that encrypts nothing,
+    and colibri is pinned by hash as a lazy dependency. Rejected: colibri alone, which makes
+    those steps from packets and loss timers, never on demand; and the twin alone, which leaves
+    real QUIC to the live check that runs once a day. §24.
 
 ## 17. Questions for the owner
 
@@ -3239,13 +3247,21 @@ all DoQ or all DoH (§22, §23), and the rules hold for both. Where they differ,
 4. **A request waits for its connection.** A request taken while its connection opens or
    handshakes waits in the connection's queue. When the connection is up, each waiting request
    opens its stream in the order it was taken, and supplies its bytes, then FIN. A stream colibri
-   cannot open yet, for want of the server's stream credit, waits for the next credit.
+   cannot open yet, for want of the server's stream credit, waits, and each drive asks again.
+   Every datagram received is followed by a drive, so the credit's arrival is. The model gives
+   the server credit for every request.
 5. **The answer by its stream.** A stream the server ends with FIN is read whole, into one buffer
    the engine keeps for the purpose, and handed over at once: the table reads an answer before
    the call returns. Over DoQ the message goes to the lookup without its prefix, with the
    transaction the request carried and an `Age` of zero. Over DoH a 2xx response's body goes with
    its `Age` (RFC 8484 §5.1), and any other status fails the request (§4.2.1). The lookup hears
-   it only if the request's attempt is still its own, as stream rule 7 has it for a send.
+   it only if the request's attempt is still its own, as stream rule 7 has it for a send. Over
+   DoQ the stream must hold one message and its prefix, and the message's ID must be 0: a FIN
+   before the prefix's octets have come, octets after them, or another ID is a protocol error
+   (RFC 9250 §4.2, §4.2.1, §4.3.3). The engine fails the connection, as rule 7 says, which is
+   the silent abandonment §4.3.3 allows. An answer longer than the buffer fails it too, as an
+   answer longer than a TCP connection's frame does. The buffer is `tcp_message_bytes` long,
+   since a DoQ stream holds what a TCP connection holds (§4.2).
 6. **A request the lookup left is cancelled.** When the drive finds a lookup has left the
    transaction its request carries, because its deadline passed, it moved on, it ended, or it was
    cancelled or released, the engine cancels the stream. It sends STOP_SENDING and resets its own
@@ -3266,9 +3282,14 @@ all DoQ or all DoH (§22, §23), and the rules hold for both. Where they differ,
    refused receive is: colibri makes a datagram again from what is still unacknowledged, and
    QUIC takes a datagram lost or late.
 9. **An idle connection closes.** A connection with no request on it for `quic_idle_ns`, or one
-   near the idle timeout it negotiated (RFC 9250 §4.4), closes. The engine has colibri make
-   CONNECTION_CLOSE, with DOQ_NO_ERROR (RFC 9250 §4.4) or H3_NO_ERROR (RFC 9114 §8.1), and closes
-   the socket once that datagram has gone. A request taken meanwhile waits, and opens the connection again once it has closed.
+   with no request on it and less than `quic_idle_margin_ns` left before the idle timeout it
+   negotiated (RFC 9250 §4.4), closes. A request taken for such a connection closes it first,
+   which is §4.4's SHOULD: a client checks the idle time before it sends a query, and opens a
+   new connection when little is left. The engine has colibri make CONNECTION_CLOSE, with
+   DOQ_NO_ERROR (RFC 9250 §4.4) or H3_NO_ERROR (RFC 9114 §8.1), and closes the socket once that
+   datagram has gone. A request taken meanwhile waits, and opens the connection again once it
+   has closed. The model leaves out the negotiated timeout: the twin's is never near in the
+   replay.
 10. **Tickets.** Each server keeps the newest ticket its connections were given, spent once, and
     dropped at its lifetime or 7 days after it came, as TLS rule 8 has it. chapulin finishes a
     declined ticket as a full handshake on the same connection, so a decline is no failure.
@@ -3307,17 +3328,24 @@ colibri's `quic` and `h3` over chapulin's QUIC object, in the engine's words:
   wall clock and the engine's seeded stream. It makes the first flight.
 - `receive` takes one datagram. What it did is read with `next`, one thing at a time: the
   handshake ended, and on which protocol; the handshake failed; a stream was answered; a stream was
-  reset; the server closed; a ticket came. An answer carries its message, and over DoH its status,
-  its `Age` and whether a content coding was applied (request rules 5 and 12).
-- `request` opens a stream for a request slot, or says the server's stream credit has run out. Over
-  DoQ it carries the lookup's message with its prefix, then FIN. Over DoH it carries a GET built
-  from the server's template and the `dns` variable, with `accept-encoding: identity` and a
-  never-indexed `:path` (request rule 12). The request's bytes stay in the slot until the stream
-  no longer needs them (request rule 3).
+  reset; the connection closed, by the server, an error or the idle timeout; a ticket came. An
+  answer's octets are written into the buffer `next` is handed, which is the engine's (request
+  rule 5), and the answer says how many there were, even past the buffer's end. Over DoH it
+  carries the status, the `Age` and whether a content coding was applied (request rules 5 and
+  12). A stream `next` calls answered or reset reads its slot's bytes no more.
+- `request` opens a stream for a request slot, or says it cannot yet, for want of the server's
+  stream credit. It is handed the slot's bytes, the first of which hold the lookup's message:
+  with its prefix over DoQ, where the stream carries them and then FIN. Over DoH it makes the
+  slot's bytes a GET built from the server's template and the `dns` variable, with
+  `accept-encoding: identity` and a never-indexed `:path` (request rule 12). The slot's bytes
+  stay the transport's until the stream no longer needs them (request rule 3), and there are
+  `request_bytes_max` of them.
 - `cancel` sends STOP_SENDING and resets the engine's side of a stream (request rule 6).
-- `datagram` hands over the next datagram the connection owes, or nothing.
+- `datagram` writes the next datagram the connection owes into the connection's buffer, at most
+  `datagram_bytes_max` octets, or nothing.
 - `deadline` gives the connection's next QUIC deadline, and `expire` tells it the instant came.
-  What that did is read with `next` (request rule 11).
+  What that did is read with `next` (request rule 11). `idle_left_ns` says how long the
+  connection has before its negotiated idle timeout (request rule 9).
 - `close` makes the CONNECTION_CLOSE of an idle close (request rule 9), and `wipe` drops every
   secret.
 
@@ -3363,6 +3391,9 @@ An image runs one loop on each core and one engine on each loop. Nothing crosses
 | `quic_connections_max` | `servers_max` | one connection to a server |
 | `quic_streams_max` | the engine's `lookups` | one stream for a request, and a request for each lookup at most |
 | `quic_receive_bytes` | measured in step 4 | colibri's receive pool for a connection, the caller's to size; its default of 1 MiB is far past the answers a connection has in flight |
+| `quic_idle_ns_default` | 10 s | how long a connection with no request is kept, TCP's `tcp_idle_ns_default`; RFC 9250 §5.5.2 names no value, and this one is chosen, not measured |
+| `quic_idle_margin_ns` | 1 s | how near the negotiated idle timeout a connection stops taking requests: a query and its answer take less, chosen, not measured |
+| `quic_connection_events_max` | 16 | beside one answer or reset for each of the engine's `lookups`, the `next` calls one datagram or one expiry is read with, which bounds the loop: the handshake's end, a close and tickets, chosen, not measured. What a flood leaves unread is read with the next datagram |
 
 ### Order and checks
 
