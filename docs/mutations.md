@@ -1794,3 +1794,19 @@ mutations, three `CAUGHT`.
 | HK2 | `enter` sets no stream | a draw comes from the stream entered | the draw test, by the hook's panic | CAUGHT |
 | HK3 | the session enters no stream when it starts | chapulin draws when a handshake starts | the session test, by the hook's panic | CAUGHT |
 | HK4 | the session does not reference the hooks module | the image links the hooks with the session | nothing: **every program here starts a session** | NOT CAUGHT |
+
+## No state every thread shares
+
+Design §24 step 2, 2026-09-25. pepegrillo's `global_state` rule, at `6fcb273`, reports a
+container-level `var` that is not `threadlocal`. cocuyo runs it over `src/` and `io/`, and its
+canary tree holds one. pepegrillo's own commit records GS1 to GS6, the rule's checks. The first
+run here found five shared `var`s. Four were test fixtures, and the fifth was the twin's network,
+which two threads' loops would have reset under each other. All five are thread-local now.
+Broken against `zig build test-tools` and `zig build lint`. Four mutations, four `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| GC1 | the rule's scope leaves `io/` out | the engine keeps no shared state | the scope test | CAUGHT |
+| GC2 | the rule is not registered | every rule checks the build | the registered-rules test, and the canary | CAUGHT |
+| GC3 | the canary holds no shared `var` | the canary shows the rule is live | the canary run | CAUGHT |
+| GC4 | the twin's network is shared by every thread again | a thread per core shares nothing | `zig build lint` | CAUGHT |

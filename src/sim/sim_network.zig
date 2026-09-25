@@ -1,7 +1,8 @@
 //! The virtual network under the twin's loop: sockets, the datagrams and stream bytes waiting to
 //! be delivered, and the scripted servers they go to (docs/design.md §19 step 13). One per
-//! process, as the kernel is one per process: rotor's `sync` calls take no loop, so the twin's
-//! cannot either, and `Loop.init` resets it.
+//! thread: rotor's `sync` calls take no loop, so the twin's cannot either, and a thread's loop and
+//! its `sync` calls reach the thread's own network. A thread per core shares nothing (§24), so a
+//! twin on each thread is a kernel of its own, and `Loop.init` resets the thread's.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -167,8 +168,8 @@ pub const Network = struct {
     }
 };
 
-/// The one network of the process.
-pub var network: Network = .{};
+/// The network of this thread.
+pub threadlocal var network: Network = .{};
 
 // The `sync` calls rotor's surface names, over the network above.
 

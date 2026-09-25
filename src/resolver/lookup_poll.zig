@@ -119,7 +119,7 @@ const servers = fixtures.servers_two;
 const Buffer = [core.constants.query_bytes_max]u8;
 
 /// The per-server state of the lookup under test. One at a time is enough here.
-var test_servers: Servers = undefined;
+threadlocal var test_servers: Servers = undefined;
 
 fn lookup_for(config: *const Config, text: []const u8) !Lookup {
     test_servers = Servers.init(config, fixtures.seed);

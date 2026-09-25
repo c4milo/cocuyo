@@ -157,15 +157,16 @@ The architecture depends on every rule in this section.
 - Build: `zig build`. `-Drelease` builds ReleaseSafe; ReleaseFast and ReleaseSmall are not offered,
   because assertions stay on.
 - Lint: `zig build lint` — the cognitive-complexity score over `build.zig`, `build/`, `src/`,
-  `tools/`, `examples/`, `bench/` and `io/`, then the `tools/lint` rules (heap, io, determinism, unbounded-loop,
-  relative-import, markdown, file-length, magic-numbers, defer-order, unreleased-acquire) over
-  the tree and over a canary tree that
-  holds one violation of each, so a rule that stopped checking fails the build.
+  `tools/`, `examples/`, `bench/` and `io/`, then the `tools/lint` rules (heap, io, determinism,
+  unbounded-loop, relative-import, markdown, file-length, magic-numbers, defer-order,
+  unreleased-acquire, global-state) over the tree and over a canary tree that holds one violation
+  of each, so a rule that stopped checking fails the build.
 - Test: `zig build test` — the lint, the graph check, the consumer check, the hook check, then
   every module's unit tests and the tools' own tests. Every change passes it before it is
   committed. `zig build test-<module>` (`test-core`, `test-wire`, `test-resolver`, `test-config`,
-  `test-cache`, `test-sim`, `test-cocuyo`, `test-io`, `test-chapulin_hooks`) and `zig build test-tools` run one target's tests with
-  nothing else in the graph, which is what a mutation is measured against. `zig build
+  `test-cache`, `test-sim`, `test-cocuyo`, `test-io`, `test-chapulin_hooks`) and `zig build
+  test-tools` run one target's tests with nothing else in the graph, which is what a mutation is
+  measured against. `zig build
   consumer-check` alone builds `test/consumer/`, the package that depends on cocuyo the way a
   consumer does, with `cocuyo_rotor` over a rotor of its own, and requires the same package to
   fail when it reaches for a module the surface does not export (design §20, §24).

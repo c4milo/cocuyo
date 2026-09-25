@@ -98,7 +98,7 @@ const testing = std.testing;
 
 fn text_of(name: *const Name) ![]const u8 {
     const out = struct {
-        var buffer: [constants.name_text_bytes_max]u8 = undefined;
+        threadlocal var buffer: [constants.name_text_bytes_max]u8 = undefined;
     };
     return out.buffer[0..name.write_text(&out.buffer)];
 }

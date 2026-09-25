@@ -3230,8 +3230,8 @@ An image runs one loop on each core and one engine on each loop. Nothing crosses
   each encrypted server. An image of `n` cores holds up to `n` times `servers_max` of them. A
   cache shared across cores was the alternative, and it needs a lock or atomics in the lookup's
   path, which the architecture refuses. A miss costs one round trip.
-- cocuyo keeps no global mutable state, and a lint rule will hold it there: no container-level
-  `var` under `src/` or `io/` but a `threadlocal` one.
+- cocuyo keeps no global mutable state, and the global-state rule holds it there: no
+  container-level `var` under `src/` or `io/` but a `threadlocal` one.
 
 ### New limits
 
@@ -3254,7 +3254,10 @@ An image runs one loop on each core and one engine on each loop. Nothing crosses
    resolver an event of another component's and requires it back untouched. The hooks module
    landed the same day: `chapulin_hooks`, registered, holds `ch_rand_bytes`, `ch_assert_fail`
    and the thread-local stream, with `enter` and `leave` for each user of chapulin, and the DoT
-   session links it whenever it is linked. The lint rule is still to come.
+   session links it whenever it is linked. The lint rule landed the same day, as pepegrillo's
+   `global_state` at `6fcb273`, configured over `src/` and `io/`. Its first run found five
+   shared `var`s. Four were test fixtures. The fifth was the twin's network, one per process,
+   which two threads' loops would have reset under each other. All five are thread-local now.
 3. The engine model gains the request transport: connections and their streams, the cancel and
    the failure. Design, model, code, in that order (§19 step 13).
 4. DoQ over colibri and chapulin, with twin tests and a live check against AdGuard and NextDNS.

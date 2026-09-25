@@ -72,7 +72,7 @@ const integer = @import("integer.zig");
 const Name = core.Name;
 const Outcome = response.Outcome;
 
-var test_chain: Name = Name.empty;
+threadlocal var test_chain: Name = Name.empty;
 
 fn collect_from(message: []const u8, kind: Kind, out: *Answers) !Outcome {
     test_chain = try Name.from_text("example.com");

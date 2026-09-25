@@ -350,7 +350,7 @@ const testing = std.testing;
 const fixtures = @import("fixtures.zig");
 
 /// The chain the tests walk, left holding the canonical name when a CNAME was followed.
-var test_chain: Name = Name.empty;
+threadlocal var test_chain: Name = Name.empty;
 
 fn collect_from(message: []const u8, kind: Kind, out: *Answers) !Outcome {
     test_chain = try Name.from_text("example.com");
