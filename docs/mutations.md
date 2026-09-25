@@ -1775,3 +1775,22 @@ mutations, five `CAUGHT`.
 | EX2 | the manifest does not ship `io/` | a fetched package holds the resolver | the build, at compile time | CAUGHT |
 | EX2b | the manifest does not ship `src/` | a fetched package holds the library | the build, at compile time | CAUGHT |
 | EX3 | the consumer binds no rotor into `cocuyo_rotor` | the loop is the consumer's type | `consumer-check`, the control | CAUGHT |
+
+## chapulin's hooks, once in an image
+
+Design §24 step 2, 2026-09-25. `ch_rand_bytes` and `ch_assert_fail` moved out of the DoT session
+into `chapulin_hooks`, a module the image binds once for every user of chapulin, with a
+thread-local stream each user enters around the calls that can draw. HK3 was first caught by a
+link error rather than a test. The tests never call `handshake`, so with `start`'s use gone
+nothing referenced the module, and its exports were never emitted. The session now references
+the module whenever it is linked, and HK3 is caught by the start test. HK4 removes that
+reference, and nothing here catches it, since every program that links the session also starts
+one. Broken against `zig build test-chapulin_hooks` and `zig build test-chapulin`. Four
+mutations, three `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| HK1 | the stream is one global rather than one a thread | a thread per core draws from its own | the two-thread test, by the assertion in `enter` | CAUGHT |
+| HK2 | `enter` sets no stream | a draw comes from the stream entered | the draw test, by the hook's panic | CAUGHT |
+| HK3 | the session enters no stream when it starts | chapulin draws when a handshake starts | the session test, by the hook's panic | CAUGHT |
+| HK4 | the session does not reference the hooks module | the image links the hooks with the session | nothing: **every program here starts a session** | NOT CAUGHT |

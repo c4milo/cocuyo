@@ -25,6 +25,9 @@ pub const Graph = struct {
     /// The driver of docs/design.md §19 step 13, compiled against the twin: `sim` stands in for
     /// `rotor`, so its tests run with no socket and no kernel.
     io: *std.Build.Module,
+    /// chapulin's hooks, which an image defines once for every user of chapulin it links
+    /// (docs/design.md §21, §24): registered, so a consumer that uses chapulin too binds this one.
+    chapulin_hooks: *std.Build.Module,
     /// The same driver as a consumer imports it (docs/design.md §24). Its `rotor` import is left
     /// for the consumer to bind, so the loop it runs on is the consumer's own type, and an image
     /// holds one rotor. Nothing in this build compiles it; `zig build consumer-check` does.
@@ -42,6 +45,7 @@ pub const roots = .{
     .cache = "src/cache/cache.zig",
     .sim = "src/sim/sim.zig",
     .io = "io/io.zig",
+    .chapulin_hooks = "io/io_chapulin_hooks.zig",
 };
 
 // Every module this build registers has its root under a path the manifest ships. A dependent
@@ -49,7 +53,7 @@ pub const roots = .{
 // show a path left out: it depends on cocuyo by path, which reads the whole tree
 // (docs/mutations.md EX2).
 comptime {
-    for ([_][]const u8{ roots.cocuyo, roots.io }) |root| {
+    for ([_][]const u8{ roots.cocuyo, roots.io, roots.chapulin_hooks }) |root| {
         if (!shipped(root)) @compileError("build.zig.zon's paths do not ship " ++ root);
     }
 }
@@ -86,8 +90,8 @@ fn build(
     optimize: std.builtin.OptimizeMode,
     register: bool,
 ) Graph {
-    // Only `cocuyo` and `cocuyo_rotor` are registered, so they are the only names a dependent can
-    // import (docs/design.md §20, §24). The rest are created: this build holds the graph as a
+    // Only `cocuyo`, `cocuyo_rotor` and `chapulin_hooks` are registered, so they are the only names
+    // a dependent can import (docs/design.md §20, §24). The rest are created: this build holds the graph as a
     // value, so `zig build test-<name>` still names each one without the name being part of the
     // package.
     const graph: Graph = .{
@@ -100,6 +104,7 @@ fn build(
         .sim = module(b, target, optimize, "sim", roots.sim, false),
         .io = module(b, target, optimize, "io", roots.io, false),
         .cocuyo_rotor = module(b, target, optimize, "cocuyo_rotor", roots.io, register),
+        .chapulin_hooks = module(b, target, optimize, "chapulin_hooks", roots.chapulin_hooks, register),
     };
 
     // core imports nothing, and that is the point of it: every limit and every type that two

@@ -7,7 +7,7 @@
 //! relative path, imports `cocuyo`, and builds a query through the table with the cache under it.
 //!
 //! The negative control is the same package with `-Dreach-inside`, which asks for `sim`. Only
-//! `cocuyo` and `cocuyo_rotor` are registered, so that build must fail. As in `graph_check`, the positive run is what
+//! `cocuyo`, `cocuyo_rotor` and `chapulin_hooks` are registered, so that build must fail. As in `graph_check`, the positive run is what
 //! stops the check from being vacuous: a check that only requires a failure passes when the
 //! failure has nothing to do with the rule — a mistyped path, a missing Zig, a broken invocation.
 //!

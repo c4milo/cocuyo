@@ -3252,7 +3252,9 @@ An image runs one loop on each core and one engine on each loop. Nothing crosses
    `cocuyo_rotor` is registered with its `rotor` import unbound, `test/consumer/` builds a
    program that binds its own rotor and runs the resolver on its loop, and a twin test hands the
    resolver an event of another component's and requires it back untouched. The hooks module
-   and the lint rule are still to come.
+   landed the same day: `chapulin_hooks`, registered, holds `ch_rand_bytes`, `ch_assert_fail`
+   and the thread-local stream, with `enter` and `leave` for each user of chapulin, and the DoT
+   session links it whenever it is linked. The lint rule is still to come.
 3. The engine model gains the request transport: connections and their streams, the cancel and
    the failure. Design, model, code, in that order (§19 step 13).
 4. DoQ over colibri and chapulin, with twin tests and a live check against AdGuard and NextDNS.

@@ -10,13 +10,22 @@
 //! chapulin's calls take a callback for every byte it sends or reads once connected. Here they
 //! are buffer copies that never block: `send` stages what chapulin writes, and `recv` serves the
 //! one whole record the engine handed over, and then nothing, which chapulin answers with
-//! `CH_RECORD_AGAIN` (its rec.h). The image supplies `ch_rand_bytes`, fed from the engine's
-//! seeded stream while a handshake runs, and `ch_assert_fail`.
+//! `CH_RECORD_AGAIN` (its rec.h). The image supplies `ch_rand_bytes` and `ch_assert_fail` once,
+//! through the `chapulin_hooks` module it binds (`io/io_chapulin_hooks.zig`), and the session
+//! points `ch_rand_bytes` at the engine's seeded stream while a handshake runs.
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
 // The engine's constants, through the engine's module: a file belongs to one module.
 const constants = @import("io").constants;
+const hooks = @import("chapulin_hooks");
+
+// chapulin's object calls the hooks whatever of the session a program uses, so the image links
+// them whenever it links the session: a module is analysed, and its exports emitted, only when
+// something references it.
+comptime {
+    _ = hooks;
+}
 
 pub const c = @cImport({
     @cDefine("CH_TRUST_WEBPKI", "1");
@@ -26,20 +35,6 @@ pub const c = @cImport({
     @cInclude("tls.h");
     @cInclude("build.h");
 });
-
-/// The stream `ch_rand_bytes` draws from: the engine's of the session whose handshake chapulin
-/// is running, and only during that call. chapulin draws when a handshake starts, and once it
-/// speaks P-256, when a HelloRetryRequest asks for that group (docs/design.md §21).
-threadlocal var drawing: ?*std.Random.ChaCha = null;
-
-export fn ch_rand_bytes(bytes: [*]u8, count: usize) void {
-    const stream = drawing orelse @panic("chapulin drew randomness outside a handshake");
-    stream.fill(bytes[0..count]);
-}
-
-export fn ch_assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) noreturn {
-    std.debug.panic("chapulin: {s} at {s}:{d}", .{ condition, file, line });
-}
 
 comptime {
     if (constants.tls_records_out_bytes < c.REC_HDR + c.CH_TX_STAGE + cocuyo.constants.query_bytes_max + constants.tls_record_overhead_bytes) {
@@ -137,8 +132,8 @@ pub const Session = struct {
         self.trust(tls, context, start_with.now_ns);
         if (start_with.ticket) |ticket| self.resume_with(ticket, start_with.ticket_age_ns);
         self.stream = &context.stream;
-        drawing = self.stream;
-        defer drawing = null;
+        hooks.enter(self.stream.?);
+        defer hooks.leave();
         if (c.ch_record_init(&self.record, &self.config) != c.CH_OK) return Error.Failed;
         self.live = true;
         try self.collect();
@@ -205,9 +200,8 @@ pub const Session = struct {
     /// is rewritten.
     pub fn handshake(self: *Session, record: []u8) Error!Handshake {
         assert(self.live);
-        assert(self.stream != null);
-        drawing = self.stream;
-        defer drawing = null;
+        hooks.enter(self.stream.?);
+        defer hooks.leave();
         var consumed: usize = 0;
         if (c.ch_record_in(&self.record, record.ptr, record.len, &consumed) != c.CH_OK) return self.fail();
         // The engine hands over one whole record, and chapulin takes whole records: less is a

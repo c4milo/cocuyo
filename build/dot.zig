@@ -99,6 +99,7 @@ pub fn session_module(
     });
     module.addImport("cocuyo", graph.cocuyo);
     module.addImport("io", engine);
+    module.addImport("chapulin_hooks", graph.chapulin_hooks);
     module.addIncludePath(.{ .cwd_relative = checkout });
     module.addObjectFile(.{ .cwd_relative = b.fmt("{s}/{s}", .{ checkout, object }) });
     return module;
