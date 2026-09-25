@@ -132,21 +132,29 @@ CloseIdleRFrom(st, v) ==
 \* CONNECTION_CLOSE, and the socket closes once it has gone (request rule 9).
 CloseIdleR(st) == CloseIdleRFrom(st, 0)
 
+\* Whether a connection, as `c`, has a datagram to send and its buffer to send it from.
+Sends(c) == c.stage # "closed" /\ ~c.lent /\ (c.made \/ c.owes)
+
+\* Connection v's datagram goes, whose state before the drive's tending was `c`: the one kept from
+\* a refusal, or else one colibri makes now. One the loop refuses is kept (request rule 8).
+SendR(st, c, v) ==
+    LET made == IF c.made THEN st ELSE [st EXCEPT !.rconns[v].made = TRUE, !.rconns[v].owes = FALSE]
+    IN IF st.jammed THEN made
+       ELSE [made EXCEPT !.rconns[v].made = FALSE, !.rconns[v].lent = TRUE,
+                         !.ops = Add(@, Op("qsend", v))]
+
 RECURSIVE TendRConnsFrom(_, _)
 TendRConnsFrom(st, v) ==
     IF v >= RServers THEN st
     ELSE
     LET c == st.rconns[v]
         listened == IF c.stage # "closed" /\ ~QReceiving(st, v) THEN QListen(st, v) ELSE st
-        sent == IF c.stage # "closed" /\ c.owes /\ ~c.lent /\ ~listened.jammed
-                THEN [listened EXCEPT !.rconns[v].owes = FALSE, !.rconns[v].lent = TRUE,
-                                      !.ops = Add(@, Op("qsend", v))]
-                ELSE listened
-    IN TendRConnsFrom(sent, v + 1)
+    IN TendRConnsFrom(IF Sends(c) THEN SendR(listened, c, v) ELSE listened, v + 1)
 
 \* What a drive does last, connection by connection: a receive armed on each socket that has none,
-\* and the datagram colibri owes sent when the buffer is back. The loop may refuse either, and the
-\* next drive asks again (request rule 8, the datagram's rule 1).
+\* and a datagram sent when the buffer is back: the one the loop refused before, or the one colibri
+\* owes. A datagram the loop refuses is kept for the next drive, and a receive it refuses is asked
+\* for again there (request rule 8, the datagram's rule 1).
 TendRConns(st) == TendRConnsFrom(st, 0)
 
 -------------------------------------------------------------------------------
@@ -159,7 +167,8 @@ QSendEnded(st, op, succeeded) ==
         back == [[st EXCEPT !.ops = Remove(@, op)] EXCEPT !.rconns[v].lent = FALSE]
     IN IF ~op.current THEN back
        ELSE IF ~succeeded THEN FailRConn(back, v)
-       ELSE IF back.rconns[v].stage = "closing" /\ ~back.rconns[v].owes THEN ClosedR(back, v)
+       ELSE IF back.rconns[v].stage = "closing" /\ ~back.rconns[v].owes /\ ~back.rconns[v].made
+            THEN ClosedR(back, v)
        ELSE back
 
 \* A receive ended: one that ran out is armed again, and one that failed fails its connection.
@@ -229,11 +238,11 @@ StreamsWhenUp(st) ==
 \* After a drive, every request speaks for its lookup's attempt: one it left is cancelled.
 RequestsCurrent(st) == \A l \in 0..Slots - 1 : st.reqs[l] = {} \/ CurrentRequest(st, l)
 
-\* A closed connection holds nothing and owes nothing.
+\* A closed connection holds nothing and owes nothing, and keeps no datagram.
 ClosedEmpty(st) ==
     \A v \in 0..RServers - 1 :
         LET c == st.rconns[v] IN
-        c.stage # "closed" \/ (c.queue = <<>> /\ c.streams = {} /\ ~c.owes)
+        c.stage # "closed" \/ (c.queue = <<>> /\ c.streams = {} /\ ~c.owes /\ ~c.made)
 
 \* A connection's datagram buffer is lent exactly when one send of it is in flight.
 DatagramLent(st) ==

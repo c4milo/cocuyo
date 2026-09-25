@@ -3278,9 +3278,9 @@ all DoQ or all DoH (§22, §23), and the rules hold for both. Where they differ,
    slot's that is lent to the loop from the send's submission to its final event (rotor decision
    5, rule 3). The next datagram is asked of colibri when the buffer comes back, and a slot
    opened again sends nothing until an earlier incarnation's send has ended. A send that fails
-   fails the connection (rule 7). One the loop refuses is asked for again at the next drive, as a
-   refused receive is: colibri makes a datagram again from what is still unacknowledged, and
-   QUIC takes a datagram lost or late.
+   fails the connection (rule 7). One the loop refuses stays in the buffer and goes at the next
+   drive, before anything the transport makes after it. It never left the host, so sending it
+   later sends it once, where asking colibri again would wait for its loss timer.
 9. **An idle connection closes.** A connection with no request on it for `quic_idle_ns`, or one
    with no request on it and less than `quic_idle_margin_ns` left before the idle timeout it
    negotiated (RFC 9250 §4.4), closes. A request taken for such a connection closes it first,

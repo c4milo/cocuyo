@@ -143,8 +143,8 @@ NoSock == [sent |-> 0, retiring |-> FALSE, draining |-> FALSE]
 \* A request connection: its stage, the requests waiting for it to be up, the ones on a stream,
 \* whether colibri owes a datagram, whether its slot's datagram buffer is lent to a send of any
 \* incarnation, whether it went idle at this instant, and whether its protocol was the right one.
-NoRConn == [stage |-> "closed", queue |-> <<>>, streams |-> {}, owes |-> FALSE, lent |-> FALSE,
-            idleNow |-> FALSE, alpn |-> FALSE, resumed |-> FALSE]
+NoRConn == [stage |-> "closed", queue |-> <<>>, streams |-> {}, owes |-> FALSE, made |-> FALSE,
+            lent |-> FALSE, idleNow |-> FALSE, alpn |-> FALSE, resumed |-> FALSE]
 
 Query(l) == [kind |-> "query", slot |-> l]
 Records == [kind |-> "records", slot |-> 0]

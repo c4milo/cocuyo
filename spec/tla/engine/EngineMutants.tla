@@ -114,11 +114,8 @@ TendRConnsEagerFrom(st, v) ==
     ELSE
     LET c == st.rconns[v]
         listened == IF c.stage # "closed" /\ ~QReceiving(st, v) THEN QListen(st, v) ELSE st
-        sent == IF c.stage # "closed" /\ c.owes /\ ~listened.jammed
-                THEN [listened EXCEPT !.rconns[v].owes = FALSE, !.rconns[v].lent = TRUE,
-                                      !.ops = Add(@, Op("qsend", v))]
-                ELSE listened
-    IN TendRConnsEagerFrom(sent, v + 1)
+    IN TendRConnsEagerFrom(IF c.stage # "closed" /\ (c.made \/ c.owes) THEN SendR(listened, c, v)
+                           ELSE listened, v + 1)
 
 \* RQ5: a datagram is sent while the buffer is still lent to the one before (request rule 8).
 TendRConnsEager(st) == TendRConnsEagerFrom(st, 0)
@@ -143,12 +140,8 @@ RECURSIVE TendRConnsDeafFrom(_, _)
 TendRConnsDeafFrom(st, v) ==
     IF v >= RServers THEN st
     ELSE
-    LET c == st.rconns[v]
-        sent == IF c.stage # "closed" /\ c.owes /\ ~c.lent /\ ~st.jammed
-                THEN [st EXCEPT !.rconns[v].owes = FALSE, !.rconns[v].lent = TRUE,
-                                !.ops = Add(@, Op("qsend", v))]
-                ELSE st
-    IN TendRConnsDeafFrom(sent, v + 1)
+    LET c == st.rconns[v] IN
+    TendRConnsDeafFrom(IF Sends(c) THEN SendR(st, c, v) ELSE st, v + 1)
 
 \* RQ8: a receive the loop refused, or one that ended, is not armed again (the datagram's rule 1).
 TendRConnsDeaf(st) == TendRConnsDeafFrom(st, 0)
@@ -179,11 +172,7 @@ TendRConnsTwiceFrom(st, v) ==
     ELSE
     LET c == st.rconns[v]
         listened == IF c.stage # "closed" THEN QListen(st, v) ELSE st
-        sent == IF c.stage # "closed" /\ c.owes /\ ~c.lent /\ ~listened.jammed
-                THEN [listened EXCEPT !.rconns[v].owes = FALSE, !.rconns[v].lent = TRUE,
-                                      !.ops = Add(@, Op("qsend", v))]
-                ELSE listened
-    IN TendRConnsTwiceFrom(sent, v + 1)
+    IN TendRConnsTwiceFrom(IF Sends(c) THEN SendR(listened, c, v) ELSE listened, v + 1)
 
 \* RQ11: a receive is armed beside the one that is current (the datagram's rule 1).
 TendRConnsTwice(st) == TendRConnsTwiceFrom(st, 0)
