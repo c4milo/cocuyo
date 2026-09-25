@@ -1813,3 +1813,27 @@ Broken against `zig build test-tools` and `zig build lint`. Four mutations, four
 | GC2 | the rule is not registered | every rule checks the build | the registered-rules test, and the canary | CAUGHT |
 | GC3 | the canary holds no shared `var` | the canary shows the rule is live | the canary run | CAUGHT |
 | GC4 | the twin's network is shared by every thread again | a thread per core shares nothing | `zig build lint` | CAUGHT |
+
+## The request rules in the engine model
+
+Design §24 step 3, 2026-09-25. The engine model gains requests over DoQ and DoH:
+`spec/tla/engine/EngineRequest.tla`, three request configurations, and eight checks. Each
+mutant in `spec/tla/engine/mutants/` puts one operator of `EngineMutants.tla` in place of the
+rule's, and TLC must find the check that catches it. All run on one server and one lookup except
+RQ9. There, time moves while a request is on a connection only when another connection is idle,
+so it needs two servers. Every new check is caught by one mutant at least. Eleven mutations,
+eleven `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| RQ1 | a request its lookup left is never cancelled | request rule 6 | requests current | CAUGHT |
+| RQ2 | the handshake's end is taken whatever protocol it negotiated | request rule 2 | up on protocol | CAUGHT |
+| RQ3 | a request opens its stream before its connection is up | request rule 4 | streams when up | CAUGHT |
+| RQ4 | a connection that fails tells none of its requests | request rule 7 | requests placed | CAUGHT |
+| RQ5 | a datagram is sent while the buffer is lent to the one before | request rule 8 | datagram lent | CAUGHT |
+| RQ6 | a connection that closes forgets its buffer is lent | request rule 8 | datagram lent | CAUGHT |
+| RQ7 | a connection that resumes leaves its server's ticket kept | request rule 10 | request ticket spent | CAUGHT |
+| RQ8 | a receive the loop refused is not armed again | the datagram's rule 1 | listening | CAUGHT |
+| RQ9 | a connection closes for idleness with requests on it | request rule 9 | streams when up | CAUGHT |
+| RQ10 | a connection that closes still owes a datagram | request rule 7 | closed empty | CAUGHT |
+| RQ11 | a receive is armed beside the one that is current | the datagram's rule 1 | receive current | CAUGHT |

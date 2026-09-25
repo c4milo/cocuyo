@@ -1,6 +1,7 @@
 ----------------------------- MODULE EngineTable -----------------------------
-\* The engine of docs/design.md §19 step 13 and §21, written from the stream's rules, the
-\* datagram's rules and the TLS rules, and never from the Zig source (spec/README.md). This
+\* The engine of docs/design.md §19 step 13, §21 and §24, written from the stream's rules, the
+\* datagram's rules, the TLS rules and the request rules, and never from the Zig source
+\* (spec/README.md). This
 \* module holds the configuration, the lookup's transitions the engine asks of it, the table and
 \* the connections; EngineIo.tla holds the sockets and the sends, and Engine.tla the drive, the
 \* events and the checks. It was ported from the Lean model that came before it, and held to it by
@@ -21,6 +22,7 @@ CONSTANTS
     UseTcp,       \* every query over TCP
     PerPort,      \* the queries a port carries before it is replaced; zero for never
     Tls,          \* every server speaks TLS, so every query goes on a stream (§21)
+    Request,      \* every server speaks DoQ or DoH, so every query is a request (§24)
     OpsMax,       \* the walk's bound on the operations the loop holds
     FailuresMax,  \* the walk's bound on a server's failures
     SentMax       \* the walk's bound on the queries a port has carried
@@ -50,7 +52,9 @@ MapBag(B, F(_)) == [y \in {F(x) : x \in DOMAIN B} |-> SumOver({x \in DOMAIN B : 
 
 -------------------------------------------------------------------------------
 \* The lookup of spec/lean/Spec/Lookup.lean, as the engine runs it: one pass over the servers,
-\* one name, no CNAME past the answer, and the four replies the table makes of a message.
+\* one name, no CNAME past the answer, and the four replies the table makes of a message. Over
+\* DoQ or DoH a query is a request, sent and answered as a datagram's, and a request that fails is
+\* the server's failure (§22, §23).
 
 Stream == UseTcp \/ Tls
 Fresh == IF Stream THEN "tcpNeeded" ELSE "queryReady"
@@ -84,7 +88,8 @@ LReply(lk, r) ==
       [] r = "servfail" -> <<AdvanceServer([lk EXCEPT !.serverFailed = TRUE]), "accepted">>
 
 LPoll(lk) ==
-    CASE lk.stage = "queryReady" -> <<[lk EXCEPT !.offered = TRUE], "sendUdp">>
+    CASE lk.stage = "queryReady" ->
+            <<[lk EXCEPT !.offered = TRUE], IF Request THEN "sendRequest" ELSE "sendUdp">>
       [] lk.stage = "tcpNeeded" -> <<[lk EXCEPT !.stage = "connectingTcp"], "connectTcp">>
       [] lk.stage = "tcpReady" -> <<[lk EXCEPT !.offered = TRUE], "sendTcp">>
       [] Waiting(lk.stage) -> <<lk, "wait">>
@@ -113,6 +118,10 @@ LStep(lk, ev, r) ==
             IF OnStream(lk.stage)
             THEN <<AdvanceServer([lk EXCEPT !.serverFailed = TRUE]), "none">>
             ELSE <<lk, "none">>
+      [] ev = "requestFailed" ->
+            IF lk.stage = "awaitingUdp"
+            THEN <<AdvanceServer([lk EXCEPT !.serverFailed = TRUE]), "none">>
+            ELSE <<lk, "none">>
       [] ev = "reply" ->
             IF lk.stage \in {"awaitingUdp", "awaitingTcp"} THEN LReply(lk, r) ELSE <<lk, "ignored">>
       [] ev = "cancel" ->
@@ -121,7 +130,9 @@ LStep(lk, ev, r) ==
 -------------------------------------------------------------------------------
 \* The state.
 
-Sockets == IF Tls THEN 0 ELSE Servers
+Sockets == IF Tls \/ Request THEN 0 ELSE Servers
+\* A request connection for each server, over DoQ or DoH (§24, request rule 1).
+RServers == IF Request THEN Servers ELSE 0
 
 NoSlot == [lookup |-> {}, order |-> <<>>, conn |-> {}, busy |-> FALSE, held |-> FALSE,
            heldCurrent |-> FALSE, reported |-> FALSE, expired |-> FALSE, remaining |-> 0,
@@ -129,6 +140,11 @@ NoSlot == [lookup |-> {}, order |-> <<>>, conn |-> {}, busy |-> FALSE, held |-> 
 NoConn == [stage |-> "closed", server |-> 0, users |-> 0, idleNow |-> FALSE, queue |-> <<>>,
            sealed |-> 0, partSent |-> FALSE, owes |-> FALSE, resumed |-> FALSE]
 NoSock == [sent |-> 0, retiring |-> FALSE, draining |-> FALSE]
+\* A request connection: its stage, the requests waiting for it to be up, the ones on a stream,
+\* whether colibri owes a datagram, whether its slot's datagram buffer is lent to a send of any
+\* incarnation, whether it went idle at this instant, and whether its protocol was the right one.
+NoRConn == [stage |-> "closed", queue |-> <<>>, streams |-> {}, owes |-> FALSE, lent |-> FALSE,
+            idleNow |-> FALSE, alpn |-> FALSE, resumed |-> FALSE]
 
 Query(l) == [kind |-> "query", slot |-> l]
 Records == [kind |-> "records", slot |-> 0]
@@ -142,7 +158,8 @@ InitState ==
      ops |-> SetToBag({Op("receiveFrom", v) : v \in 0..Sockets - 1}),
      ready |-> <<>>, free |-> [i \in 1..Slots |-> i - 1], results |-> <<>>, lastTaken |-> {},
      failures |-> [v \in 0..Servers - 1 |-> 0], socks |-> [v \in 0..Sockets - 1 |-> NoSock],
-     jammed |-> FALSE, starved |-> FALSE, tickets |-> [v \in 0..Servers - 1 |-> FALSE]]
+     jammed |-> FALSE, starved |-> FALSE, tickets |-> [v \in 0..Servers - 1 |-> FALSE],
+     rconns |-> [v \in 0..RServers - 1 |-> NoRConn], reqs |-> [l \in 0..Slots - 1 |-> {}]]
 
 \* The configured server a slot's lookup is asking now.
 ServerOf(st, l) ==
@@ -203,6 +220,8 @@ LookupEvent(st, l, ev, r) ==
             CASE ev = "sendFailed" ->
                     IF lk.stage \in {"tcpReady", "queryReady"} THEN RecordFailure(st, v) ELSE st
               [] ev = "tcpFailed" -> IF OnStream(lk.stage) THEN RecordFailure(st, v) ELSE st
+              [] ev = "requestFailed" ->
+                    IF lk.stage = "awaitingUdp" THEN RecordFailure(st, v) ELSE st
               [] ev = "expire" -> IF Waiting(lk.stage) THEN RecordFailure(st, v) ELSE st
               [] ev = "reply" ->
                     IF out = "accepted" /\ r # "unmatched" THEN RecordSuccess(st, v) ELSE st
@@ -217,6 +236,29 @@ LookupEvent(st, l, ev, r) ==
          ELSE timed, out>>
 
 TableEvent(st, l, ev) == Settle(LookupEvent(st, l, ev, "none")[1], l)
+
+WaitingSlots(st) ==
+    {l \in 0..Slots - 1 : st.slots[l].lookup # {} /\ Waiting(Get(st.slots[l].lookup).stage)}
+
+\* The ticks to the soonest deadline, or zero when no lookup waits.
+Soonest(st) ==
+    IF WaitingSlots(st) = {} THEN 0 ELSE Least({st.slots[l].remaining : l \in WaitingSlots(st)})
+
+RECURSIVE PassFrom(_, _, _)
+PassFrom(st, ticks, l) ==
+    IF l >= Slots THEN st
+    ELSE
+    LET sl == st.slots[l]
+        passed ==
+            IF sl.lookup = {} \/ ~Waiting(Get(sl.lookup).stage) THEN st
+            ELSE LET left == Sub(sl.remaining, ticks)
+                     counted == [st EXCEPT !.slots[l].remaining = left]
+                 IN IF left = 0 THEN Offer([counted EXCEPT !.slots[l].expired = TRUE], l)
+                    ELSE counted
+    IN PassFrom(passed, ticks, l + 1)
+
+\* Ticks pass, and every lookup whose deadline they reach is offered, slot by slot (§11).
+Pass(st, ticks) == PassFrom(st, ticks, 0)
 
 -------------------------------------------------------------------------------
 \* The connections.

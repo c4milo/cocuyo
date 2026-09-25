@@ -2200,7 +2200,7 @@ socket opens may fail for the length of one event. A stream's send may come back
 message, its rest then whole or failed: a second short send takes the same path as the first.
 
 - The Lean walker, `cocuyo-spec engine` until it retired on 2026-09-24, walked every state the
-  model reached in a configuration and checked ten invariants in each; TLC checks seventeen now
+  model reached in a configuration and checked ten invariants in each; TLC checks twenty-five now, eight of them the request rules' of §24
   (spec/README.md). A connection's users are the lookups on it. A lookup is only on a
   connection to its server. A buffer is lent to one send at most. A connection and a socket each
   have at most one current operation of each kind. A drive leaves nothing on the ready list.
@@ -3258,10 +3258,13 @@ all DoQ or all DoH (§22, §23), and the rules hold for both. Where they differ,
    timeout, a receive or a send that fails, or a socket the system refuses. Then each request on
    it whose attempt is current hears it failed, once, and the connection closes. Decision 25
    counts each as the server's failure. A request taken later opens the connection again.
-8. **A datagram at a time.** A connection sends one datagram at a time, from a buffer of its own
-   that is lent to the loop from the send's submission to its final event (rotor decision 5,
-   rule 3). The next datagram is asked of colibri when the buffer comes back. A send that fails,
-   or that the loop refuses, fails the connection (rule 7).
+8. **A datagram at a time.** A connection sends one datagram at a time, from a buffer of its
+   slot's that is lent to the loop from the send's submission to its final event (rotor decision
+   5, rule 3). The next datagram is asked of colibri when the buffer comes back, and a slot
+   opened again sends nothing until an earlier incarnation's send has ended. A send that fails
+   fails the connection (rule 7). One the loop refuses is asked for again at the next drive, as a
+   refused receive is: colibri makes a datagram again from what is still unacknowledged, and
+   QUIC takes a datagram lost or late.
 9. **An idle connection closes.** A connection with no request on it for `quic_idle_ns`, or one
    near the idle timeout it negotiated (RFC 9250 §4.4), closes. The engine has colibri make
    CONNECTION_CLOSE, with DOQ_NO_ERROR (RFC 9250 §4.4) or H3_NO_ERROR (RFC 9114 §8.1), and closes
@@ -3339,7 +3342,16 @@ An image runs one loop on each core and one engine on each loop. Nothing crosses
    shared `var`s. Four were test fixtures. The fifth was the twin's network, one per process,
    which two threads' loops would have reset under each other. All five are thread-local now.
 3. The engine model gains the request transport: connections and their streams, the cancel and
-   the failure. Design, model, code, in that order (§19 step 13).
+   the failure. Design, model, code, in that order (§19 step 13). The rules above were written,
+   and the model landed on 2026-09-25: `spec/tla/engine/EngineRequest.tla`, eight checks, and
+   three configurations of 19,712, 210,148 and 3,140,695 states, which hold. Eleven mutants break
+   the request rules, and TLC finds each (docs/mutations.md RQ1 to RQ11). Writing the model moved
+   rule 8: a datagram the loop refuses is asked for again at the next drive rather than failing
+   its connection, since failing it after the drive's polls would leave lookups for no drive to
+   take. TLC's seeded walks turned out to depend on the model's text as well as its meaning: the
+   new module, before anything used it, changed one short walk over UDP. So the committed walks
+   were written again, and the engine's mutations broken again against them. Every one is still
+   caught, by the same seven picked walks.
 4. DoQ over colibri and chapulin, with twin tests and a live check against AdGuard and NextDNS.
 5. DoH over HTTP/3, with a live check against Cloudflare and Google.
 6. Two engines on two threads of one image, each on its own loop, resolving at once.

@@ -4,7 +4,7 @@
 \* the last event broke, empty in every state of a model that keeps its rules, so it splits no
 \* state and TLC counts what the Lean walker counted. The checks read the event as well as the two
 \* states, which an invariant of TLC's cannot, so the step writes them down and `Clean` asks.
-EXTENDS EngineIo
+EXTENDS EngineRequest
 
 VARIABLES s, broken
 
@@ -26,6 +26,7 @@ Act(st, l, out) ==
                   THEN Release(st, l) ELSE st
     IN CASE out = "connectTcp" -> <<Want(placed, l), TRUE>>
          [] out \in {"sendTcp", "sendUdp"} -> <<Send(placed, l), TRUE>>
+         [] out = "sendRequest" -> <<TakeRequest(placed, l), TRUE>>
          [] out \in {"done", "failed"} -> Report(placed, l)
          [] OTHER -> <<placed, TRUE>>
 
@@ -55,11 +56,11 @@ Go(fuel, polls, refused, st) ==
 \* Polls the table until nothing is left to do or the bound is reached, as the code's drive does.
 PollAll(st) == Go(4 * Slots * (Servers + 2) + 8, 0, 0, st)
 
-\* Every lookup polled, the idle connections closed when time moved, then every connection that
-\* reads given its receive and every socket tended.
+\* Every lookup polled and every request its lookup left cancelled, the idle connections closed
+\* when time moved, then every connection that reads given its receive and every socket tended.
 Drive(st, moved) ==
-    LET polled == PollAll(st) IN
-    TendSockets(TendConns(IF moved THEN CloseIdle(polled) ELSE polled))
+    LET polled == CancelLeft(PollAll(st)) IN
+    TendRConns(TendSockets(TendConns(IF moved THEN CloseIdleR(CloseIdle(polled)) ELSE polled)))
 
 -------------------------------------------------------------------------------
 \* Events.
@@ -172,29 +173,6 @@ Message(st, l, r) ==
     LET heard == LookupEvent(st, l, "reply", r) IN
     IF heard[2] = "accepted" THEN Settle(heard[1], l) ELSE heard[1]
 
-WaitingSlots(st) ==
-    {l \in 0..Slots - 1 : st.slots[l].lookup # {} /\ Waiting(Get(st.slots[l].lookup).stage)}
-
-\* The ticks to the soonest deadline, or zero when no lookup waits.
-Soonest(st) ==
-    IF WaitingSlots(st) = {} THEN 0 ELSE Least({st.slots[l].remaining : l \in WaitingSlots(st)})
-
-RECURSIVE PassFrom(_, _, _)
-PassFrom(st, ticks, l) ==
-    IF l >= Slots THEN st
-    ELSE
-    LET sl == st.slots[l]
-        passed ==
-            IF sl.lookup = {} \/ ~Waiting(Get(sl.lookup).stage) THEN st
-            ELSE LET left == Sub(sl.remaining, ticks)
-                     counted == [st EXCEPT !.slots[l].remaining = left]
-                 IN IF left = 0 THEN Offer([counted EXCEPT !.slots[l].expired = TRUE], l)
-                    ELSE counted
-    IN PassFrom(passed, ticks, l + 1)
-
-\* Ticks pass, and every lookup whose deadline they reach is offered, slot by slot (§11).
-Pass(st, ticks) == PassFrom(st, ticks, 0)
-
 Start(st) ==
     IF st.free = <<>> THEN st
     ELSE
@@ -217,13 +195,19 @@ TakeResult(st) ==
        ELSE [freed EXCEPT !.results = Tail(@), !.lastTaken = {Head(freed.results)}]
 
 \* Time moves: nothing went idle at the new instant yet.
-Tick(st) == LET c == st.conns IN [st EXCEPT !.conns = [k \in DOMAIN c |-> [c[k] EXCEPT !.idleNow = FALSE]]]
+Tick(st) ==
+    LET c == st.conns
+        r == st.rconns
+    IN [st EXCEPT !.conns = [k \in DOMAIN c |-> [c[k] EXCEPT !.idleNow = FALSE]],
+                  !.rconns = [v \in DOMAIN r |-> [r[v] EXCEPT !.idleNow = FALSE]]]
 
 Finish(st, op, outcome) ==
     CASE op.kind \in {"send", "sendTo", "sendRecords"} -> SendEnded(st, op, outcome)
       [] op.kind = "connect" -> ConnectEnded(st, op, outcome = "ok")
       [] op.kind = "receive" -> ReceiveEnded(st, op, outcome)
       [] op.kind = "receiveFrom" -> ReceiveFromEnded(st, op)
+      [] op.kind = "qsend" -> QSendEnded(st, op, outcome = "ok")
+      [] op.kind = "qrecv" -> QRecvEnded(st, op, outcome = "exhausted")
 
 Cancel(st, l) ==
     IF st.slots[l].lookup # {} /\ ~Ended(Get(st.slots[l].lookup).stage)
@@ -239,6 +223,8 @@ Happen(st, e) ==
       [] e.kind = "finish" -> Drive(Finish(st, e.op, e.outcome), FALSE)
       [] e.kind = "message" -> Drive(Message(st, e.slot, e.reply), FALSE)
       [] e.kind = "tls" -> Drive(TlsStep(st, e.op.target, e.step), FALSE)
+      [] e.kind = "quic" -> Drive(QuicStep(st, e.op.target, e.step, e.slot, e.reply), FALSE)
+      [] e.kind = "qtime" -> Drive(QuicTime(st, e.server, e.step), FALSE)
       [] e.kind = "lapse" -> [st EXCEPT !.tickets[e.server] = FALSE]
       [] e.kind = "straggle" -> Drive(st, FALSE)
       [] e.kind = "jam" -> [st EXCEPT !.jammed = TRUE]
@@ -274,13 +260,13 @@ Endings(st, op) ==
          THEN {"ok", "failed"} ELSE {"ok", "short", "failed"}
     ELSE IF op.kind = "sendRecords" /\ op.current
     THEN IF st.conns[op.target].partSent THEN {"ok", "failed"} ELSE {"ok", "short", "failed"}
-    ELSE IF op.kind \in {"sendRecords", "sendTo"} THEN {"ok", "failed"}
-    ELSE IF op.kind = "receive" /\ op.current THEN {"failed", "exhausted"}
+    ELSE IF op.kind \in {"sendRecords", "sendTo", "qsend"} THEN {"ok", "failed"}
+    ELSE IF op.kind \in {"receive", "qrecv"} /\ op.current THEN {"failed", "exhausted"}
     ELSE IF op.kind = "receiveFrom" /\ op.current THEN {"exhausted"}
     ELSE IF op.current THEN {"ok", "failed"}
     ELSE {"ok", "failed", "canceled"}
 
-Receives(op) == op.kind \in {"receive", "receiveFrom"}
+Receives(op) == op.kind \in {"receive", "receiveFrom", "qrecv"}
 
 \* What the session makes of what a TLS connection's current receive brought (§21).
 TlsSteps(st, op) ==
@@ -291,14 +277,26 @@ TlsSteps(st, op) ==
            [] st.conns[op.target].stage = "closing" -> {"rekey"}
            [] OTHER -> {}
 
+\* What colibri may tell of a request connection: a step on what its receive brought, a stream
+\* answered or reset, or its timer (EngineRequest.tla). Built here, after `Ev` (see there).
+RequestEvents(st) ==
+    UNION {{[Ev("quic") EXCEPT !.op = op, !.step = t] : t \in QuicSteps(st, op.target)} \cup
+           {[Ev("quic") EXCEPT !.op = op, !.step = "answer", !.slot = l, !.reply = r] :
+                l \in st.rconns[op.target].streams, r \in {"answer", "servfail", "nxdomain"}} \cup
+           {[Ev("quic") EXCEPT !.op = op, !.step = "reset", !.slot = l] :
+                l \in st.rconns[op.target].streams} : op \in QReceives(st)} \cup
+    {[Ev("qtime") EXCEPT !.server = v, !.step = t] : v \in QTimed(st), t \in {"retransmit", "timeout"}}
+
 Enabled(st) ==
     (IF st.free # <<>> THEN {Ev("start")} ELSE {}) \cup
     (IF st.results # <<>> \/ st.lastTaken # {} THEN {Ev("take")} ELSE {}) \cup
     {[Ev("cancel") EXCEPT !.slot = l] :
         l \in {l \in 0..Slots - 1 : st.slots[l].lookup # {} /\ ~Ended(Get(st.slots[l].lookup).stage)}} \cup
     (IF WaitingSlots(st) # {} THEN {Ev("expire")} ELSE {}) \cup
-    (IF \E k \in 0..Conns - 1 : st.conns[k].stage # "closed" /\ st.conns[k].users = 0
+    (IF \/ \E k \in 0..Conns - 1 : st.conns[k].stage # "closed" /\ st.conns[k].users = 0
+        \/ \E v \in 0..RServers - 1 : st.rconns[v].stage \in {"handshaking", "up"} /\ RUsers(st, v) = 0
      THEN {Ev("idle")} ELSE {}) \cup
+    RequestEvents(st) \cup
     UNION {{[Ev("finish") EXCEPT !.op = op, !.outcome = o] : o \in Endings(st, op)} :
            op \in DOMAIN st.ops} \cup
     UNION {{[Ev("message") EXCEPT !.op = op, !.slot = l, !.reply = r] :
@@ -442,8 +440,12 @@ Checks(before, e, st) ==
        <<"decline forgiven", DeclineForgiven(before, e, st)>>,
        <<"ops current", OpsCurrent(st)>>, <<"sockets current", SocksCurrent(st)>>,
        <<"drive done", DriveDone(st)>>,
-       <<"listening", ~Drove(before, e) \/ ListeningAll(st)>>,
-       <<"rotated", ~Drove(before, e) \/ RotatedAll(st)>> >>
+       <<"listening", ~Drove(before, e) \/ (ListeningAll(st) /\ RListening(st))>>,
+       <<"rotated", ~Drove(before, e) \/ RotatedAll(st)>>,
+       <<"requests placed", RequestsPlaced(st)>>, <<"streams when up", StreamsWhenUp(st)>>,
+       <<"requests current", RequestsCurrent(st)>>, <<"closed empty", ClosedEmpty(st)>>,
+       <<"datagram lent", DatagramLent(st)>>, <<"up on protocol", UpOnProtocol(st)>>,
+       <<"receive current", RecvCurrent(st)>>, <<"request ticket spent", RTicketSpent(before, st)>> >>
 
 Broken(before, e, st) ==
     LET checks == Checks(before, e, st) IN

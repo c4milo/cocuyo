@@ -86,9 +86,10 @@ a server failed and the cookie retried. A field that drifts is caught at the eve
 ## The engine
 
 The engine model is written from the stream's rules and the datagram's rules of §19 step 13, the TLS
-rules of §21, and rotor's decision 5, with two servers and one pass. A configuration asks every
-query over TCP, every query over TLS, or every query over UDP with no answer truncated and a port
-replaced every two queries, the old one draining beside the new. A TLS session is what it does to
+rules of §21, the request rules of §24, and rotor's decision 5, with two servers and one pass. A
+configuration asks every query over TCP, every query over TLS, every query as a request over DoQ
+or DoH, or every query over UDP with no answer truncated and a port replaced every two queries,
+the old one draining beside the new. A TLS session is what it does to
 the queue: the records it makes, which are sealed as it makes them, and the steps its handshake
 takes, a flight to answer, the handshake's end or a failure, and later a KeyUpdate to answer or a
 ticket to keep. A kept ticket may lapse at any moment, which stands for its lifetime and the 7-day
@@ -98,7 +99,7 @@ tick pass; a lookup waits two ticks. Two faults stand in for a kernel under pres
 refuses every submission for the length of one event, as a full ring does, and every socket open
 fails for the length of one event, as a process with no descriptor left sees.
 
-TLC walks it breadth first (`zig build tla`) and checks seventeen rules in every state and every
+TLC walks it breadth first (`zig build tla`) and checks twenty-five rules in every state and every
 event:
 
 - A connection's users are the lookups on it.
@@ -126,6 +127,17 @@ event:
 - A connection opened again after its resumed handshake failed handshakes in full.
 - A resumed handshake that fails counts no failure against its server and keeps its lookups on
   the connection, unless the loop refuses the connect again.
+- A request slot is free, or its request waits on its server's connection or has a stream there,
+  never both, and a connection holds only its server's requests.
+- A request has a stream only on a connection that is up, and waits only on one that is not.
+- Every request speaks for its lookup's attempt: one its lookup left is cancelled.
+- A closed connection holds nothing and owes nothing.
+- A connection's datagram buffer is lent exactly when one send of it is in flight, whichever
+  incarnation made it.
+- A connection is up only on its transport's protocol.
+- A connection has at most one current receive, and none once closed; after a drive with nothing
+  refused, every open connection has its receive.
+- A connection that opens resuming spends its server's ticket.
 
 Each configuration bounds the operations in flight, the failures a server and the queries a port
 (`OpsMax`, `FailuresMax` and `SentMax`), since nothing else bounds the graph. A stream's send may
@@ -168,6 +180,25 @@ ticket among them. Unsorted, three operations and none was 3,463,580 states and 
 Before the sorting, four and one ran an hour without finishing; the row above took 6.6 GB, on a
 machine busy with other work. These counts are what TLC's had to equal.
 
+A request connection is what colibri tells the engine: that it owes a datagram, that the
+handshake ended on the transport's protocol or on another or failed, that a stream was answered
+or reset, that the server closed, that a ticket came, and that its QUIC timer fired, to resend or
+to give up. DoQ and DoH move alike: an answer stands for a DoQ message and for a 2xx DoH body, and
+a reset for a reset stream and for a status that is not 2xx. The request configurations, walked on
+2026-09-25 on an Apple M1 Pro busy with other work, three operations and one failure:
+
+| Servers | Lookups | States | Seconds | Invariants |
+| --- | --- | --- | --- | --- |
+| 1 | 1 | 19,712 | 2 | hold |
+| 1 | 2 | 210,148 | 15 | hold |
+| 2 | 1 | 3,140,695 | 244 | hold |
+
+Every stage was reached: a connection up with a request on a stream, one closing, a lookup
+answered, one failed after its request failed, and a connection opened again while an earlier
+incarnation's datagram was still in flight. Eleven mutants in `mutants/` break the request rules,
+and TLC finds each (docs/mutations.md RQ1 to RQ11). The replay does not walk them yet: the engine
+speaks no request transport until §24 step 4.
+
 The TLS configurations are walked and replayed like the others. The engine drives the twin's
 session (`src/sim/sim_tls.zig`), whose records carry their plaintext unsealed and whose handshake
 steps are one octet each. A walk's `tls:R0*:flight` puts one step in a record on the receive that
@@ -187,8 +218,9 @@ event handed the engine to be back in its group.
 `tla/engine/` holds the engine model in TLA+, checked by TLC through pepegrillo's `tla` tool
 (docs/design.md §16 decision 24). It was ported from the Lean model, definition by definition:
 `EngineTable.tla` holds the configuration, the lookup's transitions the engine asks of it, the
-table and the connections; `EngineIo.tla` the sockets and the sends; and `Engine.tla` the drive,
-the events, the checks and the specification. The Lean model retired once the replay read its
+table and the connections; `EngineIo.tla` the sockets and the sends; `EngineRequest.tla` the
+requests over DoQ and DoH (§24); and `Engine.tla` the drive, the events, the checks and the
+specification. The Lean model retired once the replay read its
 walks from TLC.
 
 Three choices make TLC count what the Lean walker counts:

@@ -151,7 +151,7 @@ Whole(f) == f @@ << >>
 \* The state with each of its functions held whole.
 WholeState(st) ==
     [st EXCEPT !.slots = Whole(@), !.conns = Whole(@), !.socks = Whole(@), !.ops = Whole(@),
-               !.failures = Whole(@), !.tickets = Whole(@)]
+               !.failures = Whole(@), !.tickets = Whole(@), !.rconns = Whole(@), !.reqs = Whole(@)]
 
 TraceNext ==
     /\ Emit

@@ -433,7 +433,7 @@
         .id = "RF5",
         .what = "the engine model counts a failed connection as silence",
         .edits = .{
-            .{ .file = "spec/tla/engine/EngineTable.tla", .old = "            THEN <<AdvanceServer([lk EXCEPT !.serverFailed = TRUE]), \"none\">>", .new = "            THEN <<AdvanceServer(lk), \"none\">>" },
+            .{ .file = "spec/tla/engine/EngineTable.tla", .old = "            IF OnStream(lk.stage)\n            THEN <<AdvanceServer([lk EXCEPT !.serverFailed = TRUE]), \"none\">>", .new = "            IF OnStream(lk.stage)\n            THEN <<AdvanceServer(lk), \"none\">>" },
         },
         .caught_by = .{ .step = "spec-engine" },
     },
