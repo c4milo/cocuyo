@@ -3428,7 +3428,11 @@ fetches colibri for the engine's tests over colibri on the twin. The library in 
 imports it.
 
 An engine over colibri holds, for each server, colibri's connection, its receive pool, its two
-scratch buffers and a request buffer for each lookup. Measured in step 4, with `@sizeOf`.
+scratch buffers and a request buffer for each lookup. Measured with `@sizeOf` on 2026-09-25, in a
+Debug build on an Apple M1 Pro: colibri's connection is 141,248 octets, the pool 377,504, the
+scratch buffers 21,832 and 3,923, and one connection of 256 streams 652,168 in all. An engine of
+eight servers holds 5.2 MB of them. The pool is most of it, and it is the floor colibri keeps
+beside its blocks: two for each of the 128 streams a connection may hold.
 
 ### A thread per core
 
@@ -3453,7 +3457,7 @@ An image runs one loop on each core and one engine on each loop. Nothing crosses
 | `quic_idle_ns_default` | 10 s | how long a connection with no request is kept, TCP's `tcp_idle_ns_default`; RFC 9250 §5.5.2 names no value, and this one is chosen, not measured |
 | `quic_idle_margin_ns` | 1 s | how near the negotiated idle timeout a connection stops taking requests: a query and its answer take less, chosen, not measured |
 | `quic_connection_events_max` | 16 | beside one answer or reset for each of the engine's `lookups`, the `next` calls one datagram or one expiry is read with, which bounds the loop: the handshake's end, a close and tickets, chosen, not measured. What a flood leaves unread is read with the next datagram |
-| `quic_receive_bytes` | the smallest colibri takes, measured in step 4 | colibri's receive pool for a connection, the caller's to size; its default of 1 MiB is far past the answers a connection has in flight, and the pool holds a block for each 1,024 octets and 256 more, which is its floor |
+| `quic_receive_bytes` | 66,560 | colibri's receive pool for a connection: a DoQ answer at its longest, 65,537 octets with its prefix, rounded up to the pool's 1,024-octet blocks. The engine reads a stream once all of it has arrived, so a stream's window holds one whole; colibri's default of 1 MiB is far past it |
 | `quic_idle_timeout_ms` | 30,000 | the idle timeout a connection advertises (RFC 9000 §18.2); the server's may be shorter, and the smaller holds (RFC 9250 §4.4); chosen, not measured |
 | `quic_connection_id_bytes` | 8 | the destination connection ID a client's first Initial carries: RFC 9000 §7.2 asks for 8 octets at least |
 
@@ -3494,7 +3498,13 @@ An image runs one loop on each core and one engine on each loop. Nothing crosses
    (RW1 to RW11). Writing the replay moved request rule 8, and the model with it: a datagram the
    loop refuses is kept for the next drive, and the request configurations now hold 24,192,
    257,212 and 5,295,912 states. colibri over the twin (decision 29) and the live check are the
-   rest of the step.
+   rest of the step. colibri under the interface landed on 2026-09-25: `cocuyo_quic`
+   (`io/io_quic.zig` and the files beside it) over colibri `d2c1431`, pinned by hash, a session
+   that encrypts nothing and a test server over it, and the twin's responder. Eight tests run the
+   engine over colibri's client and server on the twin: an answer, six lookups on one connection,
+   another protocol refused, lost datagrams resent through the engine's timer, the idle close, a
+   hundred and forty cancelled streams drained, STOP_SENDING, and a close held back while
+   colibri's closing period ended (docs/mutations.md QC1 to QC8). The live check is left.
 5. DoH over HTTP/3, with a live check against Cloudflare and Google.
 6. Two engines on two threads of one image, each on its own loop, resolving at once.
 7. DoH over HTTP/2, after colibri#7.

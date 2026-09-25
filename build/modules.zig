@@ -32,6 +32,11 @@ pub const Graph = struct {
     /// for the consumer to bind, so the loop it runs on is the consumer's own type, and an image
     /// holds one rotor. Nothing in this build compiles it; `zig build consumer-check` does.
     cocuyo_rotor: *std.Build.Module,
+    /// colibri's QUIC under the request interface, as a consumer imports it (docs/design.md §24):
+    /// its `quic` import is left for the consumer to bind, as `cocuyo_rotor`'s `rotor` is.
+    cocuyo_quic: *std.Build.Module,
+    /// The same, for this build's tests, whose `quic` `build/quic.zig` binds to colibri's.
+    io_quic: *std.Build.Module,
 };
 
 /// The root source of each module. build/graph_check.zig hands `core`'s and `wire`'s to
@@ -46,6 +51,7 @@ pub const roots = .{
     .sim = "src/sim/sim.zig",
     .io = "io/io.zig",
     .chapulin_hooks = "io/io_chapulin_hooks.zig",
+    .io_quic = "io/io_quic.zig",
 };
 
 // Every module this build registers has its root under a path the manifest ships. A dependent
@@ -53,7 +59,7 @@ pub const roots = .{
 // show a path left out: it depends on cocuyo by path, which reads the whole tree
 // (docs/mutations.md EX2).
 comptime {
-    for ([_][]const u8{ roots.cocuyo, roots.io, roots.chapulin_hooks }) |root| {
+    for ([_][]const u8{ roots.cocuyo, roots.io, roots.chapulin_hooks, roots.io_quic }) |root| {
         if (!shipped(root)) @compileError("build.zig.zon's paths do not ship " ++ root);
     }
 }
@@ -90,7 +96,7 @@ fn build(
     optimize: std.builtin.OptimizeMode,
     register: bool,
 ) Graph {
-    // Only `cocuyo`, `cocuyo_rotor` and `chapulin_hooks` are registered, so they are the only names
+    // Only `cocuyo`, `cocuyo_rotor`, `cocuyo_quic` and `chapulin_hooks` are registered, so they are the only names
     // a dependent can import (docs/design.md §20, §24). The rest are created: this build holds the graph as a
     // value, so `zig build test-<name>` still names each one without the name being part of the
     // package.
@@ -105,6 +111,8 @@ fn build(
         .io = module(b, target, optimize, "io", roots.io, false),
         .cocuyo_rotor = module(b, target, optimize, "cocuyo_rotor", roots.io, register),
         .chapulin_hooks = module(b, target, optimize, "chapulin_hooks", roots.chapulin_hooks, register),
+        .cocuyo_quic = module(b, target, optimize, "cocuyo_quic", roots.io_quic, register),
+        .io_quic = module(b, target, optimize, "io_quic", roots.io_quic, false),
     };
 
     // core imports nothing, and that is the point of it: every limit and every type that two
@@ -126,6 +134,8 @@ fn build(
     graph.io.addImport("cocuyo", graph.cocuyo);
     graph.io.addImport("rotor", graph.sim);
     graph.cocuyo_rotor.addImport("cocuyo", graph.cocuyo);
+    graph.cocuyo_quic.addImport("cocuyo", graph.cocuyo);
+    graph.io_quic.addImport("cocuyo", graph.cocuyo);
 
     return graph;
 }

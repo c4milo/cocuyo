@@ -25,6 +25,7 @@ const examples = @import("build/examples.zig");
 const bench = @import("build/bench.zig");
 const spec = @import("build/spec.zig");
 const dot = @import("build/dot.zig");
+const quic = @import("build/quic.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "build", "src", "tools", "examples", "bench", "io" };
@@ -139,6 +140,7 @@ pub fn build(b: *std.Build) void {
         .root_module = tool_module(b, pepegrillo, "tools/lean.zig"),
     }), tla_tool);
     dot.add(b, target, optimize, graph, chapulin, rotor);
+    quic.add(b, graph, b.lazyDependency("colibri", .{ .target = target, .release = release }), test_step);
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_commit_lint_step(b, pepegrillo, install_step);
     add_tla_step(b, tla_tool);

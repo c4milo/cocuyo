@@ -1916,3 +1916,27 @@ it at its deadline. Broken against `zig build test-sim`. Three mutations, three 
 | RP1 | a datagram to a QUIC port goes to the twin's QUIC though a responder is there | the responder hears what is sent to its port | the echo-responder test | CAUGHT |
 | RP2 | the twin never wakes a responder | a responder is woken at its deadline | the echo-responder test | CAUGHT |
 | RP3 | the clock does not stop at a responder's deadline | the deadline comes before later deliveries | the echo-responder test | CAUGHT |
+
+## colibri under the request interface
+
+Design §24 step 4, 2026-09-25. `cocuyo_quic` puts colibri's QUIC, at `d2c1431`, under the engine's
+request interface, over a session that encrypts nothing. Eight tests run the engine over colibri's
+client and colibri's server on the twin, and two run a client and a server in memory. QC2 and QC4
+were `NOT CAUGHT` at first: the drain test cancelled each lookup while its connection handshook,
+so no stream was ever opened, and it was written again to open one. The code a third check guarded
+was removed instead: an answer longer than the engine's buffer fails its connection, so reading the
+rest of it served nothing. QC3 is `NOT CAUGHT`: colibri's server acknowledges a request in the
+packet that answers it, so the client never holds an answer whose request is unacknowledged, and
+c4milo/cocuyo#15 tracks the test. Broken against `zig build test-io` and `zig build
+test-cocuyo_quic`. Eight mutations, seven `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| QC1 | the connection's own close is told as the connection ending | a request taken while it closes reopens it (request rule 9) | the held-close test | CAUGHT |
+| QC2 | a cancelled stream is not drained | its place in colibri's table comes back | the drain test | CAUGHT |
+| QC3 | a request's bytes are freed once its answer is told | colibri reads them until the server has them | nothing: **no order on the twin gives an answer before its acknowledgement** | NOT CAUGHT |
+| QC4 | a stream with no credit fails the connection | a request waits for credit (request rule 4) | the drain test | CAUGHT |
+| QC5 | a cancel sends no STOP_SENDING | RFC 9250 §4.3.1 | the STOP_SENDING test, and the drain test | CAUGHT |
+| QC6 | colibri's deadline is never read | the engine's timer covers colibri's (request rule 11) | the loss test, and the held-close test | CAUGHT |
+| QC7 | the handshake's end is never told | the connection comes up | every test over colibri | CAUGHT |
+| QC8 | the test server takes a new connection on a reused socket for the old one | a reopening is heard | the held-close test | CAUGHT |

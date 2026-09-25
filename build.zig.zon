@@ -21,6 +21,14 @@
             .hash = "rotor-0.4.0-YZkxRB4NEQD0HGJ9C9Ih29POJZbRpyOh5GUSvy_wjD2q",
             .lazy = true,
         },
+        // colibri's QUIC, which `cocuyo_quic` puts under the engine's request interface
+        // (docs/design.md §24, decision 29). Never of the library in `src/`. Lazy, so a build that
+        // asks for neither `cocuyo_quic` nor the engine's tests over colibri does not resolve it.
+        .colibri = .{
+            .url = "git+https://github.com/c4milo/colibri#d2c1431a8e56727af76cc05d9c6670de04e3c755",
+            .hash = "colibri-0.0.0-Wo-Avr1ySQRUiSclnUmkxD7ekPHlFXlRG_kvLHtjXUuj",
+            .lazy = true,
+        },
     },
     .paths = .{
         "build.zig",

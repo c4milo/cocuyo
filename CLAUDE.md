@@ -120,7 +120,9 @@ The architecture depends on every rule in this section.
   twin, and to rotor itself for `zig build bench-cares` alone. It is exported as `cocuyo_rotor`,
   whose type is `Resolver`, into the caller's loop: the consumer binds its `rotor` import
   (design §24). One engine runs on each loop and one loop on each core, and nothing is shared
-  between them.
+  between them. `io/io_quic.zig` and the files beside it are `cocuyo_quic`, colibri's QUIC under
+  the engine's request interface: a module of its own, whose `quic` import a consumer that speaks
+  DoQ binds to colibri's, so `cocuyo_rotor` never imports colibri.
 - Each module owns its `constants.zig`. A limit two modules share lives in `src/core/constants.zig`.
 - `examples/` holds worked examples, `bench/` the microbenchmarks, `docs/` the design set, and
   `tools/` developer tooling that is never linked into the library. `test/` holds fixtures that
@@ -141,6 +143,9 @@ The architecture depends on every rule in this section.
 - Adding a dependency. The library has none and is meant to keep it that way. pepegrillo is a
   ruled dependency of the tools, approved by the owner on 2026-09-21: `build.zig.zon` pins it by
   hash as a lazy dependency, the tools import it, and it is never linked into the library.
+  colibri is a ruled dependency of `cocuyo_quic` and of the engine's tests, approved by the owner
+  on 2026-09-25 (design §16 decision 29): `build.zig.zon` pins it by hash as a lazy dependency,
+  only the root build requests it, and nothing under `src/` imports it.
 - Weakening an assertion or a check to make a test pass.
 - Adding anything §1 puts out of scope: DNSSEC, mDNS, zone transfers, nsswitch, IDN, the
   platform resolver configuration of §14. DoT and DoH were decided in on 2026-09-23: DoT in the
@@ -164,12 +169,12 @@ The architecture depends on every rule in this section.
 - Test: `zig build test` — the lint, the graph check, the consumer check, the hook check, then
   every module's unit tests and the tools' own tests. Every change passes it before it is
   committed. `zig build test-<module>` (`test-core`, `test-wire`, `test-resolver`, `test-config`,
-  `test-cache`, `test-sim`, `test-cocuyo`, `test-io`, `test-chapulin_hooks`) and `zig build
-  test-tools` run one target's tests with nothing else in the graph, which is what a mutation is
-  measured against. `zig build
-  consumer-check` alone builds `test/consumer/`, the package that depends on cocuyo the way a
-  consumer does, with `cocuyo_rotor` over a rotor of its own, and requires the same package to
-  fail when it reaches for a module the surface does not export (design §20, §24).
+  `test-cache`, `test-sim`, `test-cocuyo`, `test-io`, `test-chapulin_hooks`, `test-cocuyo_quic`)
+  and `zig build test-tools` run one target's tests with nothing else in the graph, which is what
+  a mutation is measured against. `zig build consumer-check` alone builds `test/consumer/`, the
+  package that depends on cocuyo the way a consumer does, with `cocuyo_rotor` over a rotor of its
+  own, and requires the same package to fail when it reaches for a module the surface does not
+  export (design §20, §24).
 - Bench: `zig build bench` — the microbenchmarks of design §15 step 7, built ReleaseSafe
   whatever `-Drelease` says. `zig build test` compiles the bench and runs the harness's own tests,
   so it cannot rot. A number goes into design §11 with the machine, the command and the date, or it

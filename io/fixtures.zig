@@ -83,3 +83,15 @@ pub const small_group_buffers = 2;
 /// When a test makes a QUIC connection's own timer due: a millisecond on, before any lookup's
 /// deadline.
 pub const quic_timer_ns = 1_000_000;
+
+/// The colibri servers one scripted server keeps for the engine's connections to it: the one open,
+/// and the one a reopening makes. And the datagrams a colibri server sends at most in one go.
+pub const quic_servers_per_side = 2;
+pub const quic_pump_max = 64;
+
+/// The client's datagrams a colibri server drops before it hears any: its first Initial and the
+/// one colibri sends again after its first probe timeout.
+pub const quic_datagrams_lost = 2;
+
+/// Lookups cancelled in turn on one connection: past the 128 streams colibri holds at once.
+pub const quic_cancelled_streams = 140;
