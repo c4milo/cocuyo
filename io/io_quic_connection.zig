@@ -15,6 +15,8 @@ pub const Stage = enum { idle, handshaking, up, failed, done };
 pub fn start(self: anytype, context: anytype) error{Failed}!void {
     const Self = @TypeOf(self.*);
     assert(self.stage == .idle);
+    // A DoH server needs HTTP/3, which a connection without it cannot speak.
+    if (context.https != null and !Self.http3) return error.Failed;
     self.* = .{ .stage = .handshaking };
     context.context.stream.fill(&self.destination);
     context.context.stream.fill(&self.source);

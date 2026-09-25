@@ -21,12 +21,14 @@ const connection_module = @import("io_request_connection.zig");
 /// configuration, so none of its functions is ever called.
 pub const None = struct {
     pub const enabled = false;
+    pub const http3 = false;
     pub const datagram_bytes_max = 0;
     pub const request_bytes_max = 0;
     pub const Error = error{Failed};
     pub const Context = struct {};
     pub const Ticket = struct {};
-    pub const Answered = struct { stream: u64, len: usize };
+    pub const Http = struct { status: u16, age_seconds: u32, dns_message: bool };
+    pub const Answered = struct { stream: u64, len: usize, http: ?Http = null };
     pub const Next = union(enum) { up: []const u8, refused, answered: Answered, reset: u64, closed, ticket: Ticket };
 
     pub fn start(_: *None, _: anytype) Error!void {

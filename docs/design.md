@@ -3464,15 +3464,17 @@ beside its blocks: two for each of the 128 streams a connection may hold.
 ### DoH over HTTP/3, written on 2026-09-25
 
 §22 left a DoH server's URI template to the driver, and since decision 26 the engine is the
-driver. `cocuyo_quic` carries it, since the interface's `request` builds the GET. A consumer that
+driver. The engine splits it, since the port its socket goes to is the template's, and
+`cocuyo_quic` expands the path, since the interface's `request` builds the GET. A consumer that
 speaks DoH names a type with `http3` set in its options, which adds colibri's `h3` to each
 connection; one that speaks DoQ alone pays nothing for it. DoQ and DoH share everything below the
 stream: the connection, the handshake, tickets, cancelling, the idle close and the timer. The
 request rules and the model hold for both as they stand.
 
-**The template, read at `start`.** A server's template is split once, when its connection
-starts, and a template the transport refuses fails the connection there, as a DoQ server known by
-pins alone does. The lookup counts it as the server's failure and ends in `AllServersFailed`.
+**The template, read when the connection opens.** The engine splits a server's template when it
+opens a connection to it (`io/io_request_template.zig`). A template it refuses fails the
+connection before a socket opens, as a DoQ server known by pins alone fails at the session's
+start. The lookup counts it as the server's failure and ends in `AllServersFailed`.
 
 - It begins with the scheme `https`, in any case (RFC 3986 §3.1): DoH "MUST be used with the
   https URI scheme" (RFC 8484 §5).
@@ -3480,13 +3482,18 @@ pins alone does. The lookup counts it as the server's failure and ends in `AllSe
   no expression, since the TLS name cannot change with a query. It holds no userinfo, which
   `:authority` must not carry (RFC 9114 §4.3.1). Its host is a registered name (RFC 3986 §3.2.2),
   and it is the name the certificate is checked against (RFC 9110 §4.3.4). An IP address is
-  refused, since the session checks a name. A port may follow. The authority goes to
-  `:authority` as the template writes it.
+  refused, since the session checks a name. The authority goes to `:authority` as the template
+  writes it.
+- A port may follow the host, and the connection goes to it: "establishing a QUIC connection to
+  that address on the indicated port" (RFC 9114 §3.1), which is 443 when the template names none
+  (RFC 9110 §4.2.2). The address is the configured endpoint's, since the engine resolves no host
+  to reach a resolver. A port that is not digits, or is 0, is refused.
 - The rest is the path's template, and it names `dns` in an expression outside a fragment: a GET
   carries the query only there (RFC 8484 §4.1).
 
-**The path, expanded for each request.** RFC 6570's expansion, with `dns` the one variable
-defined (RFC 8484 §4.1) and every other one undefined, so skipped (RFC 6570 §2.3, §3.2.1):
+**The path, expanded for each request** by `cocuyo_quic` (`io/io_quic_template.zig`). RFC 6570's
+expansion, with `dns` the one variable defined (RFC 8484 §4.1) and every other one undefined, so
+skipped (RFC 6570 §2.3, §3.2.1):
 
 - The operators are those of Appendix A's table: none, `+`, `.`, `/`, `;`, `?` and `&`. A
   fragment, `#`, is not part of the request, so a template that uses one is refused.

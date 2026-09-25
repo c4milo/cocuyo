@@ -1974,12 +1974,15 @@ failed. Broken against `zig build -Dchapulin=<checkout> test-chapulin`. One muta
 
 ## A DoH server's URI template
 
-Design §24 step 5, 2026-09-25. `io/io_quic_template.zig` splits a DoH server's template into the
-authority and the path's template, and expands the path with `dns`, the one variable defined.
-Three checks were `NOT CAUGHT` at first. UT8 was a refusal of the `#` operator that nothing
-needed: a character that is not an operator is read as a varname's, and `#` is none, so the
-refusal was removed and UT8 became the operator table gaining `#`. UT18 and UT19 had no test, and
-now each has one. Broken against `zig build test-cocuyo_quic`. Twenty mutations, twenty `CAUGHT`.
+Design §24 step 5, 2026-09-25. The engine splits a DoH server's template into the port its
+connection goes to, the name its certificate is checked against, the authority and the path's
+template (`io/io_request_template.zig`). `cocuyo_quic` expands the path with `dns`, the one
+variable defined (`io/io_quic_template.zig`). Four checks were `NOT CAUGHT` at first. UT8 was a
+refusal of the `#` operator that nothing needed: a character that is not an operator is read as a
+varname's, and `#` is none, so the refusal was removed and UT8 became the operator table gaining
+`#`. UT18 and UT19 had no test, and UT5 none for a port Zig's parser takes and a URI does not,
+`+443` or `4_43`: each now has one. The split's are broken against `zig build test-io`, and the
+expansion's against `zig build test-cocuyo_quic`. Twenty-three mutations, twenty-three `CAUGHT`.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
@@ -1987,7 +1990,7 @@ now each has one. Broken against `zig build test-cocuyo_quic`. Twenty mutations,
 | UT2 | the scheme is compared by case | schemes are case-insensitive (RFC 3986 §3.1) | the case and port test | CAUGHT |
 | UT3 | the host's characters are not checked | no userinfo (RFC 9114 §4.3.1), no IP literal | the authority refusals | CAUGHT |
 | UT4 | an IPv4 address is taken as a host | the session checks a name (RFC 3986 §3.2.2) | the authority refusals | CAUGHT |
-| UT5 | a port's characters are not checked | `port = *DIGIT` (RFC 3986 §3.2.3) | the authority refusals | CAUGHT |
+| UT5 | a port's characters are not checked | `port = *DIGIT` (RFC 3986 §3.2.3), where Zig's parser takes `+` and `_` | the authority refusals | CAUGHT |
 | UT6 | an expression does not end the authority | the TLS name cannot change with a query | the operator test | CAUGHT |
 | UT7 | a `#` literal is copied | a fragment is not part of the request | the path refusals | CAUGHT |
 | UT8 | the operator table gains `#` | a fragment is not part of the request | the path refusals | CAUGHT |
@@ -2003,6 +2006,28 @@ now each has one. Broken against `zig build test-cocuyo_quic`. Twenty mutations,
 | UT18 | a `%` literal is not checked | `pct-encoded` (RFC 3986 §2.1) | the path refusals | CAUGHT |
 | UT19 | a dec-octet may have a leading zero | `dec-octet` (RFC 3986 §3.2.2) | the registered-name test | CAUGHT |
 | UT20 | a varspec that is none is skipped | `varspec` (RFC 6570 §2.3) | the path refusals | CAUGHT |
+| UT21 | port 0 is taken | no datagram goes to it | the authority refusals | CAUGHT |
+| UT22 | an empty port is refused | it is 443 (RFC 9110 §4.2.2) | the case and port test | CAUGHT |
+| UT23 | a template with no port goes to 853 | it goes to 443 (RFC 9110 §4.2.2, RFC 9114 §3.1) | RFC 8484's split, the port 443 test | CAUGHT |
+
+## DoH in the engine
+
+Design §24 step 5, 2026-09-25. The engine speaks DoH over the twin: a connection on `h3` to its
+template's port, an answer with its `Age`, and a failed request for a response that is not 2xx or
+does not hold a DNS message, which counts against its server. The twin's scripted servers answer a
+request on `h3` as a response, whose status, `Age` and media type their scripts give. Broken
+against `zig build test-io`. Eight mutations, eight `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| DE1 | a DoH connection wants `doq` | its protocol is `h3` (RFC 9114 §3.2) | the DoH answer test | CAUGHT |
+| DE2 | any status carries an answer | a 2xx alone does (RFC 8484 §4.2.1) | the non-2xx test | CAUGHT |
+| DE3 | a 1xx carries an answer | 2xx starts at 200 (RFC 9110 §15.3) | the non-2xx test | CAUGHT |
+| DE4 | a 3xx carries an answer | 2xx ends at 299 (RFC 9110 §15.3) | the non-2xx test | CAUGHT |
+| DE5 | content that is not a DNS message is taken | request rule 12 | the media type test | CAUGHT |
+| DE6 | the `Age` is dropped | TTLs are lowered by it (RFC 8484 §5.1) | the `Age` test | CAUGHT |
+| DE7 | a DoH connection goes to 443 whatever its template says | the template's port (RFC 9114 §3.1) | the DoH answer test | CAUGHT |
+| DE8 | a connection goes to its endpoint's port | the port its opening chose | the DoQ answer test | CAUGHT |
 
 ## What a DoH response says of its content
 

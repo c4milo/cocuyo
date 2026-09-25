@@ -161,3 +161,13 @@ pub const quic_stream_step = 4;
 /// when its script says to negotiate another protocol than the one offered.
 pub const quic_alpn_bytes_max = 16;
 pub const quic_alpn_other = "h2";
+
+/// The ALPN token of HTTP/3 (RFC 9114 §3.2): a scripted server that negotiates it answers a
+/// request as a DoH server does.
+pub const quic_alpn_h3 = "h3";
+
+/// What goes before a response's content in the twin's item: two octets of status, four of
+/// `Age`, and one saying whether the content is a DNS message (sim_quic.zig).
+pub const quic_http_header_bytes = 7;
+pub const quic_http_age_at = 2;
+pub const quic_http_message_at = 6;

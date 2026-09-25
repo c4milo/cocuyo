@@ -106,7 +106,7 @@ fn hear(self: anytype, server: u8, now_ns: u64) void {
         switch (next) {
             .up => |alpn| up(self, server, alpn, now_ns),
             .refused, .closed => connection_module.fail(self, server, now_ns),
-            .answered => |answered| answer(self, server, answered.stream, answered.len, now_ns),
+            .answered => |answered| answer(self, server, answered, now_ns),
             .reset => |stream| ended(self, server, stream, null, now_ns),
             .ticket => |ticket| self.quic_tickets[server] = .{ .ticket = ticket, .since_ns = now_ns },
         }
@@ -119,19 +119,38 @@ fn up(self: anytype, server: u8, alpn: []const u8, now_ns: u64) void {
     const connection = &self.quic_connections[server];
     assert(connection.state == .handshaking);
     // "DoQ support is indicated by selecting the Application-Layer Protocol Negotiation (ALPN)
-    // token "doq" in the crypto handshake" (RFC 9250 §4.1). colibri does not check it.
-    if (!std.mem.eql(u8, alpn, constants.quic_alpn_doq)) return connection_module.fail(self, server, now_ns);
+    // token "doq" in the crypto handshake" (RFC 9250 §4.1), and HTTP/3's by "h3" (RFC 9114 §3.2).
+    // colibri does not check it.
+    if (!std.mem.eql(u8, alpn, connection_module.protocol_of(self))) return connection_module.fail(self, server, now_ns);
     connection.state = .up;
     connection_module.open_waiting(self, server, now_ns);
 }
 
 /// A stream was answered. Over DoQ it holds one message and its prefix, and the message's ID is 0;
 /// anything else is a protocol error, which fails the connection (request rule 5). An answer
-/// longer than the engine's buffer fails it too.
-fn answer(self: anytype, server: u8, stream: u64, len: usize, now_ns: u64) void {
-    if (len > self.answer.len) return connection_module.fail(self, server, now_ns);
-    const message = doq_message(self.answer[0..len]) orelse return connection_module.fail(self, server, now_ns);
-    ended(self, server, stream, message, now_ns);
+/// longer than the engine's buffer fails it too. Over DoH it is a response, whose content goes to
+/// the lookup with its `Age`.
+fn answer(self: anytype, server: u8, answered: anytype, now_ns: u64) void {
+    if (answered.len > self.answer.len) return connection_module.fail(self, server, now_ns);
+    const content = self.answer[0..answered.len];
+    if (answered.http) |http| return ended(self, server, answered.stream, response(http, content), now_ns);
+    const message = doq_message(content) orelse return connection_module.fail(self, server, now_ns);
+    ended(self, server, answered.stream, .{ .message = message, .age_seconds = 0 }, now_ns);
+}
+
+/// What a lookup is told of a stream: its answer, and the answer's `Age` in seconds.
+const Answer = struct { message: []const u8, age_seconds: u32 };
+
+/// A DoH response's answer, or null for a failed request. "A successful HTTP response with a 2xx
+/// status code ... is used for any valid DNS response", and "HTTP responses with non-successful
+/// HTTP status codes do not contain replies to the original DNS question" (RFC 8484 §4.2.1).
+/// Content that is not a DNS message, or was coded, is none either (request rule 12). The TTLs
+/// are lowered by the `Age` (RFC 8484 §5.1), which the lookup does.
+fn response(http: anytype, content: []const u8) ?Answer {
+    const status = http.status;
+    if (status < constants.http_status_success_first or status > constants.http_status_success_last) return null;
+    if (!http.dns_message) return null;
+    return .{ .message = content, .age_seconds = http.age_seconds };
 }
 
 /// The message a DoQ stream carries, or null for a protocol error. "All DNS messages ... sent over
@@ -149,16 +168,16 @@ pub fn doq_message(bytes: []const u8) ?[]const u8 {
     return message;
 }
 
-/// A stream ended: answered with `message`, or reset when it is null. The lookup hears it if the
-/// request is still its attempt (request rules 5 and 7), and the slot is free.
-fn ended(self: anytype, server: u8, stream: u64, message: ?[]const u8, now_ns: u64) void {
+/// A stream ended: answered, or failed when `answered` is null. The lookup hears it if the request
+/// is still its attempt (request rules 5 and 7), and the slot is free.
+fn ended(self: anytype, server: u8, stream: u64, answered: ?Answer, now_ns: u64) void {
     // A stream the engine let go of: its request was cancelled, and whatever it carries tells
     // nobody (request rule 6).
     const index = request_module.of_stream(self, server, stream) orelse return;
     const request = &self.requests[index];
     if (request_module.current(self, index)) {
-        if (message) |bytes| {
-            _ = self.resolver.on_request_answer(request.handle, request.transaction, bytes, 0, now_ns);
+        if (answered) |taken| {
+            _ = self.resolver.on_request_answer(request.handle, request.transaction, taken.message, taken.age_seconds, now_ns);
         } else {
             self.resolver.on_request_failed(request.handle, request.transaction, now_ns);
         }

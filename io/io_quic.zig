@@ -70,6 +70,8 @@ pub fn Connection(comptime options: Options) type {
         pub const Streams = streams_module.Streams(options.streams);
 
         pub const enabled = true;
+        /// Whether the connection speaks HTTP/3, which DoH goes over (docs/design.md §24, step 5).
+        pub const http3 = false;
         /// colibri never makes a datagram longer than this (RFC 9000 §14.1's smallest).
         pub const datagram_bytes_max = quic.constants.datagram_len_min;
         pub const request_bytes_max = cocuyo.constants.query_bytes_max;
@@ -82,7 +84,9 @@ pub fn Connection(comptime options: Options) type {
             stream: std.Random.ChaCha = std.Random.ChaCha.init(@splat(0)),
         };
         pub const Ticket = Session.Ticket;
-        pub const Answered = struct { stream: u64, len: usize };
+        /// What a DoH response says of its content (`response.zig`).
+        pub const Http = struct { status: u16, age_seconds: u32, dns_message: bool };
+        pub const Answered = struct { stream: u64, len: usize, http: ?Http = null };
         pub const Next = union(enum) { up: []const u8, refused, answered: Answered, reset: u64, closed, ticket: Ticket };
 
         pub const Stage = connection_module.Stage;
@@ -162,6 +166,7 @@ const Pair = struct {
 
     fn start(pair: *Pair) !void {
         try pair.client.start(.{
+            .https = null,
             .alpn = "doq",
             .ticket = @as(?Client.Ticket, null),
             .ticket_age_ns = 0,

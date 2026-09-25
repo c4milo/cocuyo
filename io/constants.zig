@@ -152,6 +152,20 @@ pub const quic_connection_events_max = 16;
 /// The ALPN token of DoQ (RFC 9250 §4.1).
 pub const quic_alpn_doq = "doq";
 
+/// The ALPN token of HTTP/3, which DoH goes over (RFC 9114 §3.2).
+pub const quic_alpn_h3 = "h3";
+
+/// The port a DoH server's connection goes to when its template names none: "If the port
+/// subcomponent is empty or not given, TCP port 443 ... is the default" (RFC 9110 §4.2.2), and
+/// HTTP/3 goes to "the indicated port" over UDP (RFC 9114 §3.1).
+pub const port_https_default = 443;
+
+/// The successful status codes: "The 2xx (Successful) class of status code indicates that the
+/// client's request was successfully received, understood, and accepted" (RFC 9110 §15.3), and a
+/// DoH answer comes in one alone (RFC 8484 §4.2.1).
+pub const http_status_success_first = 200;
+pub const http_status_success_last = 299;
+
 /// A second and a millisecond, in nanoseconds: chapulin's clock is Unix seconds, and a resumed
 /// hello states a ticket's age in milliseconds (RFC 9846 §4.3.11.1).
 pub const ns_per_second = 1_000_000_000;

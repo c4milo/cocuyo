@@ -17,6 +17,7 @@ const constants = @import("constants.zig");
 const udp = @import("io_udp.zig");
 const tls = @import("io_tls.zig");
 const request_module = @import("io_request.zig");
+const request_template = @import("io_request_template.zig");
 
 /// One opening of a server's connection slot: its stage, its socket and receive, the transport's
 /// state, and the requests on it. `lookups` bounds the queue.
@@ -37,6 +38,8 @@ pub fn Connection(comptime Quic: type, comptime lookups: u16) type {
         queue_len: u16 = 0,
         streams: u16 = 0,
         idle_since_ns: u64 = 0,
+        /// The port this opening goes to: a DoQ server's TLS port, or its template's for a DoH one.
+        port: u16 = 0,
         /// A datagram the transport made that the loop refused: it waits in the slot's buffer
         /// and goes at the next drive (request rule 8).
         made: u16 = 0,
@@ -146,24 +149,48 @@ pub fn open_waiting(self: anytype, server: u8, now_ns: u64) void {
 
 // Opening and closing (request rules 1, 7, 9 and 10).
 
+/// The ALPN token a request configuration's servers speak: `h3` for DoH (RFC 9114 §3.2), `doq`
+/// for DoQ (RFC 9250 §4.1).
+pub fn protocol_of(self: anytype) []const u8 {
+    return if (self.config.uses_https()) constants.quic_alpn_h3 else constants.quic_alpn_doq;
+}
+
 /// Opens server `server`'s connection: its socket, its receive, and the transport's first flight,
 /// resuming with the server's ticket, which it spends (request rules 1 and 10). False when the
 /// system refused the socket or the transport could not start, which leaves the slot closed.
 fn open(self: anytype, server: u8, now_ns: u64) bool {
     const connection = &self.quic_connections[server];
     assert(connection.state == .closed);
-    const endpoint = endpoint_of(self, server);
-    const family = endpoint.address.family;
+    const configured = &self.config.servers[server];
+    // A DoH server's template names its port, its name and its path, and one the engine cannot
+    // read fails the connection before it opens (docs/design.md §24, DoH over HTTP/3).
+    const template: ?request_template.Template = if (configured.https) |https| request_template.split(https.template) orelse return false else null;
+    const family = configured.endpoint.address.family;
     const descriptor = udp.Sockets.open_bound(family, 0, udp.Sockets.local_for(self.config, family)) catch return false;
     udp.size_buffers(descriptor, self.config);
     connection.restart();
     connection.incarnation +%= 1;
     connection.state = .handshaking;
     connection.descriptor = descriptor;
+    connection.port = if (template) |split| split.port else configured.quic.?.port;
+    return start(self, server, template, now_ns);
+}
+
+/// Starts the transport of server `server`'s connection, whose socket is open: its first flight,
+/// resuming with the server's ticket, which it spends (request rule 10). False when it cannot
+/// start, which closes the socket again.
+fn start(self: anytype, server: u8, template: ?request_template.Template, now_ns: u64) bool {
+    const connection = &self.quic_connections[server];
+    const configured = &self.config.servers[server];
     const kept = spend(self, server, now_ns);
+    // A DoQ server is known as a TLS server is (RFC 9250 §5.1), and a DoH server by its
+    // template's host (RFC 9110 §4.3.4), which `split` has read as a name.
+    var named: cocuyo.Tls = undefined;
+    if (template) |split| named = .{ .name = cocuyo.Name.from_text(split.host) catch unreachable };
     connection.quic.start(.{
-        .tls = &self.config.servers[server].quic.?,
-        .alpn = constants.quic_alpn_doq,
+        .tls = if (template != null) &named else &configured.quic.?,
+        .https = template,
+        .alpn = protocol_of(self),
         .ticket = if (kept) |ticket| ticket.ticket else null,
         .ticket_age_ns = if (kept) |ticket| now_ns -| ticket.since_ns else 0,
         .context = &self.quic_context,
@@ -176,12 +203,12 @@ fn open(self: anytype, server: u8, now_ns: u64) bool {
     return true;
 }
 
-/// Where server `server`'s connection goes: its address, on its QUIC port, which is UDP's 853
-/// unless the configuration named another (RFC 9250 §4.1.1).
+/// Where server `server`'s connection goes: its address, on the port its opening chose. A DoQ
+/// server's is UDP's 853 unless the configuration named another (RFC 9250 §4.1.1), and a DoH
+/// server's is its template's (RFC 9114 §3.1).
 pub fn endpoint_of(self: anytype, server: u8) cocuyo.Endpoint {
-    const configured = &self.config.servers[server];
-    var endpoint = configured.endpoint;
-    endpoint.port = configured.quic.?.port;
+    var endpoint = self.config.servers[server].endpoint;
+    endpoint.port = self.quic_connections[server].port;
     return endpoint;
 }
 

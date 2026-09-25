@@ -69,6 +69,9 @@ fn answer_request(loop: *Loop, entry: *network_module.QuicPeer, script: *const s
             return;
         },
     }
+    if (std.mem.eql(u8, entry.peer.negotiated(&script.quic), constants.quic_alpn_h3)) {
+        return answer_http(loop, entry, script, stream, bytes);
+    }
     const prefix = core.constants.tcp_prefix_bytes;
     // A request carries one message after its prefix (RFC 9250 §4.2); the twin answers no other.
     if (bytes.len < prefix or wire.message_len(bytes[0..prefix]) != bytes.len - prefix) return;
@@ -80,6 +83,20 @@ fn answer_request(loop: *Loop, entry: *network_module.QuicPeer, script: *const s
     malform(script, message[0..len]);
     const pending = queue(entry, loop.now_ns + answered.delay_ns) orelse return;
     pending.len = @intCast(quic.write_item(.{ .kind = .answer, .stream = stream, .bytes = message[0..len] }, &pending.bytes));
+}
+
+/// A DoH request carries the message alone (RFC 8484 §4.1), and its answer goes back as a
+/// response: what the script says of it, then the message.
+fn answer_http(loop: *Loop, entry: *network_module.QuicPeer, script: *const server.Script, stream: u32, bytes: []const u8) void {
+    var message: [constants.quic_datagram_bytes_max]u8 = undefined;
+    const header = constants.quic_http_header_bytes;
+    const room = message[header .. message.len - constants.quic_item_header_bytes];
+    const from = quic_address(entry.server);
+    const answered = server.respond(script, &from, bytes, true, perform.draw(loop), room) orelse return;
+    quic.write_http(script.quic.http, message[0..header]);
+    const pending = queue(entry, loop.now_ns + answered.delay_ns) orelse return;
+    const item: quic.Item = .{ .kind = .response, .stream = stream, .bytes = message[0 .. header + answered.len] };
+    pending.len = @intCast(quic.write_item(item, &pending.bytes));
 }
 
 /// Writes the prefix, and breaks the answer as the script says: a prefix one octet short of the

@@ -35,7 +35,36 @@ pub const Kind = enum(u8) {
     answer,
     reset,
     closed,
+    // The server's, over HTTP/3: a response's status, `Age` and media type, then its content.
+    response,
 };
+
+/// What a response says of its content (docs/design.md §24, DoH over HTTP/3): its status, its
+/// `Age`, and whether it is a DNS message in no content coding. A scripted server's says what its
+/// script does.
+pub const Http = struct { status: u16 = http_status_ok, age_seconds: u32 = 0, dns_message: bool = true };
+
+/// "The 200 (OK) status code indicates that the request has succeeded" (RFC 9110 §15.3.1).
+const http_status_ok = 200;
+
+/// Writes `http` into the first `quic_http_header_bytes` of `out`: the status, the `Age`, and
+/// whether the content is a DNS message.
+pub fn write_http(http: Http, out: []u8) void {
+    assert(out.len >= constants.quic_http_header_bytes);
+    std.mem.writeInt(u16, out[0..@sizeOf(u16)], http.status, .big);
+    std.mem.writeInt(u32, out[constants.quic_http_age_at..][0..@sizeOf(u32)], http.age_seconds, .big);
+    out[constants.quic_http_message_at] = @intFromBool(http.dns_message);
+}
+
+/// What `write_http` wrote, or null when `bytes` is too short to hold it.
+pub fn read_http(bytes: []const u8) ?Http {
+    if (bytes.len < constants.quic_http_header_bytes) return null;
+    return .{
+        .status = std.mem.readInt(u16, bytes[0..@sizeOf(u16)], .big),
+        .age_seconds = std.mem.readInt(u32, bytes[constants.quic_http_age_at..][0..@sizeOf(u32)], .big),
+        .dns_message = bytes[constants.quic_http_message_at] != 0,
+    };
+}
 
 pub const Item = struct { kind: Kind, stream: u32 = 0, bytes: []const u8 = &.{} };
 
@@ -66,6 +95,7 @@ pub fn read_item(bytes: []const u8) ?Read {
 /// The client: a connection with the functions the engine asks of one (docs/design.md §24).
 pub const Connection = struct {
     pub const enabled = true;
+    pub const http3 = true;
     pub const datagram_bytes_max = constants.quic_datagram_bytes_max;
     pub const request_bytes_max = core.constants.query_bytes_max;
     pub const Error = error{Failed};
@@ -73,7 +103,7 @@ pub const Connection = struct {
     pub const Context = struct {};
     /// A ticket the server gave. The twin's carries nothing: it only has to be kept and spent.
     pub const Ticket = struct {};
-    pub const Answered = struct { stream: u64, len: usize };
+    pub const Answered = struct { stream: u64, len: usize, http: ?Http = null };
     pub const Next = union(enum) { up: []const u8, refused, answered: Answered, reset: u64, closed, ticket: Ticket };
     /// What an expiry does, as the replay or a test sets it: the connection resends what the
     /// server has not acknowledged, or gives up.
@@ -166,6 +196,14 @@ pub const Connection = struct {
                 const copied = @min(item.bytes.len, out.len);
                 @memcpy(out[0..copied], item.bytes[0..copied]);
                 return .{ .answered = .{ .stream = item.stream, .len = item.bytes.len } };
+            },
+            .response => {
+                self.owes = true;
+                const http = read_http(item.bytes) orelse return self.lost();
+                const content = item.bytes[constants.quic_http_header_bytes..];
+                const copied = @min(content.len, out.len);
+                @memcpy(out[0..copied], content[0..copied]);
+                return .{ .answered = .{ .stream = item.stream, .len = content.len, .http = http } };
             },
             .reset => {
                 self.owes = true;
@@ -276,6 +314,8 @@ pub const Behaviour = struct {
     /// What it does with a request instead of answering it: reset its stream, or close the
     /// connection.
     instead: enum { answer, reset, close } = .answer,
+    /// What its responses over HTTP/3 say of their content.
+    http: Http = .{},
     /// Answers with a message whose prefix is one octet long, or whose ID is not 0: the protocol
     /// errors of RFC 9250 §4.3.3.
     malformed: enum { none, prefix, id } = .none,

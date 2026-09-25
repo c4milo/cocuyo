@@ -233,11 +233,11 @@ pub fn Resolver(comptime options: Options) type {
         /// A TLS configuration needs an engine that speaks TLS: one without it would carry
         /// cleartext on port 853 (RFC 7858 §3.1). And it needs a connection slot for each of its
         /// servers, since a TLS connection is never closed to make room (§21, TLS rule 6). A DoQ
-        /// configuration needs an engine with a request transport (§24).
+        /// configuration needs an engine with a request transport (§24), and a DoH one a transport
+        /// that speaks HTTP/3.
         pub fn assert_tls(config: *const cocuyo.Config) void {
-            // DoH's HTTP/3 is §24 step 5.
-            assert(!config.uses_https());
-            if (config.uses_quic()) assert(options.quic.enabled);
+            if (config.sends_requests()) assert(options.quic.enabled);
+            if (config.uses_https()) assert(options.quic.http3);
             if (!config.uses_tls()) return;
             assert(options.tls.enabled);
             assert(config.servers.len <= options.tcp_connections);
@@ -331,6 +331,7 @@ test {
     _ = quic;
     _ = request_connection;
     _ = request_events;
+    _ = @import("io_request_template.zig");
     _ = @import("io_tcp_queue_ring.zig");
     // The tests drive the engine on the twin, which is the only `rotor` that has scripts.
     if (comptime @hasDecl(rotor, "server")) {
@@ -340,6 +341,7 @@ test {
         _ = @import("io_tls_test.zig");
         _ = @import("io_request_test.zig");
         _ = @import("io_request_failure_test.zig");
+        _ = @import("io_request_https_test.zig");
         _ = @import("io_quic_test.zig");
     }
 }
