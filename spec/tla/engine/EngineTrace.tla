@@ -61,22 +61,35 @@ ConnToken(c) ==
 
 SockToken(sk) == "open s" \o ToString(sk.sent) \o Flag(sk.retiring, "R") \o Flag(sk.draining, "D")
 
+\* The members of a set of numbers, least first.
+Sorted(set) == [i \in 1..Cardinality(set) |-> CHOOSE l \in set : Cardinality({m \in set : m < l}) = i - 1]
+
+\* A request connection (EngineRequest.tla): its stage, the requests waiting in its queue and those
+\* with a stream, and whether it owes a datagram, keeps one the loop refused, lent its buffer, and
+\* went idle now.
+RConnToken(c) ==
+    c.stage \o " q" \o NumbersToken(c.queue) \o " st" \o NumbersToken(Sorted(c.streams)) \o " " \o
+    Flag(c.owes, "O") \o Flag(c.made, "K") \o Flag(c.lent, "B") \o Flag(c.idleNow, "I")
+
+\* A request slot: the server its request went to, or "-" for none.
+ReqToken(r) == IF r = {} THEN "-" ELSE ToString(Get(r).server)
+
 \* An operation: its kind's letter, M for a draining socket's receive still current, its target,
 \* and whether it is current.
 Letter(op) ==
     IF op.kind = "receiveFrom" /\ op.draining /\ op.current THEN "M"
     ELSE CASE op.kind = "connect" -> "C" [] op.kind = "receive" -> "R" [] op.kind = "send" -> "S"
            [] op.kind = "sendTo" -> "D" [] op.kind = "receiveFrom" -> "L"
-           [] op.kind = "sendRecords" -> "T"
+           [] op.kind = "sendRecords" -> "T" [] op.kind = "qsend" -> "Q" [] op.kind = "qrecv" -> "V"
 
 OpToken(op) == Letter(op) \o ToString(op.target) \o (IF op.current THEN "*" ELSE "x")
 
 \* The order the operations are written in, which the replay sorts its own by: the letter's place
-\* in CRSDLMT, then the target, then the stale before the current.
+\* in CRSDLMTQV, then the target, then the stale before the current.
 LetterRank(op) ==
     CASE Letter(op) = "C" -> 0 [] Letter(op) = "R" -> 1 [] Letter(op) = "S" -> 2
       [] Letter(op) = "D" -> 3 [] Letter(op) = "L" -> 4 [] Letter(op) = "M" -> 5
-      [] Letter(op) = "T" -> 6
+      [] Letter(op) = "T" -> 6 [] Letter(op) = "Q" -> 7 [] Letter(op) = "V" -> 8
 OpKey(op) == (LetterRank(op) * 256 + op.target) * 2 + (IF op.current THEN 1 ELSE 0)
 
 RECURSIVE Copies(_, _)
@@ -108,13 +121,17 @@ Line(st) ==
     Join([l \in 1..Slots |-> SlotToken(st.slots[l - 1])], " ; ") \o " | " \o
     Join([k \in 1..Conns |-> ConnToken(st.conns[k - 1])], " ; ") \o " | " \o
     Join([v \in 1..Sockets |-> SockToken(st.socks[v - 1])], " ; ") \o " | " \o
+    (IF Request
+     THEN Join([v \in 1..RServers |-> RConnToken(st.rconns[v - 1])], " ; ") \o " | " \o
+          Join([l \in 1..Slots |-> ReqToken(st.reqs[l - 1])], " ; ") \o " | "
+     ELSE "") \o
     Join(OpsTokens(st.ops, DOMAIN st.ops), " ") \o " | " \o
     "r" \o NumbersToken(st.ready) \o " q" \o NumbersToken(st.results) \o " t" \o
     (IF st.lastTaken = {} THEN "-" ELSE ToString(Get(st.lastTaken))) \o
     " w[" \o Join(WaitGroups(st), ",") \o "]" \o
     " f" \o NumbersToken([v \in 1..Servers |-> st.failures[v - 1]]) \o
     " e" \o NumbersToken(st.free) \o " " \o Flag(st.jammed, "J") \o Flag(st.starved, "Z") \o
-    (IF Tls THEN " tk[" \o Join([v \in 1..Servers |-> IF st.tickets[v - 1] THEN "1" ELSE "0"], ",") \o "]"
+    (IF Tls \/ Request THEN " tk[" \o Join([v \in 1..Servers |-> IF st.tickets[v - 1] THEN "1" ELSE "0"], ",") \o "]"
      ELSE "")
 
 EventToken(e) ==
@@ -125,8 +142,10 @@ EventToken(e) ==
       [] e.kind = "tls" -> "tls:" \o OpToken(e.op) \o ":" \o e.step
       [] e.kind = "lapse" -> "lapse:" \o ToString(e.server)
       [] e.kind = "straggle" -> "straggle:" \o OpToken(e.op)
+      [] e.kind = "quic" -> "quic:" \o OpToken(e.op) \o ":" \o e.step \o ":" \o ToString(e.slot) \o ":" \o e.reply
+      [] e.kind = "qtime" -> "qtime:" \o ToString(e.server) \o ":" \o e.step
 
-Transport == IF Tls THEN "tls" ELSE IF UseTcp THEN "tcp" ELSE "udp"
+Transport == IF Request THEN "request" ELSE IF Tls THEN "tls" ELSE IF UseTcp THEN "tcp" ELSE "udp"
 
 -------------------------------------------------------------------------------
 \* The walks.

@@ -22,7 +22,7 @@ const trace_directory = "trace";
 const trace_module = "EngineTrace";
 const configuration_extension = ".cfg";
 
-/// The configurations the trace directory may hold. It holds eight, one for each of the replay's.
+/// The configurations the trace directory may hold. It holds ten, one for each of the replay's.
 const configurations_max: usize = 32;
 /// The heap each run may take. A walk keeps one state and its successors, so a run needs little,
 /// and a run left at Java's default of a quarter of memory starves the other runs of theirs.

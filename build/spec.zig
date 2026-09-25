@@ -40,7 +40,7 @@ const engine_gate_walks = .{ "1", "10", "41" };
 /// The full run's walks the committed ones keep as well, by their place in the run, counted from 1
 /// in the configurations' order: each is where the full run caught a mutation of the engine that
 /// the short walks miss (docs/mutations.md, the engine replay on TLC's walks).
-const engine_picks = .{ "51", "79", "359", "4011", "8095", "8279", "8573" };
+const engine_picks = .{ "7", "37", "4051", "4079", "4359", "8011", "12095", "12279", "12573" };
 
 pub fn add(
     b: *std.Build,

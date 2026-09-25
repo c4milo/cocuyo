@@ -1,7 +1,7 @@
 //! The engine's state, written the way the engine model writes its own (`Line` in
-//! spec/tla/engine/EngineTrace.tla): the slots, the connections, the sockets, the loop's operations,
-//! then the ready list, the results, the slot taken last, the waits, the failures, the free list
-//! and what the twin refuses.
+//! spec/tla/engine/EngineTrace.tla): the slots, the connections, the sockets, over DoQ the QUIC
+//! connections and the request slots, the loop's operations, then the ready list, the results, the
+//! slot taken last, the waits, the failures, the free list and what the twin refuses.
 //!
 //! Each part is read off the engine and the table as they are, not as the engine says it is:
 //! an operation is current when its incarnation is its connection's, or when the attempt it was
@@ -58,6 +58,7 @@ pub fn write(world: anytype, out: *[world_module.text_bytes_max]u8) []const u8 {
     line.print(" | ", .{});
     sockets_text(&line, world);
     line.print(" | ", .{});
+    if (world.config.sends_requests()) requests_text(&line, world);
     operations(&line, world);
     line.print(" | ", .{});
     table(&line, world);
@@ -80,6 +81,47 @@ fn connection_text(line: *Line, world: anytype, connection: anytype) void {
     if (!world.config.uses_tls()) return;
     line.print(" k{d}", .{connection.queue.sealed});
     line.flag(connection.tls.ticket != null, 'M');
+}
+
+/// Each server's QUIC connection, then each slot's request: the server it went to, or "-"
+/// (EngineTrace.tla, `RConnToken` and `ReqToken`).
+fn requests_text(line: *Line, world: anytype) void {
+    const engine = &world.engine;
+    for (0..world.config.servers.len) |server| {
+        if (server > 0) line.print(" ; ", .{});
+        quic_connection_text(line, world, @intCast(server));
+    }
+    line.print(" | ", .{});
+    for (engine.requests[0..], 0..) |*request, index| {
+        if (index > 0) line.print(" ; ", .{});
+        if (request.live) line.print("{d}", .{request.server}) else line.print("-", .{});
+    }
+    line.print(" | ", .{});
+}
+
+/// A QUIC connection: its stage, the requests waiting in its queue and those with a stream, and
+/// whether its transport owes a datagram, it keeps one the loop refused, it lent its buffer, and it
+/// went idle now (docs/design.md §24, request rule 8).
+fn quic_connection_text(line: *Line, world: anytype, server: u8) void {
+    const engine = &world.engine;
+    const connection = &engine.quic_connections[server];
+    var items: [64]usize = undefined;
+    for (connection.queue[0..connection.queue_len], 0..) |index, position| items[position] = index;
+    line.print("{s} q", .{@tagName(connection.state)});
+    line.list(items[0..connection.queue_len]);
+    var streams: usize = 0;
+    for (engine.requests[0..], 0..) |*request, index| {
+        if (!request.live or request.server != server or request.stream == null) continue;
+        items[streams] = index;
+        streams += 1;
+    }
+    line.print(" st", .{});
+    line.list(items[0..streams]);
+    line.print(" ", .{});
+    line.flag(connection.quic.owes, 'O');
+    line.flag(connection.made > 0, 'K');
+    line.flag(engine.quic_sends[server].lent, 'B');
+    line.flag(connection.state != .closed and connection.idle_since_ns == world.now_ns, 'I');
 }
 
 /// Each server's sockets: none over TLS (§21, TLS rule 9).
@@ -140,7 +182,7 @@ pub const Token = struct {
     current: bool,
 
     /// The letters in the order the model writes them.
-    const letters = "CRSDLMT";
+    const letters = "CRSDLMTQV";
 
     pub fn key(token: Token) usize {
         const rank = std.mem.indexOfScalar(u8, letters, token.letter).?;
@@ -157,18 +199,7 @@ pub fn token_of(world: anytype, loop_slot: u32) Token {
     const user_data = world.loop.slots[loop_slot].user_data;
     const index: usize = @intCast(user_data & io.constants.index_mask);
     return switch (world_module.kind_of(user_data).?) {
-        .tcp_connect, .tcp_receive, .tls_send => |kind| blk: {
-            const at = index & io.constants.tcp_slot_mask;
-            const incarnation: u32 = @truncate(index >> io.constants.tcp_incarnation_shift);
-            const connection = &world.engine.connections[at];
-            const live = connection.state != .closed and connection.state != .reopening;
-            const letter: u8 = switch (kind) {
-                .tcp_connect => 'C',
-                .tcp_receive => 'R',
-                else => 'T',
-            };
-            break :blk .{ .letter = letter, .target = at, .current = live and connection.incarnation == incarnation };
-        },
+        .tcp_connect, .tcp_receive, .tls_send => |kind| connection_token(world, kind, index),
         .tcp_send => .{ .letter = 'S', .target = index, .current = send_is_current(world, index) },
         .udp_send => .{ .letter = 'D', .target = index, .current = send_is_current(world, index) },
         .udp_receive => blk: {
@@ -177,8 +208,34 @@ pub fn token_of(world: anytype, loop_slot: u32) Token {
             const letter: u8 = if (draining) 'M' else 'L';
             break :blk .{ .letter = letter, .target = index & io.constants.receive_index_mask, .current = found != null };
         },
+        .quic_send, .quic_receive => |kind| quic_token(world, kind, index),
         else => unreachable,
     };
+}
+
+/// A TCP connection's connect, receive or records send: current while its opening is the slot's.
+fn connection_token(world: anytype, kind: io.Kind, index: usize) Token {
+    // A request configuration's engine keeps no TCP connection, and submits none of these.
+    if (comptime !@TypeOf(world.engine).keeps_tcp) unreachable;
+    const at = index & io.constants.tcp_slot_mask;
+    const incarnation: u32 = @truncate(index >> io.constants.tcp_incarnation_shift);
+    const connection = &world.engine.connections[at];
+    const live = connection.state != .closed and connection.state != .reopening;
+    const letter: u8 = switch (kind) {
+        .tcp_connect => 'C',
+        .tcp_receive => 'R',
+        else => 'T',
+    };
+    return .{ .letter = letter, .target = at, .current = live and connection.incarnation == incarnation };
+}
+
+/// A QUIC connection's datagram send or receive: current while its opening is the slot's.
+fn quic_token(world: anytype, kind: io.Kind, index: usize) Token {
+    const server = index & io.constants.quic_server_mask;
+    const incarnation: u32 = @truncate(index >> io.constants.quic_incarnation_shift);
+    const connection = &world.engine.quic_connections[server];
+    const live = connection.state != .closed and connection.incarnation == incarnation;
+    return .{ .letter = if (kind == .quic_send) 'Q' else 'V', .target = server, .current = live };
 }
 
 /// The loop's operations the model knows, in the model's order.
@@ -249,11 +306,18 @@ fn table(line: *Line, world: anytype) void {
     line.print(" ", .{});
     line.flag(world.loop.refuse_submissions, 'J');
     line.flag(world.loop.network().refuse_open, 'Z');
-    if (!world.config.uses_tls()) return;
+    tickets(line, world);
+}
+
+/// Over TLS or DoQ, whether each server keeps a ticket for its next connection.
+fn tickets(line: *Line, world: anytype) void {
+    const engine = &world.engine;
+    if (!world.config.uses_tls() and !world.config.sends_requests()) return;
     line.print(" tk[", .{});
     for (0..world.config.servers.len) |server| {
         if (server > 0) line.print(",", .{});
-        line.print("{d}", .{@intFromBool(engine.tls_tickets[server] != null)});
+        const kept = if (world.config.uses_tls()) engine.tls_tickets[server] != null else engine.quic_tickets[server] != null;
+        line.print("{d}", .{@intFromBool(kept)});
     }
     line.print("]", .{});
 }

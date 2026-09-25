@@ -3426,8 +3426,13 @@ An image runs one loop on each core and one engine on each loop. Nothing crosses
 4. DoQ over colibri and chapulin, with twin tests and a live check against AdGuard and NextDNS.
    The engine's half and the twin's QUIC landed on 2026-09-25: `io/io_request.zig` and the two
    files beside it, `sim.quic`, and seventeen tests of the engine over it, which thirteen
-   mutations break (docs/mutations.md DQ1 to DQ13). The replay over the model's request walks,
-   colibri over the twin (decision 29) and the live check are the rest of the step.
+   mutations break (docs/mutations.md DQ1 to DQ13). The replay over the model's request walks
+   landed the same day: two request configurations of the walks, 4,020,000 events of TLC's full
+   run replayed in agreement, and eleven mutations of the request path, each caught by the walks
+   (RW1 to RW11). Writing the replay moved request rule 8, and the model with it: a datagram the
+   loop refuses is kept for the next drive, and the request configurations now hold 24,192,
+   257,212 and 5,295,912 states. colibri over the twin (decision 29) and the live check are the
+   rest of the step.
 5. DoH over HTTP/3, with a live check against Cloudflare and Google.
 6. Two engines on two threads of one image, each on its own loop, resolving at once.
 7. DoH over HTTP/2, after colibri#7.

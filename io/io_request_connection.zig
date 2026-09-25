@@ -160,7 +160,6 @@ fn open(self: anytype, server: u8, now_ns: u64) bool {
     connection.incarnation +%= 1;
     connection.state = .handshaking;
     connection.descriptor = descriptor;
-    connection.idle_since_ns = now_ns;
     const kept = spend(self, server, now_ns);
     connection.quic.start(.{
         .tls = &self.config.servers[server].quic.?,

@@ -15,6 +15,7 @@ const io = @import("io");
 const lookup_text = @import("replay.zig");
 const fixtures = @import("fixtures.zig");
 const text_module = @import("engine_text.zig");
+const quic_world = @import("engine_world_quic.zig");
 
 /// The seed every engine of the replay starts from; the model abstracts the entropy away.
 const seed = 0x5eed_e791;
@@ -30,9 +31,9 @@ pub const text_bytes_max = 1024;
 
 pub const Error = error{ Malformed, NoSuchOperation, NoBuffer, Full, BufferKept };
 
-/// Whether every query goes over TCP, over TLS, or over UDP; and the queries a port carries before
-/// it is replaced. A walk's `config` line names both.
-pub const Transport = struct { tcp: bool, per_port: u32, tls: bool = false };
+/// Whether every query goes over TCP, over TLS, over UDP, or as a request over DoQ; and the queries
+/// a port carries before it is replaced. A walk's `config` line names both.
+pub const Transport = struct { tcp: bool, per_port: u32, tls: bool = false, request: bool = false };
 
 /// What ends an operation, as the transcript names it.
 const Outcome = enum { ok, failed, canceled, exhausted, short };
@@ -49,6 +50,8 @@ pub fn World(comptime slots: u16, comptime conns: u16) type {
             .tcp_message_bytes = 512,
             // The twin's session: every configuration may speak TLS (docs/design.md §21).
             .tls = rotor.tls.Session,
+            // The twin's QUIC: every configuration may send requests (docs/design.md §24).
+            .quic = rotor.quic.Connection,
         });
 
         loop: rotor.Loop,
@@ -72,7 +75,9 @@ pub fn begin(self: anytype, transport: Transport) !void {
             .address = cocuyo.Address.from_v4(address.bytes[0..cocuyo.constants.address_v4_bytes].*),
             .port = address.port,
         } };
-        if (transport.tls) server.tls = .{ .name = cocuyo.Name.from_text("dns.example.") catch unreachable };
+        const name = cocuyo.Name.from_text("dns.example.") catch unreachable;
+        if (transport.tls) server.tls = .{ .name = name };
+        if (transport.request) server.quic = .{ .name = name };
     }
     self.config = .{
         .servers = &self.servers,
@@ -88,6 +93,7 @@ pub fn begin(self: anytype, transport: Transport) !void {
     self.names = 0;
     try self.engine.init(&self.loop, &self.config, seed, self.now_ns);
     self.engine.tcp_idle_ns = idle_ns;
+    self.engine.quic_idle_ns = idle_ns;
 }
 
 /// One event of the transcript, then the timers the engine let go of, ended. Every
@@ -131,22 +137,9 @@ fn dispatch(self: anytype, token: []const u8) Error!void {
 }
 
 fn instant(self: anytype, name: []const u8, parts: *std.mem.SplitIterator(u8, .scalar)) Error!void {
-    if (std.mem.eql(u8, name, "start")) return start(self);
-    if (std.mem.eql(u8, name, "lapse")) {
-        // A kept ticket reaches its lifetime, or seven days: the model's lapse, which no drive
-        // follows (docs/design.md §21, TLS rule 8).
-        self.engine.tls_tickets[try number(parts.next())] = null;
-        return;
-    }
-    if (std.mem.eql(u8, name, "take")) {
-        _ = self.engine.take(self.now_ns);
-        return;
-    }
-    if (std.mem.eql(u8, name, "cancel")) {
-        const slot = try number(parts.next());
-        return self.engine.cancel(self.engine.handles[slot], self.now_ns);
-    }
+    if (try unnamed(self, name, parts)) return;
     const op = parts.next() orelse return error.Malformed;
+    if (std.mem.eql(u8, name, "quic")) return quic_world.step(self, op, parts);
     if (std.mem.eql(u8, name, "straggle")) return straggle(self, op);
     if (std.mem.eql(u8, name, "finish")) {
         const outcome = std.meta.stringToEnum(Outcome, parts.next() orelse "") orelse return error.Malformed;
@@ -159,6 +152,35 @@ fn instant(self: anytype, name: []const u8, parts: *std.mem.SplitIterator(u8, .s
     }
     if (std.mem.eql(u8, name, "tls")) return tls_step(self, op, parts.next() orelse "");
     return error.Malformed;
+}
+
+/// An event that names no operation, done. False when `name` is not one.
+fn unnamed(self: anytype, name: []const u8, parts: *std.mem.SplitIterator(u8, .scalar)) Error!bool {
+    if (std.mem.eql(u8, name, "start")) {
+        try start(self);
+    } else if (std.mem.eql(u8, name, "lapse")) {
+        lapse(self, try number(parts.next()));
+    } else if (std.mem.eql(u8, name, "take")) {
+        _ = self.engine.take(self.now_ns);
+    } else if (std.mem.eql(u8, name, "cancel")) {
+        self.engine.cancel(self.engine.handles[try number(parts.next())], self.now_ns);
+    } else if (std.mem.eql(u8, name, "qtime")) {
+        const server = try number(parts.next());
+        try quic_world.expire(self, server, parts.next() orelse "");
+    } else {
+        return false;
+    }
+    return true;
+}
+
+/// A kept ticket reaches its lifetime, or seven days: the model's lapse, which no drive follows
+/// (docs/design.md §21, TLS rule 8, and §24, request rule 10).
+fn lapse(self: anytype, server: usize) void {
+    if (self.config.sends_requests()) {
+        self.engine.quic_tickets[server] = null;
+    } else {
+        self.engine.tls_tickets[server] = null;
+    }
 }
 
 fn start(self: anytype) Error!void {
@@ -182,7 +204,7 @@ fn next_deadline(self: anytype) ?u64 {
 /// The oldest operation the loop holds whose token is `name`. The model's operations are a bag, so
 /// an event names one by its token; two with one token are one to the model, and the replay shows
 /// whether the engine treats them alike.
-fn operation(self: anytype, name: []const u8) Error!u32 {
+pub fn operation(self: anytype, name: []const u8) Error!u32 {
     var ordered: [rotor.constants.operations_max]u32 = undefined;
     const count = known_operations(self, &ordered);
     for (ordered[0..count]) |loop_slot| {
@@ -223,7 +245,7 @@ fn finish(self: anytype, op: []const u8, outcome: Outcome) Error!void {
         .exhausted => rotor.Event.failure(user_data, .buffers_exhausted),
     };
     // A receive that ends in success after a cancel carries the bytes it read (rule 2).
-    if (outcome == .ok and (kind == .tcp_receive or kind == .udp_receive)) {
+    if (outcome == .ok and receives(kind)) {
         event = try carrying(self, user_data, kind, false);
     }
     self.loop.end(slot);
@@ -257,6 +279,7 @@ fn query_left(self: anytype, slot: usize) ?u32 {
 /// What is left of the records a send of the connection's opening `index` names, if the opening
 /// is still the connection's.
 fn records_left(self: anytype, index: usize) ?u32 {
+    if (comptime !@TypeOf(self.engine).keeps_tcp) return null;
     const connection = &self.engine.connections[index & io.constants.tcp_slot_mask];
     const incarnation: u32 = @truncate(index >> io.constants.tcp_incarnation_shift);
     const live = connection.state != .closed and connection.state != .reopening;
@@ -297,7 +320,7 @@ fn straggle(self: anytype, op: []const u8) Error!void {
     const slot = try operation(self, op);
     const user_data = self.loop.slots[slot].user_data;
     const kind = kind_of(user_data).?;
-    if (kind != .tcp_receive and kind != .udp_receive) return error.Malformed;
+    if (!receives(kind)) return error.Malformed;
     const event = try carrying(self, user_data, kind, true);
     _ = self.engine.apply(event, self.now_ns);
 }
@@ -308,7 +331,7 @@ fn carrying(self: anytype, user_data: u64, kind: io.Kind, more: bool) Error!roto
     const buffer_id = self.loop.groups[group_id].take() orelse return error.NoBuffer;
     const buffer = self.loop.provided_buffer(group_id, buffer_id);
     var length: u32 = 1;
-    if (kind == .udp_receive) {
+    if (kind != .tcp_receive) {
         const peer = rotor.Network.server_address(0);
         length = rotor.buffers.write_delivery(buffer, .{}, &peer, &.{0});
     }
@@ -374,7 +397,12 @@ fn end_cancelled_timers(self: anytype) void {
     }
 }
 
-fn number(token: ?[]const u8) Error!usize {
+/// Whether an operation of `kind` is a receive, which carries what it read.
+fn receives(kind: io.Kind) bool {
+    return kind == .tcp_receive or kind == .udp_receive or kind == .quic_receive;
+}
+
+pub fn number(token: ?[]const u8) Error!usize {
     return std.fmt.parseInt(usize, token orelse return error.Malformed, 10) catch error.Malformed;
 }
 
@@ -387,8 +415,7 @@ pub fn kind_of(user_data: u64) ?io.Kind {
     const kind = kind_of_any(user_data);
     return switch (kind) {
         .tcp_connect, .tcp_send, .tcp_receive, .udp_send, .udp_receive, .tls_send => kind,
-        // The model's `qsend` and `qrecv` (EngineRequest.tla). The replay's engine has no request
-        // transport yet, so none is submitted.
+        // The model's `qsend` and `qrecv` (EngineRequest.tla).
         .quic_send, .quic_receive => kind,
         .timer => null,
     };
@@ -398,11 +425,12 @@ fn failure_of(kind: io.Kind) rotor.Code {
     return switch (kind) {
         .tcp_connect => .connection_refused,
         .tcp_send, .tls_send => .broken_pipe,
-        .udp_send => .network_unreachable,
+        .udp_send, .quic_send => .network_unreachable,
         else => .connection_reset,
     };
 }
 
 test {
     _ = lookup_text;
+    _ = quic_world;
 }

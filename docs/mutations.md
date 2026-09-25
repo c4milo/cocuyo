@@ -1863,6 +1863,34 @@ broken against `zig build test-io`. Thirteen mutations, thirteen `CAUGHT`.
 | DQ12 | a connection that fails tells none of its requests | request rule 7 | the malformed-answer, refused-socket and tiny-buffer tests | CAUGHT |
 | DQ13 | a datagram whose send failed leaves its connection standing | request rules 7 and 8 | the failed-send test | CAUGHT |
 
+## Requests on the model's walks
+
+Design §24 step 4, 2026-09-25. The replay walks the request configurations, one slot or two and
+two servers, over the twin's QUIC. The run now has ten configurations, and the two request ones
+come first, so every walk the section on TLC's walks names comes 4,000 later: its walk 51 is walk
+4051, and 8573 is 12573. The seven walks it picked are byte for byte the ones TLC writes there.
+ET5's edit no longer applied once the ticket's lapse moved into `fresh`, and was written again; it
+is caught at walk 12095, as it was at 8095.
+
+Each mutation below breaks the request path the way one of the model's mutants breaks its rule
+(RQ1 to RQ11), or the datagram the loop refused, and was broken against the committed walks and
+TLC's full run, 20,000 walks and 4,020,000 events. The short walks miss RW6 and RW10, so the
+picked walks keep walks 7 and 37 as well, nine in all. Eleven mutations, eleven `CAUGHT`.
+
+| # | Mutation | The short walks | The full run | Status |
+| --- | --- | --- | --- | --- |
+| RW1 | a request its lookup left is never cancelled by the drive | walk 2 | not run | CAUGHT |
+| RW2 | the handshake's end is taken whatever protocol it negotiated | walk 6 | not run | CAUGHT |
+| RW3 | a connection that fails tells none of its requests | walk 1 | not run | CAUGHT |
+| RW4 | a datagram is sent while the buffer is lent to the one before | walk 2 | not run | CAUGHT |
+| RW5 | a connection that closes forgets its buffer is lent | walk 2 | not run | CAUGHT |
+| RW6 | a connection that resumes leaves its server's ticket kept | no | walk 37, picked | CAUGHT |
+| RW7 | a receive the loop refused is not armed again | walk 2 | not run | CAUGHT |
+| RW8 | a connection closes for idleness with requests on it | walk 2 | not run | CAUGHT |
+| RW9 | a connection that closes keeps the datagram the loop refused | walk 1 | not run | CAUGHT |
+| RW10 | an event of an opening that is gone is taken as the current one's | no | walk 7, picked | CAUGHT |
+| RW11 | a datagram the loop refused is dropped | walk 1 | not run | CAUGHT |
+
 ## An engine with no TCP connection
 
 c4milo/cocuyo#14, 2026-09-25. An engine built with `tcp_connections = 0`, which DoQ alone needs,
