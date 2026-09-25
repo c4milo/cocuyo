@@ -141,14 +141,17 @@ pub const Session = struct {
     }
 
     /// The anchors, the clock and the name of a chain check, and the pins, whichever the server
-    /// is known by (RFC 8310 §6.3, docs/design.md §21).
+    /// is known by (RFC 8310 §6.3, docs/design.md §21). A server known by pins alone, "SPKI + IP",
+    /// is known by its key and nothing else: it gets no anchors and no clock, however many the
+    /// context carries for the servers that have names. chapulin refuses anchors with no name to
+    /// check a chain against (its webpki_cfg.c), which would fail such a server at every start.
     fn trust(self: *Session, tls: *const cocuyo.Tls, context: anytype, now_ns: u64) void {
-        if (context.anchors.len > 0) {
-            self.config.anchors = context.anchors.ptr;
-            self.config.anchor_count = context.anchors.len;
-            self.config.now_seconds = context.unix_seconds + (now_ns -| context.at_ns) / constants.ns_per_second;
-        }
         if (tls.name) |name| {
+            if (context.anchors.len > 0) {
+                self.config.anchors = context.anchors.ptr;
+                self.config.anchor_count = context.anchors.len;
+                self.config.now_seconds = context.unix_seconds + (now_ns -| context.at_ns) / constants.ns_per_second;
+            }
             var length = name.write_text(&self.hostname);
             // chapulin takes a hostname, which has no root label's dot.
             if (length > 1 and self.hostname[length - 1] == '.') length -= 1;
@@ -355,6 +358,23 @@ test "a session starts and stages a hello, a TLS handshake record" {
     try testing.expectEqual(@as(u8, 22), out[0]);
     const body = std.mem.readInt(u16, out[constants.tls_record_length_at..][0..@sizeOf(u16)], .big);
     try testing.expectEqual(made, constants.tls_record_header_bytes + body);
+    session.wipe();
+}
+
+test "a server known by pins alone starts though the context carries anchors for named servers" {
+    // The anchors are for the servers that have names; one known by its key alone gets none,
+    // which chapulin would refuse with no name to check a chain against.
+    const octet = [_]u8{0x30};
+    const anchors = [_]c.ch_trust_anchor{.{ .name = &octet, .name_len = octet.len, .spki = &octet, .spki_len = octet.len }};
+    var context = Session.Context.init(&anchors, @splat(7), 1_700_000_000, 0);
+    const pins = [_]cocuyo.Pin{@splat(0xab)};
+    const tls: cocuyo.Tls = .{ .pins = &pins };
+    const session = try testing.allocator.create(Session);
+    defer testing.allocator.destroy(session);
+    session.* = .{};
+    try session.start(.{ .tls = &tls, .ticket = @as(?Session.Ticket, null), .ticket_age_ns = 0, .context = &context, .now_ns = 0 });
+    try testing.expectEqual(@as(usize, 0), session.config.anchor_count);
+    try testing.expectEqual(@as(usize, 1), session.config.spki_pin_count);
     session.wipe();
 }
 

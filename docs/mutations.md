@@ -1956,3 +1956,16 @@ mutations, three `CAUGHT`.
 | CQ1 | a server known by SPKI pins is started | chapulin's QUIC mode takes no pins | the refusal test | CAUGHT |
 | CQ2 | a server known by no name is started | chapulin's QUIC mode checks a hostname | the refusal test, by chapulin's own assertion | CAUGHT |
 | CQ3 | the build record is not compared | the object is the one the headers describe | the build-record test | CAUGHT |
+
+## A DoT server known by pins alone
+
+2026-09-25. The DoT session gave chapulin the context's anchors whatever the server, so a server
+known by pins alone, RFC 8310 §6.3's "SPKI + IP", reached chapulin with anchors and no hostname,
+which chapulin refuses at its start (its webpki_cfg.c): every lookup to it ended in
+`AllServersFailed`. The session gives such a server its pins and nothing else. The test that
+starts one beside a context of anchors was run on the code before the fix, which is PA1, and
+failed. Broken against `zig build -Dchapulin=<checkout> test-chapulin`. One mutation, one `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| PA1 | a server with no name gets the context's anchors and clock | a server known by pins alone starts | the pins-beside-anchors test | CAUGHT |
