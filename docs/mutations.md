@@ -1837,3 +1837,28 @@ eleven `CAUGHT`.
 | RQ9 | a connection closes for idleness with requests on it | request rule 9 | streams when up | CAUGHT |
 | RQ10 | a connection that closes still owes a datagram | request rule 7 | closed empty | CAUGHT |
 | RQ11 | a receive is armed beside the one that is current | the datagram's rule 1 | receive current | CAUGHT |
+
+## DoQ in the engine
+
+Design §24 step 4, 2026-09-25. The engine carries DoQ over its request transport:
+`io/io_request.zig`, `io/io_request_connection.zig` and `io/io_request_events.zig`, driven on the
+twin's QUIC, `sim.quic`. DQ5 was `NOT CAUGHT` at first. A lookup that moves to the next server
+takes a new request, which drops the old one itself, so only a lookup that leaves and takes none
+needs the drive's cancel. A cancelled lookup does, and its test was written. Each mutation was
+broken against `zig build test-io`. Thirteen mutations, thirteen `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| DQ1 | the handshake's end is taken whatever protocol it negotiated | request rule 2, RFC 9250 §4.1 | the other-protocol test | CAUGHT |
+| DQ2 | a DoQ answer's prefix is not held to the stream's end | request rule 5, RFC 9250 §4.2, §4.3.3 | the message test, and the malformed-answer test | CAUGHT |
+| DQ3 | a DoQ answer's ID is not held to 0 | request rule 5, RFC 9250 §4.3.3 | the message test, and the malformed-answer test | CAUGHT |
+| DQ4 | an answer longer than the buffer is read | request rule 5 | the tiny-buffer test, by the slice's bound | CAUGHT |
+| DQ5 | a request its lookup left is never cancelled by the drive | request rule 6 | the cancelled-lookup test | CAUGHT |
+| DQ6 | a request goes on an idle connection near its negotiated timeout | request rule 9, RFC 9250 §4.4 | the near-timeout test | CAUGHT |
+| DQ7 | an idle connection never closes | request rule 9 | the idle-close and ticket tests | CAUGHT |
+| DQ8 | a datagram is sent while the buffer is lent to the one before | request rule 8 | the exhaustion and near-timeout tests, by the send's assertion | CAUGHT |
+| DQ9 | an event of an opening that is gone is taken as the current one's | the stream's rule 2 | the ticket and near-timeout tests | CAUGHT |
+| DQ10 | a closing connection reads what arrives | request rule 9 | the closing test | CAUGHT |
+| DQ11 | a receive that ran out of buffers fails its connection | the datagram's rule 1 | the exhaustion test | CAUGHT |
+| DQ12 | a connection that fails tells none of its requests | request rule 7 | the malformed-answer, refused-socket and tiny-buffer tests | CAUGHT |
+| DQ13 | a datagram whose send failed leaves its connection standing | request rules 7 and 8 | the failed-send test | CAUGHT |

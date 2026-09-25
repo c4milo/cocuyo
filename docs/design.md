@@ -3424,6 +3424,10 @@ An image runs one loop on each core and one engine on each loop. Nothing crosses
    were written again, and the engine's mutations broken again against them. Every one is still
    caught, by the same seven picked walks.
 4. DoQ over colibri and chapulin, with twin tests and a live check against AdGuard and NextDNS.
+   The engine's half and the twin's QUIC landed on 2026-09-25: `io/io_request.zig` and the two
+   files beside it, `sim.quic`, and seventeen tests of the engine over it, which thirteen
+   mutations break (docs/mutations.md DQ1 to DQ13). The replay over the model's request walks,
+   colibri over the twin (decision 29) and the live check are the rest of the step.
 5. DoH over HTTP/3, with a live check against Cloudflare and Google.
 6. Two engines on two threads of one image, each on its own loop, resolving at once.
 7. DoH over HTTP/2, after colibri#7.

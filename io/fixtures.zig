@@ -79,3 +79,7 @@ pub const tcp_group_buffers_small = 2;
 /// A small engine whose group runs dry under its own lookups: more replies at once than buffers.
 pub const small_lookups = 6;
 pub const small_group_buffers = 2;
+
+/// When a test makes a QUIC connection's own timer due: a millisecond on, before any lookup's
+/// deadline.
+pub const quic_timer_ns = 1_000_000;

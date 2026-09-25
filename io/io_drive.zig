@@ -9,10 +9,14 @@ const udp = @import("io_udp.zig");
 const tcp = @import("io_tcp.zig");
 const results_module = @import("io_results.zig");
 const send_module = @import("io_send.zig");
+const request_module = @import("io_request.zig");
+const request_connection = @import("io_request_connection.zig");
 
 /// Polls the table for what every lookup wants and does it, until nothing is left: a send out
-/// or held, a connection asked for, an end handed to `results`. Then the idle close, the port
-/// rotation, and the timer moved to the soonest deadline.
+/// or held, a connection asked for, a request taken, an end handed to `results`. Then every
+/// request its lookup left is cancelled, the idle connections close, the sockets and connections
+/// are tended, and the timer moves to the soonest deadline (docs/design.md §24, request rules 6,
+/// 9 and 11).
 ///
 /// The table offers a lookup once for each thing it has to do (§11, §16 decision 20), so the
 /// drive ends when the ready list does. A lookup can be offered again inside one drive, when a
@@ -28,9 +32,12 @@ pub fn drive(self: anytype, now_ns: u64) void {
         const event = self.resolver.poll(now_ns, &self.scratch) orelse break;
         if (act(self, event, now_ns)) refused = 0 else refused += 1;
     }
+    request_module.cancel_left(self, now_ns);
     tcp.close_idle(self, now_ns);
+    request_connection.close_idle(self, now_ns);
     tcp.tend(self);
     tend_sockets(self);
+    request_connection.tend(self, now_ns);
     arm_timer(self, now_ns);
 }
 
@@ -45,9 +52,7 @@ fn act(self: anytype, event: cocuyo.Event, now_ns: u64) bool {
         .done => |answer| return report(self, index, .{ .answer = answer }, now_ns),
         .failed => |failure| return report(self, index, .{ .failure = failure }, now_ns),
         .wait => unreachable,
-        // The engine speaks neither HTTP nor QUIC, and `assert_tls` refused a configuration of
-        // DoH or DoQ servers (docs/design.md §22, §23).
-        .send_request => unreachable,
+        .send_request => |send| request_module.take(self, index, send, now_ns),
     }
     return true;
 }
@@ -104,10 +109,11 @@ fn drain_owed(self: anytype, server: u8) bool {
     return false;
 }
 
-/// One rotor timer at the table's soonest deadline, moved when the deadline moves.
+/// One rotor timer at the soonest of the table's deadline and each QUIC connection's, moved when
+/// that moves (docs/design.md §24, request rule 11).
 fn arm_timer(self: anytype, now_ns: u64) void {
     if (self.closing) return;
-    const due = self.resolver.next_deadline_ns();
+    const due = earliest(self.resolver.next_deadline_ns(), request_connection.next_deadline(self));
     if (due == self.timer_due_ns) return;
     if (self.timer_handle) |handle| {
         self.loop.cancel(handle);
@@ -122,4 +128,10 @@ fn arm_timer(self: anytype, now_ns: u64) void {
     };
     var handles: [1]rotor.Handle = undefined;
     if (self.loop.submit(&.{operation}, &handles) == 1) self.timer_handle = handles[0];
+}
+
+fn earliest(a: ?u64, b: ?u64) ?u64 {
+    const first = a orelse return b;
+    const second = b orelse return a;
+    return @min(first, second);
 }

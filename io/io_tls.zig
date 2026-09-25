@@ -99,11 +99,18 @@ pub fn spend(self: anytype, at: u8, server: u8, now_ns: u64) void {
     connection.tls.ticket = null;
     const kept = self.tls_tickets[server] orelse return;
     self.tls_tickets[server] = null;
-    const age_ns = now_ns -| kept.since_ns;
-    const lifetime_ns = @min(Session.lifetime_ns(&kept.ticket), constants.tls_ticket_age_ns_max);
-    if (age_ns >= lifetime_ns) return;
+    if (!fresh(Session, &kept, now_ns)) return;
     connection.tls.ticket = kept.ticket;
     connection.tls.ticket_since_ns = kept.since_ns;
+}
+
+/// Whether a kept ticket may still be used: before its own lifetime ends, and before seven days
+/// have passed since it came, whichever is sooner (RFC 9846 §4.7.1). A QUIC connection's ticket
+/// is a TLS ticket, and lapses the same way (docs/design.md §24, request rule 10).
+pub fn fresh(comptime Session: type, kept: *const Kept(Session), now_ns: u64) bool {
+    const age_ns = now_ns -| kept.since_ns;
+    const lifetime_ns = @min(Session.lifetime_ns(&kept.ticket), constants.tls_ticket_age_ns_max);
+    return age_ns < lifetime_ns;
 }
 
 // The handshake (rules 1 and 4).

@@ -11,6 +11,7 @@ const tcp = @import("io_tcp.zig");
 const drive_module = @import("io_drive.zig");
 const send_module = @import("io_send.zig");
 const tcp_queue = @import("io_tcp_queue.zig");
+const request_events = @import("io_request_events.zig");
 const Kind = @import("io.zig").Kind;
 
 /// One completion event. True when it was the engine's, in which case the engine has acted on
@@ -22,24 +23,28 @@ pub fn apply(self: anytype, event: rotor.Event, now_ns: u64) bool {
     switch (kind) {
         .udp_send => send_module.on_event(self, index, event, now_ns),
         .udp_receive => on_receive_event(self, index, event, now_ns),
-        .timer => on_timer_event(self, index),
+        .timer => on_timer_event(self, index, now_ns),
         .tcp_connect => tcp.on_connect_event(self, index, event, now_ns),
         .tcp_send => tcp_queue.on_send_event(self, index, event, now_ns),
         .tcp_receive => tcp.on_receive_event(self, index, event, now_ns),
         .tls_send => tcp_queue.on_records_event(self, index, event, now_ns),
+        .quic_send => request_events.on_send_event(self, index, event, now_ns),
+        .quic_receive => request_events.on_receive_event(self, index, event, now_ns),
     }
     drive_module.drive(self, now_ns);
     return true;
 }
 
 /// The current timer fired, or ended: it is gone, and so is the deadline it stood for, so the
-/// next drive arms one again even for a deadline the caller's clock has not reached yet. The
+/// next drive arms one again even for a deadline the caller's clock has not reached yet. Each
+/// QUIC connection whose deadline has come is told (docs/design.md §24, request rule 11). The
 /// end of an earlier timer, one the deadline moved away from, is nothing: its generation says
 /// so, and the current timer is left as it is.
-fn on_timer_event(self: anytype, generation: usize) void {
+fn on_timer_event(self: anytype, generation: usize, now_ns: u64) void {
     if (generation != self.timer_generation) return;
     self.timer_handle = null;
     self.timer_due_ns = null;
+    request_events.expire_due(self, now_ns);
 }
 
 fn on_receive_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64) void {

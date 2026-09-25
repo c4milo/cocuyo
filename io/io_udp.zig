@@ -58,8 +58,9 @@ pub const Sockets = struct {
         self.items = @splat(.{});
         self.draining = @splat(.{});
         // A TLS configuration opens no UDP socket: every query goes on a stream (docs/design.md
-        // §21, TLS rule 9).
-        self.count = if (config.uses_tls()) 0 else @intCast(config.servers.len);
+        // §21, TLS rule 9). Nor does a DoQ one: each query goes on a QUIC connection, whose
+        // socket is its own (§24, request rule 1).
+        self.count = if (config.encrypted()) 0 else @intCast(config.servers.len);
         self.word = seed;
         for (config.servers[0..self.count], 0..) |*server, index| {
             self.items[index] = try self.open_port(config, server.endpoint.address.family);
@@ -80,12 +81,12 @@ pub const Sockets = struct {
 
     /// Where a socket of `family` binds: the caller's local address when it named one of that
     /// family, and the unspecified address otherwise.
-    fn local_for(config: *const cocuyo.Config, family: cocuyo.Family) ?cocuyo.Address {
+    pub fn local_for(config: *const cocuyo.Config, family: cocuyo.Family) ?cocuyo.Address {
         const local = config.local_address orelse return null;
         return if (local.family == family) local else null;
     }
 
-    fn open_bound(family: cocuyo.Family, port: u16, local: ?cocuyo.Address) !rotor.Descriptor {
+    pub fn open_bound(family: cocuyo.Family, port: u16, local: ?cocuyo.Address) !rotor.Descriptor {
         const octets = if (local) |address| address.octets else @as([cocuyo.constants.address_v6_bytes]u8, @splat(0));
         const bind_to = switch (family) {
             .ipv4 => rotor.Address.ipv4(octets[0..cocuyo.constants.address_v4_bytes].*, port),

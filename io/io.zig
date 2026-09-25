@@ -1,9 +1,9 @@
 //! The driver of docs/design.md §19 step 13: the state machine, the cache, and the sockets and
 //! timers under them, driven by a completion loop with rotor's surface. `zig build test-io`
 //! compiles it against the deterministic twin of `src/sim/`, which is where its tests run and
-//! how the gate drives every path of the library from a seed. It is not exported, and nothing
-//! binds it to rotor itself: the owner held that back on 2026-09-22 until a consumer asks for
-//! it, and the build's `rotor` import is the one place that would change.
+//! how the gate drives every path of the library from a seed. It is exported as `cocuyo_rotor`,
+//! whose `rotor` import the consumer binds, so it runs on the consumer's loop (docs/design.md
+//! §24).
 //!
 //! The engine is a struct sized at compile time by its `Options`: the lookups it holds, the
 //! cache's slots, the buffers of its datagram group. Nothing here allocates; the caller declares
@@ -27,6 +27,10 @@ const lifecycle = @import("io_lifecycle.zig");
 const send_module = @import("io_send.zig");
 const tcp_queue = @import("io_tcp_queue.zig");
 pub const tls = @import("io_tls.zig");
+/// The request transport's default and the engine's requests (docs/design.md §24).
+pub const quic = @import("io_request.zig");
+const request_connection = @import("io_request_connection.zig");
+const request_events = @import("io_request_events.zig");
 
 pub const Options = struct {
     lookups: u16 = constants.lookups_default,
@@ -41,14 +45,28 @@ pub const Options = struct {
     /// The TLS session type of docs/design.md §21, the session interface: chapulin's when the
     /// build links it, the twin's in its tests, and `tls.None`, which refuses a TLS configuration.
     tls: type = tls.None,
+    /// The QUIC connection type of docs/design.md §24, the request interface: colibri's over
+    /// chapulin's QUIC object when the build links them, the twin's in its tests, and
+    /// `quic.None`, which refuses a DoQ configuration. A DoQ answer is read into one buffer of
+    /// `tcp_message_bytes`, since a DoQ stream holds what a TCP connection holds (RFC 9250 §4.2).
+    quic: type = quic.None,
 };
 
 pub const InitError = error{ SocketFailed, ReceiveFailed };
 
 /// What one of the engine's `user_data` values says.
-pub const Kind = enum(u8) { udp_send, udp_receive, timer, tcp_connect, tcp_send, tcp_receive, tls_send };
+pub const Kind = enum(u8) { udp_send, udp_receive, timer, tcp_connect, tcp_send, tcp_receive, tls_send, quic_send, quic_receive };
+
+/// `count`, for an engine with a request transport, and none without: such an engine holds no
+/// QUIC connection, no request slot and no answer buffer.
+fn with_quic(comptime options: Options, comptime count: usize) usize {
+    return if (options.quic.enabled) count else 0;
+}
 
 pub fn Resolver(comptime options: Options) type {
+    const quic_servers = with_quic(options, cocuyo.constants.servers_max);
+    const quic_lookups = with_quic(options, options.lookups);
+    const answer_bytes = with_quic(options, options.tcp_message_bytes);
     return struct {
         const Self = @This();
 
@@ -95,6 +113,17 @@ pub fn Resolver(comptime options: Options) type {
         tls_tickets: [cocuyo.constants.servers_max]?tls.Kept(options.tls),
         tls_context: options.tls.Context,
         tcp_idle_ns: u64,
+        /// A QUIC connection slot for each server, what the loop borrows from each, and a request
+        /// slot for each lookup (docs/design.md §24, request rules 1, 3 and 8).
+        quic_connections: [quic_servers]request_connection.Connection(options.quic, options.lookups),
+        quic_sends: [quic_servers]request_connection.Send(options.quic),
+        requests: [quic_lookups]quic.Request(options.quic),
+        /// The newest ticket each server's QUIC connections were given (request rule 10).
+        quic_tickets: [quic_servers]?tls.Kept(options.quic),
+        quic_context: options.quic.Context,
+        quic_idle_ns: u64,
+        /// Where a stream's answer is read to, whole, and handed over at once (request rule 5).
+        answer: [answer_bytes]u8,
         results: results_module.Queue(options.lookups),
         /// The result handed out last, whose slot is freed at the next `take`.
         last_taken: ?cocuyo.Handle,
@@ -119,11 +148,15 @@ pub fn Resolver(comptime options: Options) type {
         /// The TLS session type, which `io_tls.zig` reads through the engine.
         pub const Tls = options.tls;
 
-        /// The operations and entries a loop needs for this engine: what `Loop.Options` takes.
+        /// The QUIC connection type, which `io_request.zig` reads through the engine.
+        pub const Quic = options.quic;
+
         /// What `Loop.Options.operations` needs for this engine: a send per lookup, a receive
-        /// per server, a connect and a receive per connection, one timer, and slack.
+        /// per server, a connect and a receive per connection, a receive and a send per QUIC
+        /// connection, one timer, and slack.
         pub const loop_operations = @as(u32, options.lookups) + cocuyo.constants.servers_max +
             constants.loop_operations_per_connection * @as(u32, options.tcp_connections) +
+            constants.loop_operations_per_quic_connection * @as(u32, quic_servers) +
             constants.loop_operations_slack;
 
         pub fn init(self: *Self, loop: *rotor.Loop, config: *const cocuyo.Config, seed: u64, now_ns: u64) InitError!void {
@@ -143,6 +176,12 @@ pub fn Resolver(comptime options: Options) type {
             self.tcp_idle_ns = constants.tcp_idle_ns_default;
             self.tls_tickets = @splat(null);
             self.tls_context = .{};
+            self.quic_connections = @splat(.{});
+            self.quic_sends = @splat(.{});
+            self.requests = @splat(.{});
+            self.quic_tickets = @splat(null);
+            self.quic_context = .{};
+            self.quic_idle_ns = constants.quic_idle_ns_default;
             self.sockets.reset_generation();
             try self.group.provide(loop);
             try self.tcp_group.provide(loop);
@@ -158,6 +197,7 @@ pub fn Resolver(comptime options: Options) type {
             self.timer_handle = null;
             self.sockets.cancel(self.loop);
             tcp.cancel_all(self);
+            request_connection.cancel_all(self);
         }
 
         /// Closes the sockets, once the loop has drained (rotor decision 5, rule 4).
@@ -165,6 +205,7 @@ pub fn Resolver(comptime options: Options) type {
             assert(self.closing);
             self.sockets.close();
             tcp.close_all(self);
+            request_connection.close_all(self);
         }
 
         /// Starts a lookup. Its result comes through `take`, and one the cache already holds is
@@ -185,11 +226,12 @@ pub fn Resolver(comptime options: Options) type {
 
         /// A TLS configuration needs an engine that speaks TLS: one without it would carry
         /// cleartext on port 853 (RFC 7858 §3.1). And it needs a connection slot for each of its
-        /// servers, since a TLS connection is never closed to make room (§21, TLS rule 6).
+        /// servers, since a TLS connection is never closed to make room (§21, TLS rule 6). A DoQ
+        /// configuration needs an engine with a request transport (§24).
         pub fn assert_tls(config: *const cocuyo.Config) void {
-            // The engine speaks neither HTTP nor QUIC: colibri's driver drives DoH and DoQ
-            // (docs/design.md §22, §23).
-            assert(!config.sends_requests());
+            // DoH's HTTP/3 is §24 step 5.
+            assert(!config.uses_https());
+            if (config.uses_quic()) assert(options.quic.enabled);
             if (!config.uses_tls()) return;
             assert(options.tls.enabled);
             assert(config.servers.len <= options.tcp_connections);
@@ -199,6 +241,12 @@ pub fn Resolver(comptime options: Options) type {
         /// the wall clock and the seed's stream. The twin's needs nothing.
         pub fn use_tls(self: *Self, context: options.tls.Context) void {
             self.tls_context = context;
+        }
+
+        /// What every QUIC connection starts from (docs/design.md §24), as `use_tls` says for
+        /// TLS. The twin's needs nothing.
+        pub fn use_quic(self: *Self, context: options.quic.Context) void {
+            self.quic_context = context;
         }
 
         /// Settles every lookup as cancelled, which is `ares_cancel`. Each failure comes through
@@ -251,6 +299,8 @@ pub fn Resolver(comptime options: Options) type {
         comptime {
             // A connection's slot shares its `user_data` with its incarnation (`io_tcp.zig`).
             assert(options.tcp_connections <= constants.tcp_slot_mask + 1);
+            // A request slot holds a DoQ message at its longest, prefix and all (request rule 3).
+            assert(!options.quic.enabled or options.quic.request_bytes_max >= cocuyo.constants.query_bytes_max);
         }
 
         pub fn user_data(kind: Kind, index: usize) u64 {
@@ -271,6 +321,9 @@ test {
     _ = send_module;
     _ = tcp_queue;
     _ = tls;
+    _ = quic;
+    _ = request_connection;
+    _ = request_events;
     _ = @import("io_tcp_queue_ring.zig");
     // The tests drive the engine on the twin, which is the only `rotor` that has scripts.
     if (comptime @hasDecl(rotor, "server")) {
@@ -278,5 +331,7 @@ test {
         _ = @import("io_tcp_test.zig");
         _ = @import("io_lifecycle_test.zig");
         _ = @import("io_tls_test.zig");
+        _ = @import("io_request_test.zig");
+        _ = @import("io_request_failure_test.zig");
     }
 }

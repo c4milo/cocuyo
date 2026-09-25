@@ -126,6 +126,32 @@ pub const chapulin_reads_per_record_max = 4;
 /// the loop that collects it, far past a flight's records.
 pub const chapulin_out_pieces_max = 64;
 
+/// What one QUIC connection asks of the loop: its receive, and the send of its datagram
+/// (docs/design.md §24, request rules 1 and 8).
+pub const loop_operations_per_quic_connection = 2;
+
+/// Where a QUIC connection's incarnation sits in the `user_data` of its operations, above its
+/// server's index, as a TCP connection's does above its slot. A server fits in the octet below.
+pub const quic_incarnation_shift = 8;
+pub const quic_server_mask = (1 << quic_incarnation_shift) - 1;
+
+/// How long a QUIC connection with no request on it is kept: TCP's ten seconds. RFC 9250 §5.5.2
+/// names no value; this one is chosen, not measured (docs/design.md §24, request rule 9).
+pub const quic_idle_ns_default = tcp_idle_ns_default;
+
+/// How near the idle timeout it negotiated a connection with no request stops taking one, and
+/// closes instead (RFC 9250 §4.4, request rule 9): a query and its answer take less than a
+/// second. Chosen, not measured.
+pub const quic_idle_margin_ns = 1_000_000_000;
+
+/// The `next` calls one datagram or one expiry is read with, beside one answer or reset for each
+/// lookup: the handshake's end, a close and tickets. Chosen, not measured. What a flood leaves
+/// unread is read with the next datagram (docs/design.md §24, New limits).
+pub const quic_connection_events_max = 16;
+
+/// The ALPN token of DoQ (RFC 9250 §4.1).
+pub const quic_alpn_doq = "doq";
+
 /// A second and a millisecond, in nanoseconds: chapulin's clock is Unix seconds, and a resumed
 /// hello states a ticket's age in milliseconds (RFC 9846 §4.3.11.1).
 pub const ns_per_second = 1_000_000_000;
@@ -134,6 +160,9 @@ pub const ns_per_millisecond = 1_000_000;
 comptime {
     if (kind_shift - receive_generation_shift < 32) {
         @compileError("a receive's user_data has no room for a thirty-two-bit generation");
+    }
+    if (quic_incarnation_shift + 32 > kind_shift) {
+        @compileError("a QUIC connection's user_data has no room for a thirty-two-bit incarnation");
     }
     if (buffer_bytes < core.constants.udp_payload_bytes_default + 192) {
         @compileError("a group buffer cannot hold the payload cocuyo advertises after rotor's prefix");

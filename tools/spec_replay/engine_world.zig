@@ -387,6 +387,9 @@ pub fn kind_of(user_data: u64) ?io.Kind {
     const kind = kind_of_any(user_data);
     return switch (kind) {
         .tcp_connect, .tcp_send, .tcp_receive, .udp_send, .udp_receive, .tls_send => kind,
+        // The model's `qsend` and `qrecv` (EngineRequest.tla). The replay's engine has no request
+        // transport yet, so none is submitted.
+        .quic_send, .quic_receive => kind,
         .timer => null,
     };
 }
