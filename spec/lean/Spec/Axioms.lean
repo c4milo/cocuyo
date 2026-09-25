@@ -1,10 +1,11 @@
-import Spec.LookupProofsTimeout
+import Spec.LookupProofs.Measure
+import Spec.LookupProofs.Timeout
 
 /-!
 # What the proofs rest on
 
-Each theorem of `Spec.LookupProofs` and `Spec.LookupProofsTimeout` with the axioms its proof
-uses, pinned. A proof left unfinished compiles to `sorryAx`, which would change a line below and
+Each theorem of `Spec.LookupProofs` and the modules under it with the axioms its proof uses,
+pinned. A proof left unfinished compiles to `sorryAx`, which would change a line below and
 fail `lake build`. The three that may appear are the ones every Lean proof about functions and
 propositions uses: `propext`, `Classical.choice` and `Quot.sound`.
 -/

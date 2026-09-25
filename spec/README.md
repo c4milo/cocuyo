@@ -20,21 +20,22 @@ would agree with the code by construction and prove nothing about it.
 
 - `lean/Spec/Lookup.lean` is the model: the eight states, the events a caller delivers, what each
   answers, and `enabled`, the events the contract of §4 lets a caller deliver in each state.
-- `lean/Spec/LookupProofs.lean` holds the proofs:
+- `lean/Spec/LookupProofs.lean` and the two modules under `lean/Spec/LookupProofs/` hold the
+  proofs:
   - `ended_absorbing`: a lookup that is done or has failed is changed by nothing.
   - `cancel_after_end` and `cancel_before_end`: a cancel leaves an end standing, and ends
     anything else as cancelled.
   - `useTcp_never_udp`: under `use_tcp`, no event leads to a datagram.
   - `request_never_stream`: over DoH or DoQ (design §22, §23), no event leads to a datagram, a
     connection or a stream, and a reply is read as one over a stream is.
-  - `step_good` and `init_good`: the server, pass, candidate and hop counters stay inside the
-    configuration.
-  - `step_le`, `sent_lt` and `lexLt_wf`: no event raises a measure, every send lowers it, and its
-    order is well-founded. So no sequence of answers makes a lookup send forever.
-- `lean/Spec/LookupProofsTimeout.lean` holds `refused_never_timeout`: a lookup that a server
-  refused, its connection, its handshake or its request failing, never ends in `timeout`,
-  whatever it hears afterwards (design §16 decision 25). It is `Timeout`'s promise, that every try
-  went unanswered, which nothing checked before the decision.
+  - In `LookupProofs/Measure.lean`, `step_good` and `init_good`: the server, pass, candidate and
+    hop counters stay inside the configuration.
+  - There too, `step_le`, `sent_lt` and `lexLt_wf`: no event raises a measure, every send lowers
+    it, and its order is well-founded. So no sequence of answers makes a lookup send forever.
+  - In `LookupProofs/Timeout.lean`, `refused_never_timeout`: a lookup that a server refused, its
+    connection, its handshake or its request failing, never ends in `timeout`, whatever it hears
+    afterwards (design §16 decision 25). It is `Timeout`'s promise, that every try went
+    unanswered, which nothing checked before the decision.
 - `lean/Spec/Axioms.lean` pins the axioms each theorem rests on. A proof left unfinished rests on
   `sorryAx`, which changes a pinned line and fails the build.
 - `lean/Spec/Address.lean` is the model of both walks, and `lean/Spec/AddressWalk.lean` walks it and

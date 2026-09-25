@@ -29,13 +29,13 @@ const dot = @import("build/dot.zig");
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "build", "src", "tools", "examples", "bench", "io" };
 
-/// Every directory the tools/lint rules read: the sources above plus the documents, which the
-/// markdown rule covers.
-const lint_rule_directories = [_][]const u8{ "build", "src", "tools", "examples", "bench", "io", "docs" };
+/// Every directory the tools/lint rules read: the sources above, the documents, which the
+/// markdown rule covers, and the models, whose length the file-length rule bounds.
+const lint_rule_directories = [_][]const u8{ "build", "src", "tools", "examples", "bench", "io", "docs", "spec" };
 
-/// Markdown outside `docs/` that the markdown rule reads all the same, because both render on
-/// GitHub as written (CLAUDE.md, Conventions).
-const lint_rule_files = [_][]const u8{ "README.md", "CLAUDE.md", "spec/README.md" };
+/// Markdown outside those directories that the markdown rule reads all the same, because both
+/// render on GitHub as written (CLAUDE.md, Conventions).
+const lint_rule_files = [_][]const u8{ "README.md", "CLAUDE.md" };
 
 /// Every tool whose own tests `zig build test` runs. A build that does not run the checkers' own
 /// tests lets a rule lose its test without the build reporting it. The search-order recorder is

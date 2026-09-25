@@ -1721,3 +1721,20 @@ relative path, and the check builds it twice. Once as it stands, which must buil
 control; once with `-Dreach-inside`, which asks for `sim` and must fail, because the build
 registers `cocuyo` and no other name (design §20). Neither run is recorded as a mutation here,
 for the same reason the canary is not: both run on every build.
+
+## The file-length rule over the models
+
+`spec/lean/Spec/LookupProofs.lean` reached 549 lines with no rule reading it: the file-length rule
+read `.zig` and `.sh` files, and the lint walked no directory under `spec/`. Since 2026-09-24 the
+rule reads `.lean` and `.tla` files too, the lint walks `spec/`, and the proofs are split into
+`LookupProofs.lean` and two modules under `LookupProofs/`. Broken against `zig build test-tools`
+and `zig build lint`. FL3 is `NOT CAUGHT`, as dropping any other directory from the lint's list
+is: a clean tree holds nothing for the dropped directory to find. Issue #12 asks for the check
+that would catch it. Four mutations, three `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| FL0 | a model grows past 500 lines | the length limit | `zig build lint`, naming the file | CAUGHT |
+| FL1 | the rule leaves `.lean` files unread | a model is bounded | the models' fixture test | CAUGHT |
+| FL2 | the rule's scope leaves `spec/` out | a model is bounded | the models' fixture test | CAUGHT |
+| FL3 | the lint walks no directory under `spec/` | a model is bounded | nothing: **the list of directories is checked by nothing, issue #12** | NOT CAUGHT |

@@ -3,9 +3,12 @@
 //! after the file it came from: `lookup.zig` becomes `lookup_poll.zig`, `lookup_response.zig` and
 //! so on, keeping the original name as the entry point.
 //!
-//! Over every `.zig` and `.sh` file under `src/`, `tools/`, `build/`, `examples/` and `bench/`, the rule
-//! counts lines the way an editor numbers them — one per newline, plus one for a last line with no
-//! newline — and reports a file over the limit once, at the first line past it.
+//! Over every `.zig` and `.sh` file under `src/`, `tools/`, `build/`, `examples/`, `bench/` and
+//! `io/`, and every model under `spec/`, Lean's `.lean` and TLA+'s `.tla`, the rule counts lines
+//! the way an editor numbers them — one per newline, plus one for a last line with no newline —
+//! and reports a file over the limit once, at the first line past it. A model is hand-written like
+//! the code, and until 2026-09-24 the rule did not read one: `LookupProofs.lean` had reached 549
+//! lines.
 //!
 //! Markdown is exempt: a document's audited unit is the section, not the file.
 //!
@@ -21,8 +24,8 @@ pub const max_lines: u32 = 500;
 
 pub const config: file_length.Config = .{
     .scope = .{
-        .extensions = &.{ ".zig", ".sh" },
-        .include_directories = &.{ "src", "tools", "build", "examples", "bench", "io" },
+        .extensions = &.{ ".zig", ".sh", ".lean", ".tla" },
+        .include_directories = &.{ "src", "tools", "build", "examples", "bench", "io", "spec" },
     },
     .max_lines = max_lines,
     .message_suffix = "; split the file",
@@ -64,4 +67,16 @@ test "file-length reads the code directories and leaves the documents alone" {
     try testing.expect(config.scope.applies("bench/bench.zig"));
     try testing.expect(!config.scope.applies("docs/design.md"));
     try testing.expect(!config.scope.applies("build.zig"));
+}
+
+test "file-length reads the models, and flags one over the limit" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    try testing.expect(config.scope.applies("spec/lean/Spec/LookupProofs.lean"));
+    try testing.expect(config.scope.applies("spec/tla/engine/Engine.tla"));
+    try testing.expect(!config.scope.applies("spec/tla/engine/Engine_tcp_1_1_bound_4_1.cfg"));
+    try testing.expect(!config.scope.applies("spec/README.md"));
+    const findings = try harness.run(arena, Rule, "spec/lean/Spec/LookupProofs.lean", failing_fixture);
+    try harness.expect_messages(findings, &.{"501 lines, over the 500-line limit; split the file"});
 }

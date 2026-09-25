@@ -25,7 +25,7 @@
         .id = "P1",
         .what = "sent_lt proved by sorry",
         .edits = .{
-            .{ .file = "spec/lean/Spec/LookupProofs.lean", .old = "    LexLt (measure c (step c s .sent).1) (measure c s) := by\n  rcases h with h | h <;> simp [step, measure, LexLt, phase, stagePhase, h]", .new = "    LexLt (measure c (step c s .sent).1) (measure c s) := by\n  sorry" },
+            .{ .file = "spec/lean/Spec/LookupProofs/Measure.lean", .old = "    LexLt (measure c (step c s .sent).1) (measure c s) := by\n  rcases h with h | h <;> simp [step, measure, LexLt, phase, stagePhase, h]", .new = "    LexLt (measure c (step c s .sent).1) (measure c s) := by\n  sorry" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
