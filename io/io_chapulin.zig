@@ -1,9 +1,9 @@
 //! chapulin's TLS session, over its record transport, behind the seam of docs/design.md §21. The
 //! engine hands it whole records and takes the records it makes; chapulin does the handshake,
 //! the ciphers, and the certificate, pin and ticket checks. Built only when `-Dchapulin` names a
-//! checkout whose `bin/chapulin-record.o` was made by
+//! checkout whose `bin/chapulin-tcp-nonblocking.o` was made by
 //!
-//!     make RAND=extern TRUST=webpki TRANSPORT=record lib && cp bin/chapulin.o bin/chapulin-record.o
+//!     make RAND=extern TRUST=webpki TRANSPORT=tcp-nonblocking lib && cp bin/chapulin.o bin/chapulin-tcp-nonblocking.o
 //!
 //! and the headers are read from that checkout in place: nothing of chapulin is vendored.
 //!
@@ -29,7 +29,7 @@ comptime {
 
 pub const c = @cImport({
     @cDefine("CH_TRUST_WEBPKI", "1");
-    @cDefine("CH_TRANSPORT_RECORD", "1");
+    @cDefine("CH_TRANSPORT_TCP_NONBLOCKING", "1");
     @cDefine("CH_RAND_EXTERN", "1");
     @cInclude("rec.h");
     @cInclude("tls.h");
@@ -70,8 +70,9 @@ pub const Session = struct {
 
     /// Whether the build record chapulin's object exports matches what its headers give under the
     /// defines of the import above (chapulin's build.h). The record is named after the object's
-    /// transport, `ch_build_record`, so one image can link a QUIC object beside it: translate-c
-    /// cannot read the `ch_build` macro that maps the name, and the name is written here.
+    /// transport, `ch_build_info_tcp_nonblocking`, so one image can link a QUIC object beside it:
+    /// translate-c cannot read the `ch_build` macro that maps the name, and the name is written
+    /// here.
     fn built_as_read(record: *const c.ch_build_info) bool {
         return c.ch_build_matches(record) != 0;
     }
@@ -118,7 +119,7 @@ pub const Session = struct {
         // The object linked must be the one these headers describe: an object built with other
         // defines lays its sessions out otherwise, and nothing else would say so. Every session
         // starts here, whatever made its context.
-        if (!built_as_read(&c.ch_build_record)) {
+        if (!built_as_read(&c.ch_build_info_tcp_nonblocking)) {
             std.debug.panic("chapulin's object was built with other defines than cocuyo reads its headers with: rebuild it as build/dot.zig says", .{});
         }
         self.* = .{};
@@ -332,8 +333,8 @@ fn keep_ticket(io: ?*anyopaque, ticket: [*c]const c.ch_ticket) callconv(.c) void
 const testing = std.testing;
 
 test "the linked object's build record matches these headers, and one that differs does not" {
-    try testing.expect(Session.built_as_read(&c.ch_build_record));
-    var other = c.ch_build_record;
+    try testing.expect(Session.built_as_read(&c.ch_build_info_tcp_nonblocking));
+    var other = c.ch_build_info_tcp_nonblocking;
     other.sizeof_ch_tls += 1;
     try testing.expect(!Session.built_as_read(&other));
 }

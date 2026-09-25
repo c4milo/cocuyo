@@ -1,7 +1,7 @@
 #!/bin/sh
 # DNS over TLS, live (docs/design.md §21 step 6): the engine over rotor with chapulin's session
 # resolves through the public resolvers that serve DoT, and refuses what strict mode refuses. It
-# needs a chapulin checkout with bin/chapulin-record.o (build/dot.zig says how to make it), the
+# needs a chapulin checkout with bin/chapulin-tcp-nonblocking.o (build/dot.zig says how to make it), the
 # network, and macOS: each resolver's root comes from the system root store.
 #
 #     tools/dot_live/run.sh <chapulin checkout>

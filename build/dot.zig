@@ -5,7 +5,7 @@
 //!
 //! The checkout's object is made by
 //!
-//!     make RAND=extern TRUST=webpki TRANSPORT=record lib && cp bin/chapulin.o bin/chapulin-record.o
+//!     make RAND=extern TRUST=webpki TRANSPORT=tcp-nonblocking lib && cp bin/chapulin.o bin/chapulin-tcp-nonblocking.o
 //!
 //! which keeps chapulin's default multiply: every widening product in 16x16 pieces, which claims
 //! nothing about the CPU. Since chapulin 0734728, `WIDEMUL=native` among those variables defines
@@ -16,16 +16,17 @@
 //! above keeps the default, and a builder who can vouch for theirs adds `WIDEMUL=native`.
 //!
 //! `io/io_chapulin.zig` reads chapulin's headers with the defines that command sets. The object
-//! exports its build record, `ch_build_record` since chapulin 0c201b7 named each record after its
-//! transport, and every session compares it with those headers when it starts: an object built
-//! another way stops the program there, rather than lay its sessions out otherwise unnoticed.
+//! exports its build record, named after its transport since chapulin 0c201b7 and
+//! `ch_build_info_tcp_nonblocking` since ca80351, and every session compares it with those headers
+//! when it starts: an object built another way stops the program there, rather than lay its
+//! sessions out otherwise unnoticed.
 //! CI's `dot-live` workflow pins the chapulin commit it builds; it moves when cocuyo needs a newer
 //! chapulin.
 const std = @import("std");
 const modules = @import("modules.zig");
 
 /// The object a checkout carries for this build, under its `bin/`.
-const object = "bin/chapulin-record.o";
+const object = "bin/chapulin-tcp-nonblocking.o";
 
 /// `zig build test-chapulin`, the session's own tests, which need no network; and, where rotor
 /// resolved, `zig build example-dot-rotor`, lookups over DNS over TLS.

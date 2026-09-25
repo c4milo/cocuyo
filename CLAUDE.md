@@ -197,7 +197,7 @@ The architecture depends on every rule in this section.
   by SHA-256 and fetches it once. It needs Java 11 or newer, so it runs only when asked and in
   CI's `tla` job. `zig build tla -- walks <seed> <walks> <depth> [--pick <file> <walk>...]` writes
   the engine's walks instead.
-- DNS over TLS: `-Dchapulin=<checkout>` names a chapulin checkout whose `bin/chapulin-record.o`
+- DNS over TLS: `-Dchapulin=<checkout>` names a chapulin checkout whose `bin/chapulin-tcp-nonblocking.o`
   `build/dot.zig` says how to make. With it, `zig build test-chapulin` runs the session's tests
   and `zig build example-dot-rotor` resolves over DoT; `tools/dot_live/run.sh <checkout>` runs
   the live check of design §21 step 6. Neither is in the gate, which needs no chapulin. The

@@ -68,7 +68,7 @@ pub fn build(b: *std.Build) void {
     const release = b.option(bool, "release", "Build ReleaseSafe rather than Debug") orelse false;
     // DNS over TLS links chapulin from a checkout the caller names, and nothing does otherwise
     // (docs/design.md §21 step 5, `build/dot.zig`).
-    const chapulin = b.option([]const u8, "chapulin", "A chapulin checkout whose bin/chapulin-record.o the DoT session links");
+    const chapulin = b.option([]const u8, "chapulin", "A chapulin checkout whose bin/chapulin-tcp-nonblocking.o the DoT session links");
     const optimize: std.builtin.OptimizeMode = if (release) .ReleaseSafe else .Debug;
     assert(optimize == .Debug or optimize == .ReleaseSafe);
 

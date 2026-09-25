@@ -2864,8 +2864,10 @@ chapulin's session starts from a `Context` the caller hands `Resolver.use_tls`:
   thread. The owner ruled the same day that an image defines `ch_rand_bytes` and
   `ch_assert_fail` once, for every chapulin object and every user of chapulin it links, and that
   each must be safe to call from several threads at once (chapulin's docs/porting.md). An
-  image may link chapulin's record object beside its QUIC object since chapulin `0c201b7`,
-  which names each object's build record after its transport: `ch_build_record` here.
+  image may link chapulin's non-blocking TCP object beside its QUIC object since chapulin
+  `0c201b7`, which names each object's build record after its transport. Since `ca80351` the
+  transports are named for what TLS runs over and who does the I/O, and the record here is
+  `ch_build_info_tcp_nonblocking`.
 
 The session collects what chapulin makes as soon as chapulin makes it. chapulin says it is
 connected only once the client's last flight has been collected, so a session that left it for

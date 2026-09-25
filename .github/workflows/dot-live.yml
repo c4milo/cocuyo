@@ -8,8 +8,9 @@
 # signature schemes was (docs/design.md §21 step 6), or the network failing.
 #
 # Zig is pinned as ci.yml pins it, and chapulin is cloned at a pinned commit, the first that names
-# each object's build record after its transport, `ch_build_record` here, which
-# `io/io_chapulin.zig` compares with its headers. No third-party action runs here;
+# its transports for what TLS runs over and who does the I/O, and each object's build record after
+# its transport: `ch_build_info_tcp_nonblocking` here, which `io/io_chapulin.zig` compares with its
+# headers. No third-party action runs here;
 # `actions/checkout` is GitHub's own.
 name: dot-live
 
@@ -23,7 +24,7 @@ permissions:
 
 env:
   ZIG_VERSION: "0.16.0"
-  CHAPULIN_COMMIT: "0c201b713d71e6d879c0979c7abd82e2790ea05e"
+  CHAPULIN_COMMIT: "ca803517a209624ab893d851bc651bc2f2c007a9"
 
 jobs:
   live:
@@ -40,13 +41,13 @@ jobs:
           echo "$sha  zig.tar.xz" | shasum -a 256 -c -
           tar -xf zig.tar.xz
           echo "$PWD/zig-aarch64-macos-${ZIG_VERSION}" >> "$GITHUB_PATH"
-      - name: Build chapulin's record object
+      - name: Build chapulin's non-blocking TCP object
         run: |
           set -euo pipefail
           git clone --quiet https://github.com/c4milo/chapulin.git "$RUNNER_TEMP/chapulin"
           git -C "$RUNNER_TEMP/chapulin" checkout --quiet "$CHAPULIN_COMMIT"
-          make -C "$RUNNER_TEMP/chapulin" RAND=extern TRUST=webpki TRANSPORT=record lib
-          cp "$RUNNER_TEMP/chapulin/bin/chapulin.o" "$RUNNER_TEMP/chapulin/bin/chapulin-record.o"
+          make -C "$RUNNER_TEMP/chapulin" RAND=extern TRUST=webpki TRANSPORT=tcp-nonblocking lib
+          cp "$RUNNER_TEMP/chapulin/bin/chapulin.o" "$RUNNER_TEMP/chapulin/bin/chapulin-tcp-nonblocking.o"
       - run: zig version
       - name: The session's tests, then the live check
         run: |

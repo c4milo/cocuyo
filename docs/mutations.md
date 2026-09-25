@@ -1152,7 +1152,10 @@ mutations, two `CAUGHT`.
 Since chapulin `0c201b7` each object names its build record after its transport, so one image can
 link the record object beside the QUIC object: the record object's is `ch_build_record`, which
 `io/io_chapulin.zig` names, since translate-c cannot read the macro that maps `ch_build` to it.
-CB1 and CB2 were broken again against it on 2026-09-25, and both are still `CAUGHT`.
+CB1 and CB2 were broken again against it on 2026-09-25, and both are still `CAUGHT`. chapulin
+`ca80351` renamed the transports the same day, for what TLS runs over and who does the I/O, and
+the record is `ch_build_info_tcp_nonblocking` since. CB1 and CB2 were broken again against it,
+and both are still `CAUGHT`.
 
 ## chapulin's randomness during a handshake
 
