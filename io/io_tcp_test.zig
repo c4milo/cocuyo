@@ -115,6 +115,28 @@ test "a server that refuses the connection costs it the lookup, and the next ser
     try rig.deinit();
 }
 
+/// An engine that keeps no TCP connection, as one built for DoQ alone does (c4milo/cocuyo#14).
+const Streamless = io.Resolver(.{
+    .lookups = fixtures.small_lookups,
+    .cache_slots = fixtures.small_lookups,
+    .group_buffers = fixtures.group_buffers,
+    .tcp_connections = 0,
+});
+
+test "an engine with no TCP connection fails a lookup's stream over at once" {
+    // The truncated answer asks for a stream, which an engine of none cannot give: the lookup is
+    // told so, and the next server answers long before the first one's wait would have ended.
+    var rig: sim_test.RigOf(Streamless) = .{};
+    try rig.init(15, .{ .{ .truncate_per_256 = fixtures.always }, .{} }, .{ .servers = &.{}, .failover_retry_chance = 0 });
+    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    const result = try rig.until_result();
+    try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
+    try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(0));
+    try testing.expect(rig.loop.now() < rig.config.timeout_ns);
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
 test "a connection nobody is using is closed once it has been idle long enough" {
     var rig: Rig = .{};
     try rig.init(14, .{ .{ .truncate_per_256 = fixtures.always }, .{} }, .{ .servers = &.{} });

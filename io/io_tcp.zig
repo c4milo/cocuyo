@@ -93,48 +93,18 @@ fn reads(state: anytype) bool {
     return state == .handshaking or state == .up;
 }
 
-/// The chunks a connection reads into: a group of its own, because a datagram group carries
-/// rotor's prefix before every payload and a stream has no peer to name.
-pub fn Group(comptime buffers: u16) type {
-    return struct {
-        const Self = @This();
-
-        const needed = rotor.buffers.group_bytes(buffers, constants.tcp_chunk_bytes);
-        const alignment = rotor.buffers.group_alignment;
-
-        /// One alignment more than the group needs, and no alignment claimed for it, for the
-        /// reason the datagram group's own `memory` gives: the loader keeps page alignment and
-        /// nothing more, and a type that claims more hands the optimizer a false premise.
-        memory: [needed + alignment]u8,
-
-        comptime {
-            assert(@alignOf(Self) <= constants.storage_alignment_max);
-        }
-
-        pub fn ring(self: *Self) []align(alignment) u8 {
-            const from = @intFromPtr(&self.memory);
-            const at = std.mem.alignForward(usize, from, alignment);
-            assert(at - from < alignment);
-            return @alignCast(self.memory[at - from ..][0..needed]);
-        }
-
-        pub fn provide(self: *Self, loop: *rotor.Loop) error{ReceiveFailed}!void {
-            const memory = ring(self);
-            assert(@intFromPtr(memory.ptr) % alignment == 0);
-            loop.provide_buffers(constants.tcp_group_id, memory, buffers, constants.tcp_chunk_bytes) catch
-                return error.ReceiveFailed;
-        }
-    };
-}
+/// The chunks a connection reads into (`io_tcp_group.zig`).
+pub const Group = @import("io_tcp_group.zig").Group;
 
 // What a lookup asks for.
 
 /// The lookup at `index` needs a stream to its current server. It is put on that server's
 /// connection, which is opened if there is none; a connection that is already up is reported at
 /// once, and one still connecting reports when its event arrives. A lookup that cannot be given
-/// one is told, and fails over to the next server.
+/// one is told, and fails over to the next server, as it is by an engine that keeps none.
 pub fn want(self: anytype, index: usize, now_ns: u64) void {
     const handle = self.handles[index];
+    if (comptime !@TypeOf(self.*).keeps_tcp) return self.resolver.on_tcp_failed(handle, now_ns);
     const server = self.resolver.lookup_of(handle).server_slot();
     const at = attach(self, index, server, now_ns) orelse {
         self.resolver.on_tcp_failed(handle, now_ns);
@@ -231,6 +201,7 @@ fn family_of(endpoint: cocuyo.Endpoint) rotor.Address.Family {
 /// (the stream's rule 3): its deadline passed, its connection failed, it moved to the next name,
 /// or it ended. What it asks for next is then asked of the right server's connection.
 pub fn follow(self: anytype, index: usize, now_ns: u64) void {
+    if (comptime !@TypeOf(self.*).keeps_tcp) return;
     const at = self.tcp_connection[index] orelse return;
     const lookup = self.resolver.lookup_of(self.handles[index]);
     if (lookup.is_on_stream() and self.connections[at].server == lookup.server_slot()) return;
@@ -240,6 +211,7 @@ pub fn follow(self: anytype, index: usize, now_ns: u64) void {
 /// A lookup has ended or been freed: it is off its connection, which may now be idle, and a
 /// query of its still waiting there goes with it.
 pub fn release(self: anytype, index: usize, now_ns: u64) void {
+    if (comptime !@TypeOf(self.*).keeps_tcp) return;
     const at = self.tcp_connection[index] orelse return;
     self.tcp_connection[index] = null;
     queue_module.drop(self, at, index);
@@ -276,6 +248,7 @@ pub fn current_of(self: anytype, index: usize, event: rotor.Event) ?u8 {
 /// The connect ended. Every lookup on the connection is told, one way or the other. Its one event
 /// is its final one, so the slot's address is its own again whatever opening the event is for.
 pub fn on_connect_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64) void {
+    if (comptime !@TypeOf(self.*).keeps_tcp) return;
     const slot = &self.connections[index & constants.tcp_slot_mask];
     assert(slot.connect_in_flight);
     slot.connect_in_flight = false;
@@ -308,6 +281,7 @@ pub fn on_connect_event(self: anytype, index: usize, event: rotor.Event, now_ns:
 /// One chunk of a stream: kept with what came before it, and every whole message in them handed
 /// to the table, which decides whose it is.
 pub fn on_receive_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64) void {
+    if (comptime !@TypeOf(self.*).keeps_tcp) return;
     const at = current_of(self, index, event) orelse return;
     const connection = &self.connections[at];
     // A connection has its receive while it handshakes, once it is up, and while it closes.
@@ -448,6 +422,7 @@ pub fn connect_again(self: anytype, at: u8, now_ns: u64) void {
 /// A receive for every connection that is up and has none: one the loop refused before is asked
 /// for again, as a socket's is (docs/design.md §19 step 13, the datagram's rule 1).
 pub fn tend(self: anytype) void {
+    if (comptime !@TypeOf(self.*).keeps_tcp) return;
     for (self.connections[0..], 0..) |*connection, at| {
         if (reads(connection.state) and !connection.receiving) receive_again(self, @intCast(at));
     }
@@ -455,6 +430,7 @@ pub fn tend(self: anytype) void {
 
 /// Closes every connection nobody is using and has not used for `tcp_idle_ns` (RFC 7766 §6.2.3).
 pub fn close_idle(self: anytype, now_ns: u64) void {
+    if (comptime !@TypeOf(self.*).keeps_tcp) return;
     for (self.connections[0..], 0..) |*connection, at| {
         if (connection.state == .closed or connection.state == .closing or connection.users != 0) continue;
         if (now_ns -| connection.idle_since_ns < self.tcp_idle_ns) continue;
@@ -471,6 +447,7 @@ pub fn close_idle(self: anytype, now_ns: u64) void {
 /// Ends every connection's operation, so the loop can be drained (rotor decision 5, rule 7).
 /// The sockets stay open until `close_all`, which runs after the drain.
 pub fn cancel_all(self: anytype) void {
+    if (comptime !@TypeOf(self.*).keeps_tcp) return;
     for (self.connections[0..]) |*connection| {
         if (connection.state == .closed) continue;
         if (connection.handle) |handle| self.loop.cancel(handle);
@@ -481,6 +458,7 @@ pub fn cancel_all(self: anytype) void {
 
 /// Closes every connection's socket, whatever it was doing: the engine is going away.
 pub fn close_all(self: anytype) void {
+    if (comptime !@TypeOf(self.*).keeps_tcp) return;
     for (self.connections[0..], 0..) |*connection, at| {
         queue_module.release_all(self, @intCast(at));
         if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);

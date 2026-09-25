@@ -28,6 +28,7 @@ pub const Queue = ring.Queue;
 /// wrote (RFC 7766 §8, RFC 7858 §3.3), the slot's buffer holds them until the last of them has
 /// gone, and the query waits its turn.
 pub fn send(self: anytype, index: usize, bytes: []const u8, now_ns: u64) void {
+    if (comptime !@TypeOf(self.*).keeps_tcp) return;
     const handle = self.handles[index];
     const at = self.tcp_connection[index] orelse return self.resolver.on_tcp_failed(handle, now_ns);
     const connection = &self.connections[at];
@@ -93,6 +94,7 @@ fn sending_connection(self: anytype, slot: usize) ?u8 {
 /// attempt that made it (rule 7), and lets the next go; a failed one fails the connection. One
 /// whose connection is gone only returns the buffer.
 pub fn on_send_event(self: anytype, slot: usize, event: rotor.Event, now_ns: u64) void {
+    if (comptime !@TypeOf(self.*).keeps_tcp) return;
     assert(slot < self.slots.len);
     const at = sending_connection(self, slot) orelse return send_module.finish(self, slot, null, now_ns);
     const connection = &self.connections[at];
@@ -114,6 +116,7 @@ pub fn on_send_event(self: anytype, slot: usize, event: rotor.Event, now_ns: u64
 /// slot's records buffer is the connection's own again, which may let a connection waiting on it
 /// connect again (TLS rule 8). One for an opening that is gone does nothing more.
 pub fn on_records_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64) void {
+    if (comptime !@TypeOf(self.*).keeps_tcp) return;
     const slot: u8 = @intCast(index & constants.tcp_slot_mask);
     const borrower = &self.connections[slot];
     assert(borrower.records_in_flight);

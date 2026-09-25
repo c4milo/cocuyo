@@ -1862,3 +1862,16 @@ broken against `zig build test-io`. Thirteen mutations, thirteen `CAUGHT`.
 | DQ11 | a receive that ran out of buffers fails its connection | the datagram's rule 1 | the exhaustion test | CAUGHT |
 | DQ12 | a connection that fails tells none of its requests | request rule 7 | the malformed-answer, refused-socket and tiny-buffer tests | CAUGHT |
 | DQ13 | a datagram whose send failed leaves its connection standing | request rules 7 and 8 | the failed-send test | CAUGHT |
+
+## An engine with no TCP connection
+
+c4milo/cocuyo#14, 2026-09-25. An engine built with `tcp_connections = 0`, which DoQ alone needs,
+did not compile: the TCP path indexed an array of none. Each TCP entry point now returns at compile
+time when the engine keeps no connection, and a lookup that asks for a stream is told it failed.
+The DoQ tests run on such an engine, and so do the replay's request walks. Broken against `zig
+build test-io`. Two mutations, two `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| NT1 | an engine with no connection leaves a lookup that asks for a stream waiting | the lookup fails over at once | the no-TCP test | CAUGHT |
+| NT2 | an entry point indexes the connections of an engine that keeps none | an engine of none compiles | the build | CAUGHT |

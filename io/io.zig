@@ -37,7 +37,8 @@ pub const Options = struct {
     cache_slots: u16 = constants.cache_slots_default,
     tag: u16 = constants.tag_default,
     group_buffers: u16 = constants.group_buffers_default,
-    /// The TCP connections held at once, and the chunk buffers they read into.
+    /// The TCP connections held at once, and the chunk buffers they read into. None suits an
+    /// engine that speaks DoQ alone, which asks for no stream (docs/design.md §24).
     tcp_connections: u16 = constants.tcp_connections_default,
     tcp_group_buffers: u16 = constants.tcp_group_buffers_default,
     /// The longest message one connection can assemble (RFC 7766 §8).
@@ -147,6 +148,11 @@ pub fn Resolver(comptime options: Options) type {
 
         /// The TLS session type, which `io_tls.zig` reads through the engine.
         pub const Tls = options.tls;
+
+        /// Whether the engine keeps any TCP connection. One built for DoQ alone needs none, and
+        /// the TCP path then returns at compile time, so nothing indexes an array of none
+        /// (c4milo/cocuyo#14). A lookup that asks for a stream is told it failed.
+        pub const keeps_tcp = options.tcp_connections != 0;
 
         /// The QUIC connection type, which `io_request.zig` reads through the engine.
         pub const Quic = options.quic;
@@ -320,6 +326,7 @@ test {
     _ = lifecycle;
     _ = send_module;
     _ = tcp_queue;
+    _ = @import("io_tcp_group.zig");
     _ = tls;
     _ = quic;
     _ = request_connection;

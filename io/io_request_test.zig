@@ -13,11 +13,12 @@ const fixtures = @import("fixtures.zig");
 const sim_test = @import("io_sim_test.zig");
 const question = sim_test.question;
 
-/// An engine that speaks the twin's QUIC.
+/// An engine that speaks the twin's QUIC, and keeps no TCP connection: DoQ needs none.
 pub const Resolver = io.Resolver(.{
     .lookups = fixtures.small_lookups,
     .cache_slots = fixtures.small_lookups,
     .group_buffers = fixtures.group_buffers,
+    .tcp_connections = 0,
     .quic = rotor.quic.Connection,
 });
 pub const Rig = sim_test.RigOf(Resolver);
