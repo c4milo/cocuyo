@@ -2849,7 +2849,7 @@ Two types fill it:
   script it, and the replay drives the model's steps with it one by one, so the gate needs no
   chapulin.
 
-chapulin's session starts from a `Context` the caller hands `Engine.use_tls`:
+chapulin's session starts from a `Context` the caller hands `Resolver.use_tls`:
 
 - the trust anchors, at most 12, each a root's subject Name and SubjectPublicKeyInfo as DER;
 - the wall clock, as Unix seconds pinned to a `now_ns`, which the session carries forward by
@@ -3168,7 +3168,10 @@ handlers when `apply` says the event is not the engine's.
 ### What changes
 
 1. **The engine is exported.** `build.zig` registers it as a module beside `cocuyo`, and ships
-   `io/`. The consumer binds its `rotor` import, and colibri's modules once it speaks DoH or
+   `io/`. The owner named both on 2026-09-25: the module is `cocuyo_rotor`, cocuyo's resolver
+   bound to rotor, and its type is `Resolver`, which holds the table, `cocuyo.Resolver`. A module
+   named `rotor` was the alternative, and it collides with rotor's own in every consumer's build;
+   `EventLoop` for the type says it owns the loop, when it runs on the caller's. The consumer binds its `rotor` import, and colibri's modules once it speaks DoH or
    DoQ, so an image holds one rotor and one colibri, and the engine's `rotor.Loop` is the
    consumer's own type. cocuyo's builds bind its lazy rotor, as the comparison of §19 step 15
    does today. The ruling of 2026-09-22 that held the engine back gives way: a consumer asks.

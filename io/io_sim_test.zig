@@ -14,10 +14,10 @@ const options: io.Options = .{
     .cache_slots = fixtures.cache_slots,
     .group_buffers = fixtures.group_buffers,
 };
-const Engine = io.Engine(options);
+const Resolver = io.Resolver(options);
 
 /// Two scripted servers, which are the twin's first two, and the engine the tests use over them.
-pub const Rig = RigOf(Engine);
+pub const Rig = RigOf(Resolver);
 
 /// Waits up to `wait_ns` for events, in ticks of rotor's `wait_ns_max` at most, as a caller of
 /// rotor must: a longer tick halts there, and the twin holds the same bound. A tick moves the
@@ -109,7 +109,7 @@ test "a lookup started on the engine is answered by the scripted server through 
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expect(result.outcome.answer.addresses[0].family == .ipv4);
     try testing.expect(rig.loop.now() >= 1_000_000);
-    try testing.expectEqual(@as(?Engine.Result, null), rig.engine.take(rig.loop.now()));
+    try testing.expectEqual(@as(?Resolver.Result, null), rig.engine.take(rig.loop.now()));
     try testing.expectEqual(@as(usize, 0), rig.engine.active());
     try rig.deinit();
 }
@@ -205,7 +205,7 @@ test "the end of a timer the engine has replaced is not taken for the current on
     try testing.expectEqual(@as(?u64, 2_000_000_000), rig.engine.timer_due_ns);
 
     const stale: rotor.Event = .{
-        .user_data = Engine.user_data(.timer, rig.engine.timer_generation - 1),
+        .user_data = Resolver.user_data(.timer, rig.engine.timer_generation - 1),
         .result = 0,
         .flags = .{},
     };
@@ -247,7 +247,7 @@ test "a lookup offered twice is on the ready list once" {
     const result = try rig.until_result();
     try testing.expectEqual(cocuyo.Error.Canceled, result.outcome.failure.err);
     _ = rig.engine.take(rig.loop.now());
-    try testing.expectEqual(@as(?Engine.Result, null), rig.engine.take(rig.loop.now()));
+    try testing.expectEqual(@as(?Resolver.Result, null), rig.engine.take(rig.loop.now()));
     try testing.expectEqual(@as(usize, 0), rig.engine.active());
     try rig.deinit();
 }
@@ -300,7 +300,7 @@ test "a send that fails at the socket costs no timeout: the next server is asked
     try rig.deinit();
 }
 
-const Small = io.Engine(.{ .lookups = fixtures.small_lookups, .cache_slots = fixtures.small_lookups, .group_buffers = fixtures.small_group_buffers });
+const Small = io.Resolver(.{ .lookups = fixtures.small_lookups, .cache_slots = fixtures.small_lookups, .group_buffers = fixtures.small_group_buffers });
 
 test "the receive is armed again after the group runs dry, and every answer still arrives" {
     var loop: rotor.Loop = undefined;

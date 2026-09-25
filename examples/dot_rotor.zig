@@ -20,16 +20,16 @@ const rotor = @import("rotor");
 const io = @import("io");
 const chapulin = @import("chapulin");
 
-const Engine = io.Engine(.{
+const Resolver = io.Resolver(.{
     .lookups = 2,
     .cache_slots = 2,
     .tcp_connections = cocuyo.constants.servers_max,
     .tls = chapulin.Session,
 });
 
-const loop_options: rotor.Loop.Options = .{ .operations = Engine.loop_operations };
+const loop_options: rotor.Loop.Options = .{ .operations = Resolver.loop_operations };
 var loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment) = undefined;
-var engine: Engine = undefined;
+var engine: Resolver = undefined;
 
 /// The roots one run may trust: chapulin's bound on its anchors.
 const anchors_max = chapulin.c.CH_WEBPKI_ANCHOR_MAX;
@@ -98,7 +98,7 @@ pub fn main(init: std.process.Init) !void {
 }
 
 /// One lookup, driven until its result, or null when it has none in `ticks_max` ticks.
-fn resolve(loop: *rotor.Loop, events: []rotor.Event, clock: Clock, name: []const u8) !?Engine.Result {
+fn resolve(loop: *rotor.Loop, events: []rotor.Event, clock: Clock, name: []const u8) !?Resolver.Result {
     _ = try engine.start(try cocuyo.Question.from_text(name, .a), clock.read());
     for (0..ticks_max) |_| {
         if (engine.take(clock.read())) |result| return result;
@@ -146,7 +146,7 @@ fn handshake() []const u8 {
     return "not seen: no connection is up";
 }
 
-fn report(name: []const u8, result: Engine.Result) void {
+fn report(name: []const u8, result: Resolver.Result) void {
     switch (result.outcome) {
         .answer => |answer| {
             for (answer.addresses) |address| {

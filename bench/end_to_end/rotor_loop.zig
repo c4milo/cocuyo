@@ -1,5 +1,5 @@
 //! cocuyo's side of the comparison: the engine of docs/design.md §19 step 13 over rotor itself,
-//! `io.Engine` on a `rotor.Loop`, which is the batteries-included path a consumer would get. The
+//! `io.Resolver` on a `rotor.Loop`, which is the batteries-included path a consumer would get. The
 //! engine is not exported (step 13); the bench builds it privately against the real rotor.
 //!
 //! The loop is the consumer's: start lookups until `in_flight` are going, tick, hand every
@@ -14,16 +14,16 @@ const constants = @import("constants.zig");
 
 /// One slot more than the most in flight: `take` frees the slot of the result taken before, so
 /// the lookup started between two takes needs a slot of its own.
-const Engine = io.Engine(.{
+const Resolver = io.Resolver(.{
     .lookups = constants.in_flight_max + 1,
     .cache_slots = constants.in_flight_max + 1,
     .group_buffers = constants.group_buffers,
 });
 
-const loop_options: rotor.Loop.Options = .{ .operations = Engine.loop_operations };
+const loop_options: rotor.Loop.Options = .{ .operations = Resolver.loop_operations };
 
 var loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment) = undefined;
-var engine: Engine = undefined;
+var engine: Resolver = undefined;
 var started_ns: [constants.in_flight_max + 1]u64 = @splat(0);
 
 pub const Outcome = struct { elapsed_ns: u64, failures: u32 };

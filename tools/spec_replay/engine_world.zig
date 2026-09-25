@@ -40,7 +40,7 @@ const Outcome = enum { ok, failed, canceled, exhausted, short };
 pub fn World(comptime slots: u16, comptime conns: u16) type {
     return struct {
         const Self = @This();
-        pub const Engine = io.Engine(.{
+        pub const Resolver = io.Resolver(.{
             .lookups = slots,
             .cache_slots = 2,
             .group_buffers = 2,
@@ -55,7 +55,7 @@ pub fn World(comptime slots: u16, comptime conns: u16) type {
         memory: [0]u8 align(rotor.memory_alignment),
         servers: [2]cocuyo.Server,
         config: cocuyo.Config,
-        engine: Engine,
+        engine: Resolver,
         now_ns: u64,
         /// Names asked so far in this walk: each start asks a new one, so the cache never
         /// answers, as the model has it.

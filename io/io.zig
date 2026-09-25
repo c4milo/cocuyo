@@ -7,7 +7,8 @@
 //!
 //! The engine is a struct sized at compile time by its `Options`: the lookups it holds, the
 //! cache's slots, the buffers of its datagram group. Nothing here allocates; the caller declares
-//! one and calls `init` on it in place, because `Resolver` and the loop hold pointers into it.
+//! one and calls `init` on it in place, because the table, `cocuyo.Resolver`, and the loop hold
+//! pointers into it.
 //!
 //! What the caller does with it: `start` a question, hand every event of its `tick` to `apply`,
 //! and `take` the results. `now_ns` is the caller's clock on every call, as it is on every call
@@ -47,7 +48,7 @@ pub const InitError = error{ SocketFailed, ReceiveFailed };
 /// What one of the engine's `user_data` values says.
 pub const Kind = enum(u8) { udp_send, udp_receive, timer, tcp_connect, tcp_send, tcp_receive, tls_send };
 
-pub fn Engine(comptime options: Options) type {
+pub fn Resolver(comptime options: Options) type {
     return struct {
         const Self = @This();
 

@@ -14,14 +14,14 @@ const Rig = sim_test.Rig;
 const question = sim_test.question;
 const endpoint_of = sim_test.endpoint_of;
 
-const Tiny = io.Engine(.{
+const Tiny = io.Resolver(.{
     .lookups = fixtures.small_lookups,
     .cache_slots = fixtures.small_lookups,
     .group_buffers = fixtures.group_buffers,
     .tcp_message_bytes = fixtures.tiny_message_bytes,
 });
 
-const Dry = io.Engine(.{
+const Dry = io.Resolver(.{
     .lookups = fixtures.small_lookups,
     .cache_slots = fixtures.small_lookups,
     .group_buffers = fixtures.group_buffers,

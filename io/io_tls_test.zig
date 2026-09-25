@@ -14,14 +14,14 @@ const sim_test = @import("io_sim_test.zig");
 const question = sim_test.question;
 
 /// An engine that speaks the twin's TLS, with a connection slot for each server (TLS rule 6).
-const Engine = io.Engine(.{
+const Resolver = io.Resolver(.{
     .lookups = fixtures.small_lookups,
     .cache_slots = fixtures.small_lookups,
     .group_buffers = fixtures.group_buffers,
     .tcp_connections = fixtures.servers,
     .tls = rotor.tls.Session,
 });
-const Rig = sim_test.RigOf(Engine);
+const Rig = sim_test.RigOf(Resolver);
 
 /// Both of the rig's servers known by a name, as a configuration names DoT servers.
 fn encrypt(rig: *Rig) !void {
