@@ -1971,3 +1971,35 @@ failed. Broken against `zig build -Dchapulin=<checkout> test-chapulin`. One muta
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
 | PA1 | a server with no name gets the context's anchors and clock | a server known by pins alone starts | the pins-beside-anchors test | CAUGHT |
+
+## A DoH server's URI template
+
+Design §24 step 5, 2026-09-25. `io/io_quic_template.zig` splits a DoH server's template into the
+authority and the path's template, and expands the path with `dns`, the one variable defined.
+Three checks were `NOT CAUGHT` at first. UT8 was a refusal of the `#` operator that nothing
+needed: a character that is not an operator is read as a varname's, and `#` is none, so the
+refusal was removed and UT8 became the operator table gaining `#`. UT18 and UT19 had no test, and
+now each has one. Broken against `zig build test-cocuyo_quic`. Twenty mutations, twenty `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| UT1 | any scheme is taken | DoH is https alone (RFC 8484 §5) | the authority refusals | CAUGHT |
+| UT2 | the scheme is compared by case | schemes are case-insensitive (RFC 3986 §3.1) | the case and port test | CAUGHT |
+| UT3 | the host's characters are not checked | no userinfo (RFC 9114 §4.3.1), no IP literal | the authority refusals | CAUGHT |
+| UT4 | an IPv4 address is taken as a host | the session checks a name (RFC 3986 §3.2.2) | the authority refusals | CAUGHT |
+| UT5 | a port's characters are not checked | `port = *DIGIT` (RFC 3986 §3.2.3) | the authority refusals | CAUGHT |
+| UT6 | an expression does not end the authority | the TLS name cannot change with a query | the operator test | CAUGHT |
+| UT7 | a `#` literal is copied | a fragment is not part of the request | the path refusals | CAUGHT |
+| UT8 | the operator table gains `#` | a fragment is not part of the request | the path refusals | CAUGHT |
+| UT9 | a prefix on `dns` is taken | a prefix would cut the query | the path refusals | CAUGHT |
+| UT10 | a template with no `dns` is taken | a GET carries the query only there (RFC 8484 §4.1) | the path refusals | CAUGHT |
+| UT11 | a named operator writes no `dns=` | Appendix A's `named` | RFC 8484's example, the operator test | CAUGHT |
+| UT12 | a second variable takes `first` again | Appendix A's `sep` | the operator test | CAUGHT |
+| UT13 | an empty path stays empty | `:path` is `/` at least (RFC 9114 §4.3.1) | the operator test | CAUGHT |
+| UT14 | an expansion may carry on the authority | the path starts with `/` or `?` | the path refusals | CAUGHT |
+| UT15 | a character past ASCII is copied as it is | it goes pct-encoded (RFC 6570 §3.1) | the literal test | CAUGHT |
+| UT16 | every ASCII literal is taken | the characters §2.1 excludes | the path refusals | CAUGHT |
+| UT17 | variable names are compared in any case | names are case-sensitive (§2.3) | the path refusals | CAUGHT |
+| UT18 | a `%` literal is not checked | `pct-encoded` (RFC 3986 §2.1) | the path refusals | CAUGHT |
+| UT19 | a dec-octet may have a leading zero | `dec-octet` (RFC 3986 §3.2.2) | the registered-name test | CAUGHT |
+| UT20 | a varspec that is none is skipped | `varspec` (RFC 6570 §2.3) | the path refusals | CAUGHT |
