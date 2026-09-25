@@ -97,10 +97,12 @@ updates worth knowing about, none of which version one implements:
 | 8484 | DNS Queries over HTTPS (DoH) | §5.2 HTTP/2 the minimum recommended version, so HTTP/3 carries DoH as it is; the rest is read when DoH's DNS half lands |
 | 8482 | Providing Minimal-Sized Responses to DNS Queries That Have QTYPE=ANY | §4, what an ANY question may get back, a synthesized HINFO included |
 | 8659 | DNS Certification Authority Authorization (CAA) Resource Record | §4.1, the CAA record's fields |
+| 9000 | QUIC: A UDP-Based Multiplexed and Secure Transport | §7.2 a client's first Destination Connection ID, 8 octets at least; §18.2 `max_idle_timeout`; read for colibri under the request interface (design §24) |
+| 9001 | Using TLS to Secure QUIC | §4 the encryption levels, §4.1.5 the exchange between QUIC and TLS, §5.3 the 16-octet tag; read for the provider that encrypts nothing, which the gate runs colibri over (design §24) |
 | 9110 | HTTP Semantics | §8.4 Content-Encoding, §12.5.3 Accept-Encoding: a request with none leaves the server free to compress, so a DoH request asks for `identity` (design §24, request rule 12) |
 | 9114 | HTTP/3 | §3.2 the ALPN token `h3`, §4.1.1 cancelling a request, §8.1 the error codes; read for DoH over HTTP/3 in the engine (design §24) |
 | 9204 | QPACK: Field Compression for HTTP/3 | §4.5.4 the literal's N bit, §7.1 probing the dynamic table, §7.1.3 never-indexed literals: a DoH query's `:path` is never indexed (design §24, request rule 12) |
-| 9250 | DNS over Dedicated QUIC Connections | §4.1 the ALPN token `doq` and UDP port 853, §5.1 authentication as DoT's, the strict profile a SHOULD, §5.2 fallback by usage profile; on the roadmap, not yet implemented |
+| 9250 | DNS over Dedicated QUIC Connections | §4.1 the ALPN token `doq` and UDP port 853, §4.2 a stream for each query and its prefix, §4.2.1 ID 0, §4.3.1 cancelling a request, §4.3.3 protocol errors, §4.4 the idle timeout, §5.1 authentication as DoT's, the strict profile a SHOULD, §5.2 fallback by usage profile; carried by the engine (design §23, §24) |
 | 9846 | The Transport Layer Security (TLS) Protocol Version 1.3 | §5.3 each record's nonce is its sequence number, so records go out in the order they were sealed; §6.1 a `close_notify` before a party closes its write side |
 | 9018 | Interoperable Domain Name System (DNS) Server Cookies | §3, the server cookie's length, which is all a client reads of it |
 | 9460 | Service Binding and Parameter Specification via the DNS (SVCB and HTTPS) | §2.2 the record's fields, §7 the parameters, §2.2 the uncompressed target |

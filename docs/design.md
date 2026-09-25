@@ -3370,6 +3370,66 @@ DoQ; AdGuard answered three names on one connection, and resumed a second. A wro
 the handshake with `unknown_ca`, and every server accepted ChaCha20-Poly1305, the one suite
 chapulin's QUIC mode offers.
 
+### colibri under the request interface, written on 2026-09-25
+
+colibri's `quic` module fills the request interface. It allocates nothing and owns no I/O: every
+buffer is the caller's, and a datagram goes in and comes out as octets. What it asks of the type
+that holds it:
+
+- **Two vtables.** A connection takes a TLS provider, `tls.QuicVTable`, and a packet-protection
+  suite, `crypto.suite.VTable`. The provider installs each level's keys into the suite as the
+  handshake reaches it.
+- **State, not events.** colibri reports a close and a completed stream from `receive`. The
+  handshake's end, an answered stream and a reset stream are read off the connection's state, after
+  each `receive`, each send and each timer. The client's handshake usually ends inside a send, when
+  the provider writes the client's Finished.
+- **Bytes read again.** colibri reads a stream's bytes through a stream provider at every send
+  that carries them, a retransmission included, and an answer can arrive before the server has
+  acknowledged the request. So `io/io_quic.zig` copies each request into a buffer of its own,
+  one for each stream, and keeps it until the stream's sending half is acknowledged or reset.
+  The interface's promise that a stream `next` reported reads its slot's bytes no more holds.
+- **A cancelled stream is drained.** A stream frees its place in colibri's table once both halves
+  have ended. `io/io_quic.zig` reads a cancelled stream to its end, or past the server's reset,
+  and tells nobody.
+- **A send can fail, and `datagram` cannot.** A send colibri refuses makes a CONNECTION_CLOSE owed,
+  and `next` says the connection closed.
+- **The timer is read, not asked.** `connection_timer.next` takes the connection mutably, so
+  `deadline` gives the value `io/io_quic.zig` read after its last call.
+- **ALPN is the engine's to check.** colibri never reads it; the provider says what was negotiated.
+
+So `io/io_quic.zig` is generic over the provider and its suite:
+
+- `io/io_chapulin_quic.zig` puts chapulin's QUIC object behind both vtables. It is built only when
+  the build names a chapulin checkout, as the DoT session is, and the live check of step 4 runs it
+  against AdGuard and NextDNS.
+- `io/io_quic_plain.zig` is a provider and a suite that encrypt nothing, for the gate: the
+  handshake's messages are made-up octets at the Initial, Handshake and 1-RTT levels of RFC 9001
+  §4, in the order §4.1.5's Figure 5 puts them. A packet is sealed by appending sixteen octets,
+  the length of the tag every QUIC cipher suite adds (RFC 9001 §5.3), which check nothing but the
+  length. It is written from colibri's two vtables and RFC 9001, and it is test-only.
+
+### colibri over the twin
+
+The twin is in `src/`, which depends on nothing, so it cannot hold a colibri server. The twin's
+network gains a responder instead: a server a test registers for a scripted server's QUIC port,
+which is handed every datagram sent there and queues the datagrams it answers with, at the
+instants it names. The engine's tests in `io/` register one that runs colibri's connection in its
+server role over `io/io_quic_plain.zig`, and answers each stream's query with the scripted
+server's answer. The engine then runs over colibri on the twin: real packets, streams, flow
+control, loss and its recovery, with the twin's clock and its seeds.
+
+### colibri as a dependency
+
+colibri is pinned by hash in `build.zig.zon` as a lazy dependency (decision 29). `io/io_quic.zig`
+is a module of its own, `cocuyo_quic`, which imports colibri's `quic` and gives the type a
+consumer names in `Options.quic`. `cocuyo_rotor` never imports colibri, so a consumer that speaks
+no DoQ binds nothing more; one that does binds `cocuyo_quic` and colibri's `quic` into it. The gate
+fetches colibri for the engine's tests over colibri on the twin. The library in `src/` never
+imports it.
+
+An engine over colibri holds, for each server, colibri's connection, its receive pool, its two
+scratch buffers and a request buffer for each lookup. Measured in step 4, with `@sizeOf`.
+
 ### A thread per core
 
 An image runs one loop on each core and one engine on each loop. Nothing crosses between cores:
@@ -3390,10 +3450,12 @@ An image runs one loop on each core and one engine on each loop. Nothing crosses
 | --- | --- | --- |
 | `quic_connections_max` | `servers_max` | one connection to a server |
 | `quic_streams_max` | the engine's `lookups` | one stream for a request, and a request for each lookup at most |
-| `quic_receive_bytes` | measured in step 4 | colibri's receive pool for a connection, the caller's to size; its default of 1 MiB is far past the answers a connection has in flight |
 | `quic_idle_ns_default` | 10 s | how long a connection with no request is kept, TCP's `tcp_idle_ns_default`; RFC 9250 §5.5.2 names no value, and this one is chosen, not measured |
 | `quic_idle_margin_ns` | 1 s | how near the negotiated idle timeout a connection stops taking requests: a query and its answer take less, chosen, not measured |
 | `quic_connection_events_max` | 16 | beside one answer or reset for each of the engine's `lookups`, the `next` calls one datagram or one expiry is read with, which bounds the loop: the handshake's end, a close and tickets, chosen, not measured. What a flood leaves unread is read with the next datagram |
+| `quic_receive_bytes` | the smallest colibri takes, measured in step 4 | colibri's receive pool for a connection, the caller's to size; its default of 1 MiB is far past the answers a connection has in flight, and the pool holds a block for each 1,024 octets and 256 more, which is its floor |
+| `quic_idle_timeout_ms` | 30,000 | the idle timeout a connection advertises (RFC 9000 §18.2); the server's may be shorter, and the smaller holds (RFC 9250 §4.4); chosen, not measured |
+| `quic_connection_id_bytes` | 8 | the destination connection ID a client's first Initial carries: RFC 9000 §7.2 asks for 8 octets at least |
 
 ### Order and checks
 
