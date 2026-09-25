@@ -1903,3 +1903,16 @@ build test-io`. Two mutations, two `CAUGHT`.
 | --- | --- | --- | --- | --- |
 | NT1 | an engine with no connection leaves a lookup that asks for a stream waiting | the lookup fails over at once | the no-TCP test | CAUGHT |
 | NT2 | an entry point indexes the connections of an engine that keeps none | an engine of none compiles | the build | CAUGHT |
+
+## A responder on the twin's QUIC port
+
+Design §24 step 4, colibri over the twin, 2026-09-25. The twin is in `src/`, which depends on
+nothing, so a colibri server cannot live in it. A test puts a responder on a scripted server's QUIC
+port instead: the twin hands it every datagram sent there, delivers what it answers with, and wakes
+it at its deadline. Broken against `zig build test-sim`. Three mutations, three `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| RP1 | a datagram to a QUIC port goes to the twin's QUIC though a responder is there | the responder hears what is sent to its port | the echo-responder test | CAUGHT |
+| RP2 | the twin never wakes a responder | a responder is woken at its deadline | the echo-responder test | CAUGHT |
+| RP3 | the clock does not stop at a responder's deadline | the deadline comes before later deliveries | the echo-responder test | CAUGHT |

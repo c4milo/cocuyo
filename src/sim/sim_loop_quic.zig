@@ -19,16 +19,13 @@ fn network() *Network {
     return &network_module.network;
 }
 
-/// Where server `index` speaks QUIC from.
-fn quic_address(index: u8) types.Address {
-    var address = Network.server_address(index);
-    address.port = constants.server_quic_port;
-    return address;
-}
+const quic_address = Network.server_quic_address;
 
-/// A datagram from `socket` to server `index`'s QUIC port. A server that is down says nothing,
-/// and neither does one whose table of connections is full.
+/// A datagram from `socket` to server `index`'s QUIC port: its responder's, when a test put one
+/// there, and otherwise the twin's QUIC. A server that is down says nothing, and neither does one
+/// whose table of connections is full.
 pub fn answer(loop: *Loop, socket: types.Descriptor, index: u8, bytes: []const u8) void {
+    if (network().responders[index]) |responder| return responder.hear(responder.context, socket, bytes, loop.now_ns);
     const script = &network().scripts[index];
     if (script.down) return;
     const entry = network().quic_peer(socket, index) orelse return;
@@ -110,4 +107,25 @@ fn queue(entry: *const network_module.QuicPeer, due_ns: u64) ?*network_module.Pe
     pending.len = 0;
     assert(pending.bytes.len >= constants.quic_datagram_bytes_max);
     return pending;
+}
+
+/// Wakes each responder whose deadline has come, before what is due is delivered, so the
+/// datagrams it answers with at that instant go out with it.
+pub fn expire_responders(loop: *const Loop) void {
+    for (&network().responders) |*slot| {
+        const responder = slot.* orelse continue;
+        const due = responder.deadline(responder.context) orelse continue;
+        if (due <= loop.now_ns) responder.expire(responder.context, loop.now_ns);
+    }
+}
+
+/// The soonest deadline of every responder, or null for none.
+pub fn responders_due() ?u64 {
+    var soonest: ?u64 = null;
+    for (&network().responders) |*slot| {
+        const responder = slot.* orelse continue;
+        const due = responder.deadline(responder.context) orelse continue;
+        soonest = if (soonest) |earlier| @min(earlier, due) else due;
+    }
+    return soonest;
 }

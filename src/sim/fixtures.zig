@@ -34,3 +34,8 @@ pub const server_address = types.Address.ipv4(.{ 192, 0, 2, 53 }, 53);
 /// The id the server tests' queries carry, and the octet their client cookie is filled with.
 pub const server_query_id = 0x1234;
 pub const client_cookie_fill = 0xab;
+
+/// When the echo responder's deadline comes, and how long its echo takes: the deadline first, so
+/// the twin wakes it before anything is due.
+pub const echo_deadline_ns = 500;
+pub const echo_delay_ns = 1000;

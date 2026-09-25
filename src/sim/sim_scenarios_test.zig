@@ -92,6 +92,66 @@ test "a datagram to a scripted server comes back on the socket's receive, after 
     rig.loop.deinit();
 }
 
+/// A responder that echoes each datagram after `echo_delay_ns`, and counts the datagrams it heard
+/// and the times it was woken at its one deadline.
+const Echo = struct {
+    network: *sim.Network,
+    due_ns: ?u64 = fixtures.echo_deadline_ns,
+    heard: usize = 0,
+    woken: usize = 0,
+
+    fn responder(echo: *Echo) sim.Responder {
+        return .{ .context = echo, .hear = hear, .deadline = deadline, .expire = expire };
+    }
+
+    fn hear(context: *anyopaque, socket: sim.Descriptor, bytes: []const u8, now_ns: u64) void {
+        const echo: *Echo = @ptrCast(@alignCast(context));
+        echo.heard += 1;
+        _ = echo.network.reply(socket, 0, bytes, now_ns + fixtures.echo_delay_ns);
+    }
+
+    fn deadline(context: *anyopaque) ?u64 {
+        const echo: *Echo = @ptrCast(@alignCast(context));
+        return echo.due_ns;
+    }
+
+    fn expire(context: *anyopaque, now_ns: u64) void {
+        const echo: *Echo = @ptrCast(@alignCast(context));
+        std.debug.assert(now_ns >= echo.due_ns.?);
+        echo.woken += 1;
+        echo.due_ns = null;
+    }
+};
+
+test "a responder on a QUIC port hears what is sent there, answers, and is woken at its deadline" {
+    var rig: Rig = .{};
+    try rig.init(7, .{});
+    var echo: Echo = .{ .network = rig.loop.network() };
+    rig.loop.network().responders[0] = echo.responder();
+    rig.outbound.peer = sim.Network.server_quic_address(0);
+    const socket = try sim.sync.open_datagram(.ipv4, null, .{});
+    defer sim.sync.close_now(socket);
+    var handles: [1]sim.Handle = undefined;
+    _ = rig.loop.submit(&.{receive_from(socket)}, &handles);
+    _ = rig.loop.submit(&.{send_to(&rig, socket)}, &.{});
+    var events: [4]Event = undefined;
+    try testing.expectEqual(@as(u32, 1), try rig.collect(&events, 0));
+    try testing.expectEqual(@as(usize, 1), echo.heard);
+    // The deadline comes first, and nothing is delivered at it.
+    try testing.expectEqual(@as(u32, 0), try rig.collect(&events, 10_000));
+    try testing.expectEqual(@as(u64, fixtures.echo_deadline_ns), rig.loop.now());
+    try testing.expectEqual(@as(usize, 1), echo.woken);
+    try testing.expectEqual(@as(u32, 1), try rig.collect(&events, 10_000));
+    try testing.expectEqual(@as(u64, fixtures.echo_delay_ns), rig.loop.now());
+    const delivery = rig.loop.datagram(group_id, events[0]);
+    try testing.expect(delivery.from.peer.equal(&rig.outbound.peer));
+    try testing.expectEqualSlices(u8, rig.query[0..rig.query_len], delivery.bytes);
+    rig.loop.give_back_buffer(group_id, events[0].flags.buffer_id);
+    rig.loop.cancel(handles[0]);
+    try rig.loop.drain(&events);
+    rig.loop.deinit();
+}
+
 test "a timer fires at its instant and not before, and a wait with nothing due moves the clock" {
     var rig: Rig = .{};
     try rig.init(1, .{});

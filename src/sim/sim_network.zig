@@ -69,6 +69,17 @@ pub const QuicPeer = struct {
     peer: quic_module.Peer = .{},
 };
 
+/// A server a test puts on a scripted server's QUIC port in place of the twin's QUIC
+/// (docs/design.md §24, colibri over the twin): it is handed every datagram sent there, and woken
+/// at its own deadline, and it answers with `Network.reply`. The twin is in `src/`, which depends
+/// on nothing, so a test in `io/` brings colibri's server this way.
+pub const Responder = struct {
+    context: *anyopaque,
+    hear: *const fn (context: *anyopaque, socket: Descriptor, bytes: []const u8, now_ns: u64) void,
+    deadline: *const fn (context: *anyopaque) ?u64,
+    expire: *const fn (context: *anyopaque, now_ns: u64) void,
+};
+
 pub const Network = struct {
     sockets: [constants.sockets_max]Socket = @splat(.{}),
     next_port: u16 = constants.client_port_first,
@@ -77,6 +88,8 @@ pub const Network = struct {
     datagrams: [constants.datagrams_pending_max]PendingDatagram = @splat(.{}),
     connections: [constants.connections_max]Connection = @splat(.{}),
     quic_peers: [constants.connections_max]QuicPeer = @splat(.{}),
+    /// A responder on each scripted server's QUIC port, or null for the twin's QUIC.
+    responders: [constants.servers_max]?Responder = @splat(null),
     /// Whether every socket open fails, as it does when a process has no descriptor left: set
     /// by a caller driving the twin in manual mode (tools/spec_replay/).
     refuse_open: bool = false,
@@ -89,6 +102,29 @@ pub const Network = struct {
     pub fn server_address(index: u8) Address {
         assert(index < constants.servers_max);
         return Address.ipv4(constants.server_prefix ++ [_]u8{constants.server_octet_first + index}, constants.server_port);
+    }
+
+    /// Where scripted server `index` speaks QUIC from: its address, on its QUIC port.
+    pub fn server_quic_address(index: u8) Address {
+        var address = server_address(index);
+        address.port = constants.server_quic_port;
+        return address;
+    }
+
+    /// A datagram from server `index`'s QUIC port to `descriptor`, due at `due_ns`. False when the
+    /// network holds as many as it can, or the datagram is longer than one holds: a drop.
+    pub fn reply(self: *Network, descriptor: Descriptor, index: u8, bytes: []const u8, due_ns: u64) bool {
+        const pending = self.queue_datagram() orelse return false;
+        if (bytes.len > pending.bytes.len) {
+            pending.live = false;
+            return false;
+        }
+        pending.socket = descriptor;
+        pending.from = server_quic_address(index);
+        pending.due_ns = due_ns;
+        pending.len = @intCast(bytes.len);
+        @memcpy(pending.bytes[0..bytes.len], bytes);
+        return true;
     }
 
     /// Which scripted server an address names, or null for anywhere else: a datagram there is

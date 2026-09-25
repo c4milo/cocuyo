@@ -9,6 +9,7 @@ const network = @import("sim_network.zig");
 
 pub const Loop = loop_module.Loop;
 pub const Registry = loop_module.Registry;
+pub const Responder = network.Responder;
 pub const Remote = loop_module.Remote;
 pub const sync = network;
 pub const buffers = @import("sim_buffers.zig");

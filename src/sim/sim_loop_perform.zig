@@ -259,6 +259,7 @@ fn withdraw_receiver(slot: u32) void {
 /// events due at the delivery's instant: every datagram whose time has come, and every stream's
 /// bytes in chunks the seed sizes, so a reader's framing is exercised.
 pub fn materialize(loop: *Loop) void {
+    quic_module.expire_responders(loop);
     materialize_datagrams(loop);
     materialize_streams(loop);
 }
@@ -328,10 +329,11 @@ fn deliver_chunk(loop: *Loop, connection: *network_module.Connection, receiver: 
     return true;
 }
 
-/// The earliest instant the network has something to deliver to a receiving socket.
+/// The earliest instant the network has something to deliver to a receiving socket, or a
+/// responder has a deadline.
 pub fn next_delivery_due(loop: *const Loop) ?u64 {
     _ = loop;
-    return earliest(next_datagram_due(), next_stream_due());
+    return earliest(earliest(next_datagram_due(), next_stream_due()), quic_module.responders_due());
 }
 
 fn earliest(a: ?u64, b: ?u64) ?u64 {
