@@ -117,9 +117,10 @@ The architecture depends on every rule in this section.
   the compiler rejects it.
 - `io/` holds the engine of §19 step 13, outside `src/` because it owns sockets. It reads
   `cocuyo` and a `rotor` import the build binds to `sim`, so `zig build test-io` runs it on the
-  twin, and to rotor itself for `zig build bench-cares` alone. It is not exported and not
-  shipped: the owner ruled on 2026-09-22 that no library bound to rotor is exposed until a
-  consumer asks for one.
+  twin, and to rotor itself for `zig build bench-cares` alone. It is not exported yet: the owner
+  ruled on 2026-09-25 that it will be, into the caller's loop, with the consumer binding its
+  `rotor` (design §24). One engine runs on each loop and one loop on each core, and nothing is
+  shared between them.
 - Each module owns its `constants.zig`. A limit two modules share lives in `src/core/constants.zig`.
 - `examples/` holds worked examples, `bench/` the microbenchmarks, `docs/` the design set, and
   `tools/` developer tooling that is never linked into the library. `test/` holds fixtures that
@@ -144,11 +145,12 @@ The architecture depends on every rule in this section.
 - Adding anything §1 puts out of scope: DNSSEC, mDNS, zone transfers, nsswitch, IDN, the
   platform resolver configuration of §14. DoT and DoH were decided in on 2026-09-23: DoT in the
   engine, over rotor with chapulin's non-blocking record transport, strict by default (RFC 8310);
-  DoH's DNS half in cocuyo and its HTTP/2 and HTTP/3 in colibri's driver, which cocuyo may never
-  depend on. DNS over QUIC (RFC 9250) joined the same day, split the same way by the owner's
-  ruling of 2026-09-24: its DNS half in cocuyo, its QUIC in colibri's driver. The cache (§18) and the gap with c-ares (§19:
-  every record type, cookies, the hosts file, failover, the engine over rotor) were decided in on
-  2026-09-22; what §19 lists as out stays out.
+  DoH's DNS half in `src/`. DNS over QUIC (RFC 9250) joined the same day, its DNS half in `src/`
+  too. Since the owner's ruling of 2026-09-25 both are carried by the engine, over colibri's
+  HTTP/3 and QUIC with chapulin's QUIC mode (design §24). The library in `src/` depends on
+  nothing; the engine may use colibri, and colibri's library never uses cocuyo. The cache (§18)
+  and the gap with c-ares (§19: every record type, cookies, the hosts file, failover, the engine
+  over rotor) were decided in on 2026-09-22; what §19 lists as out stays out.
 
 ## Commands
 

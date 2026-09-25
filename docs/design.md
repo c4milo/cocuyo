@@ -70,15 +70,16 @@ Each of these is out of scope on purpose, with the place it would attach.
   transport, and the library itself stays without TLS, since the stream path already produces
   the length-prefixed messages DoT sends. Authentication is strict by default (RFC 8310): a
   server whose name does not verify fails the lookup rather than falling back to plaintext.
-  DoH (RFC 8484) is split: cocuyo supplies its DNS half, and the HTTP/2 that carries it is
-  colibri's, in colibri's driver, because colibri depends on cocuyo and cocuyo may not depend
-  on it back. The owner added DoH over HTTP/3 the same day. RFC 8484 names HTTP/2 as the least
+  DoH (RFC 8484) is split: cocuyo supplies its DNS half, and colibri's HTTP/2 or HTTP/3 carries
+  it. The first ruling put that HTTP in colibri's driver. Since 2026-09-25 the engine drives it,
+  because colibri owns no I/O, and colibri's library never uses cocuyo (§24). The owner added DoH
+  over HTTP/3 the same day. RFC 8484 names HTTP/2 as the least
   version it recommends (§5.2), so HTTP/3 carries DoH as it is: the HTTP stays colibri's, and
   cocuyo's DNS half is the same for both. §21 is DoT's plan and the rulings that shape it, and
   §22 is DoH's DNS half.
 - **DNS over QUIC, since 2026-09-23.** The owner put DoQ (RFC 9250) after DoT and DoH's DNS
-  half, and split it as DoH is: cocuyo supplies the DNS half, and colibri's driver carries it
-  over QUIC. §23 is its plan and the rulings that shape it.
+  half, and split it as DoH is: cocuyo supplies the DNS half, and colibri's QUIC carries it,
+  driven by the engine since 2026-09-25 (§24). §23 is its plan and the rulings that shape it.
 - **No mDNS and no zone transfers.** Out: neither is a stub resolver's.
 - **Record types beyond `A`, `AAAA`, `PTR` and `CNAME`; `/etc/hosts`; A-plus-AAAA in one call;
   TCP reuse and pipelining; DNS cookies; server failover.** Out of version one, and in since
@@ -99,7 +100,7 @@ by the build rather than by review.
 | `config` | `core` | the `resolv.conf` parser |
 | `cache` | `core`, `wire` | the answer cache of §18, above the state machine and never inside it |
 | `sim` | `core`, `wire`, `resolver` | the scripted server and the virtual clock, test-only |
-| `io` | `cocuyo`, `rotor` | the engine of §19 step 13: sockets, timers and connections over a loop with rotor's surface, in `io/`; compiled against `sim` for the gate and against rotor for the comparison of step 15, and not exported |
+| `io` | `cocuyo`, `rotor`, and colibri's `quic` and `h3` from §24 | the engine of §19 step 13: sockets, timers and connections over a loop with rotor's surface, in `io/`; compiled against `sim` for the gate and against rotor for the comparison of step 15, and exported into the caller's loop by §24 |
 
 `resolver` cannot import `config`. That is the split between the state machine and the config
 parser, made structural: `Config` is a `core` type, the parser is one producer of it, and the
@@ -1321,6 +1322,24 @@ step until `zig build test` passes.
     A socket the system refuses reaches the lookup as a failed connection too, and counts,
     though the server said nothing: the call carries no reason. A failed send stays silence.
     The lookup model proves that a lookup any server refused never ends in `Timeout`. §5.
+26. **DoH and DoQ are the engine's, over colibri's HTTP/3 and QUIC.** Ruled by the owner on
+    2026-09-25 (issue #10). colibri declined the driver §22 and §23 gave it: it owns no I/O,
+    rotor is test-only there, and it has no TLS of its own. Rejected: a package of its own over
+    colibri, chapulin and rotor, which rebuilds the engine's loop, table, timers, idle close,
+    tickets, twin, model and replay; and colibri owning the driver, against colibri's rules. The
+    library in `src/` still depends on nothing, the engine may use colibri, and colibri's library
+    never uses cocuyo. It reverses the first rulings of §22 and §23. §24.
+27. **The engine runs in the caller's loop, and is exported.** Ruled by the owner on 2026-09-25.
+    Embedded, it runs on the consumer's rotor loop beside the consumer's own work; on its own,
+    on a loop of its own. The consumer binds the engine's `rotor`, and colibri, so an image holds
+    one of each. Rejected: an engine that owns its loop, which puts a second loop, and a second
+    thread, in every consumer that has one. It replaces the ruling of 2026-09-22 that held the
+    engine back until a consumer asked. §24.
+28. **A thread per core, and nothing shared between cores.** Ruled by the owner on 2026-09-25.
+    One loop on each core and one engine on each loop, each with its own table, cache,
+    connections and seeds. Rejected: an engine or a cache shared across threads, which needs a
+    lock or atomics in the lookup's path. The cost is a cache on each core, and a connection
+    from each core to each encrypted server. §24.
 
 ## 17. Questions for the owner
 
@@ -2281,7 +2300,8 @@ of its own. So the engine is not an exported module, no build option fetches rot
 under `zig build test-io`, which is the gate this step promised: every path of the library
 driven from a seed through a loop of rotor's shape. The engine itself names nothing of the
 twin; only its tests do, and they compile only when the twin is the `rotor`. The day a consumer
-asks, the build's `rotor` import is the one line that changes. The first slice landed that
+asks, the build's `rotor` import is the one line that changes. A consumer asked on 2026-09-25,
+and §24 exports the engine into the caller's loop (§16 decision 27). The first slice landed that
 day: the UDP path, the buffer group, one timer, the cache in front, and the twin with its
 scripted servers. The TCP path, port rotation, `reinit` and `cancel_all` follow.
 
@@ -2659,7 +2679,8 @@ and nothing else, and `Started` goes away.
   rule about which failures may be remembered is DNS knowledge, and it belongs with the DNS.
 - **Export the engine over rotor.** It would answer a different question than the one asked:
   colibri's driver has a loop already. Rejected for now, and the ruling that holds it back is the
-  owner's.
+  owner's. That ruling gave way on 2026-09-25: the engine is exported into the caller's loop
+  (§16 decision 27, §24).
 
 ### Checks
 
@@ -2821,8 +2842,8 @@ The engine does not call chapulin by name. It is generic over a `Session` type i
 Two types fill it:
 
 - `io/io_chapulin.zig` fills it from chapulin's record transport. It is built only when
-  `-Dchapulin` names a checkout, as colibri's driver links chapulin: the headers are read in
-  place and nothing is vendored.
+  `-Dchapulin` names a checkout, as colibri's own endpoints link chapulin: the headers are read
+  in place and nothing is vendored.
 - The twin fills it with `sim.tls`, a session whose records carry their plaintext unsealed and
   whose handshake steps are spelled in the records the twin's server sends. The twin's servers
   script it, and the replay drives the model's steps with it one by one, so the gate needs no
@@ -2893,8 +2914,8 @@ the engine's send and held buffers, per slot.
 4. The engine model: a connection handshakes between its connect and its first query, and a
    handshake that fails fails the connection. Design, model, code, in that order (§19 step 13).
    The rules and the model landed 2026-09-23; the code is step 5's.
-5. The engine over chapulin, behind a build option naming a chapulin checkout, as colibri's
-   driver links it: the headers are read in place and nothing is vendored. The engine's side
+5. The engine over chapulin, behind a build option naming a chapulin checkout, as colibri's own
+   endpoints link it: the headers are read in place and nothing is vendored. The engine's side
    landed on 2026-09-24, over the session seam and checked with the twin's session: the TLS
    rules in `io/io_tls.zig`, the queue's sealed entries in `io/io_tcp_queue_ring.zig`, twin
    tests in `io/io_tls_test.zig`, and the replay over the model's two TLS configurations. The
@@ -2992,8 +3013,9 @@ and it records the owner's rulings of 2026-09-24. Each piece lands with its chec
   after one ends in `AllServersFailed` (§16 decision 25).
 - **`use_tcp`.** Every query on a stream means TCP, and a DoH server takes HTTP, so
   `assert_valid` refuses the two together.
-- **The engine.** The engine of §19 step 13 speaks no HTTP, and asserts that its configuration
-  has no HTTPS server. colibri's driver is the one that drives DoH.
+- **The engine.** The engine of §19 step 13 speaks no HTTP yet, and asserts that its
+  configuration has no HTTPS server. colibri's driver was to drive DoH. Since 2026-09-25 the
+  engine drives it over colibri's HTTP/3 (§16 decision 26, §24).
 
 ### New limits
 
@@ -3041,6 +3063,8 @@ needed. This section is the DNS half's plan, and it records the owner's rulings 
 - QUIC is colibri's driver's, over rotor, as DoH's HTTP is (§22). cocuyo supplies the DNS half,
   and its engine (§19 step 13) does not speak DoQ. The alternative was a QUIC seam in the
   engine, as chapulin's TLS has one. It is much larger, and the engine is not exported.
+  Reversed on 2026-09-25 (§16 decision 26): colibri declined the driver, and the engine carries
+  DoQ over colibri's QUIC (§24).
 - DoH and DoQ share one action. A lookup over either asks for one request for each
   transaction and takes the answer by the transaction's number. So `send_https`,
   `on_https_answer` and `on_https_failed` became `send_request`, `on_request_answer` and
@@ -3078,7 +3102,8 @@ needed. This section is the DNS half's plan, and it records the owner's rulings 
   profile. A strict profile does not fall back, and the servers are all one kind (§21).
 - **No keepalive.** A DoQ message must not carry edns-tcp-keepalive (§5.5.2). cocuyo sends it
   on no transport.
-- **The engine.** It asserts that its configuration has no QUIC server, as it does for HTTPS.
+- **The engine.** It asserts that its configuration has no QUIC server, as it does for HTTPS,
+  until §24 makes it carry DoQ.
 
 ### Order and checks
 
@@ -3101,3 +3126,140 @@ Checks, one for each piece:
 - An answer by transaction, a request that failed, and a truncated answer read as it stands,
   over DoQ as over DoH.
 - The lookup model's theorems hold, and the replay agrees over the DoQ configurations.
+
+## 24. The engine in the caller's loop: DoH, DoQ and a thread per core
+
+§1 brought DoH and DoQ in with their transports in colibri's driver. On 2026-09-24 colibri
+declined that driver: colibri owns no I/O, rotor is test-only there, and it has no TLS of its
+own. The owner ruled on 2026-09-25 that every DNS capability comes from cocuyo. This section is
+the plan those rulings make, and §16 decisions 26 to 28 record them.
+
+### The owner's rulings of 2026-09-25
+
+- DoH and DoQ are the engine's. It carries DoQ over colibri's QUIC and DoH over colibri's
+  HTTP/3, with chapulin's QUIC mode as their TLS, as it carries DoT over chapulin's record
+  transport. The library in `src/` still depends on nothing. The engine in `io/` may use
+  colibri, and colibri's library never uses cocuyo. (Decision 26.)
+- The engine plugs into the caller's loop. Embedded in a consumer, it runs on the consumer's
+  rotor loop, beside whatever else the consumer drives there, colibri's connections included.
+  On its own, it runs on a loop of its own. The components of an image share one loop on each
+  thread, and nothing else. (Decision 27.)
+- A thread per core: one loop on each core, one engine on each loop, and nothing shared between
+  cores. (Decision 28.)
+- An image defines chapulin's `ch_rand_bytes` and `ch_assert_fail` once, for every chapulin
+  object and every user of chapulin it links, and each must be safe to call from several threads
+  at once. Ruled on 2026-09-24 (§21, chapulin's docs/porting.md).
+
+### What already holds
+
+The engine was written for a loop it does not own:
+
+- `init` takes the caller's `*rotor.Loop`, and never makes one.
+- Every operation it submits carries its `tag` in the high bits of `user_data`, and `apply`
+  returns false for an event that is not its own, which goes back to the caller untouched.
+- `loop_operations` says how many operations the loop must hold for it, so the caller sizes the
+  loop's `Options` for every component it runs.
+- Nothing in it is global but chapulin's thread-local stream, and nothing allocates (CLAUDE.md
+  non-negotiable 2).
+
+So a consumer that ticks its loop hands each event to the engine's `apply` first, and to its own
+handlers when `apply` says the event is not the engine's.
+
+### What changes
+
+1. **The engine is exported.** `build.zig` registers it as a module beside `cocuyo`, and ships
+   `io/`. The consumer binds its `rotor` import, and colibri's modules once it speaks DoH or
+   DoQ, so an image holds one rotor and one colibri, and the engine's `rotor.Loop` is the
+   consumer's own type. cocuyo's builds bind its lazy rotor, as the comparison of §19 step 15
+   does today. The ruling of 2026-09-22 that held the engine back gives way: a consumer asks.
+2. **chapulin's hooks move to the image.** Today `io/io_chapulin.zig` defines `ch_rand_bytes`
+   and `ch_assert_fail`, and its `ch_rand_bytes` panics when the stream it reads is not the
+   engine's. In an image where another user of chapulin draws too, one definition serves both.
+   So the hooks become a module the image binds: a thread-local stream that each user of
+   chapulin sets around the calls that can draw (§21), and one `ch_rand_bytes` that reads it.
+   cocuyo ships the module. An image with other users of chapulin binds cocuyo's for every
+   user, or its own with the same surface.
+3. **A request seam.** The TLS session seam of §21 lets the engine speak TLS without naming
+   chapulin. A request seam lets it carry DoH and DoQ without naming colibri. `Options` gains
+   the request transport's type:
+   - colibri's QUIC and HTTP/3, over chapulin's QUIC object, fill it when the build names a
+     colibri checkout and a chapulin checkout;
+   - the twin fills it in the gate;
+   - a type that refuses fills it by default, as `tls.None` does.
+4. **The engine speaks DoQ and DoH.** §22 and §23 wrote the DNS half. This is the rest:
+   - A connection to a server is one QUIC connection over one UDP socket. It is up when the
+     handshake has ended and the negotiated ALPN is `doq` (RFC 9250 §4.1) or `h3` (RFC 9114
+     §3.1). colibri does not check the ALPN, so the engine does.
+   - A request goes on a new client-initiated bidirectional stream.
+     - Over DoQ the stream carries the message with its prefix, then FIN (RFC 9250 §4.2), and
+       the answer is read to FIN.
+     - Over DoH it carries a GET, with the template expanded with the `dns` variable and
+       `accept: application/dns-message` (RFC 8484 §4.1). A 2xx answer's body goes to the
+       lookup with its `Age` (§5.1). Any other status fails the request (§4.2.1).
+   - A request the lookup has left, for a new transaction or a released handle, is cancelled.
+     Over DoQ that is STOP_SENDING with DOQ_REQUEST_CANCELLED (RFC 9250 §4.3.1, a MUST).
+   - A stream the server resets, a connection that fails and a handshake that fails fail every
+     request on it, once each. Decision 25 counts each as the server's failure.
+   - Each server keeps its newest ticket, used once, as TLS rule 8 has it. There is no 0-RTT,
+     since chapulin's QUIC mode and colibri refuse it. RFC 9250 §4.5 allows 0-RTT and requires
+     nothing.
+   - The idle timeout is negotiated (RFC 9250 §4.4), and a connection near it takes no new
+     request.
+   - DoH goes over HTTP/3 first. HTTP/2 joins when colibri's h2 client has its TLS
+     (c4milo/colibri#7).
+
+A spike on 2026-09-24 ran both through colibri's test client and chapulin's QUIC object, outside
+every repository. Cloudflare and Google answered DoH over HTTP/3. AdGuard and NextDNS answered
+DoQ; AdGuard answered three names on one connection, and resumed a second. A wrong root failed
+the handshake with `unknown_ca`, and every server accepted ChaCha20-Poly1305, the one suite
+chapulin's QUIC mode offers.
+
+### A thread per core
+
+An image runs one loop on each core and one engine on each loop. Nothing crosses between cores:
+
+- Each engine has its own table, cache, connections, tickets and seeds. The seeds come from a
+  CSPRNG, one set for each engine: two engines with one seed would draw the same transaction ids.
+- A `Config` is read and never written, so every engine may hold a pointer to one.
+- A name one core resolved is a miss on another, and each core opens its own connection to
+  each encrypted server. An image of `n` cores holds up to `n` times `servers_max` of them. A
+  cache shared across cores was the alternative, and it needs a lock or atomics in the lookup's
+  path, which the architecture refuses. A miss costs one round trip.
+- cocuyo keeps no global mutable state, and a lint rule will hold it there: no container-level
+  `var` under `src/` or `io/` but a `threadlocal` one.
+
+### New limits
+
+| Constant | Value | Why |
+| --- | --- | --- |
+| `quic_connections_max` | `servers_max` | one connection to a server |
+| `quic_streams_max` | the engine's `lookups` | one stream for a request, and a request for each lookup at most |
+| `quic_receive_bytes` | measured in step 4 | colibri's receive pool for a connection, the caller's to size; its default of 1 MiB is far past the answers a connection has in flight |
+
+### Order and checks
+
+1. colibri exports its library modules. Done 2026-09-25 in colibri `465da2a` (its decision 86):
+   `quic`, `h3` and the modules under them, by name. colibri's audit found no process-wide
+   mutable state in its library, so threads that drive their own connections share nothing.
+2. The engine exported, with the hooks module and the lint rule on global state. `test/consumer/`
+   binds a rotor of its own, runs the engine on a loop it ticks itself beside an operation of
+   its own, and requires each event to reach its owner.
+3. The engine model gains the request transport: connections and their streams, the cancel and
+   the failure. Design, model, code, in that order (§19 step 13).
+4. DoQ over colibri and chapulin, with twin tests and a live check against AdGuard and NextDNS.
+5. DoH over HTTP/3, with a live check against Cloudflare and Google.
+6. Two engines on two threads of one image, each on its own loop, resolving at once.
+7. DoH over HTTP/2, after colibri#7.
+
+Checks, one for each piece:
+
+- An event another component submitted comes back from `apply` false and untouched, and the
+  engine's own is taken.
+- In an image with two users of chapulin, each handshake draws from its own user's stream.
+- A container-level `var` that is not `threadlocal` fails the lint, and the canary shows it.
+- A connection whose ALPN is neither `doq` nor `h3` is never up.
+- A request the lookup left sends STOP_SENDING, and its answer never reaches the table.
+- A reset stream, a failed connection and a failed handshake each fail every request on them,
+  once.
+- A 2xx answer's `Age` lowers its TTLs, and a 404 fails the request.
+- Two engines on two threads resolve at once, and neither sees the other's events.
