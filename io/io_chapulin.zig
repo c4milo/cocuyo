@@ -11,7 +11,7 @@
 //! are buffer copies that never block: `send` stages what chapulin writes, and `recv` serves the
 //! one whole record the engine handed over, and then nothing, which chapulin answers with
 //! `CH_RECORD_AGAIN` (its rec.h). The image supplies `ch_rand_bytes`, fed from the engine's
-//! seeded stream while a handshake starts, and `ch_assert_fail`.
+//! seeded stream while a handshake runs, and `ch_assert_fail`.
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
@@ -27,12 +27,13 @@ pub const c = @cImport({
     @cInclude("build.h");
 });
 
-/// The stream `ch_rand_bytes` draws from: the starting session's engine's, and only while it
-/// starts, the one time chapulin draws.
+/// The stream `ch_rand_bytes` draws from: the engine's of the session whose handshake chapulin
+/// is running, and only during that call. chapulin draws when a handshake starts, and once it
+/// speaks P-256, when a HelloRetryRequest asks for that group (docs/design.md §21).
 threadlocal var drawing: ?*std.Random.ChaCha = null;
 
 export fn ch_rand_bytes(bytes: [*]u8, count: usize) void {
-    const stream = drawing orelse @panic("chapulin drew randomness outside a handshake's start");
+    const stream = drawing orelse @panic("chapulin drew randomness outside a handshake");
     stream.fill(bytes[0..count]);
 }
 
@@ -73,7 +74,9 @@ pub const Session = struct {
     };
 
     /// Whether the build record chapulin's object exports matches what its headers give under the
-    /// defines of the import above (chapulin's build.h).
+    /// defines of the import above (chapulin's build.h). The record is named after the object's
+    /// transport, `ch_build_record`, so one image can link a QUIC object beside it: translate-c
+    /// cannot read the `ch_build` macro that maps the name, and the name is written here.
     fn built_as_read(record: *const c.ch_build_info) bool {
         return c.ch_build_matches(record) != 0;
     }
@@ -97,6 +100,8 @@ pub const Session = struct {
     hostname: [cocuyo.constants.name_text_bytes_max]u8 = undefined,
     /// The ticket this session resumes with: chapulin reads it through `config` until it starts.
     resuming: Ticket = undefined,
+    /// The engine's stream, which chapulin draws from during every call of the handshake.
+    stream: ?*std.Random.ChaCha = null,
     given: ?Ticket = null,
     staged: [out_bytes_max]u8 = undefined,
     staged_len: usize = 0,
@@ -118,7 +123,7 @@ pub const Session = struct {
         // The object linked must be the one these headers describe: an object built with other
         // defines lays its sessions out otherwise, and nothing else would say so. Every session
         // starts here, whatever made its context.
-        if (!built_as_read(&c.ch_build)) {
+        if (!built_as_read(&c.ch_build_record)) {
             std.debug.panic("chapulin's object was built with other defines than cocuyo reads its headers with: rebuild it as build/dot.zig says", .{});
         }
         self.* = .{};
@@ -131,7 +136,8 @@ pub const Session = struct {
         self.config.io = self;
         self.trust(tls, context, start_with.now_ns);
         if (start_with.ticket) |ticket| self.resume_with(ticket, start_with.ticket_age_ns);
-        drawing = &context.stream;
+        self.stream = &context.stream;
+        drawing = self.stream;
         defer drawing = null;
         if (c.ch_record_init(&self.record, &self.config) != c.CH_OK) return Error.Failed;
         self.live = true;
@@ -199,6 +205,9 @@ pub const Session = struct {
     /// is rewritten.
     pub fn handshake(self: *Session, record: []u8) Error!Handshake {
         assert(self.live);
+        assert(self.stream != null);
+        drawing = self.stream;
+        defer drawing = null;
         var consumed: usize = 0;
         if (c.ch_record_in(&self.record, record.ptr, record.len, &consumed) != c.CH_OK) return self.fail();
         // The engine hands over one whole record, and chapulin takes whole records: less is a
@@ -329,8 +338,8 @@ fn keep_ticket(io: ?*anyopaque, ticket: [*c]const c.ch_ticket) callconv(.c) void
 const testing = std.testing;
 
 test "the linked object's build record matches these headers, and one that differs does not" {
-    try testing.expect(Session.built_as_read(&c.ch_build));
-    var other = c.ch_build;
+    try testing.expect(Session.built_as_read(&c.ch_build_record));
+    var other = c.ch_build_record;
     other.sizeof_ch_tls += 1;
     try testing.expect(!Session.built_as_read(&other));
 }

@@ -7,9 +7,10 @@
 # can be a resolver changing what it does, as dns.google's refusal of a resumed hello without
 # signature schemes was (docs/design.md §21 step 6), or the network failing.
 #
-# Zig is pinned as ci.yml pins it, and chapulin is cloned at a pinned commit, the first whose object
-# exports the build record `io/io_chapulin.zig` compares with its headers. No third-party action
-# runs here; `actions/checkout` is GitHub's own.
+# Zig is pinned as ci.yml pins it, and chapulin is cloned at a pinned commit, the first that names
+# each object's build record after its transport, `ch_build_record` here, which
+# `io/io_chapulin.zig` compares with its headers. No third-party action runs here;
+# `actions/checkout` is GitHub's own.
 name: dot-live
 
 on:
@@ -22,7 +23,7 @@ permissions:
 
 env:
   ZIG_VERSION: "0.16.0"
-  CHAPULIN_COMMIT: "b29ab76ae97463689a0910421e051a2ee5eba83e"
+  CHAPULIN_COMMIT: "0c201b713d71e6d879c0979c7abd82e2790ea05e"
 
 jobs:
   live:

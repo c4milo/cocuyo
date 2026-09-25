@@ -1149,6 +1149,24 @@ mutations, two `CAUGHT`.
 | CB2 | any build record is taken for a match | a record that differs is refused | the build-record test | CAUGHT |
 | CB3 | a session never compares the record | the comparison is made | nothing: **the object linked always matches** | NOT CAUGHT |
 
+Since chapulin `0c201b7` each object names its build record after its transport, so one image can
+link the record object beside the QUIC object: the record object's is `ch_build_record`, which
+`io/io_chapulin.zig` names, since translate-c cannot read the macro that maps `ch_build` to it.
+CB1 and CB2 were broken again against it on 2026-09-25, and both are still `CAUGHT`.
+
+## chapulin's randomness during a handshake
+
+Design §21, 2026-09-25. chapulin draws randomness when a handshake starts, and once it speaks
+P-256, when a HelloRetryRequest asks for that group. So the session points `ch_rand_bytes` at the
+engine's stream for every call of the handshake, where it once did for the start alone. Broken
+against `zig build test-chapulin` and the live check. RS1 is `NOT CAUGHT`: chapulin draws nowhere
+but the start yet, so no test can tell. Issue #13 is the test to write when cocuyo pins a chapulin
+with the P-256 retry draw. One mutation, `NOT CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| RS1 | the stream is unset during the handshake's records | chapulin may draw during any call of the handshake | nothing yet: **chapulin draws only at the start, issue #13** | NOT CAUGHT |
+
 ## The engine over TLS
 
 Design §21 step 5, the engine's side of it: the TLS rules in `io/`, driven with the twin's

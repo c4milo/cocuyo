@@ -2834,8 +2834,15 @@ chapulin's session starts from a `Context` the caller hands `Engine.use_tls`:
 - the wall clock, as Unix seconds pinned to a `now_ns`, which the session carries forward by
   the elapsed `now_ns` when it starts a handshake;
 - a ChaCha20 stream the caller's 32-byte seed keys. chapulin draws randomness through
-  `ch_rand_bytes`, and only while a handshake starts, so the session points that function at
-  the stream for the length of the start.
+  `ch_rand_bytes`, and only during a handshake: when it starts, and, once chapulin speaks
+  P-256, when a HelloRetryRequest asks for a key share of that group (chapulin's answer of
+  2026-09-24). So the session points that function at the stream for every call it makes while
+  the handshake runs, and at nothing otherwise. The stream is thread-local, one engine to a
+  thread. The owner ruled the same day that an image defines `ch_rand_bytes` and
+  `ch_assert_fail` once, for every chapulin object and every user of chapulin it links, and that
+  each must be safe to call from several threads at once (chapulin's docs/porting.md). An
+  image may link chapulin's record object beside its QUIC object since chapulin `0c201b7`,
+  which names each object's build record after its transport: `ch_build_record` here.
 
 The session collects what chapulin makes as soon as chapulin makes it. chapulin says it is
 connected only once the client's last flight has been collected, so a session that left it for

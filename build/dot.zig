@@ -15,11 +15,12 @@
 //! (bench/notes-primitives.md there). cocuyo makes that statement for no part, so the command
 //! above keeps the default, and a builder who can vouch for theirs adds `WIDEMUL=native`.
 //!
-//! `io/io_chapulin.zig` reads chapulin's headers with the defines that command sets. Since
-//! chapulin b29ab76 the object exports its build record, and every session compares it with those
-//! headers when it starts: an object built another way stops the program there, rather than lay
-//! its sessions out otherwise unnoticed. CI's `dot-live` workflow pins the
-//! chapulin commit it builds; it moves when cocuyo needs a newer chapulin.
+//! `io/io_chapulin.zig` reads chapulin's headers with the defines that command sets. The object
+//! exports its build record, `ch_build_record` since chapulin 0c201b7 named each record after its
+//! transport, and every session compares it with those headers when it starts: an object built
+//! another way stops the program there, rather than lay its sessions out otherwise unnoticed.
+//! CI's `dot-live` workflow pins the chapulin commit it builds; it moves when cocuyo needs a newer
+//! chapulin.
 const std = @import("std");
 const modules = @import("modules.zig");
 
