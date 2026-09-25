@@ -31,6 +31,12 @@ cocuyo's cache counts an expired entry as a miss. Checked against
 `rfc-editor.org/rfc/rfc8767.json` that day: not obsoleted, not updated. RFC 2181 itself is not
 here: nothing cocuyo does rests on what RFC 8767 left of its §8.
 
+Added on 2026-09-25 for DoH over HTTP/3, where the engine is the driver §22 left the template
+to: RFC 3986 for the URI a template expands to, RFC 6570 for the expansion, and RFC 9111 for the
+`Age` field RFC 8484 §5.1 cites through RFC 7234, which RFC 9111 obsoletes. Each was checked
+against `rfc-editor.org/rfc/rfcNNNN.json` that day: none is obsoleted, and RFC 6570 and RFC 9111
+are not updated.
+
 Read these, never a summary and never another implementation's source. Cite the RFC that *states*
 a rule, not one that inherits it, and cite it by section on the line that does the checking
 (CLAUDE.md non-negotiable 8).
@@ -54,6 +60,8 @@ updates worth knowing about, none of which version one implements:
   not cached.
 - RFC 3849 is updated by RFC 9637, which adds a second documentation prefix, `3fff::/20`. The
   fixtures use the first.
+- RFC 3986 is updated by RFC 7320 and RFC 8820, which obsoletes it. Both are guidance for
+  specifications that define URIs, and neither changes the syntax.
 - RFC 2535 is obsoleted by the DNSSEC set, RFC 4033 to 4035, and is here for one thing: the wire
   format of the SIG record, §4.1, which RFC 2931 keeps alive for SIG(0) transaction signatures and
   RFC 4034 §3.1 repeats for RRSIG. cocuyo decodes the fields and verifies nothing.
@@ -76,6 +84,7 @@ updates worth knowing about, none of which version one implements:
 | 3403 | Dynamic Delegation Discovery System (DDDS) Part Three | §4.1, the NAPTR record's fields |
 | 3597 | Handling of Unknown DNS Resource Record (RR) Types | §4, which types a receiver decompresses names in, and the raw rdata a caller gets for every other type |
 | 3849 | IPv6 Address Prefix Reserved for Documentation | `2001:db8::/32`, the addresses the fixtures and the tests spell |
+| 3986 | Uniform Resource Identifier (URI): Generic Syntax | §3 the components, §3.2 the authority and its userinfo, §3.2.2 the host: a DoH template is split into the `:authority` and the `:path` of its GET, and its host is the TLS name (design §24 step 5) |
 | 4648 | The Base16, Base32, and Base64 Data Encodings | §4 the base64 alphabet a pin is written in, §3.5 the zero pad bits a pin's text must have |
 | 4291 | IP Version 6 Addressing Architecture | §2.2 the text form `address_text` parses, `::` included |
 | 5737 | IPv4 Address Blocks Reserved for Documentation | `192.0.2.0/24`, the addresses the fixtures and the tests spell |
@@ -86,6 +95,7 @@ updates worth knowing about, none of which version one implements:
 | 4343 | DNS Case Insensitivity Clarification | what "the same name" means, which is why `Name.equal` folds case and the question compare does not |
 | 5452 | Measures for Making DNS More Resilient against Forged Answers | §4 the spoofing scenarios, §5 birthday attacks, §6 accepting only in-domain records, §9.1 the query matching rules, §9.2 extending the id space with ports and case |
 | 6335 | IANA Procedures for Service Name and Transport Protocol Port Number Registry | §6, the Dynamic port range the source-port hint is drawn from |
+| 6570 | URI Template | §2 the syntax, §3.2 the expansion, Appendix A's operator table: the engine expands a DoH server's template with the `dns` variable (RFC 8484 §4.1, design §24 step 5) |
 | 6891 | Extension Mechanisms for DNS (EDNS(0)) | §6.1.2 the OPT wire format, §6.1.3 its TTL field, §6.1.4 the flags, §6.2.2 the fallback, §6.2.3 the requestor's payload size |
 | 6895 | DNS IANA Considerations | §2.3, which RCODEs exist |
 | 7553 | The Uniform Resource Identifier (URI) DNS Resource Record | §4, the URI record's fields |
@@ -100,6 +110,7 @@ updates worth knowing about, none of which version one implements:
 | 9000 | QUIC: A UDP-Based Multiplexed and Secure Transport | §7.2 a client's first Destination Connection ID, 8 octets at least; §18.2 `max_idle_timeout`; read for colibri under the request interface (design §24) |
 | 9001 | Using TLS to Secure QUIC | §4 the encryption levels, §4.1.5 the exchange between QUIC and TLS, §5.3 the 16-octet tag; read for the provider that encrypts nothing, which the gate runs colibri over (design §24) |
 | 9110 | HTTP Semantics | §8.4 Content-Encoding, §12.5.3 Accept-Encoding: a request with none leaves the server free to compress, so a DoH request asks for `identity` (design §24, request rule 12) |
+| 9111 | HTTP Caching | §1.2.2 delta-seconds, §5.1 `Age`: the `Age` a DoH answer's TTLs are lowered by (RFC 8484 §5.1, design §24 step 5) |
 | 9114 | HTTP/3 | §3.2 the ALPN token `h3`, §4.1.1 cancelling a request, §8.1 the error codes; read for DoH over HTTP/3 in the engine (design §24) |
 | 9204 | QPACK: Field Compression for HTTP/3 | §4.5.4 the literal's N bit, §7.1 probing the dynamic table, §7.1.3 never-indexed literals: a DoH query's `:path` is never indexed (design §24, request rule 12) |
 | 9250 | DNS over Dedicated QUIC Connections | §4.1 the ALPN token `doq` and UDP port 853, §4.2 a stream for each query and its prefix, §4.2.1 ID 0, §4.3.1 cancelling a request, §4.3.3 protocol errors, §4.4 the idle timeout, §5.1 authentication as DoT's, the strict profile a SHOULD, §5.2 fallback by usage profile; carried by the engine (design §23, §24) |

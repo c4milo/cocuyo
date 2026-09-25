@@ -3247,7 +3247,8 @@ all DoQ or all DoH (§22, §23), and the rules hold for both. Where they differ,
 4. **A request waits for its connection.** A request taken while its connection opens or
    handshakes waits in the connection's queue. When the connection is up, each waiting request
    opens its stream in the order it was taken, and supplies its bytes, then FIN. A stream colibri
-   cannot open yet, for want of the server's stream credit, waits, and each drive asks again.
+   cannot open yet, for want of the server's stream credit or, over DoH, of a free answer
+   buffer, waits, and each drive asks again.
    Every datagram received is followed by a drive, so the credit's arrival is. The model gives
    the server credit for every request.
 5. **The answer by its stream.** A stream the server ends with FIN is read whole, into one buffer
@@ -3331,8 +3332,8 @@ colibri's `quic` and `h3` over chapulin's QUIC object, in the engine's words:
   reset; the connection closed, by the server, an error or the idle timeout; a ticket came. An
   answer's octets are written into the buffer `next` is handed, which is the engine's (request
   rule 5), and the answer says how many there were, even past the buffer's end. Over DoH it
-  carries the status, the `Age` and whether a content coding was applied (request rules 5 and
-  12). A stream `next` calls answered or reset reads its slot's bytes no more.
+  carries the status, the `Age` and whether the content is a DNS message in no content coding
+  (request rules 5 and 12). A stream `next` calls answered or reset reads its slot's bytes no more.
 - `request` opens a stream for a request slot, or says it cannot yet, for want of the server's
   stream credit. It is handed the slot's bytes, the first of which hold the lookup's message:
   with its prefix over DoQ, where the stream carries them and then FIN. Over DoH it makes the
@@ -3447,8 +3448,8 @@ control, loss and its recovery, with the twin's clock and its seeds.
 ### colibri as a dependency
 
 colibri is pinned by hash in `build.zig.zon` as a lazy dependency (decision 29). `io/io_quic.zig`
-is a module of its own, `cocuyo_quic`, which imports colibri's `quic` and gives the type a
-consumer names in `Options.quic`. `cocuyo_rotor` never imports colibri, so a consumer that speaks
+is a module of its own, `cocuyo_quic`, which imports colibri's `quic`, and its `h3` for DoH,
+and gives the type a consumer names in `Options.quic`. `cocuyo_rotor` never imports colibri, so a consumer that speaks
 no DoQ binds nothing more; one that does binds `cocuyo_quic` and colibri's `quic` into it. The gate
 fetches colibri for the engine's tests over colibri on the twin. The library in `src/` never
 imports it.
@@ -3459,6 +3460,101 @@ Debug build on an Apple M1 Pro: colibri's connection is 141,248 octets, the pool
 scratch buffers 21,832 and 3,923, and one connection of 256 streams 652,168 in all. An engine of
 eight servers holds 5.2 MB of them. The pool is most of it, and it is the floor colibri keeps
 beside its blocks: two for each of the 128 streams a connection may hold.
+
+### DoH over HTTP/3, written on 2026-09-25
+
+§22 left a DoH server's URI template to the driver, and since decision 26 the engine is the
+driver. `cocuyo_quic` carries it, since the interface's `request` builds the GET. A consumer that
+speaks DoH names a type with `http3` set in its options, which adds colibri's `h3` to each
+connection; one that speaks DoQ alone pays nothing for it. DoQ and DoH share everything below the
+stream: the connection, the handshake, tickets, cancelling, the idle close and the timer. The
+request rules and the model hold for both as they stand.
+
+**The template, read at `start`.** A server's template is split once, when its connection
+starts, and a template the transport refuses fails the connection there, as a DoQ server known by
+pins alone does. The lookup counts it as the server's failure and ends in `AllServersFailed`.
+
+- It begins with the scheme `https`, in any case (RFC 3986 §3.1): DoH "MUST be used with the
+  https URI scheme" (RFC 8484 §5).
+- An authority follows `//`, and ends at the first `/`, `?`, `#` or `{` (RFC 3986 §3.2). It holds
+  no expression, since the TLS name cannot change with a query. It holds no userinfo, which
+  `:authority` must not carry (RFC 9114 §4.3.1). Its host is a registered name (RFC 3986 §3.2.2),
+  and it is the name the certificate is checked against (RFC 9110 §4.3.4). An IP address is
+  refused, since the session checks a name. A port may follow. The authority goes to
+  `:authority` as the template writes it.
+- The rest is the path's template, and it names `dns` in an expression outside a fragment: a GET
+  carries the query only there (RFC 8484 §4.1).
+
+**The path, expanded for each request.** RFC 6570's expansion, with `dns` the one variable
+defined (RFC 8484 §4.1) and every other one undefined, so skipped (RFC 6570 §2.3, §3.2.1):
+
+- The operators are those of Appendix A's table: none, `+`, `.`, `/`, `;`, `?` and `&`. A
+  fragment, `#`, is not part of the request, so a template that uses one is refused.
+- The value is base64url without padding (RFC 8484 §6), which holds unreserved characters alone.
+  No operator encodes it (RFC 6570 §3.2.1).
+- A prefix modifier on `dns` would cut the query, so a template that has one is refused. An
+  explode modifier changes nothing for a string.
+- A literal a URI allows is copied, and one it does not is written pct-encoded (RFC 6570 §3.1).
+  A character §2.1 excludes refuses the template.
+- An empty path is `/` (RFC 9114 §4.3.1).
+
+At `start` the template is expanded once with a `dns` value `dns_variable_bytes_max` long, and
+one whose GET would pass `doh_request_bytes_max` is refused.
+
+**The GET.** Six field lines: `:method GET`, `:scheme https`, `:authority`, `:path`, `accept:
+application/dns-message` (RFC 8484 §4.1) and `accept-encoding: identity` (request rule 12).
+`:path` is never indexed (RFC 9204 §4.5.4). colibri's `write_request` checks the section, opens
+the stream and writes the HEADERS frame into the request's slot, which the stream then carries
+with FIN.
+
+**colibri's `h3` under the interface.** What it asks, beside what `quic` asks:
+
+- **Started once the handshake ends.** `h3`'s `start` opens its control stream and its QPACK
+  streams and writes SETTINGS (RFC 9114 §6.2.1, §7.2.4.2). It asserts the server's transport
+  parameters are there, so `cocuyo_quic` calls it when colibri first says the handshake ended,
+  which is often inside a send.
+- **The server's streams.** An `h3` connection lets the server open 8 unidirectional streams,
+  where §6.2 asks for 3 at least, and gives each 1,024 octets of credit, as §6.2 recommends.
+  colibri's `h3` tracks 8 of them. DoQ gives the server none.
+- **One provider for both.** `h3` serves its three streams from its own buffers, and hands every
+  request stream to `cocuyo_quic`'s, which keeps a request's octets as it does over DoQ.
+- **Events, not state.** `h3`'s `receive` returns one event at a time: a response's header
+  section, a piece of its content, its end, a reset, a refused stream, SETTINGS and GOAWAY.
+  `cocuyo_quic` reads them all after each datagram, each send and each timer, since `h3` also
+  reads the server's SETTINGS and QPACK streams there.
+- **The grease** colibri draws its reserved setting and error codes from is drawn from the
+  connection's seeded stream, as its connection IDs are.
+
+**An answer's buffer.** `h3` takes a response's content out of colibri's pool as it arrives, a
+piece at a time, and pieces of different streams come in turn. So an answer cannot wait in the
+pool until it is whole, as a DoQ answer does. Each `h3` connection has `answers` buffers of
+`tcp_message_bytes`, one for each response in flight, and a DoH request opens its stream only
+when one is free. Until then it waits, as it waits for the server's stream credit (request rule
+4). An answer is never lost for want of room, and at most `answers` requests are in flight on a
+connection. A buffer for each request slot was the alternative, and it costs 64 KB for each
+lookup. A shared arena was the other, and colibri keeps granting the server credit whatever the
+arena holds, so an answer could arrive with nowhere to go.
+
+**What an answer carries.** When a response ends, `next` hands its content over, with:
+
+- its final status: an interim one (1xx) is skipped (RFC 9114 §4.1);
+- its `Age` in seconds: the first member of the field's value (RFC 9111 §5.1), 0 when the field
+  is absent or not a number, and 2^31 when the number is larger (§1.2.2);
+- whether the content is a DNS message: `Content-Type` is `application/dns-message` (RFC 8484 §6,
+  RFC 9110 §8.3.1: type and subtype compared in any case, parameters ignored), and every
+  `Content-Encoding` is `identity` (RFC 9110 §8.4).
+
+The engine hands a 2xx answer that is a DNS message to the lookup, with its `Age`. Any other
+fails the request (RFC 8484 §4.2.1, request rule 12), and counts as the server's failure
+(decision 25). Content longer than the buffer fails the connection, as request rule 5 has it.
+
+**GOAWAY is the server's close.** After a GOAWAY a server takes no new stream, and colibri
+refuses one (RFC 9114 §5.2). `next` says the connection closed, and each request on it fails,
+as rule 7 has it for the server's close. A request below the GOAWAY's stream ID may still be
+answered by the server, and failing it costs a retry. Letting those finish needs a connection
+state the model does not have: c4milo/cocuyo#17 tracks it.
+
+**The idle close** sends H3_NO_ERROR in its CONNECTION_CLOSE (request rule 9, RFC 9114 §8.1).
 
 ### A thread per core
 
@@ -3486,6 +3582,10 @@ An image runs one loop on each core and one engine on each loop. Nothing crosses
 | `quic_receive_bytes` | 66,560 | colibri's receive pool for a connection: a DoQ answer at its longest, 65,537 octets with its prefix, rounded up to the pool's 1,024-octet blocks. The engine reads a stream once all of it has arrived, so a stream's window holds one whole; colibri's default of 1 MiB is far past it |
 | `quic_idle_timeout_ms` | 30,000 | the idle timeout a connection advertises (RFC 9000 §18.2); the server's may be shorter, and the smaller holds (RFC 9250 §4.4); chosen, not measured |
 | `quic_connection_id_bytes` | 8 | the destination connection ID a client's first Initial carries: RFC 9000 §7.2 asks for 8 octets at least |
+| `doh_request_bytes_max` | 1,536 | a DoH request's slot: colibri's bound on the GET's HEADERS frame is 317 octets beside `:authority` and `:path`, an authority takes 259 at most (a 253-octet name and a port), and 960 are left for the path, whose `dns` value takes 512 |
+| `answers_default` | 4 | a DoH connection's answer buffers when the consumer names none, 262 KB of them; chosen, not measured |
+| `h3_peer_uni_streams` | 8 | the unidirectional streams an `h3` connection lets the server open: RFC 9114 §6.2 asks for 3 at least, and colibri's `h3` tracks 8 |
+| `h3_peer_uni_stream_bytes` | 1,024 | each of those streams' credit, as RFC 9114 §6.2 recommends |
 
 ### Order and checks
 
@@ -3552,4 +3652,15 @@ Checks, one for each piece:
 - A reset stream, a failed connection and a failed handshake each fail every request on them,
   once.
 - A 2xx answer's `Age` lowers its TTLs, and a 404 fails the request.
+- RFC 8484 §4.1.1's template and query expand to the `:path` it shows, and each of RFC 6570's
+  operators puts `dns` where Appendix A's table says. A template that is not `https`, has
+  userinfo, an IP address, an expression in its authority, a prefix on `dns`, a fragment, or no
+  `dns` at all fails its connection.
+- An `Age` that is a list takes its first member, one that is not a number counts as 0, and one
+  past 2^31 as 2^31.
+- A 2xx answer whose `Content-Type` is not `application/dns-message`, or whose content was
+  coded, fails the request.
+- More DoH requests than a connection has answer buffers all get answered, the rest waiting for
+  a buffer.
+- A GOAWAY fails every request on its connection once, and the next request opens a new one.
 - Two engines on two threads resolve at once, and neither sees the other's events.
