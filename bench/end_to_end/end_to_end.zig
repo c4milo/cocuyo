@@ -7,7 +7,8 @@
 //! gives it a thread of its own and every core it wants. Both ask one A question per lookup, of
 //! distinct absolute names, so neither's cache answers, and both are answered by the same
 //! responder thread through the same loopback. The responder and the kernel are in every number,
-//! and they are the same for both.
+//! and they are the same for both. Before the first row, `warm_up_lookups` go unmeasured, so
+//! neither stack pays for the process's warm-up in its numbers.
 const std = @import("std");
 const assert = std.debug.assert;
 const harness = @import("../harness.zig");
@@ -25,7 +26,12 @@ pub fn run() void {
         return;
     };
     defer responder.stop();
-    std.debug.print("\nend to end, {d} lookups of distinct names, one responder thread on the loopback\n\n", .{constants.lookups_total});
+    // Unmeasured: the responder's thread and the cores come up to speed here, not in a row.
+    _ = rotor_loop.run(responder.port, 1, constants.warm_up_lookups, &latencies) catch |err| {
+        std.debug.print("warm-up: {t}\n", .{err});
+        return;
+    };
+    std.debug.print("\nend to end, {d} lookups of distinct names, one responder thread on the loopback, after {d} to warm up\n\n", .{ constants.lookups_total, constants.warm_up_lookups });
     std.debug.print("{s:<8} {s:>10} {s:>12} {s:>12} {s:>12} {s:>9}\n", .{ "stack", "in flight", "lookups/s", "median us", "p99 us", "failures" });
     for (constants.in_flight_counts) |in_flight| {
         const ours = rotor_loop.run(responder.port, in_flight, constants.lookups_total, &latencies) catch |err| {

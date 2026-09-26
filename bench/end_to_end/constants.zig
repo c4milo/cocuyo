@@ -7,6 +7,13 @@ const cocuyo = @import("cocuyo");
 pub const in_flight_counts = [_]u32{ 1, 16, 128 };
 pub const in_flight_max = 128;
 pub const lookups_total = 20_000;
+/// Lookups run before the first row and not measured, which bring the responder's thread and the
+/// cores up to speed. The first run in a process spent its first 200 lookups at one in flight at
+/// about 95 microseconds, against 22 after them, measured on 2026-09-26 on the machine of
+/// docs/design.md §11: whether or not the engine's memory was touched first, and not on a second
+/// run in the same process. So the warm-up was the process's, and fell on whichever stack ran
+/// first: cocuyo, in every row until then (c4milo/cocuyo#5). Ten times those 200.
+pub const warm_up_lookups = 2_000;
 
 /// The responder: where it listens, what it answers, and the TTL it gives.
 pub const loopback_v4 = [_]u8{ 127, 0, 0, 1 };

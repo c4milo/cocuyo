@@ -1044,6 +1044,16 @@ What the rows say, and what they do not:
 - c-ares has the better tail at one in flight and at sixteen — 42 microseconds against 78, and
   272 against 409 — and cocuyo the better tail at 128. cocuyo's p99 at sixteen is also its least
   steady cell: two runs put it near 190 microseconds and three near 420.
+- On 2026-09-26 the gap at one in flight was traced to the order of the runs (c4milo/cocuyo#5).
+  The first run in a process spent its first 200 lookups at about 95 microseconds, against 22
+  after them: 1% of the run, enough to fill the p99 alone. It did so whether or not the engine's
+  memory was touched first, and a second run in the same process did not, so the warm-up was the
+  process's, the responder's thread and the cores coming up to speed, and it fell on whichever
+  stack ran first, which was cocuyo in every row. Warm, cocuyo's p99 at one in flight came out 57
+  to 64 microseconds. The comparison now runs 2,000 lookups unmeasured before its first row. Two
+  runs after that change, on a machine busy with other work, put the two tails at one in flight
+  within each other's noise, and cocuyo's at or below c-ares's at sixteen. The table above stands
+  until a quiet machine measures it again.
 - From sixteen in flight to 128, cocuyo gains 11% and c-ares loses 5%, while latency grows about
   eightfold for both. The responder is one thread, and past sixteen in flight it is much of what
   the run measures.
