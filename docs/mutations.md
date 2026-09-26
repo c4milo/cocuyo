@@ -2105,3 +2105,18 @@ backup pin, and refuse each by the backup alone and by its issuer's key. Broken 
 | CP2 | the pins are not handed to chapulin | RFC 7858 §4.2, RFC 8310 §6.4 | the pins-alone test, the name-and-pins test | CAUGHT |
 | CP3 | a name is not handed to chapulin | the leaf must carry it (RFC 8310 §6.4) | the name-and-pins test | CAUGHT |
 | CP4 | a name gets no anchors | the chain is checked against them | the name-and-pins test | CAUGHT |
+
+## Two engines on two threads
+
+Design §24 step 6, 2026-09-25. Two engines on two threads of one image, each on its own loop,
+resolve at once: on the twin in the gate (`io/io_threads_test.zig`), whose scripted servers
+answer each thread with a TTL of its own, and over rotor in `examples/threads_rotor.zig`. TP1 is
+broken against `zig build test-io`, three runs of three. TP2 is broken against the example built
+for aarch64 Linux with `-Dsanitize-thread` and run in a Debian container, where io_uring is
+refused and rotor runs epoll; the sanitizer's planted race was reported there first, and the
+example without the mutation ran with no report. Two mutations, two `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| TP1 | the twin's network is one for the process | each thread's servers are its own | the two-thread twin test | CAUGHT |
+| TP2 | both threads drive one engine | an engine is its thread's alone | ThreadSanitizer over the example: a data race | CAUGHT |

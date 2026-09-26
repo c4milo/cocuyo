@@ -133,8 +133,11 @@ pub fn build(b: *std.Build) void {
     // rotor drives the second example and nothing else. `lazyDependency` leaves it null until
     // the build has it, and `build/examples.zig` simply adds no rotor example in that case.
     const rotor = b.lazyDependency("rotor", .{ .target = target });
-    examples.add(b, graph.cocuyo, target, optimize, test_step, rotor);
-    bench.add(b, target, test_step, tool_test_step, rotor);
+    // ThreadSanitizer, over the comparison's tests and the two-engine example (Linux alone: Zig
+    // 0.16 cannot build its runtime for arm64 macOS).
+    const sanitize_thread = b.option(bool, "sanitize-thread", "Run the comparison's tests and the two-engine example under ThreadSanitizer (Linux)") orelse false;
+    examples.add(b, graph, target, optimize, test_step, rotor, sanitize_thread);
+    bench.add(b, target, test_step, tool_test_step, rotor, sanitize_thread);
     const tla_tool = b.addExecutable(.{ .name = "tla", .root_module = tool_module(b, pepegrillo, "tools/tla.zig") });
     spec.add(b, target, test_step, tool_test_step, b.addExecutable(.{
         .name = "lean",

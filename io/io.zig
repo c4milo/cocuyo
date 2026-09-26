@@ -344,5 +344,6 @@ test {
         _ = @import("io_request_https_test.zig");
         _ = @import("io_quic_test.zig");
         _ = @import("io_quic_https_test.zig");
+        _ = @import("io_threads_test.zig");
     }
 }

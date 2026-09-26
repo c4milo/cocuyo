@@ -3588,6 +3588,26 @@ An image runs one loop on each core and one engine on each loop. Nothing crosses
 - cocuyo keeps no global mutable state, and the global-state rule holds it there: no
   container-level `var` under `src/` or `io/` but a `threadlocal` one.
 
+Step 6 shows it twice, written on 2026-09-25:
+
+- **On the twin, in the gate** (`io/io_threads_test.zig`). Two threads start together, each with
+  a twin loop and an engine of its own, seeded apart, and both engines hold a pointer to one
+  `Config`. The twin's network is thread-local (step 2), so each thread's scripted servers are
+  its own, and each thread's answer with a TTL of their own. Both engines resolve the same names
+  at once. Each must take an answer for every lookup it started, each carrying its own servers'
+  TTL: an answer from the other thread's servers, or a cache the two shared, would carry the
+  other's.
+- **Over rotor, on the kernel's loops** (`examples/threads_rotor.zig`). Two threads, each with a
+  rotor loop and an engine of its own, on one `Config`, resolve at once against a responder
+  thread on the loopback, and each must take an answer for every lookup it started. CI runs it
+  on Linux, where rotor runs io_uring, and on macOS, where it runs kqueue. The events of one loop
+  cannot reach the other's engine, since each engine applies only what its own loop hands it,
+  and each engine counts any event it refuses: there must be none.
+- **Under ThreadSanitizer** (`-Dsanitize-thread`, Linux). The same example, with every module
+  of cocuyo's and the engine's instrumented, after the comparison's planted race is reported.
+  The sanitizer sees an access two threads share that nothing orders, whether or not the bad
+  interleaving happened in the run.
+
 ### New limits
 
 | Constant | Value | Why |
@@ -3665,8 +3685,13 @@ An image runs one loop on each core and one engine on each loop. Nothing crosses
    that resumed with the first one's ticket, and a template whose host the certificate does not
    carry and a root the chain does not end at each ended in `AllServersFailed`
    (`tools/doh_live/run.sh`, and the `doh-live` workflow once a day).
-6. Two engines on two threads of one image, each on its own loop, resolving at once.
-7. DoH over HTTP/2, after colibri#7.
+6. Two engines on two threads of one image, each on its own loop, resolving at once. Done
+   2026-09-25. On the twin, two threads with one `Config` resolve the same names at once, and
+   each takes every answer from its own servers. Over rotor, the two engines each took four of
+   four answers and refused no event, on kqueue, and under ThreadSanitizer in a Linux container,
+   which reported nothing, and reported a race once both threads drove one engine
+   (docs/mutations.md TP1 and TP2).
+7. DoH over HTTP/2, after colibri#7 (c4milo/cocuyo#18).
 
 Checks, one for each piece:
 

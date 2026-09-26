@@ -62,6 +62,17 @@ pub fn RigOf(comptime EngineType: type) type {
             try rig.engine.init(&rig.loop, &rig.config, seed, rig.loop.now());
         }
 
+        /// A rig whose engine holds `config`, which other engines may hold too: a `Config` is read
+        /// and never written (docs/design.md §24, a thread per core). Its servers are the twin's.
+        pub fn init_on(rig: *RigType, seed: u64, scripts: [fixtures.servers]rotor.server.Script, config: *const cocuyo.Config) !void {
+            try rig.loop.init(&rig.memory, loop_options);
+            rig.loop.seed(seed);
+            rig.loop.network().scripts[0] = scripts[0];
+            rig.loop.network().scripts[1] = scripts[1];
+            rig.loop.network().server_count = fixtures.servers;
+            try rig.engine.init(&rig.loop, config, seed, rig.loop.now());
+        }
+
         pub fn deinit(rig: *RigType) !void {
             rig.engine.deinit();
             try rig.loop.drain(&rig.events);

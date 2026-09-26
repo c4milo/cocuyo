@@ -186,6 +186,10 @@ The architecture depends on every rule in this section.
   built privately for the bench (`bench/end_to_end/`). It links libraries the gate must not
   require, so it and its tests (`zig build test-cares`) run only when asked. The numbers go in
   design §11 beside cocuyo's, with the c-ares version the binary prints.
+- Threads: `zig build example-threads-rotor` runs two engines on two threads of one image, each
+  on its own rotor loop, against a responder on the loopback (design §24 step 6); CI runs it on
+  macOS and Linux. With `-Dsanitize-thread` (Linux) it is built with every module under
+  ThreadSanitizer, and runs after a planted race is reported, as `test-cares` does.
 - Model: `zig build spec` — the Lean proofs of `Lookup` and the pins on the axioms they rest on,
   then every transition the lookup model reaches, the engine's walks TLC takes, and every
   transition of the `getaddrinfo` walks, replayed against the code (spec/README.md has the

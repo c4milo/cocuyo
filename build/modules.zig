@@ -90,6 +90,15 @@ pub fn add_private(
     return build(b, target, optimize, false);
 }
 
+/// The same graph in Debug, unregistered, every module under ThreadSanitizer: the two-engine
+/// example's (`build/examples.zig`), where the engine's own code must be instrumented for the
+/// sanitizer to see an access its two threads share.
+pub fn add_sanitized(b: *std.Build, target: std.Build.ResolvedTarget) Graph {
+    const graph = build(b, target, .Debug, false);
+    inline for (std.meta.fields(Graph)) |field| @field(graph, field.name).sanitize_thread = true;
+    return graph;
+}
+
 fn build(
     b: *std.Build,
     target: std.Build.ResolvedTarget,

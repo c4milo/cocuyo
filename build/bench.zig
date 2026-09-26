@@ -21,6 +21,7 @@ pub fn add(
     test_step: *std.Build.Step,
     tool_test_step: *std.Build.Step,
     rotor: ?*std.Build.Dependency,
+    sanitize_thread: bool,
 ) void {
     const graph = modules.add_private(b, target, .ReleaseSafe);
     const module = b.createModule(.{
@@ -51,7 +52,7 @@ pub fn add(
     test_step.dependOn(run_tests);
     tool_test_step.dependOn(run_tests);
 
-    add_cares(b, target, graph, debug_graph, rotor);
+    add_cares(b, target, graph, debug_graph, rotor, sanitize_thread);
     add_log(b, target, graph, test_step);
 }
 
@@ -86,6 +87,7 @@ fn add_cares(
     graph: modules.Graph,
     debug_graph: modules.Graph,
     rotor: ?*std.Build.Dependency,
+    sanitize_thread: bool,
 ) void {
     const prefix = b.option(
         []const u8,
@@ -96,12 +98,8 @@ fn add_cares(
     // it has had lived there. ThreadSanitizer sees an access to shared state that nothing orders,
     // whether or not the bad interleaving happened in the run. Off by default: Zig 0.16 cannot
     // build its runtime for arm64 macOS, and CI turns it on for Linux. Only the driver's module is
-    // instrumented; the engine and rotor under it are not, and hold no state two threads share.
-    const sanitize_thread = b.option(
-        bool,
-        "sanitize-thread",
-        "Run the comparison's tests under ThreadSanitizer (Linux)",
-    ) orelse false;
+    // instrumented; the engine and rotor under it are not, and hold no state two threads share,
+    // which the two-engine example shows under the sanitizer (`build/examples.zig`).
 
     const test_module = cares_module(b, target, .Debug, prefix, debug_graph, rotor);
     test_module.sanitize_thread = sanitize_thread;
@@ -130,7 +128,7 @@ const sanitizer_reported_exit = 66;
 
 /// A planted race the sanitizer must report before its silence over the tests means anything,
 /// as the lint's canary does for the lint (docs/mutations.md T1).
-fn sanitizer_control(
+pub fn sanitizer_control(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     use_llvm: ?bool,

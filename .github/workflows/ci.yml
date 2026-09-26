@@ -7,6 +7,8 @@
 #     module's unit tests, the engine on the deterministic twin of `src/sim/`, the tools' own
 #     tests, the bench compile and the format check. It needs no network service and no kernel
 #     feature: the twin is a virtual clock and a virtual network, so the same run happens on both.
+#     Then two engines on two threads resolve at once over the kernel's loops, kqueue on macOS and
+#     io_uring on Linux, against a responder on the loopback (docs/design.md §24 step 6).
 #
 #   - `engine`: the engine of docs/design.md §19 step 13 over rotor itself, and the comparison
 #     against c-ares, on the runner's kernel, where rotor runs io_uring.
@@ -14,7 +16,8 @@
 #     It runs the comparison's tests twice, the second time under ThreadSanitizer, which sees
 #     an access two threads share that nothing orders. The build first runs a planted race and
 #     requires the report, because on Zig 0.16's default Debug backend the sanitizer instruments
-#     nothing and says nothing (docs/mutations.md T1).
+#     nothing and says nothing (docs/mutations.md T1). The two-engine example runs under it too,
+#     with every module of cocuyo's and the engine's instrumented.
 #
 #   - `epoll`: the rotor example resolves inside a container where io_uring is refused, once under
 #     Docker's default seccomp profile and once under a profile that refuses every io_uring call,
@@ -84,6 +87,8 @@ jobs:
       - run: zig version
       - name: The whole local gate
         run: zig build test
+      - name: Two engines on two threads, each on its own kqueue loop, resolve at once
+        run: zig build example-threads-rotor
 
   linux:
     name: Linux
@@ -102,6 +107,8 @@ jobs:
       - run: zig version
       - name: The whole local gate
         run: zig build test
+      - name: Two engines on two threads, each on its own io_uring loop, resolve at once
+        run: zig build example-threads-rotor
 
   epoll:
     name: Linux, the rotor example where io_uring is refused
@@ -158,6 +165,8 @@ jobs:
         run: zig build test-cares "-Dcares=$CARES_PREFIX"
       - name: The same tests under ThreadSanitizer, after a race it must report
         run: zig build test-cares "-Dcares=$CARES_PREFIX" -Dsanitize-thread=true
+      - name: Two engines on two threads under ThreadSanitizer, every module instrumented
+        run: zig build example-threads-rotor -Dsanitize-thread=true
       - name: The comparison, for the log and not for the record
         run: zig build bench-cares "-Dcares=$CARES_PREFIX"
 
