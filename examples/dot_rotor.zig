@@ -8,7 +8,8 @@
 //! the server's chain is expected to end at; its subject Name and its SubjectPublicKeyInfo are the
 //! trust anchor chapulin checks the chain against, and the name is what the leaf must carry. A
 //! server known by its key alone takes pins in place of the name, and no root. A server on a port
-//! other than 853 (RFC 7858 §3.1) is named with it, as `127.0.0.1:8853`.
+//! other than 853 (RFC 7858 §3.1) is named with it, as `127.0.0.1:8853` or `[::1]:8853`
+//! (`examples/server_text.zig`).
 //!
 //! A name asks for A, and `name/TYPE` for another type, as `example.com/MX`
 //! (`examples/answer_text.zig`, which writes the answers out). Names after the first are resolved
@@ -25,6 +26,7 @@ const rotor = @import("rotor");
 const io = @import("io");
 const chapulin = @import("chapulin");
 const answer_text = @import("answer_text.zig");
+const server_text = @import("server_text.zig");
 
 const Resolver = io.Resolver(.{
     .lookups = at_once_max + 1,
@@ -60,7 +62,7 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("usage: dot-rotor <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...\n", .{});
         std.process.exit(2);
     }
-    const at = try place_of(arguments[2]);
+    const at = try server_text.place_of(arguments[2]);
     var pins: [cocuyo.constants.spki_pins_max]cocuyo.Pin = undefined;
     var tls = try known_by(arguments[3], &pins);
     if (at.port) |port| tls.port = port;
@@ -176,14 +178,6 @@ fn report(name: []const u8, result: Resolver.Result) !void {
             std.process.exit(1);
         },
     }
-}
-
-/// Where a server is: an address, and a port other than 853 after a colon, as `127.0.0.1:8853`.
-fn place_of(text: []const u8) !struct { address: cocuyo.Address, port: ?u16 } {
-    if (cocuyo.Address.from_text(text)) |address| return .{ .address = address, .port = null };
-    const colon = std.mem.lastIndexOfScalar(u8, text, ':') orelse return error.BadAddress;
-    const address = cocuyo.Address.from_text(text[0..colon]) orelse return error.BadAddress;
-    return .{ .address = address, .port = try std.fmt.parseInt(u16, text[colon + 1 ..], 10) };
 }
 
 /// How a server is known, from its argument: by its name, or by its key alone, RFC 8310 §6.3's

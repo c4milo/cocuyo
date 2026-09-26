@@ -77,7 +77,7 @@ fn add_example(
     const exe = b.addExecutable(.{ .name = "dot-rotor", .root_module = module });
     const run = b.addRunArtifact(exe);
     if (b.args) |arguments| run.addArgs(arguments);
-    const step = b.step("example-dot-rotor", "Lookups over DNS over TLS: -- <name>[,<name>...] <address> <auth name> <root.der>...");
+    const step = b.step("example-dot-rotor", "Lookups over DNS over TLS: -- <name>[/TYPE][+...][,...] <address>[:<port>] <auth name | pin-sha256:<pin>,...> <root.der>...");
     step.dependOn(&run.step);
 }
 

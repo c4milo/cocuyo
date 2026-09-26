@@ -145,3 +145,21 @@ fn generic_fields(octets: []const u8) void {
     std.debug.print("\\# {d} ", .{octets.len});
     for (octets) |octet| std.debug.print("{x:0>2}", .{octet});
 }
+
+// Tests.
+
+const testing = std.testing;
+
+test "a name asks for A, and a name with a type asks for that type, spelled in either case" {
+    try testing.expectEqual(cocuyo.Kind.a, (try question_of("example.com")).kind);
+    try testing.expectEqual(cocuyo.Kind.mx, (try question_of("example.com/MX")).kind);
+    try testing.expectEqual(cocuyo.Kind.https, (try question_of("example.com/https")).kind);
+    const question = try question_of("example.com/AAAA");
+    try testing.expect(question.name.equal(&try cocuyo.Name.from_text("example.com")));
+}
+
+test "a type cocuyo does not name, or one that is never a question, is refused" {
+    try testing.expectError(error.UnknownType, question_of("example.com/NOPE"));
+    try testing.expectError(error.UnknownType, question_of("example.com/OPT"));
+    try testing.expectError(error.UnknownType, question_of("example.com/" ++ "A" ** 20));
+}

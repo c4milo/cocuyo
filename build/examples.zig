@@ -44,12 +44,17 @@ const threads_example: Example = .{
     .summary = "Two engines on two threads, each on its own rotor loop, resolving at once",
 };
 
+/// What the engine examples share, read from text and written as text. Their own tests run with the
+/// gate, since the examples themselves are only built, and a parser there that reads a server
+/// wrongly makes every example that takes one wrong.
+const shared_roots = [_][]const u8{ "examples/server_text.zig", "examples/answer_text.zig" };
+
 /// The engine over plain DNS, UDP or TCP, on rotor's loop. It runs the engine, which is built
 /// privately against rotor here, as the two-engine example's is.
 const cleartext_example: Example = .{
     .name = "cleartext-rotor",
     .root = "examples/cleartext_rotor.zig",
-    .summary = "Lookups over plain DNS through the engine on rotor's loop: -- <name>[,<name>...] <server address>[:<port>] [udp | tcp]",
+    .summary = "Lookups over plain DNS through the engine on rotor's loop: -- <name>[/TYPE][+...][,...] <address>[:<port>] [udp | tcp]",
 };
 
 pub fn add(
@@ -70,6 +75,12 @@ pub fn add(
     add_rotor(b, graph, target, optimize, test_step, install, rotor);
     add_threads(b, graph, target, optimize, test_step, install, rotor, sanitize_thread);
     add_cleartext(b, graph, target, optimize, test_step, install, rotor);
+    for (shared_roots) |root| {
+        const module = b.createModule(.{ .root_source_file = b.path(root), .target = target, .optimize = optimize });
+        module.addImport("cocuyo", graph.cocuyo);
+        const tests = b.addTest(.{ .name = std.fs.path.stem(root), .root_module = module });
+        test_step.dependOn(&b.addRunArtifact(tests).step);
+    }
 }
 
 fn add_one(

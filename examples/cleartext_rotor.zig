@@ -4,9 +4,10 @@
 //!     zig build example-cleartext-rotor -- <name>[,<name>...] <server address>[:<port>] [udp | tcp]
 //!
 //! for instance `example.com 9.9.9.9`, or `example.com/MX+example.com/TXT 127.0.0.1:8053 tcp`. A
-//! server on a port other than 53 is named with it. A name asks for A, and `name/TYPE` for another
-//! type (`examples/answer_text.zig`, which writes the answers out). Names after the first are
-//! resolved in turn. Names joined by `+` are resolved at once: over UDP each query on a datagram
+//! server on a port other than 53 is named with it, an IPv6 one in brackets, as `[::1]:8053`
+//! (`examples/server_text.zig`). A name asks for A, and `name/TYPE` for another type
+//! (`examples/answer_text.zig`, which writes the answers out). Names after the first are resolved
+//! in turn. Names joined by `+` are resolved at once: over UDP each query on a datagram
 //! of its own, and over TCP each on the one connection (RFC 7766 §6.2.1.1).
 //!
 //! `examples/udp_rotor.zig` drives a `Lookup` by hand over the same loop; this drives the engine,
@@ -16,6 +17,7 @@ const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 const io = @import("io");
 const answer_text = @import("answer_text.zig");
+const server_text = @import("server_text.zig");
 
 const Resolver = io.Resolver(.{ .lookups = at_once_max + 1, .cache_slots = at_once_max + 1 });
 
@@ -39,7 +41,8 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("usage: cleartext-rotor <name>[,<name>...] <server address>[:<port>] [udp | tcp]\n", .{});
         std.process.exit(2);
     }
-    const endpoint = try endpoint_of(arguments[2]);
+    const at = try server_text.place_of(arguments[2]);
+    const endpoint: cocuyo.Endpoint = .{ .address = at.address, .port = at.port orelse cocuyo.constants.port_dns_default };
     const use_tcp = arguments.len == 4 and std.mem.eql(u8, arguments[3], "tcp");
     if (arguments.len == 4 and !use_tcp and !std.mem.eql(u8, arguments[3], "udp")) return error.BadTransport;
     const servers = [_]cocuyo.Server{.{ .endpoint = endpoint }};
@@ -108,14 +111,6 @@ fn report(name: []const u8, result: Resolver.Result) !void {
             std.process.exit(1);
         },
     }
-}
-
-/// Where a server is: an address, and a port other than 53 after a colon, as `127.0.0.1:8053`.
-fn endpoint_of(text: []const u8) !cocuyo.Endpoint {
-    if (cocuyo.Address.from_text(text)) |address| return .{ .address = address };
-    const colon = std.mem.lastIndexOfScalar(u8, text, ':') orelse return error.BadAddress;
-    const address = cocuyo.Address.from_text(text[0..colon]) orelse return error.BadAddress;
-    return .{ .address = address, .port = try std.fmt.parseInt(u16, text[colon + 1 ..], 10) };
 }
 
 /// The clock cocuyo is driven by: monotonic, as `examples/udp_rotor.zig` reads it.

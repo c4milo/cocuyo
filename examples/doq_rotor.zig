@@ -14,8 +14,9 @@
 //! SubjectPublicKeyInfo are the trust anchor chapulin checks the chain against. The leaf must carry
 //! the authentication name, or the template's host. A DoQ server known by its key alone takes pins
 //! in place of the name, and no root. A DoQ server on a port other than 853 is named with it, as
-//! `127.0.0.1:8853`. A DoQ server's port is UDP's 853 (RFC 9250
-//! §4.1.1), and a DoH server's the template's, 443 when it names none (RFC 9114 §3.1).
+//! `127.0.0.1:8853` or `[::1]:8853` (`examples/server_text.zig`). A DoQ server's port is UDP's
+//! 853 (RFC 9250 §4.1.1), and a DoH server's the template's, 443 when it names none (RFC 9114
+//! §3.1).
 //!
 //! A name asks for A, and `name/TYPE` for another type, as `example.com/MX`
 //! (`examples/answer_text.zig`, which writes the answers out). Names after the first are resolved
@@ -33,6 +34,7 @@ const io = @import("io");
 const cocuyo_quic = @import("cocuyo_quic");
 const chapulin = @import("chapulin_quic");
 const answer_text = @import("answer_text.zig");
+const server_text = @import("server_text.zig");
 
 const Quic = cocuyo_quic.Connection(.{ .Session = chapulin.Session, .streams = at_once_max, .http3 = true });
 const Resolver = io.Resolver(.{
@@ -69,7 +71,7 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("usage: doq-rotor <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,... | URI template> <root certificate>...\n", .{});
         std.process.exit(2);
     }
-    const at = try place_of(arguments[2]);
+    const at = try server_text.place_of(arguments[2]);
     // A template names a DoH server (RFC 8484 §3), and a name a DoQ server (RFC 9250 §5.1).
     const known_as = arguments[3];
     var pins: [cocuyo.constants.spki_pins_max]cocuyo.Pin = undefined;
@@ -195,15 +197,6 @@ fn report(name: []const u8, result: Resolver.Result) !void {
             std.process.exit(1);
         },
     }
-}
-
-/// Where a server is: an address, and for a DoQ server a port other than 853 after a colon, as
-/// `127.0.0.1:8853`. A DoH server's port is its template's.
-fn place_of(text: []const u8) !struct { address: cocuyo.Address, port: ?u16 } {
-    if (cocuyo.Address.from_text(text)) |address| return .{ .address = address, .port = null };
-    const colon = std.mem.lastIndexOfScalar(u8, text, ':') orelse return error.BadAddress;
-    const address = cocuyo.Address.from_text(text[0..colon]) orelse return error.BadAddress;
-    return .{ .address = address, .port = try std.fmt.parseInt(u16, text[colon + 1 ..], 10) };
 }
 
 /// How a server is known, from its argument: by its name, or by its key alone, RFC 8310 §6.3's

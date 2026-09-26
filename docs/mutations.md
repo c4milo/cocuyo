@@ -2458,3 +2458,21 @@ The count of lines under each name refuses a record of another type, and no muta
 here: no server in either check sends one under a question. Breaking the answer walk's type filter
 (`role_of` in `src/wire/response.zig`) fails the codec's own tests, "a record of another type is not
 an answer" among them.
+
+## What the engine examples read
+
+2026-09-26. The examples read a server as an address and a port after its last colon, trying the
+whole text as an address first. `::1:8053` is itself an IPv6 address, so no example could name an
+IPv6 server on a port of its own. `examples/server_text.zig` now reads a bracketed IPv6 address
+and a port, as a URI writes one (RFC 3986 §3.2.2), for the DoT, DoQ, DoH and plain DNS examples.
+Its tests and those of the question reader in `examples/answer_text.zig` run with the gate. Every
+engine example resolved over IPv6 against dnsproxy on `::1`. EX2 went uncaught at first: no test
+held text whose part before its last colon is an IPv6 address while the whole is none, and
+`1:2:3:4:5:6:7:8:53` is such a test now. Four mutations, four `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| EX1 | brackets take an IPv4 address | brackets hold IPv6 alone (RFC 3986 §3.2.2) | the refusal test | CAUGHT |
+| EX2 | an IPv6 address takes a port without brackets | a port follows IPv6 in brackets alone | the refusal test, once it held nine groups | CAUGHT |
+| EX3 | anything may follow the closing bracket | a colon and a port, or nothing | the refusal test | CAUGHT |
+| EX4 | a question may ask for OPT | OPT is never a question (RFC 6891 §6.1.1) | the type test, by the assertion in `Question.from_text` | CAUGHT |

@@ -49,10 +49,10 @@ pub fn add(
     const exe = b.addExecutable(.{ .name = "doq-rotor", .root_module = module });
     const run = b.addRunArtifact(exe);
     if (b.args) |arguments| run.addArgs(arguments);
-    const example = b.step("example-doq-rotor", "Lookups over DNS over QUIC: -- <name>[,<name>...] <address> <auth name> <root.der>...");
+    const example = b.step("example-doq-rotor", "Lookups over DNS over QUIC: -- <name>[/TYPE][+...][,...] <address>[:<port>] <auth name | pin-sha256:<pin>,...> <root.der>...");
     example.dependOn(&run.step);
     // DoH over HTTP/3 is the same program, handed a URI template where DoQ takes a name.
-    const doh = b.step("example-doh-rotor", "Lookups over DoH on HTTP/3: -- <name>[,<name>...] <address> <URI template> <root.der>...");
+    const doh = b.step("example-doh-rotor", "Lookups over DoH on HTTP/3: -- <name>[/TYPE][+...][,...] <address> <URI template> <root.der>...");
     doh.dependOn(&run.step);
 }
 
