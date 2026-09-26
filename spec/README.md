@@ -215,17 +215,21 @@ With `RStream` the request connections run over TCP, as DoH over HTTP/2 does (re
 16). A connection connects before it handshakes; one opened again while an earlier opening's
 connect is in flight waits, `reopening`, until that connect's end; a send may go short, and its
 rest goes first; a receive may end with no octets, which ends the connection; and no transport
-timer fires. The TCP configurations, written on 2026-09-26, on the same machine, three operations
-and one failure; the last ran beside the engine's builds:
+timer fires. The TCP configurations, checked again on 2026-09-26 once the replay had moved two
+steps back to rule 14, on the same machine, three operations and one failure; the last two ran
+beside the engine's mutation run, so their seconds are high:
 
 | Servers | Lookups | States | Seconds | Invariants |
 | --- | --- | --- | --- | --- |
-| 1 | 1 | 26,032 | 2 | hold |
-| 1 | 2 | 308,594 | 20 | hold |
-| 2 | 1 | 6,233,470 | 384 | hold |
+| 1 | 1 | 25,532 | 3 | hold |
+| 1 | 2 | 305,364 | 23 | hold |
+| 2 | 1 | 5,820,358 | 810 | hold |
 
-A connection was reopened while its old connect was in flight, and one failed when the loop
-refused its connect. Five more mutants break the TCP rules, and TLC finds each (docs/mutations.md
+As first written they held 26,032, 308,594 and 6,233,470 states. The model had a slot that waits
+for an earlier connect fail its requests when the loop refused operations, though a waiting slot
+asks the loop for nothing. And a slot whose waiting requests had all left kept what its last
+opening left, where rule 14 closes it as any slot closes. A connection was reopened while its old
+connect was in flight, and one failed when the loop refused its connect. Five more mutants break the TCP rules, and TLC finds each (docs/mutations.md
 RQ16 to RQ20).
 
 The replay walks the request configurations as it walks the others, with one slot or two and two
@@ -237,6 +241,14 @@ connection's QUIC timer due at the instant the walk reaches its `qtime`, and fir
 timer there. Writing the replay moved request rule 8: a datagram the loop refuses stays in the
 buffer and goes at the next drive, before whatever colibri makes after it, and the model keeps it
 apart from what colibri owes.
+
+The TCP configurations are replayed over the twin's QUIC over TCP (`sim.quic.Stream`), whose frames
+carry the same items on a stream, to a DoH server whose template names no port. A step of colibri's
+is one frame in a chunk on the connection's receive, and the handshake ends on `h2`.
+`finish:N0*:ok` ends the connect that `N0*` names, a send that goes short moves half of what it
+had left, and `finish:V0*:ended` ends a receive with no octets. The engine keeps a send's octets
+counted until the send ends, so that a short one's rest is known, and the replay writes `K` over
+TCP only while no send is in flight: the model keeps only what waits for a send.
 
 The TLS configurations are walked and replayed like the others. The engine drives the twin's
 session (`src/sim/sim_tls.zig`), whose records carry their plaintext unsealed and whose handshake
@@ -362,7 +374,7 @@ compares the walk's whole state after each.
 - `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 3,694
   transitions: one server, one pass and one name, over UDP, over TCP, over DoH and over DoQ. It also
   replays two sets of engine walks TLC wrote. `tools/spec_replay/engine_gate.txt` holds ten walks
-  of forty events in each of the ten engine configurations. `tools/spec_replay/engine_picks.txt`
+  of forty events in each of the twelve engine configurations. `tools/spec_replay/engine_picks.txt`
   holds nine walks of the full run, which `engine_picks` in `build/spec.zig` names: each is where
   the full run caught a mutation of the engine that the short walks miss (docs/mutations.md). The
   gate also holds `tools/spec_replay/walk_gate.txt`, the forward walk with two candidates and both
@@ -371,10 +383,10 @@ compares the walk's whole state after each.
   11 or newer for TLC. pepegrillo's `lean` tool builds the proofs and the axiom pins first. Then
   the step requires the committed slices to be the ones the models write, and replays the
   lookup's whole transcript, the walks' whole transcript, and TLC's full run: 2,000 engine walks
-  of 200 events in each of the ten engine configurations, 4,020,000 events. TLC wrote the full
-  run in 1,852 seconds on an Apple M1 Pro on 2026-09-25, while a TLC check held the other cores,
-  and the replay took 47. The same run over eight configurations took 241 seconds on 2026-09-24,
-  on a machine busy with other work. `zig build spec-lean` is the Lean half alone, which needs no Java, and `zig build
+  of 200 events in each of the twelve engine configurations, 4,824,000 events. TLC wrote the full
+  run in 401 seconds on an Apple M1 Pro on 2026-09-26, while the engine's tests ran. Ten
+  configurations took 1,852 seconds on 2026-09-25, while a TLC check held the other cores, and
+  their replay took 47. `zig build spec-lean` is the Lean half alone, which needs no Java, and `zig build
   spec-engine` the engine's part alone, which needs no Lean.
 - After a change to a model, `lake exe cocuyo-spec gate 8 > ../../tools/spec_replay/lookup_gate.txt`
   and `lake exe cocuyo-spec walks-gate > ../../tools/spec_replay/walk_gate.txt` in `lean/` write

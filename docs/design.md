@@ -3732,8 +3732,8 @@ of a stream, as many as the buffer holds. The rest of the interface stands.
 
 The engine's request connections become one set for each transport: the QUIC set, for DoQ and
 DoH over HTTP/3, and the HTTP/2 set. In 7a a DoH configuration goes to the HTTP/2 set when the
-engine has one. An engine with an HTTP/2 transport and a QUIC one that speaks HTTP/3 does not
-compile until 7b.
+engine has one, whether or not its QUIC one speaks HTTP/3; 7b races the two. The replay's engine
+holds both transports of the twin, so one engine type walks every configuration.
 
 **The transport** is `cocuyo_h2`: colibri's `h2` connection under the request interface, as
 `cocuyo_quic` puts colibri's QUIC there. It is a module of its own, and a consumer that speaks DoH

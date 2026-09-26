@@ -115,10 +115,11 @@ ConnectR(st, v, queue) ==
 \* and waits while a connect of an earlier opening still borrows the slot's address (request rule
 \* 14).
 OpenR(st, v, queue) ==
-    IF st.starved THEN FailRequestsFrom(st, v, 0)
-    ELSE IF RStream /\ st.rconns[v].connectLent
+    \* A slot that waits opens no socket yet, so a refused open refuses it nothing until it opens.
+    IF RStream /\ st.rconns[v].connectLent
     THEN [st EXCEPT !.rconns[v].stage = "reopening", !.rconns[v].queue = queue,
                     !.rconns[v].idleNow = FALSE]
+    ELSE IF st.starved THEN FailRequestsFrom(st, v, 0)
     ELSE IF RStream THEN ConnectR(st, v, queue)
     ELSE
     LET opened == [st EXCEPT !.rconns[v].stage = "handshaking", !.rconns[v].queue = queue,
@@ -130,7 +131,7 @@ OpenR(st, v, queue) ==
 \* address back, or closes when every request that waited has left (request rule 14).
 ReopenR(st, v) ==
     LET q == st.rconns[v].queue
-        cleared == [st EXCEPT !.rconns[v].stage = "closed", !.rconns[v].queue = <<>>]
+        cleared == ShutR(st, v)
     IN IF q = <<>> THEN cleared ELSE OpenR(cleared, v, q)
 
 \* The drive takes slot l's request onto its server's connection whatever the connection's state,

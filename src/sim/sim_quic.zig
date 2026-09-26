@@ -95,8 +95,9 @@ pub fn read_item(bytes: []const u8) ?Read {
 }
 
 /// The client: a connection with the functions the engine asks of one (docs/design.md §24).
-/// The same transport over TCP, as DoH over HTTP/2 runs (`sim_quic_stream.zig`).
-pub const Stream = @import("sim_quic_stream.zig").Stream;
+/// The same transport over TCP, as DoH over HTTP/2 runs, and its frames (`sim_quic_stream.zig`).
+pub const tcp = @import("sim_quic_stream.zig");
+pub const Stream = tcp.Stream;
 
 pub const Connection = struct {
     pub const enabled = true;

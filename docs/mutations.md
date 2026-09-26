@@ -2207,3 +2207,40 @@ replay drives the TCP configurations. Nine mutations, nine `CAUGHT`.
 | TC7 | an idle connection that connects is left connecting | request rule 16 | the test of a connection idle while it connects | CAUGHT |
 | TC8 | a connection that waited for an earlier opening's connect does not open at its end | request rule 14 | the test of a connection idle while it connects | CAUGHT |
 | TC9 | a connection over TCP offers the protocol of a QUIC one | RFC 9113 §3.3 | the first test | CAUGHT |
+
+## The request connection over TCP on the model's walks
+
+Design §24 step 7a, 2026-09-26 (c4milo/cocuyo#18). The replay walks the model's two TCP
+configurations over the twin's QUIC over TCP (spec/README.md). They come third and fourth of
+twelve, so every walk after them comes 4,000 later. The picks of the section on TLC's walks moved
+with them and are the same walks byte for byte: 4046, 8011, 9182, 12005, 12070, 12900 and 13842
+are now 8046, 12011, 13182, 16005, 16070, 16900 and 17842, beside 6 and 41. The full run, 24,000
+walks and 4,824,000 events, replays clean. Every mutation of the set is caught where it was
+before, and each picked one at the same walk.
+
+Writing the replay brought the model back to rule 14 in two steps, and the engine in one
+(spec/README.md). Nine edits no longer applied once the request connections became a set of one
+transport, and were written again: RW1, RW2, RW4, RW7, RW8, RW10, RW11, RW12 and RW15. RW10 was
+written once more when its line changed, below. Each is caught as before.
+
+RT1 widened the refusal in `current_of` to the current incarnation's events while its slot waits
+to connect, or connects. No walk catches it, and none can: a slot waits only while an earlier
+opening's connect is in flight, that opening never sent or received, and every connect starts a
+new incarnation. The tool counted it caught at first, against a full run that failed anyway (the
+section on the mutation tool, EM12). That part of the check is an assertion now, and RT1 is gone.
+
+TC1 to TC9 were broken against the walks as well as `zig build test-io`. The short walks catch
+eight of them in the TCP configurations. No walk sees TC4, since the model counts a send's octets
+and does not read them, and the tests catch it. Nine mutations, nine `CAUGHT`.
+
+| # | Mutation | The TCP tests | The walks | Status |
+| --- | --- | --- | --- | --- |
+| TC1 | a slot connects again while a connect of an earlier opening is in flight | CAUGHT | short walk 39 | CAUGHT |
+| TC2 | a connection's receive is armed, and its octets sent, before its connect has succeeded | CAUGHT | short walk 22 | CAUGHT |
+| TC3 | a send that went short is taken for a whole one, and its rest is lost | CAUGHT | short walk 40 | CAUGHT |
+| TC4 | the rest of a send that went short is sent from the buffer's start | CAUGHT | no walk | CAUGHT |
+| TC5 | a receive that ended with no octets is armed again, and the connection stays up | CAUGHT | short walk 24 | CAUGHT |
+| TC6 | a connect that failed leaves its requests waiting on the connection | CAUGHT | short walk 25 | CAUGHT |
+| TC7 | an idle connection that connects is left connecting | CAUGHT | short walk 28 | CAUGHT |
+| TC8 | a connection that waited for an earlier opening's connect does not open at its end | CAUGHT | short walk 39 | CAUGHT |
+| TC9 | a connection over TCP offers the protocol of a QUIC one | CAUGHT | short walk 24 | CAUGHT |

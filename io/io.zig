@@ -54,8 +54,8 @@ pub const Options = struct {
     quic: type = quic.None,
     /// The request transport over TCP of docs/design.md §24, DoH over HTTP/2: colibri's `h2`
     /// over chapulin's record transport when the build links them, the twin's in its tests, and
-    /// `quic.None`, which leaves DoH to a QUIC type that speaks HTTP/3. An engine does not hold
-    /// both an HTTP/2 type and a QUIC one that speaks HTTP/3 until the two race (step 7b).
+    /// `quic.None`, which leaves DoH to a QUIC type that speaks HTTP/3. An engine that holds both
+    /// carries DoH over HTTP/2 until the two race (step 7b).
     h2: type = quic.None,
 };
 
@@ -75,11 +75,9 @@ fn with_h2(comptime options: Options, comptime count: usize) usize {
     return if (options.h2.enabled) count else 0;
 }
 
-/// DoH goes over HTTP/2 or over HTTP/3 until the two race (docs/design.md §24 step 7b), so an
-/// engine holds an HTTP/2 transport or a QUIC one that speaks HTTP/3, not both. The HTTP/2 one
-/// runs over TCP, and the QUIC one over UDP.
+/// The HTTP/2 transport runs over TCP, and the QUIC one over UDP (docs/design.md §24, DoH over
+/// HTTP/2).
 fn check_transports(comptime options: Options) void {
-    assert(!(options.h2.enabled and options.quic.http3));
     assert(!options.h2.enabled or options.h2.socket == .stream);
     assert(!options.quic.enabled or options.quic.socket == .datagram);
     // A request slot holds a DoQ message at its longest, prefix and all (request rule 3).

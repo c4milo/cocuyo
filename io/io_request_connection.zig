@@ -288,7 +288,6 @@ pub fn connected(self: anytype, set: anytype, server: u8, succeeded: bool, now_n
     connection.connect = null;
     if (!succeeded) return fail(self, set, server, now_ns);
     connection.state = .handshaking;
-    connection.idle_since_ns = now_ns;
     if (!start(self, set, server, now_ns)) request_module.fail_all_of(self, set, server, now_ns);
 }
 

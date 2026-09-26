@@ -89,7 +89,11 @@ fn requests_text(line: *Line, world: anytype) void {
     const engine = &world.engine;
     for (0..world.config.servers.len) |server| {
         if (server > 0) line.print(" ; ", .{});
-        quic_connection_text(line, world, @intCast(server));
+        if (world.config.uses_https()) {
+            request_connection_text(line, world, &world.engine.h2, @intCast(server));
+        } else {
+            request_connection_text(line, world, &world.engine.quic, @intCast(server));
+        }
     }
     line.print(" | ", .{});
     for (engine.requests[0..], 0..) |*request, index| {
@@ -99,12 +103,13 @@ fn requests_text(line: *Line, world: anytype) void {
     line.print(" | ", .{});
 }
 
-/// A QUIC connection: its stage, the requests waiting in its queue and those with a stream, and
-/// whether its transport owes a datagram, it keeps one the loop refused, it lent its buffer, and it
-/// went idle now (docs/design.md §24, request rule 8).
-fn quic_connection_text(line: *Line, world: anytype, server: u8) void {
+/// A request connection of `set`: its stage, the requests waiting in its queue and those with a
+/// stream, and whether its transport owes a datagram, it keeps one the loop refused, it lent its
+/// buffer, and it went idle now (docs/design.md §24, request rule 8); over TCP, whether a connect
+/// still borrows its address (request rule 14).
+fn request_connection_text(line: *Line, world: anytype, set: anytype, server: u8) void {
     const engine = &world.engine;
-    const connection = &engine.quic.connections[server];
+    const connection = &set.connections[server];
     var items: [64]usize = undefined;
     for (connection.queue[0..connection.queue_len], 0..) |index, position| items[position] = index;
     line.print("{s} q", .{@tagName(connection.state)});
@@ -118,10 +123,22 @@ fn quic_connection_text(line: *Line, world: anytype, server: u8) void {
     line.print(" st", .{});
     line.list(items[0..streams]);
     line.print(" ", .{});
-    line.flag(connection.transport.owes, 'O');
-    line.flag(connection.made > 0, 'K');
-    line.flag(engine.quic.sends[server].lent, 'B');
+    line.flag(owes(connection), 'O');
+    // Over TCP the octets of a send in flight stay counted until it ends, so a short one's rest is
+    // known; the model keeps only what waits for a send (request rules 8 and 15).
+    const in_flight = @TypeOf(set.*).stream and set.sends[server].lent;
+    line.flag(connection.made > 0 and !in_flight, 'K');
+    line.flag(set.sends[server].lent, 'B');
     line.flag(connection.state != .closed and connection.idle_since_ns == world.now_ns, 'I');
+    if (comptime @TypeOf(set.*).stream) line.flag(set.sends[server].connecting, 'N');
+}
+
+/// Whether a connection's transport owes the server something: the twin's QUIC, over UDP or
+/// inside its frames over TCP.
+fn owes(connection: anytype) bool {
+    const transport = &connection.transport;
+    if (@hasField(@TypeOf(transport.*), "inner")) return transport.inner.owes;
+    return transport.owes;
 }
 
 /// Each server's sockets: none over TLS (§21, TLS rule 9).
@@ -182,7 +199,7 @@ pub const Token = struct {
     current: bool,
 
     /// The letters in the order the model writes them.
-    const letters = "CRSDLMTQV";
+    const letters = "CRSDLMTQVN";
 
     pub fn key(token: Token) usize {
         const rank = std.mem.indexOfScalar(u8, letters, token.letter).?;
@@ -208,7 +225,8 @@ pub fn token_of(world: anytype, loop_slot: u32) Token {
             const letter: u8 = if (draining) 'M' else 'L';
             break :blk .{ .letter = letter, .target = index & io.constants.receive_index_mask, .current = found != null };
         },
-        .quic_send, .quic_receive => |kind| quic_token(world, kind, index),
+        .quic_send, .quic_receive => |kind| request_token(&world.engine.quic, kind, index),
+        .h2_connect, .h2_send, .h2_receive => |kind| request_token(&world.engine.h2, kind, index),
         else => unreachable,
     };
 }
@@ -229,13 +247,18 @@ fn connection_token(world: anytype, kind: io.Kind, index: usize) Token {
     return .{ .letter = letter, .target = at, .current = live and connection.incarnation == incarnation };
 }
 
-/// A QUIC connection's datagram send or receive: current while its opening is the slot's.
-fn quic_token(world: anytype, kind: io.Kind, index: usize) Token {
+/// A request connection's send or receive, and over TCP its connect: current while its opening is
+/// the slot's, and has its socket, or over TCP connects, as a connect's is (request rule 14).
+fn request_token(set: anytype, kind: io.Kind, index: usize) Token {
     const server = index & io.constants.quic_server_mask;
     const incarnation: u32 = @truncate(index >> io.constants.quic_incarnation_shift);
-    const connection = &world.engine.quic.connections[server];
-    const live = connection.state != .closed and connection.incarnation == incarnation;
-    return .{ .letter = if (kind == .quic_send) 'Q' else 'V', .target = server, .current = live };
+    const connection = &set.connections[server];
+    const opening = connection.incarnation == incarnation;
+    return switch (kind) {
+        .h2_connect => .{ .letter = 'N', .target = server, .current = opening and connection.state == .connecting },
+        .quic_send, .h2_send => .{ .letter = 'Q', .target = server, .current = opening and connection.talks() },
+        else => .{ .letter = 'V', .target = server, .current = opening and connection.talks() },
+    };
 }
 
 /// The loop's operations the model knows, in the model's order.
@@ -316,7 +339,12 @@ fn tickets(line: *Line, world: anytype) void {
     line.print(" tk[", .{});
     for (0..world.config.servers.len) |server| {
         if (server > 0) line.print(",", .{});
-        const kept = if (world.config.uses_tls()) engine.tls_tickets[server] != null else engine.quic.tickets[server] != null;
+        const kept = if (world.config.uses_tls())
+            engine.tls_tickets[server] != null
+        else if (world.config.uses_https())
+            engine.h2.tickets[server] != null
+        else
+            engine.quic.tickets[server] != null;
         line.print("{d}", .{@intFromBool(kept)});
     }
     line.print("]", .{});

@@ -19,7 +19,11 @@ fn current_of(set: anytype, index: usize) ?u8 {
     const incarnation: u32 = @truncate(index >> constants.quic_incarnation_shift);
     assert(server < set.connections.len);
     const connection = &set.connections[server];
-    if (!connection.talks() or connection.incarnation != incarnation) return null;
+    if (connection.state == .closed or connection.incarnation != incarnation) return null;
+    // An opening sends and receives only once its connect has succeeded, and each connect is a new
+    // incarnation, so no event of the incarnation a waiting or connecting slot holds is one of these
+    // (request rule 14).
+    assert(connection.talks());
     return server;
 }
 

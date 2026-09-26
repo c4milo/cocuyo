@@ -91,7 +91,8 @@ pub fn speaks(self: anytype) bool {
 }
 
 /// Whether the requests go over the engine's HTTP/2 connections: a DoH configuration, in an engine
-/// that holds them (docs/design.md §24, DoH over HTTP/2). The rest go over QUIC.
+/// that holds them, whether or not it speaks HTTP/3 too, until the two race (docs/design.md §24,
+/// DoH over HTTP/2, step 7b). The rest go over QUIC.
 pub fn over_h2(self: anytype) bool {
     if (comptime !@TypeOf(self.*).H2.enabled) return false;
     return self.config.uses_https();

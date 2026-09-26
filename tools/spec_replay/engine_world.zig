@@ -31,12 +31,18 @@ pub const text_bytes_max = 1024;
 
 pub const Error = error{ Malformed, NoSuchOperation, NoBuffer, Full, BufferKept };
 
-/// Whether every query goes over TCP, over TLS, over UDP, or as a request over DoQ; and the queries
-/// a port carries before it is replaced. A walk's `config` line names both.
-pub const Transport = struct { tcp: bool, per_port: u32, tls: bool = false, request: bool = false };
+/// Whether every query goes over TCP, over TLS, over UDP, or as a request over DoQ, or over DoH on
+/// HTTP/2 when the request's connections are a `stream`; and the queries a port carries before it
+/// is replaced. A walk's `config` line names both.
+pub const Transport = struct { tcp: bool, per_port: u32, tls: bool = false, request: bool = false, stream: bool = false };
 
-/// What ends an operation, as the transcript names it.
-const Outcome = enum { ok, failed, canceled, exhausted, short };
+/// What ends an operation, as the transcript names it: `ended` is a receive over TCP that ends
+/// with no octets (docs/design.md §24, request rule 15).
+const Outcome = enum { ok, failed, canceled, exhausted, short, ended };
+
+/// The template of a DoH server the replay walks over HTTP/2: no port, so its connections go to
+/// TCP's 443 (RFC 9110 §4.2.2).
+const h2_template = "https://dns.example/dns-query{?dns}";
 
 pub fn World(comptime slots: u16, comptime conns: u16) type {
     return struct {
@@ -52,6 +58,8 @@ pub fn World(comptime slots: u16, comptime conns: u16) type {
             .tls = rotor.tls.Session,
             // The twin's QUIC: every configuration may send requests (docs/design.md §24).
             .quic = rotor.quic.Connection,
+            // And the twin's QUIC over TCP, which carries DoH as HTTP/2 does (§24, DoH over HTTP/2).
+            .h2 = rotor.quic.Stream,
         });
 
         loop: rotor.Loop,
@@ -77,7 +85,8 @@ pub fn begin(self: anytype, transport: Transport) !void {
         } };
         const name = cocuyo.Name.from_text("dns.example.") catch unreachable;
         if (transport.tls) server.tls = .{ .name = name };
-        if (transport.request) server.quic = .{ .name = name };
+        if (transport.request and !transport.stream) server.quic = .{ .name = name };
+        if (transport.stream) server.https = .{ .template = h2_template };
     }
     self.config = .{
         .servers = &self.servers,
@@ -94,6 +103,7 @@ pub fn begin(self: anytype, transport: Transport) !void {
     try self.engine.init(&self.loop, &self.config, seed, self.now_ns);
     self.engine.tcp_idle_ns = idle_ns;
     self.engine.quic.idle_ns = idle_ns;
+    self.engine.h2.idle_ns = idle_ns;
 }
 
 /// One event of the transcript, then the timers the engine let go of, ended. Every
@@ -176,7 +186,9 @@ fn unnamed(self: anytype, name: []const u8, parts: *std.mem.SplitIterator(u8, .s
 /// A kept ticket reaches its lifetime, or seven days: the model's lapse, which no drive follows
 /// (docs/design.md §21, TLS rule 8, and §24, request rule 10).
 fn lapse(self: anytype, server: usize) void {
-    if (self.config.sends_requests()) {
+    if (self.config.uses_https()) {
+        self.engine.h2.tickets[server] = null;
+    } else if (self.config.sends_requests()) {
         self.engine.quic.tickets[server] = null;
     } else {
         self.engine.tls_tickets[server] = null;
@@ -243,6 +255,7 @@ fn finish(self: anytype, op: []const u8, outcome: Outcome) Error!void {
         .failed => rotor.Event.failure(user_data, failure_of(kind)),
         .canceled => rotor.Event.failure(user_data, .canceled),
         .exhausted => rotor.Event.failure(user_data, .buffers_exhausted),
+        .ended => rotor.Event.success(user_data, 0),
     };
     // A receive that ends in success after a cancel carries the bytes it read (rule 2).
     if (outcome == .ok and receives(kind)) {
@@ -260,6 +273,7 @@ fn moved(self: anytype, user_data: u64, kind: io.Kind, short: bool) u32 {
     const left = switch (kind) {
         .tcp_send => query_left(self, index),
         .tls_send => records_left(self, index),
+        .h2_send => h2_left(self, index),
         else => null,
     } orelse return 0;
     return if (short) left / 2 else left;
@@ -285,6 +299,15 @@ fn records_left(self: anytype, index: usize) ?u32 {
     const live = connection.state != .closed and connection.state != .reopening;
     if (!live or connection.incarnation != incarnation or !connection.sending) return null;
     return head_left(self, connection, connection.queue.first() orelse return null);
+}
+
+/// What is left of the octets an HTTP/2 connection's send of opening `index` carries, if the
+/// opening is still the connection's (docs/design.md §24, request rule 15).
+fn h2_left(self: anytype, index: usize) ?u32 {
+    const connection = &self.engine.h2.connections[index & io.constants.quic_server_mask];
+    const incarnation: u32 = @truncate(index >> io.constants.quic_incarnation_shift);
+    if (!connection.talks() or connection.incarnation != incarnation) return null;
+    return connection.made - connection.sent;
 }
 
 fn head_left(self: anytype, connection: anytype, head: anytype) u32 {
@@ -327,11 +350,12 @@ fn straggle(self: anytype, op: []const u8) Error!void {
 
 /// An event that carries one octet in a buffer of its receive's group.
 fn carrying(self: anytype, user_data: u64, kind: io.Kind, more: bool) Error!rotor.Event {
-    const group_id: u16 = if (kind == .tcp_receive) io.constants.tcp_group_id else io.constants.group_id;
+    const stream = kind == .tcp_receive or kind == .h2_receive;
+    const group_id: u16 = if (stream) io.constants.tcp_group_id else io.constants.group_id;
     const buffer_id = self.loop.groups[group_id].take() orelse return error.NoBuffer;
     const buffer = self.loop.provided_buffer(group_id, buffer_id);
     var length: u32 = 1;
-    if (kind != .tcp_receive) {
+    if (!stream) {
         const peer = rotor.Network.server_address(0);
         length = rotor.buffers.write_delivery(buffer, .{}, &peer, &.{0});
     }
@@ -399,7 +423,7 @@ fn end_cancelled_timers(self: anytype) void {
 
 /// Whether an operation of `kind` is a receive, which carries what it read.
 fn receives(kind: io.Kind) bool {
-    return kind == .tcp_receive or kind == .udp_receive or kind == .quic_receive;
+    return kind == .tcp_receive or kind == .udp_receive or kind == .quic_receive or kind == .h2_receive;
 }
 
 pub fn number(token: ?[]const u8) Error!usize {

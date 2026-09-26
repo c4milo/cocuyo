@@ -442,7 +442,7 @@
         .id = "RW1",
         .what = "a request its lookup left is never cancelled by the drive",
         .edits = .{
-            .{ .file = "io/io_request.zig", .old = "if (request.live and !current(self, index)) drop(self, index, now_ns);", .new = "if (request.live and !current(self, index) and false) drop(self, index, now_ns);" },
+            .{ .file = "io/io_request.zig", .old = "if (request.live and !current(self, index)) drop(self, set, index, now_ns);", .new = "if (request.live and !current(self, index) and false) drop(self, set, index, now_ns);" },
         },
         .caught_by = .short_walks,
     },
@@ -451,7 +451,7 @@
         .id = "RW2",
         .what = "the handshake's end is taken whatever protocol it negotiated",
         .edits = .{
-            .{ .file = "io/io_request_events.zig", .old = "if (!std.mem.eql(u8, alpn, connection_module.protocol_of(self))) return", .new = "if (!std.mem.eql(u8, alpn, alpn)) return" },
+            .{ .file = "io/io_request_events.zig", .old = "if (!std.mem.eql(u8, alpn, connection_module.protocol_of(self, set))) return", .new = "if (!std.mem.eql(u8, alpn, alpn)) return" },
         },
         .caught_by = .short_walks,
     },
@@ -469,7 +469,7 @@
         .id = "RW4",
         .what = "a datagram is sent while the buffer is lent to the one before",
         .edits = .{
-            .{ .file = "io/io_request_connection.zig", .old = "    if (slot.lent) return;\n", .new = "" },
+            .{ .file = "io/io_request_connection_tend.zig", .old = "    if (slot.lent) return;\n", .new = "" },
         },
         .caught_by = .short_walks,
     },
@@ -496,7 +496,7 @@
         .id = "RW7",
         .what = "a receive the loop refused is not armed again",
         .edits = .{
-            .{ .file = "io/io_request_connection.zig", .old = "        if (connection.receive == null) arm(self, server);\n", .new = "" },
+            .{ .file = "io/io_request_connection_tend.zig", .old = "        if (connection.receive == null) arm(self, set, server);\n", .new = "" },
         },
         .caught_by = .short_walks,
     },
@@ -505,7 +505,7 @@
         .id = "RW8",
         .what = "a connection closes for idleness with requests on it",
         .edits = .{
-            .{ .file = "io/io_request_connection.zig", .old = "        if (connection.users() != 0) continue;\n", .new = "" },
+            .{ .file = "io/io_request_connection.zig", .old = "        if (connection.state == .closed or connection.users() != 0) continue;", .new = "        if (connection.state == .closed) continue;" },
         },
         .caught_by = .short_walks,
     },
@@ -532,7 +532,7 @@
         .id = "RW11",
         .what = "a datagram the loop refused is dropped",
         .edits = .{
-            .{ .file = "io/io_request_connection.zig", .old = "    if (self.loop.submit(&.{operation}, &.{}) != 1) return;\n    slot.lent = true;", .new = "    if (self.loop.submit(&.{operation}, &.{}) != 1) {\n        connection.made = 0;\n        return;\n    }\n    slot.lent = true;" },
+            .{ .file = "io/io_request_connection_tend.zig", .old = "    if (self.loop.submit(&.{operation}, &.{}) != 1) return;\n    slot.lent = true;", .new = "    if (self.loop.submit(&.{operation}, &.{}) != 1) {\n        connection.made = 0;\n        return;\n    }\n    slot.lent = true;" },
         },
         .caught_by = .short_walks,
     },
@@ -541,7 +541,7 @@
         .id = "RW12",
         .what = "a GOAWAY leaves the connection up",
         .edits = .{
-            .{ .file = "io/io_request_connection.zig", .old = "    assert(connection.state == .up or connection.state == .draining);\n    connection.state = .draining;\n    drained(self, server);", .new = "    assert(connection.state == .up or connection.state == .draining);\n    drained(self, server);" },
+            .{ .file = "io/io_request_connection.zig", .old = "    assert(connection.state == .up or connection.state == .draining);\n    connection.state = .draining;\n    drained(set, server);", .new = "    assert(connection.state == .up or connection.state == .draining);\n    drained(set, server);" },
         },
         .caught_by = .picked_walks,
     },
@@ -568,7 +568,7 @@
         .id = "RW15",
         .what = "a stream's answer does not close the connection it drained",
         .edits = .{
-            .{ .file = "io/io_request_events.zig", .old = "    if (connection.users() == 0) connection.idle_since_ns = now_ns;\n    connection_module.drained(self, server);\n}", .new = "    if (connection.users() == 0) connection.idle_since_ns = now_ns;\n}" },
+            .{ .file = "io/io_request_events.zig", .old = "    if (connection.users() == 0) connection.idle_since_ns = now_ns;\n    connection_module.drained(set, server);\n}", .new = "    if (connection.users() == 0) connection.idle_since_ns = now_ns;\n}" },
         },
         .caught_by = .picked_walks,
     },
