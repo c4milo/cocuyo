@@ -79,6 +79,7 @@ You own the loop. cocuyo tells you what to do next, and you tell it what happene
 driving loop of [`examples/udp_blocking.zig`](examples/udp_blocking.zig), shortened. `socket`
 stands for your own UDP socket, and `clock` for a monotonic clock in nanoseconds:
 
+<!-- readme-check: loop -->
 ```zig
 var servers = cocuyo.Servers.init(&config, seed);
 var lookup = cocuyo.Lookup.init(&config, &servers, try cocuyo.Question.from_text(name, .a), seed);
@@ -181,6 +182,7 @@ Import its module in `build.zig`. The library is one module, `cocuyo`, and fetch
 when it is a dependency. The engine over rotor is a second, `cocuyo_rotor`, whose `rotor` import
 your build binds to your rotor:
 
+<!-- readme-check: build -->
 ```zig
 const cocuyo = b.dependency("cocuyo", .{ .target = target, .release = true });
 exe.root_module.addImport("cocuyo", cocuyo.module("cocuyo"));
@@ -195,6 +197,7 @@ Then give it its memory and ask it for its first action. `config`, `seed` and `n
 a `Config` from `cocuyo.resolv_conf.parse` or built by hand, a seed from a secure random source, and
 a monotonic clock in nanoseconds.
 
+<!-- readme-check: quick-start -->
 ```zig
 const cocuyo = @import("cocuyo");
 

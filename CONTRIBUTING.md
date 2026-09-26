@@ -53,7 +53,7 @@ Everything needs Zig 0.16.0.
 
 ```bash
 zig build hooks           # once after cloning: the pre-push hook checks commit messages
-zig build test            # the lint, the graph checks and every unit test
+zig build test            # the lint, the graph checks, the README's code and every unit test
 zig build test-wire       # one module's tests alone, which is what a mutation is measured against
 zig build lint-commits    # the commit-message check, by hand
 ```

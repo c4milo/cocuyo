@@ -2719,6 +2719,9 @@ and nothing else, and `Started` goes away.
 - A lookup seeded from the cache does not write back what it was handed.
 - `zig build consumer-check` builds the dependent fixture, and the fixture that imports `sim`
   fails to build.
+- `zig build readme-check`, since 2026-09-26, builds every Zig block of the README in a package
+  that depends on cocuyo, and runs the quick start to its first `send_udp`. The README's driving
+  loop had stopped compiling once `send_request` joined the actions, and nothing had noticed.
 
 ## 21. DNS over TLS
 

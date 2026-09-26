@@ -2476,3 +2476,22 @@ held text whose part before its last colon is an IPv6 address while the whole is
 | EX2 | an IPv6 address takes a port without brackets | a port follows IPv6 in brackets alone | the refusal test, once it held nine groups | CAUGHT |
 | EX3 | anything may follow the closing bracket | a colon and a port, or nothing | the refusal test | CAUGHT |
 | EX4 | a question may ask for OPT | OPT is never a question (RFC 6891 §6.1.1) | the type test, by the assertion in `Question.from_text` | CAUGHT |
+
+## The README's code
+
+2026-09-26. The README's driving loop no longer compiled: two captures stood unused behind comments,
+and its switch lacked the `send_request` action DoH and DoQ added. Nothing built it. `zig build
+readme-check`, in the gate, now writes a package that depends on cocuyo and on the rotor it pins,
+with each Zig block of the README inside the harness its marker names, builds it, and runs the
+quick start, whose first action must be `send_udp` (`tools/readme_check.zig`). RC1 to RC3 break
+the README or the library against the check, and RC4 to RC6 break the tool's reading of the
+README against its tests. Six mutations, six `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| RC1 | the loop's `send_request` branch is gone, as it once was | the README's code compiles | the check: the package does not build | CAUGHT |
+| RC2 | a `Config` asks for TCP by default | the quick start's first action is `send_udp` | the check: the first action is `connect_tcp` | CAUGHT |
+| RC3 | a Zig block has no marker | every block is built | the check: the README is refused as unmarked | CAUGHT |
+| RC4 | a harness may be named twice | each block has one harness | the tool's reading test | CAUGHT |
+| RC5 | a marker may stand over prose | a marker names the block under it | the tool's reading test | CAUGHT |
+| RC6 | `quick_start` passes for `quick-start` | a marker spells its harness one way | the tool's reading test | CAUGHT |

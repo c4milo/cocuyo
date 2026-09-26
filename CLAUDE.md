@@ -179,8 +179,8 @@ The architecture depends on every rule in this section.
   of each, so a rule that stopped checking fails the build. Last, `tools/lint_coverage.zig`
   requires every tracked file a rule or the score reads to be under a directory it walks or
   handed to it by name, `test/`'s fixtures apart, so a directory left off the list fails too.
-- Test: `zig build test` — the lint, the graph check, the consumer check, the hook check, then
-  every module's unit tests and the tools' own tests. Every change passes it before it is
+- Test: `zig build test` — the lint, the graph check, the consumer check, the README check, the
+  hook check, then every module's unit tests and the tools' own tests. Every change passes it before it is
   committed. `zig build test-<module>` (`test-core`, `test-wire`, `test-resolver`, `test-config`,
   `test-cache`, `test-sim`, `test-cocuyo`, `test-io`, `test-chapulin_hooks`, `test-doh`,
   `test-cocuyo_quic`, `test-cocuyo_h2`)
@@ -188,7 +188,9 @@ The architecture depends on every rule in this section.
   a mutation is measured against. `zig build consumer-check` alone builds `test/consumer/`, the
   package that depends on cocuyo the way a consumer does, with `cocuyo_rotor` over a rotor of its
   own, and requires the same package to fail when it reaches for a module the surface does not
-  export (design §20, §24).
+  export (design §20, §24). `zig build readme-check` alone builds every Zig block of README.md,
+  each under the `<!-- readme-check: ... -->` marker that names its harness in
+  `tools/readme_check.zig`, and runs the quick start. A new block brings its marker and harness.
 - Bench: `zig build bench` — the microbenchmarks of design §15 step 7, built ReleaseSafe
   whatever `-Drelease` says. `zig build test` compiles the bench and runs the harness's own tests,
   so it cannot rot. A number goes into design §11 with the machine, the command and the date, or it
