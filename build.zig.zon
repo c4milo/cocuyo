@@ -25,8 +25,8 @@
         // (docs/design.md §24, decision 29). Never of the library in `src/`. Lazy, so a build that
         // asks for neither `cocuyo_quic` nor the engine's tests over colibri does not resolve it.
         .colibri = .{
-            .url = "git+https://github.com/c4milo/colibri#d2c1431a8e56727af76cc05d9c6670de04e3c755",
-            .hash = "colibri-0.0.0-Wo-Avr1ySQRUiSclnUmkxD7ekPHlFXlRG_kvLHtjXUuj",
+            .url = "git+https://github.com/c4milo/colibri#8230bc2004fa86efc8285c37554958e2ff2c8efb",
+            .hash = "colibri-0.0.0-Wo-AvkaYTwRrXl1o9GIavbzrWRHlUAujFBoGcm1HQFVR",
             .lazy = true,
         },
     },
