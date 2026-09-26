@@ -25,6 +25,8 @@ pub const constants = @import("constants.zig");
 pub const options = @import("resolv_conf_options.zig");
 pub const hosts = @import("hosts.zig");
 pub const spki_pin = @import("spki_pin.zig");
+/// The fuzz target of the text parsers, `core`'s and this module's (docs/design.md §13).
+pub const fuzz = @import("fuzz/fuzz.zig");
 
 /// The memory a parse fills. The `Config` it returns holds slices into this, so it must outlive
 /// every lookup that reads it. cocuyo allocates nothing.
@@ -371,4 +373,5 @@ test "a malformed search entry is skipped and the rest are kept" {
 test {
     _ = hosts;
     _ = spki_pin;
+    _ = fuzz;
 }

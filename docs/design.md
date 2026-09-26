@@ -1169,10 +1169,25 @@ the model reaches.
 
 The fuzz target drives the parser from a seeded generator that mixes pure random bytes with
 structured hostility: valid headers over lying counts, pointers at every offset, labels that run
-past the end, rdata lengths one byte too long, names at exactly 255 and 256 bytes. The seed prints
-on failure. `zig build fuzz -- --seed <hex>` runs one, `zig build fuzz-gate [count]` runs a range
-and is part of `zig build test`. The invariants: the parser never reads outside the message, always
-terminates, and never returns a name longer than `name_bytes_max`.
+past the end, rdata lengths one byte too long, names at exactly 255 and 256 bytes. The invariants:
+the parser never reads outside the message, always terminates, and never returns a name longer
+than `name_bytes_max`.
+
+A second target, since 2026-09-26, reads what the caller hands in rather than what the network
+sends (`src/config/fuzz/`): an address, a name, a `resolv.conf`, a hosts file and an SPKI pin.
+Each text is written whole from values the generator chose, and must read back as those; or has
+one byte changed, and may be taken or refused; or is a near miss the grammar refuses, and must be
+refused, which for a file is a whole file with one bad line that must be skipped; or is noise.
+Whatever a parser takes, it reads the same way twice, and gives back: an accepted name written
+out reads back as itself, and an accepted pin encodes to the text it came from, since a pin has
+one spelling. A DoH template, which lives in the engine's `doh` module, has a seeded test of the
+same kind beside its splitter.
+
+Each target's gate runs 4,096 seeds in `zig build test`, and prints the seed of a failure. `zig
+build fuzz -- [--text] --seed <hex>` runs one seed and prints what it built, and `zig build
+fuzz-gate -- [--text] [<count> [<first>]]` runs a range, a million seeds unless told otherwise,
+ReleaseSafe with every check on. Until 2026-09-26 this paragraph named both steps and neither
+existed.
 
 ## 14. What cocuyo sees, and what the platform resolver sees
 

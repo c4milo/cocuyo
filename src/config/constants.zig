@@ -41,3 +41,16 @@ pub const option_use_vc = "use-vc";
 /// One second in nanoseconds, which a `timeout:` value is multiplied by. It is spelled out
 /// because nothing under `src/` may name `std.time` (CLAUDE.md non-negotiable 4).
 pub const ns_per_s = 1_000_000_000;
+
+/// The text fuzz target (`fuzz/fuzz.zig`, docs/design.md §13). The longest text it builds, which
+/// holds the longest file it writes several times over; the most servers, search names and hosts
+/// lines it writes whole, below every limit the parsers keep so that each must come back; the most
+/// labels in a name, and the longest label it writes but for one of full length; and the most
+/// comment or blank lines it puts between two lines that count.
+pub const fuzz_text_bytes_max = 2048;
+pub const fuzz_entries_max = 4;
+pub const fuzz_labels_max = 4;
+pub const fuzz_label_bytes_max = 12;
+pub const fuzz_filler_lines_max = 2;
+/// The longest noise the target writes: longer than any address, name or pin it reads.
+pub const fuzz_noise_bytes_max = 96;

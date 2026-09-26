@@ -150,3 +150,131 @@ test "a host that is not an IPv4address by RFC 3986's grammar is a registered na
     try testing.expectEqualStrings("01.2.3.4", split("https://01.2.3.4/q{?dns}").?.host);
     try testing.expectEqualStrings("256.1.1.1", split("https://256.1.1.1/q{?dns}").?.host);
 }
+
+// The template's fuzz test: seeded, like the text parsers' gate (docs/design.md §13), and here
+// because the template lives in this module. A template is built from a scheme in either case, a
+// host, a port or none, and a path. Written whole, `split` must give back each part. Broken one way
+// the grammar refuses, it must be refused. With one byte changed, `split` may take it or refuse
+// it, and what it takes must still be a whole of its parts.
+
+const fuzz_seeds = 4096;
+const fuzz_text_bytes = 128;
+const fuzz_scheme = "https://";
+const fuzz_hosts = [_][]const u8{ "dns.example", "a-b.c_d.example", "x", "resolver.example.net", "01.2.3.4", "256.1.1.1" };
+const fuzz_paths = [_][]const u8{ "/dns-query{?dns}", "{?dns}", "/q?dns={dns}", "", "#frag", "/" };
+
+const FuzzMiss = enum { scheme_http, userinfo, ipv4_host, ip_literal, port_zero, port_past, port_letter, empty_host, empty_label };
+
+const Fuzz = struct {
+    word: u64,
+
+    fn next(self: *Fuzz) u64 {
+        self.word = cocuyo.core.mix.next(self.word);
+        return self.word;
+    }
+
+    fn below(self: *Fuzz, bound: usize) usize {
+        return @intCast(self.next() % bound);
+    }
+
+    fn coin(self: *Fuzz) bool {
+        return self.next() & 1 == 1;
+    }
+
+    fn pick(self: *Fuzz, comptime Choice: type) Choice {
+        return @enumFromInt(self.below(@typeInfo(Choice).@"enum".fields.len));
+    }
+};
+
+const FuzzShape = enum { whole, changed, near_miss };
+const FuzzPort = enum { none, empty, given };
+
+const Built = struct {
+    bytes: [fuzz_text_bytes]u8 = undefined,
+    len: usize = 0,
+    host: []const u8 = "",
+    port: u16 = constants.port_https_default,
+    path: []const u8 = "",
+
+    fn put(self: *Built, part: []const u8) void {
+        @memcpy(self.bytes[self.len..][0..part.len], part);
+        self.len += part.len;
+    }
+
+    fn put_port(self: *Built, port: u64) void {
+        self.len += (std.fmt.bufPrint(self.bytes[self.len..], ":{d}", .{port}) catch unreachable).len;
+    }
+
+    fn text(self: *const Built) []const u8 {
+        return self.bytes[0..self.len];
+    }
+};
+
+fn fuzz_whole(fuzz: *Fuzz, built: *Built) void {
+    built.put(if (fuzz.coin()) fuzz_scheme else "HtTpS://");
+    built.host = fuzz_hosts[fuzz.below(fuzz_hosts.len)];
+    built.put(built.host);
+    switch (fuzz.pick(FuzzPort)) {
+        .none => {},
+        .empty => built.put(":"),
+        .given => {
+            built.port = @intCast(1 + fuzz.below(std.math.maxInt(u16)));
+            built.put_port(built.port);
+        },
+    }
+    built.path = fuzz_paths[fuzz.below(fuzz_paths.len)];
+    built.put(built.path);
+}
+
+fn fuzz_miss(fuzz: *Fuzz, built: *Built) void {
+    const miss = fuzz.pick(FuzzMiss);
+    built.put(if (miss == .scheme_http) "http://" else fuzz_scheme);
+    switch (miss) {
+        .userinfo => built.put("user@dns.example"),
+        .ipv4_host => built.put("192.0.2.1"),
+        .ip_literal => built.put("[2001:db8::1]"),
+        .empty_host => {},
+        .empty_label => built.put("dns..example"),
+        else => built.put(fuzz_hosts[fuzz.below(fuzz_hosts.len)]),
+    }
+    switch (miss) {
+        .port_zero => built.put(":0"),
+        .port_past => built.put_port(@as(u64, std.math.maxInt(u16)) + 1 + fuzz.below(std.math.maxInt(u16))),
+        .port_letter => built.put(":44a"),
+        else => {},
+    }
+    built.put(fuzz_paths[fuzz.below(fuzz_paths.len)]);
+}
+
+/// What a template `split` took must still be its parts: the authority and the path are the text
+/// after the scheme, the host starts the authority, and the port is one a datagram can go to.
+fn fuzz_whole_again(written: []const u8, template: Template) bool {
+    return fuzz_scheme.len + template.authority.len + template.path.len == written.len and
+        std.mem.startsWith(u8, template.authority, template.host) and template.port != 0;
+}
+
+test "templates split into their parts, near misses are refused, and a changed byte panics nothing" {
+    for (0..fuzz_seeds) |seed| {
+        var fuzz: Fuzz = .{ .word = seed };
+        var built: Built = .{};
+        switch (fuzz.pick(FuzzShape)) {
+            .whole => {
+                fuzz_whole(&fuzz, &built);
+                const template = split(built.text()) orelse return error.TestUnexpectedResult;
+                try testing.expectEqualStrings(built.host, template.host);
+                try testing.expectEqual(built.port, template.port);
+                try testing.expectEqualStrings(built.path, template.path);
+                try testing.expect(fuzz_whole_again(built.text(), template));
+            },
+            .changed => {
+                fuzz_whole(&fuzz, &built);
+                built.bytes[fuzz.below(built.len)] +%= @intCast(1 + fuzz.below(std.math.maxInt(u8)));
+                if (split(built.text())) |template| try testing.expect(fuzz_whole_again(built.text(), template));
+            },
+            .near_miss => {
+                fuzz_miss(&fuzz, &built);
+                try testing.expectEqual(@as(?Template, null), split(built.text()));
+            },
+        }
+    }
+}

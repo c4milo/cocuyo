@@ -246,6 +246,10 @@ The architecture depends on every rule in this section.
   through colibri's HTTP/3, given a URI template where DoQ takes a name; `tools/doh_live/run.sh
   <checkout>` runs the live check of design §24 step 5, against Google and Cloudflare. The
   `doh-live` workflow runs both once a day on macOS.
+- Fuzz: `zig build test` runs both fuzz targets' gates, the codec's (`src/wire/fuzz.zig`) and
+  the text parsers' (`src/config/fuzz/`). `zig build fuzz -- [--text] --seed <hex>` runs one
+  seed and prints what it built; `zig build fuzz-gate -- [--text] [<count> [<first>]]` runs a
+  range, ReleaseSafe.
 - Format: `zig build fmt`, or `zig fmt build.zig build src tools examples bench io`.
 - Commit messages: `zig build hooks` once after clone; `zig build lint-commits` by hand.
 

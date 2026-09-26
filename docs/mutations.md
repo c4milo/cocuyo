@@ -2495,3 +2495,31 @@ README against its tests. Six mutations, six `CAUGHT`.
 | RC4 | a harness may be named twice | each block has one harness | the tool's reading test | CAUGHT |
 | RC5 | a marker may stand over prose | a marker names the block under it | the tool's reading test | CAUGHT |
 | RC6 | `quick_start` passes for `quick-start` | a marker spells its harness one way | the tool's reading test | CAUGHT |
+
+## The text parsers in a fuzz target
+
+2026-09-26. The codec had a fuzz target and the text parsers had none: an address, a name, a
+`resolv.conf`, a hosts file and an SPKI pin were checked only by the cases their tests spell out.
+The second target (`src/config/fuzz/`, design §13) writes each whole, with one byte changed, as a
+near miss, or as noise, and a DoH template has a seeded test of its own beside its splitter. The
+design named `zig build fuzz` and `zig build fuzz-gate`, and neither existed; both do now.
+Twenty million text seeds held.
+
+TF1 to TF4 and TT1 each plant a parser bug the existing tests do not reach, run against the
+module's tests before this change and after it. Before, each went unseen: TF1, TF2 and TF4 by the
+core, config and resolver tests alike. After, each is caught. TC1 to TC3 break the target's own
+checks, against its tests. Eight mutations, eight `CAUGHT`.
+
+| # | Planted parser bug | Before | After | Status |
+| --- | --- | --- | --- | --- |
+| TF1 | an upper-case hex digit reads from `A` as zero | unseen | the text fuzz gate | CAUGHT |
+| TF2 | a label refuses `~`, which is printable | unseen | the text fuzz gate | CAUGHT |
+| TF3 | a hosts line keeps the CR of a CRLF ending in its last name, and loses the name | unseen | the text fuzz gate | CAUGHT |
+| TF4 | a dotted quad after six written groups is refused | unseen | the text fuzz gate | CAUGHT |
+| TT1 | a DoH template's host refuses `_`, which RFC 3986 §2.3 leaves unreserved | unseen | the template's fuzz test | CAUGHT |
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| TC1 | a whole address is not compared with what was written | a whole text reads back as written | the verdict test | CAUGHT |
+| TC2 | a pin the reader should refuse may be taken | a near miss is refused | the verdict test | CAUGHT |
+| TC3 | no text is written whole | every parser is reached whole | the reach test, the generator's test | CAUGHT |
