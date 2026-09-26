@@ -289,7 +289,9 @@ cocuyo through its event-loop engine and c-ares through its own event thread:
 
 cocuyo does 1.24 to 1.48 times the lookups per second, with a lower median latency in every row.
 c-ares has the better 99th percentile at one and sixteen in flight. That gap is under investigation
-and is not yet explained.
+and is not yet explained. The two also spend memory differently: c-ares allocates a heap object for
+each message and each record, and cocuyo holds only the memory its caller sized at init, so what it
+uses cannot grow with the load.
 
 The cache, replayed over a real ISP's DNS log of 28 million questions: at its default of 1,024
 entries, a cache per client answers 49% to 60% of questions without a packet. The range is the
@@ -361,6 +363,8 @@ unmodified.
 
 [CONTRIBUTING.md](CONTRIBUTING.md) states the bar a change meets and the workflow. Report a
 vulnerability privately, as [SECURITY.md](SECURITY.md) says, never in a public issue.
+[`docs/landscape.md`](docs/landscape.md) surveys the other DNS resolver libraries, with sources, and
+says where cocuyo is weaker than each.
 
 ## License
 
