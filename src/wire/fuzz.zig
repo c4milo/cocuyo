@@ -25,7 +25,14 @@ pub const seed_count = 4096;
 /// Runs one seed. Returns the promise that broke, or null when the message held up.
 pub fn run(seed: u64, out: *Message) ?[]const u8 {
     generate(seed, out);
-    return check(out.slice());
+    return verdict(out);
+}
+
+/// What the check says of a message, and of a record written whole, whether it was taken whole.
+pub fn verdict(message: *const Message) ?[]const u8 {
+    if (check(message.slice())) |failure| return failure;
+    if (message.whole) return check_module.check_whole(message.slice());
+    return null;
 }
 
 /// Runs `count` seeds from `first`. Returns the first seed that failed and what broke.
@@ -66,4 +73,15 @@ test "a seed that built a message reaching the parsers is checked, not merely re
         if (message.strategy == .question_then_noise and message.len > 64) parsed += 1;
     }
     try testing.expect(parsed > 0);
+}
+
+test "a record written whole that its view refuses fails the verdict, and the same record changed does not" {
+    const fixtures = @import("rdata/rdata.zig").fixtures;
+    // A CAA whose tag is empty, which RFC 8659 §4.1 forbids and the copy takes as it is.
+    const refused = fixtures.caa_response(&fixtures.caa_tag_zero);
+    var message: Message = .{ .len = refused.len, .strategy = .record, .whole = true };
+    @memcpy(message.bytes[0..refused.len], &refused);
+    try testing.expect(verdict(&message) != null);
+    message.whole = false;
+    try testing.expectEqual(@as(?[]const u8, null), verdict(&message));
 }

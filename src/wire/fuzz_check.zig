@@ -132,20 +132,22 @@ fn rdata_check(message: []const u8, record: *const record_codec.Record) ?[]const
     return null;
 }
 
-/// The copy of docs/design.md §19 step 9 against the typed views: a record the copy accepted, of
-/// a type whose layout has no `rest`, must read back through its view, because the two walk the
-/// same segments; and the copy never writes past the room it was given.
+/// The copy of docs/design.md §19 step 9 against the typed views: the copy never writes past the
+/// room it was given, and every view is run over what it wrote. A record of a type whose layout
+/// has no `rest` must read back through its view, because the two walk the same segments. The
+/// copy takes a `rest` as it is, so a view may refuse it, as long as it refuses within the rdata.
 fn copy_check(message: []const u8, record: *const record_codec.Record) ?[]const u8 {
     var out: [core.constants.rdata_bytes_max]u8 = undefined;
     const written = (record_copy.copy_out(message, record, &out) catch return null) orelse return null;
     if (written > out.len) return "the copy wrote past its buffer";
     const kind = core.Kind.from_code(record.kind_code) orelse return null;
     const parsed = reads_back(kind, out[0..written]) orelse return null;
-    if (!parsed) return "a record the copy accepted did not read back through its view";
+    if (!parsed and !ends_in_rest(kind)) return "a record the copy accepted did not read back through its view";
     return null;
 }
 
-/// Whether the view of a type whose layout has no `rest` accepts `stored`; null for the others.
+/// Whether the view of `kind` accepts `stored`, walking a TXT's strings and an SVCB's parameters
+/// to their end; null for a type with no view.
 fn reads_back(kind: core.Kind, stored: []const u8) ?bool {
     return switch (kind) {
         .ns, .cname, .ptr => accepted(rdata.name.whole(stored)),
@@ -153,8 +155,63 @@ fn reads_back(kind: core.Kind, stored: []const u8) ?bool {
         .soa => accepted(rdata.Soa.parse(stored)),
         .srv => accepted(rdata.Srv.parse(stored)),
         .naptr => accepted(rdata.Naptr.parse(stored)),
-        else => null,
+        .hinfo => accepted(rdata.Hinfo.parse(stored)),
+        .txt => txt_reads(stored),
+        .sig => accepted(rdata.Sig.parse(stored)),
+        .tlsa => accepted(rdata.Tlsa.parse(stored)),
+        .uri => accepted(rdata.Uri.parse(stored)),
+        .caa => accepted(rdata.Caa.parse(stored)),
+        .svcb, .https => svcb_reads(stored),
+        .a, .aaaa, .opt, .any => null,
     };
+}
+
+fn ends_in_rest(kind: core.Kind) bool {
+    const layout = rdata.layout.of(kind.code());
+    return layout[layout.len - 1] == .rest;
+}
+
+/// Every string of a TXT, which each take an octet at least, so the rdata's length bounds them.
+fn txt_reads(stored: []const u8) bool {
+    var strings = rdata.Txt.strings(stored) catch return false;
+    for (0..stored.len + 1) |_| {
+        const string = strings.next() catch return false;
+        if (string == null) return true;
+    }
+    return false;
+}
+
+/// Every parameter of an SVCB, which each take four octets at least.
+fn svcb_reads(stored: []const u8) bool {
+    const svcb = rdata.Svcb.parse(stored) catch return false;
+    var params = svcb.params();
+    for (0..stored.len + 1) |_| {
+        const param = params.next() catch return false;
+        if (param == null) return true;
+    }
+    return false;
+}
+
+/// A record the generator wrote whole (`fuzz_generate.zig`): the first answer is read, the copy
+/// takes it, and its view takes the copy, whatever its type's layout.
+pub fn check_whole(message: []const u8) ?[]const u8 {
+    const header = header_codec.parse(message) catch return "a whole record's header did not parse";
+    var name: Name = Name.empty;
+    const parsed = question_codec.parse(message, &name) catch return "a whole record's question did not parse";
+    var walk = record_codec.Iterator.init(message, parsed.end, header.ancount);
+    const found = walk.next() catch return "a whole record did not walk";
+    const record = found orelse return "a whole record was not there";
+    const kind = core.Kind.from_code(record.kind_code) orelse return "a whole record is of a type the codec does not read";
+    if (kind == .a or kind == .aaaa) {
+        _ = record.address() catch return "a whole address did not read";
+        return null;
+    }
+    var out: [core.constants.rdata_bytes_max]u8 = undefined;
+    const copied = record_copy.copy_out(message, &record, &out) catch return "the copy refused a whole record";
+    const written = copied orelse return "a whole record did not fit the copy";
+    const read = reads_back(kind, out[0..written]) orelse return null;
+    if (!read) return "a whole record's view refused its copy";
+    return null;
 }
 
 fn accepted(result: anytype) bool {
@@ -202,4 +259,19 @@ fn response_check(message: []const u8) ?[]const u8 {
         if (address.family != .ipv4) return "an A question collected an address that is not IPv4";
     }
     return null;
+}
+
+// Tests.
+
+const testing = std.testing;
+const fixtures = rdata.fixtures;
+
+test "a whole record its view refuses is a failure, and one it takes is none" {
+    const taken = fixtures.caa_response(&fixtures.caa);
+    try testing.expectEqual(@as(?[]const u8, null), check_whole(&taken));
+    // A CAA whose tag is empty, which RFC 8659 §4.1 forbids and the copy takes as it is.
+    const refused = fixtures.caa_response(&fixtures.caa_tag_zero);
+    try testing.expectEqualStrings("a whole record's view refused its copy", check_whole(&refused).?);
+    // The same message not marked whole is no failure: a view may refuse a `rest`.
+    try testing.expectEqual(@as(?[]const u8, null), check(&refused));
 }

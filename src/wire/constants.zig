@@ -94,6 +94,21 @@ pub const caa_flag_critical = 0x80;
 /// A `<character-string>`: one length octet, then at most that many octets (RFC 1035 §3.3).
 pub const character_string_bytes_max = 255;
 
+/// The shape of a record the fuzz generator writes whole (`fuzz_generate.zig`, docs/design.md
+/// §19, step 9's gate): names of up to three labels of up to twelve letters, character-strings of
+/// up to twenty octets and up to four of them in a TXT or an ALPN list, opaque fields of up to
+/// thirty-two octets, and up to three addresses in an SVCB hint. A record of every type then fits
+/// a message several times over. Chosen, not measured.
+pub const fuzz_labels_max = 3;
+pub const fuzz_label_bytes_max = 12;
+pub const fuzz_string_bytes_max = 20;
+pub const fuzz_strings_max = 4;
+pub const fuzz_opaque_bytes_max = 32;
+pub const fuzz_hints_max = 3;
+/// An SVCB key with no format of its own, which a client keeps as it is: RFC 9460 Appendix D's
+/// `key667`.
+pub const fuzz_svcb_key_generic = 667;
+
 /// An OPT option: a 16-bit code and a 16-bit length, then the data (RFC 6891 §6.1.2).
 pub const opt_option_fixed_bytes = 4;
 pub const opt_option_length_offset = 2;

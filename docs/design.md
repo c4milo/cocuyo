@@ -2021,7 +2021,9 @@ turns out too small for someone, because it changes `Lookup.init` and every slot
 Appendix D has test vectors), the fuzz corpus grown by each, and one mutation per field decoded.
 Landed on 2026-09-22: `src/wire/rdata/`, `record_copy.zig`, `response_take.zig`; the sizes it
 moved are in §9 and §18, its mutations in `docs/mutations.md`, and what the buffer cost until
-`Answers.reset`, `Answers.assign` and `Lookup.init_in_place` in §11.
+`Answers.reset`, `Answers.assign` and `Lookup.init_in_place` in §11. Since 2026-09-26 the fuzz
+generator writes a record of every type the codec reads, whole or with one octet changed, and a
+record written whole must be taken whole (c4milo/cocuyo#23, `docs/mutations.md` FZ1 to FZ10).
 
 ### Step 10: DNS cookies
 

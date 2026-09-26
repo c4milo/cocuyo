@@ -2305,7 +2305,6 @@ Twenty-three mutations, twenty-three `CAUGHT`.
 | HT22 | a record is opened into less room than its plaintext needs | the record waits | the waiting-record test | CAUGHT |
 | HT23 | the twin keeps the server of a socket a new connection reuses | a new connection is a new server | the engine's GOAWAY test | CAUGHT |
 
-
 ## The transport read after it moves
 
 Design §24, request rule 17, 2026-09-26 (c4milo/cocuyo#18). Besides after each receive and each
@@ -2344,3 +2343,35 @@ picks catch every mutation of the set the short walks miss. Five mutations, five
 | TR3 | a request the transport holds back leaves it unread | request rule 17 | the held-back request test; full run walk 5710, picked | CAUGHT |
 | TR4 | a cancelled DoQ stream frees its slot before its answer or reset is read | colibri keeps a stream's place until both its halves end | the test of streams the engine cancels | CAUGHT |
 | TR5 | the twin tells a held answer for a stream the engine cancelled | a cancelled stream is told to nobody (request rule 6) | full run walk 4024, picked | CAUGHT |
+
+## Every record type in the fuzz target
+
+2026-09-26 (c4milo/cocuyo#23). Design §19's gate for the record types asks for the fuzz corpus
+grown by each. The generator (`src/wire/fuzz_generate.zig`) built noise, and plausible headers,
+questions and names, and no well-formed record of any type, so a typed view mostly met octets that
+failed its first check. It now writes a response whose one answer is a record of each type the
+codec reads, half of them whole and half with one octet of the rdata changed. A record written
+whole must be taken whole: the copy takes it, and its view takes the copy. Every view now runs
+over what the copy wrote, and one whose layout ends in a rest may refuse it, since the copy takes a
+rest as it is.
+
+The fuzz target's checks show only against a decoder that is wrong. So FZ1 to FZ5 each plant a
+decoder bug the hand-built fixtures do not reach, run against `zig build test-wire` before this
+change and after it: each went unseen before, and is caught after. FZ6 to FZ10 break the new
+check's own lines. Ten mutations, ten `CAUGHT`.
+
+| # | Planted decoder bug | Before | After | Status |
+| --- | --- | --- | --- | --- |
+| FZ1 | a TXT longer than twelve octets is refused | unseen | the fuzz gate | CAUGHT |
+| FZ2 | a NAPTR with a regexp is refused | unseen | the fuzz gate | CAUGHT |
+| FZ3 | an SVCB with an `ech` parameter is refused | unseen | the fuzz gate | CAUGHT |
+| FZ4 | a critical CAA with a value is refused | unseen | the fuzz gate | CAUGHT |
+| FZ5 | a SIG whose signature is longer than four octets is refused | unseen | the fuzz gate | CAUGHT |
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| FZ6 | a whole record's view may refuse its copy | a whole record is taken whole | the verdict test, the whole-record test | CAUGHT |
+| FZ7 | the verdict does not check a record written whole | a whole record is taken whole | the verdict test | CAUGHT |
+| FZ8 | no record is written whole | every type is written whole | the reach test | CAUGHT |
+| FZ9 | one type is never written | every type is written | the reach test | CAUGHT |
+| FZ10 | a view that refuses a rest fails the gate | a rest may be refused | the fuzz gate, the whole-record test | CAUGHT |

@@ -144,3 +144,14 @@ pub const opt_options = [_]u8{ 0x00, 0x0a, 0x00, 0x08, 1, 2, 3, 4, 5, 6, 7, 8, 0
 pub const opt_nsid_only = [_]u8{ 0x00, 0x03, 0x00, 0x00 };
 pub const opt_option_short = [_]u8{ 0x00, 0x0a, 0x00, 0x08, 1, 2 };
 pub const opt_option_header_only = [_]u8{ 0x00, 0x0a, 0x00 };
+
+// A whole response around a CAA, for the fuzz check's own test (`fuzz_check.zig`).
+
+/// A response to `example.com`, id 0, whose one answer is a CAA with `rdata`, its owner a pointer
+/// to the question's name (RFC 1035 §4.1, RFC 8659 §4.1).
+pub fn caa_response(comptime rdata: []const u8) [41 + rdata.len]u8 {
+    const header = [_]u8{ 0x00, 0x00, 0x80, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 };
+    const question = name_example ++ [_]u8{ 0x01, 0x01, 0x00, 0x01 };
+    const answer = [_]u8{ 0xc0, 0x0c, 0x01, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, rdata.len };
+    return header ++ question ++ answer ++ rdata[0..rdata.len].*;
+}
