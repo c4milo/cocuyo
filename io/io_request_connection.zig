@@ -33,7 +33,7 @@ pub fn Connection(comptime Quic: type, comptime lookups: u16) type {
         /// The multishot receive every datagram of the connection arrives on, while it is armed.
         /// Null when the loop refused the last arming, which the next drive asks for again.
         receive: ?rotor.Handle = null,
-        quic: Quic = .{},
+        transport: Quic = .{},
         /// The requests waiting for the handshake's end, or for the close to end, oldest first
         /// (request rules 4 and 9), and how many have a stream.
         queue: [lookups]u16 = undefined,
@@ -57,7 +57,7 @@ pub fn Connection(comptime Quic: type, comptime lookups: u16) type {
         /// The fields are set one by one, so the queue is not written over while its requests
         /// wait to open the slot again (request rule 9).
         pub fn restart(self: *Self) void {
-            self.quic.wipe();
+            self.transport.wipe();
             self.state = .closed;
             self.descriptor = null;
             self.receive = null;
@@ -65,6 +65,23 @@ pub fn Connection(comptime Quic: type, comptime lookups: u16) type {
             self.idle_since_ns = 0;
             self.made = 0;
         }
+    };
+}
+
+/// One transport's request connections: a slot for each server, what the loop borrows from each,
+/// the newest ticket each server's connections were given, what every session starts from, and
+/// how long a connection with no request on it is kept (request rules 1, 8, 9 and 10). An engine
+/// with no request transport holds a set of no slots.
+pub fn Set(comptime Quic: type, comptime servers: usize, comptime lookups: u16) type {
+    return struct {
+        connections: [servers]Connection(Quic, lookups) = @splat(.{}),
+        sends: [servers]Send(Quic) = @splat(.{}),
+        tickets: [servers]?tls.Kept(Quic) = @splat(null),
+        context: Quic.Context = .{},
+        idle_ns: u64 = constants.quic_idle_ns_default,
+
+        /// The transport the set's connections run.
+        pub const Transport = Quic;
     };
 }
 
@@ -84,17 +101,17 @@ pub fn Send(comptime Quic: type) type {
 /// Puts slot `index`'s request on its server's connection. A closed connection opens, and one
 /// that cannot fails the request. An idle one near its negotiated idle timeout closes first, and
 /// the request waits for the new one (request rule 9, RFC 9250 §4.4).
-pub fn place(self: anytype, index: usize, now_ns: u64) void {
+pub fn place(self: anytype, set: anytype, index: usize, now_ns: u64) void {
     const server = self.requests[index].server;
-    const connection = &self.quic_connections[server];
-    if (connection.state == .up and connection.users() == 0 and near_idle(self, server, now_ns)) {
-        begin_close(self, server);
+    const connection = &set.connections[server];
+    if (connection.state == .up and connection.users() == 0 and near_idle(set, server, now_ns)) {
+        begin_close(set, server);
     }
-    if (connection.state == .closed and !open(self, server, now_ns)) {
-        return request_module.fail_all_of(self, server, now_ns);
+    if (connection.state == .closed and !open(self, set, server, now_ns)) {
+        return request_module.fail_all_of(self, set, server, now_ns);
     }
     // The connection opened above is handshaking: the request waits for its end (rule 4).
-    if (connection.state == .up and open_stream(self, server, index, now_ns)) return;
+    if (connection.state == .up and open_stream(self, set, server, index, now_ns)) return;
     if (connection.state == .closed) return;
     enqueue(connection, @intCast(index));
 }
@@ -102,9 +119,9 @@ pub fn place(self: anytype, index: usize, now_ns: u64) void {
 /// Whether an idle connection that is up has less than `quic_idle_margin_ns` left before the idle
 /// timeout it negotiated. "When a client prepares to send a new DNS query to the server, it
 /// SHOULD check whether the idle time is sufficiently lower than the idle timer" (RFC 9250 §4.4).
-fn near_idle(self: anytype, server: u8, now_ns: u64) bool {
-    const connection = &self.quic_connections[server];
-    return connection.quic.idle_left_ns(now_ns) < constants.quic_idle_margin_ns;
+fn near_idle(set: anytype, server: u8, now_ns: u64) bool {
+    const connection = &set.connections[server];
+    return connection.transport.idle_left_ns(now_ns) < constants.quic_idle_margin_ns;
 }
 
 pub fn enqueue(connection: anytype, index: u16) void {
@@ -124,12 +141,12 @@ pub fn dequeue(connection: anytype, index: u16) void {
 /// Opens slot `index`'s stream on an up connection: its bytes, then FIN (RFC 9250 §4.2). False
 /// when the server's stream credit has run out and the request waits (request rule 4), or when the
 /// transport failed and the connection with it.
-fn open_stream(self: anytype, server: u8, index: usize, now_ns: u64) bool {
-    const connection = &self.quic_connections[server];
+fn open_stream(self: anytype, set: anytype, server: u8, index: usize, now_ns: u64) bool {
+    const connection = &set.connections[server];
     const request = &self.requests[index];
     assert(connection.state == .up and request.live and request.stream == null);
-    const opened = connection.quic.request(&request.bytes, request.len) catch {
-        fail(self, server, now_ns);
+    const opened = connection.transport.request(&request.bytes, request.len) catch {
+        fail(self, set, server, now_ns);
         return false;
     };
     const stream = opened orelse return false;
@@ -140,11 +157,11 @@ fn open_stream(self: anytype, server: u8, index: usize, now_ns: u64) bool {
 
 /// Each waiting request opens its stream, in the order it was taken, until the server's credit
 /// runs out (request rule 4).
-pub fn open_waiting(self: anytype, server: u8, now_ns: u64) void {
-    const connection = &self.quic_connections[server];
+pub fn open_waiting(self: anytype, set: anytype, server: u8, now_ns: u64) void {
+    const connection = &set.connections[server];
     while (connection.state == .up and connection.queue_len > 0) {
         const index = connection.queue[0];
-        if (!open_stream(self, server, index, now_ns)) return;
+        if (!open_stream(self, set, server, index, now_ns)) return;
         dequeue(connection, index);
     }
 }
@@ -160,8 +177,8 @@ pub fn protocol_of(self: anytype) []const u8 {
 /// Opens server `server`'s connection: its socket, its receive, and the transport's first flight,
 /// resuming with the server's ticket, which it spends (request rules 1 and 10). False when the
 /// system refused the socket or the transport could not start, which leaves the slot closed.
-fn open(self: anytype, server: u8, now_ns: u64) bool {
-    const connection = &self.quic_connections[server];
+fn open(self: anytype, set: anytype, server: u8, now_ns: u64) bool {
+    const connection = &set.connections[server];
     assert(connection.state == .closed);
     const configured = &self.config.servers[server];
     // A DoH server's template names its port, its name and its path, and one the engine cannot
@@ -175,93 +192,93 @@ fn open(self: anytype, server: u8, now_ns: u64) bool {
     connection.state = .handshaking;
     connection.descriptor = descriptor;
     connection.port = if (template) |split| split.port else configured.quic.?.port;
-    return start(self, server, template, now_ns);
+    return start(self, set, server, template, now_ns);
 }
 
 /// Starts the transport of server `server`'s connection, whose socket is open: its first flight,
 /// resuming with the server's ticket, which it spends (request rule 10). False when it cannot
 /// start, which closes the socket again.
-fn start(self: anytype, server: u8, template: ?request_template.Template, now_ns: u64) bool {
-    const connection = &self.quic_connections[server];
+fn start(self: anytype, set: anytype, server: u8, template: ?request_template.Template, now_ns: u64) bool {
+    const connection = &set.connections[server];
     const configured = &self.config.servers[server];
-    const kept = spend(self, server, now_ns);
+    const kept = spend(set, server, now_ns);
     // A DoQ server is known as a TLS server is (RFC 9250 §5.1), and a DoH server by its
     // template's host (RFC 9110 §4.3.4), which `split` has read as a name.
     var named: cocuyo.Tls = undefined;
     if (template) |split| named = .{ .name = cocuyo.Name.from_text(split.host) catch unreachable };
-    connection.quic.start(.{
+    connection.transport.start(.{
         .tls = if (template != null) &named else &configured.quic.?,
         .https = template,
         .alpn = protocol_of(self),
         .ticket = if (kept) |ticket| ticket.ticket else null,
         .ticket_age_ns = if (kept) |ticket| now_ns -| ticket.since_ns else 0,
-        .context = &self.quic_context,
+        .context = &set.context,
         .now_ns = now_ns,
     }) catch {
-        shut(self, server);
+        shut(self, set, server);
         return false;
     };
-    arm(self, server);
+    arm(self, set, server);
     return true;
 }
 
 /// Where server `server`'s connection goes: its address, on the port its opening chose. A DoQ
 /// server's is UDP's 853 unless the configuration named another (RFC 9250 §4.1.1), and a DoH
 /// server's is its template's (RFC 9114 §3.1).
-pub fn endpoint_of(self: anytype, server: u8) cocuyo.Endpoint {
+pub fn endpoint_of(self: anytype, set: anytype, server: u8) cocuyo.Endpoint {
     var endpoint = self.config.servers[server].endpoint;
-    endpoint.port = self.quic_connections[server].port;
+    endpoint.port = set.connections[server].port;
     return endpoint;
 }
 
 /// Spends server `server`'s ticket, unless it has lapsed. A ticket is used once, since reuse lets
 /// an observer link two connections (RFC 9846 §C.4, request rule 10).
-fn spend(self: anytype, server: u8, now_ns: u64) ?tls.Kept(@TypeOf(self.*).Quic) {
-    const kept = self.quic_tickets[server] orelse return null;
-    self.quic_tickets[server] = null;
-    if (!tls.fresh(@TypeOf(self.*).Quic, &kept, now_ns)) return null;
+fn spend(set: anytype, server: u8, now_ns: u64) ?tls.Kept(@TypeOf(set.*).Transport) {
+    const kept = set.tickets[server] orelse return null;
+    set.tickets[server] = null;
+    if (!tls.fresh(@TypeOf(set.*).Transport, &kept, now_ns)) return null;
     return kept;
 }
 
 /// Server `server`'s connection fails: each request on it hears so once, and it closes (request
 /// rule 7).
-pub fn fail(self: anytype, server: u8, now_ns: u64) void {
-    const connection = &self.quic_connections[server];
+pub fn fail(self: anytype, set: anytype, server: u8, now_ns: u64) void {
+    const connection = &set.connections[server];
     // One that drains or closes fails the requests on its streams alone, and opens again for those
     // that wait, which never went to it (request rule 13).
     if (connection.state == .draining or connection.state == .closing) {
-        request_module.fail_streams_of(self, server, now_ns);
-        return reopen(self, server, now_ns);
+        request_module.fail_streams_of(self, set, server, now_ns);
+        return reopen(self, set, server, now_ns);
     }
-    request_module.fail_all_of(self, server, now_ns);
-    shut(self, server);
+    request_module.fail_all_of(self, set, server, now_ns);
+    shut(self, set, server);
 }
 
 /// The server sent GOAWAY: the connection takes no new stream, and drains (request rule 13). One
 /// after the first changes nothing: "An endpoint MAY send multiple GOAWAY frames" (RFC 9114 §5.2),
 /// and a draining connection has a stream. A closing one reads nothing, and a handshaking one has
 /// no stream a GOAWAY could come on.
-pub fn drain(self: anytype, server: u8) void {
-    const connection = &self.quic_connections[server];
+pub fn drain(set: anytype, server: u8) void {
+    const connection = &set.connections[server];
     assert(connection.state == .up or connection.state == .draining);
     connection.state = .draining;
-    drained(self, server);
+    drained(set, server);
 }
 
 /// A draining connection whose last stream has ended closes as an idle one does, and opens again
 /// for the requests that wait once its CONNECTION_CLOSE has gone (request rules 9 and 13).
-pub fn drained(self: anytype, server: u8) void {
-    const connection = &self.quic_connections[server];
+pub fn drained(set: anytype, server: u8) void {
+    const connection = &set.connections[server];
     if (connection.state != .draining or connection.streams != 0) return;
     connection.state = .closing;
-    connection.quic.close();
+    connection.transport.close();
 }
 
 /// Ends an opening: its receive cancelled, which is what makes the loop let it go (rotor decision
 /// 5, rule 1), and its socket closed. A datagram in flight keeps the slot's buffer until its final
 /// event, which then speaks for nobody. The queue is left as it is, for `closed` to open again.
-fn shut(self: anytype, server: u8) void {
-    const connection = &self.quic_connections[server];
+fn shut(self: anytype, set: anytype, server: u8) void {
+    const connection = &set.connections[server];
     if (connection.receive) |handle| self.loop.cancel(handle);
     if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);
     connection.restart();
@@ -269,39 +286,39 @@ fn shut(self: anytype, server: u8) void {
 
 /// An idle connection closes: the transport makes CONNECTION_CLOSE with DOQ_NO_ERROR (RFC 9250
 /// §4.4), and the socket closes once that datagram has gone (request rule 9).
-fn begin_close(self: anytype, server: u8) void {
-    const connection = &self.quic_connections[server];
+fn begin_close(set: anytype, server: u8) void {
+    const connection = &set.connections[server];
     assert(connection.state == .handshaking or connection.state == .up);
     assert(connection.users() == 0);
     connection.state = .closing;
-    connection.quic.close();
+    connection.transport.close();
 }
 
 /// The CONNECTION_CLOSE has gone: the connection closes, and opens again for the requests taken
 /// while it closed (request rule 9). A new one that cannot open fails them.
-pub fn closed(self: anytype, server: u8, now_ns: u64) void {
-    assert(self.quic_connections[server].state == .closing);
-    reopen(self, server, now_ns);
+pub fn closed(self: anytype, set: anytype, server: u8, now_ns: u64) void {
+    assert(set.connections[server].state == .closing);
+    reopen(self, set, server, now_ns);
 }
 
 /// Ends the opening, and opens again for the requests that wait.
-fn reopen(self: anytype, server: u8, now_ns: u64) void {
-    const connection = &self.quic_connections[server];
-    shut(self, server);
+fn reopen(self: anytype, set: anytype, server: u8, now_ns: u64) void {
+    const connection = &set.connections[server];
+    shut(self, set, server);
     if (connection.queue_len == 0) return;
-    if (!open(self, server, now_ns)) request_module.fail_all_of(self, server, now_ns);
+    if (!open(self, set, server, now_ns)) request_module.fail_all_of(self, set, server, now_ns);
 }
 
-/// Closes every connection with no request on it for `quic_idle_ns`, or near the idle timeout it
-/// negotiated (request rule 9).
-pub fn close_idle(self: anytype, now_ns: u64) void {
-    if (comptime !@TypeOf(self.*).Quic.enabled) return;
-    for (self.quic_connections[0..], 0..) |*connection, at| {
+/// Closes every connection with no request on it for the set's `idle_ns`, or near the idle
+/// timeout it negotiated (request rule 9).
+pub fn close_idle(set: anytype, now_ns: u64) void {
+    if (comptime !@TypeOf(set.*).Transport.enabled) return;
+    for (set.connections[0..], 0..) |*connection, at| {
         if (connection.state != .handshaking and connection.state != .up) continue;
         if (connection.users() != 0) continue;
-        const idle = now_ns -| connection.idle_since_ns >= self.quic_idle_ns;
+        const idle = now_ns -| connection.idle_since_ns >= set.idle_ns;
         const server: u8 = @intCast(at);
-        if (idle or (connection.state == .up and near_idle(self, server, now_ns))) begin_close(self, server);
+        if (idle or (connection.state == .up and near_idle(set, server, now_ns))) begin_close(set, server);
     }
 }
 
@@ -310,38 +327,38 @@ pub fn close_idle(self: anytype, now_ns: u64) void {
 /// Connection by connection: a receive armed on each socket that has none, the streams the
 /// server's credit now allows, and the datagram the transport owes sent when the buffer is back.
 /// The loop may refuse either, and the next drive asks again.
-pub fn tend(self: anytype, now_ns: u64) void {
-    if (comptime !@TypeOf(self.*).Quic.enabled) return;
-    for (self.quic_connections[0..], 0..) |*connection, at| {
+pub fn tend(self: anytype, set: anytype, now_ns: u64) void {
+    if (comptime !@TypeOf(set.*).Transport.enabled) return;
+    for (set.connections[0..], 0..) |*connection, at| {
         const server: u8 = @intCast(at);
         if (connection.state == .closed) continue;
-        if (connection.receive == null) arm(self, server);
-        open_waiting(self, server, now_ns);
-        if (connection.state != .closed) send(self, server, now_ns);
+        if (connection.receive == null) arm(self, set, server);
+        open_waiting(self, set, server, now_ns);
+        if (connection.state != .closed) send(self, set, server, now_ns);
     }
 }
 
 /// Arms the connection's multishot receive, which every datagram from its server arrives on.
-fn arm(self: anytype, server: u8) void {
-    const connection = &self.quic_connections[server];
+fn arm(self: anytype, set: anytype, server: u8) void {
+    const connection = &set.connections[server];
     assert(connection.receive == null);
     const descriptor = connection.descriptor orelse return;
-    const operation: rotor.Operation = .receive_from(user_data_of(self, .quic_receive, server), descriptor, constants.group_id);
+    const operation: rotor.Operation = .receive_from(user_data_of(self, set, .quic_receive, server), descriptor, constants.group_id);
     var handles: [1]rotor.Handle = undefined;
     if (self.loop.submit(&.{operation}, &handles) == 1) connection.receive = handles[0];
 }
 
 /// Sends the next datagram the connection owes, when the slot's buffer is not lent: the one the
 /// loop refused before, or a new one the transport makes.
-fn send(self: anytype, server: u8, now_ns: u64) void {
-    const connection = &self.quic_connections[server];
-    const slot = &self.quic_sends[server];
+fn send(self: anytype, set: anytype, server: u8, now_ns: u64) void {
+    const connection = &set.connections[server];
+    const slot = &set.sends[server];
     if (slot.lent) return;
-    if (connection.made == 0) connection.made = @intCast(connection.quic.datagram(&slot.bytes, now_ns));
+    if (connection.made == 0) connection.made = @intCast(connection.transport.datagram(&slot.bytes, now_ns));
     if (connection.made == 0) return;
-    slot.outbound = udp.outbound_to(endpoint_of(self, server));
+    slot.outbound = udp.outbound_to(endpoint_of(self, set, server));
     const operation: rotor.Operation = .{
-        .user_data = user_data_of(self, .quic_send, server),
+        .user_data = user_data_of(self, set, .quic_send, server),
         .kind = .{ .send_to = .{
             .socket = connection.descriptor.?,
             .buffer = .{ .bytes = slot.bytes[0..connection.made] },
@@ -354,20 +371,20 @@ fn send(self: anytype, server: u8, now_ns: u64) void {
 }
 
 /// The `user_data` of an operation on server `server`'s connection: the server, and its opening.
-fn user_data_of(self: anytype, kind: @import("io.zig").Kind, server: u8) u64 {
-    const incarnation: u64 = self.quic_connections[server].incarnation;
+fn user_data_of(self: anytype, set: anytype, kind: @import("io.zig").Kind, server: u8) u64 {
+    const incarnation: u64 = set.connections[server].incarnation;
     return @TypeOf(self.*).user_data(kind, (incarnation << constants.quic_incarnation_shift) | server);
 }
 
 // The timer (request rule 11).
 
 /// The soonest QUIC deadline of every open connection, or null for none.
-pub fn next_deadline(self: anytype) ?u64 {
-    if (comptime !@TypeOf(self.*).Quic.enabled) return null;
+pub fn next_deadline(set: anytype) ?u64 {
+    if (comptime !@TypeOf(set.*).Transport.enabled) return null;
     var soonest: ?u64 = null;
-    for (self.quic_connections[0..]) |*connection| {
+    for (set.connections[0..]) |*connection| {
         if (connection.state == .closed) continue;
-        const due = connection.quic.deadline() orelse continue;
+        const due = connection.transport.deadline() orelse continue;
         soonest = if (soonest) |earlier| @min(earlier, due) else due;
     }
     return soonest;
@@ -377,9 +394,9 @@ pub fn next_deadline(self: anytype) ?u64 {
 
 /// Ends every connection's receive, so the loop can be drained (rotor decision 5, rule 7). The
 /// sockets stay open until `close_all`, which runs after the drain.
-pub fn cancel_all(self: anytype) void {
-    if (comptime !@TypeOf(self.*).Quic.enabled) return;
-    for (self.quic_connections[0..]) |*connection| {
+pub fn cancel_all(self: anytype, set: anytype) void {
+    if (comptime !@TypeOf(set.*).Transport.enabled) return;
+    for (set.connections[0..]) |*connection| {
         if (connection.receive) |handle| self.loop.cancel(handle);
         connection.receive = null;
     }
@@ -387,9 +404,9 @@ pub fn cancel_all(self: anytype) void {
 
 /// Closes every connection's socket, whatever it was doing: the engine is going away, or taking
 /// a new configuration with nothing in flight.
-pub fn close_all(self: anytype) void {
-    if (comptime !@TypeOf(self.*).Quic.enabled) return;
-    for (self.quic_connections[0..]) |*connection| {
+pub fn close_all(set: anytype) void {
+    if (comptime !@TypeOf(set.*).Transport.enabled) return;
+    for (set.connections[0..]) |*connection| {
         if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);
         connection.restart();
         connection.queue_len = 0;

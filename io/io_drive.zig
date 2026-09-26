@@ -34,10 +34,10 @@ pub fn drive(self: anytype, now_ns: u64) void {
     }
     request_module.cancel_left(self, now_ns);
     tcp.close_idle(self, now_ns);
-    request_connection.close_idle(self, now_ns);
+    request_connection.close_idle(&self.quic, now_ns);
     tcp.tend(self);
     tend_sockets(self);
-    request_connection.tend(self, now_ns);
+    request_connection.tend(self, &self.quic, now_ns);
     arm_timer(self, now_ns);
 }
 
@@ -113,7 +113,7 @@ fn drain_owed(self: anytype, server: u8) bool {
 /// that moves (docs/design.md §24, request rule 11).
 fn arm_timer(self: anytype, now_ns: u64) void {
     if (self.closing) return;
-    const due = earliest(self.resolver.next_deadline_ns(), request_connection.next_deadline(self));
+    const due = earliest(self.resolver.next_deadline_ns(), request_connection.next_deadline(&self.quic));
     if (due == self.timer_due_ns) return;
     if (self.timer_handle) |handle| {
         self.loop.cancel(handle);

@@ -226,7 +226,7 @@ test "a lookup over DoQ is answered through colibri's client and colibri's serve
     _ = try world.rig.engine.start(question("example.com."), world.rig.loop.now());
     const result = try world.rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
-    try testing.expect(world.rig.engine.quic_connections[0].state == .up);
+    try testing.expect(world.rig.engine.quic.connections[0].state == .up);
     try testing.expectEqual(@as(usize, 1), world.sides[0].entries[0].server.answered);
     _ = world.rig.engine.take(world.rig.loop.now());
     try world.rig.deinit();
@@ -284,7 +284,7 @@ test "an idle connection to colibri's server closes with CONNECTION_CLOSE, which
     _ = world.rig.engine.take(world.rig.loop.now());
     // colibri's own timers wake the loop meanwhile, so the clock is stepped until the idle close
     // has come and gone.
-    const connection = &world.rig.engine.quic_connections[0];
+    const connection = &world.rig.engine.quic.connections[0];
     var rounds: usize = 0;
     while (connection.state != .closed and rounds < fixtures.until_rounds_max) : (rounds += 1) {
         _ = try world.rig.step(fixtures.tcp_idle_jump_ns);
@@ -307,10 +307,10 @@ test "streams the engine cancels are drained, and give their places in colibri's
     while (cancelled < fixtures.quic_cancelled_streams) : (cancelled += 1) {
         const handle = try engine.start(question("example.com."), world.rig.loop.now());
         var rounds: usize = 0;
-        while (engine.quic_connections[0].streams == 0 and rounds < fixtures.until_rounds_max) : (rounds += 1) {
+        while (engine.quic.connections[0].streams == 0 and rounds < fixtures.until_rounds_max) : (rounds += 1) {
             _ = try world.rig.step(fixtures.wait_ns);
         }
-        try testing.expectEqual(@as(u16, 1), engine.quic_connections[0].streams);
+        try testing.expectEqual(@as(u16, 1), engine.quic.connections[0].streams);
         engine.cancel(handle, world.rig.loop.now());
         _ = try world.rig.until_result();
         _ = engine.take(world.rig.loop.now());
@@ -334,7 +334,7 @@ test "a lookup cancelled while colibri's server holds its query sends STOP_SENDI
     const engine = &world.rig.engine;
     const handle = try engine.start(question("example.com."), world.rig.loop.now());
     var rounds: usize = 0;
-    while (engine.quic_connections[0].streams == 0 and rounds < fixtures.until_rounds_max) : (rounds += 1) {
+    while (engine.quic.connections[0].streams == 0 and rounds < fixtures.until_rounds_max) : (rounds += 1) {
         _ = try world.rig.step(fixtures.wait_ns);
     }
     engine.cancel(handle, world.rig.loop.now());
@@ -359,12 +359,12 @@ test "a request taken while an idle close is held back reopens the connection, t
     const world = try World.create(98, .{ .{}, .{} });
     defer world.free();
     const engine = &world.rig.engine;
-    const connection = &engine.quic_connections[0];
+    const connection = &engine.quic.connections[0];
     _ = try engine.start(question("one.example."), world.rig.loop.now());
     _ = try world.rig.until_result();
     _ = engine.take(world.rig.loop.now());
     var rounds: usize = 0;
-    while (world.rig.loop.now() < connection.idle_since_ns + engine.quic_idle_ns and rounds < fixtures.until_rounds_max) : (rounds += 1) {
+    while (world.rig.loop.now() < connection.idle_since_ns + engine.quic.idle_ns and rounds < fixtures.until_rounds_max) : (rounds += 1) {
         _ = try world.rig.step(fixtures.tcp_idle_jump_ns);
     }
     try testing.expect(connection.state == .up);
@@ -374,7 +374,7 @@ test "a request taken while an idle close is held back reopens the connection, t
     _ = try engine.start(question("two.example."), world.rig.loop.now());
     try testing.expectEqual(@as(u16, 1), connection.queue_len);
     rounds = 0;
-    while (connection.quic.connection.termination.state != .closed and rounds < fixtures.until_rounds_max) : (rounds += 1) {
+    while (connection.transport.connection.termination.state != .closed and rounds < fixtures.until_rounds_max) : (rounds += 1) {
         _ = try world.rig.step(fixtures.wait_ns);
     }
     try testing.expect(connection.state == .closing);
@@ -400,7 +400,7 @@ test "a request's bytes outlive its answer, and colibri sends them again until t
     _ = try world.rig.until_result();
     _ = engine.take(world.rig.loop.now());
     try testing.expect(world.sides[0].acks_lost > 0);
-    const client = &engine.quic_connections[0].quic.connection;
+    const client = &engine.quic.connections[0].transport.connection;
     const first = cocuyo_quic.server.StreamId.of(.client, .bidirectional, 0);
     var rounds: usize = 0;
     while (client.streams.lookup(first) != .closed and rounds < fixtures.until_rounds_max) : (rounds += 1) {

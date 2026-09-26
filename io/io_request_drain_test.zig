@@ -17,10 +17,10 @@ const Rig = request_test.Rig;
 fn drain_first(rig: *Rig, asked: []const []const u8) !void {
     for (asked) |name| _ = try rig.engine.start(question(name), rig.loop.now());
     var rounds: usize = 0;
-    while (rig.engine.quic_connections[0].state != .draining and rounds < fixtures.until_rounds_max) : (rounds += 1) {
+    while (rig.engine.quic.connections[0].state != .draining and rounds < fixtures.until_rounds_max) : (rounds += 1) {
         _ = try rig.step(fixtures.quic_timer_ns);
     }
-    try testing.expect(rig.engine.quic_connections[0].state == .draining);
+    try testing.expect(rig.engine.quic.connections[0].state == .draining);
 }
 
 const names = [_][]const u8{ "a.example.", "b.example.", "c.example.", "d.example." };
@@ -29,7 +29,7 @@ test "a request taken while its connection drains waits, and opens the next conn
     var rig: Rig = .{};
     try request_test.start(&rig, 131, .{ .{ .quic = .{ .goaway = true } }, .{} });
     try drain_first(&rig, &names);
-    const connection = &rig.engine.quic_connections[0];
+    const connection = &rig.engine.quic.connections[0];
     _ = try rig.engine.start(question("e.example."), rig.loop.now());
     try testing.expectEqual(@as(u16, 1), connection.queue_len);
     var answered: usize = 0;
@@ -48,11 +48,11 @@ test "a connection that fails while it drains fails its streams' requests, and o
     var rig: Rig = .{};
     try request_test.start(&rig, 132, .{ .{ .quic = .{ .goaway = true } }, .{} });
     try drain_first(&rig, &names);
-    const connection = &rig.engine.quic_connections[0];
+    const connection = &rig.engine.quic.connections[0];
     const waiting = try rig.engine.start(question("e.example."), rig.loop.now());
     // The connection's QUIC timer gives up while it drains (request rule 11).
-    connection.quic.due_ns = rig.loop.now() + fixtures.quic_timer_ns;
-    connection.quic.expiry = .timeout;
+    connection.transport.due_ns = rig.loop.now() + fixtures.quic_timer_ns;
+    connection.transport.expiry = .timeout;
     rig.engine.drive(rig.loop.now());
     var rounds: usize = 0;
     while (connection.incarnation < 2 and rounds < fixtures.until_rounds_max) : (rounds += 1) {
@@ -81,7 +81,7 @@ test "a draining connection whose last streams are cancelled closes, and opens a
         if (index == waiting.index or !rig.engine.requests[index].live) continue;
         rig.engine.cancel(handle, rig.loop.now());
     }
-    try testing.expect(rig.engine.quic_connections[0].state == .closing);
+    try testing.expect(rig.engine.quic.connections[0].state == .closing);
     var rounds: usize = 0;
     while (rounds < fixtures.until_rounds_max) : (rounds += 1) {
         const result = try rig.until_result();
@@ -89,7 +89,7 @@ test "a draining connection whose last streams are cancelled closes, and opens a
         try testing.expect(result.outcome == .answer);
         break;
     }
-    try testing.expect(rig.engine.quic_connections[0].incarnation >= 2);
+    try testing.expect(rig.engine.quic.connections[0].incarnation >= 2);
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
 }

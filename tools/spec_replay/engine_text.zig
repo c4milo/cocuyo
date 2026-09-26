@@ -104,7 +104,7 @@ fn requests_text(line: *Line, world: anytype) void {
 /// went idle now (docs/design.md §24, request rule 8).
 fn quic_connection_text(line: *Line, world: anytype, server: u8) void {
     const engine = &world.engine;
-    const connection = &engine.quic_connections[server];
+    const connection = &engine.quic.connections[server];
     var items: [64]usize = undefined;
     for (connection.queue[0..connection.queue_len], 0..) |index, position| items[position] = index;
     line.print("{s} q", .{@tagName(connection.state)});
@@ -118,9 +118,9 @@ fn quic_connection_text(line: *Line, world: anytype, server: u8) void {
     line.print(" st", .{});
     line.list(items[0..streams]);
     line.print(" ", .{});
-    line.flag(connection.quic.owes, 'O');
+    line.flag(connection.transport.owes, 'O');
     line.flag(connection.made > 0, 'K');
-    line.flag(engine.quic_sends[server].lent, 'B');
+    line.flag(engine.quic.sends[server].lent, 'B');
     line.flag(connection.state != .closed and connection.idle_since_ns == world.now_ns, 'I');
 }
 
@@ -233,7 +233,7 @@ fn connection_token(world: anytype, kind: io.Kind, index: usize) Token {
 fn quic_token(world: anytype, kind: io.Kind, index: usize) Token {
     const server = index & io.constants.quic_server_mask;
     const incarnation: u32 = @truncate(index >> io.constants.quic_incarnation_shift);
-    const connection = &world.engine.quic_connections[server];
+    const connection = &world.engine.quic.connections[server];
     const live = connection.state != .closed and connection.incarnation == incarnation;
     return .{ .letter = if (kind == .quic_send) 'Q' else 'V', .target = server, .current = live };
 }
@@ -316,7 +316,7 @@ fn tickets(line: *Line, world: anytype) void {
     line.print(" tk[", .{});
     for (0..world.config.servers.len) |server| {
         if (server > 0) line.print(",", .{});
-        const kept = if (world.config.uses_tls()) engine.tls_tickets[server] != null else engine.quic_tickets[server] != null;
+        const kept = if (world.config.uses_tls()) engine.tls_tickets[server] != null else engine.quic.tickets[server] != null;
         line.print("{d}", .{@intFromBool(kept)});
     }
     line.print("]", .{});

@@ -30,7 +30,7 @@ test "a lookup over DoH handshakes on h3 to its template's port, and is answered
     _ = try rig.engine.start(question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
-    const connection = &rig.engine.quic_connections[0];
+    const connection = &rig.engine.quic.connections[0];
     try testing.expect(connection.state == .up);
     try testing.expectEqual(@as(u16, 853), connection.port);
     const peer = peer_of(&rig, 0).?;
@@ -102,7 +102,7 @@ test "a template that names no port goes to 443" {
     var rig: Rig = .{};
     try start(&rig, 90, .{ .{}, .{} }, .{ "https://dns.example/dns-query{?dns}", template });
     _ = try rig.engine.start(question("example.com."), rig.loop.now());
-    try testing.expectEqual(@as(u16, 443), rig.engine.quic_connections[0].port);
+    try testing.expectEqual(@as(u16, 443), rig.engine.quic.connections[0].port);
     rig.engine.cancel_all(rig.loop.now());
     _ = try rig.until_result();
     try rig.deinit();

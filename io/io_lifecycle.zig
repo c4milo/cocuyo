@@ -54,8 +54,8 @@ pub fn reinit(self: anytype, config: *const cocuyo.Config, seed: u64, now_ns: u6
     tcp.cancel_all(self);
     tcp.close_all(self);
     self.tcp_connection = @splat(null);
-    request_connection.cancel_all(self);
-    request_connection.close_all(self);
+    request_connection.cancel_all(self, &self.quic);
+    request_connection.close_all(&self.quic);
     request_module.forget_all(self);
     self.sockets.cancel(self.loop);
     self.sockets.close();
@@ -63,7 +63,7 @@ pub fn reinit(self: anytype, config: *const cocuyo.Config, seed: u64, now_ns: u6
     // A ticket was a server's of the old configuration (docs/design.md §21, TLS rule 8, and §24,
     // request rule 10).
     self.tls_tickets = @splat(null);
-    self.quic_tickets = @splat(null);
+    self.quic.tickets = @splat(null);
     reset_tables(self, config, seed);
     try self.sockets.open(self.loop, config, seed, @TypeOf(self.*).tag);
 }

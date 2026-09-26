@@ -150,10 +150,10 @@ fn resolve(loop: *rotor.Loop, events: []rotor.Event, clock: Clock, turn: []const
 /// lookup opens a connection that resumes. Says which did not happen when one does not.
 fn wait_for_close(loop: *rotor.Loop, events: []rotor.Event, clock: Clock) !void {
     for (0..close_ticks_max) |_| {
-        if (engine.quic_tickets[0] != null and all_closed()) return;
+        if (engine.quic.tickets[0] != null and all_closed()) return;
         try tick(loop, events, clock);
     }
-    if (engine.quic_tickets[0] == null) std.debug.print("in {d} ticks no ticket was kept\n", .{close_ticks_max});
+    if (engine.quic.tickets[0] == null) std.debug.print("in {d} ticks no ticket was kept\n", .{close_ticks_max});
     if (!all_closed()) std.debug.print("in {d} ticks the connection did not close\n", .{close_ticks_max});
 }
 
@@ -165,7 +165,7 @@ fn tick(loop: *rotor.Loop, events: []rotor.Event, clock: Clock) !void {
 }
 
 fn all_closed() bool {
-    for (engine.quic_connections) |connection| {
+    for (engine.quic.connections) |connection| {
         if (connection.state != .closed) return false;
     }
     return true;
@@ -175,9 +175,9 @@ fn all_closed() bool {
 /// in full within the same connection, the ticket it offered declined; or in full with no ticket.
 /// With none up, the answer came from the cache or the connection has closed since.
 fn handshake() []const u8 {
-    for (&engine.quic_connections) |*connection| {
+    for (&engine.quic.connections) |*connection| {
         if (connection.state != .up) continue;
-        const session = &connection.quic.session;
+        const session = &connection.transport.session;
         if (session.resumed()) return "resumed";
         if (session.config.resumption != 0) return "in full, its ticket declined";
         return "in full";

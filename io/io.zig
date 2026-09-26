@@ -114,15 +114,10 @@ pub fn Resolver(comptime options: Options) type {
         tls_tickets: [cocuyo.constants.servers_max]?tls.Kept(options.tls),
         tls_context: options.tls.Context,
         tcp_idle_ns: u64,
-        /// A QUIC connection slot for each server, what the loop borrows from each, and a request
-        /// slot for each lookup (docs/design.md §24, request rules 1, 3 and 8).
-        quic_connections: [quic_servers]request_connection.Connection(options.quic, options.lookups),
-        quic_sends: [quic_servers]request_connection.Send(options.quic),
+        /// The QUIC connections, a slot for each server, and a request slot for each lookup
+        /// (docs/design.md §24, request rules 1, 3 and 8).
+        quic: request_connection.Set(options.quic, quic_servers, options.lookups),
         requests: [quic_lookups]quic.Request(options.quic),
-        /// The newest ticket each server's QUIC connections were given (request rule 10).
-        quic_tickets: [quic_servers]?tls.Kept(options.quic),
-        quic_context: options.quic.Context,
-        quic_idle_ns: u64,
         /// Where a stream's answer is read to, whole, and handed over at once (request rule 5).
         answer: [answer_bytes]u8,
         results: results_module.Queue(options.lookups),
@@ -182,12 +177,8 @@ pub fn Resolver(comptime options: Options) type {
             self.tcp_idle_ns = constants.tcp_idle_ns_default;
             self.tls_tickets = @splat(null);
             self.tls_context = .{};
-            self.quic_connections = @splat(.{});
-            self.quic_sends = @splat(.{});
+            self.quic = .{};
             self.requests = @splat(.{});
-            self.quic_tickets = @splat(null);
-            self.quic_context = .{};
-            self.quic_idle_ns = constants.quic_idle_ns_default;
             self.sockets.reset_generation();
             try self.group.provide(loop);
             try self.tcp_group.provide(loop);
@@ -203,7 +194,7 @@ pub fn Resolver(comptime options: Options) type {
             self.timer_handle = null;
             self.sockets.cancel(self.loop);
             tcp.cancel_all(self);
-            request_connection.cancel_all(self);
+            request_connection.cancel_all(self, &self.quic);
         }
 
         /// Closes the sockets, once the loop has drained (rotor decision 5, rule 4).
@@ -211,7 +202,7 @@ pub fn Resolver(comptime options: Options) type {
             assert(self.closing);
             self.sockets.close();
             tcp.close_all(self);
-            request_connection.close_all(self);
+            request_connection.close_all(&self.quic);
         }
 
         /// Starts a lookup. Its result comes through `take`, and one the cache already holds is
@@ -252,7 +243,7 @@ pub fn Resolver(comptime options: Options) type {
         /// What every QUIC connection starts from (docs/design.md §24), as `use_tls` says for
         /// TLS. The twin's needs nothing.
         pub fn use_quic(self: *Self, context: options.quic.Context) void {
-            self.quic_context = context;
+            self.quic.context = context;
         }
 
         /// Settles every lookup as cancelled, which is `ares_cancel`. Each failure comes through

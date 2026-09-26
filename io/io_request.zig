@@ -95,7 +95,8 @@ pub fn take(self: anytype, index: usize, send: anytype, now_ns: u64) void {
     const Quic = @TypeOf(self.*).Quic;
     // `init` refuses a request configuration without a transport (`assert_tls`).
     if (comptime !Quic.enabled) unreachable;
-    drop(self, index, now_ns);
+    const set = &self.quic;
+    drop(self, set, index, now_ns);
     const handle = self.handles[index];
     self.resolver.on_sent(handle, now_ns);
     const request = &self.requests[index];
@@ -107,7 +108,7 @@ pub fn take(self: anytype, index: usize, send: anytype, now_ns: u64) void {
     request.server = send.server_index;
     request.stream = null;
     request.len = @intCast(send.message_bytes.len);
-    connection_module.place(self, index, now_ns);
+    connection_module.place(self, set, index, now_ns);
 }
 
 /// Whether slot `index`'s request speaks for its lookup's attempt now: the lookup still waits on
@@ -123,17 +124,17 @@ pub fn current(self: anytype, index: usize) bool {
 /// Slot `index`'s request leaves its connection: out of the queue if it waits, and its stream
 /// cancelled if it has one, which the transport owes the server STOP_SENDING and a reset for
 /// (request rule 6). The slot's bytes are free from here.
-pub fn drop(self: anytype, index: usize, now_ns: u64) void {
+pub fn drop(self: anytype, set: anytype, index: usize, now_ns: u64) void {
     const request = &self.requests[index];
     if (!request.live) return;
     request.live = false;
-    const connection = &self.quic_connections[request.server];
+    const connection = &set.connections[request.server];
     assert(connection.state != .closed);
     if (request.stream) |stream| {
         assert(connection.streams >= 1);
         connection.streams -= 1;
-        connection.quic.cancel(stream);
-        connection_module.drained(self, request.server);
+        connection.transport.cancel(stream);
+        connection_module.drained(set, request.server);
     } else {
         connection_module.dequeue(connection, @intCast(index));
     }
@@ -145,8 +146,9 @@ pub fn drop(self: anytype, index: usize, now_ns: u64) void {
 /// every poll, so a lookup that asked again within the drive keeps its new request.
 pub fn cancel_left(self: anytype, now_ns: u64) void {
     if (comptime !@TypeOf(self.*).Quic.enabled) return;
+    const set = &self.quic;
     for (self.requests[0..], 0..) |*request, index| {
-        if (request.live and !current(self, index)) drop(self, index, now_ns);
+        if (request.live and !current(self, index)) drop(self, set, index, now_ns);
     }
 }
 
@@ -159,22 +161,22 @@ fn fail_one(self: anytype, index: usize, now_ns: u64) void {
     request.live = false;
 }
 
-/// Every request on server `server`'s connection fails, each once (request rule 7). Decision 25
-/// counts each as the server's failure, which the table does.
 /// Each request on a stream of server `server`'s connection fails, once; those that wait stay
 /// (request rule 13).
-pub fn fail_streams_of(self: anytype, server: u8, now_ns: u64) void {
+pub fn fail_streams_of(self: anytype, set: anytype, server: u8, now_ns: u64) void {
     for (self.requests[0..], 0..) |*request, index| {
         if (request.live and request.server == server and request.stream != null) fail_one(self, index, now_ns);
     }
-    self.quic_connections[server].streams = 0;
+    set.connections[server].streams = 0;
 }
 
-pub fn fail_all_of(self: anytype, server: u8, now_ns: u64) void {
+/// Every request on server `server`'s connection fails, each once (request rule 7). Decision 25
+/// counts each as the server's failure, which the table does.
+pub fn fail_all_of(self: anytype, set: anytype, server: u8, now_ns: u64) void {
     for (self.requests[0..], 0..) |*request, index| {
         if (request.live and request.server == server) fail_one(self, index, now_ns);
     }
-    const connection = &self.quic_connections[server];
+    const connection = &set.connections[server];
     connection.queue_len = 0;
     connection.streams = 0;
 }

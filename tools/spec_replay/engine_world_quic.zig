@@ -39,7 +39,7 @@ pub fn step(self: anytype, op: []const u8, parts: *std.mem.SplitIterator(u8, .sc
 /// connection answers; the handshake's end on "doq" or on another protocol; its refusal; the
 /// server's close; a ticket; a GOAWAY; an answer or a reset on the slot's stream.
 fn item(self: anytype, server: u8, name: []const u8, slot: usize, reply: ?fixtures.Reply, out: []u8) Error!usize {
-    const connection = &self.engine.quic_connections[server];
+    const connection = &self.engine.quic.connections[server];
     const Kind = rotor.quic.Kind;
     const plain = [_]struct { name: []const u8, kind: Kind, bytes: []const u8 }{
         .{ .name = "done", .kind = .done, .bytes = io.constants.quic_alpn_doq },
@@ -81,9 +81,9 @@ fn answer_of(self: anytype, slot: usize, reply: fixtures.Reply, out: []u8) []con
 /// has no timer, so the replay fires the engine's own, or, when the loop refused it, delivers its
 /// fire by the generation the engine counts.
 pub fn expire(self: anytype, server: usize, name: []const u8) Error!void {
-    const connection = &self.engine.quic_connections[server];
-    connection.quic.expiry = std.meta.stringToEnum(rotor.quic.Connection.Expiry, name) orelse return error.Malformed;
-    connection.quic.due_ns = self.now_ns;
+    const connection = &self.engine.quic.connections[server];
+    connection.transport.expiry = std.meta.stringToEnum(rotor.quic.Connection.Expiry, name) orelse return error.Malformed;
+    connection.transport.due_ns = self.now_ns;
     const Resolver = @TypeOf(self.engine);
     var user_data = Resolver.user_data(.timer, self.engine.timer_generation);
     if (self.engine.timer_handle) |handle| {

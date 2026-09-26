@@ -93,7 +93,7 @@ pub fn begin(self: anytype, transport: Transport) !void {
     self.names = 0;
     try self.engine.init(&self.loop, &self.config, seed, self.now_ns);
     self.engine.tcp_idle_ns = idle_ns;
-    self.engine.quic_idle_ns = idle_ns;
+    self.engine.quic.idle_ns = idle_ns;
 }
 
 /// One event of the transcript, then the timers the engine let go of, ended. Every
@@ -177,7 +177,7 @@ fn unnamed(self: anytype, name: []const u8, parts: *std.mem.SplitIterator(u8, .s
 /// (docs/design.md §21, TLS rule 8, and §24, request rule 10).
 fn lapse(self: anytype, server: usize) void {
     if (self.config.sends_requests()) {
-        self.engine.quic_tickets[server] = null;
+        self.engine.quic.tickets[server] = null;
     } else {
         self.engine.tls_tickets[server] = null;
     }

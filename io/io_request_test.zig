@@ -45,7 +45,7 @@ test "a lookup over DoQ handshakes, then is answered on its stream, and no plain
     _ = try rig.engine.start(question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
-    try testing.expect(rig.engine.quic_connections[0].state == .up);
+    try testing.expect(rig.engine.quic.connections[0].state == .up);
     try testing.expect(!rig.engine.requests[result.handle.index].live);
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
@@ -56,14 +56,14 @@ test "requests taken while the handshake runs wait for its end, then each opens 
     try start(&rig, 62, .{ .{ .quic = .{ .flights = 2 } }, .{} });
     _ = try rig.engine.start(question("one.example."), rig.loop.now());
     _ = try rig.engine.start(question("two.example."), rig.loop.now());
-    try testing.expectEqual(@as(u16, 2), rig.engine.quic_connections[0].queue_len);
+    try testing.expectEqual(@as(u16, 2), rig.engine.quic.connections[0].queue_len);
     var answered: usize = 0;
     while (answered < 2) : (answered += 1) {
         const result = try rig.until_result();
         try testing.expect(result.outcome == .answer);
     }
     try testing.expectEqual(@as(u8, 0), rig.engine.resolver.servers.failures(0));
-    try testing.expectEqual(@as(u64, 2 * rotor.constants.quic_stream_step), rig.engine.quic_connections[0].quic.next_stream);
+    try testing.expectEqual(@as(u64, 2 * rotor.constants.quic_stream_step), rig.engine.quic.connections[0].transport.next_stream);
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
 }
@@ -74,7 +74,7 @@ test "a lookup cancelled while its stream is open has the stream cancelled, and 
     var rig: Rig = .{};
     try start(&rig, 68, .{ .{ .drop_per_256 = fixtures.always }, .{} });
     const handle = try rig.engine.start(question("example.com."), rig.loop.now());
-    const connection = &rig.engine.quic_connections[0];
+    const connection = &rig.engine.quic.connections[0];
     var rounds: usize = 0;
     while (connection.streams == 0 and rounds < fixtures.until_rounds_max) : (rounds += 1) {
         _ = try rig.step(fixtures.wait_ns);
@@ -91,7 +91,7 @@ test "a lookup cancelled while its stream is open has the stream cancelled, and 
     try rig.deinit();
 }
 
-/// Lets the idle close run: the clock moves past `quic_idle_ns` with nothing due, twice, so the
+/// Lets the idle close run: the clock moves past the set's `idle_ns` with nothing due, twice, so the
 /// timer the last lookup left is gone as well.
 pub fn idle(rig: *Rig) !void {
     _ = try rig.step(fixtures.tcp_idle_jump_ns);
@@ -112,10 +112,10 @@ test "an idle connection says CONNECTION_CLOSE, and closes once it has gone" {
     try start(&rig, 63, .{ .{}, .{} });
     try answer(&rig, "example.com.");
     try idle(&rig);
-    try testing.expect(rig.engine.quic_connections[0].state == .closing);
+    try testing.expect(rig.engine.quic.connections[0].state == .closing);
     try testing.expect(peer_of(&rig, 0).?.closed);
     _ = try rig.step(fixtures.wait_ns);
-    try testing.expect(rig.engine.quic_connections[0].state == .closed);
+    try testing.expect(rig.engine.quic.connections[0].state == .closed);
     try rig.deinit();
 }
 
@@ -123,15 +123,15 @@ test "a ticket the server gave is kept, and the next connection resumes with it"
     var rig: Rig = .{};
     try start(&rig, 64, .{ .{ .quic = .{ .tickets = true } }, .{} });
     try answer(&rig, "one.example.");
-    try testing.expect(rig.engine.quic_tickets[0] != null);
+    try testing.expect(rig.engine.quic.tickets[0] != null);
     try testing.expectEqual(@as(u16, 0), peer_of(&rig, 0).?.resumed);
     try idle(&rig);
     _ = try rig.step(fixtures.wait_ns);
-    try testing.expect(rig.engine.quic_connections[0].state == .closed);
+    try testing.expect(rig.engine.quic.connections[0].state == .closed);
     try answer(&rig, "two.example.");
     // The new connection spent the ticket, and its handshake gave another (request rule 10).
     try testing.expectEqual(@as(u16, 1), peer_of(&rig, 0).?.resumed);
-    try testing.expect(rig.engine.quic_tickets[0] != null);
+    try testing.expect(rig.engine.quic.tickets[0] != null);
     try rig.deinit();
 }
 
@@ -144,7 +144,7 @@ test "a request its lookup left is cancelled with STOP_SENDING, and the next ser
     const result = try rig.until_result();
     try testing.expect(result.outcome == .answer);
     try testing.expectEqual(@as(u16, 1), peer_of(&rig, 0).?.cancels);
-    try testing.expectEqual(@as(u16, 0), rig.engine.quic_connections[0].users());
+    try testing.expectEqual(@as(u16, 0), rig.engine.quic.connections[0].users());
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
 }
@@ -159,7 +159,7 @@ test "a closing connection reads nothing more, and a close the loop refused goes
     rig.loop.refuse_submissions = true;
     rig.engine.drive(rig.loop.now());
     rig.loop.refuse_submissions = false;
-    const connection = &rig.engine.quic_connections[0];
+    const connection = &rig.engine.quic.connections[0];
     try testing.expect(connection.state == .closing);
     try testing.expect(connection.made > 0);
     // A ticket the server sent before it heard the close arrives after it, and is not read
@@ -170,7 +170,7 @@ test "a closing connection reads nothing more, and a close the loop refused goes
     pending.due_ns = rig.loop.now();
     pending.len = @intCast(rotor.quic.write_item(.{ .kind = .ticket }, &pending.bytes));
     _ = try rig.step(fixtures.wait_ns);
-    try testing.expect(rig.engine.quic_tickets[0] == null);
+    try testing.expect(rig.engine.quic.tickets[0] == null);
     _ = try rig.step(fixtures.wait_ns);
     try testing.expect(connection.state == .closed);
     try rig.deinit();

@@ -478,7 +478,7 @@
         .id = "RW5",
         .what = "a connection that closes forgets its buffer is lent",
         .edits = .{
-            .{ .file = "io/io_request_connection.zig", .old = "    if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);\n    connection.restart();\n}", .new = "    if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);\n    connection.restart();\n    self.quic_sends[server].lent = false;\n}" },
+            .{ .file = "io/io_request_connection.zig", .old = "    if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);\n    connection.restart();\n}", .new = "    if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);\n    connection.restart();\n    set.sends[server].lent = false;\n}" },
         },
         .caught_by = .short_walks,
     },
@@ -487,7 +487,7 @@
         .id = "RW6",
         .what = "a connection that resumes leaves its server's ticket kept",
         .edits = .{
-            .{ .file = "io/io_request_connection.zig", .old = "    const kept = self.quic_tickets[server] orelse return null;\n    self.quic_tickets[server] = null;", .new = "    const kept = self.quic_tickets[server] orelse return null;" },
+            .{ .file = "io/io_request_connection.zig", .old = "    const kept = set.tickets[server] orelse return null;\n    set.tickets[server] = null;", .new = "    const kept = set.tickets[server] orelse return null;" },
         },
         .caught_by = .picked_walks,
     },
@@ -577,7 +577,7 @@
         .id = "RW16",
         .what = "a cancel does not close the connection it drained",
         .edits = .{
-            .{ .file = "io/io_request.zig", .old = "        connection.quic.cancel(stream);\n        connection_module.drained(self, request.server);", .new = "        connection.quic.cancel(stream);" },
+            .{ .file = "io/io_request.zig", .old = "        connection.transport.cancel(stream);\n        connection_module.drained(set, request.server);", .new = "        connection.transport.cancel(stream);" },
         },
         .caught_by = .picked_walks,
     },

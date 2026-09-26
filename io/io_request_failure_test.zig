@@ -23,7 +23,7 @@ fn fails_over(seed: u64, script: rotor.server.Script) !void {
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(0));
-    try testing.expect(rig.engine.quic_connections[0].state == .closed);
+    try testing.expect(rig.engine.quic.connections[0].state == .closed);
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
 }
@@ -70,7 +70,7 @@ test "a socket the system refuses fails the request, on every server" {
     _ = try rig.engine.start(question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(cocuyo.Error.AllServersFailed, result.outcome.failure.err);
-    try testing.expect(rig.engine.quic_connections[0].state == .closed);
+    try testing.expect(rig.engine.quic.connections[0].state == .closed);
     rig.loop.network().refuse_open = false;
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
@@ -80,13 +80,13 @@ test "a connection whose QUIC timer gives up fails, when the engine's one timer 
     var rig: Rig = .{};
     try start(&rig, 78, .{ .{ .down = true }, .{} });
     _ = try rig.engine.start(question("example.com."), rig.loop.now());
-    const connection = &rig.engine.quic_connections[0];
+    const connection = &rig.engine.quic.connections[0];
     try testing.expect(connection.state == .handshaking);
-    connection.quic.due_ns = rig.loop.now() + fixtures.quic_timer_ns;
-    connection.quic.expiry = .timeout;
+    connection.transport.due_ns = rig.loop.now() + fixtures.quic_timer_ns;
+    connection.transport.expiry = .timeout;
     // The drive moves the engine's timer to the connection's deadline (request rule 11).
     rig.engine.drive(rig.loop.now());
-    try testing.expectEqual(connection.quic.due_ns, rig.engine.timer_due_ns);
+    try testing.expectEqual(connection.transport.due_ns, rig.engine.timer_due_ns);
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(0));
@@ -98,8 +98,8 @@ test "an idle connection near its negotiated timeout closes before a request, wh
     var rig: Rig = .{};
     try start(&rig, 79, .{ .{}, .{} });
     try request_test.answer(&rig, "one.example.");
-    const connection = &rig.engine.quic_connections[0];
-    connection.quic.idle_left = 0;
+    const connection = &rig.engine.quic.connections[0];
+    connection.transport.idle_left = 0;
     // RFC 9250 §4.4: "it SHOULD check whether the idle time is sufficiently lower than the idle
     // timer. ... If not, the client SHOULD establish a new connection".
     _ = try rig.engine.start(question("two.example."), rig.loop.now());

@@ -34,7 +34,7 @@ test "a lookup over DoH is answered through colibri's HTTP/3 client and server o
     _ = try world.rig.engine.start(question("example.com."), world.rig.loop.now());
     const result = try world.rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
-    try testing.expect(world.rig.engine.quic_connections[0].state == .up);
+    try testing.expect(world.rig.engine.quic.connections[0].state == .up);
     try testing.expectEqual(@as(usize, 1), world.sides[0].entries[0].server.answered);
     _ = world.rig.engine.take(world.rig.loop.now());
     try world.rig.deinit();
@@ -121,10 +121,10 @@ test "lookups cancelled over DoH give their answer buffers and their slots back"
     while (cancelled < fixtures.small_lookups + 1) : (cancelled += 1) {
         const handle = try engine.start(question("example.com."), world.rig.loop.now());
         var rounds: usize = 0;
-        while (engine.quic_connections[0].streams == 0 and rounds < fixtures.until_rounds_max) : (rounds += 1) {
+        while (engine.quic.connections[0].streams == 0 and rounds < fixtures.until_rounds_max) : (rounds += 1) {
             _ = try world.rig.step(fixtures.wait_ns);
         }
-        try testing.expectEqual(@as(u16, 1), engine.quic_connections[0].streams);
+        try testing.expectEqual(@as(u16, 1), engine.quic.connections[0].streams);
         engine.cancel(handle, world.rig.loop.now());
         _ = try world.rig.until_result();
         _ = engine.take(world.rig.loop.now());
@@ -150,14 +150,14 @@ test "a GOAWAY closes the connection once the answer it came with is read, and t
     try testing.expectEqual(@as(u8, 0), engine.resolver.servers.failures(0));
     _ = engine.take(world.rig.loop.now());
     var rounds: usize = 0;
-    while (engine.quic_connections[0].state != .closed and rounds < fixtures.until_rounds_max) : (rounds += 1) {
+    while (engine.quic.connections[0].state != .closed and rounds < fixtures.until_rounds_max) : (rounds += 1) {
         _ = try world.rig.step(fixtures.wait_ns);
     }
-    try testing.expect(engine.quic_connections[0].state == .closed);
+    try testing.expect(engine.quic.connections[0].state == .closed);
     _ = try engine.start(question("two.example."), world.rig.loop.now());
     const result = try world.rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
-    try testing.expectEqual(@as(u32, 2), engine.quic_connections[0].incarnation);
+    try testing.expectEqual(@as(u32, 2), engine.quic.connections[0].incarnation);
     _ = engine.take(world.rig.loop.now());
     try world.rig.deinit();
 }
@@ -168,7 +168,7 @@ test "an idle DoH connection closes with CONNECTION_CLOSE, which colibri's serve
     _ = try world.rig.engine.start(question("example.com."), world.rig.loop.now());
     _ = try world.rig.until_result();
     _ = world.rig.engine.take(world.rig.loop.now());
-    const connection = &world.rig.engine.quic_connections[0];
+    const connection = &world.rig.engine.quic.connections[0];
     var rounds: usize = 0;
     while (connection.state != .closed and rounds < fixtures.until_rounds_max) : (rounds += 1) {
         _ = try world.rig.step(fixtures.tcp_idle_jump_ns);
@@ -193,7 +193,7 @@ test "a DoH request's bytes outlive its answer, and colibri sends them again unt
     _ = try world.rig.until_result();
     _ = engine.take(world.rig.loop.now());
     try testing.expect(world.sides[0].acks_lost > 0);
-    const client = &engine.quic_connections[0].quic.connection;
+    const client = &engine.quic.connections[0].transport.connection;
     const first = cocuyo_quic.server.StreamId.of(.client, .bidirectional, 0);
     var rounds: usize = 0;
     while (client.streams.lookup(first) != .closed and rounds < fixtures.until_rounds_max) : (rounds += 1) {
