@@ -35,8 +35,10 @@ pub const Kind = enum(u8) {
     answer,
     reset,
     closed,
-    // The server's, over HTTP/3: a response's status, `Age` and media type, then its content.
+    // The server's, over HTTP/3: a response's status, `Age` and media type, then its content; and
+    // a GOAWAY (RFC 9114 §5.2).
     response,
+    goaway,
 };
 
 /// What a response says of its content (docs/design.md §24, DoH over HTTP/3): its status, its
@@ -104,7 +106,7 @@ pub const Connection = struct {
     /// A ticket the server gave. The twin's carries nothing: it only has to be kept and spent.
     pub const Ticket = struct {};
     pub const Answered = struct { stream: u64, len: usize, http: ?Http = null };
-    pub const Next = union(enum) { up: []const u8, refused, answered: Answered, reset: u64, closed, ticket: Ticket };
+    pub const Next = union(enum) { up: []const u8, refused, answered: Answered, reset: u64, closed, goaway, ticket: Ticket };
     /// What an expiry does, as the replay or a test sets it: the connection resends what the
     /// server has not acknowledged, or gives up.
     pub const Expiry = enum { retransmit, timeout };
@@ -208,6 +210,10 @@ pub const Connection = struct {
             .reset => {
                 self.owes = true;
                 return .{ .reset = item.stream };
+            },
+            .goaway => {
+                self.owes = true;
+                return .goaway;
             },
             .closed => return self.lost(),
             // A client's item from the server is a protocol error.
@@ -316,6 +322,9 @@ pub const Behaviour = struct {
     instead: enum { answer, reset, close } = .answer,
     /// What its responses over HTTP/3 say of their content.
     http: Http = .{},
+    /// Sends GOAWAY once it has taken its first request on a connection, as a server that stops
+    /// taking streams does, and answers the streams it took (RFC 9114 §5.2).
+    goaway: bool = false,
     /// Answers with a message whose prefix is one octet long, or whose ID is not 0: the protocol
     /// errors of RFC 9250 §4.3.3.
     malformed: enum { none, prefix, id } = .none,
@@ -331,6 +340,8 @@ pub const Peer = struct {
     resumed: u16 = 0,
     cancels: u16 = 0,
     closed: bool = false,
+    /// It sent its GOAWAY.
+    goaway_sent: bool = false,
 
     /// What the server does with one item: steps to write back, or a request to answer.
     pub const Heard = union(enum) {

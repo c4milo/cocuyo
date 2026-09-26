@@ -138,7 +138,8 @@ test "a request waits for an answer buffer, and a cancelled one gives its buffer
     try testing.expectEqual(@as(usize, 2), answered);
 }
 
-test "a GOAWAY closes the connection once its answer is read" {
+test "a GOAWAY is told once, beside the answer it came with, and closes nothing itself" {
+    // The engine drains the connection (request rule 13): the transport says the GOAWAY came.
     var pair: Pair = .{};
     pair.server.script.goaway = true;
     var echo: Echo = .{};
@@ -147,14 +148,18 @@ test "a GOAWAY closes the connection once its answer is read" {
     var query = query_test;
     _ = (try pair.client.request(&query, query.len)).?;
     try pair.exchange(echo.answerer());
-    var saw_closed = false;
-    while (pair.client.next(&out)) |said| {
-        if (said == .closed) saw_closed = true;
-    }
-    try testing.expect(saw_closed);
+    var goaways: usize = 0;
+    var answered: usize = 0;
+    while (pair.client.next(&out)) |said| switch (said) {
+        .goaway => goaways += 1,
+        .answered => answered += 1,
+        else => return error.Unexpected,
+    };
+    try testing.expectEqual(@as(usize, 1), goaways);
+    try testing.expectEqual(@as(usize, 1), answered);
 }
 
-test "after a GOAWAY, a request the server will not process is reset, none opens, and it closes" {
+test "after a GOAWAY, a request the server will not process is reset, and none opens" {
     // colibri's server names the first stream it has not taken, which a test cannot leave one of
     // ours past: the GOAWAY is set here as if it had named stream 0 (RFC 9114 §5.2).
     var pair: Pair = .{};
@@ -166,7 +171,7 @@ test "after a GOAWAY, a request the server will not process is reset, none opens
     pair.client.h3.goaway = stream;
     try testing.expectEqual(stream, pair.client.next(&out).?.reset);
     try testing.expectEqual(@as(?u64, null), try pair.client.request(&query, query.len));
-    try testing.expect(pair.client.next(&out).? == .closed);
+    try testing.expectEqual(@as(?Pair.Client.Next, null), pair.client.next(&out));
 }
 
 /// One line of a GET read back, and whether it carried QPACK's N bit (RFC 9204 §4.5.4).

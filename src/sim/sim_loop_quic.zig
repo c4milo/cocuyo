@@ -60,6 +60,7 @@ fn write_step(entry: *const network_module.QuicPeer, script: *const server.Scrip
 /// A request on a stream: answered on it as the script says, or its stream reset, or the
 /// connection closed. A query the script drops is never answered.
 fn answer_request(loop: *Loop, entry: *network_module.QuicPeer, script: *const server.Script, stream: u32, bytes: []const u8) void {
+    goaway_on_take(entry, script, loop.now_ns + script.delay_ns_min);
     switch (script.quic.instead) {
         .answer => {},
         .reset, .close => {
@@ -83,6 +84,16 @@ fn answer_request(loop: *Loop, entry: *network_module.QuicPeer, script: *const s
     malform(script, message[0..len]);
     const pending = queue(entry, loop.now_ns + answered.delay_ns) orelse return;
     pending.len = @intCast(quic.write_item(.{ .kind = .answer, .stream = stream, .bytes = message[0..len] }, &pending.bytes));
+}
+
+/// A GOAWAY once the server has taken its first request on the connection, when the script says it
+/// stops taking streams: it names the streams it took, and answers them (RFC 9114 §5.2). It goes
+/// at the shortest delay, ahead of any answer.
+fn goaway_on_take(entry: *network_module.QuicPeer, script: *const server.Script, due_ns: u64) void {
+    if (!script.quic.goaway or entry.peer.goaway_sent) return;
+    entry.peer.goaway_sent = true;
+    const pending = queue(entry, due_ns) orelse return;
+    pending.len = @intCast(quic.write_item(.{ .kind = .goaway }, &pending.bytes));
 }
 
 /// A DoH request carries the message alone (RFC 8484 §4.1), and its answer goes back as a

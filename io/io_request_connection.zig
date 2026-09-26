@@ -24,7 +24,9 @@ const request_template = @import("io_request_template.zig");
 pub fn Connection(comptime Quic: type, comptime lookups: u16) type {
     return struct {
         const Self = @This();
-        pub const State = enum { closed, handshaking, up, closing };
+        /// A draining connection's server sent GOAWAY: it takes no new stream, and closes once its
+        /// last one has ended (request rule 13).
+        pub const State = enum { closed, handshaking, up, draining, closing };
 
         state: State = .closed,
         descriptor: ?rotor.Descriptor = null,
@@ -224,8 +226,35 @@ fn spend(self: anytype, server: u8, now_ns: u64) ?tls.Kept(@TypeOf(self.*).Quic)
 /// Server `server`'s connection fails: each request on it hears so once, and it closes (request
 /// rule 7).
 pub fn fail(self: anytype, server: u8, now_ns: u64) void {
+    const connection = &self.quic_connections[server];
+    // One that drains or closes fails the requests on its streams alone, and opens again for those
+    // that wait, which never went to it (request rule 13).
+    if (connection.state == .draining or connection.state == .closing) {
+        request_module.fail_streams_of(self, server, now_ns);
+        return reopen(self, server, now_ns);
+    }
     request_module.fail_all_of(self, server, now_ns);
     shut(self, server);
+}
+
+/// The server sent GOAWAY: the connection takes no new stream, and drains (request rule 13). One
+/// after the first changes nothing: "An endpoint MAY send multiple GOAWAY frames" (RFC 9114 §5.2),
+/// and a draining connection has a stream. A closing one reads nothing, and a handshaking one has
+/// no stream a GOAWAY could come on.
+pub fn drain(self: anytype, server: u8) void {
+    const connection = &self.quic_connections[server];
+    assert(connection.state == .up or connection.state == .draining);
+    connection.state = .draining;
+    drained(self, server);
+}
+
+/// A draining connection whose last stream has ended closes as an idle one does, and opens again
+/// for the requests that wait once its CONNECTION_CLOSE has gone (request rules 9 and 13).
+pub fn drained(self: anytype, server: u8) void {
+    const connection = &self.quic_connections[server];
+    if (connection.state != .draining or connection.streams != 0) return;
+    connection.state = .closing;
+    connection.quic.close();
 }
 
 /// Ends an opening: its receive cancelled, which is what makes the loop let it go (rotor decision
@@ -251,8 +280,13 @@ fn begin_close(self: anytype, server: u8) void {
 /// The CONNECTION_CLOSE has gone: the connection closes, and opens again for the requests taken
 /// while it closed (request rule 9). A new one that cannot open fails them.
 pub fn closed(self: anytype, server: u8, now_ns: u64) void {
+    assert(self.quic_connections[server].state == .closing);
+    reopen(self, server, now_ns);
+}
+
+/// Ends the opening, and opens again for the requests that wait.
+fn reopen(self: anytype, server: u8, now_ns: u64) void {
     const connection = &self.quic_connections[server];
-    assert(connection.state == .closing);
     shut(self, server);
     if (connection.queue_len == 0) return;
     if (!open(self, server, now_ns)) request_module.fail_all_of(self, server, now_ns);

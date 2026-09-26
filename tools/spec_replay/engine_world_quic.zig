@@ -37,7 +37,7 @@ pub fn step(self: anytype, op: []const u8, parts: *std.mem.SplitIterator(u8, .sc
 
 /// The item the step is: a flight while the handshake runs and a PING once up, for a datagram the
 /// connection answers; the handshake's end on "doq" or on another protocol; its refusal; the
-/// server's close; a ticket; an answer or a reset on the slot's stream.
+/// server's close; a ticket; a GOAWAY; an answer or a reset on the slot's stream.
 fn item(self: anytype, server: u8, name: []const u8, slot: usize, reply: ?fixtures.Reply, out: []u8) Error!usize {
     const connection = &self.engine.quic_connections[server];
     const Kind = rotor.quic.Kind;
@@ -47,6 +47,7 @@ fn item(self: anytype, server: u8, name: []const u8, slot: usize, reply: ?fixtur
         .{ .name = "failed", .kind = .refused, .bytes = &.{} },
         .{ .name = "close", .kind = .closed, .bytes = &.{} },
         .{ .name = "newTicket", .kind = .ticket, .bytes = &.{} },
+        .{ .name = "goaway", .kind = .goaway, .bytes = &.{} },
     };
     for (plain) |entry| {
         if (std.mem.eql(u8, entry.name, name)) return rotor.quic.write_item(.{ .kind = entry.kind, .bytes = entry.bytes }, out);

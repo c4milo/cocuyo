@@ -445,7 +445,11 @@ Checks(before, e, st) ==
        <<"requests placed", RequestsPlaced(st)>>, <<"streams when up", StreamsWhenUp(st)>>,
        <<"requests current", RequestsCurrent(st)>>, <<"closed empty", ClosedEmpty(st)>>,
        <<"datagram lent", DatagramLent(st)>>, <<"up on protocol", UpOnProtocol(st)>>,
-       <<"receive current", RecvCurrent(st)>>, <<"request ticket spent", RTicketSpent(before, st)>> >>
+       <<"receive current", RecvCurrent(st)>>, <<"request ticket spent", RTicketSpent(before, st)>>,
+       <<"draining has streams", DrainingHasStreams(st)>>,
+       <<"drain shrinks", DrainShrinks(before, st)>>,
+       <<"goaway fails none", GoawayFailsNone(before, e, st)>>,
+       <<"waiting kept", WaitingKept(before, e, st)>> >>
 
 Broken(before, e, st) ==
     LET checks == Checks(before, e, st) IN

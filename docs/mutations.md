@@ -1827,8 +1827,10 @@ Design §24 step 3, 2026-09-25. The engine model gains requests over DoQ and DoH
 mutant in `spec/tla/engine/mutants/` puts one operator of `EngineMutants.tla` in place of the
 rule's, and TLC must find the check that catches it. All run on one server and one lookup except
 RQ9. There, time moves while a request is on a connection only when another connection is idle,
-so it needs two servers. Every new check is caught by one mutant at least. Eleven mutations,
-eleven `CAUGHT`.
+so it needs two servers. Every new check is caught by one mutant at least. RQ12 to RQ15 came on
+2026-09-25 with request rule 13, a GOAWAY that drains its connection (c4milo/cocuyo#17), and four
+checks, one each; RQ14 and RQ15 need two lookups, one on a stream and one that waits. Fifteen
+mutations, fifteen `CAUGHT`.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
@@ -1843,6 +1845,10 @@ eleven `CAUGHT`.
 | RQ9 | a connection closes for idleness with requests on it | request rule 9 | streams when up | CAUGHT |
 | RQ10 | a connection that closes still owes a datagram | request rule 7 | closed empty | CAUGHT |
 | RQ11 | a receive is armed beside the one that is current | the datagram's rule 1 | receive current | CAUGHT |
+| RQ12 | a GOAWAY fails its connection | request rule 13 | goaway fails none | CAUGHT |
+| RQ13 | a draining connection stays open once its last stream has ended | request rule 13 | draining has streams | CAUGHT |
+| RQ14 | a connection that fails while it drains fails the requests that wait | request rule 13 | waiting kept | CAUGHT |
+| RQ15 | a request taken while its connection drains opens a stream on it | request rule 13 | drain shrinks | CAUGHT |
 
 ## DoQ in the engine
 
@@ -2126,3 +2132,31 @@ example without the mutation ran with no report. Two mutations, two `CAUGHT`.
 | --- | --- | --- | --- | --- |
 | TP1 | the twin's network is one for the process | each thread's servers are its own | the two-thread twin test | CAUGHT |
 | TP2 | both threads drive one engine | an engine is its thread's alone | ThreadSanitizer over the example: a data race | CAUGHT |
+
+## A GOAWAY drains the connection
+
+Design §24, request rule 13, 2026-09-25 (c4milo/cocuyo#17). A GOAWAY drains its connection: its
+streams go on until each is answered or reset, a request taken meanwhile waits, and once no stream
+is left it closes and opens again for what waits. A failure while it drains or closes fails the
+requests on its streams alone. The model gained the rule and four checks (RQ12 to RQ15 above). The
+engine's side is broken against three tests on the twin (`io/io_request_drain_test.zig`), whose
+scripted server sends GOAWAY once it has taken its first request, and against the model's walks.
+
+The walks were written again from the new model. The short walks reach a GOAWAY three times, and
+catch three of the six. The full run, 20,000 walks and 4,020,000 events, catches all six, and the
+picked walks were chosen again from it: 2, 12, 48, 57, 4016, 5560, 8001, 12100, 12706 and 14128,
+each the first walk of the run that catches a mutation the short walks miss. The picks catch every
+mutation the section on TLC's walks and the one above give them, and SQ10, which the old short
+walks caught and the new ones miss, is caught at walk 8001. Three edits no longer applied, and
+were written again: ET7, now that sockets are left out for every encrypted configuration, ET13,
+now that a ticket's seven-day cap is in `fresh`, and RW2, now that the protocol is the
+configuration's. Each is caught as before. Six mutations, six `CAUGHT`.
+
+| # | Mutation | Check it breaks | The drain tests | The walks | Status |
+| --- | --- | --- | --- | --- | --- |
+| RW12 | a GOAWAY leaves the connection up | request rule 13 | the waiting and failing tests | short walk 2 | CAUGHT |
+| RW13 | a connection that fails while it drains fails the requests that wait | request rule 13 | the failing test | full run walk 57, picked | CAUGHT |
+| RW14 | a draining connection never closes | request rule 13 | the waiting and cancel tests | short walk 2 | CAUGHT |
+| RW15 | a stream's answer does not close the connection it drained | request rule 13 | the waiting test | short walk 18 | CAUGHT |
+| RW16 | a cancel does not close the connection it drained | request rules 6 and 13 | the cancel test | full run walk 2, picked | CAUGHT |
+| RW17 | a failure while it drains fails the waiting requests with those on streams | request rule 13 | the failing test | full run walk 57, picked | CAUGHT |

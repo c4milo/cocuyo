@@ -3312,12 +3312,31 @@ all DoQ or all DoH (§22, §23), and the rules hold for both. Where they differ,
     field line. HPACK has the same literal, for when HTTP/2 joins. The rest stays as it is: a
     DNS message compresses its names (RFC 1035 §4.1.4), which the codec reads, and TLS 1.3
     compresses nothing (RFC 9846 §4.2.2).
+13. **A GOAWAY drains the connection.** Written on 2026-09-25 (c4milo/cocuyo#17). A server that
+    sends GOAWAY takes no new stream, and answers each it took before the stream the GOAWAY names
+    (RFC 9114 §5.2). The transport says it came, once, with `next`, and the connection drains:
+    its streams go on until each is answered or reset, a request taken meanwhile waits in its
+    queue, and once no stream is left it closes as an idle connection does (rule 9), and opens
+    again for what waits. A stream the server will not process is reset, and its request fails,
+    which §5.2 lets the client retry and the lookup's failover does. A connection that fails while
+    it drains, the server's close among the ways, fails the requests on its streams, and opens
+    again for those in its queue, which never went to it. The same holds for a failure while the
+    engine's own close is going, its timer's or its CONNECTION_CLOSE's send: the connection has
+    closed either way, and what waits opens it again. A GOAWAY after the first changes nothing
+    (§5.2: "An endpoint MAY send multiple GOAWAY frames"). DoQ has no GOAWAY (RFC 9250): a DoQ
+    server that stops taking queries stops granting streams, and closes. The model holds it with
+    four checks, which four mutants break (docs/mutations.md RQ12 to RQ15), and the replay agrees
+    with it over TLC's full run of 4,020,000 events.
 
-The model holds rules 1 to 4 and 6 to 11. Rules 5 and 12 are about octets, and the model reads a
-stream's answer as an event, with no octets. The invariants the model gains:
+The model holds rules 1 to 4, 6 to 11 and 13. Rules 5 and 12 are about octets, and the model reads
+a stream's answer as an event, with no octets. The invariants the model gains:
 
 - A request slot is free, or holds one request, on its lookup's server's connection.
-- A request has a stream only on a connection that is up.
+- A request has a stream only on a connection that is up or draining, and waits only on one that
+  is handshaking, draining or closing.
+- A draining connection has a stream: the last one's end closes it.
+- A GOAWAY fails no request, a draining connection opens no stream, and one that drains or
+  closes fails none that waits when it fails.
 - A stream's request is its lookup's current attempt, or it has been cancelled.
 - A connection that fails leaves no request on it, and each current attempt heard of it once.
 - A connection's datagram buffer is lent exactly when a send of it is in flight.
@@ -3562,15 +3581,14 @@ The engine hands a 2xx answer that is a DNS message to the lookup, with its `Age
 fails the request (RFC 8484 §4.2.1, request rule 12), and counts as the server's failure
 (decision 25). Content longer than the buffer fails the connection, as request rule 5 has it.
 
-**GOAWAY is the server's close, once what it promised is answered.** A GOAWAY names the first
-stream the server will not process, and it answers those before it (RFC 9114 §5.2). So a request
-from that stream on is cancelled and hears its stream reset, no new request opens, and once the
-requests before it are answered `next` says the connection closed, as rule 7 has it for the
-server's close. A request that waits on the connection then fails, and costs a retry: letting it
-wait for a new connection needs a connection state the model does not have, which
-c4milo/cocuyo#17 tracks. colibri's `h3` reads the control stream before the request streams, and a
-server can send its GOAWAY ahead of the answers it promised, so the close waits for them rather
-than for the datagram's end.
+**GOAWAY drains the connection** (request rule 13). colibri's `h3` reads the frame and refuses a
+new stream after it, but it opens no connection and holds no request that waits, so the rest is
+the engine's. `next` says the GOAWAY came, once. A request from the stream it names on is cancelled
+and hears its stream reset, and no new stream opens. The engine drains the connection: requests
+taken meanwhile wait in its queue, and once the requests before that stream are answered it closes
+as an idle connection does and opens again for them. colibri's `h3` reads the control stream before
+the request streams, and a server can send its GOAWAY ahead of the answers it promised, so the
+drain waits for them rather than for the datagram's end.
 
 **The idle close** sends H3_NO_ERROR in its CONNECTION_CLOSE (request rule 9, RFC 9114 §8.1).
 
@@ -3673,9 +3691,10 @@ Step 6 shows it twice, written on 2026-09-25:
    landed the same day: two request configurations of the walks, 4,020,000 events of TLC's full
    run replayed in agreement, and eleven mutations of the request path, each caught by the walks
    (RW1 to RW11). Writing the replay moved request rule 8, and the model with it: a datagram the
-   loop refuses is kept for the next drive, and the request configurations now hold 24,192,
-   257,212 and 5,295,912 states. colibri over the twin (decision 29) and the live check are the
-   rest of the step. colibri under the interface landed on 2026-09-25: `cocuyo_quic`
+   loop refuses is kept for the next drive, and the request configurations then held 24,192,
+   257,212 and 5,295,912 states; request rule 13, a GOAWAY that drains its connection, took them
+   to 28,328, 326,032 and 7,396,714 (c4milo/cocuyo#17). colibri over the twin (decision 29) and
+   the live check are the rest of the step. colibri under the interface landed on 2026-09-25: `cocuyo_quic`
    (`io/io_quic.zig` and the files beside it) over colibri `d2c1431`, pinned by hash, a session
    that encrypts nothing and a test server over it, and the twin's responder. Nine tests run the
    engine over colibri's client and server on the twin: an answer, six lookups on one connection,

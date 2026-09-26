@@ -149,29 +149,42 @@ pub fn cancel(self: anytype, stream_id: u64) void {
 ///
 /// A GOAWAY names the first stream the server will not process, and it answers those before it:
 /// "the client can retry any requests with ... identifiers greater than or equal to" it (RFC 9114
-/// §5.2). So each request from there on hears its stream reset, no new one opens, and the
-/// connection closes once the requests before it are answered, as the server's close closes it
-/// (docs/design.md §24, c4milo/cocuyo#17).
+/// §5.2). `next` says it came, once, and the engine drains the connection (request rule 13): each
+/// request from that stream on hears its stream reset, and no new one opens.
 pub fn next(self: anytype, out: []u8) ?@TypeOf(self.*).Next {
     for (0..constants.h3_events_per_next_max) |_| {
         const event = self.h3.connection.receive(&self.connection, &self.h3.body) catch return closed(self);
-        switch (event orelse break) {
-            .response => |held| take_response(self, held.stream_id, held.response),
-            .data => |held| take_data(self, held.stream_id, held.octets),
-            .end => |stream_id| if (ended(self, stream_id, out)) |said| return said,
-            .reset, .refused => |held| if (reset(self, held.stream_id)) |said| return said,
-            .goaway => |first| self.h3.goaway = @min(first, self.h3.goaway orelse first),
-            // A client hears no request, and reads nothing from SETTINGS or trailers.
-            .settings, .trailers, .request => {},
-        }
+        if (said_by(self, event orelse break, out)) |said| return said;
     } else return null;
     self.streams.sweep(&self.connection);
-    return gone_away(self);
+    return refused_by_goaway(self);
+}
+
+/// What one of `h3`'s events tells the engine, if anything.
+fn said_by(self: anytype, event: h3.connection.Event, out: []u8) ?@TypeOf(self.*).Next {
+    switch (event) {
+        .response => |held| take_response(self, held.stream_id, held.response),
+        .data => |held| take_data(self, held.stream_id, held.octets),
+        .end => |stream_id| return ended(self, stream_id, out),
+        .reset, .refused => |held| return reset(self, held.stream_id),
+        .goaway => |first| return goaway(self, first),
+        // A client hears no request, and reads nothing from SETTINGS or trailers.
+        .settings, .trailers, .request => {},
+    }
+    return null;
+}
+
+/// A GOAWAY, whose first stream not processed is kept, the lowest of them: the first is told, and
+/// "An endpoint MAY send multiple GOAWAY frames" (RFC 9114 §5.2), each told nothing more.
+fn goaway(self: anytype, first: u64) ?@TypeOf(self.*).Next {
+    const told = self.h3.goaway != null;
+    self.h3.goaway = @min(first, self.h3.goaway orelse first);
+    return if (told) null else .goaway;
 }
 
 /// After a GOAWAY: a request the server will not process is cancelled, which frees its stream,
-/// and hears it reset. Once none is left for the server to answer, the connection closes.
-fn gone_away(self: anytype) ?@TypeOf(self.*).Next {
+/// and hears it reset.
+fn refused_by_goaway(self: anytype) ?@TypeOf(self.*).Next {
     const first = self.h3.goaway orelse return null;
     for (&self.h3.answers) |*answer| {
         const stream_id = answer.stream orelse continue;
@@ -179,14 +192,7 @@ fn gone_away(self: anytype) ?@TypeOf(self.*).Next {
         self.h3.connection.cancel(&self.connection, stream_id, constants.h3_request_cancelled);
         return reset(self, stream_id);
     }
-    if (free_answer_count(&self.h3.answers) < self.h3.answers.len) return null;
-    return closed(self);
-}
-
-fn free_answer_count(answers: anytype) usize {
-    var count: usize = 0;
-    for (answers) |*answer| count += @intFromBool(answer.stream == null);
-    return count;
+    return null;
 }
 
 fn closed(self: anytype) @TypeOf(self.*).Next {

@@ -133,7 +133,7 @@
         .id = "ET7",
         .what = "a TLS configuration opens UDP sockets",
         .edits = .{
-            .{ .file = "io/io_udp.zig", .old = "        self.count = if (config.uses_tls()) 0 else @intCast(config.servers.len);", .new = "        self.count = @intCast(config.servers.len);" },
+            .{ .file = "io/io_udp.zig", .old = "        self.count = if (config.encrypted()) 0 else @intCast(config.servers.len);", .new = "        self.count = @intCast(config.servers.len);" },
         },
         .caught_by = .short_walks,
     },
@@ -187,7 +187,7 @@
         .id = "ET13",
         .what = "a ticket older than seven days is spent",
         .edits = .{
-            .{ .file = "io/io_tls.zig", .old = "    if (age_ns >= lifetime_ns) return;", .new = "    if (false and age_ns >= lifetime_ns) return;" },
+            .{ .file = "io/io_tls.zig", .old = "    const lifetime_ns = @min(Session.lifetime_ns(&kept.ticket), constants.tls_ticket_age_ns_max);", .new = "    const lifetime_ns = Session.lifetime_ns(&kept.ticket);" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -288,7 +288,7 @@
         .edits = .{
             .{ .file = "io/io_tcp_queue.zig", .old = "    send_module.finish(self, slot, true, now_ns);\n    after_send(self, at, now_ns);", .new = "    send_module.finish(self, slot, true, now_ns);" },
         },
-        .caught_by = .short_walks,
+        .caught_by = .picked_walks,
     },
     .{
         .section = "The engine's datagrams",
@@ -451,7 +451,7 @@
         .id = "RW2",
         .what = "the handshake's end is taken whatever protocol it negotiated",
         .edits = .{
-            .{ .file = "io/io_request_events.zig", .old = "if (!std.mem.eql(u8, alpn, constants.quic_alpn_doq)) return", .new = "if (!std.mem.eql(u8, alpn, alpn)) return" },
+            .{ .file = "io/io_request_events.zig", .old = "if (!std.mem.eql(u8, alpn, connection_module.protocol_of(self))) return", .new = "if (!std.mem.eql(u8, alpn, alpn)) return" },
         },
         .caught_by = .short_walks,
     },
@@ -535,5 +535,59 @@
             .{ .file = "io/io_request_connection.zig", .old = "    if (self.loop.submit(&.{operation}, &.{}) != 1) return;\n    slot.lent = true;", .new = "    if (self.loop.submit(&.{operation}, &.{}) != 1) {\n        connection.made = 0;\n        return;\n    }\n    slot.lent = true;" },
         },
         .caught_by = .short_walks,
+    },
+    .{
+        .section = "Requests replayed on the model's walks",
+        .id = "RW12",
+        .what = "a GOAWAY leaves the connection up",
+        .edits = .{
+            .{ .file = "io/io_request_connection.zig", .old = "    assert(connection.state == .up or connection.state == .draining);\n    connection.state = .draining;\n    drained(self, server);", .new = "    assert(connection.state == .up or connection.state == .draining);\n    drained(self, server);" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "Requests replayed on the model's walks",
+        .id = "RW13",
+        .what = "a connection that fails while it drains fails the requests that wait",
+        .edits = .{
+            .{ .file = "io/io_request_connection.zig", .old = "    if (connection.state == .draining or connection.state == .closing) {", .new = "    if (false and (connection.state == .draining or connection.state == .closing)) {" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "Requests replayed on the model's walks",
+        .id = "RW14",
+        .what = "a draining connection never closes",
+        .edits = .{
+            .{ .file = "io/io_request_connection.zig", .old = "    if (connection.state != .draining or connection.streams != 0) return;\n    connection.state = .closing;", .new = "    if (connection.state != .draining or connection.streams != 0 or true) return;\n    connection.state = .closing;" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "Requests replayed on the model's walks",
+        .id = "RW15",
+        .what = "a stream's answer does not close the connection it drained",
+        .edits = .{
+            .{ .file = "io/io_request_events.zig", .old = "    if (connection.users() == 0) connection.idle_since_ns = now_ns;\n    connection_module.drained(self, server);\n}", .new = "    if (connection.users() == 0) connection.idle_since_ns = now_ns;\n}" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "Requests replayed on the model's walks",
+        .id = "RW16",
+        .what = "a cancel does not close the connection it drained",
+        .edits = .{
+            .{ .file = "io/io_request.zig", .old = "        connection.quic.cancel(stream);\n        connection_module.drained(self, request.server);", .new = "        connection.quic.cancel(stream);" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "Requests replayed on the model's walks",
+        .id = "RW17",
+        .what = "a failure while draining fails the waiting requests with those on streams",
+        .edits = .{
+            .{ .file = "io/io_request.zig", .old = "        if (request.live and request.server == server and request.stream != null) fail_one(self, index, now_ns);", .new = "        if (request.live and request.server == server) fail_one(self, index, now_ns);" },
+        },
+        .caught_by = .picked_walks,
     },
 }

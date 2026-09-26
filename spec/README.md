@@ -182,30 +182,32 @@ machine busy with other work. These counts are what TLC's had to equal.
 
 A request connection is what colibri tells the engine: that it owes a datagram, that the
 handshake ended on the transport's protocol or on another or failed, that a stream was answered
-or reset, that the server closed, that a ticket came, and that its QUIC timer fired, to resend or
-to give up. DoQ and DoH move alike: an answer stands for a DoQ message and for a 2xx DoH body, and
+or reset, that the server closed or sent GOAWAY, that a ticket came, and that its QUIC timer
+fired, to resend or to give up. A GOAWAY drains the connection: its streams go on, a request taken
+meanwhile waits, and it closes once none is left and opens again for what waits (request rule 13). DoQ and DoH move alike: an answer stands for a DoQ message and for a 2xx DoH body, and
 a reset for a reset stream and for a status that is not 2xx. The request configurations, walked
-again on 2026-09-25 once the model kept a refused datagram apart from what colibri owes, on an
-Apple M1 Pro with no other check running, three operations and one failure:
+again on 2026-09-26 once request rule 13 drained a connection on GOAWAY, on an Apple M1 Pro with
+no other check running, three operations and one failure:
 
 | Servers | Lookups | States | Seconds | Invariants |
 | --- | --- | --- | --- | --- |
-| 1 | 1 | 24,192 | 3 | hold |
-| 1 | 2 | 257,212 | 16 | hold |
-| 2 | 1 | 5,295,912 | 421 | hold |
+| 1 | 1 | 28,328 | 3 | hold |
+| 1 | 2 | 326,032 | 35 | hold |
+| 2 | 1 | 7,396,714 | 742 | hold |
 
-Before the kept datagram, the same configurations held 19,712, 210,148 and 3,140,695 states.
+Before request rule 13 they held 24,192, 257,212 and 5,295,912 states, and before the kept
+datagram 19,712, 210,148 and 3,140,695.
 
-Every stage was reached: a connection up with a request on a stream, one closing, a lookup
-answered, one failed after its request failed, and a connection opened again while an earlier
-incarnation's datagram was still in flight. Eleven mutants in `mutants/` break the request rules,
-and TLC finds each (docs/mutations.md RQ1 to RQ11).
+Every stage was reached: a connection up with a request on a stream, one draining, one closing, a
+lookup answered, one failed after its request failed, and a connection opened again while an
+earlier incarnation's datagram was still in flight. Fifteen mutants in `mutants/` break the request
+rules, and TLC finds each (docs/mutations.md RQ1 to RQ15).
 
 The replay walks the request configurations as it walks the others, with one slot or two and two
 servers, over the twin's QUIC (`sim.quic`). A step of colibri's is one item in a datagram on the
 connection's receive: a flight while the handshake runs and a PING once up for the model's
 `datagram`, the handshake's end on `doq` or on another protocol, its refusal, the server's close, a
-ticket, and an answer or a reset on the slot's stream. The model has no timer, so the replay makes a
+ticket, a GOAWAY, and an answer or a reset on the slot's stream. The model has no timer, so the replay makes a
 connection's QUIC timer due at the instant the walk reaches its `qtime`, and fires the engine's one
 timer there. Writing the replay moved request rule 8: a datagram the loop refuses stays in the
 buffer and goes at the next drive, before whatever colibri makes after it, and the model keeps it

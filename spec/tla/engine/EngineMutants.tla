@@ -1,7 +1,7 @@
 ---------------------------- MODULE EngineMutants -----------------------------
 \* The engine's rules broken on purpose, one operator each: the TLS rules as docs/mutations.md's
 \* TM1 to TM3 and R8a to R8d broke the Lean model, the stream's rule 9 as TQ1 breaks it, and the
-\* request rules of §24 as RQ1 to RQ9 break them. A
+\* request rules of §24 as RQ1 to RQ15 break them. A
 \* configuration in mutants/ puts one in place of the rule with TLC's `Rule <- Mutant`, and TLC
 \* must find the check that catches it.
 EXTENDS Engine
@@ -176,5 +176,28 @@ TendRConnsTwiceFrom(st, v) ==
 
 \* RQ11: a receive is armed beside the one that is current (the datagram's rule 1).
 TendRConnsTwice(st) == TendRConnsTwiceFrom(st, 0)
+
+\* RQ12: a GOAWAY fails its connection, as the server's close does (request rule 13).
+DrainFails(st, v) == FailRConn(st, v)
+
+\* RQ13: a draining connection stays open once its last stream has ended (request rule 13).
+DrainedNever(st, v) == st
+
+\* RQ14: a connection that fails while it drains or closes fails the requests that wait on it too
+\* (request rule 13).
+FailRConnAll(st, v) == ShutR(FailRequestsFrom(st, v, 0), v)
+
+\* RQ15: a request taken while its connection drains opens a stream on it (request rule 13).
+TakeRequestOnDraining(st, l) ==
+    LET v == ServerOf(st, l)
+        cleared == DropRequest(st, l)
+        told == TableEvent(cleared, l, "sent")
+        taken == [told EXCEPT !.reqs[l] = {[server |-> v,
+                                            attempt |-> Attempt(Get(told.slots[l].lookup))]}]
+        c == taken.rconns[v]
+    IN CASE c.stage = "closed" -> OpenR(taken, v, <<l>>)
+         [] c.stage \in {"up", "draining"} -> [taken EXCEPT !.rconns[v].streams = @ \cup {l},
+                                                          !.rconns[v].owes = TRUE]
+         [] OTHER -> [taken EXCEPT !.rconns[v].queue = Append(@, l)]
 
 ===============================================================================

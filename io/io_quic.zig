@@ -99,7 +99,7 @@ pub fn Connection(comptime options: Options) type {
         /// What a DoH response says of its content (`response.zig`).
         pub const Http = response.Http;
         pub const Answered = struct { stream: u64, len: usize, http: ?Http = null };
-        pub const Next = union(enum) { up: []const u8, refused, answered: Answered, reset: u64, closed, ticket: Ticket };
+        pub const Next = union(enum) { up: []const u8, refused, answered: Answered, reset: u64, closed, goaway, ticket: Ticket };
 
         pub const Stage = connection_module.Stage;
         /// colibri's receive pool, which the connection's transport parameters open to the server.

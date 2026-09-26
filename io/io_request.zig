@@ -29,7 +29,7 @@ pub const None = struct {
     pub const Ticket = struct {};
     pub const Http = struct { status: u16, age_seconds: u32, dns_message: bool };
     pub const Answered = struct { stream: u64, len: usize, http: ?Http = null };
-    pub const Next = union(enum) { up: []const u8, refused, answered: Answered, reset: u64, closed, ticket: Ticket };
+    pub const Next = union(enum) { up: []const u8, refused, answered: Answered, reset: u64, closed, goaway, ticket: Ticket };
 
     pub fn start(_: *None, _: anytype) Error!void {
         unreachable;
@@ -133,6 +133,7 @@ pub fn drop(self: anytype, index: usize, now_ns: u64) void {
         assert(connection.streams >= 1);
         connection.streams -= 1;
         connection.quic.cancel(stream);
+        connection_module.drained(self, request.server);
     } else {
         connection_module.dequeue(connection, @intCast(index));
     }
@@ -160,6 +161,15 @@ fn fail_one(self: anytype, index: usize, now_ns: u64) void {
 
 /// Every request on server `server`'s connection fails, each once (request rule 7). Decision 25
 /// counts each as the server's failure, which the table does.
+/// Each request on a stream of server `server`'s connection fails, once; those that wait stay
+/// (request rule 13).
+pub fn fail_streams_of(self: anytype, server: u8, now_ns: u64) void {
+    for (self.requests[0..], 0..) |*request, index| {
+        if (request.live and request.server == server and request.stream != null) fail_one(self, index, now_ns);
+    }
+    self.quic_connections[server].streams = 0;
+}
+
 pub fn fail_all_of(self: anytype, server: u8, now_ns: u64) void {
     for (self.requests[0..], 0..) |*request, index| {
         if (request.live and request.server == server) fail_one(self, index, now_ns);

@@ -27,6 +27,13 @@ CurrentRequest(st, l) ==
     LET lk == Get(st.slots[l].lookup) IN
     lk.stage = "awaitingUdp" /\ Attempt(lk) = RequestOf(st, l).attempt
 
+\* A draining connection whose last stream has ended closes as an idle one does, and opens again
+\* for the requests that wait (request rule 13).
+DrainedClose(st, v) ==
+    IF st.rconns[v].stage = "draining" /\ st.rconns[v].streams = {}
+    THEN [st EXCEPT !.rconns[v].stage = "closing", !.rconns[v].owes = TRUE]
+    ELSE st
+
 \* Slot l's request leaves its connection: out of the queue if it waits, and its stream cancelled
 \* if it has one, which colibri owes the server STOP_SENDING and a reset for (request rule 6).
 DropRequest(st, l) ==
@@ -36,7 +43,7 @@ DropRequest(st, l) ==
         streamed == l \in st.rconns[v].streams
         left == [st EXCEPT !.reqs[l] = {}, !.rconns[v].queue = SelectSeq(@, LAMBDA x : x # l),
                            !.rconns[v].streams = @ \ {l}, !.rconns[v].owes = @ \/ streamed]
-    IN [left EXCEPT !.rconns[v].idleNow = @ \/ RUsers(left, v) = 0]
+    IN DrainedClose([left EXCEPT !.rconns[v].idleNow = @ \/ RUsers(left, v) = 0], v)
 
 RECURSIVE CancelLeftFrom(_, _)
 CancelLeftFrom(st, l) ==
@@ -71,8 +78,11 @@ ShutR(st, v) ==
         IF op.kind \in {"qsend", "qrecv"} /\ op.target = v THEN [op EXCEPT !.current = FALSE]
         ELSE op)] EXCEPT !.rconns[v] = [NoRConn EXCEPT !.lent = lent]]
 
-\* Connection v fails: each request on it hears so once, and it closes (request rule 7).
-FailRConn(st, v) == ShutR(FailRequestsFrom(st, v, 0), v)
+RECURSIVE FailStreamsFrom(_, _, _)
+FailStreamsFrom(st, v, l) ==
+    IF l >= Slots THEN st
+    ELSE FailStreamsFrom(IF l \in st.rconns[v].streams THEN FailRequest(st, l) ELSE st, v, l + 1)
+
 
 QListen(st, v) == IF st.jammed THEN st ELSE [st EXCEPT !.ops = Add(@, Op("qrecv", v))]
 
@@ -117,6 +127,16 @@ ClosedR(st, v) ==
     LET q == st.rconns[v].queue
         shut == ShutR(st, v)
     IN IF q = <<>> THEN shut ELSE OpenR(shut, v, q)
+
+\* Connection v fails: each request on it hears so once, and it closes (request rule 7). One that
+\* drains or closes fails the requests on its streams alone, and opens again for those that wait,
+\* which never went to it (request rule 13).
+FailRConn(st, v) ==
+    IF st.rconns[v].stage \in {"draining", "closing"} THEN ClosedR(FailStreamsFrom(st, v, 0), v)
+    ELSE ShutR(FailRequestsFrom(st, v, 0), v)
+
+\* The server's GOAWAY: the connection takes no new stream, and drains (request rule 13).
+Drain(st, v) == DrainedClose([st EXCEPT !.rconns[v].stage = "draining", !.rconns[v].owes = TRUE], v)
 
 RECURSIVE CloseIdleRFrom(_, _)
 CloseIdleRFrom(st, v) ==
@@ -184,7 +204,7 @@ StreamEnded(st, v, l, answer, r) ==
                  ELSE IF ~answer THEN TableEvent(st, l, "requestFailed")
                  ELSE IF replied[2] = "accepted" THEN Settle(replied[1], l) ELSE replied[1]
         left == [reached EXCEPT !.reqs[l] = {}, !.rconns[v].streams = @ \ {l}, !.rconns[v].owes = TRUE]
-    IN [left EXCEPT !.rconns[v].idleNow = @ \/ RUsers(left, v) = 0]
+    IN DrainedClose([left EXCEPT !.rconns[v].idleNow = @ \/ RUsers(left, v) = 0], v)
 
 \* What colibri made of a datagram connection v received.
 QuicStep(st, v, seen, l, r) ==
@@ -192,6 +212,7 @@ QuicStep(st, v, seen, l, r) ==
       [] seen = "done" -> UpR(st, v)
       [] seen \in {"otherAlpn", "failed", "close"} -> FailRConn(st, v)
       [] seen = "newTicket" -> [st EXCEPT !.tickets[v] = TRUE, !.rconns[v].owes = TRUE]
+      [] seen = "goaway" -> Drain(st, v)
       [] seen = "answer" -> StreamEnded(st, v, l, TRUE, r)
       [] seen = "reset" -> StreamEnded(st, v, l, FALSE, r)
 
@@ -201,9 +222,12 @@ QuicTime(st, v, seen) ==
     IF seen = "retransmit" THEN [st EXCEPT !.rconns[v].owes = TRUE] ELSE FailRConn(st, v)
 
 \* What colibri may make of what connection v's current receive brought, by the connection's stage.
+\* A GOAWAY after the first changes nothing (RFC 9114 §5.2: "An endpoint MAY send multiple GOAWAY
+\* frames"; request rule 13). A closing connection reads nothing.
 QuicSteps(st, v) ==
     CASE st.rconns[v].stage = "handshaking" -> {"datagram", "done", "otherAlpn", "failed"}
-      [] st.rconns[v].stage = "up" -> {"datagram", "newTicket", "close"}
+      [] st.rconns[v].stage = "up" -> {"datagram", "newTicket", "close", "goaway"}
+      [] st.rconns[v].stage = "draining" -> {"datagram", "newTicket", "close", "goaway"}
       [] OTHER -> {}
 
 \* The current receives of the connections, whose datagrams colibri reads.
@@ -229,11 +253,35 @@ RequestsPlaced(st) ==
           \A l \in c.streams \cup {c.queue[i] : i \in 1..Len(c.queue)} :
               st.reqs[l] # {} /\ RequestOf(st, l).server = v
 
-\* A request has a stream only on a connection that is up, and waits only on one that is not.
+\* A request has a stream only on a connection that is up or drains, and waits only on one that
+\* handshakes, drains or closes.
 StreamsWhenUp(st) ==
     \A v \in 0..RServers - 1 :
         LET c == st.rconns[v] IN
-        (c.streams = {} \/ c.stage = "up") /\ (c.queue = <<>> \/ c.stage \in {"handshaking", "closing"})
+        (c.streams = {} \/ c.stage \in {"up", "draining"}) /\
+        (c.queue = <<>> \/ c.stage \in {"handshaking", "draining", "closing"})
+
+\* A draining connection has a stream: the end of its last one closes it (request rule 13).
+DrainingHasStreams(st) == \A v \in 0..RServers - 1 : st.rconns[v].stage # "draining" \/ st.rconns[v].streams # {}
+
+\* A draining connection opens no stream: its streams only end (request rule 13).
+DrainShrinks(before, st) ==
+    \A v \in 0..RServers - 1 :
+        before.rconns[v].stage # "draining" \/ st.rconns[v].stage # "draining" \/
+        st.rconns[v].streams \subseteq before.rconns[v].streams
+
+\* A GOAWAY fails no request: it only drains its connection (request rule 13).
+GoawayFailsNone(before, e, st) ==
+    ~(e.kind = "quic" /\ e.step = "goaway") \/ \A l \in 0..Slots - 1 : before.reqs[l] = {} \/ st.reqs[l] # {}
+
+\* What colibri tells of a connection, or its timer, or a datagram's end, fails none of the requests
+\* that wait on one that drains or closes: they never went to it (request rule 13). A socket the
+\* system refuses for the connection they open again fails them, as rule 7 has it.
+WaitingKept(before, e, st) ==
+    ~(e.kind \in {"quic", "qtime", "finish"}) \/ before.starved \/
+    \A v \in 0..RServers - 1 :
+        LET c == before.rconns[v] IN
+        c.stage \notin {"draining", "closing"} \/ \A i \in 1..Len(c.queue) : st.reqs[c.queue[i]] # {}
 
 \* After a drive, every request speaks for its lookup's attempt: one it left is cancelled.
 RequestsCurrent(st) == \A l \in 0..Slots - 1 : st.reqs[l] = {} \/ CurrentRequest(st, l)
@@ -251,7 +299,8 @@ DatagramLent(st) ==
         qsends <= 1 /\ st.rconns[v].lent = (qsends = 1)
 
 \* A connection is up only on its transport's protocol.
-UpOnProtocol(st) == \A v \in 0..RServers - 1 : st.rconns[v].stage # "up" \/ st.rconns[v].alpn
+UpOnProtocol(st) ==
+    \A v \in 0..RServers - 1 : st.rconns[v].stage \notin {"up", "draining"} \/ st.rconns[v].alpn
 
 \* A connection has at most one current receive, and none once closed.
 RecvCurrent(st) ==
