@@ -303,8 +303,11 @@ cocuyo through its event-loop engine and c-ares through its own event thread:
 | 128 | 122,089 | 82,554 | 1,724 µs | 2,038 µs |
 
 cocuyo does 1.24 to 1.48 times the lookups per second, with a lower median latency in every row.
-c-ares has the better 99th percentile at one and sixteen in flight. That gap is under investigation
-and is not yet explained. The two also spend memory differently: c-ares allocates a heap object for
+c-ares has the better 99th percentile at one and sixteen in flight in this table. At one in flight
+that was the order of the runs: cocuyo ran first and paid for the process's first 20 milliseconds,
+the responder's thread and the cores coming up to speed. Warm, its p99 there is 57 to 64
+microseconds, and the comparison now warms up before its first row; the table stands until a
+quiet machine measures it again (docs/design.md §11). The two also spend memory differently: c-ares allocates a heap object for
 each message and each record, and cocuyo holds only the memory its caller sized at init, so what it
 uses cannot grow with the load.
 
