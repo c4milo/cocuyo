@@ -101,7 +101,6 @@ fn is_sub_delim(octet: u8) bool {
     return std.mem.indexOfScalar(u8, "!$&'()*+,;=", octet) != null;
 }
 
-
 // Tests.
 
 const testing = std.testing;

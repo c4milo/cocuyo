@@ -229,7 +229,6 @@ test "a GET carries the six lines of design §24, and only :path is never indexe
     try testing.expectEqual(@as(usize, 0), reader.remaining_len());
 }
 
-
 test "a template whose GET cannot fit a request's slot is refused at the start" {
     var pair: Pair = .{};
     const long_path = "/" ++ "p" ** 1000 ++ "{?dns}";
