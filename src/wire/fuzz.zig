@@ -6,9 +6,12 @@
 //! built, which is how a failure is reproduced: the seed is the whole input.
 //!
 //! Zig 0.16 has a coverage-guided fuzzer of its own behind `zig build test --fuzz`, which needs a
-//! build with instrumentation. It is not wired here. This gate is portable, deterministic and runs
-//! on every host, which is what a check that must pass before every commit needs to be; a guided
-//! fuzzer is a good thing to add beside it, not instead of it.
+//! build with instrumentation. It is not wired here: in Zig 0.16.0 the test runner itself does not
+//! compile in fuzz mode (`compiler/test_runner.zig` hands `std.debug.writeStackTrace` a
+//! `*builtin.StackTrace`), which a test of nothing but `std.testing.fuzz` showed on 2026-09-26.
+//! This gate is portable, deterministic and runs on every host, which is what a check that must
+//! pass before every commit needs to be; a guided fuzzer is a good thing to add beside it, not
+//! instead of it, once the Zig cocuyo pins can build one.
 const std = @import("std");
 const generate_module = @import("fuzz_generate.zig");
 const check_module = @import("fuzz_check.zig");
