@@ -76,7 +76,8 @@ failure, as c-ares does, where glibc moves on to the next search domain and hide
 ## How it works
 
 You own the loop. cocuyo tells you what to do next, and you tell it what happened. This is the
-driving loop of [`examples/udp_blocking.zig`](examples/udp_blocking.zig), shortened:
+driving loop of [`examples/udp_blocking.zig`](examples/udp_blocking.zig), shortened. `socket`
+stands for your own UDP socket, and `clock` for a monotonic clock in nanoseconds:
 
 ```zig
 var servers = cocuyo.Servers.init(&config, seed);
@@ -86,15 +87,21 @@ var query: [cocuyo.constants.query_bytes_max]u8 = undefined;
 while (true) {
     switch (lookup.poll(clock.read(), &query)) {
         .send_udp => |send| {
-            // Send send.message_bytes to send.server, ideally from send.local_port_hint.
+            // From a port bound at send.local_port_hint, where the socket allows it.
+            try socket.send(send.server, send.message_bytes);
             lookup.on_sent(clock.read());
         },
         .wait => |deadline_ns| {
-            // Receive until deadline_ns, then hand over whatever arrived:
-            // _ = lookup.on_response(datagram, from, clock.read());
+            // Receive until the deadline, and hand over whatever arrived.
+            if (try socket.receive_until(deadline_ns)) |datagram| {
+                _ = lookup.on_response(datagram.bytes, datagram.from, clock.read());
+            }
         },
         .connect_tcp, .send_tcp => {
             // The answer was truncated: the same exchange over TCP.
+        },
+        .send_request => {
+            // A DoH or DoQ server: an HTTP or a QUIC client carries the bytes, as the engine does.
         },
         .done => |answer| return answer, // addresses, TTL, canonical name
         .failed => |failure| return failure.err,
@@ -205,8 +212,10 @@ var query: [cocuyo.constants.query_bytes_max]u8 = undefined;
 const event = table.poll(now_ns, &query).?; // event.action is .send_udp: the bytes, and where
 ```
 
-[`examples/`](examples) holds two complete programs that resolve real names against real servers:
-one over a blocking UDP socket, one over [rotor](#an-event-loop-to-drive-it-rotor).
+[`examples/`](examples) holds complete programs that resolve real names against real servers: one
+lookup over a blocking UDP socket, the same over [rotor](#an-event-loop-to-drive-it-rotor), and the
+engine over plain DNS, DNS over TLS, over QUIC and over HTTPS on HTTP/3. The
+[build and test](#build-and-test) table has the command for each.
 
 > **The seed must come from a cryptographically secure random source, never from the clock.**
 > cocuyo draws the transaction id, the source-port hint and the DNS-0x20 case pattern from it. A
