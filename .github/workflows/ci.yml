@@ -243,7 +243,9 @@ jobs:
       - name: The engine model checked by TLC, and its mutants refused, but for what runs nightly
         run: |
           set -euo pipefail
-          configurations=$(find spec/tla -name '*.cfg' | sort | while read -r cfg; do
+          # What `zig build tla` finds with no argument: each model's configurations and its
+          # mutants, and not the walk configurations under trace/.
+          configurations=$(for cfg in spec/tla/*/*.cfg spec/tla/*/mutants/*.cfg; do
             grep -q '^\\\* nightly:' "$cfg" || echo "$cfg"
           done)
           zig build tla -- $configurations
