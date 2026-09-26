@@ -79,6 +79,10 @@ pub const Options = struct {
     rule_directories: []const []const u8,
     /// Files outside those directories the rules read all the same.
     rule_files: []const []const u8,
+    /// Path prefixes neither reads, on purpose.
+    exempt: []const []const u8,
+    /// The check that every tracked file a rule or the score reads is read (c4milo/cocuyo#12).
+    coverage: *std.Build.Step.Compile,
     /// The complexity tool, built on pepegrillo.
     complexity: *std.Build.Step.Compile,
     /// The tools/lint driver, built on pepegrillo.
@@ -106,8 +110,22 @@ pub fn add(b: *std.Build, options: Options) *std.Build.Step {
     }
     canary_run.step.dependOn(&tree_run.step);
 
-    const lint_step = b.step("lint", "Score cognitive complexity, then run the tools/lint rules");
-    lint_step.dependOn(&canary_run.step);
+    // Neither the score nor the rules can see a directory they were never handed, so the tracked
+    // files are read against both lists, in the build root, where `git ls-files` names them.
+    const coverage_run = b.addRunArtifact(options.coverage);
+    coverage_run.setCwd(b.path("."));
+    coverage_run.addArg("--rules");
+    coverage_run.addArgs(options.rule_directories);
+    coverage_run.addArg("--rule-files");
+    coverage_run.addArgs(options.rule_files);
+    coverage_run.addArg("--score");
+    coverage_run.addArgs(options.source_directories);
+    coverage_run.addArgs(&.{ "--score-files", "build.zig", "--exempt" });
+    coverage_run.addArgs(options.exempt);
+    coverage_run.step.dependOn(&canary_run.step);
+
+    const lint_step = b.step("lint", "Score cognitive complexity, run the tools/lint rules, and check they read every file");
+    lint_step.dependOn(&coverage_run.step);
     return lint_step;
 }
 

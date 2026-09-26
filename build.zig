@@ -35,9 +35,15 @@ const source_directories = [_][]const u8{ "build", "src", "tools", "examples", "
 /// markdown rule covers, and the models, whose length the file-length rule bounds.
 const lint_rule_directories = [_][]const u8{ "build", "src", "tools", "examples", "bench", "io", "docs", "spec" };
 
-/// Markdown outside those directories that the markdown rule reads all the same, because both
-/// render on GitHub as written (CLAUDE.md, Conventions).
-const lint_rule_files = [_][]const u8{ "README.md", "CLAUDE.md" };
+/// Files outside those directories that the rules read all the same: the Markdown, because both
+/// render on GitHub as written (CLAUDE.md, Conventions), and this file.
+const lint_rule_files = [_][]const u8{ "README.md", "CLAUDE.md", "build.zig" };
+
+/// What neither the rules nor the score read, on purpose: `test/` holds fixtures that are whole
+/// packages of their own, outside every linted directory because a nested build leaves packages
+/// beside them (CLAUDE.md, Layout). `tools/lint_coverage.zig` requires every other tracked file a
+/// check reads to be read (c4milo/cocuyo#12).
+const lint_exempt = [_][]const u8{"test/"};
 
 /// Every tool whose own tests `zig build test` runs. A build that does not run the checkers' own
 /// tests lets a rule lose its test without the build reporting it. The search-order recorder is
@@ -51,6 +57,7 @@ const tool_test_roots = [_][]const u8{
     "tools/search_order/recorder.zig",
     "tools/tla.zig",
     "tools/mutations.zig",
+    "tools/lint_coverage.zig",
 };
 
 /// The git revision range `zig build lint-commits` checks.
@@ -88,6 +95,8 @@ pub fn build(b: *std.Build) void {
         .source_directories = &source_directories,
         .rule_directories = &lint_rule_directories,
         .rule_files = &lint_rule_files,
+        .exempt = &lint_exempt,
+        .coverage = b.addExecutable(.{ .name = "lint_coverage", .root_module = host_module(b, "tools/lint_coverage.zig") }),
         .complexity = b.addExecutable(.{
             .name = "cognitive_complexity",
             .root_module = tool_module(b, pepegrillo, "tools/cognitive_complexity.zig"),

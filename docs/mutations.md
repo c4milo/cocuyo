@@ -1749,16 +1749,22 @@ for the same reason the canary is not: both run on every build.
 read `.zig` and `.sh` files, and the lint walked no directory under `spec/`. Since 2026-09-24 the
 rule reads `.lean` and `.tla` files too, the lint walks `spec/`, and the proofs are split into
 `LookupProofs.lean` and two modules under `LookupProofs/`. Broken against `zig build test-tools`
-and `zig build lint`. FL3 is `NOT CAUGHT`, as dropping any other directory from the lint's list
-is: a clean tree holds nothing for the dropped directory to find. Issue #12 asks for the check
-that would catch it. Four mutations, three `CAUGHT`.
+and `zig build lint`. FL3 was `NOT CAUGHT`, as dropping any other directory from the lint's list
+was: a clean tree holds nothing for the dropped directory to find. Since 2026-09-25
+`tools/lint_coverage.zig` reads every tracked file `git ls-files` names, and fails on each one
+whose extension a rule or the complexity score reads and which neither is handed, `test/`'s
+fixtures apart (c4milo/cocuyo#12). Its first run read `build.zig` as unread by the rules, which it
+passes, so the rules read it now. FL5 to FL7 are its own. Seven mutations, seven `CAUGHT`.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
 | FL0 | a model grows past 500 lines | the length limit | `zig build lint`, naming the file | CAUGHT |
 | FL1 | the rule leaves `.lean` files unread | a model is bounded | the models' fixture test | CAUGHT |
 | FL2 | the rule's scope leaves `spec/` out | a model is bounded | the models' fixture test | CAUGHT |
-| FL3 | the lint walks no directory under `spec/` | a model is bounded | nothing: **the list of directories is checked by nothing, issue #12** | NOT CAUGHT |
+| FL3 | the lint walks no directory under `spec/` | a model is bounded | the coverage check, naming each model | CAUGHT |
+| FL5 | the complexity score walks no directory under `tools/` | a tool's functions are scored | the coverage check | CAUGHT |
+| FL6 | the rules are not handed CLAUDE.md | it renders as written | the coverage check | CAUGHT |
+| FL7 | a directory whose name starts like a walked one counts as walked | a path is under a directory | the coverage check's own test | CAUGHT |
 
 ## The resolver in the caller's loop
 
