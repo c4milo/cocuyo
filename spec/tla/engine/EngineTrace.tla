@@ -70,7 +70,11 @@ Sorted(set) == [i \in 1..Cardinality(set) |-> CHOOSE l \in set : Cardinality({m 
 RConnToken(c) ==
     c.stage \o " q" \o NumbersToken(c.queue) \o " st" \o NumbersToken(Sorted(c.streams)) \o " " \o
     Flag(c.owes, "O") \o Flag(c.made, "K") \o Flag(c.lent, "B") \o Flag(c.idleNow, "I") \o
-    (IF RStream THEN Flag(c.connectLent, "N") ELSE "")
+    (IF RStream
+     THEN Flag(c.connectLent, "N") \o " h" \o
+          (IF c.heldStream = {} THEN "-" ELSE ToString(Get(c.heldStream).slot)) \o
+          Flag(c.heldDrain, "G") \o Flag(c.spent, "X")
+     ELSE "")
 
 \* A request slot: the server its request went to, or "-" for none.
 ReqToken(r) == IF r = {} THEN "-" ELSE ToString(Get(r).server)
@@ -144,6 +148,7 @@ EventToken(e) ==
       [] e.kind = "message" -> "message:" \o OpToken(e.op) \o ":" \o ToString(e.slot) \o ":" \o e.reply
       [] e.kind = "tls" -> "tls:" \o OpToken(e.op) \o ":" \o e.step
       [] e.kind = "lapse" -> "lapse:" \o ToString(e.server)
+      [] e.kind = "exhaust" -> "exhaust:" \o ToString(e.server)
       [] e.kind = "straggle" -> "straggle:" \o OpToken(e.op)
       [] e.kind = "quic" -> "quic:" \o OpToken(e.op) \o ":" \o e.step \o ":" \o ToString(e.slot) \o ":" \o e.reply
       [] e.kind = "qtime" -> "qtime:" \o ToString(e.server) \o ":" \o e.step

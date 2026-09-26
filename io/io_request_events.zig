@@ -43,7 +43,8 @@ pub fn on_connect_event(self: anytype, set: anytype, index: usize, event: rotor.
 /// A send ended: the slot's buffer comes back, whichever opening lent it. A send that failed fails
 /// its connection, and a closing connection with nothing more to say closes (request rules 7 to
 /// 9). Over TCP one that went short leaves its rest, which the next drive sends before anything
-/// the transport makes after it (request rule 15).
+/// the transport makes after it (request rule 15). Otherwise the transport is read: what it held
+/// until its octets had gone is told now, and not when the server next sends (request rule 17).
 pub fn on_send_event(self: anytype, set: anytype, index: usize, event: rotor.Event, now_ns: u64) void {
     if (comptime !@TypeOf(set.*).Transport.enabled) return;
     const slot = &set.sends[index & constants.quic_server_mask];
@@ -56,11 +57,11 @@ pub fn on_send_event(self: anytype, set: anytype, index: usize, event: rotor.Eve
     if (comptime @TypeOf(set.*).stream) {
         assert(count <= connection.made - connection.sent);
         connection.sent += @intCast(count);
-        if (connection.sent < connection.made) return;
+        if (connection.sent < connection.made) return hear(self, set, server, now_ns);
         connection.made = 0;
         connection.sent = 0;
     }
-    if (connection.state != .closing) return;
+    if (connection.state != .closing) return hear(self, set, server, now_ns);
     if (connection.made == 0) connection.made = @intCast(connection.transport.output(&slot.bytes, now_ns));
     if (connection.made == 0) connection_module.closed(self, set, server, now_ns);
 }
@@ -140,10 +141,11 @@ pub fn expire_due(self: anytype, set: anytype, now_ns: u64) void {
     }
 }
 
-/// Reads what the transport made of a datagram, a chunk or an expiry, one thing at a time, until
-/// it has nothing more or the connection fails. One answer or reset for each stream at most, and
+/// Reads what the transport made of a datagram, a chunk or an expiry, or held until a send had
+/// gone or a request was held back (request rule 17), one thing at a time, until it has nothing
+/// more or the connection fails. One answer or reset for each stream at most, and
 /// `quic_connection_events_max` of the connection's own: what a flood leaves is read next time.
-fn hear(self: anytype, set: anytype, server: u8, now_ns: u64) void {
+pub fn hear(self: anytype, set: anytype, server: u8, now_ns: u64) void {
     const events_max = self.requests.len + constants.quic_connection_events_max;
     var events: usize = 0;
     while (events < events_max) : (events += 1) {

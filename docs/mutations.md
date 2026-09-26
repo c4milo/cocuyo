@@ -1841,7 +1841,12 @@ over HTTP/2 runs on (c4milo/cocuyo#18), and four checks. Each runs on one server
 over TCP, and RQ17 and RQ18 break the same check from two sides, the receive and the first flight.
 Writing the model moved rule 14: a connection that waits for an earlier opening's connect opens at
 that connect's end, since opening at the drive's end left a request the loop refused failed after
-the drive had polled. Twenty mutations, twenty `CAUGHT`.
+the drive had polled. RQ21 and RQ22 came the same day with request rule 17, the transport read
+after it moves (c4milo/cocuyo#18), and one check. Each runs on one server and one lookup over TCP.
+RQ21 breaks the check. RQ22 leaves a request waiting on a connection that is up, which `streams
+when up` catches before the new check does. Writing the rule changed `goaway fails none`: the
+stream colibri held, and told first at the read that brings a GOAWAY, is not the GOAWAY's to fail.
+Twenty-two mutations, twenty-two `CAUGHT`.
 
 Writing the model again moved every walk TLC takes. TLC's simulation draws on its random stream as
 it enumerates a quantifier's set, a check's included, so any change to what the model evaluates
@@ -1872,6 +1877,8 @@ walk 12005 of the full run. The picked walks are the full run's 6, 41, 4046, 801
 | RQ18 | the transport makes its first flight with the connect, before it has succeeded | request rule 14 | connect first | CAUGHT |
 | RQ19 | a send that went short is taken for a whole one, and its rest is lost | request rule 15 | rest first | CAUGHT |
 | RQ20 | a receive that ended with no octets is armed again, and the connection stays up | request rule 15 | ended closes | CAUGHT |
+| RQ21 | a send's end reads nothing of the transport, which keeps what it held | request rule 17 | held while sending | CAUGHT |
+| RQ22 | a request held back waits, and the drain the transport holds is not read | request rule 17 | streams when up | CAUGHT |
 
 ## DoQ in the engine
 
@@ -2297,3 +2304,43 @@ Twenty-three mutations, twenty-three `CAUGHT`.
 | HT21 | frames are sealed before the handshake ends | the handshake's last flight goes first (RFC 9846 §4.4.4) | every engine test | CAUGHT |
 | HT22 | a record is opened into less room than its plaintext needs | the record waits | the waiting-record test | CAUGHT |
 | HT23 | the twin keeps the server of a socket a new connection reuses | a new connection is a new server | the engine's GOAWAY test | CAUGHT |
+
+
+## The transport read after it moves
+
+Design §24, request rule 17, 2026-09-26 (c4milo/cocuyo#18). Besides after each receive and each
+expiry, the engine reads a request transport after the connection's send ends, and where the drive
+takes a request the transport holds back. colibri's HTTP/2 reads no frame while the replies it owes
+have no room. And a connection whose stream identifiers ran out says it drains only when read. The
+model gained two moves and one check (RQ21 and RQ22 above). The replay's twin keeps a held item
+until its next read, and refuses a request once its identifiers are spent. One engine test, over
+the twin's TCP, spends a connection's identifiers under a request.
+
+What writing it found:
+
+- DoQ freed a cancelled stream's slot once its own side had ended, before the server's answer came.
+  Nothing read that answer then, and colibri kept the stream's place in its table. The read at a
+  send's end made it show: the DoQ test of cancelled streams failed once colibri's 128 places had
+  run out. A slot is now freed once its answer or reset has been read (TR4).
+- The read after a request held back was first at the drive's end, where waiting streams are asked
+  for again. A lookup the read told of then waited for a drive that might not come, which the
+  model's check that a drive ends with nothing ready caught. The read is where the drive takes the
+  request now.
+- A held reset can end a draining connection's last stream at the read that brings a GOAWAY. The
+  connection closes then, and reads nothing more, as rule 9 has it. The replay found the twin still
+  reading, and the model applying the GOAWAY to a closing connection. Both stop now.
+
+The walks were written again from the new model, which draws its choices anew. The full run,
+24,000 walks and 4,824,000 events, replays clean. The short walks miss TR1, TR2, TR3 and TR5, and
+the full run catches each. The picks were chosen again from it, each the first walk that catches a
+mutation the short walks miss: 3, 50, 4024, 4080, 4110, 5710, 8046, 12011, 13182, 16005, 16070,
+16900 and 17842. RW6 and RW16 moved to walks 3 and 50, and the rest stayed where they were. The
+picks catch every mutation of the set the short walks miss. Five mutations, five `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| TR1 | a send's end reads nothing of the transport | request rule 17 | full run walk 4110, picked | CAUGHT |
+| TR2 | a short send's end reads nothing of the transport | request rule 17 | full run walk 4080, picked | CAUGHT |
+| TR3 | a request the transport holds back leaves it unread | request rule 17 | the held-back request test; full run walk 5710, picked | CAUGHT |
+| TR4 | a cancelled DoQ stream frees its slot before its answer or reset is read | colibri keeps a stream's place until both its halves end | the test of streams the engine cancels | CAUGHT |
+| TR5 | the twin tells a held answer for a stream the engine cancelled | a cancelled stream is told to nobody (request rule 6) | full run walk 4024, picked | CAUGHT |

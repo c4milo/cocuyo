@@ -27,7 +27,8 @@ pub fn Slot(comptime bytes_max: usize) type {
         id: u64 = 0,
         len: u16 = 0,
         bytes: [bytes_max]u8 = undefined,
-        /// The engine heard the stream's end, or cancelled the stream: it is nobody's to tell.
+        /// The stream's end was read, which the engine heard unless it cancelled the stream, or
+        /// over DoH `h3` told it: it is nobody's to tell.
         told: bool = false,
         cancelled: bool = false,
         /// colibri reads its bytes no more: the server has them all, or the stream was reset.
@@ -161,10 +162,17 @@ fn next_said(slots: anytype, connection: *quic.Connection, out: []u8) ?Said {
     for (slots) |*slot| {
         if (!slot.live) continue;
         const said = hear(connection, slot, out);
-        release_if_done(slot);
+        release_if_read(slot);
         if (said) |told| return told;
     }
     return null;
+}
+
+/// Over DoQ a slot is freed once its stream's receiving half has been read to its end, or past
+/// the server's reset, and colibri reads its bytes no more. A cancelled stream keeps its slot until
+/// then, or nothing reads what the server sent on it, and colibri keeps its place in the table.
+fn release_if_read(slot: anytype) void {
+    if (slot.told and slot.sent) slot.live = false;
 }
 
 fn release_if_done(slot: anytype) void {
@@ -178,9 +186,9 @@ fn hear(connection: *quic.Connection, slot: anytype, out: []u8) ?Said {
         // Both halves ended, which a stream the engine was not told of cannot do.
         .closed, .unopened => {
             slot.sent = true;
-            if (slot.told or slot.cancelled) return null;
+            const heard = slot.told or slot.cancelled;
             slot.told = true;
-            return .{ .reset = slot.id };
+            return if (heard) null else .{ .reset = slot.id };
         },
     };
     switch (stream.sending.state) {

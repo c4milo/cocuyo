@@ -215,22 +215,26 @@ With `RStream` the request connections run over TCP, as DoH over HTTP/2 does (re
 16). A connection connects before it handshakes; one opened again while an earlier opening's
 connect is in flight waits, `reopening`, until that connect's end; a send may go short, and its
 rest goes first; a receive may end with no octets, which ends the connection; and no transport
-timer fires. The TCP configurations, checked again on 2026-09-26 once the replay had moved two
-steps back to rule 14, on the same machine, three operations and one failure; the last two ran
-beside the engine's mutation run, so their seconds are high:
+timer fires. The transport may hold a stream's answer or reset while the connection's send is in
+flight, and a connection's stream identifiers may run out, which holds the next request back and
+the connection's drain with it; both wait for the transport's next read (request rule 17). The TCP
+configurations, checked again on 2026-09-26 once rule 17 was written, on the same machine, three
+operations and one failure. The last was checked within `zig build tla`, which took 79 minutes
+for every configuration and mutant, and was not timed alone:
 
 | Servers | Lookups | States | Seconds | Invariants |
 | --- | --- | --- | --- | --- |
-| 1 | 1 | 25,532 | 3 | hold |
-| 1 | 2 | 305,364 | 23 | hold |
-| 2 | 1 | 5,820,358 | 810 | hold |
+| 1 | 1 | 54,756 | 4 | hold |
+| 1 | 2 | 729,476 | 96 | hold |
+| 2 | 1 | 21,061,842 | not timed | hold |
 
-As first written they held 26,032, 308,594 and 6,233,470 states. The model had a slot that waits
+Before rule 17 they held 25,532, 305,364 and 5,820,358 states, and before the replay moved the
+model two steps back to rule 14, 26,032, 308,594 and 6,233,470. The model had a slot that waits
 for an earlier connect fail its requests when the loop refused operations, though a waiting slot
 asks the loop for nothing. And a slot whose waiting requests had all left kept what its last
 opening left, where rule 14 closes it as any slot closes. A connection was reopened while its old
-connect was in flight, and one failed when the loop refused its connect. Five more mutants break the TCP rules, and TLC finds each (docs/mutations.md
-RQ16 to RQ20).
+connect was in flight, and one failed when the loop refused its connect. Seven more mutants break
+the TCP rules, and TLC finds each (docs/mutations.md RQ16 to RQ22).
 
 The replay walks the request configurations as it walks the others, with one slot or two and two
 servers, over the twin's QUIC (`sim.quic`). A step of colibri's is one item in a datagram on the
@@ -248,7 +252,11 @@ is one frame in a chunk on the connection's receive, and the handshake ends on `
 `finish:N0*:ok` ends the connect that `N0*` names, a send that goes short moves half of what it
 had left, and `finish:V0*:ended` ends a receive with no octets. The engine keeps a send's octets
 counted until the send ends, so that a short one's rest is known, and the replay writes `K` over
-TCP only while no send is in flight: the model keeps only what waits for a send.
+TCP only while no send is in flight: the model keeps only what waits for a send. A `hold` step is
+the twin's `hold` item around an answer or a reset, which the twin tells at its next read, and
+`exhaust:1` spends connection 1's stream identifiers in the twin, whose next request is refused
+and owes a GOAWAY (request rule 17). The line writes what the twin holds after `h`: the held
+stream's slot, `G` for the GOAWAY owed, and `X` once the identifiers are spent.
 
 The TLS configurations are walked and replayed like the others. The engine drives the twin's
 session (`src/sim/sim_tls.zig`), whose records carry their plaintext unsealed and whose handshake
@@ -375,7 +383,7 @@ compares the walk's whole state after each.
   transitions: one server, one pass and one name, over UDP, over TCP, over DoH and over DoQ. It also
   replays two sets of engine walks TLC wrote. `tools/spec_replay/engine_gate.txt` holds ten walks
   of forty events in each of the twelve engine configurations. `tools/spec_replay/engine_picks.txt`
-  holds nine walks of the full run, which `engine_picks` in `build/spec.zig` names: each is where
+  holds thirteen walks of the full run, which `engine_picks` in `build/spec.zig` names: each is where
   the full run caught a mutation of the engine that the short walks miss (docs/mutations.md). The
   gate also holds `tools/spec_replay/walk_gate.txt`, the forward walk with two candidates and both
   families and every reverse configuration. It needs neither Lean nor Java.

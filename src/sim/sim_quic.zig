@@ -39,6 +39,10 @@ pub const Kind = enum(u8) {
     // a GOAWAY (RFC 9114 §5.2).
     response,
     goaway,
+    // The server's, for the replay: one item, an answer or a reset, which the connection keeps and
+    // tells at its next read, as colibri's HTTP/2 keeps frames it cannot read yet (docs/design.md
+    // §24, request rule 17).
+    hold,
 };
 
 /// What a response says of its content (docs/design.md §24, DoH over HTTP/3): its status, its
@@ -97,6 +101,7 @@ pub fn read_item(bytes: []const u8) ?Read {
 /// The client: a connection with the functions the engine asks of one (docs/design.md §24).
 /// The same transport over TCP, as DoH over HTTP/2 runs, and its frames (`sim_quic_stream.zig`).
 pub const tcp = @import("sim_quic_stream.zig");
+const peer_module = @import("sim_quic_peer.zig");
 pub const Stream = tcp.Stream;
 
 pub const Connection = struct {
@@ -135,6 +140,15 @@ pub const Connection = struct {
     timed_out: bool = false,
     /// How long before the idle timeout it negotiated: never near, unless a test says so.
     idle_left: u64 = std.math.maxInt(u64),
+    /// The item a `hold` carried, told at the read after the one that brought it, and whether that
+    /// read has ended (request rule 17).
+    held: [output_bytes_max]u8 = undefined,
+    held_len: usize = 0,
+    held_ready: bool = false,
+    /// Whether its stream identifiers have run out, as the replay says, and the GOAWAY it owes the
+    /// engine's next read since a request was refused for it (RFC 9113 §5.1.1, request rule 17).
+    spent: bool = false,
+    goaway_owed: bool = false,
 
     /// Stages the hello, a resumed one when the engine hands over a ticket, offering the ALPN the
     /// engine names.
@@ -160,17 +174,25 @@ pub const Connection = struct {
         self.inbound_at = 0;
     }
 
-    /// What the datagram, or the expiry, did, one thing at a time. An answer's octets go into
-    /// `out`, as many as fit, and it says how many there were.
+    /// What the datagram, or the expiry, did, one thing at a time, after what it held: a held item,
+    /// then a GOAWAY a refused request owes (request rule 17). An answer's octets go into `out`, as
+    /// many as fit, and it says how many there were.
     pub fn next(self: *Connection, out: []u8) ?Next {
+        if (self.told_held(out)) |said| return said;
+        if (self.goaway_owed) {
+            self.goaway_owed = false;
+            return .goaway;
+        }
         if (self.timed_out) {
             self.timed_out = false;
             self.state = .dead;
             return .closed;
         }
+        // A closing connection reads nothing more (docs/design.md §24, request rule 9).
+        if (self.state == .closing) return null;
         var items: usize = 0;
         while (items < constants.quic_items_per_datagram_max) : (items += 1) {
-            if (self.inbound_at >= self.inbound_len) return null;
+            if (self.inbound_at >= self.inbound_len) break;
             const read = read_item(self.inbound[self.inbound_at..self.inbound_len]) orelse {
                 self.inbound_at = self.inbound_len;
                 return self.lost();
@@ -178,7 +200,18 @@ pub const Connection = struct {
             self.inbound_at += read.len;
             if (self.hear(read.item, out)) |said| return said;
         }
+        // The read that brought a held item ends here, and the next one tells it.
+        self.held_ready = self.held_len > 0;
         return null;
+    }
+
+    /// The item a `hold` carried, once the read that brought it has ended.
+    fn told_held(self: *Connection, out: []u8) ?Next {
+        if (self.held_len == 0 or !self.held_ready) return null;
+        const read = read_item(self.held[0..self.held_len]) orelse unreachable;
+        self.held_len = 0;
+        self.held_ready = false;
+        return self.hear(read.item, out);
     }
 
     fn hear(self: *Connection, item: Item, out: []u8) ?Next {
@@ -221,6 +254,12 @@ pub const Connection = struct {
                 self.owes = true;
                 return .goaway;
             },
+            .hold => {
+                if (self.held_len > 0 or item.bytes.len > self.held.len) return self.lost();
+                @memcpy(self.held[0..item.bytes.len], item.bytes);
+                self.held_len = item.bytes.len;
+                self.held_ready = false;
+            },
             .closed => return self.lost(),
             // A client's item from the server is a protocol error.
             else => return self.lost(),
@@ -229,10 +268,15 @@ pub const Connection = struct {
     }
 
     /// Opens a stream carrying `bytes[0..len]`, then FIN. Null when the items it holds leave no
-    /// room, which the engine reads as the server's credit run out.
+    /// room, which the engine reads as the server's credit run out, or when its stream identifiers
+    /// have run out, which it says at the next read as a GOAWAY (request rule 17).
     pub fn request(self: *Connection, bytes: []u8, len: usize) Error!?u64 {
         assert(self.state == .up);
         assert(len <= bytes.len);
+        if (self.spent) {
+            self.goaway_owed = true;
+            return null;
+        }
         const room = self.pending.len - self.pending_len;
         if (room < header_bytes + len + constants.quic_pending_reserve_bytes) return null;
         const stream = self.next_stream;
@@ -241,9 +285,18 @@ pub const Connection = struct {
         return stream;
     }
 
-    /// STOP_SENDING, and the engine's side of the stream reset.
+    /// STOP_SENDING, and the engine's side of the stream reset. What it held of the stream tells
+    /// nobody, and goes with it.
     pub fn cancel(self: *Connection, stream: u64) void {
+        if (self.held_stream() == stream) self.held_len = 0;
         self.add(.{ .kind = .stop_sending, .stream = @intCast(stream) });
+    }
+
+    /// The stream whose answer or reset it holds, if any.
+    pub fn held_stream(self: *const Connection) ?u64 {
+        if (self.held_len == 0) return null;
+        const read = read_item(self.held[0..self.held_len]) orelse unreachable;
+        return read.item.stream;
     }
 
     /// The next datagram it owes, as many whole items as fit, or nothing. One owed with nothing
@@ -313,90 +366,9 @@ pub const Connection = struct {
     }
 };
 
-/// How a scripted server's QUIC behaves (sim_server.zig's `Script`).
-pub const Behaviour = struct {
-    /// Flights it asks the client to answer before the handshake ends.
-    flights: u8 = 0,
-    /// Refuses every handshake, as a server whose certificate does not verify is refused.
-    refuse: bool = false,
-    /// Negotiates a protocol other than the one offered.
-    other_protocol: bool = false,
-    /// Gives a ticket when a handshake ends.
-    tickets: bool = false,
-    /// What it does with a request instead of answering it: reset its stream, or close the
-    /// connection, or over TCP end its side of the stream, as a server that goes away without a
-    /// word does; over UDP that closes the connection too.
-    instead: enum { answer, reset, close, end_stream } = .answer,
-    /// What its responses over HTTP/3 say of their content.
-    http: Http = .{},
-    /// Sends GOAWAY once it has taken its first request on a connection, as a server that stops
-    /// taking streams does, and answers the streams it took (RFC 9114 §5.2).
-    goaway: bool = false,
-    /// Answers with a message whose prefix is one octet long, or whose ID is not 0: the protocol
-    /// errors of RFC 9250 §4.3.3.
-    malformed: enum { none, prefix, id } = .none,
-};
-
-/// One connection's server side.
-pub const Peer = struct {
-    flights_left: u8 = 0,
-    up: bool = false,
-    offered: [constants.quic_alpn_bytes_max]u8 = undefined,
-    offered_len: u8 = 0,
-    /// What it heard, which a test reads: the hellos that resumed, the cancels, and the close.
-    resumed: u16 = 0,
-    cancels: u16 = 0,
-    closed: bool = false,
-    /// It sent its GOAWAY.
-    goaway_sent: bool = false,
-
-    /// What the server does with one item: steps to write back, or a request to answer.
-    pub const Heard = union(enum) {
-        steps: struct { first: Kind, second: ?Kind = null },
-        request: struct { stream: u32, bytes: []const u8 },
-        nothing,
-    };
-
-    pub fn hear(self: *Peer, behaviour: *const Behaviour, item: Item) Heard {
-        switch (item.kind) {
-            .hello, .hello_resumed => {
-                if (item.kind == .hello_resumed) self.resumed += 1;
-                return self.begin(behaviour, item.bytes);
-            },
-            .flight_answer => return self.next_flight(behaviour),
-            .request => if (self.up) return .{ .request = .{ .stream = item.stream, .bytes = item.bytes } },
-            .stop_sending => self.cancels += 1,
-            .close => self.closed = true,
-            else => {},
-        }
-        return .nothing;
-    }
-
-    /// The protocol the handshake ends on: the one the client offered, unless the script says
-    /// otherwise.
-    pub fn negotiated(self: *const Peer, behaviour: *const Behaviour) []const u8 {
-        if (behaviour.other_protocol) return constants.quic_alpn_other;
-        return self.offered[0..self.offered_len];
-    }
-
-    fn begin(self: *Peer, behaviour: *const Behaviour, alpn: []const u8) Heard {
-        if (behaviour.refuse) return .{ .steps = .{ .first = .refused } };
-        const kept = @min(alpn.len, self.offered.len);
-        @memcpy(self.offered[0..kept], alpn[0..kept]);
-        self.offered_len = @intCast(kept);
-        self.flights_left = behaviour.flights;
-        return self.next_flight(behaviour);
-    }
-
-    fn next_flight(self: *Peer, behaviour: *const Behaviour) Heard {
-        if (self.flights_left > 0) {
-            self.flights_left -= 1;
-            return .{ .steps = .{ .first = .flight } };
-        }
-        self.up = true;
-        return .{ .steps = .{ .first = .done, .second = if (behaviour.tickets) .ticket else null } };
-    }
-};
+/// How a scripted server's QUIC behaves, and one connection's server side (`sim_quic_peer.zig`).
+pub const Behaviour = peer_module.Behaviour;
+pub const Peer = peer_module.Peer;
 
 // Tests.
 
@@ -481,4 +453,32 @@ test "a refused handshake, a close, an unknown item and an expiry each end the c
     resending.expire(5);
     try testing.expectEqual(@as(?Connection.Next, null), resending.next(&.{}));
     try testing.expect(resending.output(&scratch, 5) > 0);
+}
+
+test "a held item is told at the read after the one that brought it, and none once its stream is cancelled" {
+    // colibri's HTTP/2 keeps frames it cannot read yet, which the engine's next read hears
+    // (docs/design.md §24, request rule 17).
+    var client: Connection = .{ .state = .up };
+    var scratch: [Connection.output_bytes_max]u8 = undefined;
+    var inner: [Connection.output_bytes_max]u8 = undefined;
+    const held = inner[0..write_item(.{ .kind = .reset, .stream = 4 }, &inner)];
+    try client.receive(datagram_of(&.{.{ .kind = .hold, .bytes = held }}, &scratch), 0);
+    try testing.expectEqual(@as(?Connection.Next, null), client.next(&.{}));
+    try testing.expectEqual(@as(?u64, 4), client.held_stream());
+    try testing.expectEqual(@as(u64, 4), client.next(&.{}).?.reset);
+    try testing.expectEqual(@as(?Connection.Next, null), client.next(&.{}));
+    try client.receive(datagram_of(&.{.{ .kind = .hold, .bytes = held }}, &scratch), 0);
+    try testing.expectEqual(@as(?Connection.Next, null), client.next(&.{}));
+    client.cancel(4);
+    try testing.expectEqual(@as(?Connection.Next, null), client.next(&.{}));
+}
+
+test "a connection whose stream identifiers ran out opens no stream, and says GOAWAY at the next read" {
+    // "A client that is unable to establish a new stream identifier can establish a new
+    // connection for new streams" (RFC 9113 §5.1.1, request rule 17).
+    var client: Connection = .{ .state = .up, .spent = true };
+    var bytes = [_]u8{ 0, 2, 'h', 'i' };
+    try testing.expectEqual(@as(?u64, null), try client.request(&bytes, bytes.len));
+    try testing.expect(client.next(&.{}).? == .goaway);
+    try testing.expectEqual(@as(?Connection.Next, null), client.next(&.{}));
 }

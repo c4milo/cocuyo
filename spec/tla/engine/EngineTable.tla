@@ -23,7 +23,7 @@ CONSTANTS
     PerPort,      \* the queries a port carries before it is replaced; zero for never
     Tls,          \* every server speaks TLS, so every query goes on a stream (§21)
     Request,      \* every server speaks DoQ or DoH, so every query is a request (§24)
-    RStream,      \* the request connections run over TCP: DoH over HTTP/2 (§24, rules 14 to 16)
+    RStream,      \* the request connections run over TCP: DoH over HTTP/2 (§24, rules 14 to 17)
     OpsMax,       \* the walk's bound on the operations the loop holds
     FailuresMax,  \* the walk's bound on a server's failures
     SentMax       \* the walk's bound on the queries a port has carried
@@ -144,10 +144,12 @@ NoSock == [sent |-> 0, retiring |-> FALSE, draining |-> FALSE]
 \* A request connection: its stage, the requests waiting for it to be up, the ones on a stream,
 \* whether colibri owes a datagram, whether its slot's datagram buffer is lent to a send of any
 \* incarnation, whether it went idle at this instant, and whether its protocol was the right one.
-\* Over TCP, whether a connect of any incarnation still borrows the slot's address (rule 14).
+\* Over TCP, whether a connect of any incarnation still borrows the slot's address (rule 14), and
+\* what colibri holds and has not told: a stream's answer or reset, and the connection's drain,
+\* and whether its stream identifiers have run out (rule 17).
 NoRConn == [stage |-> "closed", queue |-> <<>>, streams |-> {}, owes |-> FALSE, made |-> FALSE,
             lent |-> FALSE, idleNow |-> FALSE, alpn |-> FALSE, resumed |-> FALSE,
-            connectLent |-> FALSE]
+            connectLent |-> FALSE, heldStream |-> {}, heldDrain |-> FALSE, spent |-> FALSE]
 
 Query(l) == [kind |-> "query", slot |-> l]
 Records == [kind |-> "records", slot |-> 0]

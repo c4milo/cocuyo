@@ -1,7 +1,7 @@
 ---------------------------- MODULE EngineMutants -----------------------------
 \* The engine's rules broken on purpose, one operator each: the TLS rules as docs/mutations.md's
 \* TM1 to TM3 and R8a to R8d broke the Lean model, the stream's rule 9 as TQ1 breaks it, and the
-\* request rules of §24 as RQ1 to RQ20 break them. A
+\* request rules of §24 as RQ1 to RQ22 break them. A
 \* configuration in mutants/ puts one in place of the rule with TLC's `Rule <- Mutant`, and TLC
 \* must find the check that catches it.
 EXTENDS Engine
@@ -246,5 +246,22 @@ QRecvEndedAgain(st, op, outcome) ==
     IF ~op.current THEN finished
     ELSE IF outcome \in {"exhausted", "ended"} THEN QListen(finished, op.target)
     ELSE FailRConn(finished, op.target)
+
+
+\* RQ21: the send's end reads nothing of the transport, which keeps what it held (request rule 17).
+QSendEndedUnread(st, op, outcome) ==
+    LET v == op.target
+        back == [[st EXCEPT !.ops = Remove(@, op)] EXCEPT !.rconns[v].lent = FALSE]
+    IN IF ~op.current THEN back
+       ELSE IF outcome = "failed" THEN FailRConn(back, v)
+       ELSE IF outcome = "short" THEN [back EXCEPT !.rconns[v].made = TRUE]
+       ELSE IF back.rconns[v].stage = "closing" /\ ~back.rconns[v].owes /\ ~back.rconns[v].made
+            THEN ClosedR(back, v)
+       ELSE back
+
+\* RQ22: a request held back waits, and the drain the transport holds is not read (request rule
+\* 17).
+HeldBackUnread(st, v, l) ==
+    [st EXCEPT !.rconns[v].queue = Append(@, l), !.rconns[v].heldDrain = TRUE]
 
 ===============================================================================

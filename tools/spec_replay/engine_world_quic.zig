@@ -25,7 +25,7 @@ pub fn step(self: anytype, op: []const u8, parts: *std.mem.SplitIterator(u8, .sc
     const server: u8 = @intCast((user_data & io.constants.index_mask) & io.constants.quic_server_mask);
     const name = parts.next() orelse return error.Malformed;
     const slot = try world_module.number(parts.next());
-    const reply = std.meta.stringToEnum(fixtures.Reply, parts.next() orelse "");
+    const reply = parts.next() orelse "";
     var datagram: [rotor.constants.quic_datagram_bytes_max]u8 = undefined;
     const stream = kind == .h2_receive;
     const len = try item(self, server, stream, name, slot, reply, &datagram);
@@ -50,8 +50,9 @@ fn chunk(self: anytype, user_data: u64, items: []const u8) Error!void {
 
 /// The item the step is: a flight while the handshake runs and a PING once up, for a datagram the
 /// connection answers; the handshake's end on "doq", or "h2" over TCP, or on another protocol; its
-/// refusal; the server's close; a ticket; a GOAWAY; an answer or a reset on the slot's stream.
-fn item(self: anytype, server: u8, stream_set: bool, name: []const u8, slot: usize, reply: ?fixtures.Reply, out: []u8) Error!usize {
+/// refusal; the server's close; a ticket; a GOAWAY; an answer or a reset on the slot's stream; or
+/// over TCP one of those two held, which the connection tells at its next read (request rule 17).
+fn item(self: anytype, server: u8, stream_set: bool, name: []const u8, slot: usize, reply: []const u8, out: []u8) Error!usize {
     if (plain_item(stream_set, name, out)) |len| return len;
     if (std.mem.eql(u8, name, "datagram")) {
         const state = if (stream_set) self.engine.h2.connections[server].state else self.engine.quic.connections[server].state;
@@ -59,10 +60,20 @@ fn item(self: anytype, server: u8, stream_set: bool, name: []const u8, slot: usi
         return rotor.quic.write_item(.{ .kind = kind }, out);
     }
     const stream: u32 = @intCast(self.engine.requests[slot].stream orelse return error.Malformed);
+    if (!std.mem.eql(u8, name, "hold")) return stream_item(self, stream_set, stream, name, slot, reply, out);
+    var held: [rotor.constants.quic_datagram_bytes_max]u8 = undefined;
+    const kept = if (std.mem.eql(u8, reply, "reset")) "reset" else "answer";
+    const len = try stream_item(self, stream_set, stream, kept, slot, reply, &held);
+    return rotor.quic.write_item(.{ .kind = .hold, .bytes = held[0..len] }, out);
+}
+
+/// An answer, as the reply the walk names, or a reset, on the slot's stream.
+fn stream_item(self: anytype, stream_set: bool, stream: u32, name: []const u8, slot: usize, reply: []const u8, out: []u8) Error!usize {
     if (std.mem.eql(u8, name, "reset")) return rotor.quic.write_item(.{ .kind = .reset, .stream = stream }, out);
     if (!std.mem.eql(u8, name, "answer")) return error.Malformed;
     var message: [512 + cocuyo.constants.tcp_prefix_bytes]u8 = undefined;
-    const answer = answer_of(self, slot, reply orelse return error.Malformed, &message);
+    const kind = std.meta.stringToEnum(fixtures.Reply, reply) orelse return error.Malformed;
+    const answer = answer_of(self, slot, kind, &message);
     if (stream_set) return response_item(stream, answer[cocuyo.constants.tcp_prefix_bytes..], out);
     return rotor.quic.write_item(.{ .kind = .answer, .stream = stream, .bytes = answer }, out);
 }

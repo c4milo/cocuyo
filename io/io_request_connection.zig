@@ -23,6 +23,7 @@ const tls = @import("io_tls.zig");
 const request_module = @import("io_request.zig");
 const request_template = @import("io_request_template.zig");
 const tend_module = @import("io_request_connection_tend.zig");
+const events = @import("io_request_events.zig");
 const Kind = @import("io.zig").Kind;
 
 /// One opening of a server's connection slot: its stage, its socket and receive, the transport's
@@ -131,7 +132,10 @@ pub fn Send(comptime Quic: type) type {
 
 /// Puts slot `index`'s request on its server's connection. A closed connection opens, and one
 /// that cannot fails the request. An idle one near its negotiated idle timeout closes first, and
-/// the request waits for the new one (request rule 9, RFC 9250 §4.4).
+/// the request waits for the new one (request rule 9, RFC 9250 §4.4). One the transport holds back
+/// on a connection that is up waits, and the transport is read at once: it may say the connection
+/// drains, which no octet from the server would prompt, and a lookup it tells of is polled in this
+/// drive (request rule 17).
 pub fn place(self: anytype, set: anytype, index: usize, now_ns: u64) void {
     const server = self.requests[index].server;
     const connection = &set.connections[server];
@@ -145,6 +149,7 @@ pub fn place(self: anytype, set: anytype, index: usize, now_ns: u64) void {
     if (connection.state == .up and open_stream(self, set, server, index, now_ns)) return;
     if (connection.state == .closed) return;
     enqueue(connection, @intCast(index));
+    if (connection.state == .up) events.hear(self, set, server, now_ns);
 }
 
 /// Whether an idle connection that is up has less than `quic_idle_margin_ns` left before the idle

@@ -31,7 +31,7 @@ const template = "https://dns.example/dns-query{?dns}";
 
 /// A rig whose servers speak DoH as `scripts` say, under a timeout long enough for any of them.
 /// A send buffer of `send_bytes`, when it is not zero, makes the twin's sends go short.
-fn start(rig: *Rig, seed: u64, scripts: [fixtures.servers]rotor.server.Script, send_bytes: u32) !void {
+pub fn start(rig: *Rig, seed: u64, scripts: [fixtures.servers]rotor.server.Script, send_bytes: u32) !void {
     for (&rig.servers) |*server| server.https = .{ .template = template };
     try rig.init(seed, scripts, .{
         .servers = &.{},

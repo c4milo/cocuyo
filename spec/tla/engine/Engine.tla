@@ -227,6 +227,7 @@ Happen(st, e) ==
       [] e.kind = "quic" -> Drive(QuicStep(st, e.op.target, e.step, e.slot, e.reply), FALSE)
       [] e.kind = "qtime" -> Drive(QuicTime(st, e.server, e.step), FALSE)
       [] e.kind = "lapse" -> [st EXCEPT !.tickets[e.server] = FALSE]
+      [] e.kind = "exhaust" -> [st EXCEPT !.rconns[e.server].spent = TRUE]
       [] e.kind = "straggle" -> Drive(st, FALSE)
       [] e.kind = "jam" -> [st EXCEPT !.jammed = TRUE]
       [] e.kind = "starve" -> [st EXCEPT !.starved = TRUE]
@@ -283,13 +284,17 @@ TlsSteps(st, op) ==
            [] OTHER -> {}
 
 \* What colibri may tell of a request connection: a step on what its receive brought, a stream
-\* answered or reset, or its timer (EngineRequest.tla). Built here, after `Ev` (see there).
+\* answered or reset, one held, or its timer (EngineRequest.tla). Built here, after `Ev` (see
+\* there).
 RequestEvents(st) ==
     UNION {{[Ev("quic") EXCEPT !.op = op, !.step = t] : t \in QuicSteps(st, op.target)} \cup
            {[Ev("quic") EXCEPT !.op = op, !.step = "answer", !.slot = l, !.reply = r] :
-                l \in st.rconns[op.target].streams, r \in {"answer", "servfail", "nxdomain"}} \cup
+                l \in Unheld(st, op.target), r \in {"answer", "servfail", "nxdomain"}} \cup
            {[Ev("quic") EXCEPT !.op = op, !.step = "reset", !.slot = l] :
-                l \in st.rconns[op.target].streams} : op \in QReceives(st)} \cup
+                l \in Unheld(st, op.target)} \cup
+           {[Ev("quic") EXCEPT !.op = op, !.step = "hold", !.slot = l, !.reply = r] :
+                l \in Holdable(st, op.target), r \in {"answer", "servfail", "nxdomain", "reset"}} :
+           op \in QReceives(st)} \cup
     {[Ev("qtime") EXCEPT !.server = v, !.step = t] : v \in QTimed(st), t \in {"retransmit", "timeout"}}
 
 Enabled(st) ==
@@ -312,6 +317,7 @@ Enabled(st) ==
            op \in DOMAIN st.ops} \cup
     {[Ev("straggle") EXCEPT !.op = op] : op \in {op \in DOMAIN st.ops : Receives(op) /\ ~op.current}} \cup
     {[Ev("lapse") EXCEPT !.server = v] : v \in {v \in 0..Servers - 1 : st.tickets[v]}} \cup
+    {[Ev("exhaust") EXCEPT !.server = v] : v \in Spendable(st)} \cup
     (IF st.jammed THEN {} ELSE {Ev("jam")}) \cup
     (IF st.starved THEN {} ELSE {Ev("starve")})
 
@@ -432,7 +438,7 @@ DeclineForgiven(before, e, st) ==
 
 \* The liveness of the receives is owed only after a drive that ran with nothing refused.
 Drove(before, e) ==
-    e.kind \notin {"take", "jam", "starve", "lapse"} /\ ~before.jammed /\ ~before.starved
+    e.kind \notin {"take", "jam", "starve", "lapse", "exhaust"} /\ ~before.jammed /\ ~before.starved
 
 Checks(before, e, st) ==
     << <<"users counted", UsersCounted(st)>>, <<"attached right", AttachedRight(st)>>,
@@ -456,7 +462,8 @@ Checks(before, e, st) ==
        <<"goaway fails none", GoawayFailsNone(before, e, st)>>,
        <<"waiting kept", WaitingKept(before, e, st)>>,
        <<"connect lent", ConnectLent(st)>>, <<"connect first", ConnectFirst(st)>>,
-       <<"rest first", RestFirst(before, e, st)>>, <<"ended closes", EndedCloses(before, e, st)>> >>
+       <<"rest first", RestFirst(before, e, st)>>, <<"ended closes", EndedCloses(before, e, st)>>,
+       <<"held while sending", HeldWhileSending(st)>> >>
 
 Broken(before, e, st) ==
     LET checks == Checks(before, e, st) IN

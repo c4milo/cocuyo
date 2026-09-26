@@ -3723,6 +3723,40 @@ from before the code is.
     ended has no session to close, and closes at once, as TLS rule 5 has it. One still connecting
     has its connect cancelled, and the address stays lent until the connect's final event (rule
     14).
+17. **The transport is read after it moves.** Written on 2026-09-26 (c4milo/cocuyo#18). The
+    engine reads what a connection's transport says after each receive and each expiry, and also
+    after the connection's send ends and when the transport holds back a request the drive takes.
+    Either can leave the transport with something to say that no octet from the server will
+    prompt:
+    - colibri's HTTP/2 reads no frame while the replies it owes have no room (colibri's decision
+      39). So frames that came while its octets waited to go stay unread until a send has taken
+      those octets, an answer among them.
+    - A client whose stream identifiers have run out "can establish a new connection for new
+      streams" (RFC 9113 §5.1.1). The transport holds the request back and says the connection
+      drains, as a GOAWAY does (rule 13), when it is next read.
+
+    Without these reads each waits for the server to send again. A server that owes nothing does
+    not, so the answer waits, and the request with it, until the lookup's deadline. Every read
+    tells what the transport held first, then what the read brought. The read after a request held
+    back is where the drive takes it, so a lookup it tells of is polled in the same drive: at the
+    drive's end it would wait for a drive that may not come. Every other reason to hold a request
+    back brings a read of its own: streams in flight bring answers, and octets still owed bring a
+    send's end (rule 4).
+
+The model holds rule 17 with two moves of colibri's and one check:
+
+- A receive that comes while the connection's send is in flight may leave a stream's answer or
+  reset held, one at a time, which colibri tells at its next read.
+- The environment may spend an up connection's stream identifiers. The next request taken on it
+  waits, and the transport holds the connection's drain.
+- The check: a transport holds a step only while a send of its connection is in flight, since the
+  send's end reads it.
+
+Two mutants break the rule (docs/mutations.md RQ21 and RQ22). With no read at a send's end, the
+check fails. With none when a request is held back, the request waits on a connection that is
+still up, which the invariant on where a request waits forbids. The replay's twin keeps a held
+step until its next read, and spends a connection's stream identifiers when the walk says so. The
+engine's side is broken against the walks and one engine test (TR1 to TR5).
 
 **The interface.** A request transport says which socket it runs over: `socket` is `.datagram`
 for colibri's QUIC and the twin's, and `.stream` for colibri's HTTP/2 and for a twin transport
@@ -3860,7 +3894,14 @@ length. So the walks' short sends and ended receives reach the engine as the mod
    - 7a, HTTP/2 alone. The model gains the request connection over TCP, and TLC and the replay
      hold it. The engine runs over colibri's `h2` client on the twin, with the provider that
      encrypts nothing. It runs over chapulin against dnsproxy's DoH over HTTP/2 on the loopback,
-     and against Cloudflare and Google.
+     and against Cloudflare and Google. The model landed on 2026-09-26 (`4f692f9`), and TLC holds
+     its three TCP configurations. The replay (`2090691`) agrees with it over the full run,
+     4,824,000 events. The engine carries its request connections over TCP (`f714168`), and over
+     colibri's `h2` client on the twin (`778806e`): the engine's TCP tests and the twenty-one of
+     `cocuyo_h2` and eight of the engine over colibri catch every mutation of theirs
+     (docs/mutations.md TC1 to TC9, HT1 to HT23). Rule 17 closed the two stalls found then. Left:
+     chapulin behind colibri's provider, which the owner moved into colibri (its step 16,
+     c4milo/cocuyo#18), then dnsproxy and the live check.
    - 7b, HTTP/3 first and HTTP/2 after it, in one engine. Its rules and limits are written once 7a
      has landed.
 

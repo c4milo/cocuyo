@@ -177,6 +177,10 @@ fn unnamed(self: anytype, name: []const u8, parts: *std.mem.SplitIterator(u8, .s
     } else if (std.mem.eql(u8, name, "qtime")) {
         const server = try number(parts.next());
         try quic_world.expire(self, server, parts.next() orelse "");
+    } else if (std.mem.eql(u8, name, "exhaust")) {
+        // The connection's stream identifiers run out, which the engine finds at its next request
+        // (request rule 17). No drive follows, as the model has it.
+        self.engine.h2.connections[try number(parts.next())].transport.inner.spent = true;
     } else {
         return false;
     }

@@ -130,7 +130,27 @@ fn request_connection_text(line: *Line, world: anytype, set: anytype, server: u8
     line.flag(connection.made > 0 and !in_flight, 'K');
     line.flag(set.sends[server].lent, 'B');
     line.flag(connection.state != .closed and connection.idle_since_ns == world.now_ns, 'I');
-    if (comptime @TypeOf(set.*).stream) line.flag(set.sends[server].connecting, 'N');
+    if (comptime @TypeOf(set.*).stream) {
+        line.flag(set.sends[server].connecting, 'N');
+        held_text(line, engine, server, &connection.transport.inner);
+    }
+}
+
+/// What the twin holds of a TCP connection, as the model's colibri does: the slot whose answer or
+/// reset it keeps, the GOAWAY a refused request owes, and whether its stream identifiers ran out
+/// (request rule 17). A held stream no live request has is written so no model's line matches.
+fn held_text(line: *Line, engine: anytype, server: u8, twin: anytype) void {
+    line.print(" h", .{});
+    if (twin.held_stream()) |stream| {
+        const found = for (engine.requests[0..], 0..) |*request, index| {
+            if (request.live and request.server == server and request.stream == stream) break index;
+        } else null;
+        if (found) |index| line.print("{d}", .{index}) else line.print("?", .{});
+    } else {
+        line.print("-", .{});
+    }
+    line.flag(twin.goaway_owed, 'G');
+    line.flag(twin.spent, 'X');
 }
 
 /// Whether a connection's transport owes the server something: the twin's QUIC, over UDP or

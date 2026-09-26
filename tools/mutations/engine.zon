@@ -671,4 +671,49 @@
         },
         .caught_by = .{ .step = "test-io" },
     },
+    .{
+        .section = "The transport read after it moves",
+        .id = "TR1",
+        .what = "a send's end reads nothing of the transport",
+        .edits = .{
+            .{ .file = "io/io_request_events.zig", .old = "    if (connection.state != .closing) return hear(self, set, server, now_ns);", .new = "    if (connection.state != .closing) return;" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "The transport read after it moves",
+        .id = "TR2",
+        .what = "a short send's end reads nothing of the transport",
+        .edits = .{
+            .{ .file = "io/io_request_events.zig", .old = "        if (connection.sent < connection.made) return hear(self, set, server, now_ns);", .new = "        if (connection.sent < connection.made) return;" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "The transport read after it moves",
+        .id = "TR3",
+        .what = "a request the transport holds back leaves it unread",
+        .edits = .{
+            .{ .file = "io/io_request_connection.zig", .old = "    if (connection.state == .up) events.hear(self, set, server, now_ns);\n", .new = "" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "The transport read after it moves",
+        .id = "TR4",
+        .what = "a cancelled DoQ stream frees its slot before its answer or reset is read",
+        .edits = .{
+            .{ .file = "io/io_quic_streams.zig", .old = "    if (slot.told and slot.sent) slot.live = false;", .new = "    if ((slot.told or slot.cancelled) and slot.sent) slot.live = false;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The transport read after it moves",
+        .id = "TR5",
+        .what = "the twin tells a held answer for a stream the engine cancelled",
+        .edits = .{
+            .{ .file = "src/sim/sim_quic.zig", .old = "        if (self.held_stream() == stream) self.held_len = 0;\n", .new = "" },
+        },
+        .caught_by = .picked_walks,
+    },
 }
