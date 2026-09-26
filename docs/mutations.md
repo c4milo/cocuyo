@@ -1350,8 +1350,12 @@ removed. EM7 came with the sets of the lookup and `getaddrinfo`, whose mutations
 catches. EM8 to EM10 came with the review of the same day. It found that a set ran with no check
 of its own checks, so a missing `lake` made every Lean mutation look caught, and that a compile
 error was told from a failed test by the text after it. EM8 is shown by a run and not by a test,
-since the baseline runs builds. Ten mutations: eight `CAUGHT`, EM4's line removed, and EM8 shown
-by the run.
+since the baseline runs builds. EM11 and EM12 came on 2026-09-26. The baseline replayed the short
+walks alone, so a picked walk or a full run that failed anyway counted every mutation that reached
+it: a full run written before a fix to the model caught RT1 at its walk 4092. Each is shown by a
+run against a file with one line of one walk changed: the tool stops before any mutation, and
+without the check it counts E3 caught at the changed walk. Twelve mutations: eight `CAUGHT`, EM4's
+line removed, and EM8, EM11 and EM12 shown by runs.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
@@ -1365,6 +1369,8 @@ by the run.
 | EM8 | a set runs without its checks run first on the tree as it is | a check that fails anyway proves nothing | no unit test: the run with no `lake` on the path, where `spec-lean` fails before any mutation | NOT CAUGHT |
 | EM9 | any file's `line:column: error:` is taken for the compiler's | a compile error is a Zig file's | the walk test | CAUGHT |
 | EM10 | a `<section>/<id>` name matches whatever the section | an id two sections share is named by its section | the naming test | CAUGHT |
+| EM11 | the baseline replays the short walks alone | a picked walk that fails anyway proves nothing | no unit test: the run with walk 1 of the picks changed, where E3 is counted caught at picked walk 1 and not 3 | NOT CAUGHT |
+| EM12 | the full run is read without a replay with nothing mutated first | a full run that fails anyway proves nothing | no unit test: the run with walk 2 of the full run changed, where E3 is counted caught at walk 2 and not 8046 | NOT CAUGHT |
 
 ## A refusal is a failure
 

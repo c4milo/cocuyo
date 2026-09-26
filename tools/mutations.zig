@@ -85,6 +85,9 @@ const Options = struct {
     walks: ?[]const u8 = null,
     full_out: ?[]const u8 = null,
     ids: []const []const u8 = &.{},
+    /// Whether the full run has been replayed with nothing mutated, which it is once, before the
+    /// first mutation reads it.
+    full_clean: bool = false,
 };
 
 /// The options the command line may name, each followed by its value, `--full` by three.
@@ -207,12 +210,33 @@ fn baseline(arena: Allocator, io: Io, options: *Options, set: Set, out: *Io.Writ
         try seen.append(arena, name);
         const verdict = switch (mutation.caught_by) {
             .step => |step| try mutations_check.run_check(arena, io, &.{ "zig", "build", step }),
-            .short_walks, .picked_walks => try mutations_check.replay(arena, io, options.short),
+            .short_walks, .picked_walks => try clean_walks(arena, io, options),
         };
         if (verdict == .missed) continue;
         try out.print("zig build {s} fails with no mutation applied, so it can catch nothing: {f}\n", .{ name, verdict });
         return false;
     }
+    return true;
+}
+
+/// The short walks, then the picked ones, replayed with nothing mutated: the first that fails.
+fn clean_walks(arena: Allocator, io: Io, options: *const Options) !mutations_check.Verdict {
+    const short = try mutations_check.replay(arena, io, options.short);
+    if (short != .missed) return short;
+    return mutations_check.replay(arena, io, options.picked);
+}
+
+/// The full run, replayed once with nothing mutated before a mutation reads it: a walk that fails
+/// anyway would catch every mutation that reaches it, and prove nothing. False when one fails.
+fn clean_full_run(arena: Allocator, io: Io, options: *Options, out: *Io.Writer) !bool {
+    if (options.full_clean) return true;
+    const verdict = try mutations_check.replay(arena, io, options.walks.?);
+    if (verdict != .missed) {
+        try out.print("the full run fails with no mutation applied, so it can catch nothing: {f}\n", .{verdict});
+        try out.flush();
+        return false;
+    }
+    options.full_clean = true;
     return true;
 }
 
@@ -278,11 +302,14 @@ fn run_one(arena: Allocator, io: Io, options: *Options, mutation: Mutation, out:
         .short_walks, .picked_walks => {
             result.short = try mutations_check.replay(arena, io, options.short);
             if (result.short != .missed) return result;
-            if (options.walks == null) {
-                // TLC writes the full run from the tree as it is, so the mutation steps aside.
+            if (options.walks == null or !options.full_clean) {
+                // TLC writes the full run from the tree as it is, and the full run is replayed
+                // with nothing mutated before it counts, so the mutation steps aside.
                 mutations_edit.restore(io, Io.Dir.cwd(), mutation.edits, originals);
-                _ = try full_run(io, options, out);
+                if (options.walks == null) _ = try full_run(io, options, out);
+                const clean = try clean_full_run(arena, io, options, out);
                 originals = try mutations_edit.apply(arena, io, Io.Dir.cwd(), mutation.edits);
+                if (!clean) return error.FullRunFails;
             }
             result.full = try mutations_check.replay(arena, io, options.walks.?);
             result.picked = try mutations_check.replay(arena, io, options.picked);
