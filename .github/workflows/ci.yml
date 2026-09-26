@@ -33,7 +33,12 @@
 #     it. It is a job of its own beside `spec`, since each is mostly TLC on the runner's four cores
 #     and together they took 39 minutes one after the other.
 #
-#   `engine` and `epoll` are the only jobs that open a socket.
+#   - `dnslib`: the codec's reading of every record in dnslib's captured responses, held against
+#     dnslib's reading of them (tools/dnslib/run.sh, c4milo/cocuyo#22). It fetches dnslib's test
+#     directory at a pinned commit and requires its tree id, so it needs the network, and the two
+#     gates run only the check's own tests.
+#
+#   `engine` and `epoll` are the only jobs that open a socket of their own.
 #
 # **No number from CI enters docs/design.md §11.** A measured row there names the machine, the
 # command and the day, and a shared runner is neither named nor quiet. What this job proves is
@@ -219,3 +224,21 @@ jobs:
       - run: zig version && java -version
       - name: The engine model checked by TLC, and its mutants refused
         run: zig build tla
+
+  dnslib:
+    name: Linux, the codec against dnslib's reading of responses real servers sent
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Zig
+        run: |
+          set -euo pipefail
+          url="https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          sha="70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+          curl -fsSL "$url" -o zig.tar.xz
+          echo "$sha  zig.tar.xz" | sha256sum -c -
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+      - run: zig version
+      - name: Every record of dnslib's captured responses, read by the codec and by dnslib
+        run: tools/dnslib/run.sh

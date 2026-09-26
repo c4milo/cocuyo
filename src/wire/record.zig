@@ -158,6 +158,16 @@ test "a record walk reads the type, class, TTL and rdata of an A record" {
     try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 1 }, address.slice());
 }
 
+test "a TTL is read in all 32 bits, the high one as positive" {
+    // RFC 8767 §4: 0x80015180 is 2,147,570,048 seconds, where RFC 2181 §8 read it as zero. A real
+    // TTL of a day, 86,400, already needs the third octet.
+    var message = fixtures.answer_a;
+    const ttl_at = fixtures.answer_offset + constants.pointer_bytes + constants.record_ttl_offset;
+    std.mem.writeInt(u32, message[ttl_at..][0..@sizeOf(u32)], 0x8001_5180, .big);
+    const record = try first_record(&message, 1);
+    try testing.expectEqual(@as(u32, 0x8001_5180), record.ttl_seconds);
+}
+
 test "the owner name is decoded only when it is asked for, and decompresses" {
     const record = try first_record(&fixtures.answer_a, 1);
     var owner: Name = Name.empty;

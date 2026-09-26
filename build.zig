@@ -27,6 +27,7 @@ const spec = @import("build/spec.zig");
 const dot = @import("build/dot.zig");
 const quic = @import("build/quic.zig");
 const doq = @import("build/doq.zig");
+const dnslib = @import("build/dnslib.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "build", "src", "tools", "examples", "bench", "io" };
@@ -157,6 +158,7 @@ pub fn build(b: *std.Build) void {
     const colibri = b.lazyDependency("colibri", .{ .target = target, .release = release });
     quic.add(b, graph, colibri, test_step);
     doq.add(b, target, optimize, graph, chapulin, rotor, colibri);
+    dnslib.add(b, target, graph, test_step, tool_test_step);
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_commit_lint_step(b, pepegrillo, install_step);
     add_tla_step(b, tla_tool);

@@ -2026,7 +2026,9 @@ generator writes a record of every type the codec reads, whole or with one octet
 record written whole must be taken whole (c4milo/cocuyo#23, `docs/mutations.md` FZ1 to FZ10).
 The fixtures hold every example an RFC gives in its record's form: RFC 1035 §5.3 and §6.4.1, RFC
 2782, RFC 3403 §6.1 and §6.2, RFC 6698 §2.3, RFC 7553 §5.1 and RFC 8659 §4.2. TXT and SIG have none
-(RX1 to RX3).
+(RX1 to RX3). The codec's reading of 66 responses real servers sent is held against dnslib's, record
+for record, by `zig build dnslib-check` (c4milo/cocuyo#22, DL1 to DL8, DT1 to DT12). It needs the
+network, so it runs in CI's `dnslib` job and not in the gate.
 
 ### Step 10: DNS cookies
 

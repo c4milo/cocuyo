@@ -153,7 +153,9 @@ The architecture depends on every rule in this section.
   nothing under `src/` imports it. AdGuard's dnsproxy is a
   ruled dependency of the interop check alone, approved by the owner on 2026-09-25 (c4milo/cocuyo#16):
   the `interop` workflow fetches a pinned release and checks its SHA-256, and nothing builds,
-  links or imports it.
+  links or imports it. dnslib's test responses are ruled data of the dnslib check alone,
+  approved by the owner on 2026-09-26 (c4milo/cocuyo#22): `tools/dnslib/run.sh` fetches them at a
+  pinned commit and checks their tree id, and nothing builds, links or imports them.
 - Weakening an assertion or a check to make a test pass.
 - Adding anything §1 puts out of scope: DNSSEC, mDNS, zone transfers, nsswitch, IDN, the
   platform resolver configuration of §14. DoT and DoH were decided in on 2026-09-23: DoT in the
@@ -231,6 +233,9 @@ The architecture depends on every rule in this section.
   AdGuard's dnsproxy on the loopback, with certificates of its own and no network: names at once
   on one connection, resumption, the certificate checks and pins. The `interop` workflow runs it
   once a day on macOS.
+- dnslib: `tools/dnslib/run.sh` fetches dnslib's captured responses at a pinned commit and runs
+  `zig build dnslib-check` over them, which compares the codec's reading of every record with
+  dnslib's. It needs the network, so CI's `dnslib` job runs it and the gate runs only its tests.
 - DoH over HTTP/3: the same checkout and object. `zig build example-doh-rotor` resolves over DoH
   through colibri's HTTP/3, given a URI template where DoQ takes a name; `tools/doh_live/run.sh
   <checkout>` runs the live check of design §24 step 5, against Google and Cloudflare. The

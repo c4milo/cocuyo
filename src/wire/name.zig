@@ -217,6 +217,7 @@ const testing = std.testing;
 const compressed_message = [_]u8{0} ** core.constants.header_bytes ++
     "\x07example\x03com\x00".* ++ // offset 12, 13 octets
     "\x03www\xc0\x0c".*; // offset 25: one label then a pointer to offset 12
+const name_example = "\x07example\x03com\x00";
 
 test "a name of labels decodes and reports the octet after the root" {
     var name: Name = Name.empty;
@@ -259,6 +260,25 @@ test "a chain of pointers longer than the hop bound is refused" {
     const last = core.constants.header_bytes + (hops - 1) * constants.pointer_bytes;
     var name: Name = Name.empty;
     try testing.expectError(Error.BadCompressionPointer, decode(&message, last, &name));
+}
+
+test "a name may chase as many pointers as the hop bound allows" {
+    // Real servers point at a name that itself ends in a pointer: an MX exchange at the tail of the
+    // one before it, which ends at the question. So the bound's own count of hops must decode.
+    const hops = core.constants.compression_hops_max;
+    const first = core.constants.header_bytes + name_example.len;
+    var message: [first + hops * constants.pointer_bytes]u8 = @splat(0);
+    @memcpy(message[core.constants.header_bytes..first], name_example);
+    for (0..hops) |index| {
+        const at = first + index * constants.pointer_bytes;
+        const target = if (index == 0) core.constants.header_bytes else at - constants.pointer_bytes;
+        message[at] = constants.label_kind_pointer | @as(u8, @intCast(target >> constants.octet_bits));
+        message[at + 1] = @intCast(target & 0xff);
+    }
+    var name: Name = Name.empty;
+    const end = try decode(&message, message.len - constants.pointer_bytes, &name);
+    try testing.expectEqualStrings(name_example, name.wire());
+    try testing.expectEqual(message.len, end);
 }
 
 test "a reserved label kind is refused" {

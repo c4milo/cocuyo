@@ -2390,3 +2390,47 @@ before and after as FZ1 to FZ5 were. Three mutations, three `CAUGHT`.
 | RX2 | a label holding a dot is refused where a view reads a name | unseen | the SOA example's test, the fuzz gate | CAUGHT |
 | RX3 | TLSA data is cut at thirty-two octets | unseen | the TLSA examples' test | CAUGHT |
 
+
+## The codec against dnslib's reading
+
+2026-09-26 (c4milo/cocuyo#22). The codec was tested against answers built by hand, and never
+against another decoder's reading of the same octets. `zig build dnslib-check` holds it against
+dnslib's test directory (`tools/dnslib/check.zig`): 66 responses real servers sent, each with
+dnslib's reading of it in master-file form. `tools/dnslib/run.sh` fetches the directory at a pinned
+commit and checks its tree first. Every record of every section is compared: its owner, TTL, class
+and type, and its rdata through its type's view. 185 records agree. 128 are read through a view, 2
+are compared as RFC 3597 §5's generic octets, and 55 are of types cocuyo does not name, copied
+whole.
+
+DL1 to DL8 plant decoder bugs, run under the check and under `zig build test-wire`. The check
+catches all eight. The unit tests missed DL2 and DL7, which real responses reach and the hand-built
+ones did not: a name whose pointer lands on a name that itself ends in a pointer, and a TTL above
+65,535. `src/wire/name.zig` and `src/wire/record.zig` now hold a test of each. DT1 to DT12 break
+the check's own lines, against its tests under `zig build test-tools`. Twenty mutations, twenty
+`CAUGHT`.
+
+| # | Planted decoder bug | The dnslib check | `zig build test-wire` | Status |
+| --- | --- | --- | --- | --- |
+| DL1 | a name's end moves with every pointer it follows | the copy's assertion that a name moves its cursor | the fuzz gate | CAUGHT |
+| DL2 | a name follows one pointer and no more | 14 responses refused | unseen before; the hop bound's own count now | CAUGHT |
+| DL3 | the copy writes a name as the message held it, pointers and all | 34 responses refused | the copy's tests | CAUGHT |
+| DL4 | an SOA's retry is read from its refresh | 13 SOAs differ | the SOA tests | CAUGHT |
+| DL5 | a NAPTR's flags are read from its services | 1 NAPTR differs | the NAPTR tests | CAUGHT |
+| DL6 | a TLSA's usage is read from its selector | 1 TLSA differs | the TLSA test | CAUGHT |
+| DL7 | a TTL is read as its low 16 bits | 8 TTLs differ | unseen before; the 32-bit TTL test now | CAUGHT |
+| DL8 | a type cocuyo does not name is copied as SIG's layout | 9 responses refused | the unknown type's copy test | CAUGHT |
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| DT1 | a TTL is not compared | the TTL agrees | the test of a line that differs | CAUGHT |
+| DT2 | an owner is not compared | the owner agrees | the test of a line that differs | CAUGHT |
+| DT3 | a section's records are not counted against its lines | each section holds what dnslib printed | the section test | CAUGHT |
+| DT4 | octets after the last section pass | nothing follows the last record | the section test | CAUGHT |
+| DT5 | the OPT pseudo-record is compared with a line | OPT is the message's, not a section's (RFC 6891 §6.1.1) | the OPT test | CAUGHT |
+| DT6 | a TXT string left over in the rdata passes | every string agrees, in order | the strings test | CAUGHT |
+| DT7 | hexadecimal that ends early passes | every octet agrees | the strings test | CAUGHT |
+| DT8 | a mnemonic cocuyo names passes for a type it does not | the type agrees | the generic test | CAUGHT |
+| DT9 | a generic rdata's length is not compared | RFC 3597 §5's length agrees | the generic test | CAUGHT |
+| DT10 | an unnamed type's copy is not held to its rdata | a copy of an unnamed type is the rdata (RFC 3597 §4) | the copy test | CAUGHT |
+| DT11 | a `\DDD` escape is read as the digit it starts with | RFC 1035 §5.1's escapes | the field test | CAUGHT |
+| DT12 | a comment line is read as a record | a comment is no record | the file test, the OPT test | CAUGHT |
