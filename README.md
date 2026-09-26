@@ -157,8 +157,10 @@ They are checked every day against public resolvers: Google, Cloudflare and Quad
 AdGuard and NextDNS over QUIC, Google and Cloudflare over HTTPS on HTTP/3. Each resolves twice,
 the second time over a connection that offers the first one's ticket, and refuses a name its
 certificate does not carry and a root its chain does not end at. Over TLS and QUIC a server known
-by its key alone resolves, and a wrong pin is refused. DoQ and DoH also run every day against
-AdGuard's dnsproxy on the loopback, an implementation written elsewhere.
+by its key alone resolves, and a wrong pin is refused, and each is asked for AAAA, MX, TXT and
+HTTPS records as well as A. Every transport, plain DNS over UDP and TCP among them, also runs every
+day against AdGuard's dnsproxy on the loopback, an implementation written elsewhere, for addresses
+and for records of those four types and CNAME.
 
 ## Quick start
 
@@ -311,11 +313,12 @@ that depends on cocuyo, and every unit test. Other steps:
 | `zig build example-udp-blocking -- example.com` | Resolve a name over a blocking socket |
 | `zig build example-udp-rotor -- example.com` | Resolve a name over rotor's event loop |
 | `zig build example-threads-rotor` | Two engines on two threads, each on its own loop |
+| `zig build example-cleartext-rotor -- <name> <server>[:<port>] [udp \| tcp]` | Resolve over plain DNS through the engine |
 | `zig build example-dot-rotor -Dchapulin=<checkout> -- ...` | Resolve over DNS over TLS |
 | `zig build example-doq-rotor -Dchapulin=<checkout> -- ...` | Resolve over DNS over QUIC |
 | `zig build example-doh-rotor -Dchapulin=<checkout> -- ...` | Resolve over DNS over HTTPS on HTTP/3 |
 | `tools/dot_live/run.sh`, `tools/doq_live/run.sh`, `tools/doh_live/run.sh` | The live checks against public resolvers |
-| `tools/interop/run.sh` | DoQ and DoH against dnsproxy on the loopback |
+| `tools/interop/run.sh` | Every transport against dnsproxy on the loopback |
 | `zig build bench` | The microbenchmarks and the cache replays |
 | `zig build bench-cares` | The comparison with the installed c-ares |
 | `zig build bench-log -- <dataset.csv>` | The cache over a real DNS log |

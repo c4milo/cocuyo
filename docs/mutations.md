@@ -2434,3 +2434,27 @@ the check's own lines, against its tests under `zig build test-tools`. Twenty mu
 | DT10 | an unnamed type's copy is not held to its rdata | a copy of an unnamed type is the rdata (RFC 3597 §4) | the copy test | CAUGHT |
 | DT11 | a `\DDD` escape is read as the digit it starts with | RFC 1035 §5.1's escapes | the field test | CAUGHT |
 | DT12 | a comment line is read as a record | a comment is no record | the file test, the OPT test | CAUGHT |
+
+## Every transport against dnsproxy, and records beyond A
+
+2026-09-26 (c4milo/cocuyo#20, #21). The interop check ran DoQ and DoH on HTTP/3 against AdGuard's
+dnsproxy, and every check, interop and live, asked for A alone. The interop check now runs plain
+DNS over UDP and over TCP, and DoT, beside them. Over each transport it asks for AAAA, MX, TXT and
+HTTPS of one name at once, then for a CNAME to it, which `tools/interop/zone.zig` serves as
+dnsproxy's upstream. Over plain DNS, dnsproxy's log must show the queries on the transport asked
+for. The live checks ask each public resolver for the same four types of a name that has each.
+IX1 to IX4 plant engine and codec bugs against the interop check, and LT1 one against the DoT live
+check. Five mutations, five `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| IX1 | `use_tcp` is ignored, so a lookup asked over TCP goes over UDP | the transport asked for | dnsproxy's log, at both checks over TCP | CAUGHT |
+| IX2 | a TXT record's strings stop at the first | every string of a TXT (RFC 1035 §3.3.14) | the types check, over every transport | CAUGHT |
+| IX3 | a record's rest is copied one octet short | the copy takes the rdata whole | the types check, over every transport | CAUGHT |
+| IX4 | the end of a CNAME chain is never said | the canonical name (RFC 1034 §3.6.2) | the types check, over every transport | CAUGHT |
+| LT1 | IX3, against the DoT live check | the copy takes the rdata whole | the types check, through all three resolvers | CAUGHT |
+
+The count of lines under each name refuses a record of another type, and no mutation shows it
+here: no server in either check sends one under a question. Breaking the answer walk's type filter
+(`role_of` in `src/wire/response.zig`) fails the codec's own tests, "a record of another type is not
+an answer" among them.

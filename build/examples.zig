@@ -44,6 +44,14 @@ const threads_example: Example = .{
     .summary = "Two engines on two threads, each on its own rotor loop, resolving at once",
 };
 
+/// The engine over plain DNS, UDP or TCP, on rotor's loop. It runs the engine, which is built
+/// privately against rotor here, as the two-engine example's is.
+const cleartext_example: Example = .{
+    .name = "cleartext-rotor",
+    .root = "examples/cleartext_rotor.zig",
+    .summary = "Lookups over plain DNS through the engine on rotor's loop: -- <name>[,<name>...] <server address>[:<port>] [udp | tcp]",
+};
+
 pub fn add(
     b: *std.Build,
     graph: modules.Graph,
@@ -61,6 +69,7 @@ pub fn add(
     }
     add_rotor(b, graph, target, optimize, test_step, install, rotor);
     add_threads(b, graph, target, optimize, test_step, install, rotor, sanitize_thread);
+    add_cleartext(b, graph, target, optimize, test_step, install, rotor);
 }
 
 fn add_one(
@@ -153,4 +162,27 @@ fn add_threads(
     }
     const step = b.step(b.fmt("example-{s}", .{threads_example.name}), threads_example.summary);
     step.dependOn(&run.step);
+}
+
+/// The engine over plain DNS, where rotor has a backend.
+fn add_cleartext(
+    b: *std.Build,
+    graph: modules.Graph,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    test_step: *std.Build.Step,
+    install: *std.Build.Step,
+    rotor: ?*std.Build.Dependency,
+) void {
+    const dependency = rotor orelse return;
+    switch (target.result.os.tag) {
+        .linux, .macos, .ios, .tvos, .watchos, .visionos => {},
+        else => return,
+    }
+    const engine = b.createModule(.{ .root_source_file = b.path(modules.roots.io), .target = target, .optimize = optimize });
+    engine.addImport("cocuyo", graph.cocuyo);
+    engine.addImport("rotor", dependency.module("rotor"));
+    const module = add_one(b, graph.cocuyo, target, optimize, test_step, install, cleartext_example);
+    module.addImport("rotor", dependency.module("rotor"));
+    module.addImport("io", engine);
 }

@@ -13,7 +13,9 @@
 # Two lookups must fail, and fail rather than fall back: a template whose host the certificate does
 # not carry, and the right template with a root the chain does not end at (RFC 9110 §4.3.4). Each
 # must end in AllServersFailed, a refusal: one that ends in Timeout was not answered at all, which
-# is the network and not the certificate check (§16 decision 25).
+# is the network and not the certificate check (§16 decision 25). Each resolver is also asked
+# AAAA, MX, TXT and HTTPS at once, of a name that has each, and must answer each with records of
+# that type.
 set -eu
 
 checkout=${1:?usage: tools/doh_live/run.sh <chapulin checkout>}
@@ -31,8 +33,38 @@ root_der "GTS Root R1" google
 root_der "SSL.com Root Certification Authority ECC" cloudflare
 root_der "ISRG Root X1" unrelated
 
+lookup_names() {
+    names=$1
+    shift
+    (cd "$root" && zig build -Dchapulin="$checkout" example-doh-rotor -- "$names" "$@" 2>&1)
+}
 lookup() {
-    (cd "$root" && zig build -Dchapulin="$checkout" example-doh-rotor -- example.com,example.org "$@" 2>&1)
+    lookup_names example.com,example.org "$@"
+}
+
+# The four types beside A (c4milo/cocuyo#20), asked at once of a name that has each: each must be
+# answered, and every record written under a question must be of the type it asked for.
+typed_turn=cloudflare.com/AAAA+cloudflare.com/MX+cloudflare.com/TXT+cloudflare.com/HTTPS
+reads_types() {
+    name=$1
+    shift
+    if ! answer=$(lookup_names "$typed_turn" "$@"); then
+        echo "FAILS the types beyond A through $name: $answer" >&2
+        failures=$((failures + 1))
+        return
+    fi
+    counts=
+    for kind in AAAA MX TXT HTTPS; do
+        count=$(echo "$answer" | grep -c "^cloudflare\.com/$kind $kind " || true)
+        stray=$(echo "$answer" | grep "^cloudflare\.com/$kind " | grep -vc "^cloudflare\.com/$kind $kind " || true)
+        if [ "$count" -eq 0 ] || [ "$stray" -ne 0 ]; then
+            echo "MISREADS $kind through $name: $count records of it, $stray of another type: $answer" >&2
+            failures=$((failures + 1))
+            return
+        fi
+        counts="$counts, $count $kind"
+    done
+    echo "reads AAAA, MX, TXT and HTTPS at once through $name${counts}"
 }
 
 failures=0
@@ -52,6 +84,7 @@ for resolver in "8.8.8.8 https://dns.google/dns-query{?dns} google" \
         echo "FAILS through $2: $answer" >&2
         failures=$((failures + 1))
     fi
+    reads_types "$2" "$1" "$2" "$out/$3.der"
 done
 
 refuse() {

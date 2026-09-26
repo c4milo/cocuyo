@@ -229,10 +229,13 @@ The architecture depends on every rule in this section.
   `zig build example-doq-rotor` resolves over DoQ through colibri; `tools/doq_live/run.sh
   <checkout>` runs the live check of design §24 step 4, against AdGuard and NextDNS. The `doq-live`
   workflow runs both once a day on macOS.
-- Interop: `tools/interop/run.sh <checkout> <dnsproxy>` runs DoQ and DoH on HTTP/3 against
-  AdGuard's dnsproxy on the loopback, with certificates of its own and no network: names at once
-  on one connection, resumption, the certificate checks and pins. The `interop` workflow runs it
-  once a day on macOS.
+- Interop: `tools/interop/run.sh <checkout> <dnsproxy>` runs plain DNS over UDP and TCP, DoT, DoQ
+  and DoH on HTTP/3 against AdGuard's dnsproxy on the loopback, with certificates of its own and no
+  network: names at once, resumption, the certificate checks and pins, and records beyond A, which
+  `tools/interop/zone.zig` serves as dnsproxy's upstream. The checkout holds both chapulin objects.
+  The `interop` workflow runs it once a day on macOS.
+- Plain DNS through the engine: `zig build example-cleartext-rotor -- <name>[/TYPE][,...]
+  <server>[:<port>] [udp | tcp]`, which the interop check drives.
 - dnslib: `tools/dnslib/run.sh` fetches dnslib's captured responses at a pinned commit and runs
   `zig build dnslib-check` over them, which compares the codec's reading of every record with
   dnslib's. It needs the network, so CI's `dnslib` job runs it and the gate runs only its tests.

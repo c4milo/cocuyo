@@ -7,11 +7,15 @@
 //! for instance `dns.google 8.8.8.8 dns.google gts-root-r1.der`. Each root is a DER certificate
 //! the server's chain is expected to end at; its subject Name and its SubjectPublicKeyInfo are the
 //! trust anchor chapulin checks the chain against, and the name is what the leaf must carry. A
-//! server known by its key alone takes pins in place of the name, and no root.
+//! server known by its key alone takes pins in place of the name, and no root. A server on a port
+//! other than 853 (RFC 7858 §3.1) is named with it, as `127.0.0.1:8853`.
 //!
-//! Names after the first are resolved in turn, each once the server's ticket is kept and the
-//! connection before has closed idle, so each opens a connection that resumes with the ticket
-//! (§21, TLS rule 8). After each answer the example says how its handshake went.
+//! A name asks for A, and `name/TYPE` for another type, as `example.com/MX`
+//! (`examples/answer_text.zig`, which writes the answers out). Names after the first are resolved
+//! in turn, each once the server's ticket is kept and the connection before has closed idle, so
+//! each opens a connection that resumes with the ticket (§21, TLS rule 8). Names joined by `+`,
+//! as `a.example+b.example`, are resolved at once, each query on the one connection (RFC 7766
+//! §6.2.1.1). After each turn the example says how its handshake went.
 //!
 //! What cocuyo does not read, the caller hands in (§21): the wall clock for the certificate's
 //! dates, and 32 octets from a CSPRNG for the handshake's keys.
@@ -20,10 +24,11 @@ const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 const io = @import("io");
 const chapulin = @import("chapulin");
+const answer_text = @import("answer_text.zig");
 
 const Resolver = io.Resolver(.{
-    .lookups = 2,
-    .cache_slots = 2,
+    .lookups = at_once_max + 1,
+    .cache_slots = at_once_max + 1,
     .tcp_connections = cocuyo.constants.servers_max,
     .tls = chapulin.Session,
 });
@@ -43,8 +48,10 @@ const ticks_max = 200;
 /// engine's idle wait of ten seconds (`tcp_idle_ns_default`).
 const close_ticks_max = 200;
 const events_max = 16;
-/// The names one run resolves.
+/// The turns one run resolves.
 const names_max = 4;
+/// The names one turn resolves at once, each query on the one connection.
+const at_once_max = 4;
 
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
@@ -53,10 +60,11 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("usage: dot-rotor <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...\n", .{});
         std.process.exit(2);
     }
-    const address = cocuyo.Address.from_text(arguments[2]) orelse return error.BadAddress;
+    const at = try place_of(arguments[2]);
     var pins: [cocuyo.constants.spki_pins_max]cocuyo.Pin = undefined;
-    const tls = try known_by(arguments[3], &pins);
-    const servers = [_]cocuyo.Server{.{ .endpoint = .{ .address = address }, .tls = tls }};
+    var tls = try known_by(arguments[3], &pins);
+    if (at.port) |port| tls.port = port;
+    const servers = [_]cocuyo.Server{.{ .endpoint = .{ .address = at.address }, .tls = tls }};
     const config: cocuyo.Config = .{ .servers = &servers, .search = &.{} };
 
     var anchors: [anchors_max]chapulin.c.ch_trust_anchor = undefined;
@@ -86,27 +94,39 @@ pub fn main(init: std.process.Init) !void {
         engine.close();
     }
     if (std.mem.count(u8, arguments[1], ",") >= names_max) return error.TooManyNames;
-    var names = std.mem.splitScalar(u8, arguments[1], ',');
+    var turns = std.mem.splitScalar(u8, arguments[1], ',');
     for (0..names_max) |position| {
-        const name = names.next() orelse return;
+        const turn = turns.next() orelse return;
         if (position > 0) try wait_for_close(&loop, &events, clock);
-        const result = try resolve(&loop, &events, clock, name) orelse {
-            std.debug.print("{s}: no answer in {d} ticks\n", .{ name, ticks_max });
-            std.process.exit(1);
-        };
-        report(name, result);
-        std.debug.print("{s}: handshake {s}\n", .{ name, handshake() });
+        try resolve(&loop, &events, clock, turn);
+        std.debug.print("{s}: handshake {s}\n", .{ turn, handshake() });
     }
 }
 
-/// One lookup, driven until its result, or null when it has none in `ticks_max` ticks.
-fn resolve(loop: *rotor.Loop, events: []rotor.Event, clock: Clock, name: []const u8) !?Resolver.Result {
-    _ = try engine.start(try cocuyo.Question.from_text(name, .a), clock.read());
+/// One turn's names, `+` between two, started at once and driven until each has its result, which
+/// is reported under its name. The example exits when one has none in `ticks_max` ticks.
+fn resolve(loop: *rotor.Loop, events: []rotor.Event, clock: Clock, turn: []const u8) !void {
+    if (std.mem.count(u8, turn, "+") >= at_once_max) return error.TooManyAtOnce;
+    var named: [at_once_max + 1][]const u8 = undefined;
+    var names = std.mem.splitScalar(u8, turn, '+');
+    var started: usize = 0;
+    for (0..at_once_max) |_| {
+        const name = names.next() orelse break;
+        const handle = try engine.start(try answer_text.question_of(name), clock.read());
+        named[handle.index] = name;
+        started += 1;
+    }
+    var taken: usize = 0;
     for (0..ticks_max) |_| {
-        if (engine.take(clock.read())) |result| return result;
+        while (engine.take(clock.read())) |result| {
+            try report(named[result.handle.index], result);
+            taken += 1;
+        }
+        if (taken == started) return;
         try tick(loop, events, clock);
     }
-    return engine.take(clock.read());
+    std.debug.print("{s}: {d} of {d} answered in {d} ticks\n", .{ turn, taken, started, ticks_max });
+    std.process.exit(1);
 }
 
 /// Ticks until the server's ticket is kept and every connection has closed idle, so the next
@@ -148,21 +168,22 @@ fn handshake() []const u8 {
     return "not seen: no connection is up";
 }
 
-fn report(name: []const u8, result: Resolver.Result) void {
+fn report(name: []const u8, result: Resolver.Result) !void {
     switch (result.outcome) {
-        .answer => |answer| {
-            for (answer.addresses) |address| {
-                const octets = address.slice();
-                std.debug.print("{s} A {d}.{d}.{d}.{d} (ttl {d})\n", .{
-                    name, octets[0], octets[1], octets[2], octets[3], answer.ttl_seconds,
-                });
-            }
-        },
+        .answer => |answer| try answer_text.report(name, &answer),
         .failure => |failure| {
             std.debug.print("{s}: {t}\n", .{ name, failure.err });
             std.process.exit(1);
         },
     }
+}
+
+/// Where a server is: an address, and a port other than 853 after a colon, as `127.0.0.1:8853`.
+fn place_of(text: []const u8) !struct { address: cocuyo.Address, port: ?u16 } {
+    if (cocuyo.Address.from_text(text)) |address| return .{ .address = address, .port = null };
+    const colon = std.mem.lastIndexOfScalar(u8, text, ':') orelse return error.BadAddress;
+    const address = cocuyo.Address.from_text(text[0..colon]) orelse return error.BadAddress;
+    return .{ .address = address, .port = try std.fmt.parseInt(u16, text[colon + 1 ..], 10) };
 }
 
 /// How a server is known, from its argument: by its name, or by its key alone, RFC 8310 §6.3's

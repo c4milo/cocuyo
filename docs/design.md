@@ -3622,6 +3622,22 @@ pin on the issuer's key are refused, and the leaf's key alone, with a backup pin
 `interop` workflow runs it once a day. No conformance suite for RFC 9250 exists that this found,
 nothing like h2spec for HTTP/2, so this is the one check of the protocol against another's reading.
 
+On 2026-09-26 the check grew to every transport the engine speaks (c4milo/cocuyo#20, #21):
+
+- Plain DNS over UDP and over TCP, through `examples/cleartext_rotor.zig`, the engine with no TLS.
+  dnsproxy's own log, with `--verbose`, must show each lookup's queries on the transport asked
+  for and none on the other, since dnsproxy answers both.
+- DoT, several names on one connection and a fourth over a connection that resumes, the name and
+  root refusals, and the pins, as DoQ has them. The DoT example takes a port now, as DoQ's does.
+- Records beyond A over every transport. dnsproxy answers A from its hosts file and asks
+  `tools/interop/zone.zig` for the rest, a server of the check's own on the loopback: AAAA, MX,
+  TXT, one of them of two strings, and HTTPS of one name, asked at once, then a CNAME to it.
+  dnsproxy reads each answer and writes it again, compressed its own way, before cocuyo reads it.
+  Every record must read back as the zone wrote it (`examples/answer_text.zig` writes them out).
+
+The live checks ask each public resolver for AAAA, MX, TXT and HTTPS at once as well, of a name that
+has each, and require each type answered and every record of the type asked.
+
 ### A thread per core
 
 An image runs one loop on each core and one engine on each loop. Nothing crosses between cores:

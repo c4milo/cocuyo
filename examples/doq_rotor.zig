@@ -17,9 +17,10 @@
 //! `127.0.0.1:8853`. A DoQ server's port is UDP's 853 (RFC 9250
 //! §4.1.1), and a DoH server's the template's, 443 when it names none (RFC 9114 §3.1).
 //!
-//! Names after the first are resolved in turn, each once the server's ticket is kept and the
-//! connection before has closed idle, so each opens a connection that resumes with the ticket
-//! (§24, request rule 10). Names joined by `+`, as `a.example+b.example`, are resolved at once, on
+//! A name asks for A, and `name/TYPE` for another type, as `example.com/MX`
+//! (`examples/answer_text.zig`, which writes the answers out). Names after the first are resolved
+//! in turn, each once the server's ticket is kept and the connection before has closed idle, so
+//! each opens a connection that resumes with the ticket (§24, request rule 10). Names joined by `+`, as `a.example+b.example`, are resolved at once, on
 //! one connection, each on a stream of its own. After each turn the example says how its
 //! handshake went.
 //!
@@ -31,6 +32,7 @@ const rotor = @import("rotor");
 const io = @import("io");
 const cocuyo_quic = @import("cocuyo_quic");
 const chapulin = @import("chapulin_quic");
+const answer_text = @import("answer_text.zig");
 
 const Quic = cocuyo_quic.Connection(.{ .Session = chapulin.Session, .streams = at_once_max, .http3 = true });
 const Resolver = io.Resolver(.{
@@ -129,14 +131,14 @@ fn resolve(loop: *rotor.Loop, events: []rotor.Event, clock: Clock, turn: []const
     var started: usize = 0;
     for (0..at_once_max) |_| {
         const name = names.next() orelse break;
-        const handle = try engine.start(try cocuyo.Question.from_text(name, .a), clock.read());
+        const handle = try engine.start(try answer_text.question_of(name), clock.read());
         named[handle.index] = name;
         started += 1;
     }
     var taken: usize = 0;
     for (0..ticks_max) |_| {
         while (engine.take(clock.read())) |result| {
-            report(named[result.handle.index], result);
+            try report(named[result.handle.index], result);
             taken += 1;
         }
         if (taken == started) return;
@@ -185,16 +187,9 @@ fn handshake() []const u8 {
     return "not seen: no connection is up";
 }
 
-fn report(name: []const u8, result: Resolver.Result) void {
+fn report(name: []const u8, result: Resolver.Result) !void {
     switch (result.outcome) {
-        .answer => |answer| {
-            for (answer.addresses) |address| {
-                const octets = address.slice();
-                std.debug.print("{s} A {d}.{d}.{d}.{d} (ttl {d})\n", .{
-                    name, octets[0], octets[1], octets[2], octets[3], answer.ttl_seconds,
-                });
-            }
-        },
+        .answer => |answer| try answer_text.report(name, &answer),
         .failure => |failure| {
             std.debug.print("{s}: {t}\n", .{ name, failure.err });
             std.process.exit(1);

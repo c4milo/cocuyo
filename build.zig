@@ -47,8 +47,9 @@ const lint_rule_files = [_][]const u8{ "README.md", "CLAUDE.md", "build.zig" };
 const lint_exempt = [_][]const u8{"test/"};
 
 /// Every tool whose own tests `zig build test` runs. A build that does not run the checkers' own
-/// tests lets a rule lose its test without the build reporting it. The search-order recorder is
-/// here for the same reason; its two probes link a C library the gate does not require.
+/// tests lets a rule lose its test without the build reporting it. The search-order recorder and
+/// the interop check's zone are here for the same reason; the recorder's two probes link a C
+/// library the gate does not require.
 const tool_test_roots = [_][]const u8{
     "tools/lint/main.zig",
     "tools/cognitive_complexity.zig",
@@ -56,6 +57,7 @@ const tool_test_roots = [_][]const u8{
     "tools/graph_check.zig",
     "tools/consumer_check.zig",
     "tools/search_order/recorder.zig",
+    "tools/interop/zone.zig",
     "tools/tla.zig",
     "tools/mutations.zig",
     "tools/lint_coverage.zig",
