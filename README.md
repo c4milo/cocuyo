@@ -14,10 +14,9 @@ any completion loop you already run.
 It is written from the RFCs, as a replacement for c-ares. The name is the Colombian word for the
 firefly, and for a car's hazard lights.
 
-> **Status: 0.1.0, the first release.** The library is feature-complete against its plan. It needs
-> Zig 0.16.0. Until 1.0, a minor version may change the API. Since 0.1.0, `main` has gained the
-> engine exported for your rotor loop, and DNS over TLS, over QUIC and over HTTPS on HTTP/3 in it,
-> none of it released yet.
+> **Status: 0.2.0.** The library is feature-complete against its plan. The engine over rotor is
+> exported as `cocuyo_rotor`, and carries DNS over TLS, over QUIC and over HTTPS on HTTP/3. It needs
+> Zig 0.16.0. Until 1.0, a minor version may change the API.
 
 ## Why cocuyo
 
@@ -64,7 +63,7 @@ exactly what the rest of the machine sees.
 | Many lookups | `Resolver`, a bounded table of lookups that decides which lookup an incoming datagram belongs to |
 | `getaddrinfo` shape | `AddressLookup` joins A and AAAA, the hosts file and the search list, and orders addresses by RFC 6724; `NameLookup` does the reverse |
 | Transport | UDP with EDNS0 (RFC 6891) and its fallback, TCP on truncation or by choice (RFC 7766), with the length prefix handled for you |
-| Encryption | On `main`, in the engine: DNS over TLS (RFC 7858, strict as RFC 8310 asks), DNS over QUIC (RFC 9250) and DNS over HTTPS on HTTP/3 (RFC 8484), a server known by its name, by SPKI pins, or by both |
+| Encryption | In the engine: DNS over TLS (RFC 7858, strict as RFC 8310 asks), DNS over QUIC (RFC 9250) and DNS over HTTPS on HTTP/3 (RFC 8484), a server known by its name, by SPKI pins, or by both |
 | Robustness | Retries with a doubling timeout, rotation, and server failover that tracks failures per server |
 | Configuration | `resolv.conf`, `RES_OPTIONS` and `LOCALDOMAIN`, and the hosts file, parsed from bytes you read |
 | Cache | Optional, sized by you, with SIEVE eviction and RFC 2308 negative caching |
@@ -126,7 +125,7 @@ under Docker's default security profile, and on kqueue on macOS.
   UDP socket per server with source-port rotation, one reused TCP connection per server, one timer
   for every deadline, and the cache in front. It is tested on a deterministic twin of rotor, and end
   to end over rotor itself on macOS and Linux; the throughput comparison with c-ares below runs on
-  it. On `main` it is exported as the module `cocuyo_rotor`, whose type `Resolver` runs on a loop
+  it. It is exported as the module `cocuyo_rotor`, whose type `Resolver` runs on a loop
   you own: your build binds its `rotor` import to your rotor, and every event your loop hands out
   goes to the engine's `apply` first ([`test/consumer/`](test/consumer) is such a package).
 - **One engine for each core.** Each thread runs a loop and an engine of its own, and nothing is
@@ -139,7 +138,7 @@ else, and only this repository's examples and benchmarks fetch rotor.
 
 ## Encrypted transports
 
-On `main`, the engine carries DNS over TLS, over QUIC and over HTTPS on HTTP/3. Each lookup's policy,
+The engine carries DNS over TLS, over QUIC and over HTTPS on HTTP/3. Each lookup's policy,
 failover and cache stay as they are over UDP; what changes is the connection a query goes on.
 
 - **DNS over TLS** (RFC 7858) goes over a TCP connection, with
@@ -166,15 +165,21 @@ AdGuard's dnsproxy on the loopback, an implementation written elsewhere.
 Add cocuyo to your package, pinned to a release:
 
 ```bash
-zig fetch --save "git+https://github.com/c4milo/cocuyo?ref=v0.1.0"
+zig fetch --save "git+https://github.com/c4milo/cocuyo?ref=v0.2.0"
 ```
 
-Import its module in `build.zig`. cocuyo exports one module, `cocuyo`, and fetches nothing else
-when it is a dependency:
+Import its module in `build.zig`. The library is one module, `cocuyo`, and fetches nothing else
+when it is a dependency. The engine over rotor is a second, `cocuyo_rotor`, whose `rotor` import
+your build binds to your rotor:
 
 ```zig
 const cocuyo = b.dependency("cocuyo", .{ .target = target, .release = true });
 exe.root_module.addImport("cocuyo", cocuyo.module("cocuyo"));
+
+// Only for the engine, over a rotor your build already depends on.
+const engine = cocuyo.module("cocuyo_rotor");
+engine.addImport("rotor", b.dependency("rotor", .{ .target = target }).module("rotor"));
+exe.root_module.addImport("cocuyo_rotor", engine);
 ```
 
 Then give it its memory and ask it for its first action. `config`, `seed` and `now_ns` are yours:
@@ -276,8 +281,7 @@ options, cookies, failover, the hosts file and a cache. What it does not cover, 
 - **The platform's own configuration.** c-ares also reads the macOS system configuration, the
   Windows registry and Android's settings. cocuyo reads `resolv.conf` alone.
 - **A ready-made event loop.** c-ares ships one. cocuyo's engine runs on
-  [rotor](#an-event-loop-to-drive-it-rotor), a loop you own; in 0.1.0 it is not exported, and you
-  drive the library yourself, as the examples do.
+  [rotor](#an-event-loop-to-drive-it-rotor), a loop you own, and `cocuyo_rotor` joins it to yours.
 - **A C interface.** cocuyo is a Zig library. There is no C header.
 - **Windows.** The library does no I/O of its own, so it depends on no platform; the engine runs
   on macOS and Linux.
