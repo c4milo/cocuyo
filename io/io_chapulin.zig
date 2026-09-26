@@ -10,8 +10,9 @@
 //! chapulin's calls take a callback for every byte it sends or reads once connected. Here they
 //! are buffer copies that never block: `send` stages what chapulin writes, and `recv` serves the
 //! one whole record the engine handed over, and then nothing, which chapulin answers with
-//! `CH_RECORD_AGAIN` (its rec.h). The image supplies `ch_rand_bytes` and `ch_assert_fail` once,
-//! through the `chapulin_hooks` module it binds (`io/io_chapulin_hooks.zig`), and the session
+//! `CH_RECORD_AGAIN` (its tcp_nonblocking.h). The image supplies `ch_rand_bytes` and
+//! `ch_assert_fail` once, through the `chapulin_hooks` module it binds
+//! (`io/io_chapulin_hooks.zig`), and the session
 //! points `ch_rand_bytes` at the engine's seeded stream while a handshake runs.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -31,7 +32,7 @@ pub const c = @cImport({
     @cDefine("CH_TRUST_WEBPKI", "1");
     @cDefine("CH_TRANSPORT_TCP_NONBLOCKING", "1");
     @cDefine("CH_RAND_EXTERN", "1");
-    @cInclude("rec.h");
+    @cInclude("tcp_nonblocking.h");
     @cInclude("tls.h");
     @cInclude("build.h");
 });

@@ -7,10 +7,11 @@
 # can be a resolver changing what it does, as dns.google's refusal of a resumed hello without
 # signature schemes was (docs/design.md §21 step 6), or the network failing.
 #
-# Zig is pinned as ci.yml pins it, and chapulin is cloned at a pinned commit, the first whose pins
-# alone take a chain whose leaf key a pin names (its decision 65), which the check's pinned run
-# needs. Its object's build record, `ch_build_info_tcp_nonblocking`, is what `io/io_chapulin.zig`
-# compares with its headers. No third-party action runs here; `actions/checkout` is GitHub's own.
+# Zig is pinned as ci.yml pins it, and chapulin is cloned at a pinned commit: one whose pins alone
+# take a chain whose leaf key a pin names (its decision 65), which the check's pinned run needs, and
+# whose driver's header is `tcp_nonblocking.h`, which `io/io_chapulin.zig` includes. Its object's
+# build record, `ch_build_info_tcp_nonblocking`, is what `io/io_chapulin.zig` compares with its
+# headers. No third-party action runs here; `actions/checkout` is GitHub's own.
 name: dot-live
 
 on:
@@ -23,7 +24,7 @@ permissions:
 
 env:
   ZIG_VERSION: "0.16.0"
-  CHAPULIN_COMMIT: "3d5db4edd5af0dc10bd6ca0b38b03f20dd181e6a"
+  CHAPULIN_COMMIT: "a0834bb47f706d1db8d92ae777eff714ea36e447"
 
 jobs:
   live:

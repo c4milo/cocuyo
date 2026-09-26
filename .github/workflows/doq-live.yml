@@ -8,10 +8,10 @@
 # It is not a gate, because it depends on two public resolvers and the network. A failure here can
 # be a resolver changing what it does, or the network failing.
 #
-# Zig is pinned as ci.yml pins it, and chapulin is cloned at a pinned commit, the first whose QUIC
-# mode takes pins as its record transport does (its decisions 64 and 65). Its object's build
-# record, `ch_build_info_quic_nonblocking`, is what `io/io_chapulin_quic.zig` compares with its
-# headers. No third-party action runs here; `actions/checkout` is GitHub's own.
+# Zig is pinned as ci.yml pins it, and chapulin is cloned at a pinned commit, whose QUIC mode takes
+# pins as its record transport does (its decisions 64 and 65), and the one the DoT check pins too.
+# Its object's build record, `ch_build_info_quic_nonblocking`, is what `io/io_chapulin_quic.zig`
+# compares with its headers. No third-party action runs here; `actions/checkout` is GitHub's own.
 name: doq-live
 
 on:
@@ -24,7 +24,7 @@ permissions:
 
 env:
   ZIG_VERSION: "0.16.0"
-  CHAPULIN_COMMIT: "3d5db4edd5af0dc10bd6ca0b38b03f20dd181e6a"
+  CHAPULIN_COMMIT: "a0834bb47f706d1db8d92ae777eff714ea36e447"
 
 jobs:
   live:

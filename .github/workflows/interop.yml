@@ -24,7 +24,7 @@ permissions:
 
 env:
   ZIG_VERSION: "0.16.0"
-  CHAPULIN_COMMIT: "3d5db4edd5af0dc10bd6ca0b38b03f20dd181e6a"
+  CHAPULIN_COMMIT: "a0834bb47f706d1db8d92ae777eff714ea36e447"
   DNSPROXY_VERSION: "v0.85.0"
 
 jobs:
