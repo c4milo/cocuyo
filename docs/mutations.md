@@ -2177,3 +2177,27 @@ configuration's. Each is caught as before. Six mutations, six `CAUGHT`.
 | RW15 | a stream's answer does not close the connection it drained | request rule 13 | the waiting test | short walk 18 | CAUGHT |
 | RW16 | a cancel does not close the connection it drained | request rules 6 and 13 | the cancel test | full run walk 2, picked | CAUGHT |
 | RW17 | a failure while it drains fails the waiting requests with those on streams | request rule 13 | the failing test | full run walk 57, picked | CAUGHT |
+
+## The request connection over TCP
+
+Design §24 step 7a, 2026-09-26 (c4milo/cocuyo#18). The engine holds its request connections as
+one set for each transport. The HTTP/2 set runs over TCP: a connection connects before it
+handshakes, and a slot opened again while an earlier opening's connect is in flight waits for that
+connect's end. A send may go short and its rest goes first, and a receive that ends with no
+octets fails the connection (request rules 14 to 16). The twin's transport over TCP
+(`src/sim/sim_quic_stream.zig`) carries the twin's QUIC items in frames on a connection to a
+scripted server's HTTPS port, and a script can end the server's side of the stream. Eight tests
+run the engine over it (`io/io_request_tcp_test.zig`). The walks will reach the same code once the
+replay drives the TCP configurations. Nine mutations, nine `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| TC1 | a slot connects again while a connect of an earlier opening is in flight | request rule 14 | the test of a connection idle while it connects | CAUGHT |
+| TC2 | a connection's receive is armed, and its octets sent, before its connect has succeeded | request rule 14 | the first test, which looks while the connect is in flight | CAUGHT |
+| TC3 | a send that went short is taken for a whole one, and its rest is lost | request rule 15 | the short send test | CAUGHT |
+| TC4 | the rest of a send that went short is sent from the buffer's start | request rule 15 | the short send test | CAUGHT |
+| TC5 | a receive that ended with no octets is armed again, and the connection stays up | request rule 15 | the test of the server's end of the stream | CAUGHT |
+| TC6 | a connect that failed leaves its requests waiting on the connection | request rules 7 and 14 | the refused connect test | CAUGHT |
+| TC7 | an idle connection that connects is left connecting | request rule 16 | the test of a connection idle while it connects | CAUGHT |
+| TC8 | a connection that waited for an earlier opening's connect does not open at its end | request rule 14 | the test of a connection idle while it connects | CAUGHT |
+| TC9 | a connection over TCP offers the protocol of a QUIC one | RFC 9113 §3.3 | the first test | CAUGHT |

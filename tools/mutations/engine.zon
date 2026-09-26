@@ -590,4 +590,85 @@
         },
         .caught_by = .picked_walks,
     },
+    .{
+        .section = "The request connection over TCP",
+        .id = "TC1",
+        .what = "a slot connects again while a connect of an earlier opening is in flight",
+        .edits = .{
+            .{ .file = "io/io_request_connection.zig", .old = "    if (slot.connecting) {\n        connection.state = .reopening;\n        return true;\n    }\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The request connection over TCP",
+        .id = "TC2",
+        .what = "a connection's receive is armed, and its octets sent, before its connect has succeeded",
+        .edits = .{
+            .{ .file = "io/io_request_connection_tend.zig", .old = "        if (!connection.talks()) continue;\n        if (connection.receive == null)", .new = "        if (connection.state == .closed or connection.state == .reopening) continue;\n        if (connection.receive == null)" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The request connection over TCP",
+        .id = "TC3",
+        .what = "a send that went short is taken for a whole one, and its rest is lost",
+        .edits = .{
+            .{ .file = "io/io_request_events.zig", .old = "        connection.sent += @intCast(count);", .new = "        connection.sent = connection.made;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The request connection over TCP",
+        .id = "TC4",
+        .what = "the rest of a send that went short is sent from the buffer's start",
+        .edits = .{
+            .{ .file = "io/io_request_connection_tend.zig", .old = ".send(user_data, connection.descriptor.?, slot.bytes[connection.sent..connection.made])", .new = ".send(user_data, connection.descriptor.?, slot.bytes[0 .. connection.made - connection.sent])" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The request connection over TCP",
+        .id = "TC5",
+        .what = "a receive that ended with no octets is armed again, and the connection stays up",
+        .edits = .{
+            .{ .file = "io/io_request_events.zig", .old = "    const count = event.outcome() catch return false;\n    return count == 0;", .new = "    _ = event.outcome() catch return false;\n    return false;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The request connection over TCP",
+        .id = "TC6",
+        .what = "a connect that failed leaves its requests waiting on the connection",
+        .edits = .{
+            .{ .file = "io/io_request_connection.zig", .old = "    if (!succeeded) return fail(self, set, server, now_ns);", .new = "    if (!succeeded) return;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The request connection over TCP",
+        .id = "TC7",
+        .what = "an idle connection that connects is left connecting",
+        .edits = .{
+            .{ .file = "io/io_request_connection.zig", .old = "            .connecting => shut(self, set, server),", .new = "            .connecting => {}," },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The request connection over TCP",
+        .id = "TC8",
+        .what = "a connection that waited for an earlier opening's connect does not open at its end",
+        .edits = .{
+            .{ .file = "io/io_request_connection.zig", .old = "        if (!open(self, set, server, now_ns)) request_module.fail_all_of(self, set, server, now_ns);\n        return;\n    }\n    if (connection.state != .connecting) return;", .new = "        return;\n    }\n    if (connection.state != .connecting) return;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The request connection over TCP",
+        .id = "TC9",
+        .what = "a connection over TCP offers the protocol of a QUIC one",
+        .edits = .{
+            .{ .file = "io/io_request_connection.zig", .old = "    if (comptime @TypeOf(set.*).stream) return constants.alpn_h2;", .new = "    if (comptime @TypeOf(set.*).stream) return constants.quic_alpn_h3;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
 }

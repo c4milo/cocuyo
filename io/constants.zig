@@ -130,6 +130,10 @@ pub const chapulin_out_pieces_max = 64;
 /// (docs/design.md §24, request rules 1 and 8).
 pub const loop_operations_per_quic_connection = 2;
 
+/// What one request connection over TCP asks of the loop: its connect, its receive, and the send of
+/// its octets (docs/design.md §24, request rules 14 and 15).
+pub const loop_operations_per_h2_connection = 3;
+
 /// Where a QUIC connection's incarnation sits in the `user_data` of its operations, above its
 /// server's index, as a TCP connection's does above its slot. A server fits in the octet below.
 pub const quic_incarnation_shift = 8;
@@ -154,6 +158,9 @@ pub const quic_alpn_doq = "doq";
 
 /// The ALPN token of HTTP/3, which DoH goes over (RFC 9114 §3.2).
 pub const quic_alpn_h3 = "h3";
+
+/// The ALPN token of HTTP/2 over TLS, which DoH goes over when HTTP/3 does not (RFC 9113 §3.2).
+pub const alpn_h2 = "h2";
 
 /// The port a DoH server's connection goes to when its template names none: "If the port
 /// subcomponent is empty or not given, TCP port 443 ... is the default" (RFC 9110 §4.2.2), and

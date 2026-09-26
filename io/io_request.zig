@@ -22,7 +22,8 @@ const connection_module = @import("io_request_connection.zig");
 pub const None = struct {
     pub const enabled = false;
     pub const http3 = false;
-    pub const datagram_bytes_max = 0;
+    pub const socket = .datagram;
+    pub const output_bytes_max = 0;
     pub const request_bytes_max = 0;
     pub const Error = error{Failed};
     pub const Context = struct {};
@@ -49,7 +50,7 @@ pub const None = struct {
     pub fn cancel(_: *None, _: u64) void {
         unreachable;
     }
-    pub fn datagram(_: *None, _: []u8, _: u64) usize {
+    pub fn output(_: *None, _: []u8, _: u64) usize {
         unreachable;
     }
     pub fn deadline(_: *const None) ?u64 {
@@ -68,8 +69,9 @@ pub const None = struct {
 };
 
 /// One lookup slot's request: the attempt it speaks for, the server it went to, its stream once it
-/// has one, and the bytes the stream carries (request rule 3).
-pub fn Request(comptime Quic: type) type {
+/// has one, and the bytes the stream carries (request rule 3), `bytes_max` of them, which is the
+/// most any of the engine's transports asks.
+pub fn Request(comptime bytes_max: usize) type {
     return struct {
         live: bool = false,
         handle: cocuyo.Handle = undefined,
@@ -78,13 +80,21 @@ pub fn Request(comptime Quic: type) type {
         /// Null while the request waits in its connection's queue (request rule 4).
         stream: ?u64 = null,
         len: u16 = 0,
-        bytes: [Quic.request_bytes_max]u8 = undefined,
+        bytes: [bytes_max]u8 = undefined,
     };
 }
 
-/// Whether the engine's lookups go as requests: every server is DoQ (docs/design.md §23).
+/// Whether the engine's lookups go as requests: every server is DoQ or DoH (docs/design.md §22,
+/// §23).
 pub fn speaks(self: anytype) bool {
     return self.config.sends_requests();
+}
+
+/// Whether the requests go over the engine's HTTP/2 connections: a DoH configuration, in an engine
+/// that holds them (docs/design.md §24, DoH over HTTP/2). The rest go over QUIC.
+pub fn over_h2(self: anytype) bool {
+    if (comptime !@TypeOf(self.*).H2.enabled) return false;
+    return self.config.uses_https();
 }
 
 /// What the drive does with a lookup's `send_request`: the request is taken at once onto its
@@ -92,10 +102,14 @@ pub fn speaks(self: anytype) bool {
 /// deadline covers the handshake (request rule 3). An earlier request of the slot's is cancelled
 /// first. A connection that cannot open fails the request, and the lookup moves on.
 pub fn take(self: anytype, index: usize, send: anytype, now_ns: u64) void {
-    const Quic = @TypeOf(self.*).Quic;
+    if (over_h2(self)) return take_in(self, &self.h2, index, send, now_ns);
+    take_in(self, &self.quic, index, send, now_ns);
+}
+
+/// `take`, onto a connection of `set`.
+fn take_in(self: anytype, set: anytype, index: usize, send: anytype, now_ns: u64) void {
     // `init` refuses a request configuration without a transport (`assert_tls`).
-    if (comptime !Quic.enabled) unreachable;
-    const set = &self.quic;
+    if (comptime !@TypeOf(set.*).Transport.enabled) unreachable;
     drop(self, set, index, now_ns);
     const handle = self.handles[index];
     self.resolver.on_sent(handle, now_ns);
@@ -145,8 +159,13 @@ pub fn drop(self: anytype, set: anytype, index: usize, now_ns: u64) void {
 /// ended, or it was cancelled or released (request rule 6). The drive does this last, after
 /// every poll, so a lookup that asked again within the drive keeps its new request.
 pub fn cancel_left(self: anytype, now_ns: u64) void {
-    if (comptime !@TypeOf(self.*).Quic.enabled) return;
-    const set = &self.quic;
+    if (over_h2(self)) return cancel_left_in(self, &self.h2, now_ns);
+    cancel_left_in(self, &self.quic, now_ns);
+}
+
+/// `cancel_left`, for the requests on `set`'s connections.
+fn cancel_left_in(self: anytype, set: anytype, now_ns: u64) void {
+    if (comptime !@TypeOf(set.*).Transport.enabled) return;
     for (self.requests[0..], 0..) |*request, index| {
         if (request.live and !current(self, index)) drop(self, set, index, now_ns);
     }
@@ -193,7 +212,7 @@ pub fn of_stream(self: anytype, server: u8, stream: u64) ?usize {
 
 /// Forgets every request, which `reinit` does once every connection is closed.
 pub fn forget_all(self: anytype) void {
-    if (comptime !@TypeOf(self.*).Quic.enabled) return;
+    if (comptime !(@TypeOf(self.*).Quic.enabled or @TypeOf(self.*).H2.enabled)) return;
     for (self.requests[0..]) |*request| request.live = false;
 }
 

@@ -149,7 +149,7 @@ fn connect(self: anytype, at: u8, server: u8) Error!void {
     // Nothing the loop holds names this slot's memory (rule 10, and §21's TLS rule 3).
     assert(!connection.borrowed());
     const endpoint = self.config.servers[server].tcp_endpoint();
-    const descriptor = rotor.sync.open_socket(family_of(endpoint)) catch return error.SocketFailed;
+    const descriptor = rotor.sync.open_socket(udp.family_of(endpoint)) catch return error.SocketFailed;
     udp.size_buffers(descriptor, self.config);
     const users = connection.users;
     const idle_since_ns = connection.idle_since_ns;
@@ -188,13 +188,6 @@ fn free_slot(self: anytype) ?u8 {
         }
     }
     return null;
-}
-
-fn family_of(endpoint: cocuyo.Endpoint) rotor.Address.Family {
-    return switch (endpoint.address.family) {
-        .ipv4 => .ipv4,
-        .ipv6 => .ipv6,
-    };
 }
 
 /// Takes the lookup off its connection unless it is on a stream to that connection's server

@@ -44,7 +44,7 @@ const Pair = struct {
         var datagram: [quic.constants.datagram_len_min]u8 = undefined;
         var rounds: usize = 0;
         while (rounds < rounds_max) : (rounds += 1) {
-            const out = pair.client.datagram(&datagram, pair.now_ns);
+            const out = pair.client.output(&datagram, pair.now_ns);
             if (out > 0) pair.server.receive(datagram[0..out], pair.now_ns, answerer);
             const back = pair.server.send(&datagram, pair.now_ns);
             if (back > 0) try pair.client.receive(datagram[0..back], pair.now_ns);

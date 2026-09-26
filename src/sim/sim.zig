@@ -57,5 +57,6 @@ test {
     _ = tls;
     _ = quic;
     _ = @import("sim_loop_quic.zig");
+    _ = @import("sim_quic_stream.zig");
     _ = @import("sim_scenarios_test.zig");
 }

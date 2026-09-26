@@ -112,8 +112,7 @@ fn connect_stream(loop: *Loop, slot: u32, connect: *const Operation.Connect) voi
         loop.queue(slot, refused, loop.now_ns + script.delay_ns_min, true);
         return;
     }
-    const tls = connect.address.port == constants.server_tls_port;
-    const connection = network().open_connection(connect.socket, index, tls) orelse {
+    const connection = network().open_connection(connect.socket, index, kind_of(connect.address.port)) orelse {
         loop.queue(slot, Event.failure(user_data, .system_resources), loop.now_ns, true);
         return;
     };
@@ -121,6 +120,14 @@ fn connect_stream(loop: *Loop, slot: u32, connect: *const Operation.Connect) voi
     if (entry.local.port == 0) entry.local.port = network().assign_port_public();
     const delay_ns = if (script.connect_delay_ns != 0) script.connect_delay_ns else script.delay_ns_min;
     loop.queue(slot, Event.success(user_data, 0), loop.now_ns + delay_ns, true);
+}
+
+/// What a stream to `port` carries: the twin's TLS on the TLS port, the twin's QUIC in frames on
+/// the HTTPS port, and DNS messages anywhere else.
+fn kind_of(port: u16) network_module.ConnectionKind {
+    if (port == constants.server_tls_port) return .tls;
+    if (port == constants.server_https_port) return .request;
+    return .plain;
 }
 
 /// Bytes to the server: whole frames are answered, a partial one waits for the rest
@@ -141,7 +148,12 @@ fn send_stream(loop: *Loop, slot: u32, send: *const Operation.Send) void {
     connection.partial_len += bytes.len;
     var frames: usize = 0;
     while (frames < frames_per_send_max) : (frames += 1) {
-        const answered = if (connection.tls != null) answer_record(loop, connection) else answer_frame(loop, connection);
+        const answered = if (connection.tls != null)
+            answer_record(loop, connection)
+        else if (connection.request)
+            quic_module.answer_stream(loop, connection)
+        else
+            answer_frame(loop, connection);
         if (!answered) break;
     }
     loop.queue(slot, Event.success(user_data, @intCast(bytes.len)), loop.now_ns, true);
@@ -289,6 +301,7 @@ fn materialize_datagrams(loop: *Loop) void {
 
 fn materialize_streams(loop: *Loop) void {
     for (&network().connections) |*connection| {
+        end_stream(loop, connection);
         const receiver = stream_ready(loop, connection) orelse continue;
         var chunks: usize = 0;
         while (chunks < constants.buffers_per_group_max and connection.inbound_len > 0) : (chunks += 1) {
@@ -305,6 +318,16 @@ fn materialize_streams(loop: *Loop) void {
             }
         }
     }
+}
+
+/// A stream the server ended, with nothing left to read: the receive ends with no octets.
+fn end_stream(loop: *Loop, connection: *const network_module.Connection) void {
+    if (!connection.open or !connection.ended or connection.inbound_len != 0) return;
+    if (connection.available_at_ns > loop.now_ns) return;
+    const entry = &network().sockets[@intCast(connection.socket)];
+    const receiver = entry.receiver orelse return;
+    entry.receiver = null;
+    loop.queue(receiver.slot, Event.success(receiver.user_data, 0), loop.now_ns, true);
 }
 
 /// The receiver of a connection that has bytes ready for a socket that is reading, or null.
@@ -359,7 +382,8 @@ fn next_datagram_due() ?u64 {
 fn next_stream_due() ?u64 {
     var due: ?u64 = null;
     for (&network().connections) |*connection| {
-        if (!connection.open or connection.inbound_len == 0 or !receiving(connection.socket)) continue;
+        if (!connection.open or !receiving(connection.socket)) continue;
+        if (connection.inbound_len == 0 and !connection.ended) continue;
         due = earliest(due, connection.available_at_ns);
     }
     return due;

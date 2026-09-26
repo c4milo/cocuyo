@@ -415,16 +415,16 @@ pub fn kind_of(user_data: u64) ?io.Kind {
     const kind = kind_of_any(user_data);
     return switch (kind) {
         .tcp_connect, .tcp_send, .tcp_receive, .udp_send, .udp_receive, .tls_send => kind,
-        // The model's `qsend` and `qrecv` (EngineRequest.tla).
-        .quic_send, .quic_receive => kind,
+        // The model's `qsend` and `qrecv`, and over TCP its `rconnect` (EngineRequest.tla).
+        .quic_send, .quic_receive, .h2_connect, .h2_send, .h2_receive => kind,
         .timer => null,
     };
 }
 
 fn failure_of(kind: io.Kind) rotor.Code {
     return switch (kind) {
-        .tcp_connect => .connection_refused,
-        .tcp_send, .tls_send => .broken_pipe,
+        .tcp_connect, .h2_connect => .connection_refused,
+        .tcp_send, .tls_send, .h2_send => .broken_pipe,
         .udp_send, .quic_send => .network_unreachable,
         else => .connection_reset,
     };

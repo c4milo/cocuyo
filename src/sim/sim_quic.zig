@@ -95,10 +95,15 @@ pub fn read_item(bytes: []const u8) ?Read {
 }
 
 /// The client: a connection with the functions the engine asks of one (docs/design.md §24).
+/// The same transport over TCP, as DoH over HTTP/2 runs (`sim_quic_stream.zig`).
+pub const Stream = @import("sim_quic_stream.zig").Stream;
+
 pub const Connection = struct {
     pub const enabled = true;
     pub const http3 = true;
-    pub const datagram_bytes_max = constants.quic_datagram_bytes_max;
+    /// A datagram at a time, as QUIC's are (docs/design.md §24, the request interface).
+    pub const socket = .datagram;
+    pub const output_bytes_max = constants.quic_datagram_bytes_max;
     pub const request_bytes_max = core.constants.query_bytes_max;
     pub const Error = error{Failed};
     /// What the engine hands every connection it starts: nothing, for the twin.
@@ -119,7 +124,7 @@ pub const Connection = struct {
     pending_len: usize = 0,
     owes: bool = false,
     /// The datagram last received, and how far `next` has read it.
-    inbound: [datagram_bytes_max]u8 = undefined,
+    inbound: [output_bytes_max]u8 = undefined,
     inbound_len: usize = 0,
     inbound_at: usize = 0,
     next_stream: u64 = 0,
@@ -242,7 +247,7 @@ pub const Connection = struct {
 
     /// The next datagram it owes, as many whole items as fit, or nothing. One owed with nothing
     /// staged carries an acknowledgement.
-    pub fn datagram(self: *Connection, out: []u8, now_ns: u64) usize {
+    pub fn output(self: *Connection, out: []u8, now_ns: u64) usize {
         _ = now_ns;
         if (!self.owes) return 0;
         if (self.pending_len == 0) self.add(.{ .kind = .ack });
@@ -318,8 +323,9 @@ pub const Behaviour = struct {
     /// Gives a ticket when a handshake ends.
     tickets: bool = false,
     /// What it does with a request instead of answering it: reset its stream, or close the
-    /// connection.
-    instead: enum { answer, reset, close } = .answer,
+    /// connection, or over TCP end its side of the stream, as a server that goes away without a
+    /// word does; over UDP that closes the connection too.
+    instead: enum { answer, reset, close, end_stream } = .answer,
     /// What its responses over HTTP/3 say of their content.
     http: Http = .{},
     /// Sends GOAWAY once it has taken its first request on a connection, as a server that stops
@@ -418,15 +424,15 @@ test "an item reads back as written, and a short or unknown one does not read" {
 test "a hello, a flight, and the handshake's end on the offered protocol, then a ticket" {
     var client: Connection = .{};
     try client.start(Context{});
-    var out: [Connection.datagram_bytes_max]u8 = undefined;
+    var out: [Connection.output_bytes_max]u8 = undefined;
     var peer: Peer = .{};
     const behaviour: Behaviour = .{ .flights = 1, .tickets = true };
-    const hello = read_item(out[0..client.datagram(&out, 0)]).?.item;
+    const hello = read_item(out[0..client.output(&out, 0)]).?.item;
     try testing.expectEqual(Kind.flight, peer.hear(&behaviour, hello).steps.first);
-    var scratch: [Connection.datagram_bytes_max]u8 = undefined;
+    var scratch: [Connection.output_bytes_max]u8 = undefined;
     try client.receive(datagram_of(&.{.{ .kind = .flight }}, &scratch), 0);
     try testing.expectEqual(@as(?Connection.Next, null), client.next(&.{}));
-    const heard = peer.hear(&behaviour, read_item(out[0..client.datagram(&out, 0)]).?.item);
+    const heard = peer.hear(&behaviour, read_item(out[0..client.output(&out, 0)]).?.item);
     try testing.expectEqual(Kind.done, heard.steps.first);
     try testing.expectEqual(@as(?Kind, .ticket), heard.steps.second);
     try client.receive(datagram_of(&.{ .{ .kind = .done, .bytes = peer.negotiated(&behaviour) }, .{ .kind = .ticket } }, &scratch), 0);
@@ -441,12 +447,12 @@ test "a stream carries its request to the server, and its answer back by the str
     const stream = (try client.request(&bytes, bytes.len)).?;
     try testing.expectEqual(@as(u64, 0), stream);
     try testing.expectEqual(@as(u64, constants.quic_stream_step), (try client.request(&bytes, bytes.len)).?);
-    var out: [Connection.datagram_bytes_max]u8 = undefined;
+    var out: [Connection.output_bytes_max]u8 = undefined;
     var peer: Peer = .{ .up = true };
-    const sent = out[0..client.datagram(&out, 0)];
+    const sent = out[0..client.output(&out, 0)];
     const heard = peer.hear(&.{}, read_item(sent).?.item);
     try testing.expectEqualSlices(u8, &bytes, heard.request.bytes);
-    var scratch: [Connection.datagram_bytes_max]u8 = undefined;
+    var scratch: [Connection.output_bytes_max]u8 = undefined;
     try client.receive(datagram_of(&.{.{ .kind = .answer, .stream = 4, .bytes = "answer" }}, &scratch), 0);
     var answer: [3]u8 = undefined;
     const answered = client.next(&answer).?.answered;
@@ -457,7 +463,7 @@ test "a stream carries its request to the server, and its answer back by the str
 }
 
 test "a refused handshake, a close, an unknown item and an expiry each end the connection" {
-    var scratch: [Connection.datagram_bytes_max]u8 = undefined;
+    var scratch: [Connection.output_bytes_max]u8 = undefined;
     var refused: Connection = .{ .state = .handshaking };
     try refused.receive(datagram_of(&.{.{ .kind = .refused }}, &scratch), 0);
     try testing.expect(refused.next(&.{}).? == .refused);
@@ -473,5 +479,5 @@ test "a refused handshake, a close, an unknown item and an expiry each end the c
     var resending: Connection = .{ .state = .up, .due_ns = 5 };
     resending.expire(5);
     try testing.expectEqual(@as(?Connection.Next, null), resending.next(&.{}));
-    try testing.expect(resending.datagram(&scratch, 5) > 0);
+    try testing.expect(resending.output(&scratch, 5) > 0);
 }

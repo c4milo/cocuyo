@@ -58,7 +58,16 @@ pub const Connection = struct {
     available_at_ns: u64 = 0,
     /// The server side of the twin's TLS, on a connection to the TLS port (sim_tls.zig).
     tls: ?tls_module.Peer = null,
+    /// Whether it carries the twin's QUIC in frames, on a connection to the HTTPS port
+    /// (sim_quic_stream.zig): DoH over HTTP/2, as the twin runs it.
+    request: bool = false,
+    /// The server ended its side: once what it sent before is read, a receive ends with no
+    /// octets, as TCP's does.
+    ended: bool = false,
 };
+
+/// What a stream to a scripted server carries, by the port it went to.
+pub const ConnectionKind = enum { plain, tls, request };
 
 /// The server side of one of the twin's QUIC connections: the client's socket it answers, and
 /// the scripted server it is (sim_quic.zig).
@@ -131,7 +140,7 @@ pub const Network = struct {
     /// sent into the void, and a connection there is refused.
     pub fn server_of(self: *const Network, address: *const Address) ?u8 {
         if (address.family != .ipv4) return null;
-        const ports = [_]u16{ constants.server_port, constants.server_tcp_port, constants.server_tls_port };
+        const ports = [_]u16{ constants.server_port, constants.server_tcp_port, constants.server_tls_port, constants.server_https_port };
         if (std.mem.indexOfScalar(u16, &ports, address.port) == null) return null;
         if (!std.mem.eql(u8, address.bytes[0..constants.server_prefix.len], &constants.server_prefix)) return null;
         const octet = address.bytes[constants.server_prefix.len];
@@ -183,7 +192,7 @@ pub const Network = struct {
         return null;
     }
 
-    pub fn open_connection(self: *Network, descriptor: Descriptor, server_index: u8, tls: bool) ?u8 {
+    pub fn open_connection(self: *Network, descriptor: Descriptor, server_index: u8, kind: ConnectionKind) ?u8 {
         for (&self.connections, 0..) |*entry, index| {
             if (entry.open) continue;
             entry.* = .{
@@ -191,7 +200,8 @@ pub const Network = struct {
                 .socket = descriptor,
                 .server = server_index,
                 .peer = server_address(server_index),
-                .tls = if (tls) .{} else null,
+                .tls = if (kind == .tls) .{} else null,
+                .request = kind == .request,
             };
             return @intCast(index);
         }

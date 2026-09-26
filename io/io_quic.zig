@@ -84,8 +84,10 @@ pub fn Connection(comptime options: Options) type {
         pub const enabled = true;
         /// Whether the connection speaks HTTP/3, which DoH goes over (docs/design.md §24, step 5).
         pub const http3 = options.http3;
+        /// A datagram at a time, over UDP (docs/design.md §24, the request interface).
+        pub const socket = .datagram;
         /// colibri never makes a datagram longer than this (RFC 9000 §14.1's smallest).
-        pub const datagram_bytes_max = quic.constants.datagram_len_min;
+        pub const output_bytes_max = quic.constants.datagram_len_min;
         pub const request_bytes_max = cocuyo.constants.query_bytes_max;
         pub const Error = error{Failed};
         /// What every connection starts from: the session's, and the stream its connection IDs are
@@ -140,7 +142,7 @@ pub fn Connection(comptime options: Options) type {
         pub fn cancel(self: *Self, stream: u64) void {
             connection_module.cancel(self, stream);
         }
-        pub fn datagram(self: *Self, out: []u8, now_ns: u64) usize {
+        pub fn output(self: *Self, out: []u8, now_ns: u64) usize {
             return connection_module.datagram(self, out, now_ns);
         }
         pub fn deadline(self: *const Self) ?u64 {
@@ -194,7 +196,7 @@ const Pair = struct {
         var datagram: [quic.constants.datagram_len_min]u8 = undefined;
         var rounds: usize = 0;
         while (rounds < rounds_max) : (rounds += 1) {
-            const out = pair.client.datagram(&datagram, pair.now_ns);
+            const out = pair.client.output(&datagram, pair.now_ns);
             if (out > 0) pair.server.receive(datagram[0..out], pair.now_ns, answerer);
             const back = pair.server.send(&datagram, pair.now_ns);
             if (back > 0) try pair.client.receive(datagram[0..back], pair.now_ns);

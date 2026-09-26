@@ -30,6 +30,7 @@ pub const tls = @import("io_tls.zig");
 /// The request transport's default and the engine's requests (docs/design.md §24).
 pub const quic = @import("io_request.zig");
 const request_connection = @import("io_request_connection.zig");
+const request_tend = @import("io_request_connection_tend.zig");
 const request_events = @import("io_request_events.zig");
 
 pub const Options = struct {
@@ -51,23 +52,59 @@ pub const Options = struct {
     /// `quic.None`, which refuses a DoQ configuration. A DoQ answer is read into one buffer of
     /// `tcp_message_bytes`, since a DoQ stream holds what a TCP connection holds (RFC 9250 §4.2).
     quic: type = quic.None,
+    /// The request transport over TCP of docs/design.md §24, DoH over HTTP/2: colibri's `h2`
+    /// over chapulin's record transport when the build links them, the twin's in its tests, and
+    /// `quic.None`, which leaves DoH to a QUIC type that speaks HTTP/3. An engine does not hold
+    /// both an HTTP/2 type and a QUIC one that speaks HTTP/3 until the two race (step 7b).
+    h2: type = quic.None,
 };
 
 pub const InitError = error{ SocketFailed, ReceiveFailed };
 
 /// What one of the engine's `user_data` values says.
-pub const Kind = enum(u8) { udp_send, udp_receive, timer, tcp_connect, tcp_send, tcp_receive, tls_send, quic_send, quic_receive };
+pub const Kind = enum(u8) { udp_send, udp_receive, timer, tcp_connect, tcp_send, tcp_receive, tls_send, quic_send, quic_receive, h2_connect, h2_send, h2_receive };
 
-/// `count`, for an engine with a request transport, and none without: such an engine holds no
-/// QUIC connection, no request slot and no answer buffer.
+/// `count`, for an engine with a QUIC transport, and none without: such an engine holds no QUIC
+/// connection.
 fn with_quic(comptime options: Options, comptime count: usize) usize {
     return if (options.quic.enabled) count else 0;
 }
 
+/// `count`, for an engine with an HTTP/2 transport, and none without.
+fn with_h2(comptime options: Options, comptime count: usize) usize {
+    return if (options.h2.enabled) count else 0;
+}
+
+/// DoH goes over HTTP/2 or over HTTP/3 until the two race (docs/design.md §24 step 7b), so an
+/// engine holds an HTTP/2 transport or a QUIC one that speaks HTTP/3, not both. The HTTP/2 one
+/// runs over TCP, and the QUIC one over UDP.
+fn check_transports(comptime options: Options) void {
+    assert(!(options.h2.enabled and options.quic.http3));
+    assert(!options.h2.enabled or options.h2.socket == .stream);
+    assert(!options.quic.enabled or options.quic.socket == .datagram);
+    // A request slot holds a DoQ message at its longest, prefix and all (request rule 3).
+    assert(!options.quic.enabled or options.quic.request_bytes_max >= cocuyo.constants.query_bytes_max);
+    assert(!options.h2.enabled or options.h2.request_bytes_max >= cocuyo.constants.query_bytes_max);
+}
+
+/// Whether the engine speaks DoH: over HTTP/3, or over HTTP/2.
+fn speaks_doh(comptime options: Options) bool {
+    return options.quic.http3 or options.h2.enabled;
+}
+
+/// `count`, for an engine with a request transport of either kind, and none without: such an
+/// engine holds no request slot and no answer buffer.
+fn with_requests(comptime options: Options, comptime count: usize) usize {
+    return if (options.quic.enabled or options.h2.enabled) count else 0;
+}
+
 pub fn Resolver(comptime options: Options) type {
     const quic_servers = with_quic(options, cocuyo.constants.servers_max);
-    const quic_lookups = with_quic(options, options.lookups);
-    const answer_bytes = with_quic(options, options.tcp_message_bytes);
+    const h2_servers = with_h2(options, cocuyo.constants.servers_max);
+    const request_lookups = with_requests(options, options.lookups);
+    const request_bytes_max = @max(options.quic.request_bytes_max, options.h2.request_bytes_max);
+    const answer_bytes = with_requests(options, options.tcp_message_bytes);
+    comptime check_transports(options);
     return struct {
         const Self = @This();
 
@@ -117,7 +154,10 @@ pub fn Resolver(comptime options: Options) type {
         /// The QUIC connections, a slot for each server, and a request slot for each lookup
         /// (docs/design.md §24, request rules 1, 3 and 8).
         quic: request_connection.Set(options.quic, quic_servers, options.lookups),
-        requests: [quic_lookups]quic.Request(options.quic),
+        /// The TCP connections DoH over HTTP/2 goes over, a slot for each server (§24, request
+        /// rules 14 to 16).
+        h2: request_connection.Set(options.h2, h2_servers, options.lookups),
+        requests: [request_lookups]quic.Request(request_bytes_max),
         /// Where a stream's answer is read to, whole, and handed over at once (request rule 5).
         answer: [answer_bytes]u8,
         results: results_module.Queue(options.lookups),
@@ -152,12 +192,16 @@ pub fn Resolver(comptime options: Options) type {
         /// The QUIC connection type, which `io_request.zig` reads through the engine.
         pub const Quic = options.quic;
 
+        /// The HTTP/2 transport type, which `io_request.zig` reads through the engine.
+        pub const H2 = options.h2;
+
         /// What `Loop.Options.operations` needs for this engine: a send per lookup, a receive
         /// per server, a connect and a receive per connection, a receive and a send per QUIC
         /// connection, one timer, and slack.
         pub const loop_operations = @as(u32, options.lookups) + cocuyo.constants.servers_max +
             constants.loop_operations_per_connection * @as(u32, options.tcp_connections) +
             constants.loop_operations_per_quic_connection * @as(u32, quic_servers) +
+            constants.loop_operations_per_h2_connection * @as(u32, h2_servers) +
             constants.loop_operations_slack;
 
         pub fn init(self: *Self, loop: *rotor.Loop, config: *const cocuyo.Config, seed: u64, now_ns: u64) InitError!void {
@@ -178,6 +222,7 @@ pub fn Resolver(comptime options: Options) type {
             self.tls_tickets = @splat(null);
             self.tls_context = .{};
             self.quic = .{};
+            self.h2 = .{};
             self.requests = @splat(.{});
             self.sockets.reset_generation();
             try self.group.provide(loop);
@@ -194,7 +239,8 @@ pub fn Resolver(comptime options: Options) type {
             self.timer_handle = null;
             self.sockets.cancel(self.loop);
             tcp.cancel_all(self);
-            request_connection.cancel_all(self, &self.quic);
+            request_tend.cancel_all(self, &self.quic);
+            request_tend.cancel_all(self, &self.h2);
         }
 
         /// Closes the sockets, once the loop has drained (rotor decision 5, rule 4).
@@ -202,7 +248,8 @@ pub fn Resolver(comptime options: Options) type {
             assert(self.closing);
             self.sockets.close();
             tcp.close_all(self);
-            request_connection.close_all(&self.quic);
+            request_tend.close_all(&self.quic);
+            request_tend.close_all(&self.h2);
         }
 
         /// Starts a lookup. Its result comes through `take`, and one the cache already holds is
@@ -227,8 +274,8 @@ pub fn Resolver(comptime options: Options) type {
         /// configuration needs an engine with a request transport (§24), and a DoH one a transport
         /// that speaks HTTP/3.
         pub fn assert_tls(config: *const cocuyo.Config) void {
-            if (config.sends_requests()) assert(options.quic.enabled);
-            if (config.uses_https()) assert(options.quic.http3);
+            if (config.transport() == .quic) assert(options.quic.enabled);
+            if (config.uses_https()) assert(speaks_doh(options));
             if (!config.uses_tls()) return;
             assert(options.tls.enabled);
             assert(config.servers.len <= options.tcp_connections);
@@ -244,6 +291,12 @@ pub fn Resolver(comptime options: Options) type {
         /// TLS. The twin's needs nothing.
         pub fn use_quic(self: *Self, context: options.quic.Context) void {
             self.quic.context = context;
+        }
+
+        /// What every HTTP/2 connection's session starts from (docs/design.md §24, DoH over
+        /// HTTP/2), as `use_quic` says for QUIC. The twin's needs nothing.
+        pub fn use_h2(self: *Self, context: options.h2.Context) void {
+            self.h2.context = context;
         }
 
         /// Settles every lookup as cancelled, which is `ares_cancel`. Each failure comes through
@@ -296,8 +349,6 @@ pub fn Resolver(comptime options: Options) type {
         comptime {
             // A connection's slot shares its `user_data` with its incarnation (`io_tcp.zig`).
             assert(options.tcp_connections <= constants.tcp_slot_mask + 1);
-            // A request slot holds a DoQ message at its longest, prefix and all (request rule 3).
-            assert(!options.quic.enabled or options.quic.request_bytes_max >= cocuyo.constants.query_bytes_max);
         }
 
         pub fn user_data(kind: Kind, index: usize) u64 {
@@ -334,6 +385,7 @@ test {
         _ = @import("io_request_failure_test.zig");
         _ = @import("io_request_https_test.zig");
         _ = @import("io_request_drain_test.zig");
+        _ = @import("io_request_tcp_test.zig");
         _ = @import("io_quic_test.zig");
         _ = @import("io_quic_https_test.zig");
         _ = @import("io_threads_test.zig");

@@ -11,6 +11,7 @@ const results_module = @import("io_results.zig");
 const send_module = @import("io_send.zig");
 const request_module = @import("io_request.zig");
 const request_connection = @import("io_request_connection.zig");
+const request_tend = @import("io_request_connection_tend.zig");
 
 /// Polls the table for what every lookup wants and does it, until nothing is left: a send out
 /// or held, a connection asked for, a request taken, an end handed to `results`. Then every
@@ -34,10 +35,12 @@ pub fn drive(self: anytype, now_ns: u64) void {
     }
     request_module.cancel_left(self, now_ns);
     tcp.close_idle(self, now_ns);
-    request_connection.close_idle(&self.quic, now_ns);
+    request_connection.close_idle(self, &self.quic, now_ns);
+    request_connection.close_idle(self, &self.h2, now_ns);
     tcp.tend(self);
     tend_sockets(self);
-    request_connection.tend(self, &self.quic, now_ns);
+    request_tend.tend(self, &self.quic, now_ns);
+    request_tend.tend(self, &self.h2, now_ns);
     arm_timer(self, now_ns);
 }
 
@@ -109,11 +112,12 @@ fn drain_owed(self: anytype, server: u8) bool {
     return false;
 }
 
-/// One rotor timer at the soonest of the table's deadline and each QUIC connection's, moved when
-/// that moves (docs/design.md §24, request rule 11).
+/// One rotor timer at the soonest of the table's deadline and each request connection's, moved
+/// when that moves (docs/design.md §24, request rule 11).
 fn arm_timer(self: anytype, now_ns: u64) void {
     if (self.closing) return;
-    const due = earliest(self.resolver.next_deadline_ns(), request_connection.next_deadline(&self.quic));
+    const requests_due = earliest(request_tend.next_deadline(&self.quic), request_tend.next_deadline(&self.h2));
+    const due = earliest(self.resolver.next_deadline_ns(), requests_due);
     if (due == self.timer_due_ns) return;
     if (self.timer_handle) |handle| {
         self.loop.cancel(handle);

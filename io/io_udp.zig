@@ -319,6 +319,14 @@ pub fn outbound_to(endpoint: cocuyo.Endpoint) rotor.datagram.Outbound {
     };
 }
 
+/// The family of socket a stream to `endpoint` opens.
+pub fn family_of(endpoint: cocuyo.Endpoint) rotor.Address.Family {
+    return switch (endpoint.address.family) {
+        .ipv4 => .ipv4,
+        .ipv6 => .ipv6,
+    };
+}
+
 pub fn address_of(endpoint: cocuyo.Endpoint) rotor.Address {
     const octets = endpoint.address.slice();
     return switch (endpoint.address.family) {

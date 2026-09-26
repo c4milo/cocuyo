@@ -8,7 +8,7 @@ const drive_module = @import("io_drive.zig");
 const tcp = @import("io_tcp.zig");
 const send_module = @import("io_send.zig");
 const request_module = @import("io_request.zig");
-const request_connection = @import("io_request_connection.zig");
+const request_tend = @import("io_request_connection_tend.zig");
 
 /// Settles every lookup as cancelled, which is `ares_cancel`. Each failure comes through
 /// `take` like any other, so the caller learns of all of them.
@@ -54,8 +54,10 @@ pub fn reinit(self: anytype, config: *const cocuyo.Config, seed: u64, now_ns: u6
     tcp.cancel_all(self);
     tcp.close_all(self);
     self.tcp_connection = @splat(null);
-    request_connection.cancel_all(self, &self.quic);
-    request_connection.close_all(&self.quic);
+    request_tend.cancel_all(self, &self.quic);
+    request_tend.cancel_all(self, &self.h2);
+    request_tend.close_all(&self.quic);
+    request_tend.close_all(&self.h2);
     request_module.forget_all(self);
     self.sockets.cancel(self.loop);
     self.sockets.close();
@@ -64,6 +66,7 @@ pub fn reinit(self: anytype, config: *const cocuyo.Config, seed: u64, now_ns: u6
     // request rule 10).
     self.tls_tickets = @splat(null);
     self.quic.tickets = @splat(null);
+    self.h2.tickets = @splat(null);
     reset_tables(self, config, seed);
     try self.sockets.open(self.loop, config, seed, @TypeOf(self.*).tag);
 }

@@ -47,6 +47,15 @@ pub const tcp_idle_jump_ns = 11 * 1_000_000_000;
 pub const stream_delay_ns = 12 * 1_000_000_000;
 pub const stream_timeout_ns = 25 * 1_000_000_000;
 
+/// A send buffer shorter than any frame the twin's transport over TCP writes, the first of which
+/// holds an 11-octet hello: every send goes short (docs/design.md §24, request rule 15).
+pub const short_send_bytes = 4;
+
+/// A connect that outlasts an idle wait cut short, under a timeout it does not reach: the
+/// connection goes idle while it connects (request rules 14 and 16).
+pub const idle_connect_ns = 1_000_000_000;
+pub const short_idle_ns = 10_000_000;
+
 /// A connect slower than the lookup's wait, which strands a lookup that has moved on by the
 /// time the connection comes up.
 pub const slow_connect_ns = 3 * 1_000_000_000;
