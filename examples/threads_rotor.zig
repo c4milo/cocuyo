@@ -30,11 +30,11 @@ const events_max = 16;
 const tick_ns = 10_000_000;
 const ticks_max = 500;
 
-/// Each loop's memory, aligned as rotor asks: a struct, so the second one is aligned too.
-const LoopMemory = struct {
-    bytes: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment) = undefined,
-};
-var loop_memory: [engines]LoopMemory = @splat(.{});
+/// Each loop's memory, aligned as rotor asks: one aligned array, each loop's share rounded up to
+/// the alignment so the second starts aligned too. An aligned field of a struct was the first try,
+/// and Zig 0.16's own x86_64 backend placed the array 16 octets past the alignment.
+const loop_memory_bytes = std.mem.alignForward(usize, rotor.Loop.memory_bytes(loop_options), rotor.memory_alignment);
+var loop_memory: [engines][loop_memory_bytes]u8 align(rotor.memory_alignment) = undefined;
 var resolvers: [engines]Resolver = undefined;
 
 /// One engine thread: what it was given, and what it took.
@@ -91,7 +91,7 @@ fn run(state: *Engine) void {
 /// Runs a loop and an engine of this thread's own until every lookup it started has a result.
 fn resolve(state: *Engine) !void {
     var loop: rotor.Loop = undefined;
-    try loop.init(&loop_memory[state.index].bytes, loop_options);
+    try loop.init(&loop_memory[state.index], loop_options);
     defer loop.deinit();
     var events: [events_max]rotor.Event = undefined;
     const resolver = &resolvers[state.index];
