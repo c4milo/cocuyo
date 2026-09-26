@@ -3527,9 +3527,9 @@ start. The lookup counts it as the server's failure and ends in `AllServersFaile
 - The rest is the path's template, and it names `dns` in an expression outside a fragment: a GET
   carries the query only there (RFC 8484 §4.1).
 
-**The path, expanded for each request** by `cocuyo_quic` (`io/io_quic_template.zig`). RFC 6570's
-expansion, with `dns` the one variable defined (RFC 8484 §4.1) and every other one undefined, so
-skipped (RFC 6570 §2.3, §3.2.1):
+**The path, expanded for each request** by `cocuyo_quic` and `cocuyo_h2` (`io/io_doh_template.zig`).
+RFC 6570's expansion, with `dns` the one variable defined (RFC 8484 §4.1) and every other one
+undefined, so skipped (RFC 6570 §2.3, §3.2.1):
 
 - The operators are those of Appendix A's table: none, `+`, `.`, `/`, `;`, `?` and `&`. A
   fragment, `#`, is not part of the request, so a template that uses one is refused.
@@ -3694,10 +3694,9 @@ may also speak HTTP/2 alone, the least version RFC 8484 §5.2 recommends.
   9113 §9.1 asks for the first: "the terminating endpoint SHOULD first send a GOAWAY". RFC 9846
   §6.1 asks for the second, before a party closes its write side.
 - `:path` goes as a never-indexed literal (RFC 7541 §6.2.3), which an intermediary that
-  re-encodes the request must keep as one (§7.1.3). colibri's `write_request` writes every field
-  line as a literal without indexing (§6.2.2). That keeps `:path` out of colibri's own table, and
-  binds no intermediary. colibri is asked to let the caller mark `:path` never indexed, and 7a
-  waits for it.
+  re-encodes the request must keep as one (§7.1.3). colibri's `write_request` takes the mark for
+  each pseudo-header field and each field line (colibri 3d86a42), and writes every line it is
+  not told to mark as a literal without indexing (§6.2.2), so no line of a GET enters a table.
 - Flow control is colibri's (§5.2, §6.9). A DoH answer holds at most 65,535 octets, the initial
   window of a stream (§6.9.2), and colibri opens the windows again as it reads.
 

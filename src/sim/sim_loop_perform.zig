@@ -118,6 +118,9 @@ fn connect_stream(loop: *Loop, slot: u32, connect: *const Operation.Connect) voi
     };
     entry.connection = connection;
     if (entry.local.port == 0) entry.local.port = network().assign_port_public();
+    if (network().connection(connection).request) {
+        if (network().stream_responders[index]) |responder| responder.opened(responder.context, connect.socket);
+    }
     const delay_ns = if (script.connect_delay_ns != 0) script.connect_delay_ns else script.delay_ns_min;
     loop.queue(slot, Event.success(user_data, 0), loop.now_ns + delay_ns, true);
 }
@@ -143,6 +146,13 @@ fn send_stream(loop: *Loop, slot: u32, send: *const Operation.Send) void {
     const connection = network().connection(index);
     const whole = send.buffer.bytes;
     const bytes = if (entry.send_buffer_bytes == 0) whole else whole[0..@min(whole.len, entry.send_buffer_bytes)];
+    if (connection.request) {
+        if (network().stream_responders[connection.server]) |responder| {
+            responder.hear(responder.context, send.socket, bytes, loop.now_ns);
+            loop.queue(slot, Event.success(user_data, @intCast(bytes.len)), loop.now_ns, true);
+            return;
+        }
+    }
     assert(connection.partial_len + bytes.len <= connection.partial.len);
     @memcpy(connection.partial[connection.partial_len..][0..bytes.len], bytes);
     connection.partial_len += bytes.len;

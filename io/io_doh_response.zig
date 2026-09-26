@@ -1,5 +1,6 @@
-//! What a DoH response's header section says of its content (docs/design.md §24, DoH over
-//! HTTP/3): its `Age`, and whether the content is a DNS message in no content coding. colibri hands
+//! What a DoH response's header section says of its content, over HTTP/3 and over HTTP/2 alike
+//! (docs/design.md §24, DoH over HTTP/3): its `Age`, and whether the content is a DNS message in no
+//! content coding. colibri hands
 //! each field's value over as its octets, which hold no CTL and no whitespace at either end.
 const std = @import("std");
 const assert = std.debug.assert;

@@ -28,15 +28,10 @@ pub const receive_bytes_default = (answer_bytes_max + pool_block_bytes - 1) / po
 /// it sends.
 pub const params_bytes_max = 256;
 
-/// A DoH request's slot: the HEADERS frame of its GET (docs/design.md §24, New limits). colibri's
-/// bound on the frame is 317 octets beside `:authority` and `:path`, an authority takes 259 at
-/// most (a 253-octet name and a port), and 960 are left for the path, whose `dns` value takes 512.
-pub const doh_request_bytes_max = 1536;
-
-/// A DoH connection's answer buffers when the consumer names none: one for each response in
-/// flight, each holding an answer at its longest (docs/design.md §24, DoH over HTTP/3). Chosen,
-/// not measured.
-pub const answers_default = 4;
+/// A DoH request's slot, and a DoH connection's answer buffers when the consumer names none: the
+/// limits both HTTP transports share (`io_doh_constants.zig`).
+pub const doh_request_bytes_max = @import("doh").constants.doh_request_bytes_max;
+pub const answers_default = @import("doh").constants.answers_default;
 
 /// The unidirectional streams an HTTP/3 connection lets the server open, and each one's credit:
 /// the endpoint "MUST allow its peer to create at least one unidirectional stream for the HTTP

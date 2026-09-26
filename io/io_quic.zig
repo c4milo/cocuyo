@@ -23,10 +23,10 @@ pub const plain = @import("io_quic_plain.zig");
 pub const server = @import("io_quic_server.zig");
 /// A DoH server over colibri's `h3`, for tests (`io_quic_server_h3.zig`).
 pub const server_h3 = @import("io_quic_server_h3.zig");
-/// A DoH server's URI template, split and expanded (`io_quic_template.zig`).
-pub const template = @import("io_quic_template.zig");
-/// What a DoH response's header section says of its content (`io_quic_response.zig`).
-pub const response = @import("io_quic_response.zig");
+/// A DoH server's URI template, split and expanded, and what a DoH response's header section says
+/// of its content: the DNS half both HTTP transports share (`io_doh.zig`).
+pub const template = @import("doh").template;
+pub const response = @import("doh").response;
 
 pub const Options = struct {
     /// The TLS: colibri's provider and suite at once, with `start`, `provider`, `suite`,

@@ -12,8 +12,8 @@ const cocuyo = @import("cocuyo");
 const quic = @import("quic");
 const h3 = @import("h3");
 const constants = @import("io_quic_constants.zig");
-const template = @import("io_quic_template.zig");
-const response = @import("io_quic_response.zig");
+const template = @import("doh").template;
+const response = @import("doh").response;
 
 const FieldSection = h3.http.FieldSection;
 const Indexing = h3.qpack.encoder.Indexing;

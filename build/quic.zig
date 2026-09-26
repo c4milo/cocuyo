@@ -6,7 +6,8 @@
 const std = @import("std");
 const modules = @import("modules.zig");
 
-/// Binds colibri's `quic` and `h3` into the tests' modules and adds `zig build test-cocuyo_quic`.
+/// Binds colibri's `quic`, `h3` and `h2` into the tests' modules and adds `zig build
+/// test-cocuyo_quic` and `zig build test-cocuyo_h2`.
 /// Null `colibri` is the build before the fetch, which the build runs again once it has it.
 pub fn add(b: *std.Build, graph: modules.Graph, colibri: ?*std.Build.Dependency, test_step: *std.Build.Step) void {
     const dependency = colibri orelse return;
@@ -19,4 +20,10 @@ pub fn add(b: *std.Build, graph: modules.Graph, colibri: ?*std.Build.Dependency,
     const run = &b.addRunArtifact(unit_tests).step;
     test_step.dependOn(run);
     b.step("test-cocuyo_quic", "Run cocuyo_quic's tests, over colibri").dependOn(run);
+    graph.io_h2.addImport("h2", dependency.module("h2"));
+    graph.io.addImport("cocuyo_h2", graph.io_h2);
+    const h2_tests = b.addTest(.{ .name = "cocuyo_h2", .root_module = graph.io_h2 });
+    const h2_run = &b.addRunArtifact(h2_tests).step;
+    test_step.dependOn(h2_run);
+    b.step("test-cocuyo_h2", "Run cocuyo_h2's tests, over colibri").dependOn(h2_run);
 }

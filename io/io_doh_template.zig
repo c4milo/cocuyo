@@ -1,4 +1,5 @@
-//! A DoH server's path template, expanded for each request (docs/design.md §24, DoH over HTTP/3).
+//! A DoH server's path template, expanded for each request, over HTTP/3 and over HTTP/2 alike
+//! (docs/design.md §24, DoH over HTTP/3).
 //! The engine splits the template when it opens the connection and hands the path's template over.
 //! RFC 6570 says how it expands, with `dns` the one variable defined (RFC 8484 §4.1), and RFC 3986
 //! what the URI it expands to is made of.

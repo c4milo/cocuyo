@@ -117,6 +117,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "cocuyo", .module = graph.cocuyo },
         .{ .name = "io", .module = graph.io },
         .{ .name = "chapulin_hooks", .module = graph.chapulin_hooks },
+        .{ .name = "doh", .module = graph.doh },
     };
     for (unit_test_modules) |entry| {
         const unit_tests = b.addTest(.{ .name = entry.name, .root_module = entry.module });

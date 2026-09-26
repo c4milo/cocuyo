@@ -2244,3 +2244,56 @@ and does not read them, and the tests catch it. Nine mutations, nine `CAUGHT`.
 | TC7 | an idle connection that connects is left connecting | CAUGHT | short walk 28 | CAUGHT |
 | TC8 | a connection that waited for an earlier opening's connect does not open at its end | CAUGHT | short walk 39 | CAUGHT |
 | TC9 | a connection over TCP offers the protocol of a QUIC one | CAUGHT | short walk 24 | CAUGHT |
+
+## colibri's HTTP/2 under the request interface
+
+Design §24 step 7a, 2026-09-26 (c4milo/cocuyo#18). `cocuyo_h2` puts colibri's `h2` client under
+the request interface, over a record-mode TLS provider (`io/io_h2.zig`): the GET, the answer
+buffers, the response's status, `Age` and media type, a cancel, a GOAWAY, the stream identifiers
+running out, and the idle close. The gate runs it over a provider that encrypts nothing
+(`io/io_h2_plain.zig`) against colibri's HTTP/2 server (`io/io_h2_server.zig`).
+`zig build test-cocuyo_h2` runs twenty-one tests, and `zig build test-io` eight of the engine over
+both on the twin's TCP. Broken against those two steps.
+
+What the mutations found:
+
+- HT7 was a bug. The engine's GOAWAY test failed because a frame was dropped from the plaintext
+  before its event was read. A GOAWAY after the answer in one record then wrote over the answer's
+  content. The in-memory tests now check the answer octet for octet. The test server read in the
+  same order, which is equivalent there: a request's field lines are colibri's decoded copy, and a
+  GET server reads no DATA.
+- Three checks guarded nothing, and were removed. colibri refuses a stream after a GOAWAY
+  (RFC 9113 §6.8), and fails a connection whose GOAWAY names a higher last stream than before. And
+  a provider writes one `close_notify` and returns 0 when asked again (colibri's `tls.VTable`), so
+  HT19 breaks the plain provider's.
+- `next` checked the stage twice, which hid HT4, and the second check is gone. A request that
+  found the stream identifiers run out told the engine nothing; `next` tells it now (HT17).
+- HT1, HT3, HT4, HT5, HT6, HT10, HT12, HT13, HT17, HT18 and HT22 needed tests, which were written.
+
+Twenty-three mutations, twenty-three `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| HT1 | a template whose longest GET does not fit is taken | its GET must fit a request | the template test | CAUGHT |
+| HT2 | the connection preface is not written as the handshake ends | the preface goes first (RFC 9113 §3.4) | the test of a request made as the connection comes up | CAUGHT |
+| HT3 | octets past the records buffer are taken | request rule 7 | the octets-past test | CAUGHT |
+| HT4 | a closing connection reads on | request rule 9 | the closing test | CAUGHT |
+| HT5 | the server's `close_notify` does not end the connection | RFC 9846 §6.1, request rule 7 | the `close_notify` test | CAUGHT |
+| HT6 | a frame colibri refuses while its replies are full is not read again once they are written aside | colibri reads no frame while its replies have no room | the test of PINGs read whole | CAUGHT |
+| HT7 | a frame is dropped from the plaintext before its event is read | the event's octets are the plaintext's | the in-memory GOAWAY test | CAUGHT |
+| HT8 | a coding is not read | a coded answer is no DNS message (request rule 12) | the in-memory response test | CAUGHT |
+| HT9 | the `Age` is not read | TTLs are lowered by it (RFC 8484 §5.1) | the in-memory response test | CAUGHT |
+| HT10 | every GOAWAY is told | the connection drains once (request rule 13) | the in-memory GOAWAY test, the identifiers test | CAUGHT |
+| HT11 | a stream above a GOAWAY's last is left open | it was never processed (RFC 9113 §6.8) | the in-memory GOAWAY test | CAUGHT |
+| HT12 | content past an answer's buffer is not counted | the engine fails an answer too long (request rule 5) | the past-the-buffer test | CAUGHT |
+| HT13 | a cancel keeps its answer buffer | the buffer comes back | the cancel test | CAUGHT |
+| HT14 | a cancel sends no RST_STREAM | CANCEL (RFC 9113 §7, request rule 6) | the cancel test | CAUGHT |
+| HT15 | the GET asks for `gzip` | `accept-encoding: identity` (request rule 12) | the GET's lines test | CAUGHT |
+| HT16 | `:path` goes without indexing | never indexed (RFC 7541 §6.2.3, §7.1.3) | the GET's lines test | CAUGHT |
+| HT17 | the stream identifiers running out is never told | the connection drains (RFC 9113 §5.1.1) | the identifiers test | CAUGHT |
+| HT18 | the stream identifiers running out leaves no mark | the connection drains (RFC 9113 §5.1.1) | the identifiers test | CAUGHT |
+| HT19 | the plain provider writes a `close_notify` each time it is asked | a second call returns 0 | the plain provider's record test, the in-memory idle test | CAUGHT |
+| HT20 | an idle close sends no GOAWAY | RFC 9113 §9.1, request rule 9 | the in-memory idle test | CAUGHT |
+| HT21 | frames are sealed before the handshake ends | the handshake's last flight goes first (RFC 9846 §4.4.4) | every engine test | CAUGHT |
+| HT22 | a record is opened into less room than its plaintext needs | the record waits | the waiting-record test | CAUGHT |
+| HT23 | the twin keeps the server of a socket a new connection reuses | a new connection is a new server | the engine's GOAWAY test | CAUGHT |

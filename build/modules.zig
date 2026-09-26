@@ -37,6 +37,15 @@ pub const Graph = struct {
     cocuyo_quic: *std.Build.Module,
     /// The same, for this build's tests, whose `quic` `build/quic.zig` binds to colibri's.
     io_quic: *std.Build.Module,
+    /// colibri's HTTP/2 under the request interface, as a consumer imports it (docs/design.md §24,
+    /// DoH over HTTP/2): its `h2` import is left for the consumer to bind, as `cocuyo_quic`'s
+    /// `quic` is.
+    cocuyo_h2: *std.Build.Module,
+    /// The same, for this build's tests, whose `h2` `build/quic.zig` binds to colibri's.
+    io_h2: *std.Build.Module,
+    /// The DNS half of DoH both HTTP transports share (docs/design.md §24): it imports `std`
+    /// alone, and each transport imports it, so a consumer gets it with either.
+    doh: *std.Build.Module,
 };
 
 /// The root source of each module. build/graph_check.zig hands `core`'s and `wire`'s to
@@ -52,6 +61,8 @@ pub const roots = .{
     .io = "io/io.zig",
     .chapulin_hooks = "io/io_chapulin_hooks.zig",
     .io_quic = "io/io_quic.zig",
+    .doh = "io/io_doh.zig",
+    .io_h2 = "io/io_h2.zig",
 };
 
 // Every module this build registers has its root under a path the manifest ships. A dependent
@@ -59,7 +70,7 @@ pub const roots = .{
 // show a path left out: it depends on cocuyo by path, which reads the whole tree
 // (docs/mutations.md EX2).
 comptime {
-    for ([_][]const u8{ roots.cocuyo, roots.io, roots.chapulin_hooks, roots.io_quic }) |root| {
+    for ([_][]const u8{ roots.cocuyo, roots.io, roots.chapulin_hooks, roots.io_quic, roots.io_h2 }) |root| {
         if (!shipped(root)) @compileError("build.zig.zon's paths do not ship " ++ root);
     }
 }
@@ -105,7 +116,7 @@ fn build(
     optimize: std.builtin.OptimizeMode,
     register: bool,
 ) Graph {
-    // Only `cocuyo`, `cocuyo_rotor`, `cocuyo_quic` and `chapulin_hooks` are registered, so they are the only names
+    // Only `cocuyo`, `cocuyo_rotor`, `cocuyo_quic`, `cocuyo_h2` and `chapulin_hooks` are registered, so they are the only names
     // a dependent can import (docs/design.md §20, §24). The rest are created: this build holds the graph as a
     // value, so `zig build test-<name>` still names each one without the name being part of the
     // package.
@@ -122,6 +133,9 @@ fn build(
         .chapulin_hooks = module(b, target, optimize, "chapulin_hooks", roots.chapulin_hooks, register),
         .cocuyo_quic = module(b, target, optimize, "cocuyo_quic", roots.io_quic, register),
         .io_quic = module(b, target, optimize, "io_quic", roots.io_quic, false),
+        .cocuyo_h2 = module(b, target, optimize, "cocuyo_h2", roots.io_h2, register),
+        .io_h2 = module(b, target, optimize, "io_h2", roots.io_h2, false),
+        .doh = module(b, target, optimize, "doh", roots.doh, false),
     };
 
     // core imports nothing, and that is the point of it: every limit and every type that two
@@ -144,7 +158,13 @@ fn build(
     graph.io.addImport("rotor", graph.sim);
     graph.cocuyo_rotor.addImport("cocuyo", graph.cocuyo);
     graph.cocuyo_quic.addImport("cocuyo", graph.cocuyo);
+    graph.cocuyo_quic.addImport("doh", graph.doh);
     graph.io_quic.addImport("cocuyo", graph.cocuyo);
+    graph.io_quic.addImport("doh", graph.doh);
+    graph.cocuyo_h2.addImport("cocuyo", graph.cocuyo);
+    graph.cocuyo_h2.addImport("doh", graph.doh);
+    graph.io_h2.addImport("cocuyo", graph.cocuyo);
+    graph.io_h2.addImport("doh", graph.doh);
 
     return graph;
 }

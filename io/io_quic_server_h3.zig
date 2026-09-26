@@ -15,7 +15,7 @@ const doq = @import("io_quic_server.zig");
 pub const Answerer = doq.Answerer;
 const Writer = h3.core.Writer;
 const connection_id_bytes_max = quic.crypto.constants.connection_id_len_max;
-const base64url = std.base64.url_safe_no_pad.Decoder;
+const query_of = @import("doh").query.query_of;
 
 /// One of the client's request streams: its path, and the response the server keeps while
 /// colibri may read it: the HEADERS frame and a DATA frame's header, then the content.
@@ -168,23 +168,6 @@ fn answer(self: anytype, stream_id: u64, answerer: Answerer) void {
     write_response(self, request) catch return refuse(self, request);
     self.answered += 1;
     if (self.script.goaway) self.h3.shutdown(&self.connection) catch {};
-}
-
-/// The `dns` parameter of `path`'s query, decoded from base64url (RFC 8484 §4.1, §6).
-fn query_of(path: []const u8, out: []u8) ?[]const u8 {
-    const question = std.mem.indexOfScalar(u8, path, '?') orelse return null;
-    var parameters_left = std.mem.splitScalar(u8, path[question + 1 ..], '&');
-    // Bounded by the path: each parameter but the last ends at an ampersand.
-    for (0..path.len) |_| {
-        const parameter = parameters_left.next() orelse return null;
-        if (!std.mem.startsWith(u8, parameter, "dns=")) continue;
-        const encoded = parameter["dns=".len..];
-        const len = base64url.calcSizeForSlice(encoded) catch return null;
-        if (len > out.len) return null;
-        base64url.decode(out[0..len], encoded) catch return null;
-        return out[0..len];
-    }
-    return null;
 }
 
 /// The response's HEADERS frame, an interim one first if the test asks, and its DATA frame's header.

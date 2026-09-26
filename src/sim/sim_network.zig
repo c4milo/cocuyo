@@ -89,6 +89,16 @@ pub const Responder = struct {
     expire: *const fn (context: *anyopaque, now_ns: u64) void,
 };
 
+/// A server a test puts on a scripted server's HTTPS port in place of the twin's QUIC over TCP
+/// (docs/design.md §24, DoH over HTTP/2): it is told of each connection there as it opens, which
+/// may be on a socket an earlier one used, handed every octet a connection sends, and answers with
+/// `Network.write_stream`. A test in `io/` brings colibri's HTTP/2 server this way.
+pub const StreamResponder = struct {
+    context: *anyopaque,
+    opened: *const fn (context: *anyopaque, socket: Descriptor) void,
+    hear: *const fn (context: *anyopaque, socket: Descriptor, bytes: []const u8, now_ns: u64) void,
+};
+
 pub const Network = struct {
     sockets: [constants.sockets_max]Socket = @splat(.{}),
     next_port: u16 = constants.client_port_first,
@@ -99,6 +109,8 @@ pub const Network = struct {
     quic_peers: [constants.connections_max]QuicPeer = @splat(.{}),
     /// A responder on each scripted server's QUIC port, or null for the twin's QUIC.
     responders: [constants.servers_max]?Responder = @splat(null),
+    /// A responder on each scripted server's HTTPS port, or null for the twin's QUIC over TCP.
+    stream_responders: [constants.servers_max]?StreamResponder = @splat(null),
     /// Whether every socket open fails, as it does when a process has no descriptor left: set
     /// by a caller driving the twin in manual mode (tools/spec_replay/).
     refuse_open: bool = false,
@@ -133,6 +145,18 @@ pub const Network = struct {
         pending.due_ns = due_ns;
         pending.len = @intCast(bytes.len);
         @memcpy(pending.bytes[0..bytes.len], bytes);
+        return true;
+    }
+
+    /// Octets from a scripted server on the TCP connection of the client's socket `descriptor`,
+    /// readable from `due_ns`. False when the connection is gone, or holds as much as it can.
+    pub fn write_stream(self: *Network, descriptor: Descriptor, bytes: []const u8, due_ns: u64) bool {
+        const index = self.socket(descriptor).connection orelse return false;
+        const stream = &self.connections[index];
+        if (!stream.open or stream.inbound.len - stream.inbound_len < bytes.len) return false;
+        @memcpy(stream.inbound[stream.inbound_len..][0..bytes.len], bytes);
+        stream.inbound_len += bytes.len;
+        stream.available_at_ns = @max(stream.available_at_ns, due_ns);
         return true;
     }
 
