@@ -15,7 +15,9 @@ It is written from the RFCs, as a replacement for c-ares. The name is the Colomb
 firefly, and for a car's hazard lights.
 
 > **Status: 0.1.0, the first release.** The library is feature-complete against its plan. It needs
-> Zig 0.16.0. Until 1.0, a minor version may change the API.
+> Zig 0.16.0. Until 1.0, a minor version may change the API. Since 0.1.0, `main` has gained the
+> engine exported for your rotor loop, and DNS over TLS, over QUIC and over HTTPS on HTTP/3 in it,
+> none of it released yet.
 
 ## Why cocuyo
 
@@ -62,6 +64,7 @@ exactly what the rest of the machine sees.
 | Many lookups | `Resolver`, a bounded table of lookups that decides which lookup an incoming datagram belongs to |
 | `getaddrinfo` shape | `AddressLookup` joins A and AAAA, the hosts file and the search list, and orders addresses by RFC 6724; `NameLookup` does the reverse |
 | Transport | UDP with EDNS0 (RFC 6891) and its fallback, TCP on truncation or by choice (RFC 7766), with the length prefix handled for you |
+| Encryption | On `main`, in the engine: DNS over TLS (RFC 7858, strict as RFC 8310 asks), DNS over QUIC (RFC 9250) and DNS over HTTPS on HTTP/3 (RFC 8484), a server known by its name, by SPKI pins, or by both |
 | Robustness | Retries with a doubling timeout, rotation, and server failover that tracks failures per server |
 | Configuration | `resolv.conf`, `RES_OPTIONS` and `LOCALDOMAIN`, and the hosts file, parsed from bytes you read |
 | Cache | Optional, sized by you, with SIEVE eviction and RFC 2308 negative caching |
@@ -123,10 +126,40 @@ under Docker's default security profile, and on kqueue on macOS.
   UDP socket per server with source-port rotation, one reused TCP connection per server, one timer
   for every deadline, and the cache in front. It is tested on a deterministic twin of rotor, and end
   to end over rotor itself on macOS and Linux; the throughput comparison with c-ares below runs on
-  it. It is not exported as a library yet, and will be when a consumer asks for it.
+  it. On `main` it is exported as the module `cocuyo_rotor`, whose type `Resolver` runs on a loop
+  you own: your build binds its `rotor` import to your rotor, and every event your loop hands out
+  goes to the engine's `apply` first ([`test/consumer/`](test/consumer) is such a package).
+- **One engine for each core.** Each thread runs a loop and an engine of its own, and nothing is
+  shared between them but a `Config`, which is only read.
+  [`examples/threads_rotor.zig`](examples/threads_rotor.zig) runs two at once, and CI runs it under
+  ThreadSanitizer as well.
 
 rotor is optional. cocuyo does not depend on it: a project that depends on cocuyo fetches nothing
 else, and only this repository's examples and benchmarks fetch rotor.
+
+## Encrypted transports
+
+On `main`, the engine carries DNS over TLS, over QUIC and over HTTPS on HTTP/3. Each lookup's policy,
+failover and cache stay as they are over UDP; what changes is the connection a query goes on.
+
+- **DNS over TLS** (RFC 7858) goes over a TCP connection, with
+  [chapulin](https://github.com/c4milo/chapulin)'s TLS 1.3 as a session behind an interface of
+  cocuyo's.
+- **DNS over QUIC** (RFC 9250) and **DNS over HTTPS on HTTP/3** (RFC 8484) go over
+  [colibri](https://github.com/c4milo/colibri)'s QUIC and HTTP/3, in the module `cocuyo_quic`, with
+  chapulin's QUIC mode as their TLS. A DoH server is named by its URI template.
+- Every server is authenticated, strictly (RFC 8310): by the name its certificate must carry, by
+  SPKI pins of its key, or by both. A server that cannot be authenticated is not asked.
+- cocuyo's library depends on none of them. The engine speaks TLS through a session interface,
+  which this repository fills with chapulin's object, and QUIC through `cocuyo_quic`, whose `quic`
+  and `h3` imports a consumer that speaks DoQ or DoH binds to colibri's.
+
+They are checked every day against public resolvers: Google, Cloudflare and Quad9 over TLS,
+AdGuard and NextDNS over QUIC, Google and Cloudflare over HTTPS on HTTP/3. Each resolves twice,
+the second time over a connection that offers the first one's ticket, and refuses a name its
+certificate does not carry and a root its chain does not end at. Over TLS and QUIC a server known
+by its key alone resolves, and a wrong pin is refused. DoQ and DoH also run every day against
+AdGuard's dnsproxy on the loopback, an implementation written elsewhere.
 
 ## Quick start
 
@@ -242,9 +275,9 @@ options, cookies, failover, the hosts file and a cache. What it does not cover, 
 
 - **The platform's own configuration.** c-ares also reads the macOS system configuration, the
   Windows registry and Android's settings. cocuyo reads `resolv.conf` alone.
-- **A ready-made event loop.** c-ares ships one. cocuyo's engine over
-  [rotor](#an-event-loop-to-drive-it-rotor) exists and is tested, but it is not exported yet.
-  Until it is, you drive the library yourself, as the examples do.
+- **A ready-made event loop.** c-ares ships one. cocuyo's engine runs on
+  [rotor](#an-event-loop-to-drive-it-rotor), a loop you own; in 0.1.0 it is not exported, and you
+  drive the library yourself, as the examples do.
 - **A C interface.** cocuyo is a Zig library. There is no C header.
 - **Windows.** The library does no I/O of its own, so it depends on no platform; the engine runs
   on macOS and Linux.
@@ -256,8 +289,6 @@ These are out of scope on purpose. Each has a place it would attach if that chan
 
 - **DNSSEC validation.** EDNS0 is in place and records are handed out as read, so a validator can
   sit above the library.
-- **DNS over TLS or HTTPS.** You own the socket, so TLS is yours to add over the TCP path, which
-  already speaks the length-prefixed form DNS over TLS uses.
 - **mDNS and zone transfers.** Neither is a stub resolver's job.
 - **nsswitch, NIS and internationalised domain names.**
 
@@ -275,6 +306,12 @@ that depends on cocuyo, and every unit test. Other steps:
 | `zig build examples` | Build the examples into `zig-out/bin` |
 | `zig build example-udp-blocking -- example.com` | Resolve a name over a blocking socket |
 | `zig build example-udp-rotor -- example.com` | Resolve a name over rotor's event loop |
+| `zig build example-threads-rotor` | Two engines on two threads, each on its own loop |
+| `zig build example-dot-rotor -Dchapulin=<checkout> -- ...` | Resolve over DNS over TLS |
+| `zig build example-doq-rotor -Dchapulin=<checkout> -- ...` | Resolve over DNS over QUIC |
+| `zig build example-doh-rotor -Dchapulin=<checkout> -- ...` | Resolve over DNS over HTTPS on HTTP/3 |
+| `tools/dot_live/run.sh`, `tools/doq_live/run.sh`, `tools/doh_live/run.sh` | The live checks against public resolvers |
+| `tools/interop/run.sh` | DoQ and DoH against dnsproxy on the loopback |
 | `zig build bench` | The microbenchmarks and the cache replays |
 | `zig build bench-cares` | The comparison with the installed c-ares |
 | `zig build bench-log -- <dataset.csv>` | The cache over a real DNS log |
