@@ -31,7 +31,7 @@ jobs:
     name: macOS, DoH over HTTP/3 against the public resolvers
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Zig
         run: |
           set -euo pipefail
