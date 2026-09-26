@@ -2523,3 +2523,18 @@ checks, against its tests. Eight mutations, eight `CAUGHT`.
 | TC1 | a whole address is not compared with what was written | a whole text reads back as written | the verdict test | CAUGHT |
 | TC2 | a pin the reader should refuse may be taken | a near miss is refused | the verdict test | CAUGHT |
 | TC3 | no text is written whole | every parser is reached whole | the reach test, the generator's test | CAUGHT |
+
+## Line coverage
+
+2026-09-26. `zig build coverage` runs every module's tests under kcov and reads what it recorded
+(`tools/coverage.zig`): 96.3% of the library's and the engine's 6,805 lines run, test code left
+out, measured on arm64 Linux in a container. CI's `coverage` job builds kcov from a pinned release,
+since Ubuntu 24.04 packages none, and pushes the README's badge to the `badges` branch. The figure
+is a report, not a gate, so no floor holds it yet. CV1 to CV3 break the report's reading, against
+its tests. Three mutations, three `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CV1 | the lines after a file's `// Tests` marker count | test code is left out | the test-code test | CAUGHT |
+| CV2 | a `*_test.zig` file counts | test code is left out | the test-code test | CAUGHT |
+| CV3 | a line kcov never hit counts as run | a line runs when kcov hit it | the report's reading test | CAUGHT |

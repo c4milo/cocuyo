@@ -30,6 +30,7 @@ const quic = @import("build/quic.zig");
 const doq = @import("build/doq.zig");
 const dnslib = @import("build/dnslib.zig");
 const fuzz = @import("build/fuzz.zig");
+const coverage = @import("build/coverage.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "build", "src", "tools", "examples", "bench", "io" };
@@ -59,6 +60,7 @@ const tool_test_roots = [_][]const u8{
     "tools/graph_check.zig",
     "tools/consumer_check.zig",
     "tools/readme_check.zig",
+    "tools/coverage.zig",
     "tools/search_order/recorder.zig",
     "tools/interop/zone.zig",
     "tools/tla.zig",
@@ -113,7 +115,7 @@ pub fn build(b: *std.Build) void {
         }),
     }));
 
-    const unit_test_modules = [_]struct { name: []const u8, module: *std.Build.Module }{
+    const unit_test_modules = [_]coverage.Tests{
         .{ .name = "core", .module = graph.core },
         .{ .name = "wire", .module = graph.wire },
         .{ .name = "resolver", .module = graph.resolver },
@@ -163,6 +165,7 @@ pub fn build(b: *std.Build) void {
     dot.add(b, target, optimize, graph, chapulin, rotor);
     const colibri = b.lazyDependency("colibri", .{ .target = target, .release = release });
     quic.add(b, graph, colibri, test_step);
+    add_coverage(b, &unit_test_modules, graph, colibri != null);
     doq.add(b, target, optimize, graph, chapulin, rotor, colibri);
     dnslib.add(b, target, graph, test_step, tool_test_step);
     fuzz.add(b, target, graph, test_step, tool_test_step);
@@ -176,6 +179,18 @@ pub fn build(b: *std.Build) void {
         .paths = &(.{"build.zig"} ++ source_directories),
         .check = true,
     }).step);
+}
+
+/// `zig build coverage`: every module's tests the gate runs, colibri's two where the build resolved
+/// it, under kcov (build/coverage.zig).
+fn add_coverage(b: *std.Build, entries: []const coverage.Tests, graph: modules.Graph, with_colibri: bool) void {
+    var covered: std.ArrayList(coverage.Tests) = .empty;
+    covered.appendSlice(b.allocator, entries) catch @panic("OOM");
+    if (with_colibri) {
+        covered.append(b.allocator, .{ .name = "cocuyo_quic", .module = graph.io_quic }) catch @panic("OOM");
+        covered.append(b.allocator, .{ .name = "cocuyo_h2", .module = graph.io_h2 }) catch @panic("OOM");
+    }
+    coverage.add(b, covered.items, host_module(b, "tools/coverage.zig"));
 }
 
 /// `zig build tla`: TLC over every model under spec/tla/, through pepegrillo's `tla` tool

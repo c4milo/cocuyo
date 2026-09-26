@@ -44,6 +44,11 @@
 #     directory at a pinned commit and requires its tree id, so it needs the network, and the two
 #     gates run only the check's own tests.
 #
+#   - `coverage`: `zig build coverage`, every module's tests under kcov, built here from its
+#     pinned release since Ubuntu 24.04 packages none. The table goes on the run page, and on main
+#     the badge goes to the orphan `badges` branch, which the README shows. It is the one job with
+#     a write token, and only its badge step holds it.
+#
 #   `engine` and `epoll` are the only jobs that open a socket of their own.
 #
 # **No number from CI enters docs/design.md §11.** A measured row there names the machine, the
@@ -79,6 +84,7 @@ env:
   ZIG_VERSION: "0.16.0"
   CARES_VERSION: "1.34.8"
   LEAN_VERSION: "4.33.0"
+  KCOV_VERSION: "43"
 
 jobs:
   macos:
@@ -259,3 +265,79 @@ jobs:
       - run: zig version
       - name: Every record of dnslib's captured responses, read by the codec and by dnslib
         run: tools/dnslib/run.sh
+
+  coverage:
+    name: Linux, line coverage of the library and the engine
+    runs-on: ubuntu-24.04
+    # The badge step pushes the regenerated SVG to the badges branch, so this job alone gets write.
+    permissions:
+      contents: write
+    concurrency:
+      group: coverage-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The one job with a write token keeps it out of .git/config, where the build could read
+          # it: only the badge step's push carries it, from its own environment.
+          persist-credentials: false
+      - name: Install Zig
+        run: |
+          set -euo pipefail
+          url="https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          sha="70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+          curl -fsSL "$url" -o zig.tar.xz
+          echo "$sha  zig.tar.xz" | sha256sum -c -
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+      - name: Build kcov from its release, pinned
+        # Ubuntu 24.04 packages no kcov, so it is built from the release archive, checked against
+        # the SHA-256 computed when the release was pinned.
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends binutils-dev libdw-dev libelf-dev libcurl4-openssl-dev zlib1g-dev libssl-dev
+          url="https://github.com/SimonKagstrom/kcov/archive/refs/tags/v${KCOV_VERSION}.tar.gz"
+          sha="4cbba86af11f72de0c7514e09d59c7927ed25df7cebdad087f6d3623213b95bf"
+          curl -fsSL "$url" -o kcov.tar.gz
+          echo "$sha  kcov.tar.gz" | sha256sum -c -
+          tar -xzf kcov.tar.gz
+          cmake -S "kcov-${KCOV_VERSION}" -B "$RUNNER_TEMP/kcov" -DCMAKE_BUILD_TYPE=Release > /dev/null
+          cmake --build "$RUNNER_TEMP/kcov" -j4 > /dev/null
+          echo "$RUNNER_TEMP/kcov/src" >> "$GITHUB_PATH"
+      - run: zig version && kcov --version
+      - name: Every module's tests under kcov, and the report
+        run: zig build coverage
+      - name: The table on the run page
+        run: cat zig-out/coverage/coverage.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Update the coverage badge branch
+        # The badge is a generated SVG on an orphan branch, so this job never pushes to main. The
+        # README links it from there.
+        if: github.ref == 'refs/heads/main'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cp zig-out/coverage/coverage.svg "$RUNNER_TEMP/coverage.svg"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch --quiet origin badges 2>/dev/null; then
+            git switch --quiet badges
+          else
+            git switch --quiet --orphan badges
+          fi
+          mkdir -p .github/badges
+          cp "$RUNNER_TEMP/coverage.svg" .github/badges/coverage.svg
+          if ! git ls-files --error-unmatch .github/badges/coverage.svg > /dev/null 2>&1 ||
+              ! git diff --quiet -- .github/badges/coverage.svg; then
+            git add .github/badges/coverage.svg
+            git commit --quiet -m "chore: update the coverage badge"
+            git push --quiet "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}" badges
+          fi
+      - name: kcov's own report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: zig-out/coverage/html/
+          if-no-files-found: ignore

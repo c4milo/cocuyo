@@ -1,6 +1,7 @@
 # cocuyo
 
 [![CI](https://github.com/c4milo/cocuyo/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/c4milo/cocuyo/actions/workflows/ci.yml)
+[![Coverage](https://raw.githubusercontent.com/c4milo/cocuyo/badges/.github/badges/coverage.svg)](https://github.com/c4milo/cocuyo/actions/workflows/ci.yml?query=branch%3Amain)
 [![Release](https://img.shields.io/github/v/release/c4milo/cocuyo)](https://github.com/c4milo/cocuyo/releases/latest)
 [![License](https://img.shields.io/github/license/c4milo/cocuyo)](LICENSE)
 
@@ -271,6 +272,8 @@ catches what it should.
   Every transport runs each day against AdGuard's dnsproxy on the loopback, and the encrypted ones
   against public resolvers.
 - **Threads.** Two engines on two threads of one image run under ThreadSanitizer in CI.
+- **Coverage.** kcov runs every module's tests in CI, and the badge above is the share of the
+  library's and the engine's lines they run, test code left out (`zig build coverage`).
 
 ## Performance
 

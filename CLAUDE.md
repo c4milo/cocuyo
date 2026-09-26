@@ -154,7 +154,8 @@ The architecture depends on every rule in this section.
   nothing under `src/` imports it. AdGuard's dnsproxy is a
   ruled dependency of the interop check alone, approved by the owner on 2026-09-25 (c4milo/cocuyo#16):
   the `interop` workflow fetches a pinned release and checks its SHA-256, and nothing builds,
-  links or imports it. dnslib's test responses are ruled data of the dnslib check alone,
+  links or imports it. kcov is a ruled tool of the coverage job alone, approved by the owner on
+  2026-09-26: CI builds a pinned release, checked by its SHA-256, and nothing links or imports it. dnslib's test responses are ruled data of the dnslib check alone,
   approved by the owner on 2026-09-26 (c4milo/cocuyo#22): `tools/dnslib/run.sh` fetches them at a
   pinned commit and checks their tree id, and nothing builds, links or imports them.
 - Weakening an assertion or a check to make a test pass.
@@ -248,6 +249,11 @@ The architecture depends on every rule in this section.
   through colibri's HTTP/3, given a URI template where DoQ takes a name; `tools/doh_live/run.sh
   <checkout>` runs the live check of design §24 step 5, against Google and Cloudflare. The
   `doh-live` workflow runs both once a day on macOS.
+- Coverage: `zig build coverage` runs every module's tests under kcov, which needs Linux, and
+  writes `zig-out/coverage/`: a table, the README's badge and kcov's HTML, test code left out
+  (`tools/coverage.zig`). CI's `coverage` job runs it and pushes the badge to the `badges` branch.
+  `zig build coverage-binaries -Dtarget=<arch>-linux-gnu` installs the test binaries alone, for
+  kcov in a Linux container on another host.
 - Fuzz: `zig build test` runs both fuzz targets' gates, the codec's (`src/wire/fuzz.zig`) and
   the text parsers' (`src/config/fuzz/`). `zig build fuzz -- [--text] --seed <hex>` runs one
   seed and prints what it built; `zig build fuzz-gate -- [--text] [<count> [<first>]]` runs a
