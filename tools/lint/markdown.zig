@@ -4,8 +4,8 @@
 //! language; a table row whose column count disagrees with its header, which drops a cell; and
 //! trailing whitespace, which is a line break nobody typed.
 //!
-//! The rule reads every `.md` file it is given, so build.zig passes `docs/` and also README.md and
-//! CLAUDE.md, which render on GitHub the same way.
+//! The rule reads every `.md` file it is given, so build.zig passes `docs/` and also README.md,
+//! CLAUDE.md, CONTRIBUTING.md and SECURITY.md, which render on GitHub the same way.
 //!
 //! The rule is pepegrillo's `markdown`. This file holds cocuyo's configuration of it and the
 //! fixtures that pin that configuration.

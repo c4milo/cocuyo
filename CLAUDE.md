@@ -86,7 +86,8 @@ The architecture depends on every rule in this section.
   it appears.
 - Every Markdown file must render on GitHub as written: real list markers only, pipes inside a
   table cell escaped as `\|`, fenced code blocks with a language, no definition lists, no LaTeX.
-  `tools/lint/markdown.zig` checks it over `docs/`, `README.md`, `spec/README.md` and this file.
+  `tools/lint/markdown.zig` checks it over `docs/`, `README.md`, `spec/README.md`,
+  `CONTRIBUTING.md`, `SECURITY.md` and this file.
 
 ### Commits
 

@@ -36,9 +36,9 @@ const source_directories = [_][]const u8{ "build", "src", "tools", "examples", "
 /// markdown rule covers, and the models, whose length the file-length rule bounds.
 const lint_rule_directories = [_][]const u8{ "build", "src", "tools", "examples", "bench", "io", "docs", "spec" };
 
-/// Files outside those directories that the rules read all the same: the Markdown, because both
-/// render on GitHub as written (CLAUDE.md, Conventions), and this file.
-const lint_rule_files = [_][]const u8{ "README.md", "CLAUDE.md", "build.zig" };
+/// Files outside those directories that the rules read all the same: the Markdown, because each
+/// renders on GitHub as written (CLAUDE.md, Conventions), and this file.
+const lint_rule_files = [_][]const u8{ "README.md", "CLAUDE.md", "CONTRIBUTING.md", "SECURITY.md", "build.zig" };
 
 /// What neither the rules nor the score read, on purpose: `test/` holds fixtures that are whole
 /// packages of their own, outside every linted directory because a nested build leaves packages

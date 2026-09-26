@@ -237,6 +237,29 @@ Every check has a test, and every test is proved by breaking the check on purpos
 test fails. [`docs/mutations.md`](docs/mutations.md) records each mutation and the test that caught
 it.
 
+## How it is checked
+
+Every claim above has a check behind it, and each check is itself broken on purpose to show it
+catches what it should.
+
+- **Proofs of the lookup.** The state machine of design §5 is a Lean 4 model with proofs: a lookup
+  that has ended stays ended, under `use_tcp` no event leads to a datagram, a server that refused
+  never turns into a timeout, and no sequence of answers makes a lookup send forever. Every
+  transition the model reaches is replayed against the Zig code. [`spec/README.md`](spec/README.md)
+  lists the theorems and the axioms each one rests on.
+- **A model of the engine.** The engine's rules are a TLA+ model. TLC checks its invariants over
+  every state of small configurations and rejects each mutant of the model, and 24,000 of TLC's
+  walks are replayed against the engine on a deterministic twin of rotor.
+- **Mutation.** Every check has a test that fails when the check is broken.
+  [`docs/mutations.md`](docs/mutations.md) records each mutation and what caught it.
+- **Fuzzing.** The codec's fuzz target writes a well-formed record of every type, whole or with one
+  octet changed, and a record written whole must be read whole.
+- **Other implementations.** Every record of 66 responses real servers sent is compared with
+  dnslib's reading of it. The search-list walk was compared on the wire with glibc, musl and c-ares.
+  Every transport runs each day against AdGuard's dnsproxy on the loopback, and the encrypted ones
+  against public resolvers.
+- **Threads.** Two engines on two threads of one image run under ThreadSanitizer in CI.
+
 ## Performance
 
 Measured on 2026-09-22 on an Apple M1 Pro with 32 GiB under macOS 26.6.2, Zig 0.16.0, ReleaseSafe
@@ -319,6 +342,8 @@ that depends on cocuyo, and every unit test. Other steps:
 | `zig build example-doh-rotor -Dchapulin=<checkout> -- ...` | Resolve over DNS over HTTPS on HTTP/3 |
 | `tools/dot_live/run.sh`, `tools/doq_live/run.sh`, `tools/doh_live/run.sh` | The live checks against public resolvers |
 | `tools/interop/run.sh` | Every transport against dnsproxy on the loopback |
+| `tools/dnslib/run.sh` | The codec against dnslib's reading of real responses |
+| `zig build spec`, `zig build tla` | The Lean proofs and every replay, and TLC over the engine model |
 | `zig build bench` | The microbenchmarks and the cache replays |
 | `zig build bench-cares` | The comparison with the installed c-ares |
 | `zig build bench-log -- <dataset.csv>` | The cache over a real DNS log |
@@ -331,6 +356,11 @@ public API, the security rules, the named limits, every measurement with its mac
 the decisions with the alternatives they beat. [`docs/mutations.md`](docs/mutations.md) lists every
 check and the test that proves it. The RFCs cocuyo is written from are in [`docs/rfcs/`](docs/rfcs),
 unmodified.
+
+## Contributing and security
+
+[CONTRIBUTING.md](CONTRIBUTING.md) states the bar a change meets and the workflow. Report a
+vulnerability privately, as [SECURITY.md](SECURITY.md) says, never in a public issue.
 
 ## License
 

@@ -1,0 +1,26 @@
+# Dependabot watches the one place this repository runs code it did not write and pins by a tag
+# rather than a hash: the GitHub Actions in .github/workflows, which run with the repository token.
+# Today that is `actions/checkout` alone.
+#
+# Everything else the workflows and tools fetch is pinned by SHA-256 or by commit, and a person
+# moves it: Zig, c-ares, Lean, TLC, dnsproxy, chapulin, dnslib's data, and the packages in
+# build.zig.zon. A new pin there can change what a check reports, and that is work to read, not an
+# update to merge.
+#
+# The prefix keeps the commit header conventional (CLAUDE.md, Commits).
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 2
+    groups:
+      github-actions:
+        patterns: ["*"] # one pull request a week for every action
+    commit-message:
+      prefix: ci
