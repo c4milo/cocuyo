@@ -1,0 +1,62 @@
+# DoQ and DoH on HTTP/3 against an independent server, on the loopback (c4milo/cocuyo#16), once a
+# day and on demand: `tools/interop/run.sh` runs the engine, over colibri's QUIC and HTTP/3 and
+# chapulin's QUIC object, against AdGuard's dnsproxy, whose QUIC and HTTP/3 are quic-go's. It
+# makes its own certificates and dnsproxy answers from a hosts file, so it needs no network once
+# its tools are fetched.
+#
+# It is not a gate, which needs neither chapulin nor dnsproxy. Every other test of the engine's DoQ
+# and DoH runs colibri against colibri, and the live checks depend on public servers: this is the
+# one that runs an implementation written elsewhere, on the runner alone.
+#
+# Zig is pinned as ci.yml pins it, chapulin at the commit the live workflows pin, and dnsproxy at
+# a release, checked against the SHA-256 of its archive: AdGuard publishes none, so this is the
+# one computed when the release was pinned (CLAUDE.md, Ask before). No third-party action runs
+# here; `actions/checkout` is GitHub's own.
+name: interop
+
+on:
+  schedule:
+    - cron: "37 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ZIG_VERSION: "0.16.0"
+  CHAPULIN_COMMIT: "3d5db4edd5af0dc10bd6ca0b38b03f20dd181e6a"
+  DNSPROXY_VERSION: "v0.85.0"
+
+jobs:
+  interop:
+    name: macOS, DoQ and DoH on HTTP/3 against dnsproxy on the loopback
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Zig
+        run: |
+          set -euo pipefail
+          url="https://ziglang.org/download/${ZIG_VERSION}/zig-aarch64-macos-${ZIG_VERSION}.tar.xz"
+          sha="b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489"
+          curl -fsSL "$url" -o zig.tar.xz
+          echo "$sha  zig.tar.xz" | shasum -a 256 -c -
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-aarch64-macos-${ZIG_VERSION}" >> "$GITHUB_PATH"
+      - name: Build chapulin's non-blocking QUIC object
+        run: |
+          set -euo pipefail
+          git clone --quiet https://github.com/c4milo/chapulin.git "$RUNNER_TEMP/chapulin"
+          git -C "$RUNNER_TEMP/chapulin" checkout --quiet "$CHAPULIN_COMMIT"
+          make -C "$RUNNER_TEMP/chapulin" RAND=extern TRUST=webpki TRANSPORT=quic-nonblocking lib
+          cp "$RUNNER_TEMP/chapulin/bin/chapulin.o" "$RUNNER_TEMP/chapulin/bin/chapulin-quic-nonblocking.o"
+      - run: zig version
+      - name: Fetch dnsproxy
+        run: |
+          set -euo pipefail
+          url="https://github.com/AdguardTeam/dnsproxy/releases/download/${DNSPROXY_VERSION}/dnsproxy-darwin-arm64-${DNSPROXY_VERSION}.tar.gz"
+          sha="64c2a6c2645745e24369f21c9e22661a18bfcfdcbdd8ff54af0d37328b3ea9e6"
+          curl -fsSL "$url" -o "$RUNNER_TEMP/dnsproxy.tar.gz"
+          echo "$sha  $RUNNER_TEMP/dnsproxy.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$RUNNER_TEMP/dnsproxy.tar.gz" -C "$RUNNER_TEMP"
+      - name: The interop check
+        run: tools/interop/run.sh "$RUNNER_TEMP/chapulin" "$RUNNER_TEMP/darwin-arm64/dnsproxy"

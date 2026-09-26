@@ -146,7 +146,10 @@ The architecture depends on every rule in this section.
   hash as a lazy dependency, the tools import it, and it is never linked into the library.
   colibri is a ruled dependency of `cocuyo_quic` and of the engine's tests, approved by the owner
   on 2026-09-25 (design §16 decision 29): `build.zig.zon` pins it by hash as a lazy dependency,
-  only the root build requests it, and nothing under `src/` imports it.
+  only the root build requests it, and nothing under `src/` imports it. AdGuard's dnsproxy is a
+  ruled dependency of the interop check alone, approved by the owner on 2026-09-25 (c4milo/cocuyo#16):
+  the `interop` workflow fetches a pinned release and checks its SHA-256, and nothing builds,
+  links or imports it.
 - Weakening an assertion or a check to make a test pass.
 - Adding anything §1 puts out of scope: DNSSEC, mDNS, zone transfers, nsswitch, IDN, the
   platform resolver configuration of §14. DoT and DoH were decided in on 2026-09-23: DoT in the
@@ -219,6 +222,10 @@ The architecture depends on every rule in this section.
   `zig build example-doq-rotor` resolves over DoQ through colibri; `tools/doq_live/run.sh
   <checkout>` runs the live check of design §24 step 4, against AdGuard and NextDNS. The `doq-live`
   workflow runs both once a day on macOS.
+- Interop: `tools/interop/run.sh <checkout> <dnsproxy>` runs DoQ and DoH on HTTP/3 against
+  AdGuard's dnsproxy on the loopback, with certificates of its own and no network: names at once
+  on one connection, resumption, the certificate checks and pins. The `interop` workflow runs it
+  once a day on macOS.
 - DoH over HTTP/3: the same checkout and object. `zig build example-doh-rotor` resolves over DoH
   through colibri's HTTP/3, given a URI template where DoQ takes a name; `tools/doh_live/run.sh
   <checkout>` runs the live check of design §24 step 5, against Google and Cloudflare. The

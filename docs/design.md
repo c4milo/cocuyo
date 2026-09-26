@@ -3574,6 +3574,19 @@ than for the datagram's end.
 
 **The idle close** sends H3_NO_ERROR in its CONNECTION_CLOSE (request rule 9, RFC 9114 §8.1).
 
+### An independent server, written on 2026-09-25
+
+Every other test of the engine's DoQ and DoH runs colibri's client against colibri's server, so a
+bug both ends share, or a misreading of RFC 9250 in the test server, passes it; and the live checks
+depend on public servers, which a test cannot tell what to do. `tools/interop/run.sh` runs the
+engine against AdGuard's dnsproxy on the loopback, whose QUIC and HTTP/3 are quic-go's, with a
+CA and a leaf of its own and a hosts file to answer from, so it needs no network. Over DoQ and over
+DoH on HTTP/3, three names resolve at once, each on a stream of one connection, and a fourth over a
+connection that resumes. A name the leaf does not carry, a root the chain does not end at and a
+pin on the issuer's key are refused, and the leaf's key alone, with a backup pin, resolves. The
+`interop` workflow runs it once a day. No conformance suite for RFC 9250 exists that this found,
+nothing like h2spec for HTTP/2, so this is the one check of the protocol against another's reading.
+
 ### A thread per core
 
 An image runs one loop on each core and one engine on each loop. Nothing crosses between cores:
