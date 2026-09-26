@@ -220,8 +220,10 @@ The architecture depends on every rule in this section.
 - TLA+: `zig build tla` — TLC over every model under `spec/tla/`, each configuration with the
   verdict its header expects, through pepegrillo's `tla` tool (`tools/tla.zig`), which pins TLC
   by SHA-256 and fetches it once. It needs Java 11 or newer, so it runs only when asked and in
-  CI's `tla` job. `zig build tla -- walks <seed> <walks> <depth> [--pick <file> <walk>...]` writes
-  the engine's walks instead.
+  CI's `tla` job, which checks every configuration but those whose header says `\* nightly:`;
+  the `tla-nightly` workflow checks them all once a day. `zig build tla -- <configuration>...`
+  checks those alone, and `zig build tla -- walks <seed> <walks> <depth> [--pick <file>
+  <walk>...]` writes the engine's walks instead.
 - DNS over TLS: `-Dchapulin=<checkout>` names a chapulin checkout whose `bin/chapulin-tcp-nonblocking.o`
   `build/dot.zig` says how to make. With it, `zig build test-chapulin` runs the session's tests
   and `zig build example-dot-rotor` resolves over DoT; `tools/dot_live/run.sh <checkout>` runs

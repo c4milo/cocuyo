@@ -220,7 +220,9 @@ flight, and a connection's stream identifiers may run out, which holds the next 
 the connection's drain with it; both wait for the transport's next read (request rule 17). The TCP
 configurations, checked again on 2026-09-26 once rule 17 was written, on the same machine, three
 operations and one failure. The last was checked within `zig build tla`, which took 79 minutes
-for every configuration and mutant, and was not timed alone:
+for every configuration and mutant, and was not timed alone. On CI's four cores it takes hours,
+so its header says `\* nightly:`: the push checks every other configuration, and the
+`tla-nightly` workflow all of them once a day:
 
 | Servers | Lookups | States | Seconds | Invariants |
 | --- | --- | --- | --- | --- |

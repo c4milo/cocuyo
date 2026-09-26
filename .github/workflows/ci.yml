@@ -29,9 +29,15 @@
 #     replayed against the engine (spec/README.md). Lean and TLC are tools the gate must not
 #     require, so the two gates above replay only the committed slices.
 #
-#   - `tla`: `zig build tla`, TLC over every configuration of the engine model and every mutant of
-#     it. It is a job of its own beside `spec`, since each is mostly TLC on the runner's four cores
-#     and together they took 39 minutes one after the other.
+#   - `tla`: `zig build tla` over every configuration of the engine model and every mutant of it,
+#     but those whose header says `\* nightly:`. A job of its own beside `spec`, since each is mostly
+#     TLC on the runner's four cores. The TCP configuration of two servers grew to 21 million
+#     states with request rule 17, which TLC takes hours over here, so it is marked nightly and
+#     `tla-nightly.yml` checks every configuration once a day.
+#
+#   `spec` and `tla` each cancel their own run for an earlier commit of the same branch, since a
+#   model check of a commit a newer one replaced says nothing the newer one's will not, and the
+#   older ones would otherwise queue behind each other for hours.
 #
 #   - `dnslib`: the codec's reading of every record in dnslib's captured responses, held against
 #     dnslib's reading of them (tools/dnslib/run.sh, c4milo/cocuyo#22). It fetches dnslib's test
@@ -178,6 +184,9 @@ jobs:
   spec:
     name: Linux, the Lean and TLA+ models against the code
     runs-on: ubuntu-24.04
+    concurrency:
+      group: spec-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
       - name: Install Zig
@@ -208,6 +217,9 @@ jobs:
   tla:
     name: Linux, the engine model checked by TLC
     runs-on: ubuntu-24.04
+    concurrency:
+      group: tla-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
       - name: Install Zig
@@ -222,8 +234,13 @@ jobs:
       - name: Use the image's Java 21, for TLC
         run: echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
       - run: zig version && java -version
-      - name: The engine model checked by TLC, and its mutants refused
-        run: zig build tla
+      - name: The engine model checked by TLC, and its mutants refused, but for what runs nightly
+        run: |
+          set -euo pipefail
+          configurations=$(find spec/tla -name '*.cfg' | sort | while read -r cfg; do
+            grep -q '^\\\* nightly:' "$cfg" || echo "$cfg"
+          done)
+          zig build tla -- $configurations
 
   dnslib:
     name: Linux, the codec against dnslib's reading of responses real servers sent
