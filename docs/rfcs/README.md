@@ -98,10 +98,13 @@ updates worth knowing about, none of which version one implements:
 | 6570 | URI Template | §2 the syntax, §3.2 the expansion, Appendix A's operator table: the engine expands a DoH server's template with the `dns` variable (RFC 8484 §4.1, design §24 step 5) |
 | 6891 | Extension Mechanisms for DNS (EDNS(0)) | §6.1.2 the OPT wire format, §6.1.3 its TTL field, §6.1.4 the flags, §6.2.2 the fallback, §6.2.3 the requestor's payload size |
 | 6895 | DNS IANA Considerations | §2.3, which RCODEs exist |
+| 7301 | Transport Layer Security (TLS) Application-Layer Protocol Negotiation Extension | §3.1 the protocol a client offers and the one the server selects, §3.2 no protocol in common: how a connection is known to speak `h2`, `h3` or `doq` (design §24, request rule 2) |
+| 7541 | HPACK: Header Compression for HTTP/2 | §6.2.2 the literal without indexing colibri writes, §6.2.3 the never-indexed literal, §7.1.3 an intermediary keeps it: a DoH query's `:path` over HTTP/2 (design §24, DoH over HTTP/2) |
 | 7553 | The Uniform Resource Identifier (URI) DNS Resource Record | §4, the URI record's fields |
 | 7766 | DNS Transport over TCP, Implementation Requirements | §5 transport selection, §6.2.1 connection reuse and pipelining, §6.2.3 idle timeouts, §8 the two-octet length field |
 | 7873 | Domain Name System (DNS) Cookies | §4 the COOKIE option, §4.1 the client cookie, §5.1 sending one, §5.3 what a client does with the response, BADCOOKIE included |
 | 7858 | Specification for DNS over Transport Layer Security (TLS) | §3.1 port 853 and no cleartext on it, §3.3 the two-octet length on TLS, §3.4 reuse, pipelining and idle close |
+| 8305 | Happy Eyeballs Version 2: Better Connectivity Using Concurrency | §5 the Connection Attempt Delay between attempts that race, §8 its bounds, read for racing HTTP/3 against HTTP/2 (design §24 step 7b) |
 | 8310 | Usage Profiles for DNS over TLS and DNS over DTLS | §5 the strict profile and its hard failure, §6.6 authentication under it, §7 the authentication domain name, §8.1 the PKIX check against it, §9 the TLS profile |
 | 8467 | Padding Policies for Extension Mechanisms for DNS (EDNS(0)) | §4.1, queries padded to a multiple of 128 octets |
 | 8484 | DNS Queries over HTTPS (DoH) | §5.2 HTTP/2 the minimum recommended version, so HTTP/3 carries DoH as it is; the rest is read when DoH's DNS half lands |
@@ -111,6 +114,7 @@ updates worth knowing about, none of which version one implements:
 | 9001 | Using TLS to Secure QUIC | §4 the encryption levels, §4.1.5 the exchange between QUIC and TLS, §5.3 the 16-octet tag; read for the provider that encrypts nothing, which the gate runs colibri over (design §24) |
 | 9110 | HTTP Semantics | §8.4 Content-Encoding, §12.5.3 Accept-Encoding: a request with none leaves the server free to compress, so a DoH request asks for `identity` (design §24, request rule 12) |
 | 9111 | HTTP Caching | §1.2.2 delta-seconds, §5.1 `Age`: the `Age` a DoH answer's TTLs are lowered by (RFC 8484 §5.1, design §24 step 5) |
+| 9113 | HTTP/2 | §3.2 and §3.3 the ALPN token `h2` and its negotiation, §5.1.1 identifiers that run out, §6.4 RST_STREAM, §6.5.3 the SETTINGS acknowledgement, §6.8 GOAWAY, §7 CANCEL and NO_ERROR, §9.1 one connection to a server and a GOAWAY before a close; read for DoH over HTTP/2 in the engine (design §24) |
 | 9114 | HTTP/3 | §3.2 the ALPN token `h3`, §4.1.1 cancelling a request, §8.1 the error codes; read for DoH over HTTP/3 in the engine (design §24) |
 | 9204 | QPACK: Field Compression for HTTP/3 | §4.5.4 the literal's N bit, §7.1 probing the dynamic table, §7.1.3 never-indexed literals: a DoH query's `:path` is never indexed (design §24, request rule 12) |
 | 9250 | DNS over Dedicated QUIC Connections | §4.1 the ALPN token `doq` and UDP port 853, §4.2 a stream for each query and its prefix, §4.2.1 ID 0, §4.3.1 cancelling a request, §4.3.3 protocol errors, §4.4 the idle timeout, §5.1 authentication as DoT's, the strict profile a SHOULD, §5.2 fallback by usage profile; carried by the engine (design §23, §24) |
