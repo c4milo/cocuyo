@@ -75,7 +75,8 @@ Each of these is out of scope on purpose, with the place it would attach.
   because colibri owns no I/O, and colibri's library never uses cocuyo (§24). The owner added DoH
   over HTTP/3 the same day. RFC 8484 names HTTP/2 as the least
   version it recommends (§5.2), so HTTP/3 carries DoH as it is: the HTTP stays colibri's, and
-  cocuyo's DNS half is the same for both. §21 is DoT's plan and the rulings that shape it, and
+  cocuyo's DNS half is the same for both. Since 2026-09-26 a DoH server is tried over HTTP/3
+  first and over HTTP/2 when that fails (RFC 9114 §3.1, decision 30). §21 is DoT's plan and the rulings that shape it, and
   §22 is DoH's DNS half.
 - **DNS over QUIC, since 2026-09-23.** The owner put DoQ (RFC 9250) after DoT and DoH's DNS
   half, and split it as DoH is: cocuyo supplies the DNS half, and colibri's QUIC carries it,
@@ -1348,6 +1349,14 @@ step until `zig build test` passes.
     and colibri is pinned by hash as a lazy dependency. Rejected: colibri alone, which makes
     those steps from packets and loss timers, never on demand; and the twin alone, which leaves
     real QUIC to the live check that runs once a day. §24.
+30. **A DoH server is tried over HTTP/3 first, and over HTTP/2 when that fails.** Ruled by the
+    owner on 2026-09-26. RFC 9114 §3.1 asks for it: a network that blocks UDP fails the QUIC
+    connection, and "clients SHOULD attempt to use TCP-based versions of HTTP in this case". So
+    the engine holds both transports and races them, and `Config` does not change. It lands in
+    two parts: HTTP/2 alone (§24 step 7a), then the race (7b). Rejected: a version chosen when the
+    engine is built, which leaves the consumer to know whether the network blocks UDP; and a
+    version for each server in `Config`, which changes the public API and still does not fall
+    back. §24.
 
 ## 17. Questions for the owner
 
@@ -3225,8 +3234,9 @@ handlers when `apply` says the event is not the engine's.
      nothing.
    - The idle timeout is negotiated (RFC 9250 §4.4), and a connection near it takes no new
      request.
-   - DoH goes over HTTP/3 first. HTTP/2 joins when colibri's h2 client has its TLS
-     (c4milo/colibri#7).
+   - DoH goes over HTTP/3 first. HTTP/2 joined the plan on 2026-09-26, once colibri's h2 client
+     had its TLS (c4milo/colibri#7): HTTP/3 first and HTTP/2 when it fails (DoH over HTTP/2,
+     below).
 
 ### The engine's request rules, written on 2026-09-25
 
@@ -3639,6 +3649,127 @@ Step 6 shows it twice, written on 2026-09-25:
   The sanitizer sees an access two threads share that nothing orders, whether or not the bad
   interleaving happened in the run.
 
+### DoH over HTTP/2, written on 2026-09-26
+
+HTTP/3 runs over UDP, and a network may block it. RFC 9114 §3.1 says what a client does then:
+"Connectivity problems (e.g., blocking UDP) can result in a failure to establish a QUIC
+connection; clients SHOULD attempt to use TCP-based versions of HTTP in this case." A DoH server
+may also speak HTTP/2 alone, the least version RFC 8484 §5.2 recommends.
+
+**The owner's ruling of 2026-09-26** (decision 30):
+
+- A DoH server is tried over HTTP/3 first, and over HTTP/2 when that fails. `Config` does not
+  change: a DoH server is still its template. The engine's `Options` gains an HTTP/2 transport
+  beside the QUIC one.
+- The work goes in two parts. Step 7a carries DoH over HTTP/2 alone, in an engine built with the
+  HTTP/2 transport and without HTTP/3. Step 7b holds both transports in one engine and races them:
+  HTTP/3 first, HTTP/2 a short delay after it, and the server kept on the one that answered. 7b's
+  rules and limits are written once 7a has landed.
+
+**What HTTP/2 changes.** HTTP/2 and HTTP/3 carry the same request, and share nothing below it:
+
+- The connection is TCP, TLS over the TCP, and HTTP/2 over the TLS (RFC 9113 §3.2). The session
+  offers the ALPN token `h2`, and the connection is up only on it: "HTTP/2 connections over TLS
+  MUST use protocol negotiation in TLS" (§3.3). colibri's `attach_tls` checks the token, TLS 1.3
+  and the suite (§9.2), and the engine checks the token too, as request rule 2 has it.
+- There is one connection to a server: "Clients SHOULD NOT open more than one HTTP/2 connection
+  to a given host and port pair" (§9.1). Request rule 1 already says so.
+- A request is a stream (§5.1). A HEADERS frame opens it, carries the GET and ends the client's
+  side of the stream, since a GET has no content. The field lines are HTTP/3's six (request rule
+  12): `:method`, `:scheme`, `:authority`, `:path`, `accept` and `accept-encoding` (§8.3.1).
+- A request the lookup left is cancelled with RST_STREAM and the code CANCEL, which says "the
+  stream is no longer needed" (§7). HTTP/2 has no STOP_SENDING, and a RST_STREAM closes both
+  directions of the stream (§6.4).
+- A GOAWAY drains the connection, as request rule 13 has it (§6.8). The streams above its last
+  stream ID were never processed, so they fail, and the lookup's failover retries them. A
+  connection whose stream identifiers run out drains the same way: "A client that is unable to
+  establish a new stream identifier can establish a new connection for new streams" (§5.1.1).
+- TCP resends what is lost, so the transport has no loss timer. HTTP/2 negotiates no idle
+  timeout. So the transport's `deadline` is null and its `idle_left_ns` unbounded, and request
+  rules 9 and 11 hold with nothing added. colibri keeps a deadline for the acknowledgement of its
+  SETTINGS, and RFC 9113 §6.5.3 lets a client fail the connection past it ("MAY"). The engine
+  does not. A server that answers without acknowledging is still answering, and one that answers
+  nothing fails each request at its lookup's deadline.
+- An idle connection closes with a GOAWAY of NO_ERROR, then the session's `close_notify`. RFC
+  9113 §9.1 asks for the first: "the terminating endpoint SHOULD first send a GOAWAY". RFC 9846
+  §6.1 asks for the second, before a party closes its write side.
+- `:path` goes as a never-indexed literal (RFC 7541 §6.2.3), which an intermediary that
+  re-encodes the request must keep as one (§7.1.3). colibri's `write_request` writes every field
+  line as a literal without indexing (§6.2.2). That keeps `:path` out of colibri's own table, and
+  binds no intermediary. colibri is asked to let the caller mark `:path` never indexed, and 7a
+  waits for it.
+- Flow control is colibri's (§5.2, §6.9). A DoH answer holds at most 65,535 octets, the initial
+  window of a stream (§6.9.2), and colibri opens the windows again as it reads.
+
+**The request connection over TCP.** These extend the request rules, for the model to be written
+from before the code is.
+
+14. **A connect before the handshake.** A request connection over TCP opens a stream socket and
+    submits its connect. The connect's address is lent to the loop until the connect's final
+    event. The slot is not opened again while a connect of an earlier opening is in flight, as
+    the stream's rule 10 has it: a request taken meanwhile waits in the queue, and the connection
+    opens once the loop has given the address back. When the connect succeeds, the receive is
+    armed and the transport makes its first flight. A connect that fails, or that the loop
+    refuses, fails the connection (request rule 7).
+15. **Octets, one send at a time.** A connection sends from its slot's buffer one send at a time,
+    as request rule 8 has it for a datagram. A send that goes short leaves the rest in the buffer,
+    and the rest goes next, before anything the transport makes after it: the octets are one
+    stream, and TLS records go in the order they were sealed (RFC 9846 §5.3). The receive is
+    multishot, into the TCP connections' chunks, and hands the transport the octets as they come.
+    The transport keeps a partial record until the rest arrives, as TLS rule 7 has it. A receive
+    that ends with no octets is the server's end of the stream, and fails the connection (request
+    rule 7).
+16. **No handshake, nothing to close.** A connection that goes idle before its handshake has
+    ended has no session to close, and closes at once, as TLS rule 5 has it. One still connecting
+    has its connect cancelled, and the address stays lent until the connect's final event (rule
+    14).
+
+**The interface.** A request transport says which socket it runs over: `socket` is `.datagram`
+for colibri's QUIC and the twin's, and `.stream` for colibri's HTTP/2 and for a twin transport
+over the twin's TCP. `datagram` becomes `output`, since over TCP what it writes is the next octets
+of a stream, as many as the buffer holds. The rest of the interface stands.
+
+The engine's request connections become one set for each transport: the QUIC set, for DoQ and
+DoH over HTTP/3, and the HTTP/2 set. In 7a a DoH configuration goes to the HTTP/2 set when the
+engine has one. An engine with an HTTP/2 transport and a QUIC one that speaks HTTP/3 does not
+compile until 7b.
+
+**The transport** is `cocuyo_h2`: colibri's `h2` connection under the request interface, as
+`cocuyo_quic` puts colibri's QUIC there. It is a module of its own, and a consumer that speaks DoH
+over HTTP/2 binds its `h2` import to colibri's. Its TLS is a session type in its options, as
+`cocuyo_quic`'s is:
+
+- For the gate, a provider of cocuyo's that encrypts nothing. Its records are framed as RFC 9846
+  §5.1 frames a record, and its handshake messages are made-up octets that carry the ALPN each
+  side offers and selects.
+- For a consumer, chapulin's record transport behind colibri's `tls.Provider`
+  (`io/io_chapulin_h2.zig`), built when the build names a chapulin checkout, as
+  `io/io_chapulin_quic.zig` is. It drives the handshake with `ch_record_in` and `ch_record_out`,
+  then seals and opens records with `ch_write` and `ch_read` over buffer copies. It takes the
+  name, the pins and the ticket DoT's session takes, and offers the ALPN token `h2`.
+
+The template's expansion and the response's reading, which step 5 wrote for HTTP/3, read nothing
+of colibri's. They move to a module both transports import.
+
+**The model.** A request configuration gains a socket kind. Over a stream socket:
+
+- A connection opens by connecting, and is `connecting` until the connect's event. While a
+  connect of an earlier opening is in flight, the slot waits, `reopening`, until that connect's
+  event.
+- A send may end short, which keeps the rest to go first.
+- A receive may end with no octets, which fails the connection.
+- No transport timer fires.
+
+Four invariants hold the new rules, and four mutants break them (docs/mutations.md RQ16 to RQ19):
+
+- A slot's address is lent exactly while a connect of the slot is in flight.
+- A connection that connects, or waits to, has no receive and sends nothing of its opening.
+- A slot opens only when no connect of an earlier opening is in flight.
+- A short send's rest goes before anything made after it.
+
+The replay drives a twin transport over the twin's TCP, whose octets are framed by a two-octet
+length. So the walks' short sends and ended receives reach the engine as the model names them.
+
 ### New limits
 
 | Constant | Value | Why |
@@ -3655,6 +3786,7 @@ Step 6 shows it twice, written on 2026-09-25:
 | `answers_default` | 4 | a DoH connection's answer buffers when the consumer names none, 262 KB of them; chosen, not measured |
 | `h3_peer_uni_streams` | 8 | the unidirectional streams an `h3` connection lets the server open: RFC 9114 §6.2 asks for 3 at least, and colibri's `h3` tracks 8 |
 | `h3_peer_uni_stream_bytes` | 1,024 | each of those streams' credit, as RFC 9114 §6.2 recommends |
+| `h2_plaintext_bytes` | 32,776 | what an HTTP/2 connection keeps of the plaintext colibri reads frames from: a record's plaintext, 2^14 octets at most (RFC 9846 §5.1), after the part of a frame the last record left, 16,392 octets at most, since colibri advertises the smallest frame size, 2^14 octets and a 9-octet header (RFC 9113 §4.2) |
 
 ### Order and checks
 
@@ -3723,7 +3855,13 @@ Step 6 shows it twice, written on 2026-09-25:
    four answers and refused no event, on kqueue, and under ThreadSanitizer in a Linux container,
    which reported nothing, and reported a race once both threads drove one engine
    (docs/mutations.md TP1 and TP2).
-7. DoH over HTTP/2, after colibri#7 (c4milo/cocuyo#18).
+7. DoH over HTTP/2 (c4milo/cocuyo#18), in two parts written on 2026-09-26:
+   - 7a, HTTP/2 alone. The model gains the request connection over TCP, and TLC and the replay
+     hold it. The engine runs over colibri's `h2` client on the twin, with the provider that
+     encrypts nothing. It runs over chapulin against dnsproxy's DoH over HTTP/2 on the loopback,
+     and against Cloudflare and Google.
+   - 7b, HTTP/3 first and HTTP/2 after it, in one engine. Its rules and limits are written once 7a
+     has landed.
 
 Checks, one for each piece:
 
@@ -3748,3 +3886,12 @@ Checks, one for each piece:
   a buffer.
 - A GOAWAY fails every request on its connection once, and the next request opens a new one.
 - Two engines on two threads resolve at once, and neither sees the other's events.
+- Over HTTP/2, a connection whose ALPN is not `h2` is never up, and a request the lookup left
+  sends RST_STREAM with CANCEL and never reaches the table.
+- Over HTTP/2, a GOAWAY drains the connection, and a stream above its last stream ID fails once.
+- Over HTTP/2, `:path` goes as a never-indexed literal (RFC 7541 §6.2.3).
+- Over TCP, a connect that fails or is refused fails every request on the connection once, a
+  send that goes short sends its rest first, and a receive that ends with no octets fails every
+  request on the connection once.
+- Over TCP, a connection idle before its handshake ends closes with nothing sent, and one idle
+  once up sends a GOAWAY of NO_ERROR and a `close_notify` before its socket closes.
