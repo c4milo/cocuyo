@@ -2024,6 +2024,9 @@ moved are in §9 and §18, its mutations in `docs/mutations.md`, and what the bu
 `Answers.reset`, `Answers.assign` and `Lookup.init_in_place` in §11. Since 2026-09-26 the fuzz
 generator writes a record of every type the codec reads, whole or with one octet changed, and a
 record written whole must be taken whole (c4milo/cocuyo#23, `docs/mutations.md` FZ1 to FZ10).
+The fixtures hold every example an RFC gives in its record's form: RFC 1035 §5.3 and §6.4.1, RFC
+2782, RFC 3403 §6.1 and §6.2, RFC 6698 §2.3, RFC 7553 §5.1 and RFC 8659 §4.2. TXT and SIG have none
+(RX1 to RX3).
 
 ### Step 10: DNS cookies
 

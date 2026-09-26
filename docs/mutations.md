@@ -2375,3 +2375,18 @@ check's own lines. Ten mutations, ten `CAUGHT`.
 | FZ8 | no record is written whole | every type is written whole | the reach test | CAUGHT |
 | FZ9 | one type is never written | every type is written | the reach test | CAUGHT |
 | FZ10 | a view that refuses a rest fails the gate | a rest may be refused | the fuzz gate, the whole-record test | CAUGHT |
+
+The gate's first part came the same day: fixtures from the RFCs' own examples, where an RFC gives
+one, in `src/wire/rdata/fixtures.zig`. They are RFC 1035 §5.3's SOA and MX, whose SOA mailbox holds
+a dot inside a label, and §6.4.1's HINFO. Then RFC 2782's SRV, RFC 3403 §6.1 and §6.2's NAPTRs,
+one with a regexp and a root replacement, RFC 6698 §2.3's TLSAs, RFC 7553 §5.1's URI, and RFC
+8659 §4.2's CAAs. TXT and SIG have no example to take. Each test reads every field back against
+the example's presentation form. RX1 to RX3 each plant a decoder bug only an example reaches, run
+before and after as FZ1 to FZ5 were. Three mutations, three `CAUGHT`.
+
+| # | Planted decoder bug | Before | After | Status |
+| --- | --- | --- | --- | --- |
+| RX1 | a NAPTR whose replacement is the root is refused | unseen | the NAPTR examples' test | CAUGHT |
+| RX2 | a label holding a dot is refused where a view reads a name | unseen | the SOA example's test, the fuzz gate | CAUGHT |
+| RX3 | TLSA data is cut at thirty-two octets | unseen | the TLSA examples' test | CAUGHT |
+

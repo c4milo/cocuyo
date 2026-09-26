@@ -41,3 +41,19 @@ test "a TLSA record is three octets and the data after them" {
 test "a TLSA record short of its three octets is malformed" {
     try testing.expectError(Error.MalformedMessage, Tlsa.parse(&fixtures.tlsa_short));
 }
+
+test "RFC 6698 §2.3's TLSAs read back as their usage, selector, matching type and data" {
+    const ca = try Tlsa.parse(&fixtures.rfc6698_tlsa_ca);
+    try testing.expectEqual(@as(u8, 0), ca.usage);
+    try testing.expectEqual(@as(u8, 0), ca.selector);
+    try testing.expectEqual(@as(u8, 1), ca.matching_type);
+    try testing.expectEqualSlices(u8, fixtures.rfc6698_tlsa_ca[3..], ca.data);
+    try testing.expectEqual(@as(usize, 32), ca.data.len);
+    const key = try Tlsa.parse(&fixtures.rfc6698_tlsa_key);
+    try testing.expectEqual(@as(u8, 1), key.usage);
+    try testing.expectEqual(@as(u8, 1), key.selector);
+    try testing.expectEqual(@as(u8, 2), key.matching_type);
+    try testing.expectEqual(@as(usize, 64), key.data.len);
+    try testing.expectEqual(@as(u8, 0x92), key.data[0]);
+    try testing.expectEqual(@as(u8, 0xbc), key.data[63]);
+}

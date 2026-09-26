@@ -145,6 +145,51 @@ pub const opt_nsid_only = [_]u8{ 0x00, 0x03, 0x00, 0x00 };
 pub const opt_option_short = [_]u8{ 0x00, 0x0a, 0x00, 0x08, 1, 2 };
 pub const opt_option_header_only = [_]u8{ 0x00, 0x0a, 0x00 };
 
+// The RFCs' own examples, from their presentation form into the wire form a record holds. Each
+// test that reads one checks every field against the example.
+
+/// The octets of a hexadecimal string, as an RFC writes opaque rdata.
+fn hex(comptime text: []const u8) [text.len / 2]u8 {
+    var out: [text.len / 2]u8 = undefined;
+    _ = @import("std").fmt.hexToBytes(&out, text) catch unreachable;
+    return out;
+}
+
+/// RFC 1035 §5.3, at the origin `ISI.EDU`: `@ IN SOA VENERA Action\.domains ( 20 7200 600 3600000
+/// 60 )`. The mailbox's first label holds a dot, which `\.` escapes in the master file.
+pub const rfc1035_soa = "\x06VENERA\x03ISI\x03EDU\x00".* ++ "\x0eAction.domains\x03ISI\x03EDU\x00".* ++ [_]u8{
+    0x00, 0x00, 0x00, 0x14, // serial 20
+    0x00, 0x00, 0x1c, 0x20, // refresh 7200
+    0x00, 0x00, 0x02, 0x58, // retry 600
+    0x00, 0x36, 0xee, 0x80, // expire 3600000
+    0x00, 0x00, 0x00, 0x3c, // minimum 60
+};
+/// RFC 1035 §5.3: `MX 10 VENERA`.
+pub const rfc1035_mx = [_]u8{ 0x00, 0x0a } ++ "\x06VENERA\x03ISI\x03EDU\x00".*;
+/// RFC 1035 §6.4.1: the HINFO `IBM-PC UNIX`.
+pub const rfc1035_hinfo = "\x06IBM-PC\x04UNIX".*;
+/// RFC 2782's example zone: `_foobar._tcp SRV 0 1 9 old-slow-box.example.com.`
+pub const rfc2782_srv = [_]u8{ 0x00, 0x00, 0x00, 0x01, 0x00, 0x09 } ++ "\x0cold-slow-box\x07example\x03com\x00".*;
+/// RFC 3403 §6.1: `IN NAPTR 100 50 "a" "z3950+N2L+N2C" "" cidserver.example.com.`
+pub const rfc3403_naptr_urn = [_]u8{ 0x00, 0x64, 0x00, 0x32 } ++ "\x01a\x0dz3950+N2L+N2C\x00".* ++
+    "\x09cidserver\x07example\x03com\x00".*;
+/// RFC 3403 §6.2: `IN NAPTR 100 10 "u" "sip+E2U" "!^.*$!sip:information@foo.se!i" .`, whose
+/// replacement is the root.
+pub const rfc3403_naptr_e164 = [_]u8{ 0x00, 0x64, 0x00, 0x0a } ++ "\x01u\x07sip+E2U".* ++
+    "\x1e!^.*$!sip:information@foo.se!i".* ++ [_]u8{0x00};
+/// RFC 6698 §2.3: a hashed (SHA-256) association of a PKIX CA certificate, `0 0 1`.
+pub const rfc6698_tlsa_ca = [_]u8{ 0x00, 0x00, 0x01 } ++ hex("d2abde240d7cd3ee6b4b28c54df034b97983a1d16e8a410e4561cb106618e971");
+/// RFC 6698 §2.3: a hashed (SHA-512) subject public key association of a PKIX end entity
+/// certificate, `1 1 2`.
+pub const rfc6698_tlsa_key = [_]u8{ 0x01, 0x01, 0x02 } ++ hex("92003ba34942dc74152e2f2c408d29eca5a520e7f2e06bb944f4dca346baf63c" ++
+    "1b177615d466f6c4b71c216a50292bd58c9ebdd2f74e38fe51ffd48c43326cbc");
+/// RFC 7553 §5.1: `_ftp._tcp IN URI 10 1 "ftp://ftp1.example.com/public"`.
+pub const rfc7553_uri = [_]u8{ 0x00, 0x0a, 0x00, 0x01 } ++ "ftp://ftp1.example.com/public".*;
+/// RFC 8659 §4.2: `CAA 0 issue "ca1.example.net"`, and `CAA 0 issue ";"`, which asks that no
+/// certificate be issued.
+pub const rfc8659_caa = [_]u8{ 0x00, 0x05 } ++ "issueca1.example.net".*;
+pub const rfc8659_caa_none = [_]u8{ 0x00, 0x05 } ++ "issue;".*;
+
 // A whole response around a CAA, for the fuzz check's own test (`fuzz_check.zig`).
 
 /// A response to `example.com`, id 0, whose one answer is a CAA with `rdata`, its owner a pointer

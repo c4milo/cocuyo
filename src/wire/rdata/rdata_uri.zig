@@ -40,3 +40,10 @@ test "a URI record with an empty target is malformed" {
     try testing.expectError(Error.MalformedMessage, Uri.parse(&fixtures.uri_empty_target));
     try testing.expectError(Error.MalformedMessage, Uri.parse(&fixtures.uri_short));
 }
+
+test "RFC 7553 §5.1's URI reads back as its priority, weight and target" {
+    const uri = try Uri.parse(&fixtures.rfc7553_uri);
+    try testing.expectEqual(@as(u16, 10), uri.priority);
+    try testing.expectEqual(@as(u16, 1), uri.weight);
+    try testing.expectEqualStrings("ftp://ftp1.example.com/public", uri.target);
+}

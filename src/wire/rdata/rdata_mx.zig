@@ -37,3 +37,9 @@ test "an MX record without room for its preference, or with octets after its nam
     try testing.expectError(Error.MalformedMessage, Mx.parse(&fixtures.mx_short));
     try testing.expectError(Error.MalformedMessage, Mx.parse(&fixtures.mx_trailing));
 }
+
+test "RFC 1035 §5.3's MX reads back as its preference and exchange" {
+    const mx = try Mx.parse(&fixtures.rfc1035_mx);
+    try testing.expectEqual(@as(u16, 10), mx.preference);
+    try testing.expect(mx.exchange.equal(&try Name.from_text("VENERA.ISI.EDU")));
+}

@@ -48,3 +48,11 @@ test "an SRV record short of its fixed fields, or long past its target, is malfo
     try testing.expectError(Error.MalformedMessage, Srv.parse(&fixtures.srv_short));
     try testing.expectError(Error.MalformedMessage, Srv.parse(&fixtures.srv_trailing));
 }
+
+test "RFC 2782's example SRV reads back field for field" {
+    const srv = try Srv.parse(&fixtures.rfc2782_srv);
+    try testing.expectEqual(@as(u16, 0), srv.priority);
+    try testing.expectEqual(@as(u16, 1), srv.weight);
+    try testing.expectEqual(@as(u16, 9), srv.port);
+    try testing.expect(srv.target.equal(&try Name.from_text("old-slow-box.example.com")));
+}

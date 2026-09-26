@@ -54,3 +54,13 @@ test "a CAA record with an empty tag, a tag past the rdata, or a tag with a bad 
     try testing.expectError(Error.MalformedMessage, Caa.parse(&fixtures.caa_tag_bad_char));
     try testing.expectError(Error.MalformedMessage, Caa.parse(&fixtures.caa_short));
 }
+
+test "RFC 8659 §4.2's CAAs read back as their flags, tag and value, the one that forbids issuance too" {
+    const issue = try Caa.parse(&fixtures.rfc8659_caa);
+    try testing.expectEqual(@as(u8, 0), issue.flags);
+    try testing.expectEqualStrings("issue", issue.tag);
+    try testing.expectEqualStrings("ca1.example.net", issue.value);
+    const none = try Caa.parse(&fixtures.rfc8659_caa_none);
+    try testing.expectEqualStrings("issue", none.tag);
+    try testing.expectEqualStrings(";", none.value);
+}

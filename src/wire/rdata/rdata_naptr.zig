@@ -57,3 +57,20 @@ test "a NAPTR record that ends inside a string, or past its name, is malformed" 
     try testing.expectError(Error.MalformedMessage, Naptr.parse(&fixtures.naptr_short));
     try testing.expectError(Error.MalformedMessage, Naptr.parse(&fixtures.naptr_trailing));
 }
+
+test "RFC 3403 §6.1 and §6.2's NAPTRs read back field for field, a regexp and a root replacement too" {
+    const urn = try Naptr.parse(&fixtures.rfc3403_naptr_urn);
+    try testing.expectEqual(@as(u16, 100), urn.order);
+    try testing.expectEqual(@as(u16, 50), urn.preference);
+    try testing.expectEqualStrings("a", urn.flags);
+    try testing.expectEqualStrings("z3950+N2L+N2C", urn.services);
+    try testing.expectEqualStrings("", urn.regexp);
+    try testing.expect(urn.replacement.equal(&try Name.from_text("cidserver.example.com")));
+    const e164 = try Naptr.parse(&fixtures.rfc3403_naptr_e164);
+    try testing.expectEqual(@as(u16, 100), e164.order);
+    try testing.expectEqual(@as(u16, 10), e164.preference);
+    try testing.expectEqualStrings("u", e164.flags);
+    try testing.expectEqualStrings("sip+E2U", e164.services);
+    try testing.expectEqualStrings("!^.*$!sip:information@foo.se!i", e164.regexp);
+    try testing.expectEqualSlices(u8, "\x00", e164.replacement.wire());
+}

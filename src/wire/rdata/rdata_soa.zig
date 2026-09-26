@@ -58,3 +58,14 @@ test "an SOA record whose counters do not fill the rdata exactly is malformed, e
     try testing.expectError(Error.MalformedMessage, Soa.parse(&fixtures.soa_short));
     try testing.expectError(Error.MalformedMessage, Soa.parse(&fixtures.soa_trailing));
 }
+
+test "RFC 1035 §5.3's SOA reads back field for field, the dot inside its mailbox's label too" {
+    const soa = try Soa.parse(&fixtures.rfc1035_soa);
+    try testing.expect(soa.mname.equal(&try Name.from_text("VENERA.ISI.EDU")));
+    try testing.expectEqualSlices(u8, "\x0eAction.domains\x03ISI\x03EDU\x00", soa.rname.wire());
+    try testing.expectEqual(@as(u32, 20), soa.serial);
+    try testing.expectEqual(@as(u32, 7200), soa.refresh);
+    try testing.expectEqual(@as(u32, 600), soa.retry);
+    try testing.expectEqual(@as(u32, 3600000), soa.expire);
+    try testing.expectEqual(@as(u32, 60), soa.minimum);
+}

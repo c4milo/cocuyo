@@ -94,3 +94,9 @@ test "HINFO is two strings that fill the rdata" {
     try testing.expectError(Error.MalformedMessage, Hinfo.parse(&fixtures.hinfo_one_string));
     try testing.expectError(Error.MalformedMessage, Hinfo.parse(&fixtures.hinfo_trailing));
 }
+
+test "RFC 1035 §6.4.1's HINFO reads back as its CPU and its OS" {
+    const hinfo = try Hinfo.parse(&fixtures.rfc1035_hinfo);
+    try testing.expectEqualStrings("IBM-PC", hinfo.cpu);
+    try testing.expectEqualStrings("UNIX", hinfo.os);
+}
