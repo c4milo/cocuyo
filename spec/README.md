@@ -138,6 +138,14 @@ event:
 - A connection has at most one current receive, and none once closed; after a drive with nothing
   refused, every open connection has its receive.
 - A connection that opens resuming spends its server's ticket.
+- A draining connection has a stream and opens none, a GOAWAY fails no request, and a connection
+  that fails while it drains or closes fails none of the requests that wait on it.
+- Over TCP, a connect of the slot is in flight exactly when the slot's address is lent, one at
+  most, so a slot opens only when no connect of an earlier opening is in flight.
+- Over TCP, a connection that connects, or waits to, has no receive, and neither owes nor sends
+  anything.
+- Over TCP, a short send's rest goes before anything made after it.
+- Over TCP, a receive that ends with no octets ends its connection's opening.
 
 Each configuration bounds the operations in flight, the failures a server and the queries a port
 (`OpsMax`, `FailuresMax` and `SentMax`), since nothing else bounds the graph. A stream's send may
@@ -202,6 +210,23 @@ Every stage was reached: a connection up with a request on a stream, one drainin
 lookup answered, one failed after its request failed, and a connection opened again while an
 earlier incarnation's datagram was still in flight. Fifteen mutants in `mutants/` break the request
 rules, and TLC finds each (docs/mutations.md RQ1 to RQ15).
+
+With `RStream` the request connections run over TCP, as DoH over HTTP/2 does (request rules 14 to
+16). A connection connects before it handshakes; one opened again while an earlier opening's
+connect is in flight waits, `reopening`, until that connect's end; a send may go short, and its
+rest goes first; a receive may end with no octets, which ends the connection; and no transport
+timer fires. The TCP configurations, written on 2026-09-26, on the same machine, three operations
+and one failure; the last ran beside the engine's builds:
+
+| Servers | Lookups | States | Seconds | Invariants |
+| --- | --- | --- | --- | --- |
+| 1 | 1 | 26,032 | 2 | hold |
+| 1 | 2 | 308,594 | 20 | hold |
+| 2 | 1 | 6,233,470 | 384 | hold |
+
+A connection was reopened while its old connect was in flight, and one failed when the loop
+refused its connect. Five more mutants break the TCP rules, and TLC finds each (docs/mutations.md
+RQ16 to RQ20).
 
 The replay walks the request configurations as it walks the others, with one slot or two and two
 servers, over the twin's QUIC (`sim.quic`). A step of colibri's is one item in a datagram on the

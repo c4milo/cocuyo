@@ -3707,10 +3707,11 @@ from before the code is.
 14. **A connect before the handshake.** A request connection over TCP opens a stream socket and
     submits its connect. The connect's address is lent to the loop until the connect's final
     event. The slot is not opened again while a connect of an earlier opening is in flight, as
-    the stream's rule 10 has it: a request taken meanwhile waits in the queue, and the connection
-    opens once the loop has given the address back. When the connect succeeds, the receive is
-    armed and the transport makes its first flight. A connect that fails, or that the loop
-    refuses, fails the connection (request rule 7).
+    the stream's rule 10 has it: a request taken meanwhile waits in the queue. The connection
+    opens at the event that gives the address back, before the drive polls, so a request that
+    fails there is heard in the same drive. When the connect succeeds, the receive is armed and
+    the transport makes its first flight. A connect that fails, or that the loop refuses, fails
+    the connection (request rule 7).
 15. **Octets, one send at a time.** A connection sends from its slot's buffer one send at a time,
     as request rule 8 has it for a datagram. A send that goes short leaves the rest in the buffer,
     and the rest goes next, before anything the transport makes after it: the octets are one
@@ -3760,12 +3761,13 @@ of colibri's. They move to a module both transports import.
 - A receive may end with no octets, which fails the connection.
 - No transport timer fires.
 
-Four invariants hold the new rules, and four mutants break them (docs/mutations.md RQ16 to RQ19):
+Four checks hold the new rules, and five mutants break them (docs/mutations.md RQ16 to RQ20):
 
-- A slot's address is lent exactly while a connect of the slot is in flight.
-- A connection that connects, or waits to, has no receive and sends nothing of its opening.
-- A slot opens only when no connect of an earlier opening is in flight.
+- A connect of the slot is in flight exactly when the slot's address is lent, one at most. So a
+  slot opens only when no connect of an earlier opening is in flight.
+- A connection that connects, or waits to, has no receive, and neither owes nor sends anything.
 - A short send's rest goes before anything made after it.
+- A receive that ends with no octets ends its connection's opening.
 
 The replay drives a twin transport over the twin's TCP, whose octets are framed by a two-octet
 length. So the walks' short sends and ended receives reach the engine as the model names them.

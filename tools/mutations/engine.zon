@@ -99,7 +99,7 @@
         .edits = .{
             .{ .file = "io/io_tls.zig", .old = "    if (queue.sealed > 1 and !queue.at(queue.sealed - 1).is_query()) {", .new = "    if (false and queue.sealed > 1 and !queue.at(queue.sealed - 1).is_query()) {" },
         },
-        .caught_by = .short_walks,
+        .caught_by = .picked_walks,
     },
     .{
         .section = "The engine over TLS",
@@ -126,7 +126,7 @@
         .edits = .{
             .{ .file = "io/io_tcp.zig", .old = "        if (connection.state == .up and tls_module.speaks(self)) {", .new = "        if (false and connection.state == .up and tls_module.speaks(self)) {" },
         },
-        .caught_by = .short_walks,
+        .caught_by = .picked_walks,
     },
     .{
         .section = "The engine over TLS",
@@ -198,7 +198,7 @@
         .edits = .{
             .{ .file = "io/io_tls.zig", .old = "        .up => open(self, at, record, now_ns),", .new = "        .up => open(self, at, record, now_ns),\n        .closing => open(self, at, record, now_ns)," },
         },
-        .caught_by = .short_walks,
+        .caught_by = .picked_walks,
     },
     .{
         .section = "One send a stream",

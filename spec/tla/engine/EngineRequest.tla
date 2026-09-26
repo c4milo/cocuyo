@@ -9,6 +9,12 @@
 \* that a ticket came, and that its timer fired. The octets are not modelled, and DoQ and DoH move
 \* alike: an answer the model delivers stands for a DoQ message and for a 2xx DoH body, and a reset
 \* for a reset stream and for a DoH status that is not 2xx.
+\*
+\* With `RStream` the connections run over TCP, as DoH over HTTP/2 does (request rules 14 to 16):
+\* a connection connects before it handshakes, and waits while a connect of an earlier opening
+\* still borrows the slot's address; a send may go short, and its rest goes first; a receive may
+\* end with no octets, which ends the connection; and no transport timer fires. HTTP/2 moves as
+\* HTTP/3 does above the stream, so the rest of the model holds for it as it stands.
 EXTENDS EngineIo
 
 Distinct(seq) == \A a, b \in 1..Len(seq) : a # b => seq[a] # seq[b]
@@ -71,12 +77,14 @@ FailRequestsFrom(st, v, l) ==
 \* Connections.
 
 \* Connection v's current operations are left to the loop to end. Its datagram buffer stays lent
-\* until a send's final event, whichever incarnation made it (request rule 8).
+\* until a send's final event, whichever incarnation made it (request rule 8), and over TCP its
+\* address until a connect's final event (request rule 14).
 ShutR(st, v) ==
-    LET lent == st.rconns[v].lent IN
+    LET c == st.rconns[v] IN
     [[st EXCEPT !.ops = MapBag(@, LAMBDA op :
-        IF op.kind \in {"qsend", "qrecv"} /\ op.target = v THEN [op EXCEPT !.current = FALSE]
-        ELSE op)] EXCEPT !.rconns[v] = [NoRConn EXCEPT !.lent = lent]]
+        IF op.kind \in {"qsend", "qrecv", "rconnect"} /\ op.target = v
+        THEN [op EXCEPT !.current = FALSE] ELSE op)]
+     EXCEPT !.rconns[v] = [NoRConn EXCEPT !.lent = c.lent, !.connectLent = c.connectLent]]
 
 RECURSIVE FailStreamsFrom(_, _, _)
 FailStreamsFrom(st, v, l) ==
@@ -88,16 +96,42 @@ QListen(st, v) == IF st.jammed THEN st ELSE [st EXCEPT !.ops = Add(@, Op("qrecv"
 
 QReceiving(st, v) == \E op \in DOMAIN st.ops : op.kind = "qrecv" /\ op.target = v /\ op.current
 
-\* Opens connection v for the requests in `queue`: its socket, its receive, and colibri's first
-\* flight, resuming with the server's ticket, which it spends (request rules 1 and 10). A socket
-\* the system refuses fails each of them.
+\* Whether a connection in `stage` has its receive and sends: once its socket is open, and over
+\* TCP once its connect has succeeded too (request rule 14).
+Talks(stage) == stage \notin {"closed", "connecting", "reopening"}
+
+\* Submits connection v's connect, for the requests in `queue`. The loop borrows the slot's
+\* address until the connect's final event, and a connect it refuses fails each request (request
+\* rule 14).
+ConnectR(st, v, queue) ==
+    IF st.jammed THEN FailRequestsFrom(st, v, 0)
+    ELSE [st EXCEPT !.rconns[v].stage = "connecting", !.rconns[v].queue = queue,
+                    !.rconns[v].idleNow = FALSE, !.rconns[v].connectLent = TRUE,
+                    !.ops = Add(@, Op("rconnect", v))]
+
+\* Opens connection v for the requests in `queue`, and a socket the system refuses fails each of
+\* them. A datagram socket's receive is armed, and colibri makes its first flight, resuming with
+\* the server's ticket, which it spends (request rules 1 and 10). A TCP connection connects first,
+\* and waits while a connect of an earlier opening still borrows the slot's address (request rule
+\* 14).
 OpenR(st, v, queue) ==
     IF st.starved THEN FailRequestsFrom(st, v, 0)
+    ELSE IF RStream /\ st.rconns[v].connectLent
+    THEN [st EXCEPT !.rconns[v].stage = "reopening", !.rconns[v].queue = queue,
+                    !.rconns[v].idleNow = FALSE]
+    ELSE IF RStream THEN ConnectR(st, v, queue)
     ELSE
     LET opened == [st EXCEPT !.rconns[v].stage = "handshaking", !.rconns[v].queue = queue,
                              !.rconns[v].owes = TRUE, !.rconns[v].resumed = st.tickets[v],
                              !.rconns[v].idleNow = FALSE, !.tickets[v] = FALSE]
     IN QListen(opened, v)
+
+\* A connection that waited for an earlier opening's connect opens, now the loop has given the
+\* address back, or closes when every request that waited has left (request rule 14).
+ReopenR(st, v) ==
+    LET q == st.rconns[v].queue
+        cleared == [st EXCEPT !.rconns[v].stage = "closed", !.rconns[v].queue = <<>>]
+    IN IF q = <<>> THEN cleared ELSE OpenR(cleared, v, q)
 
 \* The drive takes slot l's request onto its server's connection whatever the connection's state,
 \* and tells the lookup it went out, so its deadline covers the handshake (request rules 3 and 4).
@@ -138,22 +172,29 @@ FailRConn(st, v) ==
 \* The server's GOAWAY: the connection takes no new stream, and drains (request rule 13).
 Drain(st, v) == DrainedClose([st EXCEPT !.rconns[v].stage = "draining", !.rconns[v].owes = TRUE], v)
 
+\* The stages an idle connection closes from.
+IdleStages == IF RStream THEN {"connecting", "reopening", "handshaking", "up"} ELSE {"handshaking", "up"}
+
 RECURSIVE CloseIdleRFrom(_, _)
 CloseIdleRFrom(st, v) ==
     IF v >= RServers THEN st
     ELSE
     LET c == st.rconns[v]
-        closed == IF c.stage \in {"handshaking", "up"} /\ RUsers(st, v) = 0 /\ ~c.idleNow
+        idle == c.stage \in IdleStages /\ RUsers(st, v) = 0 /\ ~c.idleNow
+        closed == IF ~idle THEN st
+                  ELSE IF c.stage = "up" \/ ~RStream
                   THEN [st EXCEPT !.rconns[v].stage = "closing", !.rconns[v].owes = TRUE]
-                  ELSE st
+                  ELSE ShutR(st, v)
     IN CloseIdleRFrom(closed, v + 1)
 
 \* A connection with no request on it since before this instant closes: colibri owes the
-\* CONNECTION_CLOSE, and the socket closes once it has gone (request rule 9).
+\* CONNECTION_CLOSE, or over TCP the GOAWAY and the `close_notify`, and the socket closes once it
+\* has gone (request rule 9). Over TCP one whose handshake has not ended has nothing to close, and
+\* closes at once (request rule 16).
 CloseIdleR(st) == CloseIdleRFrom(st, 0)
 
 \* Whether a connection, as `c`, has a datagram to send and its buffer to send it from.
-Sends(c) == c.stage # "closed" /\ ~c.lent /\ (c.made \/ c.owes)
+Sends(c) == Talks(c.stage) /\ ~c.lent /\ (c.made \/ c.owes)
 
 \* Connection v's datagram goes, whose state before the drive's tending was `c`: the one kept from
 \* a refusal, or else one colibri makes now. One the loop refuses is kept (request rule 8).
@@ -168,7 +209,7 @@ TendRConnsFrom(st, v) ==
     IF v >= RServers THEN st
     ELSE
     LET c == st.rconns[v]
-        listened == IF c.stage # "closed" /\ ~QReceiving(st, v) THEN QListen(st, v) ELSE st
+        listened == IF Talks(c.stage) /\ ~QReceiving(st, v) THEN QListen(st, v) ELSE st
     IN TendRConnsFrom(IF Sends(c) THEN SendR(listened, c, v) ELSE listened, v + 1)
 
 \* What a drive does last, connection by connection: a receive armed on each socket that has none,
@@ -181,21 +222,40 @@ TendRConns(st) == TendRConnsFrom(st, 0)
 \* Events.
 
 \* A datagram's send ended: the buffer comes back. A send that failed fails its connection, and a
-\* closing connection whose CONNECTION_CLOSE has gone closes (request rules 7 to 9).
-QSendEnded(st, op, succeeded) ==
+\* closing connection whose CONNECTION_CLOSE has gone closes (request rules 7 to 9). Over TCP a
+\* send that went short keeps its rest in the buffer, to go before anything made after it
+\* (request rule 15).
+QSendEnded(st, op, outcome) ==
     LET v == op.target
         back == [[st EXCEPT !.ops = Remove(@, op)] EXCEPT !.rconns[v].lent = FALSE]
     IN IF ~op.current THEN back
-       ELSE IF ~succeeded THEN FailRConn(back, v)
+       ELSE IF outcome = "failed" THEN FailRConn(back, v)
+       ELSE IF outcome = "short" THEN [back EXCEPT !.rconns[v].made = TRUE]
        ELSE IF back.rconns[v].stage = "closing" /\ ~back.rconns[v].owes /\ ~back.rconns[v].made
             THEN ClosedR(back, v)
        ELSE back
 
-\* A receive ended: one that ran out is armed again, and one that failed fails its connection.
-QRecvEnded(st, op, ranOut) ==
+\* A receive ended: one that ran out is armed again, and one that failed fails its connection. Over
+\* TCP one that ended with no octets is the server's end of the stream, and fails it too (request
+\* rule 15).
+QRecvEnded(st, op, outcome) ==
     LET finished == [st EXCEPT !.ops = Remove(@, op)] IN
     IF ~op.current THEN finished
-    ELSE IF ranOut THEN QListen(finished, op.target) ELSE FailRConn(finished, op.target)
+    ELSE IF outcome = "exhausted" THEN QListen(finished, op.target)
+    ELSE FailRConn(finished, op.target)
+
+\* A connect ended, and the loop gives the slot's address back (request rule 14). The current
+\* opening's success arms its receive, and the transport makes its first flight, resuming with the
+\* server's ticket, which it spends (request rule 10). Its failure fails the connection. An earlier
+\* opening's end opens the connection that waited for it, before the drive polls, so a request
+\* that fails there is heard in the same drive.
+RConnectEnded(st, op, succeeded) ==
+    LET v == op.target
+        back == [st EXCEPT !.ops = Remove(@, op), !.rconns[v].connectLent = FALSE]
+    IN IF ~op.current THEN (IF back.rconns[v].stage = "reopening" THEN ReopenR(back, v) ELSE back)
+       ELSE IF ~succeeded THEN FailRConn(back, v)
+       ELSE QListen([back EXCEPT !.rconns[v].stage = "handshaking", !.rconns[v].owes = TRUE,
+                                 !.rconns[v].resumed = st.tickets[v], !.tickets[v] = FALSE], v)
 
 \* Slot l's stream ended: answered, or reset. Its lookup hears if the request is still its attempt.
 StreamEnded(st, v, l, answer, r) ==
@@ -233,8 +293,9 @@ QuicSteps(st, v) ==
 \* The current receives of the connections, whose datagrams colibri reads.
 QReceives(st) == {op \in DOMAIN st.ops : op.kind = "qrecv" /\ op.current}
 
-\* The connections whose QUIC timer may fire.
-QTimed(st) == {v \in 0..RServers - 1 : st.rconns[v].stage # "closed"}
+\* The connections whose QUIC timer may fire. Over TCP there is none: TCP resends what is lost, and
+\* HTTP/2 negotiates no idle timeout (§24, DoH over HTTP/2).
+QTimed(st) == IF RStream THEN {} ELSE {v \in 0..RServers - 1 : st.rconns[v].stage # "closed"}
 
 -------------------------------------------------------------------------------
 \* What must hold (request rules 1 to 9).
@@ -254,12 +315,13 @@ RequestsPlaced(st) ==
               st.reqs[l] # {} /\ RequestOf(st, l).server = v
 
 \* A request has a stream only on a connection that is up or drains, and waits only on one that
-\* handshakes, drains or closes.
+\* connects or waits to, handshakes, drains or closes.
 StreamsWhenUp(st) ==
     \A v \in 0..RServers - 1 :
         LET c == st.rconns[v] IN
         (c.streams = {} \/ c.stage \in {"up", "draining"}) /\
-        (c.queue = <<>> \/ c.stage \in {"handshaking", "draining", "closing"})
+        (c.queue = <<>> \/
+         c.stage \in {"connecting", "reopening", "handshaking", "draining", "closing"})
 
 \* A draining connection has a stream: the end of its last one closes it (request rule 13).
 DrainingHasStreams(st) == \A v \in 0..RServers - 1 : st.rconns[v].stage # "draining" \/ st.rconns[v].streams # {}
@@ -276,9 +338,10 @@ GoawayFailsNone(before, e, st) ==
 
 \* What colibri tells of a connection, or its timer, or a datagram's end, fails none of the requests
 \* that wait on one that drains or closes: they never went to it (request rule 13). A socket the
-\* system refuses for the connection they open again fails them, as rule 7 has it.
+\* system refuses for the connection they open again fails them, as rule 7 has it, and over TCP
+\* so does a connect the loop refuses (request rule 14).
 WaitingKept(before, e, st) ==
-    ~(e.kind \in {"quic", "qtime", "finish"}) \/ before.starved \/
+    ~(e.kind \in {"quic", "qtime", "finish"}) \/ before.starved \/ (RStream /\ before.jammed) \/
     \A v \in 0..RServers - 1 :
         LET c == before.rconns[v] IN
         c.stage \notin {"draining", "closing"} \/ \A i \in 1..Len(c.queue) : st.reqs[c.queue[i]] # {}
@@ -308,12 +371,53 @@ RecvCurrent(st) ==
         LET armedRecv == Count(st.ops, LAMBDA op : op.kind = "qrecv" /\ op.target = v /\ op.current)
         IN armedRecv <= 1 /\ (st.rconns[v].stage # "closed" \/ armedRecv = 0)
 
-\* After a drive with nothing refused, every open connection has its receive armed.
-RListening(st) == \A v \in 0..RServers - 1 : st.rconns[v].stage = "closed" \/ QReceiving(st, v)
+\* After a drive with nothing refused, every open connection has its receive armed, and over TCP
+\* every one whose connect has succeeded.
+RListening(st) == \A v \in 0..RServers - 1 : ~Talks(st.rconns[v].stage) \/ QReceiving(st, v)
 
-\* A connection that opened resuming spent its server's ticket (request rule 10).
+\* A connection that opened resuming spent its server's ticket (request rule 10): when it opened,
+\* or over TCP when its connect succeeded.
 RTicketSpent(prior, st) ==
     \A v \in 0..RServers - 1 :
-        ~(st.rconns[v].resumed /\ prior.rconns[v].stage = "closed") \/ ~st.tickets[v]
+        ~(st.rconns[v].resumed /\ prior.rconns[v].stage \in {"closed", "connecting"}) \/
+        ~st.tickets[v]
+
+\* A connect of the slot is in flight exactly when the slot's address is lent, and one at most: a
+\* connecting connection's own, or an earlier opening's, which a reopening one waits for (request
+\* rule 14).
+ConnectLent(st) ==
+    ~RStream \/
+    \A v \in 0..RServers - 1 :
+        LET c == st.rconns[v]
+            connects == Count(st.ops, LAMBDA op : op.kind = "rconnect" /\ op.target = v)
+            own == Count(st.ops, LAMBDA op : op.kind = "rconnect" /\ op.target = v /\ op.current)
+        IN /\ connects <= 1 /\ c.connectLent = (connects = 1)
+           /\ (c.stage = "connecting") = (own = 1)
+           /\ (c.stage # "reopening" \/ c.connectLent)
+
+\* A connection that connects, or waits to, has no receive, and neither owes nor sends anything of
+\* its opening: its first flight is made once its connect has succeeded (request rule 14).
+ConnectFirst(st) ==
+    ~RStream \/
+    \A v \in 0..RServers - 1 :
+        LET c == st.rconns[v] IN
+        c.stage \notin {"connecting", "reopening"} \/
+        (~QReceiving(st, v) /\ ~c.owes /\ ~c.made /\
+         Count(st.ops, LAMBDA op : op.kind = "qsend" /\ op.target = v /\ op.current) = 0)
+
+\* The rest of a send that went short is kept, or is the send in flight, and what the connection
+\* owed before still waits: nothing made after the rest takes the buffer first (request rule 15).
+RestFirst(before, e, st) ==
+    ~(e.kind = "finish" /\ e.op.kind = "qsend" /\ e.op.current /\ e.outcome = "short") \/
+    LET v == e.op.target IN
+    st.rconns[v].made \/
+    (Count(st.ops, LAMBDA op : op.kind = "qsend" /\ op.target = v /\ op.current) = 1 /\
+     (before.rconns[v].owes => st.rconns[v].owes))
+
+\* A receive that ended with no octets ended its connection's opening: the server ended the
+\* stream (request rule 15).
+EndedCloses(before, e, st) ==
+    ~(e.kind = "finish" /\ e.op.kind = "qrecv" /\ e.op.current /\ e.outcome = "ended") \/
+    st.rconns[e.op.target].stage \in {"closed", "connecting", "reopening"}
 
 ===============================================================================

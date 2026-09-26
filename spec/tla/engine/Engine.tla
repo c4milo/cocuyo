@@ -206,8 +206,9 @@ Finish(st, op, outcome) ==
       [] op.kind = "connect" -> ConnectEnded(st, op, outcome = "ok")
       [] op.kind = "receive" -> ReceiveEnded(st, op, outcome)
       [] op.kind = "receiveFrom" -> ReceiveFromEnded(st, op)
-      [] op.kind = "qsend" -> QSendEnded(st, op, outcome = "ok")
-      [] op.kind = "qrecv" -> QRecvEnded(st, op, outcome = "exhausted")
+      [] op.kind = "qsend" -> QSendEnded(st, op, outcome)
+      [] op.kind = "qrecv" -> QRecvEnded(st, op, outcome)
+      [] op.kind = "rconnect" -> RConnectEnded(st, op, outcome = "ok")
 
 Cancel(st, l) ==
     IF st.slots[l].lookup # {} /\ ~Ended(Get(st.slots[l].lookup).stage)
@@ -260,7 +261,11 @@ Endings(st, op) ==
          THEN {"ok", "failed"} ELSE {"ok", "short", "failed"}
     ELSE IF op.kind = "sendRecords" /\ op.current
     THEN IF st.conns[op.target].partSent THEN {"ok", "failed"} ELSE {"ok", "short", "failed"}
+    \* Over TCP a request connection's send may go short, and its receive end with no octets
+    \* (request rule 15).
+    ELSE IF op.kind = "qsend" /\ op.current /\ RStream THEN {"ok", "short", "failed"}
     ELSE IF op.kind \in {"sendRecords", "sendTo", "qsend"} THEN {"ok", "failed"}
+    ELSE IF op.kind = "qrecv" /\ op.current /\ RStream THEN {"failed", "exhausted", "ended"}
     ELSE IF op.kind \in {"receive", "qrecv"} /\ op.current THEN {"failed", "exhausted"}
     ELSE IF op.kind = "receiveFrom" /\ op.current THEN {"exhausted"}
     ELSE IF op.current THEN {"ok", "failed"}
@@ -294,7 +299,7 @@ Enabled(st) ==
         l \in {l \in 0..Slots - 1 : st.slots[l].lookup # {} /\ ~Ended(Get(st.slots[l].lookup).stage)}} \cup
     (IF WaitingSlots(st) # {} THEN {Ev("expire")} ELSE {}) \cup
     (IF \/ \E k \in 0..Conns - 1 : st.conns[k].stage # "closed" /\ st.conns[k].users = 0
-        \/ \E v \in 0..RServers - 1 : st.rconns[v].stage \in {"handshaking", "up"} /\ RUsers(st, v) = 0
+        \/ \E v \in 0..RServers - 1 : st.rconns[v].stage \in IdleStages /\ RUsers(st, v) = 0
      THEN {Ev("idle")} ELSE {}) \cup
     RequestEvents(st) \cup
     UNION {{[Ev("finish") EXCEPT !.op = op, !.outcome = o] : o \in Endings(st, op)} :
@@ -449,7 +454,9 @@ Checks(before, e, st) ==
        <<"draining has streams", DrainingHasStreams(st)>>,
        <<"drain shrinks", DrainShrinks(before, st)>>,
        <<"goaway fails none", GoawayFailsNone(before, e, st)>>,
-       <<"waiting kept", WaitingKept(before, e, st)>> >>
+       <<"waiting kept", WaitingKept(before, e, st)>>,
+       <<"connect lent", ConnectLent(st)>>, <<"connect first", ConnectFirst(st)>>,
+       <<"rest first", RestFirst(before, e, st)>>, <<"ended closes", EndedCloses(before, e, st)>> >>
 
 Broken(before, e, st) ==
     LET checks == Checks(before, e, st) IN

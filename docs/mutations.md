@@ -1829,8 +1829,20 @@ rule's, and TLC must find the check that catches it. All run on one server and o
 RQ9. There, time moves while a request is on a connection only when another connection is idle,
 so it needs two servers. Every new check is caught by one mutant at least. RQ12 to RQ15 came on
 2026-09-25 with request rule 13, a GOAWAY that drains its connection (c4milo/cocuyo#17), and four
-checks, one each; RQ14 and RQ15 need two lookups, one on a stream and one that waits. Fifteen
-mutations, fifteen `CAUGHT`.
+checks, one each; RQ14 and RQ15 need two lookups, one on a stream and one that waits. RQ16 to
+RQ20 came on 2026-09-26 with request rules 14 to 16, the request connection over TCP that DoH
+over HTTP/2 runs on (c4milo/cocuyo#18), and four checks. Each runs on one server and one lookup
+over TCP, and RQ17 and RQ18 break the same check from two sides, the receive and the first flight.
+Writing the model moved rule 14: a connection that waits for an earlier opening's connect opens at
+that connect's end, since opening at the drive's end left a request the loop refused failed after
+the drive had polled. Twenty mutations, twenty `CAUGHT`.
+
+Writing the model again moved every walk TLC takes. TLC's simulation draws on its random stream as
+it enumerates a quantifier's set, a check's included, so any change to what the model evaluates
+changes the walks. The committed walks were written again, and every engine mutation was run
+against them: each is caught. ET3, ET6 and ET14, which the old short walks caught, are caught at
+walk 12005 of the full run. The picked walks are the full run's 6, 41, 4046, 8011, 9182, 12005,
+12070, 12900 and 13842, and each mutation the picks are for is caught by them.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
@@ -1849,6 +1861,11 @@ mutations, fifteen `CAUGHT`.
 | RQ13 | a draining connection stays open once its last stream has ended | request rule 13 | draining has streams | CAUGHT |
 | RQ14 | a connection that fails while it drains fails the requests that wait | request rule 13 | waiting kept | CAUGHT |
 | RQ15 | a request taken while its connection drains opens a stream on it | request rule 13 | drain shrinks | CAUGHT |
+| RQ16 | a slot opens again while a connect of an earlier opening still borrows its address | request rule 14 | connect lent | CAUGHT |
+| RQ17 | a receive is armed with the connect, before the connect has succeeded | request rule 14 | connect first | CAUGHT |
+| RQ18 | the transport makes its first flight with the connect, before it has succeeded | request rule 14 | connect first | CAUGHT |
+| RQ19 | a send that went short is taken for a whole one, and its rest is lost | request rule 15 | rest first | CAUGHT |
+| RQ20 | a receive that ended with no octets is armed again, and the connection stays up | request rule 15 | ended closes | CAUGHT |
 
 ## DoQ in the engine
 
