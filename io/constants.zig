@@ -108,14 +108,6 @@ pub const tls_record_overhead_bytes = tls_record_header_bytes + 1 + 16;
 /// hold more (§21, TLS rule 3).
 pub const tls_records_out_bytes = 4096;
 
-/// The most chapulin's TLS client stages at once: a ClientHello at its longest, in its record.
-/// That is `REC_HDR + CH_TX_HELLO` for the TCP object colibri's `tls` builds, 5 + 2,396 + 20
-/// octets with the AES suites (chapulin's session.h at `157d2ac`, read, not measured). A retried
-/// hello, a Finished, a sealed query, a KeyUpdate's answer, an alert and a `close_notify` are
-/// shorter. `io_chapulin.zig` fails a handshake step whose flight fills it, since colibri does not
-/// name the bound (docs/design.md §16 decision 32).
-pub const chapulin_flight_bytes_max = 2421;
-
 /// The entries of the session's own records one queue holds at once beside its queries: the one
 /// in flight, and the one behind it, which every record made meanwhile joins (§21, TLS rule 2).
 pub const tls_records_entries_max = 2;

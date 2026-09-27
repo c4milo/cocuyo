@@ -30,9 +30,9 @@ pub const Session = struct {
     /// A root the chain may end at: its subject Name and its SubjectPublicKeyInfo, each a whole
     /// DER TLV (colibri's `values.zig`).
     pub const Anchor = tls.Anchor;
-    /// The most roots a context holds: what colibri's configuration copies them into, chapulin's
+    /// The most roots a context holds: what colibri's configuration takes, chapulin's
     /// `CH_WEBPKI_ANCHOR_MAX`.
-    pub const anchors_max = @typeInfo(@FieldType(tls.quic.ClientConfig, "anchors")).array.len;
+    pub const anchors_max = tls.quic.ClientConfig.anchors_max;
 
     /// What every session starts from: the anchors, the wall clock, and the stream chapulin draws
     /// from, seeded from a CSPRNG. The anchors are the caller's and outlive the engine.

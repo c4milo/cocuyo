@@ -2828,3 +2828,20 @@ Twenty-three mutations, seventeen `CAUGHT`.
 | QL7 | the clock ignores the time since the context's | the chain is checked at the caller's time | the clock test | CAUGHT |
 | QL8 | the provider enters no stream when handshake octets arrive | chapulin may draw on a HelloRetryRequest | nothing: **c4milo/cocuyo#13** | NOT CAUGHT |
 | QL9 | the session forgets it offered a ticket | a declined ticket is told from none | the ticket-zeroing test | CAUGHT |
+
+## colibri's named TLS limits
+
+2026-09-27. colibri `a4adcbc` names the limits cocuyo had read from chapulin's headers: the most
+one client handshake call writes, `tls.record.Client.handshake_output_len_min`, chapulin's
+`REC_HDR + CH_TX_HELLO`; the length of an alert record, `tls.record.alert_record_len`; and the most
+anchors each configuration takes, `anchors_max`. The DoT session's staged octets are colibri's
+bound now, and the 2,421 read from chapulin's session.h left `io/constants.zig`. An output that
+long takes a whole flight in one call, which colibri tests with a ClientHello that offers a ticket.
+So CL8's check, which failed a step whose flight filled the staged octets, would have refused a
+good flight of exactly that length, and an assertion that each step has that much room took its
+place. Broken against `zig build test-chapulin`. Two mutations, two `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CL14 | `tls_records_out_bytes` down to 2,800, below 2,829 | the staging beside a sealed query | the build of `test-chapulin` | CAUGHT |
+| CL15 | the staged octets one short of colibri's bound | a whole flight in one call | the hello test, by the assertion | CAUGHT |

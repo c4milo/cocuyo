@@ -34,15 +34,18 @@ comptime {
     if (Session.out_bytes_max < cocuyo.constants.query_bytes_max + constants.tls_record_overhead_bytes) {
         @compileError("the session's staged octets cannot hold a query sealed at its longest");
     }
+    if (Session.out_bytes_max < tls.record.alert_record_len) {
+        @compileError("the session's staged octets cannot hold an alert or the close_notify of an idle close");
+    }
 }
 
 pub const Session = struct {
     pub const enabled = true;
-    /// What the session stages between two of the engine's calls: at most chapulin's longest
-    /// flight, a ClientHello, which a sealed query is shorter than. A handshake step that fills it
-    /// may have left part of its flight in chapulin, which the engine would never take, so it fails
-    /// the session.
-    pub const out_bytes_max = constants.chapulin_flight_bytes_max;
+    /// What the session stages between two of the engine's calls: what one of colibri's handshake
+    /// calls writes at its longest, a ClientHello, which a sealed query is shorter than. An output
+    /// that long takes the whole flight in one call, and leaves nothing with chapulin that the
+    /// engine would never take.
+    pub const out_bytes_max = tls.record.Client.handshake_output_len_min;
     pub const Error = error{Failed};
     pub const Handshake = enum { going, done };
     pub const Opened = union(enum) { data: usize, nothing, closed };
@@ -52,9 +55,9 @@ pub const Session = struct {
     /// A root the chain may end at: its subject Name and its SubjectPublicKeyInfo, each a whole
     /// DER TLV (colibri's `values.zig`).
     pub const Anchor = tls.Anchor;
-    /// The most roots a context holds: what colibri's configuration copies them into, chapulin's
+    /// The most roots a context holds: what colibri's configuration takes, chapulin's
     /// `CH_WEBPKI_ANCHOR_MAX`.
-    pub const anchors_max = @typeInfo(@FieldType(tls.record.ClientConfig, "anchors")).array.len;
+    pub const anchors_max = tls.record.ClientConfig.anchors_max;
 
     /// What every session starts from (docs/design.md §21). The anchors are the caller's and
     /// outlive the engine.
@@ -119,7 +122,7 @@ pub const Session = struct {
         self.live = true;
         var nothing: [0]u8 = .{};
         const progress = self.client.handshake(&nothing, &self.staged) catch return self.fail();
-        try self.took(progress.written, self.staged.len);
+        self.took(progress.written, self.staged.len);
     }
 
     /// How chapulin checks the server (RFC 8310 §6.3, docs/design.md §21): a name against the
@@ -140,13 +143,13 @@ pub const Session = struct {
         return .{ .web_pki = .{ .anchors = context.anchors, .server_name = server_name, .pins = pins } };
     }
 
-    /// Counts `written` octets staged, of `room`. A step that filled its room may have left part
-    /// of its flight in chapulin, which copies all it has staged or all that fits.
-    fn took(self: *Session, written: usize, room: usize) Error!void {
+    /// Counts `written` octets staged, of `room`, which held colibri's longest flight: nothing of
+    /// the step's flight stayed with chapulin.
+    fn took(self: *Session, written: usize, room: usize) void {
+        assert(room >= tls.record.Client.handshake_output_len_min);
         assert(written <= room);
         self.staged_len += written;
         assert(self.staged_len <= self.staged.len);
-        if (written == room) return self.fail();
     }
 
     pub fn take_out(self: *Session, out: []u8) usize {
@@ -161,6 +164,8 @@ pub const Session = struct {
     /// is rewritten.
     pub fn handshake(self: *Session, record: []u8) Error!Handshake {
         assert(self.live);
+        // The engine takes what the session staged after every call, so each step has all of it.
+        assert(self.staged_len == 0);
         const room = self.staged[self.staged_len..];
         const progress = progress: {
             hooks.enter(self.stream.?);
@@ -172,7 +177,7 @@ pub const Session = struct {
                 return self.fail();
             };
         };
-        try self.took(progress.written, room.len);
+        self.took(progress.written, room.len);
         // The engine hands over one whole record, and chapulin takes whole records: less is a
         // programmer's error, the engine's or colibri's, not the peer's.
         assert(progress.consumed == record.len);
@@ -423,16 +428,5 @@ test "the ticket a session would resume with is zeroed when its start fails" {
     session.* = .{};
     try testing.expectError(Session.Error.Failed, session.start(.{ .tls = &cocuyo.Tls{ .pins = &pins }, .ticket = @as(?Session.Ticket, ticket), .ticket_age_ns = @as(u64, 0), .context = &context, .now_ns = @as(u64, 0) }));
     try testing.expect(std.mem.allEqual(u8, std.mem.asBytes(&session.resuming), 0));
-    try testing.expect(!session.started);
-}
-
-test "a step that fills the staged octets fails the session, which may have more to send" {
-    var context = Session.Context.init(&.{}, @splat(7), test_seconds, 0);
-    const pins = [_]cocuyo.Pin{@splat(pin_octet)};
-    const session = try started(&.{ .pins = &pins }, &context);
-    defer finish(session);
-    var out: [Session.out_bytes_max]u8 = undefined;
-    _ = session.take_out(&out);
-    try testing.expectError(Session.Error.Failed, session.took(Session.out_bytes_max, Session.out_bytes_max));
     try testing.expect(!session.started);
 }
