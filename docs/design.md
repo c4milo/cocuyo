@@ -3600,8 +3600,9 @@ is a module of its own, `cocuyo_quic`, which imports colibri's `quic`, and its `
 and gives the type a consumer names in `Options.quic`. `cocuyo_rotor` never imports colibri, so a consumer that speaks
 no DoQ binds nothing more; one that does binds `cocuyo_quic` and colibri's `quic` into it. The gate
 fetches colibri for the engine's tests over colibri on the twin. cocuyo's own build resolves it
-for the DoT and DoQ sessions too, which import its `tls` (decision 32). The library in `src/`
-never imports it.
+for the DoT and DoQ sessions too, which import its `tls` (decision 32), and the gate runs both
+sessions' tests and builds their examples, so a colibri that breaks a session fails it. The
+library in `src/` never imports it.
 
 An engine over colibri holds, for each server, colibri's connection, its receive pool, its two
 scratch buffers and a request buffer for each lookup. Measured with `@sizeOf` on 2026-09-25, in a

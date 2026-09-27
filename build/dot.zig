@@ -11,26 +11,30 @@ const std = @import("std");
 const modules = @import("modules.zig");
 
 /// `zig build test-chapulin`, the session's own tests, which need no network; and, where rotor
-/// resolved, `zig build example-dot-rotor`, lookups over DNS over TLS. Nothing until colibri is
+/// resolved, `zig build example-dot-rotor`, lookups over DNS over TLS. The gate runs the tests and
+/// builds the example, so a colibri that breaks the session fails it. Nothing until colibri is
 /// fetched, which the build runner does the first time it sees it requested.
 pub fn add(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     graph: modules.Graph,
+    test_step: *std.Build.Step,
     rotor: ?*std.Build.Dependency,
     colibri: ?*std.Build.Dependency,
 ) void {
     const resolved = colibri orelse return;
     const session = session_module(b, target, optimize, graph, resolved, graph.io);
     const tests = b.addTest(.{ .name = "chapulin", .root_module = session });
-    const step = b.step("test-chapulin", "Run the DoT session's tests, over colibri's tls");
-    step.dependOn(&b.addRunArtifact(tests).step);
-    if (rotor) |loop| add_example(b, target, optimize, graph, resolved, loop);
+    const run = &b.addRunArtifact(tests).step;
+    b.step("test-chapulin", "Run the DoT session's tests, over colibri's tls").dependOn(run);
+    test_step.dependOn(run);
+    if (rotor) |loop| test_step.dependOn(add_example(b, target, optimize, graph, resolved, loop));
 }
 
 /// The engine over the real rotor with chapulin's session, built here privately, as the bench
-/// builds its own: the engine is not exported (docs/design.md §19 step 13).
+/// builds its own: the engine is not exported (docs/design.md §19 step 13). Returns the example's
+/// build, which the gate depends on.
 fn add_example(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -38,7 +42,7 @@ fn add_example(
     graph: modules.Graph,
     colibri: *std.Build.Dependency,
     rotor: *std.Build.Dependency,
-) void {
+) *std.Build.Step {
     const engine = b.createModule(.{
         .root_source_file = b.path(modules.roots.io),
         .target = target,
@@ -62,6 +66,7 @@ fn add_example(
     if (b.args) |arguments| run.addArgs(arguments);
     const step = b.step("example-dot-rotor", "Lookups over DNS over TLS: -- <name>[/TYPE][+...][,...] <address>[:<port>] <auth name | pin-sha256:<pin>,...> <root.der>...");
     step.dependOn(&run.step);
+    return &exe.step;
 }
 
 /// chapulin's session: `io/io_chapulin.zig` over colibri's `tls`, whose module carries the object,

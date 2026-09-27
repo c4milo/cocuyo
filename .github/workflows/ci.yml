@@ -4,8 +4,9 @@
 #
 #   - `macos` and `linux`: `zig build test`, which is the lint over the tree and over the canary
 #     that holds one violation of each rule, the module graph check, the hook check, every
-#     module's unit tests, the engine on the deterministic twin of `src/sim/`, the tools' own
-#     tests, the bench compile and the format check. It needs no network service and no kernel
+#     module's unit tests, the engine on the deterministic twin of `src/sim/`, the DoT and DoQ
+#     sessions' tests over colibri's `tls` and a build of their examples, the tools' own tests,
+#     the bench compile and the format check. It needs no network service and no kernel
 #     feature: the twin is a virtual clock and a virtual network, so the same run happens on both.
 #     Then two engines on two threads resolve at once over the kernel's loops, kqueue on macOS and
 #     io_uring on Linux, against a responder on the loopback (docs/design.md §24 step 6).

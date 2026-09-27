@@ -185,10 +185,11 @@ The architecture depends on every rule in this section.
   requires every tracked file a rule or the score reads to be under a directory it walks or
   handed to it by name, `test/`'s fixtures apart, so a directory left off the list fails too.
 - Test: `zig build test` — the lint, the format check, the graph check, the consumer check, the
-  README check, the hook check, then every module's unit tests and the tools' own tests. Every
-  change passes it before it is committed. `zig build test-<module>` (`test-core`, `test-wire`,
-  `test-resolver`, `test-config`, `test-cache`, `test-sim`, `test-cocuyo`, `test-io`,
-  `test-chapulin_hooks`, `test-doh`, `test-cocuyo_quic`, `test-cocuyo_h2`) and `zig build
+  README check, the hook check, then every module's unit tests, the DoT and DoQ sessions' tests
+  and a build of their examples, and the tools' own tests. Every change passes it before it is
+  committed. `zig build test-<module>` (`test-core`, `test-wire`, `test-resolver`, `test-config`,
+  `test-cache`, `test-sim`, `test-cocuyo`, `test-io`, `test-chapulin_hooks`, `test-doh`,
+  `test-cocuyo_quic`, `test-cocuyo_h2`, `test-chapulin`, `test-chapulin-quic`) and `zig build
   test-tools` run one target's tests with nothing else in the graph, which is what
   a mutation is measured against. `zig build consumer-check` alone builds `test/consumer/`, the
   package that depends on cocuyo the way a consumer does, with `cocuyo_rotor` over a rotor of its
@@ -231,14 +232,14 @@ The architecture depends on every rule in this section.
   <walk>...]` writes the engine's walks instead.
 - DNS over TLS: the session runs over colibri's `tls.record.Client`, whose module carries
   chapulin's record-mode object (`build/dot.zig`). `zig build test-chapulin` runs the
-  session's tests and `zig build example-dot-rotor` resolves over DoT; `tools/dot_live/run.sh`
-  runs the live check of design §21 step 6. Neither is in the gate. The `dot-live` workflow runs
-  both once a day on macOS.
+  session's tests and `zig build example-dot-rotor` resolves over DoT; the gate runs the tests
+  and builds the example. `tools/dot_live/run.sh` runs the live check of design §21 step 6,
+  which needs the network, and the `dot-live` workflow runs it once a day on macOS.
 - DNS over QUIC: the session runs over colibri's `tls.quic.Client`, whose module carries
   chapulin's QUIC object (`build/doq.zig`). `zig build test-chapulin-quic` runs the session's
-  tests and `zig build example-doq-rotor` resolves over DoQ through colibri;
-  `tools/doq_live/run.sh` runs the live check of design §24 step 4, against AdGuard and NextDNS.
-  The `doq-live` workflow runs both once a day on macOS.
+  tests and `zig build example-doq-rotor` resolves over DoQ through colibri; the gate runs the
+  tests and builds the example. `tools/doq_live/run.sh` runs the live check of design §24 step
+  4, against AdGuard and NextDNS, and the `doq-live` workflow runs it once a day on macOS.
 - Interop: `tools/interop/run.sh <dnsproxy>` runs plain DNS over UDP and TCP, DoT, DoQ
   and DoH on HTTP/3 against AdGuard's dnsproxy on the loopback, with certificates of its own and no
   network: names at once, resumption, the certificate checks and pins, and records beyond A, which

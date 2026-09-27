@@ -160,10 +160,10 @@ pub fn build(b: *std.Build) void {
         .root_module = tool_module(b, pepegrillo, "tools/lean.zig"),
     }), tla_tool);
     const colibri = b.lazyDependency("colibri", .{ .target = target, .release = release });
-    dot.add(b, target, optimize, graph, rotor, colibri);
+    dot.add(b, target, optimize, graph, test_step, rotor, colibri);
     quic.add(b, graph, colibri, test_step);
     add_coverage(b, &(unit_test_modules ++ replays), graph, colibri != null, test_step);
-    doq.add(b, target, optimize, graph, rotor, colibri);
+    doq.add(b, target, optimize, graph, test_step, rotor, colibri);
     dnslib.add(b, target, graph, test_step, tool_test_step);
     fuzz.add(b, target, graph, test_step, tool_test_step);
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));

@@ -2849,3 +2849,19 @@ place. Broken against `zig build test-chapulin`. Two mutations, two `CAUGHT`.
 | --- | --- | --- | --- | --- |
 | CL14 | `tls_records_out_bytes` down to 2,800, below 2,829 | the staging beside a sealed query | the build of `test-chapulin` | CAUGHT |
 | CL15 | the staged octets one short of colibri's bound | a whole flight in one call | the hello test, by the assertion | CAUGHT |
+
+## The sessions in the gate
+
+2026-09-27. `zig build test` runs the DoT and DoQ sessions' tests over colibri's `tls` and builds
+their examples, where before only `zig build test-chapulin`, `zig build test-chapulin-quic` and
+the daily workflows did. cocuyo follows colibri's main, and a colibri that breaks a session now
+fails the gate on the commit that moves the pin. GT3 is the break the DoQ example took when the
+session moved onto colibri, which only a build by hand showed that day. GT1 to GT4 break the
+sessions and the examples against `zig build test`. Four mutations, four `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| GT1 | the DoT session enters no stream at its start | the session's tests run in the gate | the gate, by the hook's panic | CAUGHT |
+| GT2 | the DoQ provider enters no stream at the transport parameters | the session's tests run in the gate | the gate, by the hook's panic | CAUGHT |
+| GT3 | the DoQ example reads a field the session no longer has | the examples build in the gate | the gate, by the example's build | CAUGHT |
+| GT4 | the DoT example reads chapulin's constants, which the session no longer exports | the examples build in the gate | the gate, by the example's build | CAUGHT |

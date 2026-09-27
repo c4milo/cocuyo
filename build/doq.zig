@@ -7,20 +7,23 @@ const modules = @import("modules.zig");
 
 /// `zig build test-chapulin-quic`, the session's own tests; and, where rotor resolved, `zig build
 /// example-doq-rotor` and `zig build example-doh-rotor`, lookups over DNS over QUIC and over DoH on
-/// HTTP/3.
+/// HTTP/3. The gate runs the tests and builds the example, so a colibri that breaks the session
+/// fails it.
 pub fn add(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     graph: modules.Graph,
+    test_step: *std.Build.Step,
     rotor: ?*std.Build.Dependency,
     colibri: ?*std.Build.Dependency,
 ) void {
     const resolved = colibri orelse return;
     const session = session_module(b, target, optimize, graph, resolved);
     const tests = b.addTest(.{ .name = "chapulin_quic", .root_module = session });
-    const step = b.step("test-chapulin-quic", "Run the DoQ session's tests, over colibri's tls");
-    step.dependOn(&b.addRunArtifact(tests).step);
+    const run_tests = &b.addRunArtifact(tests).step;
+    b.step("test-chapulin-quic", "Run the DoQ session's tests, over colibri's tls").dependOn(run_tests);
+    test_step.dependOn(run_tests);
     const dependency = rotor orelse return;
     const engine = b.createModule(.{ .root_source_file = b.path(modules.roots.io), .target = target, .optimize = optimize });
     engine.addImport("cocuyo", graph.cocuyo);
@@ -37,6 +40,7 @@ pub fn add(
     module.addImport("cocuyo_quic", graph.io_quic);
     module.addImport("chapulin_quic", session);
     const exe = b.addExecutable(.{ .name = "doq-rotor", .root_module = module });
+    test_step.dependOn(&exe.step);
     const run = b.addRunArtifact(exe);
     if (b.args) |arguments| run.addArgs(arguments);
     const example = b.step("example-doq-rotor", "Lookups over DNS over QUIC: -- <name>[/TYPE][+...][,...] <address>[:<port>] <auth name | pin-sha256:<pin>,...> <root.der>...");
