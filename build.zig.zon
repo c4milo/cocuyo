@@ -34,8 +34,8 @@
         // requested only when cocuyo is the root build, so a project depending on cocuyo never
         // fetches it.
         .chapulin = .{
-            .url = "git+https://github.com/c4milo/chapulin#13f4692333a8e76bb6ec378ca952adb199d80bc4",
-            .hash = "chapulin-0.0.0-btv9Nq2IFwAQhicJPx3dVxLfuGigXNfNm4clfy0atGmy",
+            .url = "git+https://github.com/c4milo/chapulin#157d2ac56b16a28619af693f7c89bfcd06566646",
+            .hash = "chapulin-0.0.0-btv9Nio7GACCLZpsiOejvKEQ1hSrM883-uIJVdYii-YM",
             .lazy = true,
         },
     },
