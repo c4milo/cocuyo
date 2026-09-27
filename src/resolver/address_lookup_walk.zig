@@ -299,3 +299,35 @@ fn set_canonical(self: *AddressLookup, name: *const Name) void {
     self.canonical = name.*;
     self.has_canonical = true;
 }
+
+// Tests. The rig is `address_lookup_test.zig`'s.
+
+const testing = std.testing;
+const fixtures = @import("fixtures.zig");
+const lookup_test = @import("address_lookup_test.zig");
+
+/// One more A record than a lookup keeps, each with an address of its own.
+const records_past_bound = records: {
+    const one = fixtures.record_a;
+    var bytes: [(core.constants.addresses_max + 1) * one.len]u8 = undefined;
+    for (0..core.constants.addresses_max + 1) |index| {
+        bytes[index * one.len ..][0..one.len].* = one;
+        bytes[(index + 1) * one.len - 1] = index + 1;
+    }
+    break :records bytes;
+};
+
+test "a lookup that kept part of its answer makes the walk's answer say so too" {
+    // A round-robin name past `addresses_max` in one family: the lookup keeps the first ones and
+    // says more exist, and the walk must say it as well, or its caller takes the part for the
+    // whole.
+    var rig: lookup_test.Rig = .{ .table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } } };
+    try rig.open();
+    try rig.start(null, "many.example.", .ipv4, .{});
+    try rig.drive();
+    try rig.reply(rig.lookup.a.handle, .{ .records = &records_past_bound, .ancount = core.constants.addresses_max + 1 });
+    try rig.drive();
+    const info = rig.lookup.outcome().?.answered;
+    try testing.expectEqual(@as(usize, core.constants.addresses_max), info.addresses.len);
+    try testing.expect(info.truncated);
+}

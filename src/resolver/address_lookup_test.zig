@@ -19,25 +19,25 @@ const Handle = @import("table.zig").Handle;
 const Verdict = @import("lookup.zig").Verdict;
 
 /// A table on the fake server with one address lookup on it.
-const Rig = struct {
+pub const Rig = struct {
     table: fixtures.Table,
     lookup: AddressLookup = undefined,
     search: [fixtures.address_search_entries]Name = undefined,
 
-    fn open(rig: *Rig) !void {
+    pub fn open(rig: *Rig) !void {
         rig.search[0] = try Name.from_text("a.example");
         rig.search[1] = try Name.from_text("b.example");
         rig.table.config.search = &rig.search;
         rig.table.open();
     }
 
-    fn start(rig: *Rig, hosts: ?*const core.Hosts, name: []const u8, family: ?Family, flags: AddressFlags) !void {
+    pub fn start(rig: *Rig, hosts: ?*const core.Hosts, name: []const u8, family: ?Family, flags: AddressFlags) !void {
         rig.lookup = try AddressLookup.init(&rig.table.resolver, hosts, name, family, flags);
     }
 
     /// Polls until every lookup waits: a send is acknowledged, an end is handed to the address
     /// lookup, and the walk never holds more than its two slots.
-    fn drive(rig: *Rig) !void {
+    pub fn drive(rig: *Rig) !void {
         var polls: usize = 0;
         while (polls < fixtures.address_polls_max) : (polls += 1) {
             const event = rig.table.poll() orelse return;
@@ -52,7 +52,7 @@ const Rig = struct {
     }
 
     /// Answers one of the walk's lookups the way its server would.
-    fn reply(rig: *Rig, handle: ?Handle, message: fixtures.Reply) !void {
+    pub fn reply(rig: *Rig, handle: ?Handle, message: fixtures.Reply) !void {
         const lookup = rig.table.resolver.lookup_of(handle orelse return error.NotInFlight);
         const bytes = rig.table.build(lookup, message);
         rig.table.now_ns += 1;
@@ -175,7 +175,7 @@ test "no_sort keeps the order received, whichever family came first" {
     try expect_address(info, 1, "2001:db8::1");
 }
 
-test "both families answered come back IPv6 first, with the smaller TTL" {
+test "both families answered come back IPv6 first, with the smaller TTL, and whole" {
     var rig: Rig = .{ .table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } } };
     try rig.open();
     try rig.start(null, "host.example.", null, .{ .v4_mapped = true });
@@ -189,6 +189,7 @@ test "both families answered come back IPv6 first, with the smaller TTL" {
     // `v4_mapped` without family `.ipv6` is ignored: the IPv4 address comes as it is.
     try expect_address(info, 1, "192.0.2.1");
     try testing.expectEqual(@as(u32, 60), info.ttl_seconds);
+    try testing.expect(!info.truncated);
 }
 
 test "v4_mapped with family ipv6 maps the A addresses when no AAAA came, and with all, always" {

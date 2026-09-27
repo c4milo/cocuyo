@@ -2646,3 +2646,19 @@ mutations, four `CAUGHT`.
 | CF2 | a total at the floor is under it | a total at the floor passes | the floor test | CAUGHT |
 | CF3 | `main` does not hold the floor | the report exits 1 under the floor | the gate's unrun report | CAUGHT |
 | CF4 | `main` reads a report of no lines as 100% | a report that read nothing is refused | the gate's empty report | CAUGHT |
+
+## `getaddrinfo`'s truncated flag
+
+2026-09-26. A lookup that keeps `addresses_max` addresses of a larger round-robin name says so
+with `Answer.truncated`, and the walk passes it on (`address_lookup_walk.zig`, `take_answer`). No
+test sent the walk such an answer, so a walk that dropped the flag told its caller it had every
+address, and one that set it on every answer told the caller more existed when none did. A test
+now answers the walk with one more A record than a lookup keeps. The two-family test requires a
+whole answer to say it is whole. AT1 was run against `zig build test-resolver`, `test-tools`,
+`test-io` and `test-cocuyo` before, and AT2 against `test-resolver`. Both were run against
+`test-resolver` after. Two mutations, unseen before, two `CAUGHT`.
+
+| # | Mutation | Before | After | Status |
+| --- | --- | --- | --- | --- |
+| AT1 | a lookup's truncated answer is not passed on | unseen | the truncated-answer test | CAUGHT |
+| AT2 | every answer is passed on as truncated | unseen | the two-family test | CAUGHT |
