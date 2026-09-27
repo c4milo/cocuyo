@@ -15,9 +15,10 @@ any completion loop you already run.
 It is written from the RFCs, as a replacement for c-ares. The name is the Colombian word for the
 firefly, and for a car's hazard lights.
 
-> **Status: 0.2.0.** The library is feature-complete against its plan. The engine over rotor is
-> exported as `cocuyo_rotor`, and carries DNS over TLS, over QUIC and over HTTPS on HTTP/3. It needs
-> Zig 0.16.0. Until 1.0, a minor version may change the API.
+> **Status: 0.3.0.** The library is feature-complete against its plan. The engine over rotor is
+> exported as `cocuyo_rotor`, and carries DNS over TLS, over QUIC and over HTTPS on HTTP/3. A
+> question may ask for any record type. It needs Zig 0.16.0. Until 1.0, a minor version may change
+> the API.
 
 ## Why cocuyo
 
@@ -176,7 +177,7 @@ and for records of those four types and CNAME.
 Add cocuyo to your package, pinned to a release:
 
 ```bash
-zig fetch --save "git+https://github.com/c4milo/cocuyo?ref=v0.2.0"
+zig fetch --save "git+https://github.com/c4milo/cocuyo?ref=v0.3.0"
 ```
 
 Import its module in `build.zig`. The library is one module, `cocuyo`, and fetches nothing else
