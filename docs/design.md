@@ -63,7 +63,10 @@ Each of these is out of scope on purpose, with the place it would attach.
   design, and the `cache` module of §2 is the one place the answer touched, with `Failure`
   gaining the negative TTL a cache needs.
 - **No DNSSEC validation.** What a validator would build on: EDNS0 exists, the DO bit is a flag cocuyo never sets, and the
-  record iterator hands out rdata unread, so a validator sits above the codec.
+  record iterator hands out rdata unread, so a validator sits above the codec. Since 2026-09-26 a
+  question may name a DNSSEC type, DS or DNSKEY among them, as it may name any type (decision
+  31). Its records come back as rdata, unread and unvalidated, as any type cocuyo does not name.
+  The owner ruled that out of scope means validating, not fetching.
 - **DNS over TLS and DNS over HTTPS, since 2026-09-23.** Out of version one; the owner brought
   both in on 2026-09-23, with three rulings. DoT (RFC 7858) is the engine's: rotor carries the
   TCP, chapulin, the owner's TLS 1.3 client, carries the TLS through its non-blocking record
@@ -153,10 +156,11 @@ the entry point.
 ## 4. The public API
 
 ```zig
-/// Every type c-ares parses, since §19 step 9; the full list with each type's RFC is there.
+/// Every type c-ares parses, since §19 step 9; the full list with each type's RFC is there. Open
+/// since 2026-09-26 (decision 31): `Kind.of(code)` is any type, named or not.
 pub const Kind = enum(u16) { a = 1, ns = 2, cname = 5, soa = 6, ptr = 12, hinfo = 13, mx = 15, txt = 16,
     sig = 24, aaaa = 28, srv = 33, naptr = 35, opt = 41, tlsa = 52, svcb = 64, https = 65, any = 255,
-    uri = 256, caa = 257 };
+    uri = 256, caa = 257, _ };
 pub const Family = enum(u8) { ipv4, ipv6 };
 pub const Address = struct { family: Family, octets: [16]u8 };
 pub const Endpoint = struct { address: Address, port: u16 };
@@ -188,6 +192,7 @@ pub const Question = struct {
     /// the search-list policy of §5 turns on it, so the question carries it.
     absolute: bool = false,
 
+    /// `Error.UnqueryableType` for a type never asked for (§19 step 9, Questions).
     pub fn from_text(text: []const u8, kind: Kind) Error!Question;
     /// The reverse question: the in-addr.arpa or ip6.arpa name for an address, always absolute.
     pub fn from_address(address: *const Address) Error!Question;
@@ -1393,6 +1398,13 @@ step until `zig build test` passes.
     engine is built, which leaves the consumer to know whether the network blocks UDP; and a
     version for each server in `Config`, which changes the public API and still does not fall
     back. §24.
+31. **A question may name any type, and `Kind` is open.** Ruled by the owner on 2026-09-26
+    (c4milo/cocuyo#25). c-ares's `ares_query` takes any type code, and the codec already kept the
+    records of a type it does not name whole (RFC 3597 §3). So `Kind` gained a `_` and a question
+    may name any code but those §19 step 9 refuses. A DNSSEC type comes back as rdata, unvalidated
+    (§1). Rejected: a raw code beside a closed `Kind`, which gives one type two spellings every
+    reader must reconcile and breaks every `Question` a consumer writes; and naming types one at a
+    time as consumers ask, where each is still an API change and never reaches any code.
 
 ## 17. Questions for the owner
 
@@ -1991,11 +2003,14 @@ pub const Kind = enum(u16) {
     any = 255,  // RFC 1035 §3.2.3, a question and never a record; RFC 8482 §4 says what comes back
     uri = 256,  // RFC 7553 §4
     caa = 257,  // RFC 8659 §4.1
+    _,          // any other code, since 2026-09-26 (decision 31)
 };
 ```
 
 A record of a type not in the enum is not an error and never was: the record walk keeps the type
-code, and a caller reads the rdata raw (RFC 3597 §3).
+code, and a caller reads the rdata raw (RFC 3597 §3). Since 2026-09-26 a question may name such a
+type too: the enum is open, `Kind.of(code)` is any code, and `Kind.from_code` still answers only
+for the types cocuyo names.
 
 **What a lookup keeps.** `Lookup` keeps the records of the type asked for, owned by the end of
 the CNAME chain (RFC 5452 §6, as today), and copies them out of the message, because the message
@@ -2042,8 +2057,20 @@ signature }`, `Ns`, `Cname` and `Ptr` as a name, `Txt` as a bounded iterator ove
 character-strings (RFC 1035 §3.3, which is `ares_expand_string`). `A` and `AAAA` stay
 addresses. A view holds slices into the rdata it was given and copies nothing.
 
-**Questions.** Every kind but `opt` is queryable. Asking for `CNAME` keeps the CNAME record and
-follows nothing (RFC 1034 §3.6.2). Asking for `ANY` keeps every record the name owns whatever
+**Questions.** A question may name any type but three kinds of code, which `Kind.queryable`
+refuses and `Question.from_text` answers with `Error.UnqueryableType`:
+
+- Zero, which is never a type (RFC 6895 §3.1).
+- OPT, a pseudo-record that belongs to a message and not to a name (RFC 6891 §6.1.1).
+- Every other code from 128 to 255, the range RFC 6895 §3.1 keeps for query and meta types:
+  AXFR, IXFR, MAILA, MAILB, TSIG and TKEY today. A record of one of them is not a type whose
+  rdata can be kept whole (RFC 3597 §2), and a zone transfer is out of scope (§1).
+
+ANY, in that range, is the exception: cocuyo reads it (RFC 8482). Every other code, a DNSSEC type
+or a private one (RFC 6895 §3.1) among them, is asked as it is, and its records come back whole,
+their rdata copied as the wire has it (RFC 3597 §3, §4). A question built as a literal must name
+a queryable type, which the codec and the cache assert; `from_text` is where the check is. Asking
+for `CNAME` keeps the CNAME record and follows nothing (RFC 1034 §3.6.2). Asking for `ANY` keeps every record the name owns whatever
 its type, which may be one synthesized `HINFO` (RFC 8482 §4.2), and is `NoData` when there are
 none. Every other kind follows the chain as `A` does today.
 
