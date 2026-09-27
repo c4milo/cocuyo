@@ -148,28 +148,27 @@ The architecture depends on every rule in this section.
 - Adding a dependency. The library has none and is meant to keep it that way. pepegrillo is a
   ruled dependency of the tools, approved by the owner on 2026-09-21: `build.zig.zon` pins it by
   hash as a lazy dependency, the tools import it, and it is never linked into the library.
-  colibri is a ruled dependency of `cocuyo_quic`, `cocuyo_h2` and the engine's tests, approved by
-  the owner on 2026-09-25 (design §16 decision 29) and for `cocuyo_h2` on 2026-09-26 (decision
-  30): `build.zig.zon` pins it by hash as a lazy dependency, only the root build requests it, and
-  nothing under `src/` imports it. AdGuard's dnsproxy is a
+  colibri is a ruled dependency of `cocuyo_quic`, `cocuyo_h2`, the engine's tests and the DoT and
+  DoQ sessions, approved by the owner on 2026-09-25 (design §16 decision 29), for `cocuyo_h2` on
+  2026-09-26 (decision 30) and for the sessions on 2026-09-27 (decision 32): `build.zig.zon` pins
+  it by hash as a lazy dependency, only the root build requests it, and nothing under `src/`
+  imports it. AdGuard's dnsproxy is a
   ruled dependency of the interop check alone, approved by the owner on 2026-09-25 (c4milo/cocuyo#16):
   the `interop` workflow fetches a pinned release and checks its SHA-256, and nothing builds,
   links or imports it. kcov is a ruled tool of the coverage job alone, approved by the owner on
   2026-09-26: CI builds a pinned release, checked by its SHA-256, and nothing links or imports it. dnslib's test responses are ruled data of the dnslib check alone,
   approved by the owner on 2026-09-26 (c4milo/cocuyo#22): `tools/dnslib/run.sh` fetches them at a
   pinned commit and checks their tree id, and nothing builds, links or imports them. chapulin
-  is a ruled dependency of DNS over TLS, approved by the owner on 2026-09-26 (c4milo/cocuyo#30):
-  `build.zig.zon` pins it by hash as a lazy dependency that only cocuyo's own build requests, so
-  a project depending on cocuyo never fetches it, the DoT session imports its module, and nothing
-  under `src/` imports it. DoQ links chapulin's QUIC object from a checkout until colibri's
-  library `tls` module carries it.
+  reaches cocuyo through colibri alone since 2026-09-27 (decision 32): colibri's `tls` module
+  carries its objects at the commit colibri pins, and cocuyo pins no chapulin of its own.
 - Weakening an assertion or a check to make a test pass.
 - Adding anything §1 puts out of scope: DNSSEC validation, mDNS, zone transfers, nsswitch, IDN, the
   platform resolver configuration of §14. DoT and DoH were decided in on 2026-09-23: DoT in the
   engine, over rotor with chapulin's non-blocking record transport, strict by default (RFC 8310);
   DoH's DNS half in `src/`. DNS over QUIC (RFC 9250) joined the same day, its DNS half in `src/`
   too. Since the owner's ruling of 2026-09-25 both are carried by the engine, over colibri's
-  HTTP/3 and QUIC with chapulin's QUIC mode (design §24). The library in `src/` depends on
+  HTTP/3 and QUIC with chapulin's QUIC mode (design §24), and since 2026-09-27 DoT's TLS goes
+  through colibri's `tls` too (decision 32). The library in `src/` depends on
   nothing; the engine may use colibri, and colibri's library never uses cocuyo. The cache (§18)
   and the gap with c-ares (§19: every record type, cookies, the hosts file, failover, the engine
   over rotor) were decided in on 2026-09-22; what §19 lists as out stays out.

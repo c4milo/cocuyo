@@ -1405,6 +1405,16 @@ step until `zig build test` passes.
     (§1). Rejected: a raw code beside a closed `Kind`, which gives one type two spellings every
     reader must reconcile and breaks every `Question` a consumer writes; and naming types one at a
     time as consumers ask, where each is still an API change and never reaches any code.
+32. **DoT, DoQ and DoH on HTTP/3 run over colibri's `tls`.** Ruled by the owner on 2026-09-27
+    (c4milo/cocuyo#30). colibri's `tls` module holds chapulin's sessions for both of its modes,
+    and links chapulin's TCP object whether or not a program uses record mode. On 2026-09-27 a
+    program that linked cocuyo's own TCP object beside it failed to link, on 14 symbols both
+    objects define. So the DoT session runs over `tls.record.Client`, the DoQ session over
+    `tls.quic.Client`, and cocuyo pins no chapulin of its own. Rejected: DoT over chapulin's Zig
+    API beside DoQ over colibri's `tls`, which cannot share a program; colibri splitting `tls` so
+    that its QUIC half links one object, which still clashes with any consumer that speaks HTTPS
+    through colibri; and DoQ over an object made from a chapulin checkout, which every build of
+    DoQ had to make first. §21, §24.
 
 ## 17. Questions for the owner
 
@@ -2950,9 +2960,12 @@ The engine does not call chapulin by name. It is generic over a `Session` type i
 
 Two types fill it:
 
-- `io/io_chapulin.zig` fills it from chapulin's record transport. Since 2026-09-26 it runs over
-  chapulin's Zig API, whose module the `chapulin` dependency carries with its object
-  (c4milo/cocuyo#30): nothing is vendored, and no object is linked beside the module.
+- `io/io_chapulin.zig` fills it from chapulin's record transport. Since 2026-09-27 it runs over
+  colibri's `tls.record.Client`, whose module carries chapulin's objects (§16 decision 32):
+  nothing is vendored, and cocuyo links no object of its own. It ran over chapulin's Zig API from
+  2026-09-26 (c4milo/cocuyo#30), and over an object from a chapulin checkout before that.
+  colibri's client writes a refused flight's fatal alert into the output it was handed, and
+  `failure_written` counts it, which is how the session stages it for TLS rule 4.
 - The twin fills it with `sim.tls`, a session whose records carry their plaintext unsealed and
   whose handshake steps are spelled in the records the twin's server sends. The twin's servers
   script it, and the replay drives the model's steps with it one by one, so the gate needs no
@@ -2974,7 +2987,10 @@ chapulin's session starts from a `Context` the caller hands `Resolver.use_tls`:
   image may link chapulin's non-blocking TCP object beside its QUIC object since chapulin
   `0c201b7`, which names each object's build record after its transport. Since `ca80351` the
   transports are named for what TLS runs over and who does the I/O, and the record here is
-  `ch_build_info_tcp_nonblocking`.
+  `ch_build_info_tcp_nonblocking`. colibri's objects import both hooks too (its decision 94),
+  so the image binds `chapulin_hooks` for them. On 2026-09-27 colibri's owner ruled that each
+  session will take its source in `start`, through a callback chapulin gives each session
+  (colibri#71). The sessions then hand it the engine's stream, and no longer enter it.
 
 The session collects what chapulin makes as soon as chapulin makes it. chapulin says it is
 connected only once the client's last flight has been collected, so a session that left it for
@@ -3034,7 +3050,8 @@ the engine's send and held buffers, per slot.
    (TLS rule 2). chapulin's own session, `io/io_chapulin.zig`, landed the same day, with
    `-Dchapulin`, `zig build test-chapulin` and `examples/dot_rotor.zig` (`build/dot.zig`). On
    2026-09-26 it moved onto chapulin's Zig API, a lazy dependency, and `-Dchapulin` went from it
-   (c4milo/cocuyo#30).
+   (c4milo/cocuyo#30). On 2026-09-27 it moved onto colibri's `tls.record.Client`, and the
+   `chapulin` dependency went from cocuyo (§16 decision 32).
 6. A live check against the public resolvers that serve DoT: `dns.google`, `cloudflare-dns.com`
    and `dns.quad9.net`. `tools/dot_live/run.sh` runs it, on macOS, with each resolver's root from
    the system store. On 2026-09-24, with chapulin at `5f8e824`, all three resolved `example.com`:
@@ -3298,8 +3315,8 @@ handlers when `apply` says the event is not the engine's.
 3. **A request interface.** The TLS session interface of §21 lets the engine speak TLS without
    naming chapulin. A request interface lets it carry DoH and DoQ without naming colibri. `Options` gains
    the request transport's type:
-   - colibri's QUIC and HTTP/3, over chapulin's QUIC object, fill it when the build names a
-     colibri checkout and a chapulin checkout;
+   - colibri's QUIC and HTTP/3, over chapulin's QUIC object in colibri's `tls`, fill it where
+     the build resolves colibri (decisions 29 and 32);
    - the twin fills it in the gate;
    - a type that refuses fills it by default, as `tls.None` does.
 4. **The engine speaks DoQ and DoH.** §22 and §23 wrote the DNS half. This is the rest:
@@ -3473,9 +3490,9 @@ colibri's `quic` and `h3` over chapulin's QUIC object, in the engine's words:
 
 Three types fill it:
 
-- `io/io_quic.zig` fills it from colibri's `quic` and `h3` and chapulin's QUIC object. It is built
-  only when the build names a colibri checkout and a chapulin checkout, as `io/io_chapulin.zig` is
-  built only when it names chapulin's.
+- `io/io_quic.zig` fills it from colibri's `quic` and `h3`, over chapulin's QUIC session in
+  colibri's `tls`. It is built where the build resolves colibri, a lazy dependency (decisions 29
+  and 32), as `io/io_chapulin.zig` is.
 - The twin fills it with `sim.quic`, whose datagrams carry what happened in one octet and the
   stream it happened on, as `sim.tls`'s records carry a handshake step. The twin's servers script
   it, and the replay drives the model's steps with it one by one.
@@ -3521,9 +3538,9 @@ that holds it:
 
 So `io/io_quic.zig` is generic over the provider and its suite:
 
-- `io/io_chapulin_quic.zig` puts chapulin's QUIC object behind both vtables. It is built only when
-  the build names a chapulin checkout, as the DoT session is, and the live check of step 4 runs it
-  against AdGuard and NextDNS.
+- `io/io_chapulin_quic.zig` puts colibri's `tls.quic.Client`, chapulin's QUIC session, behind
+  both vtables (decision 32). It is built where the build resolves colibri, as the DoT session
+  is, and the live check of step 4 runs it against AdGuard and NextDNS.
 - `io/io_quic_plain.zig` is a provider and a suite that encrypt nothing, for the gate: the
   handshake's messages are made-up octets at the Initial, Handshake and 1-RTT levels of RFC 9001
   §4, in the order §4.1.5's Figure 5 puts them. A packet is sealed by appending sixteen octets,
@@ -3534,29 +3551,33 @@ So `io/io_quic.zig` is generic over the provider and its suite:
 
 chapulin's QUIC object fills both of colibri's vtables almost one to one: it owns every key,
 derives the Initial keys from the Destination Connection ID (RFC 9001 §5.2), applies and removes
-header protection, and moves handshake octets one level at a time. `io/io_chapulin_quic.zig` is
-the session, and what its build and its checks give it:
+header protection, and moves handshake octets one level at a time. Since 2026-09-27 colibri's
+`tls.quic.Client` puts it there (decision 32), and `io/io_chapulin_quic.zig` is the session over
+it. What its build and its checks give it:
 
-- **The object.** `make RAND=extern TRUST=webpki TRANSPORT=quic-nonblocking lib`, copied to
-  `bin/chapulin-quic-nonblocking.o`, beside the DoT object. Both are `RAND=extern` and share the
-  hooks of `chapulin_hooks`. The session compares the object's build record,
-  `ch_build_info_quic_nonblocking`, with the defines it reads the headers with, as the DoT session
-  does.
+- **The object.** colibri's `tls` builds it from the chapulin colibri pins, `RAND=extern
+  TRUST=webpki TRANSPORT=quic-nonblocking ROLE=both`, beside the TCP object the DoT session runs
+  over. Both import the hooks of `chapulin_hooks`. colibri compares each object's build record
+  with the headers it translated, once for each configuration. Until 2026-09-27 the session linked
+  an object made from a chapulin checkout, `bin/chapulin-quic-nonblocking.o`.
 - **A name, pins, or both, as over DoT.** Since chapulin `3d5db4e` its QUIC mode takes a
-  configuration as its record transport does (its decisions 64 and 65). The session tells it what
-  the DoT session does: a name with the context's anchors and the clock, and pins as they are. A
-  DoQ server known by pins alone, RFC 8310 §6.3's "SPKI + IP", gets no anchors and no clock, and
-  is known by its leaf's key. A configuration chapulin refuses, such as a name with no anchor,
-  fails the session's start, and the lookup ends in `AllServersFailed`. Until then the session
-  refused pins, because chapulin's QUIC mode did.
-- **The engine's stream, around the calls that draw.** chapulin draws at the session's start and
-  when handshake octets arrive, a HelloRetryRequest for P-256 among them, and nowhere else. The
-  session enters the engine's stream around those two calls, as §21's does around its own.
-- **One QUIC object in an image.** Two would define the same calls. When DoH over HTTP/3 joins,
-  colibri's `h3` and cocuyo's session use the one object, built with the defines both read.
-- **ChaCha20-Poly1305 alone,** unless the object is built `SUITE=aesgcm AES=hw`, which states that
-  the machine's AES runs in constant time. The spike of 2026-09-24 found every server accepted
-  ChaCha20-Poly1305.
+  configuration as its record transport does (its decisions 64 and 65). The session tells colibri
+  what the DoT session does: a name with the context's anchors and the clock, and pins as they
+  are. A DoQ server known by pins alone, RFC 8310 §6.3's "SPKI + IP", gets no anchors and no
+  clock, and is known by its leaf's key. A configuration chapulin refuses, such as a name with no
+  anchor, fails the session's start, and the lookup ends in `AllServersFailed`. Until then the
+  session refused pins, because chapulin's QUIC mode did.
+- **The engine's stream, around the calls that draw.** chapulin draws when its session starts,
+  which colibri's provider does at `set_transport_params`, and when handshake octets arrive, at
+  `provide_handshake`, a HelloRetryRequest for P-256 among them. The session hands the connection
+  a provider of its own, which enters the engine's stream around those two calls and passes every
+  call on to colibri's. It goes once colibri's `start` takes the stream (colibri#71).
+- **One QUIC object in an image**, colibri's. Two would define the same calls. colibri's `h3` and
+  cocuyo's session use the one object.
+- **AES-GCM where the machine has the AES instructions, ChaCha20-Poly1305 alone elsewhere.**
+  colibri builds its objects `SUITE=aesgcm AES=hw` for a target whose features include them, and
+  `SUITE=chacha` for any other (its decision 97). Until 2026-09-27 the session's object offered
+  ChaCha20-Poly1305 alone. The spike of 2026-09-24 found every server accepted it.
 
 ### colibri over the twin
 
@@ -3574,8 +3595,9 @@ colibri is pinned by hash in `build.zig.zon` as a lazy dependency (decision 29).
 is a module of its own, `cocuyo_quic`, which imports colibri's `quic`, and its `h3` for DoH,
 and gives the type a consumer names in `Options.quic`. `cocuyo_rotor` never imports colibri, so a consumer that speaks
 no DoQ binds nothing more; one that does binds `cocuyo_quic` and colibri's `quic` into it. The gate
-fetches colibri for the engine's tests over colibri on the twin. The library in `src/` never
-imports it.
+fetches colibri for the engine's tests over colibri on the twin. cocuyo's own build resolves it
+for the DoT and DoQ sessions too, which import its `tls` (decision 32). The library in `src/`
+never imports it.
 
 An engine over colibri holds, for each server, colibri's connection, its receive pool, its two
 scratch buffers and a request buffer for each lookup. Measured with `@sizeOf` on 2026-09-25, in a
@@ -3879,11 +3901,10 @@ over HTTP/2 binds its `h2` import to colibri's. Its TLS is a session type in its
 - For the gate, a provider of cocuyo's that encrypts nothing. Its records are framed as RFC 9846
   §5.1 frames a record, and its handshake messages are made-up octets that carry the ALPN each
   side offers and selects.
-- For a consumer, chapulin's record transport behind colibri's `tls.Provider`
-  (`io/io_chapulin_h2.zig`), built when the build names a chapulin checkout, as
-  `io/io_chapulin_quic.zig` is. It drives the handshake with `ch_record_in` and `ch_record_out`,
-  then seals and opens records with `ch_write` and `ch_read` over buffer copies. It takes the
-  name, the pins and the ticket DoT's session takes, and offers the ALPN token `h2`.
+- For a consumer, colibri's `tls.record.Client`, whose provider is colibri's `tls.Provider`
+  already (decision 32), built where the build resolves colibri, as `io/io_chapulin_quic.zig`
+  is. It takes the name, the pins and the ticket DoT's session takes, and offers the ALPN token
+  `h2`.
 
 The template's expansion and the response's reading, which step 5 wrote for HTTP/3, read nothing
 of colibri's. They move to a module both transports import.
@@ -4003,8 +4024,8 @@ length. So the walks' short sends and ended receives reach the engine as the mod
      colibri's `h2` client on the twin (`778806e`): the engine's TCP tests and the twenty-one of
      `cocuyo_h2` and eight of the engine over colibri catch every mutation of theirs
      (docs/mutations.md TC1 to TC9, HT1 to HT23). Rule 17 closed the two stalls found then. Left:
-     chapulin behind colibri's provider, which the owner moved into colibri (its step 16,
-     c4milo/cocuyo#18), then dnsproxy and the live check.
+     colibri's `tls.record.Client` under `cocuyo_h2`, since the owner moved chapulin's provider
+     into colibri (its step 16, c4milo/cocuyo#18, decision 32), then dnsproxy and the live check.
    - 7b, HTTP/3 first and HTTP/2 after it, in one engine. Its rules and limits are written once 7a
      has landed.
 
