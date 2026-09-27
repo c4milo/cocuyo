@@ -2,12 +2,11 @@
 //! DoQ and DoH on HTTP/3 (docs/design.md §24, chapulin under colibri; §16 decision 32). colibri
 //! puts chapulin's QUIC object behind its TLS provider and its packet suite, and chapulin owns every
 //! key. The session turns a server's `Tls` and the context into colibri's values, and hands the
-//! connection colibri's suite and a provider of its own.
+//! connection colibri's provider and suite.
 //!
-//! chapulin draws randomness through the image's `ch_rand_bytes`, which `chapulin_hooks` defines,
-//! when its session starts and when handshake octets arrive. The session's provider enters the
-//! engine's stream around those two calls and passes every call on to colibri's. It goes once
-//! colibri's `start` takes the stream (colibri#71).
+//! chapulin draws every random octet from the engine's seeded stream, which `start` hands colibri
+//! (colibri#71), and the image supplies chapulin's one remaining hook, `ch_assert_fail`, through
+//! the `chapulin_hooks` module it binds.
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
@@ -16,15 +15,13 @@ const tls = @import("tls");
 const constants = @import("cocuyo_quic").constants;
 const hooks = @import("chapulin_hooks");
 
-// colibri's objects call the hooks whatever of the session a program uses, so the image links
-// them whenever it links the session.
+// colibri's objects call `ch_assert_fail` whatever of the session a program uses, so the image
+// links it whenever it links the session.
 comptime {
     _ = hooks;
 }
 
 const tls_provider = quic.tls_provider;
-const quic_provider = tls_provider.quic_provider;
-const Level = quic.core.Level;
 
 pub const Session = struct {
     /// A root the chain may end at: its subject Name and its SubjectPublicKeyInfo, each a whole
@@ -68,9 +65,6 @@ pub const Session = struct {
     resuming: Ticket = undefined,
     /// Whether the session offered a ticket, which the server may have declined (RFC 9846 §4.2.11).
     offered: bool = false,
-    stream: ?*std.Random.ChaCha = null,
-    /// colibri's provider for `client`, which the session's own passes every call on to.
-    forwarded: tls_provider.QuicProvider = undefined,
     /// `client` was started, so it has secrets to wipe and state to read.
     started: bool = false,
 
@@ -97,10 +91,9 @@ pub const Session = struct {
             self.offered = true;
             resumption = .{ .ticket = &self.resuming, .age_ms = start_with.ticket_age_ns / constants.ns_per_millisecond };
         }
-        self.stream = &context.stream;
+        // chapulin draws from the context's stream, which outlives every session of the engine.
         self.started = true;
-        self.client.start(&self.config, context.seconds_at(start_with.now_ns), resumption) catch return self.fail();
-        self.forwarded = self.client.provider();
+        self.client.start(&self.config, context.stream.random(), context.seconds_at(start_with.now_ns), resumption) catch return self.fail();
     }
 
     /// How chapulin checks the server, as the DoT session tells it (`io_chapulin.zig`): a name
@@ -121,7 +114,7 @@ pub const Session = struct {
 
     pub fn provider(self: *Session) tls_provider.QuicProvider {
         assert(self.started);
-        return .{ .context = self, .vtable = &provider_vtable };
+        return self.client.provider();
     }
 
     pub fn suite(self: *Session) quic.crypto.Suite {
@@ -151,72 +144,7 @@ pub const Session = struct {
         self.wipe();
         return error.Failed;
     }
-
-    fn of(context: *anyopaque) *Session {
-        return @ptrCast(@alignCast(context));
-    }
-
-    fn of_const(context: *const anyopaque) *const Session {
-        return @ptrCast(@alignCast(context));
-    }
 };
-
-// The TLS provider: colibri's, with the engine's stream entered around the two calls that draw.
-
-const provider_vtable: tls_provider.QuicVTable = .{
-    .set_transport_params = set_transport_params,
-    .peer_transport_params = peer_transport_params,
-    .provide_handshake = provide_handshake,
-    .write_handshake = write_handshake,
-    .negotiated_alpn = negotiated_alpn,
-    .handshake_complete = handshake_complete,
-    .take_alert = take_alert,
-    .export_keying_material = export_keying_material,
-};
-
-/// The parameters colibri encoded, which the hello carries (RFC 9001 §8.2): chapulin's session
-/// starts here, drawing its key shares from the engine's stream.
-fn set_transport_params(context: *anyopaque, body: []const u8) quic_provider.TransportParamsError!void {
-    const self = Session.of(context);
-    hooks.enter(self.stream.?);
-    defer hooks.leave();
-    return self.forwarded.set_transport_params(body);
-}
-
-fn peer_transport_params(context: *const anyopaque) ?[]const u8 {
-    return Session.of_const(context).forwarded.peer_transport_params();
-}
-
-/// Handshake octets at `level`, in order and once (RFC 9001 §4.1.3). chapulin may draw here: a
-/// HelloRetryRequest for P-256 makes a new key share.
-fn provide_handshake(context: *anyopaque, level: Level, data: []const u8) quic_provider.ProvideError!void {
-    const self = Session.of(context);
-    hooks.enter(self.stream.?);
-    defer hooks.leave();
-    return self.forwarded.provide_handshake(level, data);
-}
-
-fn write_handshake(context: *anyopaque, level: Level, output: []u8) quic_provider.WriteError!usize {
-    return Session.of(context).forwarded.write_handshake(level, output);
-}
-
-fn negotiated_alpn(context: *const anyopaque) ?[]const u8 {
-    return Session.of_const(context).forwarded.negotiated_alpn();
-}
-
-fn handshake_complete(context: *const anyopaque) bool {
-    return Session.of_const(context).forwarded.handshake_complete();
-}
-
-/// The alert of a handshake that failed, once: a chain that ends at no anchor is `unknown_ca`,
-/// a name the certificate does not carry `bad_certificate` (chapulin's webpki.c).
-fn take_alert(context: *anyopaque) ?tls_provider.Alert {
-    return Session.of(context).forwarded.take_alert();
-}
-
-fn export_keying_material(context: *anyopaque, label: []const u8, context_value: ?[]const u8, output: []u8) quic_provider.ExportError!void {
-    return Session.of(context).forwarded.export_keying_material(label, context_value, output);
-}
 
 // Tests.
 

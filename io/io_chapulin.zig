@@ -7,10 +7,10 @@
 //! Every call is a copy between the engine's buffers and colibri's. The handshake writes its
 //! records into the session's staged octets, which the engine takes out, and so does every call
 //! once the connection is up: a query sealed, what colibri owes after a record it opened (a
-//! KeyUpdate's answer, or the alert a refused record raised), and the `close_notify`. The image
-//! supplies `ch_rand_bytes` and `ch_assert_fail` once, through the `chapulin_hooks` module it binds
-//! (`io/io_chapulin_hooks.zig`), and the session points `ch_rand_bytes` at the engine's seeded
-//! stream while a handshake runs, until colibri's `start` takes the stream (colibri#71).
+//! KeyUpdate's answer, or the alert a refused record raised), and the `close_notify`. chapulin
+//! draws every random octet from the engine's seeded stream, which `start` hands colibri
+//! (colibri#71), and the image supplies chapulin's one remaining hook, `ch_assert_fail`, through
+//! the `chapulin_hooks` module it binds (`io/io_chapulin_hooks.zig`).
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
@@ -20,8 +20,8 @@ const hooks = @import("chapulin_hooks");
 const tls = @import("tls");
 const tls_provider = @import("tls_provider");
 
-// colibri's objects call the hooks whatever of the session a program uses, so the image links
-// them whenever it links the session: a module is analysed, and its exports emitted, only when
+// colibri's objects call `ch_assert_fail` whatever of the session a program uses, so the image
+// links it whenever it links the session: a module is analysed, and its exports emitted, only when
 // something references it.
 comptime {
     _ = hooks;
@@ -88,8 +88,6 @@ pub const Session = struct {
     hostname: [cocuyo.constants.name_text_bytes_max]u8 = undefined,
     /// The ticket this session resumes with: a copy, which `wipe` zeroes.
     resuming: Ticket = undefined,
-    /// The engine's stream, which chapulin draws from during every call of the handshake.
-    stream: ?*std.Random.ChaCha = null,
     staged: [out_bytes_max]u8 = undefined,
     staged_len: usize = 0,
     /// Started: `client` has secrets to wipe. Live: records may be sealed and read.
@@ -112,13 +110,11 @@ pub const Session = struct {
             self.resuming = ticket;
             resumption = .{ .ticket = &self.resuming, .age_ms = start_with.ticket_age_ns / constants.ns_per_millisecond };
         }
-        self.stream = &context.stream;
-        hooks.enter(self.stream.?);
-        defer hooks.leave();
         // A refused start leaves colibri's copy of the ticket for `close` to zero, and chapulin's
         // close writes zeros and reads nothing, so a session is started before colibri is called.
+        // chapulin draws from the context's stream, which outlives every session of the engine.
         self.started = true;
-        self.client.start(&self.config, context.seconds_at(start_with.now_ns), resumption) catch return self.fail();
+        self.client.start(&self.config, context.stream.random(), context.seconds_at(start_with.now_ns), resumption) catch return self.fail();
         self.live = true;
         var nothing: [0]u8 = .{};
         const progress = self.client.handshake(&nothing, &self.staged) catch return self.fail();
@@ -167,15 +163,11 @@ pub const Session = struct {
         // The engine takes what the session staged after every call, so each step has all of it.
         assert(self.staged_len == 0);
         const room = self.staged[self.staged_len..];
-        const progress = progress: {
-            hooks.enter(self.stream.?);
-            defer hooks.leave();
-            break :progress self.client.handshake(record, room) catch {
-                // colibri wrote the fatal alert chapulin chose behind what the call wrote before it
-                // (RFC 9846 §6.2): kept, for the engine to send before it closes.
-                self.staged_len += self.client.failure_written();
-                return self.fail();
-            };
+        const progress = self.client.handshake(record, room) catch {
+            // colibri wrote the fatal alert chapulin chose behind what the call wrote before it
+            // (RFC 9846 §6.2): kept, for the engine to send before it closes.
+            self.staged_len += self.client.failure_written();
+            return self.fail();
         };
         self.took(progress.written, room.len);
         // The engine hands over one whole record, and chapulin takes whole records: less is a

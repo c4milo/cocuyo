@@ -2865,3 +2865,21 @@ sessions and the examples against `zig build test`. Four mutations, four `CAUGHT
 | GT2 | the DoQ provider enters no stream at the transport parameters | the session's tests run in the gate | the gate, by the hook's panic | CAUGHT |
 | GT3 | the DoQ example reads a field the session no longer has | the examples build in the gate | the gate, by the example's build | CAUGHT |
 | GT4 | the DoT example reads chapulin's constants, which the session no longer exports | the examples build in the gate | the gate, by the example's build | CAUGHT |
+
+## The engine's stream through colibri's `start`
+
+2026-09-27. colibri `08d631e` builds chapulin's objects `RAND=session`, and each session's `start`
+takes the source it draws from (colibri#71). Both sessions hand it the engine's stream, and
+chapulin draws from it wherever it draws. So the DoQ session's forwarding provider and every
+`enter` around a call went, and with them the code CL6, CL13, QL1, QL8 and HK1 to HK3 broke.
+c4milo/cocuyo#13 asked for a test of a draw after the start, and every draw now comes from the one
+source. The owner ruled the same day that `chapulin_hooks` keeps `ch_assert_fail` alone. RN3 is
+HK4 again: with no `enter` left, the session's reference to the module is the only one, and
+removing it leaves `ch_assert_fail` undefined when the tests link. Broken against `zig build
+test-chapulin` and `zig build test-chapulin-quic`. Three mutations, three `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| RN1 | the DoT session hands colibri a stream of its own, not the context's | chapulin draws from the engine's stream | the hello test: another seed makes the same hello | CAUGHT |
+| RN2 | the DoQ session hands colibri a stream of its own, not the context's | chapulin draws from the engine's stream | the hello test: another seed makes the same hello | CAUGHT |
+| RN3 | the session does not reference the hooks module | the image links `ch_assert_fail` with the session | the build of `test-chapulin`, at link | CAUGHT |
