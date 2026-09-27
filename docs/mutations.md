@@ -2538,3 +2538,20 @@ its tests. Three mutations, three `CAUGHT`.
 | CV1 | the lines after a file's `// Tests` marker count | test code is left out | the test-code test | CAUGHT |
 | CV2 | a `*_test.zig` file counts | test code is left out | the test-code test | CAUGHT |
 | CV3 | a line kcov never hit counts as run | a line runs when kcov hit it | the report's reading test | CAUGHT |
+
+## The stream's failures on the twin
+
+2026-09-26. Line coverage showed lines of `io/io_tcp_queue.zig` that no module's tests ran: a
+query send that fails, the queries waiting behind a connection that fails, and a send's event for
+a connection that is gone. The committed engine walks run them, in `zig build test-tools`, but
+kcov did not run the replays then, and `zig build test-io` ran none of them. Two twin tests now
+do: one makes a send fail, and one has the peer reset the connection while a send is in flight.
+TQ2 is SQ5 and TQ3 is SQ7, measured again. Five mutations, five `CAUGHT`.
+
+| # | Mutation | `test-io` before | `test-io` after | `test-tools` | Status |
+| --- | --- | --- | --- | --- | --- |
+| TQ1 | a failed query send keeps its buffer lent | unseen | the failed-send twin test | the committed walks | CAUGHT |
+| TQ2 | a query send that moved nothing leaves the connection up | unseen | the failed-send twin test | the committed walks | CAUGHT |
+| TQ3 | a closed connection keeps its waiting queries' buffers lent | unseen | the failed-send twin test | the committed walks | CAUGHT |
+| TQ4 | a closed connection takes back the buffer of the send in flight | unseen | the mid-send twin test | the committed walks | CAUGHT |
+| TQ5 | a send's event for a connection that is gone keeps its buffer lent | unseen | the mid-send twin test | the committed walks | CAUGHT |

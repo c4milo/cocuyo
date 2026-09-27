@@ -82,6 +82,9 @@ pub const socket_send_bytes_short = 5;
 /// A connection that can assemble only a small message, so an ordinary answer will not fit.
 pub const tiny_message_bytes = 64;
 
+/// Lookups on one connection when it fails: one whose query is being sent, one whose waits.
+pub const queued_lookups = 2;
+
 /// A stream group of two buffers, so a chunk finds none and the multishot ends.
 pub const tcp_group_buffers_small = 2;
 

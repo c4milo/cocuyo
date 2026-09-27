@@ -7,6 +7,7 @@ const testing = std.testing;
 const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 const io = @import("io.zig");
+const tcp = @import("io_tcp.zig");
 
 const fixtures = @import("fixtures.zig");
 const sim_test = @import("io_sim_test.zig");
@@ -270,4 +271,67 @@ test "a message longer than the connection can assemble ends the lookups on it" 
     try loop.drain(&events);
     engine.close();
     loop.deinit();
+}
+
+/// Two lookups on one connection, its connect ended: the first's query is the send in flight,
+/// and the second's waits behind it.
+fn two_queued(rig: *Rig, seed: u64) ![fixtures.queued_lookups]cocuyo.Handle {
+    try rig.init(seed, .{ .{}, .{ .down = true } }, .{ .servers = &.{}, .use_tcp = true, .attempts = 1 });
+    const first = try rig.engine.start(question("one.example."), rig.loop.now());
+    const second = try rig.engine.start(question("two.example."), rig.loop.now());
+    _ = try rig.step(fixtures.wait_ns);
+    const connection = &rig.engine.connections[0];
+    try testing.expectEqual(@as(u16, fixtures.queued_lookups), connection.queue.count);
+    try testing.expect(connection.sending);
+    return .{ first, second };
+}
+
+/// The connection to the first server is gone: both lookups were told, and moved on to the next
+/// server, whose connection took the slot with none of the first one's queries in it.
+fn expect_failed_over(rig: *Rig) !void {
+    const connection = &rig.engine.connections[0];
+    try testing.expectEqual(@as(u8, 1), connection.server);
+    try testing.expectEqual(@as(u16, 0), connection.queue.count);
+}
+
+test "a query send that fails ends its connection, and every query on it gives its buffer back" {
+    var rig: Rig = .{};
+    const handles = try two_queued(&rig, 21);
+    // The twin's sends do not fail, so the first query's is made to: the stream is broken.
+    const count = try sim_test.tick_for(&rig.loop, &rig.events, fixtures.wait_ns);
+    const sent = @TypeOf(rig.engine).user_data(.tcp_send, handles[0].index);
+    var failed = false;
+    for (rig.events[0..count]) |*event| {
+        if (event.user_data != sent) continue;
+        event.* = rotor.Event.failure(sent, .connection_reset);
+        failed = true;
+    }
+    try testing.expect(failed);
+    for (rig.events[0..count]) |event| _ = rig.engine.apply(event, rig.loop.now());
+    try expect_failed_over(&rig);
+    try testing.expect(!rig.engine.send_in_flight[handles[0].index]);
+    try testing.expect(!rig.engine.send_in_flight[handles[1].index]);
+    var ended: usize = 0;
+    while (ended < 2) : (ended += 1) _ = try rig.until_result();
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
+test "a connection that fails mid-send keeps that send's buffer until its event, and not the rest" {
+    var rig: Rig = .{};
+    const handles = try two_queued(&rig, 22);
+    // The peer resets the connection while the first query is on its way out.
+    const receive = tcp.user_data_of(&rig.engine, .tcp_receive, 0);
+    _ = rig.engine.apply(rotor.Event.failure(receive, .connection_reset), rig.loop.now());
+    try expect_failed_over(&rig);
+    // The loop still holds the first query's bytes; the second's are the engine's again.
+    try testing.expect(rig.engine.send_in_flight[handles[0].index]);
+    try testing.expect(!rig.engine.send_in_flight[handles[1].index]);
+    // The send's event names a connection that is gone, and hands the buffer back all the same.
+    _ = try rig.step(fixtures.wait_ns);
+    try testing.expect(!rig.engine.send_in_flight[handles[0].index]);
+    var ended: usize = 0;
+    while (ended < 2) : (ended += 1) _ = try rig.until_result();
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
 }
