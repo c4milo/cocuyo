@@ -183,12 +183,12 @@ The architecture depends on every rule in this section.
   of each, so a rule that stopped checking fails the build. Last, `tools/lint_coverage.zig`
   requires every tracked file a rule or the score reads to be under a directory it walks or
   handed to it by name, `test/`'s fixtures apart, so a directory left off the list fails too.
-- Test: `zig build test` — the lint, the graph check, the consumer check, the README check, the
-  hook check, then every module's unit tests and the tools' own tests. Every change passes it before it is
-  committed. `zig build test-<module>` (`test-core`, `test-wire`, `test-resolver`, `test-config`,
-  `test-cache`, `test-sim`, `test-cocuyo`, `test-io`, `test-chapulin_hooks`, `test-doh`,
-  `test-cocuyo_quic`, `test-cocuyo_h2`)
-  and `zig build test-tools` run one target's tests with nothing else in the graph, which is what
+- Test: `zig build test` — the lint, the format check, the graph check, the consumer check, the
+  README check, the hook check, then every module's unit tests and the tools' own tests. Every
+  change passes it before it is committed. `zig build test-<module>` (`test-core`, `test-wire`,
+  `test-resolver`, `test-config`, `test-cache`, `test-sim`, `test-cocuyo`, `test-io`,
+  `test-chapulin_hooks`, `test-doh`, `test-cocuyo_quic`, `test-cocuyo_h2`) and `zig build
+  test-tools` run one target's tests with nothing else in the graph, which is what
   a mutation is measured against. `zig build consumer-check` alone builds `test/consumer/`, the
   package that depends on cocuyo the way a consumer does, with `cocuyo_rotor` over a rotor of its
   own, and requires the same package to fail when it reaches for a module the surface does not
@@ -262,7 +262,8 @@ The architecture depends on every rule in this section.
   the text parsers' (`src/config/fuzz/`). `zig build fuzz -- [--text] --seed <hex>` runs one
   seed and prints what it built; `zig build fuzz-gate -- [--text] [<count> [<first>]]` runs a
   range, ReleaseSafe.
-- Format: `zig build fmt`, or `zig fmt build.zig build src tools examples bench io`.
+- Format: `zig build fmt`, which the gate runs too, or `zig fmt build.zig build src tools examples
+  bench io` to rewrite what it refuses.
 - Commit messages: `zig build hooks` once after clone; `zig build lint-commits` by hand.
 
 ## Where work is tracked

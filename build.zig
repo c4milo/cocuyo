@@ -174,11 +174,13 @@ pub fn build(b: *std.Build) void {
     add_tla_step(b, tla_tool);
     add_hooks_step(b);
 
-    const fmt_step = b.step("fmt", "Check formatting of every Zig source");
-    fmt_step.dependOn(&b.addFmt(.{
+    // In the gate as well: a file `zig fmt` would change fails the test step, not a review.
+    const fmt = &b.addFmt(.{
         .paths = &(.{"build.zig"} ++ source_directories),
         .check = true,
-    }).step);
+    }).step;
+    b.step("fmt", "Check formatting of every Zig source").dependOn(fmt);
+    test_step.dependOn(fmt);
 }
 
 /// `zig build coverage`: every module's tests the gate runs, the model replays' among them,

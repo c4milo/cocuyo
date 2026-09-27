@@ -2615,3 +2615,17 @@ after. One mutation, unseen before, `CAUGHT`.
 | # | Mutation | Before | After | Status |
 | --- | --- | --- | --- | --- |
 | QC1 | a connection the server closed is not seen to have ended | unseen | the server-close test | CAUGHT |
+
+## The format check in the gate
+
+2026-09-26. `zig build fmt` checked formatting, and neither `zig build test` nor CI ran it, so a
+trailing blank line in `tools/dnslib/check.zig` reached main in a6271ab. The gate now runs it. FM1
+to FM4 plant a change `zig fmt` would undo, each against `zig build test`. FM4 is the one that
+reached main, and went unseen before this change. Four mutations, four `CAUGHT`.
+
+| # | Mutation | Before | After | Status |
+| --- | --- | --- | --- | --- |
+| FM1 | `build.zig` ends in a blank line | not run | the format check | CAUGHT |
+| FM2 | two spaces before an `=` in `src/core/name.zig` | not run | the format check | CAUGHT |
+| FM3 | a line of `io/io.zig` indented by one more space | not run | the format check | CAUGHT |
+| FM4 | `tools/dnslib/check.zig` ends in a blank line again | unseen | the format check | CAUGHT |
