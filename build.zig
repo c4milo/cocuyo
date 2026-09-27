@@ -165,7 +165,7 @@ pub fn build(b: *std.Build) void {
     dot.add(b, target, optimize, graph, chapulin, rotor);
     const colibri = b.lazyDependency("colibri", .{ .target = target, .release = release });
     quic.add(b, graph, colibri, test_step);
-    add_coverage(b, &(unit_test_modules ++ replays), graph, colibri != null);
+    add_coverage(b, &(unit_test_modules ++ replays), graph, colibri != null, test_step);
     doq.add(b, target, optimize, graph, chapulin, rotor, colibri);
     dnslib.add(b, target, graph, test_step, tool_test_step);
     fuzz.add(b, target, graph, test_step, tool_test_step);
@@ -185,14 +185,14 @@ pub fn build(b: *std.Build) void {
 
 /// `zig build coverage`: every module's tests the gate runs, the model replays' among them,
 /// colibri's two where the build resolved it, under kcov (build/coverage.zig).
-fn add_coverage(b: *std.Build, entries: []const coverage.Tests, graph: modules.Graph, with_colibri: bool) void {
+fn add_coverage(b: *std.Build, entries: []const coverage.Tests, graph: modules.Graph, with_colibri: bool, test_step: *std.Build.Step) void {
     var covered: std.ArrayList(coverage.Tests) = .empty;
     covered.appendSlice(b.allocator, entries) catch @panic("OOM");
     if (with_colibri) {
         covered.append(b.allocator, .{ .name = "cocuyo_quic", .module = graph.io_quic }) catch @panic("OOM");
         covered.append(b.allocator, .{ .name = "cocuyo_h2", .module = graph.io_h2 }) catch @panic("OOM");
     }
-    coverage.add(b, covered.items, host_module(b, "tools/coverage.zig"));
+    coverage.add(b, covered.items, host_module(b, "tools/coverage.zig"), test_step);
 }
 
 /// `zig build tla`: TLC over every model under spec/tla/, through pepegrillo's `tla` tool

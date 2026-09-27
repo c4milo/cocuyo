@@ -2629,3 +2629,20 @@ reached main, and went unseen before this change. Four mutations, four `CAUGHT`.
 | FM2 | two spaces before an `=` in `src/core/name.zig` | not run | the format check | CAUGHT |
 | FM3 | a line of `io/io.zig` indented by one more space | not run | the format check | CAUGHT |
 | FM4 | `tools/dnslib/check.zig` ends in a blank line again | unseen | the format check | CAUGHT |
+
+## The coverage floor
+
+2026-09-26. The coverage figure was a report, and a change that took tests away lowered the badge
+and failed nothing. The report now refuses a total under 96.5%: CI measured 97.5% of 6,807 lines
+on x86_64 Linux that day, and a container measured 96.9% on arm64 Linux. The gate runs the report
+over two reports it writes, one that runs no line and one with no line at all, and requires each
+refused with its reason, since the report's own tests do not run `main`. CF1 and CF2 break the
+floor, against `zig build test-tools`. CF3 and CF4 break `main`, against `zig build test`. Four
+mutations, four `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CF1 | no total is under the floor | a total under the floor is refused | the floor test | CAUGHT |
+| CF2 | a total at the floor is under it | a total at the floor passes | the floor test | CAUGHT |
+| CF3 | `main` does not hold the floor | the report exits 1 under the floor | the gate's unrun report | CAUGHT |
+| CF4 | `main` reads a report of no lines as 100% | a report that read nothing is refused | the gate's empty report | CAUGHT |

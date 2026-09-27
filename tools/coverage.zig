@@ -13,7 +13,9 @@
 //! neither covered nor uncovered.
 //!
 //! Usage: `coverage <cobertura.xml> <repo root> <out dir>`, which writes `coverage.md` and
-//! `coverage.svg` into the out dir and prints the total.
+//! `coverage.svg` into the out dir and prints the total. It exits 1 when the total is under
+//! `floor_percent`, or when a part of the tree counted no line, which is a report whose paths
+//! missed the tree.
 const std = @import("std");
 const assert = std.debug.assert;
 
@@ -25,6 +27,12 @@ const machinery = "src/sim";
 const files_listed = 12;
 const file_bytes_max: std.Io.Limit = .limited(1 << 24);
 const percent_scale = 100;
+/// The least share of the library's and the engine's lines the tests may run, in percent. Set on
+/// 2026-09-26, when CI measured 97.5% of 6,807 lines on x86_64 Linux and a container measured
+/// 96.9% on arm64 Linux: kcov reads each architecture's line tables, which differ by some forty
+/// lines, so the floor sits under the lower figure by some thirty. A change that takes tests away
+/// fails the report, and one that adds them may raise the floor.
+pub const floor_percent: f64 = 96.5;
 
 pub const Line = struct { number: u32, covered: bool };
 
@@ -138,6 +146,12 @@ pub fn library_total(by_area: []const Tally) error{AreaUnread}!Tally {
     return total;
 }
 
+/// Whether `total` runs a smaller share of its lines than `floor`, in percent.
+pub fn below_floor(total: Tally, floor: f64) bool {
+    assert(total.total > 0);
+    return total.percent() < floor;
+}
+
 const Row = struct { path: []const u8, tally: Tally };
 
 pub fn main(init: std.process.Init) !void {
@@ -176,6 +190,12 @@ pub fn main(init: std.process.Init) !void {
     try cwd.writeFile(io, .{ .sub_path = try std.fs.path.join(arena, &.{ args[3], "coverage.md" }), .data = markdown.written() });
     try cwd.writeFile(io, .{ .sub_path = try std.fs.path.join(arena, &.{ args[3], "coverage.svg" }), .data = badge.written() });
     std.debug.print("coverage: {d:.1}% of {d} lines of the library and the engine, tests left out\n", .{ total.percent(), total.total });
+    // The table goes with the refusal: a step that fails installs nothing, and it says which
+    // files lost their lines.
+    if (below_floor(total, floor_percent)) {
+        std.debug.print("{s}coverage: {d:.1}% is under the floor of {d:.1}%\n", .{ markdown.written(), total.percent(), floor_percent });
+        std.process.exit(1);
+    }
 }
 
 fn write_markdown(writer: *std.Io.Writer, by_area: []const Tally, total: Tally, rows: []Row) !void {
@@ -288,6 +308,12 @@ test "the total leaves the twin out, and an area with no line counted is refused
     try testing.expectEqual(Tally{ .covered = areas.len - 1, .total = 2 * (areas.len - 1) }, total);
     by_area[area_of("io/io.zig").?] = .{};
     try testing.expectError(error.AreaUnread, library_total(&by_area));
+}
+
+test "a total under the floor is refused, and one at the floor is not" {
+    try testing.expect(below_floor(.{ .covered = 964, .total = 1000 }, 96.5));
+    try testing.expect(!below_floor(.{ .covered = 965, .total = 1000 }, 96.5));
+    try testing.expect(!below_floor(.{ .covered = 1000, .total = 1000 }, floor_percent));
 }
 
 test "the badge says the figure, in the colour of its band" {

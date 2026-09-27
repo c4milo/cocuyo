@@ -1199,6 +1199,10 @@ coverage`, since 2026-09-26), with test code left out and `src/sim/`, the twin, 
 96.9% once the replays and the tests the unrun lines asked for were in. A function nothing
 references has no code to count, so the figure says nothing of it. A report with a part of the
 tree that counted no line is refused: kcov's paths missed the tree, and the part did not all run.
+CI measured 97.5% of 6,807 lines the same day on x86_64 Linux, whose line tables differ. The
+report refuses a total under 96.5% (`floor_percent` in `tools/coverage.zig`), under both figures,
+so a change that takes tests away fails CI's coverage job. `zig build test` runs the report over two
+reports it writes, one that runs no line and one with no line at all, and requires both refused.
 
 Each target's gate runs 4,096 seeds in `zig build test`, and prints the seed of a failure. `zig
 build fuzz -- [--text] --seed <hex>` runs one seed and prints what it built, and `zig build
