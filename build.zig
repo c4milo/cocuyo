@@ -83,10 +83,6 @@ pub fn build(b: *std.Build) void {
     // ReleaseSafe only: `-Drelease` selects ReleaseSafe, and the `-Doptimize` option that would
     // admit ReleaseFast or ReleaseSmall is never declared.
     const release = b.option(bool, "release", "Build ReleaseSafe rather than Debug") orelse false;
-    // DNS over QUIC links chapulin's QUIC object from a checkout the caller names, until colibri's
-    // library `tls` module carries chapulin under its QUIC provider (`build/doq.zig`). DNS over TLS
-    // takes chapulin as a dependency (`build/dot.zig`).
-    const chapulin = b.option([]const u8, "chapulin", "A chapulin checkout whose bin/chapulin-quic-nonblocking.o the DoQ session links");
     const optimize: std.builtin.OptimizeMode = if (release) .ReleaseSafe else .Debug;
     assert(optimize == .Debug or optimize == .ReleaseSafe);
 
@@ -163,11 +159,11 @@ pub fn build(b: *std.Build) void {
         .name = "lean",
         .root_module = tool_module(b, pepegrillo, "tools/lean.zig"),
     }), tla_tool);
-    dot.add(b, target, optimize, graph, rotor);
     const colibri = b.lazyDependency("colibri", .{ .target = target, .release = release });
+    dot.add(b, target, optimize, graph, rotor, colibri);
     quic.add(b, graph, colibri, test_step);
     add_coverage(b, &(unit_test_modules ++ replays), graph, colibri != null, test_step);
-    doq.add(b, target, optimize, graph, chapulin, rotor, colibri);
+    doq.add(b, target, optimize, graph, rotor, colibri);
     dnslib.add(b, target, graph, test_step, tool_test_step);
     fuzz.add(b, target, graph, test_step, tool_test_step);
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));

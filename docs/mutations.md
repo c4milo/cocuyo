@@ -2782,3 +2782,49 @@ mutations, eight `CAUGHT`.
 | AL4 | the twin's session stages no alert for a record refused once up | RFC 9846 §6.2 | the twin's refusal-once-up test | CAUGHT |
 | TL2 | a record the session refuses leaves the connection up | RFC 9846 §5.2 | the failing-session test | CAUGHT |
 | AL5 | chapulin's session drops the alert a failed `read` wrote | RFC 9846 §6.2 | nothing in the gate | NOT CAUGHT |
+
+## DoT and DoQ over colibri's `tls`
+
+2026-09-27. Both sessions moved onto colibri's `tls` module at colibri `a6a4791`, which carries
+chapulin's objects (docs/design.md §16 decision 32): DoT over `tls.record.Client`, DoQ and DoH on
+HTTP/3 over `tls.quic.Client`. colibri's `tls` links chapulin's TCP object beside its QUIC object,
+and a program with cocuyo's own TCP object beside it did not link, so cocuyo pins no chapulin of
+its own. The DoT session's checks were written again over colibri's calls, and three are new:
+colibri writes a refused flight's alert into the output and `failure_written` counts it, a flight
+that fills the staged octets fails the session, and a query colibri seals in part fails it. The
+staged octets hold chapulin's longest ClientHello for colibri's object, 2,421 octets read from
+chapulin's session.h, since colibri does not name the bound. CL1 to CL14 break the DoT session
+against `zig build test-chapulin`, QL1 to QL9 the DoQ session against `zig build test-chapulin-quic`. The live checks against Google, Cloudflare and Quad9 over DoT,
+AdGuard and NextDNS over DoQ, and Google and Cloudflare over DoH on HTTP/3 passed the same day, and
+so did the interop check against dnsproxy.
+
+CL9 to CL12 need a session that is up, and so a server in the same process. colibri's objects hold
+the server role too, so the harness c4milo/cocuyo#32 asks for can now be written. CL13 and QL8 need
+a HelloRetryRequest for P-256, the one draw after a handshake starts (c4milo/cocuyo#13).
+Twenty-three mutations, seventeen `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CL1 | `wipe` keeps the copy of the ticket | the resumption secret is zeroed | the ticket-zeroing test | CAUGHT |
+| CL2 | a server known by pins alone gets the context's anchors | RFC 8310 §6.3's SPKI + IP | every test that starts a session | CAUGHT |
+| CL3 | the hostname keeps its root label's dot | chapulin takes a hostname | the named-server tests | CAUGHT |
+| CL4 | the clock ignores the time since the context's | the chain is checked at the caller's time | the named-server test | CAUGHT |
+| CL5 | a named server with no anchors sends no name | its pins judge it, its name still sent | the named-and-pinned test | CAUGHT |
+| CL6 | the session enters no stream at its start | chapulin draws when a handshake starts | the hello test, by the hook's panic | CAUGHT |
+| CL7 | a refused flight's alert is dropped | RFC 9846 §6.2 | the refused-handshake test | CAUGHT |
+| CL8 | a flight that fills the staged octets is taken whole | the flight is staged whole | the full-staging test | CAUGHT |
+| CL9 | a query sealed in part is taken whole | the query goes whole | nothing: **a server in the process, c4milo/cocuyo#32** | NOT CAUGHT |
+| CL10 | a KeyUpdate's answer that cannot be staged is dropped | RFC 9846 §4.7.3 | nothing: **c4milo/cocuyo#32** | NOT CAUGHT |
+| CL11 | the peer's `close_notify` is taken for nothing | RFC 9846 §6.1 | nothing: **c4milo/cocuyo#32** | NOT CAUGHT |
+| CL12 | the alert a refused record raised is dropped | RFC 9846 §6.2 | nothing: **c4milo/cocuyo#32** | NOT CAUGHT |
+| CL13 | the handshake's records enter no stream | chapulin may draw during any call of the handshake | nothing: **c4milo/cocuyo#13** | NOT CAUGHT |
+| CL14 | `tls_records_out_bytes` down to 2,800, below 2,829 | the staging beside a sealed query | the build of `test-chapulin` | CAUGHT |
+| QL1 | the provider enters no stream at the transport parameters | chapulin draws when its session starts | the hello test, by the hook's panic | CAUGHT |
+| QL2 | a server known by pins alone gets the context's anchors | RFC 8310 §6.3's SPKI + IP | the pins-alone test | CAUGHT |
+| QL3 | the pins of a named server are not handed on | RFC 8310 §6.4, both must pass | the name-and-pins test | CAUGHT |
+| QL4 | the hostname keeps its root label's dot | chapulin takes a hostname | the name tests | CAUGHT |
+| QL5 | a named server with no anchors sends no name | its pins judge it, its name still sent | the named-and-pinned test | CAUGHT |
+| QL6 | `wipe` keeps the copy of the ticket | the resumption secret is zeroed | the ticket-zeroing test | CAUGHT |
+| QL7 | the clock ignores the time since the context's | the chain is checked at the caller's time | the clock test | CAUGHT |
+| QL8 | the provider enters no stream when handshake octets arrive | chapulin may draw on a HelloRetryRequest | nothing: **c4milo/cocuyo#13** | NOT CAUGHT |
+| QL9 | the session forgets it offered a ticket | a declined ticket is told from none | the ticket-zeroing test | CAUGHT |

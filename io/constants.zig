@@ -103,10 +103,18 @@ pub const tls_record_overhead_bytes = tls_record_header_bytes + 1 + 16;
 
 /// The sealed records a TLS connection holds before they go: what the session stages at once, a
 /// ClientHello at its longest among it, beside a query sealed at its longest. `io_chapulin.zig`
-/// holds it to that sum at compile time, against chapulin's own staging bound. What is left, more
-/// than a thousand octets today, holds the few of a KeyUpdate's answer and a `close_notify`. Past
-/// it the connection fails rather than hold more (§21, TLS rule 3).
+/// holds it to that sum at compile time. What is left, more than a thousand octets today, holds
+/// the few of a KeyUpdate's answer and a `close_notify`. Past it the connection fails rather than
+/// hold more (§21, TLS rule 3).
 pub const tls_records_out_bytes = 4096;
+
+/// The most chapulin's TLS client stages at once: a ClientHello at its longest, in its record.
+/// That is `REC_HDR + CH_TX_HELLO` for the TCP object colibri's `tls` builds, 5 + 2,396 + 20
+/// octets with the AES suites (chapulin's session.h at `157d2ac`, read, not measured). A retried
+/// hello, a Finished, a sealed query, a KeyUpdate's answer, an alert and a `close_notify` are
+/// shorter. `io_chapulin.zig` fails a handshake step whose flight fills it, since colibri does not
+/// name the bound (docs/design.md §16 decision 32).
+pub const chapulin_flight_bytes_max = 2421;
 
 /// The entries of the session's own records one queue holds at once beside its queries: the one
 /// in flight, and the one behind it, which every record made meanwhile joins (§21, TLS rule 2).
@@ -117,14 +125,6 @@ pub const tls_records_per_chunk_max = 32;
 
 /// A client MUST NOT use a ticket more than seven days after it was issued (RFC 9846 §4.7.1).
 pub const tls_ticket_age_ns_max = 7 * 24 * 60 * 60 * 1_000_000_000;
-
-/// The reads one record may take from chapulin's session: one for its plaintext and one to hear
-/// that no record follows, with room for plaintext longer than the frame's room.
-pub const chapulin_reads_per_record_max = 4;
-
-/// The staging a handshake step may drain from chapulin at once, in pieces of any size: a bound on
-/// the loop that collects it, far past a flight's records.
-pub const chapulin_out_pieces_max = 64;
 
 /// What one QUIC connection asks of the loop: its receive, and the send of its datagram
 /// (docs/design.md §24, request rules 1 and 8).

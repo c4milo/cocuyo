@@ -1,8 +1,8 @@
 #!/bin/sh
-# DNS over TLS, live (docs/design.md §21 step 6): the engine over rotor with chapulin's session
-# resolves through the public resolvers that serve DoT, and refuses what strict mode refuses. It
-# needs the network, and macOS: each resolver's root comes from the system root store. chapulin is
-# a dependency of the build, which fetches it the first time (build/dot.zig).
+# DNS over TLS, live (docs/design.md §21 step 6): the engine over rotor with chapulin's session in
+# colibri's `tls` resolves through the public resolvers that serve DoT, and refuses what strict mode
+# refuses. It needs the network, and macOS: each resolver's root comes from the system root store.
+# colibri is a dependency of the build, which fetches it the first time (build/dot.zig).
 #
 #     tools/dot_live/run.sh
 #

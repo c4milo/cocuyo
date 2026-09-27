@@ -152,16 +152,18 @@ The engine carries DNS over TLS, over QUIC and over HTTPS on HTTP/3. Each lookup
 failover and cache stay as they are over UDP; what changes is the connection a query goes on.
 
 - **DNS over TLS** (RFC 7858) goes over a TCP connection, with
-  [chapulin](https://github.com/c4milo/chapulin)'s TLS 1.3 as a session behind an interface of
+  [chapulin](https://github.com/c4milo/chapulin)'s TLS 1.3, through
+  [colibri](https://github.com/c4milo/colibri)'s `tls` module, as a session behind an interface of
   cocuyo's.
-- **DNS over QUIC** (RFC 9250) and **DNS over HTTPS on HTTP/3** (RFC 8484) go over
-  [colibri](https://github.com/c4milo/colibri)'s QUIC and HTTP/3, in the module `cocuyo_quic`, with
-  chapulin's QUIC mode as their TLS. A DoH server is named by its URI template.
+- **DNS over QUIC** (RFC 9250) and **DNS over HTTPS on HTTP/3** (RFC 8484) go over colibri's QUIC
+  and HTTP/3, in the module `cocuyo_quic`, with chapulin's QUIC mode, through colibri's `tls`, as
+  their TLS. A DoH server is named by its URI template.
 - Every server is authenticated, strictly (RFC 8310): by the name its certificate must carry, by
   SPKI pins of its key, or by both. A server that cannot be authenticated is not asked.
 - cocuyo's library depends on none of them. The engine speaks TLS through a session interface,
-  which this repository fills with chapulin's object, and QUIC through `cocuyo_quic`, whose `quic`
-  and `h3` imports a consumer that speaks DoQ or DoH binds to colibri's.
+  which this repository fills with chapulin's session in colibri's `tls`, and QUIC through
+  `cocuyo_quic`, whose `quic` and `h3` imports a consumer that speaks DoQ or DoH binds to
+  colibri's.
 
 They are checked every day against public resolvers: Google, Cloudflare and Quad9 over TLS,
 AdGuard and NextDNS over QUIC, Google and Cloudflare over HTTPS on HTTP/3. Each resolves twice,
@@ -359,8 +361,8 @@ that depends on cocuyo, and every unit test. Other steps:
 | `zig build example-threads-rotor` | Two engines on two threads, each on its own loop |
 | `zig build example-cleartext-rotor -- <name> <server>[:<port>] [udp \| tcp]` | Resolve over plain DNS through the engine |
 | `zig build example-dot-rotor -- ...` | Resolve over DNS over TLS |
-| `zig build example-doq-rotor -Dchapulin=<checkout> -- ...` | Resolve over DNS over QUIC |
-| `zig build example-doh-rotor -Dchapulin=<checkout> -- ...` | Resolve over DNS over HTTPS on HTTP/3 |
+| `zig build example-doq-rotor -- ...` | Resolve over DNS over QUIC |
+| `zig build example-doh-rotor -- ...` | Resolve over DNS over HTTPS on HTTP/3 |
 | `tools/dot_live/run.sh`, `tools/doq_live/run.sh`, `tools/doh_live/run.sh` | The live checks against public resolvers |
 | `tools/interop/run.sh` | Every transport against dnsproxy on the loopback |
 | `tools/dnslib/run.sh` | The codec against dnslib's reading of real responses |

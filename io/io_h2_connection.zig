@@ -16,7 +16,7 @@ const h2 = @import("h2");
 const doh = @import("doh");
 const constants = @import("io_h2_constants.zig");
 
-const tls = h2.tls;
+const tls = h2.tls_provider;
 const FieldSection = h2.http.FieldSection;
 
 /// One response in flight: the stream it answers, what its header section said, and its content

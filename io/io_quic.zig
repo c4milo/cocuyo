@@ -53,7 +53,7 @@ pub const Plain = struct {
     pub fn start(self: *Plain, context: anytype) error{Failed}!void {
         self.session = plain.Session.init(.client, context.alpn, false);
     }
-    pub fn provider(self: *Plain) quic.tls.QuicProvider {
+    pub fn provider(self: *Plain) quic.tls_provider.QuicProvider {
         return self.session.provider();
     }
     pub fn suite(self: *Plain) quic.crypto.Suite {

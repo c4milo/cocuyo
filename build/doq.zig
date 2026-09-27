@@ -1,17 +1,9 @@
-//! DNS over QUIC through colibri and chapulin (docs/design.md §24, chapulin under colibri), built
-//! only when `-Dchapulin` names a chapulin checkout that holds `bin/chapulin-quic-nonblocking.o`,
-//! made by
-//!
-//!     make RAND=extern TRUST=webpki TRANSPORT=quic-nonblocking lib && cp bin/chapulin.o bin/chapulin-quic-nonblocking.o
-//!
-//! beside the DoT object `build/dot.zig` names, and when colibri resolved. Its headers are read
-//! from the checkout in place. Without the option the build adds nothing, so neither the gate nor
-//! a consumer needs chapulin.
+//! DNS over QUIC and DoH on HTTP/3 through colibri (docs/design.md §24, chapulin under colibri):
+//! the session over colibri's `tls.quic.Client`, whose module carries chapulin's QUIC object (§16
+//! decision 32). colibri is a lazy dependency, so the build adds nothing until it is fetched, and
+//! neither the gate's library tests nor a consumer needs chapulin.
 const std = @import("std");
 const modules = @import("modules.zig");
-
-/// The object a checkout carries for this build, under its `bin/`.
-const object = "bin/chapulin-quic-nonblocking.o";
 
 /// `zig build test-chapulin-quic`, the session's own tests; and, where rotor resolved, `zig build
 /// example-doq-rotor` and `zig build example-doh-rotor`, lookups over DNS over QUIC and over DoH on
@@ -21,15 +13,13 @@ pub fn add(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     graph: modules.Graph,
-    checkout: ?[]const u8,
     rotor: ?*std.Build.Dependency,
     colibri: ?*std.Build.Dependency,
 ) void {
-    const path = checkout orelse return;
-    const quic = (colibri orelse return).module("quic");
-    const session = session_module(b, target, optimize, graph, path, quic);
+    const resolved = colibri orelse return;
+    const session = session_module(b, target, optimize, graph, resolved);
     const tests = b.addTest(.{ .name = "chapulin_quic", .root_module = session });
-    const step = b.step("test-chapulin-quic", "Run the DoQ session's tests over the -Dchapulin checkout");
+    const step = b.step("test-chapulin-quic", "Run the DoQ session's tests, over colibri's tls");
     step.dependOn(&b.addRunArtifact(tests).step);
     const dependency = rotor orelse return;
     const engine = b.createModule(.{ .root_source_file = b.path(modules.roots.io), .target = target, .optimize = optimize });
@@ -56,15 +46,14 @@ pub fn add(
     doh.dependOn(&run.step);
 }
 
-/// chapulin's QUIC session: `io/io_chapulin_quic.zig`, the checkout's headers and its object, and
-/// libc, which chapulin's object needs.
+/// chapulin's QUIC session: `io/io_chapulin_quic.zig` over colibri's `tls`, whose module carries
+/// the object, and libc, which the object needs.
 fn session_module(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     graph: modules.Graph,
-    checkout: []const u8,
-    quic: *std.Build.Module,
+    colibri: *std.Build.Dependency,
 ) *std.Build.Module {
     const module = b.createModule(.{
         .root_source_file = b.path("io/io_chapulin_quic.zig"),
@@ -73,10 +62,9 @@ fn session_module(
         .link_libc = true,
     });
     module.addImport("cocuyo", graph.cocuyo);
-    module.addImport("quic", quic);
+    module.addImport("quic", colibri.module("quic"));
+    module.addImport("tls", colibri.module("tls"));
     module.addImport("cocuyo_quic", graph.io_quic);
     module.addImport("chapulin_hooks", graph.chapulin_hooks);
-    module.addIncludePath(.{ .cwd_relative = checkout });
-    module.addObjectFile(.{ .cwd_relative = b.fmt("{s}/{s}", .{ checkout, object }) });
     return module;
 }

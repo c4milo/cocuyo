@@ -1,15 +1,15 @@
 # DNS over TLS, live (docs/design.md §21 step 6), once a day and on demand: `tools/dot_live/run.sh`
 # resolves through the public resolvers that serve DoT, resumes a ticket over a second connection,
 # and refuses what strict mode refuses. It runs on macOS, whose system root store the check reads
-# each resolver's root from, against chapulin at the commit build.zig.zon pins (build/dot.zig).
+# each resolver's root from, against colibri at the commit build.zig.zon pins (build/dot.zig).
 #
 # It is not a gate, because it depends on three public resolvers and the network. A failure here
 # can be a resolver changing what it does, as dns.google's refusal of a resumed hello without
 # signature schemes was (docs/design.md §21 step 6), or the network failing.
 #
-# Zig is pinned as ci.yml pins it. chapulin is a dependency the build fetches at the commit
-# build.zig.zon pins, checked by its hash, and its module carries the object the session links.
-# No third-party action runs here; `actions/checkout` is GitHub's own.
+# Zig is pinned as ci.yml pins it. colibri is a dependency the build fetches at the commit
+# build.zig.zon pins, checked by its hash, and its `tls` module carries chapulin's objects at the
+# commit colibri pins. No third-party action runs here; `actions/checkout` is GitHub's own.
 name: dot-live
 
 on:

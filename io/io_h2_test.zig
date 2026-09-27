@@ -273,7 +273,7 @@ test "a record the connection cannot open ends it" {
     try pair.start(.{}, null);
     try pair.exchange();
     var ping: [ping_frame_bytes]u8 = undefined;
-    _ = try h2.connection.frame_bytes(&ping, h2.constants.frame_type_ping, 0, 0, &@as([h2.constants.ping_len]u8, @splat(0)));
+    try write_ping(&ping);
     const sealed = try h2.connection_tls.encrypt(&pair.server.connection, &ping, &pair.wire, 0);
     pair.wire[0] ^= 1;
     try pair.client.receive(pair.wire[0..sealed.written], 0);
@@ -290,9 +290,14 @@ threadlocal var pings: [pings_per_record * ping_frame_bytes]u8 = undefined;
 
 /// Seven hundred PING frames, each a header and eight octets.
 fn fill_pings() !void {
-    for (0..pings_per_record) |index| {
-        _ = try h2.connection.frame_bytes(pings[index * ping_frame_bytes ..][0..ping_frame_bytes], h2.constants.frame_type_ping, 0, 0, &@as([h2.constants.ping_len]u8, @splat(0)));
-    }
+    for (0..pings_per_record) |index| try write_ping(pings[index * ping_frame_bytes ..][0..ping_frame_bytes]);
+}
+
+/// One PING frame, not an acknowledgement, with eight zero octets (RFC 9113 §6.7).
+fn write_ping(out: *[ping_frame_bytes]u8) !void {
+    var writer = h2.core.Writer.init(out);
+    try h2.frame.frame_control.write_ping(&writer, @splat(0), false);
+    try testing.expectEqual(out.len, writer.written().len);
 }
 
 test "frames that owe more than colibri holds are all read, what they owe written aside between them" {

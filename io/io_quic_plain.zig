@@ -13,7 +13,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
-const tls = quic.tls;
+const tls = quic.tls_provider;
 const crypto = quic.crypto;
 const suite_module = crypto.suite;
 

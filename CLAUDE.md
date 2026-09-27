@@ -229,31 +229,30 @@ The architecture depends on every rule in this section.
   the `tla-nightly` workflow checks them all once a day. `zig build tla -- <configuration>...`
   checks those alone, and `zig build tla -- walks <seed> <walks> <depth> [--pick <file>
   <walk>...]` writes the engine's walks instead.
-- DNS over TLS: the session runs over chapulin's Zig API, whose module the `chapulin` dependency
-  carries with its record-mode object (`build/dot.zig`). `zig build test-chapulin` runs the
+- DNS over TLS: the session runs over colibri's `tls.record.Client`, whose module carries
+  chapulin's record-mode object (`build/dot.zig`). `zig build test-chapulin` runs the
   session's tests and `zig build example-dot-rotor` resolves over DoT; `tools/dot_live/run.sh`
   runs the live check of design §21 step 6. Neither is in the gate. The `dot-live` workflow runs
   both once a day on macOS.
-- DNS over QUIC: `-Dchapulin=<checkout>` names a chapulin checkout holding
-  `bin/chapulin-quic-nonblocking.o`, as `build/doq.zig` says how to make it, until colibri's
-  library `tls` module carries chapulin's QUIC. With it, `zig build test-chapulin-quic` runs the
-  session's tests and `zig build example-doq-rotor` resolves over DoQ through colibri;
-  `tools/doq_live/run.sh <checkout>` runs the live check of design §24 step 4, against AdGuard
-  and NextDNS. The `doq-live` workflow runs both once a day on macOS.
-- Interop: `tools/interop/run.sh <checkout> <dnsproxy>` runs plain DNS over UDP and TCP, DoT, DoQ
+- DNS over QUIC: the session runs over colibri's `tls.quic.Client`, whose module carries
+  chapulin's QUIC object (`build/doq.zig`). `zig build test-chapulin-quic` runs the session's
+  tests and `zig build example-doq-rotor` resolves over DoQ through colibri;
+  `tools/doq_live/run.sh` runs the live check of design §24 step 4, against AdGuard and NextDNS.
+  The `doq-live` workflow runs both once a day on macOS.
+- Interop: `tools/interop/run.sh <dnsproxy>` runs plain DNS over UDP and TCP, DoT, DoQ
   and DoH on HTTP/3 against AdGuard's dnsproxy on the loopback, with certificates of its own and no
   network: names at once, resumption, the certificate checks and pins, and records beyond A, which
-  `tools/interop/zone.zig` serves as dnsproxy's upstream. The checkout holds the QUIC object.
-  The `interop` workflow runs it once a day on macOS.
+  `tools/interop/zone.zig` serves as dnsproxy's upstream. The `interop` workflow runs it once a
+  day on macOS.
 - Plain DNS through the engine: `zig build example-cleartext-rotor -- <name>[/TYPE][,...]
   <server>[:<port>] [udp | tcp]`, which the interop check drives.
 - dnslib: `tools/dnslib/run.sh` fetches dnslib's captured responses at a pinned commit and runs
   `zig build dnslib-check` over them, which compares the codec's reading of every record with
   dnslib's. It needs the network, so CI's `dnslib` job runs it and the gate runs only its tests.
-- DoH over HTTP/3: DoQ's checkout and object. `zig build example-doh-rotor` resolves over DoH
-  through colibri's HTTP/3, given a URI template where DoQ takes a name; `tools/doh_live/run.sh
-  <checkout>` runs the live check of design §24 step 5, against Google and Cloudflare. The
-  `doh-live` workflow runs both once a day on macOS.
+- DoH over HTTP/3: DoQ's session. `zig build example-doh-rotor` resolves over DoH through
+  colibri's HTTP/3, given a URI template where DoQ takes a name; `tools/doh_live/run.sh` runs the
+  live check of design §24 step 5, against Google and Cloudflare. The `doh-live` workflow runs
+  both once a day on macOS.
 - Coverage: `zig build coverage` runs every module's tests and the model replays' under kcov,
   which needs Linux, and writes `zig-out/coverage/`: a table, the README's badge and kcov's HTML,
   test code left out (`tools/coverage.zig`). It fails under the floor that file names. CI's

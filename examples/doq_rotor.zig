@@ -1,11 +1,11 @@
 //! Lookups over DNS over QUIC, or over DoH on HTTP/3: the engine of docs/design.md §19 step 13 on
 //! rotor's loop, carrying each query on a stream of colibri's QUIC (`cocuyo_quic`), with chapulin's
-//! QUIC object as its TLS (`io/io_chapulin_quic.zig`), strict as RFC 9250 §5.1 and RFC 8310 §5
-//! ask, and as HTTPS is (RFC 9110 §4.3.4).
+//! QUIC session in colibri's `tls` as its TLS (`io/io_chapulin_quic.zig`), strict as RFC 9250 §5.1
+//! and RFC 8310 §5 ask, and as HTTPS is (RFC 9110 §4.3.4).
 //!
-//!     zig build example-doq-rotor -Dchapulin=<checkout> -- \
+//!     zig build example-doq-rotor -- \
 //!         <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...
-//!     zig build example-doh-rotor -Dchapulin=<checkout> -- \
+//!     zig build example-doh-rotor -- \
 //!         <name>[,<name>...] <server address> <URI template> <root certificate>...
 //!
 //! for instance `example.com 94.140.14.14 dns.adguard-dns.com usertrust-ecc.der` over DoQ, or
@@ -48,8 +48,9 @@ const loop_options: rotor.Loop.Options = .{ .operations = Resolver.loop_operatio
 var loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment) = undefined;
 var engine: Resolver = undefined;
 
-/// The roots one run may trust: chapulin's bound on its anchors.
-const anchors_max = chapulin.c.CH_WEBPKI_ANCHOR_MAX;
+/// The roots one run may trust: chapulin's bound on its anchors, as colibri's configuration holds
+/// them.
+const anchors_max = chapulin.Session.anchors_max;
 /// The largest root certificate the example reads.
 const certificate_bytes_max = 8192;
 /// How long a lookup is given, in ticks of `tick_ns`, before the example gives up on it.
@@ -83,7 +84,7 @@ pub fn main(init: std.process.Init) !void {
         .{ .endpoint = .{ .address = at.address }, .quic = quic }};
     const config: cocuyo.Config = .{ .servers = &servers, .search = &.{} };
 
-    var anchors: [anchors_max]chapulin.c.ch_trust_anchor = undefined;
+    var anchors: [anchors_max]chapulin.Session.Anchor = undefined;
     const roots = arguments[4..];
     if (roots.len > anchors_max) return error.TooManyRoots;
     for (roots, 0..) |path, index| {
@@ -183,7 +184,7 @@ fn handshake() []const u8 {
         if (connection.state != .up) continue;
         const session = &connection.transport.session;
         if (session.resumed()) return "resumed";
-        if (session.config.resumption != 0) return "in full, its ticket declined";
+        if (session.offered) return "in full, its ticket declined";
         return "in full";
     }
     return "not seen: no connection is up";
@@ -218,9 +219,9 @@ fn known_by(text: []const u8, pins: *[cocuyo.constants.spki_pins_max]cocuyo.Pin)
 }
 
 /// A root certificate's subject Name and SubjectPublicKeyInfo, each a whole DER TLV, which is
-/// what chapulin's anchor carries (its webpki_cfg.h). The walk reads RFC 5280 §4.1's fields in
+/// what colibri's anchor carries (its values.zig), as chapulin's does (its webpki_cfg.h). The walk reads RFC 5280 §4.1's fields in
 /// order: the version, the serial, the signature, the issuer, the validity, the subject, the key.
-fn anchor_of(der: []const u8) !chapulin.c.ch_trust_anchor {
+fn anchor_of(der: []const u8) !chapulin.Session.Anchor {
     const certificate = try tlv(der);
     var fields = (try tlv(certificate.contents)).contents;
     var field = try tlv(fields);
@@ -237,7 +238,7 @@ fn anchor_of(der: []const u8) !chapulin.c.ch_trust_anchor {
     const subject = field.whole;
     fields = fields[field.whole.len..];
     const key = (try tlv(fields)).whole;
-    return .{ .name = subject.ptr, .name_len = subject.len, .spki = key.ptr, .spki_len = key.len };
+    return .{ .subject = subject, .spki = key };
 }
 
 const Tlv = struct { tag: u8, whole: []const u8, contents: []const u8 };

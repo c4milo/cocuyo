@@ -2,7 +2,7 @@
 //! (docs/design.md §24, DoH over HTTP/2, New limits). A module of its own, so its limits live apart
 //! from the engine's `constants.zig`; the ones both HTTP transports share are `doh`'s.
 const h2 = @import("h2");
-const tls = h2.tls;
+const tls = h2.tls_provider;
 
 /// What one output holds: a record at its longest, header and all, which is the least colibri's
 /// provider writes a handshake flight into (`tls.constants.record_write_len_min`).

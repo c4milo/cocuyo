@@ -80,7 +80,7 @@ pub const Server = struct {
 
     pub fn init(self: *Server, script: Script) void {
         self.* = .{ .script = script };
-        self.session = plain.Session.server(h2.tls.constants.alpn_h2[0..], script.tickets, script.other_protocol);
+        self.session = plain.Session.server(h2.tls_provider.constants.alpn_h2[0..], script.tickets, script.other_protocol);
         self.connection.init(.server);
     }
 

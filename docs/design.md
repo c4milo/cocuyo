@@ -3075,7 +3075,11 @@ the engine's send and held buffers, per slot.
    reads whether a handshake resumed from chapulin's `psk_selected`. TLS rule 8's reconnect stays,
    for a resumed handshake that fails some other way. Since the same day the check runs once a
    day on macOS in CI's `dot-live` workflow, against chapulin at a pinned commit. It is not a
-   gate: a failure there can be a resolver changing what it does, as Google's refusal was.
+   gate: a failure there can be a resolver changing what it does, as Google's refusal was. On
+   2026-09-27 it passed over colibri's `tls.record.Client` at colibri `a6a4791` (§16 decision
+   32): all three resolvers resolved and resumed, read AAAA, MX, TXT and HTTPS records, and refused
+   a name the certificate does not carry and a root the chain does not end at, and Cloudflare, known
+   by its leaf key alone, resolved and resumed as well.
 
 Checks, one for each piece:
 
@@ -3997,7 +4001,11 @@ length. So the walks' short sends and ended receives reach the engine as the mod
    AdGuard and NextDNS each answered two names over DoQ, the second over a connection that
    resumed with the first one's ticket, and a name the certificate does not carry and a root the
    chain does not end at each ended in `AllServersFailed` (`tools/doq_live/run.sh`, and the
-   `doq-live` workflow once a day). Both chains end at USERTrust ECC Certification Authority.
+   `doq-live` workflow once a day). Both chains end at USERTrust ECC Certification Authority. On
+   2026-09-27 the session moved onto colibri's `tls.quic.Client` at colibri `a6a4791` (decision
+   32), and the check passed again: both resolvers resolved and resumed, read AAAA, MX, TXT and
+   HTTPS records, and refused what strict mode refuses, and AdGuard, known by its leaf key alone,
+   resolved and resumed as well.
 5. DoH over HTTP/3, with a live check against Cloudflare and Google. Done 2026-09-25. The engine
    reads a server's template for the port, the name and the path (docs/mutations.md UT1 to UT23),
    and speaks DoH on the twin (DE1 to DE8). `cocuyo_quic` reads a response's `Age` and media type
@@ -4007,7 +4015,8 @@ length. So the walks' short sends and ended receives reach the engine as the mod
    Google and Cloudflare each answered two names over DoH on HTTP/3, the second over a connection
    that resumed with the first one's ticket, and a template whose host the certificate does not
    carry and a root the chain does not end at each ended in `AllServersFailed`
-   (`tools/doh_live/run.sh`, and the `doh-live` workflow once a day).
+   (`tools/doh_live/run.sh`, and the `doh-live` workflow once a day). On 2026-09-27 it passed
+   again over colibri's `tls.quic.Client` at colibri `a6a4791` (decision 32).
 6. Two engines on two threads of one image, each on its own loop, resolving at once. Done
    2026-09-25. On the twin, two threads with one `Config` resolve the same names at once, and
    each takes every answer from its own servers. Over rotor, the two engines each took four of

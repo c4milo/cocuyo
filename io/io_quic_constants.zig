@@ -72,17 +72,7 @@ pub const server_id_octet = 0x5e;
 pub const server_prefix_bytes_max = 512;
 pub const server_length_digits_max = 20;
 
-/// The longest transport parameters a server may send that a session keeps (RFC 9000 §18): four
-/// times what this end sends, as colibri's own chapulin adapter keeps. Chosen, not measured; a
-/// longer body is dropped, and the handshake fails for want of it.
-pub const peer_params_bytes_max = 1024;
-
 /// A second and a millisecond, in nanoseconds: chapulin's clock is Unix seconds, and a resumed
 /// hello states a ticket's age in milliseconds (RFC 9846 §4.3.11.1).
 pub const ns_per_second = 1_000_000_000;
 pub const ns_per_millisecond = 1_000_000;
-
-/// chapulin's QUIC session keeps two bits for each level in `levels_ready`, read then write: its
-/// quic.h, `CH_QUIC_LEVEL_BIT`, whose macro translate-c cannot call with values known only at run
-/// time.
-pub const chapulin_bits_per_level = 2;

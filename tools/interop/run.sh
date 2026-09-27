@@ -2,15 +2,13 @@
 # Every transport the engine speaks, against an independent server on the loopback
 # (c4milo/cocuyo#16, #20 and #21): the engine over rotor against AdGuard's dnsproxy, over plain DNS
 # on UDP and on TCP, whose DNS is miekg/dns, over DoT, whose TLS is Go's, and over DoQ and DoH on
-# HTTP/3, whose QUIC and HTTP/3 are quic-go's. The encrypted transports run over chapulin, and DoQ
-# and DoH over colibri's QUIC and HTTP/3. It needs a chapulin checkout holding
-# bin/chapulin-quic-nonblocking.o (build/doq.zig says how to make it), which DoQ and DoH link until
-# colibri's library `tls` module carries chapulin, a dnsproxy binary, and openssl. DoT takes
-# chapulin as a dependency of the build (build/dot.zig). It needs no network: the
+# HTTP/3, whose QUIC and HTTP/3 are quic-go's. The encrypted transports run over chapulin in
+# colibri's `tls`, and DoQ and DoH over colibri's QUIC and HTTP/3; colibri is a dependency of the
+# build (build/dot.zig, build/doq.zig). It needs a dnsproxy binary and openssl, and no network: the
 # certificates are made here, dnsproxy answers addresses from a hosts file, and every other type
 # from tools/interop/zone.zig, its upstream on the loopback.
 #
-#     tools/interop/run.sh <chapulin checkout> <dnsproxy>
+#     tools/interop/run.sh <dnsproxy>
 #
 # Over each transport, three names must resolve at once, and a fourth after them. Over UDP each
 # query goes on a datagram of its own, and over TCP, DoT, DoQ and DoH each on the one connection
@@ -24,8 +22,7 @@
 # dnsproxy's own log must show the queries came over the transport asked for, and not the other.
 set -eu
 
-checkout=${1:?usage: tools/interop/run.sh <chapulin checkout> <dnsproxy>}
-dnsproxy=${2:?usage: tools/interop/run.sh <chapulin checkout> <dnsproxy>}
+dnsproxy=${1:?usage: tools/interop/run.sh <dnsproxy>}
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 out=$(mktemp -d)
@@ -74,7 +71,7 @@ done
 lookup() {
     step=$1
     shift
-    (cd "$root" && zig build -Dchapulin="$checkout" "$step" -- "$@" 2>&1)
+    (cd "$root" && zig build "$step" -- "$@" 2>&1)
 }
 
 failures=0

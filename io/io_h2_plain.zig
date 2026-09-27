@@ -15,7 +15,7 @@
 //! check nothing (§5.2). A server that keeps tickets sends one once the handshake has ended.
 const std = @import("std");
 const assert = std.debug.assert;
-const tls = @import("h2").tls;
+const tls = @import("h2").tls_provider;
 
 pub const Role = enum { client, server };
 

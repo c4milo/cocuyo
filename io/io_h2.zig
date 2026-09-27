@@ -36,7 +36,7 @@ pub const Plain = struct {
     pub fn start(self: *Plain, context: anytype) error{Failed}!void {
         self.session = plain.Session.client(context.alpn, context.ticket != null);
     }
-    pub fn provider(self: *Plain) h2.tls.Provider {
+    pub fn provider(self: *Plain) h2.tls_provider.Provider {
         return self.session.provider();
     }
     pub fn take_ticket(self: *Plain) ?Ticket {

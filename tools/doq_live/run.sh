@@ -1,11 +1,11 @@
 #!/bin/sh
 # DNS over QUIC, live (docs/design.md §24 step 4): the engine over rotor, carrying each query on a
-# stream of colibri's QUIC with chapulin's QUIC object as its TLS, resolves through the public
-# resolvers that serve DoQ, and refuses what strict mode refuses. It needs a chapulin checkout with
-# bin/chapulin-quic-nonblocking.o (build/doq.zig says how to make it), the network, and macOS:
-# each resolver's root comes from the system root store.
+# stream of colibri's QUIC with chapulin's QUIC session in colibri's `tls` as its TLS, resolves
+# through the public resolvers that serve DoQ, and refuses what strict mode refuses. It needs the
+# network, and macOS: each resolver's root comes from the system root store. colibri is a
+# dependency of the build, which fetches it the first time (build/doq.zig).
 #
-#     tools/doq_live/run.sh <chapulin checkout>
+#     tools/doq_live/run.sh
 #
 # Two names must resolve through each resolver: the first over a full handshake, the second once
 # the first connection has closed idle, over a connection that spends the ticket the first one
@@ -18,7 +18,6 @@
 # answer each with records of that type.
 set -eu
 
-checkout=${1:?usage: tools/doq_live/run.sh <chapulin checkout>}
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 out=$(mktemp -d)
@@ -35,7 +34,7 @@ root_der "ISRG Root X1" unrelated
 lookup_names() {
     names=$1
     shift
-    (cd "$root" && zig build -Dchapulin="$checkout" example-doq-rotor -- "$names" "$@" 2>&1)
+    (cd "$root" && zig build example-doq-rotor -- "$names" "$@" 2>&1)
 }
 lookup() {
     lookup_names example.com,example.org "$@"

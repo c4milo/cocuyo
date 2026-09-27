@@ -1,11 +1,11 @@
 #!/bin/sh
 # DoH over HTTP/3, live (docs/design.md §24 step 5): the engine over rotor, carrying each query as
-# a GET on a stream of colibri's HTTP/3 with chapulin's QUIC object as its TLS, resolves through
-# the public resolvers that serve DoH on HTTP/3, and refuses what HTTPS refuses. It needs a
-# chapulin checkout with bin/chapulin-quic-nonblocking.o (build/doq.zig says how to make it), the
-# network, and macOS: each resolver's root comes from the system root store.
+# a GET on a stream of colibri's HTTP/3 with chapulin's QUIC session in colibri's `tls` as its TLS,
+# resolves through the public resolvers that serve DoH on HTTP/3, and refuses what HTTPS refuses.
+# It needs the network, and macOS: each resolver's root comes from the system root store. colibri
+# is a dependency of the build, which fetches it the first time (build/doq.zig).
 #
-#     tools/doh_live/run.sh <chapulin checkout>
+#     tools/doh_live/run.sh
 #
 # Two names must resolve through each resolver: the first over a full handshake, the second once
 # the first connection has closed idle, over a connection that spends the ticket the first one
@@ -18,7 +18,6 @@
 # that type.
 set -eu
 
-checkout=${1:?usage: tools/doh_live/run.sh <chapulin checkout>}
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 out=$(mktemp -d)
@@ -36,7 +35,7 @@ root_der "ISRG Root X1" unrelated
 lookup_names() {
     names=$1
     shift
-    (cd "$root" && zig build -Dchapulin="$checkout" example-doh-rotor -- "$names" "$@" 2>&1)
+    (cd "$root" && zig build example-doh-rotor -- "$names" "$@" 2>&1)
 }
 lookup() {
     lookup_names example.com,example.org "$@"
