@@ -192,6 +192,7 @@ fn shake(self: anytype, at: u8, record: []u8, now_ns: u64) bool {
 fn open(self: anytype, at: u8, record: []u8, now_ns: u64) bool {
     const connection = &self.connections[at];
     const opened = connection.tls.session.open(record, connection.frame[connection.used..]) catch {
+        // "If the decryption fails, the receiver MUST terminate the connection" (RFC 9846 §5.2).
         tcp.fail(self, at, now_ns);
         return false;
     };

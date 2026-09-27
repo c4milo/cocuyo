@@ -2585,3 +2585,20 @@ in `main`, which no test runs. Two mutations, two `CAUGHT`.
 | --- | --- | --- | --- | --- |
 | CV4 | an area with no line counted is read as run | a report that read nothing is refused | the total test | CAUGHT |
 | CV5 | the twin's lines count in the total | the twin stays out of the total | the total test | CAUGHT |
+
+## The TLS session's failures
+
+2026-09-26. Line coverage showed the engine's answers to a failing session unrun: a session that
+cannot start, a query it cannot seal, a record it refuses, and the peer's close. The twin's session
+does none of these, so a test wraps it in one that fails where the test says, and requires the
+lookup to fail over before the first server's wait ends. A record the session refuses is what a
+forged one gets, and it ends the connection (RFC 9846 §5.2). Each mutation was run against `zig
+build test-io` and `zig build test-tools` before the test, and against `test-io` after. Four
+mutations, four unseen by both before, four `CAUGHT`.
+
+| # | Mutation | Before | After | Status |
+| --- | --- | --- | --- | --- |
+| TL1 | a session that cannot start leaves the connection handshaking | unseen | the failing-session test | CAUGHT |
+| TL2 | a record the session refuses leaves the connection up | unseen | the failing-session test | CAUGHT |
+| TL3 | the peer's close leaves the connection up | unseen | the failing-session test | CAUGHT |
+| TL4 | a query the session cannot seal leaves the connection up | unseen | the failing-session test | CAUGHT |
