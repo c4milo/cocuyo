@@ -436,6 +436,7 @@ test "the hash is keyed: two seeds land one name in two places" {
 }
 
 test {
+    _ = @import("cache_kinds_test.zig");
     _ = @import("cache_probe_test.zig");
     _ = @import("cache_ttl_test.zig");
 }

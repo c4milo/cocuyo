@@ -2555,3 +2555,18 @@ TQ2 is SQ5 and TQ3 is SQ7, measured again. Five mutations, five `CAUGHT`.
 | TQ3 | a closed connection keeps its waiting queries' buffers lent | unseen | the failed-send twin test | the committed walks | CAUGHT |
 | TQ4 | a closed connection takes back the buffer of the send in flight | unseen | the mid-send twin test | the committed walks | CAUGHT |
 | TQ5 | a send's event for a connection that is gone keeps its buffer lent | unseen | the mid-send twin test | the committed walks | CAUGHT |
+
+## Answers the cache copies
+
+2026-09-26. A put copies only the storage an answer's type uses (`wire.Answers.assign`). No test
+in the gate put a PTR answer or a record-type one and read it back, and line coverage showed both
+branches of the copy unrun. RA1 to RA4 break the copy. Each was run against `zig build test`
+before `src/cache/cache_kinds_test.zig` existed, and against `zig build test-cache` after. Four
+mutations, four unseen before, four `CAUGHT`.
+
+| # | Mutation | Before | After | Status |
+| --- | --- | --- | --- | --- |
+| RA1 | a PTR answer's name is not copied | unseen | the PTR round trip | CAUGHT |
+| RA2 | a record answer's rdata is not copied | unseen | the MX round trip | CAUGHT |
+| RA3 | a record answer's references are not copied | unseen | the MX round trip, by the `Records.at` assertion | CAUGHT |
+| RA4 | a record answer's octets in use are not carried over | unseen | the MX round trip, by the `Records.at` assertion | CAUGHT |
