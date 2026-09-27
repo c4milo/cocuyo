@@ -198,4 +198,3 @@ test {
     _ = text;
     _ = record_check;
 }
-
