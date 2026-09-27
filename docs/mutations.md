@@ -2798,9 +2798,13 @@ against `zig build test-chapulin`, QL1 to QL9 the DoQ session against `zig build
 AdGuard and NextDNS over DoQ, and Google and Cloudflare over DoH on HTTP/3 passed the same day, and
 so did the interop check against dnsproxy.
 
-CL9 to CL12 need a session that is up, and so a server in the same process. colibri's objects hold
-the server role too, so the harness c4milo/cocuyo#32 asks for can now be written. CL13 and QL8 need
-a HelloRetryRequest for P-256, the one draw after a handshake starts (c4milo/cocuyo#13).
+CL9 to CL12 need a session that is up. CL9 needs a server whose `record_size_limit` holds less
+than a query, and CL10 one that sends a KeyUpdate, and colibri's server does neither. CL11, and
+CL12, which is AL5's check over colibri's calls, need only a server in the same process, which
+colibri's objects hold. The owner ruled on 2026-09-27 that such a test is not worth its fixtures
+(c4milo/cocuyo#32, closed): the TCP close that follows a `close_notify` fails the connection
+anyway, and RFC 9846 §6.2 asks for the alert with a SHOULD. CL13 and QL8 need a HelloRetryRequest
+for P-256, the one draw after a handshake starts (c4milo/cocuyo#13).
 Twenty-three mutations, seventeen `CAUGHT`.
 
 | # | Mutation | Check it breaks | Caught by | Status |
@@ -2813,10 +2817,10 @@ Twenty-three mutations, seventeen `CAUGHT`.
 | CL6 | the session enters no stream at its start | chapulin draws when a handshake starts | the hello test, by the hook's panic | CAUGHT |
 | CL7 | a refused flight's alert is dropped | RFC 9846 §6.2 | the refused-handshake test | CAUGHT |
 | CL8 | a flight that fills the staged octets is taken whole | the flight is staged whole | the full-staging test | CAUGHT |
-| CL9 | a query sealed in part is taken whole | the query goes whole | nothing: **a server in the process, c4milo/cocuyo#32** | NOT CAUGHT |
-| CL10 | a KeyUpdate's answer that cannot be staged is dropped | RFC 9846 §4.7.3 | nothing: **c4milo/cocuyo#32** | NOT CAUGHT |
-| CL11 | the peer's `close_notify` is taken for nothing | RFC 9846 §6.1 | nothing: **c4milo/cocuyo#32** | NOT CAUGHT |
-| CL12 | the alert a refused record raised is dropped | RFC 9846 §6.2 | nothing: **c4milo/cocuyo#32** | NOT CAUGHT |
+| CL9 | a query sealed in part is taken whole | the query goes whole | nothing: **a server whose `record_size_limit` holds less than a query** | NOT CAUGHT |
+| CL10 | a KeyUpdate's answer that cannot be staged is dropped | RFC 9846 §4.7.3 | nothing: **a server that sends a KeyUpdate** | NOT CAUGHT |
+| CL11 | the peer's `close_notify` is taken for nothing | RFC 9846 §6.1 | nothing: **by the owner's ruling, c4milo/cocuyo#32** | NOT CAUGHT |
+| CL12 | the alert a refused record raised is dropped | RFC 9846 §6.2 | nothing: **by the owner's ruling, c4milo/cocuyo#32** | NOT CAUGHT |
 | CL13 | the handshake's records enter no stream | chapulin may draw during any call of the handshake | nothing: **c4milo/cocuyo#13** | NOT CAUGHT |
 | CL14 | `tls_records_out_bytes` down to 2,800, below 2,829 | the staging beside a sealed query | the build of `test-chapulin` | CAUGHT |
 | QL1 | the provider enters no stream at the transport parameters | chapulin draws when its session starts | the hello test, by the hook's panic | CAUGHT |
