@@ -158,14 +158,14 @@ pub fn build(b: *std.Build) void {
     examples.add(b, graph, target, optimize, test_step, rotor, sanitize_thread);
     bench.add(b, target, test_step, tool_test_step, rotor, sanitize_thread);
     const tla_tool = b.addExecutable(.{ .name = "tla", .root_module = tool_module(b, pepegrillo, "tools/tla.zig") });
-    spec.add(b, target, test_step, tool_test_step, b.addExecutable(.{
+    const replays = spec.add(b, target, test_step, tool_test_step, b.addExecutable(.{
         .name = "lean",
         .root_module = tool_module(b, pepegrillo, "tools/lean.zig"),
     }), tla_tool);
     dot.add(b, target, optimize, graph, chapulin, rotor);
     const colibri = b.lazyDependency("colibri", .{ .target = target, .release = release });
     quic.add(b, graph, colibri, test_step);
-    add_coverage(b, &unit_test_modules, graph, colibri != null);
+    add_coverage(b, &(unit_test_modules ++ replays), graph, colibri != null);
     doq.add(b, target, optimize, graph, chapulin, rotor, colibri);
     dnslib.add(b, target, graph, test_step, tool_test_step);
     fuzz.add(b, target, graph, test_step, tool_test_step);
@@ -181,8 +181,8 @@ pub fn build(b: *std.Build) void {
     }).step);
 }
 
-/// `zig build coverage`: every module's tests the gate runs, colibri's two where the build resolved
-/// it, under kcov (build/coverage.zig).
+/// `zig build coverage`: every module's tests the gate runs, the model replays' among them,
+/// colibri's two where the build resolved it, under kcov (build/coverage.zig).
 fn add_coverage(b: *std.Build, entries: []const coverage.Tests, graph: modules.Graph, with_colibri: bool) void {
     var covered: std.ArrayList(coverage.Tests) = .empty;
     covered.appendSlice(b.allocator, entries) catch @panic("OOM");

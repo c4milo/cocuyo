@@ -1193,10 +1193,12 @@ out reads back as itself, and an accepted pin encodes to the text it came from, 
 one spelling. A DoH template, which lives in the engine's `doh` module, has a seeded test of the
 same kind beside its splitter.
 
-Line coverage is measured by kcov over every module's tests (`zig build coverage`, since
-2026-09-26), with test code left out and `src/sim/`, the twin, apart. It measured 96.3% of the
-library's and the engine's 6,805 lines that day, on arm64 Linux in a container. A function nothing
-references has no code to count, so the figure says nothing of it.
+Line coverage is measured by kcov over every module's tests and the model replays' (`zig build
+coverage`, since 2026-09-26), with test code left out and `src/sim/`, the twin, apart. It measured
+96.3% of the library's and the engine's 6,805 lines that day, on arm64 Linux in a container, and
+96.9% once the replays and the tests the unrun lines asked for were in. A function nothing
+references has no code to count, so the figure says nothing of it. A report with a part of the
+tree that counted no line is refused: kcov's paths missed the tree, and the part did not all run.
 
 Each target's gate runs 4,096 seeds in `zig build test`, and prints the seed of a failure. `zig
 build fuzz -- [--text] --seed <hex>` runs one seed and prints what it built, and `zig build

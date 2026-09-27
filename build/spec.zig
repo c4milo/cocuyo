@@ -16,6 +16,7 @@
 //! is how a mutation of the engine is measured.
 const std = @import("std");
 const modules = @import("modules.zig");
+const coverage = @import("coverage.zig");
 
 /// The CNAME hops the model walks with. It must be core's `cname_hops_max`: the transcript's first
 /// line records it, and the replay refuses a transcript written for another.
@@ -31,6 +32,7 @@ const walk_gate_transcript = "tools/spec_replay/walk_gate.txt";
 const lookup_root = "tools/spec_replay/replay.zig";
 const engine_root = "tools/spec_replay/engine_replay.zig";
 const walk_root = "tools/spec_replay/walk_replay.zig";
+const replay_roots = [_][]const u8{ lookup_root, engine_root, walk_root };
 
 /// The engine walks `zig build spec` has TLC write (`tools/tla_walks.zig`): the seed, the walks
 /// per configuration, and the states in one walk, which is one more than its events.
@@ -42,6 +44,8 @@ const engine_gate_walks = .{ "1", "10", "41" };
 /// the short walks miss (docs/mutations.md, the engine replay on TLC's walks).
 const engine_picks = .{ "3", "50", "4024", "4080", "4110", "5710", "8046", "12011", "13182", "16005", "16070", "16900", "17842" };
 
+/// Returns the replays' tests the gate runs, which drive the lookup and the engine down the
+/// committed walks, for `zig build coverage` to run as well.
 pub fn add(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -49,13 +53,12 @@ pub fn add(
     tool_test_step: *std.Build.Step,
     lean_tool: *std.Build.Step.Compile,
     tla_tool: *std.Build.Step.Compile,
-) void {
+) [replay_roots.len]coverage.Tests {
     const debug_graph = modules.add_private(b, target, .Debug);
-    for ([_][]const u8{ lookup_root, engine_root, walk_root }) |root| {
-        const tests = b.addTest(.{
-            .name = std.fs.path.stem(root),
-            .root_module = replay_module(b, target, .Debug, debug_graph, root),
-        });
+    var replays: [replay_roots.len]coverage.Tests = undefined;
+    for (replay_roots, &replays) |root, *replay| {
+        replay.* = .{ .name = std.fs.path.stem(root), .module = replay_module(b, target, .Debug, debug_graph, root) };
+        const tests = b.addTest(.{ .name = replay.name, .root_module = replay.module });
         const run_tests = &b.addRunArtifact(tests).step;
         test_step.dependOn(run_tests);
         tool_test_step.dependOn(run_tests);
@@ -105,6 +108,7 @@ pub fn add(
     step.dependOn(lean_step);
     step.dependOn(add_engine(b, tla_tool, engine_exe));
     add_mutations(b);
+    return replays;
 }
 
 /// `zig build spec-engine`: the committed engine walks, the short ones and the picked ones,

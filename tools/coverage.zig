@@ -15,6 +15,7 @@
 //! Usage: `coverage <cobertura.xml> <repo root> <out dir>`, which writes `coverage.md` and
 //! `coverage.svg` into the out dir and prints the total.
 const std = @import("std");
+const assert = std.debug.assert;
 
 /// The parts of the tree the table has a row for, in the order it lists them.
 pub const areas = [_][]const u8{ "src/core", "src/wire", "src/resolver", "src/config", "src/cache", "io", "src/sim" };
@@ -123,6 +124,20 @@ pub fn area_of(relative: []const u8) ?usize {
     return null;
 }
 
+/// The library's and the engine's total, the twin left out. An area with no line counted is a
+/// report whose paths missed the tree, `<source>` leading somewhere else, and not an area that
+/// all ran: every area has code its tests reach. So it is refused rather than read as 100%.
+pub fn library_total(by_area: []const Tally) error{AreaUnread}!Tally {
+    assert(by_area.len == areas.len);
+    var total: Tally = .{};
+    for (areas, by_area) |area, tally| {
+        if (tally.total == 0) return error.AreaUnread;
+        if (!std.mem.eql(u8, area, machinery)) total.add(tally);
+    }
+    assert(total.total > 0);
+    return total;
+}
+
 const Row = struct { path: []const u8, tally: Tally };
 
 pub fn main(init: std.process.Init) !void {
@@ -148,10 +163,11 @@ pub fn main(init: std.process.Init) !void {
         const counted = !std.mem.eql(u8, areas[area], machinery);
         if (counted and tally.total > 0) try rows.append(arena, .{ .path = relative, .tally = tally });
     }
-    var total: Tally = .{};
-    for (areas, by_area) |area, tally| {
-        if (!std.mem.eql(u8, area, machinery)) total.add(tally);
-    }
+    const total = library_total(&by_area) catch {
+        for (areas, by_area) |area, tally| std.debug.print("coverage: {s}: {d} lines\n", .{ area, tally.total });
+        std.debug.print("coverage: kcov recorded no line of an area under {s}: its paths do not lead into the tree\n", .{root});
+        std.process.exit(1);
+    };
     var markdown: std.Io.Writer.Allocating = .init(arena);
     try write_markdown(&markdown.writer, &by_area, total, rows.items);
     var badge: std.Io.Writer.Allocating = .init(arena);
@@ -263,6 +279,15 @@ test "a path falls in its area, and the twin's lines stay out of the total" {
     try testing.expectEqual(@as(?usize, null), area_of("tools/fuzz.zig"));
     try testing.expectEqual(@as(?usize, null), area_of("src/corex/a.zig"));
     try testing.expectEqualStrings(machinery, areas[area_of("src/sim/sim.zig").?]);
+}
+
+test "the total leaves the twin out, and an area with no line counted is refused, not 100%" {
+    var by_area: [areas.len]Tally = @splat(.{ .covered = 1, .total = 2 });
+    by_area[area_of("src/sim/sim.zig").?] = .{ .covered = 0, .total = 50 };
+    const total = try library_total(&by_area);
+    try testing.expectEqual(Tally{ .covered = areas.len - 1, .total = 2 * (areas.len - 1) }, total);
+    by_area[area_of("io/io.zig").?] = .{};
+    try testing.expectError(error.AreaUnread, library_total(&by_area));
 }
 
 test "the badge says the figure, in the colour of its band" {

@@ -249,9 +249,10 @@ The architecture depends on every rule in this section.
   through colibri's HTTP/3, given a URI template where DoQ takes a name; `tools/doh_live/run.sh
   <checkout>` runs the live check of design §24 step 5, against Google and Cloudflare. The
   `doh-live` workflow runs both once a day on macOS.
-- Coverage: `zig build coverage` runs every module's tests under kcov, which needs Linux, and
-  writes `zig-out/coverage/`: a table, the README's badge and kcov's HTML, test code left out
-  (`tools/coverage.zig`). CI's `coverage` job runs it and pushes the badge to the `badges` branch.
+- Coverage: `zig build coverage` runs every module's tests and the model replays' under kcov,
+  which needs Linux, and writes `zig-out/coverage/`: a table, the README's badge and kcov's HTML,
+  test code left out (`tools/coverage.zig`). CI's `coverage` job runs it and pushes the badge to
+  the `badges` branch.
   `zig build coverage-binaries -Dtarget=<arch>-linux-gnu` installs the test binaries alone, for
   kcov in a Linux container on another host.
 - Fuzz: `zig build test` runs both fuzz targets' gates, the codec's (`src/wire/fuzz.zig`) and

@@ -2570,3 +2570,18 @@ mutations, four unseen before, four `CAUGHT`.
 | RA2 | a record answer's rdata is not copied | unseen | the MX round trip | CAUGHT |
 | RA3 | a record answer's references are not copied | unseen | the MX round trip, by the `Records.at` assertion | CAUGHT |
 | RA4 | a record answer's octets in use are not carried over | unseen | the MX round trip, by the `Records.at` assertion | CAUGHT |
+
+## The coverage report's total
+
+2026-09-26. A report whose `<source>` led outside the tree counted no line and said 100.0% of 0
+lines, which the badge would have shown. The total is now `library_total`, which refuses a report
+with an area that counted no line. `zig build coverage` runs the model replays' tests as well,
+since they drive the lookup and the engine down the committed walks. With them and the tests of
+the two sections above, it measured 96.9% of 6,805 lines the same day, on arm64 Linux in a
+container. CV4 and CV5 break the total, against `zig build test-tools`. Before, the total was summed
+in `main`, which no test runs. Two mutations, two `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CV4 | an area with no line counted is read as run | a report that read nothing is refused | the total test | CAUGHT |
+| CV5 | the twin's lines count in the total | the twin stays out of the total | the total test | CAUGHT |
