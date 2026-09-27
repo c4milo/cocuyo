@@ -418,7 +418,7 @@ test "a request's bytes outlive its answer, and colibri sends them again until t
 test "a connection colibri's server closes is closed, and the next lookup opens another" {
     // "An endpoint sends a CONNECTION_CLOSE frame ... to terminate the connection immediately"
     // (RFC 9000 §10.2), whenever it likes: the client does not charge it, and opens anew.
-    const world = try World.create(97, .{ .{}, .{} });
+    const world = try World.create(100, .{ .{}, .{} });
     defer world.free();
     _ = try world.rig.engine.start(question("a.example."), world.rig.loop.now());
     _ = try world.rig.until_result();
