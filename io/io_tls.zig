@@ -186,15 +186,17 @@ fn shake(self: anytype, at: u8, record: []u8, now_ns: u64) bool {
     return true;
 }
 
-/// A handshake the session refused, not resumed: every lookup on the connection is told and
-/// leaves it, and the session's fatal alert goes out before the connection closes, as an idle
-/// close's `close_notify` does (rules 4 and 5). "Whenever an implementation encounters a fatal
-/// error condition, it SHOULD send an appropriate fatal alert" (RFC 9846 §6.2). A session that
-/// staged no alert closes the connection at once.
+/// A handshake the session refused, not resumed, or a record it refused once up: every lookup on
+/// the connection is told and leaves it, its queries not yet sealed leave with their buffers, and
+/// the session's fatal alert goes out behind what is sealed before the connection closes, as an
+/// idle close's `close_notify` does (rules 4 and 5). "Whenever an implementation encounters a
+/// fatal error condition, it SHOULD send an appropriate fatal alert" (RFC 9846 §6.2). A session
+/// that staged no alert closes the connection once what is sealed has gone, or at once.
 fn refuse(self: anytype, at: u8, now_ns: u64) void {
     const connection = &self.connections[at];
-    assert(connection.state == .handshaking);
+    assert(connection.state == .handshaking or connection.state == .up);
     tcp.abandon(self, at, now_ns);
+    queue_module.drop_unsealed(self, at);
     connection.state = .closing;
     if (!make_records(self, at, now_ns)) return;
     if (connection.queue.count == 0) tcp.shut(self, at);
@@ -207,8 +209,9 @@ fn refuse(self: anytype, at: u8, now_ns: u64) void {
 fn open(self: anytype, at: u8, record: []u8, now_ns: u64) bool {
     const connection = &self.connections[at];
     const opened = connection.tls.session.open(record, connection.frame[connection.used..]) catch {
-        // "If the decryption fails, the receiver MUST terminate the connection" (RFC 9846 §5.2).
-        tcp.fail(self, at, now_ns);
+        // "If the decryption fails, the receiver MUST terminate the connection" (RFC 9846 §5.2),
+        // the session's alert said first (rule 4).
+        refuse(self, at, now_ns);
         return false;
     };
     if (connection.tls.session.take_ticket()) |ticket| keep(self, connection.server, ticket, now_ns);

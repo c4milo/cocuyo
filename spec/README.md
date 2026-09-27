@@ -314,17 +314,18 @@ walker's, its operations sorted:
 | UDP | 1 | 1 | 4, 1 | 115,774 | 12 |
 | TLS | 1 | 2 | 4, 1 | 26,769,958 | 4,897 |
 
-On 2026-09-27 a refused handshake started saying its alert before its connection closes (TLS rule
-4, c4milo/cocuyo#31), which added the states of a connection closing after a refusal. On the same
-Apple M1 Pro TLC counted 53,222 states at 2, 0, 327,294 at 2, 1 and 1,281,858 at 3, 0, where the
-table above has the counts before it, and the Lean walker, retired, counts none of the new ones.
+On 2026-09-27 a refusal started saying its alert before its connection closes, and a connection
+that is up could refuse a record (TLS rule 4, c4milo/cocuyo#31), which added the states of a
+connection closing after a refusal. On the same Apple M1 Pro TLC counted 68,678 states at 2, 0,
+413,862 at 2, 1 and 2,138,766 at 3, 0, where the table above has the counts before it, and
+1,687,238 for two slots at 2, 0. The Lean walker, retired, counts none of the new ones.
 
 TLC walked these 1.7 to 5.6 times slower than the Lean walker, the gap narrowing as the graph
 grows. It adds a fingerprint per state in place of the whole state, a queue on disk and worker
 threads, and it reports a shortest counterexample. The last row is not in `zig build tla`: it took 4.3 GB and ran on a machine busy with other
 work, beside the Lean walker's run of the same row. `tla/engine/mutants/` breaks the TLS rules the
-Lean model's mutations broke, TM1 to TM3 and R8a to R8d, rule 4's alert as R4a breaks it, and
-the stream's rule 9 as TQ1 breaks it (below). TLC must find each broken (docs/mutations.md).
+Lean model's mutations broke, TM1 to TM3 and R8a to R8d, rule 4's alert as R4a and R4b break
+it, and the stream's rule 9 as TQ1 breaks it (below). TLC must find each broken (docs/mutations.md).
 
 Every configuration above has one lookup. Two lookups are where queries wait behind each other on
 a stream (the stream's rule 9) and share a server's socket, so `zig build tla` checks four

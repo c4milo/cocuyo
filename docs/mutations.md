@@ -2749,3 +2749,36 @@ mutations of the refusal, six `CAUGHT`.
 | AL1 | the twin's session stages no alert for a handshake it refuses | RFC 9846 §6.2 | the twin's refusal test, and the engine's | CAUGHT |
 | AL2 | chapulin's session drops the alert chapulin staged | RFC 9846 §6.2 | the chapulin alert test | CAUGHT |
 | AL3 | the twin's server hears a fatal alert as a close | the alert is counted | the twin's refusal test | CAUGHT |
+
+## A record refused once up
+
+2026-09-27. A connection that is up may now refuse a record, which the model's walks reach through
+`TlsSteps`, and it fails as a refused handshake does, resumed or not: the server failed the lookups
+on it (docs/design.md §21, TLS rule 4; RFC 9846 §6.2; c4milo/cocuyo#31). Its queries not yet sealed
+leave the queue and give their buffers back, and what is sealed goes out ahead of the alert, whose
+sequence number follows theirs (§5.3). `decline forgiven` now reads a resumed handshake alone, as
+the step does, since a connection up may have resumed. TLC over the TLS configurations counted
+68,678, 413,862 and 2,138,766 states for one slot and 1,687,238 for two, and TLC's full run, 4,824,000
+events over 24,000 walks, replays against the engine. R4b keeps the unsealed queries queued, and
+TLC found `refusal said` and `queued for its lookup` broken on a trace of eight states.
+
+The engine's 83 mutations ran again against the new walks, and 78 were caught as they should be.
+ET4, ET10 and ET11 each lost the picked walk that caught it, and walk 16478 catches all three. The
+short walks miss ET17 and ET18, and walk 16008 catches both. Both walks joined the picks in
+`build/spec.zig`, and the five are caught by the picked walks since. TL2's line changed, and it was
+run again. AL5 is `NOT CAUGHT`: it needs a chapulin session that is up, and so a chapulin server in
+the same process, which the gate has not. chapulin's package ships neither its test certificates
+nor a server object, so the test waits on a harness of its own (c4milo/cocuyo#32). Nine
+mutations, eight `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| R4b | a refusal leaves the queries not yet sealed queued behind the alert | TLS rule 4 | `refusal said`, `queued for its lookup`, at depth 8 | CAUGHT |
+| ET17 | a record the session refuses once up closes the connection at once, its alert unsent | TLS rule 4 | the picked walks, walk 16008 | CAUGHT |
+| ET18 | a refusal leaves the queries not yet sealed queued behind the alert | TLS rule 4 | the picked walks, walk 16008 | CAUGHT |
+| ET4 | a declined ticket fails the connection | TLS rule 8 | the picked walks, walk 16478 | CAUGHT |
+| ET10 | a reopening connection takes its old opening's events | TLS rule 8 | the picked walks, walk 16478 | CAUGHT |
+| ET11 | a reopening connection connects while its old records are in flight | TLS rule 3 | the picked walks, walk 16478 | CAUGHT |
+| AL4 | the twin's session stages no alert for a record refused once up | RFC 9846 §6.2 | the twin's refusal-once-up test | CAUGHT |
+| TL2 | a record the session refuses leaves the connection up | RFC 9846 §5.2 | the failing-session test | CAUGHT |
+| AL5 | chapulin's session drops the alert a failed `read` wrote | RFC 9846 §6.2 | nothing in the gate | NOT CAUGHT |

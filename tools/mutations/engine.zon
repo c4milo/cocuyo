@@ -214,9 +214,27 @@
         .id = "ET16",
         .what = "a refused handshake's connection reads on, and never closes once its alert has gone",
         .edits = .{
-            .{ .file = "io/io_tls.zig", .old = "    tcp.abandon(self, at, now_ns);\n    connection.state = .closing;\n", .new = "    tcp.abandon(self, at, now_ns);\n" },
+            .{ .file = "io/io_tls.zig", .old = "    queue_module.drop_unsealed(self, at);\n    connection.state = .closing;\n", .new = "    queue_module.drop_unsealed(self, at);\n" },
         },
         .caught_by = .short_walks,
+    },
+    .{
+        .section = "The engine over TLS",
+        .id = "ET17",
+        .what = "a record the session refuses once up closes the connection at once, its alert unsent",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "        // the session's alert said first (rule 4).\n        refuse(self, at, now_ns);", .new = "        // the session's alert said first (rule 4).\n        tcp.fail(self, at, now_ns);" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "The engine over TLS",
+        .id = "ET18",
+        .what = "a refusal leaves the queries not yet sealed queued behind the alert",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "    tcp.abandon(self, at, now_ns);\n    queue_module.drop_unsealed(self, at);\n", .new = "    tcp.abandon(self, at, now_ns);\n" },
+        },
+        .caught_by = .picked_walks,
     },
     .{
         .section = "One send a stream",

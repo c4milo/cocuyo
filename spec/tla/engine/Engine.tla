@@ -119,20 +119,23 @@ ReopenedInFull(before, st) ==
 DeclineForgiven(before, e, st) ==
     ~(e.kind = "tls" /\ e.step = "failed") \/
     LET k == e.op.target IN
-    ~before.conns[k].resumed \/ before.jammed \/ before.starved \/
+    ~Resumed(before, k) \/ before.jammed \/ before.starved \/
     (st.failures = before.failures /\
      \A l \in 0..Slots - 1 : before.slots[l].conn # {k} \/ st.slots[l].conn = {k})
 
-\* A handshake the session refused, not resumed, leaves its connection saying the session's alert:
-\* closing, with no lookup on it and the session's records queued (TLS rule 4). A loop that refuses
-\* the send closes it at once instead.
+\* A handshake the session refused, not resumed, or a record it refused once up, leaves its
+\* connection saying the session's alert: closing, with no lookup on it, nothing queued but what is
+\* sealed, and the session's records among it (TLS rule 4). A loop that refuses the send closes it
+\* at once instead.
 RefusalSaid(before, e, st) ==
     ~(e.kind = "tls" /\ e.step = "failed") \/
-    LET k == e.op.target IN
-    before.conns[k].resumed \/ before.jammed \/ before.starved \/
-    (/\ st.conns[k].stage = "closing"
-     /\ \A l \in 0..Slots - 1 : st.slots[l].conn # {k}
-     /\ SelectSeq(st.conns[k].queue, LAMBDA x : x.kind = "records") # <<>>)
+    LET k == e.op.target
+        c == st.conns[k]
+    IN Resumed(before, k) \/ before.jammed \/ before.starved \/
+       (/\ c.stage = "closing"
+        /\ \A l \in 0..Slots - 1 : st.slots[l].conn # {k}
+        /\ c.sealed = Len(c.queue)
+        /\ SelectSeq(c.queue, LAMBDA x : x.kind = "records") # <<>>)
 
 \* The liveness of the receives is owed only after a drive that ran with nothing refused.
 Drove(before, e) ==

@@ -42,7 +42,7 @@ const engine_gate_walks = .{ "1", "10", "41" };
 /// The full run's walks the committed ones keep as well, by their place in the run, counted from 1
 /// in the configurations' order: each is where the full run caught a mutation of the engine that
 /// the short walks miss (docs/mutations.md, the engine replay on TLC's walks).
-const engine_picks = .{ "3", "50", "4024", "4080", "4110", "5710", "8046", "12011", "13182", "16006", "16070", "16900", "17842" };
+const engine_picks = .{ "3", "50", "4024", "4080", "4110", "5710", "8046", "12011", "13182", "16006", "16008", "16070", "16478", "16900", "17842" };
 
 /// Returns the replays' tests the gate runs, which drive the lookup and the engine down the
 /// committed walks, for `zig build coverage` to run as well.

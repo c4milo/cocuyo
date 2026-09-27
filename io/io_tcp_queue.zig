@@ -171,6 +171,21 @@ pub fn drop(self: anytype, at: u8, index: usize) void {
     send_module.give_back(self, index);
 }
 
+/// The connection says a fatal alert before it closes: every query not yet sealed leaves the queue
+/// and gives its buffer back, since nothing more may be sent (RFC 9846 §6.2). What is sealed stays,
+/// and goes out ahead of the alert, in the order it was sealed (§21, TLS rules 2 and 4).
+pub fn drop_unsealed(self: anytype, at: u8) void {
+    const connection = &self.connections[at];
+    assert(connection.queue.sealed <= connection.queue.count);
+    for (0..connection.queue.count - connection.queue.sealed) |_| {
+        const entry = connection.queue.at(connection.queue.count - 1);
+        assert(entry.is_query());
+        connection.queue.remove(entry.slot);
+        send_module.give_back(self, entry.slot);
+    }
+    assert(connection.queue.count == connection.queue.sealed);
+}
+
 /// The connection is closing: every query waiting in it that is not being sent gives its buffer
 /// back. The one in flight keeps its buffer until its send's final event.
 pub fn release_all(self: anytype, at: u8) void {

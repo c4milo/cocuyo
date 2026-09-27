@@ -148,6 +148,10 @@ ConnectEnded(st, op, ok) ==
        ELSE TellAll(ArmReceive([ended EXCEPT !.conns[k].stage = "up",
                                              !.conns[k].idleNow = TRUE], k), k, TRUE)
 
+\* Whether a failure on connection k is a resumed handshake's, which rule 8 opens again in full.
+\* One once up is the server's, resumed or not (TLS rule 4).
+Resumed(st, k) == st.conns[k].resumed /\ st.conns[k].stage = "handshaking"
+
 \* The session's step on what connection k received (TLS rules 1, 2, 4 and 8).
 TlsStep(st, k, t) ==
     IF st.conns[k].stage = "closing" THEN st
@@ -155,7 +159,7 @@ TlsStep(st, k, t) ==
     LET owing == IF t \in {"failed", "ticket"} THEN st ELSE [st EXCEPT !.conns[k].owes = TRUE] IN
     CASE t \in {"flight", "rekey"} -> MakeRecords(owing, k)
       [] t = "ticket" -> [owing EXCEPT !.tickets[owing.conns[k].server] = TRUE]
-      [] t = "failed" -> IF owing.conns[k].resumed THEN RetryFull(owing, k) ELSE Refuse(owing, k)
+      [] t = "failed" -> IF Resumed(owing, k) THEN RetryFull(owing, k) ELSE Refuse(owing, k)
       [] t = "done" ->
             LET answered == MakeRecords(owing, k) IN
             IF answered.conns[k].stage # "handshaking" THEN answered
@@ -275,7 +279,7 @@ Receives(op) == op.kind \in {"receive", "receiveFrom", "qrecv"}
 TlsSteps(st, op) ==
     IF ~(Tls /\ op.kind = "receive" /\ op.current) THEN {}
     ELSE CASE st.conns[op.target].stage = "handshaking" -> {"flight", "done", "failed"}
-           [] st.conns[op.target].stage = "up" -> {"rekey", "ticket"}
+           [] st.conns[op.target].stage = "up" -> {"rekey", "ticket", "failed"}
            \* A record after the close_notify, which is not read (TLS rule 5).
            [] st.conns[op.target].stage = "closing" -> {"rekey"}
            [] OTHER -> {}

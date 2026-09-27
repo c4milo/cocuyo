@@ -120,8 +120,8 @@ pub const Session = struct {
         }
     }
 
-    /// A handshake it cannot go on with: its fatal alert staged, for the engine to send before
-    /// it closes (RFC 9846 §6.2), and the session dead.
+    /// A handshake it cannot go on with, or a record it refuses once up: its fatal alert staged,
+    /// for the engine to send before it closes (RFC 9846 §6.2), and the session dead.
     fn refuse(self: *Session) Error {
         assert(self.out_len + header_bytes + constants.tls_alert_handshake_failure.len <= self.out.len);
         self.out_len += write_record(constants.tls_content_alert, &constants.tls_alert_handshake_failure, self.out[self.out_len..]);
@@ -138,11 +138,11 @@ pub const Session = struct {
     /// One whole record once up: what it held, into `plaintext` when it is data.
     pub fn open(self: *Session, record: []const u8, plaintext: []u8) Error!Opened {
         assert(self.state == .up);
-        if (record.len < header_bytes) return self.fail();
+        if (record.len < header_bytes) return self.refuse();
         switch (record[0]) {
             constants.tls_content_application => {
                 const payload = record[header_bytes..];
-                if (payload.len > plaintext.len) return self.fail();
+                if (payload.len > plaintext.len) return self.refuse();
                 @memcpy(plaintext[0..payload.len], payload);
                 return .{ .data = payload.len };
             },
@@ -155,11 +155,11 @@ pub const Session = struct {
     }
 
     fn post_handshake(self: *Session, record: []const u8) Error!Opened {
-        const step = step_of(record) orelse return self.fail();
+        const step = step_of(record) orelse return self.refuse();
         switch (step) {
             .rekey => self.make(.rekey_answer),
             .ticket => self.ticket = .{},
-            else => return self.fail(),
+            else => return self.refuse(),
         }
         return .nothing;
     }
@@ -278,6 +278,21 @@ test "a hello, a flight and the handshake's end, with a ticket after it" {
     try testing.expectEqual(Session.Opened.nothing, try session.open(step_record(.ticket, &record), &.{}));
     try testing.expect(session.take_ticket() != null);
     try testing.expect(session.take_ticket() == null);
+}
+
+test "a record refused once up fails the session and stages its fatal alert" {
+    var session: Session = .{};
+    try session.start(.{ .ticket = @as(?Session.Ticket, null) });
+    try testing.expectEqual(Step.hello, try take_step(&session));
+    var record: [constants.tls_out_bytes_max]u8 = undefined;
+    try testing.expectEqual(Session.Handshake.done, try session.handshake(step_record(.done, &record)));
+    try testing.expectEqual(Step.finished, try take_step(&session));
+    // A step no server sends once up, which the session refuses (RFC 9846 §6.2).
+    try testing.expectError(Session.Error.Failed, session.open(step_record(.refused, &record), &.{}));
+    var out: [constants.tls_out_bytes_max]u8 = undefined;
+    const made = session.take_out(&out);
+    try testing.expectEqual(@as(u8, constants.tls_content_alert), out[0]);
+    try testing.expectEqualSlices(u8, &constants.tls_alert_handshake_failure, out[header_bytes..made]);
 }
 
 test "a refused handshake fails and stages its fatal alert, and a resumed hello says it resumes" {

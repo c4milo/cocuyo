@@ -1,7 +1,7 @@
 ---------------------------- MODULE EngineMutants -----------------------------
 \* The engine's rules broken on purpose, one operator each: the TLS rules as docs/mutations.md's
-\* TM1 to TM3 and R8a to R8d broke the Lean model and R4a breaks rule 4's alert, the stream's rule
-\* 9 as TQ1 breaks it, and the request rules of §24 as RQ1 to RQ22 break them. A
+\* TM1 to TM3 and R8a to R8d broke the Lean model and R4a and R4b break rule 4's alert, the
+\* stream's rule 9 as TQ1 breaks it, and the request rules of §24 as RQ1 to RQ22 break them. A
 \* configuration in mutants/ puts one in place of the rule with TLC's `Rule <- Mutant`, and TLC
 \* must find the check that catches it.
 EXTENDS Engine
@@ -27,7 +27,7 @@ TlsStepUnsealed(st, k, t) ==
     LET owing == IF t \in {"failed", "ticket"} THEN st ELSE [st EXCEPT !.conns[k].owes = TRUE] IN
     CASE t \in {"flight", "rekey"} -> MakeRecords(owing, k)
       [] t = "ticket" -> [owing EXCEPT !.tickets[owing.conns[k].server] = TRUE]
-      [] t = "failed" -> IF owing.conns[k].resumed THEN RetryFull(owing, k) ELSE Refuse(owing, k)
+      [] t = "failed" -> IF Resumed(owing, k) THEN RetryFull(owing, k) ELSE Refuse(owing, k)
       [] t = "done" ->
             IF owing.conns[k].stage # "handshaking" THEN owing
             ELSE TellAll([owing EXCEPT !.conns[k].stage = "up"], k, TRUE)
@@ -39,7 +39,7 @@ TlsStepDeclineFails(st, k, t) ==
     LET owing == IF t \in {"failed", "ticket"} THEN st ELSE [st EXCEPT !.conns[k].owes = TRUE] IN
     CASE t \in {"flight", "rekey"} -> MakeRecords(owing, k)
       [] t = "ticket" -> [owing EXCEPT !.tickets[owing.conns[k].server] = TRUE]
-      [] t = "failed" -> IF owing.conns[k].resumed THEN FailConn(owing, k) ELSE Refuse(owing, k)
+      [] t = "failed" -> IF Resumed(owing, k) THEN FailConn(owing, k) ELSE Refuse(owing, k)
       [] t = "done" ->
             LET answered == MakeRecords(owing, k) IN
             IF answered.conns[k].stage # "handshaking" THEN answered
@@ -52,11 +52,19 @@ TlsStepRefuseAtOnce(st, k, t) ==
     LET owing == IF t \in {"failed", "ticket"} THEN st ELSE [st EXCEPT !.conns[k].owes = TRUE] IN
     CASE t \in {"flight", "rekey"} -> MakeRecords(owing, k)
       [] t = "ticket" -> [owing EXCEPT !.tickets[owing.conns[k].server] = TRUE]
-      [] t = "failed" -> IF owing.conns[k].resumed THEN RetryFull(owing, k) ELSE FailConn(owing, k)
+      [] t = "failed" -> IF Resumed(owing, k) THEN RetryFull(owing, k) ELSE FailConn(owing, k)
       [] t = "done" ->
             LET answered == MakeRecords(owing, k) IN
             IF answered.conns[k].stage # "handshaking" THEN answered
             ELSE TellAll([answered EXCEPT !.conns[k].stage = "up"], k, TRUE)
+
+\* R4b: a record refused once up leaves the queries not yet sealed queued behind the alert.
+RefuseKeepsUnsealed(st, k) ==
+    LET told == TellAll(st, k, FALSE)
+        sl == told.slots
+    IN MakeRecords([told EXCEPT !.slots = [l \in DOMAIN sl |->
+                                    IF sl[l].conn = {k} THEN [sl[l] EXCEPT !.conn = {}] ELSE sl[l]],
+                                !.conns[k].stage = "closing", !.conns[k].users = 0], k)
 
 \* R8b: a connection that resumes leaves its server's ticket kept.
 OpenConnKeepsTicket(st, v) ==

@@ -226,7 +226,12 @@ pub const Session = struct {
         var closed = false;
         var reads: usize = 0;
         while (reads < constants.chapulin_reads_per_record_max) : (reads += 1) {
-            const read = self.client.read(input, plaintext[total..], self.staged[self.staged_len..]) catch return self.fail();
+            const read = self.client.read(input, plaintext[total..], self.staged[self.staged_len..]) catch {
+                // chapulin wrote the fatal alert it chose into the reply, behind any answer it
+                // made (RFC 9846 §6.2): kept, for the engine to send before it closes.
+                self.staged_len += self.client.replyLen();
+                return self.fail();
+            };
             self.staged_len += read.reply_len;
             input = input[read.consumed..];
             total += read.pt_len;

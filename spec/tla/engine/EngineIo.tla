@@ -113,15 +113,20 @@ MakeRecords(st, k) ==
     ELSE Pump([st EXCEPT !.conns[k].queue = Take(@, c.sealed) \o <<Records>> \o Drop(@, c.sealed),
                          !.conns[k].sealed = @ + 1, !.conns[k].owes = FALSE], k)
 
-\* A handshake the session refused, not resumed: every lookup on the connection is told and leaves
-\* it, and the session's fatal alert is sealed; the connection closes once it has gone, as an idle
-\* one does after its close_notify (TLS rules 4 and 5, RFC 9846 §6.2).
+\* A handshake the session refused, not resumed, or a record it refused once up: every lookup on
+\* the connection is told and leaves it, its queries not yet sealed leave the queue with their
+\* buffers, and the session's fatal alert is sealed behind what is; the connection closes once it
+\* has gone, as an idle one does after its close_notify (TLS rules 4 and 5, RFC 9846 §6.2).
 Refuse(st, k) ==
     LET told == TellAll(st, k, FALSE)
         sl == told.slots
-    IN MakeRecords([told EXCEPT !.slots = [l \in DOMAIN sl |->
-                                    IF sl[l].conn = {k} THEN [sl[l] EXCEPT !.conn = {}] ELSE sl[l]],
-                                !.conns[k].stage = "closing", !.conns[k].users = 0], k)
+        c == told.conns[k]
+        freed == FreeBuffers(told, QuerySlots(Drop(c.queue, c.sealed)))
+    IN MakeRecords([freed EXCEPT !.slots = [l \in DOMAIN sl |->
+                                     IF sl[l].conn = {k} THEN [freed.slots[l] EXCEPT !.conn = {}]
+                                     ELSE freed.slots[l]],
+                                 !.conns[k].queue = Take(c.queue, c.sealed),
+                                 !.conns[k].stage = "closing", !.conns[k].users = 0], k)
 
 \* The query joins its connection's queue, lending its buffer from now (the stream's rule 9).
 SubmitStream(st, l, k) ==
