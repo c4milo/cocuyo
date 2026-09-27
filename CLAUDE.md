@@ -157,7 +157,10 @@ The architecture depends on every rule in this section.
   links or imports it. kcov is a ruled tool of the coverage job alone, approved by the owner on
   2026-09-26: CI builds a pinned release, checked by its SHA-256, and nothing links or imports it. dnslib's test responses are ruled data of the dnslib check alone,
   approved by the owner on 2026-09-26 (c4milo/cocuyo#22): `tools/dnslib/run.sh` fetches them at a
-  pinned commit and checks their tree id, and nothing builds, links or imports them.
+  pinned commit and checks their tree id, and nothing builds, links or imports them. chapulin
+  is a ruled dependency of the DoT and DoQ builds alone, approved by the owner on 2026-09-26
+  for when its Zig API lands (c4milo/cocuyo#30): `build.zig.zon` pins it by hash as a lazy
+  dependency, which only a DoT or DoQ build fetches, and nothing under `src/` imports it.
 - Weakening an assertion or a check to make a test pass.
 - Adding anything §1 puts out of scope: DNSSEC, mDNS, zone transfers, nsswitch, IDN, the
   platform resolver configuration of §14. DoT and DoH were decided in on 2026-09-23: DoT in the
