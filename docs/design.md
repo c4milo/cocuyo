@@ -2883,13 +2883,20 @@ code is.
 4. A handshake that fails fails the connection (the stream's rule 5): a record the session
    refuses, a certificate or a name that does not verify. No query was sent on it, and each
    lookup on it fails over to the next server. The server has refused the lookup, so one whose
-   passes run out ends in `AllServersFailed` (§16 decision 25).
+   passes run out ends in `AllServersFailed` (§16 decision 25). Since 2026-09-27 the connection
+   says the session's fatal alert before it closes, as RFC 9846 §6.2 asks (c4milo/cocuyo#31).
+   Its lookups hear the failure at once and leave it. The alert is sealed as rule 2 seals the
+   session's records, and the connection closes once it has gone, as rule 5's idle close does
+   after its `close_notify`. A session that staged no alert closes it at once. A resumed
+   handshake that fails is rule 8's.
 5. An idle connection that is up makes the session's `close_notify` (RFC 9846 §6.1). It closes
    when that record has gone, and no lookup joins it meanwhile. A record the peer sends
    meanwhile is not read: the session has said its last. One whose handshake has not
-   ended has no session to close, and closes at once. A connection that fails closes at once
-   too: a party that has sent an error alert owes no `close_notify` (§6.1), and one whose peer
-   has gone has nobody to send it to.
+   ended has no session to close, and closes at once. A connection that fails otherwise closes
+   at once too: one whose peer has gone has nobody to send anything to. A record the session
+   refuses once the connection is up closes it at once as well, its alert unsent, since the
+   model holds no such step yet (c4milo/cocuyo#31). A party that has sent an error alert owes
+   no `close_notify` (§6.1).
 6. A TLS connection is never closed to make room for another. A TLS configuration needs a slot
    for each of its servers, and the engine asserts it has them.
 7. Records received go to the session whole. The connection reads each record's length from
@@ -2917,7 +2924,8 @@ connection that is not up; and no event leaves the session owing an answer. The 
 mutation nothing caught without it (docs/mutations.md TM3). Three more hold rule 8: a connection
 that opens resuming spends its server's ticket; one opened again after a declined ticket
 handshakes in full; and a declined ticket counts no failure and keeps its lookups on the
-connection. The replay drives no TLS
+connection. Since 2026-09-27 one more holds rule 4's alert: a handshake the session refused, not
+resumed, leaves its connection closing, with no lookup on it and the session's records queued. The replay drives no TLS
 configuration until step 5, when the engine speaks TLS.
 
 ### The session interface, written on 2026-09-24
