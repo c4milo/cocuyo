@@ -1,7 +1,9 @@
 # Every transport the engine speaks against an independent server, on the loopback
 # (c4milo/cocuyo#16, #20 and #21), once a day and on demand: `tools/interop/run.sh` runs the
 # engine against AdGuard's dnsproxy over plain DNS on UDP and on TCP, over DoT with chapulin's TCP
-# object, and over DoQ and DoH on HTTP/3 with colibri's QUIC and HTTP/3 and chapulin's QUIC object.
+# object, which the build fetches with chapulin at the commit build.zig.zon pins, and over DoQ and
+# DoH on HTTP/3 with colibri's QUIC and HTTP/3 and chapulin's QUIC object, built from a checkout at
+# the commit below until colibri's library `tls` module carries it.
 # dnsproxy's DNS is miekg/dns, its TLS Go's, and its QUIC and HTTP/3 quic-go's. The check makes its
 # own certificates, and dnsproxy answers addresses from a hosts file and every other type from a
 # zone of the check's own, so it needs no network once its tools are fetched.
@@ -44,15 +46,13 @@ jobs:
           echo "$sha  zig.tar.xz" | shasum -a 256 -c -
           tar -xf zig.tar.xz
           echo "$PWD/zig-aarch64-macos-${ZIG_VERSION}" >> "$GITHUB_PATH"
-      - name: Build chapulin's non-blocking TCP and QUIC objects
+      - name: Build chapulin's non-blocking QUIC object
         run: |
           set -euo pipefail
           git clone --quiet https://github.com/c4milo/chapulin.git "$RUNNER_TEMP/chapulin"
           git -C "$RUNNER_TEMP/chapulin" checkout --quiet "$CHAPULIN_COMMIT"
-          for transport in tcp-nonblocking quic-nonblocking; do
-            make -C "$RUNNER_TEMP/chapulin" RAND=extern TRUST=webpki TRANSPORT="$transport" lib
-            cp "$RUNNER_TEMP/chapulin/bin/chapulin.o" "$RUNNER_TEMP/chapulin/bin/chapulin-$transport.o"
-          done
+          make -C "$RUNNER_TEMP/chapulin" RAND=extern TRUST=webpki TRANSPORT=quic-nonblocking lib
+          cp "$RUNNER_TEMP/chapulin/bin/chapulin.o" "$RUNNER_TEMP/chapulin/bin/chapulin-quic-nonblocking.o"
       - run: zig version
       - name: Fetch dnsproxy
         run: |

@@ -1,7 +1,7 @@
 //! Lookups over DNS over TLS: the engine of docs/design.md §19 step 13 on rotor's loop, with
 //! chapulin's session behind the session interface of §21 (`io/io_chapulin.zig`), strict as RFC 8310 §5 asks.
 //!
-//!     zig build example-dot-rotor -Dchapulin=<checkout> -- \
+//!     zig build example-dot-rotor -- \
 //!         <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...
 //!
 //! for instance `dns.google 8.8.8.8 dns.google gts-root-r1.der`. Each root is a DER certificate

@@ -2938,9 +2938,9 @@ The engine does not call chapulin by name. It is generic over a `Session` type i
 
 Two types fill it:
 
-- `io/io_chapulin.zig` fills it from chapulin's record transport. It is built only when
-  `-Dchapulin` names a checkout, as colibri's own endpoints link chapulin: the headers are read
-  in place and nothing is vendored.
+- `io/io_chapulin.zig` fills it from chapulin's record transport. Since 2026-09-26 it runs over
+  chapulin's Zig API, whose module the `chapulin` dependency carries with its object
+  (c4milo/cocuyo#30): nothing is vendored, and no object is linked beside the module.
 - The twin fills it with `sim.tls`, a session whose records carry their plaintext unsealed and
   whose handshake steps are spelled in the records the twin's server sends. The twin's servers
   script it, and the replay drives the model's steps with it one by one, so the gate needs no
@@ -3020,7 +3020,9 @@ the engine's send and held buffers, per slot.
    tests in `io/io_tls_test.zig`, and the replay over the model's two TLS configurations. The
    full walks found one defect in the rules as first written, the queue filled by KeyUpdates
    (TLS rule 2). chapulin's own session, `io/io_chapulin.zig`, landed the same day, with
-   `-Dchapulin`, `zig build test-chapulin` and `examples/dot_rotor.zig` (`build/dot.zig`).
+   `-Dchapulin`, `zig build test-chapulin` and `examples/dot_rotor.zig` (`build/dot.zig`). On
+   2026-09-26 it moved onto chapulin's Zig API, a lazy dependency, and `-Dchapulin` went from it
+   (c4milo/cocuyo#30).
 6. A live check against the public resolvers that serve DoT: `dns.google`, `cloudflare-dns.com`
    and `dns.quad9.net`. `tools/dot_live/run.sh` runs it, on macOS, with each resolver's root from
    the system store. On 2026-09-24, with chapulin at `5f8e824`, all three resolved `example.com`:

@@ -1,10 +1,10 @@
 #!/bin/sh
 # DNS over TLS, live (docs/design.md §21 step 6): the engine over rotor with chapulin's session
 # resolves through the public resolvers that serve DoT, and refuses what strict mode refuses. It
-# needs a chapulin checkout with bin/chapulin-tcp-nonblocking.o (build/dot.zig says how to make it), the
-# network, and macOS: each resolver's root comes from the system root store.
+# needs the network, and macOS: each resolver's root comes from the system root store. chapulin is
+# a dependency of the build, which fetches it the first time (build/dot.zig).
 #
-#     tools/dot_live/run.sh <chapulin checkout>
+#     tools/dot_live/run.sh
 #
 # Two names must resolve through each resolver, with the root its chain ends at: the first over a
 # full handshake, the second once the first connection has closed idle, over a connection that
@@ -18,7 +18,6 @@
 # HTTPS at once, of a name that has each, and must answer each with records of that type.
 set -eu
 
-checkout=${1:?usage: tools/dot_live/run.sh <chapulin checkout>}
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 out=$(mktemp -d)
@@ -37,7 +36,7 @@ root_der "ISRG Root X1" unrelated
 lookup_names() {
     names=$1
     shift
-    (cd "$root" && zig build -Dchapulin="$checkout" example-dot-rotor -- "$names" "$@" 2>&1)
+    (cd "$root" && zig build example-dot-rotor -- "$names" "$@" 2>&1)
 }
 lookup() {
     lookup_names example.com,example.org "$@"

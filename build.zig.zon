@@ -29,6 +29,15 @@
             .hash = "colibri-0.0.0-Wo-Avl-nTwSJ54jkyiOJxscMivBB1DiDX5xQuQ5_LLlE",
             .lazy = true,
         },
+        // chapulin's TLS for DNS over TLS: its Zig API, whose module carries the record-mode object
+        // (docs/design.md §21, c4milo/cocuyo#30). Never of the library in `src/`. Lazy, and
+        // requested only when cocuyo is the root build, so a project depending on cocuyo never
+        // fetches it.
+        .chapulin = .{
+            .url = "git+https://github.com/c4milo/chapulin#13f4692333a8e76bb6ec378ca952adb199d80bc4",
+            .hash = "chapulin-0.0.0-btv9Nq2IFwAQhicJPx3dVxLfuGigXNfNm4clfy0atGmy",
+            .lazy = true,
+        },
     },
     .paths = .{
         "build.zig",

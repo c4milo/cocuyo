@@ -1,49 +1,43 @@
-//! DNS over TLS through chapulin (docs/design.md §21 step 5), built only when `-Dchapulin` names a
-//! chapulin checkout: its record-mode object and its headers, read in place, as colibri's driver
-//! links chapulin. Nothing of chapulin is vendored. Without the option the build adds nothing,
-//! so neither the gate nor a consumer needs chapulin.
+//! DNS over TLS through chapulin (docs/design.md §21 step 5), over chapulin's Zig API: the module
+//! of the `chapulin` dependency, which carries its record-mode object (chapulin's docs/zig.md).
+//! chapulin is a lazy dependency that only cocuyo's own build requests, so a project that depends
+//! on cocuyo never fetches it (c4milo/cocuyo#30).
 //!
-//! The checkout's object is made by
+//! The object is built `RAND=extern TRUST=webpki TRANSPORT=tcp-nonblocking`. It keeps chapulin's
+//! default multiply, every widening product in 16x16 pieces, which claims nothing about the CPU.
+//! `CH_NATIVE_MUL128` among the options would state that "the 64x64->128 multiply runs in constant
+//! time" instead: chapulin measured the client's side of a handshake 1.5 to 1.9 times faster with
+//! it on an Apple M1 Pro (bench/notes-primitives.md there). cocuyo makes that statement for no
+//! part, so it keeps the default.
 //!
-//!     make RAND=extern TRUST=webpki TRANSPORT=tcp-nonblocking lib && cp bin/chapulin.o bin/chapulin-tcp-nonblocking.o
-//!
-//! which keeps chapulin's default multiply: every widening product in 16x16 pieces, which claims
-//! nothing about the CPU. Since chapulin 0734728, `WIDEMUL=native` among those variables defines
-//! `CH_NATIVE_WIDEMUL` in the object instead: "the builder states that this part's widening
-//! multiply runs in constant time" (chapulin's README, its build variables). chapulin measured the
-//! client's side of a handshake 1.5 to 1.9 times faster with it on an Apple M1 Pro
-//! (bench/notes-primitives.md there). cocuyo makes that statement for no part, so the command
-//! above keeps the default, and a builder who can vouch for theirs adds `WIDEMUL=native`.
-//!
-//! `io/io_chapulin.zig` reads chapulin's headers with the defines that command sets. The object
-//! exports its build record, named after its transport since chapulin 0c201b7 and
-//! `ch_build_info_tcp_nonblocking` since ca80351, and every session compares it with those headers
-//! when it starts: an object built another way stops the program there, rather than lay its
+//! Every session compares the object's build record with the headers its module was translated
+//! from when it starts: an object built another way stops the program there, rather than lay its
 //! sessions out otherwise unnoticed.
-//! CI's `dot-live` workflow pins the chapulin commit it builds; it moves when cocuyo needs a newer
-//! chapulin.
 const std = @import("std");
 const modules = @import("modules.zig");
 
-/// The object a checkout carries for this build, under its `bin/`.
-const object = "bin/chapulin-tcp-nonblocking.o";
-
 /// `zig build test-chapulin`, the session's own tests, which need no network; and, where rotor
-/// resolved, `zig build example-dot-rotor`, lookups over DNS over TLS.
+/// resolved, `zig build example-dot-rotor`, lookups over DNS over TLS. Nothing until chapulin is
+/// fetched, which the build runner does the first time it sees it requested.
 pub fn add(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     graph: modules.Graph,
-    checkout: ?[]const u8,
     rotor: ?*std.Build.Dependency,
 ) void {
-    const path = checkout orelse return;
-    const session = session_module(b, target, optimize, graph, path, graph.io);
+    const dependency = b.lazyDependency("chapulin", .{
+        .target = target,
+        .RAND = .@"extern",
+        .TRANSPORT = .@"tcp-nonblocking",
+        .TRUST = .webpki,
+    }) orelse return;
+    const chapulin = dependency.module("chapulin");
+    const session = session_module(b, target, optimize, graph, chapulin, graph.io);
     const tests = b.addTest(.{ .name = "chapulin", .root_module = session });
-    const step = b.step("test-chapulin", "Run the DoT session's tests over the -Dchapulin checkout");
+    const step = b.step("test-chapulin", "Run the DoT session's tests, over chapulin's record-mode object");
     step.dependOn(&b.addRunArtifact(tests).step);
-    if (rotor) |dependency| add_example(b, target, optimize, graph, path, dependency);
+    if (rotor) |loop| add_example(b, target, optimize, graph, chapulin, loop);
 }
 
 /// The engine over the real rotor with chapulin's session, built here privately, as the bench
@@ -53,7 +47,7 @@ fn add_example(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     graph: modules.Graph,
-    checkout: []const u8,
+    chapulin: *std.Build.Module,
     rotor: *std.Build.Dependency,
 ) void {
     const engine = b.createModule(.{
@@ -63,7 +57,7 @@ fn add_example(
     });
     engine.addImport("cocuyo", graph.cocuyo);
     engine.addImport("rotor", rotor.module("rotor"));
-    const session = session_module(b, target, optimize, graph, checkout, engine);
+    const session = session_module(b, target, optimize, graph, chapulin, engine);
     const module = b.createModule(.{
         .root_source_file = b.path("examples/dot_rotor.zig"),
         .target = target,
@@ -81,15 +75,15 @@ fn add_example(
     step.dependOn(&run.step);
 }
 
-/// chapulin's session: `io/io_chapulin.zig`, the checkout's headers and its object, and libc,
-/// which chapulin's object needs. It reads the engine's constants through `engine`, the engine
+/// chapulin's session: `io/io_chapulin.zig` over chapulin's module, which carries the object, and
+/// libc, which the object needs. It reads the engine's constants through `engine`, the engine
 /// module it is built for.
 pub fn session_module(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     graph: modules.Graph,
-    checkout: []const u8,
+    chapulin: *std.Build.Module,
     engine: *std.Build.Module,
 ) *std.Build.Module {
     const module = b.createModule(.{
@@ -101,7 +95,8 @@ pub fn session_module(
     module.addImport("cocuyo", graph.cocuyo);
     module.addImport("io", engine);
     module.addImport("chapulin_hooks", graph.chapulin_hooks);
-    module.addIncludePath(.{ .cwd_relative = checkout });
-    module.addObjectFile(.{ .cwd_relative = b.fmt("{s}/{s}", .{ checkout, object }) });
+    // The module carries the object: a second object of the same build would define every public
+    // name twice (chapulin's docs/zig.md).
+    module.addImport("chapulin", chapulin);
     return module;
 }

@@ -4,8 +4,9 @@
 # on UDP and on TCP, whose DNS is miekg/dns, over DoT, whose TLS is Go's, and over DoQ and DoH on
 # HTTP/3, whose QUIC and HTTP/3 are quic-go's. The encrypted transports run over chapulin, and DoQ
 # and DoH over colibri's QUIC and HTTP/3. It needs a chapulin checkout holding
-# bin/chapulin-tcp-nonblocking.o and bin/chapulin-quic-nonblocking.o (build/dot.zig and
-# build/doq.zig say how to make them), a dnsproxy binary, and openssl. It needs no network: the
+# bin/chapulin-quic-nonblocking.o (build/doq.zig says how to make it), which DoQ and DoH link until
+# colibri's library `tls` module carries chapulin, a dnsproxy binary, and openssl. DoT takes
+# chapulin as a dependency of the build (build/dot.zig). It needs no network: the
 # certificates are made here, dnsproxy answers addresses from a hosts file, and every other type
 # from tools/interop/zone.zig, its upstream on the loopback.
 #

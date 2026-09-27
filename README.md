@@ -357,7 +357,7 @@ that depends on cocuyo, and every unit test. Other steps:
 | `zig build example-udp-rotor -- example.com` | Resolve a name over rotor's event loop |
 | `zig build example-threads-rotor` | Two engines on two threads, each on its own loop |
 | `zig build example-cleartext-rotor -- <name> <server>[:<port>] [udp \| tcp]` | Resolve over plain DNS through the engine |
-| `zig build example-dot-rotor -Dchapulin=<checkout> -- ...` | Resolve over DNS over TLS |
+| `zig build example-dot-rotor -- ...` | Resolve over DNS over TLS |
 | `zig build example-doq-rotor -Dchapulin=<checkout> -- ...` | Resolve over DNS over QUIC |
 | `zig build example-doh-rotor -Dchapulin=<checkout> -- ...` | Resolve over DNS over HTTPS on HTTP/3 |
 | `tools/dot_live/run.sh`, `tools/doq_live/run.sh`, `tools/doh_live/run.sh` | The live checks against public resolvers |

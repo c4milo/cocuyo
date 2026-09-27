@@ -2700,3 +2700,24 @@ Three mutations, three unseen before, three `CAUGHT`.
 | H1 | a stream the server resets is not told to the engine | unseen | the failover test, by its time | CAUGHT |
 | H2 | a trailer section does not end the response | unseen | the trailers test | CAUGHT |
 | H3 | a record that does not open leaves the connection up | unseen | the unopenable-record test | CAUGHT |
+
+## DoT over chapulin's Zig API
+
+2026-09-26. The DoT session, `io/io_chapulin.zig`, moved from chapulin's headers and an object
+built in a checkout onto chapulin's Zig API, whose module the `chapulin` dependency carries with its
+object (c4milo/cocuyo#30). chapulin seals a query whole or not at all, and answers a KeyUpdate into
+a buffer the session hands it, so the session's two callbacks and its flag for a send that did not
+fit went. Two things are new: the session zeroes its copy of the ticket it resumes with, which it
+did not before, and a named server with no anchors is judged by its pins with its name still sent,
+which had no test. CT1 to CT6 break the session, against `zig build test-chapulin`. The live check
+against Google, Cloudflare and Quad9 and the interop check against dnsproxy passed on it the same
+day. Six mutations, six `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CT1 | `wipe` keeps the copy of the ticket | the resumption secret is zeroed | the ticket-zeroing test | CAUGHT |
+| CT2 | a server known by pins alone gets the context's anchors | RFC 8310 §6.3's SPKI + IP | the pins-alone test | CAUGHT |
+| CT3 | the hostname keeps its root label's dot | chapulin takes a hostname | the named-server test | CAUGHT |
+| CT4 | the clock ignores the time since the context's | the chain is checked at the caller's time | the named-server test | CAUGHT |
+| CT5 | a named server with no anchors sends no name | its pins judge it, its name still sent | the named-and-pinned test | CAUGHT |
+| CT6 | the build record check passes any record | an object built otherwise stops the program | the build-record test | CAUGHT |
