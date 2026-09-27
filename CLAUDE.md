@@ -162,7 +162,7 @@ The architecture depends on every rule in this section.
   for when its Zig API lands (c4milo/cocuyo#30): `build.zig.zon` pins it by hash as a lazy
   dependency, which only a DoT or DoQ build fetches, and nothing under `src/` imports it.
 - Weakening an assertion or a check to make a test pass.
-- Adding anything §1 puts out of scope: DNSSEC, mDNS, zone transfers, nsswitch, IDN, the
+- Adding anything §1 puts out of scope: DNSSEC validation, mDNS, zone transfers, nsswitch, IDN, the
   platform resolver configuration of §14. DoT and DoH were decided in on 2026-09-23: DoT in the
   engine, over rotor with chapulin's non-blocking record transport, strict by default (RFC 8310);
   DoH's DNS half in `src/`. DNS over QUIC (RFC 9250) joined the same day, its DNS half in `src/`

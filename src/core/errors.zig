@@ -48,4 +48,7 @@ pub const Error = error{
     /// The configuration names no server: a `resolv.conf` with none, read without the default
     /// (docs/design.md §19 step 11).
     NoServers,
+    /// A question names a type that is never asked for: zero, OPT, or a query or meta type other
+    /// than ANY (docs/design.md §19 step 9, Questions).
+    UnqueryableType,
 };

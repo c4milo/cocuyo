@@ -234,6 +234,13 @@ pub const word_high_to_case_shift = 2;
 /// The class every query cocuyo sends carries: IN, the internet class (RFC 1035 §3.2.4).
 pub const class_internet = 1;
 
+/// Type code zero, which "must never be allocated for ordinary use" (RFC 6895 §3.1).
+pub const type_code_none = 0;
+/// The codes RFC 6895 §3.1 keeps for query types and meta types, 128 to 255. A record of one of
+/// them is not a type whose rdata can be kept whole (RFC 3597 §2).
+pub const type_code_query_meta_first = 0x80;
+pub const type_code_query_meta_last = 0xFF;
+
 /// The scopes RFC 6724 §3.1 compares, numbered as RFC 4291 §2.7 numbers a multicast address's
 /// scope field, with unicast link-local, site-local and global on the same values.
 pub const scope_link_local = 0x2;

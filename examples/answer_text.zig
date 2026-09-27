@@ -2,7 +2,8 @@
 //! record to a line, which is what the live and interop checks read.
 //!
 //! A question is `name` or `name/TYPE`, the type spelled as `cocuyo.Kind` spells it, in either
-//! case: `example.com/MX`. A name alone asks for A. An answer prints as
+//! case: `example.com/MX`, or by its number in RFC 3597 §5's generic form: `example.com/TYPE65280`.
+//! A name alone asks for A. An answer prints as
 //!
 //!     <name> <TYPE> <fields> (ttl <seconds>)
 //!
@@ -15,6 +16,10 @@ const rdata = cocuyo.wire.rdata;
 
 /// The longest type name a question may spell: `naptr`, and room to spare.
 const type_text_bytes_max = 16;
+/// RFC 3597 §5's generic type name, `TYPE` and the number in decimal, lower-cased as the type's
+/// text is before it is read.
+const generic_type_prefix = "type";
+const decimal_base = 10;
 /// SvcParamKeys the example writes by name (RFC 9460 §14.3.2): the rest as `key<number>`.
 const svcb_key_alpn = 1;
 const svcb_key_port = 3;
@@ -28,9 +33,16 @@ pub fn question_of(text: []const u8) !cocuyo.Question {
     const type_text = text[slash + 1 ..];
     var lower: [type_text_bytes_max]u8 = undefined;
     if (type_text.len > lower.len) return error.UnknownType;
-    const kind = std.meta.stringToEnum(cocuyo.Kind, std.ascii.lowerString(&lower, type_text)) orelse return error.UnknownType;
-    if (!kind.queryable()) return error.UnknownType;
+    const kind = kind_of(std.ascii.lowerString(&lower, type_text)) orelse return error.UnknownType;
     return cocuyo.Question.from_text(text[0..slash], kind);
+}
+
+/// A type by its name, or by its number in the generic form.
+fn kind_of(type_text: []const u8) ?cocuyo.Kind {
+    if (std.meta.stringToEnum(cocuyo.Kind, type_text)) |named| return named;
+    if (!std.mem.startsWith(u8, type_text, generic_type_prefix)) return null;
+    const code = std.fmt.parseInt(u16, type_text[generic_type_prefix.len..], decimal_base) catch return null;
+    return cocuyo.Kind.of(code);
 }
 
 /// Writes every address, name and record the answer holds, under `label`. Fails when a record
@@ -158,8 +170,16 @@ test "a name asks for A, and a name with a type asks for that type, spelled in e
     try testing.expect(question.name.equal(&try cocuyo.Name.from_text("example.com")));
 }
 
-test "a type cocuyo does not name, or one that is never a question, is refused" {
+test "a type by its number is asked as it is, named or not" {
+    try testing.expectEqual(@as(u16, 65280), (try question_of("example.com/TYPE65280")).kind.code());
+    try testing.expectEqual(cocuyo.Kind.mx, (try question_of("example.com/type15")).kind);
+}
+
+test "a type spelled wrong is refused, and so is one that is never a question" {
     try testing.expectError(error.UnknownType, question_of("example.com/NOPE"));
-    try testing.expectError(error.UnknownType, question_of("example.com/OPT"));
+    try testing.expectError(error.UnknownType, question_of("example.com/TYPE"));
+    try testing.expectError(error.UnknownType, question_of("example.com/TYPE65536"));
     try testing.expectError(error.UnknownType, question_of("example.com/" ++ "A" ** 20));
+    try testing.expectError(error.UnqueryableType, question_of("example.com/OPT"));
+    try testing.expectError(error.UnqueryableType, question_of("example.com/TYPE252"));
 }

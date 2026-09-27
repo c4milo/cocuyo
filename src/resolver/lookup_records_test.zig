@@ -63,3 +63,17 @@ test "an address lookup has no records view, and a PTR lookup has names" {
     try testing.expectEqual(@as(u8, 0), done.record_count);
     try testing.expectEqual(@as(usize, 1), done.addresses.len);
 }
+
+test "a lookup for a type cocuyo does not name keeps its records, rdata as the wire has it" {
+    // No view reads the type, and its rdata is copied, not decoded (RFC 3597 §3, §4).
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
+    try harness.start("example.com.", Kind.of(fixtures.private_type), seed);
+    _ = harness.send();
+    _ = harness.respond(fixtures.answer_private, servers[0].endpoint);
+    const done = harness.poll().done;
+    try testing.expectEqual(@as(u16, fixtures.private_type), done.kind.code());
+    try testing.expectEqual(@as(u8, 1), done.record_count);
+    const kept = done.records.?.at(0);
+    try testing.expectEqual(@as(u16, fixtures.private_type), kept.kind_code);
+    try testing.expectEqualSlices(u8, &fixtures.private_rdata, kept.rdata);
+}

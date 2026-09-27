@@ -126,6 +126,7 @@ fn check_typed(kind: Kind, record: *const Record, copy: []const u8, fields: []co
         .naptr => check_naptr(copy, fields),
         .tlsa => check_tlsa(copy, fields),
         .hinfo, .sig, .opt, .svcb, .https, .any, .uri, .caa => Mismatch.Unread,
+        _ => Mismatch.Unread,
     };
 }
 

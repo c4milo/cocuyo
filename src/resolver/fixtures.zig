@@ -214,6 +214,13 @@ pub const answer_a_600: Reply = .{ .records = &record_a_600, .ancount = 1 };
 /// A reply carrying one MX record, for a question of that type.
 pub const answer_mx: Reply = .{ .records = &record_mx, .ancount = 1 };
 
+/// A private-use type (RFC 6895 §3.1), which cocuyo will never name, and a record of it owned by
+/// the question, TTL 300, whose rdata begins with what would be a compression pointer in a type
+/// cocuyo reads.
+pub const private_type = 0xFF00;
+pub const private_rdata = [_]u8{ 0xc0, 0x0c, 0x01, 0x02 };
+pub const answer_private: Reply = .{ .records = &([_]u8{ 0xc0, 0x0c, 0xff, 0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x04 } ++ private_rdata), .ancount = 1 };
+
 /// A reply to an ANY question: the A record and the MX record together (RFC 8482 §4.1).
 pub const answer_any: Reply = .{ .records = &(record_a ++ record_mx), .ancount = 2 };
 

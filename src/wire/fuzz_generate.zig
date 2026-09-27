@@ -307,7 +307,8 @@ fn write_rdata(generator: *Generator, writer: *Writer, kind: core.Kind) void {
         .uri => writer.noise(generator, constants.uri_fixed_bytes + 1 + generator.below(constants.fuzz_opaque_bytes_max)),
         .caa => write_caa(generator, writer),
         .svcb, .https => write_svcb(generator, writer),
-        .opt, .any => unreachable,
+        // The generator writes only the types the codec reads.
+        .opt, .any, _ => unreachable,
     }
 }
 

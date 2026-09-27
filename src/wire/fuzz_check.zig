@@ -163,6 +163,7 @@ fn reads_back(kind: core.Kind, stored: []const u8) ?bool {
         .caa => accepted(rdata.Caa.parse(stored)),
         .svcb, .https => svcb_reads(stored),
         .a, .aaaa, .opt, .any => null,
+        _ => null,
     };
 }
 

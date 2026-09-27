@@ -60,7 +60,7 @@ exactly what the rest of the machine sees.
 
 | Area | What cocuyo provides |
 | --- | --- |
-| Lookups | One question per lookup, for every record type c-ares parses: A, AAAA, PTR, CNAME, NS, SOA, MX, TXT, SRV, NAPTR, TLSA, SVCB, HTTPS, URI, CAA and more |
+| Lookups | One question per lookup, for any record type: A, AAAA, PTR, CNAME, NS, SOA, MX, TXT, SRV, NAPTR, TLSA, SVCB, HTTPS, URI, CAA and more read into fields, and every other type, DNSSEC's among them, handed out whole with `Kind.of(code)` |
 | Many lookups | `Resolver`, a bounded table of lookups that decides which lookup an incoming datagram belongs to |
 | `getaddrinfo` shape | `AddressLookup` joins A and AAAA, the hosts file and the search list, and orders addresses by RFC 6724; `NameLookup` does the reverse |
 | Transport | UDP with EDNS0 (RFC 6891) and its fallback, TCP on truncation or by choice (RFC 7766), with the length prefix handled for you |
@@ -336,8 +336,8 @@ options, cookies, failover, the hosts file and a cache. What it does not cover, 
 
 These are out of scope on purpose. Each has a place it would attach if that changes.
 
-- **DNSSEC validation.** EDNS0 is in place and records are handed out as read, so a validator can
-  sit above the library.
+- **DNSSEC validation.** EDNS0 is in place, and a question may ask for DNSKEY, DS or RRSIG, whose
+  records are handed out as read, so a validator can sit above the library.
 - **mDNS and zone transfers.** Neither is a stub resolver's job.
 - **nsswitch, NIS and internationalised domain names.**
 

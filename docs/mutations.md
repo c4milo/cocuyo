@@ -2662,3 +2662,25 @@ whole answer to say it is whole. AT1 was run against `zig build test-resolver`, 
 | --- | --- | --- | --- | --- |
 | AT1 | a lookup's truncated answer is not passed on | unseen | the truncated-answer test | CAUGHT |
 | AT2 | every answer is passed on as truncated | unseen | the two-family test | CAUGHT |
+
+## Any type in a question
+
+2026-09-26. `Kind` is open (docs/design.md §16 decision 31, c4milo/cocuyo#25). A question may
+name any type but zero, OPT and the codes RFC 6895 §3.1 keeps for query and meta types, ANY
+apart. `Question.from_text` refuses the rest with `UnqueryableType`. A lookup for a type cocuyo
+does not name keeps its records with their rdata as the wire has it (RFC 3597 §3, §4). QK1 to QK7
+break `Kind`, against `zig build test-core`. QK8 breaks the rdata layout, against `test-resolver`.
+QK9 breaks the examples' generic type name, against `zig build test`. Nine mutations, nine
+`CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| QK1 | the query and meta range is asked | RFC 3597 §2 | the queryable test | CAUGHT |
+| QK2 | ANY is refused with the rest of its range | RFC 8482 | the registry-code test | CAUGHT |
+| QK3 | type zero is asked | RFC 6895 §3.1 | the queryable test | CAUGHT |
+| QK4 | OPT is asked | RFC 6891 §6.1.1 | the registry-code test | CAUGHT |
+| QK5 | the range starts one code late, so 128 is asked | RFC 6895 §3.1 | the queryable test | CAUGHT |
+| QK6 | `from_text` asks any type | the refusal is an error | the queryable test, by an assertion | CAUGHT |
+| QK7 | `from_code` names every code | only named types have a view | the type-code test | CAUGHT |
+| QK8 | an unnamed type's rdata is read as a name | RFC 3597 §4 | the unnamed-type lookup test, by an assertion | CAUGHT |
+| QK9 | the examples do not read `TYPE<number>` | RFC 3597 §5 | the examples' generic-type test | CAUGHT |

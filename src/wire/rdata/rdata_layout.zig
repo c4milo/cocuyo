@@ -34,11 +34,9 @@ const sig = [_]Segment{ .{ .fixed = constants.sig_fixed_bytes }, .name, .rest };
 const svcb = [_]Segment{ .{ .fixed = constants.svcb_fixed_bytes }, .name, .rest };
 const opaque_rest = [_]Segment{.rest};
 
-/// The layout of a type's rdata. A type cocuyo does not name is copied as it is: a name in it is
-/// never compressed (RFC 3597 §4), so there is nothing to write out.
+/// The layout of a type's rdata.
 pub fn of(type_code: u16) []const Segment {
-    const kind = Kind.from_code(type_code) orelse return &opaque_rest;
-    return switch (kind) {
+    return switch (Kind.of(type_code)) {
         .ns, .cname, .ptr => &name_only,
         .mx => &mx,
         .soa => &soa,
@@ -47,6 +45,9 @@ pub fn of(type_code: u16) []const Segment {
         .sig => &sig,
         .svcb, .https => &svcb,
         .a, .aaaa, .hinfo, .txt, .opt, .tlsa, .uri, .caa, .any => &opaque_rest,
+        // A type cocuyo does not name is copied as it is: a name in it is never compressed (RFC
+        // 3597 §4), so there is nothing to write out.
+        _ => &opaque_rest,
     };
 }
 
