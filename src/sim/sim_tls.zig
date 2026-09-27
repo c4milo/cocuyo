@@ -105,7 +105,7 @@ pub const Session = struct {
     /// One whole record while the handshake runs.
     pub fn handshake(self: *Session, record: []const u8) Error!Handshake {
         assert(self.state == .handshaking);
-        const step = step_of(record) orelse return self.fail();
+        const step = step_of(record) orelse return self.refuse();
         switch (step) {
             .flight => {
                 self.make(.flight_answer);
@@ -116,8 +116,16 @@ pub const Session = struct {
                 self.state = .up;
                 return .done;
             },
-            else => return self.fail(),
+            else => return self.refuse(),
         }
+    }
+
+    /// A handshake it cannot go on with: its fatal alert staged, for the engine to send before
+    /// it closes (RFC 9846 §6.2), and the session dead.
+    fn refuse(self: *Session) Error {
+        assert(self.out_len + header_bytes + constants.tls_alert_handshake_failure.len <= self.out.len);
+        self.out_len += write_record(constants.tls_content_alert, &constants.tls_alert_handshake_failure, self.out[self.out_len..]);
+        return self.fail();
     }
 
     /// The records of one query.
@@ -203,15 +211,17 @@ pub const Peer = struct {
     up: bool = false,
 
     /// What the server does with one whole record: steps to write back, or a query stream's
-    /// bytes to answer, or the client's close.
+    /// bytes to answer, or the client's fatal alert, or the client's close.
     pub const Heard = union(enum) {
         steps: struct { first: Step, second: ?Step = null },
         data: []const u8,
         nothing,
+        alert,
         close,
     };
 
     pub fn hear(self: *Peer, behaviour: *const Behaviour, record: []const u8) Heard {
+        if (record.len > header_bytes and record[0] == constants.tls_content_alert and record[header_bytes] == constants.tls_alert_fatal) return .alert;
         if (record.len >= header_bytes and record[0] == constants.tls_content_application) {
             if (!self.up) return .close;
             return .{ .data = record[header_bytes..] };
@@ -270,12 +280,19 @@ test "a hello, a flight and the handshake's end, with a ticket after it" {
     try testing.expect(session.take_ticket() == null);
 }
 
-test "a refused handshake fails, and a resumed hello says it resumes" {
+test "a refused handshake fails and stages its fatal alert, and a resumed hello says it resumes" {
     var session: Session = .{};
     try session.start(.{ .ticket = @as(?Session.Ticket, .{}) });
     try testing.expectEqual(Step.hello_resumed, try take_step(&session));
     var record: [constants.tls_out_bytes_max]u8 = undefined;
     try testing.expectError(Session.Error.Failed, session.handshake(step_record(.refused, &record)));
+    // The alert goes out as a record of its own (RFC 9846 §6.2), and a server hears it as one.
+    var out: [constants.tls_out_bytes_max]u8 = undefined;
+    const made = session.take_out(&out);
+    try testing.expectEqual(@as(u8, constants.tls_content_alert), out[0]);
+    try testing.expectEqualSlices(u8, &constants.tls_alert_handshake_failure, out[header_bytes..made]);
+    var peer: Peer = .{};
+    try testing.expect(peer.hear(&.{}, out[0..made]) == .alert);
 }
 
 test "a sealed query opens on the other side as its plaintext, and a server walks its script" {

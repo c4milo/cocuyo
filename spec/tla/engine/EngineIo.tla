@@ -113,6 +113,16 @@ MakeRecords(st, k) ==
     ELSE Pump([st EXCEPT !.conns[k].queue = Take(@, c.sealed) \o <<Records>> \o Drop(@, c.sealed),
                          !.conns[k].sealed = @ + 1, !.conns[k].owes = FALSE], k)
 
+\* A handshake the session refused, not resumed: every lookup on the connection is told and leaves
+\* it, and the session's fatal alert is sealed; the connection closes once it has gone, as an idle
+\* one does after its close_notify (TLS rules 4 and 5, RFC 9846 §6.2).
+Refuse(st, k) ==
+    LET told == TellAll(st, k, FALSE)
+        sl == told.slots
+    IN MakeRecords([told EXCEPT !.slots = [l \in DOMAIN sl |->
+                                    IF sl[l].conn = {k} THEN [sl[l] EXCEPT !.conn = {}] ELSE sl[l]],
+                                !.conns[k].stage = "closing", !.conns[k].users = 0], k)
+
 \* The query joins its connection's queue, lending its buffer from now (the stream's rule 9).
 SubmitStream(st, l, k) ==
     Pump([st EXCEPT !.slots[l].busy = TRUE, !.conns[k].queue = Append(@, Query(l))], k)

@@ -175,7 +175,7 @@ fn shake(self: anytype, at: u8, record: []u8, now_ns: u64) bool {
     const connection = &self.connections[at];
     const step = connection.tls.session.handshake(record) catch {
         // A resumed handshake that fails is not the server's failure (rule 8).
-        if (connection.tls.ticket != null) tcp.retry_full(self, at, now_ns) else tcp.fail(self, at, now_ns);
+        if (connection.tls.ticket != null) tcp.retry_full(self, at, now_ns) else refuse(self, at, now_ns);
         return false;
     };
     if (!make_records(self, at, now_ns)) return false;
@@ -184,6 +184,21 @@ fn shake(self: anytype, at: u8, record: []u8, now_ns: u64) bool {
         tcp.tell_all(self, at, now_ns, true);
     }
     return true;
+}
+
+/// A handshake the session refused, not resumed: every lookup on the connection is told and
+/// leaves it, and the session's fatal alert goes out before the connection closes, as an idle
+/// close's `close_notify` does (rules 4 and 5). "Whenever an implementation encounters a fatal
+/// error condition, it SHOULD send an appropriate fatal alert" (RFC 9846 §6.2). A session that
+/// staged no alert closes the connection at once.
+fn refuse(self: anytype, at: u8, now_ns: u64) void {
+    const connection = &self.connections[at];
+    assert(connection.state == .handshaking);
+    tcp.abandon(self, at, now_ns);
+    connection.state = .closing;
+    if (!make_records(self, at, now_ns)) return;
+    if (connection.queue.count == 0) tcp.shut(self, at);
+    assert(connection.users == 0);
 }
 
 /// A record once up: an answer's octets go to the connection's framing, a ticket is kept, and

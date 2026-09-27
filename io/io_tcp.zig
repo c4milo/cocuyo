@@ -367,11 +367,17 @@ pub fn tell_all(self: anytype, at: u8, now_ns: u64, connected: bool) void {
 
 /// The connection is no good: every lookup on it is told, and it is closed.
 pub fn fail(self: anytype, at: u8, now_ns: u64) void {
+    abandon(self, at, now_ns);
+    shut(self, at);
+}
+
+/// Every lookup on the connection is told it failed, and leaves it.
+pub fn abandon(self: anytype, at: u8, now_ns: u64) void {
     tell_all(self, at, now_ns, false);
     for (self.tcp_connection[0..], 0..) |held, index| {
         if (held == at) self.tcp_connection[index] = null;
     }
-    shut(self, at);
+    self.connections[at].users = 0;
 }
 
 /// Ends a connection: the operation on it is cancelled, which is what makes the loop let it go

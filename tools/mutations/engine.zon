@@ -106,7 +106,7 @@
         .id = "ET4",
         .what = "a declined ticket fails the connection",
         .edits = .{
-            .{ .file = "io/io_tls.zig", .old = "        if (connection.tls.ticket != null) tcp.retry_full(self, at, now_ns) else tcp.fail(self, at, now_ns);", .new = "        tcp.fail(self, at, now_ns);" },
+            .{ .file = "io/io_tls.zig", .old = "        if (connection.tls.ticket != null) tcp.retry_full(self, at, now_ns) else refuse(self, at, now_ns);", .new = "        if (connection.tls.ticket != null) tcp.fail(self, at, now_ns) else refuse(self, at, now_ns);" },
         },
         .caught_by = .picked_walks,
     },
@@ -199,6 +199,24 @@
             .{ .file = "io/io_tls.zig", .old = "        .up => open(self, at, record, now_ns),", .new = "        .up => open(self, at, record, now_ns),\n        .closing => open(self, at, record, now_ns)," },
         },
         .caught_by = .picked_walks,
+    },
+    .{
+        .section = "The engine over TLS",
+        .id = "ET15",
+        .what = "a handshake the session refused closes its connection at once, its alert unsent",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "        if (connection.tls.ticket != null) tcp.retry_full(self, at, now_ns) else refuse(self, at, now_ns);", .new = "        if (connection.tls.ticket != null) tcp.retry_full(self, at, now_ns) else tcp.fail(self, at, now_ns);" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "The engine over TLS",
+        .id = "ET16",
+        .what = "a refused handshake's connection reads on, and never closes once its alert has gone",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "    tcp.abandon(self, at, now_ns);\n    connection.state = .closing;\n", .new = "    tcp.abandon(self, at, now_ns);\n" },
+        },
+        .caught_by = .short_walks,
     },
     .{
         .section = "One send a stream",

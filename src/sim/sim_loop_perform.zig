@@ -203,6 +203,7 @@ fn answer_record(loop: *Loop, connection: *network_module.Connection) bool {
             if (steps.second) |second| write_inbound_step(loop, connection, script, second);
         },
         .data => |data| answer_sealed(loop, connection, script, data),
+        .alert => network().alerts_heard[connection.server] +|= 1,
         .nothing, .close => {},
     }
     consume(connection, whole);

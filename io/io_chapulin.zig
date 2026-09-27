@@ -160,6 +160,19 @@ pub const Session = struct {
         return self.fail();
     }
 
+    /// What chapulin staged after a failure: the fatal alert it chose, for the engine to send
+    /// before it closes (RFC 9846 §6.2). chapulin hands it over through `recordOut`, refuses once
+    /// all of it has gone, and drops it when the session is closed first, so it is taken before
+    /// the session is wiped.
+    fn collect_alert(self: *Session) void {
+        var pieces: usize = 0;
+        while (pieces < constants.chapulin_out_pieces_max) : (pieces += 1) {
+            const made = self.client.recordOut(self.staged[self.staged_len..]) catch return;
+            if (made == 0) return;
+            self.staged_len += made;
+        }
+    }
+
     pub fn take_out(self: *Session, out: []u8) usize {
         assert(out.len >= self.staged_len);
         const made = self.staged_len;
@@ -174,7 +187,10 @@ pub const Session = struct {
         assert(self.live);
         hooks.enter(self.stream.?);
         defer hooks.leave();
-        const consumed = self.client.recordIn(record) catch return self.fail();
+        const consumed = self.client.recordIn(record) catch {
+            self.collect_alert();
+            return self.fail();
+        };
         // The engine hands over one whole record, and chapulin takes whole records: less is a
         // programmer's error, the engine's or chapulin's, not the peer's.
         assert(consumed == record.len);
@@ -290,6 +306,27 @@ test "a session starts and stages a hello, a TLS handshake record" {
     const body = std.mem.readInt(u16, out[constants.tls_record_length_at..][0..@sizeOf(u16)], .big);
     try testing.expectEqual(made, constants.tls_record_header_bytes + body);
     session.wipe();
+}
+
+test "a handshake chapulin refuses hands over its fatal alert, though the session is wiped" {
+    // A first record from the server that is no ServerHello: chapulin fails the handshake and
+    // stages the alert it chose, which the engine sends before it closes (RFC 9846 §6.2).
+    var context = Session.Context.init(&.{}, @splat(7), 1_700_000_000, 0);
+    const pins = [_]cocuyo.Pin{@splat(0xab)};
+    const tls: cocuyo.Tls = .{ .pins = &pins };
+    const session = try started(&tls, &context);
+    defer testing.allocator.destroy(session);
+    var out: [Session.out_bytes_max]u8 = undefined;
+    _ = session.take_out(&out);
+    // A handshake record whose one message is of a type no server sends (RFC 9846 §4).
+    var record = [_]u8{ 22, 3, 3, 0, 4, 0xfe, 0, 0, 0 };
+    try testing.expectError(Session.Error.Failed, session.handshake(&record));
+    try testing.expect(!session.started);
+    // An alert record, in the clear before any key: content type 21, and a fatal level (§6).
+    const made = session.take_out(&out);
+    try testing.expect(made >= constants.tls_record_header_bytes + 2);
+    try testing.expectEqual(@as(u8, 21), out[0]);
+    try testing.expectEqual(@as(u8, 2), out[constants.tls_record_header_bytes]);
 }
 
 test "a server known by pins alone gets no anchors, though the context carries them for named servers" {

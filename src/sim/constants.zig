@@ -127,6 +127,11 @@ pub const tls_record_length_at = 3;
 
 /// A `close_notify` alert: level warning, description `close_notify` (RFC 9846 §6).
 pub const tls_close_notify = [_]u8{ 1, 0 };
+/// An alert's level octet when it is fatal (RFC 9846 §6).
+pub const tls_alert_fatal = 2;
+/// The fatal alert the twin's session sends for a handshake it refuses: level fatal, description
+/// `handshake_failure` (RFC 9846 §6, §6.2).
+pub const tls_alert_handshake_failure = [_]u8{ tls_alert_fatal, 40 };
 
 /// The most the twin's TLS carries in one record: a framed query at its longest, or a framed
 /// answer the size of the twin's largest datagram.

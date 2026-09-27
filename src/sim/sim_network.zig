@@ -114,6 +114,8 @@ pub const Network = struct {
     /// Whether every socket open fails, as it does when a process has no descriptor left: set
     /// by a caller driving the twin in manual mode (tools/spec_replay/).
     refuse_open: bool = false,
+    /// The fatal alerts each scripted server heard from a client over TLS, which a test reads.
+    alerts_heard: [constants.servers_max]u32 = @splat(0),
 
     pub fn reset(self: *Network) void {
         self.* = .{};

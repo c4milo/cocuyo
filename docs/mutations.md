@@ -2721,3 +2721,31 @@ day. Six mutations, six `CAUGHT`.
 | CT4 | the clock ignores the time since the context's | the chain is checked at the caller's time | the named-server test | CAUGHT |
 | CT5 | a named server with no anchors sends no name | its pins judge it, its name still sent | the named-and-pinned test | CAUGHT |
 | CT6 | the build record check passes any record | an object built otherwise stops the program | the build-record test | CAUGHT |
+
+## A refused handshake's alert
+
+2026-09-27. A handshake the session refuses, not resumed, sends the session's fatal alert before
+its connection closes (docs/design.md §21, TLS rule 4; RFC 9846 §6.2; c4milo/cocuyo#31). In the
+model, `Refuse` tells and detaches every lookup on the connection, seals the alert as the session's
+records are sealed, and closes the connection once the alert has gone, as an idle close does after
+its `close_notify`. The check `refusal said` holds it. R4a puts the old close at once back, and TLC
+over its mutant configuration found `refusal said` broken on a trace of five states. The
+TLS mutants whose operator copies `TlsStep`, TM3 and R8a, refuse the same way, so each still
+breaks its own rule alone. The committed walks were written again from the model, and TLC's full
+run, 4,824,000 events over 24,000 walks, replays against the engine.
+
+The engine's 79 mutations ran again against the new walks. 77 were caught as before. ET4's edit
+named the line this change rewrote, so it was written again, and walk 16900 catches it. ET6's pick,
+walk 16005, changed with the model, so walk 16006, which catches it, took its place in
+`build/spec.zig`. ET15 and ET16 break the engine's refusal, against the short walks. AL1 to AL3
+break the sessions and the twin's server, which no walk reads, against the tests named. Six
+mutations of the refusal, six `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| R4a | a refused handshake closes its connection at once, its alert unsent | TLS rule 4 | `refusal said`, at depth 5 | CAUGHT |
+| ET15 | the engine closes a refused handshake's connection at once, its alert unsent | TLS rule 4 | the short walks, walk 82 | CAUGHT |
+| ET16 | a refused handshake's connection reads on, and never closes once its alert has gone | TLS rule 5 | the short walks, walk 82 | CAUGHT |
+| AL1 | the twin's session stages no alert for a handshake it refuses | RFC 9846 §6.2 | the twin's refusal test, and the engine's | CAUGHT |
+| AL2 | chapulin's session drops the alert chapulin staged | RFC 9846 §6.2 | the chapulin alert test | CAUGHT |
+| AL3 | the twin's server hears a fatal alert as a close | the alert is counted | the twin's refusal test | CAUGHT |

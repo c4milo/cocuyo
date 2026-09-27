@@ -62,13 +62,17 @@ test "flights before the handshake's end are answered, and both lookups wait for
     try rig.deinit();
 }
 
-test "a refused handshake fails the connection, and the next server answers over TLS" {
+test "a refused handshake says its alert, fails the connection, and the next server answers" {
     var rig: Rig = .{};
     try start(&rig, 43, .{ .{ .tls = .{ .refuse = true } }, .{} });
     _ = try rig.engine.start(question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(0));
+    // The session's fatal alert reached the server that refused (RFC 9846 §6.2, TLS rule 4), and
+    // the next server heard none.
+    try testing.expectEqual(@as(u32, 1), rig.loop.network().alerts_heard[0]);
+    try testing.expectEqual(@as(u32, 0), rig.loop.network().alerts_heard[1]);
     // The refused connection freed its slot, which the next server's took.
     try testing.expect(up_to(&rig, 1));
     _ = rig.engine.take(rig.loop.now());
