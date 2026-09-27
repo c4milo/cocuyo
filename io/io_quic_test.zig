@@ -414,3 +414,35 @@ test "a request's bytes outlive its answer, and colibri sends them again until t
     _ = engine.take(world.rig.loop.now());
     try world.rig.deinit();
 }
+
+test "a connection colibri's server closes is closed, and the next lookup opens another" {
+    // "An endpoint sends a CONNECTION_CLOSE frame ... to terminate the connection immediately"
+    // (RFC 9000 §10.2), whenever it likes: the client does not charge it, and opens anew.
+    const world = try World.create(97, .{ .{}, .{} });
+    defer world.free();
+    _ = try world.rig.engine.start(question("a.example."), world.rig.loop.now());
+    _ = try world.rig.until_result();
+    const entry = &world.sides[0].entries[0];
+    quic.connection_close.owe(&entry.server.connection, .{
+        .layer = .application,
+        .error_code = cocuyo_quic.constants.doq_no_error,
+        .frame_type = null,
+        .reason = "",
+    });
+    pump(&world.sides[0], entry, world.rig.loop.now(), false);
+    const connection = &world.rig.engine.quic.connections[0];
+    var rounds: usize = 0;
+    while (connection.state != .closed and rounds < fixtures.until_rounds_max) : (rounds += 1) {
+        _ = try world.rig.step(fixtures.wait_ns);
+    }
+    try testing.expect(connection.state == .closed);
+    _ = try world.rig.engine.start(question("b.example."), world.rig.loop.now());
+    const result = try world.rig.until_result();
+    try testing.expect(result.outcome == .answer);
+    // The same server answered, on a connection opened anew, and was not charged for the close.
+    try testing.expect(connection.state == .up);
+    try testing.expectEqual(@as(usize, 0), world.sides[1].entries[0].server.answered);
+    try testing.expectEqual(@as(u8, 0), world.rig.engine.resolver.servers.failures(0));
+    _ = world.rig.engine.take(world.rig.loop.now());
+    try world.rig.deinit();
+}

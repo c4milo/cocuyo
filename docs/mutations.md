@@ -2602,3 +2602,16 @@ mutations, four unseen by both before, four `CAUGHT`.
 | TL2 | a record the session refuses leaves the connection up | unseen | the failing-session test | CAUGHT |
 | TL3 | the peer's close leaves the connection up | unseen | the failing-session test | CAUGHT |
 | TL4 | a query the session cannot seal leaves the connection up | unseen | the failing-session test | CAUGHT |
+
+## A QUIC connection the server closes
+
+2026-09-26. Line coverage showed `io/io_quic_connection.zig` never telling the engine that the
+server closed a connection: no test had colibri's server send CONNECTION_CLOSE (RFC 9000 §10.2). A
+test now does, once an answer has come, and requires the connection to close, open anew to the
+same server for the next lookup, and charge no server. QC1 was run against `zig build test-io`,
+`zig build test-tools` and `zig build test-cocuyo_quic` before the test, and against `test-io`
+after. One mutation, unseen before, `CAUGHT`.
+
+| # | Mutation | Before | After | Status |
+| --- | --- | --- | --- | --- |
+| QC1 | a connection the server closed is not seen to have ended | unseen | the server-close test | CAUGHT |
