@@ -190,9 +190,11 @@ jobs:
   spec:
     name: Linux, the Lean and TLA+ models against the code
     runs-on: ubuntu-24.04
+    # A push to a branch cancels the run it replaces. On main a run already going finishes, and
+    # the newest push waits behind it: from 2f30feb on, each push cancelled the run before it.
     concurrency:
       group: spec-${{ github.ref }}
-      cancel-in-progress: true
+      cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@v4
       - name: Install Zig
@@ -223,9 +225,11 @@ jobs:
   tla:
     name: Linux, the engine model checked by TLC
     runs-on: ubuntu-24.04
+    # A push to a branch cancels the run it replaces. On main a run already going finishes, and
+    # the newest push waits behind it: from 2f30feb on, each push cancelled the run before it.
     concurrency:
       group: tla-${{ github.ref }}
-      cancel-in-progress: true
+      cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@v4
       - name: Install Zig
