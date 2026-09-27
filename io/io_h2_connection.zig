@@ -160,6 +160,7 @@ fn open_record(self: anytype) bool {
     if (state.plaintext.len - state.plaintext_len < tls.constants.record_plaintext_len_max) return false;
     const room = state.plaintext[state.plaintext_len..];
     const opened = h2.connection_tls.decrypt(&state.connection, state.records[0..state.records_len], room, 0) catch {
+        // "If the decryption fails, the receiver MUST terminate the connection" (RFC 9846 §5.2).
         state.stage = .done;
         return true;
     };
@@ -212,7 +213,9 @@ fn said_by(self: anytype, event: h2.Event, out: []u8) ?@TypeOf(self.*).Next {
             take_data(self, held.stream_id, held.payload);
             if (held.end_stream) return ended(self, held.stream_id, out);
         },
+        // A trailer section ends the response it follows (RFC 9113 §8.1).
         .trailers => |held| return ended(self, held.stream_id, out),
+        // A stream the server resets fails its request (request rule 7).
         .stream_reset, .stream_refused => |held| return reset(self, held.stream_id),
         .goaway => |held| return goaway(self, held.last_stream_id),
         // A client hears no request, and the engine reads nothing from SETTINGS or a PING.

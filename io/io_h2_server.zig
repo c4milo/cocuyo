@@ -18,15 +18,17 @@ pub const Answerer = struct {
 };
 
 /// What a test has the server do: what its responses say, the status, the media type, a content
-/// coding and an `Age`, and whether an interim response goes first; and whether it negotiates
-/// another protocol, sends GOAWAY once it has answered, resets each request instead of answering
-/// it, holds each unanswered, or gives a ticket once the handshake has ended.
+/// coding and an `Age`, whether an interim response goes first and whether a trailer section ends
+/// each; and whether it negotiates another protocol, sends GOAWAY once it has answered, resets each
+/// request instead of answering it, holds each unanswered, or gives a ticket once the handshake
+/// has ended.
 pub const Script = struct {
     status: u16 = 200,
     content_type: []const u8 = "application/dns-message",
     content_encoding: ?[]const u8 = null,
     age: ?[]const u8 = null,
     interim: bool = false,
+    trailers: bool = false,
     other_protocol: bool = false,
     goaway: bool = false,
     reset: bool = false,
@@ -42,6 +44,11 @@ const length_digits_max = 20;
 /// A response's field lines: its media type and length, and a content coding and an `Age` when the
 /// script names them.
 const response_fields_max = 4;
+/// The trailer section's one field, `x: 1`: a literal with a new name that is not indexed (RFC 7541
+/// §6.2.2), so the client's dynamic table stays as it was.
+const trailer_name = "x";
+const trailer_value = "1";
+const trailer_block = [_]u8{ h2.hpack.constants.without_indexing_pattern, trailer_name.len } ++ trailer_name.* ++ [_]u8{trailer_value.len} ++ trailer_value.*;
 
 /// One of the client's requests: its stream and its path.
 const Request = struct {
@@ -219,7 +226,22 @@ fn write_response(self: *Server, stream_id: u32, content: []const u8) !void {
         count += 1;
     }
     self.outgoing_len += try self.connection.write_response(self.outgoing[self.outgoing_len..], stream_id, self.script.status, fields[0..count], false);
-    const data = try self.connection.write_data(self.outgoing[self.outgoing_len..], stream_id, content, true);
+    const data = try self.connection.write_data(self.outgoing[self.outgoing_len..], stream_id, content, !self.script.trailers);
     if (data.consumed != content.len) return error.OutputTooSmall;
     self.outgoing_len += data.written;
+    if (self.script.trailers) try write_trailers(self, stream_id);
+}
+
+/// A trailer section that ends the response (RFC 9113 §8.1): HEADERS with END_STREAM, which
+/// colibri's server does not write, so the frame is written here.
+fn write_trailers(self: *Server, stream_id: u32) !void {
+    var writer = h2.core.Writer.init(self.outgoing[self.outgoing_len..]);
+    try h2.frame.frame_header.write(&writer, .{
+        .length = trailer_block.len,
+        .type = h2.constants.frame_type_headers,
+        .flags = h2.constants.flag_end_stream | h2.constants.flag_end_headers,
+        .stream_id = stream_id,
+    });
+    try writer.write_bytes(&trailer_block);
+    self.outgoing_len += writer.written().len;
 }

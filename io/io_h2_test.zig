@@ -267,6 +267,20 @@ test "the server's close_notify ends the connection" {
     try testing.expect(pair.client.next(&pair.answer).? == .closed);
 }
 
+test "a record the connection cannot open ends it" {
+    // "If the decryption fails, the receiver MUST terminate the connection" (RFC 9846 §5.2). A
+    // record whose outer type is not application data any more is one the provider refuses.
+    try pair.start(.{}, null);
+    try pair.exchange();
+    var ping: [ping_frame_bytes]u8 = undefined;
+    _ = try h2.connection.frame_bytes(&ping, h2.constants.frame_type_ping, 0, 0, &@as([h2.constants.ping_len]u8, @splat(0)));
+    const sealed = try h2.connection_tls.encrypt(&pair.server.connection, &ping, &pair.wire, 0);
+    pair.wire[0] ^= 1;
+    try pair.client.receive(pair.wire[0..sealed.written], 0);
+    try testing.expect(pair.client.next(&pair.answer).? == .closed);
+    try testing.expectEqual(@as(?Client.Next, null), pair.client.next(&pair.answer));
+}
+
 /// The plaintext of a record the server seals: PING frames, each a header and eight octets.
 const ping_frame_bytes = h2.constants.frame_header_len + h2.constants.ping_len;
 /// Three records of seven hundred PINGs: after two, the plaintext has no room for a third.

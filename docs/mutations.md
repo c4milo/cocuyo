@@ -2684,3 +2684,19 @@ QK9 breaks the examples' generic type name, against `zig build test`. Nine mutat
 | QK7 | `from_code` names every code | only named types have a view | the type-code test | CAUGHT |
 | QK8 | an unnamed type's rdata is read as a name | RFC 3597 §4 | the unnamed-type lookup test, by an assertion | CAUGHT |
 | QK9 | the examples do not read `TYPE<number>` | RFC 3597 §5 | the examples' generic-type test | CAUGHT |
+
+## DoH over HTTP/2's failures
+
+2026-09-26. Line coverage showed three of the HTTP/2 connection's answers unrun, and so untested:
+a stream the server resets, a response that a trailer section ends (RFC 9113 §8.1), and a record
+that does not open, which ends the connection (RFC 9846 §5.2). The test server now ends a response
+with trailers when its script says so. The failover helper now requires the lookup to move on
+before the first server's wait ends, since a lookup that waits it out lands on the next server
+too. H1 to H3 were run against `zig build test-io` and `zig build test-cocuyo_h2` before and after.
+Three mutations, three unseen before, three `CAUGHT`.
+
+| # | Mutation | Before | After | Status |
+| --- | --- | --- | --- | --- |
+| H1 | a stream the server resets is not told to the engine | unseen | the failover test, by its time | CAUGHT |
+| H2 | a trailer section does not end the response | unseen | the trailers test | CAUGHT |
+| H3 | a record that does not open leaves the connection up | unseen | the unopenable-record test | CAUGHT |

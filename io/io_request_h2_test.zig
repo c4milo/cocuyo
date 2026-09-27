@@ -138,7 +138,8 @@ test "the Age colibri's server writes lowers the answer's TTLs" {
     try world.rig.deinit();
 }
 
-/// A lookup whose first server's responses are as `script` says: it fails over, counted once.
+/// A lookup whose first server's responses are as `script` says: it fails over at once, and not
+/// once the first server's wait ran out, counted once.
 fn expect_failed_over(seed: u64, script: cocuyo_h2.server.Script) !void {
     const world = try World.create(seed, .{ .{}, .{} });
     defer world.free();
@@ -147,14 +148,29 @@ fn expect_failed_over(seed: u64, script: cocuyo_h2.server.Script) !void {
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expectEqual(@as(u8, 1), world.rig.engine.resolver.servers.failures(0));
     try testing.expectEqual(@as(usize, 1), world.sides[1].entries[0].server.answered);
+    try testing.expect(world.rig.loop.now() < world.rig.config.timeout_ns);
     try world.rig.deinit();
 }
 
-test "a 404, a coded answer, another media type or another protocol from colibri's server fails over" {
+test "a 404, a coded answer, another media type or protocol, or a reset stream fails over" {
     try expect_failed_over(113, .{ .status = 404 });
     try expect_failed_over(114, .{ .content_encoding = "gzip" });
     try expect_failed_over(115, .{ .content_type = "text/html" });
     try expect_failed_over(116, .{ .other_protocol = true });
+    // "A stream the server resets fails its request" (docs/design.md §24, request rule 7).
+    try expect_failed_over(123, .{ .reset = true });
+}
+
+test "a response that a trailer section ends is answered, and costs its server nothing" {
+    // A response may end with trailers rather than with its content (RFC 9113 §8.1).
+    const world = try World.create(124, .{ .{}, .{} });
+    defer world.free();
+    world.sides[0].script.trailers = true;
+    const result = try world.resolve("example.com.");
+    try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
+    try testing.expectEqual(@as(usize, 1), world.sides[0].entries[0].server.answered);
+    try testing.expectEqual(@as(u8, 0), world.rig.engine.resolver.servers.failures(0));
+    try world.rig.deinit();
 }
 
 test "an interim response before the answer changes nothing" {
