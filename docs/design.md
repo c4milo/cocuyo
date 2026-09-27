@@ -2814,8 +2814,8 @@ rulings of that day with the facts that led to them. Each piece lands with its c
   reaches port 53. A mixed list was the alternative, and it lets a lookup leak to cleartext.
 - The caller hands in what TLS needs and cocuyo does not read. A handshake needs 256 bits of
   fresh randomness, which a `u64` seed cannot give: the engine takes a 32-byte seed from a
-  CSPRNG at init and expands it with ChaCha20 behind chapulin's `ch_rand_bytes`, one stream per
-  engine. A certificate's validity needs the wall clock: the caller gives Unix seconds pinned to
+  CSPRNG at init and expands it with ChaCha20, one stream per engine, which each session hands
+  colibri's `start` since colibri#71. A certificate's validity needs the wall clock: the caller gives Unix seconds pinned to
   a `now_ns` at init and at `reinit`, and the engine adds the elapsed `now_ns`. chapulin's own
   DRBG was the alternative, and it is one stream for every session in the process.
 - chapulin changes first, in three pieces, before DoT lands here:
@@ -2987,10 +2987,11 @@ chapulin's session starts from a `Context` the caller hands `Resolver.use_tls`:
   image may link chapulin's non-blocking TCP object beside its QUIC object since chapulin
   `0c201b7`, which names each object's build record after its transport. Since `ca80351` the
   transports are named for what TLS runs over and who does the I/O, and the record here is
-  `ch_build_info_tcp_nonblocking`. colibri's objects import both hooks too (its decision 94),
-  so the image binds `chapulin_hooks` for them. On 2026-09-27 colibri's owner ruled that each
-  session will take its source in `start`, through a callback chapulin gives each session
-  (colibri#71). The sessions then hand it the engine's stream, and no longer enter it.
+  `ch_build_info_tcp_nonblocking`. Since colibri#71, landed on 2026-09-27, colibri's objects
+  are built `RAND=session`: each session hands the stream to colibri's `start`, chapulin draws
+  from it wherever it draws, and nothing enters it around a call. The image defines only
+  `ch_assert_fail`, and the owner ruled the same day that `chapulin_hooks` drops its
+  `ch_rand_bytes`, `enter` and `leave`.
 
 The session collects what chapulin makes as soon as chapulin makes it. chapulin says it is
 connected only once the client's last flight has been collected, so a session that left it for
@@ -3282,7 +3283,9 @@ the plan those rulings make, and §16 decisions 26 to 28 record them.
   cores. (Decision 28.)
 - An image defines chapulin's `ch_rand_bytes` and `ch_assert_fail` once, for every chapulin
   object and every user of chapulin it links, and each must be safe to call from several threads
-  at once. Ruled on 2026-09-24 (§21, chapulin's docs/porting.md).
+  at once. Ruled on 2026-09-24 (§21, chapulin's docs/porting.md). Since colibri#71, on
+  2026-09-27, no object cocuyo links imports `ch_rand_bytes`, and `ch_assert_fail` is the one
+  hook left.
 
 ### What already holds
 
@@ -3315,7 +3318,8 @@ handlers when `apply` says the event is not the engine's.
    So the hooks become a module the image binds: a thread-local stream that each user of
    chapulin sets around the calls that can draw (§21), and one `ch_rand_bytes` that reads it.
    cocuyo ships the module. An image with other users of chapulin binds cocuyo's for every
-   user, or its own with the same surface.
+   user, or its own with the same surface. Since colibri#71, on 2026-09-27, the module holds
+   `ch_assert_fail` alone: each session hands its stream to colibri's `start`.
 3. **A request interface.** The TLS session interface of §21 lets the engine speak TLS without
    naming chapulin. A request interface lets it carry DoH and DoQ without naming colibri. `Options` gains
    the request transport's type:
@@ -3559,9 +3563,10 @@ header protection, and moves handshake octets one level at a time. Since 2026-09
 `tls.quic.Client` puts it there (decision 32), and `io/io_chapulin_quic.zig` is the session over
 it. What its build and its checks give it:
 
-- **The object.** colibri's `tls` builds it from the chapulin colibri pins, `RAND=extern
+- **The object.** colibri's `tls` builds it from the chapulin colibri pins, `RAND=session
   TRUST=webpki TRANSPORT=quic-nonblocking ROLE=both`, beside the TCP object the DoT session runs
-  over. Both import the hooks of `chapulin_hooks`. colibri compares each object's build record
+  over. Both import `ch_assert_fail` from `chapulin_hooks`, and no other hook since colibri#71.
+  They were built `RAND=extern` before it. colibri compares each object's build record
   with the headers it translated, once for each configuration. Until 2026-09-27 the session linked
   an object made from a chapulin checkout, `bin/chapulin-quic-nonblocking.o`.
 - **A name, pins, or both, as over DoT.** Since chapulin `3d5db4e` its QUIC mode takes a
@@ -3571,11 +3576,12 @@ it. What its build and its checks give it:
   clock, and is known by its leaf's key. A configuration chapulin refuses, such as a name with no
   anchor, fails the session's start, and the lookup ends in `AllServersFailed`. Until then the
   session refused pins, because chapulin's QUIC mode did.
-- **The engine's stream, around the calls that draw.** chapulin draws when its session starts,
+- **The engine's stream, handed to colibri's `start`.** chapulin draws when its session starts,
   which colibri's provider does at `set_transport_params`, and when handshake octets arrive, at
-  `provide_handshake`, a HelloRetryRequest for P-256 among them. The session hands the connection
-  a provider of its own, which enters the engine's stream around those two calls and passes every
-  call on to colibri's. It goes once colibri's `start` takes the stream (colibri#71).
+  `provide_handshake`, a HelloRetryRequest for P-256 among them. Since colibri#71, on 2026-09-27,
+  every draw comes from the stream the session hands `start`, and the connection gets colibri's
+  provider itself. Until then the session handed it a provider of its own, which entered the
+  stream around those two calls and passed every call on to colibri's.
 - **One QUIC object in an image**, colibri's. Two would define the same calls. colibri's `h3` and
   cocuyo's session use the one object.
 - **AES-GCM where the machine has the AES instructions, ChaCha20-Poly1305 alone elsewhere.**
@@ -3965,7 +3971,8 @@ length. So the walks' short sends and ended receives reach the engine as the mod
    resolver an event of another component's and requires it back untouched. The hooks module
    landed the same day: `chapulin_hooks`, registered, holds `ch_rand_bytes`, `ch_assert_fail`
    and the thread-local stream, with `enter` and `leave` for each user of chapulin, and the DoT
-   session links it whenever it is linked. The lint rule landed the same day, as pepegrillo's
+   session links it whenever it is linked. Since 2026-09-27 it holds `ch_assert_fail` alone
+   (colibri#71). The lint rule landed the same day, as pepegrillo's
    `global_state` at `6fcb273`, configured over `src/` and `io/`. Its first run found five
    shared `var`s. Four were test fixtures. The fifth was the twin's network, one per process,
    which two threads' loops would have reset under each other. All five are thread-local now.
