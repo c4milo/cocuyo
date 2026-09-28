@@ -79,6 +79,9 @@ pub fn Request(comptime bytes_max: usize) type {
         server: u8 = 0,
         /// Null while the request waits in its connection's queue (request rule 4).
         stream: ?u64 = null,
+        /// Over a channel, whether the channel holds the request as an exchange (docs/design.md
+        /// §24, rule 21).
+        exchange: bool = false,
         len: u16 = 0,
         bytes: [bytes_max]u8 = undefined,
     };
@@ -213,7 +216,8 @@ pub fn of_stream(self: anytype, server: u8, stream: u64) ?usize {
 
 /// Forgets every request, which `reinit` does once every connection is closed.
 pub fn forget_all(self: anytype) void {
-    if (comptime !(@TypeOf(self.*).Quic.enabled or @TypeOf(self.*).H2.enabled)) return;
+    const Engine = @TypeOf(self.*);
+    if (comptime !(Engine.Quic.enabled or Engine.H2.enabled or Engine.Doh.enabled)) return;
     for (self.requests[0..]) |*request| request.live = false;
 }
 

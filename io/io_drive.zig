@@ -12,6 +12,8 @@ const send_module = @import("io_send.zig");
 const request_module = @import("io_request.zig");
 const request_connection = @import("io_request_connection.zig");
 const request_tend = @import("io_request_connection_tend.zig");
+const channel_module = @import("io_channel.zig");
+const channel_link = @import("io_channel_link.zig");
 
 /// Polls the table for what every lookup wants and does it, until nothing is left: a send out
 /// or held, a connection asked for, a request taken, an end handed to `results`. Then every
@@ -33,14 +35,16 @@ pub fn drive(self: anytype, now_ns: u64) void {
         const event = self.resolver.poll(now_ns, &self.scratch) orelse break;
         if (act(self, event, now_ns)) refused = 0 else refused += 1;
     }
-    request_module.cancel_left(self, now_ns);
+    if (channel_module.carries(self)) channel_module.cancel_left(self, now_ns) else request_module.cancel_left(self, now_ns);
     tcp.close_idle(self, now_ns);
     request_connection.close_idle(self, &self.quic, now_ns);
     request_connection.close_idle(self, &self.h2, now_ns);
+    channel_module.close_idle(self, now_ns);
     tcp.tend(self);
     tend_sockets(self);
     request_tend.tend(self, &self.quic, now_ns);
     request_tend.tend(self, &self.h2, now_ns);
+    channel_link.tend(self, now_ns);
     arm_timer(self, now_ns);
 }
 
@@ -55,7 +59,10 @@ fn act(self: anytype, event: cocuyo.Event, now_ns: u64) bool {
         .done => |answer| return report(self, index, .{ .answer = answer }, now_ns),
         .failed => |failure| return report(self, index, .{ .failure = failure }, now_ns),
         .wait => unreachable,
-        .send_request => |send| request_module.take(self, index, send, now_ns),
+        .send_request => |send| if (channel_module.carries(self))
+            channel_module.take(self, index, send, now_ns)
+        else
+            request_module.take(self, index, send, now_ns),
     }
     return true;
 }
@@ -116,7 +123,7 @@ fn drain_owed(self: anytype, server: u8) bool {
 /// when that moves (docs/design.md §24, request rule 11).
 fn arm_timer(self: anytype, now_ns: u64) void {
     if (self.closing) return;
-    const requests_due = earliest(request_tend.next_deadline(&self.quic), request_tend.next_deadline(&self.h2));
+    const requests_due = earliest(earliest(request_tend.next_deadline(&self.quic), request_tend.next_deadline(&self.h2)), channel_module.next_deadline(self));
     const due = earliest(self.resolver.next_deadline_ns(), requests_due);
     if (due == self.timer_due_ns) return;
     if (self.timer_handle) |handle| {

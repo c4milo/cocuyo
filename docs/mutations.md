@@ -2932,3 +2932,35 @@ events of the full run. The engine mutations were not run again. Ten mutations, 
 | CH8 | a link's socket that ends fails every request on its channel itself | rule 19 | link end fails none | CAUGHT |
 | CH9 | a drive arms no receive on a running link that has none | rule 19 | listening | CAUGHT |
 | CH10 | a TCP link opened again connects while an earlier connect still borrows its address | request rule 14 | link lent | CAUGHT |
+
+## The engine's DoH over a channel
+
+Design §24 step 7b, 2026-09-28 (decision 33). The engine carries DoH over a channel type in
+`Options.doh`, request rules 18 to 25 (`io/io_channel.zig`, `io/io_channel_link.zig`), and the
+twin's channel says the steps a test queues (`sim.channel`). Broken against `zig build test-io`,
+whose fourteen tests of the engine over the twin's channel are `io/io_channel_test.zig` and
+`io/io_channel_link_test.zig`. CE1 and CE17 break every test: a link opened with its channel, and
+a timer that tells no channel its instant came. The reopening test first let a link that
+connected at once pass, since it asked only for a new opening or a wait. It asks for the wait now,
+on the first opening, and CE14 is caught. Eighteen mutations, eighteen `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CE1 | a link opens when its channel opens, before the channel says | rule 19 | a DoH lookup opens its server's channel with its request, and no link until the channel says | CAUGHT |
+| CE2 | an exchange that ends in failure tells its lookup nothing | rule 22 | an exchange that fails fails its request once, as the server's failure | CAUGHT |
+| CE3 | a request its lookup left is not cancelled on its channel | request rule 6 | a request its lookup left is cancelled on its channel | CAUGHT |
+| CE4 | an exchange's end gives its room to no request that waits | rule 21 | a request waits for room on its channel, and becomes an exchange once one ends | CAUGHT |
+| CE5 | a channel with no request on it never shuts down | rule 24 | an idle channel shuts down, and the next channel takes a request taken meanwhile | CAUGHT |
+| CE6 | a request taken while its channel shuts down goes on it as an exchange | rule 24 | the same | CAUGHT |
+| CE7 | a channel's close drops the requests that waited, and opens none | rule 24 | the same | CAUGHT |
+| CE8 | a TCP link's connection starts with its connect, before it has succeeded | request rule 14 | a TCP link connects first, and its connection starts at the connect's end | CAUGHT |
+| CE9 | a link's socket that ends is not told to the channel | rule 19 | a link's connect that fails is told to the channel, and fails no request itself | CAUGHT |
+| CE10 | a link's socket that ends fails every request on its channel itself | rule 19 | the same | CAUGHT |
+| CE11 | a link the channel closed shuts at once, dropping the octets it kept | rule 19 | a link the channel closes shuts its socket once the octets it kept have gone | CAUGHT |
+| CE12 | a link's connection starts with no ticket, and the kept one stays | rule 23 | each transport's ticket is kept, and the next link of that transport spends it | CAUGHT |
+| CE13 | a drive arms no receive on a running link that has none | the datagram's rule 1 | a running link whose receive the loop refused has it armed at the next drive | CAUGHT |
+| CE14 | a TCP link connects while an earlier opening's connect still borrows its address | request rule 14 | a TCP link opened again while its earlier connect is in flight connects at that connect's end | CAUGHT |
+| CE15 | a link's send end reads nothing of the channel | request rule 17 | the channel is read at a link's send end, and tells then what it held | CAUGHT |
+| CE16 | a link's socket that ends is told to the channel, which is not read | rules 17 and 19 | the channel is read when a link's socket ends, and tells then what it held | CAUGHT |
+| CE17 | the engine's timer tells no channel its instant came | rule 25 | every test of the engine over the twin's channel | CAUGHT |
+| CE18 | a request goes on its channel whether the channel had room or not | rule 21 | a request waits for room on its channel, and becomes an exchange once one ends | CAUGHT |

@@ -29,6 +29,10 @@ const tcp_queue = @import("io_tcp_queue.zig");
 pub const tls = @import("io_tls.zig");
 /// The request transport's default and the engine's requests (docs/design.md §24).
 pub const quic = @import("io_request.zig");
+/// The channel type's default and the engine's DoH over a channel (docs/design.md §24, DoH over
+/// colibri's client).
+pub const channel = @import("io_channel.zig");
+const channel_link = @import("io_channel_link.zig");
 const request_connection = @import("io_request_connection.zig");
 const request_tend = @import("io_request_connection_tend.zig");
 const request_events = @import("io_request_events.zig");
@@ -57,12 +61,17 @@ pub const Options = struct {
     /// `quic.None`, which leaves DoH to a QUIC type that speaks HTTP/3. An engine that holds both
     /// carries DoH over HTTP/2 until the two race (step 7b).
     h2: type = quic.None,
+    /// The channel type of docs/design.md §24, DoH over colibri's client: colibri's
+    /// `client.Channel` under `cocuyo_doh` when the build links it, the twin's in its tests, and
+    /// `channel.None`, which leaves DoH to the request transports above. An engine that holds one
+    /// carries every DoH configuration over it (decision 33).
+    doh: type = channel.None,
 };
 
 pub const InitError = error{ SocketFailed, ReceiveFailed };
 
 /// What one of the engine's `user_data` values says.
-pub const Kind = enum(u8) { udp_send, udp_receive, timer, tcp_connect, tcp_send, tcp_receive, tls_send, quic_send, quic_receive, h2_connect, h2_send, h2_receive };
+pub const Kind = enum(u8) { udp_send, udp_receive, timer, tcp_connect, tcp_send, tcp_receive, tls_send, quic_send, quic_receive, h2_connect, h2_send, h2_receive, doh_connect, doh_send, doh_receive };
 
 /// `count`, for an engine with a QUIC transport, and none without: such an engine holds no QUIC
 /// connection.
@@ -85,22 +94,35 @@ fn check_transports(comptime options: Options) void {
     assert(!options.h2.enabled or options.h2.request_bytes_max >= cocuyo.constants.query_bytes_max);
 }
 
-/// Whether the engine speaks DoH: over HTTP/3, or over HTTP/2.
+/// Whether the engine speaks DoH: over a channel, over HTTP/3, or over HTTP/2.
 fn speaks_doh(comptime options: Options) bool {
-    return options.quic.http3 or options.h2.enabled;
+    return options.doh.enabled or options.quic.http3 or options.h2.enabled;
 }
 
-/// `count`, for an engine with a request transport of either kind, and none without: such an
-/// engine holds no request slot and no answer buffer.
+/// `count`, for an engine with a request transport of any kind, and none without: such an engine
+/// holds no request slot and no answer buffer.
 fn with_requests(comptime options: Options, comptime count: usize) usize {
-    return if (options.quic.enabled or options.h2.enabled) count else 0;
+    return if (options.quic.enabled or options.h2.enabled or options.doh.enabled) count else 0;
+}
+
+/// `count`, for an engine with a channel type, and none without.
+fn with_doh(comptime options: Options, comptime count: usize) usize {
+    return if (options.doh.enabled) count else 0;
+}
+
+/// The longest request a slot holds: what each transport asks, and a DNS message over a channel,
+/// whose GET the channel builds (rule 21).
+fn request_bytes_of(comptime options: Options) usize {
+    const channel_bytes = if (options.doh.enabled) cocuyo.constants.query_bytes_max else 0;
+    return @max(options.quic.request_bytes_max, options.h2.request_bytes_max, channel_bytes);
 }
 
 pub fn Resolver(comptime options: Options) type {
     const quic_servers = with_quic(options, cocuyo.constants.servers_max);
     const h2_servers = with_h2(options, cocuyo.constants.servers_max);
+    const doh_servers = with_doh(options, cocuyo.constants.servers_max);
     const request_lookups = with_requests(options, options.lookups);
-    const request_bytes_max = @max(options.quic.request_bytes_max, options.h2.request_bytes_max);
+    const request_bytes_max = request_bytes_of(options);
     const answer_bytes = with_requests(options, options.tcp_message_bytes);
     comptime check_transports(options);
     return struct {
@@ -155,6 +177,8 @@ pub fn Resolver(comptime options: Options) type {
         /// The TCP connections DoH over HTTP/2 goes over, a slot for each server (§24, request
         /// rules 14 to 16).
         h2: request_connection.Set(options.h2, h2_servers, options.lookups),
+        /// The channels DoH goes over, a slot for each server (§24, rules 18 to 25).
+        doh: channel.Set(options.doh, doh_servers, options.lookups),
         requests: [request_lookups]quic.Request(request_bytes_max),
         /// Where a stream's answer is read to, whole, and handed over at once (request rule 5).
         answer: [answer_bytes]u8,
@@ -193,6 +217,9 @@ pub fn Resolver(comptime options: Options) type {
         /// The HTTP/2 transport type, which `io_request.zig` reads through the engine.
         pub const H2 = options.h2;
 
+        /// The channel type, which `io_channel.zig` reads through the engine.
+        pub const Doh = options.doh;
+
         /// What `Loop.Options.operations` needs for this engine: a send per lookup, a receive
         /// per server, a connect and a receive per connection, a receive and a send per QUIC
         /// connection, one timer, and slack.
@@ -200,6 +227,7 @@ pub fn Resolver(comptime options: Options) type {
             constants.loop_operations_per_connection * @as(u32, options.tcp_connections) +
             constants.loop_operations_per_quic_connection * @as(u32, quic_servers) +
             constants.loop_operations_per_h2_connection * @as(u32, h2_servers) +
+            constants.loop_operations_per_channel * @as(u32, doh_servers) +
             constants.loop_operations_slack;
 
         pub fn init(self: *Self, loop: *rotor.Loop, config: *const cocuyo.Config, seed: u64, now_ns: u64) InitError!void {
@@ -221,6 +249,7 @@ pub fn Resolver(comptime options: Options) type {
             self.tls_context = .{};
             self.quic = .{};
             self.h2 = .{};
+            self.doh = .{};
             self.requests = @splat(.{});
             self.sockets.reset_generation();
             try self.group.provide(loop);
@@ -239,6 +268,7 @@ pub fn Resolver(comptime options: Options) type {
             tcp.cancel_all(self);
             request_tend.cancel_all(self, &self.quic);
             request_tend.cancel_all(self, &self.h2);
+            channel_link.cancel_all(self);
         }
 
         /// Closes the sockets, once the loop has drained (rotor decision 5, rule 4).
@@ -248,6 +278,7 @@ pub fn Resolver(comptime options: Options) type {
             tcp.close_all(self);
             request_tend.close_all(&self.quic);
             request_tend.close_all(&self.h2);
+            channel_link.close_all(self);
         }
 
         /// Starts a lookup. Its result comes through `take`, and one the cache already holds is
@@ -295,6 +326,12 @@ pub fn Resolver(comptime options: Options) type {
         /// HTTP/2), as `use_quic` says for QUIC. The twin's needs nothing.
         pub fn use_h2(self: *Self, context: options.h2.Context) void {
             self.h2.context = context;
+        }
+
+        /// What every channel starts from (docs/design.md §24, DoH over colibri's client), as
+        /// `use_quic` says for QUIC. The twin's needs nothing.
+        pub fn use_doh(self: *Self, context: options.doh.Context) void {
+            self.doh.context = context;
         }
 
         /// Settles every lookup as cancelled, which is `ares_cancel`. Each failure comes through
@@ -371,6 +408,8 @@ test {
     _ = quic;
     _ = request_connection;
     _ = request_events;
+    _ = channel;
+    _ = channel_link;
     _ = @import("io_request_template.zig");
     _ = @import("io_tcp_queue_ring.zig");
     // The tests drive the engine on the twin, which is the only `rotor` that has scripts.
@@ -386,6 +425,8 @@ test {
         _ = @import("io_request_tcp_test.zig");
         _ = @import("io_request_read_test.zig");
         _ = @import("io_request_h2_test.zig");
+        _ = @import("io_channel_test.zig");
+        _ = @import("io_channel_link_test.zig");
         _ = @import("io_quic_test.zig");
         _ = @import("io_quic_https_test.zig");
         _ = @import("io_threads_test.zig");

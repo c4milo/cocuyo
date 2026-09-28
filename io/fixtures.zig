@@ -96,6 +96,10 @@ pub const small_group_buffers = 2;
 /// deadline.
 pub const quic_timer_ns = 1_000_000;
 
+/// A wait that lets the engine's timer fire for a step a channel of the twin's says at once
+/// (`io_channel_test.zig`).
+pub const channel_read_ns = 1_000_000;
+
 /// The colibri servers one scripted server keeps for the engine's connections to it: the one open,
 /// and the one a reopening makes. And the datagrams a colibri server sends at most in one go.
 pub const quic_servers_per_side = 2;

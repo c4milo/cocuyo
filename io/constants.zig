@@ -126,6 +126,15 @@ pub const loop_operations_per_quic_connection = 2;
 /// its octets (docs/design.md §24, request rules 14 and 15).
 pub const loop_operations_per_h2_connection = 3;
 
+/// A channel's operations in the loop at once: its QUIC link's receive and send, and its TCP link's
+/// connect, receive and send (docs/design.md §24, rule 19).
+pub const loop_operations_per_channel = 5;
+
+/// What one read of a channel takes at most beside an end for each request: its links' opens and
+/// closes, its tickets and its close, which bounds the loop over it. What a flood leaves unread is
+/// read at the next read. Chosen, not measured, as `quic_connection_events_max` is.
+pub const channel_events_max = 16;
+
 /// Where a QUIC connection's incarnation sits in the `user_data` of its operations, above its
 /// server's index, as a TCP connection's does above its slot. A server fits in the octet below.
 pub const quic_incarnation_shift = 8;

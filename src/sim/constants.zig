@@ -190,3 +190,16 @@ pub const alpn_h2 = "h2";
 pub const quic_http_header_bytes = 7;
 pub const quic_http_age_at = 2;
 pub const quic_http_message_at = 6;
+
+/// The exchanges the twin's channel holds at once, as colibri's channel holds 16
+/// (sim_channel.zig): past them a request waits in the engine's queue (docs/design.md §24,
+/// request rule 21).
+pub const channel_exchanges_max = 16;
+
+/// The steps a test or the replay may queue on the twin's channel before it says them, one at
+/// each of the engine's reads: the longest a test queues, chosen, not measured.
+pub const channel_steps_max = 16;
+
+/// The octets the twin's channel writes on a link at once: one item of the twin's QUIC with
+/// nothing after its header, framed over TCP as the twin's transport over TCP frames one.
+pub const channel_output_bytes_max = core.constants.tcp_prefix_bytes + quic_item_header_bytes;

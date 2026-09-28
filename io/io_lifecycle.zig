@@ -9,6 +9,8 @@ const tcp = @import("io_tcp.zig");
 const send_module = @import("io_send.zig");
 const request_module = @import("io_request.zig");
 const request_tend = @import("io_request_connection_tend.zig");
+const channel_module = @import("io_channel.zig");
+const channel_link = @import("io_channel_link.zig");
 
 /// Settles every lookup as cancelled, which is `ares_cancel`. Each failure comes through
 /// `take` like any other, so the caller learns of all of them.
@@ -58,6 +60,9 @@ pub fn reinit(self: anytype, config: *const cocuyo.Config, seed: u64, now_ns: u6
     request_tend.cancel_all(self, &self.h2);
     request_tend.close_all(&self.quic);
     request_tend.close_all(&self.h2);
+    channel_link.cancel_all(self);
+    channel_link.close_all(self);
+    channel_module.forget_all(self);
     request_module.forget_all(self);
     self.sockets.cancel(self.loop);
     self.sockets.close();

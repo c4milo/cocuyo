@@ -12,6 +12,8 @@ const drive_module = @import("io_drive.zig");
 const send_module = @import("io_send.zig");
 const tcp_queue = @import("io_tcp_queue.zig");
 const request_events = @import("io_request_events.zig");
+const channel_module = @import("io_channel.zig");
+const channel_link = @import("io_channel_link.zig");
 const Kind = @import("io.zig").Kind;
 
 /// One completion event. True when it was the engine's, in which case the engine has acted on
@@ -33,6 +35,9 @@ pub fn apply(self: anytype, event: rotor.Event, now_ns: u64) bool {
         .h2_connect => request_events.on_connect_event(self, &self.h2, index, event, now_ns),
         .h2_send => request_events.on_send_event(self, &self.h2, index, event, now_ns),
         .h2_receive => request_events.on_receive_event(self, &self.h2, index, event, now_ns),
+        .doh_connect => channel_link.on_connect_event(self, index, event, now_ns),
+        .doh_send => channel_link.on_send_event(self, index, event, now_ns),
+        .doh_receive => channel_link.on_receive_event(self, index, event, now_ns),
     }
     drive_module.drive(self, now_ns);
     return true;
@@ -49,6 +54,7 @@ fn on_timer_event(self: anytype, generation: usize, now_ns: u64) void {
     self.timer_due_ns = null;
     request_events.expire_due(self, &self.quic, now_ns);
     request_events.expire_due(self, &self.h2, now_ns);
+    channel_module.expire_due(self, now_ns);
 }
 
 fn on_receive_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64) void {

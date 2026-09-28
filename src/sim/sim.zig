@@ -21,6 +21,9 @@ pub const tls = @import("sim_tls.zig");
 /// The twin's QUIC: a connection the engine drives in place of colibri's, and the server side a
 /// scripted server answers it with (docs/design.md §24).
 pub const quic = @import("sim_quic.zig");
+/// The twin's channel: the calls the engine makes of colibri's `client.Channel`, saying the steps
+/// a test or the replay queues (docs/design.md §24, DoH over colibri's client).
+pub const channel = @import("sim_channel.zig");
 pub const files_block = false;
 pub const supported = true;
 
@@ -57,6 +60,7 @@ test {
     _ = server;
     _ = tls;
     _ = quic;
+    _ = channel;
     _ = @import("sim_loop_quic.zig");
     _ = @import("sim_quic_stream.zig");
     _ = @import("sim_scenarios_test.zig");

@@ -4068,10 +4068,14 @@ through the request interface, so `cocuyo_rotor` never imports colibri. The type
 
 - `start` makes a server's channel from its `Tls`, its address and port, and the alternative kept.
 - `request`, `cancel` and `shutdown` are the channel's own.
-- `receive` takes a datagram, octets of the stream, or nothing, and returns at most one event.
-  The octets of the stream the channel has not taken stay with the type until it takes them, as
-  `cocuyo_h2` keeps them: a partial record until the rest arrives (TLS rule 7), and whole ones
-  while the channel has no room for what they hold.
+- `receive` hands the channel a datagram or octets of the stream a link read, and `next` returns
+  what it says, one thing at a time, until it has nothing more. The octets of the stream the
+  channel has not taken stay with the type until it takes them, as `cocuyo_h2` keeps them: a
+  partial record until the rest arrives (TLS rule 7), and whole ones while the channel has no
+  room for what they hold.
+- The type reads a response for the engine. An exchange's end carries a DNS message and its
+  `Age`, or nothing, and the engine hands the one to the lookup and fails the request on the
+  other (rule 22).
 - `datagram` and `output` write what each link owes.
 - `deadline` and `expire` are the channel's instant.
 - `start_link` starts a link's connection once its socket can carry octets, and `link_ended` tells
@@ -4083,8 +4087,13 @@ Three types fill it:
 - `cocuyo_doh` fills it from colibri's `client.Channel`. It is a module of its own, whose `client`
   and `tls` imports a consumer that speaks DoH binds to colibri's. It reads the template and the
   response through `doh`, as the two transports did.
-- The twin fills it with `sim.channel`, whose events the twin's servers script, as `sim.quic`'s
-  datagrams carry what happened. The replay drives the model's steps with it one by one.
+- The twin fills it with `sim.channel`, which says exactly the steps a test or the replay queues,
+  one at each of the engine's reads. While it has one queued it is due at once, so the engine's
+  timer brings the read when nothing else does. Its links carry an item of the twin's QUIC that
+  says nothing, so the engine's sockets send and receive on the twin's network. The replay drives
+  the model's steps with it one by one. It was to be scripted by the twin's servers, as
+  `sim.quic`'s datagrams carry what happened, but a channel says things no link carries, its first
+  `open` and its `closed` among them.
 - `doh.None` refuses a DoH configuration at `init`, and is the default.
 
 `Options.h2` and `cocuyo_quic`'s `http3` go. So do `cocuyo_h2`, `io/io_quic_h3.zig`, the HTTP/3
@@ -4249,7 +4258,9 @@ against Google and Cloudflare.
      dnsproxy over both versions, and the live check. The model landed on 2026-09-28:
      `EngineChannel.tla`, seven checks, and configurations of 1,672,552 and 14,986,512 states,
      which hold. Ten mutants break the channel's rules, and TLC finds each (docs/mutations.md CH1
-     to CH10).
+     to CH10). The engine's half landed the same day: `io/io_channel.zig` and
+     `io/io_channel_link.zig` under `Options.doh`, `sim.channel`, and fourteen tests of the engine
+     over it, which eighteen mutations break (docs/mutations.md CE1 to CE18).
 
 Checks, one for each piece:
 
