@@ -74,7 +74,7 @@ pub fn start(self: anytype, https: anytype, stream: *std.Random.ChaCha) error{Fa
 /// §7.2.4.2). colibri asserts the server's transport parameters are there by then.
 pub fn up(self: anytype) error{Failed}!void {
     assert(self.connection.handshake_complete);
-    self.h3.connection.start(&self.connection) catch return error.Failed;
+    self.h3.connection.start(&self.connection, self.latest_ns) catch return error.Failed;
 }
 
 /// Builds the GET for `path` (RFC 8484 §4.1, RFC 9114 §4.3.1).
@@ -109,7 +109,7 @@ pub fn request(self: anytype, message: []const u8) error{Failed}!?u64 {
     const expanded = template.expand(self.h3.path, dns, &path) orelse unreachable;
     try get(self, expanded);
     var writer = Writer.init(&slot.bytes);
-    const id = self.h3.connection.write_request(&self.connection, &self.h3.section, &indexing, &writer) catch |err| switch (err) {
+    const id = self.h3.connection.write_request(&self.connection, &self.h3.section, &indexing, &writer, self.latest_ns) catch |err| switch (err) {
         error.StreamsExhausted => return null,
         else => return error.Failed,
     };
@@ -153,7 +153,7 @@ pub fn cancel(self: anytype, stream_id: u64) void {
 /// request from that stream on hears its stream reset, and no new one opens.
 pub fn next(self: anytype, out: []u8) ?@TypeOf(self.*).Next {
     for (0..constants.h3_events_per_next_max) |_| {
-        const event = self.h3.connection.receive(&self.connection, &self.h3.body) catch return closed(self);
+        const event = self.h3.connection.receive(&self.connection, &self.h3.body, self.latest_ns) catch return closed(self);
         if (said_by(self, event orelse break, out)) |said| return said;
     } else return null;
     self.streams.sweep(&self.connection);

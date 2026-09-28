@@ -26,8 +26,8 @@
         // DoT and DoQ sessions (decision 32). Never of the library in `src/`. Lazy, so a build that
         // asks for none of them does not resolve it.
         .colibri = .{
-            .url = "git+https://github.com/c4milo/colibri?ref=v0.3.0#587963f11becf2357eab4892f96022bee29be938",
-            .hash = "colibri-0.3.0-Wo-AvvudVQSjdbMZpslnts3_jG44RMwKP3OxKNk6NhJz",
+            .url = "git+https://github.com/c4milo/colibri?ref=v0.4.0#fd0007300bf2d135a2434531a68ff3af75b17f07",
+            .hash = "colibri-0.4.0-Wo-AvvGlYASdYcyWiiIKzufdIrYvbR9GFi1nW07FNqyR",
             .lazy = true,
         },
     },

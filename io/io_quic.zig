@@ -120,6 +120,8 @@ pub fn Connection(comptime options: Options) type {
         streams: Streams = .{},
         /// The connection's next deadline, read after each call that can move it.
         due_ns: ?u64 = null,
+        /// The latest instant the connection was handed, which `h3` stamps the events it logs with.
+        latest_ns: u64 = 0,
         /// Whether this opening is to a DoH server, and speaks HTTP/3.
         https: bool = false,
         h3: H3 = if (options.http3) .{} else {},

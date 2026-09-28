@@ -78,7 +78,7 @@ pub fn Server(comptime streams: u16) type {
                 self.h3.init(.{ .role = .server });
                 self.h3_ready = true;
             }
-            if (taken) step(self, answerer);
+            if (taken) step(self, answerer, now_ns);
         }
 
         pub fn send(self: *Self, out: []u8, now_ns: u64) usize {
@@ -118,20 +118,20 @@ fn parameters(streams: u16) quic.transport_parameters.Parameters {
     return local;
 }
 
-/// What a datagram may have changed: `h3` started once the handshake ended, every event read, and
-/// the streams that ended freed.
-fn step(self: anytype, answerer: Answerer) void {
+/// What a datagram that came at `now_ns` may have changed: `h3` started once the handshake ended,
+/// every event read, and the streams that ended freed.
+fn step(self: anytype, answerer: Answerer, now_ns: u64) void {
     if (!self.h3_started) {
         if (!self.connection.handshake_complete) return;
-        self.h3.start(&self.connection) catch return;
+        self.h3.start(&self.connection, now_ns) catch return;
         self.h3_started = true;
     }
     // Bounded by the pool: each event takes an octet of it at least.
     for (0..constants.server_receive_bytes) |_| {
-        const event = self.h3.receive(&self.connection, &self.body) catch return;
+        const event = self.h3.receive(&self.connection, &self.body, now_ns) catch return;
         switch (event orelse break) {
             .request => |held| take_request(self, held.stream_id, held.request),
-            .end => |stream_id| answer(self, stream_id, answerer),
+            .end => |stream_id| answer(self, stream_id, answerer, now_ns),
             .reset, .refused => |held| if (request_of(&self.requests, held.stream_id)) |request| {
                 request.* = .{};
             },
@@ -158,25 +158,25 @@ fn request_of(requests: anytype, stream_id: u64) ?*Request {
 
 /// Answers a GET whose stream ended: its query from `dns` (RFC 8484 §4.1), answered as the
 /// answerer says, or the stream reset when there is none to answer.
-fn answer(self: anytype, stream_id: u64, answerer: Answerer) void {
+fn answer(self: anytype, stream_id: u64, answerer: Answerer, now_ns: u64) void {
     const request = request_of(&self.requests, stream_id) orelse return;
     var query: [cocuyo.constants.query_bytes_max]u8 = undefined;
     const asked = query_of(request.path[0..request.path_len], &query) orelse return refuse(self, request);
     const len = answerer.answer(answerer.context, asked, &request.content) orelse return refuse(self, request);
     request.content_len = len;
     request.answered = true;
-    write_response(self, request) catch return refuse(self, request);
+    write_response(self, request, now_ns) catch return refuse(self, request);
     self.answered += 1;
-    if (self.script.goaway) self.h3.shutdown(&self.connection) catch {};
+    if (self.script.goaway) self.h3.shutdown(&self.connection, now_ns) catch {};
 }
 
 /// The response's HEADERS frame, an interim one first if the test asks, and its DATA frame's header.
-fn write_response(self: anytype, request: *Request) !void {
+fn write_response(self: anytype, request: *Request, now_ns: u64) !void {
     var writer = Writer.init(&request.prefix);
     if (self.script.interim) {
         self.section.init();
         try self.section.append(":status", "103");
-        try self.h3.write_response(&self.connection, request.id, &self.section, &.{}, &writer);
+        try self.h3.write_response(&self.connection, request.id, &self.section, &.{}, &writer, now_ns);
     }
     var length_digits: [constants.server_length_digits_max]u8 = undefined;
     self.section.init();
@@ -185,8 +185,8 @@ fn write_response(self: anytype, request: *Request) !void {
     try self.section.append("content-length", std.fmt.bufPrint(&length_digits, "{d}", .{request.content_len}) catch unreachable);
     if (self.script.content_encoding) |coding| try self.section.append("content-encoding", coding);
     if (self.script.age) |age| try self.section.append("age", age);
-    try self.h3.write_response(&self.connection, request.id, &self.section, &.{}, &writer);
-    try h3.connection.write_data_header(request.content_len, &writer);
+    try self.h3.write_response(&self.connection, request.id, &self.section, &.{}, &writer, now_ns);
+    try self.h3.write_data_header(request.id, request.content_len, &writer, now_ns);
     request.prefix_len = writer.written().len;
     try quic.connection_stream_send.supply(&self.connection, .{ .value = request.id }, request.prefix_len + request.content_len, true);
 }

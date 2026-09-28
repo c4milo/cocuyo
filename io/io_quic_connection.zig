@@ -18,7 +18,7 @@ pub fn start(self: anytype, context: anytype) error{Failed}!void {
     assert(self.stage == .idle);
     // A DoH server needs HTTP/3, which a connection without it cannot speak.
     if (context.https != null and !Self.http3) return error.Failed;
-    self.* = .{ .stage = .handshaking, .https = context.https != null };
+    self.* = .{ .stage = .handshaking, .https = context.https != null, .latest_ns = context.now_ns };
     context.context.stream.fill(&self.destination);
     context.context.stream.fill(&self.source);
     if (comptime Self.http3) {
@@ -64,6 +64,7 @@ fn parameters(receive_bytes: usize, https: bool) quic.transport_parameters.Param
 /// connection, and `next` says so.
 pub fn receive(self: anytype, bytes: []const u8, now_ns: u64) void {
     if (self.stage != .handshaking and self.stage != .up) return;
+    self.latest_ns = now_ns;
     if (bytes.len > self.inbound.len) return;
     @memcpy(self.inbound[0..bytes.len], bytes);
     _ = quic.connection_datagram.receive(
@@ -170,6 +171,7 @@ pub fn cancel(self: anytype, stream: u64) void {
 /// connection, and `next` says so.
 pub fn datagram(self: anytype, out: []u8, now_ns: u64) usize {
     if (self.stage == .idle or self.stage == .done) return 0;
+    self.latest_ns = now_ns;
     const sent = quic.connection_send.send(
         &self.connection,
         self.session.suite(),
@@ -199,6 +201,7 @@ fn provider_of(self: anytype) quic.stream.stream_provider.StreamProvider {
 /// The instant came: colibri resends what was lost, or closes an idle connection.
 pub fn expire(self: anytype, now_ns: u64) void {
     if (self.stage == .idle or self.stage == .done) return;
+    self.latest_ns = now_ns;
     _ = quic.connection_timer.on_instant(&self.connection, self.session.suite(), &self.scratch.recovery, now_ns) catch {
         self.stage = .failed;
     };
