@@ -1397,7 +1397,8 @@ step until `zig build test` passes.
     two parts: HTTP/2 alone (§24 step 7a), then the race (7b). Rejected: a version chosen when the
     engine is built, which leaves the consumer to know whether the network blocks UDP; and a
     version for each server in `Config`, which changes the public API and still does not fall
-    back. §24.
+    back. Since decision 33, on 2026-09-28, colibri's `client.Channel` runs the race, and step 7b
+    is the engine over it. §24.
 31. **A question may name any type, and `Kind` is open.** Ruled by the owner on 2026-09-26
     (c4milo/cocuyo#25). c-ares's `ares_query` takes any type code, and the codec already kept the
     records of a type it does not name whole (RFC 3597 §3). So `Kind` gained a `_` and a question
@@ -1415,6 +1416,18 @@ step until `zig build test` passes.
     that its QUIC half links one object, which still clashes with any consumer that speaks HTTPS
     through colibri; and DoQ over an object made from a chapulin checkout, which every build of
     DoQ had to make first. §21, §24.
+33. **colibri's `client.Channel` carries DoH, and chooses between HTTP/3 and HTTP/2.** Ruled by
+    the owner on 2026-09-28 (c4milo/cocuyo#18, c4milo/colibri#70). colibri's channel holds a QUIC
+    connection and a TCP connection to one origin, and runs decision 30's race: QUIC first, TCP
+    when QUIC fails or a delay passes, and the first to come up takes the requests. It opens no
+    socket and resolves no name, so the engine opens what it asks for, at the addresses the
+    configuration gives. The engine holds one channel for each DoH server, in a fixed array of
+    `servers_max`, and takes the version the channel comes up on, HTTP/1.1 among them. Rejected:
+    the race in the engine, step 7b as planned, which writes again what colibri's channel holds
+    and colibri's model checks; failing a channel that comes up on HTTP/1.1, which RFC 8484 §5.2
+    does not ask for, since it recommends HTTP/2 for speed alone, and which makes a slow server a
+    failed one; and channels the caller hands `init`, which changes `init` where every other
+    connection set is a fixed array. §24.
 
 ## 17. Questions for the owner
 
@@ -3348,7 +3361,8 @@ handlers when `apply` says the event is not the engine's.
      request.
    - DoH goes over HTTP/3 first. HTTP/2 joined the plan on 2026-09-26, once colibri's h2 client
      had its TLS (c4milo/colibri#7): HTTP/3 first and HTTP/2 when it fails (DoH over HTTP/2,
-     below).
+     below). Since decision 33, on 2026-09-28, colibri's `client.Channel` carries both (DoH over
+     colibri's client, below).
 
 ### The engine's request rules, written on 2026-09-25
 
@@ -3940,6 +3954,166 @@ Four checks hold the new rules, and five mutants break them (docs/mutations.md R
 The replay drives a twin transport over the twin's TCP, whose octets are framed by a two-octet
 length. So the walks' short sends and ended receives reach the engine as the model names them.
 
+### DoH over colibri's client, written on 2026-09-28
+
+colibri's `client` module carries HTTP requests to one origin behind one set of calls
+(c4milo/colibri#70, its decisions 100 and 101). Its `client.Channel` holds a QUIC connection and a
+TCP connection to the origin, and chooses between them. It opens QUIC first, and opens TCP when
+QUIC's attempt fails or when a delay passes during QUIC's handshake. The first connection whose
+handshake completes takes the requests, and the other closes. That is decision 30's race, which
+step 7b was to write in the engine. The channel opens no socket and resolves no name: it asks its
+caller to open a UDP flow or a TCP connection to an address the caller handed it. Its TLS is
+colibri's `tls`, over chapulin (decision 32).
+
+**The owner's rulings of 2026-09-28** (decision 33):
+
+- colibri's `client.Channel` makes decision 30's choice. The engine holds one channel for each DoH
+  server, and opens the sockets the channel asks for. Step 7b's race is not written, and
+  `cocuyo_h2` and the HTTP/3 half of `cocuyo_quic` go. DoQ stays on `cocuyo_quic`, and `Config`
+  does not change.
+- A channel carries DoH on whatever version it comes up on: HTTP/3 over QUIC, and HTTP/2 or
+  HTTP/1.1 over TCP. Over TCP it offers `h2`, then `http/1.1` (RFC 7301 §3.1), and colibri speaks
+  HTTP/1.1 when the server selects it or selects nothing (its decision 88). RFC 8484 §5.2 calls
+  HTTP/2 the minimum recommended version for DoH for speed alone, since earlier versions "are
+  capable of conveying the semantic requirements of DoH". A server that answers over HTTP/1.1
+  alone is slow, then, and not wrong.
+- The channels are a fixed array in the engine, one for each of `servers_max` servers, as every
+  connection set is. The alternative was a slice of channels the caller hands `init`, where an
+  engine of one DoH server pays for one channel, and `init` changes.
+
+**What the channel gives the engine**, at colibri `1fb8b33`, before the tag that will carry it:
+
+- **Exchanges in the caller's memory.** A request is an `HttpExchange`: the method, the path, the
+  field lines, the response fields wanted with the octets their values go into, and the buffer the
+  body goes into. `request` returns its id, and a `finished` event reports its end once: a
+  response, or `refused` when the server processed none of it, `reset`, `closed`, `malformed`,
+  `invalid` or `too_large`. After `finished`, or once `cancel` returns, the memory is the caller's
+  again.
+- **The path never indexed.** An exchange can ask for its path as a never-indexed literal (colibri
+  `28d3736`): RFC 7541 §6.2.3 over HTTP/2 and RFC 9204 §4.5.4 over HTTP/3, as request rule 12 asks.
+  HTTP/1.1 compresses no field line, so there the mark asks nothing.
+- **What a GOAWAY leaves.** An exchange that a connection refused unprocessed, because it takes no
+  new exchange, moves once to another connection (RFC 9113 §8.7, RFC 9114 §4.1.1). So request rule
+  13's drain is the channel's, and the engine hears `refused` only when no connection took the
+  exchange.
+- **One event at a time.** `receive` returns at most one: `open` a transport to an address, `close`
+  one, `connected` on a protocol, a transport's `ticket`, an exchange `finished`, and `closed` once
+  the channel was shut down and every exchange has ended. The caller reads until nothing is taken
+  and nothing said, and again after each send and each instant, as request rule 17 has it.
+- **Its size.** 987,216 octets, of which the QUIC connection is 700,472 and the TCP one 285,928.
+  The caller places the QUIC connection's receive pool beside it, as `cocuyo_quic` does, since
+  colibri `1fb8b33`, which the owner asked for on 2026-09-28: 377,504 octets for
+  `quic_receive_bytes`, 66,560 octets of capacity. A server's channel and pool are
+  1,364,720 octets, and eight servers' are 10.9 MB. Every window the channel advertises follows
+  the pool's capacity (RFC 9000 §4.1).
+
+**The request rules over a channel.** A DoH configuration's requests go to its servers' channels.
+Rules 3 to 8, 10 to 12 and 17 hold, rule 8 for the QUIC link and rules 14 to 16 for the TCP link.
+Rules 1, 2, 9 and 13 give way to these, for DoH alone:
+
+18. **A channel for each DoH server.** A DoH server's slot holds a channel and two links: a QUIC
+    link over a datagram socket and a TCP link over a stream socket. The channel opens when the
+    drive first takes a request for its server. It is handed the server's address with the
+    template's port, since the engine resolves no host to reach a resolver; no HTTPS record; and
+    the HTTP/3 alternative the server's last channel learned from Alt-Svc, which the channel uses
+    while it is fresh. Its TLS names what the server's `Tls` names, and offers `h3` over QUIC, and
+    `h2` then `http/1.1` over TCP. It gives QUIC's handshake `doh_fallback_delay_ns` before TCP
+    opens beside it.
+19. **A link opens and closes when the channel says.**
+    - `open` for QUIC opens the link's datagram socket and arms its receive, and starts the
+      channel's QUIC connection with connection IDs and grease drawn from the engine's stream, the
+      wall clock, and the server's QUIC ticket.
+    - `open` for TCP opens the link's stream socket and connects, as rule 14 has it. When the
+      connect succeeds, the link starts the channel's TCP connection with the server's TCP ticket.
+    - `close` closes the link's socket once what it holds to send has gone.
+    - A connect that fails or that the loop refuses, a receive that ends with no octets, and a
+      socket the system refuses are told to the channel as the link's end. The channel decides
+      what that fails, and says so in each exchange's `finished`.
+20. **Up on the version the channel speaks.** `connected` names it: HTTP/3 over QUIC, or HTTP/2 or
+    HTTP/1.1 over TCP. Each carries the same GET and ends each exchange the same way, so the
+    engine treats them alike. Over HTTP/1.1 a connection answers its requests in the order they
+    went, so an answer waits for those before it, and the lookup's deadline still bounds the wait.
+21. **A request becomes an exchange.** A request the drive takes waits in its slot's queue until
+    one of the channel's answer buffers is free (rule 4). Then it becomes the channel's exchange: a
+    GET of the path the template expands with `dns`, with `accept: application/dns-message` and
+    `accept-encoding: identity` (rule 12), the path never indexed, and `content-type`,
+    `content-encoding` and `age` wanted. The body goes into the answer buffer. A channel holds 16
+    exchanges at most, and past them a request waits for one to end.
+22. **An exchange ends once.** A `response` of a 2xx status, whose content is a DNS message in no
+    content coding, goes to the lookup with its `Age` (rule 5). Any other response, `refused`,
+    `reset`, `closed`, `malformed` and `too_large` fail the request, once, if its attempt is
+    current, and decision 25 counts each as the server's failure. The engine writes every request
+    from a template it checked at `start`, so `invalid` is its own error, and it asserts none
+    comes.
+23. **A ticket for each transport.** Each server keeps the newest ticket of each transport, spent
+    once, and dropped at its lifetime or 7 days after it came, as rule 10 has it.
+24. **An idle channel shuts down.** A channel with no request on it for `quic_idle_ns` shuts down.
+    It ends each connection as the protocol ends one, with H3_NO_ERROR or with a GOAWAY and a
+    `close_notify`, says `close` for each link, then `closed`, and the slot is free. A request
+    taken meanwhile waits, and opens a new channel once the old one has closed. The server keeps
+    the channel's HTTP/3 alternative for the next.
+25. **The channel's instant.** The engine's one timer counts each channel's next instant (rule
+    11). When it comes, the channel is told, then read.
+
+Rule 9 also closed a connection near the idle timeout its QUIC handshake negotiated. For HTTP/3
+that is RFC 9114 §5.1, where clients open a new connection and "SHOULD do so if approaching the
+idle timeout". The channel opens the connections, so it can do that itself, or its calls can let
+the caller do it. colibri's channel does neither at `1fb8b33`, and the owner asked colibri for one
+of them on 2026-09-28. Until then, a request that meets the server's idle close fails, and the
+lookup's failover takes it.
+
+**The interface.** The engine calls a channel through a DoH interface, as it calls colibri's QUIC
+through the request interface, so `cocuyo_rotor` never imports colibri. The type is `Options.doh`:
+
+- `start` makes a server's channel from its `Tls`, its address and port, and the alternative kept.
+- `request`, `cancel` and `shutdown` are the channel's own.
+- `receive` takes a datagram, octets of the stream, or nothing, and returns at most one event.
+  The octets of the stream the channel has not taken stay with the type until it takes them, as
+  `cocuyo_h2` keeps them: a partial record until the rest arrives (TLS rule 7), and whole ones
+  while the channel has no room for what they hold.
+- `datagram` and `output` write what each link owes.
+- `deadline` and `expire` are the channel's instant.
+- `start_link` starts a link's connection once its socket can carry octets, and `link_ended` tells
+  the channel a link's socket ended.
+- `take_ticket` hands over a transport's ticket, and `alternative` the HTTP/3 alternative.
+
+Three types fill it:
+
+- `cocuyo_doh` fills it from colibri's `client.Channel`. It is a module of its own, whose `client`
+  and `tls` imports a consumer that speaks DoH binds to colibri's. It reads the template and the
+  response through `doh`, as the two transports did.
+- The twin fills it with `sim.channel`, whose events the twin's servers script, as `sim.quic`'s
+  datagrams carry what happened. The replay drives the model's steps with it one by one.
+- `doh.None` refuses a DoH configuration at `init`, and is the default.
+
+`Options.h2` and `cocuyo_quic`'s `http3` go. So do `cocuyo_h2`, `io/io_quic_h3.zig`, the HTTP/3
+test server, their tests, and the engine's tests over the twin's TCP transport. The engine's
+stream-socket code stays, and carries the TCP link.
+
+**The model.** A DoH configuration's connection becomes a channel:
+
+- The channel has two links, `quic` over a datagram socket and `tcp` over a stream socket, and each
+  link moves as the request connection over that socket moves today.
+- The channel's choice is the environment's, within colibri's rules: it asks for `quic` first, and
+  for `tcp` once `quic` failed or its delay passed. It says one link is up and closes the other,
+  finishes each exchange, and says `closed` once shut down with no exchange left. colibri's own
+  model holds the choice (its decision 105).
+- The request configurations over TCP give way to the channel's. DoQ's stand.
+
+The checks it gains:
+
+- A link's socket is open only from the channel's `open` to its close, and sends nothing after the
+  channel's `close`.
+- A request has an exchange only on its server's channel, and hears its end once.
+- A request taken while its channel shuts down waits, and the next channel takes it.
+
+**Beyond the model.** The engine runs over `sim.channel` on the twin, in the gate. It runs over
+colibri's channel against colibri's server on the twin: HTTP/3, HTTP/2 when QUIC's datagrams are
+dropped, and HTTP/1.1 from a server that selects no protocol. colibri's channel always runs
+chapulin, so those tests run with the sessions' tests, which link it. The interop check runs
+dnsproxy on the loopback over HTTP/3, and over HTTP/2 with no UDP listener. The live check runs
+against Google and Cloudflare.
+
 ### New limits
 
 | Constant | Value | Why |
@@ -3957,6 +4131,8 @@ length. So the walks' short sends and ended receives reach the engine as the mod
 | `h3_peer_uni_streams` | 8 | the unidirectional streams an `h3` connection lets the server open: RFC 9114 §6.2 asks for 3 at least, and colibri's `h3` tracks 8 |
 | `h3_peer_uni_stream_bytes` | 1,024 | each of those streams' credit, as RFC 9114 §6.2 recommends |
 | `h2_plaintext_bytes` | 32,776 | what an HTTP/2 connection keeps of the plaintext colibri reads frames from: a record's plaintext, 2^14 octets at most (RFC 9846 §5.1), after the part of a frame the last record left, 16,392 octets at most, since colibri advertises the smallest frame size, 2^14 octets and a 9-octet header (RFC 9113 §4.2) |
+| `doh_channels_max` | `servers_max` | one channel for each DoH server (decision 33) |
+| `doh_fallback_delay_ns` | 250 ms | how long a channel gives QUIC's handshake before TCP opens beside it: the Connection Attempt Delay RFC 8305 §5 recommends, which that RFC sets between attempts at two addresses, not two versions of HTTP; taken from it, not measured |
 
 ### Order and checks
 
@@ -4040,11 +4216,15 @@ length. So the walks' short sends and ended receives reach the engine as the mod
      4,824,000 events. The engine carries its request connections over TCP (`f714168`), and over
      colibri's `h2` client on the twin (`778806e`): the engine's TCP tests and the twenty-one of
      `cocuyo_h2` and eight of the engine over colibri catch every mutation of theirs
-     (docs/mutations.md TC1 to TC9, HT1 to HT23). Rule 17 closed the two stalls found then. Left:
-     colibri's `tls.record.Client` under `cocuyo_h2`, since the owner moved chapulin's provider
-     into colibri (its step 16, c4milo/cocuyo#18, decision 32), then dnsproxy and the live check.
-   - 7b, HTTP/3 first and HTTP/2 after it, in one engine. Its rules and limits are written once 7a
-     has landed.
+     (docs/mutations.md TC1 to TC9, HT1 to HT23). Rule 17 closed the two stalls found then. What
+     7a left, colibri's `tls.record.Client` under `cocuyo_h2`, dnsproxy and the live check, goes
+     with `cocuyo_h2` since decision 33: the channel carries HTTP/2 over `tls.record.Client`.
+   - 7b, HTTP/3 first and HTTP/2 after it, in one engine, rewritten on 2026-09-28 for decision 33:
+     the engine over colibri's `client.Channel`. The rules were written first (DoH over colibri's
+     client, above). Then the model gains the channel, and TLC and the replay hold it. Then the
+     code, from the colibri tag that carries the channel: `cocuyo_doh`, `sim.channel`, and the
+     engine's DoH over them, with `cocuyo_h2` and the HTTP/3 half of `cocuyo_quic` gone. Then
+     dnsproxy over both versions, and the live check.
 
 Checks, one for each piece:
 
@@ -4078,3 +4258,8 @@ Checks, one for each piece:
   request on the connection once.
 - Over TCP, a connection idle before its handshake ends closes with nothing sent, and one idle
   once up sends a GOAWAY of NO_ERROR and a `close_notify` before its socket closes.
+- A DoH channel opens QUIC first, and TCP once QUIC's handshake has run `doh_fallback_delay_ns`.
+  The requests go on the first connection up, and the other closes.
+- A link's socket opens only when its channel asks, and closes when the channel says.
+- A server that selects `http/1.1`, or no protocol, answers over HTTP/1.1.
+- An idle channel shuts down, and a request taken meanwhile opens the next channel.
