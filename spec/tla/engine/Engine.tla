@@ -153,7 +153,7 @@ Checks(before, e, st) ==
        <<"refusal said", RefusalSaid(before, e, st)>>,
        <<"ops current", OpsCurrent(st)>>, <<"sockets current", SocksCurrent(st)>>,
        <<"drive done", DriveDone(st)>>,
-       <<"listening", ~Drove(before, e) \/ (ListeningAll(st) /\ RListening(st))>>,
+       <<"listening", ~Drove(before, e) \/ (ListeningAll(st) /\ RListening(st) /\ LListening(st))>>,
        <<"rotated", ~Drove(before, e) \/ RotatedAll(st)>>,
        <<"requests placed", RequestsPlaced(st)>>, <<"streams when up", StreamsWhenUp(st)>>,
        <<"requests current", RequestsCurrent(st)>>, <<"closed empty", ClosedEmpty(st)>>,
@@ -165,7 +165,13 @@ Checks(before, e, st) ==
        <<"waiting kept", WaitingKept(before, e, st)>>,
        <<"connect lent", ConnectLent(st)>>, <<"connect first", ConnectFirst(st)>>,
        <<"rest first", RestFirst(before, e, st)>>, <<"ended closes", EndedCloses(before, e, st)>>,
-       <<"held while sending", HeldWhileSending(st)>> >>
+       <<"held while sending", HeldWhileSending(st)>>,
+       <<"links asked", LinksAsked(st)>>, <<"link lent", LinkLent(st)>>,
+       <<"exchanges placed", ExchangesPlaced(st)>>,
+       <<"shutting takes none", ShutTakesNone(before, st)>>,
+       <<"channel held while sending", ChanHeldWhileSending(st)>>,
+       <<"link ticket spent", LinkTicketSpent(before, st)>>,
+       <<"link end fails none", LinkEndFailsNone(before, e, st)>> >>
 
 Broken(before, e, st) ==
     LET checks == Checks(before, e, st) IN

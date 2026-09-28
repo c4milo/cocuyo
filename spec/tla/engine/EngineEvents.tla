@@ -3,7 +3,7 @@
 \* model before it had them. Split from Engine.tla, which extends this, by the file-length rule,
 \* with nothing moved past what it came before: TLC orders strings as it first reads them, and the
 \* committed walks are TLC's.
-EXTENDS EngineRequest
+EXTENDS EngineChannel
 
 -------------------------------------------------------------------------------
 \* The drive.
@@ -23,7 +23,8 @@ Act(st, l, out) ==
                   THEN Release(st, l) ELSE st
     IN CASE out = "connectTcp" -> <<Want(placed, l), TRUE>>
          [] out \in {"sendTcp", "sendUdp"} -> <<Send(placed, l), TRUE>>
-         [] out = "sendRequest" -> <<TakeRequest(placed, l), TRUE>>
+         [] out = "sendRequest" ->
+                <<IF Channel THEN ChanTake(placed, l) ELSE TakeRequest(placed, l), TRUE>>
          [] out \in {"done", "failed"} -> Report(placed, l)
          [] OTHER -> <<placed, TRUE>>
 
@@ -53,11 +54,13 @@ Go(fuel, polls, refused, st) ==
 \* Polls the table until nothing is left to do or the bound is reached, as the code's drive does.
 PollAll(st) == Go(4 * Slots * (Servers + 2) + 8, 0, 0, st)
 
-\* Every lookup polled and every request its lookup left cancelled, the idle connections closed
-\* when time moved, then every connection that reads given its receive and every socket tended.
+\* Every lookup polled and every request its lookup left cancelled, the idle connections and
+\* channels closed when time moved, then every connection that reads given its receive and every
+\* socket and link tended.
 Drive(st, moved) ==
-    LET polled == CancelLeft(PollAll(st)) IN
-    TendRConns(TendSockets(TendConns(IF moved THEN CloseIdleR(CloseIdle(polled)) ELSE polled)))
+    LET polled == IF Channel THEN CancelLeftC(PollAll(st)) ELSE CancelLeft(PollAll(st))
+        idled == IF moved THEN CloseIdleC(CloseIdleR(CloseIdle(polled))) ELSE polled
+    IN TendLinks(TendRConns(TendSockets(TendConns(idled))))
 
 -------------------------------------------------------------------------------
 \* Events.
@@ -199,8 +202,10 @@ TakeResult(st) ==
 Tick(st) ==
     LET c == st.conns
         r == st.rconns
+        ch == st.chans
     IN [st EXCEPT !.conns = [k \in DOMAIN c |-> [c[k] EXCEPT !.idleNow = FALSE]],
-                  !.rconns = [v \in DOMAIN r |-> [r[v] EXCEPT !.idleNow = FALSE]]]
+                  !.rconns = [v \in DOMAIN r |-> [r[v] EXCEPT !.idleNow = FALSE]],
+                  !.chans = [v \in DOMAIN ch |-> [ch[v] EXCEPT !.idleNow = FALSE]]]
 
 Finish(st, op, outcome) ==
     CASE op.kind \in {"send", "sendTo", "sendRecords"} -> SendEnded(st, op, outcome)
@@ -210,6 +215,9 @@ Finish(st, op, outcome) ==
       [] op.kind = "qsend" -> QSendEnded(st, op, outcome)
       [] op.kind = "qrecv" -> QRecvEnded(st, op, outcome)
       [] op.kind = "rconnect" -> RConnectEnded(st, op, outcome = "ok")
+      [] op.kind = "lsend" -> LSendEnded(st, op, outcome)
+      [] op.kind = "lrecv" -> LRecvEnded(st, op, outcome)
+      [] op.kind = "lconnect" -> LConnectEnded(st, op, outcome = "ok")
 
 Cancel(st, l) ==
     IF st.slots[l].lookup # {} /\ ~Ended(Get(st.slots[l].lookup).stage)
@@ -232,6 +240,7 @@ Happen(st, e) ==
       [] e.kind = "straggle" -> Drive(st, FALSE)
       [] e.kind = "jam" -> [st EXCEPT !.jammed = TRUE]
       [] e.kind = "starve" -> [st EXCEPT !.starved = TRUE]
+      [] e.kind = "chan" -> Drive(ChanStep(st, e.step, e.server, e.slot, e.reply), FALSE)
 
 \* One event. A refusal lasts the one event after it.
 Step(st, e) ==
@@ -270,6 +279,13 @@ Endings(st, op) ==
     ELSE IF op.kind = "qrecv" /\ op.current /\ RStream THEN {"failed", "exhausted", "ended"}
     ELSE IF op.kind \in {"receive", "qrecv"} /\ op.current THEN {"failed", "exhausted"}
     ELSE IF op.kind = "receiveFrom" /\ op.current THEN {"exhausted"}
+    \* A link's send over TCP may go short, and its receive end with no octets (rule 19, request
+    \* rule 15).
+    ELSE IF op.kind = "lsend" /\ op.current /\ IsTcp(op.target) THEN {"ok", "short", "failed"}
+    ELSE IF op.kind = "lsend" THEN {"ok", "failed"}
+    ELSE IF op.kind = "lrecv" /\ op.current /\ IsTcp(op.target)
+    THEN {"failed", "exhausted", "ended"}
+    ELSE IF op.kind = "lrecv" /\ op.current THEN {"failed", "exhausted"}
     ELSE IF op.current THEN {"ok", "failed"}
     ELSE {"ok", "failed", "canceled"}
 
@@ -298,6 +314,34 @@ RequestEvents(st) ==
            op \in QReceives(st)} \cup
     {[Ev("qtime") EXCEPT !.server = v, !.step = t] : v \in QTimed(st), t \in {"retransmit", "timeout"}}
 
+\* What a channel may say at a read (EngineChannel.tla): open a link it has none of for its
+\* exchanges, close one it asked for, owe octets or a ticket on a running one, end an exchange,
+\* hold one while a link's send is in flight, and closed once shut down with every link closed.
+ChannelEvents(st) ==
+    UNION {LET c == st.chans[v]
+               say(step, n) == [Ev("chan") EXCEPT !.step = step, !.server = n]
+               \* An answer ends the lookup, and a failure moves it on: the other replies move the
+               \* lookup as these do, and the channel not at all.
+               replies == {"answer", "failed"}
+               sending == \E i \in LinksOf(v) : LSending(st, i)
+               held == {h.slot : h \in c.held}
+               opens == IF c.exchanges = {} THEN {}
+                        ELSE {i \in LinksOf(v) : st.links[i].state \in {"down", "closing"}}
+               running == {i \in LinksOf(v) : st.links[i].state = "running"}
+               shut == c.stage = "shutting" /\ c.exchanges = {} /\
+                       \A i \in LinksOf(v) : ~st.asked[i]
+           IN IF c.stage = "closed" THEN {}
+              ELSE {say("open", i) : i \in opens} \cup
+                   {say("close", i) : i \in {i \in LinksOf(v) : st.asked[i]}} \cup
+                   {say("octets", i) : i \in {i \in running : ~st.links[i].owes}} \cup
+                   {say("newTicket", i) : i \in {i \in running : ~st.linkTickets[i]}} \cup
+                   {[say("finished", v) EXCEPT !.slot = l, !.reply = r] :
+                        l \in c.exchanges \ held, r \in replies} \cup
+                   {[say("hold", v) EXCEPT !.slot = l, !.reply = r] :
+                        l \in IF sending /\ held = {} THEN c.exchanges ELSE {}, r \in replies} \cup
+                   (IF shut THEN {say("closed", v)} ELSE {})
+           : v \in 0..CServers - 1}
+
 Enabled(st) ==
     (IF st.free # <<>> THEN {Ev("start")} ELSE {}) \cup
     (IF st.results # <<>> \/ st.lastTaken # {} THEN {Ev("take")} ELSE {}) \cup
@@ -306,8 +350,9 @@ Enabled(st) ==
     (IF WaitingSlots(st) # {} THEN {Ev("expire")} ELSE {}) \cup
     (IF \/ \E k \in 0..Conns - 1 : st.conns[k].stage # "closed" /\ st.conns[k].users = 0
         \/ \E v \in 0..RServers - 1 : st.rconns[v].stage \in IdleStages /\ RUsers(st, v) = 0
+        \/ \E v \in 0..CServers - 1 : st.chans[v].stage = "open" /\ CUsers(st, v) = 0
      THEN {Ev("idle")} ELSE {}) \cup
-    RequestEvents(st) \cup
+    RequestEvents(st) \cup ChannelEvents(st) \cup
     UNION {{[Ev("finish") EXCEPT !.op = op, !.outcome = o] : o \in Endings(st, op)} :
            op \in DOMAIN st.ops} \cup
     UNION {{[Ev("message") EXCEPT !.op = op, !.slot = l, !.reply = r] :

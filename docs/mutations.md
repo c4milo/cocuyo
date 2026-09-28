@@ -2900,3 +2900,35 @@ for trailers. Two mutations, two `CAUGHT`.
 | --- | --- | --- | --- | --- |
 | HM1 | the adapter never reports a response ended | a response ends with the event that carries END_STREAM | the GET tests of `cocuyo_h2` | CAUGHT |
 | HM2 | the test server writes no trailer section though its script asks for one | a response may end with a trailer section (RFC 9113 §8.1) | the engine's trailers test | CAUGHT |
+
+## The channel in the engine model
+
+Design §24 step 7b, 2026-09-28 (decision 33). The engine model gains DoH over colibri's channel,
+written from request rules 18 to 25 (`spec/tla/engine/EngineChannel.tla`): a channel for each
+server, a QUIC link and a TCP link for each channel, which the engine opens and closes when the
+channel says, and seven checks. Each mutant runs on one server and one lookup through a channel
+(`mutants/CH*.cfg`), and TLC finds each, in 137 to 1,092 states.
+
+Writing the model moved rule 19: a link's socket that ends is told to the channel, and the channel
+is read then (rule 17). Without the read, an exchange's end the channel held waited on a send the
+socket's close had taken away. And `link ticket spent` first read every link that was not running
+before an event, so a closing link that had started with a ticket, and was given another, broke
+it. It reads the link that starts at the event now.
+
+The walks TLC takes did not move. The channel's sets are empty in every configuration the replay
+walks, so TLC draws nothing more on its random stream there. `zig build spec-engine` found TLC's
+walks the same as the committed ones, and the replay agreed with the model over all 4,824,000
+events of the full run. The engine mutations were not run again. Ten mutations, ten `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CH1 | a link's socket that ends is not told to the channel, which still counts the link open | rule 19 | links asked | CAUGHT |
+| CH2 | a QUIC link's open connects the TCP link beside it too, which the channel did not ask for | rule 19 | links asked | CAUGHT |
+| CH3 | a link the channel closed still reads, and still sends what the channel owed on it | rule 19 | links asked | CAUGHT |
+| CH4 | a request taken while its channel shuts down goes on that channel as an exchange | rule 24 | shutting takes none | CAUGHT |
+| CH5 | a channel's close drops the requests that waited for the next, which opens none | rule 24 | exchanges placed | CAUGHT |
+| CH6 | a link's send end reads nothing of the channel, which keeps what it held | rule 17 | channel held while sending | CAUGHT |
+| CH7 | a link's connection starts with its transport's ticket and keeps it | rule 23 | link ticket spent | CAUGHT |
+| CH8 | a link's socket that ends fails every request on its channel itself | rule 19 | link end fails none | CAUGHT |
+| CH9 | a drive arms no receive on a running link that has none | rule 19 | listening | CAUGHT |
+| CH10 | a TCP link opened again connects while an earlier connect still borrows its address | request rule 14 | link lent | CAUGHT |

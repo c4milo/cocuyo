@@ -24,6 +24,7 @@ CONSTANTS
     Tls,          \* every server speaks TLS, so every query goes on a stream (§21)
     Request,      \* every server speaks DoQ or DoH, so every query is a request (§24)
     RStream,      \* the request connections run over TCP: DoH over HTTP/2 (§24, rules 14 to 17)
+    Channel,      \* every server speaks DoH through colibri's channel (§24, rules 18 to 25)
     OpsMax,       \* the walk's bound on the operations the loop holds
     FailuresMax,  \* the walk's bound on a server's failures
     SentMax       \* the walk's bound on the queries a port has carried
@@ -133,7 +134,9 @@ LStep(lk, ev, r) ==
 
 Sockets == IF Tls \/ Request THEN 0 ELSE Servers
 \* A request connection for each server, over DoQ or DoH (§24, request rule 1).
-RServers == IF Request THEN Servers ELSE 0
+RServers == IF Request /\ ~Channel THEN Servers ELSE 0
+\* A channel for each server, over DoH through colibri's client, and two links each (rule 18).
+CServers == IF Channel THEN Servers ELSE 0
 
 NoSlot == [lookup |-> {}, order |-> <<>>, conn |-> {}, busy |-> FALSE, held |-> FALSE,
            heldCurrent |-> FALSE, reported |-> FALSE, expired |-> FALSE, remaining |-> 0,
@@ -150,6 +153,15 @@ NoSock == [sent |-> 0, retiring |-> FALSE, draining |-> FALSE]
 NoRConn == [stage |-> "closed", queue |-> <<>>, streams |-> {}, owes |-> FALSE, made |-> FALSE,
             lent |-> FALSE, idleNow |-> FALSE, alpn |-> FALSE, resumed |-> FALSE,
             connectLent |-> FALSE, heldStream |-> {}, heldDrain |-> FALSE, spent |-> FALSE]
+\* A channel: its stage, the requests it holds as exchanges, the ones taken while it shut down,
+\* which wait for the next, an exchange's end it holds and has not told, and whether it went idle
+\* at this instant (rules 18, 21 and 24).
+NoChan == [stage |-> "closed", exchanges |-> {}, queue |-> <<>>, held |-> {}, idleNow |-> FALSE]
+\* A channel's link: its socket's state, whether its buffer is lent to a send and over TCP its
+\* address to a connect, of any incarnation, whether the channel owes octets on it, whether the
+\* engine keeps octets of it not yet sent, and whether its connection started with a ticket.
+NoLink == [state |-> "down", lent |-> FALSE, connectLent |-> FALSE, owes |-> FALSE, made |-> FALSE,
+           resumed |-> FALSE]
 
 Query(l) == [kind |-> "query", slot |-> l]
 Records == [kind |-> "records", slot |-> 0]
@@ -164,7 +176,10 @@ InitState ==
      ready |-> <<>>, free |-> [i \in 1..Slots |-> i - 1], results |-> <<>>, lastTaken |-> {},
      failures |-> [v \in 0..Servers - 1 |-> 0], socks |-> [v \in 0..Sockets - 1 |-> NoSock],
      jammed |-> FALSE, starved |-> FALSE, tickets |-> [v \in 0..Servers - 1 |-> FALSE],
-     rconns |-> [v \in 0..RServers - 1 |-> NoRConn], reqs |-> [l \in 0..Slots - 1 |-> {}]]
+     rconns |-> [v \in 0..RServers - 1 |-> NoRConn], reqs |-> [l \in 0..Slots - 1 |-> {}],
+     chans |-> [v \in 0..CServers - 1 |-> NoChan], links |-> [i \in 0..2 * CServers - 1 |-> NoLink],
+     asked |-> [i \in 0..2 * CServers - 1 |-> FALSE],
+     linkTickets |-> [i \in 0..2 * CServers - 1 |-> FALSE]]
 
 \* The configured server a slot's lookup is asking now.
 ServerOf(st, l) ==

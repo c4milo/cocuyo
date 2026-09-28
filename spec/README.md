@@ -238,6 +238,30 @@ opening left, where rule 14 closes it as any slot closes. A connection was reope
 connect was in flight, and one failed when the loop refused its connect. Seven more mutants break
 the TCP rules, and TLC finds each (docs/mutations.md RQ16 to RQ22).
 
+With `Channel` a DoH server's requests go through colibri's channel, as request rules 18 to 25 have
+them (`EngineChannel.tla`): a channel for each server, and for each channel a QUIC link over a
+datagram socket and a TCP link over a stream socket, which the engine opens and closes when the
+channel says. At any read the channel may say whatever its calls allow: open a link it has none of
+while it holds exchanges, close one it asked for, owe octets or a ticket on a running one, end an
+exchange, hold one while a link's send is in flight, and closed once shut down with every link
+closed. Which link it opens when is colibri's choice, and colibri's own model holds it, so here the
+channel may open either. The channel configurations, checked on 2026-09-28 on the same machine,
+three operations and one failure. The second took its time while other checks ran, and its header
+says `\* nightly:`:
+
+| Servers | Lookups | States | Seconds | Invariants |
+| --- | --- | --- | --- | --- |
+| 1 | 1 | 1,672,552 | 172 | hold |
+| 1 | 2 | 14,986,512 | 1,724 | hold |
+
+It reached a TCP link waiting for an earlier opening's connect, a link closing, both links
+running, a link started with a ticket, the TCP link keeping octets to send, a channel shutting
+down with a request waiting for the next, one holding an exchange's end, and a lookup answered
+through the channel. Answers and failures alone reach the channel, since a lookup moves on the other
+replies as it does on these, and the channel not at all. Ten mutants break the channel's rules,
+and TLC finds each (docs/mutations.md CH1 to CH10). The replay walks no channel configuration yet:
+the engine's DoH over the channel is the code's step, and its walks come with it.
+
 The replay walks the request configurations as it walks the others, with one slot or two and two
 servers, over the twin's QUIC (`sim.quic`). A step of colibri's is one item in a datagram on the
 connection's receive: a flight while the handshake runs and a PING once up for the model's

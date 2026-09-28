@@ -356,7 +356,7 @@ QTimed(st) == IF RStream THEN {} ELSE {v \in 0..RServers - 1 : st.rconns[v].stag
 \* and never both; and whatever a connection holds is a request of that server's.
 RequestsPlaced(st) ==
     /\ \A l \in 0..Slots - 1 :
-          st.reqs[l] = {} \/
+          st.reqs[l] = {} \/ Channel \/
           LET v == RequestOf(st, l).server
               c == st.rconns[v]
           IN c.stage # "closed" /\ (Contains(c.queue, l) # (l \in c.streams))

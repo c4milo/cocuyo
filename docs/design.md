@@ -4027,8 +4027,9 @@ Rules 1, 2, 9 and 13 give way to these, for DoH alone:
       connect succeeds, the link starts the channel's TCP connection with the server's TCP ticket.
     - `close` closes the link's socket once what it holds to send has gone.
     - A connect that fails or that the loop refuses, a receive that ends with no octets, and a
-      socket the system refuses are told to the channel as the link's end. The channel decides
-      what that fails, and says so in each exchange's `finished`.
+      socket the system refuses are told to the channel as the link's end, and the channel is
+      read then (rule 17). The channel decides what that fails, and says so in each exchange's
+      `finished`.
 20. **Up on the version the channel speaks.** `connected` names it: HTTP/3 over QUIC, or HTTP/2 or
     HTTP/1.1 over TCP. Each carries the same GET and ends each exchange the same way, so the
     engine treats them alike. Over HTTP/1.1 a connection answers its requests in the order they
@@ -4090,22 +4091,43 @@ Three types fill it:
 test server, their tests, and the engine's tests over the twin's TCP transport. The engine's
 stream-socket code stays, and carries the TCP link.
 
-**The model.** A DoH configuration's connection becomes a channel:
+**The model**, written on 2026-09-28 (`spec/tla/engine/EngineChannel.tla`). A DoH configuration's
+connection becomes a channel:
 
-- The channel has two links, `quic` over a datagram socket and `tcp` over a stream socket, and each
-  link moves as the request connection over that socket moves today.
-- The channel's choice is the environment's, within colibri's rules: it asks for `quic` first, and
-  for `tcp` once `quic` failed or its delay passed. It says one link is up and closes the other,
-  finishes each exchange, and says `closed` once shut down with no exchange left. colibri's own
-  model holds the choice (its decision 105).
-- The request configurations over TCP give way to the channel's. DoQ's stand.
+- The channel has two links, a QUIC link over a datagram socket and a TCP link over a stream
+  socket, and each moves as the request connection over that socket moves: rule 8 for the QUIC
+  link, and rules 14 to 16 for the TCP link.
+- What the channel says is the environment's. At any read it may say whatever its calls allow:
+  open a link it has none of while it holds exchanges, close one it asked for, owe octets or a
+  ticket on a running one, end an exchange, hold one while a link's send is in flight, and closed
+  once shut down with every link closed. colibri's choice, QUIC first and TCP once QUIC failed or
+  its delay passed, is among what that allows, and colibri's own model holds it (its decision
+  105).
+- `connected` changes nothing the engine does (rule 20), so the model leaves it out, with the
+  octets and the channel's instant, which only makes a link owe octets.
+- The request configurations over TCP go with `cocuyo_h2`, when the code lands. DoQ's stand.
 
-The checks it gains:
+The checks it gains, seven:
 
-- A link's socket is open only from the channel's `open` to its close, and sends nothing after the
-  channel's `close`.
-- A request has an exchange only on its server's channel, and hears its end once.
-- A request taken while its channel shuts down waits, and the next channel takes it.
+- A link connects, waits to or runs exactly while the channel has asked for it and not closed it,
+  and once closed it reads nothing and sends only what it kept (`links asked`).
+- A link's buffer and its address are lent exactly while a send or a connect of it is in flight
+  (`link lent`).
+- A request is an exchange on its server's channel or waits for the next one, never both. Only a
+  channel that shuts down keeps requests for the next, and a closed one holds nothing (`exchanges
+  placed`).
+- A channel that shuts down takes no new exchange (`shutting takes none`).
+- What a channel holds, it holds only while a send of one of its links is in flight (`channel held
+  while sending`).
+- A link that starts resuming spent its transport's ticket (`link ticket spent`).
+- A link's socket that ends fails no request itself (`link end fails none`).
+
+`listening` asks it of every running link too. Two configurations, one server and one lookup or
+two, three operations and one failure, hold at 1,672,552 and 14,986,512 states; CI checks the
+second once a day. Ten mutants break the rules, and TLC finds each (docs/mutations.md CH1 to
+CH10). Writing the model moved rule 19: a link's end is followed by
+a read of the channel, since without it an exchange's end the channel held waited on a send the
+socket's close had taken away. The walks TLC takes for the replay did not move.
 
 **Beyond the model.** The engine runs over `sim.channel` on the twin, in the gate. It runs over
 colibri's channel against colibri's server on the twin: HTTP/3, HTTP/2 when QUIC's datagrams are
@@ -4224,7 +4246,10 @@ against Google and Cloudflare.
      client, above). Then the model gains the channel, and TLC and the replay hold it. Then the
      code, from the colibri tag that carries the channel: `cocuyo_doh`, `sim.channel`, and the
      engine's DoH over them, with `cocuyo_h2` and the HTTP/3 half of `cocuyo_quic` gone. Then
-     dnsproxy over both versions, and the live check.
+     dnsproxy over both versions, and the live check. The model landed on 2026-09-28:
+     `EngineChannel.tla`, seven checks, and configurations of 1,672,552 and 14,986,512 states,
+     which hold. Ten mutants break the channel's rules, and TLC finds each (docs/mutations.md CH1
+     to CH10).
 
 Checks, one for each piece:
 

@@ -1,7 +1,8 @@
 # Every TLC configuration of the engine model, once a day and on demand: `zig build tla` with no
 # argument. CI's `tla` job checks every configuration but those whose header says `\* nightly:`,
 # since the TCP configuration of two servers has 21 million states and TLC takes hours over it on
-# the runner's four cores (docs/design.md §24, request rule 17). This is where it is checked.
+# the runner's four cores (docs/design.md §24, request rule 17), and the channel's of two lookups
+# 15 million (request rules 18 to 25). This is where they are checked.
 #
 # Zig is pinned as ci.yml pins it. TLC's jar is pinned by SHA-256 in tools/tla.zig, which fetches
 # it; the Java that runs it is the runner image's 21. No third-party action runs here;

@@ -1,9 +1,9 @@
 ---------------------------- MODULE EngineMutants -----------------------------
 \* The engine's rules broken on purpose, one operator each: the TLS rules as docs/mutations.md's
 \* TM1 to TM3 and R8a to R8d broke the Lean model and R4a and R4b break rule 4's alert, the
-\* stream's rule 9 as TQ1 breaks it, and the request rules of §24 as RQ1 to RQ22 break them. A
-\* configuration in mutants/ puts one in place of the rule with TLC's `Rule <- Mutant`, and TLC
-\* must find the check that catches it.
+\* stream's rule 9 as TQ1 breaks it, the request rules of §24 as RQ1 to RQ22 break them, and the
+\* channel's rules as CH1 to CH10 do. A configuration in mutants/ puts one in place of the rule
+\* with TLC's `Rule <- Mutant`, and TLC must find the check that catches it.
 EXTENDS Engine
 
 \* TM1: the session's records go to the back of the queue, behind queries not yet sealed.
@@ -284,5 +284,98 @@ QSendEndedUnread(st, op, outcome) ==
 \* 17).
 HeldBackUnread(st, v, l) ==
     [st EXCEPT !.rconns[v].queue = Append(@, l), !.rconns[v].heldDrain = TRUE]
+
+\* CH1: a link's socket that ends is not told to the channel, which still counts the link open
+\* (rule 19).
+LinkGoneUntold(st, i) == ShutLink(st, i)
+
+\* CH2: a QUIC link's open connects the TCP link beside it too, which the channel did not ask for
+\* (rule 19).
+LinkOpenBoth(st, i) ==
+    LET shut == ShutLink(st, i)
+        opened ==
+            IF IsTcp(i) /\ shut.links[i].connectLent
+            THEN [shut EXCEPT !.links[i].state = "reopening"]
+            ELSE IF st.starved \/ (IsTcp(i) /\ st.jammed) THEN LinkGone(shut, i)
+            ELSE IF IsTcp(i)
+            THEN [shut EXCEPT !.links[i].state = "connecting", !.links[i].connectLent = TRUE,
+                              !.ops = Add(@, Op("lconnect", i))]
+            ELSE StartLink(shut, i)
+        j == i + 1
+    IN IF IsTcp(i) \/ st.jammed \/ opened.links[j].state # "down" \/ opened.links[j].connectLent
+       THEN opened
+       ELSE [opened EXCEPT !.links[j].state = "connecting", !.links[j].connectLent = TRUE,
+                           !.ops = Add(@, Op("lconnect", j))]
+
+\* CH3: a link the channel closed still reads, and still sends what the channel owed on it (rule
+\* 19).
+LinkCloseSending(st, i) ==
+    IF st.links[i].state = "running" /\ (st.links[i].made \/ LSending(st, i))
+    THEN [st EXCEPT !.links[i].state = "closing"]
+    ELSE ShutLink(st, i)
+
+\* CH4: a request taken while its channel shuts down goes on that channel as an exchange (rule 24).
+ChanTakeWhileShutting(st, l) ==
+    LET v == ServerOf(st, l)
+        cleared == DropExchange(st, l)
+        told == TableEvent(cleared, l, "sent")
+        taken == [told EXCEPT !.reqs[l] = {[server |-> v,
+                                            attempt |-> Attempt(Get(told.slots[l].lookup))]}]
+    IN IF taken.chans[v].stage = "closed"
+       THEN [taken EXCEPT !.chans[v].stage = "open", !.chans[v].exchanges = {l},
+                          !.chans[v].idleNow = FALSE]
+       ELSE [taken EXCEPT !.chans[v].exchanges = @ \cup {l}]
+
+\* CH5: a channel's close drops the requests that waited for the next, which opens none (rule 24).
+ChanClosedDropping(st, v) == [st EXCEPT !.chans[v] = NoChan]
+
+\* CH6: a link's send end reads nothing of the channel, which keeps what it held (rule 17).
+LSendEndedUnread(st, op, outcome) ==
+    LET i == op.target
+        back == [[st EXCEPT !.ops = Remove(@, op)] EXCEPT !.links[i].lent = FALSE]
+    IN IF ~op.current THEN back
+       ELSE CASE outcome = "failed" -> LinkGone(back, i)
+              [] outcome = "short" -> [back EXCEPT !.links[i].made = TRUE]
+              [] back.links[i].state = "closing" /\ ~back.links[i].made -> ShutLink(back, i)
+              [] OTHER -> back
+
+\* CH7: a link's connection starts with its transport's ticket and keeps it, to offer again (rule
+\* 23).
+StartLinkKeeping(st, i) ==
+    LListen([st EXCEPT !.links[i].state = "running", !.links[i].owes = TRUE,
+                       !.links[i].resumed = st.linkTickets[i]], i)
+
+RECURSIVE FailExchangesFrom(_, _, _)
+FailExchangesFrom(st, v, l) ==
+    IF l >= Slots THEN st
+    ELSE FailExchangesFrom(
+             IF l \in st.chans[v].exchanges
+             THEN Idled([FailRequest(st, l) EXCEPT !.chans[v].exchanges = @ \ {l},
+                                                   !.chans[v].held = {h \in @ : h.slot # l}], v)
+             ELSE st, v, l + 1)
+
+\* CH8: a link's socket that ends fails every request on its channel itself, before the channel says
+\* what that ended (rule 19).
+LinkEndedFailing(st, i) ==
+    TellHeldC(FailExchangesFrom(LinkGone(st, i), LinkServer(i), 0), LinkServer(i))
+
+\* CH9: a drive arms no receive on a running link that has none, as after a receive the loop
+\* refused (rule 19).
+RECURSIVE TendLinksDeafFrom(_, _)
+TendLinksDeafFrom(st, i) ==
+    IF i >= 2 * CServers THEN st
+    ELSE TendLinksDeafFrom(IF LSends(st.links[i]) THEN LSend(st, st.links[i], i) ELSE st, i + 1)
+
+TendLinksDeaf(st) == TendLinksDeafFrom(st, 0)
+
+\* CH10: a TCP link opened again connects while an earlier opening's connect still borrows its
+\* address (request rule 14).
+LinkOpenEager(st, i) ==
+    LET shut == ShutLink(st, i) IN
+    IF st.starved \/ (IsTcp(i) /\ st.jammed) THEN LinkGone(shut, i)
+    ELSE IF IsTcp(i)
+    THEN [shut EXCEPT !.links[i].state = "connecting", !.links[i].connectLent = TRUE,
+                      !.ops = Add(@, Op("lconnect", i))]
+    ELSE StartLink(shut, i)
 
 ===============================================================================
