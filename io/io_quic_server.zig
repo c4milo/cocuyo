@@ -118,11 +118,8 @@ pub fn take(self: anytype, bytes: []const u8, now_ns: u64, local: quic.transport
         self.session.provider(),
         .{ .octets = self.inbound[0..bytes.len], .now_ns = now_ns, .ecn = .not_ect },
         &self.scratch,
-    ) catch |err| {
-        quic.connection_close.owe(&self.connection, quic.connection_close.transport(
-            quic.connection_datagram.connection_error_code(&self.connection, err),
-            null,
-        ));
+    ) catch {
+        // colibri owes the CONNECTION_CLOSE for the error itself, and the next send writes it.
         return false;
     };
     if (received.close) |close| self.close_code = close.error_code;

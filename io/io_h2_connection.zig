@@ -205,23 +205,19 @@ fn write_owed(self: anytype) void {
 /// What one of colibri's events tells the engine, if anything.
 fn said_by(self: anytype, event: h2.Event, out: []u8) ?@TypeOf(self.*).Next {
     switch (event) {
-        .response => |held| {
-            take_response(self, held.stream_id, held.response);
-            if (held.end_stream) return ended(self, held.stream_id, out);
-        },
-        .data => |held| {
-            take_data(self, held.stream_id, held.payload);
-            if (held.end_stream) return ended(self, held.stream_id, out);
-        },
-        // A trailer section ends the response it follows (RFC 9113 §8.1).
-        .trailers => |held| return ended(self, held.stream_id, out),
+        .response => |held| take_response(self, held.stream_id, held.response),
+        .data => |held| take_data(self, held.stream_id, held.payload),
         // A stream the server resets fails its request (request rule 7).
         .stream_reset, .stream_refused => |held| return reset(self, held.stream_id),
         .goaway => |held| return goaway(self, held.last_stream_id),
-        // A client hears no request, and the engine reads nothing from SETTINGS or a PING.
-        .settings_acknowledged, .settings_applied, .ping_acknowledged, .request => {},
+        // A trailer section carries nothing the engine reads. A client hears no request, and the
+        // engine reads nothing from SETTINGS or a PING.
+        .trailers, .settings_acknowledged, .settings_applied, .ping_acknowledged, .request => {},
     }
-    return null;
+    // A response ends with its header section, its last DATA or a trailer section, whichever
+    // carries END_STREAM (RFC 9113 §8.1).
+    const stream_id = event.ended_stream() orelse return null;
+    return ended(self, stream_id, out);
 }
 
 /// A GOAWAY: the last stream the server may have processed (RFC 9113 §6.8). colibri fails the

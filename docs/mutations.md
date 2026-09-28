@@ -2883,3 +2883,20 @@ test-chapulin` and `zig build test-chapulin-quic`. Three mutations, three `CAUGH
 | RN1 | the DoT session hands colibri a stream of its own, not the context's | chapulin draws from the engine's stream | the hello test: another seed makes the same hello | CAUGHT |
 | RN2 | the DoQ session hands colibri a stream of its own, not the context's | chapulin draws from the engine's stream | the hello test: another seed makes the same hello | CAUGHT |
 | RN3 | the session does not reference the hooks module | the image links `ch_assert_fail` with the session | the build of `test-chapulin`, at link | CAUGHT |
+
+## colibri's own connection errors, and its trailers
+
+2026-09-27. colibri v0.3.0 (`587963f`, over chapulin `0adcf33`) ends a connection on its own
+errors, writes a trailer section, and says which event ended a stream (colibri#68 and #69). Its
+`receive` and `send` owe the CONNECTION_CLOSE for the error they return, so cocuyo's QUIC client
+and its test server dropped the close they owed themselves. The HTTP/2 test server writes its
+trailer section with colibri's `write_trailers`, in place of a frame it built by hand, and the
+HTTP/2 adapter asks colibri's `Event.ended_stream()` whether an event ended a response, in place
+of three checks of its own. HM1 breaks the adapter against `zig build test-cocuyo_h2`, and HM2
+the server against `zig build test-io`, whose engine test over that server is the one that asks
+for trailers. Two mutations, two `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| HM1 | the adapter never reports a response ended | a response ends with the event that carries END_STREAM | the GET tests of `cocuyo_h2` | CAUGHT |
+| HM2 | the test server writes no trailer section though its script asks for one | a response may end with a trailer section (RFC 9113 §8.1) | the engine's trailers test | CAUGHT |

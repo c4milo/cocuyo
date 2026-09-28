@@ -72,11 +72,8 @@ pub fn receive(self: anytype, bytes: []const u8, now_ns: u64) void {
         self.session.provider(),
         .{ .octets = self.inbound[0..bytes.len], .now_ns = now_ns, .ecn = .not_ect },
         &self.scratch,
-    ) catch |err| {
-        quic.connection_close.owe(&self.connection, quic.connection_close.transport(
-            quic.connection_datagram.connection_error_code(&self.connection, err),
-            null,
-        ));
+    ) catch {
+        // colibri owes the CONNECTION_CLOSE for the error itself, and the next send writes it.
         self.stage = .failed;
         return;
     };
@@ -181,9 +178,8 @@ pub fn datagram(self: anytype, out: []u8, now_ns: u64) usize {
         &self.send_scratch,
         out,
         now_ns,
-    ) catch |err| {
-        const code = quic.connection_send.connection_error_code(err) orelse quic.error_code.internal_error;
-        quic.connection_close.owe(&self.connection, quic.connection_close.transport(code, null));
+    ) catch {
+        // colibri owes the CONNECTION_CLOSE for the error itself, and the next send writes it.
         self.stage = .failed;
         return 0;
     };
