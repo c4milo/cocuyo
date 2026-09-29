@@ -36,8 +36,12 @@ const line_bytes_max = world_module.text_bytes_max + 64;
 pub const Error = world_module.Error || error{ Mismatch, Empty, OutOfMemory, Unexpected };
 
 /// The configurations the model walks: slots and connections. A request configuration has none
-/// of the latter: its connections are QUIC's.
-const Which = enum { none, one_zero, two_zero, one_one, one_two, two_one, two_two };
+/// of the latter: its connections are QUIC's. A channel configuration's engine carries DoH over the
+/// twin's channel, with one slot or two.
+const Which = enum { none, one_zero, two_zero, one_one, one_two, two_one, two_two, channel_one, channel_two };
+
+const ChannelWorld = world_module.WorldOver;
+const Channel = world_module.Channel;
 
 pub const Replay = struct {
     one_zero: *world_module.World(1, 0),
@@ -46,6 +50,8 @@ pub const Replay = struct {
     one_two: *world_module.World(1, 2),
     two_one: *world_module.World(2, 1),
     two_two: *world_module.World(2, 2),
+    channel_one: *ChannelWorld(1, 0, Channel),
+    channel_two: *ChannelWorld(2, 0, Channel),
     current: Which = .none,
     depth: usize = 0,
     lines: usize = 0,
@@ -67,6 +73,8 @@ pub const Replay = struct {
             .one_two = try allocator.create(world_module.World(1, 2)),
             .two_one = try allocator.create(world_module.World(2, 1)),
             .two_two = try allocator.create(world_module.World(2, 2)),
+            .channel_one = try allocator.create(ChannelWorld(1, 0, Channel)),
+            .channel_two = try allocator.create(ChannelWorld(2, 0, Channel)),
         };
         return replay;
     }
@@ -78,6 +86,8 @@ pub const Replay = struct {
         allocator.destroy(replay.one_two);
         allocator.destroy(replay.two_one);
         allocator.destroy(replay.two_two);
+        allocator.destroy(replay.channel_one);
+        allocator.destroy(replay.channel_two);
         allocator.destroy(replay);
     }
 
@@ -109,6 +119,11 @@ pub const Replay = struct {
         const transport = try transport_of(fields.next(), fields.next());
         if (fields.next() != null) return error.Malformed;
         replay.current = which_of(slots, conns) orelse return error.Malformed;
+        if (transport.channel) replay.current = switch (replay.current) {
+            .one_zero => .channel_one,
+            .two_zero => .channel_two,
+            else => return error.Malformed,
+        };
         replay.depth = 0;
         replay.walks += 1;
         walk_now = replay.walks;
@@ -162,16 +177,18 @@ fn which_of(slots: []const u8, conns: []const u8) ?Which {
 }
 
 /// Every query over `tcp`, `tls` or `udp`, or as a `request` over DoQ, or over DoH on HTTP/2 as a
-/// `request_tcp`, and the queries a port carries before it is replaced.
+/// `request_tcp`, or over DoH through a `channel`, and the queries a port carries before it is
+/// replaced.
 fn transport_of(name: ?[]const u8, per_port: ?[]const u8) Error!world_module.Transport {
     const text = name orelse return error.Malformed;
     const tls = std.mem.eql(u8, text, "tls");
     const tcp = tls or std.mem.eql(u8, text, "tcp");
     const stream = std.mem.eql(u8, text, "request_tcp");
-    const request = stream or std.mem.eql(u8, text, "request");
+    const channel = std.mem.eql(u8, text, "channel");
+    const request = stream or channel or std.mem.eql(u8, text, "request");
     if (!tcp and !request and !std.mem.eql(u8, text, "udp")) return error.Malformed;
     const count = std.fmt.parseInt(u32, per_port orelse return error.Malformed, 10) catch return error.Malformed;
-    return .{ .tcp = tcp, .per_port = count, .tls = tls, .request = request, .stream = stream };
+    return .{ .tcp = tcp, .per_port = count, .tls = tls, .request = request, .stream = stream, .channel = channel };
 }
 
 pub fn main(init: std.process.Init) !void {

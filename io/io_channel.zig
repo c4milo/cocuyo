@@ -304,7 +304,8 @@ fn open(self: anytype, server: u8, now_ns: u64) bool {
         .now_ns = now_ns,
     }) catch return false;
     slot.state = .open;
-    slot.idle_since_ns = now_ns;
+    // It opens with a request on it, so it has not gone idle.
+    slot.idle_since_ns = 0;
     return true;
 }
 

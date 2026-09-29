@@ -2964,3 +2964,51 @@ on the first opening, and CE14 is caught. Eighteen mutations, eighteen `CAUGHT`.
 | CE16 | a link's socket that ends is told to the channel, which is not read | rules 17 and 19 | the channel is read when a link's socket ends, and tells then what it held | CAUGHT |
 | CE17 | the engine's timer tells no channel its instant came | rule 25 | every test of the engine over the twin's channel | CAUGHT |
 | CE18 | a request goes on its channel whether the channel had room or not | rule 21 | a request waits for room on its channel, and becomes an exchange once one ends | CAUGHT |
+
+## The channel on the model's walks
+
+Design §24 step 7b, 2026-09-28 (decision 33). The replay walks the model's two channel
+configurations, one slot or two and two servers, over the twin's channel (spec/README.md). They
+come first of fourteen configurations, so every walk named before comes 4,000 later. The fifteen
+picks moved with them and are the same walks byte for byte: 3 and 50 are now 4003 and 4050, and
+17842 is 21842. The full run, 28,000 walks and 5,628,000 events, replays clean.
+
+Writing the replay moved the model twice, to rules 17 and 19. The engine reads a channel after it
+puts a request on it, and after a link that waited for an earlier connect fails to open at that
+connect's end. The model read it at neither, so an end the channel held was told in the engine and
+still held in the model. Both channel configurations hold at the same states as before, and TLC
+finds CH1 to CH10 again, CH4 written with the read. The twin moved once: a new channel forgot that a
+link the last one closed had started with a ticket, and it keeps what a test reads of the links now.
+
+CE1 to CE18 were broken against the walks, and against `zig build test-io` again, now fifteen
+tests. CE1 was written again once a channel's opening stopped counting as going idle, and breaks
+seven of them. CE17 breaks every test but the cancelled request's, which needs no read the timer
+brings. CE19 breaks the read after a request is put on a channel. No test caught it at first,
+since none took a request while the channel held an end. The test that a request put on its
+channel has the channel read catches it now.
+
+The short walks catch thirteen. The full run catches CE12, CE14, CE15 and CE19, at walks 4, 13, 8
+and 2002, which the picks keep, nineteen in all. The model gives a channel room for every request,
+so no walk reaches CE4 or CE18, and the tests catch both. Nineteen mutations, nineteen `CAUGHT`.
+
+| # | Mutation | The channel tests | The walks | Status |
+| --- | --- | --- | --- | --- |
+| CE1 | a link opens when its channel opens, before the channel says | CAUGHT | short walk 1 | CAUGHT |
+| CE2 | an exchange that ends in failure tells its lookup nothing | CAUGHT | short walk 1 | CAUGHT |
+| CE3 | a request its lookup left is not cancelled on its channel | CAUGHT | short walk 3 | CAUGHT |
+| CE4 | an exchange's end gives its room to no request that waits | CAUGHT | no walk | CAUGHT |
+| CE5 | a channel with no request on it never shuts down | CAUGHT | short walk 1 | CAUGHT |
+| CE6 | a request taken while its channel shuts down goes on it as an exchange | CAUGHT | short walk 1 | CAUGHT |
+| CE7 | a channel's close drops the requests that waited, and opens none | CAUGHT | short walk 1 | CAUGHT |
+| CE8 | a TCP link's connection starts with its connect, before it has succeeded | CAUGHT | short walk 1 | CAUGHT |
+| CE9 | a link's socket that ends is not told to the channel | CAUGHT | short walk 1 | CAUGHT |
+| CE10 | a link's socket that ends fails every request on its channel itself | CAUGHT | short walk 2 | CAUGHT |
+| CE11 | a link the channel closed shuts at once, dropping the octets it kept | CAUGHT | short walk 3 | CAUGHT |
+| CE12 | a link's connection starts with no ticket, and the kept one stays | CAUGHT | walk 4, picked | CAUGHT |
+| CE13 | a drive arms no receive on a running link that has none | CAUGHT | short walk 3 | CAUGHT |
+| CE14 | a TCP link connects while an earlier opening's connect still borrows its address | CAUGHT | walk 13, picked | CAUGHT |
+| CE15 | a link's send end reads nothing of the channel | CAUGHT | walk 8, picked | CAUGHT |
+| CE16 | a link's socket that ends is told to the channel, which is not read | CAUGHT | short walk 18 | CAUGHT |
+| CE17 | the engine's timer tells no channel its instant came | CAUGHT | short walk 1 | CAUGHT |
+| CE18 | a request goes on its channel whether the channel had room or not | CAUGHT | no walk | CAUGHT |
+| CE19 | a request put on its channel leaves the channel unread | NOT CAUGHT, then CAUGHT by the new test | walk 2002, picked | CAUGHT |

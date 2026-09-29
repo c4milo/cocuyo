@@ -84,9 +84,23 @@ fn connection_text(line: *Line, world: anytype, connection: anytype) void {
 }
 
 /// Each server's QUIC connection, then each slot's request: the server it went to, or "-"
-/// (EngineTrace.tla, `RConnToken` and `ReqToken`).
+/// (EngineTrace.tla, `RConnToken` and `ReqToken`). An engine that carries DoH over channels has no
+/// request connection, and writes each server's channel after the requests (`ChanToken`).
 fn requests_text(line: *Line, world: anytype) void {
     const engine = &world.engine;
+    const channels = comptime @TypeOf(world.engine).Doh.enabled;
+    if (!channels) request_connections_text(line, world);
+    line.print(" | ", .{});
+    for (engine.requests[0..], 0..) |*request, index| {
+        if (index > 0) line.print(" ; ", .{});
+        if (request.live) line.print("{d}", .{request.server}) else line.print("-", .{});
+    }
+    line.print(" | ", .{});
+    if (channels) channels_text(line, world);
+}
+
+/// Each server's request connection, over QUIC, or over TCP when DoH goes over HTTP/2.
+fn request_connections_text(line: *Line, world: anytype) void {
     for (0..world.config.servers.len) |server| {
         if (server > 0) line.print(" ; ", .{});
         if (world.config.uses_https()) {
@@ -95,12 +109,66 @@ fn requests_text(line: *Line, world: anytype) void {
             request_connection_text(line, world, &world.engine.quic, @intCast(server));
         }
     }
-    line.print(" | ", .{});
-    for (engine.requests[0..], 0..) |*request, index| {
-        if (index > 0) line.print(" ; ", .{});
-        if (request.live) line.print("{d}", .{request.server}) else line.print("-", .{});
+}
+
+/// Each server's channel, and the section's end.
+fn channels_text(line: *Line, world: anytype) void {
+    for (0..world.config.servers.len) |server| {
+        if (server > 0) line.print(" ; ", .{});
+        channel_text(line, world, @intCast(server));
     }
     line.print(" | ", .{});
+}
+
+/// A server's channel: its stage, the requests it holds as exchanges and those waiting for the next
+/// channel, the end it holds, whether it went idle now, and its links (EngineTrace.tla,
+/// `ChanToken`).
+fn channel_text(line: *Line, world: anytype, server: u8) void {
+    const engine = &world.engine;
+    const set_slot = &engine.doh.slots[server];
+    var items: [64]usize = undefined;
+    var count: usize = 0;
+    for (engine.requests[0..], 0..) |*request, index| {
+        if (!request.live or request.server != server or !request.exchange) continue;
+        items[count] = index;
+        count += 1;
+    }
+    line.print("{s} x", .{@tagName(set_slot.state)});
+    line.list(items[0..count]);
+    for (set_slot.queue[0..set_slot.queue_len], 0..) |index, position| items[position] = index;
+    line.print(" q", .{});
+    line.list(items[0..set_slot.queue_len]);
+    line.print(" h", .{});
+    if (set_slot.channel.held) |held| {
+        line.print("{d}:{s}", .{ held.index, if (held.answer) "answer" else "failed" });
+    } else {
+        line.print("-", .{});
+    }
+    line.flag(set_slot.state != .closed and set_slot.idle_since_ns == world.now_ns, 'I');
+    for (0..set_slot.links.len) |at| {
+        line.print(" ", .{});
+        link_text(line, world, server, at);
+    }
+}
+
+/// A channel's link: its state, and whether its buffer is lent, a connect borrows its address, the
+/// channel owes octets on it, it keeps octets not yet sent, its connection started with a ticket,
+/// the channel asked for it, and a ticket of its transport is kept (EngineTrace.tla, `LinkToken`).
+fn link_text(line: *Line, world: anytype, server: u8, at: usize) void {
+    const engine = &world.engine;
+    const set_slot = &engine.doh.slots[server];
+    const link = &set_slot.links[at];
+    const send = &engine.doh.sends[server][at];
+    // A send in flight holds what the link made: the model keeps only what waits for a send.
+    const in_flight = send.lent and send.incarnation == link.incarnation;
+    line.print("{s} ", .{@tagName(link.state)});
+    line.flag(send.lent, 'B');
+    line.flag(send.connecting, 'N');
+    line.flag(set_slot.channel.owes[at] and link.state == .running, 'O');
+    line.flag(link.made > 0 and !in_flight, 'K');
+    line.flag(set_slot.channel.resumed[at] and link.talks(), 'M');
+    line.flag(set_slot.channel.asked[at], 'A');
+    line.flag(engine.doh.tickets[server][at] != null, 'T');
 }
 
 /// A request connection of `set`: its stage, the requests waiting in its queue and those with a
@@ -219,7 +287,7 @@ pub const Token = struct {
     current: bool,
 
     /// The letters in the order the model writes them.
-    const letters = "CRSDLMTQVN";
+    const letters = "CRSDLMTQVNAWY";
 
     pub fn key(token: Token) usize {
         const rank = std.mem.indexOfScalar(u8, letters, token.letter).?;
@@ -247,6 +315,7 @@ pub fn token_of(world: anytype, loop_slot: u32) Token {
         },
         .quic_send, .quic_receive => |kind| request_token(&world.engine.quic, kind, index),
         .h2_connect, .h2_send, .h2_receive => |kind| request_token(&world.engine.h2, kind, index),
+        .doh_connect, .doh_send, .doh_receive => |kind| link_token(world, kind, index),
         else => unreachable,
     };
 }
@@ -278,6 +347,23 @@ fn request_token(set: anytype, kind: io.Kind, index: usize) Token {
         .h2_connect => .{ .letter = 'N', .target = server, .current = opening and connection.state == .connecting },
         .quic_send, .h2_send => .{ .letter = 'Q', .target = server, .current = opening and connection.talks() },
         else => .{ .letter = 'V', .target = server, .current = opening and connection.talks() },
+    };
+}
+
+/// A channel's link's connect, send or receive: current while its opening is the link's, and has
+/// what the operation needs of it: a connect while it connects, a send while it talks, a receive
+/// while it runs (docs/design.md §24, rule 19).
+fn link_token(world: anytype, kind: io.Kind, index: usize) Token {
+    // Only an engine that carries DoH over channels submits these.
+    if (comptime !@TypeOf(world.engine).Doh.enabled) unreachable;
+    const target = index & io.constants.quic_server_mask;
+    const incarnation: u32 = @truncate(index >> io.constants.quic_incarnation_shift);
+    const link = &world.engine.doh.slots[target / 2].links[target % 2];
+    const opening = link.incarnation == incarnation;
+    return switch (kind) {
+        .doh_connect => .{ .letter = 'A', .target = target, .current = opening and link.state == .connecting },
+        .doh_send => .{ .letter = 'W', .target = target, .current = opening and link.talks() },
+        else => .{ .letter = 'Y', .target = target, .current = opening and link.state == .running },
     };
 }
 

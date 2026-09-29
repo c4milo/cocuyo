@@ -752,4 +752,176 @@
         },
         .caught_by = .picked_walks,
     },
+    .{
+        .section = "The engine's DoH over a channel",
+        .id = "CE1",
+        .what = "a link opens when its channel opens, before the channel says",
+        .edits = .{
+            .{ .file = "io/io_channel.zig", .old = "    slot.state = .open;\n    // It opens with a request on it, so it has not gone idle.\n    slot.idle_since_ns = 0;\n", .new = "    slot.state = .open;\n    // It opens with a request on it, so it has not gone idle.\n    slot.idle_since_ns = 0;\n    link_module.open(self, server, @as(@TypeOf(self.*).Doh.Link, .quic), endpoint, now_ns);\n" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "The engine's DoH over a channel",
+        .id = "CE2",
+        .what = "an exchange that ends in failure tells its lookup nothing",
+        .edits = .{
+            .{ .file = "io/io_channel.zig", .old = "            self.resolver.on_request_failed(request.handle, request.transaction, now_ns);\n        }\n", .new = "            {}\n        }\n" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "The engine's DoH over a channel",
+        .id = "CE3",
+        .what = "a request its lookup left is not cancelled on its channel",
+        .edits = .{
+            .{ .file = "io/io_channel.zig", .old = "        slot.channel.cancel(@intCast(index));\n", .new = "" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "The engine's DoH over a channel",
+        .id = "CE4",
+        .what = "an exchange's end gives its room to no request that waits",
+        .edits = .{
+            .{ .file = "io/io_channel.zig", .old = "    if (slot.state == .open) give_waiting(self, server, now_ns);\n}\n", .new = "}\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The engine's DoH over a channel",
+        .id = "CE5",
+        .what = "a channel with no request on it never shuts down",
+        .edits = .{
+            .{ .file = "io/io_channel.zig", .old = "        if (now_ns -| slot.idle_since_ns < self.doh.idle_ns) continue;\n", .new = "        if (now_ns -| slot.idle_since_ns < std.math.maxInt(u64)) continue;\n" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "The engine's DoH over a channel",
+        .id = "CE6",
+        .what = "a request taken while its channel shuts down goes on it as an exchange",
+        .edits = .{
+            .{ .file = "io/io_channel.zig", .old = "    if (slot.state == .open) give_waiting(self, server, now_ns);\n    hear(", .new = "    give_waiting(self, server, now_ns);\n    hear(" },
+            .{ .file = "io/io_channel.zig", .old = "    assert(slot.state == .open);\n    while (slot.queue_len > 0) {", .new = "    while (slot.queue_len > 0) {" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "The engine's DoH over a channel",
+        .id = "CE7",
+        .what = "a channel's close drops the requests that waited, and opens none",
+        .edits = .{
+            .{ .file = "io/io_channel.zig", .old = "    if (slot.queue_len == 0) return;\n    if (!open(self, server, now_ns)) return fail_waiting(self, server, now_ns);\n    give_waiting(self, server, now_ns);\n", .new = "    slot.queue_len = 0;\n    _ = now_ns;\n" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "The engine's DoH over a channel",
+        .id = "CE8",
+        .what = "a TCP link's connection starts with its connect, before it has succeeded",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "    state.connect = handles[0];\n    slot.connecting = true;\n}\n", .new = "    state.connect = handles[0];\n    slot.connecting = true;\n    start(self, server, at, now_ns);\n}\n" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "The engine's DoH over a channel",
+        .id = "CE9",
+        .what = "a link's socket that ends is not told to the channel",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "    self.doh.slots[server].channel.link_ended(@enumFromInt(at));\n", .new = "" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "The engine's DoH over a channel",
+        .id = "CE10",
+        .what = "a link's socket that ends fails every request on its channel itself",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "    shut(self, server, at);\n    self.doh.slots[server].channel.link_ended(@enumFromInt(at));\n", .new = "    shut(self, server, at);\n    for (self.requests[0..]) |*request| {\n        if (request.live and request.server == server) {\n            self.resolver.on_request_failed(request.handle, request.transaction, now_ns);\n            request.live = false;\n        }\n    }\n    self.doh.slots[server].channel.link_ended(@enumFromInt(at));\n" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "The engine's DoH over a channel",
+        .id = "CE11",
+        .what = "a link the channel closed shuts at once, dropping the octets it kept",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "    if (state.state == .running and (state.made > 0 or sending(self, server, at))) {", .new = "    if (false and state.state == .running and (state.made > 0 or sending(self, server, at))) {" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "The engine's DoH over a channel",
+        .id = "CE12",
+        .what = "a link's connection starts with no ticket, and the kept one stays",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "    const kept = spend(self, server, at, now_ns);\n", .new = "    const kept: ?tls.Kept(@TypeOf(self.*).Doh) = null;\n" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "The engine's DoH over a channel",
+        .id = "CE13",
+        .what = "a drive arms no receive on a running link that has none",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "            if (state.state == .running and state.receive == null) arm(self, server, at);\n", .new = "" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "The engine's DoH over a channel",
+        .id = "CE14",
+        .what = "a TCP link connects while an earlier opening's connect still borrows its address",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "    if (slot.connecting) {\n        state.state = .reopening;\n        return;\n    }\n", .new = "" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "The engine's DoH over a channel",
+        .id = "CE15",
+        .what = "a link's send end reads nothing of the channel",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "    channel_module.hear(self, link.server, now_ns);\n}\n", .new = "}\n" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "The engine's DoH over a channel",
+        .id = "CE16",
+        .what = "a link's socket that ends is told to the channel, which is not read",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "    self.doh.slots[server].channel.link_ended(@enumFromInt(at));\n    channel_module.hear(self, server, now_ns);\n", .new = "    self.doh.slots[server].channel.link_ended(@enumFromInt(at));\n    _ = now_ns;\n" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "The engine's DoH over a channel",
+        .id = "CE17",
+        .what = "the engine's timer tells no channel its instant came",
+        .edits = .{
+            .{ .file = "io/io_events.zig", .old = "    channel_module.expire_due(self, now_ns);\n", .new = "" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "The engine's DoH over a channel",
+        .id = "CE18",
+        .what = "a request goes on its channel whether the channel had room or not",
+        .edits = .{
+            .{ .file = "io/io_channel.zig", .old = "        if (!slot.channel.request(index, request.bytes[0..request.len], now_ns)) return;\n", .new = "        _ = slot.channel.request(index, request.bytes[0..request.len], now_ns);\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The engine's DoH over a channel",
+        .id = "CE19",
+        .what = "a request put on its channel leaves the channel unread",
+        .edits = .{
+            .{ .file = "io/io_channel.zig", .old = "    if (slot.state == .open) give_waiting(self, server, now_ns);\n    hear(self, server, now_ns);\n}\n", .new = "    if (slot.state == .open) give_waiting(self, server, now_ns);\n}\n" },
+        },
+        .caught_by = .picked_walks,
+    },
 }

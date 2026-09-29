@@ -321,10 +321,11 @@ ChanTakeWhileShutting(st, l) ==
         told == TableEvent(cleared, l, "sent")
         taken == [told EXCEPT !.reqs[l] = {[server |-> v,
                                             attempt |-> Attempt(Get(told.slots[l].lookup))]}]
-    IN IF taken.chans[v].stage = "closed"
-       THEN [taken EXCEPT !.chans[v].stage = "open", !.chans[v].exchanges = {l},
-                          !.chans[v].idleNow = FALSE]
-       ELSE [taken EXCEPT !.chans[v].exchanges = @ \cup {l}]
+        placed == IF taken.chans[v].stage = "closed"
+                  THEN [taken EXCEPT !.chans[v].stage = "open", !.chans[v].exchanges = {l},
+                                     !.chans[v].idleNow = FALSE]
+                  ELSE [taken EXCEPT !.chans[v].exchanges = @ \cup {l}]
+    IN TellHeldC(placed, v)
 
 \* CH5: a channel's close drops the requests that waited for the next, which opens none (rule 24).
 ChanClosedDropping(st, v) == [st EXCEPT !.chans[v] = NoChan]

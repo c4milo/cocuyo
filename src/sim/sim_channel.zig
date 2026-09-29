@@ -69,8 +69,10 @@ pub const Channel = struct {
     /// has ended (docs/design.md §24, request rule 17).
     held: ?End = null,
     held_told: bool = false,
-    /// Each link's connection: whether it runs, whether it owes octets, and whether a ticket of
-    /// its transport waits for the engine to take it.
+    /// Each link: whether the channel asked for it and has not closed it or heard it ended, whether
+    /// its connection runs, whether it owes octets, and whether a ticket of its transport waits for
+    /// the engine to take it.
+    asked: [links]bool = @splat(false),
     running: [links]bool = @splat(false),
     owes: [links]bool = @splat(false),
     tickets: [links]bool = @splat(false),
@@ -84,7 +86,8 @@ pub const Channel = struct {
     limit: usize = constants.channel_exchanges_max,
 
     /// Makes a server's channel, with nothing opened (rule 18). What a test queued before it opened,
-    /// and the room it gave it, stay.
+    /// the room it gave it, and what it reads of the links stay: a link the last channel closed
+    /// stays the engine's until its socket shuts.
     pub fn start(self: *Channel, context: anytype) Error!void {
         self.* = .{
             .server = context.server,
@@ -92,6 +95,8 @@ pub const Channel = struct {
             .script = self.script,
             .script_len = self.script_len,
             .due_ns = self.due_ns,
+            .resumed = self.resumed,
+            .ended_links = self.ended_links,
             .limit = self.limit,
         };
     }
@@ -164,8 +169,12 @@ pub const Channel = struct {
     /// What one step says, if anything.
     fn said(self: *Channel, step: Step) ?Event {
         switch (step) {
-            .open => |link| return .{ .open = .{ .link = link, .endpoint = self.endpoint } },
+            .open => |link| {
+                self.asked[@intFromEnum(link)] = true;
+                return .{ .open = .{ .link = link, .endpoint = self.endpoint } };
+            },
             .close => |link| {
+                self.asked[@intFromEnum(link)] = false;
                 self.running[@intFromEnum(link)] = false;
                 self.owes[@intFromEnum(link)] = false;
                 return .{ .close = link };
@@ -250,6 +259,7 @@ pub const Channel = struct {
     pub fn link_ended(self: *Channel, link: Link) void {
         const at = @intFromEnum(link);
         self.ended_links[at] += 1;
+        self.asked[at] = false;
         self.running[at] = false;
         self.owes[at] = false;
     }

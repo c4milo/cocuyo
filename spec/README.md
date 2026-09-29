@@ -254,13 +254,13 @@ says `\* nightly:`:
 | 1 | 1 | 1,672,552 | 172 | hold |
 | 1 | 2 | 14,986,512 | 1,724 | hold |
 
-It reached a TCP link waiting for an earlier opening's connect, a link closing, both links
-running, a link started with a ticket, the TCP link keeping octets to send, a channel shutting
-down with a request waiting for the next, one holding an exchange's end, and a lookup answered
-through the channel. Answers and failures alone reach the channel, since a lookup moves on the other
-replies as it does on these, and the channel not at all. Ten mutants break the channel's rules,
-and TLC finds each (docs/mutations.md CH1 to CH10). The replay walks no channel configuration yet:
-the engine's DoH over the channel is the code's step, and its walks come with it.
+Checked again once the replay moved the model (below), both hold the same states. It reached a TCP
+link waiting for an earlier opening's connect, a link closing, both links running, a link started
+with a ticket, the TCP link keeping octets to send, a channel shutting down with a request waiting
+for the next, one holding an exchange's end, and a lookup answered through the channel. Answers and
+failures alone reach the channel, since a lookup moves on the other replies as it does on these, and
+the channel not at all. Ten mutants break the channel's rules, and TLC finds each (docs/mutations.md
+CH1 to CH10).
 
 The replay walks the request configurations as it walks the others, with one slot or two and two
 servers, over the twin's QUIC (`sim.quic`). A step of colibri's is one item in a datagram on the
@@ -289,6 +289,23 @@ session (`src/sim/sim_tls.zig`), whose records carry their plaintext unsealed an
 steps are one octet each. A walk's `tls:R0*:flight` puts one step in a record on the receive that
 `R0*` names, an answer comes in a data record, and `lapse:v` drops the ticket kept for server
 `v`.
+
+The channel configurations are replayed over the twin's channel (`sim.channel`), which says the
+steps the replay queues on it. A walk's `chan:open:1:0:-` has server 0's channel open its TCP
+link. A link's step names the link: twice its server for the QUIC link, and one more for the TCP
+link. The channel's other steps name the server, then the exchange's slot and how it ended. The
+replay queues the step, which the twin says at the engine's next read, and fires the engine's
+timer, since the twin is due at once while it has a step queued. A link's operations are `A` for
+the TCP link's connect, `W` for a send and `Y` for a receive. The line writes each channel after
+the requests: its stage, its exchanges, the requests waiting for the next channel, the end it
+holds, `I` when it went idle at this instant, and each link's state and flags. As over TCP, `K`
+is written only while none of the link's sends is in flight.
+
+Writing the replay moved the model twice, to rules 17 and 19. The engine reads a channel after
+it puts a request on it, and after a link that waited for an earlier connect fails to open at
+that connect's end. The model read it at neither, so an end the channel held was told in the
+engine and still held in the model. The twin moved once: a new channel keeps what a test reads of
+the links, since a link the last channel closed is the engine's until its socket shuts.
 
 The replay cannot visit that many states, so it follows walks TLC takes through the TLA+ model
 (below). Each line is an event and the model's whole state after it.
@@ -417,20 +434,21 @@ compares the walk's whole state after each.
 - `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 3,694
   transitions: one server, one pass and one name, over UDP, over TCP, over DoH and over DoQ. It also
   replays two sets of engine walks TLC wrote. `tools/spec_replay/engine_gate.txt` holds ten walks
-  of forty events in each of the twelve engine configurations. `tools/spec_replay/engine_picks.txt`
-  holds thirteen walks of the full run, which `engine_picks` in `build/spec.zig` names: each is where
-  the full run caught a mutation of the engine that the short walks miss (docs/mutations.md). The
-  gate also holds `tools/spec_replay/walk_gate.txt`, the forward walk with two candidates and both
-  families and every reverse configuration. It needs neither Lean nor Java.
+  of forty events in each of the fourteen engine configurations.
+  `tools/spec_replay/engine_picks.txt` holds fifteen walks of the full run, which `engine_picks` in
+  `build/spec.zig` names: each is where the full run caught a mutation of the engine that the
+  short walks miss (docs/mutations.md). The gate also holds `tools/spec_replay/walk_gate.txt`, the
+  forward walk with two candidates and both families and every reverse configuration. It needs
+  neither Lean nor Java.
 - `zig build spec` needs `lake` on the path, at the version `lean/lean-toolchain` pins, and Java
   11 or newer for TLC. pepegrillo's `lean` tool builds the proofs and the axiom pins first. Then
   the step requires the committed slices to be the ones the models write, and replays the
   lookup's whole transcript, the walks' whole transcript, and TLC's full run: 2,000 engine walks
-  of 200 events in each of the twelve engine configurations, 4,824,000 events. TLC wrote the full
-  run in 401 seconds on an Apple M1 Pro on 2026-09-26, while the engine's tests ran. Ten
-  configurations took 1,852 seconds on 2026-09-25, while a TLC check held the other cores, and
-  their replay took 47. `zig build spec-lean` is the Lean half alone, which needs no Java, and `zig build
-  spec-engine` the engine's part alone, which needs no Lean.
+  of 200 events in each of the fourteen engine configurations, 5,628,000 events. TLC wrote the
+  full run in 588 seconds on an Apple M1 Pro on 2026-09-28, while the engine's tests ran, and its
+  replay took 84 while a TLC check held the other cores. `zig build spec-lean` is the Lean half
+  alone, which needs no Java, and `zig build spec-engine` the engine's part alone, which needs no
+  Lean.
 - After a change to a model, `lake exe cocuyo-spec gate 8 > ../../tools/spec_replay/lookup_gate.txt`
   and `lake exe cocuyo-spec walks-gate > ../../tools/spec_replay/walk_gate.txt` in `lean/` write
   the Lean slices again. From the repository's root, `zig build tla -- walks 1 10 41 >

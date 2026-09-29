@@ -4136,7 +4136,10 @@ two, three operations and one failure, hold at 1,672,552 and 14,986,512 states; 
 second once a day. Ten mutants break the rules, and TLC finds each (docs/mutations.md CH1 to
 CH10). Writing the model moved rule 19: a link's end is followed by
 a read of the channel, since without it an exchange's end the channel held waited on a send the
-socket's close had taken away. The walks TLC takes for the replay did not move.
+socket's close had taken away. The replay walks both configurations over `sim.channel`, and moved
+the model to rules 17 and 19 twice more: the engine reads a channel after it puts a request on
+it, and after a link that waited for an earlier connect fails to open at that connect's end. Both
+configurations hold at the same states after it.
 
 **Beyond the model.** The engine runs over `sim.channel` on the twin, in the gate. It runs over
 colibri's channel against colibri's server on the twin: HTTP/3, HTTP/2 when QUIC's datagrams are
@@ -4260,7 +4263,11 @@ against Google and Cloudflare.
      which hold. Ten mutants break the channel's rules, and TLC finds each (docs/mutations.md CH1
      to CH10). The engine's half landed the same day: `io/io_channel.zig` and
      `io/io_channel_link.zig` under `Options.doh`, `sim.channel`, and fourteen tests of the engine
-     over it, which eighteen mutations break (docs/mutations.md CE1 to CE18).
+     over it, which eighteen mutations break (docs/mutations.md CE1 to CE18). Then the replay: it
+     walks the two channel configurations over `sim.channel`, and agrees with the model over the
+     full run of fourteen configurations, 5,628,000 events. A fifteenth test came with it, for the
+     read after a request is put on a channel (CE19). The walks catch seventeen of the nineteen
+     mutations, and the tests the other two (docs/mutations.md, the channel on the model's walks).
 
 Checks, one for each piece:
 

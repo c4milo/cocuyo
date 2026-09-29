@@ -1,7 +1,7 @@
 //! The engine's DoH over a channel on the twin (docs/design.md §24, DoH over colibri's client,
 //! request rules 18 to 25): a channel opened for a server's first request, its exchanges' ends
-//! heard, a request that waits for room, a cancelled one, and the channel's shutdown. The links'
-//! tests are `io_channel_link_test.zig`'s. The channel is the twin's (`rotor.channel`), which says
+//! heard, a request that waits for room, a cancelled one, the channel read when a request is put
+//! on it, and the channel's shutdown. The links' tests are `io_channel_link_test.zig`'s. The channel is the twin's (`rotor.channel`), which says
 //! exactly the steps a test queues; what only colibri's channel can show is colibri's
 //! (`cocuyo_doh`).
 const std = @import("std");
@@ -141,6 +141,26 @@ test "a request waits for room on its channel, and becomes an exchange once one 
         const result = try rig.until_result();
         try testing.expect(result.outcome == .answer);
     }
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
+test "a request put on its channel has the channel read, which tells then what it held" {
+    // Request rule 17: the engine reads a channel after each call that moves it, and putting a
+    // request on it is one. The channel holds an end, and no step, send or instant brings a read.
+    var rig: Rig = .{};
+    try start(&rig, 97, .{ .{}, .{} });
+    const first = try rig.engine.start(question("one.example."), rig.loop.now());
+    try tell(&rig, 0, .{ .hold = .{ .index = first.index, .answer = true } });
+    const channel = channel_of(&rig, 0);
+    try testing.expect(channel.held != null);
+    const second = try rig.engine.start(question("two.example."), rig.loop.now());
+    try testing.expect(channel.held == null);
+    const result = try rig.until_result();
+    try testing.expectEqual(first, result.handle);
+    try testing.expect(result.outcome == .answer);
+    rig.engine.cancel(second, rig.loop.now());
+    _ = try rig.until_result();
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
 }

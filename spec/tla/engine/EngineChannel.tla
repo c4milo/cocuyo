@@ -127,23 +127,6 @@ CancelLeftCFrom(st, l) ==
 \* Every request whose lookup has left it is cancelled (request rule 6).
 CancelLeftC(st) == CancelLeftCFrom(st, 0)
 
-\* The drive takes slot l's request onto its server's channel whatever the channel's state, and
-\* tells the lookup it went out (request rule 3). A closed channel opens with it as its exchange, an
-\* open one takes it as an exchange at once, and one shutting down keeps it for the next (rules 18,
-\* 21 and 24). An earlier request of the slot's is cancelled first.
-ChanTake(st, l) ==
-    LET v == ServerOf(st, l)
-        cleared == DropExchange(st, l)
-        told == TableEvent(cleared, l, "sent")
-        taken == [told EXCEPT !.reqs[l] = {[server |-> v,
-                                            attempt |-> Attempt(Get(told.slots[l].lookup))]}]
-        c == taken.chans[v]
-    IN CASE c.stage = "closed" -> [taken EXCEPT !.chans[v].stage = "open",
-                                                !.chans[v].exchanges = {l},
-                                                !.chans[v].idleNow = FALSE]
-         [] c.stage = "open" -> [taken EXCEPT !.chans[v].exchanges = @ \cup {l}]
-         [] OTHER -> [taken EXCEPT !.chans[v].queue = Append(@, l)]
-
 \* Slot l's exchange on channel v ended: a response carrying a DNS message, or an end that fails it
 \* (rule 22). Its lookup hears only if the request is still its attempt.
 ExchangeEnded(st, v, l, r) ==
@@ -161,6 +144,26 @@ TellHeldC(st, v) ==
 
 \* Link i's socket ended: the channel is told, and read (rule 17).
 LinkEnded(st, i) == TellHeldC(LinkGone(st, i), LinkServer(i))
+
+\* The drive takes slot l's request onto its server's channel whatever the channel's state, and
+\* tells the lookup it went out (request rule 3). A closed channel opens with it as its exchange, an
+\* open one takes it as an exchange at once, and one shutting down keeps it for the next (rules 18,
+\* 21 and 24). An earlier request of the slot's is cancelled first. Then the engine reads the
+\* channel, which says at that read what the request moved, its first link to open among it, and
+\* tells first what it held (rule 17).
+ChanTake(st, l) ==
+    LET v == ServerOf(st, l)
+        cleared == DropExchange(st, l)
+        told == TableEvent(cleared, l, "sent")
+        taken == [told EXCEPT !.reqs[l] = {[server |-> v,
+                                            attempt |-> Attempt(Get(told.slots[l].lookup))]}]
+        c == taken.chans[v]
+        placed == CASE c.stage = "closed" -> [taken EXCEPT !.chans[v].stage = "open",
+                                                           !.chans[v].exchanges = {l},
+                                                           !.chans[v].idleNow = FALSE]
+                    [] c.stage = "open" -> [taken EXCEPT !.chans[v].exchanges = @ \cup {l}]
+                    [] OTHER -> [taken EXCEPT !.chans[v].queue = Append(@, l)]
+    IN TellHeldC(placed, v)
 
 \* The channel said closed: shut down, with no exchange left and every link closed. Its slot is
 \* free, and a new channel opens for the requests that waited (rule 24).
@@ -225,12 +228,16 @@ LRecvEnded(st, op, outcome) ==
 
 \* A link's connect ended, and the loop gives the address back (request rule 14). The current
 \* opening's success starts the channel's TCP connection, and its failure ends the link. An earlier
-\* opening's end opens the link that waited for it.
+\* opening's end opens the link that waited for it, and an opening that fails there ends the link
+\* as any end does: the channel is told, and read (rule 19).
 LConnectEnded(st, op, succeeded) ==
     LET i == op.target
         back == [st EXCEPT !.ops = Remove(@, op), !.links[i].connectLent = FALSE]
+        reopened == LinkOpen(back, i)
     IN IF ~op.current
-       THEN (IF back.links[i].state = "reopening" THEN LinkOpen(back, i) ELSE back)
+       THEN (IF back.links[i].state # "reopening" THEN back
+             ELSE IF reopened.links[i].state = "down" THEN TellHeldC(reopened, LinkServer(i))
+             ELSE reopened)
        ELSE IF ~succeeded THEN LinkEnded(back, i)
        ELSE StartLink(back, i)
 

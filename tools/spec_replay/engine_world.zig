@@ -16,6 +16,7 @@ const lookup_text = @import("replay.zig");
 const fixtures = @import("fixtures.zig");
 const text_module = @import("engine_text.zig");
 const quic_world = @import("engine_world_quic.zig");
+const channel_world = @import("engine_world_channel.zig");
 
 /// The seed every engine of the replay starts from; the model abstracts the entropy away.
 const seed = 0x5eed_e791;
@@ -32,9 +33,12 @@ pub const text_bytes_max = 1024;
 pub const Error = error{ Malformed, NoSuchOperation, NoBuffer, Full, BufferKept };
 
 /// Whether every query goes over TCP, over TLS, over UDP, or as a request over DoQ, or over DoH on
-/// HTTP/2 when the request's connections are a `stream`; and the queries a port carries before it
-/// is replaced. A walk's `config` line names both.
-pub const Transport = struct { tcp: bool, per_port: u32, tls: bool = false, request: bool = false, stream: bool = false };
+/// HTTP/2 when the request's connections are a `stream`, or over DoH through a `channel`; and the
+/// queries a port carries before it is replaced. A walk's `config` line names both.
+pub const Transport = struct { tcp: bool, per_port: u32, tls: bool = false, request: bool = false, stream: bool = false, channel: bool = false };
+
+/// The twin's channel, which a channel configuration's engine carries DoH over (EngineChannel.tla).
+pub const Channel = rotor.channel.Channel;
 
 /// What ends an operation, as the transcript names it: `ended` is a receive over TCP that ends
 /// with no octets (docs/design.md §24, request rule 15).
@@ -45,6 +49,12 @@ const Outcome = enum { ok, failed, canceled, exhausted, short, ended };
 const h2_template = "https://dns.example/dns-query{?dns}";
 
 pub fn World(comptime slots: u16, comptime conns: u16) type {
+    return WorldOver(slots, conns, io.channel.None);
+}
+
+/// A world whose engine carries DoH over channels of type `Doh`, or over its HTTP/2 connections
+/// when `Doh` is none.
+pub fn WorldOver(comptime slots: u16, comptime conns: u16, comptime Doh: type) type {
     return struct {
         const Self = @This();
         pub const Resolver = io.Resolver(.{
@@ -60,6 +70,8 @@ pub fn World(comptime slots: u16, comptime conns: u16) type {
             .quic = rotor.quic.Connection,
             // And the twin's QUIC over TCP, which carries DoH as HTTP/2 does (§24, DoH over HTTP/2).
             .h2 = rotor.quic.Stream,
+            // And a channel configuration's twin channel (§24, DoH over colibri's client).
+            .doh = Doh,
         });
 
         loop: rotor.Loop,
@@ -85,8 +97,8 @@ pub fn begin(self: anytype, transport: Transport) !void {
         } };
         const name = cocuyo.Name.from_text("dns.example.") catch unreachable;
         if (transport.tls) server.tls = .{ .name = name };
-        if (transport.request and !transport.stream) server.quic = .{ .name = name };
-        if (transport.stream) server.https = .{ .template = h2_template };
+        if (transport.request and !transport.stream and !transport.channel) server.quic = .{ .name = name };
+        if (transport.stream or transport.channel) server.https = .{ .template = h2_template };
     }
     self.config = .{
         .servers = &self.servers,
@@ -104,6 +116,7 @@ pub fn begin(self: anytype, transport: Transport) !void {
     self.engine.tcp_idle_ns = idle_ns;
     self.engine.quic.idle_ns = idle_ns;
     self.engine.h2.idle_ns = idle_ns;
+    self.engine.doh.idle_ns = idle_ns;
 }
 
 /// One event of the transcript, then the timers the engine let go of, ended. Every
@@ -177,6 +190,8 @@ fn unnamed(self: anytype, name: []const u8, parts: *std.mem.SplitIterator(u8, .s
     } else if (std.mem.eql(u8, name, "qtime")) {
         const server = try number(parts.next());
         try quic_world.expire(self, server, parts.next() orelse "");
+    } else if (std.mem.eql(u8, name, "chan")) {
+        try channel_world.step(self, parts);
     } else if (std.mem.eql(u8, name, "exhaust")) {
         // The connection's stream identifiers run out, which the engine finds at its next request
         // (request rule 17). No drive follows, as the model has it.
@@ -278,6 +293,7 @@ fn moved(self: anytype, user_data: u64, kind: io.Kind, short: bool) u32 {
         .tcp_send => query_left(self, index),
         .tls_send => records_left(self, index),
         .h2_send => h2_left(self, index),
+        .doh_send => channel_world.link_left(self, index),
         else => null,
     } orelse return 0;
     return if (short) left / 2 else left;
@@ -354,7 +370,9 @@ fn straggle(self: anytype, op: []const u8) Error!void {
 
 /// An event that carries one octet in a buffer of its receive's group.
 fn carrying(self: anytype, user_data: u64, kind: io.Kind, more: bool) Error!rotor.Event {
-    const stream = kind == .tcp_receive or kind == .h2_receive;
+    const target = (user_data & io.constants.index_mask) & io.constants.quic_server_mask;
+    const tcp_link = kind == .doh_receive and target % 2 == 1;
+    const stream = kind == .tcp_receive or kind == .h2_receive or tcp_link;
     const group_id: u16 = if (stream) io.constants.tcp_group_id else io.constants.group_id;
     const buffer_id = self.loop.groups[group_id].take() orelse return error.NoBuffer;
     const buffer = self.loop.provided_buffer(group_id, buffer_id);
@@ -427,7 +445,8 @@ fn end_cancelled_timers(self: anytype) void {
 
 /// Whether an operation of `kind` is a receive, which carries what it read.
 fn receives(kind: io.Kind) bool {
-    return kind == .tcp_receive or kind == .udp_receive or kind == .quic_receive or kind == .h2_receive;
+    return kind == .tcp_receive or kind == .udp_receive or kind == .quic_receive or kind == .h2_receive or
+        kind == .doh_receive;
 }
 
 pub fn number(token: ?[]const u8) Error!usize {
@@ -463,4 +482,5 @@ fn failure_of(kind: io.Kind) rotor.Code {
 test {
     _ = lookup_text;
     _ = quic_world;
+    _ = channel_world;
 }

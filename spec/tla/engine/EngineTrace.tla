@@ -79,6 +79,22 @@ RConnToken(c) ==
 \* A request slot: the server its request went to, or "-" for none.
 ReqToken(r) == IF r = {} THEN "-" ELSE ToString(Get(r).server)
 
+\* A channel's link (EngineChannel.tla): its state, and whether its buffer is lent, a connect borrows
+\* its address, the channel owes octets on it, it keeps octets not yet sent, its connection started
+\* with a ticket, the channel has asked for it, and a ticket of its transport is kept.
+LinkToken(st, i) ==
+    LET k == st.links[i] IN
+    k.state \o " " \o Flag(k.lent, "B") \o Flag(k.connectLent, "N") \o Flag(k.owes, "O") \o
+    Flag(k.made, "K") \o Flag(k.resumed, "M") \o Flag(st.asked[i], "A") \o Flag(st.linkTickets[i], "T")
+
+\* A channel: its stage, the requests it holds as exchanges and those waiting for the next channel,
+\* the end it holds, whether it went idle now, and its links.
+ChanToken(st, v) ==
+    LET c == st.chans[v] IN
+    c.stage \o " x" \o NumbersToken(Sorted(c.exchanges)) \o " q" \o NumbersToken(c.queue) \o " h" \o
+    (IF c.held = {} THEN "-" ELSE ToString(Get(c.held).slot) \o ":" \o Get(c.held).reply) \o
+    Flag(c.idleNow, "I") \o " " \o LinkToken(st, 2 * v) \o " " \o LinkToken(st, 2 * v + 1)
+
 \* An operation: its kind's letter, M for a draining socket's receive still current, its target,
 \* and whether it is current.
 Letter(op) ==
@@ -87,16 +103,18 @@ Letter(op) ==
            [] op.kind = "sendTo" -> "D" [] op.kind = "receiveFrom" -> "L"
            [] op.kind = "sendRecords" -> "T" [] op.kind = "qsend" -> "Q" [] op.kind = "qrecv" -> "V"
            [] op.kind = "rconnect" -> "N"
+           [] op.kind = "lconnect" -> "A" [] op.kind = "lsend" -> "W" [] op.kind = "lrecv" -> "Y"
 
 OpToken(op) == Letter(op) \o ToString(op.target) \o (IF op.current THEN "*" ELSE "x")
 
 \* The order the operations are written in, which the replay sorts its own by: the letter's place
-\* in CRSDLMTQVN, then the target, then the stale before the current.
+\* in CRSDLMTQVNAWY, then the target, then the stale before the current.
 LetterRank(op) ==
     CASE Letter(op) = "C" -> 0 [] Letter(op) = "R" -> 1 [] Letter(op) = "S" -> 2
       [] Letter(op) = "D" -> 3 [] Letter(op) = "L" -> 4 [] Letter(op) = "M" -> 5
       [] Letter(op) = "T" -> 6 [] Letter(op) = "Q" -> 7 [] Letter(op) = "V" -> 8
       [] Letter(op) = "N" -> 9
+      [] Letter(op) = "A" -> 10 [] Letter(op) = "W" -> 11 [] Letter(op) = "Y" -> 12
 OpKey(op) == (LetterRank(op) * 256 + op.target) * 2 + (IF op.current THEN 1 ELSE 0)
 
 RECURSIVE Copies(_, _)
@@ -132,6 +150,7 @@ Line(st) ==
      THEN Join([v \in 1..RServers |-> RConnToken(st.rconns[v - 1])], " ; ") \o " | " \o
           Join([l \in 1..Slots |-> ReqToken(st.reqs[l - 1])], " ; ") \o " | "
      ELSE "") \o
+    (IF Channel THEN Join([v \in 1..CServers |-> ChanToken(st, v - 1)], " ; ") \o " | " ELSE "") \o
     Join(OpsTokens(st.ops, DOMAIN st.ops), " ") \o " | " \o
     "r" \o NumbersToken(st.ready) \o " q" \o NumbersToken(st.results) \o " t" \o
     (IF st.lastTaken = {} THEN "-" ELSE ToString(Get(st.lastTaken))) \o
@@ -152,9 +171,12 @@ EventToken(e) ==
       [] e.kind = "straggle" -> "straggle:" \o OpToken(e.op)
       [] e.kind = "quic" -> "quic:" \o OpToken(e.op) \o ":" \o e.step \o ":" \o ToString(e.slot) \o ":" \o e.reply
       [] e.kind = "qtime" -> "qtime:" \o ToString(e.server) \o ":" \o e.step
+      [] e.kind = "chan" ->
+            "chan:" \o e.step \o ":" \o ToString(e.server) \o ":" \o ToString(e.slot) \o ":" \o e.reply
 
 Transport ==
-    IF Request THEN (IF RStream THEN "request_tcp" ELSE "request")
+    IF Channel THEN "channel"
+    ELSE IF Request THEN (IF RStream THEN "request_tcp" ELSE "request")
     ELSE IF Tls THEN "tls" ELSE IF UseTcp THEN "tcp" ELSE "udp"
 
 -------------------------------------------------------------------------------
@@ -180,7 +202,8 @@ Whole(f) == f @@ << >>
 \* The state with each of its functions held whole.
 WholeState(st) ==
     [st EXCEPT !.slots = Whole(@), !.conns = Whole(@), !.socks = Whole(@), !.ops = Whole(@),
-               !.failures = Whole(@), !.tickets = Whole(@), !.rconns = Whole(@), !.reqs = Whole(@)]
+               !.failures = Whole(@), !.tickets = Whole(@), !.rconns = Whole(@), !.reqs = Whole(@),
+               !.chans = Whole(@), !.links = Whole(@), !.asked = Whole(@), !.linkTickets = Whole(@)]
 
 TraceNext ==
     /\ Emit
