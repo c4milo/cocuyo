@@ -3157,3 +3157,33 @@ server shows, and both HTTP/3 tests catch it. DC1 to DC27 ran again at the tag, 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
 | DC28 | the channel is handed its QUIC link's datagrams with no source address | colibri reads a datagram's source | both HTTP/3 tests | CAUGHT |
+
+## The GOAWAY drain removed
+
+Design §24, request rule 13, 2026-09-29 (c4milo/cocuyo#33). The request connections carry DoQ
+alone since the TCP request connections went, and DoQ has no GOAWAY (RFC 9250). So `cocuyo_quic`
+never said one came, and only the twin's QUIC did. The drain went from the design, the model and the
+code: the `draining` stage, the `goaway` step, the `goaway` of the request interface's `Next`, the
+twin's GOAWAY and the tests of the drain. What rule 13 said of a failure while the engine's own
+close is going stands under rule 9: the connection fails none of the requests that wait, and opens
+again for them. A closing connection has no request on a stream, since it closed only once it had
+none, so failing only its streams' requests was failing none, and the engine now reopens it at
+once.
+
+These mutations broke code that is gone, and retire with it:
+
+- RQ12, RQ13 and RQ15, the model's drain. RQ14 stands, for a connection that closes.
+- RW12 and RW14 to RW16, the engine's drain.
+- RW17, which failed the requests that wait on a closing connection along with those on its
+  streams. It has none on a stream, so the code RW17 edited went, and RW13 breaks the same rule.
+
+RW13 was written again for a connection that closes. The walks were written again from the new
+model. The full run, 24,000 walks and 4,824,000 events, replays clean. The picks were chosen again
+from it: 4, 8, 13, 2002, 4020, 4075, 8046, 12011, 13182, 16008, 16068, 16478 and 17842. RW6 falls
+to the short walks now, and RW10 and RW13 take walks 4020 and 4075. Every mutation of the engine's
+set ran again, one hundred and fourteen, and each is `CAUGHT`: sixty by the short walks, sixteen
+by the picks, and thirty-eight by their steps.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| RW13 | a connection that fails while it closes fails the requests that wait | request rule 9 | full run walk 4075, picked | CAUGHT |

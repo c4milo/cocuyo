@@ -1,4 +1,4 @@
-//! The engine's request connections (docs/design.md §24, request rules 1 to 4, 7 to 10, and 13).
+//! The engine's request connections (docs/design.md §24, request rules 1 to 4 and 7 to 10).
 //! Each server of a request configuration has a connection slot of its own, and a connection is
 //! never closed to make room (request rule 1). One opening of a slot is one QUIC connection over
 //! one datagram socket, with one multishot receive into the engine's datagram group.
@@ -26,9 +26,7 @@ const Kind = @import("io.zig").Kind;
 pub fn Connection(comptime Quic: type, comptime lookups: u16) type {
     return struct {
         const Self = @This();
-        /// A draining connection's server sent GOAWAY: it takes no new stream, and closes once its
-        /// last one has ended (request rule 13).
-        pub const State = enum { closed, handshaking, up, draining, closing };
+        pub const State = enum { closed, handshaking, up, closing };
 
         state: State = .closed,
         descriptor: ?rotor.Descriptor = null,
@@ -233,40 +231,20 @@ pub fn user_data_of(self: anytype, set: anytype, kind: Kind, server: u8) u64 {
     return @TypeOf(self.*).user_data(kind, (incarnation << constants.quic_incarnation_shift) | server);
 }
 
-// Failing and closing (request rules 7, 9 and 13).
+// Failing and closing (request rules 7 and 9).
 
 /// Server `server`'s connection fails: each request on it hears so once, and it closes (request
 /// rule 7).
 pub fn fail(self: anytype, set: anytype, server: u8, now_ns: u64) void {
     const connection = &set.connections[server];
-    // One that drains or closes fails the requests on its streams alone, and opens again for those
-    // that wait, which never went to it (request rule 13).
-    if (connection.state == .draining or connection.state == .closing) {
-        request_module.fail_streams_of(self, set, server, now_ns);
+    // One that closes went idle first, so no request has a stream on it: those that wait never
+    // went to it, and it opens again for them (request rule 9).
+    if (connection.state == .closing) {
+        assert(connection.streams == 0);
         return reopen(self, set, server, now_ns);
     }
     request_module.fail_all_of(self, set, server, now_ns);
     shut(self, set, server);
-}
-
-/// The server sent GOAWAY: the connection takes no new stream, and drains (request rule 13). One
-/// after the first changes nothing: "An endpoint MAY send multiple GOAWAY frames" (RFC 9114 §5.2),
-/// and a draining connection has a stream. A closing one reads nothing, and a handshaking one has
-/// no stream a GOAWAY could come on.
-pub fn drain(set: anytype, server: u8) void {
-    const connection = &set.connections[server];
-    assert(connection.state == .up or connection.state == .draining);
-    connection.state = .draining;
-    drained(set, server);
-}
-
-/// A draining connection whose last stream has ended closes as an idle one does, and opens again
-/// for the requests that wait once its CONNECTION_CLOSE has gone (request rules 9 and 13).
-pub fn drained(set: anytype, server: u8) void {
-    const connection = &set.connections[server];
-    if (connection.state != .draining or connection.streams != 0) return;
-    connection.state = .closing;
-    connection.transport.close();
 }
 
 /// Ends an opening: its receive cancelled, which is what makes the loop let it go (rotor decision

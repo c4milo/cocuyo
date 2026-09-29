@@ -106,7 +106,6 @@ fn hear(self: anytype, set: anytype, server: u8, now_ns: u64) void {
         switch (next) {
             .up => |alpn| up(self, set, server, alpn, now_ns),
             .refused, .closed => connection_module.fail(self, set, server, now_ns),
-            .goaway => connection_module.drain(set, server),
             .answered => |answered| answer(self, set, server, answered, now_ns),
             .reset => |stream| ended(self, set, server, stream, null, now_ns),
             .ticket => |ticket| set.tickets[server] = .{ .ticket = ticket, .since_ns = now_ns },
@@ -169,7 +168,6 @@ fn ended(self: anytype, set: anytype, server: u8, stream: u64, answered: ?[]cons
     assert(connection.streams >= 1);
     connection.streams -= 1;
     if (connection.users() == 0) connection.idle_since_ns = now_ns;
-    connection_module.drained(set, server);
 }
 
 // Tests.

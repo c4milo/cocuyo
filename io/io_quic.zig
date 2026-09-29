@@ -82,7 +82,7 @@ pub fn Connection(comptime options: Options) type {
         };
         pub const Ticket = Session.Ticket;
         pub const Answered = struct { stream: u64, len: usize };
-        pub const Next = union(enum) { up: []const u8, refused, answered: Answered, reset: u64, closed, goaway, ticket: Ticket };
+        pub const Next = union(enum) { up: []const u8, refused, answered: Answered, reset: u64, closed, ticket: Ticket };
 
         pub const Stage = connection_module.Stage;
         /// colibri's receive pool, which the connection's transport parameters open to the server.

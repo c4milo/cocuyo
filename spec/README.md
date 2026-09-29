@@ -99,8 +99,8 @@ tick pass; a lookup waits two ticks. Two faults stand in for a kernel under pres
 refuses every submission for the length of one event, as a full ring does, and every socket open
 fails for the length of one event, as a process with no descriptor left sees.
 
-TLC walks it breadth first (`zig build tla`) and checks twenty-five rules in every state and every
-event:
+TLC walks it breadth first (`zig build tla`) and checks these rules in every state and every
+event, and the channel's rules below:
 
 - A connection's users are the lookups on it.
 - A lookup is on a connection only while it streams to that connection's server.
@@ -138,14 +138,7 @@ event:
 - A connection has at most one current receive, and none once closed; after a drive with nothing
   refused, every open connection has its receive.
 - A connection that opens resuming spends its server's ticket.
-- A draining connection has a stream and opens none, a GOAWAY fails no request, and a connection
-  that fails while it drains or closes fails none of the requests that wait on it.
-- Over TCP, a connect of the slot is in flight exactly when the slot's address is lent, one at
-  most, so a slot opens only when no connect of an earlier opening is in flight.
-- Over TCP, a connection that connects, or waits to, has no receive, and neither owes nor sends
-  anything.
-- Over TCP, a short send's rest goes before anything made after it.
-- Over TCP, a receive that ends with no octets ends its connection's opening.
+- A connection that fails while it closes fails none of the requests that wait on it.
 
 Each configuration bounds the operations in flight, the failures a server and the queries a port
 (`OpsMax`, `FailuresMax` and `SentMax`), since nothing else bounds the graph. A stream's send may
@@ -190,15 +183,13 @@ machine busy with other work. These counts are what TLC's had to equal.
 
 A request connection is what colibri tells the engine: that it owes a datagram, that the
 handshake ended on the transport's protocol or on another or failed, that a stream was answered
-or reset, that the server closed or sent GOAWAY, that a ticket came, and that its QUIC timer
-fired, to resend or to give up. A GOAWAY drains the connection: its streams go on, a request taken
-meanwhile waits, and it closes once none is left and opens again for what waits (request rule 13).
-An answer stands for a DoQ message, and a reset for a reset stream. DoH went over these
-connections too, and moved alike, until colibri's channel took it (decision 33). DoQ has no GOAWAY
-(RFC 9250), but the engine still drains a connection whose transport says one came, as the twin's
-does. The request configurations, walked again on 2026-09-26 once request rule 13 drained a
-connection on GOAWAY, on an Apple M1 Pro with no other check running, three operations and one
-failure:
+or reset, that the server closed, that a ticket came, and that its QUIC timer fired, to resend or
+to give up. An answer stands for a DoQ message, and a reset for a reset stream. DoH went over these
+connections too, and moved alike, until colibri's channel took it (decision 33). Until 2026-09-29 a
+GOAWAY drained the connection, as request rule 13 had it. DoQ has none (RFC 9250), and the drain
+went (c4milo/cocuyo#33). The request configurations, walked again on 2026-09-26 once request rule
+13 drained a connection on GOAWAY, on an Apple M1 Pro with no other check running, three
+operations and one failure:
 
 | Servers | Lookups | States | Seconds | Invariants |
 | --- | --- | --- | --- | --- |
@@ -208,12 +199,15 @@ failure:
 
 Before request rule 13 they held 24,192, 257,212 and 5,295,912 states, and before the kept
 datagram 19,712, 210,148 and 3,140,695. Checked again on 2026-09-29, once the TCP connections
-went, they hold the same states, and so does every other configuration.
+went, they hold the same states, and so does every other configuration. Once the drain went the
+same day, they hold 24,192, 257,212 and 5,305,638 states, the first two what they held before rule
+13.
 
-Every stage was reached: a connection up with a request on a stream, one draining, one closing, a
-lookup answered, one failed after its request failed, and a connection opened again while an
-earlier incarnation's datagram was still in flight. Fifteen mutants in `mutants/` break the request
-rules, and TLC finds each (docs/mutations.md RQ1 to RQ15).
+Every stage was reached: a connection up with a request on a stream, one closing, a lookup
+answered, one failed after its request failed, and a connection opened again while an earlier
+incarnation's datagram was still in flight. Twelve mutants in `mutants/` break the request rules,
+and TLC finds each (docs/mutations.md RQ1 to RQ11 and RQ14). RQ12, RQ13 and RQ15 broke the drain,
+and went with it.
 
 The request connections over TCP, DoH over HTTP/2 under request rules 14 to 17, were modelled
 from 2026-09-26 with `RStream`, and seven mutants broke them (docs/mutations.md RQ16 to RQ22).
@@ -249,9 +243,9 @@ The replay walks the request configurations as it walks the others, with one slo
 servers, over the twin's QUIC (`sim.quic`). A step of colibri's is one item in a datagram on the
 connection's receive: a flight while the handshake runs and a PING once up for the model's
 `datagram`, the handshake's end on `doq` or on another protocol, its refusal, the server's close, a
-ticket, a GOAWAY, and an answer or a reset on the slot's stream. The model has no timer, so the replay makes a
-connection's QUIC timer due at the instant the walk reaches its `qtime`, and fires the engine's one
-timer there. Writing the replay moved request rule 8: a datagram the loop refuses stays in the
+ticket, and an answer or a reset on the slot's stream. The model has no timer, so the replay makes
+a connection's QUIC timer due at the instant the walk reaches its `qtime`, and fires the engine's
+one timer there. Writing the replay moved request rule 8: a datagram the loop refuses stays in the
 buffer and goes at the next drive, before whatever colibri makes after it, and the model keeps it
 apart from what colibri owes.
 

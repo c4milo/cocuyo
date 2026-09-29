@@ -382,7 +382,6 @@ test {
         _ = @import("io_tls_test.zig");
         _ = @import("io_request_test.zig");
         _ = @import("io_request_failure_test.zig");
-        _ = @import("io_request_drain_test.zig");
         _ = @import("io_channel_test.zig");
         _ = @import("io_channel_link_test.zig");
         _ = @import("io_quic_test.zig");

@@ -102,7 +102,6 @@ fn write_step(entry: *const network_module.QuicPeer, script: *const server.Scrip
 /// connection closed. A query the script drops is never answered.
 fn answer_request(loop: *Loop, reply: Reply, script: *const server.Script, stream: u32, bytes: []const u8) void {
     const entry = reply.entry;
-    goaway_on_take(reply, script, loop.now_ns + script.delay_ns_min);
     switch (script.quic.instead) {
         .answer => {},
         .reset, .close => {
@@ -123,17 +122,6 @@ fn answer_request(loop: *Loop, reply: Reply, script: *const server.Script, strea
     malform(script, message[0..len]);
     const out = queue(reply, loop.now_ns + answered.delay_ns) orelse return;
     said(out, quic.write_item(.{ .kind = .answer, .stream = stream, .bytes = message[0..len] }, out.bytes));
-}
-
-/// A GOAWAY once the server has taken its first request on the connection, when the script says it
-/// stops taking streams: it names the streams it took, and answers them (RFC 9114 §5.2). It goes
-/// at the shortest delay, ahead of any answer.
-fn goaway_on_take(reply: Reply, script: *const server.Script, due_ns: u64) void {
-    const entry = reply.entry;
-    if (!script.quic.goaway or entry.peer.goaway_sent) return;
-    entry.peer.goaway_sent = true;
-    const out = queue(reply, due_ns) orelse return;
-    said(out, quic.write_item(.{ .kind = .goaway }, out.bytes));
 }
 
 /// Writes the prefix, and breaks the answer as the script says: a prefix one octet short of the

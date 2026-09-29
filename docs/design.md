@@ -3464,15 +3464,19 @@ all DoQ or all DoH (§22, §23), and the rules hold for both. Where they differ,
     four checks, which four mutants break (docs/mutations.md RQ12 to RQ15), and the replay agrees
     with it over TLC's full run of 4,020,000 events.
 
-The model holds rules 1 to 4, 6 to 11 and 13. Rules 5 and 12 are about octets, and the model reads
-a stream's answer as an event, with no octets. The invariants the model gains:
+Since 2026-09-29 (c4milo/cocuyo#33) rule 13 holds for no request connection. They carry DoQ
+alone, which has no GOAWAY (RFC 9250), and colibri's channel handles DoH's (rules 18 to 25). So the
+drain went from the design, the model and the code. What rule 13 said of a failure while the
+engine's own close is going stands, and rule 9 carries it: the connection fails none of the
+requests that wait, since none went to it, and it opens again for them.
+
+The model holds rules 1 to 4 and 6 to 11. Rules 5 and 12 are about octets, and the model reads a
+stream's answer as an event, with no octets. The invariants the model gains:
 
 - A request slot is free, or holds one request, on its lookup's server's connection.
-- A request has a stream only on a connection that is up or draining, and waits only on one that
-  is handshaking, draining or closing.
-- A draining connection has a stream: the last one's end closes it.
-- A GOAWAY fails no request, a draining connection opens no stream, and one that drains or
-  closes fails none that waits when it fails.
+- A request has a stream only on a connection that is up, and waits only on one that is
+  handshaking or closing.
+- A closing connection fails none that waits when it fails.
 - A stream's request is its lookup's current attempt, or it has been cancelled.
 - A connection that fails leaves no request on it, and each current attempt heard of it once.
 - A connection's datagram buffer is lent exactly when a send of it is in flight.
@@ -4311,7 +4315,10 @@ against Google and Cloudflare.
      QUIC, the type's in memory and the engine's on the twin, and DC28 breaks the source address
      the channel is handed with a QUIC link's datagram. The TCP test server no longer writes
      the SETTINGS its HTTP/2 session owes ahead of a response, since colibri writes its preface
-     first (its `e3126a9`).
+     first (its `e3126a9`). The drain went the same day (c4milo/cocuyo#33): DoQ has no GOAWAY,
+     and only the twin said one came. The request configurations hold at 24,192, 257,212 and
+     5,305,638 states, and the replay agrees with the model over the full run, 4,824,000 events
+     (docs/mutations.md, the GOAWAY drain removed).
 
 Checks, one for each piece:
 

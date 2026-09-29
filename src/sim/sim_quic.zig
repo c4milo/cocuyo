@@ -35,9 +35,6 @@ pub const Kind = enum(u8) {
     answer,
     reset,
     closed,
-    // The server's: a GOAWAY, which no DoQ server sends (RFC 9250), for the engine's drain
-    // (docs/design.md §24, request rule 13).
-    goaway,
 };
 
 pub const Item = struct { kind: Kind, stream: u32 = 0, bytes: []const u8 = &.{} };
@@ -79,7 +76,7 @@ pub const Connection = struct {
     /// A ticket the server gave. The twin's carries nothing: it only has to be kept and spent.
     pub const Ticket = struct {};
     pub const Answered = struct { stream: u64, len: usize };
-    pub const Next = union(enum) { up: []const u8, refused, answered: Answered, reset: u64, closed, goaway, ticket: Ticket };
+    pub const Next = union(enum) { up: []const u8, refused, answered: Answered, reset: u64, closed, ticket: Ticket };
     /// What an expiry does, as the replay or a test sets it: the connection resends what the
     /// server has not acknowledged, or gives up.
     pub const Expiry = enum { retransmit, timeout };
@@ -177,10 +174,6 @@ pub const Connection = struct {
             .reset => {
                 self.owes = true;
                 return .{ .reset = item.stream };
-            },
-            .goaway => {
-                self.owes = true;
-                return .goaway;
             },
             .closed => return self.lost(),
             // A client's item from the server is a protocol error.

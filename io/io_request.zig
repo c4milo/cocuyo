@@ -27,7 +27,7 @@ pub const None = struct {
     pub const Context = struct {};
     pub const Ticket = struct {};
     pub const Answered = struct { stream: u64, len: usize };
-    pub const Next = union(enum) { up: []const u8, refused, answered: Answered, reset: u64, closed, goaway, ticket: Ticket };
+    pub const Next = union(enum) { up: []const u8, refused, answered: Answered, reset: u64, closed, ticket: Ticket };
 
     pub fn start(_: *None, _: anytype) Error!void {
         unreachable;
@@ -136,7 +136,6 @@ pub fn drop(self: anytype, set: anytype, index: usize, now_ns: u64) void {
         assert(connection.streams >= 1);
         connection.streams -= 1;
         connection.transport.cancel(stream);
-        connection_module.drained(set, request.server);
     } else {
         connection_module.dequeue(connection, @intCast(index));
     }
@@ -161,15 +160,6 @@ fn fail_one(self: anytype, index: usize, now_ns: u64) void {
     assert(request.live);
     if (current(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, now_ns);
     request.live = false;
-}
-
-/// Each request on a stream of server `server`'s connection fails, once; those that wait stay
-/// (request rule 13).
-pub fn fail_streams_of(self: anytype, set: anytype, server: u8, now_ns: u64) void {
-    for (self.requests[0..], 0..) |*request, index| {
-        if (request.live and request.server == server and request.stream != null) fail_one(self, index, now_ns);
-    }
-    set.connections[server].streams = 0;
 }
 
 /// Every request on server `server`'s connection fails, each once (request rule 7). Decision 25

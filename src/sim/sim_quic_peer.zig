@@ -19,10 +19,6 @@ pub const Behaviour = struct {
     /// What it does with a request instead of answering it: reset its stream, or close the
     /// connection.
     instead: enum { answer, reset, close } = .answer,
-    /// Sends GOAWAY once it has taken its first request on a connection, as an HTTP/3 server that
-    /// stops taking streams does, and answers the streams it took (RFC 9114 §5.2). No DoQ server
-    /// sends one (RFC 9250), but the engine drains a connection whose transport says one came.
-    goaway: bool = false,
     /// Answers with a message whose prefix is one octet long, or whose ID is not 0: the protocol
     /// errors of RFC 9250 §4.3.3.
     malformed: enum { none, prefix, id } = .none,
@@ -38,8 +34,6 @@ pub const Peer = struct {
     resumed: u16 = 0,
     cancels: u16 = 0,
     closed: bool = false,
-    /// It sent its GOAWAY.
-    goaway_sent: bool = false,
 
     /// What the server does with one item: steps to write back, or a request to answer.
     pub const Heard = union(enum) {

@@ -574,55 +574,10 @@
     },
     .{
         .section = "Requests replayed on the model's walks",
-        .id = "RW12",
-        .what = "a GOAWAY leaves the connection up",
-        .edits = .{
-            .{ .file = "io/io_request_connection.zig", .old = "    assert(connection.state == .up or connection.state == .draining);\n    connection.state = .draining;\n    drained(set, server);", .new = "    assert(connection.state == .up or connection.state == .draining);\n    drained(set, server);" },
-        },
-        .caught_by = .picked_walks,
-    },
-    .{
-        .section = "Requests replayed on the model's walks",
         .id = "RW13",
-        .what = "a connection that fails while it drains fails the requests that wait",
+        .what = "a connection that fails while it closes fails the requests that wait",
         .edits = .{
-            .{ .file = "io/io_request_connection.zig", .old = "    if (connection.state == .draining or connection.state == .closing) {", .new = "    if (false and (connection.state == .draining or connection.state == .closing)) {" },
-        },
-        .caught_by = .picked_walks,
-    },
-    .{
-        .section = "Requests replayed on the model's walks",
-        .id = "RW14",
-        .what = "a draining connection never closes",
-        .edits = .{
-            .{ .file = "io/io_request_connection.zig", .old = "    if (connection.state != .draining or connection.streams != 0) return;\n    connection.state = .closing;", .new = "    if (connection.state != .draining or connection.streams != 0 or true) return;\n    connection.state = .closing;" },
-        },
-        .caught_by = .picked_walks,
-    },
-    .{
-        .section = "Requests replayed on the model's walks",
-        .id = "RW15",
-        .what = "a stream's answer does not close the connection it drained",
-        .edits = .{
-            .{ .file = "io/io_request_events.zig", .old = "    if (connection.users() == 0) connection.idle_since_ns = now_ns;\n    connection_module.drained(set, server);\n}", .new = "    if (connection.users() == 0) connection.idle_since_ns = now_ns;\n}" },
-        },
-        .caught_by = .picked_walks,
-    },
-    .{
-        .section = "Requests replayed on the model's walks",
-        .id = "RW16",
-        .what = "a cancel does not close the connection it drained",
-        .edits = .{
-            .{ .file = "io/io_request.zig", .old = "        connection.transport.cancel(stream);\n        connection_module.drained(set, request.server);", .new = "        connection.transport.cancel(stream);" },
-        },
-        .caught_by = .picked_walks,
-    },
-    .{
-        .section = "Requests replayed on the model's walks",
-        .id = "RW17",
-        .what = "a failure while draining fails the waiting requests with those on streams",
-        .edits = .{
-            .{ .file = "io/io_request.zig", .old = "        if (request.live and request.server == server and request.stream != null) fail_one(self, index, now_ns);", .new = "        if (request.live and request.server == server) fail_one(self, index, now_ns);" },
+            .{ .file = "io/io_request_connection.zig", .old = "    if (connection.state == .closing) {", .new = "    if (false) {" },
         },
         .caught_by = .picked_walks,
     },
