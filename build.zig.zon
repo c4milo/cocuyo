@@ -22,12 +22,13 @@
             .lazy = true,
         },
         // colibri's QUIC, which `cocuyo_quic` puts under the engine's request interface
-        // (docs/design.md §24, decision 29), and its TLS, which carries chapulin's objects for the
-        // DoT and DoQ sessions (decision 32). Never of the library in `src/`. Lazy, so a build that
-        // asks for none of them does not resolve it.
+        // (docs/design.md §24, decision 29), its TLS, which carries chapulin's objects for the DoT
+        // and DoQ sessions (decision 32), and its client, whose channel `cocuyo_doh` puts under the
+        // engine's DoH interface (decision 33). Never of the library in `src/`. Lazy, so a build
+        // that asks for none of them does not resolve it.
         .colibri = .{
-            .url = "git+https://github.com/c4milo/colibri?ref=v0.4.0#fd0007300bf2d135a2434531a68ff3af75b17f07",
-            .hash = "colibri-0.4.0-Wo-AvvGlYASdYcyWiiIKzufdIrYvbR9GFi1nW07FNqyR",
+            .url = "git+https://github.com/c4milo/colibri?ref=v0.5.0#bb9263e5b20462695237b352a80ca54b8da26a3c",
+            .hash = "colibri-0.5.0-Wo-AvrpiZwRtDLw-Ry0DHoT2NFib5EC1wj_TvdxKcNkk",
             .lazy = true,
         },
     },

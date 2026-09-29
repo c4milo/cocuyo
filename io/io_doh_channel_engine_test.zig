@@ -1,9 +1,10 @@
 //! The engine over `cocuyo_doh` on the twin (docs/design.md §24, DoH over colibri's client, beyond
 //! the model): colibri's channel against colibri's server, which answers over TLS on each scripted
-//! server's HTTPS port. The channel's QUIC datagrams find no QUIC server there, so it opens TCP once
-//! its fallback delay has passed: a lookup answered over HTTP/2, one over HTTP/1.1 from a server
-//! that selects no protocol, and a channel that goes idle and shuts down. The engine's own rig is
-//! the `io` module's, whose tests link no chapulin, so this file holds a small one.
+//! server's HTTPS port, or over QUIC on its QUIC port. Where no QUIC server listens, the channel
+//! opens TCP once its fallback delay has passed: a lookup answered over HTTP/2, one over HTTP/1.1
+//! from a server that selects no protocol, and a channel that goes idle and shuts down. Where one
+//! does, a lookup is answered over HTTP/3. The engine's own rig is the `io` module's, whose tests
+//! link no chapulin, so this file holds a small one.
 const std = @import("std");
 const testing = std.testing;
 const cocuyo = @import("cocuyo");
@@ -12,6 +13,8 @@ const io = @import("io");
 const cocuyo_doh = @import("io_doh_channel.zig");
 const identity = @import("io_doh_channel_identity.zig");
 const server_module = @import("io_doh_channel_server.zig");
+const quic_server = @import("io_doh_channel_server_quic.zig");
+const colibri_server = @import("server");
 
 const lookups = 4;
 const group_buffers = 16;
@@ -27,6 +30,10 @@ const Resolver = io.Resolver(.{
 /// connections go to 443 (RFC 9110 §4.2.2).
 const servers = 2;
 const template = "https://dns.example/dns-query{?dns}";
+/// A template on the twin's QUIC port, where a QUIC responder listens (`sim.Network.responders`).
+const quic_template = "https://dns.example:853/dns-query{?dns}";
+/// The port the QUIC server sees each datagram come from. Test-only.
+const client_port = 50_000;
 const anchors = [_]@TypeOf(identity.anchor){identity.anchor};
 /// A lookup's deadline, long past the fallback delay and a handshake after it.
 const timeout_s = 25;
@@ -98,6 +105,60 @@ const Side = struct {
     }
 };
 
+/// A scripted server's QUIC port as colibri's server over QUIC: one endpoint takes every connection
+/// there, from the socket that last spoke, and answers as the scripted server would, after its
+/// delay.
+const QuicSide = struct {
+    index: u8,
+    network: *rotor.Network,
+    server: quic_server.QuicServer = .{},
+    socket: ?rotor.Descriptor = null,
+    draws: u64 = 0,
+
+    fn responder(side: *QuicSide) rotor.Responder {
+        return .{ .context = side, .hear = hear, .deadline = deadline, .expire = expire };
+    }
+
+    fn hear(context: *anyopaque, socket: rotor.Descriptor, bytes: []const u8, now_ns: u64) void {
+        const side: *QuicSide = @ptrCast(@alignCast(context));
+        side.socket = socket;
+        const from = colibri_server.quic_connection.PeerAddress.of(rotor.Network.server_address(side.index).bytes[0..cocuyo.constants.address_v4_bytes], client_port);
+        side.server.receive(bytes, from, .{ .context = side, .answer = answer }, now_ns);
+        side.pump(now_ns);
+    }
+
+    fn deadline(context: *anyopaque) ?u64 {
+        const side: *QuicSide = @ptrCast(@alignCast(context));
+        return side.server.deadline();
+    }
+
+    fn expire(context: *anyopaque, now_ns: u64) void {
+        const side: *QuicSide = @ptrCast(@alignCast(context));
+        side.server.expire(now_ns);
+        side.pump(now_ns);
+    }
+
+    /// Sends what the server owes, each datagram after the scripted server's delay.
+    fn pump(side: *QuicSide, now_ns: u64) void {
+        const socket = side.socket orelse return;
+        var out: [cocuyo_doh.constants.datagram_bytes]u8 = undefined;
+        for (0..sends_per_hear_max) |_| {
+            const octets = side.server.send(&out, now_ns) orelse return;
+            const delay_ns = side.network.scripts[side.index].delay_ns_min;
+            _ = side.network.reply(socket, side.index, octets, now_ns + delay_ns);
+        }
+    }
+
+    fn answer(context: *anyopaque, query: []const u8, out: []u8) ?usize {
+        const side: *QuicSide = @ptrCast(@alignCast(context));
+        side.draws += 1;
+        const script = &side.network.scripts[side.index];
+        const from = rotor.Network.server_quic_address(side.index);
+        const answered = rotor.server.respond(script, &from, query, true, side.draws, out) orelse return null;
+        return answered.len;
+    }
+};
+
 /// The twin, the engine over it and a side for each scripted server, on the heap: an engine holds
 /// a channel of over a megabyte for each server it may ask.
 const World = struct {
@@ -108,8 +169,19 @@ const World = struct {
     engine: Resolver = undefined,
     events: [events_max]rotor.Event = undefined,
     sides: [servers]Side = undefined,
+    quic_sides: [servers]QuicSide = undefined,
 
     fn create(seed: u64, script: server_module.Script) !*World {
+        return create_over(seed, script, false);
+    }
+
+    /// A world whose servers answer over QUIC as well, on the twin's QUIC port, which their
+    /// template names.
+    fn create_quic(seed: u64, script: server_module.Script) !*World {
+        return create_over(seed, script, true);
+    }
+
+    fn create_over(seed: u64, script: server_module.Script, quic: bool) !*World {
         const world = try testing.allocator.create(World);
         errdefer testing.allocator.destroy(world);
         world.* = .{};
@@ -120,15 +192,19 @@ const World = struct {
             const address = rotor.Network.server_address(@intCast(index));
             server.* = .{
                 .endpoint = .{ .address = cocuyo.Address.from_v4(address.bytes[0..cocuyo.constants.address_v4_bytes].*), .port = address.port },
-                .https = .{ .template = template },
+                .https = .{ .template = if (quic) quic_template else template },
             };
         }
         world.config = .{ .servers = &world.servers, .timeout_ns = timeout_ns, .failover_retry_chance = 0 };
         try world.engine.init(&world.loop, &world.config, seed, world.loop.now());
         world.engine.doh.context = .init(&anchors, @splat(@truncate(seed)), identity.unix_seconds, world.loop.now());
-        for (&world.sides, 0..) |*side, index| {
+        for (&world.sides, &world.quic_sides, 0..) |*side, *quic_side, index| {
             side.* = .{ .index = @intCast(index), .network = world.loop.network(), .script = script };
             world.loop.network().stream_responders[index] = side.responder();
+            if (!quic) continue;
+            quic_side.* = .{ .index = @intCast(index), .network = world.loop.network() };
+            try quic_side.server.init(script, identity.unix_seconds, world.loop.now());
+            world.loop.network().responders[index] = quic_side.responder();
         }
         return world;
     }
@@ -204,5 +280,18 @@ test "a channel with no request on it shuts down, closes its links, and says clo
     }
     try testing.expect(slot.state == .closed);
     for (&slot.links) |*link| try testing.expect(link.state == .down);
+    try world.destroy();
+}
+
+test "a lookup through colibri's channel is answered over HTTP/3 by colibri's server over QUIC" {
+    // Rule 18: QUIC first, and no TCP when its handshake ends before the fallback delay.
+    const world = try World.create_quic(144, .{});
+    const result = try world.resolve("example.com.");
+    try testing.expect(result.outcome == .answer);
+    try testing.expectEqual(@as(usize, 1), world.quic_sides[0].server.answered);
+    const slot = &world.engine.doh.slots[0];
+    try testing.expectEqual(.h3, slot.channel.connected().?.protocol);
+    try testing.expect(slot.links[@intFromEnum(Resolver.Doh.Link.quic)].state == .running);
+    try testing.expect(slot.links[@intFromEnum(Resolver.Doh.Link.tcp)].state == .down);
     try world.destroy();
 }

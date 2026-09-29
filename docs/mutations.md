@@ -3140,3 +3140,20 @@ the steps thirty-seven.
 | TR4 | a cancelled DoQ stream frees its slot before its answer or reset is read | colibri keeps a stream's place until both its halves end | the held-answer test of `cocuyo_quic` | NOT CAUGHT, then CAUGHT |
 | CE21 | a request whose channel cannot open is dropped, and not failed | request rule 7 | the unreadable-template test | CAUGHT |
 | DC21 | the version a connection speaks is told to the engine as the TCP link's close | rule 20 | the engine's tests | CAUGHT |
+
+## HTTP/3 against colibri's server, at v0.5.0
+
+Design §24 step 7b, 2026-09-29. cocuyo pins colibri v0.5.0 (`bb9263e`), whose server speaks HTTP/3
+over QUIC. `cocuyo_doh`'s tests gain a server over QUIC under the test identity
+(`io/io_doh_channel_server_quic.zig`), and two tests of HTTP/3 against it: the type in memory, a
+query answered and a second channel whose QUIC link resumes, and the engine over it on the twin.
+The TCP test server takes colibri's new calls, and no longer writes the SETTINGS its HTTP/2
+session owes ahead of a response: colibri writes the preface first since its `e3126a9`.
+
+DC28 hands the channel a QUIC link's datagrams with no source address, which only a real QUIC
+server shows, and both HTTP/3 tests catch it. DC1 to DC27 ran again at the tag, each against
+`zig build test-cocuyo_doh`, now eighteen tests. Twenty-eight mutations, twenty-eight `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| DC28 | the channel is handed its QUIC link's datagrams with no source address | colibri reads a datagram's source | both HTTP/3 tests | CAUGHT |

@@ -105,7 +105,7 @@ pub const Server = struct {
                 if (received.consumed == 0) return;
                 continue;
             };
-            if (event == .request) self.answer(event.request, answerer, now_ns);
+            if (event == .request) self.answer(event.request, answerer);
         }
     }
 
@@ -114,48 +114,58 @@ pub const Server = struct {
     }
 
     /// Reads the request's query, and answers it as the script says.
-    fn answer(self: *Server, request: server.Request, answerer: Answerer, now_ns: u64) void {
-        const path = request.path orelse return;
-        const query = doh.query.query_of(path, &self.query) orelse return;
-        self.query_len = query.len;
-        self.accept.keep(request.fields.find("accept"));
-        self.accept_encoding.keep(request.fields.find("accept-encoding"));
+    fn answer(self: *Server, request: server.Request, answerer: Answerer) void {
+        const query = read_request(self, request) orelse return;
         if (self.script.hold) {
             self.held += 1;
             return;
         }
         const len = answerer.answer(answerer.context, query, &self.content) orelse return;
-        var digits: [length_digits_max]u8 = undefined;
-        var fields: [response_fields_max]server.Field = undefined;
-        var count: usize = 0;
-        fields[count] = .{ .name = "content-type", .value = self.script.content_type };
-        count += 1;
-        fields[count] = .{ .name = "content-length", .value = std.fmt.bufPrint(&digits, "{d}", .{len}) catch unreachable };
-        count += 1;
-        if (self.script.content_encoding) |coding| {
-            fields[count] = .{ .name = "content-encoding", .value = coding };
-            count += 1;
-        }
-        if (self.script.age) |age| {
-            fields[count] = .{ .name = "age", .value = age };
-            count += 1;
-        }
-        // colibri's server writes a response ahead of the SETTINGS its HTTP/2 session owes, which
-        // RFC 9113 §3.4 has go first, when the request came with the handshake's end: reported to
-        // colibri on 2026-09-28. What the session owes is written first until colibri fixes it.
-        _ = self.connection.write_owed(now_ns);
-        self.connection.respond(request.id, self.script.status, fields[0..count], false) catch return;
-        if (self.script.reset_after_head) {
-            // RFC 9113 §6.4: RST_STREAM ends the stream at once, before its content.
-            self.connection.cancel(request.id);
-            return;
-        }
-        var written: usize = 0;
-        // Bounded: each pass writes an octet of the content, or stops.
-        for (0..len + 1) |_| {
-            written += self.connection.write_body(request.id, self.content[written..len], true) catch return;
-            if (written == len) break;
-        }
-        self.answered += 1;
+        if (respond(&self.connection, request.id, self.script, self.content[0..len])) self.answered += 1;
     }
 };
+
+/// Reads a request's query out of its path's `dns` parameter (RFC 8484 §4.1) into `record`, a
+/// server that keeps what it heard, and what the request's `accept` and `accept-encoding` asked for.
+/// Null when the path carries no query.
+pub fn read_request(record: anytype, request: server.Request) ?[]const u8 {
+    const path = request.path orelse return null;
+    const query = doh.query.query_of(path, &record.query) orelse return null;
+    record.query_len = query.len;
+    record.accept.keep(request.fields.find("accept"));
+    record.accept_encoding.keep(request.fields.find("accept-encoding"));
+    return query;
+}
+
+/// Answers request `id` on `connection`, colibri's TCP or QUIC one, whose calls are alike: the head
+/// the script says, then `content`, or a reset once the head has gone. Whether it answered.
+pub fn respond(connection: anytype, id: server.Id, script: Script, content: []const u8) bool {
+    var digits: [length_digits_max]u8 = undefined;
+    var fields: [response_fields_max]server.Field = undefined;
+    var count: usize = 0;
+    fields[count] = .{ .name = "content-type", .value = script.content_type };
+    count += 1;
+    fields[count] = .{ .name = "content-length", .value = std.fmt.bufPrint(&digits, "{d}", .{content.len}) catch unreachable };
+    count += 1;
+    if (script.content_encoding) |coding| {
+        fields[count] = .{ .name = "content-encoding", .value = coding };
+        count += 1;
+    }
+    if (script.age) |age| {
+        fields[count] = .{ .name = "age", .value = age };
+        count += 1;
+    }
+    connection.respond(id, .{ .status = script.status, .fields = fields[0..count], .end = false }) catch return false;
+    if (script.reset_after_head) {
+        // RFC 9113 §6.4 and RFC 9114 §4.1.1: the stream ends at once, before its content.
+        connection.cancel(id);
+        return false;
+    }
+    var written: usize = 0;
+    // Bounded: each pass writes an octet of the content, or stops.
+    for (0..content.len + 1) |_| {
+        written += connection.write_body(id, .{ .octets = content[written..], .end = true }) catch return false;
+        if (written == content.len) return true;
+    }
+    return false;
+}

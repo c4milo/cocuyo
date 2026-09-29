@@ -3990,7 +3990,7 @@ colibri's `tls`, over chapulin (decision 32).
   connection set is. The alternative was a slice of channels the caller hands `init`, where an
   engine of one DoH server pays for one channel, and `init` changes.
 
-**What the channel gives the engine**, at colibri `1fb8b33`, before the tag that will carry it:
+**What the channel gives the engine**, at colibri `1fb8b33`, which v0.5.0 carries:
 
 - **Exchanges in the caller's memory.** A request is an `HttpExchange`: the method, the path, the
   field lines, the response fields wanted with the octets their values go into, and the buffer the
@@ -4070,7 +4070,10 @@ that is RFC 9114 §5.1, where clients open a new connection and "SHOULD do so if
 idle timeout". The channel opens the connections, so it can do that itself, or its calls can let
 the caller do it. colibri's channel does neither at `1fb8b33`, and the owner asked colibri for one
 of them on 2026-09-28. Until then, a request that meets the server's idle close fails, and the
-lookup's failover takes it.
+lookup's failover takes it. colibri v0.5.0 does it itself (its `e610161`). A QUIC connection that
+has held no exchange closes at its idle deadline less a margin, and the channel's next exchange
+opens another. One that holds an exchange sends a PING at that instant instead. The margin is one
+probe timeout, held between a second and half the idle timeout.
 
 **The interface.** The engine calls a channel through a DoH interface, as it calls colibri's QUIC
 through the request interface, so `cocuyo_rotor` never imports colibri. The type is `Options.doh`:
@@ -4303,7 +4306,12 @@ against Google and Cloudflare.
      The request interface lost `socket`, `http3`, the start's `https` and an answer's `http`.
      The model lost `RStream`, its three configurations and its seven mutants. The replay agrees
      with the model over the full run of twelve configurations, 4,824,000 events
-     (docs/mutations.md, the TCP request connections removed).
+     (docs/mutations.md, the TCP request connections removed). colibri v0.5.0 was pinned the
+     same day, its tag at `bb9263e`. Two tests run DoH over HTTP/3 against colibri's server over
+     QUIC, the type's in memory and the engine's on the twin, and DC28 breaks the source address
+     the channel is handed with a QUIC link's datagram. The TCP test server no longer writes
+     the SETTINGS its HTTP/2 session owes ahead of a response, since colibri writes its preface
+     first (its `e3126a9`).
 
 Checks, one for each piece:
 
