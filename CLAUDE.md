@@ -13,6 +13,9 @@ one, and nothing may depend on it in the other direction.
 
 ## Read before changing behaviour
 
+- pepegrillo's `docs/performance.md`, at the commit `build.zig.zon` pins, before any performance
+  change: the method every one follows; then `docs/performance.md`, cocuyo's appendix to it: its
+  instruments, its admission rule, its baselines and the pitfalls it has paid for.
 - `docs/design.md` — the module graph, the state machine, the public API, the security rules, the
   named limits and the numbered build plan. Sections are cited by number in commits and comments
   ("§5 step 3"). §16 records decisions with the alternatives they beat: if you are about to do
