@@ -24,65 +24,61 @@ const Resolver = io.Resolver(.{
 });
 const Rig = sim_test.RigOf(Resolver);
 
-/// One scripted server's side: a colibri server of type `ServerType` for each connection the
-/// engine opens to it, each on its own client socket, answering with the scripted server's
-/// answers.
-pub fn SideOf(comptime ServerType: type) type {
-    return struct {
-        const Side = @This();
-        const Server = ServerType;
-        pub const Entry = struct { socket: ?rotor.Descriptor = null, server: Server = .{} };
+/// One scripted server's side: a colibri server for each connection the engine opens to it, each on
+/// its own client socket, answering with the scripted server's answers.
+const Side = struct {
+    const Server = cocuyo_quic.server.Server(fixtures.small_lookups);
+    const Entry = struct { socket: ?rotor.Descriptor = null, server: Server = .{} };
 
-        index: u8,
-        network: *rotor.Network,
-        entries: [fixtures.quic_servers_per_side]Entry = @splat(.{}),
-        draws: u64 = 0,
-        /// Datagrams from the client dropped before any is heard, and what each connection's server
-        /// does as its script says.
-        drop_first: usize = 0,
-        script: @FieldType(Server, "script") = .{},
-        /// Answers whose datagrams go out with their ACK frames lost, as a server's would that sent
-        /// its acknowledgements apart and lost them, and the ACK frames lost so.
-        answers_unacknowledged: usize = 0,
-        acks_lost: usize = 0,
+    index: u8,
+    network: *rotor.Network,
+    entries: [fixtures.quic_servers_per_side]Entry = @splat(.{}),
+    draws: u64 = 0,
+    /// Datagrams from the client dropped before any is heard, and what each connection's server
+    /// does as its script says.
+    drop_first: usize = 0,
+    script: @FieldType(Server, "script") = .{},
+    /// Answers whose datagrams go out with their ACK frames lost, as a server's would that sent
+    /// its acknowledgements apart and lost them, and the ACK frames lost so.
+    answers_unacknowledged: usize = 0,
+    acks_lost: usize = 0,
 
-        pub fn responder(side: *Side) rotor.Responder {
-            return .{ .context = side, .hear = hear, .deadline = deadline, .expire = expire };
-        }
+    fn responder(side: *Side) rotor.Responder {
+        return .{ .context = side, .hear = hear, .deadline = deadline, .expire = expire };
+    }
 
-        fn hear(context: *anyopaque, socket: rotor.Descriptor, bytes: []const u8, now_ns: u64) void {
-            side_hear(@as(*Side, @ptrCast(@alignCast(context))), socket, bytes, now_ns);
-        }
+    fn hear(context: *anyopaque, socket: rotor.Descriptor, bytes: []const u8, now_ns: u64) void {
+        side_hear(@as(*Side, @ptrCast(@alignCast(context))), socket, bytes, now_ns);
+    }
 
-        fn deadline(context: *anyopaque) ?u64 {
-            return side_deadline(@as(*Side, @ptrCast(@alignCast(context))));
-        }
+    fn deadline(context: *anyopaque) ?u64 {
+        return side_deadline(@as(*Side, @ptrCast(@alignCast(context))));
+    }
 
-        fn expire(context: *anyopaque, now_ns: u64) void {
-            side_expire(@as(*Side, @ptrCast(@alignCast(context))), now_ns);
-        }
+    fn expire(context: *anyopaque, now_ns: u64) void {
+        side_expire(@as(*Side, @ptrCast(@alignCast(context))), now_ns);
+    }
 
-        pub fn answer(context: *anyopaque, query: []const u8, out: []u8) ?usize {
-            return side_answer(@as(*Side, @ptrCast(@alignCast(context))), query, out);
-        }
-    };
-}
+    fn answer(context: *anyopaque, query: []const u8, out: []u8) ?usize {
+        return side_answer(@as(*Side, @ptrCast(@alignCast(context))), query, out);
+    }
+};
 
-fn side_hear(side: anytype, socket: rotor.Descriptor, bytes: []const u8, now_ns: u64) void {
+fn side_hear(side: *Side, socket: rotor.Descriptor, bytes: []const u8, now_ns: u64) void {
     if (side.drop_first > 0) {
         side.drop_first -= 1;
         return;
     }
     const entry = entry_of(side, socket) orelse return;
     const answered = entry.server.answered;
-    entry.server.receive(bytes, now_ns, .{ .context = side, .answer = @TypeOf(side.*).answer });
+    entry.server.receive(bytes, now_ns, .{ .context = side, .answer = Side.answer });
     const lose_acks = side.answers_unacknowledged > 0 and entry.server.answered > answered;
     if (lose_acks) side.answers_unacknowledged -= 1;
     pump(side, entry, now_ns, lose_acks);
 }
 
 /// The connection from `socket`, or a new one for a socket the side has not heard from.
-fn entry_of(side: anytype, socket: rotor.Descriptor) ?*@TypeOf(side.*).Entry {
+fn entry_of(side: *Side, socket: rotor.Descriptor) ?*Side.Entry {
     for (&side.entries) |*entry| {
         if (entry.socket == socket) return entry;
     }
@@ -97,7 +93,7 @@ fn entry_of(side: anytype, socket: rotor.Descriptor) ?*@TypeOf(side.*).Entry {
 
 /// Sends what the server owes, each datagram after the scripted server's delay, and loses their
 /// ACK frames when `lose_acks` says so.
-fn pump(side: anytype, entry: anytype, now_ns: u64, lose_acks: bool) void {
+fn pump(side: *Side, entry: *Side.Entry, now_ns: u64, lose_acks: bool) void {
     var datagram: [cocuyo_quic.constants.datagram_receive_bytes]u8 = undefined;
     var sent: usize = 0;
     while (sent < fixtures.quic_pump_max) : (sent += 1) {
@@ -109,7 +105,7 @@ fn pump(side: anytype, entry: anytype, now_ns: u64, lose_acks: bool) void {
     }
 }
 
-fn side_answer(side: anytype, query: []const u8, out: []u8) ?usize {
+fn side_answer(side: *Side, query: []const u8, out: []u8) ?usize {
     side.draws += 1;
     const script = &side.network.scripts[side.index];
     const from = rotor.Network.server_quic_address(side.index);
@@ -117,7 +113,7 @@ fn side_answer(side: anytype, query: []const u8, out: []u8) ?usize {
     return answered.len;
 }
 
-fn side_deadline(side: anytype) ?u64 {
+fn side_deadline(side: *Side) ?u64 {
     var soonest: ?u64 = null;
     for (&side.entries) |*entry| {
         if (entry.socket == null) continue;
@@ -127,7 +123,7 @@ fn side_deadline(side: anytype) ?u64 {
     return soonest;
 }
 
-fn side_expire(side: anytype, now_ns: u64) void {
+fn side_expire(side: *Side, now_ns: u64) void {
     for (&side.entries) |*entry| {
         if (entry.socket == null) continue;
         const due = entry.server.deadline() orelse continue;
@@ -136,9 +132,6 @@ fn side_expire(side: anytype, now_ns: u64) void {
         pump(side, entry, now_ns, false);
     }
 }
-
-/// The DoQ server's side.
-const DoqSide = SideOf(cocuyo_quic.server.Server(fixtures.small_lookups));
 
 /// Turns the ACK frames of a datagram's 1-RTT packet into PADDING of the same length, which the
 /// session that encrypts nothing leaves in the clear, and says how many it turned. A packet's
@@ -179,35 +172,29 @@ fn padding_for_acks(frames: []u8) usize {
 
 /// A rig and a side for each of its scripted servers, on the heap: an engine over colibri holds a
 /// connection of half a megabyte for each server it may ask.
-pub fn WorldOf(comptime RigType: type, comptime SideType: type) type {
-    return struct {
-        const Self = @This();
+const World = struct {
+    rig: Rig = .{},
+    sides: [fixtures.servers]Side = undefined,
 
-        rig: RigType = .{},
-        sides: [fixtures.servers]SideType = undefined,
-
-        /// A world whose servers speak DoQ, known by a name.
-        pub fn create(seed: u64, scripts: [fixtures.servers]rotor.server.Script) !*Self {
-            const world = try testing.allocator.create(Self);
-            errdefer testing.allocator.destroy(world);
-            world.* = .{};
-            const tls: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
-            for (&world.rig.servers) |*server| server.quic = tls;
-            try world.rig.init(seed, scripts, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
-            for (&world.sides, 0..) |*side, index| {
-                side.* = .{ .index = @intCast(index), .network = world.rig.loop.network() };
-                world.rig.loop.network().responders[index] = side.responder();
-            }
-            return world;
+    /// A world whose servers speak DoQ, known by a name.
+    fn create(seed: u64, scripts: [fixtures.servers]rotor.server.Script) !*World {
+        const world = try testing.allocator.create(World);
+        errdefer testing.allocator.destroy(world);
+        world.* = .{};
+        const tls: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
+        for (&world.rig.servers) |*server| server.quic = tls;
+        try world.rig.init(seed, scripts, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
+        for (&world.sides, 0..) |*side, index| {
+            side.* = .{ .index = @intCast(index), .network = world.rig.loop.network() };
+            world.rig.loop.network().responders[index] = side.responder();
         }
+        return world;
+    }
 
-        pub fn free(world: *Self) void {
-            testing.allocator.destroy(world);
-        }
-    };
-}
-
-const World = WorldOf(Rig, DoqSide);
+    fn free(world: *World) void {
+        testing.allocator.destroy(world);
+    }
+};
 
 test "a lookup over DoQ is answered through colibri's client and colibri's server on the twin" {
     const world = try World.create(91, .{ .{}, .{} });

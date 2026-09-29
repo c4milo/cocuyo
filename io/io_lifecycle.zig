@@ -56,8 +56,8 @@ pub fn reinit(self: anytype, config: *const cocuyo.Config, seed: u64, now_ns: u6
     tcp.cancel_all(self);
     tcp.close_all(self);
     self.tcp_connection = @splat(null);
-    request_tend.cancel_all(self, &self.quic);
-    request_tend.close_all(&self.quic);
+    request_tend.cancel_all(self);
+    request_tend.close_all(self);
     channel_link.cancel_all(self);
     channel_link.close_all(self);
     channel_module.forget_all(self);

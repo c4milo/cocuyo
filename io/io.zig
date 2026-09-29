@@ -236,7 +236,7 @@ pub fn Resolver(comptime options: Options) type {
             self.timer_handle = null;
             self.sockets.cancel(self.loop);
             tcp.cancel_all(self);
-            request_tend.cancel_all(self, &self.quic);
+            request_tend.cancel_all(self);
             channel_link.cancel_all(self);
         }
 
@@ -245,7 +245,7 @@ pub fn Resolver(comptime options: Options) type {
             assert(self.closing);
             self.sockets.close();
             tcp.close_all(self);
-            request_tend.close_all(&self.quic);
+            request_tend.close_all(self);
             channel_link.close_all(self);
         }
 

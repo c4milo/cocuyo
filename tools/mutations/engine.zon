@@ -478,7 +478,7 @@
         .id = "RW1",
         .what = "a request its lookup left is never cancelled by the drive",
         .edits = .{
-            .{ .file = "io/io_request.zig", .old = "if (request.live and !current(self, index)) drop(self, set, index, now_ns);", .new = "if (request.live and !current(self, index) and false) drop(self, set, index, now_ns);" },
+            .{ .file = "io/io_request.zig", .old = "if (request.live and !current(self, index)) drop(self, index, now_ns);", .new = "if (request.live and !current(self, index) and false) drop(self, index, now_ns);" },
         },
         .caught_by = .short_walks,
     },
@@ -514,7 +514,7 @@
         .id = "RW5",
         .what = "a connection that closes forgets its buffer is lent",
         .edits = .{
-            .{ .file = "io/io_request_connection.zig", .old = "    if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);\n    connection.restart();\n}", .new = "    if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);\n    connection.restart();\n    set.sends[server].lent = false;\n}" },
+            .{ .file = "io/io_request_connection.zig", .old = "    if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);\n    connection.restart();\n}", .new = "    if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);\n    connection.restart();\n    self.quic.sends[server].lent = false;\n}" },
         },
         .caught_by = .short_walks,
     },
@@ -523,7 +523,7 @@
         .id = "RW6",
         .what = "a connection that resumes leaves its server's ticket kept",
         .edits = .{
-            .{ .file = "io/io_request_connection.zig", .old = "    const kept = set.tickets[server] orelse return null;\n    set.tickets[server] = null;", .new = "    const kept = set.tickets[server] orelse return null;" },
+            .{ .file = "io/io_request_connection.zig", .old = "    const kept = self.quic.tickets[server] orelse return null;\n    self.quic.tickets[server] = null;", .new = "    const kept = self.quic.tickets[server] orelse return null;" },
         },
         .caught_by = .picked_walks,
     },
@@ -532,7 +532,7 @@
         .id = "RW7",
         .what = "a receive the loop refused is not armed again",
         .edits = .{
-            .{ .file = "io/io_request_connection_tend.zig", .old = "        if (connection.receive == null) arm(self, set, server);\n", .new = "" },
+            .{ .file = "io/io_request_connection_tend.zig", .old = "        if (connection.receive == null) arm(self, server);\n", .new = "" },
         },
         .caught_by = .short_walks,
     },
