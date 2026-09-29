@@ -32,6 +32,7 @@ const doh = @import("build/doh.zig");
 const dnslib = @import("build/dnslib.zig");
 const fuzz = @import("build/fuzz.zig");
 const coverage = @import("build/coverage.zig");
+const guide = @import("build/guide.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "build", "src", "tools", "examples", "bench", "io" };
@@ -169,6 +170,7 @@ pub fn build(b: *std.Build) void {
     dnslib.add(b, target, graph, test_step, tool_test_step);
     fuzz.add(b, target, graph, test_step, tool_test_step);
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
+    guide.add(b, pepegrillo_dependency);
     add_commit_lint_step(b, pepegrillo, install_step);
     add_tla_step(b, tla_tool);
     add_hooks_step(b);

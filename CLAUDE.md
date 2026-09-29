@@ -13,9 +13,10 @@ one, and nothing may depend on it in the other direction.
 
 ## Read before changing behaviour
 
-- pepegrillo's `docs/performance.md`, at the commit `build.zig.zon` pins, before any performance
-  change: the method every one follows; then `docs/performance.md`, cocuyo's appendix to it: its
-  instruments, its admission rule, its baselines and the pitfalls it has paid for.
+- pepegrillo's `docs/performance.md`, the method every performance change follows: `zig build
+  guide` installs it, at the commit `build.zig.zon` pins, to `zig-out/docs/performance-method.md`;
+  then `docs/performance.md`, cocuyo's appendix to it: its instruments, its admission rule, its
+  baselines and the pitfalls it has paid for.
 - `docs/design.md` — the module graph, the state machine, the public API, the security rules, the
   named limits and the numbered build plan. Sections are cited by number in commits and comments
   ("§5 step 3"). §16 records decisions with the alternatives they beat: if you are about to do
@@ -202,6 +203,9 @@ The architecture depends on every rule in this section.
   export (design §20, §24). `zig build readme-check` alone builds every Zig block of README.md,
   each under the `<!-- readme-check: ... -->` marker that names its harness in
   `tools/readme_check.zig`, and runs the quick start. A new block brings its marker and harness.
+- Guide: `zig build guide` installs pepegrillo's `docs/performance.md`, the method every
+  performance change follows, at the commit `build.zig.zon` pins, to
+  `zig-out/docs/performance-method.md`. `docs/performance.md` is cocuyo's appendix to it.
 - Bench: `zig build bench` — the microbenchmarks of design §15 step 7, built ReleaseSafe
   whatever `-Drelease` says. `zig build test` compiles the bench and runs the harness's own tests,
   so it cannot rot. A number goes into design §11 with the machine, the command and the date, or it
