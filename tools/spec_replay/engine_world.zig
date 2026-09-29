@@ -32,10 +32,10 @@ pub const text_bytes_max = 1024;
 
 pub const Error = error{ Malformed, NoSuchOperation, NoBuffer, Full, BufferKept };
 
-/// Whether every query goes over TCP, over TLS, over UDP, or as a request over DoQ, or over DoH on
-/// HTTP/2 when the request's connections are a `stream`, or over DoH through a `channel`; and the
-/// queries a port carries before it is replaced. A walk's `config` line names both.
-pub const Transport = struct { tcp: bool, per_port: u32, tls: bool = false, request: bool = false, stream: bool = false, channel: bool = false };
+/// Whether every query goes over TCP, over TLS, over UDP, or as a request over DoQ, or over DoH
+/// through a `channel`; and the queries a port carries before it is replaced. A walk's `config`
+/// line names both.
+pub const Transport = struct { tcp: bool, per_port: u32, tls: bool = false, request: bool = false, channel: bool = false };
 
 /// The twin's channel, which a channel configuration's engine carries DoH over (EngineChannel.tla).
 pub const Channel = rotor.channel.Channel;
@@ -44,16 +44,15 @@ pub const Channel = rotor.channel.Channel;
 /// with no octets (docs/design.md §24, request rule 15).
 const Outcome = enum { ok, failed, canceled, exhausted, short, ended };
 
-/// The template of a DoH server the replay walks over HTTP/2: no port, so its connections go to
-/// TCP's 443 (RFC 9110 §4.2.2).
-const h2_template = "https://dns.example/dns-query{?dns}";
+/// The template of a DoH server the replay walks through a channel: no port, so its links go to
+/// HTTPS's 443 (RFC 9110 §4.2.2).
+const template = "https://dns.example/dns-query{?dns}";
 
 pub fn World(comptime slots: u16, comptime conns: u16) type {
     return WorldOver(slots, conns, io.channel.None);
 }
 
-/// A world whose engine carries DoH over channels of type `Doh`, or over its HTTP/2 connections
-/// when `Doh` is none.
+/// A world whose engine carries DoH over channels of type `Doh`, which none refuses.
 pub fn WorldOver(comptime slots: u16, comptime conns: u16, comptime Doh: type) type {
     return struct {
         const Self = @This();
@@ -68,8 +67,6 @@ pub fn WorldOver(comptime slots: u16, comptime conns: u16, comptime Doh: type) t
             .tls = rotor.tls.Session,
             // The twin's QUIC: every configuration may send requests (docs/design.md §24).
             .quic = rotor.quic.Connection,
-            // And the twin's QUIC over TCP, which carries DoH as HTTP/2 does (§24, DoH over HTTP/2).
-            .h2 = rotor.quic.Stream,
             // And a channel configuration's twin channel (§24, DoH over colibri's client).
             .doh = Doh,
         });
@@ -97,8 +94,8 @@ pub fn begin(self: anytype, transport: Transport) !void {
         } };
         const name = cocuyo.Name.from_text("dns.example.") catch unreachable;
         if (transport.tls) server.tls = .{ .name = name };
-        if (transport.request and !transport.stream and !transport.channel) server.quic = .{ .name = name };
-        if (transport.stream or transport.channel) server.https = .{ .template = h2_template };
+        if (transport.request and !transport.channel) server.quic = .{ .name = name };
+        if (transport.channel) server.https = .{ .template = template };
     }
     self.config = .{
         .servers = &self.servers,
@@ -115,7 +112,6 @@ pub fn begin(self: anytype, transport: Transport) !void {
     try self.engine.init(&self.loop, &self.config, seed, self.now_ns);
     self.engine.tcp_idle_ns = idle_ns;
     self.engine.quic.idle_ns = idle_ns;
-    self.engine.h2.idle_ns = idle_ns;
     self.engine.doh.idle_ns = idle_ns;
 }
 
@@ -192,10 +188,6 @@ fn unnamed(self: anytype, name: []const u8, parts: *std.mem.SplitIterator(u8, .s
         try quic_world.expire(self, server, parts.next() orelse "");
     } else if (std.mem.eql(u8, name, "chan")) {
         try channel_world.step(self, parts);
-    } else if (std.mem.eql(u8, name, "exhaust")) {
-        // The connection's stream identifiers run out, which the engine finds at its next request
-        // (request rule 17). No drive follows, as the model has it.
-        self.engine.h2.connections[try number(parts.next())].transport.inner.spent = true;
     } else {
         return false;
     }
@@ -205,9 +197,7 @@ fn unnamed(self: anytype, name: []const u8, parts: *std.mem.SplitIterator(u8, .s
 /// A kept ticket reaches its lifetime, or seven days: the model's lapse, which no drive follows
 /// (docs/design.md §21, TLS rule 8, and §24, request rule 10).
 fn lapse(self: anytype, server: usize) void {
-    if (self.config.uses_https()) {
-        self.engine.h2.tickets[server] = null;
-    } else if (self.config.sends_requests()) {
+    if (self.config.sends_requests()) {
         self.engine.quic.tickets[server] = null;
     } else {
         self.engine.tls_tickets[server] = null;
@@ -292,7 +282,6 @@ fn moved(self: anytype, user_data: u64, kind: io.Kind, short: bool) u32 {
     const left = switch (kind) {
         .tcp_send => query_left(self, index),
         .tls_send => records_left(self, index),
-        .h2_send => h2_left(self, index),
         .doh_send => channel_world.link_left(self, index),
         else => null,
     } orelse return 0;
@@ -319,15 +308,6 @@ fn records_left(self: anytype, index: usize) ?u32 {
     const live = connection.state != .closed and connection.state != .reopening;
     if (!live or connection.incarnation != incarnation or !connection.sending) return null;
     return head_left(self, connection, connection.queue.first() orelse return null);
-}
-
-/// What is left of the octets an HTTP/2 connection's send of opening `index` carries, if the
-/// opening is still the connection's (docs/design.md §24, request rule 15).
-fn h2_left(self: anytype, index: usize) ?u32 {
-    const connection = &self.engine.h2.connections[index & io.constants.quic_server_mask];
-    const incarnation: u32 = @truncate(index >> io.constants.quic_incarnation_shift);
-    if (!connection.talks() or connection.incarnation != incarnation) return null;
-    return connection.made - connection.sent;
 }
 
 fn head_left(self: anytype, connection: anytype, head: anytype) u32 {
@@ -372,7 +352,7 @@ fn straggle(self: anytype, op: []const u8) Error!void {
 fn carrying(self: anytype, user_data: u64, kind: io.Kind, more: bool) Error!rotor.Event {
     const target = (user_data & io.constants.index_mask) & io.constants.quic_server_mask;
     const tcp_link = kind == .doh_receive and target % 2 == 1;
-    const stream = kind == .tcp_receive or kind == .h2_receive or tcp_link;
+    const stream = kind == .tcp_receive or tcp_link;
     const group_id: u16 = if (stream) io.constants.tcp_group_id else io.constants.group_id;
     const buffer_id = self.loop.groups[group_id].take() orelse return error.NoBuffer;
     const buffer = self.loop.provided_buffer(group_id, buffer_id);
@@ -445,8 +425,7 @@ fn end_cancelled_timers(self: anytype) void {
 
 /// Whether an operation of `kind` is a receive, which carries what it read.
 fn receives(kind: io.Kind) bool {
-    return kind == .tcp_receive or kind == .udp_receive or kind == .quic_receive or kind == .h2_receive or
-        kind == .doh_receive;
+    return kind == .tcp_receive or kind == .udp_receive or kind == .quic_receive or kind == .doh_receive;
 }
 
 pub fn number(token: ?[]const u8) Error!usize {
@@ -462,8 +441,8 @@ pub fn kind_of(user_data: u64) ?io.Kind {
     const kind = kind_of_any(user_data);
     return switch (kind) {
         .tcp_connect, .tcp_send, .tcp_receive, .udp_send, .udp_receive, .tls_send => kind,
-        // The model's `qsend` and `qrecv`, and over TCP its `rconnect` (EngineRequest.tla).
-        .quic_send, .quic_receive, .h2_connect, .h2_send, .h2_receive => kind,
+        // The model's `qsend` and `qrecv` (EngineRequest.tla).
+        .quic_send, .quic_receive => kind,
         // The model's `lconnect`, `lsend` and `lrecv` (EngineChannel.tla).
         .doh_connect, .doh_send, .doh_receive => kind,
         .timer => null,
@@ -472,8 +451,8 @@ pub fn kind_of(user_data: u64) ?io.Kind {
 
 fn failure_of(kind: io.Kind) rotor.Code {
     return switch (kind) {
-        .tcp_connect, .h2_connect, .doh_connect => .connection_refused,
-        .tcp_send, .tls_send, .h2_send => .broken_pipe,
+        .tcp_connect, .doh_connect => .connection_refused,
+        .tcp_send, .tls_send => .broken_pipe,
         .udp_send, .quic_send => .network_unreachable,
         else => .connection_reset,
     };

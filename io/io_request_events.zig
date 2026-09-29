@@ -1,6 +1,6 @@
 //! What the loop and the transport say of a request connection (docs/design.md §24, request rules
-//! 2, 5, 7, 8, 10, 11, 14 and 15): a connect ended, a send ended, a datagram or a chunk arrived,
-//! the timer came, and what the transport made of each, read with `next` one thing at a time.
+//! 2, 5, 7, 8, 10 and 11): a datagram's send ended, a datagram arrived, the timer came, and what
+//! the transport made of each, read with `next` one thing at a time.
 //!
 //! Free functions over the engine, split out of `io_request.zig` so each is scored on its own.
 const std = @import("std");
@@ -12,39 +12,19 @@ const request_module = @import("io_request.zig");
 const connection_module = @import("io_request_connection.zig");
 
 /// The connection an event names, or null for an opening of the slot that is gone, whose events
-/// change nothing (the stream's rule 2, as a TCP connection's are). A slot that waits to connect,
-/// or connects, has no send or receive of its own yet (request rule 14).
+/// change nothing (the stream's rule 2, as a TCP connection's are).
 fn current_of(set: anytype, index: usize) ?u8 {
     const server: u8 = @intCast(index & constants.quic_server_mask);
     const incarnation: u32 = @truncate(index >> constants.quic_incarnation_shift);
     assert(server < set.connections.len);
     const connection = &set.connections[server];
     if (connection.state == .closed or connection.incarnation != incarnation) return null;
-    // An opening sends and receives only once its connect has succeeded, and each connect is a new
-    // incarnation, so no event of the incarnation a waiting or connecting slot holds is one of these
-    // (request rule 14).
-    assert(connection.talks());
     return server;
 }
 
-/// Over TCP, a connect ended, whichever opening made it (request rule 14).
-pub fn on_connect_event(self: anytype, set: anytype, index: usize, event: rotor.Event, now_ns: u64) void {
-    if (comptime !@TypeOf(set.*).stream) unreachable;
-    const server: u8 = @intCast(index & constants.quic_server_mask);
-    const incarnation: u32 = @truncate(index >> constants.quic_incarnation_shift);
-    const connection = &set.connections[server];
-    // A connecting opening's connect is the only one in flight, since the slot connects nothing
-    // while an earlier one is.
-    assert(connection.state != .connecting or connection.incarnation == incarnation);
-    const succeeded = if (event.outcome()) |_| true else |_| false;
-    connection_module.connected(self, set, server, succeeded, now_ns);
-}
-
-/// A send ended: the slot's buffer comes back, whichever opening lent it. A send that failed fails
-/// its connection, and a closing connection with nothing more to say closes (request rules 7 to
-/// 9). Over TCP one that went short leaves its rest, which the next drive sends before anything
-/// the transport makes after it (request rule 15). Otherwise the transport is read: what it held
-/// until its octets had gone is told now, and not when the server next sends (request rule 17).
+/// A datagram's send ended: the slot's buffer comes back, whichever opening lent it. A send that
+/// failed fails its connection, and a closing connection with nothing more to say closes
+/// (request rules 7 to 9).
 pub fn on_send_event(self: anytype, set: anytype, index: usize, event: rotor.Event, now_ns: u64) void {
     if (comptime !@TypeOf(set.*).Transport.enabled) return;
     const slot = &set.sends[index & constants.quic_server_mask];
@@ -52,37 +32,26 @@ pub fn on_send_event(self: anytype, set: anytype, index: usize, event: rotor.Eve
     assert(slot.lent);
     slot.lent = false;
     const server = current_of(set, index) orelse return;
-    const count = event.outcome() catch return connection_module.fail(self, set, server, now_ns);
+    if (event.outcome()) |_| {} else |_| return connection_module.fail(self, set, server, now_ns);
     const connection = &set.connections[server];
-    if (comptime @TypeOf(set.*).stream) {
-        assert(count <= connection.made - connection.sent);
-        connection.sent += @intCast(count);
-        if (connection.sent < connection.made) return hear(self, set, server, now_ns);
-        connection.made = 0;
-        connection.sent = 0;
-    }
-    if (connection.state != .closing) return hear(self, set, server, now_ns);
+    if (connection.state != .closing) return;
     if (connection.made == 0) connection.made = @intCast(connection.transport.output(&slot.bytes, now_ns));
     if (connection.made == 0) connection_module.closed(self, set, server, now_ns);
 }
 
-/// A datagram or a chunk arrived, or the receive ended. What arrived goes to the transport, and
-/// what it made of it is read. A closing connection has said its last and reads nothing more
-/// (request rule 9). A receive that ran out of buffers is armed again, and one that failed fails
-/// the connection. Over TCP a receive that ends with no octets is the server's end of the stream,
-/// and fails the connection too (request rule 15).
+/// A datagram arrived, or the receive ended. The datagram goes to the transport whole, and what it
+/// made of it is read. A closing connection has said its last and reads nothing more (request
+/// rule 9). A receive that ran out of buffers is armed again, and one that failed fails the
+/// connection.
 pub fn on_receive_event(self: anytype, set: anytype, index: usize, event: rotor.Event, now_ns: u64) void {
     if (comptime !@TypeOf(set.*).Transport.enabled) return;
-    const group = if (comptime @TypeOf(set.*).stream) constants.tcp_group_id else constants.group_id;
     const server = current_of(set, index) orelse {
-        if (event.flags.buffer) self.loop.give_back_buffer(group, event.flags.buffer_id);
+        if (event.flags.buffer) self.loop.give_back_buffer(constants.group_id, event.flags.buffer_id);
         return;
     };
     const connection = &set.connections[server];
-    if (event.flags.buffer and !take(self, set, server, event, now_ns)) return;
-    if (connection.state == .closed) return;
-    if (ended_stream(set, event)) return connection_module.fail(self, set, server, now_ns);
-    if (!event.is_final()) return;
+    if (event.flags.buffer and !take_datagram(self, set, server, event, now_ns)) return;
+    if (!event.is_final() or connection.state == .closed) return;
     connection.receive = null;
     if (event.outcome()) |_| {} else |err| {
         if (err != error.BuffersExhausted) return connection_module.fail(self, set, server, now_ns);
@@ -90,30 +59,19 @@ pub fn on_receive_event(self: anytype, set: anytype, index: usize, event: rotor.
     // The next drive arms it again (`tend`).
 }
 
-/// Whether a receive over TCP ended with no octets, which is the server's end of the stream
-/// (request rule 15). A datagram of no octets is only that.
-fn ended_stream(set: anytype, event: rotor.Event) bool {
-    if (comptime !@TypeOf(set.*).stream) return false;
-    const count = event.outcome() catch return false;
-    return count == 0;
-}
-
-/// Hands one datagram, or one chunk of the stream, to the transport, gives its buffer back, and
-/// reads what the transport made of it. False when the transport refused it, which fails the
-/// connection.
-fn take(self: anytype, set: anytype, server: u8, event: rotor.Event, now_ns: u64) bool {
+/// Hands one datagram to the transport, gives its buffer back, and reads what the transport made
+/// of it. False when the transport refused it, which fails the connection.
+fn take_datagram(self: anytype, set: anytype, server: u8, event: rotor.Event, now_ns: u64) bool {
     const connection = &set.connections[server];
     const closing = connection.state == .closing;
-    const stream = comptime @TypeOf(set.*).stream;
-    const group = if (stream) constants.tcp_group_id else constants.group_id;
     var refused = false;
     if (!closing) {
-        const bytes = if (stream) chunk_of(self, event) else self.loop.datagram(group, event).bytes;
-        connection.transport.receive(bytes, now_ns) catch {
+        const delivery = self.loop.datagram(constants.group_id, event);
+        connection.transport.receive(delivery.bytes, now_ns) catch {
             refused = true;
         };
     }
-    self.loop.give_back_buffer(group, event.flags.buffer_id);
+    self.loop.give_back_buffer(constants.group_id, event.flags.buffer_id);
     if (refused) {
         connection_module.fail(self, set, server, now_ns);
         return false;
@@ -122,18 +80,12 @@ fn take(self: anytype, set: anytype, server: u8, event: rotor.Event, now_ns: u64
     return true;
 }
 
-/// The octets of a stream's chunk, in its TCP chunk buffer.
-fn chunk_of(self: anytype, event: rotor.Event) []const u8 {
-    const count = event.outcome() catch unreachable;
-    return self.loop.provided_buffer(constants.tcp_group_id, event.flags.buffer_id)[0..count];
-}
-
 /// The engine's timer came: each connection whose transport deadline has come is told, and what
 /// that did is read (request rule 11).
 pub fn expire_due(self: anytype, set: anytype, now_ns: u64) void {
     if (comptime !@TypeOf(set.*).Transport.enabled) return;
     for (set.connections[0..], 0..) |*connection, at| {
-        if (!connection.talks()) continue;
+        if (connection.state == .closed) continue;
         const due = connection.transport.deadline() orelse continue;
         if (due > now_ns) continue;
         connection.transport.expire(now_ns);
@@ -141,11 +93,10 @@ pub fn expire_due(self: anytype, set: anytype, now_ns: u64) void {
     }
 }
 
-/// Reads what the transport made of a datagram, a chunk or an expiry, or held until a send had
-/// gone or a request was held back (request rule 17), one thing at a time, until it has nothing
-/// more or the connection fails. One answer or reset for each stream at most, and
+/// Reads what the transport made of a datagram or an expiry, one thing at a time, until it has
+/// nothing more or the connection fails. One answer or reset for each stream at most, and
 /// `quic_connection_events_max` of the connection's own: what a flood leaves is read next time.
-pub fn hear(self: anytype, set: anytype, server: u8, now_ns: u64) void {
+fn hear(self: anytype, set: anytype, server: u8, now_ns: u64) void {
     const events_max = self.requests.len + constants.quic_connection_events_max;
     var events: usize = 0;
     while (events < events_max) : (events += 1) {
@@ -169,39 +120,19 @@ fn up(self: anytype, set: anytype, server: u8, alpn: []const u8, now_ns: u64) vo
     const connection = &set.connections[server];
     assert(connection.state == .handshaking);
     // "DoQ support is indicated by selecting the Application-Layer Protocol Negotiation (ALPN)
-    // token "doq" in the crypto handshake" (RFC 9250 §4.1), HTTP/3's by "h3" (RFC 9114 §3.2), and
-    // "HTTP/2 connections over TLS MUST use protocol negotiation in TLS" (RFC 9113 §3.3), with
-    // "h2" (§3.2). colibri's QUIC does not check it.
-    if (!std.mem.eql(u8, alpn, connection_module.protocol_of(self, set))) return connection_module.fail(self, set, server, now_ns);
+    // token "doq" in the crypto handshake" (RFC 9250 §4.1). colibri's QUIC does not check it.
+    if (!std.mem.eql(u8, alpn, constants.quic_alpn_doq)) return connection_module.fail(self, set, server, now_ns);
     connection.state = .up;
     connection_module.open_waiting(self, set, server, now_ns);
 }
 
-/// A stream was answered. Over DoQ it holds one message and its prefix, and the message's ID is 0;
-/// anything else is a protocol error, which fails the connection (request rule 5). An answer
-/// longer than the engine's buffer fails it too. Over DoH it is a response, whose content goes to
-/// the lookup with its `Age`.
+/// A stream was answered. It holds one message and its prefix, and the message's ID is 0; anything
+/// else is a protocol error, which fails the connection (request rule 5). An answer longer than the
+/// engine's buffer fails it too.
 fn answer(self: anytype, set: anytype, server: u8, answered: anytype, now_ns: u64) void {
     if (answered.len > self.answer.len) return connection_module.fail(self, set, server, now_ns);
-    const content = self.answer[0..answered.len];
-    if (answered.http) |http| return ended(self, set, server, answered.stream, response(http, content), now_ns);
-    const message = doq_message(content) orelse return connection_module.fail(self, set, server, now_ns);
-    ended(self, set, server, answered.stream, .{ .message = message, .age_seconds = 0 }, now_ns);
-}
-
-/// What a lookup is told of a stream: its answer, and the answer's `Age` in seconds.
-const Answer = struct { message: []const u8, age_seconds: u32 };
-
-/// A DoH response's answer, or null for a failed request. "A successful HTTP response with a 2xx
-/// status code ... is used for any valid DNS response", and "HTTP responses with non-successful
-/// HTTP status codes do not contain replies to the original DNS question" (RFC 8484 §4.2.1).
-/// Content that is not a DNS message, or was coded, is none either (request rule 12). The TTLs
-/// are lowered by the `Age` (RFC 8484 §5.1), which the lookup does.
-fn response(http: anytype, content: []const u8) ?Answer {
-    const status = http.status;
-    if (status < constants.http_status_success_first or status > constants.http_status_success_last) return null;
-    if (!http.dns_message) return null;
-    return .{ .message = content, .age_seconds = http.age_seconds };
+    const message = doq_message(self.answer[0..answered.len]) orelse return connection_module.fail(self, set, server, now_ns);
+    ended(self, set, server, answered.stream, message, now_ns);
 }
 
 /// The message a DoQ stream carries, or null for a protocol error. "All DNS messages ... sent over
@@ -220,15 +151,15 @@ pub fn doq_message(bytes: []const u8) ?[]const u8 {
 }
 
 /// A stream ended: answered, or failed when `answered` is null. The lookup hears it if the request
-/// is still its attempt (request rules 5 and 7), and the slot is free.
-fn ended(self: anytype, set: anytype, server: u8, stream: u64, answered: ?Answer, now_ns: u64) void {
+/// is still its attempt (request rules 5 and 7), and the slot is free. A DoQ answer's `Age` is 0.
+fn ended(self: anytype, set: anytype, server: u8, stream: u64, answered: ?[]const u8, now_ns: u64) void {
     // A stream the engine let go of: its request was cancelled, and whatever it carries tells
     // nobody (request rule 6).
     const index = request_module.of_stream(self, server, stream) orelse return;
     const request = &self.requests[index];
     if (request_module.current(self, index)) {
-        if (answered) |taken| {
-            _ = self.resolver.on_request_answer(request.handle, request.transaction, taken.message, taken.age_seconds, now_ns);
+        if (answered) |message| {
+            _ = self.resolver.on_request_answer(request.handle, request.transaction, message, 0, now_ns);
         } else {
             self.resolver.on_request_failed(request.handle, request.transaction, now_ns);
         }

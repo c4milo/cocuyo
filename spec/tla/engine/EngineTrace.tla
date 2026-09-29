@@ -66,15 +66,10 @@ Sorted(set) == [i \in 1..Cardinality(set) |-> CHOOSE l \in set : Cardinality({m 
 
 \* A request connection (EngineRequest.tla): its stage, the requests waiting in its queue and those
 \* with a stream, and whether it owes a datagram, keeps one the loop refused, lent its buffer, and
-\* went idle now; over TCP, whether a connect still borrows its address.
+\* went idle now.
 RConnToken(c) ==
     c.stage \o " q" \o NumbersToken(c.queue) \o " st" \o NumbersToken(Sorted(c.streams)) \o " " \o
-    Flag(c.owes, "O") \o Flag(c.made, "K") \o Flag(c.lent, "B") \o Flag(c.idleNow, "I") \o
-    (IF RStream
-     THEN Flag(c.connectLent, "N") \o " h" \o
-          (IF c.heldStream = {} THEN "-" ELSE ToString(Get(c.heldStream).slot)) \o
-          Flag(c.heldDrain, "G") \o Flag(c.spent, "X")
-     ELSE "")
+    Flag(c.owes, "O") \o Flag(c.made, "K") \o Flag(c.lent, "B") \o Flag(c.idleNow, "I")
 
 \* A request slot: the server its request went to, or "-" for none.
 ReqToken(r) == IF r = {} THEN "-" ELSE ToString(Get(r).server)
@@ -102,19 +97,17 @@ Letter(op) ==
     ELSE CASE op.kind = "connect" -> "C" [] op.kind = "receive" -> "R" [] op.kind = "send" -> "S"
            [] op.kind = "sendTo" -> "D" [] op.kind = "receiveFrom" -> "L"
            [] op.kind = "sendRecords" -> "T" [] op.kind = "qsend" -> "Q" [] op.kind = "qrecv" -> "V"
-           [] op.kind = "rconnect" -> "N"
            [] op.kind = "lconnect" -> "A" [] op.kind = "lsend" -> "W" [] op.kind = "lrecv" -> "Y"
 
 OpToken(op) == Letter(op) \o ToString(op.target) \o (IF op.current THEN "*" ELSE "x")
 
 \* The order the operations are written in, which the replay sorts its own by: the letter's place
-\* in CRSDLMTQVNAWY, then the target, then the stale before the current.
+\* in CRSDLMTQVAWY, then the target, then the stale before the current.
 LetterRank(op) ==
     CASE Letter(op) = "C" -> 0 [] Letter(op) = "R" -> 1 [] Letter(op) = "S" -> 2
       [] Letter(op) = "D" -> 3 [] Letter(op) = "L" -> 4 [] Letter(op) = "M" -> 5
       [] Letter(op) = "T" -> 6 [] Letter(op) = "Q" -> 7 [] Letter(op) = "V" -> 8
-      [] Letter(op) = "N" -> 9
-      [] Letter(op) = "A" -> 10 [] Letter(op) = "W" -> 11 [] Letter(op) = "Y" -> 12
+      [] Letter(op) = "A" -> 9 [] Letter(op) = "W" -> 10 [] Letter(op) = "Y" -> 11
 OpKey(op) == (LetterRank(op) * 256 + op.target) * 2 + (IF op.current THEN 1 ELSE 0)
 
 RECURSIVE Copies(_, _)
@@ -167,7 +160,6 @@ EventToken(e) ==
       [] e.kind = "message" -> "message:" \o OpToken(e.op) \o ":" \o ToString(e.slot) \o ":" \o e.reply
       [] e.kind = "tls" -> "tls:" \o OpToken(e.op) \o ":" \o e.step
       [] e.kind = "lapse" -> "lapse:" \o ToString(e.server)
-      [] e.kind = "exhaust" -> "exhaust:" \o ToString(e.server)
       [] e.kind = "straggle" -> "straggle:" \o OpToken(e.op)
       [] e.kind = "quic" -> "quic:" \o OpToken(e.op) \o ":" \o e.step \o ":" \o ToString(e.slot) \o ":" \o e.reply
       [] e.kind = "qtime" -> "qtime:" \o ToString(e.server) \o ":" \o e.step
@@ -176,7 +168,7 @@ EventToken(e) ==
 
 Transport ==
     IF Channel THEN "channel"
-    ELSE IF Request THEN (IF RStream THEN "request_tcp" ELSE "request")
+    ELSE IF Request THEN "request"
     ELSE IF Tls THEN "tls" ELSE IF UseTcp THEN "tcp" ELSE "udp"
 
 -------------------------------------------------------------------------------

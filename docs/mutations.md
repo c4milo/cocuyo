@@ -3096,3 +3096,47 @@ v0.85.0. Six mutations, six `CAUGHT`.
 | IX5 | a channel never tries QUIC first | rule 18 | the interop check over DoH on HTTP/3: both turns over h2 | CAUGHT |
 | IX6 | a channel hands the engine no ticket | rule 23 | the interop check over DoH, on both versions: in full | CAUGHT |
 | IX7 | the fallback delay never ends, so TCP opens only once QUIC has failed | rule 18 | the interop check over DoH on HTTP/2: every lookup timed out | CAUGHT |
+
+## The TCP request connections removed
+
+Design §24 step 7b, 2026-09-29 (decision 33). colibri's channel carries DoH, so `cocuyo_h2`, the
+HTTP/3 half of `cocuyo_quic`, `Options.h2` and the engine's request connections over TCP went,
+with their tests and the twin's QUIC over TCP. The request connections carry DoQ alone, as they
+did before HTTP/2 came. The two reads rule 17 added to them went too: only HTTP/2 needed them, and
+the channel keeps its own. The model lost `RStream` and its three configurations.
+
+These mutations broke code that is gone, and retire with it:
+
+- RQ16 to RQ22, the model's rules for request connections over TCP.
+- TC1 to TC9, the engine's request connections over TCP.
+- TR1 to TR3, the reads only HTTP/2 needed, and TR5, the twin's hold.
+- HT1 to HT23, HM1, HM2 and H1 to H3: `cocuyo_h2`, its test server and their tests.
+- QH1 to QH7 and QH9 to QH21, the HTTP/3 half, and DE1 to DE7, the engine's DoH over it. DE8
+  stands, over DoQ.
+
+What the removal found:
+
+- TR4 went uncaught. The engine's test of cancelled DoQ streams caught it through the read at a
+  send's end, which went. A test of `cocuyo_quic` now holds a cancelled stream's answer back and
+  reads the connection before it comes, as a datagram without the answer or the timer would. The
+  answer must still be read to its end, which ends the stream's receiving half (RFC 9000 §3.2).
+- One engine test came over to the channel: a template the engine cannot read fails its server
+  before its channel opens. CE21 breaks what it checks. No walk reaches it, since the model's
+  channel always opens.
+- RW2 and RW8 were written again for the code as it stands. DC21's edit had not applied since DC25
+  changed its line, and was written again.
+
+The walks were written again from the new model, which draws its choices anew. The full run,
+24,000 walks and 4,824,000 events, replays clean. The picks were chosen again from it, each the
+first walk that catches a mutation the short walks miss: 4, 8, 13, 2002, 4006, 4041, 8046, 12011,
+13182, 16008, 16068, 16478 and 17842. Every mutation of the engine's set ran again, one hundred
+and eighteen, and each is `CAUGHT`. The short walks catch sixty-five, the picks sixteen more, and
+the steps thirty-seven.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| RW2 | the handshake's end is taken whatever protocol it negotiated | RFC 9250 §4.1 | short walk 24 | CAUGHT |
+| RW8 | a connection closes for idleness with requests on it | request rule 9 | short walk 22 | CAUGHT |
+| TR4 | a cancelled DoQ stream frees its slot before its answer or reset is read | colibri keeps a stream's place until both its halves end | the held-answer test of `cocuyo_quic` | NOT CAUGHT, then CAUGHT |
+| CE21 | a request whose channel cannot open is dropped, and not failed | request rule 7 | the unreadable-template test | CAUGHT |
+| DC21 | the version a connection speaks is told to the engine as the TCP link's close | rule 20 | the engine's tests | CAUGHT |

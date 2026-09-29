@@ -21,15 +21,12 @@ const connection_module = @import("io_request_connection.zig");
 /// configuration, so none of its functions is ever called.
 pub const None = struct {
     pub const enabled = false;
-    pub const http3 = false;
-    pub const socket = .datagram;
     pub const output_bytes_max = 0;
     pub const request_bytes_max = 0;
     pub const Error = error{Failed};
     pub const Context = struct {};
     pub const Ticket = struct {};
-    pub const Http = struct { status: u16, age_seconds: u32, dns_message: bool };
-    pub const Answered = struct { stream: u64, len: usize, http: ?Http = null };
+    pub const Answered = struct { stream: u64, len: usize };
     pub const Next = union(enum) { up: []const u8, refused, answered: Answered, reset: u64, closed, goaway, ticket: Ticket };
 
     pub fn start(_: *None, _: anytype) Error!void {
@@ -93,26 +90,13 @@ pub fn speaks(self: anytype) bool {
     return self.config.sends_requests();
 }
 
-/// Whether the requests go over the engine's HTTP/2 connections: a DoH configuration, in an engine
-/// that holds them, whether or not it speaks HTTP/3 too, until the two race (docs/design.md §24,
-/// DoH over HTTP/2, step 7b). The rest go over QUIC.
-pub fn over_h2(self: anytype) bool {
-    if (comptime !@TypeOf(self.*).H2.enabled) return false;
-    return self.config.uses_https();
-}
-
-/// What the drive does with a lookup's `send_request`: the request is taken at once onto its
-/// server's connection, whatever the connection's state, and the lookup told it went out, so its
-/// deadline covers the handshake (request rule 3). An earlier request of the slot's is cancelled
-/// first. A connection that cannot open fails the request, and the lookup moves on.
+/// What the drive does with a lookup's `send_request` over DoQ: the request is taken at once onto
+/// its server's connection, whatever the connection's state, and the lookup told it went out, so
+/// its deadline covers the handshake (request rule 3). An earlier request of the slot's is
+/// cancelled first. A connection that cannot open fails the request, and the lookup moves on.
 pub fn take(self: anytype, index: usize, send: anytype, now_ns: u64) void {
-    if (over_h2(self)) return take_in(self, &self.h2, index, send, now_ns);
-    take_in(self, &self.quic, index, send, now_ns);
-}
-
-/// `take`, onto a connection of `set`.
-fn take_in(self: anytype, set: anytype, index: usize, send: anytype, now_ns: u64) void {
-    // `init` refuses a request configuration without a transport (`assert_tls`).
+    const set = &self.quic;
+    // `init` refuses a DoQ configuration without a transport (`assert_tls`).
     if (comptime !@TypeOf(set.*).Transport.enabled) unreachable;
     drop(self, set, index, now_ns);
     const handle = self.handles[index];
@@ -163,12 +147,7 @@ pub fn drop(self: anytype, set: anytype, index: usize, now_ns: u64) void {
 /// ended, or it was cancelled or released (request rule 6). The drive does this last, after
 /// every poll, so a lookup that asked again within the drive keeps its new request.
 pub fn cancel_left(self: anytype, now_ns: u64) void {
-    if (over_h2(self)) return cancel_left_in(self, &self.h2, now_ns);
-    cancel_left_in(self, &self.quic, now_ns);
-}
-
-/// `cancel_left`, for the requests on `set`'s connections.
-fn cancel_left_in(self: anytype, set: anytype, now_ns: u64) void {
+    const set = &self.quic;
     if (comptime !@TypeOf(set.*).Transport.enabled) return;
     for (self.requests[0..], 0..) |*request, index| {
         if (request.live and !current(self, index)) drop(self, set, index, now_ns);
@@ -217,7 +196,7 @@ pub fn of_stream(self: anytype, server: u8, stream: u64) ?usize {
 /// Forgets every request, which `reinit` does once every connection is closed.
 pub fn forget_all(self: anytype) void {
     const Engine = @TypeOf(self.*);
-    if (comptime !(Engine.Quic.enabled or Engine.H2.enabled or Engine.Doh.enabled)) return;
+    if (comptime !(Engine.Quic.enabled or Engine.Doh.enabled)) return;
     for (self.requests[0..]) |*request| request.live = false;
 }
 

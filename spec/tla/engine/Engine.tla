@@ -139,7 +139,7 @@ RefusalSaid(before, e, st) ==
 
 \* The liveness of the receives is owed only after a drive that ran with nothing refused.
 Drove(before, e) ==
-    e.kind \notin {"take", "jam", "starve", "lapse", "exhaust"} /\ ~before.jammed /\ ~before.starved
+    e.kind \notin {"take", "jam", "starve", "lapse"} /\ ~before.jammed /\ ~before.starved
 
 Checks(before, e, st) ==
     << <<"users counted", UsersCounted(st)>>, <<"attached right", AttachedRight(st)>>,
@@ -163,9 +163,6 @@ Checks(before, e, st) ==
        <<"drain shrinks", DrainShrinks(before, st)>>,
        <<"goaway fails none", GoawayFailsNone(before, e, st)>>,
        <<"waiting kept", WaitingKept(before, e, st)>>,
-       <<"connect lent", ConnectLent(st)>>, <<"connect first", ConnectFirst(st)>>,
-       <<"rest first", RestFirst(before, e, st)>>, <<"ended closes", EndedCloses(before, e, st)>>,
-       <<"held while sending", HeldWhileSending(st)>>,
        <<"links asked", LinksAsked(st)>>, <<"link lent", LinkLent(st)>>,
        <<"exchanges placed", ExchangesPlaced(st)>>,
        <<"shutting takes none", ShutTakesNone(before, st)>>,

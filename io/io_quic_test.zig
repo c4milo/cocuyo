@@ -24,9 +24,9 @@ const Resolver = io.Resolver(.{
 });
 const Rig = sim_test.RigOf(Resolver);
 
-/// One scripted server's side: a colibri server of type `ServerType`, DoQ's or DoH's, for each
-/// connection the engine opens to it, each on its own client socket, answering with the scripted
-/// server's answers.
+/// One scripted server's side: a colibri server of type `ServerType` for each connection the
+/// engine opens to it, each on its own client socket, answering with the scripted server's
+/// answers.
 pub fn SideOf(comptime ServerType: type) type {
     return struct {
         const Side = @This();
@@ -188,22 +188,11 @@ pub fn WorldOf(comptime RigType: type, comptime SideType: type) type {
 
         /// A world whose servers speak DoQ, known by a name.
         pub fn create(seed: u64, scripts: [fixtures.servers]rotor.server.Script) !*Self {
-            return create_with(seed, scripts, null);
-        }
-
-        /// A world whose servers speak DoH, each known by `template`.
-        pub fn create_https(seed: u64, scripts: [fixtures.servers]rotor.server.Script, template: []const u8) !*Self {
-            return create_with(seed, scripts, template);
-        }
-
-        fn create_with(seed: u64, scripts: [fixtures.servers]rotor.server.Script, template: ?[]const u8) !*Self {
             const world = try testing.allocator.create(Self);
             errdefer testing.allocator.destroy(world);
             world.* = .{};
             const tls: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
-            for (&world.rig.servers) |*server| {
-                if (template) |text| server.https = .{ .template = text } else server.quic = tls;
-            }
+            for (&world.rig.servers) |*server| server.quic = tls;
             try world.rig.init(seed, scripts, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
             for (&world.sides, 0..) |*side, index| {
                 side.* = .{ .index = @intCast(index), .network = world.rig.loop.network() };

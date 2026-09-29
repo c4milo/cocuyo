@@ -14,19 +14,11 @@ const cocuyo = @import("cocuyo");
 const quic = @import("quic");
 const streams_module = @import("io_quic_streams.zig");
 const connection_module = @import("io_quic_connection.zig");
-/// colibri's `h3` under the interface, read only by a type that speaks HTTP/3.
-const h3_module = @import("io_quic_h3.zig");
 pub const constants = @import("io_quic_constants.zig");
 /// A TLS session that encrypts nothing, and a DoQ server over it, for tests (`io_quic_plain.zig`,
 /// `io_quic_server.zig`).
 pub const plain = @import("io_quic_plain.zig");
 pub const server = @import("io_quic_server.zig");
-/// A DoH server over colibri's `h3`, for tests (`io_quic_server_h3.zig`).
-pub const server_h3 = @import("io_quic_server_h3.zig");
-/// A DoH server's URI template, split and expanded, and what a DoH response's header section says
-/// of its content: the DNS half both HTTP transports share (`io_doh.zig`).
-pub const template = @import("doh").template;
-pub const response = @import("doh").response;
 
 pub const Options = struct {
     /// The TLS: colibri's provider and suite at once, with `start`, `provider`, `suite`,
@@ -36,11 +28,6 @@ pub const Options = struct {
     streams: u16,
     /// colibri's receive pool, a multiple of its 1,024-octet blocks.
     receive_bytes: usize = constants.receive_bytes_default,
-    /// Whether a connection speaks HTTP/3 as well, for DoH: colibri's `h3`, which the consumer
-    /// then binds beside `quic` (docs/design.md §24, DoH over HTTP/3).
-    http3: bool = false,
-    /// A DoH connection's answer buffers: the responses it has in flight at once.
-    answers: u16 = constants.answers_default,
 };
 
 /// `plain.Session` behind the interface a connection's session has.
@@ -76,14 +63,10 @@ pub fn Connection(comptime options: Options) type {
     return struct {
         const Self = @This();
         const Session = options.Session;
-        /// A request's slot holds a DoQ query, or a DoH GET's HEADERS frame.
-        const slot_bytes = if (options.http3) @max(cocuyo.constants.query_bytes_max, constants.doh_request_bytes_max) else cocuyo.constants.query_bytes_max;
-        pub const Streams = streams_module.Streams(options.streams, slot_bytes);
-        const H3 = if (options.http3) h3_module.State(options.answers) else void;
+        /// A request's slot holds a DoQ query and its prefix.
+        pub const Streams = streams_module.Streams(options.streams, cocuyo.constants.query_bytes_max);
 
         pub const enabled = true;
-        /// Whether the connection speaks HTTP/3, which DoH goes over (docs/design.md §24, step 5).
-        pub const http3 = options.http3;
         /// A datagram at a time, over UDP (docs/design.md §24, the request interface).
         pub const socket = .datagram;
         /// colibri never makes a datagram longer than this (RFC 9000 §14.1's smallest).
@@ -98,9 +81,7 @@ pub fn Connection(comptime options: Options) type {
             stream: std.Random.ChaCha = std.Random.ChaCha.init(@splat(0)),
         };
         pub const Ticket = Session.Ticket;
-        /// What a DoH response says of its content (`response.zig`).
-        pub const Http = response.Http;
-        pub const Answered = struct { stream: u64, len: usize, http: ?Http = null };
+        pub const Answered = struct { stream: u64, len: usize };
         pub const Next = union(enum) { up: []const u8, refused, answered: Answered, reset: u64, closed, goaway, ticket: Ticket };
 
         pub const Stage = connection_module.Stage;
@@ -120,11 +101,6 @@ pub fn Connection(comptime options: Options) type {
         streams: Streams = .{},
         /// The connection's next deadline, read after each call that can move it.
         due_ns: ?u64 = null,
-        /// The latest instant the connection was handed, which `h3` stamps the events it logs with.
-        latest_ns: u64 = 0,
-        /// Whether this opening is to a DoH server, and speaks HTTP/3.
-        https: bool = false,
-        h3: H3 = if (options.http3) .{} else {},
 
         pub fn start(self: *Self, context: anytype) Error!void {
             return connection_module.start(self, context);
@@ -185,7 +161,6 @@ const Pair = struct {
 
     fn start(pair: *Pair) !void {
         try pair.client.start(.{
-            .https = null,
             .alpn = "doq",
             .ticket = @as(?Client.Ticket, null),
             .ticket_age_ns = 0,
@@ -257,13 +232,41 @@ test "a server that selects another protocol is heard, and a stream it resets is
     try testing.expectEqual(@as(?Pair.Client.Next, null), pair.client.next(&out));
 }
 
+test "a cancelled stream keeps its slot until its answer is read, which ends its receiving half" {
+    // colibri frees a stream's place once both of its halves have ended (RFC 9000 §3), and the
+    // receiving half ends when its data is read (§3.2), so the slot keeps reading until then.
+    var pair: Pair = .{};
+    var echo: Echo = .{};
+    try pair.start();
+    try pair.exchange(echo.answerer());
+    var out: [constants.answer_bytes_max]u8 = undefined;
+    try testing.expectEqualStrings("doq", pair.client.next(&out).?.up);
+    var query = [_]u8{ 0, 4, 0, 0, 1, 2 };
+    const stream = (try pair.client.request(&query, query.len)).?;
+    // The query reaches the server, and its answer is held back.
+    var datagram: [quic.constants.datagram_len_min]u8 = undefined;
+    const sent = pair.client.output(&datagram, pair.now_ns);
+    pair.server.receive(datagram[0..sent], pair.now_ns, echo.answerer());
+    var answer: [quic.constants.datagram_len_min]u8 = undefined;
+    const answer_len = pair.server.send(&answer, pair.now_ns);
+    try testing.expect(answer_len > 0);
+    // The stream is cancelled, and the connection read before the answer comes, as the engine
+    // reads it when a datagram without the answer arrives, or its timer fires.
+    pair.client.cancel(stream);
+    try testing.expectEqual(@as(?Pair.Client.Next, null), pair.client.next(&out));
+    try pair.client.receive(answer[0..answer_len], pair.now_ns);
+    try testing.expectEqual(@as(?Pair.Client.Next, null), pair.client.next(&out));
+    const ended = switch (pair.client.connection.streams.lookup(.{ .value = stream })) {
+        .live => |live| live.receiving.state.is_terminal(),
+        .closed => true,
+        .unopened => false,
+    };
+    try testing.expect(ended);
+}
+
 test {
     _ = streams_module;
     _ = connection_module;
     _ = plain;
     _ = server;
-    _ = template;
-    _ = response;
-    _ = h3_module;
-    _ = server_h3;
 }

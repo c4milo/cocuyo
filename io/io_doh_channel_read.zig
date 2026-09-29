@@ -34,8 +34,8 @@ pub fn cancel(self: anytype, index: u16) void {
 }
 
 /// Keeps what a link read until the channel takes it. A datagram replaces one the channel did not
-/// take, as the network may drop one; stream octets past the buffer end the TCP link, as they
-/// failed `cocuyo_h2`'s connection (request rule 7).
+/// take, as the network may drop one; stream octets past the buffer end the TCP link, as octets
+/// past what a request connection keeps fail it (request rule 7).
 pub fn receive(self: anytype, input: anytype) void {
     switch (input) {
         .none => {},

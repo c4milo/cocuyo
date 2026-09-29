@@ -20,15 +20,15 @@ const read = quic.connection_stream_read;
 pub const Said = union(enum) { answered: struct { stream: u64, len: usize }, reset: u64 };
 
 /// One request's stream: its bytes, kept while colibri may read them, and what it has told. A DoQ
-/// request is a query and its prefix, and a DoH one the HEADERS frame of a GET.
+/// request is a query and its prefix.
 pub fn Slot(comptime bytes_max: usize) type {
     return struct {
         live: bool = false,
         id: u64 = 0,
         len: u16 = 0,
         bytes: [bytes_max]u8 = undefined,
-        /// The stream's end was read, which the engine heard unless it cancelled the stream, or
-        /// over DoH `h3` told it: it is nobody's to tell.
+        /// The stream's end was read, which the engine heard unless it cancelled the stream: it is
+        /// nobody's to tell.
         told: bool = false,
         cancelled: bool = false,
         /// colibri reads its bytes no more: the server has them all, or the stream was reset.
@@ -65,49 +65,6 @@ pub fn Streams(comptime capacity: u16, comptime bytes_max: usize) type {
         pub fn next(self: *Self, connection: *quic.Connection, out: []u8) ?Said {
             return next_said(&self.slots, connection, out);
         }
-
-        /// A slot for a stream `h3` opens, or null when every one is taken.
-        pub fn free(self: *Self) ?*Slot(bytes_max) {
-            for (&self.slots) |*slot| if (!slot.live) return slot;
-            return null;
-        }
-
-        /// The stream `h3` ended or reset, which the engine hears once: nobody's to tell again.
-        pub fn tell(self: *Self, stream_id: u64) void {
-            const slot = slot_of(&self.slots, stream_id) orelse return;
-            slot.told = true;
-            release_if_done(slot);
-        }
-
-        /// A stream `h3` cancelled: its reset ends what colibri reads of it (RFC 9000 §3.1).
-        pub fn cancelled(self: *Self, stream_id: u64) void {
-            const slot = slot_of(&self.slots, stream_id) orelse return;
-            slot.cancelled = true;
-            slot.sent = true;
-            release_if_done(slot);
-        }
-
-        /// Frees each slot whose stream has been told and whose bytes colibri reads no more.
-        /// Over DoH `h3` reads the streams, so only their sending halves are read here.
-        pub fn sweep(self: *Self, connection: *quic.Connection) void {
-            for (&self.slots) |*slot| {
-                if (!slot.live) continue;
-                if (sending_ended(connection, slot.id)) slot.sent = true;
-                release_if_done(slot);
-            }
-        }
-    };
-}
-
-/// Whether colibri reads stream `stream_id`'s bytes no more: the server has them all, or the
-/// stream was reset, or it is gone (RFC 9000 §3.1).
-fn sending_ended(connection: *quic.Connection, stream_id: u64) bool {
-    return switch (connection.streams.lookup(.{ .value = stream_id })) {
-        .live => |stream| switch (stream.sending.state) {
-            .data_recvd, .reset_sent, .reset_recvd => true,
-            else => false,
-        },
-        .closed, .unopened => true,
     };
 }
 

@@ -312,7 +312,6 @@ fn materialize_datagrams(loop: *Loop) void {
 
 fn materialize_streams(loop: *Loop) void {
     for (&network().connections) |*connection| {
-        end_stream(loop, connection);
         const receiver = stream_ready(loop, connection) orelse continue;
         var chunks: usize = 0;
         while (chunks < constants.buffers_per_group_max and connection.inbound_len > 0) : (chunks += 1) {
@@ -329,16 +328,6 @@ fn materialize_streams(loop: *Loop) void {
             }
         }
     }
-}
-
-/// A stream the server ended, with nothing left to read: the receive ends with no octets.
-fn end_stream(loop: *Loop, connection: *const network_module.Connection) void {
-    if (!connection.open or !connection.ended or connection.inbound_len != 0) return;
-    if (connection.available_at_ns > loop.now_ns) return;
-    const entry = &network().sockets[@intCast(connection.socket)];
-    const receiver = entry.receiver orelse return;
-    entry.receiver = null;
-    loop.queue(receiver.slot, Event.success(receiver.user_data, 0), loop.now_ns, true);
 }
 
 /// The receiver of a connection that has bytes ready for a socket that is reading, or null.
@@ -393,8 +382,7 @@ fn next_datagram_due() ?u64 {
 fn next_stream_due() ?u64 {
     var due: ?u64 = null;
     for (&network().connections) |*connection| {
-        if (!connection.open or !receiving(connection.socket)) continue;
-        if (connection.inbound_len == 0 and !connection.ended) continue;
+        if (!connection.open or connection.inbound_len == 0 or !receiving(connection.socket)) continue;
         due = earliest(due, connection.available_at_ns);
     }
     return due;

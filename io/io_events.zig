@@ -32,9 +32,6 @@ pub fn apply(self: anytype, event: rotor.Event, now_ns: u64) bool {
         .tls_send => tcp_queue.on_records_event(self, index, event, now_ns),
         .quic_send => request_events.on_send_event(self, &self.quic, index, event, now_ns),
         .quic_receive => request_events.on_receive_event(self, &self.quic, index, event, now_ns),
-        .h2_connect => request_events.on_connect_event(self, &self.h2, index, event, now_ns),
-        .h2_send => request_events.on_send_event(self, &self.h2, index, event, now_ns),
-        .h2_receive => request_events.on_receive_event(self, &self.h2, index, event, now_ns),
         .doh_connect => channel_link.on_connect_event(self, index, event, now_ns),
         .doh_send => channel_link.on_send_event(self, index, event, now_ns),
         .doh_receive => channel_link.on_receive_event(self, index, event, now_ns),
@@ -53,7 +50,6 @@ fn on_timer_event(self: anytype, generation: usize, now_ns: u64) void {
     self.timer_handle = null;
     self.timer_due_ns = null;
     request_events.expire_due(self, &self.quic, now_ns);
-    request_events.expire_due(self, &self.h2, now_ns);
     channel_module.expire_due(self, now_ns);
 }
 

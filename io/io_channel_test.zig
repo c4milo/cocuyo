@@ -1,9 +1,9 @@
 //! The engine's DoH over a channel on the twin (docs/design.md §24, DoH over colibri's client,
 //! request rules 18 to 25): a channel opened for a server's first request, its exchanges' ends
-//! heard, a request that waits for room, a cancelled one, the channel read when a request is put
-//! on it, and the channel's shutdown. The links' tests are `io_channel_link_test.zig`'s. The channel is the twin's (`rotor.channel`), which says
-//! exactly the steps a test queues; what only colibri's channel can show is colibri's
-//! (`cocuyo_doh`).
+//! heard, a template the engine cannot read, a request that waits for room, a cancelled one, the
+//! channel read when a request is put on it, and the channel's shutdown. The links' tests are
+//! `io_channel_link_test.zig`'s. The channel is the twin's (`rotor.channel`), which says exactly
+//! the steps a test queues; what only colibri's channel can show is colibri's (`cocuyo_doh`).
 const std = @import("std");
 const testing = std.testing;
 const cocuyo = @import("cocuyo");
@@ -102,6 +102,24 @@ test "an exchange that fails fails its request once, as the server's failure, an
     const result = try rig.until_result();
     try testing.expect(result.outcome == .answer);
     try testing.expectEqual(@as(u8, 0), rig.engine.resolver.servers.failures(1));
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
+test "a template the engine cannot read fails its server before its channel opens" {
+    // DoH "MUST be used with the https URI scheme" (RFC 8484 §5): the channel cannot start, the
+    // request fails as the server's failure (request rule 7), and the next server answers.
+    var rig: Rig = .{};
+    rig.servers[0].https = .{ .template = "http://dns.example/dns-query{?dns}" };
+    rig.servers[1].https = .{ .template = template };
+    try rig.init(88, .{ .{}, .{} }, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
+    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    try testing.expect(rig.engine.doh.slots[0].state == .closed);
+    try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(0));
+    try testing.expect(channel_of(&rig, 1).holds(handle.index));
+    try tell(&rig, 1, .{ .finished = .{ .index = handle.index, .answer = true } });
+    const result = try rig.until_result();
+    try testing.expect(result.outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
 }

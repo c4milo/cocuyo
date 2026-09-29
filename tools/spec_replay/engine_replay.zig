@@ -176,19 +176,17 @@ fn which_of(slots: []const u8, conns: []const u8) ?Which {
     return null;
 }
 
-/// Every query over `tcp`, `tls` or `udp`, or as a `request` over DoQ, or over DoH on HTTP/2 as a
-/// `request_tcp`, or over DoH through a `channel`, and the queries a port carries before it is
-/// replaced.
+/// Every query over `tcp`, `tls` or `udp`, or as a `request` over DoQ, or over DoH through a
+/// `channel`, and the queries a port carries before it is replaced.
 fn transport_of(name: ?[]const u8, per_port: ?[]const u8) Error!world_module.Transport {
     const text = name orelse return error.Malformed;
     const tls = std.mem.eql(u8, text, "tls");
     const tcp = tls or std.mem.eql(u8, text, "tcp");
-    const stream = std.mem.eql(u8, text, "request_tcp");
     const channel = std.mem.eql(u8, text, "channel");
-    const request = stream or channel or std.mem.eql(u8, text, "request");
+    const request = channel or std.mem.eql(u8, text, "request");
     if (!tcp and !request and !std.mem.eql(u8, text, "udp")) return error.Malformed;
     const count = std.fmt.parseInt(u32, per_port orelse return error.Malformed, 10) catch return error.Malformed;
-    return .{ .tcp = tcp, .per_port = count, .tls = tls, .request = request, .stream = stream, .channel = channel };
+    return .{ .tcp = tcp, .per_port = count, .tls = tls, .request = request, .channel = channel };
 }
 
 pub fn main(init: std.process.Init) !void {

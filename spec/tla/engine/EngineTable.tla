@@ -23,7 +23,6 @@ CONSTANTS
     PerPort,      \* the queries a port carries before it is replaced; zero for never
     Tls,          \* every server speaks TLS, so every query goes on a stream (§21)
     Request,      \* every server speaks DoQ or DoH, so every query is a request (§24)
-    RStream,      \* the request connections run over TCP: DoH over HTTP/2 (§24, rules 14 to 17)
     Channel,      \* every server speaks DoH through colibri's channel (§24, rules 18 to 25)
     OpsMax,       \* the walk's bound on the operations the loop holds
     FailuresMax,  \* the walk's bound on a server's failures
@@ -133,7 +132,7 @@ LStep(lk, ev, r) ==
 \* The state.
 
 Sockets == IF Tls \/ Request THEN 0 ELSE Servers
-\* A request connection for each server, over DoQ or DoH (§24, request rule 1).
+\* A request connection for each server, over DoQ (§24, request rule 1).
 RServers == IF Request /\ ~Channel THEN Servers ELSE 0
 \* A channel for each server, over DoH through colibri's client, and two links each (rule 18).
 CServers == IF Channel THEN Servers ELSE 0
@@ -147,12 +146,8 @@ NoSock == [sent |-> 0, retiring |-> FALSE, draining |-> FALSE]
 \* A request connection: its stage, the requests waiting for it to be up, the ones on a stream,
 \* whether colibri owes a datagram, whether its slot's datagram buffer is lent to a send of any
 \* incarnation, whether it went idle at this instant, and whether its protocol was the right one.
-\* Over TCP, whether a connect of any incarnation still borrows the slot's address (rule 14), and
-\* what colibri holds and has not told: a stream's answer or reset, and the connection's drain,
-\* and whether its stream identifiers have run out (rule 17).
 NoRConn == [stage |-> "closed", queue |-> <<>>, streams |-> {}, owes |-> FALSE, made |-> FALSE,
-            lent |-> FALSE, idleNow |-> FALSE, alpn |-> FALSE, resumed |-> FALSE,
-            connectLent |-> FALSE, heldStream |-> {}, heldDrain |-> FALSE, spent |-> FALSE]
+            lent |-> FALSE, idleNow |-> FALSE, alpn |-> FALSE, resumed |-> FALSE]
 \* A channel: its stage, the requests it holds as exchanges, the ones taken while it shut down,
 \* which wait for the next, an exchange's end it holds and has not told, and whether it went idle
 \* at this instant (rules 18, 21 and 24).

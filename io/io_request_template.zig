@@ -1,8 +1,8 @@
-//! A DoH server's URI template, split when the engine opens a connection to the server (docs/
-//! design.md §24, DoH over HTTP/3): the port the connection goes to, the name its certificate is
-//! checked against, the authority each GET names, and the path's template, which the transport
-//! expands for each request. RFC 3986 says what the URI is made of. The engine is the driver §22
-//! left the template to.
+//! A DoH server's URI template, split when the engine opens a channel to the server (docs/design.md
+//! §24, DoH over HTTP/3 and DoH over colibri's client): the port the channel's links go to, the
+//! name its certificate is checked against, the authority each GET names, and the path's template,
+//! which the channel type expands for each request. RFC 3986 says what the URI is made of. The
+//! engine is the driver §22 left the template to.
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");

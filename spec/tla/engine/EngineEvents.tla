@@ -214,7 +214,6 @@ Finish(st, op, outcome) ==
       [] op.kind = "receiveFrom" -> ReceiveFromEnded(st, op)
       [] op.kind = "qsend" -> QSendEnded(st, op, outcome)
       [] op.kind = "qrecv" -> QRecvEnded(st, op, outcome)
-      [] op.kind = "rconnect" -> RConnectEnded(st, op, outcome = "ok")
       [] op.kind = "lsend" -> LSendEnded(st, op, outcome)
       [] op.kind = "lrecv" -> LRecvEnded(st, op, outcome)
       [] op.kind = "lconnect" -> LConnectEnded(st, op, outcome = "ok")
@@ -236,7 +235,6 @@ Happen(st, e) ==
       [] e.kind = "quic" -> Drive(QuicStep(st, e.op.target, e.step, e.slot, e.reply), FALSE)
       [] e.kind = "qtime" -> Drive(QuicTime(st, e.server, e.step), FALSE)
       [] e.kind = "lapse" -> [st EXCEPT !.tickets[e.server] = FALSE]
-      [] e.kind = "exhaust" -> [st EXCEPT !.rconns[e.server].spent = TRUE]
       [] e.kind = "straggle" -> Drive(st, FALSE)
       [] e.kind = "jam" -> [st EXCEPT !.jammed = TRUE]
       [] e.kind = "starve" -> [st EXCEPT !.starved = TRUE]
@@ -272,11 +270,7 @@ Endings(st, op) ==
          THEN {"ok", "failed"} ELSE {"ok", "short", "failed"}
     ELSE IF op.kind = "sendRecords" /\ op.current
     THEN IF st.conns[op.target].partSent THEN {"ok", "failed"} ELSE {"ok", "short", "failed"}
-    \* Over TCP a request connection's send may go short, and its receive end with no octets
-    \* (request rule 15).
-    ELSE IF op.kind = "qsend" /\ op.current /\ RStream THEN {"ok", "short", "failed"}
     ELSE IF op.kind \in {"sendRecords", "sendTo", "qsend"} THEN {"ok", "failed"}
-    ELSE IF op.kind = "qrecv" /\ op.current /\ RStream THEN {"failed", "exhausted", "ended"}
     ELSE IF op.kind \in {"receive", "qrecv"} /\ op.current THEN {"failed", "exhausted"}
     ELSE IF op.kind = "receiveFrom" /\ op.current THEN {"exhausted"}
     \* A link's send over TCP may go short, and its receive end with no octets (rule 19, request
@@ -301,17 +295,13 @@ TlsSteps(st, op) ==
            [] OTHER -> {}
 
 \* What colibri may tell of a request connection: a step on what its receive brought, a stream
-\* answered or reset, one held, or its timer (EngineRequest.tla). Built here, after `Ev` (see
-\* there).
+\* answered or reset, or its timer (EngineRequest.tla). Built here, after `Ev` (see there).
 RequestEvents(st) ==
     UNION {{[Ev("quic") EXCEPT !.op = op, !.step = t] : t \in QuicSteps(st, op.target)} \cup
            {[Ev("quic") EXCEPT !.op = op, !.step = "answer", !.slot = l, !.reply = r] :
-                l \in Unheld(st, op.target), r \in {"answer", "servfail", "nxdomain"}} \cup
+                l \in st.rconns[op.target].streams, r \in {"answer", "servfail", "nxdomain"}} \cup
            {[Ev("quic") EXCEPT !.op = op, !.step = "reset", !.slot = l] :
-                l \in Unheld(st, op.target)} \cup
-           {[Ev("quic") EXCEPT !.op = op, !.step = "hold", !.slot = l, !.reply = r] :
-                l \in Holdable(st, op.target), r \in {"answer", "servfail", "nxdomain", "reset"}} :
-           op \in QReceives(st)} \cup
+                l \in st.rconns[op.target].streams} : op \in QReceives(st)} \cup
     {[Ev("qtime") EXCEPT !.server = v, !.step = t] : v \in QTimed(st), t \in {"retransmit", "timeout"}}
 
 \* What a channel may say at a read (EngineChannel.tla): open a link it has none of for its
@@ -349,7 +339,7 @@ Enabled(st) ==
         l \in {l \in 0..Slots - 1 : st.slots[l].lookup # {} /\ ~Ended(Get(st.slots[l].lookup).stage)}} \cup
     (IF WaitingSlots(st) # {} THEN {Ev("expire")} ELSE {}) \cup
     (IF \/ \E k \in 0..Conns - 1 : st.conns[k].stage # "closed" /\ st.conns[k].users = 0
-        \/ \E v \in 0..RServers - 1 : st.rconns[v].stage \in IdleStages /\ RUsers(st, v) = 0
+        \/ \E v \in 0..RServers - 1 : st.rconns[v].stage \in {"handshaking", "up"} /\ RUsers(st, v) = 0
         \/ \E v \in 0..CServers - 1 : st.chans[v].stage = "open" /\ CUsers(st, v) = 0
      THEN {Ev("idle")} ELSE {}) \cup
     RequestEvents(st) \cup ChannelEvents(st) \cup
@@ -363,7 +353,6 @@ Enabled(st) ==
            op \in DOMAIN st.ops} \cup
     {[Ev("straggle") EXCEPT !.op = op] : op \in {op \in DOMAIN st.ops : Receives(op) /\ ~op.current}} \cup
     {[Ev("lapse") EXCEPT !.server = v] : v \in {v \in 0..Servers - 1 : st.tickets[v]}} \cup
-    {[Ev("exhaust") EXCEPT !.server = v] : v \in Spendable(st)} \cup
     (IF st.jammed THEN {} ELSE {Ev("jam")}) \cup
     (IF st.starved THEN {} ELSE {Ev("starve")})
 

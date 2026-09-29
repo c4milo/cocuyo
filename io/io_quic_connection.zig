@@ -6,7 +6,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
 const constants = @import("io_quic_constants.zig");
-const h3_module = @import("io_quic_h3.zig");
 
 /// Where a connection is: not started, handshaking, up, failed and not yet told, or told.
 pub const Stage = enum { idle, handshaking, up, failed, done };
@@ -16,18 +15,13 @@ pub const Stage = enum { idle, handshaking, up, failed, done };
 pub fn start(self: anytype, context: anytype) error{Failed}!void {
     const Self = @TypeOf(self.*);
     assert(self.stage == .idle);
-    // A DoH server needs HTTP/3, which a connection without it cannot speak.
-    if (context.https != null and !Self.http3) return error.Failed;
-    self.* = .{ .stage = .handshaking, .https = context.https != null, .latest_ns = context.now_ns };
+    self.* = .{ .stage = .handshaking };
     context.context.stream.fill(&self.destination);
     context.context.stream.fill(&self.source);
-    if (comptime Self.http3) {
-        if (context.https) |https| try h3_module.start(self, https, &context.context.stream);
-    }
     try self.session.start(context);
     self.connection.init(.{
         .role = .client,
-        .local_parameters = parameters(Self.receive_bytes, self.https),
+        .local_parameters = parameters(Self.receive_bytes),
         .now_ns = context.now_ns,
         .identity = .{ .local_initial_source = &self.source, .original_destination = &self.destination },
         .receive = self.pool.storage(),
@@ -43,20 +37,15 @@ pub fn start(self: anytype, context: anytype) error{Failed}!void {
     read_deadline(self);
 }
 
-/// What this end tells the server it will take (RFC 9000 §18.2): a whole answer on each of our
-/// streams, and an idle timeout (RFC 9250 §4.4). Over DoQ no stream of the server's own (RFC 9250
-/// §4.2 has it open none). Over HTTP/3 its control and QPACK streams, with the credit RFC 9114 §6.2
-/// asks for.
-fn parameters(receive_bytes: usize, https: bool) quic.transport_parameters.Parameters {
+/// What this end tells the server it will take (RFC 9000 §18.2): no stream of the server's own
+/// (RFC 9250 §4.2 has it open none), a whole answer on each of ours, and an idle timeout (RFC 9250
+/// §4.4).
+fn parameters(receive_bytes: usize) quic.transport_parameters.Parameters {
     var local = quic.transport_parameters.Parameters.initial();
     local.max_idle_timeout_ms = constants.idle_timeout_ms;
     local.max_udp_payload_size = constants.datagram_receive_bytes;
     local.initial_max_data = receive_bytes;
     local.initial_max_stream_data_bidi_local = @min(constants.answer_bytes_max, receive_bytes);
-    if (https) {
-        local.initial_max_streams_uni = constants.h3_peer_uni_streams;
-        local.initial_max_stream_data_uni = constants.h3_peer_uni_stream_bytes;
-    }
     return local;
 }
 
@@ -64,7 +53,6 @@ fn parameters(receive_bytes: usize, https: bool) quic.transport_parameters.Param
 /// connection, and `next` says so.
 pub fn receive(self: anytype, bytes: []const u8, now_ns: u64) void {
     if (self.stage != .handshaking and self.stage != .up) return;
-    self.latest_ns = now_ns;
     if (bytes.len > self.inbound.len) return;
     @memcpy(self.inbound[0..bytes.len], bytes);
     _ = quic.connection_datagram.receive(
@@ -99,24 +87,14 @@ pub fn next(self: anytype, out: []u8) ?@TypeOf(self.*).Next {
     return said(self, out) orelse ticket(self);
 }
 
-/// The handshake ended, on the protocol the provider says. A connection that speaks HTTP/3
-/// starts `h3` then, and one `h3` refuses to start closes.
+/// The handshake ended, on the protocol the provider says.
 fn up(self: anytype) @TypeOf(self.*).Next {
     self.stage = .up;
-    if (comptime @TypeOf(self.*).http3) {
-        if (self.https) h3_module.up(self) catch {
-            self.stage = .done;
-            return .closed;
-        };
-    }
     return .{ .up = self.session.provider().negotiated_alpn() orelse "" };
 }
 
-/// What a stream said: over DoQ read off colibri's streams, over HTTP/3 from `h3`'s events.
+/// What a stream said, read off colibri's streams.
 fn said(self: anytype, out: []u8) ?@TypeOf(self.*).Next {
-    if (comptime @TypeOf(self.*).http3) {
-        if (self.https) return h3_module.next(self, out);
-    }
     const told = self.streams.next(&self.connection, out) orelse return null;
     return switch (told) {
         .answered => |answered| .{ .answered = .{ .stream = answered.stream, .len = answered.len } },
@@ -143,13 +121,6 @@ fn ended(self: anytype) bool {
 /// yet.
 pub fn request(self: anytype, bytes: []const u8) error{Failed}!?u64 {
     assert(self.stage == .up);
-    if (comptime @TypeOf(self.*).http3) {
-        if (self.https) {
-            const opened = h3_module.request(self, bytes) catch return fail(self);
-            read_deadline(self);
-            return opened;
-        }
-    }
     const opened = self.streams.open(&self.connection, bytes) catch return fail(self);
     read_deadline(self);
     return opened;
@@ -157,12 +128,6 @@ pub fn request(self: anytype, bytes: []const u8) error{Failed}!?u64 {
 
 /// STOP_SENDING and a reset of this end's side, with DOQ_REQUEST_CANCELLED (RFC 9250 §4.3.1).
 pub fn cancel(self: anytype, stream: u64) void {
-    if (comptime @TypeOf(self.*).http3) {
-        if (self.https) {
-            h3_module.cancel(self, stream);
-            return read_deadline(self);
-        }
-    }
     self.streams.cancel(&self.connection, stream);
     read_deadline(self);
 }
@@ -171,12 +136,11 @@ pub fn cancel(self: anytype, stream: u64) void {
 /// connection, and `next` says so.
 pub fn datagram(self: anytype, out: []u8, now_ns: u64) usize {
     if (self.stage == .idle or self.stage == .done) return 0;
-    self.latest_ns = now_ns;
     const sent = quic.connection_send.send(
         &self.connection,
         self.session.suite(),
         self.session.provider(),
-        provider_of(self),
+        self.streams.provider(),
         &self.send_scratch,
         out,
         now_ns,
@@ -189,19 +153,9 @@ pub fn datagram(self: anytype, out: []u8, now_ns: u64) usize {
     return if (sent) |made| made.len else 0;
 }
 
-/// Where colibri reads the streams' octets: every request's from its slot, and over HTTP/3 the
-/// control and QPACK streams' from `h3`, which wraps the slots' provider.
-fn provider_of(self: anytype) quic.stream.stream_provider.StreamProvider {
-    if (comptime @TypeOf(self.*).http3) {
-        if (self.https) return self.h3.connection.provider(self.streams.provider());
-    }
-    return self.streams.provider();
-}
-
 /// The instant came: colibri resends what was lost, or closes an idle connection.
 pub fn expire(self: anytype, now_ns: u64) void {
     if (self.stage == .idle or self.stage == .done) return;
-    self.latest_ns = now_ns;
     _ = quic.connection_timer.on_instant(&self.connection, self.session.suite(), &self.scratch.recovery, now_ns) catch {
         self.stage = .failed;
     };
@@ -215,14 +169,8 @@ pub fn idle_left_ns(self: anytype, now_ns: u64) u64 {
     return due -| now_ns;
 }
 
-/// The CONNECTION_CLOSE of an idle close, with DOQ_NO_ERROR (RFC 9250 §4.4), or HTTP/3's own.
+/// The CONNECTION_CLOSE of an idle close, with DOQ_NO_ERROR (RFC 9250 §4.4).
 pub fn close(self: anytype) void {
-    if (comptime @TypeOf(self.*).http3) {
-        if (self.https) {
-            h3_module.close(self);
-            return read_deadline(self);
-        }
-    }
     quic.connection_close.owe(&self.connection, .{
         .layer = .application,
         .error_code = constants.doq_no_error,

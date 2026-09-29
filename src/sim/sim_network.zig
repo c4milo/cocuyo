@@ -59,11 +59,8 @@ pub const Connection = struct {
     /// The server side of the twin's TLS, on a connection to the TLS port (sim_tls.zig).
     tls: ?tls_module.Peer = null,
     /// Whether it carries the twin's QUIC in frames, on a connection to the HTTPS port
-    /// (sim_quic_stream.zig): DoH over HTTP/2, as the twin runs it.
+    /// (sim_quic_stream.zig): a channel's TCP link, as the twin runs it.
     request: bool = false,
-    /// The server ended its side: once what it sent before is read, a receive ends with no
-    /// octets, as TCP's does.
-    ended: bool = false,
 };
 
 /// What a stream to a scripted server carries, by the port it went to.
@@ -90,9 +87,9 @@ pub const Responder = struct {
 };
 
 /// A server a test puts on a scripted server's HTTPS port in place of the twin's QUIC over TCP
-/// (docs/design.md §24, DoH over HTTP/2): it is told of each connection there as it opens, which
-/// may be on a socket an earlier one used, handed every octet a connection sends, and answers with
-/// `Network.write_stream`. A test in `io/` brings colibri's HTTP/2 server this way.
+/// (docs/design.md §24, DoH over colibri's client): it is told of each connection there as it
+/// opens, which may be on a socket an earlier one used, handed every octet a connection sends, and
+/// answers with `Network.write_stream`. A test in `io/` brings colibri's server this way.
 pub const StreamResponder = struct {
     context: *anyopaque,
     opened: *const fn (context: *anyopaque, socket: Descriptor) void,

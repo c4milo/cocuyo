@@ -1,9 +1,9 @@
 //! What a scripted server does with a datagram of the twin's QUIC (docs/design.md §24): each item
 //! it carries is heard by the server's side of the connection, and what the server says goes back
-//! as datagrams to the socket the datagram came from. Over TCP, as DoH over HTTP/2 runs, the items
-//! come in frames on a connection to the server's HTTPS port, and go back as frames on it
-//! (sim_quic_stream.zig). Split from `sim_loop_perform.zig`, which routes a datagram to a server's
-//! QUIC port here, and a stream's octets to the HTTPS port.
+//! as datagrams to the socket the datagram came from. Over TCP, as the twin's channel writes a TCP
+//! link's items, they come in frames on a connection to the server's HTTPS port, and go back as
+//! frames on it (sim_quic_stream.zig). Split from `sim_loop_perform.zig`, which routes a datagram
+//! to a server's QUIC port here, and a stream's octets to the HTTPS port.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -105,23 +105,12 @@ fn answer_request(loop: *Loop, reply: Reply, script: *const server.Script, strea
     goaway_on_take(reply, script, loop.now_ns + script.delay_ns_min);
     switch (script.quic.instead) {
         .answer => {},
-        .end_stream => if (reply.connection) |connection| {
-            connection.ended = true;
-            connection.available_at_ns = @max(connection.available_at_ns, loop.now_ns + script.delay_ns_min);
-            return;
-        } else {
-            const out = queue(reply, loop.now_ns + script.delay_ns_min) orelse return;
-            return said(out, quic.write_item(.{ .kind = .closed, .stream = stream }, out.bytes));
-        },
         .reset, .close => {
             const kind: quic.Kind = if (script.quic.instead == .reset) .reset else .closed;
             const out = queue(reply, loop.now_ns + script.delay_ns_min) orelse return;
             said(out, quic.write_item(.{ .kind = kind, .stream = stream }, out.bytes));
             return;
         },
-    }
-    if (speaks_http(entry.peer.negotiated(&script.quic))) {
-        return answer_http(loop, reply, script, stream, bytes);
     }
     const prefix = core.constants.tcp_prefix_bytes;
     // A request carries one message after its prefix (RFC 9250 §4.2); the twin answers no other.
@@ -136,12 +125,6 @@ fn answer_request(loop: *Loop, reply: Reply, script: *const server.Script, strea
     said(out, quic.write_item(.{ .kind = .answer, .stream = stream, .bytes = message[0..len] }, out.bytes));
 }
 
-/// Whether a connection's protocol answers a request as a DoH server does: HTTP/3, or HTTP/2 over
-/// the twin's TCP.
-fn speaks_http(protocol: []const u8) bool {
-    return std.mem.eql(u8, protocol, constants.quic_alpn_h3) or std.mem.eql(u8, protocol, constants.alpn_h2);
-}
-
 /// A GOAWAY once the server has taken its first request on the connection, when the script says it
 /// stops taking streams: it names the streams it took, and answers them (RFC 9114 §5.2). It goes
 /// at the shortest delay, ahead of any answer.
@@ -151,21 +134,6 @@ fn goaway_on_take(reply: Reply, script: *const server.Script, due_ns: u64) void 
     entry.peer.goaway_sent = true;
     const out = queue(reply, due_ns) orelse return;
     said(out, quic.write_item(.{ .kind = .goaway }, out.bytes));
-}
-
-/// A DoH request carries the message alone (RFC 8484 §4.1), and its answer goes back as a
-/// response: what the script says of it, then the message.
-fn answer_http(loop: *Loop, reply: Reply, script: *const server.Script, stream: u32, bytes: []const u8) void {
-    const entry = reply.entry;
-    var message: [constants.quic_datagram_bytes_max]u8 = undefined;
-    const header = constants.quic_http_header_bytes;
-    const room = message[header .. message.len - constants.quic_item_header_bytes];
-    const from = quic_address(entry.server);
-    const answered = server.respond(script, &from, bytes, true, perform.draw(loop), room) orelse return;
-    quic.write_http(script.quic.http, message[0..header]);
-    const out = queue(reply, loop.now_ns + answered.delay_ns) orelse return;
-    const item: quic.Item = .{ .kind = .response, .stream = stream, .bytes = message[0 .. header + answered.len] };
-    said(out, quic.write_item(item, out.bytes));
 }
 
 /// Writes the prefix, and breaks the answer as the script says: a prefix one octet short of the

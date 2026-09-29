@@ -122,10 +122,6 @@ pub const tls_ticket_age_ns_max = 7 * 24 * 60 * 60 * 1_000_000_000;
 /// (docs/design.md §24, request rules 1 and 8).
 pub const loop_operations_per_quic_connection = 2;
 
-/// What one request connection over TCP asks of the loop: its connect, its receive, and the send of
-/// its octets (docs/design.md §24, request rules 14 and 15).
-pub const loop_operations_per_h2_connection = 3;
-
 /// A channel's operations in the loop at once: its QUIC link's receive and send, and its TCP link's
 /// connect, receive and send (docs/design.md §24, rule 19).
 pub const loop_operations_per_channel = 5;
@@ -157,22 +153,10 @@ pub const quic_connection_events_max = 16;
 /// The ALPN token of DoQ (RFC 9250 §4.1).
 pub const quic_alpn_doq = "doq";
 
-/// The ALPN token of HTTP/3, which DoH goes over (RFC 9114 §3.2).
-pub const quic_alpn_h3 = "h3";
-
-/// The ALPN token of HTTP/2 over TLS, which DoH goes over when HTTP/3 does not (RFC 9113 §3.2).
-pub const alpn_h2 = "h2";
-
 /// The port a DoH server's connection goes to when its template names none: "If the port
 /// subcomponent is empty or not given, TCP port 443 ... is the default" (RFC 9110 §4.2.2), and
 /// HTTP/3 goes to "the indicated port" over UDP (RFC 9114 §3.1).
 pub const port_https_default = 443;
-
-/// The successful status codes: "The 2xx (Successful) class of status code indicates that the
-/// client's request was successfully received, understood, and accepted" (RFC 9110 §15.3), and a
-/// DoH answer comes in one alone (RFC 8484 §4.2.1).
-pub const http_status_success_first = 200;
-pub const http_status_success_last = 299;
 
 /// A second and a millisecond, in nanoseconds: chapulin's clock is Unix seconds, and a resumed
 /// hello states a ticket's age in milliseconds (RFC 9846 §4.3.11.1).

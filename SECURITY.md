@@ -28,7 +28,7 @@ or anyone who can put packets on the network, can make cocuyo do that it should 
   in scope.
 - An answer taken from a message that is not the answer: a wrong transaction id, source address,
   question or cookie that cocuyo accepts anyway.
-- The engine in `io/`, exported as `cocuyo_rotor`, `cocuyo_quic` and `cocuyo_h2`. A server that
+- The engine in `io/`, exported as `cocuyo_rotor`, `cocuyo_quic` and `cocuyo_doh`. A server that
   strict mode should refuse (RFC 8310 §5) and that cocuyo asks anyway is in scope, as is a ticket or
   a pin used where it should not be.
 

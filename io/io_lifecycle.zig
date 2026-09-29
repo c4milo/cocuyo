@@ -57,9 +57,7 @@ pub fn reinit(self: anytype, config: *const cocuyo.Config, seed: u64, now_ns: u6
     tcp.close_all(self);
     self.tcp_connection = @splat(null);
     request_tend.cancel_all(self, &self.quic);
-    request_tend.cancel_all(self, &self.h2);
     request_tend.close_all(&self.quic);
-    request_tend.close_all(&self.h2);
     channel_link.cancel_all(self);
     channel_link.close_all(self);
     channel_module.forget_all(self);
@@ -71,7 +69,6 @@ pub fn reinit(self: anytype, config: *const cocuyo.Config, seed: u64, now_ns: u6
     // request rule 10).
     self.tls_tickets = @splat(null);
     self.quic.tickets = @splat(null);
-    self.h2.tickets = @splat(null);
     reset_tables(self, config, seed);
     try self.sockets.open(self.loop, config, seed, @TypeOf(self.*).tag);
 }

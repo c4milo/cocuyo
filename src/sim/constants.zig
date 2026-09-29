@@ -110,8 +110,8 @@ pub const dice_delay_shift = 32;
 /// for DNS over TLS alone.
 pub const server_tls_port = core.constants.port_dns_tls_default;
 
-/// The port a scripted server speaks the twin's QUIC on over TCP, as DoH over HTTP/2 runs: TCP's
-/// 443, which is where a DoH template that names no port goes (RFC 9110 §4.2.2).
+/// The port a scripted server hears the twin's QUIC on over TCP, as a channel's TCP link writes it:
+/// TCP's 443, which is where a DoH template that names no port goes (RFC 9110 §4.2.2).
 pub const server_https_port = 443;
 
 /// The twin's TLS records keep the shape of a real one (RFC 9846 §5.1): a content type, two
@@ -163,11 +163,6 @@ pub const quic_items_per_datagram_max = quic_datagram_bytes_max / quic_item_head
 pub const quic_pending_bytes_max = 16384;
 pub const quic_pending_reserve_bytes = 2048;
 
-/// What the twin's transport over TCP keeps of the stream until it reads it (sim_quic_stream.zig):
-/// a frame short of its last octet, 1,233 octets at most, and one of the engine's chunks after it,
-/// 2,048 octets in `io/constants.zig`. Doubled to a power of two, chosen and not measured.
-pub const quic_stream_partial_bytes_max = 8192;
-
 /// The distance between two of a client's bidirectional streams: 0, 4, 8, and on (RFC 9000 §2.1).
 pub const quic_stream_step = 4;
 
@@ -176,20 +171,6 @@ pub const quic_stream_step = 4;
 /// connection of the engine's offers (RFC 7301 §6).
 pub const quic_alpn_bytes_max = 16;
 pub const quic_alpn_other = "http/1.1";
-
-/// The ALPN token of HTTP/3 (RFC 9114 §3.2): a scripted server that negotiates it answers a
-/// request as a DoH server does.
-pub const quic_alpn_h3 = "h3";
-
-/// The ALPN token of HTTP/2 over TLS (RFC 9113 §3.2): a scripted server that negotiates it over
-/// TCP answers a request as a DoH server does.
-pub const alpn_h2 = "h2";
-
-/// What goes before a response's content in the twin's item: two octets of status, four of
-/// `Age`, and one saying whether the content is a DNS message (sim_quic.zig).
-pub const quic_http_header_bytes = 7;
-pub const quic_http_age_at = 2;
-pub const quic_http_message_at = 6;
 
 /// The exchanges the twin's channel holds at once, as colibri's channel holds 16
 /// (sim_channel.zig): past them a request waits in the engine's queue (docs/design.md §24,
@@ -201,5 +182,5 @@ pub const channel_exchanges_max = 16;
 pub const channel_steps_max = 16;
 
 /// The octets the twin's channel writes on a link at once: one item of the twin's QUIC with
-/// nothing after its header, framed over TCP as the twin's transport over TCP frames one.
+/// nothing after its header, framed over TCP as `sim_quic_stream.zig` frames one.
 pub const channel_output_bytes_max = core.constants.tcp_prefix_bytes + quic_item_header_bytes;

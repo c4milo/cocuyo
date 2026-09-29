@@ -121,13 +121,10 @@ The architecture depends on every rule in this section.
   twin, and to rotor itself for `zig build bench-cares` alone. It is exported as `cocuyo_rotor`,
   whose type is `Resolver`, into the caller's loop: the consumer binds its `rotor` import
   (design §24). One engine runs on each loop and one loop on each core, and nothing is shared
-  between them. `io/io_quic.zig` and the files beside it are `cocuyo_quic`, colibri's QUIC and
-  HTTP/3 under the engine's request interface: a module of its own, whose `quic` import a
-  consumer that speaks DoQ or DoH binds to colibri's, and whose `h3` import one that speaks DoH
-  binds too, so `cocuyo_rotor` never imports colibri. `io/io_h2.zig` and the files beside it are
-  `cocuyo_h2`, colibri's HTTP/2 under the same interface, whose `h2` import a consumer that
-  speaks DoH over HTTP/2 binds (design §16 decision 30). `io/io_doh.zig` is `doh`, what both
-  HTTP transports share of DoH: the URI template, the reading of a response and their limits.
+  between them. `io/io_quic.zig` and the files beside it are `cocuyo_quic`, colibri's QUIC under
+  the engine's request interface: a module of its own, whose `quic` import a consumer that speaks
+  DoQ binds to colibri's, so `cocuyo_rotor` never imports colibri. `io/io_doh.zig` is `doh`, the
+  DNS half of DoH: the URI template, the reading of a response and their limits.
   `io/io_doh_channel.zig` and the files beside it are `cocuyo_doh`, colibri's `client.Channel`
   under the engine's DoH interface, whose `client` and `tls` imports a consumer that speaks DoH
   binds to colibri's (design §16 decision 33). Its tests run colibri's server under the TLS
@@ -152,10 +149,10 @@ The architecture depends on every rule in this section.
 - Adding a dependency. The library has none and is meant to keep it that way. pepegrillo is a
   ruled dependency of the tools, approved by the owner on 2026-09-21: `build.zig.zon` pins it by
   hash as a lazy dependency, the tools import it, and it is never linked into the library.
-  colibri is a ruled dependency of `cocuyo_quic`, `cocuyo_h2`, the engine's tests and the DoT and
-  DoQ sessions, approved by the owner on 2026-09-25 (design §16 decision 29), for `cocuyo_h2` on
-  2026-09-26 (decision 30) and for the sessions on 2026-09-27 (decision 32): `build.zig.zon` pins
-  it by hash as a lazy dependency, only the root build requests it, and nothing under `src/`
+  colibri is a ruled dependency of `cocuyo_quic`, `cocuyo_doh`, the engine's tests and the DoT
+  and DoQ sessions, approved by the owner on 2026-09-25 (design §16 decision 29), for the sessions
+  on 2026-09-27 (decision 32) and for `cocuyo_doh` on 2026-09-28 (decision 33): `build.zig.zon`
+  pins it by hash as a lazy dependency, only the root build requests it, and nothing under `src/`
   imports it. AdGuard's dnsproxy is a
   ruled dependency of the interop check alone, approved by the owner on 2026-09-25 (c4milo/cocuyo#16):
   the `interop` workflow fetches a pinned release and checks its SHA-256, and nothing builds,
@@ -170,9 +167,10 @@ The architecture depends on every rule in this section.
   platform resolver configuration of §14. DoT and DoH were decided in on 2026-09-23: DoT in the
   engine, over rotor with chapulin's non-blocking record transport, strict by default (RFC 8310);
   DoH's DNS half in `src/`. DNS over QUIC (RFC 9250) joined the same day, its DNS half in `src/`
-  too. Since the owner's ruling of 2026-09-25 both are carried by the engine, over colibri's
-  HTTP/3 and QUIC with chapulin's QUIC mode (design §24), and since 2026-09-27 DoT's TLS goes
-  through colibri's `tls` too (decision 32). The library in `src/` depends on
+  too. Since the owner's ruling of 2026-09-25 both are carried by the engine over colibri: DoQ
+  over its QUIC with chapulin's QUIC mode (design §24), and since 2026-09-28 DoH over its
+  `client.Channel` (decision 33). Since 2026-09-27 DoT's TLS goes through colibri's `tls` too
+  (decision 32). The library in `src/` depends on
   nothing; the engine may use colibri, and colibri's library never uses cocuyo. The cache (§18)
   and the gap with c-ares (§19: every record type, cookies, the hosts file, failover, the engine
   over rotor) were decided in on 2026-09-22; what §19 lists as out stays out.
@@ -193,7 +191,7 @@ The architecture depends on every rule in this section.
   and a build of their examples, and the tools' own tests. Every change passes it before it is
   committed. `zig build test-<module>` (`test-core`, `test-wire`, `test-resolver`, `test-config`,
   `test-cache`, `test-sim`, `test-cocuyo`, `test-io`, `test-chapulin_hooks`, `test-doh`,
-  `test-cocuyo_quic`, `test-cocuyo_h2`, `test-cocuyo_doh`, `test-chapulin`, `test-chapulin-quic`)
+  `test-cocuyo_quic`, `test-cocuyo_doh`, `test-chapulin`, `test-chapulin-quic`)
   and `zig build test-tools` run one target's tests with nothing else in the graph, which is what
   a mutation is measured against. `zig build consumer-check` alone builds `test/consumer/`, the
   package that depends on cocuyo the way a consumer does, with `cocuyo_rotor` over a rotor of its

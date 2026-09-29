@@ -35,42 +35,10 @@ pub const Kind = enum(u8) {
     answer,
     reset,
     closed,
-    // The server's, over HTTP/3: a response's status, `Age` and media type, then its content; and
-    // a GOAWAY (RFC 9114 §5.2).
-    response,
+    // The server's: a GOAWAY, which no DoQ server sends (RFC 9250), for the engine's drain
+    // (docs/design.md §24, request rule 13).
     goaway,
-    // The server's, for the replay: one item, an answer or a reset, which the connection keeps and
-    // tells at its next read, as colibri's HTTP/2 keeps frames it cannot read yet (docs/design.md
-    // §24, request rule 17).
-    hold,
 };
-
-/// What a response says of its content (docs/design.md §24, DoH over HTTP/3): its status, its
-/// `Age`, and whether it is a DNS message in no content coding. A scripted server's says what its
-/// script does.
-pub const Http = struct { status: u16 = http_status_ok, age_seconds: u32 = 0, dns_message: bool = true };
-
-/// "The 200 (OK) status code indicates that the request has succeeded" (RFC 9110 §15.3.1).
-const http_status_ok = 200;
-
-/// Writes `http` into the first `quic_http_header_bytes` of `out`: the status, the `Age`, and
-/// whether the content is a DNS message.
-pub fn write_http(http: Http, out: []u8) void {
-    assert(out.len >= constants.quic_http_header_bytes);
-    std.mem.writeInt(u16, out[0..@sizeOf(u16)], http.status, .big);
-    std.mem.writeInt(u32, out[constants.quic_http_age_at..][0..@sizeOf(u32)], http.age_seconds, .big);
-    out[constants.quic_http_message_at] = @intFromBool(http.dns_message);
-}
-
-/// What `write_http` wrote, or null when `bytes` is too short to hold it.
-pub fn read_http(bytes: []const u8) ?Http {
-    if (bytes.len < constants.quic_http_header_bytes) return null;
-    return .{
-        .status = std.mem.readInt(u16, bytes[0..@sizeOf(u16)], .big),
-        .age_seconds = std.mem.readInt(u32, bytes[constants.quic_http_age_at..][0..@sizeOf(u32)], .big),
-        .dns_message = bytes[constants.quic_http_message_at] != 0,
-    };
-}
 
 pub const Item = struct { kind: Kind, stream: u32 = 0, bytes: []const u8 = &.{} };
 
@@ -98,17 +66,11 @@ pub fn read_item(bytes: []const u8) ?Read {
     return .{ .item = .{ .kind = kind, .stream = stream, .bytes = bytes[header_bytes..][0..length] }, .len = header_bytes + length };
 }
 
-/// The client: a connection with the functions the engine asks of one (docs/design.md §24).
-/// The same transport over TCP, as DoH over HTTP/2 runs, and its frames (`sim_quic_stream.zig`).
-pub const tcp = @import("sim_quic_stream.zig");
 const peer_module = @import("sim_quic_peer.zig");
-pub const Stream = tcp.Stream;
 
+/// The client: a connection with the functions the engine asks of one (docs/design.md §24).
 pub const Connection = struct {
     pub const enabled = true;
-    pub const http3 = true;
-    /// A datagram at a time, as QUIC's are (docs/design.md §24, the request interface).
-    pub const socket = .datagram;
     pub const output_bytes_max = constants.quic_datagram_bytes_max;
     pub const request_bytes_max = core.constants.query_bytes_max;
     pub const Error = error{Failed};
@@ -116,7 +78,7 @@ pub const Connection = struct {
     pub const Context = struct {};
     /// A ticket the server gave. The twin's carries nothing: it only has to be kept and spent.
     pub const Ticket = struct {};
-    pub const Answered = struct { stream: u64, len: usize, http: ?Http = null };
+    pub const Answered = struct { stream: u64, len: usize };
     pub const Next = union(enum) { up: []const u8, refused, answered: Answered, reset: u64, closed, goaway, ticket: Ticket };
     /// What an expiry does, as the replay or a test sets it: the connection resends what the
     /// server has not acknowledged, or gives up.
@@ -140,15 +102,6 @@ pub const Connection = struct {
     timed_out: bool = false,
     /// How long before the idle timeout it negotiated: never near, unless a test says so.
     idle_left: u64 = std.math.maxInt(u64),
-    /// The item a `hold` carried, told at the read after the one that brought it, and whether that
-    /// read has ended (request rule 17).
-    held: [output_bytes_max]u8 = undefined,
-    held_len: usize = 0,
-    held_ready: bool = false,
-    /// Whether its stream identifiers have run out, as the replay says, and the GOAWAY it owes the
-    /// engine's next read since a request was refused for it (RFC 9113 §5.1.1, request rule 17).
-    spent: bool = false,
-    goaway_owed: bool = false,
 
     /// Stages the hello, a resumed one when the engine hands over a ticket, offering the ALPN the
     /// engine names.
@@ -174,15 +127,9 @@ pub const Connection = struct {
         self.inbound_at = 0;
     }
 
-    /// What the datagram, or the expiry, did, one thing at a time, after what it held: a held item,
-    /// then a GOAWAY a refused request owes (request rule 17). An answer's octets go into `out`, as
-    /// many as fit, and it says how many there were.
+    /// What the datagram, or the expiry, did, one thing at a time. An answer's octets go into
+    /// `out`, as many as fit, and it says how many there were.
     pub fn next(self: *Connection, out: []u8) ?Next {
-        if (self.told_held(out)) |said| return said;
-        if (self.goaway_owed) {
-            self.goaway_owed = false;
-            return .goaway;
-        }
         if (self.timed_out) {
             self.timed_out = false;
             self.state = .dead;
@@ -200,18 +147,7 @@ pub const Connection = struct {
             self.inbound_at += read.len;
             if (self.hear(read.item, out)) |said| return said;
         }
-        // The read that brought a held item ends here, and the next one tells it.
-        self.held_ready = self.held_len > 0;
         return null;
-    }
-
-    /// The item a `hold` carried, once the read that brought it has ended.
-    fn told_held(self: *Connection, out: []u8) ?Next {
-        if (self.held_len == 0 or !self.held_ready) return null;
-        const read = read_item(self.held[0..self.held_len]) orelse unreachable;
-        self.held_len = 0;
-        self.held_ready = false;
-        return self.hear(read.item, out);
     }
 
     fn hear(self: *Connection, item: Item, out: []u8) ?Next {
@@ -238,14 +174,6 @@ pub const Connection = struct {
                 @memcpy(out[0..copied], item.bytes[0..copied]);
                 return .{ .answered = .{ .stream = item.stream, .len = item.bytes.len } };
             },
-            .response => {
-                self.owes = true;
-                const http = read_http(item.bytes) orelse return self.lost();
-                const content = item.bytes[constants.quic_http_header_bytes..];
-                const copied = @min(content.len, out.len);
-                @memcpy(out[0..copied], content[0..copied]);
-                return .{ .answered = .{ .stream = item.stream, .len = content.len, .http = http } };
-            },
             .reset => {
                 self.owes = true;
                 return .{ .reset = item.stream };
@@ -253,12 +181,6 @@ pub const Connection = struct {
             .goaway => {
                 self.owes = true;
                 return .goaway;
-            },
-            .hold => {
-                if (self.held_len > 0 or item.bytes.len > self.held.len) return self.lost();
-                @memcpy(self.held[0..item.bytes.len], item.bytes);
-                self.held_len = item.bytes.len;
-                self.held_ready = false;
             },
             .closed => return self.lost(),
             // A client's item from the server is a protocol error.
@@ -268,15 +190,10 @@ pub const Connection = struct {
     }
 
     /// Opens a stream carrying `bytes[0..len]`, then FIN. Null when the items it holds leave no
-    /// room, which the engine reads as the server's credit run out, or when its stream identifiers
-    /// have run out, which it says at the next read as a GOAWAY (request rule 17).
+    /// room, which the engine reads as the server's credit run out.
     pub fn request(self: *Connection, bytes: []u8, len: usize) Error!?u64 {
         assert(self.state == .up);
         assert(len <= bytes.len);
-        if (self.spent) {
-            self.goaway_owed = true;
-            return null;
-        }
         const room = self.pending.len - self.pending_len;
         if (room < header_bytes + len + constants.quic_pending_reserve_bytes) return null;
         const stream = self.next_stream;
@@ -285,18 +202,9 @@ pub const Connection = struct {
         return stream;
     }
 
-    /// STOP_SENDING, and the engine's side of the stream reset. What it held of the stream tells
-    /// nobody, and goes with it.
+    /// STOP_SENDING, and the engine's side of the stream reset.
     pub fn cancel(self: *Connection, stream: u64) void {
-        if (self.held_stream() == stream) self.held_len = 0;
         self.add(.{ .kind = .stop_sending, .stream = @intCast(stream) });
-    }
-
-    /// The stream whose answer or reset it holds, if any.
-    pub fn held_stream(self: *const Connection) ?u64 {
-        if (self.held_len == 0) return null;
-        const read = read_item(self.held[0..self.held_len]) orelse unreachable;
-        return read.item.stream;
     }
 
     /// The next datagram it owes, as many whole items as fit, or nothing. One owed with nothing
@@ -453,32 +361,4 @@ test "a refused handshake, a close, an unknown item and an expiry each end the c
     resending.expire(5);
     try testing.expectEqual(@as(?Connection.Next, null), resending.next(&.{}));
     try testing.expect(resending.output(&scratch, 5) > 0);
-}
-
-test "a held item is told at the read after the one that brought it, and none once its stream is cancelled" {
-    // colibri's HTTP/2 keeps frames it cannot read yet, which the engine's next read hears
-    // (docs/design.md §24, request rule 17).
-    var client: Connection = .{ .state = .up };
-    var scratch: [Connection.output_bytes_max]u8 = undefined;
-    var inner: [Connection.output_bytes_max]u8 = undefined;
-    const held = inner[0..write_item(.{ .kind = .reset, .stream = 4 }, &inner)];
-    try client.receive(datagram_of(&.{.{ .kind = .hold, .bytes = held }}, &scratch), 0);
-    try testing.expectEqual(@as(?Connection.Next, null), client.next(&.{}));
-    try testing.expectEqual(@as(?u64, 4), client.held_stream());
-    try testing.expectEqual(@as(u64, 4), client.next(&.{}).?.reset);
-    try testing.expectEqual(@as(?Connection.Next, null), client.next(&.{}));
-    try client.receive(datagram_of(&.{.{ .kind = .hold, .bytes = held }}, &scratch), 0);
-    try testing.expectEqual(@as(?Connection.Next, null), client.next(&.{}));
-    client.cancel(4);
-    try testing.expectEqual(@as(?Connection.Next, null), client.next(&.{}));
-}
-
-test "a connection whose stream identifiers ran out opens no stream, and says GOAWAY at the next read" {
-    // "A client that is unable to establish a new stream identifier can establish a new
-    // connection for new streams" (RFC 9113 §5.1.1, request rule 17).
-    var client: Connection = .{ .state = .up, .spent = true };
-    var bytes = [_]u8{ 0, 2, 'h', 'i' };
-    try testing.expectEqual(@as(?u64, null), try client.request(&bytes, bytes.len));
-    try testing.expect(client.next(&.{}).? == .goaway);
-    try testing.expectEqual(@as(?Connection.Next, null), client.next(&.{}));
 }

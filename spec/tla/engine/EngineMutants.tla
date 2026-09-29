@@ -1,7 +1,7 @@
 ---------------------------- MODULE EngineMutants -----------------------------
 \* The engine's rules broken on purpose, one operator each: the TLS rules as docs/mutations.md's
 \* TM1 to TM3 and R8a to R8d broke the Lean model and R4a and R4b break rule 4's alert, the
-\* stream's rule 9 as TQ1 breaks it, the request rules of §24 as RQ1 to RQ22 break them, and the
+\* stream's rule 9 as TQ1 breaks it, the request rules of §24 as RQ1 to RQ15 break them, and the
 \* channel's rules as CH1 to CH10 do. A configuration in mutants/ puts one in place of the rule
 \* with TLC's `Rule <- Mutant`, and TLC must find the check that catches it.
 EXTENDS Engine
@@ -184,10 +184,8 @@ CloseIdleRBusy(st) == CloseIdleRBusyFrom(st, 0)
 ShutRStillOwes(st, v) ==
     LET c == st.rconns[v] IN
     [[st EXCEPT !.ops = MapBag(@, LAMBDA op :
-        IF op.kind \in {"qsend", "qrecv", "rconnect"} /\ op.target = v
-        THEN [op EXCEPT !.current = FALSE] ELSE op)]
-     EXCEPT !.rconns[v] = [NoRConn EXCEPT !.lent = c.lent, !.connectLent = c.connectLent,
-                                          !.owes = c.owes]]
+        IF op.kind \in {"qsend", "qrecv"} /\ op.target = v THEN [op EXCEPT !.current = FALSE]
+        ELSE op)] EXCEPT !.rconns[v] = [NoRConn EXCEPT !.lent = c.lent, !.owes = c.owes]]
 
 RECURSIVE TendRConnsTwiceFrom(_, _)
 TendRConnsTwiceFrom(st, v) ==
@@ -222,68 +220,6 @@ TakeRequestOnDraining(st, l) ==
          [] c.stage \in {"up", "draining"} -> [taken EXCEPT !.rconns[v].streams = @ \cup {l},
                                                           !.rconns[v].owes = TRUE]
          [] OTHER -> [taken EXCEPT !.rconns[v].queue = Append(@, l)]
-
-\* RQ16: a connection opens again while a connect of an earlier opening still borrows the slot's
-\* address (request rule 14).
-OpenRAtOnce(st, v, queue) ==
-    IF st.starved THEN FailRequestsFrom(st, v, 0)
-    ELSE IF RStream THEN ConnectR(st, v, queue)
-    ELSE
-    LET opened == [st EXCEPT !.rconns[v].stage = "handshaking", !.rconns[v].queue = queue,
-                             !.rconns[v].owes = TRUE, !.rconns[v].resumed = st.tickets[v],
-                             !.rconns[v].idleNow = FALSE, !.tickets[v] = FALSE]
-    IN QListen(opened, v)
-
-\* RQ17: a connection's receive is armed with its connect, before the connect has succeeded
-\* (request rule 14).
-ConnectRListening(st, v, queue) ==
-    IF st.jammed THEN FailRequestsFrom(st, v, 0)
-    ELSE QListen([st EXCEPT !.rconns[v].stage = "connecting", !.rconns[v].queue = queue,
-                            !.rconns[v].idleNow = FALSE, !.rconns[v].connectLent = TRUE,
-                            !.ops = Add(@, Op("rconnect", v))], v)
-
-\* RQ18: the transport makes its first flight with the connect, before the connect has succeeded
-\* (request rule 14).
-ConnectROwing(st, v, queue) ==
-    IF st.jammed THEN FailRequestsFrom(st, v, 0)
-    ELSE [st EXCEPT !.rconns[v].stage = "connecting", !.rconns[v].queue = queue,
-                    !.rconns[v].idleNow = FALSE, !.rconns[v].connectLent = TRUE,
-                    !.rconns[v].owes = TRUE, !.ops = Add(@, Op("rconnect", v))]
-
-\* RQ19: a send that went short is taken for a whole one, and its rest is lost (request rule 15).
-QSendEndedWhole(st, op, outcome) ==
-    LET v == op.target
-        back == [[st EXCEPT !.ops = Remove(@, op)] EXCEPT !.rconns[v].lent = FALSE]
-    IN IF ~op.current THEN back
-       ELSE IF outcome = "failed" THEN FailRConn(back, v)
-       ELSE IF back.rconns[v].stage = "closing" /\ ~back.rconns[v].owes /\ ~back.rconns[v].made
-            THEN ClosedR(back, v)
-       ELSE back
-
-\* RQ20: a receive that ended with no octets is armed again, and the connection stays up (request
-\* rule 15).
-QRecvEndedAgain(st, op, outcome) ==
-    LET finished == [st EXCEPT !.ops = Remove(@, op)] IN
-    IF ~op.current THEN finished
-    ELSE IF outcome \in {"exhausted", "ended"} THEN QListen(finished, op.target)
-    ELSE FailRConn(finished, op.target)
-
-
-\* RQ21: the send's end reads nothing of the transport, which keeps what it held (request rule 17).
-QSendEndedUnread(st, op, outcome) ==
-    LET v == op.target
-        back == [[st EXCEPT !.ops = Remove(@, op)] EXCEPT !.rconns[v].lent = FALSE]
-    IN IF ~op.current THEN back
-       ELSE IF outcome = "failed" THEN FailRConn(back, v)
-       ELSE IF outcome = "short" THEN [back EXCEPT !.rconns[v].made = TRUE]
-       ELSE IF back.rconns[v].stage = "closing" /\ ~back.rconns[v].owes /\ ~back.rconns[v].made
-            THEN ClosedR(back, v)
-       ELSE back
-
-\* RQ22: a request held back waits, and the drain the transport holds is not read (request rule
-\* 17).
-HeldBackUnread(st, v, l) ==
-    [st EXCEPT !.rconns[v].queue = Append(@, l), !.rconns[v].heldDrain = TRUE]
 
 \* CH1: a link's socket that ends is not told to the channel, which still counts the link open
 \* (rule 19).

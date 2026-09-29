@@ -99,15 +99,11 @@ fn requests_text(line: *Line, world: anytype) void {
     if (channels) channels_text(line, world);
 }
 
-/// Each server's request connection, over QUIC, or over TCP when DoH goes over HTTP/2.
+/// Each server's QUIC connection.
 fn request_connections_text(line: *Line, world: anytype) void {
     for (0..world.config.servers.len) |server| {
         if (server > 0) line.print(" ; ", .{});
-        if (world.config.uses_https()) {
-            request_connection_text(line, world, &world.engine.h2, @intCast(server));
-        } else {
-            request_connection_text(line, world, &world.engine.quic, @intCast(server));
-        }
+        request_connection_text(line, world, @intCast(server));
     }
 }
 
@@ -171,13 +167,12 @@ fn link_text(line: *Line, world: anytype, server: u8, at: usize) void {
     line.flag(engine.doh.tickets[server][at] != null, 'T');
 }
 
-/// A request connection of `set`: its stage, the requests waiting in its queue and those with a
-/// stream, and whether its transport owes a datagram, it keeps one the loop refused, it lent its
-/// buffer, and it went idle now (docs/design.md §24, request rule 8); over TCP, whether a connect
-/// still borrows its address (request rule 14).
-fn request_connection_text(line: *Line, world: anytype, set: anytype, server: u8) void {
+/// A QUIC connection: its stage, the requests waiting in its queue and those with a stream, and
+/// whether its transport owes a datagram, it keeps one the loop refused, it lent its buffer, and it
+/// went idle now (docs/design.md §24, request rule 8).
+fn request_connection_text(line: *Line, world: anytype, server: u8) void {
     const engine = &world.engine;
-    const connection = &set.connections[server];
+    const connection = &engine.quic.connections[server];
     var items: [64]usize = undefined;
     for (connection.queue[0..connection.queue_len], 0..) |index, position| items[position] = index;
     line.print("{s} q", .{@tagName(connection.state)});
@@ -191,42 +186,10 @@ fn request_connection_text(line: *Line, world: anytype, set: anytype, server: u8
     line.print(" st", .{});
     line.list(items[0..streams]);
     line.print(" ", .{});
-    line.flag(owes(connection), 'O');
-    // Over TCP the octets of a send in flight stay counted until it ends, so a short one's rest is
-    // known; the model keeps only what waits for a send (request rules 8 and 15).
-    const in_flight = @TypeOf(set.*).stream and set.sends[server].lent;
-    line.flag(connection.made > 0 and !in_flight, 'K');
-    line.flag(set.sends[server].lent, 'B');
+    line.flag(connection.transport.owes, 'O');
+    line.flag(connection.made > 0, 'K');
+    line.flag(engine.quic.sends[server].lent, 'B');
     line.flag(connection.state != .closed and connection.idle_since_ns == world.now_ns, 'I');
-    if (comptime @TypeOf(set.*).stream) {
-        line.flag(set.sends[server].connecting, 'N');
-        held_text(line, engine, server, &connection.transport.inner);
-    }
-}
-
-/// What the twin holds of a TCP connection, as the model's colibri does: the slot whose answer or
-/// reset it keeps, the GOAWAY a refused request owes, and whether its stream identifiers ran out
-/// (request rule 17). A held stream no live request has is written so no model's line matches.
-fn held_text(line: *Line, engine: anytype, server: u8, twin: anytype) void {
-    line.print(" h", .{});
-    if (twin.held_stream()) |stream| {
-        const found = for (engine.requests[0..], 0..) |*request, index| {
-            if (request.live and request.server == server and request.stream == stream) break index;
-        } else null;
-        if (found) |index| line.print("{d}", .{index}) else line.print("?", .{});
-    } else {
-        line.print("-", .{});
-    }
-    line.flag(twin.goaway_owed, 'G');
-    line.flag(twin.spent, 'X');
-}
-
-/// Whether a connection's transport owes the server something: the twin's QUIC, over UDP or
-/// inside its frames over TCP.
-fn owes(connection: anytype) bool {
-    const transport = &connection.transport;
-    if (@hasField(@TypeOf(transport.*), "inner")) return transport.inner.owes;
-    return transport.owes;
 }
 
 /// Each server's sockets: none over TLS (§21, TLS rule 9).
@@ -287,7 +250,7 @@ pub const Token = struct {
     current: bool,
 
     /// The letters in the order the model writes them.
-    const letters = "CRSDLMTQVNAWY";
+    const letters = "CRSDLMTQVAWY";
 
     pub fn key(token: Token) usize {
         const rank = std.mem.indexOfScalar(u8, letters, token.letter).?;
@@ -313,8 +276,7 @@ pub fn token_of(world: anytype, loop_slot: u32) Token {
             const letter: u8 = if (draining) 'M' else 'L';
             break :blk .{ .letter = letter, .target = index & io.constants.receive_index_mask, .current = found != null };
         },
-        .quic_send, .quic_receive => |kind| request_token(&world.engine.quic, kind, index),
-        .h2_connect, .h2_send, .h2_receive => |kind| request_token(&world.engine.h2, kind, index),
+        .quic_send, .quic_receive => |kind| request_token(world, kind, index),
         .doh_connect, .doh_send, .doh_receive => |kind| link_token(world, kind, index),
         else => unreachable,
     };
@@ -336,18 +298,13 @@ fn connection_token(world: anytype, kind: io.Kind, index: usize) Token {
     return .{ .letter = letter, .target = at, .current = live and connection.incarnation == incarnation };
 }
 
-/// A request connection's send or receive, and over TCP its connect: current while its opening is
-/// the slot's, and has its socket, or over TCP connects, as a connect's is (request rule 14).
-fn request_token(set: anytype, kind: io.Kind, index: usize) Token {
+/// A QUIC connection's send or receive: current while its opening is the slot's.
+fn request_token(world: anytype, kind: io.Kind, index: usize) Token {
     const server = index & io.constants.quic_server_mask;
     const incarnation: u32 = @truncate(index >> io.constants.quic_incarnation_shift);
-    const connection = &set.connections[server];
-    const opening = connection.incarnation == incarnation;
-    return switch (kind) {
-        .h2_connect => .{ .letter = 'N', .target = server, .current = opening and connection.state == .connecting },
-        .quic_send, .h2_send => .{ .letter = 'Q', .target = server, .current = opening and connection.talks() },
-        else => .{ .letter = 'V', .target = server, .current = opening and connection.talks() },
-    };
+    const connection = &world.engine.quic.connections[server];
+    const live = connection.state != .closed and connection.incarnation == incarnation;
+    return .{ .letter = if (kind == .quic_send) 'Q' else 'V', .target = server, .current = live };
 }
 
 /// A channel's link's connect, send or receive: current while its opening is the link's, and has
@@ -438,7 +395,8 @@ fn table(line: *Line, world: anytype) void {
     tickets(line, world);
 }
 
-/// Over TLS or DoQ, whether each server keeps a ticket for its next connection.
+/// Over TLS or DoQ, whether each server keeps a ticket for its next connection. Over DoH a
+/// channel's tickets are its links', which its text writes (rule 23), and a server keeps none.
 fn tickets(line: *Line, world: anytype) void {
     const engine = &world.engine;
     if (!world.config.uses_tls() and !world.config.sends_requests()) return;
@@ -447,10 +405,8 @@ fn tickets(line: *Line, world: anytype) void {
         if (server > 0) line.print(",", .{});
         const kept = if (world.config.uses_tls())
             engine.tls_tickets[server] != null
-        else if (world.config.uses_https())
-            engine.h2.tickets[server] != null
         else
-            engine.quic.tickets[server] != null;
+            !world.config.uses_https() and engine.quic.tickets[server] != null;
         line.print("{d}", .{@intFromBool(kept)});
     }
     line.print("]", .{});

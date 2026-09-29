@@ -3633,6 +3633,10 @@ beside its blocks: two for each of the 128 streams a connection may hold.
 
 ### DoH over HTTP/3, written on 2026-09-25
 
+`cocuyo_quic`'s HTTP/3, which this section wrote, went on 2026-09-29 with `cocuyo_h2` (decision
+33): colibri's channel carries DoH since (DoH over colibri's client, below). What the section says
+of the template, its expansion and what an answer carries stands, in `doh` and `cocuyo_doh`.
+
 §22 left a DoH server's URI template to the driver, and since decision 26 the engine is the
 driver. The engine splits it, since the port its socket goes to is the template's, and
 `cocuyo_quic` expands the path, since the interface's `request` builds the GET. A consumer that
@@ -3661,7 +3665,7 @@ start. The lookup counts it as the server's failure and ends in `AllServersFaile
 - The rest is the path's template, and it names `dns` in an expression outside a fragment: a GET
   carries the query only there (RFC 8484 §4.1).
 
-**The path, expanded for each request** by `cocuyo_quic` and `cocuyo_h2` (`io/io_doh_template.zig`).
+**The path, expanded for each request** by `cocuyo_doh` (`io/io_doh_template.zig`).
 RFC 6570's expansion, with `dns` the one variable defined (RFC 8484 §4.1) and every other one
 undefined, so skipped (RFC 6570 §2.3, §3.2.1):
 
@@ -3800,6 +3804,11 @@ Step 6 shows it twice, written on 2026-09-25:
   interleaving happened in the run.
 
 ### DoH over HTTP/2, written on 2026-09-26
+
+`cocuyo_h2` and the request connections over TCP, which this section wrote, went on 2026-09-29
+(decision 33), and the request connections carry DoQ alone since. Rules 14 to 16 stand for a
+channel's TCP link, and rule 17 for a channel. The request connections no longer read the
+transport after a send ends or where a request is held back, since only HTTP/2 needed those reads.
 
 HTTP/3 runs over UDP, and a network may block it. RFC 9114 §3.1 says what a client does then:
 "Connectivity problems (e.g., blocking UDP) can result in a failure to establish a QUIC
@@ -4070,7 +4079,7 @@ through the request interface, so `cocuyo_rotor` never imports colibri. The type
 - `request`, `cancel` and `shutdown` are the channel's own.
 - `receive` hands the channel a datagram or octets of the stream a link read, and `next` returns
   what it says, one thing at a time, until it has nothing more. The octets of the stream the
-  channel has not taken stay with the type until it takes them, as `cocuyo_h2` keeps them: a
+  channel has not taken stay with the type until it takes them, as `cocuyo_h2` kept them: a
   partial record until the rest arrives (TLS rule 7), and whole ones while the channel has no
   room for what they hold. Octets past what the type keeps end the TCP link, as they failed
   `cocuyo_h2`'s connection (request rule 7): the type tells the channel the link ended, and says
@@ -4108,7 +4117,7 @@ Three types fill it:
 
 `Options.h2` and `cocuyo_quic`'s `http3` go. So do `cocuyo_h2`, `io/io_quic_h3.zig`, the HTTP/3
 test server, their tests, and the engine's tests over the twin's TCP transport. The engine's
-stream-socket code stays, and carries the TCP link.
+stream-socket code stays, and carries the TCP link. They went on 2026-09-29.
 
 **The model**, written on 2026-09-28 (`spec/tla/engine/EngineChannel.tla`). A DoH configuration's
 connection becomes a channel:
@@ -4125,6 +4134,7 @@ connection becomes a channel:
 - `connected` changes nothing the engine does (rule 20), so the model leaves it out, with the
   octets and the channel's instant, which only makes a link owe octets.
 - The request configurations over TCP go with `cocuyo_h2`, when the code lands. DoQ's stand.
+  They went on 2026-09-29.
 
 The checks it gains, seven:
 
@@ -4175,9 +4185,6 @@ against Google and Cloudflare.
 | `quic_connection_id_bytes` | 8 | the destination connection ID a client's first Initial carries: RFC 9000 §7.2 asks for 8 octets at least |
 | `doh_request_bytes_max` | 1,536 | a DoH request's slot: colibri's bound on the GET's HEADERS frame is 317 octets beside `:authority` and `:path`, an authority takes 259 at most (a 253-octet name and a port), and 960 are left for the path, whose `dns` value takes 512 |
 | `answers_default` | 4 | a DoH connection's answer buffers when the consumer names none, 262 KB of them; chosen, not measured |
-| `h3_peer_uni_streams` | 8 | the unidirectional streams an `h3` connection lets the server open: RFC 9114 §6.2 asks for 3 at least, and colibri's `h3` tracks 8 |
-| `h3_peer_uni_stream_bytes` | 1,024 | each of those streams' credit, as RFC 9114 §6.2 recommends |
-| `h2_plaintext_bytes` | 32,776 | what an HTTP/2 connection keeps of the plaintext colibri reads frames from: a record's plaintext, 2^14 octets at most (RFC 9846 §5.1), after the part of a frame the last record left, 16,392 octets at most, since colibri advertises the smallest frame size, 2^14 octets and a 9-octet header (RFC 9113 §4.2) |
 | `doh_channels_max` | `servers_max` | one channel for each DoH server (decision 33) |
 | `doh_fallback_delay_ns` | 250 ms | how long a channel gives QUIC's handshake before TCP opens beside it: the Connection Attempt Delay RFC 8305 §5 recommends, which that RFC sets between attempts at two addresses, not two versions of HTTP; taken from it, not measured |
 | `doh_stream_bytes` | 18,693 | the octets of the stream a channel keeps until colibri takes them: a record at its longest, 16,645 octets with its header (RFC 9846 §5.2), and one of the engine's chunks, 2,048 |
@@ -4290,7 +4297,13 @@ against Google and Cloudflare.
      against colibri's server waits for its server over QUIC, in v0.5.0. `example-doh-rotor` went
      through the channel the same day, and so did the interop check: against dnsproxy on the
      loopback DoH comes up on HTTP/3, and on HTTP/2 from a second dnsproxy with no QUIC listener,
-     and resumes on each.
+     and resumes on each. The removal came on 2026-09-29: `cocuyo_h2`, the HTTP/3 half of
+     `cocuyo_quic`, `Options.h2`, the engine's request connections over TCP and their tests went,
+     with the limits `h3_peer_uni_streams`, `h3_peer_uni_stream_bytes` and `h2_plaintext_bytes`.
+     The request interface lost `socket`, `http3`, the start's `https` and an answer's `http`.
+     The model lost `RStream`, its three configurations and its seven mutants. The replay agrees
+     with the model over the full run of twelve configurations, 4,824,000 events
+     (docs/mutations.md, the TCP request connections removed).
 
 Checks, one for each piece:
 
@@ -4298,7 +4311,7 @@ Checks, one for each piece:
   engine's own is taken.
 - In an image with two users of chapulin, each handshake draws from its own user's stream.
 - A container-level `var` that is not `threadlocal` fails the lint, and the canary shows it.
-- A connection whose ALPN is neither `doq` nor `h3` is never up.
+- A request connection whose ALPN is not `doq` is never up.
 - A request the lookup left sends STOP_SENDING, and its answer never reaches the table.
 - A reset stream, a failed connection and a failed handshake each fail every request on them,
   once.
@@ -4329,3 +4342,6 @@ Checks, one for each piece:
 - A link's socket opens only when its channel asks, and closes when the channel says.
 - A server that selects `http/1.1`, or no protocol, answers over HTTP/1.1.
 - An idle channel shuts down, and a request taken meanwhile opens the next channel.
+
+The checks over HTTP/2 and over TCP went on 2026-09-29 with the code they checked. A channel's
+links hold the rules they held over TCP, and `cocuyo_doh`'s tests what they held of HTTP/2.

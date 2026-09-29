@@ -183,13 +183,12 @@ pub fn build(b: *std.Build) void {
 }
 
 /// `zig build coverage`: every module's tests the gate runs, the model replays' among them,
-/// colibri's two where the build resolved it, under kcov (build/coverage.zig).
+/// `cocuyo_quic`'s where the build resolved colibri, under kcov (build/coverage.zig).
 fn add_coverage(b: *std.Build, entries: []const coverage.Tests, graph: modules.Graph, with_colibri: bool, test_step: *std.Build.Step) void {
     var covered: std.ArrayList(coverage.Tests) = .empty;
     covered.appendSlice(b.allocator, entries) catch @panic("OOM");
     if (with_colibri) {
         covered.append(b.allocator, .{ .name = "cocuyo_quic", .module = graph.io_quic }) catch @panic("OOM");
-        covered.append(b.allocator, .{ .name = "cocuyo_h2", .module = graph.io_h2 }) catch @panic("OOM");
     }
     coverage.add(b, covered.items, host_module(b, "tools/coverage.zig"), test_step);
 }

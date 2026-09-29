@@ -192,10 +192,13 @@ A request connection is what colibri tells the engine: that it owes a datagram, 
 handshake ended on the transport's protocol or on another or failed, that a stream was answered
 or reset, that the server closed or sent GOAWAY, that a ticket came, and that its QUIC timer
 fired, to resend or to give up. A GOAWAY drains the connection: its streams go on, a request taken
-meanwhile waits, and it closes once none is left and opens again for what waits (request rule 13). DoQ and DoH move alike: an answer stands for a DoQ message and for a 2xx DoH body, and
-a reset for a reset stream and for a status that is not 2xx. The request configurations, walked
-again on 2026-09-26 once request rule 13 drained a connection on GOAWAY, on an Apple M1 Pro with
-no other check running, three operations and one failure:
+meanwhile waits, and it closes once none is left and opens again for what waits (request rule 13).
+An answer stands for a DoQ message, and a reset for a reset stream. DoH went over these
+connections too, and moved alike, until colibri's channel took it (decision 33). DoQ has no GOAWAY
+(RFC 9250), but the engine still drains a connection whose transport says one came, as the twin's
+does. The request configurations, walked again on 2026-09-26 once request rule 13 drained a
+connection on GOAWAY, on an Apple M1 Pro with no other check running, three operations and one
+failure:
 
 | Servers | Lookups | States | Seconds | Invariants |
 | --- | --- | --- | --- | --- |
@@ -204,39 +207,19 @@ no other check running, three operations and one failure:
 | 2 | 1 | 7,396,714 | 742 | hold |
 
 Before request rule 13 they held 24,192, 257,212 and 5,295,912 states, and before the kept
-datagram 19,712, 210,148 and 3,140,695.
+datagram 19,712, 210,148 and 3,140,695. Checked again on 2026-09-29, once the TCP connections
+went, they hold the same states, and so does every other configuration.
 
 Every stage was reached: a connection up with a request on a stream, one draining, one closing, a
 lookup answered, one failed after its request failed, and a connection opened again while an
 earlier incarnation's datagram was still in flight. Fifteen mutants in `mutants/` break the request
 rules, and TLC finds each (docs/mutations.md RQ1 to RQ15).
 
-With `RStream` the request connections run over TCP, as DoH over HTTP/2 does (request rules 14 to
-16). A connection connects before it handshakes; one opened again while an earlier opening's
-connect is in flight waits, `reopening`, until that connect's end; a send may go short, and its
-rest goes first; a receive may end with no octets, which ends the connection; and no transport
-timer fires. The transport may hold a stream's answer or reset while the connection's send is in
-flight, and a connection's stream identifiers may run out, which holds the next request back and
-the connection's drain with it; both wait for the transport's next read (request rule 17). The TCP
-configurations, checked again on 2026-09-26 once rule 17 was written, on the same machine, three
-operations and one failure. The last was checked within `zig build tla`, which took 79 minutes
-for every configuration and mutant, and was not timed alone. On CI's four cores it takes hours,
-so its header says `\* nightly:`: the push checks every other configuration, and the
-`tla-nightly` workflow all of them once a day:
-
-| Servers | Lookups | States | Seconds | Invariants |
-| --- | --- | --- | --- | --- |
-| 1 | 1 | 54,756 | 4 | hold |
-| 1 | 2 | 729,476 | 96 | hold |
-| 2 | 1 | 21,061,842 | not timed | hold |
-
-Before rule 17 they held 25,532, 305,364 and 5,820,358 states, and before the replay moved the
-model two steps back to rule 14, 26,032, 308,594 and 6,233,470. The model had a slot that waits
-for an earlier connect fail its requests when the loop refused operations, though a waiting slot
-asks the loop for nothing. And a slot whose waiting requests had all left kept what its last
-opening left, where rule 14 closes it as any slot closes. A connection was reopened while its old
-connect was in flight, and one failed when the loop refused its connect. Seven more mutants break
-the TCP rules, and TLC finds each (docs/mutations.md RQ16 to RQ22).
+The request connections over TCP, DoH over HTTP/2 under request rules 14 to 17, were modelled
+from 2026-09-26 with `RStream`, and seven mutants broke them (docs/mutations.md RQ16 to RQ22).
+They went on 2026-09-29 with `cocuyo_h2` (decision 33): colibri's channel carries DoH over TCP,
+and a channel's TCP link holds rules 14 to 16 (below). Their three configurations last held 54,756,
+729,476 and 21,061,842 states.
 
 With `Channel` a DoH server's requests go through colibri's channel, as request rules 18 to 25 have
 them (`EngineChannel.tla`): a channel for each server, and for each channel a QUIC link over a
@@ -272,18 +255,6 @@ timer there. Writing the replay moved request rule 8: a datagram the loop refuse
 buffer and goes at the next drive, before whatever colibri makes after it, and the model keeps it
 apart from what colibri owes.
 
-The TCP configurations are replayed over the twin's QUIC over TCP (`sim.quic.Stream`), whose frames
-carry the same items on a stream, to a DoH server whose template names no port. A step of colibri's
-is one frame in a chunk on the connection's receive, and the handshake ends on `h2`.
-`finish:N0*:ok` ends the connect that `N0*` names, a send that goes short moves half of what it
-had left, and `finish:V0*:ended` ends a receive with no octets. The engine keeps a send's octets
-counted until the send ends, so that a short one's rest is known, and the replay writes `K` over
-TCP only while no send is in flight: the model keeps only what waits for a send. A `hold` step is
-the twin's `hold` item around an answer or a reset, which the twin tells at its next read, and
-`exhaust:1` spends connection 1's stream identifiers in the twin, whose next request is refused
-and owes a GOAWAY (request rule 17). The line writes what the twin holds after `h`: the held
-stream's slot, `G` for the GOAWAY owed, and `X` once the identifiers are spent.
-
 The TLS configurations are walked and replayed like the others. The engine drives the twin's
 session (`src/sim/sim_tls.zig`), whose records carry their plaintext unsealed and whose handshake
 steps are one octet each. A walk's `tls:R0*:flight` puts one step in a record on the receive that
@@ -298,8 +269,9 @@ replay queues the step, which the twin says at the engine's next read, and fires
 timer, since the twin is due at once while it has a step queued. A link's operations are `A` for
 the TCP link's connect, `W` for a send and `Y` for a receive. The line writes each channel after
 the requests: its stage, its exchanges, the requests waiting for the next channel, the end it
-holds, `I` when it went idle at this instant, and each link's state and flags. As over TCP, `K`
-is written only while none of the link's sends is in flight.
+holds, `I` when it went idle at this instant, and each link's state and flags. The engine keeps a
+send's octets counted until the send ends, so that a short one's rest is known, and `K` is written
+only while none of the link's sends is in flight: the model keeps only what waits for a send.
 
 Writing the replay moved the model twice, to rules 17 and 19. The engine reads a channel after
 it puts a request on it, and after a link that waited for an earlier connect fails to open at
@@ -321,12 +293,12 @@ event handed the engine to be back in its group.
 (docs/design.md §16 decision 24). It was ported from the Lean model, definition by definition:
 `EngineTable.tla` holds the configuration, the lookup's transitions the engine asks of it, the
 table and the connections; `EngineIo.tla` the sockets and the sends; `EngineRequest.tla` the
-requests over DoQ and DoH (§24); `EngineEvents.tla` the drive and the events; and `Engine.tla`
-the checks and the specification. `EngineEvents.tla` was split from `Engine.tla` on 2026-09-27 by
-the file-length rule, with nothing moved past what it came before: TLC orders strings as it first
-reads them, so a check read ahead of the events would change the order of their successors, and
-with it every walk. The Lean model retired once the replay read its
-walks from TLC.
+requests over DoQ, and `EngineChannel.tla` DoH through colibri's channel (§24); `EngineEvents.tla`
+the drive and the events; and `Engine.tla` the checks and the specification. `EngineEvents.tla`
+was split from `Engine.tla` on 2026-09-27 by the file-length rule, with nothing moved past what it
+came before: TLC orders strings as it first reads them, so a check read ahead of the events would
+change the order of their successors, and with it every walk. The Lean model retired once the
+replay read its walks from TLC.
 
 Three choices make TLC count what the Lean walker counts:
 
@@ -336,9 +308,9 @@ Three choices make TLC count what the Lean walker counts:
   and checked, and has no successor, as in the Lean walker; TLC leaves a state that breaks a
   `CONSTRAINT` out, and the check on the event that reached it with it. So every configuration
   says `CHECK_DEADLOCK FALSE`.
-- Five of the seventeen checks read the event or the state before it, which a TLC invariant cannot.
-  So `broken` holds the names of the checks the last event broke, and `Clean` asks it be empty.
-  In a model that keeps its rules it always is, so it splits no state.
+- Thirteen of the thirty-seven checks read the event or the state before it, which a TLC
+  invariant cannot. So `broken` holds the names of the checks the last event broke, and `Clean`
+  asks it be empty. In a model that keeps its rules it always is, so it splits no state.
 
 `zig build tla` runs every configuration, each with the verdict its header expects, on TLC
 v1.7.4, which `tools/tla.zig` pins by SHA-256 and the tool fetches once. It needs Java 11 or
@@ -434,8 +406,8 @@ compares the walk's whole state after each.
 - `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 3,694
   transitions: one server, one pass and one name, over UDP, over TCP, over DoH and over DoQ. It also
   replays two sets of engine walks TLC wrote. `tools/spec_replay/engine_gate.txt` holds ten walks
-  of forty events in each of the fourteen engine configurations.
-  `tools/spec_replay/engine_picks.txt` holds fifteen walks of the full run, which `engine_picks` in
+  of forty events in each of the twelve engine configurations.
+  `tools/spec_replay/engine_picks.txt` holds thirteen walks of the full run, which `engine_picks` in
   `build/spec.zig` names: each is where the full run caught a mutation of the engine that the
   short walks miss (docs/mutations.md). The gate also holds `tools/spec_replay/walk_gate.txt`, the
   forward walk with two candidates and both families and every reverse configuration. It needs
@@ -444,11 +416,11 @@ compares the walk's whole state after each.
   11 or newer for TLC. pepegrillo's `lean` tool builds the proofs and the axiom pins first. Then
   the step requires the committed slices to be the ones the models write, and replays the
   lookup's whole transcript, the walks' whole transcript, and TLC's full run: 2,000 engine walks
-  of 200 events in each of the fourteen engine configurations, 5,628,000 events. TLC wrote the
-  full run in 588 seconds on an Apple M1 Pro on 2026-09-28, while the engine's tests ran, and its
-  replay took 84 while a TLC check held the other cores. `zig build spec-lean` is the Lean half
-  alone, which needs no Java, and `zig build spec-engine` the engine's part alone, which needs no
-  Lean.
+  of 200 events in each of the twelve engine configurations, 4,824,000 events. TLC wrote the full
+  run in 872 seconds on an Apple M1 Pro on 2026-09-29, while a TLC check held most of the cores,
+  and its replay took 61 seconds, its build among them, while the check still ran. `zig build
+  spec-lean` is the Lean half alone, which needs no Java, and `zig build spec-engine` the engine's
+  part alone, which needs no Lean.
 - After a change to a model, `lake exe cocuyo-spec gate 8 > ../../tools/spec_replay/lookup_gate.txt`
   and `lake exe cocuyo-spec walks-gate > ../../tools/spec_replay/walk_gate.txt` in `lean/` write
   the Lean slices again. From the repository's root, `zig build tla -- walks 1 10 41 >
