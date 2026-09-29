@@ -51,6 +51,9 @@ pub fn Channel(comptime options: Options) type {
         pub const Open = struct { link: Link, endpoint: cocuyo.Endpoint };
         pub const Event = union(enum) { open: Open, close: Link, ticket: Link, finished: Finished, closed };
         pub const Input = union(enum) { none, datagram: []const u8, stream: []const u8 };
+        /// The version the channel's connection came up on, and whether its handshake resumed with
+        /// the ticket its link offered, for a caller to report.
+        pub const Connected = struct { protocol: client.Protocol, resumed: bool, offered: bool };
 
         channel: client.Channel = undefined,
         pool: client.ReceivePool(constants.receive_bytes) = undefined,
@@ -75,7 +78,10 @@ pub fn Channel(comptime options: Options) type {
         stream_len: usize = 0,
         stream_overrun: bool = false,
         /// The ticket each link's connection resumes with: a copy, which `wipe` and the link's end zero.
+        /// Whether each link's last connection offered one, and the version the channel came up on.
         resuming: [@typeInfo(Link).@"enum".fields.len]Ticket = undefined,
+        offered: [@typeInfo(Link).@"enum".fields.len]bool = @splat(false),
+        protocol: ?client.Protocol = null,
         started: bool = false,
 
         pub fn start(self: *Self, context: anytype) Error!void {
@@ -127,6 +133,9 @@ pub fn Channel(comptime options: Options) type {
         }
         pub fn wipe(self: *Self) void {
             start_module.wipe(self);
+        }
+        pub fn connected(self: *const Self) ?Connected {
+            return read_module.connected(self);
         }
     };
 }

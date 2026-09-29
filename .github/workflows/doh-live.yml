@@ -1,8 +1,8 @@
-# DoH over HTTP/3, live (docs/design.md §24 step 5), once a day and on demand: `tools/doh_live/run.sh`
-# resolves through the public resolvers that serve DoH on HTTP/3, over colibri's HTTP/3 with
-# chapulin's QUIC session in colibri's `tls` as its TLS, resumes a ticket over a second connection,
-# and refuses what HTTPS refuses. It runs on macOS, whose system root store the check reads each
-# resolver's root from, against colibri at the commit build.zig.zon pins (build/doq.zig).
+# DoH, live (docs/design.md §24 steps 5 and 7b), once a day and on demand: `tools/doh_live/run.sh`
+# resolves through two public resolvers, through colibri's channel (`cocuyo_doh`) with chapulin's
+# TLS in colibri's `tls`, resumes a ticket over a second connection, and refuses what HTTPS
+# refuses. It runs on macOS, whose system root store the check reads each resolver's root from,
+# against colibri at the commit build.zig.zon pins (build/doh.zig).
 #
 # It is not a gate, because it depends on two public resolvers and the network. A failure here can
 # be a resolver changing what it does, or the network failing.
@@ -25,7 +25,7 @@ env:
 
 jobs:
   live:
-    name: macOS, DoH over HTTP/3 against the public resolvers
+    name: macOS, DoH against the public resolvers
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4

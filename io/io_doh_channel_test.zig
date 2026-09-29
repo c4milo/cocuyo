@@ -180,6 +180,9 @@ test "a query goes over HTTP/2 once QUIC's datagrams have gone nowhere for the f
     // RFC 8484 §4.1: the GET carried the query in `dns`.
     try testing.expectEqualSlices(u8, &query, pair.server.query[0..pair.server.query_len]);
     try testing.expectEqual(.h2, pair.server.connection.protocol().?);
+    const connected = pair.doh.connected().?;
+    try testing.expectEqual(.h2, connected.protocol);
+    try testing.expect(!connected.offered and !connected.resumed);
     // QUIC first, and TCP once its handshake had run the fallback delay (rule 18).
     try testing.expectEqual(Doh.Link.quic, pair.said[0].open.link);
     try testing.expectEqual(endpoint.port, pair.said[0].open.endpoint.port);
@@ -224,6 +227,7 @@ test "a server that selects HTTP/1.1, or selects no protocol, answers over HTTP/
         try testing.expectEqual(@as(u16, 1), finished.index);
         try testing.expectEqualSlices(u8, &expected_answer(), finished.answer.?.message);
         try testing.expectEqual(.h11, pair.server.connection.protocol().?);
+        try testing.expectEqual(.h11, pair.doh.connected().?.protocol);
     }
 }
 
@@ -313,6 +317,8 @@ test "a ticket the server gives is taken, and the next channel's TCP link resume
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
     try testing.expect((try pair.run(.finished)).finished.answer != null);
     try testing.expect(pair.server.connection.tls_server.resumed());
+    const connected = pair.doh.connected().?;
+    try testing.expect(connected.offered and connected.resumed);
     // The copy the link resumed with is zeroed once its connection has ended.
     pair.doh.shutdown();
     _ = try pair.run(.closed);

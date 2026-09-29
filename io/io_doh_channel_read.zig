@@ -147,11 +147,26 @@ fn told(self: anytype, said: client.channel.Event) ?@TypeOf(self.*).Event {
             forget(self, link_of(transport));
             return .{ .close = link_of(transport) };
         },
-        .connected => return null,
+        .connected => |protocol| {
+            self.protocol = protocol;
+            return null;
+        },
         .ticket => |transport| return .{ .ticket = link_of(transport) },
         .finished => |ended| return finished(self, ended),
         .closed => return .closed,
     }
+}
+
+/// The version the channel's connection came up on, and whether its handshake resumed with the
+/// ticket its link offered, as its TLS session says. Null before a connection is up.
+pub fn connected(self: anytype) ?@TypeOf(self.*).Connected {
+    const protocol = self.protocol orelse return null;
+    const link: Link = if (protocol == .h3) .quic else .tcp;
+    const resumed = switch (link) {
+        .quic => self.channel.quic.session.resumed(),
+        .tcp => self.channel.tcp.tls_client.resumed(),
+    };
+    return .{ .protocol = protocol, .resumed = resumed, .offered = self.offered[@intFromEnum(link)] };
 }
 
 /// An exchange ended: its answer, or none, goes to its request slot, and its buffer is free. One

@@ -244,19 +244,19 @@ The architecture depends on every rule in this section.
   tests and `zig build example-doq-rotor` resolves over DoQ through colibri; the gate runs the
   tests and builds the example. `tools/doq_live/run.sh` runs the live check of design §24 step
   4, against AdGuard and NextDNS, and the `doq-live` workflow runs it once a day on macOS.
-- Interop: `tools/interop/run.sh <dnsproxy>` runs plain DNS over UDP and TCP, DoT, DoQ
-  and DoH on HTTP/3 against AdGuard's dnsproxy on the loopback, with certificates of its own and no
-  network: names at once, resumption, the certificate checks and pins, and records beyond A, which
-  `tools/interop/zone.zig` serves as dnsproxy's upstream. The `interop` workflow runs it once a
-  day on macOS.
+- Interop: `tools/interop/run.sh <dnsproxy>` runs plain DNS over UDP and TCP, DoT, DoQ, and DoH
+  on HTTP/3 and on HTTP/2 against AdGuard's dnsproxy on the loopback, with certificates of its own
+  and no network: names at once, resumption, the version DoH came up on, the certificate checks
+  and pins, and records beyond A, which `tools/interop/zone.zig` serves as dnsproxy's upstream.
+  The `interop` workflow runs it once a day on macOS.
 - Plain DNS through the engine: `zig build example-cleartext-rotor -- <name>[/TYPE][,...]
   <server>[:<port>] [udp | tcp]`, which the interop check drives.
 - dnslib: `tools/dnslib/run.sh` fetches dnslib's captured responses at a pinned commit and runs
   `zig build dnslib-check` over them, which compares the codec's reading of every record with
   dnslib's. It needs the network, so CI's `dnslib` job runs it and the gate runs only its tests.
-- DoH over HTTP/3: DoQ's session. `zig build example-doh-rotor` resolves over DoH through
-  colibri's HTTP/3, given a URI template where DoQ takes a name; `tools/doh_live/run.sh` runs the
-  live check of design §24 step 5, against Google and Cloudflare. The `doh-live` workflow runs
+- DoH: `zig build example-doh-rotor` resolves over DoH through `cocuyo_doh`, colibri's channel,
+  on HTTP/3, or on HTTP/2 or HTTP/1.1 over TCP, given a URI template; `tools/doh_live/run.sh` runs
+  the live check of design §24 step 5, against Google and Cloudflare. The `doh-live` workflow runs
   both once a day on macOS.
 - Coverage: `zig build coverage` runs every module's tests and the model replays' under kcov,
   which needs Linux, and writes `zig-out/coverage/`: a table, the README's badge and kcov's HTML,

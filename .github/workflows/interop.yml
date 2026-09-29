@@ -1,12 +1,13 @@
 # Every transport the engine speaks against an independent server, on the loopback
 # (c4milo/cocuyo#16, #20 and #21), once a day and on demand: `tools/interop/run.sh` runs the
 # engine against AdGuard's dnsproxy over plain DNS on UDP and on TCP, over DoT with chapulin's TCP
-# session, and over DoQ and DoH on HTTP/3 with colibri's QUIC and HTTP/3 and chapulin's QUIC
-# session. colibri's `tls` module carries both of chapulin's objects, and the build fetches colibri
-# at the commit build.zig.zon pins.
-# dnsproxy's DNS is miekg/dns, its TLS Go's, and its QUIC and HTTP/3 quic-go's. The check makes its
-# own certificates, and dnsproxy answers addresses from a hosts file and every other type from a
-# zone of the check's own, so it needs no network once its tools are fetched.
+# session, over DoQ with colibri's QUIC and chapulin's QUIC session, and over DoH through colibri's
+# channel, on HTTP/3 and, from a second dnsproxy with no QUIC listener, on HTTP/2. colibri's `tls`
+# module carries both of chapulin's objects, and the build fetches colibri at the commit
+# build.zig.zon pins.
+# dnsproxy's DNS is miekg/dns, its TLS and HTTP/2 Go's, and its QUIC and HTTP/3 quic-go's. The
+# check makes its own certificates, and dnsproxy answers addresses from a hosts file and every
+# other type from a zone of the check's own, so it needs no network once its tools are fetched.
 #
 # It is not a gate, which needs no dnsproxy. Every other test of the engine runs it against
 # cocuyo's own twin or colibri's own server, and the live checks depend on public servers: this is

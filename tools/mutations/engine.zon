@@ -1149,4 +1149,31 @@
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
+    .{
+        .section = "The DoH example and the interop check on colibri's channel",
+        .id = "DC25",
+        .what = "the version the channel came up on is not kept",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "            self.protocol = protocol;\n", .new = "            _ = protocol;\n" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "The DoH example and the interop check on colibri's channel",
+        .id = "DC26",
+        .what = "a link that offered a ticket says it offered none",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_start.zig", .old = "    self.offered[at] = ticket != null;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "The DoH example and the interop check on colibri's channel",
+        .id = "DC27",
+        .what = "a connection's resumption is read from the other transport's session",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "    const link: Link = if (protocol == .h3) .quic else .tcp;\n", .new = "    const link: Link = if (protocol == .h3) .tcp else .quic;\n" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
 }

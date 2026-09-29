@@ -16,8 +16,8 @@ It is written from the RFCs, as a replacement for c-ares. The name is the Colomb
 firefly, and for a car's hazard lights.
 
 > **Status: 0.4.0.** The library is feature-complete against its plan. The engine over rotor is
-> exported as `cocuyo_rotor`, and carries DNS over TLS, over QUIC and over HTTPS on HTTP/3, each
-> with its TLS from colibri's `tls`. A question may ask for any record type. It needs Zig 0.16.0.
+> exported as `cocuyo_rotor`, and carries DNS over TLS, over QUIC and over HTTPS, each with its
+> TLS from colibri's `tls`. A question may ask for any record type. It needs Zig 0.16.0.
 > Until 1.0, a minor version may change the API.
 
 ## Why cocuyo
@@ -65,7 +65,7 @@ exactly what the rest of the machine sees.
 | Many lookups | `Resolver`, a bounded table of lookups that decides which lookup an incoming datagram belongs to |
 | `getaddrinfo` shape | `AddressLookup` joins A and AAAA, the hosts file and the search list, and orders addresses by RFC 6724; `NameLookup` does the reverse |
 | Transport | UDP with EDNS0 (RFC 6891) and its fallback, TCP on truncation or by choice (RFC 7766), with the length prefix handled for you |
-| Encryption | In the engine: DNS over TLS (RFC 7858, strict as RFC 8310 asks), DNS over QUIC (RFC 9250) and DNS over HTTPS on HTTP/3 (RFC 8484), a server known by its name, by SPKI pins, or by both |
+| Encryption | In the engine: DNS over TLS (RFC 7858, strict as RFC 8310 asks), DNS over QUIC (RFC 9250) and DNS over HTTPS (RFC 8484) on HTTP/3, HTTP/2 or HTTP/1.1, a server known by its name, by SPKI pins, or by both |
 | Robustness | Retries with a doubling timeout, rotation, and server failover that tracks failures per server |
 | Configuration | `resolv.conf`, `RES_OPTIONS` and `LOCALDOMAIN`, and the hosts file, parsed from bytes you read |
 | Cache | Optional, sized by you, with SIEVE eviction and RFC 2308 negative caching |
@@ -148,25 +148,28 @@ else, and only this repository's examples and benchmarks fetch rotor.
 
 ## Encrypted transports
 
-The engine carries DNS over TLS, over QUIC and over HTTPS on HTTP/3. Each lookup's policy,
+The engine carries DNS over TLS, over QUIC and over HTTPS. Each lookup's policy,
 failover and cache stay as they are over UDP; what changes is the connection a query goes on.
 
 - **DNS over TLS** (RFC 7858) goes over a TCP connection, with
   [chapulin](https://github.com/c4milo/chapulin)'s TLS 1.3, through
   [colibri](https://github.com/c4milo/colibri)'s `tls` module, as a session behind an interface of
   cocuyo's.
-- **DNS over QUIC** (RFC 9250) and **DNS over HTTPS on HTTP/3** (RFC 8484) go over colibri's QUIC
-  and HTTP/3, in the module `cocuyo_quic`, with chapulin's QUIC mode, through colibri's `tls`, as
-  their TLS. A DoH server is named by its URI template.
+- **DNS over QUIC** (RFC 9250) goes over colibri's QUIC, in the module `cocuyo_quic`, with
+  chapulin's QUIC mode, through colibri's `tls`, as its TLS.
+- **DNS over HTTPS** (RFC 8484) goes through colibri's HTTP client, in the module `cocuyo_doh`,
+  which tries HTTP/3 over QUIC first, and HTTP/2 or HTTP/1.1 over TCP when QUIC is not answered in
+  time. A DoH server is named by its URI template.
 - Every server is authenticated, strictly (RFC 8310): by the name its certificate must carry, by
   SPKI pins of its key, or by both. A server that cannot be authenticated is not asked.
 - cocuyo's library depends on none of them. The engine speaks TLS through a session interface,
-  which this repository fills with chapulin's session in colibri's `tls`, and QUIC through
-  `cocuyo_quic`, whose `quic` and `h3` imports a consumer that speaks DoQ or DoH binds to
+  which this repository fills with chapulin's session in colibri's `tls`; QUIC through
+  `cocuyo_quic`, whose `quic` import a consumer that speaks DoQ binds to colibri's; and HTTPS
+  through `cocuyo_doh`, whose `client` and `tls` imports a consumer that speaks DoH binds to
   colibri's.
 
 They are checked every day against public resolvers: Google, Cloudflare and Quad9 over TLS,
-AdGuard and NextDNS over QUIC, Google and Cloudflare over HTTPS on HTTP/3. Each resolves twice,
+AdGuard and NextDNS over QUIC, Google and Cloudflare over HTTPS. Each resolves twice,
 the second time over a connection that offers the first one's ticket, and refuses a name its
 certificate does not carry and a root its chain does not end at. Over TLS and QUIC a server known
 by its key alone resolves, and a wrong pin is refused, and each is asked for AAAA, MX, TXT and
@@ -221,7 +224,7 @@ const event = table.poll(now_ns, &query).?; // event.action is .send_udp: the by
 
 [`examples/`](examples) holds complete programs that resolve real names against real servers: one
 lookup over a blocking UDP socket, the same over [rotor](#an-event-loop-to-drive-it-rotor), and the
-engine over plain DNS, DNS over TLS, over QUIC and over HTTPS on HTTP/3. The
+engine over plain DNS, DNS over TLS, over QUIC and over HTTPS. The
 [build and test](#build-and-test) table has the command for each.
 
 > **The seed must come from a cryptographically secure random source, never from the clock.**
@@ -362,7 +365,7 @@ that depends on cocuyo, and every unit test. Other steps:
 | `zig build example-cleartext-rotor -- <name> <server>[:<port>] [udp \| tcp]` | Resolve over plain DNS through the engine |
 | `zig build example-dot-rotor -- ...` | Resolve over DNS over TLS |
 | `zig build example-doq-rotor -- ...` | Resolve over DNS over QUIC |
-| `zig build example-doh-rotor -- ...` | Resolve over DNS over HTTPS on HTTP/3 |
+| `zig build example-doh-rotor -- ...` | Resolve over DNS over HTTPS |
 | `tools/dot_live/run.sh`, `tools/doq_live/run.sh`, `tools/doh_live/run.sh` | The live checks against public resolvers |
 | `tools/interop/run.sh` | Every transport against dnsproxy on the loopback |
 | `tools/dnslib/run.sh` | The codec against dnslib's reading of real responses |

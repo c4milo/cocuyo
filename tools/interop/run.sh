@@ -1,10 +1,12 @@
 #!/bin/sh
 # Every transport the engine speaks, against an independent server on the loopback
 # (c4milo/cocuyo#16, #20 and #21): the engine over rotor against AdGuard's dnsproxy, over plain DNS
-# on UDP and on TCP, whose DNS is miekg/dns, over DoT, whose TLS is Go's, and over DoQ and DoH on
-# HTTP/3, whose QUIC and HTTP/3 are quic-go's. The encrypted transports run over chapulin in
-# colibri's `tls`, and DoQ and DoH over colibri's QUIC and HTTP/3; colibri is a dependency of the
-# build (build/dot.zig, build/doq.zig). It needs a dnsproxy binary and openssl, and no network: the
+# on UDP and on TCP, whose DNS is miekg/dns, over DoT, whose TLS is Go's, over DoQ, whose QUIC is
+# quic-go's, and over DoH, whose HTTP/3 is quic-go's and whose HTTP/2 is Go's. The encrypted
+# transports run over chapulin in colibri's `tls`, DoQ over colibri's QUIC, and DoH through
+# colibri's channel (`cocuyo_doh`), which comes up on HTTP/3, or on HTTP/2 from a second dnsproxy
+# that listens for HTTPS on TCP alone; colibri is a dependency of the build (build/dot.zig,
+# build/doq.zig, build/doh.zig). It needs a dnsproxy binary, openssl and nc, and no network: the
 # certificates are made here, dnsproxy answers addresses from a hosts file, and every other type
 # from tools/interop/zone.zig, its upstream on the loopback.
 #
@@ -12,9 +14,10 @@
 #
 # Over each transport, three names must resolve at once, and a fourth after them. Over UDP each
 # query goes on a datagram of its own, and over TCP, DoT, DoQ and DoH each on the one connection
-# (RFC 7766 §6.2.1.1, RFC 9250 §4.2, RFC 9114 §4.1). Over DoT, DoQ and DoH the fourth goes once
-# that connection has closed idle, over a connection that resumes with its ticket (design §21, TLS
-# rule 8; RFC 9250 §4.5). What the certificate check refuses must end in AllServersFailed: a name
+# (RFC 7766 §6.2.1.1, RFC 9250 §4.2, RFC 9114 §4.1, RFC 9113 §5). Over DoT, DoQ and DoH the fourth
+# goes once that connection has closed idle, over a connection that resumes with its ticket (design
+# §21, TLS rule 8; RFC 9250 §4.5; §24, rule 23). Over DoH every turn must come up on the version
+# the server offers: HTTP/3, or HTTP/2 when no QUIC listener answers and the fallback delay passes. What the certificate check refuses must end in AllServersFailed: a name
 # the leaf does not carry and a root the chain does not end at, over each encrypted transport, and
 # a pin on the issuer's key over DoT and DoQ, where a server known by its leaf key alone, with a
 # backup pin, must resolve. Over each transport, AAAA, MX, TXT and HTTPS records of one name must
@@ -27,8 +30,9 @@ here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 out=$(mktemp -d)
 proxy=
+tcp_proxy=
 zone=
-trap 'for pid in $proxy $zone; do kill "$pid" 2>/dev/null && wait "$pid" 2>/dev/null || true; done; rm -rf "$out"' EXIT
+trap 'for pid in $proxy $tcp_proxy $zone; do kill "$pid" 2>/dev/null && wait "$pid" 2>/dev/null || true; done; rm -rf "$out"' EXIT
 
 # A CA of the check's own, and a leaf for interop.example under it (RFC 2606 §3), both P-256,
 # and a second CA the chain does not end at.
@@ -63,8 +67,17 @@ https_port=8443
     --https-port "$https_port" --http3 --verbose -c "$out/chain.pem" -k "$out/leaf.key" \
     --hosts-file-enabled --hosts-files "$out/hosts" -u "127.0.0.1:$zone_port" >"$out/dnsproxy.log" 2>&1 &
 proxy=$!
+# A second dnsproxy for DoH on HTTP/2: HTTPS on 8444 over TCP, and nothing on UDP there, so the
+# channel's QUIC goes unanswered. Its plain DNS is on 8055, which no check asks.
+tcp_plain_port=8055
+tcp_https_port=8444
+"$dnsproxy" -l 127.0.0.1 -p "$tcp_plain_port" --https-port "$tcp_https_port" -c "$out/chain.pem" \
+    -k "$out/leaf.key" --hosts-file-enabled --hosts-files "$out/hosts" -u "127.0.0.1:$zone_port" \
+    >"$out/dnsproxy-tcp.log" 2>&1 &
+tcp_proxy=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do
-    grep -q "dns-over-quic listener loop" "$out/dnsproxy.log" && grep -q "proto=tls" "$out/dnsproxy.log" && break
+    grep -q "dns-over-quic listener loop" "$out/dnsproxy.log" && grep -q "proto=tls" "$out/dnsproxy.log" &&
+        nc -z 127.0.0.1 "$tcp_https_port" 2>/dev/null && break
     sleep 1
 done
 
@@ -102,6 +115,24 @@ resolves() {
             echo "resolves $what, three names at once, and resumes"
         else
             fail "RESOLVES $what, but does not resume: $how"
+        fi
+    else
+        fail "FAILS $what: $answer"
+    fi
+}
+# As `resolves`, over DoH, and every turn came up on HTTP version `$2`, as the example says after
+# each: h3 over QUIC, or h2 over TCP.
+resolves_over() {
+    what=$1 version=$2
+    shift 2
+    if answer=$(lookup "$@") && all_four "$answer"; then
+        how=$(echo "$answer" | sed -n 's/^interop\.example: handshake //p')
+        turns=$(echo "$answer" | grep -c ": over " || true)
+        others=$(echo "$answer" | grep ": over " | grep -vc ": over $version\$" || true)
+        if [ "$how" = resumed ] && [ "$turns" -eq 2 ] && [ "$others" -eq 0 ]; then
+            echo "resolves $what, three names at once, and resumes, each turn over $version"
+        else
+            fail "RESOLVES $what, but $how, and $others of $turns turns not over $version: $answer"
         fi
     else
         fail "FAILS $what: $answer"
@@ -169,16 +200,19 @@ reads_types() {
 plain="127.0.0.1:$plain_port"
 secure="127.0.0.1:$secure_port"
 template="https://interop.example:$https_port/dns-query{?dns}"
+tcp_template="https://interop.example:$tcp_https_port/dns-query{?dns}"
 alone udp tcp answers "over UDP" example-cleartext-rotor "$at_once" "$plain" udp
 alone tcp udp answers "over TCP" example-cleartext-rotor "$at_once" "$plain" tcp
 resolves "over DoT" example-dot-rotor "$at_once" "$secure" interop.example "$out/ca.der"
 resolves "over DoQ" example-doq-rotor "$at_once" "$secure" interop.example "$out/ca.der"
-resolves "over DoH on HTTP/3" example-doh-rotor "$at_once" 127.0.0.1 "$template" "$out/ca.der"
+resolves_over "over DoH on HTTP/3" h3 example-doh-rotor "$at_once" 127.0.0.1 "$template" "$out/ca.der"
+resolves_over "over DoH on HTTP/2, with no QUIC listener" h2 example-doh-rotor "$at_once" 127.0.0.1 "$tcp_template" "$out/ca.der"
 alone udp tcp reads_types "over UDP" example-cleartext-rotor "$typed" "$plain" udp
 alone tcp udp reads_types "over TCP" example-cleartext-rotor "$typed" "$plain" tcp
 reads_types "over DoT" example-dot-rotor "$typed" "$secure" interop.example "$out/ca.der"
 reads_types "over DoQ" example-doq-rotor "$typed" "$secure" interop.example "$out/ca.der"
 reads_types "over DoH on HTTP/3" example-doh-rotor "$typed" 127.0.0.1 "$template" "$out/ca.der"
+reads_types "over DoH on HTTP/2" example-doh-rotor "$typed" 127.0.0.1 "$tcp_template" "$out/ca.der"
 for transport in dot:DoT doq:DoQ; do
     example=example-${transport%%:*}-rotor label=${transport#*:}
     refuses "over $label a name the leaf does not carry" "$example" example.com "$secure" dns.example "$out/ca.der"

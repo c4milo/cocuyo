@@ -4287,7 +4287,10 @@ against Google and Cloudflare.
      `cocuyo_doh` came the same day, on colibri v0.4.0: sixteen tests of the type against
      colibri's server and of the engine over it on the twin, HTTP/2 and HTTP/1.1, which
      twenty-five mutations break (docs/mutations.md, `cocuyo_doh` over colibri's channel). HTTP/3
-     against colibri's server waits for its server over QUIC, in v0.5.0.
+     against colibri's server waits for its server over QUIC, in v0.5.0. `example-doh-rotor` went
+     through the channel the same day, and so did the interop check: against dnsproxy on the
+     loopback DoH comes up on HTTP/3, and on HTTP/2 from a second dnsproxy with no QUIC listener,
+     and resumes on each.
 
 Checks, one for each piece:
 

@@ -67,6 +67,7 @@ pub fn start(self: anytype, context: anytype) error{Failed}!void {
 pub fn start_link(self: anytype, link: read_module.Link, ticket: anytype, ticket_age_ns: u64, now_ns: u64) error{Failed}!void {
     const at = @intFromEnum(link);
     var resumption: ?tls.Resumption = null;
+    self.offered[at] = ticket != null;
     if (ticket) |offered| {
         self.resuming[at] = offered.*;
         resumption = .{ .ticket = &self.resuming[at], .age_ms = ticket_age_ns / constants.ns_per_millisecond };

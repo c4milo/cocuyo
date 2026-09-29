@@ -1,22 +1,16 @@
-//! Lookups over DNS over QUIC, or over DoH on HTTP/3: the engine of docs/design.md §19 step 13 on
-//! rotor's loop, carrying each query on a stream of colibri's QUIC (`cocuyo_quic`), with chapulin's
-//! QUIC session in colibri's `tls` as its TLS (`io/io_chapulin_quic.zig`), strict as RFC 9250 §5.1
-//! and RFC 8310 §5 ask, and as HTTPS is (RFC 9110 §4.3.4).
+//! Lookups over DNS over QUIC: the engine of docs/design.md §19 step 13 on rotor's loop, carrying
+//! each query on a stream of colibri's QUIC (`cocuyo_quic`), with chapulin's QUIC session in
+//! colibri's `tls` as its TLS (`io/io_chapulin_quic.zig`), strict as RFC 9250 §5.1 and RFC 8310 §5
+//! ask. DoH goes through colibri's channel, in `examples/doh_rotor.zig`.
 //!
 //!     zig build example-doq-rotor -- \
 //!         <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...
-//!     zig build example-doh-rotor -- \
-//!         <name>[,<name>...] <server address> <URI template> <root certificate>...
 //!
-//! for instance `example.com 94.140.14.14 dns.adguard-dns.com usertrust-ecc.der` over DoQ, or
-//! `example.com 1.1.1.1 https://cloudflare-dns.com/dns-query{?dns} ssl-com-ecc.der` over DoH. Each
-//! root is a DER certificate the server's chain is expected to end at; its subject Name and its
-//! SubjectPublicKeyInfo are the trust anchor chapulin checks the chain against. The leaf must carry
-//! the authentication name, or the template's host. A DoQ server known by its key alone takes pins
-//! in place of the name, and no root. A DoQ server on a port other than 853 is named with it, as
-//! `127.0.0.1:8853` or `[::1]:8853` (`examples/server_text.zig`). A DoQ server's port is UDP's
-//! 853 (RFC 9250 §4.1.1), and a DoH server's the template's, 443 when it names none (RFC 9114
-//! §3.1).
+//! for instance `example.com 94.140.14.14 dns.adguard-dns.com usertrust-ecc.der`. Each root is a DER
+//! certificate the server's chain is expected to end at (`examples/root_text.zig`). The leaf must
+//! carry the authentication name. A server known by its key alone takes pins in place of the name,
+//! and no root. A server on a port other than UDP's 853 (RFC 9250 §4.1.1) is named with it, as
+//! `127.0.0.1:8853` or `[::1]:8853` (`examples/server_text.zig`).
 //!
 //! A name asks for A, and `name/TYPE` for another type, as `example.com/MX`
 //! (`examples/answer_text.zig`, which writes the answers out). Names after the first are resolved
@@ -35,8 +29,9 @@ const cocuyo_quic = @import("cocuyo_quic");
 const chapulin = @import("chapulin_quic");
 const answer_text = @import("answer_text.zig");
 const server_text = @import("server_text.zig");
+const root_text = @import("root_text.zig");
 
-const Quic = cocuyo_quic.Connection(.{ .Session = chapulin.Session, .streams = at_once_max, .http3 = true });
+const Quic = cocuyo_quic.Connection(.{ .Session = chapulin.Session, .streams = at_once_max });
 const Resolver = io.Resolver(.{
     .lookups = at_once_max + 1,
     .cache_slots = at_once_max + 1,
@@ -69,19 +64,14 @@ pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const arguments = try init.minimal.args.toSlice(arena);
     if (arguments.len < 4) {
-        std.debug.print("usage: doq-rotor <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,... | URI template> <root certificate>...\n", .{});
+        std.debug.print("usage: doq-rotor <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...\n", .{});
         std.process.exit(2);
     }
     const at = try server_text.place_of(arguments[2]);
-    // A template names a DoH server (RFC 8484 §3), and a name a DoQ server (RFC 9250 §5.1).
-    const known_as = arguments[3];
     var pins: [cocuyo.constants.spki_pins_max]cocuyo.Pin = undefined;
-    var quic: cocuyo.Tls = if (std.mem.startsWith(u8, known_as, "https://")) .{} else try known_by(known_as, &pins);
+    var quic = try known_by(arguments[3], &pins);
     if (at.port) |port| quic.port = port;
-    const servers = [_]cocuyo.Server{if (std.mem.startsWith(u8, known_as, "https://"))
-        .{ .endpoint = .{ .address = at.address }, .https = .{ .template = known_as } }
-    else
-        .{ .endpoint = .{ .address = at.address }, .quic = quic }};
+    const servers = [_]cocuyo.Server{.{ .endpoint = .{ .address = at.address }, .quic = quic }};
     const config: cocuyo.Config = .{ .servers = &servers, .search = &.{} };
 
     var anchors: [anchors_max]chapulin.Session.Anchor = undefined;
@@ -89,7 +79,7 @@ pub fn main(init: std.process.Init) !void {
     if (roots.len > anchors_max) return error.TooManyRoots;
     for (roots, 0..) |path, index| {
         const der = try std.Io.Dir.cwd().readFileAlloc(init.io, path, arena, .limited(certificate_bytes_max));
-        anchors[index] = try anchor_of(der);
+        anchors[index] = try root_text.anchor_of(chapulin.Session.Anchor, der);
     }
 
     var seed: [std.Random.ChaCha.secret_seed_length]u8 = undefined;
@@ -216,48 +206,6 @@ fn known_by(text: []const u8, pins: *[cocuyo.constants.spki_pins_max]cocuyo.Pin)
         count += 1;
     }
     return .{ .pins = pins[0..count] };
-}
-
-/// A root certificate's subject Name and SubjectPublicKeyInfo, each a whole DER TLV, which is
-/// what colibri's anchor carries (its values.zig), as chapulin's does (its webpki_cfg.h). The walk reads RFC 5280 §4.1's fields in
-/// order: the version, the serial, the signature, the issuer, the validity, the subject, the key.
-fn anchor_of(der: []const u8) !chapulin.Session.Anchor {
-    const certificate = try tlv(der);
-    var fields = (try tlv(certificate.contents)).contents;
-    var field = try tlv(fields);
-    // The version is the one field with a context tag, [0], and it is optional.
-    if (field.tag == 0xa0) {
-        fields = fields[field.whole.len..];
-        field = try tlv(fields);
-    }
-    // The serial, the signature, the issuer and the validity come before the subject.
-    for (0..4) |_| {
-        fields = fields[field.whole.len..];
-        field = try tlv(fields);
-    }
-    const subject = field.whole;
-    fields = fields[field.whole.len..];
-    const key = (try tlv(fields)).whole;
-    return .{ .subject = subject, .spki = key };
-}
-
-const Tlv = struct { tag: u8, whole: []const u8, contents: []const u8 };
-
-/// One DER TLV at the start of `bytes`, with a length of one, two or three octets (X.690 §8.1.3).
-fn tlv(bytes: []const u8) !Tlv {
-    if (bytes.len < 2) return error.BadCertificate;
-    const first = bytes[1];
-    var header: usize = 2;
-    var length: usize = first;
-    if (first & 0x80 != 0) {
-        const octets = first & 0x7f;
-        if (octets == 0 or octets > 3 or bytes.len < 2 + octets) return error.BadCertificate;
-        length = 0;
-        for (bytes[2..][0..octets]) |octet| length = (length << 8) | octet;
-        header += octets;
-    }
-    if (bytes.len < header + length) return error.BadCertificate;
-    return .{ .tag = bytes[0], .whole = bytes[0 .. header + length], .contents = bytes[header..][0..length] };
 }
 
 /// The clock cocuyo is driven by: monotonic, as `examples/udp_rotor.zig` reads it.

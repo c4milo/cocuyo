@@ -3071,3 +3071,28 @@ build test-cocuyo_doh`.
 | DC23 | a finished exchange keeps its buffer | rule 21 | the answer-buffers test | CAUGHT |
 | DC24 | a named server is judged by pins alone, its anchors dropped | RFC 8310 §5 | every test that reaches a server | CAUGHT |
 | CE20 | a link's ticket is offered at age 0 | RFC 9846 §4.3.11.1 | the ticket-age test of the engine over the twin's channel | CAUGHT |
+
+## The DoH example and the interop check on colibri's channel
+
+Design §24 step 7b, 2026-09-28. `example-doh-rotor` resolves through `cocuyo_doh`
+(`examples/doh_rotor.zig`), and after each turn says how its connection handshook and which version
+of HTTP it came up on, which the type now reports (`connected`). The live check runs the same
+program. Through Cloudflare and Google it came up on HTTP/3, and the second turn resumed. The DoT
+and DoQ examples each held the walk that reads a root's anchor, and it is `examples/root_text.zig`
+now.
+
+The interop check runs DoH against dnsproxy on HTTP/3, and against a second dnsproxy that listens
+for HTTPS on TCP alone, where the channel comes up on HTTP/2 once the fallback delay has passed. On
+each, three names resolve at once and a fourth over a connection that resumes, every turn on the
+version asked for, and the typed records read. DC25 to DC27 break the report against `zig build
+test-cocuyo_doh`, and IX5 to IX7 plant engine bugs against the interop check, run against dnsproxy
+v0.85.0. Six mutations, six `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| DC25 | the version the channel came up on is not kept | `connected` | the HTTP/2 and HTTP/1.1 tests | CAUGHT |
+| DC26 | a link that offered a ticket says it offered none | `connected` | the ticket test | CAUGHT |
+| DC27 | a connection's resumption is read from the other transport's session | `connected` | the ticket test | CAUGHT |
+| IX5 | a channel never tries QUIC first | rule 18 | the interop check over DoH on HTTP/3: both turns over h2 | CAUGHT |
+| IX6 | a channel hands the engine no ticket | rule 23 | the interop check over DoH, on both versions: in full | CAUGHT |
+| IX7 | the fallback delay never ends, so TCP opens only once QUIC has failed | rule 18 | the interop check over DoH on HTTP/2: every lookup timed out | CAUGHT |

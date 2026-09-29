@@ -165,7 +165,7 @@ pub fn build(b: *std.Build) void {
     quic.add(b, graph, colibri, test_step);
     add_coverage(b, &(unit_test_modules ++ replays), graph, colibri != null, test_step);
     doq.add(b, target, optimize, graph, test_step, rotor, colibri);
-    doh.add(b, graph, colibri, test_step);
+    doh.add(b, target, optimize, graph, test_step, rotor, colibri);
     dnslib.add(b, target, graph, test_step, tool_test_step);
     fuzz.add(b, target, graph, test_step, tool_test_step);
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));

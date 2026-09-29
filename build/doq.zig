@@ -1,14 +1,14 @@
-//! DNS over QUIC and DoH on HTTP/3 through colibri (docs/design.md §24, chapulin under colibri):
-//! the session over colibri's `tls.quic.Client`, whose module carries chapulin's QUIC object (§16
-//! decision 32). colibri is a lazy dependency, so the build adds nothing until it is fetched, and
-//! neither the gate's library tests nor a consumer needs chapulin.
+//! DNS over QUIC through colibri (docs/design.md §24, chapulin under colibri): the session over
+//! colibri's `tls.quic.Client`, whose module carries chapulin's QUIC object (§16 decision 32).
+//! colibri is a lazy dependency, so the build adds nothing until it is fetched, and neither the
+//! gate's library tests nor a consumer needs chapulin. DoH goes through colibri's channel since
+//! decision 33, and `build/doh.zig` builds its example.
 const std = @import("std");
 const modules = @import("modules.zig");
 
 /// `zig build test-chapulin-quic`, the session's own tests; and, where rotor resolved, `zig build
-/// example-doq-rotor` and `zig build example-doh-rotor`, lookups over DNS over QUIC and over DoH on
-/// HTTP/3. The gate runs the tests and builds the example, so a colibri that breaks the session
-/// fails it.
+/// example-doq-rotor`, lookups over DNS over QUIC. The gate runs the tests and builds the example,
+/// so a colibri that breaks the session fails it.
 pub fn add(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -45,9 +45,6 @@ pub fn add(
     if (b.args) |arguments| run.addArgs(arguments);
     const example = b.step("example-doq-rotor", "Lookups over DNS over QUIC: -- <name>[/TYPE][+...][,...] <address>[:<port>] <auth name | pin-sha256:<pin>,...> <root.der>...");
     example.dependOn(&run.step);
-    // DoH over HTTP/3 is the same program, handed a URI template where DoQ takes a name.
-    const doh = b.step("example-doh-rotor", "Lookups over DoH on HTTP/3: -- <name>[/TYPE][+...][,...] <address> <URI template> <root.der>...");
-    doh.dependOn(&run.step);
 }
 
 /// chapulin's QUIC session: `io/io_chapulin_quic.zig` over colibri's `tls`, whose module carries
