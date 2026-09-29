@@ -78,20 +78,30 @@ test "a link the channel closes shuts its socket once the octets it kept have go
     try rig.deinit();
 }
 
-test "each transport's ticket is kept, and the next link of that transport spends it" {
-    // Rule 23: a server keeps the newest ticket of each transport, spent once.
+test "each transport's ticket is kept, and the next link of that transport spends it at its age" {
+    // Rule 23: a server keeps the newest ticket of each transport, spent once, and offered with
+    // its age, the time since it came (RFC 9846 §4.3.11.1).
     var rig: Rig = .{};
     try start(&rig, 104, .{ .{}, .{} });
     const handle = try rig.engine.start(question("example.com."), rig.loop.now());
     try tell(&rig, 0, .{ .open = .quic });
     try testing.expect(!channel_of(&rig, 0).resumed[0]);
     try tell(&rig, 0, .{ .ticket = .quic });
-    try testing.expect(rig.engine.doh.tickets[0][0] != null);
+    const came_ns = rig.engine.doh.tickets[0][0].?.since_ns;
     try testing.expect(rig.engine.doh.tickets[0][1] == null);
     try tell(&rig, 0, .{ .close = .quic });
+    // Time passes before the next link of the transport opens, so the ticket has an age. What the
+    // close left due at its instant is delivered first, and the clock moves after it.
+    for (0..fixtures.until_rounds_max) |_| {
+        if (rig.loop.now() > came_ns) break;
+        _ = try rig.step(fixtures.channel_read_ns);
+    }
+    const opened_ns = rig.loop.now();
     try tell(&rig, 0, .{ .open = .quic });
     try testing.expect(channel_of(&rig, 0).resumed[0]);
     try testing.expect(rig.engine.doh.tickets[0][0] == null);
+    try testing.expect(opened_ns > came_ns);
+    try testing.expectEqual(opened_ns - came_ns, channel_of(&rig, 0).ticket_ages_ns[0]);
     rig.engine.cancel(handle, rig.loop.now());
     _ = try rig.until_result();
     _ = rig.engine.take(rig.loop.now());

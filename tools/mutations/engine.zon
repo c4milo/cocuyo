@@ -924,4 +924,229 @@
         },
         .caught_by = .picked_walks,
     },
+    .{
+        .section = "The engine's DoH over a channel",
+        .id = "CE20",
+        .what = "a link's ticket is offered at age 0",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "    const age_ns = if (kept) |*held| now_ns -| held.since_ns else 0;\n", .new = "    const age_ns: u64 = 0;\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC1",
+        .what = "a template whose GET would not fit is taken",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_start.zig", .old = "    if (!exchange_module.fits(https.path)) return error.Failed;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC2",
+        .what = "a request takes the first buffer whether it is free or not",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "    const slot = for (&self.exchanges) |*slot| {\n        if (!slot.live) break slot;\n    } else return false;\n", .new = "    const slot = &self.exchanges[0];\n" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC3",
+        .what = "a cancelled exchange goes on in colibri",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "    self.channel.cancel(slot.id);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC4",
+        .what = "a cancelled exchange keeps its buffer",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "    self.channel.cancel(slot.id);\n    slot.live = false;\n", .new = "    self.channel.cancel(slot.id);\n" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC5",
+        .what = "a datagram longer than the buffer is copied",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "            if (bytes.len > self.inbound.len) return;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC6",
+        .what = "a datagram the channel has not taken keeps its place",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "            if (bytes.len > self.inbound.len) return;\n", .new = "            if (bytes.len > self.inbound.len or self.inbound_len > 0) return;\n" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC7",
+        .what = "stream octets past the buffer are dropped, and the TCP link goes on",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "                self.stream_overrun = true;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC8",
+        .what = "an overrun TCP link is closed, and the channel is not told",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "    self.stream_overrun = false;\n    self.channel.transport_closed(.tcp);\n", .new = "    self.stream_overrun = false;\n" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC9",
+        .what = "a response of any status is an answer",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    if (exchange.status < constants.status_success_first or exchange.status > constants.status_success_last) return null;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC10",
+        .what = "content of any media type is an answer",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    if (!doh.response.is_dns_message(slot.wanted[content_type_at].value)) return null;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC11",
+        .what = "coded content is an answer",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    if (slot.wanted[content_encoding_at].value) |coding| {\n        if (!doh.response.is_identity(coding)) return null;\n    }\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC12",
+        .what = "an answer's Age is not read",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = ".age_seconds = doh.response.age_seconds(slot.wanted[age_at].value) };", .new = ".age_seconds = 0 };" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC13",
+        .what = "an exchange that ended without a whole response is an answer",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    if (exchange.outcome != .response) return null;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC14",
+        .what = "the GET's path may go into a table",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "        .never_indexed = .{ .path = true },\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC15",
+        .what = "the GET accepts a content coding",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = ".{ .name = \"accept-encoding\", .value = \"identity\" },", .new = ".{ .name = \"accept-encoding\", .value = \"gzip\" }," },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC16",
+        .what = "a link's connection offers no ticket",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_start.zig", .old = "        resumption = .{ .ticket = &self.resuming[at], .age_ms = ticket_age_ns / constants.ns_per_millisecond };\n", .new = "        resumption = null;\n        _ = ticket_age_ns;\n" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC17",
+        .what = "the copy a link resumed with outlives its connection",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "    self.resuming[@intFromEnum(link)].wipe();\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC18",
+        .what = "wiping a channel leaves its connections up",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_start.zig", .old = "    self.channel.transport_closed(.quic);\n    self.channel.transport_closed(.tcp);\n    for (&self.resuming)", .new = "    for (&self.resuming)" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC19",
+        .what = "a link goes to HTTPS's 443 whatever the template names",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "    return .{ .address = address, .port = to.port };", .new = "    return .{ .address = address, .port = 443 };" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC20",
+        .what = "a link goes to the unspecified address",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "    return .{ .address = address, .port = to.port };", .new = "    _ = address;\n    return .{ .address = cocuyo.Address.from_v4(@splat(0)), .port = to.port };" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC21",
+        .what = "the version a connection speaks is told to the engine as the TCP link's close",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "        .connected => return null,", .new = "        .connected => return .{ .close = .tcp }," },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC22",
+        .what = "a close the channel says is not told to the engine",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "            forget(self, link_of(transport));\n            return .{ .close = link_of(transport) };", .new = "            forget(self, link_of(transport));\n            return null;" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC23",
+        .what = "a finished exchange keeps its buffer",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "    assert(ended.exchange == &slot.exchange);\n    slot.live = false;\n", .new = "    assert(ended.exchange == &slot.exchange);\n" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "cocuyo_doh over colibri's channel",
+        .id = "DC24",
+        .what = "a named server is judged by pins alone, its anchors dropped",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_start.zig", .old = "    if (anchors.len == 0) return .{ .pins = .{ .pins = pins, .server_name = server_name } };", .new = "    if (anchors.len >= 0) return .{ .pins = .{ .pins = pins, .server_name = server_name } };" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
 }

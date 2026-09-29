@@ -3012,3 +3012,62 @@ so no walk reaches CE4 or CE18, and the tests catch both. Nineteen mutations, ni
 | CE17 | the engine's timer tells no channel its instant came | CAUGHT | short walk 1 | CAUGHT |
 | CE18 | a request goes on its channel whether the channel had room or not | CAUGHT | no walk | CAUGHT |
 | CE19 | a request put on its channel leaves the channel unread | NOT CAUGHT, then CAUGHT by the new test | walk 2002, picked | CAUGHT |
+
+## cocuyo_doh over colibri's channel
+
+Design §24 step 7b, 2026-09-28 (decision 33). `cocuyo_doh` puts colibri's `client.Channel`, at
+v0.4.0, under the engine's DoH interface (`io/io_doh_channel.zig`): the GET as colibri's
+exchange, the response read back, what the links read kept until the channel takes it, and the
+tickets the links resume with. `zig build test-cocuyo_doh` runs sixteen tests, which link
+chapulin:
+- thirteen of the type against colibri's server in memory
+- three of the engine over it on the twin, colibri's server answering over TLS on each scripted
+  server's HTTPS port
+
+Every server runs under the test identity in `io/testdata/`. No QUIC server listens yet, so each
+test reaches TCP once the fallback delay has passed. HTTP/3 waits for colibri's server over QUIC,
+which v0.5.0 carries.
+
+What writing it found:
+- The engine handed `start_link` a pointer into a copy of the kept ticket, which ended before the
+  call read it. The twin reads only whether a ticket was offered, and the model reduces one to a
+  flag, so nothing saw it. The engine now points into the ticket it spent, and offers the ticket's
+  age, as RFC 9846 §4.3.11.1 asks, which the interface now carries (CE20).
+- colibri's server wrote a response ahead of the SETTINGS its HTTP/2 session owed, when the
+  request came with the handshake's end. RFC 9113 §3.4 has the SETTINGS go first, and colibri's
+  client failed the connection. It is reported to colibri, and until it is fixed the test server
+  writes what the session owes before it responds.
+- DC13 was NOT CAUGHT at first: every failed exchange in the tests had a status of 0, which fails
+  it anyway. The test of a stream the server resets after a 2xx head catches it now.
+- DC16's first edit did not compile, and was written again.
+
+Twenty-five mutations, twenty-five `CAUGHT`: CE20 by `zig build test-io`, and DC1 to DC24 by `zig
+build test-cocuyo_doh`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| DC1 | a template whose GET would not fit is taken | its GET fits a path | the template test | CAUGHT |
+| DC2 | a request takes the first buffer whether it is free or not | rule 21 | the answer-buffers test, by an assertion | CAUGHT |
+| DC3 | a cancelled exchange goes on in colibri | request rule 6 | the answer-buffers test | CAUGHT |
+| DC4 | a cancelled exchange keeps its buffer | rule 21 | the answer-buffers test | CAUGHT |
+| DC5 | a datagram longer than the buffer is copied | `doh_datagram_bytes` | the datagram test | CAUGHT |
+| DC6 | a datagram the channel has not taken keeps its place | a datagram may be dropped | the datagram test | CAUGHT |
+| DC7 | stream octets past the buffer are dropped, and the TCP link goes on | request rule 7 | the overrun test | CAUGHT |
+| DC8 | an overrun TCP link is closed, and the channel is not told | rule 19 | the overrun test | CAUGHT |
+| DC9 | a response of any status is an answer | RFC 8484 §4.2.1 | the failed-responses test | CAUGHT |
+| DC10 | content of any media type is an answer | rule 22 | the failed-responses test | CAUGHT |
+| DC11 | coded content is an answer | request rule 12 | the failed-responses test | CAUGHT |
+| DC12 | an answer's `Age` is not read | RFC 8484 §5.1 | the HTTP/2 test | CAUGHT |
+| DC13 | an exchange that ended without a whole response is an answer | rule 22 | the reset-after-head test | CAUGHT |
+| DC14 | the GET's path may go into a table | request rule 12 | the GET test | CAUGHT |
+| DC15 | the GET accepts a content coding | request rule 12 | the GET test | CAUGHT |
+| DC16 | a link's connection offers no ticket | rule 23 | the ticket test | CAUGHT |
+| DC17 | the copy a link resumed with outlives its connection | wiped once its connection has ended | the ticket test | CAUGHT |
+| DC18 | wiping a channel leaves its connections up | `wipe` | the wipe test | CAUGHT |
+| DC19 | a link goes to HTTPS's 443 whatever the template names | rule 18 | the HTTP/2 test | CAUGHT |
+| DC20 | a link goes to the unspecified address | rule 18 | the engine's tests | CAUGHT |
+| DC21 | the version a connection speaks is told to the engine as the TCP link's close | rule 20 | the engine's tests | CAUGHT |
+| DC22 | a close the channel says is not told to the engine | rule 19 | the engine's idle test | CAUGHT |
+| DC23 | a finished exchange keeps its buffer | rule 21 | the answer-buffers test | CAUGHT |
+| DC24 | a named server is judged by pins alone, its anchors dropped | RFC 8310 §5 | every test that reaches a server | CAUGHT |
+| CE20 | a link's ticket is offered at age 0 | RFC 9846 §4.3.11.1 | the ticket-age test of the engine over the twin's channel | CAUGHT |

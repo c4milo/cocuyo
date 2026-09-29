@@ -4072,21 +4072,31 @@ through the request interface, so `cocuyo_rotor` never imports colibri. The type
   what it says, one thing at a time, until it has nothing more. The octets of the stream the
   channel has not taken stay with the type until it takes them, as `cocuyo_h2` keeps them: a
   partial record until the rest arrives (TLS rule 7), and whole ones while the channel has no
-  room for what they hold.
+  room for what they hold. Octets past what the type keeps end the TCP link, as they failed
+  `cocuyo_h2`'s connection (request rule 7): the type tells the channel the link ended, and says
+  `close` for it. A datagram the channel has not taken when the next arrives is dropped, as the
+  network may drop one.
 - The type reads a response for the engine. An exchange's end carries a DNS message and its
   `Age`, or nothing, and the engine hands the one to the lookup and fails the request on the
   other (rule 22).
 - `datagram` and `output` write what each link owes.
 - `deadline` and `expire` are the channel's instant.
-- `start_link` starts a link's connection once its socket can carry octets, and `link_ended` tells
-  the channel a link's socket ended.
+- `start_link` starts a link's connection once its socket can carry octets, offering the ticket
+  kept for its transport with the ticket's age, the time since it came (RFC 9846 §4.3.11.1), and
+  `link_ended` tells the channel a link's socket ended.
 - `take_ticket` hands over a transport's ticket, and `alternative` the HTTP/3 alternative.
 
 Three types fill it:
 
-- `cocuyo_doh` fills it from colibri's `client.Channel`. It is a module of its own, whose `client`
-  and `tls` imports a consumer that speaks DoH binds to colibri's. It reads the template and the
-  response through `doh`, as the two transports did.
+- `cocuyo_doh` fills it from colibri's `client.Channel` (`io/io_doh_channel.zig`). It is a module
+  of its own, whose `client` and `tls` imports a consumer that speaks DoH binds to colibri's. It
+  reads the template and the response through `doh`, as the two transports did. It holds the
+  channel, the receive pool of its QUIC connection, and `answers` exchanges, 4 unless the consumer
+  names another, as `cocuyo_quic`'s answer buffers were. Each exchange holds its GET's path, the
+  three response fields it wants, and its answer buffer, and a request past them waits (rule 21).
+  Its context is the DoQ session's: the anchors, the stream chapulin and the QUIC connection IDs
+  draw from, and the wall clock. It keeps a copy of the ticket each link resumes with, which it
+  wipes once the link's connection has ended.
 - The twin fills it with `sim.channel`, which says exactly the steps a test or the replay queues,
   one at each of the engine's reads. While it has one queued it is due at once, so the engine's
   timer brings the read when nothing else does. Its links carry an item of the twin's QUIC that
@@ -4144,7 +4154,10 @@ configurations hold at the same states after it.
 **Beyond the model.** The engine runs over `sim.channel` on the twin, in the gate. It runs over
 colibri's channel against colibri's server on the twin: HTTP/3, HTTP/2 when QUIC's datagrams are
 dropped, and HTTP/1.1 from a server that selects no protocol. colibri's channel always runs
-chapulin, so those tests run with the sessions' tests, which link it. The interop check runs
+chapulin, so those tests run with the sessions' tests, which link it. The server runs under a TLS
+identity of cocuyo's own (`io/testdata/`), the owner's ruling of 2026-09-28: a CA and a leaf for
+`dns.example`, made once with openssl and valid for a hundred years, so no test reads colibri's
+test files or moves its clock to fit them. The interop check runs
 dnsproxy on the loopback over HTTP/3, and over HTTP/2 with no UDP listener. The live check runs
 against Google and Cloudflare.
 
@@ -4167,6 +4180,9 @@ against Google and Cloudflare.
 | `h2_plaintext_bytes` | 32,776 | what an HTTP/2 connection keeps of the plaintext colibri reads frames from: a record's plaintext, 2^14 octets at most (RFC 9846 §5.1), after the part of a frame the last record left, 16,392 octets at most, since colibri advertises the smallest frame size, 2^14 octets and a 9-octet header (RFC 9113 §4.2) |
 | `doh_channels_max` | `servers_max` | one channel for each DoH server (decision 33) |
 | `doh_fallback_delay_ns` | 250 ms | how long a channel gives QUIC's handshake before TCP opens beside it: the Connection Attempt Delay RFC 8305 §5 recommends, which that RFC sets between attempts at two addresses, not two versions of HTTP; taken from it, not measured |
+| `doh_stream_bytes` | 18,693 | the octets of the stream a channel keeps until colibri takes them: a record at its longest, 16,645 octets with its header (RFC 9846 §5.2), and one of the engine's chunks, 2,048 |
+| `doh_datagram_bytes` | 2,048 | the datagram a channel keeps until colibri takes it: the engine's datagram buffer, which holds any datagram the engine reads |
+| `doh_values_bytes` | 256 | where a response's `content-type`, `content-encoding` and `age` are copied; a response whose values do not fit fails its request as too large; chosen, not measured |
 
 ### Order and checks
 
@@ -4268,6 +4284,10 @@ against Google and Cloudflare.
      full run of fourteen configurations, 5,628,000 events. A fifteenth test came with it, for the
      read after a request is put on a channel (CE19). The walks catch seventeen of the nineteen
      mutations, and the tests the other two (docs/mutations.md, the channel on the model's walks).
+     `cocuyo_doh` came the same day, on colibri v0.4.0: sixteen tests of the type against
+     colibri's server and of the engine over it on the twin, HTTP/2 and HTTP/1.1, which
+     twenty-five mutations break (docs/mutations.md, `cocuyo_doh` over colibri's channel). HTTP/3
+     against colibri's server waits for its server over QUIC, in v0.5.0.
 
 Checks, one for each piece:
 

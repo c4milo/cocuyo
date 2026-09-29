@@ -70,7 +70,7 @@ pub const None = struct {
     pub fn expire(_: *None, _: u64) void {
         unreachable;
     }
-    pub fn start_link(_: *None, _: Link, _: ?*const Ticket, _: u64) Error!void {
+    pub fn start_link(_: *None, _: Link, _: ?*const Ticket, _: u64, _: u64) Error!void {
         unreachable;
     }
     pub fn link_ended(_: *None, _: Link) void {

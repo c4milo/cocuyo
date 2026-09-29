@@ -117,12 +117,15 @@ pub fn on_connect_event(self: anytype, index: usize, event: rotor.Event, now_ns:
 }
 
 /// A link's socket carries octets: the channel's connection on it starts, offering the ticket kept
-/// for its transport, which it spends (rule 23). One that cannot start ends the link.
+/// for its transport, which it spends (rule 23), and the ticket's age, the time since it came (RFC
+/// 9846 §4.3.11.1). One that cannot start ends the link.
 fn start(self: anytype, server: u8, at: u1, now_ns: u64) void {
     const slot = &self.doh.slots[server];
     const kept = spend(self, server, at, now_ns);
-    const ticket = if (kept) |held| &held.ticket else null;
-    slot.channel.start_link(@enumFromInt(at), ticket, now_ns) catch return ended(self, server, at, now_ns);
+    // By pointer: the ticket the channel is handed lives in `kept` until the call returns.
+    const ticket = if (kept) |*held| &held.ticket else null;
+    const age_ns = if (kept) |*held| now_ns -| held.since_ns else 0;
+    slot.channel.start_link(@enumFromInt(at), ticket, age_ns, now_ns) catch return ended(self, server, at, now_ns);
     slot.links[at].state = .running;
     arm(self, server, at);
 }

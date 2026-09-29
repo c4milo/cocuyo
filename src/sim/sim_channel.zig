@@ -76,9 +76,11 @@ pub const Channel = struct {
     running: [links]bool = @splat(false),
     owes: [links]bool = @splat(false),
     tickets: [links]bool = @splat(false),
-    /// For a test to read: whether a link started with a ticket the engine kept, and how many
-    /// times the engine told the channel a link's socket ended.
+    /// For a test to read: whether a link started with a ticket the engine kept, the age the
+    /// engine gave that ticket, and how many times the engine told the channel a link's socket
+    /// ended.
     resumed: [links]bool = @splat(false),
+    ticket_ages_ns: [links]u64 = @splat(0),
     ended_links: [links]u32 = @splat(0),
     shut: bool = false,
     answer: [constants.datagram_bytes_max]u8 = undefined,
@@ -96,6 +98,7 @@ pub const Channel = struct {
             .script_len = self.script_len,
             .due_ns = self.due_ns,
             .resumed = self.resumed,
+            .ticket_ages_ns = self.ticket_ages_ns,
             .ended_links = self.ended_links,
             .limit = self.limit,
         };
@@ -246,13 +249,14 @@ pub const Channel = struct {
     }
 
     /// Starts a link's connection once its socket carries octets, offering the ticket the engine
-    /// kept for its transport: its first flight is owed.
-    pub fn start_link(self: *Channel, link: Link, ticket: ?*const Ticket, now_ns: u64) Error!void {
+    /// kept for its transport and the ticket's age: its first flight is owed.
+    pub fn start_link(self: *Channel, link: Link, ticket: ?*const Ticket, ticket_age_ns: u64, now_ns: u64) Error!void {
         _ = now_ns;
         const at = @intFromEnum(link);
         self.running[at] = true;
         self.owes[at] = true;
         self.resumed[at] = ticket != null;
+        self.ticket_ages_ns[at] = ticket_age_ns;
     }
 
     /// A link's socket ended: its connection is gone.
@@ -349,7 +353,7 @@ test "a link owes octets only while it runs, and a cancelled exchange ends in no
     channel.say(.{ .octets = .quic }, 0);
     try testing.expectEqual(@as(?Channel.Event, null), channel.next(0));
     try testing.expectEqual(@as(usize, 0), channel.datagram(&out, 0));
-    try channel.start_link(.tcp, null, 0);
+    try channel.start_link(.tcp, null, 0, 0);
     try testing.expect(channel.output(&out, 0) > 0);
     try testing.expectEqual(@as(usize, 0), channel.output(&out, 0));
     try testing.expect(channel.request(1, "q", 0));
