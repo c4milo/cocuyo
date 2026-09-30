@@ -1,10 +1,11 @@
 # Performance work in cocuyo
 
-The method every performance change follows is pepegrillo's `docs/performance.md`: `zig build
-guide` installs it, at the commit `build.zig.zon` pins, to `zig-out/docs/performance-method.md`;
-read it first. This appendix is what that method leaves to the project: cocuyo's instruments, its
-admission rule in numbers, the unit that waits on I/O, its baselines, its costs and the pitfalls it
-has paid for. Where the method asks for a number cocuyo has not measured, this says so.
+The method every performance change follows is pepegrillo's `docs/performance/`: `zig build guide`
+installs it, at the commit `build.zig.zon` pins, to `zig-out/docs/performance/`; read its
+`performance.md` first. This appendix is what that method leaves to the project: cocuyo's
+instruments, its admission rule in numbers, the unit that waits on I/O, its baselines, its costs and
+the pitfalls it has paid for. Where the method asks for a number cocuyo has not measured, this says
+so.
 
 ## The instruments
 
@@ -15,9 +16,10 @@ has paid for. Where the method asks for a number cocuyo has not measured, this s
 - Design §11's numbers are the judge's, from an Apple M1 Pro under macOS 26.6.2. The laptop was
   in ordinary use: those numbers predate the method's rule that time counts only on a machine
   running nothing else.
-- cocuyo has no Linux judge. On Linux every `memset` in a Zig executable stores one byte at a
-  time (the method, "Copies and fills"), and the lookup and the cache fill kilobytes through it in
-  ReleaseSafe (c4milo/cocuyo#34). A number from macOS says nothing of those paths on Linux.
+- cocuyo has no Linux judge. On Linux every `memset` in a Zig executable stores one byte at a time
+  (the method's `performance_zig.md`, "Copies and fills"), and the lookup and the cache fill
+  kilobytes through it in ReleaseSafe (c4milo/cocuyo#34). A number from macOS says nothing of those
+  paths on Linux.
 - `zig build bench-cares` runs the same two operations against the installed c-ares, the
   comparison the design measures against.
 - The filter is a run of a case or two on the developer's machine: it orders candidates in a
