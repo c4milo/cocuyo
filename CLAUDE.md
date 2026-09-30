@@ -191,18 +191,22 @@ The architecture depends on every rule in this section.
   requires every tracked file a rule or the score reads to be under a directory it walks or
   handed to it by name, `test/`'s fixtures apart, so a directory left off the list fails too.
 - Test: `zig build test` — the lint, the format check, the graph check, the consumer check, the
-  README check, the hook check, then every module's unit tests, the DoT and DoQ sessions' tests
-  and a build of their examples, and the tools' own tests. Every change passes it before it is
-  committed. `zig build test-<module>` (`test-core`, `test-wire`, `test-resolver`, `test-config`,
-  `test-cache`, `test-sim`, `test-cocuyo`, `test-io`, `test-chapulin_hooks`, `test-doh`,
-  `test-cocuyo_quic`, `test-cocuyo_doh`, `test-chapulin`, `test-chapulin-quic`)
-  and `zig build test-tools` run one target's tests with nothing else in the graph, which is what
-  a mutation is measured against. `zig build consumer-check` alone builds `test/consumer/`, the
+  README check, the hook check, the fill check, then every module's unit tests, the DoT and DoQ
+  sessions' tests and a build of their examples, and the tools' own tests. Every change passes it
+  before it is committed. `zig build test-<module>` (`test-core`, `test-wire`, `test-resolver`,
+  `test-config`, `test-cache`, `test-sim`, `test-cocuyo`, `test-io`, `test-chapulin_hooks`,
+  `test-doh`, `test-cocuyo_quic`, `test-cocuyo_doh`, `test-chapulin`, `test-chapulin-quic`) and
+  `zig build test-tools` run one target's tests with nothing else in the graph, which is what a
+  mutation is measured against. `zig build consumer-check` alone builds `test/consumer/`, the
   package that depends on cocuyo the way a consumer does, with `cocuyo_rotor` over a rotor of its
   own, and requires the same package to fail when it reaches for a module the surface does not
-  export (design §20, §24). `zig build readme-check` alone builds every Zig block of README.md,
-  each under the `<!-- readme-check: ... -->` marker that names its harness in
-  `tools/readme_check.zig`, and runs the quick start. A new block brings its marker and harness.
+  export (design §20, §24). `zig build readme-check` alone builds every Zig block of README.md, each
+  under the `<!-- readme-check: ... -->` marker that names its harness in `tools/readme_check.zig`,
+  and runs the quick start. A new block brings its marker and harness.
+- Fills: `zig build fill-check` compiles the library's hot paths ReleaseSafe for x86-64 Linux and
+  arm64 macOS, and requires their code to call `memset` or `bzero` exactly as often as
+  `tools/fill_check/fill_check.zig` knows it does (c4milo/cocuyo#35): a new fill fails it, and so
+  does a fill gone that the list still names.
 - Guide: `zig build guide` installs pepegrillo's `docs/performance/`, the method every
   performance change follows, at the commit `build.zig.zon` pins, to `zig-out/docs/performance/`;
   its `performance.md` is the entry point. `docs/performance.md` is cocuyo's appendix to it.

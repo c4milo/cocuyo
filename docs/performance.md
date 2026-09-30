@@ -79,6 +79,20 @@ The table the method asks for is not measured yet. Design §11 has one row of th
 restore, a copy of 3,048 bytes, at a median of 43.0 ns on the judge. It gives a memory access on
 that machine as on the order of a hundred nanoseconds, a figure recalled and not measured.
 
+## Costs held at zero
+
+Some costs on the hot paths are none today, and a change that makes one of them some is a step,
+which an exact check catches where no timing can (c4milo/cocuyo#35):
+
+- A cache hit makes no system call and never blocks. The comparison's tests run n hits and 2n hits
+  through the engine over rotor and require the kernel's counts not to grow: system calls on macOS,
+  the switches of a thread that blocked on Linux.
+- The hot paths' ReleaseSafe code calls `memset` or `bzero` only where
+  `tools/fill_check/fill_check.zig` knows it does. `zig build fill-check`, in the gate, reads the
+  code for x86-64 Linux and arm64 macOS. What it knows today are the fills c4milo/cocuyo#34 found
+  and the zeros of the EDNS padding.
+- Nothing allocates: the heap lint (CLAUDE.md, non-negotiable 2).
+
 ## Pitfalls this tree has paid for
 
 None recorded yet. The first performance change that pays one adds it here, as symptom, cause and
@@ -90,4 +104,5 @@ rule.
 zig build guide
 zig build bench
 zig build bench-cares
+zig build fill-check
 ```

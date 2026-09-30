@@ -5,8 +5,9 @@
 //!
 //! macOS counts both for the whole task, in the events flavour of `task_info`. Its `getrusage`
 //! counts every context switch as involuntary, so a wakeup is not told apart from a preemption
-//! there. Linux counts context switches in `getrusage`, and system calls only for a tracer, which
-//! stops the process at every call and changes what it counts; so a row on Linux counts none.
+//! there. Linux counts context switches in `getrusage`, voluntary apart from involuntary, and
+//! system calls only for a tracer, which stops the process at every call and changes what it
+//! counts; so a row on Linux counts none.
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -17,6 +18,9 @@ pub const Counts = struct {
     syscalls: ?u64,
     /// Context switches, of every thread of the process.
     switches: u64,
+    /// The switches a thread made because it blocked, or null where the kernel does not tell
+    /// them from preemptions. A path that never blocks makes none, whatever else runs.
+    voluntary: ?u64,
 };
 
 /// The counters as they stand. Only `since` gives them a meaning.
@@ -41,10 +45,12 @@ pub fn since(before: Reading, after: Reading) Counts {
             .syscalls = @as(u64, wrapped(before.syscalls_unix, after.syscalls_unix)) +
                 wrapped(before.syscalls_mach, after.syscalls_mach),
             .switches = wrapped(before.csw, after.csw),
+            .voluntary = null,
         },
         .linux => .{
             .syscalls = null,
             .switches = grown(before.nvcsw, after.nvcsw) + grown(before.nivcsw, after.nivcsw),
+            .voluntary = grown(before.nvcsw, after.nvcsw),
         },
         else => unreachable,
     };
@@ -107,5 +113,7 @@ test "the kernel counts the system calls and switches this process makes" {
     const counts = since(before, read());
     try testing.expect(counts.switches >= sleeps);
     if (counts.syscalls) |syscalls| try testing.expect(syscalls >= sleeps);
+    if (counts.voluntary) |voluntary| try testing.expect(voluntary >= sleeps);
     try testing.expectEqual(builtin.os.tag == .linux, counts.syscalls == null);
+    try testing.expectEqual(builtin.os.tag == .macos, counts.voluntary == null);
 }

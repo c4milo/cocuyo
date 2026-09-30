@@ -1754,6 +1754,42 @@ Seven mutations, seven `CAUGHT`. SC1 to SC20 gave what they gave before, SC6 equ
 | H6 | a hit's time keeps the wait before it | the row times a hit from its start | the start-to-result test | CAUGHT |
 | H7 | a hit's time prints the wrong thousandths of a microsecond | microseconds to the nanosecond | the microseconds test | CAUGHT |
 
+## Costs held at zero
+
+2026-09-30 (c4milo/cocuyo#35). Two costs on the hot paths are none today, and a change that makes
+either one some is a step that an exact check catches where no timing can.
+
+A cache hit through the engine makes no system call and never blocks. The comparison's tests run
+n hits and 2n hits and require the kernel's counts not to grow: system calls on macOS, and on
+Linux the switches of a thread that blocked, which `bench/end_to_end/kernel.zig` now reads apart.
+Broken against `zig build test-cares` on macOS.
+
+The hot paths' ReleaseSafe code calls `memset` or `bzero` only where `tools/fill_check/fill_check.zig`
+knows it does. `zig build fill-check`, in the gate, compiles `tools/fill_check/fill_probe.zig` for
+x86-64 Linux and arm64 macOS, splits the assembly into functions, follows each probe's calls past
+the panic handlers, and counts the calls to a fill. Its first run found every path but the cache's
+get reaching one. Each is either a fill c4milo/cocuyo#34 found, of the answers' storage, which
+`response.collect` and the table's poll reach as well as the paths #34 named, or the zeros of the
+EDNS padding (RFC 7830 §3). They are known until #34 removes them. Broken against
+`zig build test-tools` and `zig build fill-check`.
+
+Twelve mutations, twelve `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| ZC1 | the engine's start makes a system call | a cache hit makes none | the no-system-call test | CAUGHT |
+| FC1 | a tail call to a fill is not counted | a jump to `memset` is a call | the call test, and the check on four paths | CAUGHT |
+| FC2 | the walk follows no call | a fill in a callee counts | the callee test, and the check on every path with a fill | CAUGHT |
+| FC3 | the walk enters the panic handlers | a failed check's fills are not the path's | the callee test, and the check on every path | CAUGHT |
+| FC4 | an ELF basic block's label starts a function | only `.type` names a function | the basic-block test, and the check on x86-64 | CAUGHT |
+| FC5 | `bzero` is not a fill | Darwin's zero fill is one | the call and basic-block tests, and the check on arm64 | CAUGHT |
+| FC6 | a fill that went passes | the known list follows the code | the comparison test | CAUGHT |
+| FC7 | a known probe that is gone passes | the known list follows the code | the comparison test | CAUGHT |
+| FC8 | assembly with no probe passes | a check that read nothing fails | the refusal test | CAUGHT |
+| FC9 | a cache hit fills a scratch buffer it leaves undefined | no new fill on a hot path | the check on x86-64; arm64 writes 512 octets with stores of its own | CAUGHT |
+| FC10 | Mach-O's private functions are not read | a stripped build names its functions `l_` | the call, basic-block and comparison tests, and the check on arm64 | CAUGHT |
+| FC11 | ELF's local functions keep their prefix | a stripped build names its functions `.L` | the call, basic-block and callee tests, and the check on x86-64 | CAUGHT |
+
 ## The sanitizer's own control
 
 `-Dsanitize-thread` puts the comparison's tests under ThreadSanitizer on Linux. On 2026-09-22 a

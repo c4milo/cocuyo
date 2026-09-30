@@ -311,6 +311,21 @@ test "a time prints as microseconds to the nanosecond" {
     try testing.expectEqual(.{ @as(u64, 6), @as(u64, 50) }, split_us(6_050));
 }
 
+test "a cache hit through cocuyo's engine makes no system call, and never blocks" {
+    var responder: responder_module.Responder = .{ .socket = undefined, .port = 0 };
+    try responder.start();
+    defer responder.stop();
+    const names: Names = .{ .repeated = constants.test_hit_names };
+    const fewer = try rotor_loop.run(responder.port, queued_schedule, constants.test_total / 2, test_record, names);
+    const more = try rotor_loop.run(responder.port, queued_schedule, constants.test_total, test_record, names);
+    try testing.expectEqual(@as(u32, constants.test_total / 2), fewer.hits);
+    try testing.expectEqual(@as(u32, constants.test_total), more.hits);
+    // Each run's counts cover its hits alone, and the counter's own reads are the same in both,
+    // so a count that grows with the hits is one a hit makes (c4milo/cocuyo#35).
+    if (fewer.kernel.syscalls) |syscalls| try testing.expectEqual(syscalls, more.kernel.syscalls.?);
+    if (fewer.kernel.voluntary) |voluntary| try testing.expectEqual(voluntary, more.kernel.voluntary.?);
+}
+
 test "a hit's time runs from its start, the wait before it taken off" {
     var measured = [_]u64{ 10, 20, 30 };
     subtract_lateness(&measured, &.{ 3, 20, 0 });

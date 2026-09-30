@@ -33,6 +33,7 @@ const dnslib = @import("build/dnslib.zig");
 const fuzz = @import("build/fuzz.zig");
 const coverage = @import("build/coverage.zig");
 const guide = @import("build/guide.zig");
+const fill_check = @import("build/fill_check.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "build", "src", "tools", "examples", "bench", "io" };
@@ -68,6 +69,7 @@ const tool_test_roots = [_][]const u8{
     "tools/tla.zig",
     "tools/mutations.zig",
     "tools/lint_coverage.zig",
+    "tools/fill_check/fill_check.zig",
 };
 
 /// The git revision range `zig build lint-commits` checks.
@@ -148,6 +150,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(graph_check.add(b, host_module(b, "tools/graph_check.zig")));
     test_step.dependOn(consumer_check.add(b, host_module(b, "tools/consumer_check.zig")));
     test_step.dependOn(readme_check.add(b, host_module(b, "tools/readme_check.zig")));
+    test_step.dependOn(fill_check.add(b, host_module(b, "tools/fill_check/fill_check.zig")));
     // rotor drives the second example and nothing else. `lazyDependency` leaves it null until
     // the build has it, and `build/examples.zig` simply adds no rotor example in that case.
     const rotor = b.lazyDependency("rotor", .{ .target = target });
