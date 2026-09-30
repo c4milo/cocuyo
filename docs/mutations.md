@@ -1849,6 +1849,22 @@ shows it.
 | MS7 | the block loop has no barrier | the function calls no `memset` | nothing: the compiler keeps the loop | NOT CAUGHT, equivalent |
 | MS8 | the short loop has no barrier | the function calls no `memset` | the fill check, on x86-64 and arm64 | CAUGHT |
 
+## The responder counts a reply before it sends it
+
+2026-09-30. CI's engine job failed on 0fcb750: the test of the responder's own process read 99
+answers after its 100th reply. The responder counted a reply after sending it, so the reply could
+reach the test before the count moved. It now counts first, and takes the count back when a send
+fails. A new test reads the count after each of ten thousand replies. Broken against
+`zig build test-cares` on macOS: in six runs with the old order, the first short count came
+between the 286th and the 471st reply. One mutation, `CAUGHT` in every run.
+
+The count taken back after a failed send has no mutation: no test can make a send on the loopback
+fail.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| RO1 | the responder counts a reply after it sends it | a process that has a reply reads a count that holds it | the count test, in six runs of six | CAUGHT |
+
 ## The sanitizer's own control
 
 `-Dsanitize-thread` puts the comparison's tests under ThreadSanitizer on Linux. On 2026-09-22 a

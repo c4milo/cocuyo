@@ -188,11 +188,12 @@ const wire = @import("wire");
 const udp = @import("udp.zig");
 
 test {
-    // The schedule's arithmetic, the kernel's counters and the c-ares side's wait for room, which
-    // the runs below do not reach.
+    // The schedule's arithmetic, the kernel's counters, the c-ares side's wait for room and the
+    // responder's count, which the runs below do not reach.
     _ = schedule_module;
     _ = kernel;
     _ = cares_loop;
+    _ = responder_module;
 }
 
 test "the responder answers a query cocuyo builds with one A record for the name it asked" {

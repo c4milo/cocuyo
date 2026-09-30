@@ -73,6 +73,13 @@ pub const test_hit_names = 4;
 /// The exchanges the test of the responder's own process makes: enough that the two calls each
 /// one costs stand clear of whatever else the process does meanwhile.
 pub const test_exchanges = 100;
+/// The exchanges the test of the responder's count makes, reading the count after each reply.
+/// With the count taken after the send, the test first read a count short between the 286th and
+/// the 471st reply in six runs on the M1 Pro under macOS, and a ReleaseSafe build in an arm64
+/// Linux container on it read one short after three replies in four, measured 2026-09-30. At
+/// about one reply in 350, the chance that ten thousand all miss that order is below one in a
+/// trillion.
+pub const test_count_exchanges = 10_000;
 
 /// What one lookup over the loopback may take before the run has stopped measuring the stacks
 /// and started measuring a wait: a quarter of `tick_wait_ns_max`. A loop that waits past a due

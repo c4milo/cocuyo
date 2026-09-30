@@ -24,7 +24,9 @@ const Shared = struct {
     /// latencies of the first row alone.
     serving: std.atomic.Value(bool) = .init(false),
     /// How many queries were answered. A row that gives up reads it while the responder still
-    /// runs: it is what tells a query c-ares never sent from a reply it never took.
+    /// runs: it is what tells a query c-ares never sent from a reply it never took. The responder
+    /// counts a reply before it sends it, so a process that has the reply reads a count that holds
+    /// it.
     answered: std.atomic.Value(u64) = .init(0),
 };
 
@@ -100,8 +102,13 @@ fn serve(socket: udp.Socket, shared: *Shared, parent: std.c.pid_t) noreturn {
             continue;
         };
         const len = build_reply(bytes, &reply) orelse continue;
-        udp.send(socket, reply[0..len], &from) catch continue;
+        // Counted first. Counted after the send, the reply could reach the asker before the
+        // count moved, and a test that read the count as its last reply came found one short.
         _ = shared.answered.fetchAdd(1, .monotonic);
+        udp.send(socket, reply[0..len], &from) catch {
+            _ = shared.answered.fetchSub(1, .monotonic);
+            continue;
+        };
     }
     std.c._exit(0);
 }
@@ -149,4 +156,26 @@ fn question_length(query: []const u8) ?usize {
     const end = name_end + question_fixed_bytes;
     if (end > query.len) return null;
     return end - header_bytes;
+}
+
+// Tests.
+
+const testing = std.testing;
+
+test "a process that has a reply reads a count that holds it" {
+    var responder: Responder = .{ .socket = undefined, .port = 0 };
+    try responder.start();
+    defer responder.stop();
+    const socket = try udp.open(0);
+    defer udp.close(socket);
+    var query: [cocuyo.constants.query_bytes_max]u8 = undefined;
+    const len = wire.query.write(&.{ .id = 0x1234, .name = try cocuyo.Name.from_text("h1.example."), .kind = .a }, &query);
+    const to = udp.loopback(responder.port);
+    var reply: [constants.datagram_bytes_max]u8 = undefined;
+    var from: udp.Address = undefined;
+    for (0..constants.test_count_exchanges) |exchange| {
+        try udp.send(socket, query[0..len], &to);
+        _ = udp.receive(socket, &reply, &from) orelse return error.NoReply;
+        try testing.expectEqual(@as(u64, exchange + 1), responder.answered());
+    }
 }
