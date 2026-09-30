@@ -77,8 +77,8 @@ pub fn run() void {
 fn run_hits(port: u16) void {
     const schedule: Schedule = .{ .period_ns = 0, .in_flight = 1 };
     const names: Names = .{ .repeated = constants.hit_names };
-    std.debug.print("\ncache hits, {d} lookups over {d} names each asked and answered once before the row, one at a time and back to back; nanoseconds from start to result, and the stack's system calls and context switches per lookup\n\n", .{ constants.lookups_total, constants.hit_names });
-    std.debug.print("{s:<8} {s:>10} {s:>8} {s:>8} {s:>8} {s:>8} {s:>8} {s:>9} {s:>9} {s:>9}\n", .{ "stack", "lookups/s", "median", "p99", "p99.9", "max", "hits", "failures", "syscalls", "switches" });
+    std.debug.print("\ncache hits, {d} lookups over {d} names each asked and answered once before the row, one at a time and back to back; microseconds from start to result, to the nanosecond, and the stack's system calls and context switches per lookup\n\n", .{ constants.lookups_total, constants.hit_names });
+    std.debug.print("{s:<8} {s:>10} {s:>10} {s:>10} {s:>10} {s:>10} {s:>8} {s:>9} {s:>9} {s:>9}\n", .{ "stack", "lookups/s", "median", "p99", "p99.9", "max", "hits", "failures", "syscalls", "switches" });
     const ours = rotor_loop.run(port, schedule, constants.lookups_total, record, names) catch |err| {
         std.debug.print("cocuyo: {t}\n", .{err});
         return;
@@ -99,19 +99,27 @@ fn report_hits(stack: []const u8, outcome: Outcome, total: u32) void {
     subtract_lateness(measured, late[0..total]);
     std.mem.sort(u64, measured, {}, std.sort.asc(u64));
     const per_second = @as(u64, total) * constants.ns_per_s / outcome.elapsed_ns;
-    std.debug.print("{s:<8} {d:>10} {d:>8} {d:>8} {d:>8} {d:>8} {d:>8} {d:>9} ", .{
-        stack,
-        per_second,
-        at_permille(measured, constants.permille_median),
-        at_permille(measured, constants.permille_p99),
-        at_permille(measured, constants.permille_p999),
-        measured[measured.len - 1],
-        outcome.hits,
-        outcome.failures,
-    });
+    std.debug.print("{s:<8} {d:>10} ", .{ stack, per_second });
+    print_us(at_permille(measured, constants.permille_median));
+    print_us(at_permille(measured, constants.permille_p99));
+    print_us(at_permille(measured, constants.permille_p999));
+    print_us(measured[measured.len - 1]);
+    std.debug.print("{d:>8} {d:>9} ", .{ outcome.hits, outcome.failures });
     if (outcome.kernel.syscalls) |syscalls| print_per_lookup(syscalls, total) else std.debug.print("{s:>9} ", .{"-"});
     print_per_lookup(outcome.kernel.switches, total);
     std.debug.print("\n", .{});
+}
+
+/// `ns` as microseconds with three decimals, right-aligned in ten columns: a hit takes a fraction
+/// of a microsecond, which whole microseconds would print as zero.
+fn print_us(ns: u64) void {
+    const whole, const thousandths = split_us(ns);
+    std.debug.print("{d:>6}.{d:0>3} ", .{ whole, thousandths });
+}
+
+/// `ns` as whole microseconds and the thousandths after them.
+fn split_us(ns: u64) struct { u64, u64 } {
+    return .{ ns / constants.ns_per_us, ns % constants.ns_per_us };
 }
 
 /// Each lookup's time from its start to its result: its latency from when it was due, less how
@@ -295,6 +303,12 @@ test "cocuyo answers repeated names from its cache, each after one query" {
 
 test "c-ares answers repeated names from its cache, each after one query" {
     try expect_cache_hits(cares_loop.run);
+}
+
+test "a time prints as microseconds to the nanosecond" {
+    try testing.expectEqual(.{ @as(u64, 0), @as(u64, 292) }, split_us(292));
+    try testing.expectEqual(.{ @as(u64, 1828), @as(u64, 208) }, split_us(1_828_208));
+    try testing.expectEqual(.{ @as(u64, 6), @as(u64, 50) }, split_us(6_050));
 }
 
 test "a hit's time runs from its start, the wait before it taken off" {

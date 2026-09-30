@@ -1038,8 +1038,8 @@ row, then asked in turn 20,000 times, one at a time and back to back. cocuyo's e
 lookup inside `start`, and c-ares inside `ares_query_dnsrec`, so a lookup answered before its start
 returns is a hit, and the row counts them. A hit waits on no I/O, so the row is timed as the
 microbenchmarks are: lookups per second, and each lookup's time from its start to its result, in
-nanoseconds. The rows above ask a new name every time, so neither cache answers any of them, and
-their tests require it.
+microseconds to the nanosecond. The rows above ask a new name every time, so neither cache answers
+any of them, andtheir tests require it.
 
 The table below is from the driver before that one. It kept 1, 16 or 128 lookups in flight and
 started one when another ended, c-ares's next from its callback. A driver like that sends nothing

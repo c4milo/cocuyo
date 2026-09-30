@@ -64,7 +64,7 @@ runs from when it was due to its result. A row reports:
 A last row asks 64 names in turn, each asked and answered once before it, so that both stacks'
 caches answer every lookup, and it counts the hits. A hit waits on no I/O, so the row is timed as
 the microbenchmarks are: one lookup at a time, back to back, from its start to its result, in
-nanoseconds.
+microseconds to the nanosecond.
 
 Its numbers wait for a quiet machine (c4milo/cocuyo#5).
 

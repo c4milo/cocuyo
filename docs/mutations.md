@@ -1742,7 +1742,7 @@ cocuyo's takes a result right after each start, and c-ares's callback runs on th
 sends. The tests require every lookup of the row to be a hit, with the responder hearing each name
 once, and every lookup of the other rows to reach the responder. Broken against
 `zig build test-cares` on macOS, with SC1 to SC20 run again over the changed drivers.
-Six mutations, six `CAUGHT`. SC1 to SC20 gave what they gave before, SC6 equivalent still.
+Seven mutations, seven `CAUGHT`. SC1 to SC20 gave what they gave before, SC6 equivalent still.
 
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
@@ -1752,6 +1752,7 @@ Six mutations, six `CAUGHT`. SC1 to SC20 gave what they gave before, SC6 equival
 | H4 | c-ares's row of repeated names asks none of them first | the cache holds every name before the row | c-ares's cache-hit test | CAUGHT |
 | H5 | a c-ares hit is told by a callback on the other thread | a hit is answered inside `ares_query_dnsrec` | c-ares's cache-hit test | CAUGHT |
 | H6 | a hit's time keeps the wait before it | the row times a hit from its start | the start-to-result test | CAUGHT |
+| H7 | a hit's time prints the wrong thousandths of a microsecond | microseconds to the nanosecond | the microseconds test | CAUGHT |
 
 ## The sanitizer's own control
 
