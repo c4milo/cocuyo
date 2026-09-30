@@ -34,8 +34,9 @@ pub fn add(b: *std.Build, tool: *std.Build.Module) *std.Build.Step {
         const object = b.addObject(.{ .name = "fill_probe", .root_module = probe });
         const run = b.addRunArtifact(check);
         run.addArg(entry.name);
+        // No `expectExitCode(0)`: it checks the output, and Zig 0.16 prints a checked step's
+        // stderr as a failed command even when it passed. A step fails on any other exit anyway.
         run.addFileArg(object.getEmittedAsm());
-        run.expectExitCode(0);
         step.dependOn(&run.step);
     }
     return step;
