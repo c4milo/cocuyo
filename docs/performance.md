@@ -22,6 +22,12 @@ so.
   paths on Linux.
 - `zig build bench-cares` runs the same two operations against the installed c-ares, the
   comparison the design measures against.
+- The check on every commit is a count, not a time. `zig build instructions` holds each case of
+  `bench/count.zig`, the benchmark's own cases, to the instructions one operation takes, in
+  `bench/instructions.zon`, through pepegrillo's `instructions` tool under cachegrind on CI's Linux
+  runner. A count moves only when the code does, so a move past 2% fails the commit, and a move that
+  is meant writes the counts anew and says why. A count sees neither a cache miss nor a mispredict,
+  so the judge still decides a speed.
 - The filter is a run of a case or two on the developer's machine: it orders candidates in a
   minute, and its numbers never land in a document. A number recalled rather than measured says
   so where it appears (CLAUDE.md).
@@ -106,4 +112,5 @@ zig build guide
 zig build bench
 zig build bench-cares
 zig build fill-check
+zig build instructions
 ```

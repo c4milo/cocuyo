@@ -1,0 +1,23 @@
+// What each case's operations cost, written by pepegrillo's instructions tool. Write it anew
+// with --rewrite, in a commit that says why the counts moved.
+.{
+    .counter = "cachegrind 3.22.0",
+    .zig = "0.16.0",
+    .target = "x86_64-linux",
+    .cases = .{
+        .{ .name = "query-build", .rounds = 1000, .instructions = 256000 },
+        .{ .name = "query-build-tcp", .rounds = 1000, .instructions = 330000 },
+        .{ .name = "parse-one", .rounds = 1000, .instructions = 1187000 },
+        .{ .name = "parse-cname", .rounds = 1000, .instructions = 4271000 },
+        .{ .name = "parse-sixteen", .rounds = 1000, .instructions = 13664000 },
+        .{ .name = "match-stray", .rounds = 1000, .instructions = 65000 },
+        .{ .name = "match-wrong", .rounds = 1000, .instructions = 947000 },
+        .{ .name = "match-accept", .rounds = 1000, .instructions = 3267000 },
+        .{ .name = "round-trip", .rounds = 1000, .instructions = 4985000 },
+        .{ .name = "resolv-conf", .rounds = 1000, .instructions = 6600000 },
+        .{ .name = "cache-hit", .rounds = 1000, .instructions = 548000 },
+        .{ .name = "cache-miss", .rounds = 1000, .instructions = 296000 },
+        .{ .name = "cache-put", .rounds = 1000, .instructions = 630000 },
+        .{ .name = "cache-put-evict", .rounds = 1000, .instructions = 1177461 },
+    },
+}

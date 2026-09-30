@@ -27,4 +27,5 @@ test {
     _ = cache_trace;
     _ = @import("log_replay.zig");
     _ = @import("log_csv.zig");
+    _ = @import("count.zig");
 }

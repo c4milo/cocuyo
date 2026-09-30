@@ -9,7 +9,12 @@
 #     the bench compile and the format check. It needs no network service and no kernel
 #     feature: the twin is a virtual clock and a virtual network, so the same run happens on both.
 #     Then two engines on two threads resolve at once over the kernel's loops, kqueue on macOS and
-#     io_uring on Linux, against a responder on the loopback (docs/design.md §24 step 6).
+#     io_uring on Linux, against a responder on the loopback (docs/design.md §24 step 6). On Linux
+#     last, pepegrillo's `instructions` tool holds each case of `bench/count.zig` to the
+#     instructions one operation takes, in `bench/instructions.zon`, under cachegrind. A count is
+#     the same on a busy runner as on a quiet one, so it gates the commit where a time cannot. When
+#     it fails, the job prints the counts as they stand, for a developer whose machine has no
+#     valgrind to commit when the move is meant.
 #
 #   - `engine`: the engine of docs/design.md §19 step 13 over rotor itself, and the comparison
 #     against c-ares, on the runner's kernel, where rotor runs io_uring.
@@ -63,6 +68,9 @@
 # that `bench/` is written against, so the comparison does not compile against it. Building the
 # release also makes both sides of the comparison the same c-ares: 1.34.8 is what the macOS
 # measurements in §11 were made against.
+#
+# valgrind comes from Ubuntu 24.04's archive, 3.22. The baseline records the counter it was taken
+# with, and one taken with another is not compared: the counts are written anew.
 #
 # Zig is downloaded from ziglang.org and checked against the SHA-256 the release index published
 # for 0.16.0, c-ares against the SHA-256 of its release asset, and Lean against the SHA-256 GitHub
@@ -127,6 +135,20 @@ jobs:
         run: zig build test
       - name: Two engines on two threads, each on its own io_uring loop, resolve at once
         run: zig build example-threads-rotor
+      - name: Install valgrind, the counter of the instruction check
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y valgrind
+      - name: Each benchmark case at the instructions one operation takes
+        id: instructions
+        run: zig build instructions
+      - name: The counts as they stand, for bench/instructions.zon when the move is meant
+        if: failure() && steps.instructions.outcome == 'failure'
+        run: |
+          set -euo pipefail
+          zig build instructions-rewrite
+          cat bench/instructions.zon
 
   epoll:
     name: Linux, the rotor example where io_uring is refused

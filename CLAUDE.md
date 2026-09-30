@@ -150,22 +150,24 @@ The architecture depends on every rule in this section.
 ## Ask before
 
 - Changing a named limit or the public API.
-- Adding a dependency. The library has none and is meant to keep it that way. pepegrillo is a
-  ruled dependency of the tools, approved by the owner on 2026-09-21: `build.zig.zon` pins it by
-  hash as a lazy dependency, the tools import it, and it is never linked into the library.
-  colibri is a ruled dependency of `cocuyo_quic`, `cocuyo_doh`, the engine's tests and the DoT
-  and DoQ sessions, approved by the owner on 2026-09-25 (design §16 decision 29), for the sessions
-  on 2026-09-27 (decision 32) and for `cocuyo_doh` on 2026-09-28 (decision 33): `build.zig.zon`
-  pins it by hash as a lazy dependency, only the root build requests it, and nothing under `src/`
-  imports it. AdGuard's dnsproxy is a
-  ruled dependency of the interop check alone, approved by the owner on 2026-09-25 (c4milo/cocuyo#16):
-  the `interop` workflow fetches a pinned release and checks its SHA-256, and nothing builds,
-  links or imports it. kcov is a ruled tool of the coverage job alone, approved by the owner on
-  2026-09-26: CI builds a pinned release, checked by its SHA-256, and nothing links or imports it. dnslib's test responses are ruled data of the dnslib check alone,
-  approved by the owner on 2026-09-26 (c4milo/cocuyo#22): `tools/dnslib/run.sh` fetches them at a
-  pinned commit and checks their tree id, and nothing builds, links or imports them. chapulin
-  reaches cocuyo through colibri alone since 2026-09-27 (decision 32): colibri's `tls` module
-  carries its objects at the commit colibri pins, and cocuyo pins no chapulin of its own.
+- Adding a dependency. The library has none and is meant to keep it that way. pepegrillo is a ruled
+  dependency of the tools, approved by the owner on 2026-09-21: `build.zig.zon` pins it by hash as a
+  lazy dependency, the tools import it, and it is never linked into the library. colibri is a ruled
+  dependency of `cocuyo_quic`, `cocuyo_doh`, the engine's tests and the DoT and DoQ sessions,
+  approved by the owner on 2026-09-25 (design §16 decision 29), for the sessions on 2026-09-27
+  (decision 32) and for `cocuyo_doh` on 2026-09-28 (decision 33): `build.zig.zon` pins it by hash as
+  a lazy dependency, only the root build requests it, and nothing under `src/` imports it. AdGuard's
+  dnsproxy is a ruled dependency of the interop check alone, approved by the owner on 2026-09-25
+  (c4milo/cocuyo#16): the `interop` workflow fetches a pinned release and checks its SHA-256, and
+  nothing builds, links or imports it. kcov is a ruled tool of the coverage job alone, approved by
+  the owner on 2026-09-26: CI builds a pinned release, checked by its SHA-256, and nothing links or
+  imports it. valgrind is a ruled tool of the instruction check alone, approved by the owner on
+  2026-09-30: CI's Linux job installs Ubuntu's package, and nothing links or imports it. dnslib's
+  test responses are ruled data of the dnslib check alone, approved by the owner on 2026-09-26
+  (c4milo/cocuyo#22): `tools/dnslib/run.sh` fetches them at a pinned commit and checks their tree
+  id, and nothing builds, links or imports them. chapulin reaches cocuyo through colibri alone since
+  2026-09-27 (decision 32): colibri's `tls` module carries its objects at the commit colibri pins,
+  and cocuyo pins no chapulin of its own.
 - Weakening an assertion or a check to make a test pass.
 - Adding anything §1 puts out of scope: DNSSEC validation, mDNS, zone transfers, nsswitch, IDN, the
   platform resolver configuration of §14. DoT and DoH were decided in on 2026-09-23: DoT in the
@@ -207,6 +209,11 @@ The architecture depends on every rule in this section.
   arm64 macOS, and requires their code to call `memset` or `bzero` exactly as often as
   `tools/fill_check/fill_check.zig` knows it does (c4milo/cocuyo#35): a new fill fails it, and so
   does a fill gone that the list still names.
+- Instructions: `zig build instructions` holds each case of `bench/count.zig` to the instructions
+  one operation takes, in `bench/instructions.zon`, through pepegrillo's `instructions` tool under
+  cachegrind (`tools/instructions.zig`). It needs valgrind, so it runs on Linux; CI's Linux job runs
+  it, and prints the counts as they stand when they move. `zig build instructions-rewrite` writes
+  them anew, in a commit that says why they moved.
 - Guide: `zig build guide` installs pepegrillo's `docs/performance/`, the method every
   performance change follows, at the commit `build.zig.zon` pins, to `zig-out/docs/performance/`;
   its `performance.md` is the entry point. `docs/performance.md` is cocuyo's appendix to it.
