@@ -83,3 +83,17 @@ test "a negative answer is cached with its outcome, its TTL and no records" {
     table.put(&ask("nx.example"), &answers, null, 0);
     try testing.expectEqual(Outcome.answered, table.get(&ask("nx.example"), 0).?.outcome);
 }
+
+test "a negative answer put over an answered one resets the slot's answers where they are" {
+    var fixture: fixtures.Fixture(slot_count) = .{};
+    var table = fixture.init();
+    const answers = fixtures.answers_v4(1, 300);
+    table.put(&ask("example.com"), &answers, null, 0);
+    // No local to fill and copy: the slot's own answers are reset (docs/design.md §16
+    // decision 34), and none of the address it held is left counted.
+    table.put_negative(&ask("example.com"), .no_data, 30, 0);
+    const hit = table.get(&ask("example.com"), 0).?;
+    try testing.expectEqual(Outcome.no_data, hit.outcome);
+    try testing.expectEqual(@as(usize, 0), hit.answers.addresses().len);
+    try testing.expectEqual(@as(u32, 30), hit.ttl_seconds);
+}

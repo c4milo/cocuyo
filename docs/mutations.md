@@ -1790,6 +1790,32 @@ Twelve mutations, twelve `CAUGHT`.
 | FC10 | Mach-O's private functions are not read | a stripped build names its functions `l_` | the call, basic-block and comparison tests, and the check on arm64 | CAUGHT |
 | FC11 | ELF's local functions keep their prefix | a stripped build names its functions `.L` | the call, basic-block and callee tests, and the check on x86-64 | CAUGHT |
 
+## The answers keep the type of the question
+
+Design §16 decision 34, 2026-09-30 (c4milo/cocuyo#34). The answers' union is an `extern union`, and
+`Answers` carries `kind`, the type of the question it answers, so changing lists writes `kind` and
+none of the storage. A lookup started in its slot sets every field but its answers, through a value
+of the other fields that the compiler checks whole, and a negative put resets the slot's answers in
+place. The fill check's known fills fell, on both targets, to the zeros of the EDNS padding and
+`Lookup.init`. Broken against `zig build test-wire`, `test-resolver`, `test-cache` and `fill-check`.
+Seven mutations, seven `CAUGHT`.
+
+A value of those fields that leaves one out does not build, so no mutation of it can run: the
+compiler refuses it, which is what the value is for. The reads of `items` assert `kind`, where the
+build's hidden tag checked the member before. Dropping one of those assertions is not in the table:
+no correct caller reads the wrong list, so no test reaches it, as none reached the hidden tag's
+check.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| AK1 | `reset` changes lists by assigning the union whole | no write where nothing reads | the list-change test, and the fill check | CAUGHT |
+| AK2 | `assign` changes lists by assigning the union whole before it copies | no write past what is copied | the copy test, and the fill check | CAUGHT |
+| AK3 | a lookup started in place writes its answers' storage | the slot's last answers are left | the in-place test, and the fill check | CAUGHT |
+| AK4 | a negative put fills a local and copies it | a negative entry resets the slot's answers | the fill check | CAUGHT |
+| AK5 | a negative put leaves the slot's answers as they were | a negative entry holds no records | the negative-over-answered test | CAUGHT |
+| AK6 | `reset` leaves the kind as it was | the kind names the list in use | the kind's assertions, across the codec's tests | CAUGHT |
+| AK7 | `assign` leaves the kind as it was | the kind names the list in use | the copy test, and the cache's PTR and MX tests | CAUGHT |
+
 ## The sanitizer's own control
 
 `-Dsanitize-thread` puts the comparison's tests under ThreadSanitizer on Linux. On 2026-09-22 a

@@ -23,7 +23,8 @@ comptime {
     if (constants.label_bytes_max >= 'A') @compileError("a length octet could fold like a letter");
 }
 
-pub const Name = struct {
+/// An `extern struct`, because the answers' union holds it (docs/design.md §16 decision 34).
+pub const Name = extern struct {
     bytes: [constants.name_bytes_max]u8,
     len: u8,
 

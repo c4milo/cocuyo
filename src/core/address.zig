@@ -22,8 +22,8 @@ pub const Family = enum(u8) {
 
 /// An IP address. IPv4 uses the first `address_v4_bytes` octets and leaves the rest zero, so two
 /// addresses of one family compare as their octets and two of different families never compare
-/// equal.
-pub const Address = struct {
+/// equal. An `extern struct`, because the answers' union holds it (docs/design.md §16 decision 34).
+pub const Address = extern struct {
     family: Family,
     octets: [constants.address_v6_bytes]u8,
 

@@ -162,11 +162,13 @@ pub const Kind = enum(u16) { a = 1, ns = 2, cname = 5, soa = 6, ptr = 12, hinfo 
     sig = 24, aaaa = 28, srv = 33, naptr = 35, opt = 41, tlsa = 52, svcb = 64, https = 65, any = 255,
     uri = 256, caa = 257, _ };
 pub const Family = enum(u8) { ipv4, ipv6 };
-pub const Address = struct { family: Family, octets: [16]u8 };
+/// An `extern struct`, because the answers' union holds it (decision 34).
+pub const Address = extern struct { family: Family, octets: [16]u8 };
 pub const Endpoint = struct { address: Address, port: u16 };
 
-/// A name in uncompressed wire form, root label included.
-pub const Name = struct {
+/// A name in uncompressed wire form, root label included. An `extern struct`, because the answers'
+/// union holds it (decision 34).
+pub const Name = extern struct {
     bytes: [name_bytes_max]u8,
     len: u8,
 
@@ -724,7 +726,7 @@ up as a diff rather than as a surprise. The pins that exist are in `src/core/cor
 | the scalars | 84 | state, flags, four indices, the server order, the transaction, two instants, the generator, the failure, the negative TTL, the chain's TTL, the config pointer, the servers pointer |
 | `question` | 260 | the name as asked, its type, and whether it was absolute |
 | `current` | 256 | the current candidate, or where the CNAME chain has reached |
-| `answers` | 2448 | a union: `[addresses_max]Address` is 272, `[ptr_names_max]Name` is 256, and the records of §19 step 9 are 2436 — 32 references of 12 and a buffer of `rdata_bytes_max` — plus the count, the TTL, the hop count and two flags |
+| `answers` | 2448 | an extern union: `[addresses_max]Address` is 272, `[ptr_names_max]Name` is 256, and the records of §19 step 9 are 2436 — 32 references of 12 and a buffer of `rdata_bytes_max` — plus the question's type (decision 34), the count, the TTL, the hop count and two flags |
 | total | 3048, measured | pinned by a test in `src/resolver/lookup_init_test.zig` |
 
 The total is larger than the parts because Zig chooses a struct's field order and pads accordingly.
@@ -1449,6 +1451,25 @@ step until `zig build test` passes.
     does not ask for, since it recommends HTTP/2 for speed alone, and which makes a slow server a
     failed one; and channels the caller hands `init`, which changes `init` where every other
     connection set is a fixed array. §24.
+34. **The answers keep the type of the question they answer, and change lists without writing their
+    storage.** Ruled by the owner on 2026-09-30 (c4milo/cocuyo#34). ReleaseSafe writes 0xAA over
+    memory assigned `undefined`, and a bare union changes its member only by being assigned whole.
+    So the answers' storage, 2,436 octets for the records, was written where nothing read it: when a
+    lookup started, when a response was collected, when the cache kept an answer and when it handed
+    one back. On Linux every one of those writes stores a byte at a time. The answers' union is now
+    an `extern union`, which lets any member be read, and `Answers` carries `kind`, the type of the
+    question it answers, which decides the member in use (`Kind.storage`). `reset` and `assign`
+    write `kind` and none of the storage, and every read asserts it, which is the check the build's
+    hidden tag made. `Address`, `Name`, `Records` and `Ref` are `extern struct`s so that the union
+    can hold them, with their fields and sizes as they were. `Lookup.init_in_place` sets every field
+    but `answers`, and then resets the answers, so the octets of the slot's last lookup are left and
+    never read; `Cache.put_negative` resets the slot's answers in place instead of filling a local.
+    Two fills stay: `Lookup.init`, which builds a lookup whole and hands it back by value, and the
+    zeros of the EDNS padding (RFC 7830 §3). Rejected: runtime safety off around the switch, an
+    exception the owner rules on (pepegrillo's method, step 3) for a cost the representation can
+    avoid; the storage as bytes read through pointer casts, which loses every member's type; a field
+    for each list, which adds 2.4 KiB to every lookup and every cache slot; and leaving it, which on
+    Linux writes about 2,700 octets a byte at a time at every A lookup's start. §9, §19 step 9.
 
 ## 17. Questions for the owner
 
@@ -2065,10 +2086,11 @@ one type:
 
 ```zig
 pub const Answers = struct {
-    items: union { addresses: [addresses_max]Address, names: [ptr_names_max]Name, records: Records },
+    kind: Kind,                    // the question's type, which picks the member (decision 34)
+    items: extern union { addresses: [addresses_max]Address, names: [ptr_names_max]Name, records: Records },
     ...
 };
-pub const Records = struct {
+pub const Records = extern struct {
     refs: [records_kept_max]Ref,   // type code, TTL, offset and length into `bytes`
     bytes: [rdata_bytes_max]u8,
     count: u8,

@@ -24,14 +24,9 @@ const Question = core.Question;
 const entropy_module = @import("entropy.zig");
 const Servers = @import("servers.zig").Servers;
 
-/// The order before the first poll computes one: the configured order.
-const identity_order: [core.constants.servers_max]u8 = blk: {
-    var order: [core.constants.servers_max]u8 = undefined;
-    for (&order, 0..) |*slot, index| slot.* = @intCast(index);
-    break :blk order;
-};
 const policy = @import("lookup_policy.zig");
 const poll_module = @import("lookup_poll.zig");
+const init_module = @import("lookup_init.zig");
 const response_module = @import("lookup_response.zig");
 const request_module = @import("lookup_request.zig");
 
@@ -190,53 +185,7 @@ pub const Lookup = struct {
         question: Question,
         seed: u64,
     ) void {
-        config.assert_valid();
-        assert(question.kind.queryable());
-        assert(servers.count == config.servers.len);
-        self.* = .{
-            .state = .query_ready,
-            .flags = .{
-                .edns_enabled = true,
-                // A query over DoH or DoQ asks for the name as it was given, so the same
-                // question makes the same octets for an HTTP cache (docs/design.md §22, §23).
-                .mix_case = config.mix_case and !config.sends_requests(),
-                .had_no_data = false,
-                .had_server_failure = false,
-                .aliased = false,
-                .cookie_retried = false,
-                .ordered = false,
-            },
-            .server_index = 0,
-            .order = identity_order,
-            .round = 0,
-            .candidate_index = 0,
-            .cname_hops = 0,
-            .transaction = undefined,
-            .deadline_ns = 0,
-            .now_ns_seen = 0,
-            .entropy = entropy_module.Entropy.init(seed),
-            .failure = core.Error.Timeout,
-            .negative_ttl_seconds = 0,
-            .chain_ttl_seconds = 0,
-            .config = config,
-            .servers = servers,
-            .question = question,
-            .current = question.name,
-            // Left undefined and then reset: the answers' rdata buffer is two kilooctets that
-            // nothing reads before `collect` writes it, and writing it here is what §11 measured.
-            .answers = undefined,
-        };
-        self.answers.reset(question.kind);
-        self.transaction = self.entropy.transaction();
-        // A configuration with no server is one a `resolv.conf` with none gave, read without
-        // the default: every lookup on it fails at once (§19 step 11).
-        if (config.server_count() == 0) {
-            self.fail(core.Error.NoServers);
-            return;
-        }
-        self.take_candidate(self.candidate_index);
-        if (self.state == .query_ready and config.streams_only()) self.state = .tcp_needed;
-        assert(self.state == .query_ready or self.state == .tcp_needed or self.state == .failed);
+        init_module.init_in_place(self, config, servers, question, seed);
     }
 
     pub fn poll(self: *Lookup, now_ns: u64, out: []u8) Action {

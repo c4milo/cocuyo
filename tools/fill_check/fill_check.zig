@@ -13,35 +13,24 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-/// The fills each probe reaches today, by target, of two kinds:
+/// The fills each probe reaches today, by target, both on purpose (docs/design.md §16 decision
+/// 34):
 ///
-/// - The fills of the answers' storage c4milo/cocuyo#34 found. `Lookup.init` fills the lookup it
-///   builds, `Lookup.init_in_place` and `Cache.put_negative` the answers they leave undefined, and
-///   `Answers.reset` and `Answers.assign`, which `response.collect` and the cache's recall reach,
-///   the member of the storage they make active. They stay here until #34 removes them.
 /// - The zeros of the EDNS Padding option, which `query.write` writes for a query that goes
-///   encrypted (RFC 7830 §3): fewer than one block of them, and on purpose.
+///   encrypted (RFC 7830 §3), fewer than one block of them. The table's poll builds queries, so
+///   it reaches them too.
+/// - `Lookup.init`, which builds a whole lookup and hands it back by value, for a caller that
+///   holds one outside a table. The table builds its lookups in place, and fills nothing.
 ///
-/// Arm64 writes the 272-octet fills as stores of its own, so it makes fewer calls. A probe not
-/// listed reaches none.
+/// A probe not listed reaches none.
 pub const Known = struct { target: []const u8, probe: []const u8, fills: u32 };
 pub const known = [_]Known{
     .{ .target = "x86_64-linux-gnu", .probe = "probe_query_write", .fills = 1 },
-    .{ .target = "x86_64-linux-gnu", .probe = "probe_response_collect", .fills = 2 },
-    .{ .target = "x86_64-linux-gnu", .probe = "probe_table_start", .fills = 3 },
-    .{ .target = "x86_64-linux-gnu", .probe = "probe_table_poll", .fills = 3 },
-    .{ .target = "x86_64-linux-gnu", .probe = "probe_table_datagram", .fills = 2 },
-    .{ .target = "x86_64-linux-gnu", .probe = "probe_cache_put", .fills = 2 },
-    .{ .target = "x86_64-linux-gnu", .probe = "probe_cache_put_negative", .fills = 5 },
-    .{ .target = "x86_64-linux-gnu", .probe = "probe_lookup_init", .fills = 4 },
+    .{ .target = "x86_64-linux-gnu", .probe = "probe_table_poll", .fills = 1 },
+    .{ .target = "x86_64-linux-gnu", .probe = "probe_lookup_init", .fills = 1 },
     .{ .target = "aarch64-macos", .probe = "probe_query_write", .fills = 1 },
-    .{ .target = "aarch64-macos", .probe = "probe_response_collect", .fills = 1 },
-    .{ .target = "aarch64-macos", .probe = "probe_table_start", .fills = 2 },
-    .{ .target = "aarch64-macos", .probe = "probe_table_poll", .fills = 2 },
-    .{ .target = "aarch64-macos", .probe = "probe_table_datagram", .fills = 1 },
-    .{ .target = "aarch64-macos", .probe = "probe_cache_put", .fills = 1 },
-    .{ .target = "aarch64-macos", .probe = "probe_cache_put_negative", .fills = 3 },
-    .{ .target = "aarch64-macos", .probe = "probe_lookup_init", .fills = 3 },
+    .{ .target = "aarch64-macos", .probe = "probe_table_poll", .fills = 1 },
+    .{ .target = "aarch64-macos", .probe = "probe_lookup_init", .fills = 1 },
 };
 
 /// How a target's assembly spells what the tool reads: the prefixes a function's symbol may carry,

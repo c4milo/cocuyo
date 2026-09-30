@@ -73,6 +73,23 @@ test "cancel settles a lookup without an answer" {
     try testing.expectEqual(core.Error.Canceled, lookup.failure_of().err);
 }
 
+test "a lookup started in its slot leaves the answers' storage as the last lookup left it" {
+    const config: Config = .{ .servers = &one_server };
+    var servers_config = Servers.init(&config, 1);
+    var lookup: Lookup = undefined;
+    // What a lookup that ended in the slot left, and nothing reads again: `reset` sets the count
+    // to zero. Assigning the whole lookup would write it, as a safe build fills whatever is
+    // `undefined` with 0xAA (docs/design.md §16 decision 34).
+    const left: u8 = 0x5a;
+    @memset(std.mem.asBytes(&lookup.answers.items), left);
+    lookup.init_in_place(&config, &servers_config, try Question.from_text("example.com", .mx), 1);
+    try testing.expectEqual(core.Kind.mx, lookup.answers.kind);
+    try testing.expectEqual(@as(u8, 0), lookup.answers.count);
+    try testing.expectEqual(@as(u16, 0), lookup.answers.items.records.used);
+    for (lookup.answers.items.records.bytes) |octet| try testing.expectEqual(left, octet);
+    try testing.expectEqual(State.query_ready, lookup.state);
+}
+
 test "the size of a lookup slot is pinned" {
     // docs/design.md §9 budgets the memory a caller provides, and a caller sizing a table needs
     // this number. It is measured, not computed: Zig chooses the field order, so a field added

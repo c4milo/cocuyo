@@ -19,6 +19,9 @@ pub fn take(
     kind: Kind,
     out: *Answers,
 ) Error!bool {
+    // The list is the one `reset` chose for this question: `items` does not record which one it
+    // holds, so a write to another would go unnoticed (docs/design.md §16 decision 34).
+    assert(out.kind == kind);
     switch (kind.storage()) {
         .names => {
             if (out.count == core.constants.ptr_names_max) return refuse(out);

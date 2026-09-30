@@ -172,16 +172,17 @@ pub const Cache = struct {
     ) void {
         assert(outcome != .answered);
         if (ttl_seconds == 0) return;
-        var empty: wire.Answers = undefined;
-        empty.reset(question.kind);
-        self.insert(question, outcome, &empty, null, ttl_seconds, now_ns);
+        // No records: the slot's answers are reset where they are, rather than filled in a local
+        // and copied, as a safe build fills a local left `undefined` (docs/design.md §16
+        // decision 34).
+        self.insert(question, outcome, null, null, ttl_seconds, now_ns);
     }
 
     fn insert(
         self: *Cache,
         question: *const Question,
         outcome: Outcome,
-        answers: *const wire.Answers,
+        answers: ?*const wire.Answers,
         canonical: ?*const Name,
         ttl_seconds: u32,
         now_ns: u64,
@@ -194,7 +195,7 @@ pub const Cache = struct {
         if (self.find(question, hash)) |index| {
             // Replaced in place, and the bit set: a name put twice is a name being used.
             const slot = &self.slots[index];
-            slot.answers.assign(answers, question.kind);
+            keep_answers(slot, answers, question.kind);
             keep_canonical(slot, canonical);
             slot.outcome = outcome;
             slot.expires_ns = expires_ns;
@@ -212,7 +213,7 @@ pub const Cache = struct {
         // answers' storage is copied only as far as it is used.
         const slot = &self.slots[index];
         slot.name = question.name;
-        slot.answers.assign(answers, question.kind);
+        keep_answers(slot, answers, question.kind);
         keep_canonical(slot, canonical);
         slot.expires_ns = expires_ns;
         slot.hash = hash;
@@ -225,6 +226,12 @@ pub const Cache = struct {
         slot.name.fold_case();
         self.order.link_newest(self.slots, index);
         assert(self.order.len <= self.slots.len);
+    }
+
+    /// What a put keeps: the answers it was given, copied as far as they are used, or none for a
+    /// negative entry, which resets the slot's own.
+    fn keep_answers(slot: *Slot, answers: ?*const wire.Answers, kind: Kind) void {
+        if (answers) |kept| slot.answers.assign(kept, kind) else slot.answers.reset(kind);
     }
 
     /// Takes the entry at `index` out of the table. The hand, if it was there, moves on.

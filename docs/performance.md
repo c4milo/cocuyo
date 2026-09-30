@@ -89,8 +89,9 @@ which an exact check catches where no timing can (c4milo/cocuyo#35):
   the switches of a thread that blocked on Linux.
 - The hot paths' ReleaseSafe code calls `memset` or `bzero` only where
   `tools/fill_check/fill_check.zig` knows it does. `zig build fill-check`, in the gate, reads the
-  code for x86-64 Linux and arm64 macOS. What it knows today are the fills c4milo/cocuyo#34 found
-  and the zeros of the EDNS padding.
+  code for x86-64 Linux and arm64 macOS. What it knows are two fills made on purpose: the zeros of
+  the EDNS padding, and `Lookup.init`, which builds a whole lookup to hand back by value. The fills
+  c4milo/cocuyo#34 found, of the answers' storage, are gone (design §16, decision 34).
 - Nothing allocates: the heap lint (CLAUDE.md, non-negotiable 2).
 
 ## Pitfalls this tree has paid for
