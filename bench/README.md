@@ -30,12 +30,15 @@ cocuyo was split to avoid. This step links a library the gate must not require, 
 runs under `zig build test`; its own tests, which show c-ares writes the same query bytes cocuyo
 does, run first under the step and alone under `zig build test-cares`.
 
-The same step then runs the comparison end to end (`bench/end_to_end/`): one responder thread on
-the loopback answers every query with one A record, and each stack resolves 20,000 distinct
-names against it with 1, 16 and 128 lookups in flight. cocuyo's side is the engine of design §19
-step 13 over rotor, built privately for the bench; c-ares's is the installed build with its
-event thread. The rows are lookups per second, and the median and 99th-percentile latency. The
-numbers live in §11 of the design document, with the machine and the day.
+The same step then runs the comparison end to end (`bench/end_to_end/`): one responder, a process of
+its own on the loopback, answers every query with one A record, and each stack resolves 20,000
+distinct names against it at 10,000, 40,000, 80,000 and 160,000 lookups a second, each sent when it
+is due whether or not the stack has answered, with at most 128 out. cocuyo's side is the engine of
+design §19 step 13 over rotor, built privately for the bench; c-ares's is the installed build with
+its event thread. The rows are lookups per second; the median, the 99th and the 99.9th percentile
+and the slowest latency, from when each lookup was due; how late the lookups went out; the most out
+at once; and the stack's system calls and context switches per lookup. The numbers live in §11 of
+the design document, with the machine and the day.
 
 ## A real DNS log
 

@@ -2,12 +2,17 @@
 //! magic-numbers rule by name, like every corpus.
 const cocuyo = @import("cocuyo");
 
-/// How many lookups are kept in flight in each run, the most of them, and how many lookups each
-/// run makes in all.
-pub const in_flight_counts = [_]u32{ 1, 16, 128 };
+/// The loads the rows offer, in lookups a second, each lookup sent when it is due whether or not
+/// the stack has answered (`schedule.zig`). Chosen against what the machine of docs/design.md §11
+/// measured on 2026-09-22 with a number of lookups kept in flight: one, cocuyo 45,199 a second
+/// and c-ares 36,304; sixteen, 110,194 and 87,306; 128, 122,089 and 82,554. 10,000 is under both
+/// stacks one at a time, 40,000 over c-ares's one at a time, 80,000 under both at sixteen, and
+/// 160,000 over both at 128, so its row gives the most each can do.
+pub const rates = [_]u32{ 10_000, 40_000, 80_000, 160_000 };
+/// The most lookups out at once, and how many lookups each row makes in all.
 pub const in_flight_max = 128;
 pub const lookups_total = 20_000;
-/// Lookups run before the first row and not measured, which bring the responder's thread and the
+/// Lookups run before the first row and not measured, which bring the responder and the
 /// cores up to speed. The first run in a process spent its first 200 lookups at one in flight at
 /// about 95 microseconds, against 22 after them, measured on 2026-09-26 on the machine of
 /// docs/design.md §11: whether or not the engine's memory was touched first, and not on a second
@@ -34,9 +39,15 @@ pub const ns_per_ms = 1_000_000;
 pub const ns_per_us = 1_000;
 pub const ns_per_s = 1_000_000_000;
 
-/// The percentile the table reports beside the median.
-pub const percentile = 99;
-pub const percent = 100;
+/// The latencies the table reports, in thousandths of a row's lookups sorted: the median, the
+/// 99th and the 99.9th percentile. 20,000 lookups put the 99.9th at the twentieth slowest.
+pub const permille_median = 500;
+pub const permille_p99 = 990;
+pub const permille_p999 = 999;
+pub const permille = 1000;
+
+/// The kernel's counts are printed per lookup with two decimals.
+pub const hundredths = 100;
 
 /// The engine over rotor: the buffers of its datagram group, deep enough for every lookup in
 /// flight to have a reply waiting; what the loop is told to hold beyond the engine's operations;
@@ -47,21 +58,20 @@ pub const events_max = 64;
 pub const tick_wait_ns_max = 1_000_000_000;
 pub const engine_seed = 0x5eed_c0c0;
 
-/// The runs the comparison's own tests make: small, so they end in a moment.
+/// The runs the comparison's own tests make: small, so they end in a moment, and one lookup a
+/// millisecond, so each is answered long before the next is due.
 pub const test_in_flight = 4;
 pub const test_total = 20;
+pub const test_period_ns = ns_per_ms;
+/// The exchanges the test of the responder's own process makes: enough that the two calls each
+/// one costs stand clear of whatever else the process does meanwhile.
+pub const test_exchanges = 100;
 
 /// What one lookup over the loopback may take before the run has stopped measuring the stacks
-/// and started measuring a wait: a quarter of `tick_wait_ns_max`. A driver that leaves nothing
-/// in flight waits that cap out once per lookup, which is what this catches; a lookup that is
+/// and started measuring a wait: a quarter of `tick_wait_ns_max`. A loop that waits past a due
+/// time with nothing in flight waits that cap out, which is what this catches; a lookup that is
 /// answered takes under a millisecond.
 pub const latency_ns_max = 250 * ns_per_ms;
-
-/// The run that holds one lookup at a time, which is the first row of the table and the shape a
-/// driver's own mistake shows up in: with one in flight there is nothing else to keep the loop
-/// busy, so a lookup that is not started until the tick under it has waited out shows as a
-/// latency of a whole `tick_wait_ns_max`.
-pub const test_total_one = 5;
 
 /// The longest the c-ares side waits for its queue to empty before it gives the row up. c-ares
 /// is driven by its own event thread, and that thread has been seen parked in `kevent` with a
@@ -69,6 +79,14 @@ pub const test_total_one = 5;
 /// `ares_queue_wait_empty` then never returns. A bounded one ends the row and says so, which is
 /// a measurement that failed rather than a run that hangs.
 pub const cares_wait_ms_max = 60_000;
+
+/// How often a waiting responder looks whether the process that started it is still there, so
+/// that one left behind by a test that crashed exits within a tenth of a second.
+pub const responder_poll_ms = 100;
+/// How long `start` waits for the responder to reach its receive loop before giving it up.
+pub const responder_start_ns_max = 10 * ns_per_s;
+pub const ms_per_s = 1_000;
+pub const us_per_ms = 1_000;
 
 /// What the responder's queue holds: the c-ares side and cocuyo's each send one datagram per
 /// lookup in flight, so this is the most that can be waiting.

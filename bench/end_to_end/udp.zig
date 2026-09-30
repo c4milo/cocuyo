@@ -52,7 +52,15 @@ pub fn send(socket: Socket, bytes: []const u8, to: *const Address) Error!void {
     if (sent < 0 or @as(usize, @intCast(sent)) != bytes.len) return error.SendFailed;
 }
 
-/// One datagram, blocking until it comes; where it came from is written to `from`.
+/// Makes a receive on `socket` give up after `ms`, so that a loop blocked on it wakes now and then
+/// to check something else.
+pub fn receive_timeout(socket: Socket, ms: u32) void {
+    const timeout: c.timeval = .{ .sec = @intCast(ms / constants.ms_per_s), .usec = @intCast(ms % constants.ms_per_s * constants.us_per_ms) };
+    assert(c.setsockopt(socket, c.SOL.SOCKET, c.SO.RCVTIMEO, &timeout, @sizeOf(c.timeval)) == 0);
+}
+
+/// One datagram, blocking until it comes or the receive times out; where it came from is written
+/// to `from`.
 pub fn receive(socket: Socket, buffer: []u8, from: *Address) ?[]u8 {
     var len: c.socklen_t = @sizeOf(Address);
     const got = c.recvfrom(socket, buffer.ptr, buffer.len, 0, @ptrCast(from), &len);

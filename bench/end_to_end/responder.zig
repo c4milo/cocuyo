@@ -1,61 +1,110 @@
-//! The in-process responder both stacks are measured against: a thread on a loopback datagram
-//! socket that answers every query with one A record for whatever name it asked, so what is
-//! measured is the two stacks and the kernel between them, and nothing of a network.
+//! The responder both stacks are measured against: a process of its own on a loopback datagram
+//! socket, which answers every query with one A record for whatever name it asked, so what is
+//! measured is the two stacks and the kernel between them, and nothing of a network. A process
+//! and not a thread, so that the kernel's counts of the stacks' process (`kernel.zig`) hold none
+//! of its calls.
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
 const wire = cocuyo.wire;
+const harness = @import("../harness.zig");
 const constants = @import("constants.zig");
 const udp = @import("udp.zig");
 
 const header_bytes = cocuyo.constants.header_bytes;
 const question_fixed_bytes = cocuyo.constants.question_fixed_bytes;
 
+/// What the responder shares with the process that started it, in a page mapped shared before
+/// the fork.
+const Shared = struct {
+    stopping: std.atomic.Value(bool) = .init(false),
+    /// Set by the responder once it is in its receive loop. `start` waits for it, because a fork
+    /// returns before the child runs: a row that began first had its earliest queries wait in
+    /// the socket's buffer until the responder got there, and that start-up delay landed in the
+    /// latencies of the first row alone.
+    serving: std.atomic.Value(bool) = .init(false),
+    /// How many queries were answered. A row that gives up reads it while the responder still
+    /// runs: it is what tells a query c-ares never sent from a reply it never took.
+    answered: std.atomic.Value(u64) = .init(0),
+};
+
 pub const Responder = struct {
     socket: udp.Socket,
     port: u16,
-    thread: ?std.Thread = null,
-    stopping: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
-    /// Set by the thread once it is in its receive loop. `start` waits for it, because a spawn
-    /// returns before the thread runs: a row that began first had its earliest queries wait in
-    /// the socket's buffer until the thread got there, and that start-up delay landed in the
-    /// latencies of the first row alone.
-    serving: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
-    /// How many queries were answered. Atomic because a row that gives up reads it while this
-    /// thread still runs: it is what tells a query c-ares never sent from a reply it never took.
-    answered: std.atomic.Value(u64) = .init(0),
+    child: ?std.c.pid_t = null,
+    page: []align(std.heap.page_size_min) u8 = &.{},
 
+    /// Forks the responder. Call it before this process starts a thread: the child is a copy of
+    /// the thread that forks and of nothing else.
     pub fn start(self: *Responder) !void {
         self.socket = try udp.open(0);
+        errdefer udp.close(self.socket);
         self.port = udp.port_of(self.socket);
-        self.serving.store(false, .release);
-        self.thread = try std.Thread.spawn(.{}, serve, .{self});
-        while (!self.serving.load(.acquire)) std.atomic.spinLoopHint();
-    }
-
-    /// Stops the thread with a datagram to its own socket, joins it and closes the socket.
-    pub fn stop(self: *Responder) void {
-        self.stopping.store(true, .seq_cst);
-        const to = udp.loopback(self.port);
-        udp.send(self.socket, "stop", &to) catch {};
-        if (self.thread) |thread| thread.join();
-        self.thread = null;
-        udp.close(self.socket);
-    }
-
-    fn serve(self: *Responder) void {
-        var query: [constants.datagram_bytes_max]u8 = undefined;
-        var reply: [constants.datagram_bytes_max]u8 = undefined;
-        var from: udp.Address = undefined;
-        self.serving.store(true, .release);
-        while (!self.stopping.load(.seq_cst)) {
-            const bytes = udp.receive(self.socket, &query, &from) orelse continue;
-            const len = build_reply(bytes, &reply) orelse continue;
-            udp.send(self.socket, reply[0..len], &from) catch continue;
-            _ = self.answered.fetchAdd(1, .monotonic);
+        self.page = try std.posix.mmap(null, @sizeOf(Shared), .{ .READ = true, .WRITE = true }, .{ .TYPE = .SHARED, .ANONYMOUS = true }, -1, 0);
+        errdefer std.posix.munmap(self.page);
+        const shared = self.shared_page();
+        shared.* = .{};
+        const parent = std.c.getpid();
+        const pid = std.c.fork();
+        if (pid < 0) return error.ForkFailed;
+        if (pid == 0) serve(self.socket, shared, parent);
+        self.child = pid;
+        const deadline = harness.now_ns() + constants.responder_start_ns_max;
+        while (!shared.serving.load(.acquire)) {
+            if (harness.now_ns() >= deadline) {
+                // The `errdefer`s above close the socket and the page; the child is killed here.
+                _ = std.c.kill(pid, .KILL);
+                _ = std.c.waitpid(pid, null, 0);
+                self.child = null;
+                return error.ResponderDidNotStart;
+            }
+            std.atomic.spinLoopHint();
         }
     }
+
+    /// Stops the responder with a datagram to its own socket, waits for it to exit, and closes
+    /// the socket and the page.
+    pub fn stop(self: *Responder) void {
+        self.shared_page().stopping.store(true, .seq_cst);
+        const to = udp.loopback(self.port);
+        udp.send(self.socket, "stop", &to) catch {};
+        if (self.child) |pid| _ = std.c.waitpid(pid, null, 0);
+        self.child = null;
+        udp.close(self.socket);
+        std.posix.munmap(self.page);
+    }
+
+    /// How many queries the responder has answered.
+    pub fn answered(self: *const Responder) u64 {
+        return self.shared_page().answered.load(.monotonic);
+    }
+
+    fn shared_page(self: *const Responder) *Shared {
+        assert(self.page.len >= @sizeOf(Shared));
+        return @ptrCast(@alignCast(self.page.ptr));
+    }
 };
+
+/// The responder's life: answer until told to stop, or until the process that started it is
+/// gone, which a receive that times out finds. Then leave with `_exit`, which runs nothing of
+/// the parent's: its exit handlers and its buffers are its own.
+fn serve(socket: udp.Socket, shared: *Shared, parent: std.c.pid_t) noreturn {
+    udp.receive_timeout(socket, constants.responder_poll_ms);
+    var query: [constants.datagram_bytes_max]u8 = undefined;
+    var reply: [constants.datagram_bytes_max]u8 = undefined;
+    var from: udp.Address = undefined;
+    shared.serving.store(true, .release);
+    while (!shared.stopping.load(.seq_cst)) {
+        const bytes = udp.receive(socket, &query, &from) orelse {
+            if (std.c.getppid() != parent) break;
+            continue;
+        };
+        const len = build_reply(bytes, &reply) orelse continue;
+        udp.send(socket, reply[0..len], &from) catch continue;
+        _ = shared.answered.fetchAdd(1, .monotonic);
+    }
+    std.c._exit(0);
+}
 
 /// The reply to `query`: its header with QR and RA set and the counts of one answer, its
 /// question as it came, and one A record owned by the question's name. Null for a datagram that

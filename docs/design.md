@@ -1015,15 +1015,28 @@ change to any of these carries a new table, or it does not land.
 
 ### End to end against c-ares
 
-§19 step 15's comparison, `zig build bench-cares` after its table: one responder thread on the
-loopback answers every query with one A record, and each stack resolves 20,000 distinct absolute
-names against it with 1, 16 and 128 lookups in flight, so neither's cache answers. cocuyo's side
-is the engine of §19 step 13 over rotor, built privately for the bench and run on this thread,
-ReleaseSafe with its assertions on. c-ares's side is the Homebrew build of the version the
-binary prints, with its event thread, which gives it a second thread of its own, and one
-`ares_query_dnsrec` per lookup, the next started from the callback. The responder and the kernel
-are in every number and are the same for both. Lookups per second over the wall time, and the
-median and 99th-percentile latency from start to result, in microseconds, on the machine above.
+§19 step 15's comparison, `zig build bench-cares` after its table: one responder, a process of its
+own on the loopback, answers every query with one A record, and each stack resolves 20,000 distinct
+absolute names against it, so neither's cache answers. Each row offers a load: 10,000, 40,000,
+80,000 or 160,000 lookups a second, each sent when it is due whether or not the stack has answered
+the ones before it, with at most 128 out (`bench/end_to_end/schedule.zig`). A lookup's latency runs
+from when it was due to its result, so a stall shows in every lookup it held back. cocuyo's side is
+the engine of §19 step 13 over rotor, built privately for the bench and run on this thread,
+ReleaseSafe with its assertions on; its loop waits until the next lookup is due or an event comes.
+c-ares's side is the Homebrew build of the version the binary prints, with its event thread, which
+gives it a second thread of its own; this thread sleeps until a lookup is due and sends it with
+`ares_query_dnsrec`. The responder and the kernel are in every latency and are the same for both. A
+row gives lookups per second over the wall time; the median, the 99th and the 99.9th percentile and
+the slowest latency, in microseconds; how late the 99th percentile of lookups went out, which is the
+driver's part of the latency and not the stack's; the most out at once; and the system calls and
+context switches of the stack's process per lookup, which the responder's process keeps out of.
+macOS counts both for a process; Linux counts the switches, and system calls only for a tracer, so a
+row there gives none.
+
+The table below is from the driver before that one. It kept 1, 16 or 128 lookups in flight and
+started one when another ended, c-ares's next from its callback. A driver like that sends nothing
+while a stack stalls, so its percentiles leave the stall out (pepegrillo's method, step 1). The
+table stands until a quiet machine measures the rows above (c4milo/cocuyo#5).
 
 Measured on 2026-09-22, five runs back to back on the machine above, on the driver as it stood
 after the fixes listed below. Each cell is the median of the runs that produced its row, and the
@@ -2635,6 +2648,14 @@ flight, on the machine and the day §11 names. cocuyo's side of that run is the 
 the bench in `bench/end_to_end/` (the owner's call on 2026-09-22: rotor, not a `poll(2)` loop),
 so what is measured is the batteries-included path a consumer would get, while the engine stays
 unexported until one asks.
+
+On 2026-09-29 the comparison's driver moved to a schedule (c4milo/cocuyo#5): each row offers a
+load, a lookup is sent when it is due whether or not the stack has answered, and its latency runs
+from then. The rows add the 99.9th percentile, the slowest lookup and how late the lookups went
+out, and the kernel's count of the stack's system calls and context switches per lookup, with
+the responder moved to a process of its own so that none of its calls is counted. c-ares's
+lookups go out from the main thread, so its callback starts none, and the handoff between the two
+threads went with it (docs/mutations.md, the end-to-end driver on a schedule).
 
 ### New limits
 

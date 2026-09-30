@@ -212,7 +212,7 @@ The architecture depends on every rule in this section.
   does not go in.
 - Comparison: `zig build bench-cares` — the same two operations against the installed c-ares,
   found under `-Dcares=<prefix>` (a Homebrew prefix by default), then end to end: both stacks
-  against one responder thread on the loopback, cocuyo's side being the `io/` engine over rotor,
+  against one responder process on the loopback, cocuyo's side being the `io/` engine over rotor,
   built privately for the bench (`bench/end_to_end/`). It links libraries the gate must not
   require, so it and its tests (`zig build test-cares`) run only when asked. The numbers go in
   design §11 beside cocuyo's, with the c-ares version the binary prints.

@@ -1675,6 +1675,63 @@ flags read the same whether the guard was there or not, and only counting the cl
 apart. That is the second `NOT CAUGHT` of the day to come from a test that watched the wrong
 thing rather than from a missing test.
 
+## The end-to-end driver on a schedule
+
+Design §11, 2026-09-29 (c4milo/cocuyo#5). pepegrillo's method asks a unit that waits on I/O for
+its percentiles under a load sent on a schedule, since a driver that starts a lookup when another
+ends sends nothing while a stack stalls. The comparison's driver now sends each lookup when it is
+due, whether or not the stack has answered, and measures its latency from then. The rows add the
+99.9th percentile, the slowest lookup, how late the lookups went out, and the stack's system calls
+and context switches per lookup. The responder moved to a process of its own, so that none of its
+calls is counted with the stack's. Broken against `zig build test-cares` on macOS. Twenty
+mutations: nineteen `CAUGHT`, and one that changes nothing a test can see.
+
+c-ares's lookups now go out from the main thread, and its callback only records, so the handoff
+between the two threads went. These mutations broke code that is gone, and retire with it:
+
+- K2, the trampoline that kept a start inside a start from making its own query.
+- K3 and R4, the stop flag that kept a callback from starting a lookup on a channel being
+  destroyed.
+- R1 to R3 and X1 to X4, the handoff of a slot between the callback and its holder.
+- X5, the claim counter the two threads shared.
+
+K1 has no counterpart a test can see. The loop now reads its wait after it has taken the results
+and started what is due, so starting first costs one more pass that returns at once, and never a
+wait. SC6 is that mutant. It is equivalent, and the comment on the loop now says why the order is
+kept.
+
+SC2 and SC7 are caught by a safety check rather than by the test's own bound: a lookup started
+before it is due makes its lateness negative, and the subtraction that records it overflows.
+SC11 is caught by a hang, which the run's timeout stopped: without its deadline, the wait for room
+never ends once c-ares has the most out.
+
+Three guards have no mutation: the receive timeout and the parent check that end a responder a
+crashed test left behind, and the deadline on the responder's start. No test can crash the
+process that runs it, or start a responder that never serves.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| SC1 | cocuyo's tick waits out `tick_wait_ns_max` whatever is due | the loop wakes when a lookup is due | the on-schedule test | CAUGHT |
+| SC2 | cocuyo starts a lookup before it is due | the schedule | the on-schedule test, by the lateness overflowing | CAUGHT |
+| SC3 | cocuyo's latency runs from when the lookup went out | latency from the due time | the queue test | CAUGHT |
+| SC4 | cocuyo starts a due lookup with no room for it | the most out at once | the queue test | CAUGHT |
+| SC5 | cocuyo records no lateness | the driver's part of the latency | the queue test | CAUGHT |
+| SC6 | cocuyo starts due lookups before taking the results that free their room | none: the wait is read after both | nothing | NOT CAUGHT, equivalent |
+| SC7 | c-ares's lookups go out before they are due | the schedule | the on-schedule test, by the lateness overflowing | CAUGHT |
+| SC8 | c-ares's latency runs from when the lookup went out | latency from the due time | the queue test | CAUGHT |
+| SC9 | c-ares sends a due lookup with no room for it | the most out at once | the room test | CAUGHT |
+| SC10 | c-ares records no lateness | the driver's part of the latency | the queue test | CAUGHT |
+| SC11 | the wait for room has no deadline | a c-ares that holds a query ends the row | the room test, by a hang | CAUGHT |
+| SC12 | a percentile is read a place low | the 99.9th is the twentieth slowest of 20,000 | the permille test | CAUGHT |
+| SC13 | lookups fall due at twice the rate | the period | the schedule's tests | CAUGHT |
+| SC14 | a rate's row allows one lookup out | the most out at once | the schedule's tests | CAUGHT |
+| SC15 | the wait wraps once the due time has passed | a lookup already due waits for nothing | the schedule's tests | CAUGHT |
+| SC16 | a 32-bit counter's growth ignores the wrap | macOS's counters are `integer_t` | the wrap test | CAUGHT |
+| SC17 | the context switches are read from one reading | the kernel's counts | the count test | CAUGHT |
+| SC18 | the unix system calls are left out | the kernel's counts | the count test | CAUGHT |
+| SC19 | the responder is a thread of this process, as it was | none of the responder's calls is counted | the responder's own-process test | CAUGHT |
+| SC20 | a count per lookup drops its decimals | two decimals a lookup | the per-lookup test | CAUGHT |
+
 ## The sanitizer's own control
 
 `-Dsanitize-thread` puts the comparison's tests under ThreadSanitizer on Linux. On 2026-09-22 a

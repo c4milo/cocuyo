@@ -44,13 +44,22 @@ The method's rule, in cocuyo's numbers:
 
 ## The lookup through the engine
 
-The end-to-end comparison of design §11 (`bench/end_to_end/`) offers its load as a count of
-lookups in flight, 1, 16 and 128, from a driver that starts a lookup when one ends, and reports the
-median and the 99th percentile. The method asks for two things it does not do yet:
+The end-to-end comparison of design §11 (`bench/end_to_end/`) offers its loads on a schedule:
+10,000, 40,000, 80,000 and 160,000 lookups a second, each sent when it is due whether or not the
+stack has answered, with at most 128 out. Its constants say why those rates. A lookup's latency
+runs from when it was due to its result. A row reports:
 
-- A generator that sends on a schedule. A driver that waits for each lookup to end sends nothing
-  while the engine stalls, so its percentiles leave the stall out.
-- The 99.9th percentile and the maximum, beside the median and the 99th.
+- the median, the 99th and the 99.9th percentile, and the slowest lookup, from 20,000 a row, which
+  put the 99.9th percentile at the twentieth slowest;
+- how late the 99th percentile of lookups went out: the driver's part of the latency, from the
+  timer that woke it or a wait for room;
+- the most out at once, and the failures;
+- the system calls and context switches of the stack's process per lookup, which the responder's
+  own process keeps out of. macOS counts both. Linux counts system calls only for a tracer, which
+  stops the process at every call, so a row there gives the switches alone. macOS counts every
+  switch as involuntary, so a wakeup is not told apart from a preemption.
+
+Its numbers wait for a quiet machine (c4milo/cocuyo#5).
 
 ## The baselines
 
