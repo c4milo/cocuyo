@@ -36,12 +36,32 @@ pub const Schedule = struct {
     }
 };
 
+/// Which name each lookup of a row asks: `h<number>.example.`.
+pub const Names = union(enum) {
+    /// Every lookup its own name, so no cache ever holds one and every lookup goes to the
+    /// responder.
+    distinct,
+    /// This many names, each asked once and answered before the row begins, then asked in turn,
+    /// so every lookup of the row is one the stack's cache can answer.
+    repeated: u32,
+
+    /// The number in the name lookup `index` asks.
+    pub fn number(self: Names, index: u32) u32 {
+        return switch (self) {
+            .distinct => index,
+            .repeated => |count| index % count,
+        };
+    }
+};
+
 /// What a row did: its wall time from its beginning, the lookups that failed, the most that were
-/// out at once, and what the kernel counted for the stack's process meanwhile.
+/// out at once, the lookups answered before their start returned, which is how each stack answers
+/// from its cache, and what the kernel counted for the stack's process meanwhile.
 pub const Outcome = struct {
     elapsed_ns: u64,
     failures: u32,
     in_flight_peak: u32,
+    hits: u32,
     kernel: kernel.Counts,
 };
 
@@ -72,6 +92,14 @@ test "the wait runs to the due time and is zero once it has passed" {
     try testing.expectEqual(@as(u64, constants.ns_per_ms - 10), schedule.wait_ns(0, 1, 10));
     try testing.expectEqual(@as(u64, 0), schedule.wait_ns(0, 1, constants.ns_per_ms));
     try testing.expectEqual(@as(u64, 0), schedule.wait_ns(0, 1, 2 * constants.ns_per_ms));
+}
+
+test "distinct names never repeat, and repeated ones come round in turn" {
+    try testing.expectEqual(@as(u32, 7), (Names{ .distinct = {} }).number(7));
+    const repeated: Names = .{ .repeated = 4 };
+    try testing.expectEqual(@as(u32, 3), repeated.number(3));
+    try testing.expectEqual(@as(u32, 0), repeated.number(4));
+    try testing.expectEqual(@as(u32, 2), repeated.number(10));
 }
 
 test "a period of zero makes every lookup due at once" {

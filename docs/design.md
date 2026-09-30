@@ -1033,6 +1033,14 @@ context switches of the stack's process per lookup, which the responder's proces
 macOS counts both for a process; Linux counts the switches, and system calls only for a tracer, so a
 row there gives none.
 
+A last row asks for what each stack's cache holds: 64 names, each asked and answered once before the
+row, then asked in turn 20,000 times, one at a time and back to back. cocuyo's engine answers such a
+lookup inside `start`, and c-ares inside `ares_query_dnsrec`, so a lookup answered before its start
+returns is a hit, and the row counts them. A hit waits on no I/O, so the row is timed as the
+microbenchmarks are: lookups per second, and each lookup's time from its start to its result, in
+nanoseconds. The rows above ask a new name every time, so neither cache answers any of them, and
+their tests require it.
+
 The table below is from the driver before that one. It kept 1, 16 or 128 lookups in flight and
 started one when another ended, c-ares's next from its callback. A driver like that sends nothing
 while a stack stalls, so its percentiles leave the stall out (pepegrillo's method, step 1). The
@@ -2655,7 +2663,9 @@ from then. The rows add the 99.9th percentile, the slowest lookup and how late t
 out, and the kernel's count of the stack's system calls and context switches per lookup, with
 the responder moved to a process of its own so that none of its calls is counted. c-ares's
 lookups go out from the main thread, so its callback starts none, and the handoff between the two
-threads went with it (docs/mutations.md, the end-to-end driver on a schedule).
+threads went with it (docs/mutations.md, the end-to-end driver on a schedule). On 2026-09-30 a row
+of cache hits joined them, where both stacks answer from their caches (docs/mutations.md, a row of
+cache hits).
 
 ### New limits
 

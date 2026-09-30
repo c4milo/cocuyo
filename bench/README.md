@@ -40,6 +40,9 @@ and the slowest latency, from when each lookup was due; how late the lookups wen
 at once; and the stack's system calls and context switches per lookup. The numbers live in §11 of
 the design document, with the machine and the day.
 
+A last table asks 64 names in turn, 20,000 times, after asking each once, so that both stacks'
+caches answer every lookup: hits per second, and nanoseconds from a lookup's start to its result.
+
 ## A real DNS log
 
 ```bash

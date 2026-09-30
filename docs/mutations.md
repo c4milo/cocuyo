@@ -1732,6 +1732,27 @@ process that runs it, or start a responder that never serves.
 | SC19 | the responder is a thread of this process, as it was | none of the responder's calls is counted | the responder's own-process test | CAUGHT |
 | SC20 | a count per lookup drops its decimals | two decimals a lookup | the per-lookup test | CAUGHT |
 
+## A row of cache hits
+
+Design §11, 2026-09-30. The comparison's rows ask a new name every time, so neither stack's cache
+answers any of them. A last row asks 64 names in turn after asking each once, so both caches
+answer every lookup. cocuyo's engine answers from its cache inside `start`, and c-ares inside
+`ares_query_dnsrec`, so each driver counts a lookup answered before its start returns as a hit:
+cocuyo's takes a result right after each start, and c-ares's callback runs on the thread that
+sends. The tests require every lookup of the row to be a hit, with the responder hearing each name
+once, and every lookup of the other rows to reach the responder. Broken against
+`zig build test-cares` on macOS, with SC1 to SC20 run again over the changed drivers.
+Six mutations, six `CAUGHT`. SC1 to SC20 gave what they gave before, SC6 equivalent still.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| H1 | repeated names never repeat | the row asks what the cache holds | the cache-hit tests, each hit and the responder's count | CAUGHT |
+| H2 | cocuyo's row of repeated names asks none of them first | the cache holds every name before the row | cocuyo's cache-hit test | CAUGHT |
+| H3 | cocuyo takes no result right after a start | a hit is taken where it is ready, and counted | cocuyo's cache-hit test | CAUGHT |
+| H4 | c-ares's row of repeated names asks none of them first | the cache holds every name before the row | c-ares's cache-hit test | CAUGHT |
+| H5 | a c-ares hit is told by a callback on the other thread | a hit is answered inside `ares_query_dnsrec` | c-ares's cache-hit test | CAUGHT |
+| H6 | a hit's time keeps the wait before it | the row times a hit from its start | the start-to-result test | CAUGHT |
+
 ## The sanitizer's own control
 
 `-Dsanitize-thread` puts the comparison's tests under ThreadSanitizer on Linux. On 2026-09-22 a

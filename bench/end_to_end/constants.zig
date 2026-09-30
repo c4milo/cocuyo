@@ -46,6 +46,11 @@ pub const permille_p99 = 990;
 pub const permille_p999 = 999;
 pub const permille = 1000;
 
+/// The names the row of cache hits asks in turn: half the 129 slots of the engine's cache here,
+/// so each one it asked stays, and far fewer than a row's lookups, so every name is asked again
+/// hundreds of times.
+pub const hit_names = 64;
+
 /// The kernel's counts are printed per lookup with two decimals.
 pub const hundredths = 100;
 
@@ -63,6 +68,8 @@ pub const engine_seed = 0x5eed_c0c0;
 pub const test_in_flight = 4;
 pub const test_total = 20;
 pub const test_period_ns = ns_per_ms;
+/// The names the tests of cache hits repeat: fewer than a test's lookups, so each is asked again.
+pub const test_hit_names = 4;
 /// The exchanges the test of the responder's own process makes: enough that the two calls each
 /// one costs stand clear of whatever else the process does meanwhile.
 pub const test_exchanges = 100;

@@ -25,8 +25,8 @@ so.
 - The filter is a run of a case or two on the developer's machine: it orders candidates in a
   minute, and its numbers never land in a document. A number recalled rather than measured says
   so where it appears (CLAUDE.md).
-- The units of work are a query, a message decoded or encoded, a cache operation, and a lookup
-  through the engine, which waits on I/O.
+- The units of work are a query, a message decoded or encoded, a cache operation, a lookup
+  through the engine, which waits on I/O, and a lookup the engine's cache answers, which does not.
 
 ## The admission rule
 
@@ -60,6 +60,11 @@ runs from when it was due to its result. A row reports:
   own process keeps out of. macOS counts both. Linux counts system calls only for a tracer, which
   stops the process at every call, so a row there gives the switches alone. macOS counts every
   switch as involuntary, so a wakeup is not told apart from a preemption.
+
+A last row asks 64 names in turn, each asked and answered once before it, so that both stacks'
+caches answer every lookup, and it counts the hits. A hit waits on no I/O, so the row is timed as
+the microbenchmarks are: one lookup at a time, back to back, from its start to its result, in
+nanoseconds.
 
 Its numbers wait for a quiet machine (c4milo/cocuyo#5).
 

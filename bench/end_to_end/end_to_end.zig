@@ -28,6 +28,7 @@ const cares_loop = @import("cares_loop.zig");
 const Schedule = schedule_module.Schedule;
 const Outcome = schedule_module.Outcome;
 const Record = schedule_module.Record;
+const Names = schedule_module.Names;
 
 var latencies: [constants.lookups_total]u64 = undefined;
 var late: [constants.lookups_total]u64 = undefined;
@@ -41,7 +42,7 @@ pub fn run() void {
     };
     defer responder.stop();
     // Unmeasured: the responder and the cores come up to speed here, not in a row.
-    _ = rotor_loop.run(responder.port, Schedule.of_rate(constants.rates[0]), constants.warm_up_lookups, record) catch |err| {
+    _ = rotor_loop.run(responder.port, Schedule.of_rate(constants.rates[0]), constants.warm_up_lookups, record, .distinct) catch |err| {
         std.debug.print("warm-up: {t}\n", .{err});
         return;
     };
@@ -49,13 +50,13 @@ pub fn run() void {
     std.debug.print("{s:<8} {s:>9} {s:>10} {s:>8} {s:>8} {s:>8} {s:>8} {s:>9} {s:>8} {s:>9} {s:>9} {s:>9}\n", .{ "stack", "offered/s", "lookups/s", "median", "p99", "p99.9", "max", "late p99", "most out", "failures", "syscalls", "switches" });
     for (constants.rates) |rate| {
         const schedule = Schedule.of_rate(rate);
-        const ours = rotor_loop.run(responder.port, schedule, constants.lookups_total, record) catch |err| {
+        const ours = rotor_loop.run(responder.port, schedule, constants.lookups_total, record, .distinct) catch |err| {
             std.debug.print("cocuyo: {t}\n", .{err});
             continue;
         };
         report("cocuyo", rate, ours, constants.lookups_total);
         const answered_before = responder.answered();
-        const theirs = cares_loop.run(responder.port, schedule, constants.lookups_total, record) catch |err| {
+        const theirs = cares_loop.run(responder.port, schedule, constants.lookups_total, record, .distinct) catch |err| {
             // With the driver's own count of what it sent, this says which side lost a stalled
             // query: a responder that answered every one sent means c-ares had the reply and did
             // not take it, and one short means c-ares never sent the query.
@@ -66,6 +67,60 @@ pub fn run() void {
             continue;
         };
         report("c-ares", rate, theirs, constants.lookups_total);
+    }
+    run_hits(responder.port);
+}
+
+/// The row of cache hits: `hit_names` names, each asked and answered once before the row, then
+/// asked in turn, one at a time and back to back. A hit waits on no I/O, so it is timed as the
+/// microbenchmarks are, from its start to its result, and not offered on a schedule.
+fn run_hits(port: u16) void {
+    const schedule: Schedule = .{ .period_ns = 0, .in_flight = 1 };
+    const names: Names = .{ .repeated = constants.hit_names };
+    std.debug.print("\ncache hits, {d} lookups over {d} names each asked and answered once before the row, one at a time and back to back; nanoseconds from start to result, and the stack's system calls and context switches per lookup\n\n", .{ constants.lookups_total, constants.hit_names });
+    std.debug.print("{s:<8} {s:>10} {s:>8} {s:>8} {s:>8} {s:>8} {s:>8} {s:>9} {s:>9} {s:>9}\n", .{ "stack", "lookups/s", "median", "p99", "p99.9", "max", "hits", "failures", "syscalls", "switches" });
+    const ours = rotor_loop.run(port, schedule, constants.lookups_total, record, names) catch |err| {
+        std.debug.print("cocuyo: {t}\n", .{err});
+        return;
+    };
+    report_hits("cocuyo", ours, constants.lookups_total);
+    const theirs = cares_loop.run(port, schedule, constants.lookups_total, record, names) catch |err| {
+        std.debug.print("c-ares: {t}\n", .{err});
+        return;
+    };
+    report_hits("c-ares", theirs, constants.lookups_total);
+}
+
+/// One row of hits: lookups per second over the wall time, each lookup's time from its start to
+/// its result, the hits, the failures, and the kernel's counts per lookup.
+fn report_hits(stack: []const u8, outcome: Outcome, total: u32) void {
+    assert(outcome.elapsed_ns > 0);
+    const measured = latencies[0..total];
+    subtract_lateness(measured, late[0..total]);
+    std.mem.sort(u64, measured, {}, std.sort.asc(u64));
+    const per_second = @as(u64, total) * constants.ns_per_s / outcome.elapsed_ns;
+    std.debug.print("{s:<8} {d:>10} {d:>8} {d:>8} {d:>8} {d:>8} {d:>8} {d:>9} ", .{
+        stack,
+        per_second,
+        at_permille(measured, constants.permille_median),
+        at_permille(measured, constants.permille_p99),
+        at_permille(measured, constants.permille_p999),
+        measured[measured.len - 1],
+        outcome.hits,
+        outcome.failures,
+    });
+    if (outcome.kernel.syscalls) |syscalls| print_per_lookup(syscalls, total) else std.debug.print("{s:>9} ", .{"-"});
+    print_per_lookup(outcome.kernel.switches, total);
+    std.debug.print("\n", .{});
+}
+
+/// Each lookup's time from its start to its result: its latency from when it was due, less how
+/// late it went out.
+fn subtract_lateness(measured: []u64, lateness: []const u64) void {
+    assert(measured.len == lateness.len);
+    for (measured, lateness) |*latency, wait| {
+        assert(wait <= latency.*);
+        latency.* -= wait;
     }
 }
 
@@ -189,8 +244,11 @@ fn expect_on_schedule(comptime run_row: anytype) !void {
     var responder: responder_module.Responder = .{ .socket = undefined, .port = 0 };
     try responder.start();
     defer responder.stop();
-    const outcome = try run_row(responder.port, test_schedule, constants.test_total, test_record);
+    const outcome = try run_row(responder.port, test_schedule, constants.test_total, test_record, .distinct);
     try testing.expectEqual(@as(u32, 0), outcome.failures);
+    // Every name is new, so no cache answers one, and every lookup reaches the responder.
+    try testing.expectEqual(@as(u32, 0), outcome.hits);
+    try testing.expectEqual(@as(u64, constants.test_total), responder.answered());
     // No lookup goes out before it is due, so the row lasts at least until the last one is.
     const last_due = test_schedule.due_ns(0, constants.test_total - 1);
     try testing.expect(outcome.elapsed_ns >= last_due);
@@ -207,7 +265,7 @@ fn expect_queue_in_latency(comptime run_row: anytype) !void {
     var responder: responder_module.Responder = .{ .socket = undefined, .port = 0 };
     try responder.start();
     defer responder.stop();
-    const outcome = try run_row(responder.port, queued_schedule, constants.test_total, test_record);
+    const outcome = try run_row(responder.port, queued_schedule, constants.test_total, test_record, .distinct);
     try testing.expectEqual(@as(u32, 0), outcome.failures);
     try testing.expectEqual(@as(u32, 1), outcome.in_flight_peak);
     // The last lookup was due when the row began and ended with it, and it went out only once
@@ -216,6 +274,33 @@ fn expect_queue_in_latency(comptime run_row: anytype) !void {
     try testing.expect(test_latencies[last] * 2 > outcome.elapsed_ns);
     try testing.expect(test_late[last] * 2 > outcome.elapsed_ns);
     try testing.expect(test_late[last] < test_latencies[last]);
+}
+
+/// Runs repeated names, one at a time, through `run`, and requires every lookup of the row answered
+/// from the cache: the responder hears each name once, before the row, and never again.
+fn expect_cache_hits(comptime run_row: anytype) !void {
+    var responder: responder_module.Responder = .{ .socket = undefined, .port = 0 };
+    try responder.start();
+    defer responder.stop();
+    const names: Names = .{ .repeated = constants.test_hit_names };
+    const outcome = try run_row(responder.port, queued_schedule, constants.test_total, test_record, names);
+    try testing.expectEqual(@as(u32, 0), outcome.failures);
+    try testing.expectEqual(@as(u32, constants.test_total), outcome.hits);
+    try testing.expectEqual(@as(u64, constants.test_hit_names), responder.answered());
+}
+
+test "cocuyo answers repeated names from its cache, each after one query" {
+    try expect_cache_hits(rotor_loop.run);
+}
+
+test "c-ares answers repeated names from its cache, each after one query" {
+    try expect_cache_hits(cares_loop.run);
+}
+
+test "a hit's time runs from its start, the wait before it taken off" {
+    var measured = [_]u64{ 10, 20, 30 };
+    subtract_lateness(&measured, &.{ 3, 20, 0 });
+    try testing.expectEqualSlices(u64, &.{ 7, 0, 30 }, &measured);
 }
 
 test "cocuyo resolves every name through the engine over rotor, each when it is due" {
