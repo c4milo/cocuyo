@@ -100,7 +100,7 @@ jobs:
     name: macOS
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Zig
         run: |
           set -euo pipefail
@@ -120,7 +120,7 @@ jobs:
     name: Linux
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Zig
         run: |
           set -euo pipefail
@@ -154,7 +154,7 @@ jobs:
     name: Linux, the rotor example where io_uring is refused
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Zig
         run: |
           set -euo pipefail
@@ -172,7 +172,7 @@ jobs:
     name: Linux, the engine over rotor and c-ares
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Zig
         run: |
           set -euo pipefail
@@ -219,7 +219,7 @@ jobs:
       group: spec-${{ github.ref }}
       cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Zig
         run: |
           set -euo pipefail
@@ -254,7 +254,7 @@ jobs:
       group: tla-${{ github.ref }}
       cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Zig
         run: |
           set -euo pipefail
@@ -281,7 +281,7 @@ jobs:
     name: Linux, the codec against dnslib's reading of responses real servers sent
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Zig
         run: |
           set -euo pipefail
@@ -305,7 +305,7 @@ jobs:
       group: coverage-${{ github.ref }}
       cancel-in-progress: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The one job with a write token keeps it out of .git/config, where the build could read
           # it: only the badge step's push carries it, from its own environment.
@@ -365,7 +365,7 @@ jobs:
           fi
       - name: kcov's own report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-html
           path: zig-out/coverage/html/
