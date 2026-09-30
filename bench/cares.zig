@@ -28,7 +28,14 @@ const wire = @import("wire");
 const harness = @import("harness.zig");
 const cases = @import("bench_cases.zig");
 const end_to_end = @import("end_to_end/end_to_end.zig");
+const memset = @import("memset.zig");
 const c = @cImport(@cInclude("ares.h"));
+
+// On Linux under Zig 0.16 the program's `memset` is `bench/memset.zig`'s, which says why, and why
+// c-ares keeps glibc's.
+comptime {
+    if (memset.needed) @export(&memset.memset, .{ .name = "memset" });
+}
 
 const fixtures = wire.fixtures;
 const iterations = cases.iterations;

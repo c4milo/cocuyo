@@ -1,9 +1,11 @@
 //! The hot paths `zig build fill-check` reads (`fill_check.zig`): one exported function for each of
 //! the library's per-query entry points, compiled ReleaseSafe for each target the library ships
-//! to. Each takes what it needs through pointers, so the compiler keeps the whole path, and
-//! nothing here ever runs: the check reads the code the compiler wrote for it.
+//! to, and one for the `memset` the benchmark programs export. Each takes what it needs through
+//! pointers, so the compiler keeps the whole path, and nothing here ever runs: the check reads the
+//! code the compiler wrote for it.
 const cocuyo = @import("cocuyo");
 const wire = cocuyo.wire;
+const bench_memset = @import("bench_memset");
 
 /// A query's octets written out: every lookup's first send.
 export fn probe_query_write(query: *const wire.Query, out: [*]u8, out_bytes: usize) usize {
@@ -51,4 +53,10 @@ export fn probe_cache_put_negative(cache: *cocuyo.Cache, question: *const cocuyo
 /// A lookup built by value, as a caller that holds one outside a table builds it.
 export fn probe_lookup_init(config: *const cocuyo.Config, servers: *cocuyo.Servers, question: *const cocuyo.Question, seed: u64, out: *cocuyo.Lookup) void {
     out.* = cocuyo.Lookup.init(config, servers, question.*, seed);
+}
+
+/// The benchmark programs' `memset` (`bench/memset.zig`), which calls none: in a program that
+/// exports it, a loop the compiler turned into a call to `memset` would call itself forever.
+export fn probe_bench_memset(destination: [*]u8, value: c_int, length: usize) ?[*]u8 {
+    return bench_memset.memset(destination, value, length);
 }

@@ -140,7 +140,9 @@ The architecture depends on every rule in this section.
   cocuyo the way a consumer does, and it sits outside every linted directory because a nested
   build leaves packages beside it. `bench/` is outside the module
   graph and may read a clock; it is linted and formatted like `src/`, and it gets a module graph
-  of its own at ReleaseSafe from `build/bench.zig`.
+  of its own at ReleaseSafe from `build/bench.zig`. Its programs `bench` and `bench-cares` export
+  a `memset` of their own on Linux under Zig 0.16 (`bench/memset.zig`); `bench/count.zig` exports
+  none, and nothing under `src/` or `io/` ever does.
 - `spec/lean/` holds the Lean models of design §5 and of §19 step 14, and the lookup's
   proofs, a Lake package of its own that pepegrillo's `lean` tool builds (`tools/lean.zig`).
   `spec/tla/engine/` holds the engine model in TLA+, which TLC checks and walks (design §16
@@ -208,7 +210,7 @@ The architecture depends on every rule in this section.
 - Fills: `zig build fill-check` compiles the library's hot paths ReleaseSafe for x86-64 Linux and
   arm64 macOS, and requires their code to call `memset` or `bzero` exactly as often as
   `tools/fill_check/fill_check.zig` knows it does (c4milo/cocuyo#35): a new fill fails it, and so
-  does a fill gone that the list still names.
+  does a fill gone that the list still names. The benchmark programs' own `memset` must call none.
 - Instructions: `zig build instructions` holds each case of `bench/count.zig` to the instructions
   one operation takes, in `bench/instructions.zon`, through pepegrillo's `instructions` tool under
   cachegrind (`tools/instructions.zig`). It needs valgrind, so it runs on Linux; CI's Linux job runs

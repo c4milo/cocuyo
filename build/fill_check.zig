@@ -1,7 +1,8 @@
 //! `zig build fill-check`: the library's hot paths call no fill, `memset` or `bzero`, beyond the
-//! ones `tools/fill_check/fill_check.zig` names as known (c4milo/cocuyo#35). The probe is
-//! compiled ReleaseSafe, stripped, for each target the library ships to, and the tool reads the
-//! assembly. A cross compile needs no machine of the target's, so every host checks both.
+//! ones `tools/fill_check/fill_check.zig` names as known (c4milo/cocuyo#35), and the benchmark
+//! programs' own `memset` calls none. The probe is compiled ReleaseSafe, stripped, for each target
+//! the library ships to, and the tool reads the assembly. A cross compile needs no machine of the
+//! target's, so every host checks both.
 const std = @import("std");
 const modules = @import("modules.zig");
 
@@ -24,6 +25,12 @@ pub fn add(b: *std.Build, tool: *std.Build.Module) *std.Build.Step {
             .strip = true,
         });
         probe.addImport("cocuyo", graph.cocuyo);
+        probe.addImport("bench_memset", b.createModule(.{
+            .root_source_file = b.path("bench/memset.zig"),
+            .target = target,
+            .optimize = .ReleaseSafe,
+            .strip = true,
+        }));
         const object = b.addObject(.{ .name = "fill_probe", .root_module = probe });
         const run = b.addRunArtifact(check);
         run.addArg(entry.name);

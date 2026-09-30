@@ -16,10 +16,13 @@ so.
 - Design §11's numbers are the judge's, from an Apple M1 Pro under macOS 26.6.2. The laptop was
   in ordinary use: those numbers predate the method's rule that time counts only on a machine
   running nothing else.
-- cocuyo has no Linux judge. On Linux every `memset` in a Zig executable stores one byte at a time
-  (the method's `performance_zig.md`, "Copies and fills"), and the lookup and the cache fill
-  kilobytes through it in ReleaseSafe (c4milo/cocuyo#34). A number from macOS says nothing of those
-  paths on Linux.
+- cocuyo has no Linux judge. On Linux every `memset` a Zig 0.16 program calls is compiler_rt's,
+  which stores one byte at a time, so `bench` and `bench-cares` export one of their own there
+  (`bench/memset.zig`), as the method's `performance_zig.md` prescribes in "Copies and fills".
+  c-ares keeps glibc's: the program's `memset` takes the hidden visibility of compiler_rt's, which
+  it replaces, and stays out of the dynamic symbol table. `bench/count.zig` exports none, so its
+  counts include a fill at the cost a consumer's Zig 0.16 program pays for it. A number from macOS
+  says nothing of Linux.
 - `zig build bench-cares` runs the same two operations against the installed c-ares, the
   comparison the design measures against.
 - The check on every commit is a count, not a time. `zig build instructions` holds each case of
@@ -97,7 +100,9 @@ which an exact check catches where no timing can (c4milo/cocuyo#35):
   `tools/fill_check/fill_check.zig` knows it does. `zig build fill-check`, in the gate, reads the
   code for x86-64 Linux and arm64 macOS. What it knows are two fills made on purpose: the zeros of
   the EDNS padding, and `Lookup.init`, which builds a whole lookup to hand back by value. The fills
-  c4milo/cocuyo#34 found, of the answers' storage, are gone (design §16, decision 34).
+  c4milo/cocuyo#34 found, of the answers' storage, are gone (design §16, decision 34). It reads
+  the benchmark programs' own `memset` too, which calls none: in a program that exports it, a loop
+  the compiler turned into a call to `memset` would call itself forever.
 - Nothing allocates: the heap lint (CLAUDE.md, non-negotiable 2).
 
 ## Pitfalls this tree has paid for

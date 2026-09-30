@@ -17,6 +17,11 @@ Every case is built ReleaseSafe whatever `-Drelease` says, because that is the m
 in. `zig build test` compiles the bench and runs the harness's own tests, so a bench that stopped
 compiling, or a case that stopped doing what its name says, fails the gate.
 
+On Linux under Zig 0.16 both programs, `bench` and `bench-cares`, export a `memset` of their own,
+[memset.zig](memset.zig), whose header says why: compiler_rt's, which every Zig 0.16 program on
+Linux calls, stores one byte at a time. c-ares keeps glibc's. `zig build instructions` counts a
+program that exports none.
+
 ## Against c-ares
 
 ```bash

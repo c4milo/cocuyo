@@ -1816,6 +1816,39 @@ check.
 | AK6 | `reset` leaves the kind as it was | the kind names the list in use | the kind's assertions, across the codec's tests | CAUGHT |
 | AK7 | `assign` leaves the kind as it was | the kind names the list in use | the copy test, and the cache's PTR and MX tests | CAUGHT |
 
+## The benchmark programs' own memset
+
+2026-09-30. On Linux every `memset` a Zig 0.16 program calls is compiler_rt's, which stores one
+octet at a time, so `bench` and `bench-cares` now export the one of pepegrillo's recipe
+(`bench/memset.zig`; `performance_zig.md`, "Copies and fills", at 8b5f8b2). A test fills every
+length up to three blocks and one, and 4 KiB, from an unaligned start inside a guarded buffer. The
+fill check reads the function on x86-64 Linux and arm64 macOS and requires it to call no `memset`:
+a loop the compiler turned into one would call itself. Broken against `zig build test-tools` and
+`zig build fill-check`. Eight mutations: seven `CAUGHT`, and one that changes nothing today.
+
+`nm` over each program's ReleaseSafe build for x86-64 and arm64 Linux puts `memset` at the address
+of `memset.memset`, where before it was at compiler_rt's. A program built the same way over a C
+shared library that calls `memset` showed the library's calls reaching glibc's on both targets: the
+program's definition takes the hidden visibility of compiler_rt's, so the dynamic linker never
+offers it outside the program. c-ares is a shared library on CI's runner too, so its calls reach
+glibc's.
+
+MS7 is equivalent today. Without the barrier in the block loop, the compiler keeps the vector
+stores as a loop on both targets; the fill check would read the call on the day it made one. The
+export has no mutation of its own: removing it changes only what the Linux rows cost, and `nm`
+shows it.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| MS1 | the last block is not stored | every octet of the fill is set | the fill test | CAUGHT |
+| MS2 | the last block ends an octet past the fill | no octet past the fill is set | the fill test | CAUGHT |
+| MS3 | the loop steps two blocks at a time | every octet of the fill is set | the fill test | CAUGHT |
+| MS4 | the octet stored is the value's second | the low octet of the value is stored (C11 §7.24.6.1) | the fill test | CAUGHT |
+| MS5 | a short fill stores every octet at the first | every octet of the fill is set | the fill test | CAUGHT |
+| MS6 | the fill returns no address | the fill returns its destination | the fill test | CAUGHT |
+| MS7 | the block loop has no barrier | the function calls no `memset` | nothing: the compiler keeps the loop | NOT CAUGHT, equivalent |
+| MS8 | the short loop has no barrier | the function calls no `memset` | the fill check, on x86-64 and arm64 | CAUGHT |
+
 ## The sanitizer's own control
 
 `-Dsanitize-thread` puts the comparison's tests under ThreadSanitizer on Linux. On 2026-09-22 a

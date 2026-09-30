@@ -10,6 +10,10 @@
 //! never on a path that returns, and counts the calls to a fill. A probe whose count is not its
 //! known count fails the check: more is a new fill, and fewer is a fill gone, which the change
 //! that removed it takes out of `known`.
+//!
+//! One probe is not the library's: the `memset` the benchmark programs export on Linux
+//! (`bench/memset.zig`), which must call none. In a program that exports it, a loop the compiler
+//! turned into a call to `memset` would call itself forever.
 const std = @import("std");
 const assert = std.debug.assert;
 

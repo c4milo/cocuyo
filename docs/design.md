@@ -1041,7 +1041,12 @@ lookup inside `start`, and c-ares inside `ares_query_dnsrec`, so a lookup answer
 returns is a hit, and the row counts them. A hit waits on no I/O, so the row is timed as the
 microbenchmarks are: lookups per second, and each lookup's time from its start to its result, in
 microseconds to the nanosecond. The rows above ask a new name every time, so neither cache answers
-any of them, andtheir tests require it.
+any of them, and their tests require it.
+
+On Linux both benchmark programs export a `memset` of their own (`bench/memset.zig`). Every
+`memset` a Zig 0.16 program calls there is compiler_rt's, which stores one byte at a time, and
+cocuyo's rows would carry a loop that Zig's master has replaced. c-ares's calls keep glibc's
+`memset`, as any C program's do. macOS programs call libSystem's, and export none.
 
 The table below is from the driver before that one. It kept 1, 16 or 128 lookups in flight and
 started one when another ended, c-ares's next from its callback. A driver like that sends nothing

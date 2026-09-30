@@ -14,6 +14,12 @@ const harness = @import("harness.zig");
 const cases = @import("bench_cases.zig");
 const cache_cases = @import("bench_cache.zig");
 const cache_trace = @import("cache_trace.zig");
+const memset = @import("memset.zig");
+
+// On Linux under Zig 0.16 the program's `memset` is `bench/memset.zig`'s, which says why.
+comptime {
+    if (memset.needed) @export(&memset.memset, .{ .name = "memset" });
+}
 
 pub fn main() void {
     harness.run("cocuyo bench", &(cases.all ++ cache_cases.all));
@@ -25,6 +31,7 @@ test {
     _ = cases;
     _ = cache_cases;
     _ = cache_trace;
+    _ = memset;
     _ = @import("log_replay.zig");
     _ = @import("log_csv.zig");
     _ = @import("count.zig");
