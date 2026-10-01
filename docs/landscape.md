@@ -400,10 +400,10 @@ rules exist and are tested. It does not show cocuyo is free of such bugs.
 
 Where cocuyo is weaker:
 
-- **Age and deployment.** 0.1.0 was tagged on 2026-09-22, 0.2.0 and 0.3.0 on 2026-09-26, and
-  0.4.0 on 2026-09-27 ([releases](https://github.com/c4milo/cocuyo/releases)). A minor version
-  may change the API until 1.0 ([README](../README.md)). It has no record of use in production.
-  c-ares, Unbound, glibc and musl have release histories of years, linked above.
+- **Age and deployment.** 0.1.0 was tagged on 2026-09-22, 0.2.0 and 0.3.0 on 2026-09-26, 0.4.0
+  on 2026-09-27, and 0.5.0 on 2026-10-01 ([releases](https://github.com/c4milo/cocuyo/releases)). A
+  minor version may change the API until 1.0 ([README](../README.md)). It has no record of use in
+  production. c-ares, Unbound, glibc and musl have release histories of years, linked above.
 - **No outside review.** No third party has audited cocuyo, and it is not in OSS-Fuzz. Its fuzz
   target is its own seeded generator ([design §13](design.md#13-tests-mutation-and-fuzzing)).
   Hickory DNS and Unbound have been audited, and c-ares and Unbound are in OSS-Fuzz.
