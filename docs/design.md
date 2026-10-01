@@ -2321,7 +2321,10 @@ of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
     about that. A slot is not opened again while an earlier incarnation's connect is in flight:
     a closed slot waiting on one is not free, and a slot with no lookups on it is taken only
     when its connect has ended. Until 2026-09-23 a slot shut while connecting could be opened
-    again at once, and the new address was written over the one the loop still held.
+    again at once, and the new address was written over the one the loop still held. A slot's
+    reset sets its fields one by one and leaves the address as it is: until 2026-10-01 the reset
+    assigned the whole slot, which in a safe build wrote over the address too, and filled the
+    64 KiB frame at every opening and shut (`io/io_reset.zig`).
 
 **The datagram's rules, written on 2026-09-23** in the same way, for the same model. Rules 6 to 8
 of the stream hold for datagrams as they stand: a send lends its buffer, a completion speaks for
@@ -2960,7 +2963,7 @@ code is.
 3. A connection's sealed records wait in a buffer of the connection's own, which a send lends to
    the loop until its final event (rotor decision 5, rule 3). The slot is not opened again while
    a send of an earlier incarnation's records is in flight, as the stream's rule 10 keeps it for
-   a connect.
+   a connect. A reset leaves the buffer's bytes as they are, for the same reason.
 4. A handshake that fails fails the connection (the stream's rule 5): a record the session
    refuses, a certificate or a name that does not verify. No query was sent on it, and each
    lookup on it fails over to the next server. The server has refused the lookup, so one whose

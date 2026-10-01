@@ -248,3 +248,23 @@ test "a session that cannot start, seal or open, or whose peer closes, fails ove
     try expect_fails_over(50, .open);
     try expect_fails_over(51, .closed);
 }
+
+/// The octet a test's buffer holds before a reset, which no reset writes.
+const untouched: u8 = 0x5a;
+
+test "a TLS reset empties the state and leaves the records' bytes, which the loop may hold" {
+    var holder: struct { tls: io.tls.State(Failing) = .{} } = .{};
+    holder.tls.ticket_since_ns = 9;
+    holder.tls.record_in_used = 3;
+    holder.tls.out_head = 1;
+    holder.tls.out_tail = 2;
+    @memset(&holder.tls.record_in, untouched);
+    @memset(&holder.tls.out, untouched);
+    io.tls.reset(&holder);
+    try testing.expectEqual(@as(u64, 0), holder.tls.ticket_since_ns);
+    try testing.expectEqual(@as(usize, 0), holder.tls.record_in_used);
+    try testing.expectEqual(@as(u16, 0), holder.tls.out_head);
+    try testing.expectEqual(@as(u16, 0), holder.tls.out_tail);
+    for (holder.tls.record_in) |octet| try testing.expectEqual(untouched, octet);
+    for (holder.tls.out) |octet| try testing.expectEqual(untouched, octet);
+}

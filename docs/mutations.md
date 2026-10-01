@@ -1865,6 +1865,33 @@ fail.
 | --- | --- | --- | --- | --- |
 | RO1 | the responder counts a reply after it sends it | a process that has a reply reads a count that holds it | the count test, in six runs of six | CAUGHT |
 
+## The engine under the fill check
+
+2026-10-01. The fill check reads the engine of `io/` over rotor, built ReleaseSafe as a consumer
+builds it by default: its start, its completions and its take. Its first run found a TCP
+connection's reset filling 66,168 bytes at every opening and shut, since it assigned the whole slot
+and the frame is `undefined`; the same assignment wrote over the address a cancelled connect still
+borrows (design §19 step 13, the stream's rule 10). A reset now sets each field to its default but
+the frame, the address, the queue's entries and the TLS records (`io/io_reset.zig`). What the
+engine reaches besides is the EDNS padding the library's probes know, and one fill of rotor's on
+each target that no lookup pays. Broken against `zig build test-io` and `zig build fill-check`.
+Nine mutations, nine `CAUGHT`.
+
+A small field written in place, as the address is, compiles to stores and no `memset`, so the fill
+check misses EF4 and the reset's own test catches it.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| EF1 | a reset assigns the whole slot again | a reset writes no buffer, and fills nothing | the reset test, and the check on both targets | CAUGHT |
+| EF2 | a reset assigns the whole queue | the queue's entries keep their bytes | the reset test, and the check on both targets | CAUGHT |
+| EF3 | a reset writes the frame | the frame keeps its bytes | the reset test, and the check on both targets | CAUGHT |
+| EF4 | a reset writes the address | a connect's borrowed address is not written | the reset test | CAUGHT |
+| EF5 | a reset clears the incarnation | an opening's events are told from the last's | the reset test | CAUGHT |
+| EF6 | a TLS reset assigns the whole state | the records keep their bytes | the TLS reset test | CAUGHT |
+| EF7 | a TLS reset writes the records in | the records keep their bytes | the TLS reset test | CAUGHT |
+| EF8 | a reset writes the fields kept too | a field kept keeps its value | the helper's, the reset's and the TLS reset's tests | CAUGHT |
+| EF9 | a reset sets no field | every other field goes back to its default | seven tests, the engine's TCP and TLS paths among them | CAUGHT |
+
 ## The sanitizer's own control
 
 `-Dsanitize-thread` puts the comparison's tests under ThreadSanitizer on Linux. On 2026-09-22 a

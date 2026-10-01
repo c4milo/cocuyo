@@ -207,10 +207,11 @@ The architecture depends on every rule in this section.
   export (design §20, §24). `zig build readme-check` alone builds every Zig block of README.md, each
   under the `<!-- readme-check: ... -->` marker that names its harness in `tools/readme_check.zig`,
   and runs the quick start. A new block brings its marker and harness.
-- Fills: `zig build fill-check` compiles the library's hot paths ReleaseSafe for x86-64 Linux and
-  arm64 macOS, and requires their code to call `memset` or `bzero` exactly as often as
-  `tools/fill_check/fill_check.zig` knows it does (c4milo/cocuyo#35): a new fill fails it, and so
-  does a fill gone that the list still names. The benchmark programs' own `memset` must call none.
+- Fills: `zig build fill-check` compiles the library's hot paths, and the engine's over rotor,
+  ReleaseSafe for x86-64 Linux and arm64 macOS, and requires their code to call `memset` or `bzero`
+  exactly as often as `tools/fill_check/fill_check.zig` knows it does (c4milo/cocuyo#35): a new
+  fill fails it, and so does a fill gone that the list still names. The benchmark programs' own
+  `memset` must call none.
 - Instructions: `zig build instructions` holds each case of `bench/count.zig` to the instructions
   one operation takes, in `bench/instructions.zon`, through pepegrillo's `instructions` tool under
   cachegrind (`tools/instructions.zig`). It needs valgrind, so it runs on Linux; CI's Linux job runs

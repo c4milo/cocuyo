@@ -335,3 +335,33 @@ test "a connection that fails mid-send keeps that send's buffer until its event,
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
 }
+
+/// The octet a test's buffer holds before a reset, which no reset writes.
+const untouched: u8 = 0x5a;
+
+test "a new opening resets the slot but what outlives it, and writes none of its frame, address or queue" {
+    const Slot = tcp.Connection(fixtures.tiny_message_bytes, fixtures.small_lookups, io.tls.None);
+    var slot: Slot = .{ .state = .up, .server = 1, .used = 3, .users = 2, .idle_since_ns = 42 };
+    slot.incarnation = 5;
+    slot.connect_in_flight = true;
+    slot.records_in_flight = true;
+    @memset(&slot.frame, untouched);
+    @memset(std.mem.asBytes(&slot.address), untouched);
+    @memset(std.mem.sliceAsBytes(&slot.queue.items), untouched);
+    slot.queue.head = 1;
+    slot.queue.count = 2;
+    slot.restart();
+    try testing.expectEqual(@as(u16, 0), slot.queue.head);
+    try testing.expectEqual(@as(u16, 0), slot.queue.count);
+    for (std.mem.sliceAsBytes(&slot.queue.items)) |octet| try testing.expectEqual(untouched, octet);
+    try testing.expectEqual(Slot.State.closed, slot.state);
+    try testing.expectEqual(@as(u8, 0), slot.server);
+    try testing.expectEqual(@as(usize, 0), slot.used);
+    try testing.expectEqual(@as(u16, 0), slot.users);
+    try testing.expectEqual(@as(u64, 0), slot.idle_since_ns);
+    // What outlives an opening: the stream's rules 2 and 10, and §21's TLS rule 3.
+    try testing.expectEqual(@as(u32, 5), slot.incarnation);
+    try testing.expect(slot.connect_in_flight and slot.records_in_flight);
+    for (slot.frame) |octet| try testing.expectEqual(untouched, octet);
+    for (std.mem.asBytes(&slot.address)) |octet| try testing.expectEqual(untouched, octet);
+}

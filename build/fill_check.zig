@@ -1,8 +1,8 @@
 //! `zig build fill-check`: the library's hot paths call no fill, `memset` or `bzero`, beyond the
-//! ones `tools/fill_check/fill_check.zig` names as known (c4milo/cocuyo#35), and the benchmark
-//! programs' own `memset` calls none. The probe is compiled ReleaseSafe, stripped, for each target
-//! the library ships to, and the tool reads the assembly. A cross compile needs no machine of the
-//! target's, so every host checks both.
+//! ones `tools/fill_check/fill_check.zig` names as known (c4milo/cocuyo#35), and nor do the
+//! engine's over rotor, and the benchmark programs' own `memset` calls none. The probe is compiled
+//! ReleaseSafe, stripped, for each target the library ships to, and the tool reads the assembly.
+//! A cross compile needs no machine of the target's, so every host checks both.
 const std = @import("std");
 const modules = @import("modules.zig");
 
@@ -31,6 +31,20 @@ pub fn add(b: *std.Build, tool: *std.Build.Module) *std.Build.Step {
             .optimize = .ReleaseSafe,
             .strip = true,
         }));
+        // The engine over rotor itself, built for this target and ReleaseSafe, which rotor's build
+        // spells `release`: a rotor asked for no mode builds Debug. rotor is lazy, and the build
+        // runs again once it has fetched it, so the first pass adds nothing for the target.
+        const rotor = b.lazyDependency("rotor", .{ .target = target, .release = true }) orelse continue;
+        const engine = b.createModule(.{
+            .root_source_file = b.path(modules.roots.io),
+            .target = target,
+            .optimize = .ReleaseSafe,
+            .strip = true,
+        });
+        engine.addImport("cocuyo", graph.cocuyo);
+        engine.addImport("rotor", rotor.module("rotor"));
+        probe.addImport("io", engine);
+        probe.addImport("rotor", rotor.module("rotor"));
         const object = b.addObject(.{ .name = "fill_probe", .root_module = probe });
         const run = b.addRunArtifact(check);
         run.addArg(entry.name);

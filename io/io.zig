@@ -374,6 +374,7 @@ test {
     _ = channel_link;
     _ = @import("io_request_template.zig");
     _ = @import("io_tcp_queue_ring.zig");
+    _ = @import("io_reset.zig");
     // The tests drive the engine on the twin, which is the only `rotor` that has scripts.
     if (comptime @hasDecl(rotor, "server")) {
         _ = @import("io_sim_test.zig");

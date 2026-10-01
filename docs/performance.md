@@ -96,13 +96,16 @@ which an exact check catches where no timing can (c4milo/cocuyo#35):
 - A cache hit makes no system call and never blocks. The comparison's tests run n hits and 2n hits
   through the engine over rotor and require the kernel's counts not to grow: system calls on macOS,
   the switches of a thread that blocked on Linux.
-- The hot paths' ReleaseSafe code calls `memset` or `bzero` only where
-  `tools/fill_check/fill_check.zig` knows it does. `zig build fill-check`, in the gate, reads the
-  code for x86-64 Linux and arm64 macOS. What it knows are two fills made on purpose: the zeros of
-  the EDNS padding, and `Lookup.init`, which builds a whole lookup to hand back by value. The fills
-  c4milo/cocuyo#34 found, of the answers' storage, are gone (design §16, decision 34). It reads
-  the benchmark programs' own `memset` too, which calls none: in a program that exports it, a loop
-  the compiler turned into a call to `memset` would call itself forever.
+- The hot paths' ReleaseSafe code, the library's and the engine's over rotor, calls `memset` or
+  `bzero` only where `tools/fill_check/fill_check.zig` knows it does. `zig build fill-check`, in
+  the gate, reads the code for x86-64 Linux and arm64 macOS. What it knows are two fills made on
+  purpose, the zeros of the EDNS padding and `Lookup.init`, which builds a whole lookup to hand
+  back by value, and two of rotor's that no lookup pays: on Linux its choice of backend, once a
+  process, and on macOS the early flush of a full changelist. The fills c4milo/cocuyo#34 found, of
+  the answers' storage, are gone (design §16, decision 34), and so are the engine's 66,168 bytes
+  at every opening and shut of a TCP connection (design §19 step 13, the stream's rule 10). It
+  reads the benchmark programs' own `memset` too, which calls none: in a program that exports it,
+  a loop the compiler turned into a call to `memset` would call itself forever.
 - Nothing allocates: the heap lint (CLAUDE.md, non-negotiable 2).
 
 ## Pitfalls this tree has paid for

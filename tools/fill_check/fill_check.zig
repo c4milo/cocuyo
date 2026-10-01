@@ -11,20 +11,26 @@
 //! known count fails the check: more is a new fill, and fewer is a fill gone, which the change
 //! that removed it takes out of `known`.
 //!
-//! One probe is not the library's: the `memset` the benchmark programs export on Linux
-//! (`bench/memset.zig`), which must call none. In a program that exports it, a loop the compiler
-//! turned into a call to `memset` would call itself forever.
+//! Four probes are not the library's. Three read the engine of `io/` over rotor itself, as a
+//! consumer builds it by default, so its paths are held to their fills as the library's are. The
+//! fourth reads the `memset` the benchmark programs export on Linux (`bench/memset.zig`), which
+//! must call none: in a program that exports it, a loop the compiler turned into a call to
+//! `memset` would call itself forever.
 const std = @import("std");
 const assert = std.debug.assert;
 
-/// The fills each probe reaches today, by target, both on purpose (docs/design.md §16 decision
-/// 34):
+/// The fills each probe reaches today, by target, each made on purpose or never on a lookup's way
+/// (docs/design.md §16 decision 34):
 ///
 /// - The zeros of the EDNS Padding option, which `query.write` writes for a query that goes
 ///   encrypted (RFC 7830 §3), fewer than one block of them. The table's poll builds queries, so
-///   it reaches them too.
+///   it reaches them too, and so do the engine's start and its completions, which drive the table.
 /// - `Lookup.init`, which builds a whole lookup and hands it back by value, for a caller that
 ///   holds one outside a table. The table builds its lookups in place, and fills nothing.
+/// - rotor's, which the engine reaches through the loop and no lookup pays. On Linux the loop's
+///   first use decides, once a process, between io_uring and epoll, and deciding zeroes 2 KiB of
+///   stack. On macOS a changelist that fills up between two ticks goes to the kernel early,
+///   through a list of 8 KiB of receipts that a safe build fills with 0xAA.
 ///
 /// A probe not listed reaches none.
 pub const Known = struct { target: []const u8, probe: []const u8, fills: u32 };
@@ -35,6 +41,10 @@ pub const known = [_]Known{
     .{ .target = "aarch64-macos", .probe = "probe_query_write", .fills = 1 },
     .{ .target = "aarch64-macos", .probe = "probe_table_poll", .fills = 1 },
     .{ .target = "aarch64-macos", .probe = "probe_lookup_init", .fills = 1 },
+    .{ .target = "x86_64-linux-gnu", .probe = "probe_engine_start", .fills = 2 },
+    .{ .target = "x86_64-linux-gnu", .probe = "probe_engine_apply", .fills = 2 },
+    .{ .target = "aarch64-macos", .probe = "probe_engine_start", .fills = 2 },
+    .{ .target = "aarch64-macos", .probe = "probe_engine_apply", .fills = 2 },
 };
 
 /// How a target's assembly spells what the tool reads: the prefixes a function's symbol may carry,

@@ -17,6 +17,7 @@ const constants = @import("constants.zig");
 const udp = @import("io_udp.zig");
 const queue_module = @import("io_tcp_queue.zig");
 const tls_module = @import("io_tls.zig");
+const reset = @import("io_reset.zig");
 
 pub const Error = error{SocketFailed};
 
@@ -73,16 +74,16 @@ pub fn Connection(comptime message_bytes: u32, comptime lookups: u16, comptime T
             return self.connect_in_flight or self.records_in_flight;
         }
 
-        /// A new opening of the slot: everything reset but what outlives an opening.
+        /// A new opening of the slot: every field back to its default but what outlives an
+        /// opening, and the frame, the address and the queue's entries, whose bytes nothing reads
+        /// before it writes them again. Set field by field, the slot writes none of them: assigned
+        /// whole, it wrote all of the frame in a safe build, and wrote over the address a cancelled
+        /// connect still borrows (docs/design.md §19 step 13, the stream's rule 10). The TLS state
+        /// keeps its records the same way (`io_tls.reset`).
         pub fn restart(self: *Self) void {
-            const incarnation = self.incarnation;
-            const connect_in_flight = self.connect_in_flight;
-            const records_in_flight = self.records_in_flight;
-            self.tls.session.wipe();
-            self.* = .{};
-            self.incarnation = incarnation;
-            self.connect_in_flight = connect_in_flight;
-            self.records_in_flight = records_in_flight;
+            tls_module.reset(self);
+            reset.defaults_except(@TypeOf(self.queue), &self.queue, &.{"items"});
+            reset.defaults_except(Self, self, &.{ "incarnation", "connect_in_flight", "records_in_flight", "address", "frame", "queue", "tls" });
         }
     };
 }

@@ -6,6 +6,8 @@
 const cocuyo = @import("cocuyo");
 const wire = cocuyo.wire;
 const bench_memset = @import("bench_memset");
+const io = @import("io");
+const rotor = @import("rotor");
 
 /// A query's octets written out: every lookup's first send.
 export fn probe_query_write(query: *const wire.Query, out: [*]u8, out_bytes: usize) usize {
@@ -59,4 +61,26 @@ export fn probe_lookup_init(config: *const cocuyo.Config, servers: *cocuyo.Serve
 /// exports it, a loop the compiler turned into a call to `memset` would call itself forever.
 export fn probe_bench_memset(destination: [*]u8, value: c_int, length: usize) ?[*]u8 {
     return bench_memset.memset(destination, value, length);
+}
+
+/// The engine a consumer builds by default: every lookup over UDP, one TCP connection for an
+/// answer that came back truncated, and no TLS, QUIC or DoH (docs/design.md §19 step 13).
+const Engine = io.Resolver(.{});
+
+/// A lookup started in the engine: its cache asked first, then the table driven.
+export fn probe_engine_start(engine: *Engine, question: *const cocuyo.Question, now_ns: u64, handle: *cocuyo.Handle) bool {
+    handle.* = engine.start(question.*, now_ns) catch return false;
+    return true;
+}
+
+/// A completion handed to the engine, and the drive after it: a datagram sent or received, the
+/// timer, and a stream's connect, send or receive, which opens or shuts a connection.
+export fn probe_engine_apply(engine: *Engine, event: *const rotor.Event, now_ns: u64) bool {
+    return engine.apply(event.*, now_ns);
+}
+
+/// An answer taken from the engine, and the slot of the one before it freed.
+export fn probe_engine_take(engine: *Engine, now_ns: u64, result: *Engine.Result) bool {
+    result.* = engine.take(now_ns) orelse return false;
+    return true;
 }

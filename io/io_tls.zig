@@ -13,6 +13,7 @@ const constants = @import("constants.zig");
 const tcp = @import("io_tcp.zig");
 const queue_module = @import("io_tcp_queue.zig");
 const ring = @import("io_tcp_queue_ring.zig");
+const reset_module = @import("io_reset.zig");
 
 /// No TLS: the engine's default. It holds nothing, and `init` refuses a TLS configuration, so
 /// none of its functions is ever called.
@@ -325,10 +326,12 @@ pub fn close(self: anytype, at: u8, now_ns: u64) void {
     _ = make_records(self, at, now_ns);
 }
 
-/// Everything of a connection's TLS but what outlives it: the session's secrets wiped.
+/// Everything of a connection's TLS but what outlives it: the session's secrets wiped, and every
+/// field back to its default but the records in and out, whose bytes nothing reads past their
+/// counts. The records out may still be the loop's (§21, TLS rule 3), so they are not written.
 pub fn reset(connection: anytype) void {
     connection.tls.session.wipe();
-    connection.tls = .{};
+    reset_module.defaults_except(@TypeOf(connection.tls), &connection.tls, &.{ "record_in", "out" });
 }
 
 comptime {
