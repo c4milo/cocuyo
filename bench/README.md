@@ -39,11 +39,11 @@ The same step then runs the comparison end to end (`bench/end_to_end/`): one res
 its own on the loopback, answers every query with one A record, and each stack resolves 20,000
 distinct names against it at 10,000, 40,000, 80,000 and 160,000 lookups a second, each sent when it
 is due whether or not the stack has answered, with at most 128 out. cocuyo's side is the engine of
-design §19 step 13 over rotor, built privately for the bench; c-ares's is the installed build with
-its event thread. The rows are lookups per second; the median, the 99th and the 99.9th percentile
-and the slowest latency, from when each lookup was due; how late the lookups went out; the most out
-at once; and the stack's system calls and context switches per lookup. The numbers live in §11 of
-the design document, with the machine and the day.
+design §19 step 13 over rotor, both ReleaseSafe and built privately for the bench; c-ares's is the
+installed build with its event thread. The rows are lookups per second; the median, the 99th and the
+99.9th percentile and the slowest latency, from when each lookup was due; how late the lookups went
+out; the most out at once; and the stack's system calls and context switches per lookup. The numbers
+live in §11 of the design document, with the machine and the day.
 
 A last table asks 64 names in turn, 20,000 times, after asking each once, so that both stacks'
 caches answer every lookup: hits per second, and microseconds, to the nanosecond, from a lookup's

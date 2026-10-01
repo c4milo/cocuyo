@@ -227,7 +227,9 @@ The architecture depends on every rule in this section.
 - Comparison: `zig build bench-cares` — the same two operations against the installed c-ares,
   found under `-Dcares=<prefix>` (a Homebrew prefix by default), then end to end: both stacks
   against one responder process on the loopback, cocuyo's side being the `io/` engine over rotor,
-  built privately for the bench (`bench/end_to_end/`). It links libraries the gate must not
+  built privately for the bench (`bench/end_to_end/`). rotor is asked for its ReleaseSafe build,
+  since a rotor asked for no mode builds Debug, and the build refuses the comparison over any other
+  rotor (`build/modules.zig`). It links libraries the gate must not
   require, so it and its tests (`zig build test-cares`) run only when asked. The numbers go in
   design §11 beside cocuyo's, with the c-ares version the binary prints.
 - Threads: `zig build example-threads-rotor` runs two engines on two threads of one image, each

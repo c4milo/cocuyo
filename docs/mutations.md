@@ -1892,6 +1892,20 @@ check misses EF4 and the reset's own test catches it.
 | EF8 | a reset writes the fields kept too | a field kept keeps its value | the helper's, the reset's and the TLS reset's tests | CAUGHT |
 | EF9 | a reset sets no field | every other field goes back to its default | seven tests, the engine's TCP and TLS paths among them | CAUGHT |
 
+## rotor's mode
+
+2026-10-01. rotor's build gives its modules the mode a dependent asks for, and Debug when asked for
+none. cocuyo's build asked for none, so the comparison compiled rotor `-ODebug` under a ReleaseSafe
+engine, and the README told a consumer to do the same. The comparison now asks for rotor's release
+build, the examples follow `-Drelease`, and the README asks for it. The comparison and the fill
+check refuse to build over a rotor of any other mode. Broken against `zig build bench-cares` and
+`zig build fill-check`. Two mutations, two `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| RM1 | the comparison's rotor is asked for no mode | the comparison times a ReleaseSafe rotor | the build, which refuses the comparison | CAUGHT |
+| RM2 | the fill check's rotor is asked for no mode | the fill check reads a ReleaseSafe rotor | the build, which refuses the check | CAUGHT |
+
 ## The sanitizer's own control
 
 `-Dsanitize-thread` puts the comparison's tests under ThreadSanitizer on Linux. On 2026-09-22 a

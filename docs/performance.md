@@ -110,8 +110,16 @@ which an exact check catches where no timing can (c4milo/cocuyo#35):
 
 ## Pitfalls this tree has paid for
 
-None recorded yet. The first performance change that pays one adds it here, as symptom, cause and
-rule.
+Each as symptom, cause and rule.
+
+- **A dependency built Debug inside a ReleaseSafe measurement.** From its first run until
+  2026-10-01, the comparison timed cocuyo's engine over rotor's loop compiled `-ODebug`, while
+  every module of cocuyo's was `-OReleaseSafe`. Design §11's end-to-end table is one of those runs.
+  rotor's build gives its modules the mode a dependent asks for, and Debug when asked for none, and
+  cocuyo's build asked for none. A measurement asks each dependency for its mode, and
+  `zig build <step> --verbose` shows the mode every module compiles in. The comparison and the
+  fill check now refuse to build over a rotor of any other mode than ReleaseSafe
+  (`build/modules.zig`).
 
 ## Commands
 

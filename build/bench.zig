@@ -118,6 +118,9 @@ fn add_cares(
     const exe = b.addExecutable(.{ .name = "bench-cares", .root_module = module });
     const run = b.addRunArtifact(exe);
     run.step.dependOn(&run_tests.step);
+    if (rotor) |dependency| {
+        if (modules.require_release_rotor(b, dependency, "the comparison")) |fail| run.step.dependOn(fail);
+    }
 
     const step = b.step("bench-cares", "Measure query build and response parse against c-ares");
     step.dependOn(&run.step);

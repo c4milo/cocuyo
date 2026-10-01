@@ -187,7 +187,8 @@ zig fetch --save "git+https://github.com/c4milo/cocuyo?ref=v0.4.0"
 
 Import its module in `build.zig`. The library is one module, `cocuyo`, and fetches nothing else
 when it is a dependency. The engine over rotor is a second, `cocuyo_rotor`, whose `rotor` import
-your build binds to your rotor:
+your build binds to your rotor. Ask rotor for its release build as you ask cocuyo: a rotor asked
+for no mode builds Debug, whatever mode your program builds in.
 
 <!-- readme-check: build -->
 ```zig
@@ -196,7 +197,8 @@ exe.root_module.addImport("cocuyo", cocuyo.module("cocuyo"));
 
 // Only for the engine, over a rotor your build already depends on.
 const engine = cocuyo.module("cocuyo_rotor");
-engine.addImport("rotor", b.dependency("rotor", .{ .target = target }).module("rotor"));
+const rotor = b.dependency("rotor", .{ .target = target, .release = true });
+engine.addImport("rotor", rotor.module("rotor"));
 exe.root_module.addImport("cocuyo_rotor", engine);
 ```
 

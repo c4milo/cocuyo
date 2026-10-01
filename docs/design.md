@@ -1024,7 +1024,8 @@ absolute names against it, so neither's cache answers. Each row offers a load: 1
 the ones before it, with at most 128 out (`bench/end_to_end/schedule.zig`). A lookup's latency runs
 from when it was due to its result, so a stall shows in every lookup it held back. cocuyo's side is
 the engine of §19 step 13 over rotor, built privately for the bench and run on this thread,
-ReleaseSafe with its assertions on; its loop waits until the next lookup is due or an event comes.
+ReleaseSafe with its assertions on, and rotor ReleaseSafe as well; its loop waits until the next
+lookup is due or an event comes.
 c-ares's side is the Homebrew build of the version the binary prints, with its event thread, which
 gives it a second thread of its own; this thread sleeps until a lookup is due and sends it with
 `ares_query_dnsrec`. The responder and the kernel are in every latency and are the same for both. A
@@ -1094,6 +1095,10 @@ What the rows say, and what they do not:
   the stall below, finished three times at 35,876, 36,326 and 36,561: within 1% of the cell.
 - Nothing here says anything about Linux, about a real network, or about a working set that a
   cache would answer: the names are distinct, so neither cache is ever asked twice.
+- cocuyo's side ran over a Debug rotor. A rotor asked for no mode builds Debug, and until
+  2026-10-01 the build asked for none, so every lookup of cocuyo's also paid for rotor's loop
+  unoptimized. Nothing measured how much, so the rows overstate cocuyo's latencies and understate
+  its throughput by an amount not known (docs/performance.md, the first pitfall).
 
 **This table replaced one measured earlier the same day, and was not averaged with it.** The
 earlier driver lost a lookup's start when c-ares answered while the slot was being let go, and

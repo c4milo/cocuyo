@@ -183,3 +183,13 @@ fn module(
     };
     return if (register) b.addModule(name, options) else b.createModule(options);
 }
+
+/// A step that fails when `dependency`'s rotor is not ReleaseSafe, for a check that reads rotor's
+/// code or a measurement that times it: a rotor asked for no mode builds Debug, and until
+/// 2026-10-01 the comparison timed the engine over one (docs/performance.md, the first pitfall).
+/// Null when it is ReleaseSafe, or leaves the mode to whatever imports it.
+pub fn require_release_rotor(b: *std.Build, dependency: *std.Build.Dependency, user: []const u8) ?*std.Build.Step {
+    const mode = dependency.module("rotor").optimize orelse return null;
+    if (mode == .ReleaseSafe) return null;
+    return &b.addFail(b.fmt("{s} needs rotor's ReleaseSafe build: ask for it with .release = true", .{user})).step;
+}
