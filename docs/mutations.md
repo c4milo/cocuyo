@@ -1118,6 +1118,22 @@ live check and the third by the gate.
 | DL2 | a resumed handshake that fails fails the connection | TLS rule 8, forgiven | not the live check; the ticket twin test and walk 8573, as ET4 | CAUGHT |
 | DL3 | the session never says it resumed | the resumed handshake, read from chapulin | the live check: no resolver resumed | CAUGHT |
 
+## Google's two roots, live
+
+2026-10-01. The DoT live check failed two runs in nine and the DoH live check one in seven, each
+time through Google alone, with every lookup ending in `AllServersFailed`. Google holds
+certificates for `dns.google` from two issuers: WR2, under GTS Root R1, and WE2, which Google's
+repository serves under GlobalSign ECC Root CA - R4. Certificate Transparency held 21 of each, and
+which chain a connection is shown depends on the frontend it reaches. Both checks trusted GTS Root
+R1 alone, so strict mode refused a WE2 frontend, as it must. Both now trust the two roots, and
+report the chain a server shows beside any failure. Every frontend reached from here shows WR2,
+so GR2 is the mutation this machine can see, and GR1 is the one CI saw.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| GR1 | Google is trusted with GTS Root R1 alone | a WE2 frontend is answered | CI's DoT runs of 2026-09-27 and 09-30 and DoH run of 09-28, each refused | CAUGHT |
+| GR2 | Google is trusted with GlobalSign ECC Root CA - R4 alone | a WR2 frontend is answered | the DoT example here, refused with `AllServersFailed` | CAUGHT |
+
 ## chapulin's staging bound
 
 Design §21, 2026-09-24. chapulin's `CH_TX_STAGE` for a webpki build grew to 2,394 octets, plus 2

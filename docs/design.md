@@ -3136,7 +3136,11 @@ the engine's send and held buffers, per slot.
    and `dns.quad9.net`. `tools/dot_live/run.sh` runs it, on macOS, with each resolver's root from
    the system store. On 2026-09-24, with chapulin at `5f8e824`, all three resolved `example.com`:
    `dns.google` over an RSA chain ending at GTS Root R1, the other two over ECDSA chains ending at
-   SSL.com's ECC root and DigiCert Global Root G3. A name the certificate does not carry, and a
+   SSL.com's ECC root and DigiCert Global Root G3. Google also holds certificates for `dns.google`
+   from WE2, under GlobalSign ECC Root CA - R4, and which chain a connection is shown depends on
+   the frontend it reaches: with GTS Root R1 alone, two runs in nine were refused, as strict mode
+   must refuse them, so the check trusts both roots since 2026-10-01. A name the certificate does
+   not carry, and a
    root the chain does not end at, each failed the lookup, with no query sent in the clear. Only
    IPv4 was tried: the machine had no IPv6 route. Resumption was tried live the same day, with
    chapulin at `0cc5355`: the example resolves a second name once the first connection has closed
@@ -4330,7 +4334,9 @@ against Google and Cloudflare.
    that resumed with the first one's ticket, and a template whose host the certificate does not
    carry and a root the chain does not end at each ended in `AllServersFailed`
    (`tools/doh_live/run.sh`, and the `doh-live` workflow once a day). On 2026-09-27 it passed
-   again over colibri's `tls.quic.Client` at colibri `a6a4791` (decision 32).
+   again over colibri's `tls.quic.Client` at colibri `a6a4791` (decision 32). Since 2026-10-01 it
+   trusts both of the roots Google's chains for `dns.google` end at, as the DoT check does (§21
+   step 6): with GTS Root R1 alone, one run in seven was refused.
 6. Two engines on two threads of one image, each on its own loop, resolving at once. Done
    2026-09-25. On the twin, two threads with one `Config` resolve the same names at once, and
    each takes every answer from its own servers. Over rotor, the two engines each took four of

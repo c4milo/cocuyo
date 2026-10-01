@@ -1,7 +1,7 @@
 #!/bin/sh
 # DNS over TLS, live (docs/design.md §21 step 6): the engine over rotor with chapulin's session in
 # colibri's `tls` resolves through the public resolvers that serve DoT, and refuses what strict mode
-# refuses. It needs the network, and macOS: each resolver's root comes from the system root store.
+# refuses. It needs the network, and macOS: each resolver's roots come from the system root store.
 # colibri is a dependency of the build, which fetches it the first time (build/dot.zig).
 #
 #     tools/dot_live/run.sh
@@ -28,11 +28,36 @@ store=/System/Library/Keychains/SystemRootCertificates.keychain
 root_der() {
     security find-certificate -a -c "$1" -p "$store" | openssl x509 -outform DER -out "$out/$2.der"
 }
+# A root from the system store, as DER, by a common name several roots share and the unit name in
+# its subject that tells it from the others.
+root_der_unit() {
+    security find-certificate -a -c "$1" -p "$store" |
+        awk -v dir="$out" '/BEGIN CERTIFICATE/ { n++ } { print > (dir "/candidate-" n ".pem") }'
+    for candidate in "$out"/candidate-*.pem; do
+        if openssl x509 -in "$candidate" -noout -subject | grep -q "$2"; then
+            openssl x509 -in "$candidate" -outform DER -out "$out/$3.der"
+        fi
+    done
+    rm -f "$out"/candidate-*.pem
+    test -s "$out/$3.der"
+}
+# Google holds certificates for dns.google from two issuers: WR2, issued by GTS Root R1, and WE2,
+# which Google's repository serves issued by GlobalSign ECC Root CA - R4, a root of Google's own.
+# Certificate Transparency held 21 of each on 2026-10-01, and which one a connection is shown
+# depends on the frontend it reaches. With GTS Root R1 alone, a run that reached a WE2 frontend was
+# refused, as strict mode must refuse it: two runs in nine until then.
 root_der "GTS Root R1" google
+root_der_unit GlobalSign "GlobalSign ECC Root CA - R4" google-ecc-r4
 root_der "SSL.com Root Certification Authority ECC" cloudflare
 root_der "DigiCert Global Root G3" quad9
 root_der "ISRG Root X1" unrelated
 
+# The chain a server shows over TLS at this moment, issuer by issuer, which a failure reports beside
+# its own: the next refusal then says which certificates it was shown.
+chain() {
+    openssl s_client -connect "$1" -servername "$2" -showcerts </dev/null 2>/dev/null |
+        grep -E '^ *[0-9]+ s:|^ *i:' | tr -s ' ' | tr '\n' ' '
+}
 lookup_names() {
     names=$1
     shift
@@ -69,10 +94,16 @@ reads_types() {
 
 failures=0
 resumed=0
-for resolver in "8.8.8.8 dns.google google" "1.1.1.1 cloudflare-dns.com cloudflare" \
+for resolver in "8.8.8.8 dns.google google google-ecc-r4" "1.1.1.1 cloudflare-dns.com cloudflare" \
     "9.9.9.9 dns.quad9.net quad9"; do
+    # An address, a name, and the roots the name's chains end at.
     set -- $resolver
-    if answer=$(lookup "$1" "$2" "$out/$3.der") && echo "$answer" | grep -q "example.com A" &&
+    address=$1 name=$2
+    shift 2
+    roots=
+    for each in "$@"; do roots="$roots $out/$each.der"; done
+    set -- "$address" "$name"
+    if answer=$(lookup "$1" "$2" $roots) && echo "$answer" | grep -q "example.com A" &&
         echo "$answer" | grep -q "example.org A"; then
         how=$(echo "$answer" | sed -n 's/^example\.org: handshake //p')
         case $how in
@@ -86,9 +117,10 @@ for resolver in "8.8.8.8 dns.google google" "1.1.1.1 cloudflare-dns.com cloudfla
         esac
     else
         echo "FAILS through $2: $answer" >&2
+        echo "  $2 shows: $(chain "$1:853" "$2")" >&2
         failures=$((failures + 1))
     fi
-    reads_types "$2" "$1" "$2" "$out/$3.der"
+    reads_types "$2" "$1" "$2" $roots
 done
 if [ "$resumed" -eq 0 ]; then
     echo "NO RESOLVER RESUMED" >&2
