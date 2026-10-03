@@ -1480,6 +1480,16 @@ step until `zig build test` passes.
     avoid; the storage as bytes read through pointer casts, which loses every member's type; a field
     for each list, which adds 2.4 KiB to every lookup and every cache slot; and leaving it, which on
     Linux writes about 2,700 octets a byte at a time at every A lookup's start. §9, §19 step 9.
+35. **Every cryptographic operation is chapulin's.** Ruled by the owner on 2026-10-03, on the
+    DNSSEC plan of §25, which had taken its hashes and signatures from Zig's `std.crypto`. The
+    TLS under DoT, DoQ and DoH is chapulin's already, through colibri's `tls` (decision 32). So
+    is the verification DNSSEC would need, if §25 is ruled in: `dnssec` names a verifier, and a
+    module outside `src/` fills it in from chapulin through colibri, so the library still
+    depends on nothing. chapulin gains what §25 lists before cocuyo can use it. Rejected:
+    `std.crypto`, which has every algorithm the plan verifies but Ed448 and needs no dependency,
+    and is a second implementation of SHA-2, P-256, P-384 and RSA in an image that already
+    carries chapulin's, outside what chapulin proves and tests; and both at once, chapulin
+    under the engine and `std.crypto` for a consumer with no colibri, which keeps two. §25.
 
 ## 17. Questions for the owner
 
@@ -1544,6 +1554,51 @@ step until `zig build test` passes.
     takes every query at once and the old one drains, as c-ares does as recalled rather than
     read (§19 step 13, the datagram's rule 4). A server holds two sockets at most while one
     drains.
+
+### Asked on 2026-10-03, for DNSSEC
+
+§25 is a plan with no ruling behind it. These are the rulings it needs. Each says what the plan
+recommends, and none is taken until the owner answers.
+
+16. **Does DNSSEC come into scope, and how far?** §1 says no validation, and CLAUDE.md lists it
+    under "Ask before". §25 has two stages: A relies on the server's AD bit over a channel that
+    authenticates the server, and B validates in cocuyo. Recommended: A, then B, each off by
+    default.
+17. **Stage A's public API.** `Config.authenticated_data`, the type `Security`, a `security`
+    field on `Answer` and on `Failure`, and `options trust-ad` read from a `resolv.conf`.
+    Recommended as §25 writes them, with one type for both stages.
+18. **Should `Failure` carry the extended error code?** Under Stage A a server reports bogus
+    data as SERVFAIL, and the extended error option says why (RFC 8914). The codec reads the
+    option, and `Failure` does not carry it. Recommended: yes, as one optional field.
+19. **Stage B's shape.** A validator the table is handed, keys fetched under the table, and a
+    question asked again when its keys have come, in place of a response kept. §25 ends with
+    the decision in §16's form and what it would reject. It adds a state to §5, a module to §2,
+    and `Error.Bogus`.
+20. **Trust anchors.** Recommended: the caller supplies every anchor, and `src/` ships none,
+    since a root key that changes would make a release of cocuyo expire. The engine's example
+    and the live check read IANA's file (RFC 9718). And which anchor a name under two of them
+    uses: the closest (RFC 6840 Appendix C.1), which the walk does, or any that succeeds (C.2),
+    which §5.10 suggests.
+21. **Whose cryptography.** Answered on 2026-10-03: chapulin's, for all of it (§16 decision 35).
+    `dnssec` names a verifier, and a module outside `src/` fills it in from chapulin through
+    colibri's `tls`. Still to settle is what chapulin gains and who adds it, which §25 lists:
+    public calls, SHA-1, RSA over SHA-512, RSA keys it refuses today, and Ed25519, asked of
+    chapulin in c4milo/chapulin#189. §25's count of 2026-10-03 gives the order and the bounds:
+    RSA from 1024 bits, with the key's own exponent. Ed448 is in neither library, and no
+    top-level domain signs with it. Recommended: left unsupported, so a zone signed with it
+    alone is read as unsigned.
+22. **SHA-1.** Algorithms 5 and 7 written, and off unless a configuration turns them on, which
+    is how §25 reads RFC 9905 §2.
+23. **The limits §25 proposes.** All are chosen, not measured, but those an RFC fixes or the
+    count of 2026-10-03 bears out. Three are worth a word: `clock_skew_seconds_default` at
+    zero, `nsec3_iterations_max` at 100, and `records_max` left at 64, which fails a lookup
+    under a signed zone when a message holds more records than that.
+24. **More sources.** May RFC 1982, RFC 3110, RFC 8017, RFC 8032, RFC 4470 and RFC 2181 be
+    downloaded into `docs/rfcs/`? §25 step 1 names them, and `docs/rfcs/README.md` says what
+    each is for.
+25. **What the reading found.** §25 ends with five things in the code as it stands that are not
+    DNSSEC's: a citation, RCODE 6, `attempts_max` against RFC 9520 §3.1, no cache of failures
+    against RFC 9520 §3.2, and compact denial without validation. Should each become an issue?
 
 ## 18. The cache
 
@@ -4432,3 +4487,661 @@ Checks, one for each piece:
 
 The checks over HTTP/2 and over TCP went on 2026-09-29 with the code they checked. A channel's
 links hold the rules they held over TCP, and `cocuyo_doh`'s tests what they held of HTTP/2.
+
+## 25. DNSSEC: a plan the owner has not ruled on
+
+§1 puts DNSSEC validation out of scope. On 2026-10-01 the owner asked for a plan to bring it in,
+and this section is that plan. Nothing in it is decided: §1 and §16 stand as they are, and
+nothing under `src/` or `io/` changes, until the owner answers the questions §17 lists from 16
+on. It was written on 2026-10-03 from the RFCs added to `docs/rfcs/` on 2026-10-01, and every
+rule below cites the passage that states it, read in those copies.
+
+c-ares validates nothing. Its 1.34.8 headers, read on 2026-10-03, have no channel flag for
+DNSSEC: `ares.h` names none. `ares_dns_record.h` names the AD and CD header bits for a caller
+that builds its own messages, and no DNSSEC record type but SIG: a DNSKEY, a DS, an RRSIG or an
+NSEC comes back as a raw record, which is what cocuyo already does (decision 31). So this is not
+part of the gap §19 closes. It is a feature of cocuyo's own, which is why it waits for a ruling.
+
+### Two things DNSSEC support can mean
+
+RFC 4033 §2 defines two stub resolvers, and they promise different things.
+
+| Question | Stage A: the server's word | Stage B: cocuyo validates |
+| --- | --- | --- |
+| What RFC 4033 §2 calls it | a non-validating security-aware stub resolver | a validating security-aware stub resolver |
+| What a consumer learns | that the server says it validated the answer: the AD bit | that cocuyo verified the signatures: secure, insecure or bogus |
+| What it rests on | the server, and a channel that authenticates the server (RFC 4035 §4.9.3) | a trust anchor the caller supplies, and the time of day |
+| What a server that lies can do | anything | refuse to answer, and nothing else |
+| Queries it adds | none | none while the signer's keys are held; otherwise the DS and DNSKEY questions down to the signer, and the question once more |
+| Cryptography | none | signature verification, chapulin's, reached through an interface so that `src/` holds none |
+| What it changes | a bit in the query, a field in the answer | a module, a ninth state in §5, two models, and new calls in chapulin and colibri |
+
+RFC 4033 §12 says which threat each stage answers. A stub that does not validate is exposed to
+attacks on its channel to the recursive server and to attacks by that server. Channel security
+defends against the first. Against the second, "the only known defense" is for the stub "to
+perform its own signature validation".
+
+The plan is Stage A first, then Stage B, each behind a setting that is off by default (RFC 4033
+§12: validation "may cause entire legitimate zones to become effectively unreachable due to
+DNSSEC configuration errors or bugs"). Both report through one type, so Stage B adds no field
+to what Stage A adds:
+
+```zig
+/// What is known of where an answer came from (docs/design.md §25).
+pub const Security = enum(u2) {
+    /// Nothing was checked: neither stage is on.
+    unchecked,
+    /// cocuyo proved the name lies in a zone that is not signed, or under no trust anchor
+    /// (RFC 4035 §4.3). Stage B.
+    insecure,
+    /// The server said it validated: AD on every message used, over a channel the
+    /// configuration relies on (RFC 4035 §4.9.3). Stage A.
+    authenticated,
+    /// cocuyo verified signatures from a trust anchor down to the answer (RFC 4035 §4.3).
+    /// Stage B.
+    secure,
+};
+```
+
+`Answer` and `Failure` each gain `security: Security`. A failure carries it for the two negatives,
+`NameNotFound` and `NoData`, since a denial can be proved as an answer can. Bogus data is not a
+value of it: it is a failure, `Error.Bogus`, with the reason beside it. The names are a sketch
+for the step that lands them.
+
+### Stage A: the server's word, over a channel that authenticates it
+
+The rules:
+
+1. A configuration says whether the AD bit is relied on: `Config.authenticated_data`, one of
+   `ignored`, which is the default, `encrypted` and `always`. "A resolver MUST disregard the
+   meaning of the CD and AD bits in a response unless the response was obtained by using a
+   secure channel or the resolver was specifically configured to regard the message header bits
+   without using a secure channel" (RFC 4035 §4.6). `encrypted` is the first case: the bit
+   counts from a TLS, HTTPS or QUIC server, which strict mode has authenticated (§21), and from
+   no other. `always` is the second: it is for a validating resolver on the loopback, which is
+   what `options trust-ad` in a `resolv.conf` says. That option is glibc's, since 2.31, as
+   recalled from its manual page and not read on this machine.
+2. When the bit is relied on, every query carries AD set. That asks for the bit without asking
+   for DNSSEC records (RFC 6840 §5.7), so DO stays clear and no response grows. A validating
+   server sets AD in a response only when the query had DO or AD set (§5.8). CD stays clear: a
+   stub that does not validate depends on the server to (RFC 4035 §4.9.2).
+3. A lookup ends `authenticated` when every message it acted on had AD set: each link of a CNAME
+   chain that spans messages, each negative that moved it to the next search candidate, and the
+   message that ended it. One message without the bit ends it `unchecked`.
+4. The bit covers the answer and the authority sections (RFC 4035 §3.2.3), which is all a lookup
+   reads of a message beside the OPT record.
+5. The cache keeps the status with the entry and hands it back with a hit. The engine starts a
+   new cache at every `reinit` (§19 step 13), so a status never crosses a change of servers or
+   of this setting.
+6. A server that validates answers SERVFAIL for data it found bogus (RFC 4035 §3.2.2). Stage A
+   sees that as any other server failure: the lookup moves to the next server and can end
+   `AllServersFailed` (§5). The extended error option says why (RFC 8914), and the codec reads
+   it already. Whether `Failure` carries its code is question 18.
+
+What changes, and where:
+
+- `wire`: the AD and CD bits by name, at the positions RFC 6895 §2 draws, with
+  `Header.authentic_data` and `Query.authentic_data`.
+- `core`: `Config.authenticated_data`, and `Security`.
+- `resolver`: the last free bit of `Lookup.flags` holds rule 3's conjunction. `Answer` and
+  `Failure` gain `security`.
+- `cache`: the status in a slot.
+- `config`: `options trust-ad`, read as `always`.
+- The lookup's model: the bit, and a theorem that an end is `authenticated` only when every
+  message the lookup acted on had AD set, and never under `ignored`.
+
+No limit is new. Checks, one for each piece:
+
+- A query under `ignored` has AD clear, and one under `encrypted` or `always` has it set, with
+  DO clear in both.
+- An answer whose message had AD set is `authenticated`; the same answer over a cleartext server
+  under `encrypted` is `unchecked`.
+- A chain of two messages with AD on one alone ends `unchecked`.
+- A negative that had AD set ends `authenticated`, and the cache hands it back so.
+- Live, once a day, beside the DoT check (§21 step 6): a signed name comes back `authenticated`
+  from each public resolver, an unsigned one `unchecked`, and one signed wrongly on purpose fails.
+
+### Stage B: what a validating lookup sends
+
+1. Every query carries an OPT record with DO set: "A validating security-aware stub resolver
+   MUST set the DO bit" (RFC 4035 §4.9.1). The bit is RFC 3225 §3's.
+2. Every query has CD set: a validating stub SHOULD set it, or the server answers by its own
+   policy and may hold back data the stub's policy would accept (RFC 4035 §4.9.2). With CD
+   clear, a validating server turns bogus data into SERVFAIL and the stub never sees why.
+3. AD is clear in the query, and neither AD nor DO is read in the response: a validating stub
+   SHOULD NOT examine AD (RFC 4035 §4.9.3), and a resolver MUST ignore DO in a response
+   (RFC 6840 §5.6).
+4. EDNS0 is never turned off. §5 asks a server that answered FORMERR again without the OPT
+   record. A query without OPT has no DO, its answer has no signatures, and "the absence of
+   DNSSEC data in a response MUST NOT by itself be taken as an indication that no
+   authentication information exists" (RFC 4035 §5). So under validation that FORMERR counts
+   as the server failing the lookup, and the lookup moves on. RFC 3225 §3 has the older rule,
+   to try again without EDNS0, and RFC 4035 §4.1 is the one followed.
+5. The advertised payload is 1220 octets at least: a security-aware resolver MUST support that
+   size (RFC 4035 §4.1). The default of 1232 already does, and `assert_valid` refuses less under
+   validation. The same section's SHOULD, 4000 octets, is not met: an answer that does not fit
+   comes truncated, and the lookup asks over TCP as it does today.
+6. The transaction id, the source port, the case of the name and the cookie stay as §7 has them.
+   Canonical form writes owner names in lowercase (RFC 4034 §6.2), so the case a query was sent
+   in changes nothing that is signed.
+
+### Stage B: what is verified in a message
+
+The validator reads a message that has passed every check of §7, for the name and the type the
+lookup is asking at that moment. It reads the message in place, in the caller's buffer, and
+keeps none of it. It answers one of four things: `secure`, `insecure`, `bogus` with a reason, or
+`keys_wanted`.
+
+1. **What must be signed.** Every RRset the lookup uses from the message: each CNAME the chain
+   follows, the RRset that answers, the SOA whose MINIMUM gives a negative its TTL, and the NSEC
+   or NSEC3 records of a denial. The additional section is never used and never validated.
+2. **One signature.** An RRSIG covers an RRset when RFC 4035 §5.3.1's conditions hold: the same
+   owner and class, the Type Covered equal to the RRset's type, a Labels field no larger than
+   the owner's label count, the time inside the inception and the expiration, and a signer,
+   algorithm and key tag that match a key of the signer's zone with the Zone Key flag set. One
+   more check the section implies and does not state: the signer's name is the owner's name or
+   an ancestor of it, or a key of one signed zone could sign another zone's data.
+3. **The signed data.** It is rebuilt, never copied (RFC 4035 §5.3.2): the RRSIG's rdata without
+   the signature, then each record with its owner in canonical form, its TTL replaced by the
+   Original TTL and its rdata in canonical form, in canonical order (RFC 4034 §3.1.8.1, §6.2,
+   §6.3). The names in an NSEC's rdata keep their case and those in an RRSIG's are lowered,
+   which corrects §6.2's list (RFC 6840 §5.1). The records are found in the message and fed to
+   the hash one at a time in order, so no copy of the RRset is made. A record that repeats
+   another is fed once (RFC 4034 §6.3).
+4. **Which signature.** One valid signature is enough, and an RRset is bogus only when every
+   signature over it fails (RFC 6840 §5.4, a SHOULD). An RRSIG whose key is not in the zone's
+   set is disregarded (§5.12, a MUST). Each key that matches a signature's tag is tried, since
+   a tag is not unique (RFC 4034 Appendix B), up to a named bound.
+5. **Algorithms cocuyo does not verify.** A zone whose authenticated DS set names no algorithm
+   and digest cocuyo supports is treated as unsigned: `insecure`, never `bogus` (RFC 4035 §5.2,
+   RFC 6840 §5.2). Under a zone that has one supported algorithm, a validator accepts any
+   single valid path and does not insist that every algorithm in the DS or DNSKEY set work
+   (RFC 6840 §5.11). So one valid signature is enough there too, and an RRset with none is
+   `bogus`.
+6. **Time.** The time must lie between the inception and the expiration, both included
+   (RFC 4035 §5.3.1), compared in serial number arithmetic (RFC 4034 §3.1.5, RFC 1982). No RFC
+   gives an allowance for a clock that is wrong. RFC 4033 §6 asks only that the possibility be
+   allowed for, so the allowance is a setting, zero by default (question 23).
+7. **The TTL.** An RRset found authentic is kept no longer than the smallest of its TTL as
+   received, the RRSIG's TTL, the Original TTL and the time left before the signature expires
+   (RFC 4035 §5.3.3, a MUST). `Answer.ttl_seconds` takes all four, beside the chain's minimum of
+   §5.
+8. **Wildcards.** An RRset whose owner has more labels than its RRSIG's Labels field came from a
+   wildcard, and is authentic only with a proof that no closer match exists (RFC 4035 §5.3.4,
+   RFC 5155 §8.8).
+9. **Chains.** Each link of a CNAME chain is an RRset of its own, under its own signer. A CNAME
+   with no signature stands when a validated DNAME in the message produces it (RFC 4035 §4.8,
+   RFC 6672 §5.3.1). The chain is secure only if every link is, and bogus if any link is
+   (RFC 6672 §5.3.3).
+10. **Denial with NSEC.** A name error needs a record that covers the name and one that covers
+    the wildcard that could have answered; no data needs a record at the name with the type's
+    bit clear (RFC 4035 §5.4). The CNAME bit must be clear too (RFC 6840 §4.3). An NSEC from
+    the parent's side of a delegation denies nothing at its owner but a DS, and nothing below
+    it; one with the DNAME bit set denies nothing below its owner (RFC 6840 §4.1).
+11. **Denial with NSEC3.** RFC 5155 §8, case by case: the closest encloser proof (§8.3), the
+    name error (§8.4), no data (§8.5, §8.6), and the two wildcard cases (§8.7, §8.8). A record
+    with an unknown hash is ignored (§8.1), and so is one whose flags are neither 0 nor 1
+    (§8.2). A record whose iteration count is above `nsec3_iterations_max` makes the answer
+    `insecure`, once its own signature has been verified (RFC 9276 §3.2). A proof that rests on
+    an Opt-Out record is `insecure` as well: names under such a record "may or may not exist
+    as insecure delegations" (RFC 5155 §9.2).
+12. **Compact denial.** An NSEC at the name asked, with the NXNAME bit set, says the name does
+    not exist, under a response code of NOERROR (RFC 9824 §2, §3.1; §4 has the NSEC3 form).
+    The validator reads it as a name error.
+13. **The response code is not signed.** The proof says whether a negative is a name error or
+    no data, and the lookup acts on the proof (RFC 9824 §8). A negative with no proof, under a
+    signed zone, is `bogus`.
+14. **Data with no signature.** Under a zone whose keys are held, it is `bogus`, by the rule of
+    RFC 4035 §5 quoted above for a query without OPT. Under an insecure delegation the store
+    holds, it is `insecure`. Otherwise the validator does not yet know, and answers
+    `keys_wanted`.
+15. **Questions that cannot be secure.** An RRSIG is never signed (RFC 4035 §2.2), so a question
+    for RRSIG ends `unchecked`. A question for ANY is validated one RRset at a time, and is
+    bogus if any of them fails (RFC 6840 §4.2).
+16. **Bounded work.** RFC 4035 §5.4 says "the resolver MUST bound the work it puts into
+    answering any particular query", and RFC 4033 §12 names the attack: tampered RRSIGs and
+    needlessly complex chains. The signatures tried for one RRset, the keys tried for one
+    signature, the verifications in one message and the NSEC3 hashes in one message each have
+    a named limit. A message past one is `bogus`.
+
+### Stage B: where the keys come from
+
+The key store is memory the caller hands in, as the cache's is. An entry is a zone's name and
+one of three things, each with the instant it expires by item 7 above: the zone's validated
+DNSKEY set, a validated DS set whose keys have not come yet, or an insecure delegation. A trust
+anchor is a DS or a DNSKEY record the caller supplies at init, for the root or for any zone
+(RFC 4035 §4.4). A name under no anchor is reported `insecure` at once. RFC 4033 §5 calls that
+case indeterminate, and says its own signalling "does not distinguish between indeterminate and
+insecure states"; `Security` does not either.
+
+When the validator answers `keys_wanted`, a walk fetches what is missing. Its rules:
+
+1. The walk has a target: the signer's name of the RRSIG that could not be checked, or, for
+   data with no signature, the name asked.
+2. It starts at the deepest zone above the target whose keys the store holds, or at the deepest
+   anchor above it. That is RFC 6840 Appendix C.1's policy, the anchor closest to the name.
+   §5.10 suggests C.2's as the default, which tries every anchor above the name until one
+   gives a secure result; question 20 asks which. An anchor's zone is entered by asking for
+   its DNSKEY set and matching it to the anchor (RFC 4035 §5).
+3. From a zone whose keys it holds, the walk takes the next name toward the target, one label
+   longer, and asks for its DS set. The answer is validated with the keys of the zone it stands
+   in, which is where a DS lives: on the parent's side of a delegation (RFC 4034 §5).
+4. A DS set that validates makes the name a signed delegation. The walk asks for its DNSKEY set,
+   which is authentic when a key in it with the Zone Key flag matches a DS by tag, algorithm and
+   digest, and that key's signature over the set verifies (RFC 4035 §5.2, RFC 4034 §5.2). A DS
+   with a digest type cocuyo does not know is passed over (RFC 6840 §5.2), and a SHA-1 digest is
+   passed over when the set holds a SHA-256 one (RFC 4509 §3). The store keeps the keys, and
+   the walk stands in the new zone.
+5. A proof that the name is a delegation with no DS makes it an insecure delegation: an NSEC or
+   an NSEC3 at the name with the NS bit set and the DS and SOA bits clear, or a closest encloser
+   proof whose covering NSEC3 has Opt-Out set (RFC 4035 §5.2, RFC 6840 §4.4, RFC 5155 §8.6). A
+   set SOA bit marks the child's own record, which proves nothing here. The store keeps the
+   delegation, and the walk ends: everything at or under that name is `insecure`.
+6. A proof that the name exists and is no delegation, or is an empty non-terminal, leaves the
+   walk in the same zone, and it takes the next label.
+7. A proof that the name does not exist ends the walk, and the lookups that wait for it end
+   `Bogus`: the response they read spoke of a name the zone above has proved is not there.
+8. The walk ends when the store holds the target's keys, when it holds an insecure delegation
+   above the target, or when a walk for data with no signature reaches the name asked inside a
+   signed zone, which makes that data `bogus` (RFC 4035 §5).
+9. Each DS and DNSKEY question is an ordinary lookup of the table's, absolute, and validated by
+   the same validator with keys the store already holds. So nothing is stored that was not
+   validated, and nothing of a message is kept.
+10. One walk serves every lookup that waits for the same target. A walk asks
+    `chain_questions_max` questions at most.
+11. A walk whose question fails for another reason, a timeout or every server failing, ends the
+    lookups that wait for it with that failure, and not with `Bogus`.
+
+Counted from these rules, not measured: `www.example.com` under the root's anchor alone takes
+seven questions the first time, which are the question, the root's DNSKEY set, the DS and DNSKEY
+sets of `com` and of `example.com`, and the question again. A second name under `example.com`
+takes one. A name in another zone under `com` takes four.
+
+### Stage B: what the lookup does with it
+
+These rows join §5's table, for a table that validates. The model changes first, then the code.
+
+| State | Event | Next state | Effect |
+| --- | --- | --- | --- |
+| `awaiting_udp` | a response the validator calls `bogus` | `tcp_needed` | the same server, over TCP, as a truncated answer does |
+| `awaiting_tcp`, or over DoH or DoQ | a response the validator calls `bogus` | `query_ready` or `failed` | advance the server, as SERVFAIL does |
+| any state that awaits an answer | a response the validator answers `keys_wanted` | `awaiting_keys` | no deadline; the lookup keeps its server, its candidate and its place in the chain |
+| `awaiting_keys` | the walk ended with the keys held, or an insecure delegation | `query_ready` | the same server and a new transaction, as a chain's next name is asked |
+| `awaiting_keys` | the walk failed | `failed` | with the walk's failure |
+| `awaiting_udp` | FORMERR with EDNS0 on | `query_ready` or `failed` | advance the server; EDNS0 stays on |
+
+A lookup whose passes run out after a bogus answer ends `Bogus`, where it would have ended
+`AllServersFailed`. A lookup asks again after waiting for keys `key_asks_max` times at most for
+each message it reads, so no sequence of answers makes it wait forever.
+
+A bogus answer over UDP goes to TCP because an attacker off the path who guesses a transaction
+can forge a datagram and cannot forge a stream. The forged answer costs one connection, and the
+answer that counts is the server's own. Ignoring it and keeping the wait, as §16 decision 10
+does for a malformed message, was the alternative: a zone that is really broken would then cost
+every server's whole timeout before the lookup said so. RFC 4035 §5.4 asks that a query whose
+denial came incomplete be sent again, and both paths do.
+
+### Stage B: where each piece goes
+
+| Piece | Module | Why there |
+| --- | --- | --- |
+| DO, CD and AD; DS, RRSIG, NSEC, DNSKEY, NSEC3, NSEC3PARAM and DNAME named in `Kind`; their rdata read; the type bit maps | `wire` | the codec, which verifies nothing |
+| canonical name order (RFC 4034 §6.1) | `core`, on `Name` | beside `equal` |
+| canonical form, the signed data, the key tag, what a DS digest and a signature are computed over, the denial proofs, the key store, the validator, the walk's rules, and the `Verifier` it asks for digests and signatures | `dnssec`, new, reading `core` and `wire` | the DNS half, with no cryptography in it |
+| the verifier over chapulin | a module outside `src/`, whose `tls` import a consumer binds to colibri's | as `cocuyo_quic` and `cocuyo_doh` are bound, so that `src/` depends on nothing |
+| the `Validator` the table is handed, `awaiting_keys`, the walk's lookups, the slot kept for them | `resolver` | under the table, as `Memory` is (decision 22) |
+| `cocuyo.validated_by(&store)` | `src/cocuyo.zig` | the one file that reaches both modules, as `remembered_by` does |
+| the status in a slot, and bogus entries | `cache` | |
+| anchors from text: the DS and DNSKEY presentation forms (RFC 4034 §5.3, §2.2) | `config` | a parser beside `resolv_conf` |
+| the key store's memory, the anchors and the time of day, in `Options` | `io` | the engine hands them down |
+
+The table names no cryptography. It names what it asks of a validator, and `dnssec` fills that
+in from a key store:
+
+```zig
+pub const Validator = struct {
+    context: *anyopaque,
+    /// Reads a message that passed §7's checks, for the name and the type being asked.
+    validate: *const fn (
+        context: *anyopaque,
+        asked: *const Name,
+        kind: Kind,
+        message: []const u8,
+        now_ns: u64,
+    ) Validation,
+    /// The next DS or DNSKEY question a walk wants asked, or null.
+    next_question: *const fn (context: *anyopaque, now_ns: u64) ?Question,
+    /// A question the table asked for a walk ended without a validated answer.
+    question_failed: *const fn (context: *anyopaque, question: *const Question, err: Error) void,
+};
+```
+
+The table asks a walk's questions as lookups of its own, which the consumer never sees as
+events, and it keeps `trust_slots_reserved` slots that only they may take. Without that, a table
+full of lookups that wait for keys would have no slot to fetch a key in, and none could ever
+move. A walk's own lookups never wait for keys: one that would ends, and the walk starts again
+from the top of what the store holds.
+
+Because validation sits under the table, every lookup the table starts is validated, the
+composed ones included: `AddressLookup` and `NameLookup` change in one place, where each hands
+its lookups' `security` on. A bare `Lookup` with no table validates nothing, as it has no cache.
+
+**Memory.** No message is copied, and a lookup's slot grows by two small counters at most. A
+store entry is a name, a buffer of `zone_keys_bytes` and a few fields: about 2.4 KiB by sum of
+the limits below, not measured, so the engine's default of 64 entries is about 150 KiB. A
+verification uses the stack alone.
+
+**Time.** A signature's dates are seconds since 1970 (RFC 4034 §3.1.5), and `now_ns` is a
+monotonic count. So the caller passes one more value, as non-negotiable 4 has it pass every
+other: Unix seconds, pinned to a `now_ns`, at init and whenever it corrects its clock. The store
+adds the `now_ns` that has passed, which is what the engine's TLS context does for a
+certificate's dates (§21). This value may go backwards. `now_ns` still may not.
+
+**Cache.** An entry keeps its status, and a validating table takes only entries a validating
+table wrote. An entry lives no longer than item 7's TTL. A bogus end is remembered for
+`bogus_ttl_seconds`: resolvers "MUST cache DNSSEC validation failures" (RFC 9520 §3.4), for one
+second at least and five minutes at most (§3.2). The backoff §3.2 recommends is not in the first
+cut. Neither is RFC 8198's aggressive use of validated NSEC records, a SHOULD: the cache keeps
+what a server said about the question asked and infers nothing, which is the rule
+`docs/rfcs/README.md` gives for RFC 8020.
+
+### Stage B: the cryptography
+
+The owner ruled on 2026-10-03 that every cryptographic operation is chapulin's, as the TLS under
+DoT, DoQ and DoH already is (§16 decision 35). This section's first draft took it from Zig's
+`std.crypto`, and what follows replaces that draft.
+
+**Where it sits.** `src/` depends on nothing, and chapulin reaches cocuyo through colibri's
+`tls` alone (decision 32), which nothing under `src/` imports. So `dnssec` holds no
+cryptography. It names what it asks of a verifier, as the table names what it asks of a cache
+(decision 22): whether an algorithm or a digest type can be checked, the digest of octets it
+feeds in pieces, and whether a signature verifies under a key over data it feeds in pieces. A
+module outside `src/`, beside `cocuyo_quic` and `cocuyo_doh`, fills that in from chapulin
+through a `tls` import the consumer binds to colibri's, and the engine takes it in `Options`. A
+consumer of the library alone, with no colibri, hands in a verifier of its own or does not
+validate.
+
+**What chapulin has, and what it would gain.** Read on 2026-10-03 at `c798fb8`, the commit
+colibri v0.6.0 pins. The third column is RFC 9904 §3's "Implement for DNSSEC Validation".
+
+| Number | Algorithm | RFC 9904 §3 | chapulin at `c798fb8` | What it would gain |
+| --- | --- | --- | --- | --- |
+| 8 | RSASHA256 | MUST | PKCS #1 v1.5 over SHA-256, with the exponent 65537 alone and a modulus of 2048 to 4096 bits | the exponent the key carries, and a lower floor |
+| 10 | RSASHA512 | MUST | SHA-512, and no PKCS #1 v1.5 over it | that signature |
+| 13 | ECDSAP256SHA256 | MUST | verification, with the signature in DER | nothing: the binding writes r and s as DER |
+| 14 | ECDSAP384SHA384 | RECOMMENDED | the same | nothing |
+| 15 | ED25519 | RECOMMENDED | none: it has X25519 and no Ed25519 | Ed25519 verification |
+| 16 | ED448 | RECOMMENDED | none | nothing planned: such a zone is read as unsigned |
+| 5, 7 | RSASHA1, RSASHA1-NSEC3-SHA1 | MUST | none: it holds no SHA-1 | SHA-1 under PKCS #1 v1.5, off unless the configuration turns it on |
+| 1, 3, 6 | RSAMD5, DSA, DSA-NSEC3-SHA1 | MUST NOT | none | nothing |
+| 12, 17, 23 | ECC-GOST, SM2SM3, ECC-GOST12 | MAY | none | nothing |
+| 253, 254 | private | MAY | none | nothing; RFC 6840 §5.3 asks nothing of a validator that supports none |
+
+Two more things are needed that no algorithm number names:
+
+- **SHA-1 as a hash.** It is NSEC3's only hash (RFC 5155 §11), and a validator of algorithm 8,
+  10, 13 or 14 "MUST be able to validate negative answers in the form of both NSEC and NSEC3
+  with hash algorithm 1" (RFC 5702 §5.2, RFC 6605 §5). A DS digest of type 1 is SHA-1 too, which
+  RFC 9904 §4 has as MUST to implement, beside SHA-256, a MUST, and SHA-384, RECOMMENDED.
+  chapulin holds no SHA-1, and refuses a certificate signed with it. Without it no denial in
+  an NSEC3 zone can be validated: neither a name that does not exist, nor the proof that a
+  delegation is unsigned.
+- **Public calls.** None of the above is one. chapulin's object exports its TLS, record and
+  QUIC calls, and no call that hashes or verifies, and colibri's `tls` carries that object.
+
+So three repositories change, in this order: chapulin gains the calls and what the table lists,
+colibri's `tls` hands them on, and cocuyo binds them. §21 began the same way, with chapulin's
+three pieces first.
+
+Algorithms 5 and 7 are off by default because RFC 9905 §2 asks both things at once:
+implementations "MUST continue to support validation using these algorithms", and operators
+"MUST treat" them "as unsupported, rendering responses insecure". By item 5 above, a zone that
+has only an algorithm the verifier does not check is `insecure`, so a zone signed with Ed448
+alone, or by default with SHA-1 alone, is read as unsigned and never as bogus.
+
+**What signed zones publish.** Counted on 2026-10-03: the DNSKEY, DS and NSEC3PARAM sets of the
+root and of the 1,437 top-level domains in IANA's list of that day, asked of 1.1.1.1 over TCP
+with dig 9.10.6, by a script that is not in this tree. Every zone answered, and 1,362 are
+signed, the root among them. Zones below the top level are not counted. Step 4's tool repeats
+the count with cocuyo's own lookups.
+
+| What | Zones, of 1,362 signed |
+| --- | --- |
+| RSASHA256 (8) | 1,091 |
+| ECDSAP256SHA256 (13) | 276 |
+| RSASHA512 (10) | 28 |
+| RSASHA1-NSEC3-SHA1 (7) | 4 |
+| ED25519 (15) | 3 |
+| ECDSAP384SHA384 (14) | 1 |
+| RSASHA1 (5), ED448 (16) | none |
+| two algorithms at once | 41 |
+| an RSA key under 2048 bits | 961, of the 1,123 with an RSA key: 1024 bits in 715, and 1280 bits in 246 |
+| an RSA exponent other than 65537 | 1: `lv`'s one key with the SEP flag has 2^32 + 1, which is five octets |
+| NSEC3, always with SHA-1 | 1,308; no iterations in 1,222, and 20 at most; a salt of 10 octets at most |
+| a DS set that holds a SHA-256 digest | 1,348, of the 1,350 with a DS in the root; the other 2 hold SHA-1 alone |
+| the largest DNSKEY set | 6 keys; 1,824 octets of rdata; the root's holds 4 keys |
+
+**What chapulin's RSA must admit.** A key may be 512 to 4096 bits for algorithm 8 and 1024 to
+4096 for algorithm 10 (RFC 5702 §2), with any exponent. chapulin's floor is 2048 bits, and its
+exponent is fixed at 65537. A key the verifier cannot use is passed over, and data that only
+such keys sign is then `bogus`. The count says what that would cost. Every key under 2048 bits
+is one without the SEP flag, the kind a zone by convention signs its records with, its
+delegations among them; the count did not read which key signed what. So with a floor of 2048
+bits, 961 of the signed top-level domains, and every zone under them, would fail to validate.
+The floor has to come down to 1024 bits. The exponent has to be read from the key, five octets
+of it at least, or `lv` and every zone under it fails the same way.
+
+So the order chapulin's additions are worth, by the zones each opens: the public calls, SHA-1
+as a hash, and RSA with the key's own size and exponent, which together cover algorithms 8 and
+13; then RSA over SHA-512, for 28 zones; then Ed25519, for 3. Algorithm 7's 4 zones stay
+`insecure` by default, as RFC 9905 §2 asks. No top-level domain signs with Ed448.
+
+**The RFCs' own examples.** Decoded from the copies in `docs/rfcs/` on 2026-10-03: the example
+zone of RFC 4035 Appendix A signs with algorithm 5 under a 1024-bit key whose exponent is 3;
+RFC 5155 Appendix A's with algorithm 7 under 512-bit keys; and RFC 5702 §6 gives a 512-bit key
+for algorithm 8 and a 1024-bit one for algorithm 10. chapulin as it stands verifies none of
+them. So the validator's own tests run over a verifier the test supplies, with no cryptography
+in it: it calls a signature valid when its octets are a fixed function of the signed data, as
+the twin's session encrypts nothing (decision 29). Those tests check everything but the
+arithmetic, on the RFCs' whole responses. The arithmetic is checked in the binding's tests,
+over chapulin, on the examples chapulin admits: RFC 6605 §6's for ECDSA once the calls are
+public, and each other as its algorithm lands.
+
+**What the ruling rejected: Zig's `std.crypto`.** Read the same day: 0.16's has every algorithm the
+plan would verify, and no Ed448. Its ECDSA and Ed25519 verifiers take the message in pieces, and
+RSA of any size and exponent can be written over `std.crypto.ff`. It adds no dependency, so a
+verifier over it could sit in `src/`, validate for a consumer with no colibri, and run every
+example above in the gate. It would also be a second implementation of SHA-2, P-256, P-384 and
+RSA in every image that speaks DoT, DoQ or DoH, outside what chapulin proves and tests: its
+CBMC harnesses, its reference specifications and the Wycheproof vectors, as chapulin's
+CLAUDE.md lists them. Both at once was the other choice, chapulin under the engine and
+`std.crypto` for a consumer without colibri, at the cost of keeping two.
+
+### Stage B: what stays out
+
+- Resolving from the root. cocuyo stays a stub: it asks a recursive server for the DS and DNSKEY
+  sets, and never an authoritative one.
+- Updating a trust anchor from the zone's own keys (RFC 5011). The anchors are the caller's
+  values, replaced at `reinit`. RFC 5011 §8.1 leaves accepting a key to the resolver's owner,
+  and allows an update "out-of-band". IANA's file of the root's anchors (RFC 9718) is the
+  caller's to fetch and read.
+- Aggressive use of NSEC and NSEC3 (RFC 8198), as the cache rule above says.
+- Handing the DNSSEC records to a consumer that validates for itself (RFC 4035 §4.9.1, a MAY).
+  `Answer` holds one type's records.
+- Signing, SIG(0) and TSIG.
+
+### New limits
+
+Every value below is chosen, not measured, unless its reason cites an RFC or the count of
+2026-10-03 above, which covers the root and the top-level domains and no zone below them.
+
+| Constant | Value | Why |
+| --- | --- | --- |
+| `dnssec_payload_bytes_min` | 1220 | RFC 4035 §4.1 |
+| `anchors_max` | 8 | more than one, as RFC 4035 §4.4 asks: the root's keys while one replaces another, and a zone of the caller's own |
+| `rsa_modulus_bits_max` | 4096 | RFC 5702 §2, and chapulin's own bound in the build colibri carries |
+| `signature_bytes_max` | 512 | an RSA signature under the largest key |
+| `rsa_modulus_bits_min` | 1024 | the count: 715 top-level domains publish a key of that size and none publishes a smaller one; RFC 5702 §2 allows 512 |
+| `rsa_exponent_bytes_max` | 8 | the count: the longest exponent published is five octets; eight bounds what one verification costs |
+| `zone_keys_bytes` | 2048 | the octets of keys one store entry keeps; the count's largest set is 1,824 |
+| `zone_keys_max` | 8 | the keys one store entry keeps; the count's largest set holds 6 |
+| `ds_records_max` | 8 | the DS records read from one set; the count's largest holds 3 |
+| `signatures_per_rrset_max` | 4 | the RRSIGs tried for one RRset |
+| `keys_per_signature_max` | 2 | the keys tried for one RRSIG when tags collide (RFC 4034 Appendix B) |
+| `verifications_per_message_max` | 16 | a chain of `cname_hops_max` links and its end take 9 |
+| `nsec3_iterations_max` | 100 | RFC 9276 Appendix A: a limit of 100 for reading a zone as insecure "is interoperable without significant problems"; the count's largest is 20 |
+| `nsec3_hashes_per_message_max` | 32 | a closest encloser proof hashes one name for each label it tries |
+| `chain_questions_max` | 32 | the DS and DNSKEY questions one walk asks |
+| `key_asks_max` | 2 | the times a lookup asks one message again after waiting for keys |
+| `trust_slots_reserved` | 1 | the slots only a walk's questions may take |
+| `key_store_zones_default` | 64 | the engine's default; the caller sizes the store |
+| `bogus_ttl_seconds` | 5 | RFC 9520 §3.2: one second at least, five minutes at most, and its own example starts at 5 |
+| `clock_skew_seconds_default` | 0 | no RFC gives a value |
+
+`records_max` stays 64. A signature covers every record of its RRset, so an RRset the record
+walk cannot read whole cannot be verified, and under a signed zone a message with more records
+than that fails the lookup.
+
+### The models
+
+- **The lookup's**, in Lean: `awaiting_keys` and the rows above. Theorems: a lookup that waits
+  for keys asks for nothing to be sent; an end is `secure` only when every message it used was
+  validated secure; a message the validator called bogus adds nothing to any end; a validating
+  lookup never sends a query without EDNS0; and the measure that proves every lookup ends still
+  falls at every send.
+- **The walk's**, in Lean, a new file beside the `getaddrinfo` walks: zones as a tree with signed
+  and unsigned delegations, a server that may answer anything, and verification abstracted to
+  "valid under these keys". The theorem to prove, not only to check: whenever the store holds a
+  zone's keys, there is a path from an anchor to that zone on which each DS set was validated
+  under the keys of the zone above it and each DNSKEY set matched a validated DS; and it holds
+  an insecure delegation only after a proof validated under keys it held. The walk ends within
+  `chain_questions_max` questions.
+- **The table's and the engine's**, in TLA+: the reserved slot, and two properties TLC checks. A
+  walk's lookups never reach the consumer. A lookup that waits for keys is asked again or fails.
+
+Each replay drives the code down its model's transitions, as §5 and §19 step 13 have it.
+
+### Order and checks
+
+Each step lands with its checks, each check broken on purpose and recorded in
+`docs/mutations.md`. Steps 1 to 3 are Stage A, and the rest is Stage B.
+
+1. The sources the plan lacks, into `docs/rfcs/` (question 24): RFC 1982, RFC 3110, RFC 8017,
+   RFC 8032, RFC 4470 and RFC 2181.
+2. The ruling written down: §1, a decision in §16, CLAUDE.md's "Ask before" list, and the
+   README's known limits.
+3. Stage A whole, with its checks above.
+4. What signed zones publish, measured: a tool asks for the DNSKEY, DS and NSEC3PARAM sets of
+   the root and of every top-level domain, which a question may already name (decision 31),
+   and reports what the count of 2026-10-03 above reports. That count came from a script over
+   `dig` that is not in this tree; the tool makes it repeatable, and extends it to a list of
+   zones below the top level. It needs no validator.
+5. chapulin, then colibri, in their own repositories: the public calls, SHA-1, PKCS #1 v1.5
+   over SHA-512, the RSA keys step 4 says are needed, and Ed25519. c4milo/chapulin#189 asks
+   chapulin for them, opened on 2026-10-03. cocuyo pins the colibri that carries them.
+6. `wire`: the types, the bits and the bit maps. The fuzz target builds each new type, and the
+   dnslib check reads them.
+7. `dnssec`, the pure half, over a verifier the tests supply: canonical order and form, the key
+   tag, what a DS digest and a signature are computed over, and time. Against the RFCs' own
+   examples where no arithmetic is needed: the ordered list of RFC 4034 §6.1, and the octets
+   each example signs. The time of day is a parameter, so an example signed years ago is read
+   under its own date.
+8. `dnssec`, the denials: NSEC against the responses of RFC 4035 Appendix B, NSEC3 against RFC
+   5155 Appendix B, and compact denial against RFC 9824 §3.
+9. The key store and the validator, on whole messages: every response of RFC 4035 Appendix B and
+   of RFC 5155 Appendix B, read under the tests' verifier, and refused with any signed octet
+   changed.
+10. The verifier over chapulin, outside `src/`: the DS examples of RFC 4034 §5.4 and RFC 4509
+    §2.3, and the keys and signatures of RFC 5702 §6, RFC 6605 §6 and RFC 8080 §6, each that
+    chapulin admits.
+11. The lookup: its rows in §5, its model, then `awaiting_keys`.
+12. The walk: its rules, its model, then the table's part and the TLA+ model.
+13. The cache: the status, the TTL bound and the bogus entries.
+14. The twin: a server in `sim` that signs for the tests' verifier, so the tests cover whole
+    chains, a server that lies, signatures that have expired, signatures taken out, and a key
+    that is replaced.
+15. The engine: its options, the time, an example that resolves under the root's anchor over
+    chapulin, the fill check and the instruction counts, and what one validation costs by
+    algorithm, in §11.
+16. A live check, once a day and not a gate: names known to be signed, unsigned and signed
+    wrongly on purpose, through the public resolvers over DoT. cocuyo's status is compared with
+    the AD bit the same server sets for the same question.
+
+Checks, one for each piece of Stage B:
+
+- A query under validation has DO and CD set and AD clear, and no response's AD or DO is read.
+- Each of RFC 4035 §5.3.1's conditions refuses a signature when it alone is broken.
+- A signature verifies over records the message holds in another order, with compressed names,
+  lowered TTLs and mixed case, and fails with any one signed octet changed.
+- Two keys with one tag: the signature verifies under the second.
+- An RRset with one bad signature and one good one is secure.
+- A zone whose DS set names only Ed448 is insecure, and one that names it beside algorithm 13
+  validates under 13.
+- A signature a second before its inception or a second after its expiration is refused, across
+  the wrap of the 32-bit count.
+- An answer's TTL is no larger than the time its signature has left.
+- A wildcard answer without its proof is bogus.
+- A CNAME a validated DNAME produces stands, and one it could not produce is bogus.
+- NXDOMAIN with no proof under a signed zone is bogus, and NOERROR with NXNAME is a name error.
+- An NSEC3 record above the iteration limit makes its answer insecure, and only once its
+  signature has verified.
+- An answer with its signatures taken out, under a signed zone, is bogus and never insecure.
+- A delegation with no DS makes everything under it insecure, and the child's own NSEC does not.
+- A lookup that waits for keys sends nothing, and asks again when they come.
+- A table full of lookups that wait still fetches their keys.
+- A walk past `chain_questions_max` fails the lookups that wait for it.
+- A bogus answer over UDP is asked again over TCP, and a bogus one there moves to the next
+  server.
+- A hit from the cache hands back the status the entry was stored with.
+
+### The decision this asks for, and what it would reject
+
+When the owner rules, this goes to §16 as decision 36, in these words or better ones.
+
+**Validation is a validator the table is handed, and the keys it needs are fetched under the
+table.** The table names a `Validator` as it names a `Memory` (decision 22), so every lookup it
+starts is validated, the composed ones included, which is the argument that put the cache under
+the table (decision 23). Its cryptography is chapulin's, behind a verifier `dnssec` names, so
+`src/` holds none. A message is validated in place when it arrives, with keys the store already
+holds. A lookup whose keys are missing waits, the table asks the DS and DNSKEY questions
+in a slot it keeps for them, and the lookup asks its question again. Rejected:
+
+- A composition above the table, as `AddressLookup` is (decision 18). Validation decides what a
+  lookup may do with a message, follow its CNAME or move to the next search candidate, so it
+  belongs where the message is read. Above the table, every other composition would also have
+  to learn it.
+- Keeping a response until its keys come, which is a buffer of up to 64 KiB for each lookup that
+  waits; decision 14 refused the whole message in a slot. Asking again costs one round trip,
+  which the recursive server answers from its cache.
+- Walking up from the signer, by the Signer's Name of each DS answer. It asks one DS question
+  for each zone, where walking down asks one for each label, but each answer must be kept
+  unvalidated until the keys above it come, or be asked twice.
+- Cryptography under `src/`, from Zig's `std.crypto`, which this section's first draft had and
+  the owner ruled out (decision 35).
+- chapulin imported by `dnssec` itself, which gives the library a dependency (CLAUDE.md, "Ask
+  before") and a consumer with no colibri no way to supply its own.
+- Ed448 written for this, in either library, before a count says a zone needs it.
+- Stage A alone, which leaves a server that lies undetected (RFC 4033 §12), or Stage B alone,
+  which leaves out the cheap case: a consumer that already trusts the resolver it reaches over
+  TLS.
+
+### What reading the RFCs found in the code as it stands
+
+None of these is DNSSEC's, and none is acted on here. Question 25 asks whether each becomes an
+issue.
+
+- `src/wire/edns.zig` cites RFC 6891 §6.1.4 for the DO bit. RFC 3225 §3 states it
+  (non-negotiable 7).
+- RCODE 6, YXDOMAIN, is not in `wire.Rcode`, so a response that carries it is ignored and the
+  lookup waits out its deadline. A server answers it when a DNAME's substitution makes a name
+  too long (RFC 6672 §2.2).
+- `attempts_max` is 5, which lets a configuration send one server five queries over one
+  transport. "A resolver MUST NOT retry a given query to a server address over a given DNS
+  transport more than twice (i.e., three queries in total)" (RFC 9520 §3.1). The default, 2,
+  is inside it.
+- cocuyo caches no failure that is not a negative answer, and `docs/rfcs/README.md` says RFC
+  9520 does not apply. "Resolvers MUST implement a cache for resolution failures" (RFC 9520
+  §3.2), and §2's own example of a resolver with several servers to choose from is a stub.
+- Under compact denial a name that does not exist can come back as NOERROR with no data, DO
+  set or not (RFC 9824 §5). A lookup that does not validate then ends `NoData` where the name
+  does not exist, and `AddressLookup` does not cancel the other family, as its rule 4 would.

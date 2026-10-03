@@ -37,6 +37,28 @@ to: RFC 3986 for the URI a template expands to, RFC 6570 for the expansion, and 
 against `rfc-editor.org/rfc/rfcNNNN.json` that day: none is obsoleted, and RFC 6570 and RFC 9111
 are not updated.
 
+Added on 2026-10-01 for the DNSSEC plan, docs/design.md §25, which the owner has not ruled on:
+nothing in `src/` reads them yet. RFC 4033, RFC 4034 and RFC 4035 are the core, with RFC 3225
+for the DO bit and RFC 6840 for their corrections. RFC 5155, RFC 9276, RFC 9077 and RFC 9824 are
+denial of existence. RFC 4509, RFC 5702, RFC 6605, RFC 8080, RFC 9904, RFC 9905 and RFC 9157 are
+the algorithms and their registries. RFC 5011 and RFC 9718 are trust anchors. RFC 6672 is DNAME,
+RFC 8198 the aggressive use of validated denials, RFC 9520 the caching of failures, and RFC 9364
+the list that names the set. Each was checked against `rfc-editor.org/rfc/rfcNNNN.json`, RFC
+9520 on 2026-10-03 and the rest on 2026-10-01: none is obsoleted. RFC 9904 obsoletes RFC 8624,
+and RFC 9718 obsoletes RFC 7958, which is why neither of those is here. Four documents update
+members of the set and are not here. RFC 4470, on minimally covering NSEC records, updates RFC
+4034 and RFC 4035, and §25 asks for it. RFC 6014 is an IANA procedure, itself updated by RFC
+9157. RFC 6944 is obsoleted through RFC 8624 by RFC 9904. RFC 8749 moves DNSSEC Lookaside
+Validation to Historic. The last three were not read.
+
+§25 names five more it cannot be built without, each checked the same way on 2026-10-03 and
+none obsoleted: RFC 1982 for the serial number arithmetic RFC 4034 §3.1.5 requires of every
+comparison of a signature's times; RFC 3110, which RFC 5702 §2 points to for RSA keys and
+which, as recalled and not yet read, holds the layout of an RSA key in a DNSKEY; RFC 8017 for
+RSASSA-PKCS1-v1_5, which RFC 5702 §3 cites through RFC 3447, which RFC 8017 obsoletes; RFC 8032
+for the verification RFC 8080 §4 cites; and RFC 2181 for what an RRset is, which RFC 4034 §6.3
+and RFC 4035 §2.2 cite. They come when the owner says so.
+
 Read these, never a summary and never another implementation's source. Cite the RFC that *states*
 a rule, not one that inherits it, and cite it by section on the line that does the checking
 (CLAUDE.md non-negotiable 8).
@@ -122,6 +144,28 @@ updates worth knowing about, none of which version one implements:
 | 9018 | Interoperable Domain Name System (DNS) Server Cookies | §3, the server cookie's length, which is all a client reads of it |
 | 9460 | Service Binding and Parameter Specification via the DNS (SVCB and HTTPS) | §2.2 the record's fields, §7 the parameters, §2.2 the uncompressed target |
 | 9499 | DNS Terminology | the vocabulary this repository uses in prose; it obsoletes RFC 8499, which is why 8499 is not here |
+| 3225 | Indicating Resolver Support of DNSSEC | §3, the DO bit and where it sits in the OPT record's flags (design §25) |
+| 4033 | DNS Security Introduction and Requirements | §2 the two kinds of stub resolver and what a trust anchor is, §5 the security states, §7 what a stub may rely on, §12 which threat channel security answers and which only validation does (design §25) |
+| 4034 | Resource Records for the DNS Security Extensions | §2 DNSKEY, §3 RRSIG and its times, §4 NSEC and the type bit maps, §5 DS and its digest, §6 canonical order and form, Appendix B the key tag (design §25) |
+| 4035 | Protocol Modifications for the DNS Security Extensions | §4.1 the payload size, §4.6 the AD and CD bits, §4.9 stub resolvers, §5.2 delegations, §5.3 checking a signature and the TTL it allows, §5.4 denial, Appendices B and C the example responses (design §25) |
+| 4509 | Use of SHA-256 in DNSSEC Delegation Signer (DS) Resource Records (RRs) | §2 the digest, §3 a SHA-1 digest passed over beside a SHA-256 one (design §25) |
+| 5011 | Automated Updates of DNS Security (DNSSEC) Trust Anchors | §8.1, accepting a key is the resolver owner's decision, which is why updating an anchor stays the caller's (design §25) |
+| 5155 | DNS Security (DNSSEC) Hashed Authenticated Denial of Existence | §3 NSEC3, §5 the hash, §6 Opt-Out, §8 the validator's rules, §9.2 a proof over Opt-Out is not secure, §11 the one hash, Appendix B the example responses (design §25) |
+| 5702 | Use of SHA-2 Algorithms with RSA in DNSKEY and RRSIG Resource Records for DNSSEC | §2 the key sizes, §3 the signature and its prefixes, §6 the examples (design §25) |
+| 6605 | Elliptic Curve Digital Signature Algorithm (DSA) for DNSSEC | §2 the SHA-384 digest, §4 the key and the signature, §6 the examples (design §25) |
+| 6672 | DNAME Redirection in the DNS | §2.2 the substitution and YXDOMAIN, §5.3 DNAME under DNSSEC (design §25) |
+| 6840 | Clarifications and Implementation Notes for DNS Security (DNSSEC) | §4 nonexistence proofs, ANY, the CNAME bit and insecure delegations; §5 the corrected canonical form, unknown digests, several RRSIGs, the DO, AD and CD bits, nested anchors and the algorithm rules; Appendix C which anchor (design §25) |
+| 8080 | Edwards-Curve Digital Security Algorithm (EdDSA) for DNSSEC | §3 the keys, §4 the signatures, §6 the examples (design §25) |
+| 8198 | Aggressive Use of DNSSEC-Validated Cache | §5 and §7, a SHOULD the plan does not meet: the cache infers nothing (design §25) |
+| 9077 | NSEC and NSEC3: TTLs and Aggressive Use | §3, the TTL of an NSEC or NSEC3 record is the smaller of the SOA's MINIMUM and its TTL (design §25) |
+| 9157 | Revised IANA Considerations for DNSSEC | how the registries RFC 9904 fills are changed; the plan cites no section of it |
+| 9276 | Guidance for NSEC3 Parameter Settings | §3.2 what a validator may do with an iteration count above zero, Appendix A the limit of 100 (design §25) |
+| 9364 | DNS Security Extensions (DNSSEC) | §2 to §5, which documents make up DNSSEC: the list this set was drawn from |
+| 9520 | Negative Caching of DNS Resolution Failures | §3.1 three queries to a server over a transport, §3.2 a cache of failures and its bounds, §3.4 validation failures are cached (design §25) |
+| 9718 | DNSSEC Trust Anchor Publication for the Root Zone | §2 the file IANA publishes, §3.1 where, §4.1 what a relying party checks: the caller's to fetch (design §25) |
+| 9824 | Compact Denial of Existence in DNSSEC | §2 and §3 NXNAME and the responses that carry it, §5 the response code, §7 its changes to RFC 4034 and RFC 4035, §8 the header is not signed (design §25) |
+| 9904 | DNSSEC Cryptographic Algorithm Recommendation Update Process | §3 the algorithm table and §4 the digest table: what a validator implements (design §25) |
+| 9905 | Deprecating the Use of SHA-1 in DNSSEC Signature Algorithms | §2, algorithms 5 and 7 still implemented, and treated as unsupported (design §25) |
 
 Two things cocuyo implements are not RFCs and are cited as what they are:
 
