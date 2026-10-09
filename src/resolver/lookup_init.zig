@@ -73,7 +73,9 @@ pub fn init_in_place(
         .now_ns_seen = 0,
         .entropy = entropy,
         .failure = core.Error.Timeout,
-        .negative_ttl_seconds = 0,
+        // No candidate has answered NXDOMAIN or NODATA, so nothing bounds the walk's end yet
+        // (docs/design.md §5): the largest TTL, which a smaller one replaces.
+        .negative_ttl_seconds = std.math.maxInt(u32),
         .chain_ttl_seconds = 0,
         .config = config,
         .servers = servers,

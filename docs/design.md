@@ -278,7 +278,9 @@ pub const Answer = struct {
     records: ?*const wire.Records, // every other type (§19 step 9): `records.?.at(i)` for i below
     record_count: u8,             // `record_count`, each a `wire.Kept` the views of `wire.rdata` read
     canonical_name: ?*const Name, // the end of the CNAME chain, when there was one
-    ttl_seconds: u32,             // the minimum TTL over the records used; on a hit, what is left
+    ttl_seconds: u32,             // the minimum TTL over the records used, bounded by the chain and
+                                  // the search walk's negatives (§5); on a hit, what is left; each
+                                  // record's own TTL is bounded by neither
     truncated: bool,              // records may be missing: no room for them, or TC set
 };
 
@@ -290,7 +292,8 @@ pub const Failure = struct {
     err: Error,
     server_index: u8,
     attempts_made: u8,
-    negative_ttl_seconds: u32, // the SOA minimum for NameNotFound and NoData (§18), else zero
+    negative_ttl_seconds: u32, // NameNotFound, NoData: the SOA minimum (§18), else zero; the
+                               // smallest of a lookup's walk (§5), AddressLookup's last lookup's
 };
 ```
 
@@ -400,7 +403,7 @@ pub const edns_options = struct {
 pub const AddressInfo = struct {
     addresses: []const Address,   // into the lookup's own storage: valid for its lifetime
     canonical_name: ?*const Name,
-    ttl_seconds: u32,
+    ttl_seconds: u32,             // the answers' smallest, with no walk bound (§19 step 14)
     truncated: bool,
     partial: ?Error,              // one family answered and the other failed with this
 };
@@ -459,7 +462,7 @@ Eight states: `query_ready`, `awaiting_udp`, `tcp_needed`, `connecting_tcp`, `tc
 | `awaiting_udp` | `on_response` with TC=1 | `tcp_needed` | keep the same server |
 | `awaiting_udp` | `on_response` with a CNAME and no answer | `query_ready` | new transaction, hop count up |
 | `awaiting_udp` | `on_response` with an answer | `done` | copy the records out |
-| `awaiting_udp` | `on_response` NXDOMAIN or NODATA | `query_ready` or `failed` | advance the search candidate |
+| `awaiting_udp` | `on_response` NXDOMAIN or NODATA | `query_ready` or `failed` | keep the smaller negative TTL, advance the search candidate |
 | `awaiting_udp` | `on_response` SERVFAIL, REFUSED, NOTIMP | `query_ready` or `failed` | advance the server |
 | `awaiting_udp` | `on_response` FORMERR and EDNS0 was on | `query_ready` | same server, EDNS0 off |
 | `awaiting_udp` | `on_response` FORMERR and EDNS0 was off | `query_ready` or `failed` | advance the server, as SERVFAIL does |
@@ -520,6 +523,22 @@ governs the read, and the framing rule is three lines in the example (§15 step 
 - NXDOMAIN or NODATA advances to the next candidate and resets the server and round counters.
   Exhausting the candidates fails with `NameNotFound`, or `NoData` if any candidate returned
   NOERROR with no record of the wanted type.
+- Every negative on the way bounds the walk's end. RFC 1034 §3.1 completes a relative name
+  against a search list and leaves how to read that list to each implementation; the order here
+  comes from `resolv.conf`'s `search` and `ndots` (§10). The walk's end is kept under the name
+  as asked, and that end rests on each earlier candidate's NXDOMAIN or NODATA. Each of those
+  "MUST NOT be used again" once its TTL reaches zero (RFC 2308 §5), and from then on a new walk
+  may stop at that candidate. So the lookup's `Failure.negative_ttl_seconds` is the smallest of
+  the candidates' negative TTLs, not the last one's. `Answer.ttl_seconds` is no larger than the
+  negative TTL of any candidate before the one that answered. A negative with no SOA has a TTL
+  of zero, which is not cached (RFC 2308 §5), so it makes the walk's end uncacheable too. The
+  chain's bound (CNAME policy) and DoH's `Age` (§22) apply to each candidate's TTL first, as
+  they did. Each bound is a TTL as its response carried it: the time between that response and
+  the walk's end is not taken off, and the chain's bound takes none off either. Each record's
+  own TTL is bounded by neither. Until 2026-10-08 each negative replaced the one before, and an
+  answer kept its own TTL (c4milo/cocuyo#38). This is one `Lookup`'s walk. `AddressLookup`
+  walks with one absolute lookup per candidate, and the bound does not reach its outcome
+  (§19 step 14).
 - SERVFAIL, REFUSED or NOTIMP moves to the next server, not to the next candidate. When every
   server has failed the lookup fails with `AllServersFailed`, and the walk stops there.
 
@@ -1737,6 +1756,16 @@ carries it in `Failure.negative_ttl_seconds`, so the caller can `put_negative` w
 message it never saw. A failure that is not a negative answer — a timeout, every server failing —
 carries zero, and zero is not cached.
 
+A lookup of a relative name walks the search list, and the cache keeps the walk's end under the
+name as asked. Each candidate's negative bounds that end, as §5's search list policy has it: a
+negative end carries the smallest of the candidates' negative TTLs, and an answer's TTL is no
+larger than any of them. So the entry is put with a TTL no larger than that of any negative it
+rests on, and a negative with no SOA on the way keeps the end out of the cache
+(c4milo/cocuyo#38). Each TTL is what its response carried. The time between an earlier
+candidate's negative and the walk's end is not taken off, so the entry can outlive that
+negative by that time, as an answer reached through a CNAME of an earlier message can outlive
+the CNAME. `AddressLookup`'s outcome is not bounded this way (§19 step 14).
+
 ### Measured
 
 The cache rows of §11's table, on the day the cache landed and on the same machine: a hot hit
@@ -2654,6 +2683,14 @@ is where a consumer with a loop of its own can reach it now that the engine is h
   back, `AAAA` first; `v4_mapped` without `.ipv6` is ignored, as the manual says. Unless
   `no_sort`, the result is ordered by step 15's rules that need no route, which puts IPv6
   before IPv4 by precedence, the way `getaddrinfo` does.
+- **The TTLs.** `AddressInfo.ttl_seconds` is the smallest TTL of the answers joined, and a
+  failure carries the `Failure` of the last lookup that failed, its negative TTL included. Each
+  candidate's lookups are absolute, so §5's bound by the negatives of a walk reaches neither:
+  an answer after negative candidates keeps its own TTL, and a walk that is negative throughout
+  reports its last candidate's negative TTL. A consumer that caches the outcome under the name
+  as asked can keep it longer than an earlier candidate's negative allows (RFC 2308 §5). The
+  table's memory keeps each candidate's end under that candidate's own name, so it is not
+  affected (§20 step 16).
 - **The driving protocol.** The consumer keeps the association from handle to `AddressLookup`
   the way it keeps handles today, and hands `Resolver.poll`'s `.done` and `.failed` events for
   those handles to `on_event`, which says whether it took the event and releases the slot when
@@ -2910,6 +2947,12 @@ keeps answers longer than their TTL does. Then no TTL is lowered, and the answer
 the memory says, as every recalled answer did before #39. That case is the consumer's choice and
 not an error, so it asserts nothing.
 
+**A walk's end is bounded by its negatives.** For a relative name the table remembers the
+search walk's end under the name as asked. The lookup has already bounded that end by every
+negative on the way (§5): a negative end carries the smallest negative TTL of the walk, and an
+answer's TTL is no larger than it. So a memory needs no rule of its own for the walk, and a
+consumer's cache keyed by the question reads the same TTLs (c4milo/cocuyo#38).
+
 **What it costs.** A hit now takes a slot and copies `Answers` into it, where the engine's
 `Started.hit` handed back a pointer and took no slot. §11 measures the copy at 53 ns and a hit
 at 31 ns, against a round trip of a millisecond or more, and the copy buys the composition: one
@@ -2957,6 +3000,9 @@ and nothing else, and `Started` goes away.
 - `AddressLookup` asks one question when the cache holds the other family, and none when it
   holds both.
 - An end is remembered once, however many times it is polled.
+- A walk's end is written under the name asked with the bound a negative on the way put on it:
+  a relative name whose first candidate is NXDOMAIN with no SOA and whose second answers is
+  written once, with a TTL of zero (since 2026-10-08, c4milo/cocuyo#38).
 - A lookup seeded from the cache does not write back what it was handed.
 - `zig build consumer-check` builds the dependent fixture, and the fixture that imports `sim`
   fails to build.

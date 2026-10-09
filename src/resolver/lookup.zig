@@ -88,9 +88,15 @@ pub const Answer = struct {
     record_count: u8,
     /// The end of the CNAME chain, when one was followed.
     canonical_name: ?*const Name,
-    /// The smallest TTL over the records used, for a cache above cocuyo. An answer the table's
-    /// memory recalled reports what the memory says is left of the life it gave the answer, which
-    /// may be less than every record's own when the memory capped that life (docs/design.md §20).
+    /// The smallest TTL over the records used, for a cache above cocuyo, no larger than the CNAMEs
+    /// that reached them and no larger than the negative TTL of any search candidate before the
+    /// one that answered. The answer is kept under the name as asked, and once that negative
+    /// "MUST NOT be used again" (RFC 2308 §5) a new walk may stop at its candidate; zero when one
+    /// of them carried no SOA (docs/design.md §5). An answer the table's memory recalled reports
+    /// what the memory says is left of the life it gave the answer, which may be less than every
+    /// record's own when the memory capped that life (docs/design.md §20). Each record's own
+    /// `ttl_seconds` in `records` is bounded by neither the chain nor the walk, so a cache that
+    /// keeps the records one by one under the name as asked keeps none longer than this TTL.
     ttl_seconds: u32,
     /// Whether records may be missing: the response held more than the lookup has room for, or
     /// it had TC set and was read all the same: over a stream, where there is no larger channel
@@ -106,9 +112,15 @@ pub const Failure = struct {
     /// when it ran out of them, as `Timeout` and `AllServersFailed` do, and zero when it ended in
     /// its first pass, as a name that does not exist usually does.
     attempts_made: u8,
-    /// For `NameNotFound` and `NoData`, the TTL a cache may keep the negative answer for: the SOA
-    /// minimum of the response that decided it (RFC 2308 §5), or zero when that response carried
-    /// no SOA. Zero for every other failure, and zero is never cached (docs/design.md §18).
+    /// For `NameNotFound` and `NoData`, the TTL a cache may keep the negative answer for. Each
+    /// negative response carries the SOA minimum it held (RFC 2308 §5), or zero when it held no
+    /// SOA. A lookup that `Resolver.start` runs walks its search list itself, and reports the
+    /// smallest of its candidates' negative TTLs, not the last one's alone: the end is kept under
+    /// the name as asked, and it rests on every candidate's negative (docs/design.md §5).
+    /// `AddressLookup` walks the search list with one absolute lookup per candidate, and its
+    /// failure carries its last lookup's negative TTL alone, which the candidates before that one
+    /// do not bound (docs/design.md §19 step 14). Zero for every other failure, and zero is never
+    /// cached (docs/design.md §18).
     negative_ttl_seconds: u32,
 };
 
@@ -157,7 +169,10 @@ pub const Lookup = struct {
     now_ns_seen: u64,
     entropy: entropy_module.Entropy,
     failure: core.Error,
-    /// The SOA minimum of the last negative answer, for `Failure.negative_ttl_seconds`.
+    /// The smallest negative TTL of the candidates the search walk moved past: what
+    /// `Failure.negative_ttl_seconds` reports, and what bounds `Answer.ttl_seconds`
+    /// (docs/design.md §5). The largest TTL there is until a candidate answers NXDOMAIN or
+    /// NODATA, so it bounds nothing before then.
     negative_ttl_seconds: u32,
     /// The smallest TTL of the CNAMEs earlier messages moved the chain through, while
     /// `cname_hops` is above zero: what the chain's end is reached through bounds it.

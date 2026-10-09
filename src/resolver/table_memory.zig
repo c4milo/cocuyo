@@ -264,6 +264,33 @@ test "an answer reached through a chain is written with the chain's end" {
     rig.resolver.release(handle);
 }
 
+test "a walk's end is written under the name asked with the bound a negative on the way put on it" {
+    // `example` is asked as `example.one.net` first, whose NXDOMAIN carries no SOA, then as
+    // `example`, which answers. The end rests on a negative no cache keeps (RFC 2308 §5), so it
+    // is written with a TTL of zero, which no cache keeps either (docs/design.md §5).
+    const search = [_]core.Name{try core.Name.from_text("one.net")};
+    var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &search, .ndots = 1 } };
+    rig.open();
+    var stub: Stub = .{};
+    rig.resolver.remember_with(stub.memory());
+
+    const handle = try rig.start("example");
+    for ([_]fixtures.Reply{ fixtures.name_error, fixtures.answer_a }) |reply| {
+        const sent = rig.poll().?;
+        rig.resolver.on_sent(sent.handle, rig.now_ns);
+        const lookup = rig.resolver.lookup_of(handle);
+        const message = rig.build(lookup, reply);
+        rig.now_ns += 1;
+        try testing.expectEqual(lookup_module.Verdict.accepted, rig.resolver.on_datagram(message, lookup.server(), rig.now_ns));
+    }
+    const end = rig.poll().?;
+    try testing.expectEqual(@as(u32, 0), end.action.done.ttl_seconds);
+    try testing.expectEqual(@as(u32, 1), stub.writes);
+    try testing.expectEqual(@as(u32, 0), stub.written.?.answered.ttl_seconds);
+    try testing.expectEqual(@as(u32, 0), stub.written.?.answered.answers.ttl_seconds);
+    rig.resolver.release(handle);
+}
+
 test "a recalled answer reports the chain's end it was remembered with" {
     var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
     rig.open();

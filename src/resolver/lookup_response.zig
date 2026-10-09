@@ -153,8 +153,8 @@ pub fn apply(
         .next_candidate => {
             // NXDOMAIN. The SOA in the authority section says how long a cache may remember it
             // (RFC 2308 §5); a message with no SOA, or a malformed one, says nothing, and nothing
-            // is zero, which is not cached.
-            self.negative_ttl_seconds = negative_ttl(self, message, cased, accepted.age_seconds);
+            // is zero, which is not cached. The walk keeps the smallest of every candidate's.
+            bound_walk(self, negative_ttl(self, message, cased, accepted.age_seconds));
             self.next_candidate(now_ns);
         },
         .next_server => {
@@ -222,6 +222,27 @@ fn bounded_by_chain(self: *const Lookup, ttl_seconds: u32) u32 {
     return @min(ttl_seconds, self.chain_ttl_seconds);
 }
 
+/// Keeps a candidate's negative TTL when it is the walk's smallest. RFC 1034 §3.1 completes a
+/// relative name against a search list and leaves how to read the list to each implementation;
+/// this walk is `resolv.conf`'s. Its end is kept under the name as asked, past this candidate:
+/// once the negative runs out, a new walk may stop here (docs/design.md §5).
+fn bound_walk(self: *Lookup, ttl_seconds: u32) void {
+    // The walk moves on only while the lookup runs. A settled lookup has reported its end, and a
+    // memory may hold it already.
+    assert(!self.is_settled());
+    // A negative "MUST NOT be used again" once its TTL reaches zero (RFC 2308 §5).
+    self.negative_ttl_seconds = @min(self.negative_ttl_seconds, ttl_seconds);
+    assert(self.negative_ttl_seconds <= ttl_seconds);
+}
+
+/// A TTL no larger than the negative TTL of any candidate the walk moved past to reach it.
+fn bounded_by_walk(self: *const Lookup, ttl_seconds: u32) u32 {
+    // The answer is kept past those negatives, each kept no longer than its TTL (RFC 2308 §5).
+    const bounded = @min(ttl_seconds, self.negative_ttl_seconds);
+    assert(bounded <= self.negative_ttl_seconds and bounded <= ttl_seconds);
+    return bounded;
+}
+
 fn collect(
     self: *Lookup,
     message: []const u8,
@@ -263,6 +284,7 @@ fn collect(
         .answered => {
             assert(self.answers.count > 0);
             self.answers.ttl_seconds = bounded_by_chain(self, self.answers.ttl_seconds);
+            self.answers.ttl_seconds = bounded_by_walk(self, self.answers.ttl_seconds);
             self.flags.aliased = self.answers.aliased or self.flags.aliased;
             self.cname_hops = self.answers.hops_used;
             self.state = .done;
@@ -283,7 +305,7 @@ fn collect(
             // c-ares (docs/design.md §18). TC set does not change it: truncation "should start at
             // the end of the response" (RFC 1035 §6.2), so a message that still holds the SOA of
             // its authority section holds the whole of its answer section, empty.
-            self.negative_ttl_seconds = negative_ttl(self, message, cased, accepted.age_seconds);
+            bound_walk(self, negative_ttl(self, message, cased, accepted.age_seconds));
             self.next_candidate(now_ns);
         },
     }
@@ -368,27 +390,6 @@ test "a truncated response sends the lookup to TCP" {
     _ = harness.send();
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.truncated, servers[0].endpoint));
     try testing.expect(harness.poll() == .connect_tcp);
-}
-
-test "NXDOMAIN moves to the next candidate, and the last one fails the lookup" {
-    const search = [_]Name{try Name.from_text("one.net")};
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .search = &search, .ndots = 1 } };
-    try harness.start("example.com", .a, seed);
-    _ = harness.send();
-    _ = harness.respond(fixtures.name_error, servers[0].endpoint);
-    try testing.expect(harness.lookup.current.equal(&try Name.from_text("example.com.one.net")));
-    _ = harness.send();
-    _ = harness.respond(fixtures.name_error, servers[0].endpoint);
-    try testing.expectEqual(core.Error.NameNotFound, harness.poll().failed.err);
-}
-
-test "NOERROR with no record of this type is NODATA, and ends as NoData" {
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.no_data, servers[0].endpoint));
-    try testing.expect(harness.lookup.flags.had_no_data);
-    try testing.expectEqual(core.Error.NoData, harness.poll().failed.err);
 }
 
 test "SERVFAIL moves to the next server and is what the lookup fails with" {

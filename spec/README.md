@@ -62,6 +62,8 @@ would agree with the code by construction and prove nothing about it.
 - The server order of §19 step 12. The model counts a position in the order, which is what the
   lookup's `server_index` is.
 - Entropy, the cookies' values and the answers' records.
+- Every TTL: a record's, the negative TTL of RFC 2308 §5, and the bounds the CNAME chain and the
+  search walk put on what a lookup ends with (docs/design.md §5). They change no transition.
 - What a poll handed out and the caller has not answered yet. The model keeps it to know when
   `on_sent` may come, and the replay does not compare it, because the lookup does not keep it.
 - A DoH or DoQ transaction's number. The model delivers an answer or a failed request to the current

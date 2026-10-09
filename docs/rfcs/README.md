@@ -98,8 +98,8 @@ updates worth knowing about, none of which version one implements:
 
 | RFC | Title | What cocuyo reads it for |
 | --- | --- | --- |
-| 1034 | Domain Names, Concepts and Facilities | §3.6.2, aliases and canonical names: the CNAME chain |
-| 2308 | Negative Caching of DNS Queries | §2.2 NODATA takes the SOA minimum too, §5 the negative TTL is the smaller of the SOA's TTL and its MINIMUM field |
+| 1034 | Domain Names, Concepts and Facilities | §3.1, a relative name completed against a search list, whose reading it leaves to each implementation; §3.6.2, aliases and canonical names: the CNAME chain |
+| 2308 | Negative Caching of DNS Queries | §2.2 NODATA takes the SOA minimum too, §5 the negative TTL is the smaller of the SOA's TTL and its MINIMUM field, and a negative is not used once that TTL runs out, which bounds a search walk's end |
 | 2535 | Domain Name System Security Extensions | §4.1, the SIG record's fields, the one part RFC 2931 keeps in force (obsoleted otherwise, see above) |
 | 2782 | A DNS RR for specifying the location of services (DNS SRV) | the SRV record's fields, and its rule that the target is not compressed |
 | 2931 | DNS Request and Transaction Signatures (SIG(0)s) | why the SIG record still exists, and where its format is defined |

@@ -351,7 +351,7 @@
         .id = "DH13",
         .what = "NXDOMAIN's negative TTL keeps its Age",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "            // is zero, which is not cached.\n            self.negative_ttl_seconds = negative_ttl(self, message, cased, accepted.age_seconds);", .new = "            // is zero, which is not cached.\n            self.negative_ttl_seconds = negative_ttl(self, message, cased, 0);" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            // is zero, which is not cached. The walk keeps the smallest of every candidate's.\n            bound_walk(self, negative_ttl(self, message, cased, accepted.age_seconds));", .new = "            // is zero, which is not cached. The walk keeps the smallest of every candidate's.\n            bound_walk(self, negative_ttl(self, message, cased, 0));" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -360,7 +360,7 @@
         .id = "DH14",
         .what = "NODATA's negative TTL keeps its Age",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "            // c-ares (docs/design.md §18).\n            self.negative_ttl_seconds = negative_ttl(self, message, cased, accepted.age_seconds);", .new = "            // c-ares (docs/design.md §18).\n            self.negative_ttl_seconds = negative_ttl(self, message, cased, 0);" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            // its authority section holds the whole of its answer section, empty.\n            bound_walk(self, negative_ttl(self, message, cased, accepted.age_seconds));", .new = "            // its authority section holds the whole of its answer section, empty.\n            bound_walk(self, negative_ttl(self, message, cased, 0));" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -567,7 +567,8 @@
         .id = "TT7",
         .what = "a DoH answer loses its `Age` after the chain bounds it",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    self.answers.age(self.question.kind, accepted.age_seconds);\n    switch (outcome) {\n        .answered => {\n            assert(self.answers.count > 0);\n            self.answers.ttl_seconds = bounded_by_chain(self, self.answers.ttl_seconds);\n", .new = "    if (outcome != .answered) self.answers.age(self.question.kind, accepted.age_seconds);\n    switch (outcome) {\n        .answered => {\n            assert(self.answers.count > 0);\n            self.answers.ttl_seconds = bounded_by_chain(self, self.answers.ttl_seconds);\n            self.answers.age(self.question.kind, accepted.age_seconds);\n" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    self.answers.age(self.question.kind, accepted.age_seconds);\n", .new = "    if (outcome != .answered) self.answers.age(self.question.kind, accepted.age_seconds);\n" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            self.answers.ttl_seconds = bounded_by_chain(self, self.answers.ttl_seconds);\n", .new = "            self.answers.ttl_seconds = bounded_by_chain(self, self.answers.ttl_seconds);\n            self.answers.age(self.question.kind, accepted.age_seconds);\n" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -694,6 +695,79 @@
         .what = "the answer reports the answers' own TTL, not the more a memory says is left",
         .edits = .{
             .{ .file = "src/resolver/lookup_recall.zig", .old = "    assert(lookup.answers.ttl_seconds == @min(answers.ttl_seconds, ttl_seconds));\n    lookup.answers.ttl_seconds = ttl_seconds;", .new = "    assert(lookup.answers.ttl_seconds == @min(answers.ttl_seconds, ttl_seconds));" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A search walk's end bounded by every negative on the way",
+        .id = "WN1",
+        .what = "NXDOMAIN replaces the walk's negative TTL rather than keeping the smaller",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            // is zero, which is not cached. The walk keeps the smallest of every candidate's.\n            bound_walk(self, negative_ttl(self, message, cased, accepted.age_seconds));", .new = "            // is zero, which is not cached. The walk keeps the smallest of every candidate's.\n            self.negative_ttl_seconds = negative_ttl(self, message, cased, accepted.age_seconds);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A search walk's end bounded by every negative on the way",
+        .id = "WN2",
+        .what = "NODATA replaces the walk's negative TTL rather than keeping the smaller",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            // its authority section holds the whole of its answer section, empty.\n            bound_walk(self, negative_ttl(self, message, cased, accepted.age_seconds));", .new = "            // its authority section holds the whole of its answer section, empty.\n            self.negative_ttl_seconds = negative_ttl(self, message, cased, accepted.age_seconds);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A search walk's end bounded by every negative on the way",
+        .id = "WN3",
+        .what = "the walk keeps the last candidate's negative TTL, as before #38",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    self.negative_ttl_seconds = @min(self.negative_ttl_seconds, ttl_seconds);", .new = "    self.negative_ttl_seconds = ttl_seconds;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A search walk's end bounded by every negative on the way",
+        .id = "WN4",
+        .what = "the walk keeps the first candidate's negative TTL and ignores the rest",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    self.negative_ttl_seconds = @min(self.negative_ttl_seconds, ttl_seconds);", .new = "    if (self.negative_ttl_seconds == std.math.maxInt(u32)) self.negative_ttl_seconds = ttl_seconds;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A search walk's end bounded by every negative on the way",
+        .id = "WN5",
+        .what = "an answer past negative candidates keeps its own TTL, as before #38",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            self.answers.ttl_seconds = bounded_by_walk(self, self.answers.ttl_seconds);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A search walk's end bounded by every negative on the way",
+        .id = "WN6",
+        .what = "the walk starts bounded at zero, so every answer is kept for nothing",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_init.zig", .old = "        .negative_ttl_seconds = std.math.maxInt(u32),", .new = "        .negative_ttl_seconds = 0," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A search walk's end bounded by every negative on the way",
+        .id = "WN7",
+        .what = "the walk bounds the answer the caller reads, and not the answers a memory is handed",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            self.answers.ttl_seconds = bounded_by_walk(self, self.answers.ttl_seconds);\n", .new = "" },
+            .{ .file = "src/resolver/lookup.zig", .old = "            .ttl_seconds = self.answers.ttl_seconds,", .new = "            .ttl_seconds = @min(self.answers.ttl_seconds, self.negative_ttl_seconds)," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A search walk's end bounded by every negative on the way, after review",
+        .id = "WN8",
+        .what = "the walk's bound asserts the lookup has settled rather than that it runs",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    // memory may hold it already.\n    assert(!self.is_settled());", .new = "    // memory may hold it already.\n    assert(self.is_settled());" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },

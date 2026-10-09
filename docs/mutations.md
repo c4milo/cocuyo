@@ -3487,3 +3487,50 @@ eleven. Four new mutations, four `CAUGHT`.
 | TA10 | TC over DoH or DoQ leaves the answer unmarked | RFC 8484 §10, RFC 1035 §7.4 | the DoH or DoQ truncated test, `test-resolver` | CAUGHT |
 | TA11 | the time spent is not held at zero, so a memory that reports more than it gave overflows it | §20, a memory's own TTL | the more-left-than-given test, by a panic, `test-resolver` | CAUGHT |
 | TA12 | the answer reports the answers' own TTL, not the more a memory says is left | §20, a memory's own TTL | the more-left-than-given test, `test-resolver` | CAUGHT |
+
+## A search walk's end bounded by every negative on the way
+
+2026-10-08 (c4milo/cocuyo#38). A relative name walks the search list inside one `Lookup`, and
+the table remembers the walk's end under the name as asked. Each candidate's NXDOMAIN or NODATA
+replaced the negative TTL before it. So a walk whose candidates were all negative reported the
+last one's negative TTL, not the smallest. An answer reached past negatives reported its own TTL.
+Now the lookup keeps the smallest negative TTL of the walk. `Failure.negative_ttl_seconds`
+reports it, and `Answer.ttl_seconds` is no larger than it. A negative with no SOA carries zero,
+so the walk's end is one no cache keeps (RFC 2308 §5; docs/design.md §5, §18, §20). The bound
+lives in the field that held the last negative TTL, so the lookup stays 3048 octets.
+
+The seven are kept as data in `tools/mutations/lookup.zon`. `zig build mutations -- lookup`
+broke each against `zig build test-resolver` and caught all seven. Each was then broken again by
+hand, to name the tests that fail. WN4 is caught by the assertion in
+`bound_walk`, under the all-negative walk test. DH13 and DH14 were written again for the new
+code. DH14 and TT7 had stopped applying after the truncation fix above, and TT7 was written
+again for that code. The tool ran DH13, DH14, TT5 and TT7 again and caught all four. Seven new
+mutations, seven `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| WN1 | NXDOMAIN replaces the walk's negative TTL rather than keeping the smaller | §5 search list policy, RFC 2308 §5 | the all-negative walk test and the no-SOA walk test, `test-resolver` | CAUGHT |
+| WN2 | NODATA replaces the walk's negative TTL rather than keeping the smaller | §5 search list policy, RFC 2308 §5 | the all-negative walk test, `test-resolver` | CAUGHT |
+| WN3 | the walk keeps the last candidate's negative TTL, as before #38 | §5 search list policy, RFC 2308 §5 | the all-negative walk test and the no-SOA walk test, `test-resolver` | CAUGHT |
+| WN4 | the walk keeps the first candidate's negative TTL and ignores the rest | §5 search list policy, RFC 2308 §5 | the assertion in `bound_walk`, under the all-negative walk test, `test-resolver` | CAUGHT |
+| WN5 | an answer past negative candidates keeps its own TTL, as before #38 | §5 search list policy, RFC 2308 §5 | the answer-past-negatives test, the no-SOA walk test and the table's walk-end test, `test-resolver` | CAUGHT |
+| WN6 | the walk starts bounded at zero, so every answer is kept for nothing | §5 search list policy | every test that reads an answer's TTL: the matching-response, MX, chain, DoH `Age` and negative TTL tests, `test-resolver` | CAUGHT |
+| WN7 | the walk bounds the answer the caller reads, and not the answers a memory is handed | §20, what the table remembers | the answer-past-negatives test and the table's walk-end test, `test-resolver` | CAUGHT |
+
+## A search walk's end bounded by every negative on the way, after review
+
+2026-10-08 (c4milo/cocuyo#38, after review). The doc of `Failure.negative_ttl_seconds` promised
+the walk's smallest negative TTL for every failure, and `AddressLookup`'s failure is the same
+struct. `AddressLookup` walks the search list with one absolute lookup per candidate, and its
+failure carries its last lookup's negative TTL. The doc and design §4, §5 and §19 step 14 now
+say which is which. §18 now says the bound is a TTL as each response carried it, not an instant.
+`bound_walk` gained an assertion for the negative space: the walk moves on only while the lookup
+runs.
+
+WN8 was broken against `zig build test-resolver` by hand, to name the tests that fail. Then
+`zig build mutations -- lookup` ran WN1 to WN8 and caught all eight. One new mutation, one
+`CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| WN8 | the walk's bound asserts the lookup has settled rather than that it runs | §5 search list policy, the assertion that a settled lookup's end does not move | every test whose walk moves past a negative: the NXDOMAIN, NODATA and negative TTL tests, the DoH `Age` test and the table's walk-end test, by a panic, `test-resolver` | CAUGHT |

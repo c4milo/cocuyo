@@ -46,7 +46,10 @@ pub const AddressInfo = struct {
     /// Into the lookup's own storage: valid for its lifetime.
     addresses: []const Address,
     canonical_name: ?*const Name,
-    /// The smallest TTL over the answers used; zero for a numeric host or the hosts table.
+    /// The smallest TTL over the answers used; zero for a numeric host or the hosts table. Each
+    /// candidate's lookups are absolute, so the negatives of the candidates before the one that
+    /// answered do not bound it, as they bound the `Answer.ttl_seconds` of a lookup that walks
+    /// the search list itself (docs/design.md §5, §19 step 14).
     ttl_seconds: u32,
     /// Whether addresses may be missing: a family's answer was marked `truncated`, or the
     /// addresses, or the hosts table's, filled the room.
