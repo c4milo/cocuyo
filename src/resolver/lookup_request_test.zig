@@ -203,5 +203,7 @@ test "over DoH or DoQ a truncated answer is read as it stands, marked, and BADCO
         try testing.expectEqual(Verdict.accepted, answer(&harness, bad_cookie, transaction, 0));
         try testing.expectEqual(@as(u8, 1), harness.lookup.server_index);
         try testing.expect(harness.lookup.flags.had_server_failure);
+        // The server failed the lookup, so it counts against it (§19 step 12).
+        try testing.expectEqual(@as(u8, 1), harness.servers.failures(0));
     }
 }

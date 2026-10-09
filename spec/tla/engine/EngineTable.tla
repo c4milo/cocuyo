@@ -238,8 +238,12 @@ LookupEvent(st, l, ev, r) ==
               [] ev = "requestFailed" ->
                     IF lk.stage = "awaitingUdp" THEN RecordFailure(st, v) ELSE st
               [] ev = "expire" -> IF Waiting(lk.stage) THEN RecordFailure(st, v) ELSE st
+              \* SERVFAIL is the server's failure, as a timeout is, and any other answer the lookup
+              \* accepts is the server up; a reply it ignores says nothing (§19 step 12).
               [] ev = "reply" ->
-                    IF out = "accepted" /\ r # "unmatched" THEN RecordSuccess(st, v) ELSE st
+                    IF out # "accepted" \/ r = "unmatched" THEN st
+                    ELSE IF r = "servfail" THEN RecordFailure(st, v)
+                    ELSE RecordSuccess(st, v)
               [] OTHER -> st
         kept == [counted EXCEPT !.slots[l].lookup = {after}]
         rearmed == out = "connectTcp" \/ (ev = "sent" /\ after.stage \in {"awaitingTcp", "awaitingUdp"})

@@ -279,7 +279,7 @@
         .id = "DH5",
         .what = "a query over DoH mixes the name's case",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "                .mix_case = config.mix_case and !config.sends_requests(),", .new = "                .mix_case = config.mix_case," },
+            .{ .file = "src/resolver/lookup_init.zig", .old = "            .mix_case = config.mix_case and !config.sends_requests(),", .new = "            .mix_case = config.mix_case," },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -324,7 +324,7 @@
         .id = "DH10",
         .what = "an answer's TTL keeps its Age",
         .edits = .{
-            .{ .file = "src/wire/response.zig", .old = "        self.ttl_seconds -|= seconds;\n        if (kind.storage() != .rdata) return;", .new = "        if (kind.storage() != .rdata) return;" },
+            .{ .file = "src/wire/response_answers.zig", .old = "        self.ttl_seconds -|= seconds;\n        if (kind.storage() != .rdata) return;", .new = "        if (kind.storage() != .rdata) return;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -333,7 +333,7 @@
         .id = "DH11",
         .what = "an Age past the TTL wraps it",
         .edits = .{
-            .{ .file = "src/wire/response.zig", .old = "        self.ttl_seconds -|= seconds;\n        if (kind.storage() != .rdata) return;", .new = "        self.ttl_seconds -%= seconds;\n        if (kind.storage() != .rdata) return;" },
+            .{ .file = "src/wire/response_answers.zig", .old = "        self.ttl_seconds -|= seconds;\n        if (kind.storage() != .rdata) return;", .new = "        self.ttl_seconds -%= seconds;\n        if (kind.storage() != .rdata) return;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -342,7 +342,7 @@
         .id = "DH12",
         .what = "a kept record's TTL keeps its Age",
         .edits = .{
-            .{ .file = "src/wire/response.zig", .old = "        for (self.items.records.refs[0..self.count]) |*ref| ref.ttl_seconds -|= seconds;\n", .new = "" },
+            .{ .file = "src/wire/response_answers.zig", .old = "        for (self.items.records.refs[0..self.count]) |*ref| ref.ttl_seconds -|= seconds;\n", .new = "" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -468,7 +468,7 @@
         .id = "QU5",
         .what = "a DoQ query mixes the name's case",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = ".mix_case = config.mix_case and !config.sends_requests(),", .new = ".mix_case = config.mix_case and !config.uses_https()," },
+            .{ .file = "src/resolver/lookup_init.zig", .old = ".mix_case = config.mix_case and !config.sends_requests(),", .new = ".mix_case = config.mix_case and !config.uses_https()," },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -522,7 +522,7 @@
         .id = "TT2",
         .what = "an empty collection's smallest TTL is zero",
         .edits = .{
-            .{ .file = "src/wire/response.zig", .old = "const ttl_none = std.math.maxInt(u32);", .new = "const ttl_none = 0;" },
+            .{ .file = "src/wire/response_answers.zig", .old = "pub const ttl_none = std.math.maxInt(u32);", .new = "pub const ttl_none = 0;" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -768,6 +768,114 @@
         .what = "the walk's bound asserts the lookup has settled rather than that it runs",
         .edits = .{
             .{ .file = "src/resolver/lookup_response.zig", .old = "    // memory may hold it already.\n    assert(!self.is_settled());", .new = "    // memory may hold it already.\n    assert(self.is_settled());" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "SERVFAIL, REFUSED and NOTIMP counted against the server",
+        .id = "FR1",
+        .what = "SERVFAIL, REFUSED, NOTIMP and BADVERS count as no failure at all: the count resets, and the lookup's failure goes unmarked",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    return action == .next_server or (action == .retry_with_cookie and over_stream(self));", .new = "    return action == .retry_with_cookie and over_stream(self);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "SERVFAIL, REFUSED and NOTIMP counted against the server",
+        .id = "FR2",
+        .what = "an answer that marks the server's failure records a success, and marks the lookup's failure still",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        self.servers.record_failure(slot, now_ns);\n        self.flags.had_server_failure = true;", .new = "        self.servers.record_success(slot);\n        _ = now_ns;\n        self.flags.had_server_failure = true;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "SERVFAIL, REFUSED and NOTIMP counted against the server",
+        .id = "FR3",
+        .what = "an answer's failure is recorded at instant zero, not the instant it came",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        self.servers.record_failure(slot, now_ns);\n        self.flags.had_server_failure = true;", .new = "        self.servers.record_failure(slot, 0);\n        _ = now_ns;\n        self.flags.had_server_failure = true;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "SERVFAIL, REFUSED and NOTIMP counted against the server",
+        .id = "FR4",
+        .what = "an answer that marks no failure leaves the count as it stood",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    } else {\n        self.servers.record_success(slot);\n    }\n    learn_cookie(self, cookie);", .new = "    }\n    learn_cookie(self, cookie);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "SERVFAIL, REFUSED and NOTIMP counted against the server",
+        .id = "FR5",
+        .what = "BADCOOKIE over a stream resets the count",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    return action == .next_server or (action == .retry_with_cookie and over_stream(self));", .new = "    _ = self;\n    return action == .next_server;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "SERVFAIL, REFUSED and NOTIMP counted against the server",
+        .id = "FR6",
+        .what = "BADCOOKIE over UDP, which has TCP left to try, counts against the server",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    return action == .next_server or (action == .retry_with_cookie and over_stream(self));", .new = "    _ = self;\n    return action == .next_server or action == .retry_with_cookie;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "SERVFAIL, REFUSED and NOTIMP counted against the server",
+        .id = "FR7",
+        .what = "FORMERR from a server asked with EDNS0, which has EDNS0 left to drop, counts against it",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    return action == .next_server or (action == .retry_with_cookie and over_stream(self));", .new = "    return action == .next_server or action == .retry_without_edns or (action == .retry_with_cookie and over_stream(self));" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "SERVFAIL, REFUSED and NOTIMP counted against the server",
+        .id = "FR8",
+        .what = "a response ignored for an rcode cocuyo does not know resets the count and teaches its cookie",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    const rcode = wire.Rcode.from_bits(bits) orelse return .ignored;", .new = "    const rcode = wire.Rcode.from_bits(bits) orelse {\n        heard(self, accepted.cookie, false, now_ns);\n        return .ignored;\n    };" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "SERVFAIL, REFUSED and NOTIMP counted against the server",
+        .id = "FR9",
+        .what = "a response ignored for a malformed answer section resets the count and teaches its cookie",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            return .accepted;\n        }\n        return .ignored;\n    };", .new = "            return .accepted;\n        }\n        heard(self, accepted.cookie, false, now_ns);\n        return .ignored;\n    };" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "SERVFAIL, REFUSED and NOTIMP counted against the server",
+        .id = "FR10",
+        .what = "the server's state hears the answer after the lookup moves on, so another server is charged",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    heard(self, accepted.cookie, fails_server(self, action), now_ns);\n    switch (action) {", .new = "    const failed = fails_server(self, action);\n    defer heard(self, accepted.cookie, failed, now_ns);\n    switch (action) {" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "SERVFAIL, REFUSED and NOTIMP counted against the server",
+        .id = "FR11",
+        .what = "a CNAME chain too long, the server's answer, leaves the count as it stood",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            heard(self, accepted.cookie, false, now_ns);\n            self.fail(core.Error.ChainTooLong);", .new = "            self.fail(core.Error.ChainTooLong);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "SERVFAIL, REFUSED and NOTIMP counted against the server",
+        .id = "FR12",
+        .what = "a truncated answer over UDP leaves the count as it stood",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        heard(self, accepted.cookie, false, now_ns);\n        self.state = .tcp_needed;", .new = "        self.state = .tcp_needed;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },

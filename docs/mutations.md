@@ -3534,3 +3534,79 @@ WN8 was broken against `zig build test-resolver` by hand, to name the tests that
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
 | WN8 | the walk's bound asserts the lookup has settled rather than that it runs | §5 search list policy, the assertion that a settled lookup's end does not move | every test whose walk moves past a negative: the NXDOMAIN, NODATA and negative TTL tests, the DoH `Age` test and the table's walk-end test, by a panic, `test-resolver` | CAUGHT |
+
+## SERVFAIL, REFUSED and NOTIMP counted against the server
+
+2026-10-08 (c4milo/cocuyo#37). `Lookup.apply` reset a server's failure count for every response
+that passed the checks of §7, before it read the rcode. So a server that answered SERVFAIL,
+REFUSED or NOTIMP to every query kept a count of zero and stayed first in every lookup's order. A
+response then ignored, for an rcode cocuyo does not know or a malformed answer section, had reset
+the count and taught its cookie all the same. Now an answer that marks the lookup's server failure
+counts against its server, as a timeout does. Any other answer the lookup accepts resets the
+count, and a response the lookup ignores changes no server state (docs/design.md §19 step 12).
+The engine model changed first: a `servfail` reply records a failure (`EngineTable.tla`).
+
+FR1 to FR12 break the code. Each was broken by hand against `zig build test-resolver`, to name
+the tests that fail. FR2, FR3, FR5 and FR6 were first written with a parameter left unused, which
+does not compile, and were written again to discard it. The twelve are kept as data in
+`tools/mutations/lookup.zon`, and `zig build mutations -- lookup` ran the whole set again: FR1 to
+FR12 and every other mutation that still applies are `CAUGHT`. FR1 is caught by the replays too,
+under `zig build test-tools`. FR13 breaks the model, and is kept in `tools/mutations/engine.zon`.
+
+The walks were written again from the new model. The full run, 24,000 walks and 4,824,000
+events, replays clean. Then `zig build mutations -- engine` ran every mutation of the engine's set
+on it. RW13 was the one the picks missed: the full run catches it first at walk 4212 now, not
+4075. So the picks are 4, 8, 13, 2002, 4020, 4212, 8046, 12011, 13182, 16008, 16068, 16478 and
+17842, and the tool ran the twenty-two the picks must catch again and caught each. Of the 114
+mutations that apply, fifty-nine fall to the short walks, sixteen to the picks and thirty-nine to
+their steps, FR13 among them.
+
+Seven mutations no longer apply, in the lookup set DH5, DH10 to DH12, QU5 and TT2, and in the
+engine set CR4. The code they edit moved before this change, and each must be written again.
+Thirteen new mutations, thirteen `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| FR1 | SERVFAIL, REFUSED, NOTIMP and BADVERS count as no failure at all: the count resets, and the lookup's failure goes unmarked | §19 step 12 | the SERVFAIL-counts, asked-last and SERVFAIL-moves tests, and the `primary`, failure-TTL and reverse-walk tests, which end in `Timeout` once no failure is marked, `test-resolver`; the engine's short and picked walks and the lookup's slice, `test-tools` | CAUGHT |
+| FR2 | an answer that marks the server's failure records a success, and marks the lookup's failure still | §19 step 12 | the assertion in `heard`, under every test that hears a failing answer: the SERVFAIL, FORMERR, BADCOOKIE, count, `primary`, failure-TTL and reverse-walk tests, `test-resolver` | CAUGHT |
+| FR3 | an answer's failure is recorded at instant zero, not the instant it came | §19 step 12, the instant `failover_retry_delay_ns` runs from | the SERVFAIL-counts test and the failing-answers test, `test-resolver` | CAUGHT |
+| FR4 | an answer that marks no failure leaves the count as it stood | §19 step 12 | the assertion in `heard`, under the SERVFAIL-counts, any-other-answer, ignored-response and reverse-walk tests, `test-resolver` | CAUGHT |
+| FR5 | BADCOOKIE over a stream resets the count | §19 step 12, RFC 7873 §5.3 | the BADCOOKIE test over TCP and the DoH or DoQ BADCOOKIE test, `test-resolver` | CAUGHT |
+| FR6 | BADCOOKIE over UDP, which has TCP left to try, counts against the server | §19 step 12, RFC 7873 §5.3 | the BADCOOKIE test over UDP and the any-other-answer test, `test-resolver` | CAUGHT |
+| FR7 | FORMERR from a server asked with EDNS0, which has EDNS0 left to drop, counts against it | §19 step 12, RFC 6891 §6.2.2 | the any-other-answer test, `test-resolver` | CAUGHT |
+| FR8 | a response ignored for an rcode cocuyo does not know resets the count and teaches its cookie | §19 step 12, an ignored response changes nothing | the ignored-response test, `test-resolver` | CAUGHT |
+| FR9 | a response ignored for a malformed answer section resets the count and teaches its cookie | §19 step 12, §16 decision 10 | the ignored-response test, `test-resolver` | CAUGHT |
+| FR10 | the server's state hears the answer after the lookup moves on, so another server is charged | §19 step 12, the server that answered | the SERVFAIL-counts and asked-last tests, the BADCOOKIE tests over TCP and over DoH or DoQ, and the assertion that a settled lookup hears nothing, `test-resolver` | CAUGHT |
+| FR11 | a CNAME chain too long, the server's answer, leaves the count as it stood | §19 step 12 | the any-other-answer test, `test-resolver` | CAUGHT |
+| FR12 | a truncated answer over UDP leaves the count as it stood | §19 step 12 | the any-other-answer test, `test-resolver` | CAUGHT |
+| FR13 | the engine model resets the count on SERVFAIL, as before #37 | §19 step 12 in the model | `zig build spec-engine`, whose walks from TLC differ from the committed ones | CAUGHT |
+| RW13 | a connection that fails while it closes fails the requests that wait | request rule 9 | full run walk 4212, picked | CAUGHT |
+
+## SERVFAIL, REFUSED and NOTIMP counted against the server, after review
+
+2026-10-08 (c4milo/cocuyo#37, after review). Every way a lookup moves to the next server now
+records a failure, and a SERVFAIL had been the one way that recorded none. So the five engine
+configurations bounded at no failure no longer reach the second server, and their headers and
+spec/README.md did not say so. TLC confirmed it with one more invariant in a copy of the model,
+and both now say it. The doc of `heard` and design §19 step 12 now say that an ignored response
+teaching no cookie departs from RFC 7873 §5.3. FR1's row above described its edit as the rule
+before #37. The edit also leaves the lookup's failure unmarked, and its row and
+`tools/mutations/lookup.zon` now say so. No check changed, so no mutation is new.
+
+The seven mutations the section above found no longer applying were written again for the code
+where it moved: DH5 and QU5 to `lookup_init.zig`, DH10 to DH12 and TT2 to `response_answers.zig`,
+and CR4 to the list of fields `restart` keeps in `io_tcp.zig`. `zig build mutations -- lookup`
+ran the six of the lookup set, and `zig build mutations -- engine` ran CR4, which the short walks
+catch at walk 55. Each was then broken again by hand, to name the tests that fail. The engine set
+now splits 115 mutations: sixty to the short walks, sixteen to the picks and thirty-nine to their
+steps. Seven mutations written again, seven `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| DH5 | a query over DoH mixes the name's case | §22, the same octets | the DoH or DoQ query-shape test, `test-resolver` | CAUGHT |
+| DH10 | an answer's TTL keeps its `Age` | RFC 8484 §5.1 | the `Age` test, and by a panic the memory's recall tests, `test-resolver` | CAUGHT |
+| DH11 | an `Age` past the TTL wraps it | RFC 8484 §5.1, never below zero | the `Age` test, `test-resolver` | CAUGHT |
+| DH12 | a kept record's TTL keeps its `Age` | RFC 8484 §5.1 | the kept-record `Age` test and the recalled-records test, `test-resolver` | CAUGHT |
+| QU5 | a DoQ query mixes the name's case | §23, DoH's shape | the DoH or DoQ query-shape test, `test-resolver` | CAUGHT |
+| TT2 | an empty collection's smallest TTL is zero | the smallest of nothing is the largest | the A record, CNAME-and-target and MX collecting tests, `test-wire` | CAUGHT |
+| CR4 | closing a slot forgets its connect is in flight | rule 10 | the short walks, at walk 55; the slot-reset test, `test-io` | CAUGHT |

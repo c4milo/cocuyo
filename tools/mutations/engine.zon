@@ -450,7 +450,7 @@
         .id = "CR4",
         .what = "closing a slot forgets its connect is in flight",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "            self.connect_in_flight = connect_in_flight;\n", .new = "            _ = connect_in_flight;\n" },
+            .{ .file = "io/io_tcp.zig", .old = "&.{ \"incarnation\", \"connect_in_flight\", \"records_in_flight\",", .new = "&.{ \"incarnation\", \"records_in_flight\"," },
         },
         .caught_by = .short_walks,
     },
@@ -1031,5 +1031,14 @@
             .{ .file = "io/io_doh_channel_read.zig", .old = "            if (link == .quic) self.quic_to = asked.to;\n", .new = "" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "SERVFAIL, REFUSED and NOTIMP counted against the server",
+        .id = "FR13",
+        .what = "the engine model resets the count on SERVFAIL, as before #37",
+        .edits = .{
+            .{ .file = "spec/tla/engine/EngineTable.tla", .old = "                    ELSE IF r = \"servfail\" THEN RecordFailure(st, v)\n", .new = "                    ELSE IF r = \"servfail\" THEN RecordSuccess(st, v)\n" },
+        },
+        .caught_by = .{ .step = "spec-engine" },
     },
 }

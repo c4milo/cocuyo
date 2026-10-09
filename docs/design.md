@@ -2353,16 +2353,52 @@ failures, and probes a failed one now and then. cocuyo keeps the count and the i
 last failure per server in the `Servers` table, orders a lookup's servers by the count, stable,
 with rotation applied among the equals, and lets a failed server back in when
 `failover_retry_delay_ns` has passed since its failure and the seed's draw says so, one query in
-`failover_retry_chance`. Success resets the count; a timeout or a failed send raises it. c-ares
+`failover_retry_chance`. A timeout, a failed send or connection, a DoH or DoQ request that ends
+without an answer, and an answer that names the server's own failure each raise the count; any
+other answer the lookup accepts resets it; a response the lookup ignores changes nothing. c-ares
 probes a failed server with a copy of the query alongside the real one, so a recovered server is
-found without costing a real query a timeout. Rejected: it needs two transactions per lookup,
-and §7's defences bind one; here the probing query is a real one, and the price is one timeout
-in ten queries, after the delay, on a server that is still down.
+found without costing a real query a timeout. Rejected: it needs two transactions per lookup, and
+§7's defences bind one; here the probing query is a real one, and the price is one timeout in ten
+queries, after the delay, on a server that is still down.
 
 Landed on 2026-09-22: `Servers` counts consecutive failures per server with the instant of the
-last, a timeout, a failed send and a failed connection each counting one and an answer of any
-kind resetting it; `lookup_order.zig` computes a lookup's order at its first poll, which is the
-first instant it has, and the order holds for the lookup. The lookup is 3040 octets.
+last, a timeout, a failed send and a failed connection each counting one and, until 2026-10-08,
+an answer of any kind resetting it; `lookup_order.zig` computes a lookup's order at its first
+poll, which is the first instant it has, and the order holds for the lookup. The lookup is 3040
+octets.
+
+Changed on 2026-10-08 (c4milo/cocuyo#37). An answer that marks the lookup's server failure
+raises its server's count and sets the instant, as a timeout does. These answers are:
+
+- SERVFAIL, REFUSED, NOTIMP and BADVERS while `check_response` is on.
+- FORMERR from a server asked without EDNS0.
+- BADCOOKIE over a stream.
+
+Any other answer the lookup accepts resets the count. With `check_response` off, the server's
+error is the caller's answer (step 11): it marks no server failure, and it resets the count too.
+A response the lookup ignores changes no server state, its cookie included. It is ignored for an
+rcode cocuyo does not know, or for an answer section that is malformed. The lookup takes it as
+never received: the wait stands, as §16 decision 10 has it for a malformed one, and nothing the
+response says is kept. That departs from RFC 7873 §5.3, which caches the server cookie of any
+response whose client cookie is right, "even if the response is an error response", before the
+rest of it is read. The cost: until a lookup reads the server's next answer, a query to that
+server carries the server cookie learned before, or none.
+
+Before, every response that passed §7's checks reset the count, and taught its cookie, before
+its rcode was read. So a server that answered SERVFAIL to every query kept a count of zero, and
+it stayed first in every lookup's order. Each lookup paid it a round trip and moved on. Three
+things argued for the change:
+
+- c-ares's features page says it tracks unrecoverable response codes, not only silence.
+- §16 decision 25 has a refused connection or a failed handshake fail the lookup as a SERVFAIL
+  answer does, and this step, as it landed, counts that connection against the server. A
+  SERVFAIL answer reset the same count.
+- The rule before left a server that fails every query ahead of one that answers.
+
+What it gives up: a recursive server that answers SERVFAIL for one broken name, and well for the
+rest, now counts that answer against itself. Later lookups start at a server with fewer
+failures, until the retry draw lets it back in and its next good answer resets the count. A
+lookup keeps the order it computed at its first poll for its whole search walk, as before.
 
 ### Step 13: the engine
 

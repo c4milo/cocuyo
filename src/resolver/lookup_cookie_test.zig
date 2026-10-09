@@ -91,10 +91,15 @@ test "BADCOOKIE is retried once with the fresh cookie, then over TCP, then the n
 
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.bad_cookie_fresh, servers[0].endpoint));
     try testing.expectEqual(State.tcp_needed, harness.lookup.state);
+    // Over UDP each BADCOOKIE has somewhere left to go, and is the server up (§19 step 12).
+    try testing.expectEqual(@as(u8, 0), harness.servers.failures(0));
     try testing.expect(harness.poll() == .connect_tcp);
     harness.lookup.on_tcp_connected(harness.now_ns);
     _ = harness.send_over_tcp();
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.bad_cookie_fresh, servers[0].endpoint));
     try testing.expectEqual(@as(u8, 1), harness.lookup.server_index);
     try testing.expect(!harness.lookup.flags.cookie_retried);
+    // Over TCP it is the server failing the lookup, which counts against it.
+    try testing.expectEqual(@as(u8, 1), harness.servers.failures(0));
+    try testing.expect(harness.lookup.flags.had_server_failure);
 }

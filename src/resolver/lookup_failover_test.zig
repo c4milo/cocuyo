@@ -1,6 +1,7 @@
 //! Failover through the fake server (docs/design.md §19 step 12): what a timeout, a failed send
-//! and a failed connection do to the shared table, what an answer does, and what the next
-//! lookup on the same table sees. Split from `lookup_response.zig` by the file-length rule.
+//! and a failed connection do to the shared table, what each kind of answer does, what a response
+//! the lookup ignores does not, and what the next lookup on the same table sees. Split from
+//! `lookup_response.zig` by the file-length rule.
 const std = @import("std");
 const testing = std.testing;
 const core = @import("core");
@@ -32,19 +33,122 @@ test "a server that timed out is asked last by the next lookup on the same table
     try testing.expectEqual(@as(u8, 0), harness.servers.failures(1));
 }
 
-test "an answer of any kind resets a server's failures" {
+test "SERVFAIL counts against the server that sent it, and an answer resets the count" {
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .failover_retry_chance = 0 } };
     try harness.start("example.com.", .a, seed);
     harness.servers.record_failure(0, 0);
     _ = harness.send();
-    // Server 0 failed before, so this lookup started at server 1; its SERVFAIL is still an
-    // answer, and server 1 stays at zero while the lookup moves to server 0.
+    // Server 0 failed before, so this lookup started at server 1. Its SERVFAIL is a failure of
+    // server 1 at the instant it came, as a timeout is, and the lookup moves to server 0.
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.server_failure, servers[1].endpoint));
-    try testing.expectEqual(@as(u8, 0), harness.servers.failures(1));
+    try testing.expectEqual(@as(u8, 1), harness.servers.failures(1));
+    try testing.expectEqual(harness.now_ns, harness.servers.state(1).failed_at_ns);
+    try testing.expectEqual(@as(u8, 1), harness.servers.failures(0));
     const next = harness.send();
     try testing.expect(next.send_udp.server.equal(&servers[0].endpoint));
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a, servers[0].endpoint));
     try testing.expectEqual(@as(u8, 0), harness.servers.failures(0));
+    try testing.expectEqual(@as(u8, 1), harness.servers.failures(1));
+}
+
+test "a server that answered SERVFAIL is asked last by the next lookup on the same table" {
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .failover_retry_chance = 0 } };
+    try harness.start("example.com.", .a, seed);
+    _ = harness.send();
+    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.server_failure, servers[0].endpoint));
+    _ = harness.send();
+    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a, servers[1].endpoint));
+
+    try harness.start("other.example.", .a, seed + 1);
+    const first = harness.send();
+    try testing.expect(first.send_udp.server.equal(&servers[1].endpoint));
+}
+
+/// Server 0's count after `reply`, the first answer of a lookup under `config`, when the count
+/// stood at one. The order was computed at the send, so the failure leaves server 0 first.
+fn count_after(config: core.Config, edns: bool, reply: fixtures.Reply) !u8 {
+    var harness: fixtures.Harness = .{ .config = config };
+    try harness.start("example.com.", .a, seed);
+    harness.lookup.flags.edns_enabled = edns;
+    _ = harness.send();
+    harness.servers.record_failure(0, 0);
+    try testing.expectEqual(Verdict.accepted, harness.respond(reply, servers[0].endpoint));
+    if (harness.servers.failures(0) > 1) try testing.expectEqual(harness.now_ns, harness.servers.state(0).failed_at_ns);
+    return harness.servers.failures(0);
+}
+
+test "an answer that marks the server's failure counts against it, at the instant it came" {
+    const config: core.Config = .{ .servers = &servers };
+    const bad_vers: fixtures.Reply = .{ .rcode = .bad_vers };
+    const failing = [_]fixtures.Reply{ fixtures.server_failure, .{ .rcode = .refused }, .{ .rcode = .not_implemented }, bad_vers };
+    for (failing) |reply| try testing.expectEqual(@as(u8, 2), try count_after(config, true, reply));
+    // FORMERR from a server asked without EDNS0: the fallback of RFC 6891 §6.2.2 is spent.
+    try testing.expectEqual(@as(u8, 2), try count_after(config, false, fixtures.format_error));
+}
+
+test "any other answer the lookup accepts resets the count" {
+    const config: core.Config = .{ .servers = &servers };
+    const reset = [_]fixtures.Reply{
+        fixtures.answer_a,   fixtures.no_data,      fixtures.name_error,
+        fixtures.truncated,  fixtures.format_error, fixtures.bad_cookie_fresh,
+        fixtures.cname_only, fixtures.cname_loop,
+    };
+    for (reset) |reply| try testing.expectEqual(@as(u8, 0), try count_after(config, true, reply));
+    // With `check_response` off, the server's error is the caller's answer (§19 step 11).
+    const unchecked: core.Config = .{ .servers = &servers, .check_response = false };
+    try testing.expectEqual(@as(u8, 0), try count_after(unchecked, true, fixtures.server_failure));
+}
+
+/// An rcode no code of `wire.Rcode` names.
+const rcode_unknown = 6;
+
+test "a response the lookup ignores changes nothing of its server's, its cookie included" {
+    comptime std.debug.assert(wire.Rcode.from_bits(rcode_unknown) == null);
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
+    try harness.start("example.com.", .a, seed);
+    _ = harness.send();
+    harness.servers.record_failure(0, 0);
+    // An address three octets long, in a message whose every length is sound: the answer
+    // section is malformed (§16 decision 10).
+    const short_address: fixtures.Reply = .{ .records = &fixtures.record_short_a, .ancount = 1, .cookie = .echo, .server_cookie = &fixtures.server_cookie };
+    try testing.expectEqual(Verdict.ignored, harness.respond(short_address, servers[0].endpoint));
+    const unknown = harness.build(fixtures.answer_a_cookie);
+    var header = try wire.header.parse(unknown);
+    header.flags |= rcode_unknown;
+    wire.header.write(&header, &harness.reply_buffer);
+    harness.now_ns += 1;
+    try testing.expectEqual(Verdict.ignored, harness.lookup.on_response(unknown, servers[0].endpoint, harness.now_ns));
+    try testing.expectEqual(@as(u8, 1), harness.servers.failures(0));
+    try testing.expect(!harness.servers.expecting(0));
+    // The same answer with an rcode cocuyo knows is believed, and teaches both.
+    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a_cookie, servers[0].endpoint));
+    try testing.expectEqual(@as(u8, 0), harness.servers.failures(0));
+    try testing.expect(harness.servers.expecting(0));
+}
+
+test "SERVFAIL moves to the next server and is what the lookup fails with" {
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .attempts = 1 } };
+    try harness.start("example.com.", .a, seed);
+    _ = harness.send();
+    _ = harness.respond(fixtures.server_failure, servers[0].endpoint);
+    try testing.expectEqual(@as(u8, 1), harness.lookup.server_index);
+    _ = harness.send();
+    _ = harness.respond(fixtures.server_failure, servers[1].endpoint);
+    try testing.expectEqual(core.Error.AllServersFailed, harness.poll().failed.err);
+}
+
+test "FORMERR asks the same server again without EDNS0, and only once" {
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
+    try harness.start("example.com.", .a, seed);
+    _ = harness.send();
+    _ = harness.respond(fixtures.format_error, servers[0].endpoint);
+    try testing.expectEqual(@as(u8, 0), harness.lookup.server_index);
+    try testing.expect(!harness.lookup.flags.edns_enabled);
+    const action = harness.send();
+    const header = try wire.header.parse(action.send_udp.message_bytes);
+    try testing.expectEqual(@as(u16, 0), header.arcount);
+    _ = harness.respond(fixtures.format_error, servers[0].endpoint);
+    try testing.expectEqual(@as(u8, 1), harness.lookup.server_index);
 }
 
 test "a failed send and a failed connection are failures of the server they were for" {

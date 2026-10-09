@@ -132,24 +132,26 @@ pub fn apply(
     now_ns: u64,
 ) Verdict {
     const header = accepted.header;
-    // An answer of any kind is the server being up (§19 step 12), and its cookie is learned
-    // whatever its rcode (RFC 7873 §5.3).
-    self.servers.record_success(self.server_slot());
-    learn_cookie(self, accepted.cookie);
     // Truncation over UDP sends this server's answer to TCP. Over a stream it sends the lookup
     // nowhere: a stream's limit is 65535 octets (RFC 9250 §4.6), and there is no larger channel
     // to ask over. No RFC says what a client does with TC there: cocuyo reads the message
     // (docs/design.md §5), as `ignore_truncation` has it read one over UDP, and `collect` marks
     // the answer it gives.
     if (header.truncated() and !over_stream(self) and !self.config.ignore_truncation) {
+        heard(self, accepted.cookie, false, now_ns);
         self.state = .tcp_needed;
         return .accepted;
     }
     const bits = (@as(u16, accepted.extended_rcode_high) << wire.constants.extended_rcode_low_bits) |
         header.rcode_bits();
     const rcode = wire.Rcode.from_bits(bits) orelse return .ignored;
-    switch (policy.rcode_action(rcode, self.flags.edns_enabled, self.config.check_response)) {
-        .collect => return collect(self, message, accepted, cased, now_ns),
+    const action = policy.rcode_action(rcode, self.flags.edns_enabled, self.config.check_response);
+    // NOERROR is believed only once its answer section is read, so `collect` tells the server's
+    // state what it heard.
+    if (action == .collect) return collect(self, message, accepted, cased, now_ns);
+    heard(self, accepted.cookie, fails_server(self, action), now_ns);
+    switch (action) {
+        .collect => unreachable,
         .next_candidate => {
             // NXDOMAIN. The SOA in the authority section says how long a cache may remember it
             // (RFC 2308 §5); a message with no SOA, or a malformed one, says nothing, and nothing
@@ -157,10 +159,7 @@ pub fn apply(
             bound_walk(self, negative_ttl(self, message, cased, accepted.age_seconds));
             self.next_candidate(now_ns);
         },
-        .next_server => {
-            self.flags.had_server_failure = true;
-            self.next_server(now_ns);
-        },
+        .next_server => self.next_server(now_ns),
         .retry_without_edns => {
             // The same server, asked again without the OPT record (RFC 6891 §6.2.2).
             self.flags.edns_enabled = false;
@@ -177,7 +176,6 @@ pub fn apply(
 /// a server that answers BADCOOKIE over TCP as well is one that will not answer at all.
 fn on_bad_cookie(self: *Lookup, now_ns: u64) void {
     if (over_stream(self)) {
-        self.flags.had_server_failure = true;
         self.next_server(now_ns);
     } else if (self.flags.cookie_retried) {
         self.state = .tcp_needed;
@@ -186,6 +184,34 @@ fn on_bad_cookie(self: *Lookup, now_ns: u64) void {
         self.restart(now_ns);
     }
     assert(self.state != .awaiting_udp);
+}
+
+/// What an accepted answer says of the server that sent it (docs/design.md §19 step 12). One that
+/// marks the server's failure counts against it, as a timeout does, and any other is the server
+/// up. Its server cookie is cached whatever its rcode (RFC 7873 §5.3). Called before the lookup
+/// moves on, while the current server is still the one that answered. A response the lookup
+/// ignores is taken as never received (§16 decision 10) and never comes here, so it teaches no
+/// cookie: a departure from RFC 7873 §5.3, which caches the server cookie of any response whose
+/// client cookie is right, before the rest of it is read.
+fn heard(self: *Lookup, cookie: ?wire.CookieView, failed: bool, now_ns: u64) void {
+    assert(!self.is_settled());
+    const slot = self.server_slot();
+    if (failed) {
+        self.servers.record_failure(slot, now_ns);
+        self.flags.had_server_failure = true;
+    } else {
+        self.servers.record_success(slot);
+    }
+    learn_cookie(self, cookie);
+    assert(failed == (self.servers.failures(slot) > 0));
+}
+
+/// Whether an rcode's action is the server failing the lookup: SERVFAIL, REFUSED, NOTIMP and
+/// BADVERS while `check_response` is on, FORMERR without EDNS0, and BADCOOKIE over a stream, the
+/// transport a repeated BADCOOKIE is retried on (RFC 7873 §5.3).
+fn fails_server(self: *const Lookup, action: policy.RcodeAction) bool {
+    assert(action != .collect);
+    return action == .next_server or (action == .retry_with_cookie and over_stream(self));
 }
 
 /// Whether the answer is read as one over a stream: it came over TCP, or over DoH or DoQ, where
@@ -265,11 +291,13 @@ fn collect(
         // malformed one: it passed every check of §7. Alias loops are an error passed back to
         // the client (RFC 1034 §3.6.2, §5.2.2), and §5 names it.
         if (err == error.ChainTooLong) {
+            heard(self, accepted.cookie, false, now_ns);
             self.fail(core.Error.ChainTooLong);
             return .accepted;
         }
         return .ignored;
     };
+    heard(self, accepted.cookie, false, now_ns);
     // A name the chain moved to came off the wire, and a server that compressed it to a pointer
     // into the question it echoed handed back cocuyo's own case randomisation. That case is noise
     // cocuyo made, not the server's spelling, so it is folded away before anyone reads it.
@@ -390,31 +418,6 @@ test "a truncated response sends the lookup to TCP" {
     _ = harness.send();
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.truncated, servers[0].endpoint));
     try testing.expect(harness.poll() == .connect_tcp);
-}
-
-test "SERVFAIL moves to the next server and is what the lookup fails with" {
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .attempts = 1 } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    _ = harness.respond(fixtures.server_failure, servers[0].endpoint);
-    try testing.expectEqual(@as(u8, 1), harness.lookup.server_index);
-    _ = harness.send();
-    _ = harness.respond(fixtures.server_failure, servers[1].endpoint);
-    try testing.expectEqual(core.Error.AllServersFailed, harness.poll().failed.err);
-}
-
-test "FORMERR asks the same server again without EDNS0, and only once" {
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    _ = harness.respond(fixtures.format_error, servers[0].endpoint);
-    try testing.expectEqual(@as(u8, 0), harness.lookup.server_index);
-    try testing.expect(!harness.lookup.flags.edns_enabled);
-    const action = harness.send();
-    const header = try wire.header.parse(action.send_udp.message_bytes);
-    try testing.expectEqual(@as(u16, 0), header.arcount);
-    _ = harness.respond(fixtures.format_error, servers[0].endpoint);
-    try testing.expectEqual(@as(u8, 1), harness.lookup.server_index);
 }
 
 test "a record for a name nobody asked about is not part of the answer" {

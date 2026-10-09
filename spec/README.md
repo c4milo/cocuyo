@@ -355,6 +355,75 @@ the model reached with two lookups and broke nothing. The check that a query wai
 lookup on its connection catches TQ1 in 5 states. With one lookup no query ever waits on a plain
 stream, and TQ1 changes nothing.
 
+On 2026-10-08 a SERVFAIL reply started counting a failure against its server, as a timeout does.
+Before, every reply the lookup accepted reset the count (docs/design.md §19 step 12,
+c4milo/cocuyo#37). A server whose failures pass `FailuresMax` makes a state beyond the bound, and
+TLC walks from no such state. Every way a lookup moves to the next server now records a failure
+first: a timeout, a send that failed, a connection or a handshake that failed, a request that
+failed, and a SERVFAIL. Before, a SERVFAIL was the one way that recorded none. So where the bound
+is no failure, the walk stops at the first of them and never reaches the second server. Where it
+is one failure, the walk still reaches it. Every configuration holds, and every mutant of
+`mutants/` is still caught. TLC counted each configuration's states, the model before the change
+and after, on an Apple M1 Pro while other checks ran:
+
+| Configuration | Before | After |
+| --- | --- | --- |
+| `Engine_tcp_1_1_bound_4_1` | 22,684 | 18,625 |
+| `Engine_tcp_2_1_bound_4_1` | 834,131 | 561,813 |
+| `Engine_tcp_2_2_bound_4_0` | 223,428 | 59,420 |
+| `Engine_tls_1_2_bound_2_0` | 68,678 | 15,449 |
+| `Engine_tls_1_2_bound_2_1` | 413,862 | 252,573 |
+| `Engine_tls_1_2_bound_3_0` | 2,138,766 | 286,964 |
+| `Engine_tls_2_2_bound_2_0` | 1,687,238 | 243,462 |
+| `Engine_udp_1_1_bound_3_1` | 38,457 | 25,385 |
+| `Engine_udp_1_1_bound_4_1` | 115,774 | 70,400 |
+| `Engine_udp_2_1_bound_4_0` | 1,534,175 | 64,745 |
+| `Engine_request_1_1_bound_3_1` | 24,192 | 22,688 |
+| `Engine_request_1_2_bound_3_1` | 257,212 | 217,540 |
+| `Engine_request_2_1_bound_3_1` | 5,305,638 | 2,897,539 |
+
+The channel configurations hold the same states as before, 1,672,552 and 14,986,512, since a
+lookup on a channel hears answers and failures alone (above). TCP with one lookup held 22,684
+states before the change, where its header still gave the Lean walker's 19,767, and two lookups
+on one connection held 834,131, where the table above has 758,374. Some change after 2026-09-24
+moved both counts without recording them.
+
+Five configurations are bounded at no failure, and none of them reaches the second server now:
+`Engine_udp_2_1_bound_4_0`, `Engine_tcp_2_2_bound_4_0`, `Engine_tls_1_2_bound_2_0`,
+`Engine_tls_1_2_bound_3_0` and `Engine_tls_2_2_bound_2_0`. TLC checked this on 2026-10-08 on the
+same machine, with one more invariant in a copy of the model: every state it walks from has each
+lookup at the first place of its order, that place the first server, and each connection closed or
+to the first server. The invariant held in all five, at the counts in the table above. The model
+before the change broke it in each of the five within 1,625 distinct states. The model after it
+breaks it within 26 distinct states in each of the six configurations of two servers and one
+failure. So no configuration TLC checks now has any of these:
+
+- Two lookups, one of them on the second server, over UDP, over TLS, or over TCP with two
+  connections.
+- Two TCP connections open at once, one to each server.
+- One lookup on the second server over TLS at three operations.
+
+One lookup over TLS still reaches the second server at two operations and one failure
+(`Engine_tls_1_2_bound_2_1`). So do two lookups on one TCP connection, one lookup over TCP or over
+UDP, and the request configuration of two servers. The walks the replay reads have no bound:
+`EngineTrace.tla`'s step reads no `Within`. The short walks take a lookup to the second server in
+each of the twelve configurations they walk.
+
+At one failure the five would reach the second server again. `Engine_tls_1_2_bound_2_0` at one
+failure is `Engine_tls_1_2_bound_2_1`, which `zig build tla` checks already. TLC ran the other
+four at one failure on 2026-10-08 on the same machine, three workers each, with two or three of
+them running at once, and stopped each at 40 minutes:
+
+| Configuration at one failure | States | Minutes | Invariants |
+| --- | --- | --- | --- |
+| `Engine_tcp_2_2_bound_4_1` | 2,438,035 | 9 | hold |
+| `Engine_tls_1_2_bound_3_1` | 9,004,551 | 38 | hold |
+| `Engine_tls_2_2_bound_2_1` | over 11,912,347, stopped | 40 | none broken so far |
+| `Engine_udp_2_1_bound_4_1` | over 12,470,699, stopped | 40 | none broken so far |
+
+The largest configuration CI checks on each push holds 2,897,539 states, and the nightly one
+14,986,512.
+
 ### The walks TLC takes
 
 `tla/engine/EngineTrace.tla` runs the specification in TLC's simulation mode, which takes seeded

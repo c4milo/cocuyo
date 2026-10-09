@@ -16,8 +16,9 @@ pub const ServerState = struct {
     /// one is learned (RFC 7873 §5.3).
     cookie_server: [core.constants.cookie_server_bytes_max]u8,
     cookie_server_len: u8,
-    /// Consecutive failures to answer: timeouts, failed sends, failed connections. A response
-    /// of any kind resets it (docs/design.md §19 step 12).
+    /// Consecutive failures: timeouts, failed sends, failed connections and requests, and
+    /// answers that mark the server's failure, SERVFAIL among them. Any other answer a lookup
+    /// accepts resets it, and a response it ignores leaves it (docs/design.md §19 step 12).
     failures: u8,
     /// When the last of them happened.
     failed_at_ns: u64,
@@ -67,8 +68,8 @@ pub const Servers = struct {
         return self.state(index).cookie_server_len > 0;
     }
 
-    /// One more failure to answer, at `now_ns`. Saturates: a server down for a week is as down
-    /// as one down for a day.
+    /// One more failure, at `now_ns`: silence, a refusal, or an answer that marks the server's
+    /// failure. Saturates: a server down for a week is as down as one down for a day.
     pub fn record_failure(self: *Servers, index: usize, now_ns: u64) void {
         assert(index < self.count);
         const entry = &self.states[index];
@@ -77,7 +78,7 @@ pub const Servers = struct {
         assert(entry.failures >= 1);
     }
 
-    /// An answer of any kind: the server is up.
+    /// An answer that marks no failure of the server's: the server is up.
     pub fn record_success(self: *Servers, index: usize) void {
         assert(index < self.count);
         self.states[index].failures = 0;
