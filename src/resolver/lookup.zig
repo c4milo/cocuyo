@@ -88,9 +88,14 @@ pub const Answer = struct {
     record_count: u8,
     /// The end of the CNAME chain, when one was followed.
     canonical_name: ?*const Name,
-    /// The smallest TTL over the records used, for a cache above cocuyo.
+    /// The smallest TTL over the records used, for a cache above cocuyo. An answer the table's
+    /// memory recalled reports what the memory says is left of the life it gave the answer, which
+    /// may be less than every record's own when the memory capped that life (docs/design.md §20).
     ttl_seconds: u32,
-    /// Whether the response held more records than the lookup has room for.
+    /// Whether records may be missing: the response held more than the lookup has room for, or
+    /// it had TC set and was read all the same: over a stream, where there is no larger channel
+    /// to ask over, or over UDP under `Config.ignore_truncation`. A cache keeps no answer marked
+    /// so (RFC 1035 §7.4).
     truncated: bool,
 };
 

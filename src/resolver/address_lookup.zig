@@ -48,6 +48,8 @@ pub const AddressInfo = struct {
     canonical_name: ?*const Name,
     /// The smallest TTL over the answers used; zero for a numeric host or the hosts table.
     ttl_seconds: u32,
+    /// Whether addresses may be missing: a family's answer was marked `truncated`, or the
+    /// addresses, or the hosts table's, filled the room.
     truncated: bool,
     /// One family answered and the other failed with this; null when both ended as asked.
     partial: ?core.Error,

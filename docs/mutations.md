@@ -3434,3 +3434,56 @@ by the picks, and thirty-eight by their steps.
 | # | Mutation | Check it breaks | Caught by | Status |
 | --- | --- | --- | --- | --- |
 | RW13 | a connection that fails while it closes fails the requests that wait | request rule 9 | full run walk 4075, picked | CAUGHT |
+
+## Truncated answers kept out of the cache, and recalled TTLs aged
+
+2026-10-08 (c4milo/cocuyo#39). Two defects in what the cache keeps and hands back. First, a UDP
+answer with TC set that `ignore_truncation` takes as it is is now marked `truncated`. The
+consumer is told, and `Cache.put` refuses it, as RFC 1035 §7.4 asks of a possibly partial set
+(docs/design.md §18, §19 step 11). Second, a hit now ages every record's TTL, not only the
+answer's smallest. The cache keeps the life it gave an entry, capped, as the answers' own TTL.
+The lookup the cache answers lowers every TTL by that life less what is left (RFC 1035 §6.1.3;
+design §18, §20 step 16).
+
+Each mutation was broken against the targets its row names: `zig build test-resolver`,
+`test-wire`, `test-cache` or `test-cocuyo`. TA4 first ran against `test-wire` and was not caught
+there: `Answers.age` had no test in its own file, only callers in `resolver`. The test was written
+in `src/wire/response_answers.zig`, and TA4 and TA5 ran against it. TA2 is caught by the new
+test's expectation, and by the assertion that only `ignore_truncation` reads a truncated UDP
+answer, under the TCP and DoH or DoQ tests. The eight are kept as data in
+`tools/mutations/lookup.zon`, each against the first target its row names, and `zig build
+mutations -- lookup` ran them again and caught all eight there. Eight mutations, eight `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| TA1 | an answer `ignore_truncation` takes is not marked truncated | RFC 1035 §7.4 | the `ignore_truncation` test, `test-resolver` | CAUGHT |
+| TA2 | TC marks the answer over a stream too | §19 step 11, TC over a stream read as nothing | the `ignore_truncation`-over-TCP test, the TCP and DoH or DoQ truncated tests, `test-resolver` | CAUGHT, then retired |
+| TA3 | a hit sets the answer's smallest TTL alone, and each record keeps the TTL it was stored with | RFC 1035 §6.1.3 | the recalled-records test, `test-resolver`; the hit-through-the-table test, `test-cocuyo` | CAUGHT |
+| TA4 | `Answers.age` lowers the smallest TTL alone | RFC 1035 §6.1.3, RFC 8484 §5.1 | the age test, `test-wire`; the recalled-records and DoH `Age` tests, `test-resolver` | CAUGHT |
+| TA5 | `Answers.age` wraps a record's TTL past zero | RFC 1035 §6.1.3 | the age test, `test-wire` | CAUGHT |
+| TA6 | a put keeps the answers' own TTL rather than the life the entry is given | §18 | the life-a-hit-holds test, `test-cache`; the hit-through-the-table test, `test-cocuyo` | CAUGHT |
+| TA7 | a put in place keeps the TTL before the cap | §18 | the life-a-hit-holds test, `test-cache` | CAUGHT |
+| TA8 | a new entry keeps the TTL before the cap | §18 | the life-a-hit-holds test, `test-cache`; the hit-through-the-table test, `test-cocuyo` | CAUGHT |
+
+## Truncated answers marked on every channel, and a memory that reports more than it gave
+
+2026-10-08 (c4milo/cocuyo#39, after review). Two changes to the fix above. First, an answer read
+from a message with TC set is marked `truncated` on every channel, not only over UDP under
+`ignore_truncation`. TC says the message was cut to fit its channel (RFC 1035 §4.1.1), and a
+stream's limit is 65535 octets (RFC 9250 §4.6). Over DoH it can also say the server could not
+get the full answer (RFC 8484 §10). Before this, the cache kept such an answer from a DoH proxy.
+Second, a memory that reports more left than the answers' own TTL no longer trips an assertion.
+Nothing is lowered, and the answer reports what the memory says (docs/design.md §5, §18, §20).
+
+TA2 is retired: the rule it broke, an answer over a stream left unmarked, was the defect. TA1
+and TA3 were written again for the new code and caught, TA1 by `test-resolver` and TA3 by
+`test-resolver` and `test-cocuyo`. Each new mutation was broken against `zig build
+test-resolver`. Then `zig build mutations -- lookup` ran TA1 and TA3 to TA12 again and caught all
+eleven. Four new mutations, four `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| TA9 | TC over TCP leaves the answer unmarked | RFC 1035 §4.1.1, §7.4 | the TCP truncated test and the `use_tcp` truncated test, `test-resolver` | CAUGHT |
+| TA10 | TC over DoH or DoQ leaves the answer unmarked | RFC 8484 §10, RFC 1035 §7.4 | the DoH or DoQ truncated test, `test-resolver` | CAUGHT |
+| TA11 | the time spent is not held at zero, so a memory that reports more than it gave overflows it | §20, a memory's own TTL | the more-left-than-given test, by a panic, `test-resolver` | CAUGHT |
+| TA12 | the answer reports the answers' own TTL, not the more a memory says is left | §20, a memory's own TTL | the more-left-than-given test, `test-resolver` | CAUGHT |

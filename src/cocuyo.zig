@@ -224,3 +224,40 @@ test "the chain's end goes through the memory and comes back as it went in" {
     try testing.expect(memory.recall(memory.context, &aliased, 0).?.answered.canonical_name.?.equal(&target));
     try testing.expectEqual(@as(?*const Name, null), memory.recall(memory.context, &plain, 0).?.answered.canonical_name);
 }
+
+/// A cap under the record's own TTL, so the life the cache gives an entry is not the record's.
+const capped_ttl_seconds = 60;
+/// How long the entry has been in the cache when the table asks for it.
+const spent_seconds = 20;
+
+test "a hit through the table hands each record back less the time it spent in the cache" {
+    // The MX record says 300 seconds and the cache gives the entry 60. Twenty seconds on, the
+    // record has lost twenty, counted from the 60 the entry was given and not from its own 300
+    // (RFC 1035 §6.1.3, c4milo/cocuyo#39).
+    var rig: CacheRig = .{};
+    rig.store = Cache.init(&rig.slots, &rig.keys, 0, capped_ttl_seconds);
+    const memory = remembered_by(&rig.store);
+    const question = try Question.from_text("example.com.", .mx);
+    var chain = question.name;
+    var answers = wire.Answers.init(.mx);
+    _ = try wire.response.collect(&wire.fixtures.answer_mx, &chain, .mx, 0, &answers);
+    const stored_ttl_seconds = answers.records().at(0).ttl_seconds;
+    try testing.expect(stored_ttl_seconds > capped_ttl_seconds);
+    memory.remember(memory.context, &question, .{ .answered = .{
+        .answers = &answers,
+        .ttl_seconds = answers.ttl_seconds,
+        .canonical_name = null,
+    } }, 0);
+
+    var slots: [1]Slot = @splat(.{});
+    var keys: [resolver.constants.keys_per_slot_min]MatchKey = @splat(.{});
+    const servers = [_]Server{.{ .endpoint = .{ .address = Address.from_v4(.{ 192, 0, 2, 53 }) } }};
+    const config: Config = .{ .servers = &servers, .search = &.{} };
+    var table = Resolver.init(&slots, &keys, &config, 0);
+    table.remember_with(memory);
+    _ = try table.start(question);
+    var out: [constants.query_bytes_max]u8 = @splat(0);
+    const done = table.poll(spent_seconds * cache.constants.ns_per_s, &out).?.action.done;
+    try testing.expectEqual(@as(u32, capped_ttl_seconds - spent_seconds), done.ttl_seconds);
+    try testing.expectEqual(stored_ttl_seconds - spent_seconds, done.records.?.at(0).ttl_seconds);
+}

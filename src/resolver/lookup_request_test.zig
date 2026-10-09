@@ -185,14 +185,18 @@ test "a lookup whose every request failed ends in AllServersFailed" {
     }
 }
 
-test "over DoH or DoQ a truncated answer is read as it stands, and BADCOOKIE fails the server" {
+test "over DoH or DoQ a truncated answer is read as it stands, marked, and BADCOOKIE fails the server" {
     const bad_cookie: fixtures.Reply = .{ .rcode = .bad_cookie, .cookie = .opt_only };
     for (both) |list| {
         var harness: fixtures.Harness = undefined;
         try start_over(&harness, list, "example.com.", .a, seed);
         var transaction = (try send(&harness)).send_request.transaction;
         try testing.expectEqual(Verdict.accepted, answer(&harness, fixtures.answer_a_truncated, transaction, 0));
-        try testing.expectEqual(@as(usize, 1), harness.poll().done.addresses.len);
+        const done = harness.poll().done;
+        try testing.expectEqual(@as(usize, 1), done.addresses.len);
+        // Read as an answer over a stream is, and marked: TC there can say the server could not
+        // get the full answer (RFC 8484 §10), so records may be missing (RFC 1035 §7.4).
+        try testing.expect(done.truncated);
 
         try start_over(&harness, list, "example.com.", .a, seed);
         transaction = (try send(&harness)).send_request.transaction;

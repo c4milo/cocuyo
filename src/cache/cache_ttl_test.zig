@@ -62,6 +62,27 @@ test "a TTL of zero and a truncated answer are not cached, and a TTL over the ca
     try testing.expect(table.get(&ask("a.example"), 60 * second) == null);
 }
 
+test "a hit's answers hold the life the entry was given, capped, and the hit what is left" {
+    // The two differ by the time the entry has spent here, rounded up to a second, which is what
+    // a lookup the cache answers takes from each record's TTL (RFC 1035 §6.1.3,
+    // c4milo/cocuyo#39). Under the cap the life is the answers' own TTL; over it, the cap.
+    var fixture: fixtures.Fixture(slot_count) = .{};
+    var table = cache_init_capped(&fixture, 60);
+    const short = fixtures.answers_v4(1, 40);
+    const long = fixtures.answers_v4(2, 300);
+    table.put(&ask("short.example"), &short, null, 0);
+    table.put(&ask("long.example"), &long, null, 0);
+    const under = table.get(&ask("short.example"), 10 * second).?;
+    try testing.expectEqual(@as(u32, 40), under.answers.ttl_seconds);
+    try testing.expectEqual(@as(u32, 10), under.answers.ttl_seconds - under.ttl_seconds);
+    const over = table.get(&ask("long.example"), 10 * second + 1).?;
+    try testing.expectEqual(@as(u32, 60), over.answers.ttl_seconds);
+    try testing.expectEqual(@as(u32, 11), over.answers.ttl_seconds - over.ttl_seconds);
+    // A put in place keeps the new life, capped too.
+    table.put(&ask("long.example"), &long, null, 20 * second);
+    try testing.expectEqual(@as(u32, 60), table.get(&ask("long.example"), 20 * second).?.answers.ttl_seconds);
+}
+
 fn cache_init_capped(fixture: *fixtures.Fixture(slot_count), ttl_seconds_max: u32) Cache {
     return Cache.init(&fixture.slots, &fixture.keys, fixtures.seed, ttl_seconds_max);
 }

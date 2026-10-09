@@ -63,6 +63,9 @@ pub const Slot = struct {
 /// the cache, which may evict the entry.
 pub const Hit = struct {
     outcome: Outcome,
+    /// The answers as they were put, but for their own TTL, which is the life the entry was
+    /// given: theirs, or `ttl_seconds_max` when that is less. Each record keeps the TTL it came
+    /// with; a lookup the cache answers lowers every one by that life less `ttl_seconds`.
     answers: *const wire.Answers,
     name: *const Name,
     /// The end of the CNAME chain, when the answers were reached through one.
@@ -147,8 +150,9 @@ pub const Cache = struct {
     }
 
     /// Remembers `answers` for `question`, with the end of the CNAME chain that reached them, or
-    /// null when none did. A TTL of zero, or an answer marked truncated, is not cached (c-ares
-    /// does the same); the TTL is capped at `ttl_seconds_max`.
+    /// null when none did. A TTL of zero is not cached, and neither is an answer marked
+    /// truncated, which may be missing records (c-ares does the same). The TTL is capped at
+    /// `ttl_seconds_max`.
     pub fn put(
         self: *Cache,
         question: *const Question,
@@ -157,6 +161,8 @@ pub const Cache = struct {
         now_ns: u64,
     ) void {
         assert(question.kind.queryable());
+        // A possibly partial set is not cached (RFC 1035 §7.4), and a zero TTL "should not be
+        // cached" (RFC 1035 §3.2.1).
         if (answers.truncated or answers.ttl_seconds == 0) return;
         self.insert(question, .answered, answers, canonical, answers.ttl_seconds, now_ns);
     }
@@ -195,7 +201,7 @@ pub const Cache = struct {
         if (self.find(question, hash)) |index| {
             // Replaced in place, and the bit set: a name put twice is a name being used.
             const slot = &self.slots[index];
-            keep_answers(slot, answers, question.kind);
+            keep_answers(slot, answers, question.kind, ttl);
             keep_canonical(slot, canonical);
             slot.outcome = outcome;
             slot.expires_ns = expires_ns;
@@ -213,7 +219,7 @@ pub const Cache = struct {
         // answers' storage is copied only as far as it is used.
         const slot = &self.slots[index];
         slot.name = question.name;
-        keep_answers(slot, answers, question.kind);
+        keep_answers(slot, answers, question.kind, ttl);
         keep_canonical(slot, canonical);
         slot.expires_ns = expires_ns;
         slot.hash = hash;
@@ -230,8 +236,20 @@ pub const Cache = struct {
 
     /// What a put keeps: the answers it was given, copied as far as they are used, or none for a
     /// negative entry, which resets the slot's own.
-    fn keep_answers(slot: *Slot, answers: ?*const wire.Answers, kind: Kind) void {
-        if (answers) |kept| slot.answers.assign(kept, kind) else slot.answers.reset(kind);
+    ///
+    /// The answers keep `ttl_seconds`, the life the entry is given, as their own TTL, which is
+    /// theirs or the cap. A hit's `ttl_seconds` is what is left of it, so the two differ by the
+    /// time the entry has spent here, and that is what each record's TTL loses on a hit
+    /// (RFC 1035 §6.1.3). Left at the answers' own, a TTL over the cap would count that time
+    /// from the wrong start.
+    fn keep_answers(slot: *Slot, answers: ?*const wire.Answers, kind: Kind, ttl_seconds: u32) void {
+        const kept = answers orelse {
+            slot.answers.reset(kind);
+            return;
+        };
+        assert(ttl_seconds <= kept.ttl_seconds);
+        slot.answers.assign(kept, kind);
+        slot.answers.ttl_seconds = ttl_seconds;
     }
 
     /// Takes the entry at `index` out of the table. The hand, if it was there, moves on.

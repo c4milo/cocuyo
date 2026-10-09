@@ -31,7 +31,10 @@ pub const Answers = struct {
     /// How many CNAMEs were followed, counting the ones followed before this message, so a lookup
     /// carries the bound across a chain that spans several responses.
     hops_used: u8,
-    /// Whether records were dropped for want of room, here or in the record walk.
+    /// Whether records may be missing: some were dropped for want of room, here or in the record
+    /// walk, or the lookup that collected them read a message with TC set, which it does over a
+    /// stream and, under `Config.ignore_truncation`, over UDP. A cache keeps no answers marked so
+    /// (RFC 1035 §7.4).
     truncated: bool,
 
     /// An `extern union`, so that changing lists writes `kind` and none of the storage. A bare
@@ -79,8 +82,9 @@ pub const Answers = struct {
         assert(self.count == 0);
     }
 
-    /// Lowers every TTL by `seconds`, and never below zero: the time an HTTP cache held a DoH
-    /// answer is gone from its lifetime (RFC 8484 §5.1).
+    /// Lowers every TTL by `seconds`, each record's own included, and never below zero: the time
+    /// an HTTP cache held a DoH answer is gone from its lifetime (RFC 8484 §5.1), and so is the
+    /// time answers spent in a cache above the table (RFC 1035 §6.1.3).
     pub fn age(self: *Answers, kind: Kind, seconds: u32) void {
         assert(kind == self.kind);
         self.ttl_seconds -|= seconds;
@@ -206,4 +210,16 @@ test "copying answers writes what they hold and nothing past it" {
     // A copy that switched lists first would have written the whole union before it.
     const held = 2 * @sizeOf(Address);
     for (std.mem.asBytes(&to.items)[held..]) |octet| try testing.expectEqual(untouched, octet);
+}
+
+test "age lowers the answers' TTL and each record's own, and never below zero" {
+    var answers = Answers.init(.mx);
+    answers.items.records.refs[0].ttl_seconds = 300;
+    answers.items.records.refs[1].ttl_seconds = 20;
+    answers.count = 2;
+    answers.ttl_seconds = 20;
+    answers.age(.mx, 50);
+    try testing.expectEqual(@as(u32, 0), answers.ttl_seconds);
+    try testing.expectEqual(@as(u32, 250), answers.items.records.refs[0].ttl_seconds);
+    try testing.expectEqual(@as(u32, 0), answers.items.records.refs[1].ttl_seconds);
 }

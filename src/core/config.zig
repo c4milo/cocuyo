@@ -129,7 +129,7 @@ pub const Config = struct {
     /// Every query over TCP: `use-vc` in a `resolv.conf`, `ARES_FLAG_USEVC` in c-ares.
     use_tcp: bool = false,
     /// A truncated UDP answer is taken as it is rather than asked again over TCP
-    /// (`ARES_FLAG_IGNTC`).
+    /// (`ARES_FLAG_IGNTC`), and marked `truncated`, since records may be missing from it.
     ignore_truncation: bool = false,
     /// The RD bit of every query (RFC 1035 §4.1.1); `ARES_FLAG_NORECURSE` clears it.
     recursion_desired: bool = true,

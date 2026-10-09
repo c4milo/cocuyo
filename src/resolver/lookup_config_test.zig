@@ -58,18 +58,40 @@ test "servers that speak TLS take every query on the stream, to their TLS port" 
     try testing.expectEqual(State.tcp_needed, harness.lookup.state);
 }
 
-test "ignore_truncation takes a truncated UDP answer as it is" {
+test "ignore_truncation takes a truncated UDP answer as it is, marked truncated" {
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .ignore_truncation = true } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a_truncated, servers[0].endpoint));
-    try testing.expectEqual(@as(usize, 1), harness.poll().done.addresses.len);
+    const done = harness.poll().done;
+    try testing.expectEqual(@as(usize, 1), done.addresses.len);
+    // Records may be missing from it, so the consumer is told and a cache refuses it
+    // (RFC 1035 §7.4, c4milo/cocuyo#39).
+    try testing.expect(done.truncated);
 
     var asks_again: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try asks_again.start("example.com.", .a, seed);
     _ = asks_again.send();
     try testing.expectEqual(Verdict.accepted, asks_again.respond(fixtures.answer_a_truncated, servers[0].endpoint));
     try testing.expectEqual(State.tcp_needed, asks_again.lookup.state);
+}
+
+test "under use_tcp a truncated answer is read and marked truncated, the knob or not" {
+    // Over a stream TC sends the lookup nowhere, with `ignore_truncation` or without it, and the
+    // answer may be missing records all the same (RFC 1035 §4.1.1, §7.4).
+    for ([_]bool{ false, true }) |ignore_truncation| {
+        var harness: fixtures.Harness = .{ .config = .{
+            .servers = &servers,
+            .use_tcp = true,
+            .ignore_truncation = ignore_truncation,
+        } };
+        try harness.start("example.com.", .a, seed);
+        const endpoint = connect_and_send(&harness);
+        try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a_truncated, endpoint));
+        const done = harness.poll().done;
+        try testing.expectEqual(@as(usize, 1), done.addresses.len);
+        try testing.expect(done.truncated);
+    }
 }
 
 test "recursion_desired off clears the RD bit of the query" {

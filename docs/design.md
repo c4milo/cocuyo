@@ -216,7 +216,7 @@ pub const Config = struct {
     mix_case: bool = true,
     rotate: bool = false,
     use_tcp: bool = false,        // every query over TCP (use-vc, ARES_FLAG_USEVC)
-    ignore_truncation: bool = false, // a truncated UDP answer taken as it is (ARES_FLAG_IGNTC)
+    ignore_truncation: bool = false, // a truncated UDP answer taken as it is, and marked so (ARES_FLAG_IGNTC)
     recursion_desired: bool = true,  // the RD bit (ARES_FLAG_NORECURSE clears it)
     check_response: bool = true,  // off: SERVFAIL, REFUSED and NOTIMP end the lookup as its answer
     primary: bool = false,        // the first server alone (ARES_FLAG_PRIMARY)
@@ -278,8 +278,8 @@ pub const Answer = struct {
     records: ?*const wire.Records, // every other type (§19 step 9): `records.?.at(i)` for i below
     record_count: u8,             // `record_count`, each a `wire.Kept` the views of `wire.rdata` read
     canonical_name: ?*const Name, // the end of the CNAME chain, when there was one
-    ttl_seconds: u32,             // the minimum TTL over the records used
-    truncated: bool,              // more records existed than the slot can hold
+    ttl_seconds: u32,             // the minimum TTL over the records used; on a hit, what is left
+    truncated: bool,              // records may be missing: no room for them, or TC set
 };
 
 /// One kept record: the type as the octets said it, the TTL, and self-contained rdata with every
@@ -472,14 +472,14 @@ Eight states: `query_ready`, `awaiting_udp`, `tcp_needed`, `connecting_tcp`, `tc
 | `tcp_ready` | `poll` | `tcp_ready` | build with the length prefix, return `send_tcp` |
 | `tcp_ready` | `on_sent` | `awaiting_tcp` | arm the deadline |
 | `tcp_ready`, `awaiting_tcp` | `on_tcp_failed` | `query_ready` or `failed` | advance the server, as SERVFAIL does |
-| `awaiting_tcp` | `on_response` | as the UDP rows | TC=1 means nothing here, so the message is read as if it were clear |
+| `awaiting_tcp` | `on_response` | as the UDP rows | TC=1 sends the lookup nowhere, so the message is read as if it were clear, and an answer it gives is marked `truncated` |
 | `awaiting_tcp` | `on_response` BADCOOKIE | `query_ready` or `failed` | advance the server, as SERVFAIL does |
 | `done`, `failed` | any | unchanged | `poll` returns the same value; `on_response` is `ignored` |
 
 Over DoH or DoQ (§22, §23) the lookup keeps the UDP states, and three rows change. `poll` in
 `query_ready` returns `send_request`. An answer comes through `on_request_answer`, and only for
-the transaction the lookup waits on; it is read as one over TCP is, so TC=1 means nothing and
-BADCOOKIE advances the server. And one row is added:
+the transaction the lookup waits on; it is read as one over TCP is, so TC=1 sends the lookup
+nowhere and marks an answer `truncated`, and BADCOOKIE advances the server. And one row is added:
 
 | State | Event | Next state | Effect |
 | --- | --- | --- | --- |
@@ -1699,9 +1699,26 @@ pub const Cache = struct {
   after the miss renews it in place, and the hand takes it on sight if no put comes (§17
   question 14). A `get` that hits sets the visited bit and returns the remaining TTL, which is
   the expiry less `now_ns`, rounded down to a second.
+- The answers a hit points at hold, as their own TTL, the life the entry was given. That TTL less
+  the remaining one is the time the entry has spent in the cache, rounded up to a second. A
+  lookup the cache answers lowers every TTL in the answers by that much, never below zero, since
+  the TTLs of cached data count down (RFC 1035 §6.1.3). Before c4milo/cocuyo#39 only the
+  answer's smallest TTL was set to what was left. A record kept with a TTL of its own, an MX or a
+  TXT, came back with the TTL it was stored with.
 - A `put` for a question the cache holds replaces the entry in place and sets the bit; it does not
   move it in the order. A `put` of a TTL of zero, or of an answer marked truncated, is refused.
-  The TTL is capped at `ttl_seconds_max`.
+  An answer is marked truncated when records were dropped for want of room, or when the message
+  it came in had TC set: a resolver "should not cache a possibly partial set of RRs" (RFC 1035
+  §7.4). TC says the message was cut to fit its channel (RFC 1035 §4.1.1), and every channel has
+  a limit, a stream's being 65535 octets (RFC 9250 §4.6). Over DoH it can also say the server
+  could not get the full answer (RFC 8484 §10). The lookup reads such a message over UDP only
+  under `ignore_truncation`, and over TCP, DoT, DoH and DoQ always, since there is no larger
+  channel to ask over. The TTL is capped at `ttl_seconds_max`, and the entry keeps the capped
+  TTL as its answers' own.
+- A NODATA or an NXDOMAIN read from a message with TC set is still cached for its SOA's TTL.
+  Truncation "should start at the end of the response and work forward" (RFC 1035 §6.2), and
+  the SOA is in the authority section, after the answer section. A message that still holds it
+  holds the whole answer section, so the empty set is not a partial one.
 - A `put` into a full table runs the hand: from where it stopped, or the oldest entry, toward the
   newest; an expired entry is evicted on sight; a visited entry has its bit cleared and stays; the
   first unvisited entry is evicted. The walk is bounded by twice the slot count, which is one
@@ -2268,7 +2285,9 @@ runs check 6 (§7). `Lookup.init` takes the `Servers` pointer, and the lookup is
 sees the same behaviour:
 
 - `use_tcp` (`USEVC`): every query over TCP.
-- `ignore_truncation` (`IGNTC`): a truncated UDP answer is taken as it is.
+- `ignore_truncation` (`IGNTC`): a truncated UDP answer is taken as it is, and marked
+  `truncated`, because records may be missing from it. The consumer is told, and the cache
+  refuses it (RFC 1035 §7.4, c4milo/cocuyo#39).
 - `recursion_desired` (`NORECURSE` clears it): the RD bit, on by default.
 - `check_response` (`NOCHECKRESP` clears it): off, SERVFAIL, NOTIMP and REFUSED end the lookup
   as answers rather than moving to the next server.
@@ -2837,9 +2856,13 @@ is turned into a `Memory`.
 pub const Negative = enum { name_not_found, no_data };
 
 /// What the table remembers, and what it is handed back. The answers point into the caller's
-/// storage and are read before the call returns.
+/// storage and are read before the call returns. `ttl_seconds` is what is left of a life.
 pub const Remembered = union(enum) {
-    answered: *const wire.Answers,
+    answered: struct {
+        answers: *const wire.Answers,
+        ttl_seconds: u32,
+        canonical_name: ?*const Name, // the end of the CNAME chain, or null (§17 question 13)
+    },
     negative: struct { outcome: Negative, ttl_seconds: u32 },
 };
 
@@ -2876,6 +2899,16 @@ chain's end, and `Remembered` carries it both ways: the table writes `current` w
 was aliased, and a recalled lookup reports it back exactly as one that went out reports its own.
 The same question answers the same whether the cache held it or not. It costs one `Name` a slot,
 256 octets on 2728.
+
+**A recalled answer's TTLs are aged.** `Remembered.answered.ttl_seconds` is what is left of the
+answers' own TTL. A `Cache` keeps as that TTL the life the entry was given, capped (§18). The
+difference is the time the answers spent in the memory, and the lookup lowers every TTL they
+hold by it, never below zero, as it does for DoH's `Age`. The TTLs of cached data count down
+(RFC 1035 §6.1.3), and until c4milo/cocuyo#39 a record kept with a TTL of its own came back with
+the TTL it was stored with. A memory may say more is left than the answers' own TTL, as one that
+keeps answers longer than their TTL does. Then no TTL is lowered, and the answer reports what
+the memory says, as every recalled answer did before #39. That case is the consumer's choice and
+not an error, so it asserts nothing.
 
 **What it costs.** A hit now takes a slot and copies `Answers` into it, where the engine's
 `Started.hit` handed back a pointer and took no slot. §11 measures the copy at 53 ns and a hit
@@ -3275,8 +3308,9 @@ and it records the owner's rulings of 2026-09-24. Each piece lands with its chec
   answer for a transaction the lookup has left is dropped, and so is any datagram. Of §7's
   checks, the ID and the source endpoint are HTTP's, and every other check stands: the question
   must be the one asked. A truncated answer is taken as one over a stream is, since there is
-  nowhere else to ask. A handle is the caller's until it releases it, as for every other event:
-  a request still open then is the driver's to forget.
+  nowhere else to ask, and marked `truncated`: TC there can say the server could not get the
+  full answer (RFC 8484 §10), so no cache keeps it (§18). A handle is the caller's until it
+  releases it, as for every other event: a request still open then is the driver's to forget.
 - **The TTLs.** Every TTL of an answer, and the negative TTL of RFC 2308, is lowered by the HTTP
   `Age` the driver reports, and never below zero (RFC 8484 §5.1, a MUST). The cache keeps what
   is left.
@@ -3397,8 +3431,8 @@ Checks, one for each piece:
   servers passes it, and a QUIC server with neither a name nor a pin does not.
 - A query over DoQ has ID 0, its length prefix, the name as given and no cookie, and its message
   is padded to 128 octets.
-- An answer by transaction, a request that failed, and a truncated answer read as it stands,
-  over DoQ as over DoH.
+- An answer by transaction, a request that failed, and a truncated answer read as it stands and
+  marked `truncated`, over DoQ as over DoH.
 - The lookup model's theorems hold, and the replay agrees over the DoQ configurations.
 
 ## 24. The engine in the caller's loop: DoH, DoQ and a thread per core

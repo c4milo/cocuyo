@@ -6,12 +6,13 @@
 //!
 //! The sets: `engine`, the engine of `io/` and the table under it, caught by the replay of TLC's
 //! walks (docs/mutations.md, the engine replay on TLC's walks) or by a build step; `lookup`, the
-//! state machine and its transports; `address`, the `getaddrinfo` shape and its walks; `lean`, the
-//! Lean model and its proofs, each caught by `zig build spec-lean`. A mutation caught by a build
-//! step fails that step. One caught by the walks fails the replay of the short
-//! walks; when they miss it, the full run and the picked walks are replayed, and the run names the
-//! full run's first walk that catches it, a walk to pick. TLC writes the full run the first time a
-//! mutation needs it, unless `--walks <file>` names one written before.
+//! state machine, its transports and the answers a cache keeps of it; `address`, the
+//! `getaddrinfo` shape and its walks; `lean`, the Lean model and its proofs, each caught by
+//! `zig build spec-lean`. A mutation caught by a build step fails that step. One caught by the
+//! walks fails the replay of the short walks; when they miss it, the full run and the picked
+//! walks are replayed, and the run names the full run's first walk that catches it, a walk to
+//! pick. TLC writes the full run the first time a mutation needs it, unless `--walks <file>`
+//! names one written before.
 //!
 //! Exit status: 0 when every mutation is caught where it should be, 1 otherwise, 2 on a bad
 //! command line.

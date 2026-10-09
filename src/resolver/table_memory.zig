@@ -29,7 +29,12 @@ pub const Negative = enum { name_not_found, no_data };
 /// storage and are read before the call returns.
 ///
 /// `ttl_seconds` on `answered` is what is left of the answer's life, not what it was given: a
-/// recalled answer reports the time it has now, the way a caller of the cache would read it.
+/// recalled answer reports the time it has now, the way a caller of the cache would read it. The
+/// life it was given is `answers.ttl_seconds`, and the difference is the time the answers spent
+/// in the memory: every TTL they hold, each record's own included, loses it when the lookup ends
+/// (RFC 1035 §6.1.3). A memory that caps a life keeps the capped one there, as `Cache` does. One
+/// that reports more than `answers.ttl_seconds` has no known time spent: nothing is lowered, and
+/// the answer reports `ttl_seconds`.
 pub const Remembered = union(enum) {
     /// `canonical_name` is the end of the CNAME chain that reached the answers, or null when
     /// none did (§17 question 13).

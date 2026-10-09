@@ -1,5 +1,6 @@
-// The mutations of the state machine of design §5 and its transports: each breaks the
-// code one way, and must be caught by the check `caught_by` names (docs/mutations.md).
+// The mutations of the state machine of design §5, its transports, and the answers it hands
+// a cache and is handed back: each breaks the code one way, and must be caught by the check
+// `caught_by` names (docs/mutations.md).
 // tools/mutations.zig runs them. An edit replaces `old`, which must occur once, with `new`.
 .{
     .{
@@ -594,6 +595,105 @@
         .what = "a failed request is counted as silence",
         .edits = .{
             .{ .file = "src/resolver/lookup_request.zig", .old = "    self.servers.record_failure(self.server_slot(), now_ns);\n    self.flags.had_server_failure = true;\n", .new = "    self.servers.record_failure(self.server_slot(), now_ns);\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Truncated answers kept out of the cache, and recalled TTLs aged",
+        .id = "TA1",
+        .what = "an answer `ignore_truncation` takes is not marked truncated",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (possibly_partial(self, accepted.header)) self.answers.truncated = true;", .new = "    _ = possibly_partial(self, accepted.header);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Truncated answers kept out of the cache, and recalled TTLs aged",
+        .id = "TA3",
+        .what = "a hit sets the answer's smallest TTL alone, and each record keeps the TTL it was stored with",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_recall.zig", .old = "    lookup.answers.age(lookup.question.kind, answers.ttl_seconds -| ttl_seconds);\n    assert(lookup.answers.ttl_seconds == @min(answers.ttl_seconds, ttl_seconds));\n    lookup.answers.ttl_seconds = ttl_seconds;", .new = "    lookup.answers.ttl_seconds = ttl_seconds;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Truncated answers kept out of the cache, and recalled TTLs aged",
+        .id = "TA4",
+        .what = "`Answers.age` lowers the smallest TTL alone",
+        .edits = .{
+            .{ .file = "src/wire/response_answers.zig", .old = "|*ref| ref.ttl_seconds -|= seconds;", .new = "|*ref| ref.ttl_seconds -|= 0;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "Truncated answers kept out of the cache, and recalled TTLs aged",
+        .id = "TA5",
+        .what = "`Answers.age` wraps a record's TTL past zero",
+        .edits = .{
+            .{ .file = "src/wire/response_answers.zig", .old = "|*ref| ref.ttl_seconds -|= seconds;", .new = "|*ref| ref.ttl_seconds -%= seconds;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "Truncated answers kept out of the cache, and recalled TTLs aged",
+        .id = "TA6",
+        .what = "a put keeps the answers' own TTL rather than the life the entry is given",
+        .edits = .{
+            .{ .file = "src/cache/cache.zig", .old = "        slot.answers.assign(kept, kind);\n        slot.answers.ttl_seconds = ttl_seconds;", .new = "        slot.answers.assign(kept, kind);" },
+        },
+        .caught_by = .{ .step = "test-cache" },
+    },
+    .{
+        .section = "Truncated answers kept out of the cache, and recalled TTLs aged",
+        .id = "TA7",
+        .what = "a put in place keeps the TTL before the cap",
+        .edits = .{
+            .{ .file = "src/cache/cache.zig", .old = "            keep_answers(slot, answers, question.kind, ttl);", .new = "            keep_answers(slot, answers, question.kind, ttl_seconds);" },
+        },
+        .caught_by = .{ .step = "test-cache" },
+    },
+    .{
+        .section = "Truncated answers kept out of the cache, and recalled TTLs aged",
+        .id = "TA8",
+        .what = "a new entry keeps the TTL before the cap",
+        .edits = .{
+            .{ .file = "src/cache/cache.zig", .old = "        keep_answers(slot, answers, question.kind, ttl);\n        keep_canonical(slot, canonical);\n        slot.expires_ns = expires_ns;\n        slot.hash = hash;", .new = "        keep_answers(slot, answers, question.kind, ttl_seconds);\n        keep_canonical(slot, canonical);\n        slot.expires_ns = expires_ns;\n        slot.hash = hash;" },
+        },
+        .caught_by = .{ .step = "test-cache" },
+    },
+    .{
+        .section = "Truncated answers marked on every channel, and a memory that reports more than it gave",
+        .id = "TA9",
+        .what = "TC over TCP leaves the answer unmarked",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    const cut = header.truncated();", .new = "    const cut = header.truncated() and self.state != .awaiting_tcp;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Truncated answers marked on every channel, and a memory that reports more than it gave",
+        .id = "TA10",
+        .what = "TC over DoH or DoQ leaves the answer unmarked",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    const cut = header.truncated();", .new = "    const cut = header.truncated() and !self.config.sends_requests();" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Truncated answers marked on every channel, and a memory that reports more than it gave",
+        .id = "TA11",
+        .what = "the time spent is not held at zero, so a memory that reports more than it gave overflows it",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_recall.zig", .old = "answers.ttl_seconds -| ttl_seconds);", .new = "answers.ttl_seconds - ttl_seconds);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Truncated answers marked on every channel, and a memory that reports more than it gave",
+        .id = "TA12",
+        .what = "the answer reports the answers' own TTL, not the more a memory says is left",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_recall.zig", .old = "    assert(lookup.answers.ttl_seconds == @min(answers.ttl_seconds, ttl_seconds));\n    lookup.answers.ttl_seconds = ttl_seconds;", .new = "    assert(lookup.answers.ttl_seconds == @min(answers.ttl_seconds, ttl_seconds));" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },

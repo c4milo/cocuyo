@@ -136,8 +136,11 @@ pub fn apply(
     // whatever its rcode (RFC 7873 §5.3).
     self.servers.record_success(self.server_slot());
     learn_cookie(self, accepted.cookie);
-    // Truncation over UDP sends this server's answer to TCP. Over TCP it means nothing: a stream
-    // has no size limit to overflow (RFC 7766 §5), so the bit is ignored there.
+    // Truncation over UDP sends this server's answer to TCP. Over a stream it sends the lookup
+    // nowhere: a stream's limit is 65535 octets (RFC 9250 §4.6), and there is no larger channel
+    // to ask over. No RFC says what a client does with TC there: cocuyo reads the message
+    // (docs/design.md §5), as `ignore_truncation` has it read one over UDP, and `collect` marks
+    // the answer it gives.
     if (header.truncated() and !over_stream(self) and !self.config.ignore_truncation) {
         self.state = .tcp_needed;
         return .accepted;
@@ -191,6 +194,18 @@ fn over_stream(self: *const Lookup) bool {
     return self.state == .awaiting_tcp or self.config.sends_requests();
 }
 
+/// Whether the message read may hold a partial set of records. TC says it was cut to fit its
+/// channel, whichever channel that was, and over DoH it can say the server could not get the full
+/// answer. The lookup reads such a message over a stream, and over UDP under `ignore_truncation`.
+fn possibly_partial(self: *const Lookup, header: wire.Header) bool {
+    // TC: "this message was truncated due to length greater than that permitted on the
+    // transmission channel" (RFC 1035 §4.1.1), or the server's best answer (RFC 8484 §10).
+    const cut = header.truncated();
+    // Over UDP without the knob, a truncated answer sent the lookup to TCP before it was read.
+    assert(!cut or over_stream(self) or self.config.ignore_truncation);
+    return cut;
+}
+
 /// The negative TTL a message carries, or zero, less its `Age` over DoH (RFC 8484 §5.1) and
 /// bounded by the chain. A malformed authority section is not a reason to refuse a message whose
 /// rcode was already acted on; it is a reason not to cache it.
@@ -241,6 +256,9 @@ fn collect(
     // "DoH clients MUST account for the Age response header field's value" (RFC 8484 §5.1): this
     // message's TTLs lose it before the chain's earlier ones, which lost their own, bound them.
     self.answers.age(self.question.kind, accepted.age_seconds);
+    // "When a response is truncated, and a resolver doesn't know whether it has a complete set,
+    // it should not cache a possibly partial set of RRs" (RFC 1035 §7.4): the answer says so.
+    if (possibly_partial(self, accepted.header)) self.answers.truncated = true;
     switch (outcome) {
         .answered => {
             assert(self.answers.count > 0);
@@ -262,7 +280,9 @@ fn collect(
             self.current = before;
             self.flags.had_no_data = true;
             // NODATA takes the SOA minimum too (RFC 2308 §2.2), which is where this differs from
-            // c-ares (docs/design.md §18).
+            // c-ares (docs/design.md §18). TC set does not change it: truncation "should start at
+            // the end of the response" (RFC 1035 §6.2), so a message that still holds the SOA of
+            // its authority section holds the whole of its answer section, empty.
             self.negative_ttl_seconds = negative_ttl(self, message, cased, accepted.age_seconds);
             self.next_candidate(now_ns);
         },
@@ -452,9 +472,9 @@ test "a flood of unmatched datagrams neither extends nor shortens the wait" {
     try testing.expectEqual(deadline, harness.poll().wait);
 }
 
-test "a truncated response over TCP is not a reason to connect again" {
-    // RFC 7766 §5: a stream has no size limit to overflow, so TC over TCP means nothing. A lookup
-    // that took it seriously would connect again and again to the same server.
+test "a truncated response over TCP is read, marked truncated, and not a reason to connect again" {
+    // A stream's limit is 65535 octets (RFC 9250 §4.6), so there is no larger channel to ask over.
+    // A lookup that obeyed the bit would connect again and again to the same server.
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
@@ -468,6 +488,7 @@ test "a truncated response over TCP is not a reason to connect again" {
     reply.records = fixtures.answer_a.records;
     reply.ancount = fixtures.answer_a.ancount;
     try testing.expectEqual(Verdict.accepted, harness.respond(reply, servers[0].endpoint));
-    // The answer is read rather than the bit obeyed, so the lookup finishes here.
-    try testing.expect(harness.poll() == .done);
+    // The answer is read rather than the bit obeyed, so the lookup finishes here. Records may be
+    // missing from it all the same, so it is marked, and no cache keeps it (RFC 1035 §7.4).
+    try testing.expect(harness.poll().done.truncated);
 }
