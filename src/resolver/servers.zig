@@ -1,5 +1,5 @@
 //! Per-server state that outlives one lookup: the DNS cookies of RFC 7873 (docs/design.md §19
-//! step 10), and the failover counters of step 12 to come. A configuration is shared and
+//! step 10), and the failover counters of step 12. A configuration is shared and
 //! constant and a lookup is one question, so this is a third thing, owned by the caller —
 //! `Resolver` holds one for its table — and handed to every lookup by pointer.
 const std = @import("std");

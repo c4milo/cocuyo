@@ -46,8 +46,8 @@ pub const Resolver = struct {
     slots: slots_module.Slots,
     keys: []MatchKey,
     config: *const Config,
-    /// The per-server state every lookup of the table shares: cookies now, failover next
-    /// (docs/design.md §19 steps 10 and 12).
+    /// The per-server state every lookup of the table shares: the cookies and the failover
+    /// counters (docs/design.md §19 steps 10 and 12).
     servers: servers_module.Servers,
     entropy: entropy_module.Entropy,
     /// The lookups with something to do, oldest first: the ready list of docs/design.md §11,

@@ -505,8 +505,9 @@ governs the read, and the framing rule is three lines in the example (§15 step 
   next name. RFC 6891 §6.2.2 makes a server's lack of EDNS0 a fact about that server, and a
   lookup that kept it off would ask every later server without a cookie and with a 512-octet
   limit.
-- `rotate` starts the first try at `seed % servers.len` instead of server 0, so a process with many
-  lookups does not aim all of them at one server.
+- `rotate` starts the first try at a server the seed picks among those with the fewest failures
+  (§19 step 12), instead of the first of them, so a process with many lookups does not aim all
+  of them at one server.
 
 ### Search list policy
 
@@ -2093,7 +2094,7 @@ Four places, in order of preference, so the core stays what §1 made it:
 | TCP reuse (`STAYOPEN`) and pipelining | one connection per query | engine; the framing is there (RFC 7766 §6.2.1) | 13 |
 | local address binding, socket buffer sizes | none | `Config`, applied by the engine | 13 |
 | device binding by name | none | out: rotor opens the sockets and names no device | — |
-| the event thread, `sock_state_cb`, `ares_process_fd`, the socket callbacks | `Resolver`, driven by the caller | the engine over rotor would be the built-in driver; held back until a consumer asks | 13 |
+| the event thread, `sock_state_cb`, `ares_process_fd`, the socket callbacks | `Resolver`, driven by the caller | the engine over rotor, in the caller's loop and on no thread of its own (§16 decision 27) | 13 |
 | `ares_cancel`, the active count, wait-empty, `ares_reinit`, `ares_set_servers` | `Lookup.cancel` | engine | 13 |
 | the query cache | §18 | the engine wires it in | 13 |
 | `ares_getaddrinfo`: `A` and `AAAA` together, the canonical name, numeric host and service, the hosts file, `V4MAPPED`, `ALL` | two lookups | `resolver`, as `AddressLookup` above the table | 14 |
