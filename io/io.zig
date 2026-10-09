@@ -302,8 +302,8 @@ pub fn Resolver(comptime options: Options) type {
             lifecycle.cancel_all(self, now_ns);
         }
 
-        /// A new configuration, which is `ares_reinit`. The engine must be idle; `io_lifecycle.zig`
-        /// says why and what a caller does first.
+        /// A new configuration, which is `ares_reinit`. The engine must be idle, and `seed` a new
+        /// draw from a CSPRNG; `io_lifecycle.zig` says why and what a caller does first.
         pub fn reinit(self: *Self, config: *const cocuyo.Config, seed: u64, now_ns: u64) InitError!void {
             try lifecycle.reinit(self, config, seed, now_ns);
         }

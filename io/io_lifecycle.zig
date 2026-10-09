@@ -48,6 +48,11 @@ pub fn reset_tables(self: anytype, config: *const cocuyo.Config, seed: u64) void
 /// going away, and its handle would name a slot the new table has never heard of. A
 /// caller with lookups in flight calls `cancel_all` and takes their failures first, which
 /// is what tells it what it lost.
+///
+/// `seed` must be a new draw from a CSPRNG, never the seed of `init` or of an earlier
+/// `reinit`. The table and its client cookies are drawn from it again, so the same seed
+/// sends the same fresh client cookies again, which RFC 9018 §3 and §8.1 forbid; a caller
+/// whose address changed calls `reinit` for exactly that (docs/design.md §19 step 10).
 pub fn reinit(self: anytype, config: *const cocuyo.Config, seed: u64, now_ns: u64) @TypeOf(self.*).InitErrorType!void {
     config.assert_valid();
     @TypeOf(self.*).assert_tls(config);

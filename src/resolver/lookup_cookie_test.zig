@@ -1,93 +1,31 @@
-//! DNS cookies through the fake server (docs/design.md §19 step 10, RFC 7873): what a query
-//! carries, what a response must carry back, what is learned, and what BADCOOKIE does. Split
-//! from `lookup_response.zig` by the file-length rule.
+//! The tests of BADCOOKIE (RFC 7873 §5.3; docs/design.md §5, §19 step 10), through the fake
+//! server: `on_bad_cookie` in `lookup_response.zig`, split from it by the file-length rule. The
+//! other cookie tests are in `lookup_cookie.zig`, whose helpers these read.
 const std = @import("std");
 const testing = std.testing;
-const core = @import("core");
-const wire = @import("wire");
 const fixtures = @import("fixtures.zig");
+const cookie_tests = @import("lookup_cookie.zig");
 const Verdict = @import("lookup.zig").Verdict;
 const State = @import("lookup.zig").State;
 
 const servers = fixtures.servers_two;
 const seed = fixtures.seed;
-
-/// The COOKIE option of the query the harness last sent, or null when it carried none.
-fn query_cookie(harness: *const fixtures.Harness) !?wire.CookieView {
-    const body = harness.query[harness.query_body_offset..harness.query_bytes];
-    const cased = harness.lookup.cased_name();
-    const opt = (try wire.response_opt.find(body, &cased)) orelse return null;
-    return try wire.edns.find_cookie(opt.rdata);
-}
-
-test "the first query carries the client cookie alone, and a lookup without EDNS carries none" {
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    const cookie = (try query_cookie(&harness)).?;
-    try testing.expectEqualSlices(u8, &harness.servers.state(0).cookie_client, cookie.client);
-    try testing.expectEqual(@as(usize, 0), cookie.server.len);
-
-    var plain: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try plain.start("example.com.", .a, seed);
-    plain.lookup.flags.edns_enabled = false;
-    _ = plain.send();
-    try testing.expectEqual(@as(?wire.CookieView, null), try query_cookie(&plain));
-    // A cookie in the answer to a query that sent none is not learned: the server was asked
-    // without EDNS, and the next lookup must not expect a cookie it never sent.
-    try testing.expectEqual(Verdict.accepted, plain.respond(fixtures.answer_a_cookie, servers[0].endpoint));
-    try testing.expect(!plain.servers.expecting(0));
-}
-
-test "a response echoing the cookie is accepted, its server cookie learned, and the next query carries it" {
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    try testing.expect(!harness.servers.expecting(0));
-    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.cname_only_cookie, servers[0].endpoint));
-    try testing.expect(harness.servers.expecting(0));
-    // The CNAME had no target, so the lookup asks the same server again: with the cookie now.
-    _ = harness.send();
-    const cookie = (try query_cookie(&harness)).?;
-    try testing.expectEqualSlices(u8, &fixtures.server_cookie, cookie.server);
-}
-
-test "a wrong client cookie, or a malformed option, is ignored and teaches nothing" {
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.answer_a_cookie_wrong, servers[0].endpoint));
-    try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.answer_a_cookie_malformed, servers[0].endpoint));
-    try testing.expectEqual(State.awaiting_udp, harness.lookup.state);
-    try testing.expect(!harness.servers.expecting(0));
-    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a_cookie, servers[0].endpoint));
-}
-
-test "no cookie is accepted before one is learned, and ignored after" {
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a_opt_only, servers[0].endpoint));
-
-    var learned: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try learned.start("example.com.", .a, seed);
-    _ = learned.send();
-    try testing.expectEqual(Verdict.accepted, learned.respond(fixtures.cname_only_cookie, servers[0].endpoint));
-    _ = learned.send();
-    try testing.expectEqual(Verdict.ignored, learned.respond(fixtures.answer_a, servers[0].endpoint));
-    try testing.expectEqual(Verdict.ignored, learned.respond(fixtures.answer_a_opt_only, servers[0].endpoint));
-    try testing.expectEqual(Verdict.accepted, learned.respond(fixtures.answer_a_cookie, servers[0].endpoint));
-}
+const sent_cookie = cookie_tests.sent_cookie;
+const sent_client = cookie_tests.sent_client;
+const truncated_client_only = cookie_tests.truncated_client_only;
 
 test "BADCOOKIE is retried once with the fresh cookie, then over TCP, then the next server" {
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
+    const first = try sent_client(&harness);
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.bad_cookie_fresh, servers[0].endpoint));
     try testing.expectEqual(State.query_ready, harness.lookup.state);
     try testing.expectEqual(@as(u8, 0), harness.lookup.server_index);
     _ = harness.send();
-    try testing.expectEqualSlices(u8, &fixtures.server_cookie_fresh, (try query_cookie(&harness)).?.server);
+    const retry = (try sent_cookie(&harness)).?;
+    try testing.expectEqualSlices(u8, &fixtures.server_cookie_fresh, retry.server);
+    try testing.expectEqualSlices(u8, &first, retry.client);
 
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.bad_cookie_fresh, servers[0].endpoint));
     try testing.expectEqual(State.tcp_needed, harness.lookup.state);
@@ -96,10 +34,55 @@ test "BADCOOKIE is retried once with the fresh cookie, then over TCP, then the n
     try testing.expect(harness.poll() == .connect_tcp);
     harness.lookup.on_tcp_connected(harness.now_ns);
     _ = harness.send_over_tcp();
+    // The server had its retry over UDP, so a BADCOOKIE over TCP is the server failing it.
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.bad_cookie_fresh, servers[0].endpoint));
     try testing.expectEqual(@as(u8, 1), harness.lookup.server_index);
     try testing.expect(!harness.lookup.flags.cookie_retried);
     // Over TCP it is the server failing the lookup, which counts against it.
     try testing.expectEqual(@as(u8, 1), harness.servers.failures(0));
     try testing.expect(harness.lookup.flags.had_server_failure);
+}
+
+/// Connects the harness's lookup, which must want a stream, and sends its query over it.
+fn send_on_stream(harness: *fixtures.Harness) !void {
+    try testing.expect(harness.poll() == .connect_tcp);
+    harness.lookup.on_tcp_connected(harness.now_ns);
+    _ = harness.send_over_tcp();
+}
+
+test "under use_tcp a BADCOOKIE is retried once on the stream with the fresh cookie, then the next server" {
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .use_tcp = true } };
+    try harness.start("example.com.", .a, seed);
+    try send_on_stream(&harness);
+    const number = harness.lookup.transaction.number;
+    harness.servers.record_failure(0, 0);
+    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.bad_cookie_fresh, servers[0].endpoint));
+    // "The client SHOULD retry the request using the new Server Cookie" (RFC 7873 §5.3): the
+    // same server, a new transaction, and no failure counted, since the retry is left.
+    try testing.expectEqual(State.tcp_needed, harness.lookup.state);
+    try testing.expectEqual(@as(u8, 0), harness.lookup.server_index);
+    try testing.expectEqual(@as(u8, 0), harness.servers.failures(0));
+    try testing.expect(!harness.lookup.flags.had_server_failure);
+    try send_on_stream(&harness);
+    try testing.expectEqual(number + 1, harness.lookup.transaction.number);
+    try testing.expectEqualSlices(u8, &fixtures.server_cookie_fresh, (try sent_cookie(&harness)).?.server);
+    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.bad_cookie_fresh, servers[0].endpoint));
+    try testing.expectEqual(@as(u8, 1), harness.lookup.server_index);
+    try testing.expectEqual(@as(u8, 1), harness.servers.failures(0));
+    try testing.expect(harness.lookup.flags.had_server_failure);
+}
+
+test "a BADCOOKIE over the TCP a truncated answer led to is retried on the stream, not over UDP" {
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
+    try harness.start("example.com.", .a, seed);
+    _ = harness.send();
+    try testing.expectEqual(Verdict.accepted, harness.respond(truncated_client_only, servers[0].endpoint));
+    try send_on_stream(&harness);
+    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.bad_cookie_fresh, servers[0].endpoint));
+    try testing.expectEqual(State.tcp_needed, harness.lookup.state);
+    try testing.expect(harness.lookup.flags.cookie_retried);
+    try send_on_stream(&harness);
+    try testing.expectEqualSlices(u8, &fixtures.server_cookie_fresh, (try sent_cookie(&harness)).?.server);
+    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a_cookie, servers[0].endpoint));
+    try testing.expect(harness.poll() == .done);
 }

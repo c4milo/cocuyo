@@ -79,6 +79,9 @@ pub fn init_in_place(
         .chain_ttl_seconds = 0,
         .config = config,
         .servers = servers,
+        // No query is built yet, so none carries a cookie.
+        .cookie_form = .none,
+        .cookie_client = @splat(0),
         .question = question,
         .current = question.name,
     };

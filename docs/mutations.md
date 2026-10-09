@@ -3610,3 +3610,116 @@ steps. Seven mutations written again, seven `CAUGHT`.
 | QU5 | a DoQ query mixes the name's case | §23, DoH's shape | the DoH or DoQ query-shape test, `test-resolver` | CAUGHT |
 | TT2 | an empty collection's smallest TTL is zero | the smallest of nothing is the largest | the A record, CNAME-and-target and MX collecting tests, `test-wire` | CAUGHT |
 | CR4 | closing a slot forgets its connect is in flight | rule 10 | the short walks, at walk 55; the slot-reset test, `test-io` | CAUGHT |
+
+## A fresh client cookie until a server cookie pairs with it
+
+2026-10-08 (c4milo/cocuyo#36). Each server's client cookie was made once, from the table's seed
+and the server's address, and every query with EDNS0 carried it for the life of the table, whether
+or not the server had ever answered with a server cookie. RFC 9018 §3 and §8.1 forbid that. Now a
+query to a server whose server cookie is not known carries a fresh client cookie, drawn by its
+transaction and mixed with the server's address and port and the transport. A server cookie is
+kept with the client cookie that drew it, and later queries carry the pair. A server that answers
+a fresh cookie without one is sent none for `cookie_silence_ns`, five minutes. The lookup records
+the cookie its query carried, and check 6 compares the response with that record. A first
+BADCOOKIE over a stream is retried on the stream with the fresh server cookie, where it advanced
+the server before (docs/design.md §5, §7 and §19 step 10).
+
+The design changed first, then the model: `onReply` in `spec/lean/Spec/Lookup.lean` retries a
+first BADCOOKIE over TCP, and three proofs took the new branch, `request_never_stream`'s with the
+hypothesis that the lookup is over DoH or DoQ. The slice was written again, 4,414 transitions
+where it held 3,694. `zig build spec` replays the whole transcript, 2,680,454 transitions under
+109 configurations, the engine's full run of 4,824,000 events, and the walks, and each agrees.
+The engine model has no cookies and is unchanged.
+
+CO1 to CO21 and CO25 to CO27 break the code, each by hand against `zig build test-resolver`, and
+CO16 to CO18 against `zig build test-tools` too, to name the tests that fail. CO22 to CO24 break
+the model, against `zig build spec-lean`. All are kept as data in `tools/mutations/lookup.zon` and
+`tools/mutations/lean.zon`, and `zig build mutations` ran each again and caught it. Seven
+mutations of the lookup set no longer applied, since the code they edit moved: DH18 and QU9,
+which edit `poll`'s call to the query builders, and FR1 and FR4 to FR7, which edit
+`fails_server` and `heard`. FR2 and FR3 applied and no longer compiled: they discard `now_ns`,
+which `heard` now reads for the cookie as well. Each of the nine was written again, and broken
+by hand to name the tests that fail. Then `zig build mutations` ran the whole of the lookup set,
+121 mutations, the Lean set, 11, and the address set, 35, and every one is `CAUGHT`. The engine
+set was not run again: the engine and its model are unchanged, and the full run of TLC's walks
+replays clean. Twenty-seven new mutations, twenty-seven `CAUGHT`; nine written again, nine
+`CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CO1 | a fresh client cookie leaves out the transaction's draw, so a server sees one cookie on every query | RFC 9018 §3, §8.1 | the per-transaction, response-checked-against-its-own-cookie and silence tests, and the fresh-cookie test of `servers.zig`, `test-resolver` | CAUGHT |
+| CO2 | every transaction draws the same cookie entropy | RFC 9018 §3, 64 bits of entropy | the four-fresh-values test of `entropy.zig`, and the per-transaction, response-checked and silence tests, `test-resolver` | CAUGHT |
+| CO3 | a fresh client cookie leaves out whether the query goes over a stream, so the TCP query after TC=1 repeats the UDP one's | RFC 9018 §8.1 | the per-transaction test and the fresh-cookie test of `servers.zig`, `test-resolver` | CAUGHT |
+| CO4 | a fresh client cookie leaves out the server's address | RFC 9018 §3, a different cookie per server address | the fresh-cookie test of `servers.zig`, `test-resolver` | CAUGHT |
+| CO5 | check 6 compares the client cookie with the server's pair, not the one the query carried | §7 check 6, RFC 7873 §5.3, §7.1 | every cookie test that answers with a cookie, and the any-other-answer test, `test-resolver` | CAUGHT |
+| CO6 | a query that carries the pair records the client cookie it carried before | §7 check 6 | the pair test, `test-resolver` | CAUGHT |
+| CO7 | the pair keeps a client cookie the server cookie did not answer | RFC 9018 §3 | the pair, response-checked and UDP BADCOOKIE tests, and the pair test of `servers.zig`, `test-resolver` | CAUGHT |
+| CO8 | a later server cookie is not learned once a pair is kept | RFC 7873 §5.3 | the pair and response-checked tests, `test-resolver` | CAUGHT |
+| CO9 | a response without a COOKIE option to a fresh cookie stands once the server has given a cookie since | RFC 7873 §5.3 | the response-checked test, through the assertion in `Servers.silence`, `test-resolver` | CAUGHT |
+| CO10 | a query that carried no COOKIE option checks the response's | §7 check 6, none expected | seventeen tests whose server fell silent, the chain, failover, negative, request and address-lookup tests among them, `test-resolver` | CAUGHT |
+| CO11 | a query that carried no COOKIE option learns the response's | RFC 7873 §5.3, nothing to check it against | the first-query and silence tests, and the assertion in `lookup_cookie.learn`, `test-resolver` | CAUGHT |
+| CO12 | a server that answers a fresh cookie without one is never silenced | RFC 9018 §3 | the silence tests, `test-resolver` | CAUGHT |
+| CO13 | a query through the silence carries a fresh cookie all the same | RFC 9018 §3 | the silence test and the silence test of `servers.zig`, `test-resolver` | CAUGHT |
+| CO14 | the silence lasts half of `cookie_silence_ns` | `cookie_silence_ns`, RFC 9018 §3 | the silence test and the silence test of `servers.zig`, `test-resolver` | CAUGHT |
+| CO15 | the silence outranks a pair learned through it | RFC 7873 §5.1, the pair once known | the learned-through-the-silence test and the silence test of `servers.zig`, `test-resolver` | CAUGHT |
+| CO16 | a first BADCOOKIE over a stream advances the server, as before #36 | §5, RFC 7873 §5.3 | the `use_tcp` and truncated-TCP BADCOOKIE tests, `test-resolver`; the slice, at line 127, `test-tools` | CAUGHT |
+| CO17 | the retry of a BADCOOKIE over the TCP truncation led to goes back to UDP | §5, the retry on the stream | the truncated-TCP BADCOOKIE test, `test-resolver`; the slice, at line 127, `test-tools` | CAUGHT |
+| CO18 | the retry over a stream does not spend the server's retry | §5, one retry per server | the `use_tcp` and truncated-TCP BADCOOKIE tests, `test-resolver`; the slice, at line 127, `test-tools` | CAUGHT |
+| CO19 | the retry over a stream keeps its transaction | §7, a re-query is a new transaction | the `use_tcp` BADCOOKIE test, `test-resolver` | CAUGHT |
+| CO20 | BADCOOKIE over DoH or DoQ, where no cookie went, is retried | §5, §22, §23 | the DoH or DoQ BADCOOKIE test, `test-resolver` | CAUGHT |
+| CO21 | the retry over a stream counts against the server | §19 step 12 | the `use_tcp` BADCOOKIE test, `test-resolver` | CAUGHT |
+| CO22 | the model advances the server at a first BADCOOKIE over a stream, as before #36 | §5 in the model | `zig build spec-lean`: the committed slice is not the one the model writes | CAUGHT |
+| CO23 | the model retries a BADCOOKIE over DoH or DoQ on a stream | §5, §22, §23 in the model | `zig build spec-lean`: `onReply_noStream`, under `request_never_stream`, no longer proves | CAUGHT |
+| CO24 | the model's retry over a stream does not spend the server's retry | §5 in the model | `zig build spec-lean`: `onReply_le`, under `step_le`, no longer proves, since the retry would raise the measure | CAUGHT |
+| CO25 | a response's client cookie is accepted whatever it is, its check now in `lookup_cookie.zig` | RFC 7873 §5.3 | the wrong-cookie test, `test-resolver` | CAUGHT |
+| CO26 | a server cookie is never learned, its learning now in `lookup_cookie.zig` | RFC 7873 §5.3 | seven cookie tests, the pair, BADCOOKIE and no-cookie-after tests among them, `test-resolver` | CAUGHT |
+| CO27 | a response without a COOKIE option to a fresh cookie is a discard before the server has given one | RFC 7873 §5.3 | every test whose answers carry no OPT record, the address-lookup tests among them, `test-resolver` | CAUGHT |
+| DH18 | a lookup over DoH asks for a datagram, written again for `poll` handing the builders the instant | §22 | the DoH or DoQ request tests, `test-resolver` | CAUGHT |
+| QU9 | a lookup over DoQ asks for a datagram, written again the same way | §23 | the DoH or DoQ request tests, `test-resolver` | CAUGHT |
+| FR1 | SERVFAIL, REFUSED, NOTIMP and BADVERS count as no failure at all, written again for `bad_cookie_fails` | §19 step 12 | the SERVFAIL-counts, asked-last and SERVFAIL-moves tests, and the `primary`, failure-TTL and reverse-walk tests, `test-resolver` | CAUGHT |
+| FR2 | an answer that marks the server's failure records a success, written again without discarding `now_ns` | §19 step 12 | the assertion in `heard`, `test-resolver` | CAUGHT |
+| FR3 | an answer's failure is recorded at instant zero, written again without discarding `now_ns` | §19 step 12 | the SERVFAIL-counts test, `test-resolver` | CAUGHT |
+| FR4 | an answer that marks no failure leaves the count as it stood, written again for `cookies.learn` | §19 step 12 | the assertion in `heard`, `test-resolver` | CAUGHT |
+| FR5 | BADCOOKIE over a stream that fails the lookup over resets the count, written again for `bad_cookie_fails` | §19 step 12, RFC 7873 §5.3 | the UDP and `use_tcp` BADCOOKIE tests and the DoH or DoQ BADCOOKIE test, `test-resolver` | CAUGHT |
+| FR6 | BADCOOKIE over UDP, which has TCP left to try, counts against the server, written again the same way | §19 step 12, RFC 7873 §5.3 | the UDP and `use_tcp` BADCOOKIE tests and the any-other-answer test, `test-resolver` | CAUGHT |
+| FR7 | FORMERR from a server asked with EDNS0 counts against it, written again the same way | §19 step 12, RFC 6891 §6.2.2 | the any-other-answer test, `test-resolver` | CAUGHT |
+
+## What a response teaches of cookies, after review
+
+2026-10-09 (c4milo/cocuyo#36 and #37, after review). "If the COOKIE option Client Cookie is
+correct, the client caches the Server Cookie provided, even if the response is an error response
+(RCODE non-zero)" (RFC 7873 §5.3). The fix for #37 had a response the lookup then ignores, for an
+rcode cocuyo does not know or a malformed answer section, teach no cookie, and recorded that as a
+departure from §5.3. The owner ruled on 2026-10-09 that cocuyo follows §5.3. So `apply` now caches
+the server cookie once the checks of §7 pass, before it reads the rcode or the answer section
+(`lookup_cookie.learn`). An ignored response still changes no failure count. One without a COOKIE
+option starts no silence: only `heard`, which an answer the lookup takes reaches, starts it
+(`lookup_cookie.silence_if_missing`). Design §19 steps 10 and 12 changed first. The models hold
+no server cookie and no silence, so neither changed, and the replays agree.
+
+The review of #36 asked for a mutation on the guard that makes a client cookie echoed alone, with
+no server cookie, teach nothing. CO32 breaks it, and the assertion in `Servers.learn`, which takes
+a server cookie of 8 to 32 octets, catches it under every test that echoes a client cookie alone.
+The tests of `lookup_cookie.zig` moved into that file from `lookup_cookie_test.zig`, which keeps
+the tests of BADCOOKIE, and the resolver module's test block names it.
+
+CO28 to CO34 were each broken by hand against `zig build test-resolver`, to name the tests that
+fail. FR4 and CO12 no longer applied, since the silence moved out of `learn`, and each was written
+again and broken by hand the same way. FR8's and FR9's edits still apply, and what they break
+changed: an ignored response teaches its cookie by design now, so each resets the count and,
+without a COOKIE option, starts the silence. Their rows in `tools/mutations/lookup.zon` say so.
+Then `zig build mutations -- lookup` ran FR1 to FR12, CO1 to CO21 and CO25 to CO34, 43
+mutations, and caught each. Seven new mutations, seven `CAUGHT`; two written again, two
+`CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CO28 | an ignored response teaches no server cookie: the cookie is learned only from an answer the lookup takes, as #37 had it | RFC 7873 §5.3 | the ignored-response cookie test, both halves, `test-resolver` | CAUGHT |
+| CO29 | a response ignored for an rcode cocuyo does not know teaches no server cookie | RFC 7873 §5.3 | the ignored-response cookie test, its unknown-rcode half, `test-resolver` | CAUGHT |
+| CO30 | a response ignored for a malformed answer section teaches no server cookie: the cookie of an answer to collect waits for its answer section | RFC 7873 §5.3 | the ignored-response cookie test, its malformed half, `test-resolver` | CAUGHT |
+| CO31 | an ignored response without a COOKIE option starts the silence | §19 step 10, the silence needs an answer the lookup took | the ignored-response silence test, `test-resolver` | CAUGHT |
+| CO32 | a client cookie echoed alone, with no server cookie, is learned as a pair | RFC 7873 §5.3, no server cookie provided | the assertion in `Servers.learn`, by a panic under the per-transaction test and the truncated-TCP BADCOOKIE test, `test-resolver` | CAUGHT |
+| CO33 | a response that carries a COOKIE option starts the silence too | RFC 9018 §3 | ten tests: the per-transaction test, and by the assertion in `Servers.silence` the pair, response-checked, wrong-cookie, no-cookie-after, learned-through-the-silence, any-other-answer and three BADCOOKIE tests, `test-resolver` | CAUGHT |
+| CO34 | a response to a query that carried no COOKIE option starts the silence, or moves its end | RFC 9018 §3, no client cookie went unanswered | the silence test, `test-resolver` | CAUGHT |
+| CO12 | a server that answers a fresh cookie without one is never silenced, written again for `silence_if_missing` | RFC 9018 §3 | the silence, learned-through-the-silence and ignored-response silence tests, `test-resolver` | CAUGHT |
+| FR4 | an answer that marks no failure leaves the count as it stood, written again for `silence_if_missing` | §19 step 12 | the assertion in `heard`, by a panic under the `use_tcp` BADCOOKIE, SERVFAIL-counts, any-other-answer, ignored-response and reverse-walk tests, `test-resolver` | CAUGHT |

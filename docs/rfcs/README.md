@@ -92,7 +92,12 @@ updates worth knowing about, none of which version one implements:
 - RFC 6698 is updated by RFC 7218 (acronyms for the fields), RFC 7671 (operational guidance) and
   RFC 8749 (a name change); none changes the TLSA record's fields.
 - RFC 7873 is updated by RFC 9018, which fixes the server cookie's format so that every server
-  behind one address computes the same one. A client sees only its length.
+  behind one address computes the same one, and of which a client sees only the length. It also
+  replaces RFC 7873's client cookie: 64 bits of entropy rather than a function of both addresses,
+  never sent again to a server that gave no server cookie for it, and kept beside the server cookie
+  it drew (RFC 9018 §3, §8.1). Until 2026-10-08 this file said a client reads only the server
+  cookie's length from RFC 9018, and cited §3 for it, where §4 states it. That missed what §3
+  asks of a client (c4milo/cocuyo#36).
 - RFC 3597 is updated by the DNSSEC set and by RFC 5395, 6195 and 6895, the IANA procedure
   documents; the decompression rule of §4 stands.
 
@@ -124,7 +129,7 @@ updates worth knowing about, none of which version one implements:
 | 7541 | HPACK: Header Compression for HTTP/2 | §6.2.2 the literal without indexing colibri writes, §6.2.3 the never-indexed literal, §7.1.3 an intermediary keeps it: a DoH query's `:path` over HTTP/2 (design §24, DoH over HTTP/2) |
 | 7553 | The Uniform Resource Identifier (URI) DNS Resource Record | §4, the URI record's fields |
 | 7766 | DNS Transport over TCP, Implementation Requirements | §5 transport selection, §6.2.1 connection reuse and pipelining, §6.2.3 idle timeouts, §8 the two-octet length field |
-| 7873 | Domain Name System (DNS) Cookies | §4 the COOKIE option, §4.1 the client cookie, §5.1 sending one, §5.3 what a client does with the response, BADCOOKIE included |
+| 7873 | Domain Name System (DNS) Cookies | §4 the COOKIE option, §4.1 the client cookie, whose construction RFC 9018 §3 replaces, §5.1 sending one, §5.3 what a client does with the response, BADCOOKIE included, §7.1 the client cookie a reply must echo, kept while its request is outstanding |
 | 7858 | Specification for DNS over Transport Layer Security (TLS) | §3.1 port 853 and no cleartext on it, §3.3 the two-octet length on TLS, §3.4 reuse, pipelining and idle close |
 | 8305 | Happy Eyeballs Version 2: Better Connectivity Using Concurrency | §5 the Connection Attempt Delay between attempts that race, §8 its bounds, read for racing HTTP/3 against HTTP/2 (design §24 step 7b) |
 | 8310 | Usage Profiles for DNS over TLS and DNS over DTLS | §5 the strict profile and its hard failure, §6.6 authentication under it, §7 the authentication domain name, §8.1 the PKIX check against it, §9 the TLS profile |
@@ -141,7 +146,7 @@ updates worth knowing about, none of which version one implements:
 | 9204 | QPACK: Field Compression for HTTP/3 | §4.5.4 the literal's N bit, §7.1 probing the dynamic table, §7.1.3 never-indexed literals: a DoH query's `:path` is never indexed (design §24, request rule 12) |
 | 9250 | DNS over Dedicated QUIC Connections | §4.1 the ALPN token `doq` and UDP port 853, §4.2 a stream for each query and its prefix, §4.2.1 ID 0, §4.3.1 cancelling a request, §4.3.3 protocol errors, §4.4 the idle timeout, §5.1 authentication as DoT's, the strict profile a SHOULD, §5.2 fallback by usage profile; carried by the engine (design §23, §24) |
 | 9846 | The Transport Layer Security (TLS) Protocol Version 1.3 | §5.3 each record's nonce is its sequence number, so records go out in the order they were sealed; §6.1 a `close_notify` before a party closes its write side |
-| 9018 | Interoperable Domain Name System (DNS) Server Cookies | §3, the server cookie's length, which is all a client reads of it |
+| 9018 | Interoperable Domain Name System (DNS) Server Cookies | §3 the client cookie: 64 bits of entropy, a different one for each server address, never sent again to a server that gave no server cookie, five minutes without one for such a server, the pair kept, and none reused after the client's address changes; §4 the server cookie's length, which is all a client reads of a server cookie; §8.1 no client cookie sent again in the absence of its server cookie (design §19 step 10) |
 | 9460 | Service Binding and Parameter Specification via the DNS (SVCB and HTTPS) | §2.2 the record's fields, §7 the parameters, §2.2 the uncompressed target |
 | 9499 | DNS Terminology | the vocabulary this repository uses in prose; it obsoletes RFC 8499, which is why 8499 is not here |
 | 3225 | Indicating Resolver Support of DNSSEC | §3, the DO bit and where it sits in the OPT record's flags (design §25) |

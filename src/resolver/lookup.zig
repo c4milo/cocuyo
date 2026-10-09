@@ -22,7 +22,8 @@ const Name = core.Name;
 const Kind = core.Kind;
 const Question = core.Question;
 const entropy_module = @import("entropy.zig");
-const Servers = @import("servers.zig").Servers;
+const servers_module = @import("servers.zig");
+const Servers = servers_module.Servers;
 
 const policy = @import("lookup_policy.zig");
 const poll_module = @import("lookup_poll.zig");
@@ -135,12 +136,13 @@ pub const Flags = packed struct(u8) {
     /// Whether any candidate answered NOERROR with no record of this type.
     had_no_data: bool,
     /// Whether any server failed the lookup: answered SERVFAIL, REFUSED or NOTIMP, FORMERR
-    /// without EDNS0 or BADCOOKIE over a stream, or refused it, a connection, a handshake or a
-    /// request failing (docs/design.md §5, retry policy).
+    /// without EDNS0, or BADCOOKIE over a stream after its retry or over DoH or DoQ, or refused
+    /// it, a connection, a handshake or a request failing (docs/design.md §5, retry policy).
     had_server_failure: bool,
     /// Whether a CNAME was followed, which makes the current name the canonical one.
     aliased: bool,
-    /// Whether a BADCOOKIE was already answered with a retry on this server (RFC 7873 §5.3).
+    /// Whether a BADCOOKIE was already answered with a retry on this server (RFC 7873 §5.3),
+    /// over UDP or over a stream: the server's one retry, whichever transport took it.
     cookie_retried: bool,
     /// Whether `order` has been computed, which the first poll does with the clock in hand
     /// (docs/design.md §19 step 12).
@@ -181,6 +183,13 @@ pub const Lookup = struct {
     /// The per-server state shared with every other lookup of the caller: the cookies of
     /// RFC 7873 (docs/design.md §19 step 10).
     servers: *Servers,
+    /// The COOKIE option the query last built carries, and its client cookie when it carries one:
+    /// what check 6 compares a response with (docs/design.md §7), whatever another lookup taught
+    /// the server since. "It is RECOMMENDED that a client keep the Client Cookie it is expecting in
+    /// a reply until there is no longer an outstanding request associated with that Client
+    /// Cookie" (RFC 7873 §7.1).
+    cookie_form: servers_module.CookieForm,
+    cookie_client: [core.constants.cookie_client_bytes]u8,
 
     // The names and the records: the bulk of a slot.
     question: Question,
@@ -326,8 +335,9 @@ pub const Lookup = struct {
         return slot;
     }
 
-    /// Whether the query carries this server's cookies: they ride in the OPT record, so there
-    /// are none without it (RFC 7873 §5.1), and none over DoH or DoQ (docs/design.md §22, §23).
+    /// Whether the query may carry a COOKIE option: it rides in the OPT record, so there is none
+    /// without it (RFC 7873 §4), and none over DoH or DoQ (docs/design.md §22, §23). Which one
+    /// it carries is the server's state to say (`lookup_cookie.zig`).
     pub fn carries_cookie(self: *const Lookup) bool {
         return self.flags.edns_enabled and !self.config.sends_requests();
     }

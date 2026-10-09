@@ -102,28 +102,26 @@ test "any other answer the lookup accepts resets the count" {
 /// An rcode no code of `wire.Rcode` names.
 const rcode_unknown = 6;
 
-test "a response the lookup ignores changes nothing of its server's, its cookie included" {
+test "a response the lookup ignores leaves its server's failure count" {
     comptime std.debug.assert(wire.Rcode.from_bits(rcode_unknown) == null);
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     harness.servers.record_failure(0, 0);
     // An address three octets long, in a message whose every length is sound: the answer
-    // section is malformed (§16 decision 10).
-    const short_address: fixtures.Reply = .{ .records = &fixtures.record_short_a, .ancount = 1, .cookie = .echo, .server_cookie = &fixtures.server_cookie };
-    try testing.expectEqual(Verdict.ignored, harness.respond(short_address, servers[0].endpoint));
-    const unknown = harness.build(fixtures.answer_a_cookie);
+    // section is malformed (§16 decision 10). What an ignored response does to the server's
+    // cookies is tested in `lookup_cookie.zig`.
+    try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.short_address, servers[0].endpoint));
+    const unknown = harness.build(fixtures.answer_a);
     var header = try wire.header.parse(unknown);
     header.flags |= rcode_unknown;
     wire.header.write(&header, &harness.reply_buffer);
     harness.now_ns += 1;
     try testing.expectEqual(Verdict.ignored, harness.lookup.on_response(unknown, servers[0].endpoint, harness.now_ns));
     try testing.expectEqual(@as(u8, 1), harness.servers.failures(0));
-    try testing.expect(!harness.servers.expecting(0));
-    // The same answer with an rcode cocuyo knows is believed, and teaches both.
-    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a_cookie, servers[0].endpoint));
+    // The same answer with an rcode cocuyo knows is believed, and resets it.
+    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a, servers[0].endpoint));
     try testing.expectEqual(@as(u8, 0), harness.servers.failures(0));
-    try testing.expect(harness.servers.expecting(0));
 }
 
 test "SERVFAIL moves to the next server and is what the lookup fails with" {

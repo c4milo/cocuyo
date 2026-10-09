@@ -216,7 +216,7 @@ pub const Config = struct {
     mix_case: bool = true,
     rotate: bool = false,
     use_tcp: bool = false,        // every query over TCP (use-vc, ARES_FLAG_USEVC)
-    ignore_truncation: bool = false, // a truncated UDP answer taken as it is, and marked so (ARES_FLAG_IGNTC)
+    ignore_truncation: bool = false, // a truncated UDP answer taken, marked so (ARES_FLAG_IGNTC)
     recursion_desired: bool = true,  // the RD bit (ARES_FLAG_NORECURSE clears it)
     check_response: bool = true,  // off: SERVFAIL, REFUSED and NOTIMP end the lookup as its answer
     primary: bool = false,        // the first server alone (ARES_FLAG_PRIMARY)
@@ -476,13 +476,16 @@ Eight states: `query_ready`, `awaiting_udp`, `tcp_needed`, `connecting_tcp`, `tc
 | `tcp_ready` | `on_sent` | `awaiting_tcp` | arm the deadline |
 | `tcp_ready`, `awaiting_tcp` | `on_tcp_failed` | `query_ready` or `failed` | advance the server, as SERVFAIL does |
 | `awaiting_tcp` | `on_response` | as the UDP rows | TC=1 sends the lookup nowhere, so the message is read as if it were clear, and an answer it gives is marked `truncated` |
-| `awaiting_tcp` | `on_response` BADCOOKIE | `query_ready` or `failed` | advance the server, as SERVFAIL does |
+| `awaiting_tcp` | `on_response` BADCOOKIE, the first from this server | `tcp_needed` | same server, a new transaction on the stream, the fresh cookie |
+| `awaiting_tcp` | `on_response` BADCOOKIE again | `query_ready` or `failed` | advance the server, as SERVFAIL does |
 | `done`, `failed` | any | unchanged | `poll` returns the same value; `on_response` is `ignored` |
 
 Over DoH or DoQ (§22, §23) the lookup keeps the UDP states, and three rows change. `poll` in
 `query_ready` returns `send_request`. An answer comes through `on_request_answer`, and only for
 the transaction the lookup waits on; it is read as one over TCP is, so TC=1 sends the lookup
-nowhere and marks an answer `truncated`, and BADCOOKIE advances the server. And one row is added:
+nowhere and marks an answer `truncated`. BADCOOKIE advances the server, the first as well: such a
+query carries no cookie (§22, §23), so there is no fresh server cookie to retry with. And one row
+is added:
 
 | State | Event | Next state | Effect |
 | --- | --- | --- | --- |
@@ -499,9 +502,10 @@ governs the read, and the framing rule is three lines in the example (§15 step 
   glibc does; this is recalled, not measured.
 - On expiry: `server_index += 1`. On wrap: `server_index = 0`, `round += 1`. When
   `round == config.attempts` the lookup fails with `Timeout`, or with `AllServersFailed` if any
-  server answered SERVFAIL, REFUSED or NOTIMP, FORMERR without EDNS0, or BADCOOKIE over TCP,
-  or refused the lookup: a connection or a handshake that failed, or a DoH or DoQ request that
-  ended without an answer (§16 decision 25). So `Timeout` means that every try went unanswered.
+  server answered SERVFAIL, REFUSED or NOTIMP, FORMERR without EDNS0, BADCOOKIE over TCP after
+  its retry, or BADCOOKIE over DoH or DoQ, or refused the lookup: a connection or a handshake
+  that failed, or a DoH or DoQ request that ended without an answer (§16 decision 25). So
+  `Timeout` means that every try went unanswered.
   A failed send is not a refusal: the loop or the local stack refused it, and the server said
   nothing.
 - EDNS0 is off for the server that answered FORMERR, and on again at the next server and the
@@ -597,8 +601,8 @@ the code, and proofs of what the table promises: an ended lookup stays ended, a 
 stream (§22, §23), its counters stay inside the configuration, and every send lowers a measure in a
 well-founded order, so no sequence of answers makes a lookup retry forever. `zig build spec`
 builds the proofs, then walks every state the model reaches under 109 configurations and replays
-each of the 2.2 million transitions against `Lookup`, comparing the answer and the whole state
-after every event. `zig build test` replays a committed slice of 3,694 of them without Lean.
+each of the 2.7 million transitions against `Lookup`, comparing the answer and the whole state
+after every event. `zig build test` replays a committed slice of 4,414 of them without Lean.
 spec/README.md says what the model abstracts and why.
 
 Building the model and the replay found two defects in the code, fixed on 2026-09-23. A chain
@@ -644,22 +648,29 @@ A response is considered only if all of these hold, checked in this order:
 3. `from` equals the endpoint the query was sent to: family, every address octet, and the port.
 4. QR is 1 and the opcode is QUERY.
 5. QDCOUNT is 1 and the question section is byte-identical to the one sent, case included.
-6. The cookie (RFC 7873 §5.3, since §19 step 10): when the query carried an OPT record, a
-   COOKIE option in the response must echo the client cookie sent, and a server that has given a
-   server cookie before must give one again; an OPT record that is malformed — a version cocuyo
-   does not speak, an owner that is not the root, a cookie of a length neither form allows — is a
-   discard too. Before a server has given a cookie, a response without one is a server without
-   them, and stands.
+6. The cookie (RFC 7873 §5.3, since §19 step 10): when the query carried a COOKIE option, a
+   COOKIE option in the response must echo the client cookie that query carried, which the lookup
+   recorded when it built the query, whatever another lookup taught the server since. A response
+   without one is a discard when the query carried the server's cookie, or the server has given
+   one since; an OPT record that is malformed — a version cocuyo does not speak, an owner that is
+   not the root, a cookie of a length neither form allows — is a discard too. Before a server has
+   given a cookie, a response without one is a server without them: it stands, and once the
+   lookup takes it as its answer, the next queries to that server carry no COOKIE option for a
+   while (§19 step 10). A response the lookup then ignores starts no such while. A query that
+   carried no COOKIE option expects none back.
 7. Only then is the answer section walked.
 
 Matching on the transaction id alone is the textbook cache-poisoning hole. Checking the source
 address without the port is the same hole with one extra step. The question compare is exact
 because of the next rule, not case-insensitive.
 
-### Entropy: three fields, one seed
+### Entropy: four fields, one seed
 
 - **Transaction id**, 16 bits, drawn per transaction. A CNAME re-query is a new transaction and
   draws a new one.
+- **Client cookie**, 64 bits drawn per transaction since 2026-10-08 (§19 step 10). A query to a
+  server whose server cookie is not known carries a client cookie made from it, so none goes out
+  twice without a server cookie (RFC 9018 §8.1).
 - **DNS-0x20**, RFC 5452 and the DNS-0x20 draft: the case of each ASCII letter in the query's
   qname is randomised, and the response's question section must come back with the same case. This
   is in v1, on by default, and `Config.mix_case` turns it off for a server that mangles case.
@@ -670,7 +681,7 @@ because of the next rule, not case-insensitive.
   port entropy. The README says that in those words; the alternative, demanding a socket per query,
   would mean owning sockets.
 
-All three come from a per-lookup generator seeded by the caller's `u64`. That keeps the state
+All four come from a per-lookup generator seeded by the caller's `u64`. That keeps the state
 machine replayable from a seed, which is the point of the determinism rule, and it puts the quality
 of the defence in the caller's hands where it is visible. The docs say, in bold, that the seed must
 come from a CSPRNG and never from the clock.
@@ -743,11 +754,11 @@ up as a diff rather than as a surprise. The pins that exist are in `src/core/cor
 
 | Part of `Lookup` | Bytes | Note |
 | --- | --- | --- |
-| the scalars | 84 | state, flags, four indices, the server order, the transaction, two instants, the generator, the failure, the negative TTL, the chain's TTL, the config pointer, the servers pointer |
+| the scalars | 100 | state, flags, four indices, the server order, the transaction with its client cookie's draw, two instants, the generator, the failure, the negative TTL, the chain's TTL, the config pointer, the servers pointer, and the COOKIE option the last query carried with its client cookie (§19 step 10) |
 | `question` | 260 | the name as asked, its type, and whether it was absolute |
 | `current` | 256 | the current candidate, or where the CNAME chain has reached |
 | `answers` | 2448 | an extern union: `[addresses_max]Address` is 272, `[ptr_names_max]Name` is 256, and the records of §19 step 9 are 2436 — 32 references of 12 and a buffer of `rdata_bytes_max` — plus the question's type (decision 34), the count, the TTL, the hop count and two flags |
-| total | 3048, measured | pinned by a test in `src/resolver/lookup_init_test.zig` |
+| total | 3064, measured | pinned by a test in `src/resolver/lookup_init_test.zig`; 3048 until the cookies of 2026-10-08 (§19 step 10) |
 
 The total is larger than the parts because Zig chooses a struct's field order and pads accordingly.
 It also means a declaration order cannot be relied on for locality: the measurement that pinned
@@ -759,13 +770,13 @@ The caller-provided buffer §19 keeps as the fallback is what would take it back
 
 | Caller allocation | Size | For |
 | --- | --- | --- |
-| `[N]Resolver.Slot` | 3064 bytes each, measured | one per concurrent lookup: a lookup plus the table's own octets, the ready list's two links and its flag among them (§11) |
+| `[N]Resolver.Slot` | 3080 bytes each, measured | one per concurrent lookup: a lookup plus the table's own octets, the ready list's two links and its flag among them (§11) |
 | `[2N]MatchKey` | 4 bytes each | the id-to-slot table, power-of-two length |
 | send buffer | `query_bytes_max`, 386 | shared by the whole table |
 | receive buffer | `config.udp_payload_bytes`, 1232 by default | the caller's, per socket |
 | `[M]AddressLookup` | 1152 bytes each, measured | one per `getaddrinfo`-shaped lookup in flight: the name, the canonical name, 32 addresses, two handles and the walk's scalars, beside the two slots it takes; pinned by a test in `src/resolver/address_lookup_test.zig` |
 
-So 1024 concurrent lookups cost 3048 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
+So 1024 concurrent lookups cost 3080 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
 ever, by anybody.
 
 ## 10. The config parser
@@ -1178,6 +1189,7 @@ written at the use site. Shared limits live in `src/core/constants.zig`.
 | `ptr_names_max` | 1 | a reverse lookup returns one name in practice, and `truncated` says when more existed |
 | `cookie_client_bytes` | 8 | RFC 7873 §4 |
 | `cookie_server_bytes_max` | 32 | RFC 7873 §4; a server cookie is 8 to 32 octets, 16 under RFC 9018 |
+| `cookie_silence_ns` | 5 min | RFC 9018 §3's example of how long a server without cookies is sent none; `src/resolver/constants.zig` |
 | `opt_record_bytes_max` | 55 | the OPT record with the largest COOKIE option, before any padding |
 | `padding_block_bytes` | 128 | RFC 8467 §4.1: a query to a TLS server is a whole number of these |
 | `records_kept_max` | 32 | the records of one type a lookup keeps for every other type (§19 step 9); `truncated` past it |
@@ -2274,39 +2286,102 @@ network, so it runs in CI's `dnslib` job and not in the gate.
 ### Step 10: DNS cookies
 
 The COOKIE option (RFC 7873 §4) rides in the OPT record: a client cookie of 8 octets, and after
-the first exchange the server cookie it answered with, 8 to 32 octets (§4.2; RFC 9018 §3 fixes
+the first exchange the server cookie it answered with, 8 to 32 octets (§4.2; RFC 9018 §4 fixes
 the length at 16 for servers that follow it, and a client reads only the length).
 
-- The client cookie is a pseudorandom function of the server's address and a secret (§4.1).
-  cocuyo derives it from the caller's seed and the server address through `core.mix`. The
-  RFC's third input, the client's own IP address, is not known before a socket is bound, and
-  is left out; its purpose is a different cookie per source address, which the seed gives per
-  process instead. The caveat of §7 applies: the mix spreads a seed, it is not a cryptographic
+- A query to a server whose server cookie is not known carries a fresh client cookie, its
+  transaction's own. Each transaction draws 64 bits for it from the lookup's seed, beside its id,
+  port hint and case pattern (§7), and `core.mix` mixes the draw with the seed the `Servers`
+  table was built with, the address and port the query goes to, and whether it goes over a
+  stream. "The Client Cookie SHOULD have 64 bits of entropy", and "a client MUST use a different
+  Client Cookie for each different Server IP address" (RFC 9018 §3). A client "MUST NOT send a
+  previously sent Client Cookie to a server in the absence of an associated Server Cookie"
+  (§8.1). So no fresh cookie goes out twice: a new transaction draws a new one, and a query that
+  TC=1 or a second BADCOOKIE sends to TCP keeps its transaction and has a cookie of its own from
+  the stream's mix. The caveat of §7 applies: the mix spreads a seed, it is not a cryptographic
   function, and the defence is against an off-path attacker who sees no cookie at all.
-- Per-server state, which nothing in cocuyo had before: the client cookie, the server cookie
-  learned and its length, and the failover counters of step 12, in a `Servers` table of
-  `servers_max` entries. `Lookup.init` takes a pointer to it beside the config, because the
-  config is shared and constant and this is neither; `Resolver` owns one and hands it to every
-  lookup. Rejected: putting it in `Config`, which is immutable and shared, or in `Lookup`, which
-  is per question.
-- On a response (§5.3): the client cookie in it must be the one sent, or the response is
+- When a response's COOKIE option echoes the client cookie the lookup sent and carries a server
+  cookie, the server keeps the two as a pair: the client "should store the Client Cookie
+  alongside the Server Cookie it registered for that server" (RFC 9018 §3). Every later query to
+  that server carries the pair (RFC 7873 §5.1). A later response that echoes the pair's client
+  cookie updates its server cookie. One that echoes another lookup's fresh client cookie with a
+  server cookie replaces the pair, since both are pairs the server gave.
+- A response without a COOKIE option to a query that carried a fresh client cookie, from a server
+  that has given no server cookie, is a server without cookies. "When a server does not support
+  DNS Cookies, the client MUST NOT send the same Client Cookie to that same server again.
+  Instead, it is recommended that the client does not send a Client Cookie to that server for a
+  certain period (for example, five minutes) before it retries with a new Client Cookie"
+  (RFC 9018 §3). The answer stands, and queries to that server carry no COOKIE option for
+  `cookie_silence_ns`, the five minutes of that example; EDNS0 stays on. After it, a query
+  carries a fresh client cookie again. A server cookie learned meanwhile, from the answer to a
+  query sent before the silence began, ends it. Only an answer the lookup takes starts the
+  silence. A response without the option that the lookup then ignores, for an rcode cocuyo does
+  not know or a malformed answer section (step 12), is taken as never received, and starts none.
+- Per-server state, which nothing in cocuyo had before: the pair, the end of the silence, and the
+  failover counters of step 12, in a `Servers` table of `servers_max` entries, with the seed it
+  was built with. `Lookup.init` takes a pointer to it beside the config, because the config is
+  shared and constant and this is neither; `Resolver` owns one and hands it to every lookup.
+  Rejected: putting it in `Config`, which is immutable and shared, or in `Lookup`, which is per
+  question.
+- Each lookup records the COOKIE option the query it built carries: none, its own fresh client
+  cookie, or the pair, with the client cookie's octets. Check 6 of §7 compares a response with
+  that record, not with the table, which another lookup may change between the send and the
+  answer. "It is RECOMMENDED that a client keep the Client Cookie it is expecting in a reply until
+  there is no longer an outstanding request associated with that Client Cookie" (RFC 7873 §7.1).
+  A lookup whose query carried no COOKIE option expects none back, and learns nothing from one.
+- On a response (RFC 7873 §5.3): the client cookie in it must be the one sent, or the response is
   discarded, which lands in §7's checks as one more reason to ignore a message and never disturb
   the wait. A correct client cookie has its server cookie cached even when the response is an
-  error. BADCOOKIE (extended RCODE 23) is retried once with the fresh server cookie, and a second
-  BADCOOKIE goes to TCP (§5.3), which is the path `tcp_needed` already takes. A response with
-  no COOKIE option is discarded only when the client is expecting one (§5.3), which cocuyo reads
-  as: a server cookie has been learned from that server. Before that, a server that answers
-  without the option is one without cookies, and its answer stands.
+  error: "If the COOKIE option Client Cookie is correct, the client caches the Server Cookie
+  provided, even if the response is an error response (RCODE non-zero)" (§5.3). cocuyo caches it
+  once the checks of §7 pass, before it reads the rcode or the answer section, so a response the
+  lookup then ignores, for an rcode cocuyo does not know or a malformed answer section, teaches
+  its server cookie all the same, and changes no failure count (step 12). A response with no
+  COOKIE option is discarded when the client is expecting one, which cocuyo reads as: the query
+  carried the pair, or the server has given a server cookie since. "If the client is expecting
+  the response to contain a COOKIE option and it is missing, the response MUST be discarded"
+  (§5.3). So a server that stops sending cookies has every answer discarded until the table is
+  built again. c-ares instead accepts such answers again after two minutes (c4milo/cocuyo#36);
+  cocuyo keeps the MUST.
+- BADCOOKIE (extended RCODE 23) is retried once on the same server with the fresh server cookie:
+  "The client SHOULD retry the request using the new Server Cookie from the response" (§5.3).
+  Over UDP a second BADCOOKIE goes to TCP, the path `tcp_needed` already takes: "the client
+  SHOULD retry using TCP as the transport" (§5.3). Over a stream the retry is a new transaction
+  on the stream, and a second BADCOOKIE advances the server. The retry is the server's once,
+  whichever transport took it, so a server that had it over UDP and answers BADCOOKIE again over
+  TCP is advanced. Over DoH or DoQ a query carries no cookie (§22, §23), so there is no fresh
+  server cookie to retry with, and BADCOOKIE advances the server.
 - FORMERR from a server that rejects the option is what RFC 6891 §6.2.2's fallback already
   covers: the query is repeated without EDNS.
+- cocuyo does not see a change of the client's address: it binds no socket, and a NAT hides the
+  public one in any case (RFC 9018 §8.1). "Clients MUST NOT reuse a Client or Server Cookie after
+  the Client IP address has changed" (RFC 9018 §3). A consumer that sees its address change
+  calls the engine's `reinit`, or builds a new `Servers` table, and either way hands it a new
+  seed from a CSPRNG. `reinit` builds the table again from the seed it is given, so the same seed
+  draws the same fresh client cookies again: cookies already sent to those servers, which
+  RFC 9018 §3 and §8.1 forbid. The engine must be idle first: a consumer with lookups in flight
+  calls `cancel_all` and takes their failures, then calls `reinit` (`io/io_lifecycle.zig`).
+  Either way every pair and every silence is forgotten, so the next query to each server carries
+  a fresh client cookie. cocuyo adds no function of its own for it.
 
 **Gate.** The fake server of `resolver/fixtures.zig` learns cookies: a good one, a wrong
-client cookie, a malformed option, a BADCOOKIE once, twice and over TCP, and a server with none.
-Mutations on each check.
+client cookie, a malformed option, a BADCOOKIE once, twice, over TCP and over a stream under
+`use_tcp`, and a server with none. A fresh cookie goes out per transaction and per transport, the
+pair once a server cookie came, and none through a silence and a fresh one after it. A response
+the lookup ignores teaches its server cookie and starts no silence. Mutations on each check.
 
 Landed on 2026-09-22: `wire/edns.zig` writes and reads the option, `wire/response_opt.zig`
 finds the OPT record, `resolver/servers.zig` holds the per-server state, and `on_response`
 runs check 6 (§7). `Lookup.init` takes the `Servers` pointer, and the lookup is 3032 octets.
+
+Changed on 2026-10-08 (c4milo/cocuyo#36). Until then each server's client cookie was made once,
+from the table's seed and the server's address and port, and every query with EDNS0 carried it
+for the life of the table, whether or not the server had ever answered with a server cookie. So
+a server without cookies saw one client cookie on every query, which RFC 9018 §3 and §8.1 forbid
+because it lets that server track the client. And a BADCOOKIE over a stream advanced the server
+at once, so under `use_tcp` or DoT the retry RFC 7873 §5.3 asks for never happened. The
+transaction now holds its cookie's draw, and the lookup its record of what its query carried;
+the lookup is 3064 octets, a slot 3080.
 
 ### Step 11: configuration parity
 
@@ -2355,7 +2430,7 @@ with rotation applied among the equals, and lets a failed server back in when
 `failover_retry_delay_ns` has passed since its failure and the seed's draw says so, one query in
 `failover_retry_chance`. A timeout, a failed send or connection, a DoH or DoQ request that ends
 without an answer, and an answer that names the server's own failure each raise the count; any
-other answer the lookup accepts resets it; a response the lookup ignores changes nothing. c-ares
+other answer the lookup accepts resets it; a response the lookup ignores leaves it. c-ares
 probes a failed server with a copy of the query alongside the real one, so a recovered server is
 found without costing a real query a timeout. Rejected: it needs two transactions per lookup, and
 §7's defences bind one; here the probing query is a real one, and the price is one timeout in ten
@@ -2372,17 +2447,19 @@ raises its server's count and sets the instant, as a timeout does. These answers
 
 - SERVFAIL, REFUSED, NOTIMP and BADVERS while `check_response` is on.
 - FORMERR from a server asked without EDNS0.
-- BADCOOKIE over a stream.
+- BADCOOKIE over a stream once the server has had its retry, and BADCOOKIE over DoH or DoQ
+  (step 10). The retry itself marks no failure: it has the fresh server cookie left to try.
 
 Any other answer the lookup accepts resets the count. With `check_response` off, the server's
 error is the caller's answer (step 11): it marks no server failure, and it resets the count too.
-A response the lookup ignores changes no server state, its cookie included. It is ignored for an
-rcode cocuyo does not know, or for an answer section that is malformed. The lookup takes it as
-never received: the wait stands, as §16 decision 10 has it for a malformed one, and nothing the
-response says is kept. That departs from RFC 7873 §5.3, which caches the server cookie of any
-response whose client cookie is right, "even if the response is an error response", before the
-rest of it is read. The cost: until a lookup reads the server's next answer, a query to that
-server carries the server cookie learned before, or none.
+A response the lookup ignores changes no failure count. It is ignored for an rcode cocuyo does
+not know, or for an answer section that is malformed. The lookup takes it as never received: the
+wait stands, as §16 decision 10 has it for a malformed one, and nothing it says of the server's
+health is kept. Its server cookie is kept all the same. RFC 7873 §5.3 caches the server cookie of
+any response whose client cookie is right, "even if the response is an error response", and
+cocuyo caches it once the checks of §7 pass, before the rcode or the answer section is read
+(step 10). An ignored response without a COOKIE option does not start the silence of step 10,
+which needs an answer the lookup took.
 
 Before, every response that passed §7's checks reset the count, and taught its cookie, before
 its rcode was read. So a server that answered SERVFAIL to every query kept a count of zero, and
@@ -2638,7 +2715,7 @@ pub const Engine = struct {
     /// are valid until the next call.
     pub fn take(self: *Engine, now_ns: u64) ?Result;
     /// New configuration: the cache is flushed and the sockets rebound, which is `ares_reinit`.
-    pub fn reinit(self: *Engine, config: *const Config, hosts: ?*const Hosts, now_ns: u64) Error!void;
+    pub fn reinit(self: *Engine, config: *const Config, seed: u64, now_ns: u64) Error!void;
 };
 
 pub const Result = struct {
@@ -2858,6 +2935,7 @@ cache hits).
 | `rdata_bytes_max` | 2048 | one UDP payload of 1232 plus room for the names decompressed on the way in; `truncated` says when a TCP answer did not fit |
 | `cookie_client_bytes` | 8 | RFC 7873 §4 |
 | `cookie_server_bytes_max` | 32 | RFC 7873 §4 |
+| `cookie_silence_ns` | 5 min | RFC 9018 §3: a server that answered a client cookie without one is sent none for "a certain period (for example, five minutes)"; added on 2026-10-08 (c4milo/cocuyo#36) |
 | `opt_record_bytes` | 11 to 55 | the OPT record with a COOKIE option carrying the largest server cookie |
 | `query_bytes_max` | 284 to 328 | follows from it |
 | `hosts_entries_max` | 1024 | more lines than a machine that is not a blocklist has; past it, dropped and said so |

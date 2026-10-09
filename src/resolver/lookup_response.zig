@@ -20,6 +20,7 @@ const lookup_module = @import("lookup.zig");
 const Lookup = lookup_module.Lookup;
 const Verdict = lookup_module.Verdict;
 const policy = @import("lookup_policy.zig");
+const cookies = @import("lookup_cookie.zig");
 
 pub fn on_response(self: *Lookup, message: []const u8, from: Endpoint, now_ns: u64) Verdict {
     self.see(now_ns);
@@ -84,10 +85,10 @@ pub fn accepted_shape(
     //    (RFC 5452 §9.1, §9.2).
     if (header.qdcount != 1) return null;
     if (!wire.question.matches(message, cased, self.question.kind)) return null;
-    // 6. The cookie (RFC 7873 §5.3): the client cookie must be the one this lookup sent, and a
-    //    server that has given a server cookie before must give one again.
+    // 6. The cookie (RFC 7873 §5.3): the client cookie must be the one this lookup's query
+    //    carried, and a server that has given a server cookie must give one again.
     const opt = opt_of(message, cased) orelse return null;
-    if (!cookie_accepted(self, opt.cookie)) return null;
+    if (!cookies.accepted(self, opt.cookie)) return null;
     return .{ .header = header, .cookie = opt.cookie, .extended_rcode_high = opt.extended_rcode_high };
 }
 
@@ -104,26 +105,6 @@ fn opt_of(message: []const u8, cased: *const core.Name) ?OptFields {
     return .{ .cookie = cookie, .extended_rcode_high = opt.extended_rcode_high };
 }
 
-/// A wrong client cookie is a discard, and so is a missing option once this server has given a
-/// server cookie (RFC 7873 §5.3). Before that, a response with no cookie is a server without
-/// them, and it stands. A lookup that sent no OPT record expects nothing back.
-fn cookie_accepted(self: *const Lookup, cookie: ?wire.CookieView) bool {
-    if (!self.carries_cookie()) return true;
-    const mine = self.servers.state(self.server_slot());
-    if (cookie) |view| return std.mem.eql(u8, view.client, &mine.cookie_client);
-    return !self.servers.expecting(self.server_slot());
-}
-
-/// Caches the server cookie a response carried, even an error response (RFC 7873 §5.3). The
-/// client cookie beside it was checked already.
-fn learn_cookie(self: *Lookup, cookie: ?wire.CookieView) void {
-    if (!self.carries_cookie()) return;
-    const view = cookie orelse return;
-    if (view.server.len == 0) return;
-    self.servers.learn(self.server_slot(), view.server);
-    assert(self.servers.expecting(self.server_slot()));
-}
-
 pub fn apply(
     self: *Lookup,
     message: []const u8,
@@ -132,6 +113,9 @@ pub fn apply(
     now_ns: u64,
 ) Verdict {
     const header = accepted.header;
+    // The checks of §7 passed, the cookie's among them, so the server cookie is cached whatever
+    // the lookup makes of the rest: an error, or a response it ignores (RFC 7873 §5.3).
+    cookies.learn(self, accepted.cookie);
     // Truncation over UDP sends this server's answer to TCP. Over a stream it sends the lookup
     // nowhere: a stream's limit is 65535 octets (RFC 9250 §4.6), and there is no larger channel
     // to ask over. No RFC says what a client does with TC there: cocuyo reads the message
@@ -172,27 +156,40 @@ pub fn apply(
     return .accepted;
 }
 
-/// BADCOOKIE (RFC 7873 §5.3): once more with the server cookie just learned, then over TCP, and
-/// a server that answers BADCOOKIE over TCP as well is one that will not answer at all.
+/// BADCOOKIE (RFC 7873 §5.3): once more with the server cookie just learned, on the transport the
+/// lookup is on, which is the server's one retry. Again over UDP, then over TCP; again over a
+/// stream, the server will not answer at all (docs/design.md §5, §19 step 10).
 fn on_bad_cookie(self: *Lookup, now_ns: u64) void {
-    if (over_stream(self)) {
+    if (bad_cookie_fails(self)) {
         self.next_server(now_ns);
+    } else if (over_stream(self)) {
+        // "The client SHOULD retry the request using the new Server Cookie from the response"
+        // (RFC 7873 §5.3): a new transaction, on the stream.
+        self.flags.cookie_retried = true;
+        self.restart(now_ns);
+        self.state = .tcp_needed;
     } else if (self.flags.cookie_retried) {
         self.state = .tcp_needed;
     } else {
         self.flags.cookie_retried = true;
         self.restart(now_ns);
     }
-    assert(self.state != .awaiting_udp);
+    assert(self.state != .awaiting_udp and self.state != .awaiting_tcp);
 }
 
-/// What an accepted answer says of the server that sent it (docs/design.md §19 step 12). One that
-/// marks the server's failure counts against it, as a timeout does, and any other is the server
-/// up. Its server cookie is cached whatever its rcode (RFC 7873 §5.3). Called before the lookup
-/// moves on, while the current server is still the one that answered. A response the lookup
-/// ignores is taken as never received (§16 decision 10) and never comes here, so it teaches no
-/// cookie: a departure from RFC 7873 §5.3, which caches the server cookie of any response whose
-/// client cookie is right, before the rest of it is read.
+/// Whether BADCOOKIE fails the lookup over: over a stream once the server has had its retry, and
+/// over DoH or DoQ, where the query carried no cookie, so there is no fresh one to retry with.
+fn bad_cookie_fails(self: *const Lookup) bool {
+    assert(!self.is_settled());
+    return over_stream(self) and (self.flags.cookie_retried or self.config.sends_requests());
+}
+
+/// What an answer the lookup takes says of the server that sent it (docs/design.md §19 step 12).
+/// One that marks the server's failure counts against it, as a timeout does, and any other is the
+/// server up. Its lack of a COOKIE option can start the server's silence (RFC 9018 §3,
+/// `lookup_cookie.zig`). Called before the lookup moves on, while the current server is still
+/// the one that answered. A response the lookup ignores is taken as never received (§16 decision
+/// 10) and never comes here. Its server cookie was cached all the same, by `apply`.
 fn heard(self: *Lookup, cookie: ?wire.CookieView, failed: bool, now_ns: u64) void {
     assert(!self.is_settled());
     const slot = self.server_slot();
@@ -202,16 +199,17 @@ fn heard(self: *Lookup, cookie: ?wire.CookieView, failed: bool, now_ns: u64) voi
     } else {
         self.servers.record_success(slot);
     }
-    learn_cookie(self, cookie);
+    cookies.silence_if_missing(self, cookie, now_ns);
     assert(failed == (self.servers.failures(slot) > 0));
 }
 
 /// Whether an rcode's action is the server failing the lookup: SERVFAIL, REFUSED, NOTIMP and
-/// BADVERS while `check_response` is on, FORMERR without EDNS0, and BADCOOKIE over a stream, the
-/// transport a repeated BADCOOKIE is retried on (RFC 7873 §5.3).
+/// BADVERS while `check_response` is on, FORMERR without EDNS0, and a BADCOOKIE that fails the
+/// lookup over. One with a retry left is not: it has the fresh server cookie, or TCP, to try
+/// (RFC 7873 §5.3).
 fn fails_server(self: *const Lookup, action: policy.RcodeAction) bool {
     assert(action != .collect);
-    return action == .next_server or (action == .retry_with_cookie and over_stream(self));
+    return action == .next_server or (action == .retry_with_cookie and bad_cookie_fails(self));
 }
 
 /// Whether the answer is read as one over a stream: it came over TCP, or over DoH or DoQ, where

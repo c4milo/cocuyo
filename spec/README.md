@@ -61,7 +61,9 @@ would agree with the code by construction and prove nothing about it.
   BADCOOKIE.
 - The server order of §19 step 12. The model counts a position in the order, which is what the
   lookup's `server_index` is.
-- Entropy, the cookies' values and the answers' records.
+- Entropy, the cookies' values and the answers' records. Which COOKIE option a query carries,
+  none, a fresh client cookie or the server's pair, and a server's silence (docs/design.md §19
+  step 10) change no transition: a response that check 6 refuses is an unmatched reply.
 - Every TTL: a record's, the negative TTL of RFC 2308 §5, and the bounds the CNAME chain and the
   search walk put on what a lookup ends with (docs/design.md §5). They change no transition.
 - What a poll handed out and the caller has not answered yet. The model keeps it to know when
@@ -77,8 +79,11 @@ would agree with the code by construction and prove nothing about it.
 none, one, two or three servers, one to three passes and one to three names, over UDP, under
 `use_tcp`, over DoH, or over DoQ. It tries every enabled event in every state and writes one line
 per transition, with the model's answer and its whole state after it. A state reached a second
-time is written but not walked again, so each transition appears once, 2,237,654 of them in all,
-168 deep at most.
+time is written but not walked again, so each transition appears once, 2,680,454 of them in all,
+173 deep at most. On 2026-10-08 a first BADCOOKIE over a stream became a retry on the stream with
+the fresh server cookie (docs/design.md §5, §19 step 10; c4milo/cocuyo#36), where before it
+advanced the server. The retry reaches states the walk did not reach before: the transcript held
+2,237,654 transitions, 168 deep, and the slice below 3,694.
 
 `tools/spec_replay/replay.zig` drives `Lookup` down the same tree. It builds each reply around the
 question the lookup is asking, and it compares the answer and the state after every event: the
@@ -468,7 +473,7 @@ compares the walk's whole state after each.
 
 ## Running it
 
-- `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 3,694
+- `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 4,414
   transitions: one server, one pass and one name, over UDP, over TCP, over DoH and over DoQ. It also
   replays two sets of engine walks TLC wrote. `tools/spec_replay/engine_gate.txt` holds ten walks
   of forty events in each of the twelve engine configurations.

@@ -230,8 +230,9 @@ engine over plain DNS, DNS over TLS, over QUIC and over HTTPS. The
 [build and test](#build-and-test) table has the command for each.
 
 > **The seed must come from a cryptographically secure random source, never from the clock.**
-> cocuyo draws the transaction id, the source-port hint and the DNS-0x20 case pattern from it. A
-> guessable seed makes a guessable query, and a guessable query can be spoofed.
+> cocuyo draws the transaction id, the source-port hint, the DNS-0x20 case pattern and the DNS
+> client cookie from it. A guessable seed makes a guessable query, and a guessable query can be
+> spoofed.
 
 ## Security
 
@@ -243,12 +244,22 @@ hold, checked in this order:
 3. It came from the address and port the query went to.
 4. It is a response to a standard query.
 5. Its question is byte-identical to the one sent, letter case included.
-6. Its DNS cookie matches, when the query carried one (RFC 7873).
+6. Its DNS cookie matches the one its query carried, when it carried one (RFC 7873).
 
 Only then is the answer read. Three sources of entropy defend each query against spoofing: a 16-bit
 transaction id, the random letter case of DNS-0x20, and a source port. cocuyo owns no socket, so it
 cannot bind a port; it suggests one. **A caller that sends every query from one socket keeps the id
 and case entropy and loses the port entropy.**
+
+A query carries a client cookie of its own until the server answers it with a server cookie; from
+then on it carries the two together. A server that answers without cookies is sent none for five
+minutes, then a fresh client cookie (RFC 9018 §3). cocuyo does not see a change of your address:
+it binds no socket. **When your address changes, call the engine's `reinit`, or build a new
+`Servers` table, with a new seed from a CSPRNG.** The seed must be new: given the same one,
+`reinit` draws the same fresh client cookies again, cookies those servers have already seen,
+which RFC 9018 §3 and §8.1 forbid. `reinit` needs the engine idle, so call `cancel_all` and take
+the failures first. Either way every server cookie is forgotten, so no cookie outlives the
+address it was used from, as RFC 9018 §3 requires.
 
 The parser checks every length against the end of the message before reading, never recurses, and
 never trusts a count field: a sender's claim of how many records follow is checked, not obeyed. A

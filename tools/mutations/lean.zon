@@ -74,4 +74,31 @@
         },
         .caught_by = .{ .step = "spec-lean" },
     },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO22",
+        .what = "the model advances the server at a first BADCOOKIE over a stream, as before #36",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "      if c.request || s.cookieRetried then (advanceServer c { s with serverFailed := true }, .accepted)", .new = "      if c.request || s.cookieRetried || stream then (advanceServer c { s with serverFailed := true }, .accepted)" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO23",
+        .what = "the model retries a BADCOOKIE over DoH or DoQ on a stream",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "      if c.request || s.cookieRetried then (advanceServer c { s with serverFailed := true }, .accepted)", .new = "      if s.cookieRetried then (advanceServer c { s with serverFailed := true }, .accepted)" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO24",
+        .what = "the model's retry over a stream does not spend the server's retry",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "      else ({ s with cookieRetried := true, stage := .tcpNeeded }, .accepted)", .new = "      else ({ s with stage := .tcpNeeded }, .accepted)" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
 }

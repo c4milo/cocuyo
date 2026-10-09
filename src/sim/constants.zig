@@ -87,7 +87,7 @@ pub const answer_v6_prefix = [_]u8{ 0x20, 0x01, 0x0d, 0xb8 };
 /// The default TTL of a scripted answer.
 pub const answer_ttl_seconds = 300;
 
-/// The server cookie every scripted server hands out, sixteen octets as RFC 9018 §3 has it.
+/// The server cookie every scripted server hands out, sixteen octets as RFC 9018 §4 has it.
 pub const server_cookie_bytes = 16;
 
 /// The most octets one scripted stream reply is split into per delivery, at the least: a chunk

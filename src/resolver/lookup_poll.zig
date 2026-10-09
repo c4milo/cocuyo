@@ -12,6 +12,7 @@ const Lookup = lookup_module.Lookup;
 const Action = lookup_module.Action;
 const policy = @import("lookup_policy.zig");
 const lookup_order = @import("lookup_order.zig");
+const cookies = @import("lookup_cookie.zig");
 
 pub fn poll(self: *Lookup, now_ns: u64, out: []u8) Action {
     self.see(now_ns);
@@ -23,9 +24,9 @@ pub fn poll(self: *Lookup, now_ns: u64, out: []u8) Action {
         self.next_server(now_ns);
     }
     return switch (self.state) {
-        .query_ready => if (self.config.sends_requests()) send_request(self, out) else send_udp(self, out),
+        .query_ready => if (self.config.sends_requests()) send_request(self, now_ns, out) else send_udp(self, now_ns, out),
         .tcp_needed => connect_tcp(self, now_ns),
-        .tcp_ready => send_tcp(self, out),
+        .tcp_ready => send_tcp(self, now_ns, out),
         .awaiting_udp, .awaiting_tcp, .connecting_tcp => .{ .wait = self.deadline_ns },
         .done => .{ .done = self.answer() },
         .failed => .{ .failed = self.failure_of() },
@@ -38,9 +39,9 @@ fn expired(self: *const Lookup, now_ns: u64) bool {
     return self.is_waiting() and now_ns >= self.deadline_ns;
 }
 
-fn send_udp(self: *Lookup, out: []u8) Action {
+fn send_udp(self: *Lookup, now_ns: u64, out: []u8) Action {
     assert(self.state == .query_ready);
-    const message_bytes = build(self, false, out);
+    const message_bytes = build(self, false, now_ns, out);
     assert(message_bytes.len <= core.constants.query_bytes_max);
     return .{ .send_udp = .{
         .server = self.server(),
@@ -52,10 +53,10 @@ fn send_udp(self: *Lookup, out: []u8) Action {
 /// One request: over DoH an HTTP request carrying the message a datagram would, over DoQ a QUIC
 /// stream carrying it after the length prefix every DoQ message has (RFC 9250 §4.2; docs/design.md
 /// §22, §23).
-fn send_request(self: *Lookup, out: []u8) Action {
+fn send_request(self: *Lookup, now_ns: u64, out: []u8) Action {
     assert(self.state == .query_ready);
     const prefixed = self.config.uses_quic();
-    const message_bytes = build(self, prefixed, out);
+    const message_bytes = build(self, prefixed, now_ns, out);
     assert(prefixed or message_bytes.len <= core.constants.query_bytes_max - core.constants.tcp_prefix_bytes);
     return .{ .send_request = .{
         .server_index = self.server_slot(),
@@ -72,16 +73,18 @@ fn connect_tcp(self: *Lookup, now_ns: u64) Action {
     return .{ .connect_tcp = self.server_tcp() };
 }
 
-fn send_tcp(self: *Lookup, out: []u8) Action {
+fn send_tcp(self: *Lookup, now_ns: u64, out: []u8) Action {
     assert(self.state == .tcp_ready);
-    const message_bytes = build(self, true, out);
+    const message_bytes = build(self, true, now_ns, out);
     assert(message_bytes.len > core.constants.tcp_prefix_bytes);
     return .{ .send_tcp = .{ .message_bytes = message_bytes } };
 }
 
-/// Builds the query into the caller's buffer. Everything that varies is state, so the same lookup
-/// in the same state builds the same octets every time (docs/design.md §16 decision 3).
-fn build(self: *const Lookup, tcp: bool, out: []u8) []const u8 {
+/// Builds the query into the caller's buffer, and records the cookie it carries for check 6
+/// (`lookup_cookie.zig`). Everything that varies is state, the lookup's and its server's cookies
+/// at `now_ns`, so the same lookup in the same state builds the same octets every time
+/// (docs/design.md §16 decision 3).
+fn build(self: *Lookup, tcp: bool, now_ns: u64, out: []u8) []const u8 {
     const query: wire.Query = .{
         // A DoH client "SHOULD use a DNS ID of 0 in every DNS request" (RFC 8484 §4.1), so an
         // HTTP cache can share the answer, and over DoQ "the DNS Message ID MUST be set to 0"
@@ -91,7 +94,7 @@ fn build(self: *const Lookup, tcp: bool, out: []u8) []const u8 {
         .kind = self.question.kind,
         .payload_bytes = if (self.flags.edns_enabled) self.config.udp_payload_bytes else null,
         .tcp = tcp,
-        .cookie = if (self.carries_cookie()) self.servers.cookie(self.server_slot()) else null,
+        .cookie = cookies.query_cookie(self, now_ns, tcp),
         .recursion_desired = self.config.recursion_desired,
         // A query to a TLS, HTTPS or QUIC server goes encrypted, and padding is for that alone
         // (RFC 7830 §6, RFC 9250 §5.4, docs/design.md §21 to §23).

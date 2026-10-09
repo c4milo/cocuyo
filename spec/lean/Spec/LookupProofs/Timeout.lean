@@ -81,7 +81,9 @@ theorem marked_onReply (c : Config) (s : State) (stream : Bool) (r : Reply) (m :
   | badcookie =>
     simp only [onReply]
     split
-    · exact hadv _ rfl
+    · split
+      · exact hadv _ rfl
+      · exact ⟨h, fun hf => absurd hf (by simp)⟩
     · split
       · exact ⟨h, fun hf => absurd hf (by simp)⟩
       · exact ⟨h, fun hf => absurd hf (fresh_ne_failed c)⟩

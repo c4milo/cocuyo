@@ -396,7 +396,7 @@
         .id = "DH18",
         .what = "a lookup over DoH asks for a datagram",
         .edits = .{
-            .{ .file = "src/resolver/lookup_poll.zig", .old = "        .query_ready => if (self.config.sends_requests()) send_request(self, out) else send_udp(self, out),", .new = "        .query_ready => send_udp(self, out)," },
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        .query_ready => if (self.config.sends_requests()) send_request(self, now_ns, out) else send_udp(self, now_ns, out),", .new = "        .query_ready => send_udp(self, now_ns, out)," },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -504,7 +504,7 @@
         .id = "QU9",
         .what = "a lookup over DoQ asks for a datagram",
         .edits = .{
-            .{ .file = "src/resolver/lookup_poll.zig", .old = ".query_ready => if (self.config.sends_requests()) send_request(self, out) else send_udp(self, out),", .new = ".query_ready => if (self.config.uses_https()) send_request(self, out) else send_udp(self, out)," },
+            .{ .file = "src/resolver/lookup_poll.zig", .old = ".query_ready => if (self.config.sends_requests()) send_request(self, now_ns, out) else send_udp(self, now_ns, out),", .new = ".query_ready => if (self.config.uses_https()) send_request(self, now_ns, out) else send_udp(self, now_ns, out)," },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -776,7 +776,7 @@
         .id = "FR1",
         .what = "SERVFAIL, REFUSED, NOTIMP and BADVERS count as no failure at all: the count resets, and the lookup's failure goes unmarked",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    return action == .next_server or (action == .retry_with_cookie and over_stream(self));", .new = "    return action == .retry_with_cookie and over_stream(self);" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    return action == .next_server or (action == .retry_with_cookie and bad_cookie_fails(self));", .new = "    return action == .retry_with_cookie and bad_cookie_fails(self);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -785,7 +785,7 @@
         .id = "FR2",
         .what = "an answer that marks the server's failure records a success, and marks the lookup's failure still",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "        self.servers.record_failure(slot, now_ns);\n        self.flags.had_server_failure = true;", .new = "        self.servers.record_success(slot);\n        _ = now_ns;\n        self.flags.had_server_failure = true;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        self.servers.record_failure(slot, now_ns);\n        self.flags.had_server_failure = true;", .new = "        self.servers.record_success(slot);\n        self.flags.had_server_failure = true;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -794,7 +794,7 @@
         .id = "FR3",
         .what = "an answer's failure is recorded at instant zero, not the instant it came",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "        self.servers.record_failure(slot, now_ns);\n        self.flags.had_server_failure = true;", .new = "        self.servers.record_failure(slot, 0);\n        _ = now_ns;\n        self.flags.had_server_failure = true;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        self.servers.record_failure(slot, now_ns);\n        self.flags.had_server_failure = true;", .new = "        self.servers.record_failure(slot, 0);\n        self.flags.had_server_failure = true;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -803,16 +803,16 @@
         .id = "FR4",
         .what = "an answer that marks no failure leaves the count as it stood",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    } else {\n        self.servers.record_success(slot);\n    }\n    learn_cookie(self, cookie);", .new = "    }\n    learn_cookie(self, cookie);" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    } else {\n        self.servers.record_success(slot);\n    }\n    cookies.silence_if_missing(self, cookie, now_ns);", .new = "    }\n    cookies.silence_if_missing(self, cookie, now_ns);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
     .{
         .section = "SERVFAIL, REFUSED and NOTIMP counted against the server",
         .id = "FR5",
-        .what = "BADCOOKIE over a stream resets the count",
+        .what = "BADCOOKIE over a stream that fails the lookup over resets the count",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    return action == .next_server or (action == .retry_with_cookie and over_stream(self));", .new = "    _ = self;\n    return action == .next_server;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    return action == .next_server or (action == .retry_with_cookie and bad_cookie_fails(self));", .new = "    _ = self;\n    return action == .next_server;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -821,7 +821,7 @@
         .id = "FR6",
         .what = "BADCOOKIE over UDP, which has TCP left to try, counts against the server",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    return action == .next_server or (action == .retry_with_cookie and over_stream(self));", .new = "    _ = self;\n    return action == .next_server or action == .retry_with_cookie;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    return action == .next_server or (action == .retry_with_cookie and bad_cookie_fails(self));", .new = "    _ = self;\n    return action == .next_server or action == .retry_with_cookie;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -830,14 +830,14 @@
         .id = "FR7",
         .what = "FORMERR from a server asked with EDNS0, which has EDNS0 left to drop, counts against it",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    return action == .next_server or (action == .retry_with_cookie and over_stream(self));", .new = "    return action == .next_server or action == .retry_without_edns or (action == .retry_with_cookie and over_stream(self));" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    return action == .next_server or (action == .retry_with_cookie and bad_cookie_fails(self));", .new = "    return action == .next_server or action == .retry_without_edns or (action == .retry_with_cookie and bad_cookie_fails(self));" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
     .{
         .section = "SERVFAIL, REFUSED and NOTIMP counted against the server",
         .id = "FR8",
-        .what = "a response ignored for an rcode cocuyo does not know resets the count and teaches its cookie",
+        .what = "a response ignored for an rcode cocuyo does not know resets the count, and without a COOKIE option starts the silence",
         .edits = .{
             .{ .file = "src/resolver/lookup_response.zig", .old = "    const rcode = wire.Rcode.from_bits(bits) orelse return .ignored;", .new = "    const rcode = wire.Rcode.from_bits(bits) orelse {\n        heard(self, accepted.cookie, false, now_ns);\n        return .ignored;\n    };" },
         },
@@ -846,7 +846,7 @@
     .{
         .section = "SERVFAIL, REFUSED and NOTIMP counted against the server",
         .id = "FR9",
-        .what = "a response ignored for a malformed answer section resets the count and teaches its cookie",
+        .what = "a response ignored for a malformed answer section resets the count, and without a COOKIE option starts the silence",
         .edits = .{
             .{ .file = "src/resolver/lookup_response.zig", .old = "            return .accepted;\n        }\n        return .ignored;\n    };", .new = "            return .accepted;\n        }\n        heard(self, accepted.cookie, false, now_ns);\n        return .ignored;\n    };" },
         },
@@ -876,6 +876,291 @@
         .what = "a truncated answer over UDP leaves the count as it stood",
         .edits = .{
             .{ .file = "src/resolver/lookup_response.zig", .old = "        heard(self, accepted.cookie, false, now_ns);\n        self.state = .tcp_needed;", .new = "        self.state = .tcp_needed;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO1",
+        .what = "a fresh client cookie leaves out the transaction's draw, so a server sees one cookie on every query",
+        .edits = .{
+            .{ .file = "src/resolver/servers.zig", .old = "        return client_cookie(self.secret ^ draw, endpoint, stream);", .new = "        _ = draw;\n        return client_cookie(self.secret, endpoint, stream);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO2",
+        .what = "every transaction draws the same cookie entropy",
+        .edits = .{
+            .{ .file = "src/resolver/entropy.zig", .old = "            .cookie_seed = self.next(),", .new = "            .cookie_seed = 0," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO3",
+        .what = "a fresh client cookie leaves out whether the query goes over a stream, so the TCP query after TC=1 repeats the UDP one's",
+        .edits = .{
+            .{ .file = "src/resolver/servers.zig", .old = "    word = core.mix.next(word ^ @intFromBool(stream));", .new = "    _ = stream;\n    word = core.mix.next(word);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO4",
+        .what = "a fresh client cookie leaves out the server's address",
+        .edits = .{
+            .{ .file = "src/resolver/servers.zig", .old = "        word = core.mix.next(word ^ chunk);", .new = "        word = core.mix.next(word ^ chunk * 0);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO5",
+        .what = "check 6 compares the client cookie with the server's pair, not the one the query carried",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_cookie.zig", .old = "    if (cookie) |view| return std.mem.eql(u8, view.client, &self.cookie_client);", .new = "    if (cookie) |view| return std.mem.eql(u8, view.client, &self.servers.state(self.server_slot()).cookie_client);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO6",
+        .what = "a query that carries the pair records the client cookie it carried before",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_cookie.zig", .old = "            self.cookie_client = pair.client;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO7",
+        .what = "the pair keeps a client cookie the server cookie did not answer",
+        .edits = .{
+            .{ .file = "src/resolver/servers.zig", .old = "        entry.cookie_client = client.*;\n", .new = "        _ = client;\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO8",
+        .what = "a later server cookie is not learned once a pair is kept",
+        .edits = .{
+            .{ .file = "src/resolver/servers.zig", .old = "        const entry = &self.states[index];\n        entry.cookie_client = client.*;", .new = "        const entry = &self.states[index];\n        if (entry.cookie_server_len > 0) return;\n        entry.cookie_client = client.*;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO9",
+        .what = "a response without a COOKIE option to a fresh cookie stands once the server has given a cookie since",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_cookie.zig", .old = "    return self.cookie_form == .fresh and !self.servers.expecting(self.server_slot());", .new = "    return self.cookie_form == .fresh;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO10",
+        .what = "a query that carried no COOKIE option checks the response's",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_cookie.zig", .old = "pub fn accepted(self: *const Lookup, cookie: ?wire.CookieView) bool {\n    if (self.cookie_form == .none) return true;\n", .new = "pub fn accepted(self: *const Lookup, cookie: ?wire.CookieView) bool {\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO11",
+        .what = "a query that carried no COOKIE option learns the response's",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_cookie.zig", .old = "    assert(accepted(self, cookie));\n    if (self.cookie_form == .none) return;\n", .new = "    assert(accepted(self, cookie));\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO12",
+        .what = "a server that answers a fresh cookie without one is never silenced",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_cookie.zig", .old = "    if (cookie != null or self.cookie_form != .fresh) return;", .new = "    if (true) return;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO13",
+        .what = "a query through the silence carries a fresh cookie all the same",
+        .edits = .{
+            .{ .file = "src/resolver/servers.zig", .old = "        if (now_ns < entry.cookie_silent_until_ns) return .none;", .new = "        if (false and now_ns < entry.cookie_silent_until_ns) return .none;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO14",
+        .what = "the silence lasts half of `cookie_silence_ns`",
+        .edits = .{
+            .{ .file = "src/resolver/servers.zig", .old = "        entry.cookie_silent_until_ns = now_ns +| constants.cookie_silence_ns;", .new = "        entry.cookie_silent_until_ns = now_ns +| constants.cookie_silence_ns / 2;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO15",
+        .what = "the silence outranks a pair learned through it",
+        .edits = .{
+            .{ .file = "src/resolver/servers.zig", .old = "        if (entry.cookie_server_len > 0) return .paired;", .new = "        if (now_ns < entry.cookie_silent_until_ns) return .none;\n        if (entry.cookie_server_len > 0) return .paired;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO16",
+        .what = "a first BADCOOKIE over a stream advances the server, as before #36",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    return over_stream(self) and (self.flags.cookie_retried or self.config.sends_requests());", .new = "    return over_stream(self);" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO17",
+        .what = "the retry of a BADCOOKIE over the TCP truncation led to goes back to UDP",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        self.restart(now_ns);\n        self.state = .tcp_needed;\n", .new = "        self.restart(now_ns);\n" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO18",
+        .what = "the retry over a stream does not spend the server's retry",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        // (RFC 7873 §5.3): a new transaction, on the stream.\n        self.flags.cookie_retried = true;\n", .new = "        // (RFC 7873 §5.3): a new transaction, on the stream.\n" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO19",
+        .what = "the retry over a stream keeps its transaction",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        self.flags.cookie_retried = true;\n        self.restart(now_ns);\n        self.state = .tcp_needed;", .new = "        self.flags.cookie_retried = true;\n        self.state = .tcp_needed;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO20",
+        .what = "BADCOOKIE over DoH or DoQ, where no cookie went, is retried",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    return over_stream(self) and (self.flags.cookie_retried or self.config.sends_requests());", .new = "    return over_stream(self) and self.flags.cookie_retried;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO21",
+        .what = "the retry over a stream counts against the server",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    return action == .next_server or (action == .retry_with_cookie and bad_cookie_fails(self));", .new = "    return action == .next_server or (action == .retry_with_cookie and over_stream(self));" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO25",
+        .what = "a response's client cookie is accepted whatever it is, its check now in `lookup_cookie.zig`",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_cookie.zig", .old = "    if (cookie) |view| return std.mem.eql(u8, view.client, &self.cookie_client);", .new = "    if (cookie != null) return true;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO26",
+        .what = "a server cookie is never learned, its learning now in `lookup_cookie.zig`",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_cookie.zig", .old = "    self.servers.learn(slot, &self.cookie_client, view.server);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A fresh client cookie until a server cookie pairs with it",
+        .id = "CO27",
+        .what = "a response without a COOKIE option to a fresh cookie is a discard before the server has given one",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_cookie.zig", .old = "    return self.cookie_form == .fresh and !self.servers.expecting(self.server_slot());", .new = "    return false;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "What a response teaches of cookies, after review",
+        .id = "CO28",
+        .what = "an ignored response teaches no server cookie: the cookie is learned only from an answer the lookup takes, as #37 had it",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    // the lookup makes of the rest: an error, or a response it ignores (RFC 7873 §5.3).\n    cookies.learn(self, accepted.cookie);\n", .new = "    // the lookup makes of the rest: an error, or a response it ignores (RFC 7873 §5.3).\n" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    cookies.silence_if_missing(self, cookie, now_ns);", .new = "    cookies.learn(self, cookie);\n    cookies.silence_if_missing(self, cookie, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "What a response teaches of cookies, after review",
+        .id = "CO29",
+        .what = "a response ignored for an rcode cocuyo does not know teaches no server cookie",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    cookies.learn(self, accepted.cookie);\n    // Truncation over UDP", .new = "    const known = wire.Rcode.from_bits((@as(u16, accepted.extended_rcode_high) << wire.constants.extended_rcode_low_bits) | header.rcode_bits()) != null;\n    if (known) cookies.learn(self, accepted.cookie);\n    // Truncation over UDP" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "What a response teaches of cookies, after review",
+        .id = "CO30",
+        .what = "a response ignored for a malformed answer section teaches no server cookie: the cookie of an answer to collect waits for its answer section",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    cookies.learn(self, accepted.cookie);\n    // Truncation over UDP", .new = "    // Truncation over UDP" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        heard(self, accepted.cookie, false, now_ns);\n        self.state = .tcp_needed;", .new = "        cookies.learn(self, accepted.cookie);\n        heard(self, accepted.cookie, false, now_ns);\n        self.state = .tcp_needed;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    const rcode = wire.Rcode.from_bits(bits) orelse return .ignored;", .new = "    const rcode = wire.Rcode.from_bits(bits) orelse {\n        cookies.learn(self, accepted.cookie);\n        return .ignored;\n    };" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    heard(self, accepted.cookie, fails_server(self, action), now_ns);", .new = "    cookies.learn(self, accepted.cookie);\n    heard(self, accepted.cookie, fails_server(self, action), now_ns);" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            heard(self, accepted.cookie, false, now_ns);\n            self.fail(core.Error.ChainTooLong);", .new = "            cookies.learn(self, accepted.cookie);\n            heard(self, accepted.cookie, false, now_ns);\n            self.fail(core.Error.ChainTooLong);" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    heard(self, accepted.cookie, false, now_ns);\n    // A name the chain moved to", .new = "    cookies.learn(self, accepted.cookie);\n    heard(self, accepted.cookie, false, now_ns);\n    // A name the chain moved to" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "What a response teaches of cookies, after review",
+        .id = "CO31",
+        .what = "an ignored response without a COOKIE option starts the silence",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    cookies.learn(self, accepted.cookie);\n    // Truncation over UDP", .new = "    cookies.learn(self, accepted.cookie);\n    cookies.silence_if_missing(self, accepted.cookie, now_ns);\n    // Truncation over UDP" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "What a response teaches of cookies, after review",
+        .id = "CO32",
+        .what = "a client cookie echoed alone, with no server cookie, is learned as a pair",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_cookie.zig", .old = "    if (view.server.len == 0) return;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "What a response teaches of cookies, after review",
+        .id = "CO33",
+        .what = "a response that carries a COOKIE option starts the silence too",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_cookie.zig", .old = "    if (cookie != null or self.cookie_form != .fresh) return;", .new = "    if (self.cookie_form != .fresh) return;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "What a response teaches of cookies, after review",
+        .id = "CO34",
+        .what = "a response to a query that carried no COOKIE option starts the silence, or moves its end",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_cookie.zig", .old = "    if (cookie != null or self.cookie_form != .fresh) return;", .new = "    if (cookie != null) return;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },

@@ -44,6 +44,9 @@ const stray_id_first = 0xfeed;
 /// iteration. Sixty-four octets hold a header, a `l1023.example.` question and one A record.
 const rotating_reply_bytes = 64;
 
+/// The slot restore row's name, with the size of the `cocuyo.Slot` it copies.
+const slot_restore_name = std.fmt.comptimePrint("slot restore ({d}-octet copy)", .{@sizeOf(cocuyo.Slot)});
+
 pub const all = [_]Case{
     .{ .name = "harness overhead (empty call)", .iterations = iterations, .run = &noop },
     .{ .name = "query build, example.com, EDNS0", .iterations = iterations, .run = &run_query_build, .setup = &setup_queries },
@@ -59,7 +62,7 @@ pub const all = [_]Case{
     .{ .name = "datagram match, wrong question, 64 in flight", .iterations = iterations, .run = &run_match_wrong, .setup = &setup_table_medium },
     .{ .name = "datagram match, wrong question, 1024 in flight", .iterations = iterations, .run = &run_match_wrong, .setup = &setup_table_large },
     .{ .name = "datagram match, wrong question, rotating over 1024 slots", .iterations = iterations, .run = &run_match_rotating, .setup = &setup_rotation },
-    .{ .name = "slot restore (3048-octet copy)", .iterations = iterations, .run = &run_slot_restore, .setup = &setup_table_large },
+    .{ .name = slot_restore_name, .iterations = iterations, .run = &run_slot_restore, .setup = &setup_table_large },
     .{ .name = "datagram match, accepted, 1024 in flight (+ slot restore)", .iterations = iterations, .run = &run_match_accept, .setup = &setup_table_large },
     .{ .name = "lookup round trip: init in place, poll, on_sent, on_response", .iterations = iterations, .run = &run_round_trip, .setup = &setup_round_trip },
     .{ .name = "resolv.conf parse, three lines", .iterations = iterations, .run = &run_resolv_conf, .setup = &setup_resolv_conf },
@@ -315,13 +318,28 @@ var round_out: [cocuyo.constants.query_bytes_max]u8 = undefined;
 var round_servers: cocuyo.Servers = undefined;
 
 /// `init` from the same seed draws the same transaction every time, so one reply built at setup
-/// answers every iteration.
+/// answers every iteration. It echoes the client cookie that transaction draws, with a server
+/// cookie: the first iteration keeps the pair, and every later one carries it, as a query to a
+/// server with cookies does (docs/design.md §19 step 10).
 fn setup_round_trip() void {
     round_question = cocuyo.Question.from_text("example.com.", .a) catch unreachable;
     round_servers = cocuyo.Servers.init(&config, seed);
-    const initial = Lookup.init(&config, &round_servers, round_question, seed);
+    var initial = Lookup.init(&config, &round_servers, round_question, seed);
+    _ = initial.poll(now_ns, &round_out);
     const cased = initial.cased_name();
     round_reply_len = build_reply(&round_reply, initial.transaction.id, &cased);
+    round_reply_len += with_cookie(&round_reply, round_reply_len, &initial.cookie_client);
+}
+
+/// Appends an OPT record to the reply of `len` octets in `out`, with a COOKIE option that echoes
+/// `client` beside a server cookie, and counts it in the header. Returns the octets appended.
+fn with_cookie(out: []u8, len: usize, client: *const [cocuyo.constants.cookie_client_bytes]u8) usize {
+    var cookie: wire.Cookie = .{ .client = client.*, .server = @splat(0), .server_len = fixtures.cookie_server.len };
+    @memcpy(cookie.server[0..fixtures.cookie_server.len], &fixtures.cookie_server);
+    var header = wire.header.parse(out[0..len]) catch unreachable;
+    header.arcount += 1;
+    wire.header.write(&header, out);
+    return wire.edns.write(cocuyo.constants.udp_payload_bytes_default, &cookie, out[len..]);
 }
 
 fn run_round_trip() void {

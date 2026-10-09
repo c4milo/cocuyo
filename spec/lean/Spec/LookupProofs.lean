@@ -92,7 +92,9 @@ theorem onReply_noUdp (c : Config) (s : State) (stream : Bool) (r : Reply) (h : 
   | badcookie =>
     simp only [onReply]
     split
-    · exact ⟨hadv _, by simp⟩
+    · split
+      · exact ⟨hadv _, by simp⟩
+      · exact ⟨by simp [NoUdp], by simp⟩
     · split
       · exact ⟨by simp [NoUdp], by simp⟩
       · exact ⟨by simp [NoUdp, fresh, h], by simp⟩
@@ -160,8 +162,9 @@ theorem poll_request (c : Config) (s : State) (hh : c.request = true) (inv : NoS
   unfold poll NoStream NotPlain
   cases hs : s.stage <;> simp_all
 
-theorem onReply_noStream (c : Config) (s : State) (r : Reply) (h : c.useTcp = false)
-    (inv : NoStream s) : NoStream (onReply c s true r).1 ∧ NotPlain (onReply c s true r).2 := by
+theorem onReply_noStream (c : Config) (s : State) (r : Reply) (hh : c.request = true)
+    (h : c.useTcp = false) (inv : NoStream s) :
+    NoStream (onReply c s true r).1 ∧ NotPlain (onReply c s true r).2 := by
   have hadv : ∀ t, NoStream (advanceServer c t) :=
     fun t => noStream_of_stage c _ h (advanceServer_stage c t)
   have hnxt : ∀ t b, NoStream (nextCandidate c t b) :=
@@ -183,7 +186,12 @@ theorem onReply_noStream (c : Config) (s : State) (r : Reply) (h : c.useTcp = fa
     split
     · exact ⟨by simp [NoStream, fresh, h], by simp [NotPlain]⟩
     · exact ⟨hadv _, by simp [NotPlain]⟩
-  | badcookie => exact ⟨hadv _, by simp [onReply, NotPlain]⟩
+  -- No cookie went out, so there is none to retry with: the server has failed.
+  | badcookie =>
+    have e : onReply c s true .badcookie = (advanceServer c { s with serverFailed := true }, .accepted) := by
+      simp [onReply, hh]
+    rw [e]
+    exact ⟨hadv _, by simp [NotPlain]⟩
 
 /-- Over DoH or DoQ (docs/design.md §22, §23), a lookup never asks for a datagram, a connection
 or a stream's send, whatever the caller tells it: every query it makes is a request of its own. -/
@@ -221,7 +229,7 @@ theorem request_never_stream (c : Config) (s : State) (e : Event) (hh : c.reques
   | reply r =>
     cases hs : s.stage <;> simp only [step, hs]
     all_goals first
-      | (rw [hh]; exact onReply_noStream c s r ht keep)
+      | (rw [hh]; exact onReply_noStream c s r hh ht keep)
       | exact ⟨keep, ignored⟩
       | simp_all
   | cancel =>

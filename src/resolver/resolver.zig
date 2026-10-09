@@ -65,6 +65,7 @@ test {
     _ = @import("lookup_response.zig");
     _ = @import("fixtures.zig");
     _ = @import("lookup_records_test.zig");
+    _ = @import("lookup_cookie.zig");
     _ = @import("lookup_cookie_test.zig");
     _ = @import("lookup_chain_test.zig");
     _ = @import("lookup_request.zig");

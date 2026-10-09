@@ -90,11 +90,12 @@ structure State where
   edns : Bool
   hadNoData : Bool
   /-- Whether a server failed the lookup, which decides the failure when the attempts run out (§5,
-  retry policy): it answered SERVFAIL, REFUSED or NOTIMP, FORMERR without EDNS0 or BADCOOKIE over
-  a stream, or it refused the lookup, a connection, a handshake or a request failing (§16
-  decision 25). -/
+  retry policy): it answered SERVFAIL, REFUSED or NOTIMP, FORMERR without EDNS0, or BADCOOKIE over
+  a stream after its retry or over DoH or DoQ, or it refused the lookup, a connection, a handshake
+  or a request failing (§16 decision 25). -/
   serverFailed : Bool
-  /-- Whether this server already answered BADCOOKIE once and was asked again (RFC 7873 §5.3). -/
+  /-- Whether this server already answered BADCOOKIE once and was asked again (RFC 7873 §5.3),
+  over a datagram or over a stream. -/
   cookieRetried : Bool
   /-- A send was handed out by a poll and the caller has not yet said how it went. -/
   offered : Bool
@@ -154,9 +155,14 @@ def onReply (c : Config) (s : State) (stream : Bool) : Reply → State × Out
   | .formerr =>
     if s.edns then ({ s with edns := false, stage := fresh c }, .accepted)
     else (advanceServer c { s with serverFailed := true }, .accepted)
-  -- Once more with the cookie just learned, then over TCP; over TCP, the server has failed.
+  -- Once more with the cookie just learned (RFC 7873 §5.3), over the transport the lookup is on:
+  -- the server's one retry, whichever transport takes it. Again over UDP, then over TCP; again
+  -- over a stream, the server has failed. A query over DoH or DoQ carries no cookie, so there is
+  -- none to retry with, and the server has failed at once (docs/design.md §19 step 10).
   | .badcookie =>
-    if stream then (advanceServer c { s with serverFailed := true }, .accepted)
+    if stream then
+      if c.request || s.cookieRetried then (advanceServer c { s with serverFailed := true }, .accepted)
+      else ({ s with cookieRetried := true, stage := .tcpNeeded }, .accepted)
     else if s.cookieRetried then ({ s with stage := .tcpNeeded }, .accepted)
     else ({ s with cookieRetried := true, stage := fresh c }, .accepted)
 

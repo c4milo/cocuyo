@@ -380,7 +380,7 @@ cocuyo (Apache-2.0, Zig 0.16) is the one row with all four properties of the fir
 - **A whole stub resolver:** the search list, CNAME chains, retries, failover, TCP fallback, DNS
   cookies, DNS-0x20, a cache, and the `getaddrinfo` shape with RFC 6724 ordering
   ([README](../README.md#what-it-does)).
-- **Checked against models.** Lean proofs cover the lookup, and 2,237,654 transitions of the
+- **Checked against models.** Lean proofs cover the lookup, and 2,680,454 transitions of the
   model, under 109 configurations, are replayed against the code
   ([spec/README.md](../spec/README.md)). TLC checks a TLA+ model of the engine, and 24,000 of
   its walks are replayed against the engine on a deterministic twin of rotor

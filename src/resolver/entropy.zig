@@ -1,9 +1,10 @@
 //! Where a lookup's unpredictability comes from: one `u64` the caller supplies, stepped by
 //! `core.mix` (docs/design.md §7).
 //!
-//! Three fields per transaction, and a transaction is one query: a new id, a new source-port hint
-//! and a new case pattern. A CNAME re-query is a new transaction and draws all three again, which
-//! is what stops a chain from reusing one id across several questions.
+//! Four fields per transaction, and a transaction is one query: a new id, a new source-port hint,
+//! a new case pattern and a new draw for the client cookie. A CNAME re-query is a new transaction
+//! and draws all four again, which is what stops a chain from reusing one id across several
+//! questions, and a client cookie from going out twice without a server cookie (RFC 9018 §8.1).
 //!
 //! **The seed must come from a CSPRNG.** cocuyo cannot check that and does not pretend to: the mix
 //! spreads the seed deterministically, which is what makes a lookup replayable from it, and the
@@ -13,7 +14,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 
-/// The three values one query needs.
+/// The four values one query needs.
 pub const Transaction = struct {
     /// The transaction id the query carries and the response must echo (RFC 1035 §4.1.1).
     id: u16,
@@ -23,6 +24,10 @@ pub const Transaction = struct {
     /// The pattern the qname's letters are cased with, and the pattern the response's question
     /// section must come back with (RFC 5452 §9.2).
     case_seed: u64,
+    /// The draw a fresh client cookie is made from, for a server whose server cookie is not known:
+    /// "The Client Cookie SHOULD have 64 bits of entropy" (RFC 9018 §3). Drawn apart from the case
+    /// pattern, which the query shows in its name (docs/design.md §19 step 10).
+    cookie_seed: u64,
     /// Which of its lookup's transactions this is, counted from zero: what a DoH or DoQ answer
     /// names, since HTTP or QUIC and not the id pairs it with its query (§22, §23). The lookup
     /// numbers it, and `lookup_request.zig` shows the count never wraps. It sits in what would
@@ -47,12 +52,13 @@ pub const Entropy = struct {
         return self.word;
     }
 
-    /// The three values for one query.
+    /// The four values for one query.
     pub fn transaction(self: *Entropy) Transaction {
         const transaction_values: Transaction = .{
             .id = @truncate(self.next()),
             .port_hint = port_from(self.next()),
             .case_seed = self.next(),
+            .cookie_seed = self.next(),
         };
         assert(transaction_values.port_hint >= core.constants.port_ephemeral_min);
         assert(transaction_values.port_hint <= core.constants.port_ephemeral_max);
@@ -84,12 +90,15 @@ test "a seed gives one stream, and two seeds give two" {
     try testing.expect(first.next() != other.next());
 }
 
-test "a transaction draws three fresh values, and the next draws three more" {
+test "a transaction draws four fresh values, and the next draws four more" {
     var entropy = Entropy.init(0x1234_5678_9abc_def0);
     const first = entropy.transaction();
     const second = entropy.transaction();
     try testing.expect(first.id != second.id or first.case_seed != second.case_seed);
     try testing.expect(first.case_seed != second.case_seed);
+    try testing.expect(first.cookie_seed != second.cookie_seed);
+    // The cookie's draw is not the case pattern's, which a query shows on the wire.
+    try testing.expect(first.cookie_seed != first.case_seed);
     try testing.expect(first.port_hint != 0);
 }
 

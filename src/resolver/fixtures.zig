@@ -150,7 +150,7 @@ pub const CookieReply = enum {
     none,
     /// An OPT record with no options: a server that has EDNS and no cookies.
     opt_only,
-    /// The client cookie the lookup sent, echoed back (RFC 7873 §5.2.3, §5.2.5).
+    /// The client cookie the lookup's last query carried, echoed back (RFC 7873 §5.2.3, §5.2.5).
     echo,
     /// Another client cookie: an answer forged off-path, or a mix-up (RFC 7873 §5.3).
     wrong,
@@ -158,7 +158,7 @@ pub const CookieReply = enum {
     malformed,
 };
 
-/// A sixteen-octet server cookie, the length RFC 9018 §3 fixes.
+/// A sixteen-octet server cookie, the length RFC 9018 §4 fixes.
 pub const server_cookie = [_]u8{0xc0} ++ [_]u8{0xcc} ** 15;
 /// Another one, for the fresh cookie a BADCOOKIE response carries (RFC 7873 §5.2.4).
 pub const server_cookie_fresh = [_]u8{0xf0} ++ [_]u8{0xff} ** 15;
@@ -397,7 +397,7 @@ pub const Harness = struct {
     fn cookie_option(self: *Harness, reply: Reply, out: []u8) usize {
         const client: []const u8 = switch (reply.cookie) {
             .none, .opt_only => return 0,
-            .echo, .malformed => &self.servers.state(self.lookup.server_slot()).cookie_client,
+            .echo, .malformed => &self.lookup.cookie_client,
             .wrong => &cookie_client_wrong,
         };
         const server: []const u8 = if (reply.cookie == .malformed) &[_]u8{0x00} else reply.server_cookie;

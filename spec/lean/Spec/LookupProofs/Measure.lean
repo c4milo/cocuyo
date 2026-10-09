@@ -139,7 +139,14 @@ theorem onReply_le (c : Config) (s : State) (stream : Bool) (r : Reply) (g : s.r
   | badcookie =>
     simp only [onReply]
     split
-    · exact lexLt_le _ _ (advanceServer_lt c { s with serverFailed := true } g)
+    · split
+      · exact lexLt_le _ _ (advanceServer_lt c { s with serverFailed := true } g)
+      · -- The retry over the stream spends the server's one retry for the stream's send.
+        rename_i hr
+        have hk : s.cookieRetried = false := by
+          cases hc : s.cookieRetried <;> simp_all
+        simp only [measure, LexLe, phase, hk]
+        cases s.edns <;> cases s.stage <;> simp [stagePhase]
     · rename_i hstream
       have hs := hst (by simpa using hstream)
       split
@@ -269,7 +276,9 @@ theorem onReply_good (c : Config) (s : State) (stream : Bool) (r : Reply) (hc : 
   | badcookie =>
     simp only [onReply]
     split
-    · exact advanceServer_good c _ hc h2 h4 h3
+    · split
+      · exact advanceServer_good c _ hc h2 h4 h3
+      · exact Or.inr ⟨h1, h2, h3, h4⟩
     · split
       · exact Or.inr ⟨h1, h2, h3, h4⟩
       · exact Or.inr ⟨h1, h2, h3, h4⟩
