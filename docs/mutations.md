@@ -3593,6 +3593,13 @@ teaching no cookie departs from RFC 7873 §5.3. FR1's row above described its ed
 before #37. The edit also leaves the lookup's failure unmarked, and its row and
 `tools/mutations/lookup.zon` now say so. No check changed, so no mutation is new.
 
+2026-10-09. The coverage came back. The configuration of one lookup over TLS at two operations
+and no failure went, since `Engine_tls_1_2_bound_2_1` is the same configuration at one failure.
+The other four went to one failure and were renamed for it: `Engine_tcp_2_2_bound_4_1`, checked
+on each push, and `Engine_tls_1_2_bound_3_1`, `Engine_tls_2_2_bound_2_1` and
+`Engine_udp_2_1_bound_4_1`, checked once a day. Each holds and reaches the second server again
+(spec/README.md). No check changed, so no mutation is new.
+
 The seven mutations the section above found no longer applying were written again for the code
 where it moved: DH5 and QU5 to `lookup_init.zig`, DH10 to DH12 and TT2 to `response_answers.zig`,
 and CR4 to the list of fields `restart` keeps in `io_tcp.zig`. `zig build mutations -- lookup`

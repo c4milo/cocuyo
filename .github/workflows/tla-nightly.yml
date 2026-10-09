@@ -1,8 +1,15 @@
-# Every TLC configuration of the engine model, once a day and on demand: `zig build tla` with no
-# argument. CI's `tla` job checks every configuration but those whose header says `\* nightly:`,
-# since the TCP configuration of two servers has 21 million states and TLC takes hours over it on
-# the runner's four cores (docs/design.md §24, request rule 17), and the channel's of two lookups
-# 15 million (request rules 18 to 25). This is where they are checked.
+# Every TLC configuration of the engine model, once a day and on demand. CI's `tla` job checks
+# every configuration but those whose header says `\* nightly:`, since TLC takes too long over them
+# for a push on the runner's four cores: the channel's of two lookups, at 15 million states
+# (request rules 18 to 25), and since 2026-10-09 three of two servers at one failure, at 9 to 16
+# million (spec/README.md, c4milo/cocuyo#37). This is where they are checked.
+#
+# Each configuration whose header says `\* nightly:` runs in a job of its own, and every other
+# configuration and every mutant in one more. One job checked them all until 2026-10-09: 29 million
+# states, which it took 80 to 159 minutes over in its runs of 2026-10-01 to 2026-10-08. The three
+# added that day bring the whole to 62 million, which one job could take past its 350 minutes.
+# The `list` job names the configurations marked nightly, read from their headers as ci.yml reads
+# them, so a header is the one place that says where a configuration runs.
 #
 # Zig is pinned as ci.yml pins it. TLC's jar is pinned by SHA-256 in tools/tla.zig, which fetches
 # it; the Java that runs it is the runner image's 21. No third-party action runs here;
@@ -21,8 +28,55 @@ env:
   ZIG_VERSION: "0.16.0"
 
 jobs:
-  tla:
-    name: Linux, every configuration of the engine model checked by TLC
+  list:
+    name: Linux, the configurations whose header says nightly
+    runs-on: ubuntu-24.04
+    outputs:
+      nightly: ${{ steps.list.outputs.nightly }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Each configuration whose header says `\* nightly:`, as a JSON list
+        id: list
+        run: |
+          set -euo pipefail
+          # The configurations `zig build tla` finds with no argument, as ci.yml lists them.
+          nightly=$(for cfg in spec/tla/*/*.cfg spec/tla/*/mutants/*.cfg; do
+            if grep -q '^\\\* nightly:' "$cfg"; then echo "$cfg"; fi
+          done | jq -R . | jq -cs .)
+          echo "$nightly"
+          test "$nightly" != "[]"
+          echo "nightly=$nightly" >> "$GITHUB_OUTPUT"
+
+  nightly:
+    name: Linux, ${{ matrix.configuration }} checked by TLC
+    needs: list
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: ${{ fromJSON(needs.list.outputs.nightly) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Zig
+        run: |
+          set -euo pipefail
+          url="https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          sha="70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+          curl -fsSL "$url" -o zig.tar.xz
+          echo "$sha  zig.tar.xz" | sha256sum -c -
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+      - name: Use the image's Java 21, for TLC
+        run: echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
+      - run: zig version && java -version
+      - name: The configuration checked by TLC
+        env:
+          CONFIGURATION: ${{ matrix.configuration }}
+        run: zig build tla -- "$CONFIGURATION"
+
+  rest:
+    name: Linux, every other configuration of the engine model checked by TLC
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     steps:
@@ -39,5 +93,12 @@ jobs:
       - name: Use the image's Java 21, for TLC
         run: echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
       - run: zig version && java -version
-      - name: Every configuration of the engine model checked by TLC, and its mutants refused
-        run: zig build tla
+      - name: Every configuration not marked nightly checked by TLC, and the mutants refused
+        run: |
+          set -euo pipefail
+          # What ci.yml's `tla` job checks: each model's configurations and its mutants, but those
+          # whose header says `\* nightly:`, and not the walk configurations under trace/.
+          configurations=$(for cfg in spec/tla/*/*.cfg spec/tla/*/mutants/*.cfg; do
+            grep -q '^\\\* nightly:' "$cfg" || echo "$cfg"
+          done)
+          zig build tla -- $configurations

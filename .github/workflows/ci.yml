@@ -37,8 +37,8 @@
 #
 #   - `tla`: `zig build tla` over every configuration of the engine model and every mutant of it,
 #     but those whose header says `\* nightly:`. A job of its own beside `spec`, since each is mostly
-#     TLC on the runner's four cores. The TCP configuration of two servers grew to 21 million
-#     states with request rule 17, which TLC takes hours over here, so it is marked nightly and
+#     TLC on the runner's four cores. Four configurations hold 9 to 16 million states each, which
+#     TLC takes too long over here for a push, so they are marked nightly (spec/README.md), and
 #     `tla-nightly.yml` checks every configuration once a day.
 #
 #   `spec` and `tla` each cancel their own run for an earlier commit of the same branch, since a
