@@ -152,6 +152,14 @@ pub const extended_rcode_low_bits = 4;
 /// (`rdata/rdata_layout.zig`).
 pub const layout_segments_max = 5;
 
+/// The draws DNS-0x20 takes for one name. A draw that leaves every letter small is drawn again,
+/// so that a mixed name carries a capital, and after this many the first letter is made one
+/// (`name.mix_case`, docs/design.md §7). One draw leaves a name of L letters all small with chance
+/// 2^-L, so the first letter is forced with chance 2^-4L: 1 in 16 for one letter, whose only case
+/// with a capital that is, 1 in 256 for two, and 1 in 4096 or less from three on. Chosen, not
+/// measured.
+pub const case_draws_max = 4;
+
 /// QR: set in a response (RFC 1035 §4.1.1).
 pub const flag_response = 0x8000;
 

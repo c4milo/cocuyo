@@ -4,7 +4,10 @@
 //! That comparison is byte-exact, case included, and it is check 5 of docs/design.md §7. The case
 //! is not incidental: DNS-0x20 puts about one bit of entropy in every letter of the qname, and a
 //! server must echo the question section unchanged, so comparing case-insensitively would throw
-//! that entropy away. A response whose question came back folded is not our response.
+//! that entropy away. A response whose question came back folded is not our response. One that
+//! came back in lowercase can still say that its server lowercases the name, which
+//! `matches_lowercase` reads, and which never makes a response ours (§7, A server that changes
+//! the case).
 //!
 //! The question name is never compressed. Compression points backwards to an earlier name
 //! (RFC 1035 §4.1.4) and the question is the first name in the message, so a pointer there could
@@ -49,15 +52,53 @@ pub fn write(name: *const Name, kind: Kind, out: []u8) usize {
 /// This reads the message's own question area and compares it against what the lookup holds, so
 /// no copy of the sent bytes has to be kept anywhere (docs/design.md §16 decision 3).
 pub fn matches(message: []const u8, name: *const Name, kind: Kind) bool {
+    return section_matches(message, name, kind, .exact);
+}
+
+/// Whether `message`'s question section is the question that was asked with every ASCII letter
+/// of its name small: the same type and class IN, and the name as a server that lowercases it
+/// echoes it (docs/design.md §7, A server that changes the case). Never a reason to accept a
+/// response: check 5 is `matches`.
+pub fn matches_lowercase(message: []const u8, name: *const Name, kind: Kind) bool {
+    return section_matches(message, name, kind, .lowercase);
+}
+
+const Case = enum { exact, lowercase };
+
+fn section_matches(message: []const u8, name: *const Name, kind: Kind, comptime case: Case) bool {
     assert(name.len >= 1);
     const start = core.constants.header_bytes;
     const end = start + section_bytes(name);
     if (message.len < end) return false;
     assert(end <= message.len);
-    if (!std.mem.eql(u8, message[start..][0..name.len], name.wire())) return false;
+    const echoed = message[start..][0..name.len];
+    const same = switch (case) {
+        .exact => std.mem.eql(u8, echoed, name.wire()),
+        .lowercase => is_lowercase_of(echoed, name.wire()),
+    };
+    if (!same) return false;
     if (integer.read_u16(message, start + name.len) != kind.code()) return false;
     return integer.read_u16(message, start + name.len + constants.u16_bytes) ==
         core.constants.class_internet;
+}
+
+/// Whether `echoed` is `asked` with every capital made small. Only that spelling is taken, and no
+/// mixed name has it (`name.mix_case`), so an echo of another mixed query never passes.
+fn is_lowercase_of(echoed: []const u8, asked: []const u8) bool {
+    assert(echoed.len == asked.len);
+    for (echoed, asked) |echoed_octet, asked_octet| {
+        // The same name: "a lookup string octet with a value in the inclusive range from 0x41 to
+        // 0x5A, the uppercase ASCII letters, MUST match the identical value and also match the
+        // corresponding value in the inclusive range from 0x61 to 0x7A" (RFC 4343 §3, clarifying
+        // RFC 1035 §2.3.3). A length octet is at most 63, never a letter, and matches exactly.
+        if (echoed_octet != std.ascii.toLower(asked_octet)) return false;
+    }
+    return true;
+}
+
+comptime {
+    // Folding a length octet as a letter would let one label length pass for another.
+    assert(core.constants.label_bytes_max < 'A');
 }
 
 /// The question section of `message`, for a reader that does not already know what was asked: the
@@ -114,6 +155,33 @@ test "matches refuses a different name, type or case" {
     mixed.bytes[1] = 'E';
     try testing.expect(mixed.equal(&name));
     try testing.expect(!matches(&query_message, &mixed, .a));
+}
+
+test "matches_lowercase takes the name asked with every letter small, and nothing else" {
+    var mixed = try Name.from_text("example.com");
+    mixed.bytes[1] = 'E';
+    mixed.bytes[9] = 'C';
+    // The question asked was mixed and the echo is lowercase: equal but for the case.
+    try testing.expect(!matches(&query_message, &mixed, .a));
+    try testing.expect(matches_lowercase(&query_message, &mixed, .a));
+    // An echo with a capital is not the lowercase spelling: the case asked, or another mixed one.
+    var asked = query_message;
+    asked[core.constants.header_bytes + 1] = 'E';
+    asked[core.constants.header_bytes + 9] = 'C';
+    try testing.expect(matches(&asked, &mixed, .a) and !matches_lowercase(&asked, &mixed, .a));
+    var other_case = query_message;
+    other_case[core.constants.header_bytes + 2] = 'X';
+    try testing.expect(!matches_lowercase(&other_case, &mixed, .a));
+    const other_label = try Name.from_text("example.net");
+    const other_letter = try Name.from_text("examplf.com");
+    try testing.expect(!matches_lowercase(&query_message, &other_label, .a));
+    try testing.expect(!matches_lowercase(&query_message, &other_letter, .a));
+    try testing.expect(!matches_lowercase(&query_message, &mixed, .aaaa));
+    var chaos = query_message;
+    chaos[chaos.len - 1] = 3; // class CH
+    try testing.expect(!matches_lowercase(&chaos, &mixed, .a));
+    const short = query_message[0 .. query_message.len - 1];
+    try testing.expect(!matches_lowercase(short, &mixed, .a));
 }
 
 test "matches refuses a message too short to hold the question" {

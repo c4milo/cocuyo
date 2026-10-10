@@ -11,6 +11,8 @@
 //!   would hand an off-path attacker a cheap way to force a retry it can race (§16 decision 10).
 //! - The name is held uncased and the case is applied when a query is built and again when a
 //!   response is checked, both from `transaction.case_seed`. One name is stored rather than two.
+//!   Whether the query mixed the case at all is recorded when it is built, since a server that
+//!   lowercases the name is asked in lowercase (§7), and another lookup can mark it in between.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -131,7 +133,8 @@ pub const Flags = packed struct(u8) {
     /// set again when the lookup moves to another server or another name: that a server does
     /// not speak EDNS0 is a fact about that server (RFC 6891 §6.2.2).
     edns_enabled: bool,
-    /// Whether the qname's case is randomised (RFC 5452 §9.2).
+    /// Whether the qname's case may be randomised (DNS-0x20): `Config.mix_case`, and never over
+    /// DoH or DoQ (docs/design.md §7, §22, §23).
     mix_case: bool,
     /// Whether any candidate answered NOERROR with no record of this type.
     had_no_data: bool,
@@ -147,7 +150,11 @@ pub const Flags = packed struct(u8) {
     /// Whether `order` has been computed, which the first poll does with the clock in hand
     /// (docs/design.md §19 step 12).
     ordered: bool,
-    unused: u1 = 0,
+    /// Whether the query last built mixed the case of its name: `mix_case`, unless its server
+    /// lowercases the name, and then the query carried the name in lowercase. What check 5
+    /// compares a response with, whatever another lookup taught the server since
+    /// (docs/design.md §7, A server that changes the case).
+    query_mixed: bool,
 };
 
 pub const Lookup = struct {
@@ -345,13 +352,26 @@ pub const Lookup = struct {
         return self.flags.edns_enabled and !self.config.sends_requests();
     }
 
-    /// The name as it goes on the wire: the current name with its case set from this
-    /// transaction's seed.
+    /// The name as the query last built carries it: the current name, with its case set from this
+    /// transaction's seed when that query mixed it, in lowercase when 0x20 is on and that query's
+    /// server lowercases the name, and as it is held otherwise.
     pub fn cased_name(self: *const Lookup) Name {
         var name = self.current;
-        if (self.flags.mix_case) wire.name.mix_case(&name, self.transaction.case_seed);
+        if (self.flags.query_mixed) {
+            wire.name.mix_case(&name, self.transaction.case_seed);
+        } else if (self.flags.mix_case) {
+            // A server that answered a mixed name in lowercase is asked in lowercase (§7).
+            name.fold_case();
+        }
         assert(name.equal(&self.current));
         return name;
+    }
+
+    /// Whether a query built now mixes the case: the lookup may, and its server has not been
+    /// marked as one that lowercases the name (docs/design.md §7).
+    pub fn mixes_case(self: *const Lookup) bool {
+        assert(self.flags.mix_case or !self.flags.query_mixed);
+        return self.flags.mix_case and !self.servers.changes_case(self.server_slot());
     }
 
     /// Records the instant, and asserts the caller's clock never goes backwards.

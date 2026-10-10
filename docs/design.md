@@ -213,7 +213,7 @@ pub const Config = struct {
     timeout_ns: u64 = timeout_ns_default,         // 2 s: a wait before 3 samples (§5)
     timeout_ns_max: u64 = timeout_ns_max_default, // 5 s: the cap on every wait (c-ares maxtimeout)
     udp_payload_bytes: u16 = udp_payload_bytes_default,
-    mix_case: bool = true,
+    mix_case: bool = true,        // DNS-0x20, but lowercase to a server that lowercases (§7)
     rotate: bool = false,
     use_tcp: bool = false,        // every query over TCP (use-vc, ARES_FLAG_USEVC)
     ignore_truncation: bool = false, // a truncated UDP answer taken, marked so (ARES_FLAG_IGNTC)
@@ -234,8 +234,8 @@ pub const Config = struct {
 
 ```zig
 /// Per-server state every lookup of a caller shares: the DNS cookies of §19 step 10, the failover
-/// counters of step 12, the latency samples a server's wait comes from (§5). `Resolver` holds
-/// one; a caller driving a `Lookup` alone builds one.
+/// counters of step 12, the latency samples a server's wait comes from (§5), and whether a server
+/// lowercases the name (§7). `Resolver` holds one; a caller driving a `Lookup` alone builds one.
 pub const Servers = struct {
     pub fn init(config: *const Config, seed: u64) Servers;
 };
@@ -485,6 +485,11 @@ Every row that accepts a response first takes a sample of its server's latency, 
 deadline armed for that server reads (retry and timeout policy, below). A response the lookup
 ignores, unmatched or malformed, takes none.
 
+An unmatched response changes no state of the lookup's. One that echoes a mixed query's question
+in lowercase can mark its server as one that lowercases the name, in the `Servers` table, and the
+next query built for that server carries the name in lowercase (§7, A server that changes the
+case). The wait stands all the same, so no row of the table changes.
+
 Over DoH or DoQ (§22, §23) the lookup keeps the UDP states, and three rows change. `poll` in
 `query_ready` returns `send_request`. An answer comes through `on_request_answer`, and only for
 the transaction the lookup waits on; it is read as one over TCP is, so TC=1 sends the lookup
@@ -716,6 +721,9 @@ A response is considered only if all of these hold, checked in this order:
 3. `from` equals the endpoint the query was sent to: family, every address octet, and the port.
 4. QR is 1 and the opcode is QUERY.
 5. QDCOUNT is 1 and the question section is byte-identical to the one sent, case included.
+   Since 2026-10-09 a response that fails this check because it echoes, in lowercase, the name a
+   mixed query sent, and that passes check 6, marks its server as one that lowercases the name.
+   It is ignored all the same (A server that changes the case, below).
 6. The cookie (RFC 7873 §5.3, since §19 step 10): when the query carried a COOKIE option, a
    COOKIE option in the response must echo the client cookie that query carried, which the lookup
    recorded when it built the query, whatever another lookup taught the server since. A response
@@ -741,8 +749,14 @@ because of the next rule, not case-insensitive.
   twice without a server cookie (RFC 9018 §8.1).
 - **DNS-0x20**, RFC 5452 and the DNS-0x20 draft: the case of each ASCII letter in the query's
   qname is randomised, and the response's question section must come back with the same case. This
-  is in v1, on by default, and `Config.mix_case` turns it off for a server that mangles case.
-  Roughly one bit per letter, so it is the largest entropy source available to a stub.
+  is in v1, on by default, and `Config.mix_case` turns it off for every server. Since 2026-10-09
+  a server that answers a mixed name in lowercase loses it alone (below). Roughly one bit per
+  letter, so it is the largest entropy source available to a stub. Since the same day a mixed name
+  always carries a capital: a draw that leaves every letter small is drawn again, up to
+  `case_draws_max` draws, and then the first letter is made a capital. A name of L letters so takes
+  one of 2^L - 1 cases rather than 2^L, which costs log2(2^L / (2^L - 1)) bits: 0.42 for two
+  letters, 0.09 for four, 0.0014 for the ten of `example.com`, and the whole bit of a name with one
+  letter, which always goes out a capital.
 - **Source port**, RFC 5452: cocuyo owns no socket, so it cannot bind a port. `send_udp` carries
   a `local_port_hint` drawn from `[port_ephemeral_min, port_ephemeral_max]` and the caller may bind
   it. A caller that sends every query from one socket keeps the id and case entropy and loses the
@@ -754,6 +768,74 @@ machine replayable from a seed, which is the point of the determinism rule, and 
 of the defence in the caller's hands where it is visible. The docs say, in bold, that the seed must
 come from a CSPRNG and never from the clock.
 
+### A server that changes the case
+
+Some servers and forwarders do not echo the question as it was sent: they lowercase the name, for
+one. Until 2026-10-09 every response from such a server failed check 5, and every lookup to it
+waited out its deadline, unless the caller turned `Config.mix_case` off for every server. The
+owner ruled on 2026-10-09 that 0x20 stays on by default (decision 5), and that it falls back for
+each server on its own. The review of the same day narrowed the mark to a server that lowercases
+the name, before any of it was committed (below). No RFC states 0x20, so no RFC states this
+fallback either: the rules are the owner's ruling and its review.
+
+- A response marks its server as one that changes the case when all of these hold. It passes
+  checks 1 to 4. Its question section is the one asked with every letter of the name small: the
+  same name, since names compare without regard to the case of their ASCII letters (RFC 1035
+  §2.3.3, as clarified by RFC 4343 §3), in the one spelling no mixed name has. The type and the
+  class compare exactly. The query this transaction sent mixed the case. And check 6 passes for
+  it, as it must for an answer: a wrong client cookie, a missing cookie the server owes, or a
+  malformed OPT record marks nothing.
+- A mixed name always carries a capital (Entropy, above). So no echo of a mixed query cocuyo sent
+  is in lowercase, and none can mark a server. That covers two lookups of one name and type to one
+  server whose transactions drew one id, where the table offers one's answer to the other, and a
+  late answer to a lookup's own earlier query that reaches a retry which drew the same id. Neither
+  needs an attacker, and both would mark a server that echoes the case as sent if any case marked.
+- The response is ignored all the same, and the wait stands. A datagram that fails a check never
+  cuts the wait short (decision 10): an off-path attacker could send one to force a retry they can
+  race. The lookup moves on at its deadline, as it would have.
+- From then on every query built for that server carries the name in lowercase, without case
+  mixing, for the life of the `Servers` table, and its response's question must be byte-identical
+  to the name as sent. So a name the caller wrote with capitals, or a chain name, is answered too.
+  Every other server keeps 0x20. Over DoH and DoQ nothing changes, since no query there mixes the
+  case (§22, §23).
+- A lookup records whether the query it built mixed the case, as it records the cookie the query
+  carried (§19 step 10), and check 5 compares a response with the name as that query sent it. A
+  mark another lookup makes between the send and the answer changes nothing for a query already
+  sent: a reply to it in lowercase is still ignored.
+- A chain name that the answer compressed into the question decodes in the case the question was
+  echoed in, so with 0x20 on every chain name is folded to lowercase, as it has been since the
+  example of §15 step 6 met cocuyo's own case in one. That holds whatever the query carried, so a
+  server asked in lowercase is asked for a target it spelled with capitals in lowercase too.
+
+The cost is plain. An attacker who already matches the transaction id and the source port, and
+the client cookie where the query carried one, can echo the question in lowercase and switch 0x20
+off for that one server until the table is built again: by the engine's `reinit`, or by a new
+`Servers` table. That attacker has already passed checks 2 and 3. What they take away is the case's
+entropy from the queries that follow, to that server alone. A server that changes the case some
+other way, to capitals or to a spelling of its own, is not marked: one reply cannot tell its case
+from a mix cocuyo drew, so every lookup to it waits out its deadline as before, and a caller who
+meets one turns `Config.mix_case` off, for every server. The capital every mixed name carries
+costs the entropy the Entropy rule above counts. And the guarantee holds among lookups that mix:
+every lookup of a `Resolver` shares its `Config`, but a caller who drives lookups alone against
+one `Servers` table under two configurations, one with `mix_case` off, can mark a server through
+the lowercase echo of its own unmixed query.
+
+Rejected:
+
+- 0x20 off by default, as c-ares has it. The owner kept decision 5: the case is the only entropy a
+  stub adds when the caller sends every query from one socket.
+- Asking the server again at once, without mixing, on the response that changed the case. That is
+  a datagram that failed a check cutting the wait short, which decision 10 forbids.
+- Turning 0x20 off for every server once one changes the case. One forwarder that lowercases would
+  cost every other server its entropy.
+- A mark on any other case, as the ruling first had it. The table's own lookups mark through a
+  shared id, and a lookup through its own late answer, so a busy caller turns 0x20 off for a server
+  that echoes the case as sent, with no attacker.
+- A table that marks only when none of its lookups accepts the datagram. It cannot see a late or a
+  repeated answer that no lookup waits for any more, nor a lookup's own earlier transaction.
+- A mark on lowercase alone, with the mix left as it was. A draw leaves a name of L letters all
+  small with chance 2^-L, so the same false mark stays, only rarer, and most often for short names.
+
 ### Parsing
 
 - Every length is checked against the end of the message before the bytes are read.
@@ -764,7 +846,9 @@ come from a CSPRNG and never from the clock.
 - An unmatched or malformed datagram never disturbs the wait. An attacker who floods the socket
   costs the caller one bounded pass per datagram and changes no state, which is what makes the
   birthday attack of RFC 5452 §4 not worth running against a lookup that keeps listening until its
-  deadline.
+  deadline. The one exception since 2026-10-09 is a datagram that matches the id, the port and
+  the cookie and echoes a mixed question in lowercase: it marks its server, and still leaves the
+  wait as it was (A server that changes the case, above).
 
 ## 8. The wire codec
 
@@ -847,7 +931,8 @@ The caller-provided buffer §19 keeps as the fallback is what would take it back
 So 1024 concurrent lookups cost 3088 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
 ever, by anybody. `Resolver` itself holds the `Servers` table, 1488 octets, measured and pinned
 by a test in `src/resolver/servers.zig`: 184 for each of `servers_max` servers, 120 of them the
-five windows of latency samples of §5, which 2026-10-09 added.
+five windows of latency samples of §5, which 2026-10-09 added. The flag of the same day that marks
+a server as one that changes the case (§7) took an octet of the padding, and the size stayed.
 
 ## 10. The config parser
 
@@ -1266,6 +1351,7 @@ written at the use site. Shared limits live in `src/core/constants.zig`.
 | `cookie_client_bytes` | 8 | RFC 7873 §4 |
 | `cookie_server_bytes_max` | 32 | RFC 7873 §4; a server cookie is 8 to 32 octets, 16 under RFC 9018 |
 | `cookie_silence_ns` | 5 min | RFC 9018 §3's example of how long a server without cookies is sent none; `src/resolver/constants.zig` |
+| `case_draws_max` | 4 | the draws of one name's case before its first letter is made a capital (§7): two letters fall back once in 256 names; chosen, not measured; `src/wire/constants.zig` |
 | `opt_record_bytes_max` | 55 | the OPT record with the largest COOKIE option, before any padding |
 | `padding_block_bytes` | 128 | RFC 8467 §4.1: a query to a TLS server is a whole number of these |
 | `records_kept_max` | 32 | the records of one type a lookup keeps for every other type (§19 step 9); `truncated` past it |
@@ -1434,7 +1520,23 @@ step until `zig build test` passes.
    the slot, which would be up to 64 KiB for the rare path.
 5. **DNS-0x20 in v1, on by default.** Rejected: deferring it. The entropy plumbing exists for the
    transaction id anyway, the case mixer is small, and it is the only entropy a stub can add when
-   the caller reuses one socket.
+   the caller reuses one socket. Amended by the owner on 2026-10-09: a server that answers a mixed
+   name in another case is asked without mixing from then on, for the life of the `Servers` table,
+   and every other server keeps 0x20. The response that shows it is ignored, and the wait stands.
+   The review of the same day narrowed it before it was committed: only an echo in lowercase
+   marks, a marked server is asked in lowercase, and a mixed name always carries a capital, so no
+   echo of cocuyo's own mixed queries marks a server, as two lookups that drew one id, or a late
+   answer to a lookup's earlier query, would otherwise do with no attacker. The cost is that an
+   attacker who matches the id and the source port, and the cookie where the query carried one,
+   can switch 0x20 off for that one server until the table is built again; that a server that
+   changes the case some other way still waits out every deadline; and that a name of L letters
+   takes one of 2^L - 1 cases rather than 2^L. Rejected: 0x20 off by default, as c-ares has it,
+   which gives up what this decision chose; asking the server again at once without mixing, which
+   lets a datagram that failed a check cut the wait short (decision 10); turning it off for every
+   server, which costs every server its entropy for one server's fault; a mark on any case, which
+   the table's own lookups make; a table that marks only when no lookup accepted the datagram,
+   which a late answer escapes; and a mark on lowercase with the mix left as it was, which keeps
+   the false mark at a rate of 2^-L. §7, A server that changes the case.
 6. **Port randomisation is the caller's duty, with a hint offered.** Rejected: requiring a socket
    per query, which would mean owning sockets.
 7. **`Config` lives in `core`; the parser is a module the state machine cannot import.** Rejected:
@@ -2467,7 +2569,8 @@ the length at 16 for servers that follow it, and a client reads only the length)
   calls `cancel_all` and takes their failures, then calls `reinit` (`io/io_lifecycle.zig`).
   Either way every pair and every silence is forgotten, so the next query to each server carries
   a fresh client cookie. So is every latency sample, so each server waits `timeout_ns` again
-  until it has 3 (§5). cocuyo adds no function of its own for it.
+  until it has 3 (§5), and every mark of a server that changes the case, so each is asked with
+  0x20 again (§7). cocuyo adds no function of its own for it.
 
 **Gate.** The fake server of `resolver/fixtures.zig` learns cookies: a good one, a wrong
 client cookie, a malformed option, a BADCOOKIE once, twice, over TCP and over a stream under
@@ -2768,10 +2871,11 @@ is `ares_cancel`, and each failure comes through `take` like any other. `reinit`
 configuration, which is `ares_reinit`: it empties the cache, whose answers came from servers that
 may be gone, closes the streams and opens the sockets again. It builds the `Servers` table again
 too, so every server's latency samples start over and its wait is `timeout_ns` until it has 3
-(§5). It requires an idle engine, because a lookup in flight was started against servers that
-are going away and its handle names a slot the new table has never heard of; a caller with
-lookups in flight calls `cancel_all` and takes their failures first, which is what tells it what
-it lost. `Config.udp_queries_per_port` is c-ares's `udp_max_queries`: a port that has carried its
+(§5), and a server marked as one that changes the case is asked with 0x20 again (§7). It
+requires an idle engine, because a lookup in flight was started against servers that are going
+away and its handle names a slot the new table has never heard of; a caller with lookups in
+flight calls `cancel_all` and takes their failures first, which is what tells it what it lost.
+`Config.udp_queries_per_port` is c-ares's `udp_max_queries`: a port that has carried its
 share is replaced at once, and the old socket drains, keeping its receive until the last query sent
 from it has its answer or its end (the datagram's rule 4). `Config.local_address` is
 `ARES_OPT_LOCAL_IP4` and `LOCAL_IP6`, and `socket_receive_bytes` and `socket_send_bytes` are the two
@@ -2824,8 +2928,8 @@ pub const Engine = struct {
     /// The results ready since the last call, one per call, until null. Pointers in a result
     /// are valid until the next call.
     pub fn take(self: *Engine, now_ns: u64) ?Result;
-    /// New configuration: the cache is flushed, the sockets rebound and the latency samples
-    /// forgotten, which is `ares_reinit`.
+    /// New configuration: the cache is flushed, the sockets rebound, and the latency samples and
+    /// the marks of servers that lowercase the name forgotten, which is `ares_reinit`.
     pub fn reinit(self: *Engine, config: *const Config, seed: u64, now_ns: u64) Error!void;
 };
 

@@ -155,9 +155,31 @@ pub fn encode(name: *const Name, out: []u8) usize {
 ///
 /// A name with more letters than one word has bits re-mixes, so every letter gets its own bit
 /// whatever the name's length.
+///
+/// A name with a letter comes back with a capital. A draw that leaves every letter small is drawn
+/// again from the next word, up to `case_draws_max` draws, and then the first letter is made a
+/// capital. So a name in lowercase is never the echo of a mixed one, which is how a lookup tells a
+/// server that lowercases the name from an answer to another query of cocuyo's (docs/design.md §7,
+/// A server that changes the case). A name of L letters takes one of 2^L - 1 cases, not 2^L.
 pub fn mix_case(name: *Name, entropy: u64) void {
     assert(name.len >= 1);
-    var word = core.mix.next(entropy);
+    var word = entropy;
+    var draws: usize = 0;
+    while (draws < constants.case_draws_max) : (draws += 1) {
+        const drawn = draw_case(name, word);
+        if (drawn.capitals > 0 or drawn.letters == 0) return;
+        word = drawn.word;
+    }
+    assert(draws == constants.case_draws_max);
+    capitalize_first(name);
+}
+
+/// What one draw of `draw_case` did: the last word it read, and the letters it cased.
+const Drawn = struct { word: u64, letters: usize, capitals: usize };
+
+/// Cases every letter of `name` from its own bit of the words after `entropy`.
+fn draw_case(name: *Name, entropy: u64) Drawn {
+    var drawn: Drawn = .{ .word = core.mix.next(entropy), .letters = 0, .capitals = 0 };
     var used: usize = 0;
     var offset: usize = 0;
     var labels: usize = 0;
@@ -169,16 +191,38 @@ pub fn mix_case(name: *Name, entropy: u64) void {
         for (name.bytes[offset + 1 ..][0..length]) |*byte| {
             if (!is_letter(byte.*)) continue;
             if (used == core.mix.word_bits) {
-                word = core.mix.next(word);
+                drawn.word = core.mix.next(drawn.word);
                 used = 0;
             }
-            byte.* = apply_case(byte.*, word >> @intCast(used));
+            byte.* = apply_case(byte.*, drawn.word >> @intCast(used));
+            drawn.letters += 1;
+            drawn.capitals += @intFromBool(is_capital(byte.*));
             used += 1;
         }
         offset += 1 + length;
         labels += 1;
     }
     assert(labels <= core.constants.labels_max);
+    return drawn;
+}
+
+/// Makes the first letter of `name` a capital: the case `mix_case` falls back to.
+fn capitalize_first(name: *Name) void {
+    var offset: usize = 0;
+    var labels: usize = 0;
+    while (labels <= core.constants.labels_max) : (labels += 1) {
+        if (offset >= name.len) break;
+        const length = name.bytes[offset];
+        if (length == 0) break;
+        for (name.bytes[offset + 1 ..][0..length]) |*byte| {
+            if (!is_letter(byte.*)) continue;
+            byte.* = apply_case(byte.*, 0);
+            assert(is_capital(byte.*));
+            return;
+        }
+        offset += 1 + length;
+    }
+    unreachable; // `mix_case` drew a letter, or it would have returned
 }
 
 fn read_pointer(message: []const u8, cursor: usize) Error!usize {
@@ -200,11 +244,17 @@ fn is_letter(byte: u8) bool {
     return (byte >= 'A' and byte <= 'Z') or (byte >= 'a' and byte <= 'z');
 }
 
-/// One letter, cased by the low bit of `bits`.
+/// One letter, cased by the low bit of `bits`: a capital for 0, small for 1.
 fn apply_case(byte: u8, bits: u64) u8 {
     assert(is_letter(byte));
     const upper = byte & ~@as(u8, core.constants.ascii_case_bit);
     return if (bits & 1 == 1) upper | core.constants.ascii_case_bit else upper;
+}
+
+/// Whether a letter is a capital: its case bit is clear.
+fn is_capital(letter: u8) bool {
+    assert(is_letter(letter));
+    return letter & core.constants.ascii_case_bit == 0;
 }
 
 // Tests.
@@ -393,4 +443,58 @@ test "every letter of every label can take either case, whichever position it si
     for ([_]usize{ 1, 2, 4, 5 }) |index| try testing.expect(seen_upper[index]);
     // Offsets 0 and 3 are length octets and offset 6 is the root: never touched.
     for ([_]usize{ 0, 3, 6 }) |index| try testing.expect(!seen_upper[index]);
+}
+
+/// Whether a name holds a capital. A length octet is never a letter, so the bytes are read whole.
+fn has_capital(name: *const Name) bool {
+    for (name.wire()) |byte| if (byte >= 'A' and byte <= 'Z') return true;
+    return false;
+}
+
+test "a draw that leaves every letter small is drawn again, from the next word" {
+    // `ab.cd` takes its four bits from the low end of the first word, and a set bit leaves its
+    // letter small. Where all four are set, the name is cased as a seed one step on cases it.
+    const seed_count = 256;
+    const original = try Name.from_text("ab.cd");
+    const all_small: u64 = 0b1111;
+    var redrawn: usize = 0;
+    var seed: u64 = 0;
+    while (seed < seed_count) : (seed += 1) {
+        var name = original;
+        mix_case(&name, seed);
+        try testing.expect(has_capital(&name));
+        if (core.mix.next(seed) & all_small != all_small) continue;
+        var next_draw = original;
+        mix_case(&next_draw, core.mix.next(seed));
+        try testing.expectEqualSlices(u8, next_draw.wire(), name.wire());
+        redrawn += 1;
+    }
+    try testing.expect(redrawn > 0);
+}
+
+test "a name of one letter always comes out a capital, by the fallback when every draw is small" {
+    const seed_count = 256;
+    var fallen_back: usize = 0;
+    var seed: u64 = 0;
+    while (seed < seed_count) : (seed += 1) {
+        var name = try Name.from_text("a");
+        mix_case(&name, seed);
+        try testing.expectEqual(@as(u8, 'A'), name.bytes[1]);
+        // Each draw reads the low bit of the next word, and every draw small falls back.
+        var word = seed;
+        var small: u64 = 0;
+        for (0..constants.case_draws_max) |_| {
+            word = core.mix.next(word);
+            small += word & 1;
+        }
+        fallen_back += @intFromBool(small == constants.case_draws_max);
+    }
+    try testing.expect(fallen_back > 0);
+}
+
+test "mix_case leaves a name without a letter as it was" {
+    const original = try Name.from_text("192.0.2.1");
+    var name = original;
+    mix_case(&name, 0);
+    try testing.expectEqualSlices(u8, original.wire(), name.wire());
 }

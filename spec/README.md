@@ -64,7 +64,10 @@ would agree with the code by construction and prove nothing about it.
   lookup's `server_index` is.
 - Entropy, the cookies' values and the answers' records. Which COOKIE option a query carries,
   none, a fresh client cookie or the server's pair, and a server's silence (docs/design.md §19
-  step 10) change no transition: a response that check 6 refuses is an unmatched reply.
+  step 10) change no transition: a response that check 6 refuses is an unmatched reply. Nor does
+  whether a query mixes the case or goes in lowercase, to a server marked as one that lowercases
+  the name (docs/design.md §7, since 2026-10-09): a reply whose question differs in case alone is
+  an unmatched reply, and the wait stands.
 - Every TTL: a record's, the negative TTL of RFC 2308 §5, and the bounds the CNAME chain and the
   search walk put on what a lookup ends with (docs/design.md §5). They change no transition.
 - What a poll handed out and the caller has not answered yet. The model keeps it to know when

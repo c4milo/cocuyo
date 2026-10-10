@@ -1,9 +1,10 @@
 //! Per-server state that outlives one lookup: the DNS cookies of RFC 7873 and RFC 9018
-//! (docs/design.md §19 step 10), the failover counters of step 12, and the latency samples a
-//! server's wait comes from (§5). A configuration is shared and constant and a lookup is one
-//! question, so this is a third thing, owned by the caller — `Resolver` holds one for its table —
-//! and handed to every lookup by pointer. A table built again, the engine's `reinit` among them,
-//! starts every server over: no cookie, no failure and no sample.
+//! (docs/design.md §19 step 10), the failover counters of step 12, the latency samples a
+//! server's wait comes from (§5), and whether the server lowercases the name it echoes (§7). A
+//! configuration is shared and constant and a lookup is one question, so this is a third
+//! thing, owned by the caller — `Resolver` holds one for its table — and handed to every lookup
+//! by pointer. A table built again, the engine's `reinit` among them, starts every server over:
+//! no cookie, no failure, no sample, and DNS-0x20 again.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -35,6 +36,10 @@ pub const ServerState = struct {
     failures: u8,
     /// When the last of them happened.
     failed_at_ns: u64,
+    /// Whether the server answered a query whose name's case was mixed with the name in lowercase.
+    /// Once it has, every query to it carries the name in lowercase, until the table is built
+    /// again (docs/design.md §7, A server that changes the case).
+    changes_case: bool,
     /// The time from each query's send to the response the lookup accepted for it, in the five
     /// windows its wait is read from (docs/design.md §5, `servers_latency.zig`).
     latency: latency_module.Latency,
@@ -71,6 +76,7 @@ pub const Servers = struct {
                 .cookie_silent_until_ns = 0,
                 .failures = 0,
                 .failed_at_ns = 0,
+                .changes_case = false,
                 .latency = .{},
             };
         }
@@ -163,6 +169,21 @@ pub const Servers = struct {
     /// How many samples of server `index`'s latency came since the table was built.
     pub fn samples(self: *const Servers, index: usize) u64 {
         return self.state(index).latency.samples();
+    }
+
+    /// Whether a query to server `index` goes in lowercase, without case mixing: it answered a
+    /// mixed name in lowercase (docs/design.md §7, A server that changes the case).
+    pub fn changes_case(self: *const Servers, index: usize) bool {
+        return self.state(index).changes_case;
+    }
+
+    /// Server `index` answered a query that mixed the case with the name in lowercase: every query
+    /// to it carries the name in lowercase from now on, for the life of the table. The caller has
+    /// run the checks that make the response the server's (docs/design.md §7).
+    pub fn record_case_change(self: *Servers, index: usize) void {
+        assert(index < self.count);
+        self.states[index].changes_case = true;
+        assert(self.changes_case(index));
     }
 
     /// Keeps the pair a response carried: the client cookie the lookup sent, which the response
@@ -290,6 +311,16 @@ test "failures count up until an answer resets them, and the instant is the last
     try testing.expectEqual(@as(u8, 0), servers.failures(1));
     servers.record_success(0);
     try testing.expectEqual(@as(u8, 0), servers.failures(0));
+}
+
+test "a server that lowercases the name is marked alone, and a table built again marks none" {
+    const config: Config = .{ .servers = &fixtures.servers_two };
+    var servers = Servers.init(&config, 1);
+    try testing.expect(!servers.changes_case(0) and !servers.changes_case(1));
+    servers.record_case_change(1);
+    try testing.expect(!servers.changes_case(0) and servers.changes_case(1));
+    servers = Servers.init(&config, 2);
+    try testing.expect(!servers.changes_case(0) and !servers.changes_case(1));
 }
 
 test "the size of the table of servers is pinned" {

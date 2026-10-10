@@ -35,7 +35,7 @@
         .id = "S4",
         .what = "the question section is not compared",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (!wire.question.matches(message, cased, self.question.kind)) return null;", .new = "    if (false and !wire.question.matches(message, cased, self.question.kind)) return null;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (!wire.question.matches(message, cased, self.question.kind)) {", .new = "    if (false and !wire.question.matches(message, cased, self.question.kind)) {" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -44,7 +44,7 @@
         .id = "S5",
         .what = "the qname goes out uncased",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        if (self.flags.mix_case) wire.name.mix_case(&name, self.transaction.case_seed);", .new = "        if (false and self.flags.mix_case) wire.name.mix_case(&name, self.transaction.case_seed);" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        if (self.flags.query_mixed) {", .new = "        if (false and self.flags.query_mixed) {" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1431,6 +1431,213 @@
         .what = "a server's state grows by a word, and the size design §9 gives the table goes stale",
         .edits = .{
             .{ .file = "src/resolver/servers.zig", .old = "    failed_at_ns: u64,\n", .new = "    failed_at_ns: u64,\n    spare_ns: u64 = 0,\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM1",
+        .what = "the mark is never made",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (!cookies.accepted(self, opt.cookie)) return;\n    self.servers.record_case_change(self.server_slot());\n", .new = "    if (!cookies.accepted(self, opt.cookie)) return;\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM2",
+        .what = "a response in another case marks its server though the query did not mix the case",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (!self.flags.query_mixed) return;\n    // No query over DoH or DoQ mixes the case (docs/design.md §22, §23).\n    assert(self.flags.mix_case and !self.config.sends_requests());\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM3",
+        .what = "the mark does not compare the question with the one asked in lowercase, so another question marks",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (!wire.question.matches_lowercase(message, cased, self.question.kind)) return;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM4",
+        .what = "the mark skips check 6, so a wrong or missing cookie marks",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (!cookies.accepted(self, opt.cookie)) return;\n    self.servers.record_case_change", .new = "    _ = opt;\n    self.servers.record_case_change" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM5",
+        .what = "a malformed OPT record is read as none, and marks",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    const opt = opt_of(message, cased) orelse return;\n", .new = "    const opt = opt_of(message, cased) orelse OptFields{ .cookie = null, .extended_rcode_high = 0 };\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM6",
+        .what = "a query mixes the case whatever its server's mark",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        return self.flags.mix_case and !self.servers.changes_case(self.server_slot());", .new = "        return self.flags.mix_case;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM7",
+        .what = "check 5 compares with the server's mark at the response, not with what the query sent",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        if (self.flags.query_mixed) {", .new = "        if (self.mixes_case()) {" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM8",
+        .what = "the mark lands on the first server, not the one that answered",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    self.servers.record_case_change(self.server_slot());", .new = "    self.servers.record_case_change(0);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM9",
+        .what = "the lowercase compare compares exactly",
+        .edits = .{
+            .{ .file = "src/wire/question.zig", .old = "        .lowercase => is_lowercase_of(echoed, name.wire()),", .new = "        .lowercase => std.mem.eql(u8, echoed, name.wire())," },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM10",
+        .what = "the lowercase compare ignores the type",
+        .edits = .{
+            .{ .file = "src/wire/question.zig", .old = "    if (integer.read_u16(message, start + name.len) != kind.code()) return false;", .new = "    if (case == .exact and integer.read_u16(message, start + name.len) != kind.code()) return false;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM11",
+        .what = "the lowercase compare ignores the class",
+        .edits = .{
+            .{ .file = "src/wire/question.zig", .old = "    return integer.read_u16(message, start + name.len + constants.u16_bytes) ==", .new = "    return case == .lowercase or integer.read_u16(message, start + name.len + constants.u16_bytes) ==" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM12",
+        .what = "check 5 takes the question echoed in lowercase, so the response that marks is the answer too",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (!wire.question.matches(message, cased, self.question.kind)) {", .new = "    if (!wire.question.matches(message, cased, self.question.kind) and !wire.question.matches_lowercase(message, cased, self.question.kind)) {" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM13",
+        .what = "a chain name is folded only when the query mixed the case, so a server asked in lowercase keeps its capitals",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (self.flags.mix_case and self.answers.aliased) self.current.fold_case();", .new = "    if (self.flags.query_mixed and self.answers.aliased) self.current.fold_case();" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM14",
+        .what = "a query does not record whether it mixed the case",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "    self.flags.query_mixed = self.mixes_case();\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM15",
+        .what = "a table starts with every server marked",
+        .edits = .{
+            .{ .file = "src/resolver/servers.zig", .old = "                .changes_case = false,", .new = "                .changes_case = true," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM16",
+        .what = "the mark lands on every server",
+        .edits = .{
+            .{ .file = "src/resolver/servers.zig", .old = "        self.states[index].changes_case = true;", .new = "        for (&self.states) |*entry| entry.changes_case = true;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM17",
+        .what = "an answer the lookup takes clears its server's mark",
+        .edits = .{
+            .{ .file = "src/resolver/servers.zig", .old = "        self.states[index].failures = 0;\n", .new = "        self.states[index].failures = 0;\n        self.states[index].changes_case = false;\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM18",
+        .what = "the lowercase compare takes the name echoed in any case, so another mixed query's echo marks",
+        .edits = .{
+            .{ .file = "src/wire/question.zig", .old = "        if (echoed_octet != std.ascii.toLower(asked_octet)) return false;", .new = "        if (std.ascii.toLower(echoed_octet) != std.ascii.toLower(asked_octet)) return false;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM19",
+        .what = "a letter drawn small counts as a capital, so a draw that leaves every letter small stands",
+        .edits = .{
+            .{ .file = "src/wire/name.zig", .old = "            drawn.capitals += @intFromBool(is_capital(byte.*));", .new = "            drawn.capitals += 1;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM20",
+        .what = "a draw is repeated from the word the first started from, so it leaves every letter small again",
+        .edits = .{
+            .{ .file = "src/wire/name.zig", .old = "        word = drawn.word;\n", .new = "        word = entropy;\n" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM21",
+        .what = "the first letter is not made a capital once every draw left the name small",
+        .edits = .{
+            .{ .file = "src/wire/name.zig", .old = "    capitalize_first(name);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM22",
+        .what = "a name without a letter is drawn again as one left small",
+        .edits = .{
+            .{ .file = "src/wire/name.zig", .old = "        if (drawn.capitals > 0 or drawn.letters == 0) return;", .new = "        if (drawn.capitals > 0) return;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "A server that changes the case",
+        .id = "CM23",
+        .what = "a server marked as one that lowercases the name is asked for the name as held",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        } else if (self.flags.mix_case) {", .new = "        } else if (false and self.flags.mix_case) {" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },

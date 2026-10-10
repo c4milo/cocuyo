@@ -62,6 +62,8 @@ pub fn init_in_place(
             .aliased = false,
             .cookie_retried = false,
             .ordered = false,
+            // No query is built yet, so none mixed the case.
+            .query_mixed = false,
         },
         .server_index = 0,
         .order = identity_order,

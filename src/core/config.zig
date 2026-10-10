@@ -122,8 +122,13 @@ pub const Config = struct {
     /// The UDP payload size cocuyo advertises in OPT, which is also the smallest receive buffer
     /// the caller may use.
     udp_payload_bytes: u16 = constants.udp_payload_bytes_default,
-    /// Whether to randomise the case of the qname and require it back unchanged. On by default;
-    /// turn it off only for a server that mangles case (docs/design.md §7).
+    /// Whether to randomise the case of the qname (DNS-0x20) and require it back unchanged. On by
+    /// default. A server that answers a mixed name in lowercase is asked in lowercase from then
+    /// on, until its `Servers` table is built again, and every other server keeps 0x20; the
+    /// response that showed it is ignored, so that lookup waits out its deadline. A server that
+    /// changes the case any other way cannot be told from an echo of another query, and still
+    /// needs this off. Off, no query mixes the case (docs/design.md §7, A server that changes the
+    /// case).
     mix_case: bool = true,
     /// Whether to start the first pass at a server the seed chooses rather than at the first.
     rotate: bool = false,

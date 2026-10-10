@@ -38,6 +38,9 @@ Out of scope, so triage stays fast:
   cocuyo makes an off-path forgery expensive with random transaction ids, source ports, DNS-0x20
   and cookies, and offers DoT, DoQ and DoH for the path itself. It does not validate DNSSEC
   (`docs/design.md` §1).
+- A forger who already matches a query's id, port and cookie, and echoes its name in lowercase,
+  turning DNS-0x20 off for that one server until the table is built again. `docs/design.md` §7
+  records it as the cost of the fallback for servers that lowercase the name.
 - Attacks that need a malicious `Config`, a caller that breaks the documented contract, or a
   compromised host.
 - Resource limits the caller chose. cocuyo's memory is sized at init, and a lookup that runs out of

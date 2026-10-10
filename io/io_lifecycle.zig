@@ -43,7 +43,8 @@ pub fn reset_tables(self: anytype, config: *const cocuyo.Config, seed: u64) void
 /// A new configuration, which is `ares_reinit`: the cache is emptied because its answers
 /// came from servers that may be gone, the streams are closed, and the sockets are opened
 /// again on the new servers. The table is built again, so every server's latency samples
-/// start over, and each waits `Config.timeout_ns` until it has 3 (docs/design.md §5).
+/// start over, and each waits `Config.timeout_ns` until it has 3 (docs/design.md §5), and a
+/// server marked as one that lowercases the name is asked with DNS-0x20 again (§7).
 ///
 /// The engine must be idle: a lookup in flight was started against servers that are
 /// going away, and its handle would name a slot the new table has never heard of. A

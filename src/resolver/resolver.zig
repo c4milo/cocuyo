@@ -69,6 +69,7 @@ test {
     _ = @import("lookup_cookie.zig");
     _ = @import("lookup_cookie_test.zig");
     _ = @import("lookup_chain_test.zig");
+    _ = @import("lookup_case_test.zig");
     _ = @import("lookup_request.zig");
     _ = @import("lookup_request_test.zig");
     _ = @import("lookup_init_test.zig");

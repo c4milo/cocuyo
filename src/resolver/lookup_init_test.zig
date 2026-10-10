@@ -30,9 +30,14 @@ test "a lookup starts ready to send its first query" {
 }
 
 test "the name on the wire is cased and the name held is not" {
+    // The case is chosen when the query is built, since its server may have lost 0x20 (§7).
+    var out: [core.constants.query_bytes_max]u8 = @splat(0);
     const config: Config = .{ .servers = &one_server };
     var servers_config = Servers.init(&config, 1);
     var lookup = Lookup.init(&config, &servers_config, try Question.from_text("example.com", .a), 1);
+    try testing.expect(!lookup.flags.query_mixed);
+    _ = lookup.poll(0, &out);
+    try testing.expect(lookup.flags.query_mixed);
     const cased = lookup.cased_name();
     try testing.expect(cased.equal(&lookup.current));
     try testing.expect(!std.mem.eql(u8, cased.wire(), lookup.current.wire()));
@@ -40,6 +45,8 @@ test "the name on the wire is cased and the name held is not" {
     const plain: Config = .{ .servers = &one_server, .mix_case = false };
     var servers_plain = Servers.init(&plain, 1);
     var without = Lookup.init(&plain, &servers_plain, lookup.question, 1);
+    _ = without.poll(0, &out);
+    try testing.expect(!without.flags.query_mixed);
     try testing.expectEqualSlices(u8, without.current.wire(), without.cased_name().wire());
 }
 

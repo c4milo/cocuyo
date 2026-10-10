@@ -92,10 +92,12 @@ fn send_tcp(self: *Lookup, now_ns: u64, out: []u8) Action {
 }
 
 /// Builds the query into the caller's buffer, and records the cookie it carries for check 6
-/// (`lookup_cookie.zig`). Everything that varies is state, the lookup's and its server's cookies
-/// at `now_ns`, so the same lookup in the same state builds the same octets every time
-/// (docs/design.md §16 decision 3).
+/// (`lookup_cookie.zig`) and whether it mixed the case for check 5. Everything that varies is
+/// state, the lookup's and its server's cookies and case mark at `now_ns`, so the same lookup in
+/// the same state builds the same octets every time (docs/design.md §16 decision 3).
 fn build(self: *Lookup, tcp: bool, now_ns: u64, out: []u8) []const u8 {
+    // A server that answered a mixed name in lowercase is asked in lowercase (§7).
+    self.flags.query_mixed = self.mixes_case();
     const query: wire.Query = .{
         // A DoH client "SHOULD use a DNS ID of 0 in every DNS request" (RFC 8484 §4.1), so an
         // HTTP cache can share the answer, and over DoQ "the DNS Message ID MUST be set to 0"

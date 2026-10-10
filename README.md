@@ -253,6 +253,12 @@ transaction id, the random letter case of DNS-0x20, and a source port. cocuyo ow
 cannot bind a port; it suggests one. **A caller that sends every query from one socket keeps the id
 and case entropy and loses the port entropy.**
 
+Some servers and forwarders echo the name in lowercase. The first such reply is still ignored, and
+the lookup it answers waits out its deadline. From then on that server is asked for every name in
+lowercase, without the random case, until the engine's `reinit`, or a new `Servers` table for a
+caller driving lookups alone. Every other server keeps it. A server that changes the case any
+other way cannot be told from an echo of another query, and needs `Config.mix_case` off.
+
 A query carries a client cookie of its own until the server answers it with a server cookie; from
 then on it carries the two together. A server that answers without cookies is sent none for five
 minutes, then a fresh client cookie (RFC 9018 §3). cocuyo does not see a change of your address:

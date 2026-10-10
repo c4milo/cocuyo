@@ -3796,3 +3796,70 @@ test of `table_memory.zig`; the cap test of `lookup_config_test.zig`; the large-
 | DT29 | the default wait is 5 seconds, as before 2026-10-09 | `timeout_ns_default` | the defaults test, `test-core` | CAUGHT |
 | DT30 | a server's state grows by a word, and the size design §9 gives the table goes stale | §9, the size of `Servers` | the size test of `servers.zig`, `test-resolver` | CAUGHT |
 | S13 | the deadline is not armed on a send, written again for `lookup_poll.arm` | §5 retry policy | 39 tests, the wait test of `lookup_poll.zig` among them, `test-resolver` | CAUGHT |
+
+## A server that changes the case
+
+2026-10-09. The owner ruled that DNS-0x20 stays on by default (design §16 decision 5) and falls
+back for each server on its own (design §7, A server that changes the case). A response that passes
+checks 1 to 4 and check 6, whose question is the one a mixed query asked with every letter small,
+marks its server. The response is ignored all the same, and the wait stands (decision 10). From
+then on every query to that server carries the name in lowercase, until the `Servers` table is
+built again. A mixed name always carries a capital: a draw that leaves every letter small is drawn
+again, up to `case_draws_max` draws, and then the first letter is made a capital. So no echo of a
+mixed query cocuyo sent is in lowercase, and none marks a server. A lookup records whether the
+query it built mixed the case, and check 5 compares a response with that query's name. Design §4,
+§5, §7, §9, §12, §16 decision 5, §19 and §24 changed first. Neither model changed. The Lean model
+leaves entropy out, and a reply that differs in case alone is an unmatched reply, with the wait
+standing; the engine's TLA+ model has no letter case. `zig build spec-lean` and the replays of
+`zig build test` agree.
+
+As first built, an echo in any other case marked its server. The review of the same day found
+that two lookups of one name to one server whose transactions drew one id, or a late answer
+reaching a retry that drew its query's id, marked a server that echoes the case as sent, with no
+attacker. The mark was narrowed to an echo in lowercase, every mixed name made to carry a capital,
+and a marked server asked in lowercase. A chain name is folded under 0x20 again whatever the query
+carried. CM3, CM7, CM9, CM11, CM12 and CM13 were written again for that code, and CM18 to CM23
+are new. S4's and S5's edits no longer applied, since check 5's line became a block and
+`cased_name` reads what the query recorded, so both were written again. CM4 did not compile as
+first written, leaving the OPT record unused, and was written again so that it compiles. Then
+`zig build mutations -- lookup` ran CM1 to CM23, S4, S5, DH5 and QU5, each against the step it
+names, and caught each. DH5 and QU5 edit the flag the query's choice reads, so they ran again
+unchanged. Each was also broken by hand, against `test-resolver` and, for the codec's, against
+`test-wire` too, to name the tests that fail. Twenty-three mutations, twenty-three `CAUGHT`; four
+run again, four `CAUGHT`.
+
+The tests the table names: in `lookup_case_test.zig`, the lowercasing test (a server that
+lowercases is marked, the wait stands, and the retry and a new lookup go in lowercase), the
+other-server, more-than-case, other-echo (another lookup's mixed echo, and one in capitals),
+late-echo, check-6, owed-cookie, unmixed-query, in-flight, capitals, chain-capitals, folded-case
+and nobody-asked tests; the lowercase test of `src/wire/question.zig`; the redraw, one-letter and
+letterless tests of `src/wire/name.zig`; the marked-alone test of `servers.zig`; the
+name-on-the-wire test of `lookup_init_test.zig`; and the cross-talk test of `table.zig`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CM1 | the mark is never made | §7, the mark | the lowercasing, other-server, more-than-case, other-echo, check-6 and in-flight tests, `test-resolver` | CAUGHT |
+| CM2 | a response in another case marks its server though the query did not mix the case | §7, only a query that mixed | the unmixed-query test, `test-resolver` | CAUGHT |
+| CM3 | the mark does not compare the question with the one asked in lowercase, so another question marks | RFC 1035 §2.3.3, RFC 4343 §3, §7 the mark | the more-than-case, other-echo and late-echo tests, `test-resolver` | CAUGHT |
+| CM4 | the mark skips check 6, so a wrong or a missing cookie marks | RFC 7873 §5.3, §7 check 6 | the check-6 and owed-cookie tests, `test-resolver` | CAUGHT |
+| CM5 | a malformed OPT record is read as none, and marks | RFC 7873 §5.2.2, §7 check 6 | the check-6 test, `test-resolver` | CAUGHT |
+| CM6 | a query mixes the case whatever its server's mark | §7, a marked server is asked in lowercase | the lowercasing, capitals and chain-capitals tests, `test-resolver` | CAUGHT |
+| CM7 | check 5 compares with the server's mark at the response, not with what the query sent | §7, the query's record | the in-flight test, `test-resolver` | CAUGHT |
+| CM8 | the mark lands on the first server, not the one that answered | §7, that server alone | the other-server test, `test-resolver` | CAUGHT |
+| CM9 | the lowercase compare compares exactly | §7, the mark | the lowercase test, `test-wire`; six tests of `test-resolver`, the lowercasing test among them | CAUGHT |
+| CM10 | the lowercase compare ignores the type | §7, the type compares exactly | the lowercase test, `test-wire`; the more-than-case test, `test-resolver` | CAUGHT |
+| CM11 | the lowercase compare ignores the class | §7, the class compares exactly | the lowercase test, `test-wire` | CAUGHT |
+| CM12 | check 5 takes the question echoed in lowercase, so the response that marks is the answer too | RFC 5452 §9.1, §7 check 5, decision 10 | eight tests, the folded-case and lowercasing tests among them, `test-resolver` | CAUGHT |
+| CM13 | a chain name is folded only when the query mixed the case, so a server asked in lowercase keeps its capitals | §7, a chain name's case | the chain-capitals test, `test-resolver` | CAUGHT |
+| CM14 | a query does not record whether it mixed the case | §7, the query's record | nine tests, the late-echo and name-on-the-wire tests among them, `test-resolver` | CAUGHT |
+| CM15 | a table starts with every server marked | §7, a server is marked by its own reply | twelve tests, the marked-alone test among them, `test-resolver` | CAUGHT |
+| CM16 | the mark lands on every server | §7, that server alone | the marked-alone and other-server tests, `test-resolver` | CAUGHT |
+| CM17 | an answer the lookup takes clears its server's mark | §7, for the life of the table | the lowercasing and chain-capitals tests, `test-resolver` | CAUGHT |
+| CM18 | the lowercase compare takes the name echoed in any case, so another mixed query's echo marks | §7, only an echo in lowercase marks | the other-echo and late-echo tests, `test-resolver`; the lowercase test, `test-wire` | CAUGHT |
+| CM19 | a letter drawn small counts as a capital, so a draw that leaves every letter small stands | §7 Entropy, a capital in every mixed name | the redraw and one-letter tests, `test-wire`; the other-echo test, `test-resolver` | CAUGHT |
+| CM20 | a draw is repeated from the word the first started from, so it leaves every letter small again | §7 Entropy, each draw from the next word | the redraw test, `test-wire` | CAUGHT |
+| CM21 | the first letter is not made a capital once every draw left the name small | `case_draws_max` | the one-letter test, `test-wire` | CAUGHT |
+| CM22 | a name without a letter is drawn again as one left small | §7 Entropy | the letterless test, `test-wire`, by a panic at the `unreachable` past the last draw | CAUGHT |
+| CM23 | a server marked as one that lowercases the name is asked for the name as held | §7, a marked server is asked in lowercase | the capitals test, `test-resolver` | CAUGHT |
+| S4 | the question section is not compared, written again for check 5's block | RFC 5452 §9.1 | eleven tests, the cross-talk test of `table.zig` and the nobody-asked test among them, `test-resolver` | CAUGHT |
+| S5 | the qname goes out uncased, written again for the query's record | §7 DNS-0x20 | nine tests, the late-echo and name-on-the-wire tests among them, `test-resolver` | CAUGHT |

@@ -304,7 +304,8 @@ pub fn Resolver(comptime options: Options) type {
 
         /// A new configuration, which is `ares_reinit`. The engine must be idle, and `seed` a new
         /// draw from a CSPRNG; `io_lifecycle.zig` says why and what a caller does first. Every
-        /// server's latency samples start over (docs/design.md §5).
+        /// server's latency samples start over (docs/design.md §5), and a server marked as one
+        /// that lowercases the name is asked with DNS-0x20 again (§7).
         pub fn reinit(self: *Self, config: *const cocuyo.Config, seed: u64, now_ns: u64) InitError!void {
             try lifecycle.reinit(self, config, seed, now_ns);
         }

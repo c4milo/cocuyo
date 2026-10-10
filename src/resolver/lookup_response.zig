@@ -4,7 +4,8 @@
 //! The checks run cheapest-and-most-decisive first: the length, then the transaction id, then the
 //! source endpoint, then the header's shape, then the question section byte for byte with its
 //! case. The answer section is walked only after all of them pass. The security order and the fast
-//! order are the same order.
+//! order are the same order. A question echoed in lowercase can mark its server as one that
+//! lowercases the name, and the response is ignored all the same (§7, `case_change`).
 //!
 //! Anything that fails a check is `ignored`, in any state, and the wait stands. A late datagram
 //! for a settled lookup is normal for a caller with one socket, so it is an operational event and
@@ -44,7 +45,7 @@ pub const Accepted = struct {
 };
 
 /// Every check of §7, in order. Returns what was read when the message is ours, and null when it
-/// is not, without touching the lookup.
+/// is not, without touching the lookup. Its server's state can learn that it changes the case.
 fn accepted_header(
     self: *const Lookup,
     message: []const u8,
@@ -81,15 +82,41 @@ pub fn accepted_shape(
     // 4. A response to a standard query, not a query and not another opcode.
     if (!header.is_response()) return null;
     if (header.opcode() != wire.constants.opcode_query) return null;
-    // 5. One question, byte-identical to the one asked, case included: DNS-0x20 lives here
-    //    (RFC 5452 §9.1, §9.2).
+    // 5. One question, byte-identical to the one asked (RFC 5452 §9.1), case included: DNS-0x20
+    //    lives here, the practice of the expired draft-vixie-dnsext-dns0x20.
     if (header.qdcount != 1) return null;
-    if (!wire.question.matches(message, cased, self.question.kind)) return null;
+    if (!wire.question.matches(message, cased, self.question.kind)) {
+        case_change(self, message, cased);
+        return null;
+    }
     // 6. The cookie (RFC 7873 §5.3): the client cookie must be the one this lookup's query
     //    carried, and a server that has given a server cookie must give one again.
     const opt = opt_of(message, cased) orelse return null;
     if (!cookies.accepted(self, opt.cookie)) return null;
     return .{ .header = header, .cookie = opt.cookie, .extended_rcode_high = opt.extended_rcode_high };
+}
+
+/// A response that echoed in lowercase the question a mixed query asked, and that passes check 6
+/// as an answer must, marks its server as one that lowercases the name: it is asked in lowercase
+/// from now on. It stays ignored, and the wait stands (§16 decision 10). A mixed name always
+/// carries a capital, so no echo of a mixed query of cocuyo's own is in lowercase. No RFC states
+/// DNS-0x20, so none states this: the rule is the owner's of 2026-10-09, narrowed by its review
+/// (docs/design.md §7, A server that changes the case; §16 decision 5).
+fn case_change(self: *const Lookup, message: []const u8, cased: *const core.Name) void {
+    assert(self.state == .awaiting_udp or self.state == .awaiting_tcp);
+    if (!self.flags.query_mixed) return;
+    // No query over DoH or DoQ mixes the case (docs/design.md §22, §23).
+    assert(self.flags.mix_case and !self.config.sends_requests());
+    // The same question with every letter small, which names the same name (RFC 1035 §2.3.3, as
+    // clarified by RFC 4343 §3); any other case may be another query's echo.
+    if (!wire.question.matches_lowercase(message, cased, self.question.kind)) return;
+    // Check 5 refused it, so the name asked was not already lowercase: it held a capital.
+    assert(!wire.question.matches(message, cased, self.question.kind));
+    const opt = opt_of(message, cased) orelse return;
+    // "MUST discard the response if it contains ... an incorrect Client Cookie value" (RFC 7873
+    // §5.3): a response check 6 refuses is no server's word on anything.
+    if (!cookies.accepted(self, opt.cookie)) return;
+    self.servers.record_case_change(self.server_slot());
 }
 
 const OptFields = struct { cookie: ?wire.CookieView, extended_rcode_high: u8 };
@@ -384,32 +411,6 @@ test "a response from another server, or another port, is ignored" {
     const wrong_port: Endpoint = .{ .address = servers[0].endpoint.address, .port = fixtures.port_other };
     try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.answer_a, wrong_port));
     try testing.expect(harness.poll() == .wait);
-}
-
-test "a response echoing the question with its case folded is ignored" {
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    var reply = fixtures.answer_a;
-    reply.fold_case = true;
-    try testing.expectEqual(Verdict.ignored, harness.respond(reply, servers[0].endpoint));
-    try testing.expect(harness.poll() == .wait);
-
-    // The same reply is accepted when the caller turned 0x20 off, which shows the fold is the
-    // only thing the check refused.
-    var without: fixtures.Harness = .{ .config = .{ .servers = &servers, .mix_case = false } };
-    try without.start("example.com.", .a, seed);
-    _ = without.send();
-    try testing.expectEqual(Verdict.accepted, without.respond(reply, servers[0].endpoint));
-}
-
-test "a response to a question nobody asked is ignored" {
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    var reply = fixtures.answer_a;
-    reply.other_name = true;
-    try testing.expectEqual(Verdict.ignored, harness.respond(reply, servers[0].endpoint));
 }
 
 test "a truncated response sends the lookup to TCP" {
