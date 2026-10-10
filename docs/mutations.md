@@ -3863,3 +3863,65 @@ name-on-the-wire test of `lookup_init_test.zig`; and the cross-talk test of `tab
 | CM23 | a server marked as one that lowercases the name is asked for the name as held | §7, a marked server is asked in lowercase | the capitals test, `test-resolver` | CAUGHT |
 | S4 | the question section is not compared, written again for check 5's block | RFC 5452 §9.1 | eleven tests, the cross-talk test of `table.zig` and the nobody-asked test among them, `test-resolver` | CAUGHT |
 | S5 | the qname goes out uncased, written again for the query's record | §7 DNS-0x20 | nine tests, the late-echo and name-on-the-wire tests among them, `test-resolver` | CAUGHT |
+
+## A try that ran out as a latency sample
+
+2026-10-09. The owner ruled, in answer to design §17 question 26, that a try that ran out counts
+as a latency sample as long as the wait it used (design §5, §16 decision 36). When a lookup's
+deadline passes in `awaiting_udp`, which holds DoH and DoQ requests too, or in `awaiting_tcp`, the
+server it waited on takes one sample, from the send to the deadline, before the lookup moves on
+(`ran_out` in `src/resolver/lookup_poll.zig`). A connect that ran out, a failed send, a failed
+connection or handshake, a failed request and a lookup cancelled take none. Design §5, §16
+decision 36 and §17 question 26 changed first. Neither model changed: the Lean model leaves time
+and the wait's length out, and the TLA+ engine model holds no latency. `zig build spec-lean` and
+the replays of `zig build test` agree.
+
+Two tests of `lookup_latency_test.zig` described the rule before it and were written again. The
+doubling test let a try run out at 1.5 seconds and expected the next pass to wait 3. That try is a
+sample now, which makes the average 600 ms, so the next pass waits 6 seconds, under a cap raised
+to 30 seconds so that the doubling still shows. The resent-query test required the silent first
+server to hold no sample, and now requires it to hold one, of 2 seconds. Both tests are named in
+the rows of DT1 to DT5, DT19, DT20, DT23 and DT24, so those were broken by hand again, and the
+tests their rows name still catch each.
+
+Each of DT31 to DT39 was broken by hand against `test-resolver`, to name the tests that fail.
+Then `zig build mutations -- lookup` ran DT31 to DT39, and S3, S14 and S16, whose edits are in
+`expired` beside the new function, and caught each. The name S3 matches two rows, the state
+machine's and the Lean model's, and the tool ran both. It ran DT1 to DT30 again too, for the two
+tests written again, and caught each. Nine new mutations, nine `CAUGHT`; thirty-four run again,
+thirty-four `CAUGHT`.
+
+The tests the table names, all in `lookup_latency_test.zig` but two: the ran-out test (one sample
+as long as its wait, on its own server, a later pass's doubled, and a poll that comes 7 ms late),
+the TLS test (a try over TLS that ran out, and a connect that ran out), the DoH or DoQ test, the
+failed-connection test (a connection that failed and a lookup cancelled), the slowed test (a
+record of 3 answers in 50 ms, then 600 ms), the long-record test (a record of 100), the
+never-answers test, and the doubling and resent-query tests written again; and the hard-failure
+and timed-out-family tests of `address_lookup_test.zig`, which move the clock a minute on.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| DT31 | a try that ran out takes no sample | §5, a try that ran out is a sample | thirteen tests: the ran-out, TLS, DoH or DoQ, slowed, long-record, never-answers, doubling and resent-query tests, and the five the review added, `test-resolver` | CAUGHT |
+| DT32 | a try that ran out is measured to the poll that found it, not to its deadline | §5, from the send to the deadline | the ran-out test; the assertion in `ran_out`, by a panic under the hard-failure and timed-out-family tests, `test-resolver` | CAUGHT |
+| DT33 | a later pass's try that ran out counts its wait before the doubling | §5, a doubled wait counts as that | the ran-out, long-record, never-answers and doubling tests, `test-resolver` | CAUGHT |
+| DT34 | a connect that ran out takes a sample too, measured from a send that was not its own | §5, no query went out | the TLS test, `test-resolver` | CAUGHT |
+| DT35 | a try over TCP or TLS that ran out takes no sample | §5, `awaiting_tcp` as `awaiting_udp` | the TLS test, `test-resolver` | CAUGHT |
+| DT36 | a DoH or DoQ request that ran out takes no sample | §5, `awaiting_udp` holds requests too | the DoH or DoQ test, `test-resolver` | CAUGHT |
+| DT37 | the sample lands on the first configured server, not the one that ran out | §5, the server the lookup waited on | the ran-out and TLS tests, `test-resolver` | CAUGHT |
+| DT38 | a connection or a handshake that failed takes a sample | §5, no wait for an answer was measured | the failed-connection test, `test-resolver` | CAUGHT |
+| DT39 | a lookup cancelled while it waits takes a sample of what it waited | §5, a lookup cancelled is no sample | the failed-connection test, `test-resolver` | CAUGHT |
+
+The review of the same day found two faults in design §5. It said an off-path attacker who
+cannot pass §7's checks cannot move a server's wait, which held only while an accepted response
+was the only sample. And it gave some of the rule's costs without a test, and left others out.
+§5 now says what an attacker who makes answers go missing can do to a wait. It adds the costs to
+failover's probes, to DoH and DoQ beside DoT, and to the 0x20 fallback, and gives each number a
+test. §5 also has the `awaiting_tcp` deadline row it lacked, and §17 asks two questions of the
+costs. No check changed, so no mutation was added.
+
+Five tests back the numbers: the lost-datagram and minute-restart tests of
+`lookup_latency_test.zig`, the lowercase and other-case tests of `lookup_case_test.zig`, and the
+probe test of `lookup_failover_test.zig`. Each fails under a row already in these tables, run
+against `test-resolver` by hand to name the tests, then by `zig build mutations -- lookup`,
+which caught all three. DT31 fails all five, DT9 the minute-restart test, and DT21 the
+lost-datagram, minute-restart and probe tests.

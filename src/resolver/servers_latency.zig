@@ -1,7 +1,7 @@
 //! One server's latency, which its wait is read from (docs/design.md §5, retry and timeout
 //! policy): the samples of the time from a query's send to the response the lookup accepted for
-//! it, kept in five windows, and the average the wait reads. Split from `servers.zig`, whose
-//! `ServerState` holds one per server.
+//! it, or to the deadline of a try that ran out first, kept in five windows, and the average the
+//! wait reads. Split from `servers.zig`, whose `ServerState` holds one per server.
 //!
 //! The five windows and their spans are c-ares's, read from its features page. Which window the
 //! wait reads, the shortest with `latency_samples_min` samples, is cocuyo's own choice, since the

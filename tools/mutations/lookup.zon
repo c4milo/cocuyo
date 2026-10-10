@@ -1641,4 +1641,85 @@
         },
         .caught_by = .{ .step = "test-resolver" },
     },
+    .{
+        .section = "A try that ran out as a latency sample",
+        .id = "DT31",
+        .what = "a try that ran out takes no sample",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        self.servers.record_latency(slot, waited_ns, now_ns);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A try that ran out as a latency sample",
+        .id = "DT32",
+        .what = "a try that ran out is measured to the poll that found it, not to its deadline",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        const waited_ns = self.deadline_ns - self.sent_at_ns;", .new = "        const waited_ns = now_ns - self.sent_at_ns;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A try that ran out as a latency sample",
+        .id = "DT33",
+        .what = "a later pass's try that ran out counts its wait before the doubling",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        const waited_ns = self.deadline_ns - self.sent_at_ns;", .new = "        const waited_ns = policy.wait_ns(self.config, self.servers.latency_ns(slot, now_ns));" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A try that ran out as a latency sample",
+        .id = "DT34",
+        .what = "a connect that ran out takes a sample too, measured from a send that was not its own",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "    if (self.state == .awaiting_udp or self.state == .awaiting_tcp) {", .new = "    if (self.is_waiting()) {" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A try that ran out as a latency sample",
+        .id = "DT35",
+        .what = "a try over TCP or TLS that ran out takes no sample",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "    if (self.state == .awaiting_udp or self.state == .awaiting_tcp) {", .new = "    if (self.state == .awaiting_udp) {" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A try that ran out as a latency sample",
+        .id = "DT36",
+        .what = "a DoH or DoQ request that ran out takes no sample",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "    if (self.state == .awaiting_udp or self.state == .awaiting_tcp) {", .new = "    if ((self.state == .awaiting_udp and !self.config.sends_requests()) or self.state == .awaiting_tcp) {" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A try that ran out as a latency sample",
+        .id = "DT37",
+        .what = "the sample lands on the first configured server, not the one that ran out",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        self.servers.record_latency(slot, waited_ns, now_ns);", .new = "        self.servers.record_latency(0, waited_ns, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A try that ran out as a latency sample",
+        .id = "DT38",
+        .what = "a connection or a handshake that failed takes a sample",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.servers.record_failure(self.server_slot(), now_ns);\n        self.flags.had_server_failure = true;\n", .new = "        self.servers.record_latency(self.server_slot(), now_ns - self.sent_at_ns, now_ns);\n        self.servers.record_failure(self.server_slot(), now_ns);\n        self.flags.had_server_failure = true;\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A try that ran out as a latency sample",
+        .id = "DT39",
+        .what = "a lookup cancelled while it waits takes a sample of what it waited",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.fail(core.Error.Canceled);\n", .new = "        if (self.is_waiting()) self.servers.record_latency(self.server_slot(), self.now_ns_seen - self.sent_at_ns, self.now_ns_seen);\n        self.fail(core.Error.Canceled);\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
 }

@@ -40,8 +40,9 @@ pub const ServerState = struct {
     /// Once it has, every query to it carries the name in lowercase, until the table is built
     /// again (docs/design.md §7, A server that changes the case).
     changes_case: bool,
-    /// The time from each query's send to the response the lookup accepted for it, in the five
-    /// windows its wait is read from (docs/design.md §5, `servers_latency.zig`).
+    /// The time from each query's send to the response the lookup accepted for it, or to the
+    /// deadline of a try that ran out first, in the five windows its wait is read from
+    /// (docs/design.md §5, `servers_latency.zig`).
     latency: latency_module.Latency,
 };
 
@@ -153,7 +154,8 @@ pub const Servers = struct {
     }
 
     /// A response the lookup accepted from server `index` at `now_ns`, `sample_ns` after the
-    /// query it answers went out: one sample of the server's latency (docs/design.md §5).
+    /// query it answers went out, or a try at it that ran out, `sample_ns` being the wait it used:
+    /// one sample of the server's latency (docs/design.md §5).
     pub fn record_latency(self: *Servers, index: usize, sample_ns: u64, now_ns: u64) void {
         assert(index < self.count);
         assert(sample_ns <= now_ns);

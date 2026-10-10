@@ -1,8 +1,9 @@
 //! Check 5 of §7 through the fake server: the question, DNS-0x20, and its fallback for a server
 //! that lowercases the name (docs/design.md §7, A server that changes the case): which response
-//! marks its server, that the wait stands, and that a marked server is asked in lowercase while
-//! every other keeps 0x20. The mark is `lookup_response.zig`'s and the choice to mix
-//! `lookup_poll.zig`'s. Split from `lookup_response.zig` by the file-length rule.
+//! marks its server, that the wait stands, that a marked server is asked in lowercase while
+//! every other keeps 0x20, and what the tries an ignored reply leaves to run out do to a server's
+//! wait (§5). The mark is `lookup_response.zig`'s and the choice to mix `lookup_poll.zig`'s.
+//! Split from `lookup_response.zig` by the file-length rule.
 const std = @import("std");
 const testing = std.testing;
 const core = @import("core");
@@ -298,4 +299,65 @@ test "a chain name a server spelled with capitals is folded, though the query we
     try testing.expectEqualSlices(u8, target.wire(), sent_name(&harness));
     try testing.expectEqual(Verdict.accepted, harness.respond(folded, servers[0].endpoint));
     try testing.expect(harness.poll() == .done);
+}
+
+/// A millisecond and a second, in nanoseconds.
+const millisecond_ns = 1_000_000;
+const second_ns = 1_000_000_000;
+
+test "a server that lowercases has the try its mark ignored counted as a wait it did not take" {
+    // A fresh table, and a server that answers in 10 ms. The first lookup's reply marks it and is
+    // ignored, so that try runs out at the configured 2 seconds, a sample as long (docs/design.md
+    // §5). The second pass asks in lowercase and is answered in 10 ms, and so is the next lookup.
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &fixtures.servers_one } };
+    try harness.start("example.com.", .a, seed);
+    _ = harness.send();
+    harness.now_ns += 10 * millisecond_ns - 1;
+    try testing.expectEqual(Verdict.ignored, harness.respond(folded, only));
+    try testing.expect(harness.servers.changes_case(0));
+    harness.now_ns = harness.lookup.deadline_ns - 1;
+    for (0..2) |_| {
+        _ = harness.send();
+        harness.now_ns += 10 * millisecond_ns - 1;
+        try testing.expectEqual(Verdict.accepted, harness.respond(folded, only));
+        try testing.expect(harness.poll() == .done);
+        try harness.start("example.com.", .a, seed + 1);
+    }
+    // 2 seconds, 10 ms and 10 ms average 673 ms, so the third lookup waits 3.37 seconds where the
+    // configured wait is 2.
+    _ = harness.send();
+    const average = (2 * second_ns + 2 * 10 * millisecond_ns) / 3;
+    try testing.expectEqual(5 * average, harness.lookup.deadline_ns - harness.now_ns);
+}
+
+/// Answers the query last sent with its name in capitals, which is how a server that changes the
+/// case some other way than to lowercase can echo it: the lookup ignores it, and marks nothing.
+fn respond_in_capitals(harness: *fixtures.Harness) Verdict {
+    const message = harness.build(fixtures.answer_a);
+    for (harness.reply_buffer[core.constants.header_bytes..][0..harness.lookup.current.len]) |*byte| {
+        byte.* = std.ascii.toUpper(byte.*);
+    }
+    harness.now_ns += 1;
+    return harness.lookup.on_response(message, only, harness.now_ns);
+}
+
+test "a server that changes the case another way has its wait rise to the cap" {
+    // Every reply is ignored, so every try runs out. Before 2026-10-09 a lookup took 2 seconds,
+    // then 4, and ended in `Timeout` after 6. Now its tries are samples: the second lookup's first
+    // try is the third sample, whose average puts the wait at the 5-second cap.
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &fixtures.servers_one } };
+    for ([_]u64{ 6 * second_ns, 7 * second_ns, 10 * second_ns, 10 * second_ns }) |length| {
+        try harness.start("example.com.", .a, seed);
+        var sent_ns: u64 = 0;
+        for (0..harness.config.attempts) |attempt| {
+            _ = harness.send();
+            if (attempt == 0) sent_ns = harness.now_ns;
+            harness.now_ns += 10 * millisecond_ns - 1;
+            try testing.expectEqual(Verdict.ignored, respond_in_capitals(&harness));
+            harness.now_ns = harness.lookup.deadline_ns - 1;
+        }
+        try testing.expectEqual(core.Error.Timeout, harness.poll().failed.err);
+        try testing.expectEqual(length, harness.now_ns - sent_ns);
+    }
+    try testing.expect(!harness.servers.changes_case(0));
 }

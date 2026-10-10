@@ -175,7 +175,8 @@ pub const Lookup = struct {
     transaction: entropy_module.Transaction,
     deadline_ns: u64,
     /// When the current transaction's query went out: what a response accepted for it measures
-    /// its server's latency from (docs/design.md §5).
+    /// its server's latency from, and what a deadline that passes first measures the wait it used
+    /// from (docs/design.md §5).
     sent_at_ns: u64,
     /// The last instant the caller passed in, so a clock going backwards is caught.
     now_ns_seen: u64,

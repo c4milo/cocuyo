@@ -458,7 +458,7 @@ Eight states: `query_ready`, `awaiting_udp`, `tcp_needed`, `connecting_tcp`, `tc
 | `query_ready` | `on_sent` | `awaiting_udp` | arm the deadline |
 | `query_ready` | `on_send_failed` | `query_ready` or `failed` | advance the server |
 | `awaiting_udp` | `poll` before the deadline | unchanged | return `wait` |
-| `awaiting_udp` | `poll` at or past it | `query_ready` or `failed` | advance the server, then the attempt |
+| `awaiting_udp` | `poll` at or past it | `query_ready` or `failed` | a sample as long as the wait, then advance the server, then the attempt |
 | `awaiting_udp` | `on_response` unmatched | unchanged | return `ignored`, the wait stands |
 | `awaiting_udp` | `on_response` with TC=1 | `tcp_needed` | keep the same server |
 | `awaiting_udp` | `on_response` with a CNAME and no answer | `query_ready` | new transaction, hop count up |
@@ -479,11 +479,14 @@ Eight states: `query_ready`, `awaiting_udp`, `tcp_needed`, `connecting_tcp`, `tc
 | `awaiting_tcp` | `on_response` | as the UDP rows | TC=1 sends the lookup nowhere, so the message is read as if it were clear, and an answer it gives is marked `truncated` |
 | `awaiting_tcp` | `on_response` BADCOOKIE, the first from this server | `tcp_needed` | same server, a new transaction on the stream, the fresh cookie |
 | `awaiting_tcp` | `on_response` BADCOOKIE again | `query_ready` or `failed` | advance the server, as SERVFAIL does |
+| `awaiting_tcp` | `poll` at or past the deadline | `query_ready` or `failed` | a sample as long as the wait, then advance the server, then the attempt |
 | `done`, `failed` | any | unchanged | `poll` returns the same value; `on_response` is `ignored` |
 
 Every row that accepts a response first takes a sample of its server's latency, which the next
-deadline armed for that server reads (retry and timeout policy, below). A response the lookup
-ignores, unmatched or malformed, takes none.
+deadline armed for that server reads (retry and timeout policy, below). So does a deadline that
+passes in `awaiting_udp` or `awaiting_tcp`, with a sample as long as the wait that try used. A
+response the lookup ignores, unmatched or malformed, takes none, and neither does a deadline that
+passes in `connecting_tcp`, since no query went out.
 
 An unmatched response changes no state of the lookup's. One that echoes a mixed query's question
 in lowercase can mark its server as one that lowercases the name, in the `Servers` table, and the
@@ -510,15 +513,19 @@ governs the read, and the framing rule is three lines in the example (§15 step 
 - Each server's wait comes from its measured latency, as the owner ruled on 2026-10-09 (decision
   36). A sample is the time from a transaction's `on_sent` to a response the lookup accepts for
   that transaction, whatever its rcode: over UDP, over TCP or TLS once the connection is up, or
-  as a DoH or DoQ request. The engine says a DoH or DoQ request went out when it takes it onto its
-  connection, before the connection's handshake ends (§24, request rule 3), so a request that
-  opened a connection carries the handshake in its sample. A response the lookup ignores, an
-  answer from the memory of §20, a send that failed and a request that failed give none. A
-  response is accepted only for the current transaction, and each transaction has an id of its
-  own (§7), so no sample pairs a response with the send of a query sent again. An off-path
-  attacker who cannot pass §7's checks cannot move a server's wait (decision 10). A sample
-  longer than the constant `timeout_ns_max`, 30 seconds, counts as 30 seconds, which bounds what
-  one sample adds to a sum.
+  as a DoH or DoQ request. When the transaction's deadline passes first, the sample is the wait
+  that try used, from `on_sent` to the deadline (below). The engine says a DoH or DoQ request
+  went out when it takes it onto its connection, before the connection's handshake ends (§24,
+  request rule 3), so a request that opened a connection carries the handshake in its sample. A
+  response the lookup ignores, an answer from the memory of §20, a send that failed, a connect
+  that ran out, a connection or a handshake that failed, a request that failed and a lookup
+  cancelled give none. A response is accepted only for the current transaction, and each
+  transaction has an id of its own (§7), so no sample pairs a response with the send of a query
+  sent again. A datagram that fails §7's checks is no sample, so it moves no server's wait
+  (decision 10). An attacker who can make a server's answers go missing moves it all the same,
+  with no datagram that passes a check (What the rule costs, below). A sample longer than the
+  constant `timeout_ns_max`, 30 seconds, counts as 30 seconds, which bounds what one sample adds
+  to a sum.
 - `Servers` keeps each server's samples, their count and their sum, in five windows: a minute,
   fifteen minutes, an hour, a day, and since the table was built. A window starts at its first
   sample. Once its span has passed it holds nothing the wait reads, and its next sample starts
@@ -557,16 +564,91 @@ governs the read, and the framing rule is three lines in the example (§15 step 
   and its cap.
 - A new table, the engine's `reinit` among them (§19 step 13), forgets every sample, so each
   server waits `config.timeout_ns` again until it has 3.
-- A server whose latency rises past its wait gives no sample after that. An answer that comes
-  after its deadline answers a transaction the lookup has left, so the lookup ignores it, and an
-  expiry counts a failure and takes no sample. The four windows with a span pass and are no
-  longer read, but the window since the table was built never passes, so the wait stays where
-  the server's old record left it. Take a server whose record averages 50 ms or less, so that
-  its wait is the 250 ms floor, under the default 2 attempts. If it comes to answer in 600 ms,
-  every try at it runs out, at 250 ms and then at 500 ms. A lookup with no other server ends in
-  `Timeout`, and this lasts until the table is built again. Under the fixed wait cocuyo had
-  until 2026-10-09, 5 seconds by default, those answers were accepted. §17 question 26 asks the
-  owner what to do.
+- A try that runs out is a sample as long as the wait it used, as the owner ruled on 2026-10-09
+  in answer to §17 question 26. When the deadline passes in `awaiting_udp`, which holds DoH and
+  DoQ requests too, or in `awaiting_tcp`, the server the lookup waited on takes one sample, from
+  the send to the deadline. It takes it at the instant the expiry counts the server's failure,
+  before the lookup moves on. A try on a later pass waited the doubled wait, and counts as that.
+  A connect that ran out sent no query, and a failed send, a failed connection or handshake, a
+  failed request and a lookup cancelled measured no wait for an answer, so none of them is a
+  sample. No RFC states this rule; it is the owner's. RFC 1035 §7.2 keeps two histories of each
+  server address, its response time and how often it "responded at all", and under it a try
+  that ran out would count in the second alone.
+- Before that ruling only an answer that came in time was a sample, and a server whose latency
+  rose past its wait gave no sample after that. An answer after the deadline answers a
+  transaction the lookup has left, so the lookup ignores it. The window since the table was
+  built never passes, so the wait stayed where the server's old record left it until the table
+  was built again. Take a server whose record averages 50 ms, so that its wait is the 250 ms
+  floor, under the default 2 attempts, and that comes to answer in 600 ms. Every try at it ran
+  out, at 250 ms and then at 500 ms, and with no other server every lookup ended in `Timeout`.
+  Now each try that runs out raises the server's average, and its wait, five times the average
+  up to `config.timeout_ns_max`, rises with it until its answers come in time again. With a
+  record of 3 such samples, the first lookup's first try runs out at 250 ms, its second waits 1
+  second and is answered, and the next lookup is answered on its first try. With a record of
+  100, the first two lookups end in `Timeout`, every lookup from the third on is answered, and
+  from the eleventh on at its first try (`src/resolver/lookup_latency_test.zig`). A server that
+  never answers has its wait rise to the cap and stay there, by the third lookup from that
+  record of 3. Failover already asks it last (§19 step 12), though each probe of it then waits
+  the cap (below).
+- What the rule costs. A timeout says the answer took at least the wait, not how long it took.
+  So a slowed server's wait rises in steps, a try at a time, rather than to its true latency at
+  once, and the more samples its record holds the more tries that takes. For a client that
+  gives the server 3 samples within a minute, the minute's window bounds that delay at about a
+  minute and three samples. The window starts again at its first sample a minute after its last
+  start, and from its third sample on the wait reads only samples taken since. Each of those is
+  a try that ran out, as long as its wait, or an answer slower than the wait before the server
+  slowed, so each is 250 ms or more, and the wait 1.25 seconds or more. Take a record of 1,000
+  answers in 1 ms, which a minute of tries that run out does not outweigh, and a server that
+  comes to answer in 600 ms. The first 80 lookups end in `Timeout`, the minute's window starts
+  again at the 79th's second try, and every lookup from the 81st on is answered, at its first
+  try while the minute's window holds 3 samples (`src/resolver/lookup_latency_test.zig`). A
+  quieter client reads a longer window, the shortest that holds 3 samples, and the wait stays
+  low until the tries outweigh what that window holds of the old record.
+- A datagram lost on a fast path is a sample as long as its wait, and it weighs most when the
+  window the wait reads holds few samples. Three answers in 20 ms give a wait of the 250 ms
+  floor. One lost query adds a sample of 250 ms, the average becomes 77.5 ms, and the wait
+  387.5 ms (`src/resolver/lookup_latency_test.zig`). A query lost on a later pass adds its
+  doubled wait. Each answer after it brings the average down again.
+- An attacker who can make a server's answers go missing raises its wait without passing any
+  check of §7: by flooding the path until the answers are dropped, or by sending the server
+  queries in the client's name until it limits how fast it answers that client. Each answer
+  lost is a try that ran out, a sample as long as its wait, so the wait rises to
+  `config.timeout_ns_max`, and from then on each answer lost costs a lookup that cap. The wait
+  stays raised after the attack ends: for about a minute at a client that gives the server 3
+  samples a minute, whose minute's window starts again and fills with answers, and longer at a
+  quieter one, which reads a longer window. Before the ruling each answer lost cost a lookup a
+  wait too, but the wait stayed at what the server's record gave.
+- Failover asks a server that failed last, and asks it first again one query in
+  `failover_retry_chance` once `failover_retry_delay_ns` has passed (§19 step 12). That query is
+  a real one, and while the server stays down its try runs out, a sample as long as its wait.
+  So each probe of a server that stays down waits longer than the one before, up to
+  `config.timeout_ns_max`, 5 seconds by default, and from then on each probe costs its query
+  that cap before the query moves to a server that answers. From a record of three answers in
+  20 ms, the try that first ran out waited 250 ms and the seventh probe after it waits the cap
+  (`src/resolver/lookup_failover_test.zig`). Before the ruling every one of those probes waited
+  250 ms.
+- Over DoH and DoQ a server that never answers, not even the handshake, is a sample at each
+  try, and over TCP and TLS it is none. The engine says a request went out when it takes it
+  onto its connection, before the handshake ends (§24, request rule 3), so such a request waits
+  in `awaiting_udp` until its deadline passes, and its try has run out. Over TCP or TLS the same
+  server holds the lookup in `connecting_tcp`, and a connect that ran out is no sample. So that
+  server's wait rises to the cap over DoH and DoQ, as over UDP, and over TCP and DoT it stays
+  where its record left it. A connection that fails is no sample over any of them. The lookup
+  cannot tell a request that waited on its handshake from one that waited on its answer, since
+  it does not see the handshake. §17 question 28 asks whether it should.
+- A reply the lookup ignores leaves its try to run out, a sample as long as its wait, though
+  the server answered in time. Two kinds of server answer so (§7, A server that changes the
+  case). A server that lowercases the name has one reply ignored, the one that marks it. Take
+  such a server that answers in 10 ms, on a fresh table, under the defaults. The first lookup's
+  first try runs out at 2 seconds and its second pass is answered, and the next lookup is
+  answered at its first try: samples of 2 seconds, 10 ms and 10 ms, an average of 673 ms, and a
+  wait of 3.37 seconds, above the configured 2. The wait falls with each answer after that, and
+  leaves that sample behind once it reads a window that started after it. A server that changes
+  the case another way has every reply ignored, so it is sampled as one that never answers.
+  With one server and 2 passes, each lookup to it ended in `Timeout` after waits of 2 seconds
+  and then 4, 6 in all. Now the second ends after 7, and every one from the third on after 10,
+  the 5-second cap twice (`src/resolver/lookup_case_test.zig`). §17 question 27 asks whether a
+  try whose server was marked during it should be no sample.
 - `Config.assert_valid` requires `timeout_ns` at or under `timeout_ns_max`. A configuration built
   by hand that sets `timeout_ns` above 5 seconds was valid before 2026-10-09, when the default
   cap was 30. It must now raise `timeout_ns_max` as far, or it trips that assertion when a table
@@ -792,7 +874,11 @@ fallback either: the rules are the owner's ruling and its review.
   needs an attacker, and both would mark a server that echoes the case as sent if any case marked.
 - The response is ignored all the same, and the wait stands. A datagram that fails a check never
   cuts the wait short (decision 10): an off-path attacker could send one to force a retry they can
-  race. The lookup moves on at its deadline, as it would have.
+  race. The lookup moves on at its deadline, as it would have. Since that try ran out, it is a
+  sample as long as its wait (§5), though the server answered in time. So a server that answers
+  in 10 ms, met on a fresh table under the defaults, has a wait of 3.37 seconds after its first
+  two lookups, above the configured 2, and the wait falls as its answers come (§5, What the rule
+  costs).
 - From then on every query built for that server carries the name in lowercase, without case
   mixing, for the life of the `Servers` table, and its response's question must be byte-identical
   to the name as sent. So a name the caller wrote with capitals, or a chain name, is answered too.
@@ -813,12 +899,14 @@ off for that one server until the table is built again: by the engine's `reinit`
 `Servers` table. That attacker has already passed checks 2 and 3. What they take away is the case's
 entropy from the queries that follow, to that server alone. A server that changes the case some
 other way, to capitals or to a spelling of its own, is not marked: one reply cannot tell its case
-from a mix cocuyo drew, so every lookup to it waits out its deadline as before, and a caller who
-meets one turns `Config.mix_case` off, for every server. The capital every mixed name carries
-costs the entropy the Entropy rule above counts. And the guarantee holds among lookups that mix:
-every lookup of a `Resolver` shares its `Config`, but a caller who drives lookups alone against
-one `Servers` table under two configurations, one with `mix_case` off, can mark a server through
-the lowercase echo of its own unmixed query.
+from a mix cocuyo drew, so every lookup to it waits out its deadline as before. Each try that
+does is a sample as long as its wait (§5), so the server's wait rises to `config.timeout_ns_max`:
+with one server and 2 passes, every lookup to it from the third on ends in `Timeout` after 10
+seconds, where each took 6 before. A caller who meets one turns `Config.mix_case` off, for every
+server. The capital every mixed name carries costs the entropy the Entropy rule above counts.
+And the guarantee holds among lookups that mix: every lookup of a `Resolver` shares its `Config`,
+but a caller who drives lookups alone against one `Servers` table under two configurations, one
+with `mix_case` off, can mark a server through the lowercase echo of its own unmixed query.
 
 Rejected:
 
@@ -1713,8 +1801,13 @@ step until `zig build test` passes.
     500 ms away; a floor at RFC 1035 §4.2.1's minimum of 2 to 5 seconds, which would hold a
     server 20 ms away to a wait of 2 seconds or more, where five times its latency is 100 ms;
     and a wait from the first sample, as `ares_init_options(3)` describes, which one slow or
-    fast answer would set. A server whose latency rises past its wait stops giving samples, and
-    §17 question 26 asks what to do about it. §5.
+    fast answer would set. Amended by the owner on 2026-10-09, in answer to §17 question 26: a
+    try that ran out counts as a sample as long as the wait it used, so a server whose latency
+    rises past its wait has its wait rise with it, where before it gave no more samples and its
+    wait stayed where its old record left it until the table was built again. Rejected with it:
+    reading the window since the table was built only while a window with a span holds 3
+    samples, which would still have left such a server's wait where it was until its day's
+    window had passed. §5.
 
 ## 17. Questions for the owner
 
@@ -1827,16 +1920,34 @@ recommends, and none is taken until the owner answers.
 
 ### Asked on 2026-10-09, for the measured wait
 
-26. **A server whose latency rises past its wait.** §5's retry policy says why such a server
-    gives no more samples, and why its wait then stays where its old record left it until the
-    table is built again. There are two ways out, and neither is taken until the owner answers.
-    A try that ran out could count as a sample as long as the wait it used, so the server's
-    average rises with each silent try until its answers come in time again. Or the window since
-    the table was built could be read only while a window with a span holds 3 samples, with the
-    server waiting `timeout_ns` otherwise, which still leaves it stuck until its day's window has
-    passed. Recommended: the first, which ends the stuck state within a few tries rather than up
-    to a day later. Each changes the ruling of 2026-10-09, the first what a sample is and the
-    second which window the wait reads.
+26. **A server whose latency rises past its wait.** Answered on 2026-10-09: the first way. A
+    try that ran out counts as a sample as long as the wait it used, from the send to the
+    deadline, so the server's average rises with each silent try until its answers come in time
+    again (§5, §16 decision 36). The question was that such a server gave no more samples once
+    its latency rose past its wait, so its wait stayed where its old record left it until the
+    table was built again. The second way, reading the window since the table was built only
+    while a window with a span holds 3 samples and waiting `timeout_ns` otherwise, would have
+    left the wait where it was until the server's day's window had passed. A connect that ran
+    out, a failed send, a failed connection or handshake, a failed request and a lookup cancelled
+    are still no sample, since none of them measured a wait for an answer.
+27. **A try whose answer the lookup ignored.** A server that lowercases the name answers in
+    time, and the lookup ignores the reply that marks it, so that try runs out and counts as a
+    sample as long as its wait: 2 seconds for a server that answers in 10 ms, on a fresh table
+    (§5, What the rule costs; §7). Should a try whose server was marked during it be no sample?
+    The lookup knows when a reply marks its server, so this is one flag per try. Recommended:
+    yes. The reply that marks it shows the server answered in time, so the try's wait says
+    nothing of its latency. A server that changes the case another way is not marked, and stays
+    sampled as one that never answers, which is what it is to every lookup that mixes the case.
+28. **A DoH or DoQ server that never completes the handshake.** The engine says a DoH or DoQ
+    request went out before its connection's handshake ends (§24, request rule 3), so a try at
+    a server that never answers the handshake runs out as a sent one and is a sample as long as
+    its wait. Over TCP and DoT the same server holds the lookup in `connecting_tcp`, and a
+    connect that ran out is no sample (§5, What the rule costs). Should a request whose
+    connection never came up be no sample too? The lookup would need the engine to say when
+    the handshake ended, a change to the request interface of §24. Recommended: no change. Each
+    DoH and DoQ sample already carries the handshake of a connection the request opened,
+    failover asks a server that does not answer last, and its wait rises to the cap as a silent
+    server's does over UDP.
 
 ## 18. The cache
 
@@ -2646,7 +2757,11 @@ other answer the lookup accepts resets it; a response the lookup ignores leaves 
 probes a failed server with a copy of the query alongside the real one, so a recovered server is
 found without costing a real query a timeout. Rejected: it needs two transactions per lookup, and
 §7's defences bind one; here the probing query is a real one, and the price is one timeout in ten
-queries, after the delay, on a server that is still down.
+queries, after the delay, on a server that is still down. Since 2026-10-09 that timeout is a
+latency sample as long as its wait (§5), so the wait of a server that stays down rises with each
+probe up to `config.timeout_ns_max`, and a probe then costs its query that cap, 5 seconds by
+default. Before, it cost the wait the server's record gave: 250 ms for one that had answered in
+20 ms.
 
 Landed on 2026-09-22: `Servers` counts consecutive failures per server with the instant of the
 last, a timeout, a failed send and a failed connection each counting one and, until 2026-10-08,

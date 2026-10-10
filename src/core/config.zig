@@ -125,10 +125,11 @@ pub const Config = struct {
     /// Whether to randomise the case of the qname (DNS-0x20) and require it back unchanged. On by
     /// default. A server that answers a mixed name in lowercase is asked in lowercase from then
     /// on, until its `Servers` table is built again, and every other server keeps 0x20; the
-    /// response that showed it is ignored, so that lookup waits out its deadline. A server that
-    /// changes the case any other way cannot be told from an echo of another query, and still
-    /// needs this off. Off, no query mixes the case (docs/design.md §7, A server that changes the
-    /// case).
+    /// response that showed it is ignored, so that lookup waits out its deadline, which counts as
+    /// a latency sample as long as the wait. A server that changes the case any other way cannot
+    /// be told from an echo of another query: every try at it runs out, and its wait rises to
+    /// `timeout_ns_max`, so it still needs this off. Off, no query mixes the case (docs/design.md
+    /// §5, What the rule costs, and §7, A server that changes the case).
     mix_case: bool = true,
     /// Whether to start the first pass at a server the seed chooses rather than at the first.
     rotate: bool = false,

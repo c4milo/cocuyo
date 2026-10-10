@@ -3,7 +3,8 @@
 //! One entry point reads the clock's value, so the timeout lives here rather than in a timer: a
 //! poll at or past the deadline is what makes the wait expire. The caller may poll as often as it
 //! likes, and a poll that changes nothing returns the same `wait` it returned before. The deadline
-//! is armed here too, from the wait of the server the lookup is on (`arm`).
+//! is armed here too, from the wait of the server the lookup is on (`arm`), and a try that ran out
+//! is a sample of that server's latency here (`ran_out`).
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -20,10 +21,7 @@ pub fn poll(self: *Lookup, now_ns: u64, out: []u8) Action {
     assert(out.len >= core.constants.query_bytes_max);
     // The first poll is the first instant a lookup has, and the server order needs one.
     if (!self.flags.ordered and !self.is_settled()) lookup_order.order_servers(self, now_ns);
-    if (expired(self, now_ns)) {
-        self.servers.record_failure(self.server_slot(), now_ns);
-        self.next_server(now_ns);
-    }
+    if (expired(self, now_ns)) ran_out(self, now_ns);
     return switch (self.state) {
         .query_ready => if (self.config.sends_requests()) send_request(self, now_ns, out) else send_udp(self, now_ns, out),
         .tcp_needed => connect_tcp(self, now_ns),
@@ -38,6 +36,25 @@ pub fn poll(self: *Lookup, now_ns: u64, out: []u8) Action {
 /// for an hour does not lose its answer.
 fn expired(self: *const Lookup, now_ns: u64) bool {
     return self.is_waiting() and now_ns >= self.deadline_ns;
+}
+
+/// The wait ran out at `now_ns`, and the lookup moves to the next server or pass. The server it
+/// waited on counts a failure. When a query went out and waited for its answer, over UDP, TCP or
+/// TLS, or as a DoH or DoQ request, that server also takes one sample of its latency as long as
+/// the wait the try used, from the send to the deadline, a later pass's doubled wait included.
+/// No RFC states this: it is the owner's ruling of 2026-10-09 (docs/design.md §5, §17 question
+/// 26), so that a server whose latency rose past its wait has its wait rise with it. A connect
+/// that ran out sent no query, so it measured no wait for an answer and is no sample.
+fn ran_out(self: *Lookup, now_ns: u64) void {
+    assert(expired(self, now_ns));
+    const slot = self.server_slot();
+    if (self.state == .awaiting_udp or self.state == .awaiting_tcp) {
+        const waited_ns = self.deadline_ns - self.sent_at_ns;
+        assert(waited_ns >= 1 and waited_ns <= self.config.timeout_ns_max);
+        self.servers.record_latency(slot, waited_ns, now_ns);
+    }
+    self.servers.record_failure(slot, now_ns);
+    self.next_server(now_ns);
 }
 
 fn send_udp(self: *Lookup, now_ns: u64, out: []u8) Action {

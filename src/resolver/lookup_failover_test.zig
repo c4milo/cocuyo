@@ -1,7 +1,8 @@
 //! Failover through the fake server (docs/design.md §19 step 12): what a timeout, a failed send
 //! and a failed connection do to the shared table, what each kind of answer does, what a response
-//! the lookup ignores does not, and what the next lookup on the same table sees. Split from
-//! `lookup_response.zig` by the file-length rule.
+//! the lookup ignores does not, what the next lookup on the same table sees, and how long each
+//! probe of a server that stays down waits (§5). Split from `lookup_response.zig` by the
+//! file-length rule.
 const std = @import("std");
 const testing = std.testing;
 const core = @import("core");
@@ -207,4 +208,47 @@ test "a server that answered FORMERR loses EDNS0 for itself, and the next server
     const moved = harness.poll();
     try testing.expectEqual(@as(u8, 1), harness.lookup.server_index);
     try testing.expectEqual(@as(u16, 1), (try wire.header.parse(moved.send_udp.message_bytes)).arcount);
+}
+
+/// A millisecond, in nanoseconds.
+const millisecond = 1_000_000;
+
+/// One lookup that asks the first server, which is down, waits out its try, and is answered by
+/// the second. Returns the wait the try at the first server armed.
+fn probe(harness: *fixtures.Harness) !u64 {
+    try harness.start("example.com.", .a, seed);
+    const first = harness.send();
+    try testing.expect(first.send_udp.server.equal(&servers[0].endpoint));
+    const wait = harness.lookup.deadline_ns - harness.now_ns;
+    harness.now_ns = harness.lookup.deadline_ns - 1;
+    const moved = harness.send();
+    try testing.expect(moved.send_udp.server.equal(&servers[1].endpoint));
+    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a, servers[1].endpoint));
+    try testing.expect(harness.poll() == .done);
+    return wait;
+}
+
+test "a server that stays down has each probe wait longer, up to the cap" {
+    // Every query asks a failed server first once its delay has passed: a chance of one in one.
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .failover_retry_chance = 1 } };
+    // Three answers in 20 ms from the first server give it a wait of 250 ms, the floor.
+    for (0..3) |_| {
+        try harness.start("example.com.", .a, seed);
+        _ = harness.send();
+        harness.now_ns += 20 * millisecond - 1;
+        try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a, servers[0].endpoint));
+    }
+    // It goes down. The first lookup after asks it first since it has not failed, and every one
+    // after that as a probe. Each try that runs out is a sample as long as its wait
+    // (docs/design.md §5), so each probe waits longer than the one before, and the seventh and
+    // every one after it wait the 5-second cap. Before 2026-10-09 every probe waited 250 ms.
+    var previous: u64 = 0;
+    for (1..15) |number| {
+        harness.now_ns += harness.config.failover_retry_delay_ns;
+        const wait = try probe(&harness);
+        if (number == 1) try testing.expectEqual(@as(u64, 250 * millisecond), wait);
+        if (number < 8) try testing.expect(wait > previous and wait < harness.config.timeout_ns_max);
+        if (number >= 8) try testing.expectEqual(harness.config.timeout_ns_max, wait);
+        previous = wait;
+    }
 }
