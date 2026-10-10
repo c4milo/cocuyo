@@ -10,6 +10,7 @@ const Config = core.Config;
 const Name = core.Name;
 const Question = core.Question;
 const wire = @import("wire");
+const constants = @import("constants.zig");
 
 /// One candidate of the search walk.
 pub const Candidate = union(enum) {
@@ -49,14 +50,31 @@ pub fn candidate_count(config: *const Config, question: *const Question) u8 {
     return count;
 }
 
-/// When the wait for the current server runs out. The timeout doubles per pass over the server
-/// list and is capped, so a configuration with a long timeout and several attempts cannot make one
+/// A server's wait before any pass doubles it, from `average_ns`, what the server has taken on
+/// average, or null while it has too few samples to say (docs/design.md §5): five times the
+/// average, or the configured wait. Either is clamped to the floor and the configuration's cap,
+/// the cap winning over the floor, since the cap is the caller's.
+pub fn wait_ns(config: *const Config, average_ns: ?u64) u64 {
+    // "The retransmission interval should be based on prior statistics if possible" (RFC 1035
+    // §4.2.1): a server's own samples, once it has enough.
+    const base = if (average_ns) |average| average *| constants.latency_wait_multiplier else config.timeout_ns;
+    // The floor departs from RFC 1035 §4.2.1's "minimum retransmission interval should be 2-5
+    // seconds": it is c-ares's 250 ms, as the owner ruled on 2026-10-09 (docs/design.md §5).
+    const clamped = @min(@max(base, core.constants.timeout_ns_min), config.timeout_ns_max);
+    assert(clamped >= 1);
+    assert(clamped <= config.timeout_ns_max);
+    return clamped;
+}
+
+/// When a wait of `wait` for the current server runs out. It doubles per pass over the server list
+/// and is capped, so a configuration with a long timeout and several attempts cannot make one
 /// lookup wait for minutes on its last pass.
-pub fn deadline_ns(config: *const Config, round: u8, now_ns: u64) u64 {
+pub fn deadline_ns(config: *const Config, wait: u64, round: u8, now_ns: u64) u64 {
     assert(round < core.constants.attempts_max);
-    const doubled = config.timeout_ns << @intCast(round);
+    assert(wait >= 1 and wait <= config.timeout_ns_max);
+    const doubled = wait << @intCast(round);
     const waited = @min(doubled, config.timeout_ns_max);
-    assert(waited >= config.timeout_ns);
+    assert(waited >= wait);
     return now_ns + waited;
 }
 
@@ -169,14 +187,44 @@ test "an empty search list leaves the name as the only candidate" {
     try testing.expectEqual(@as(u8, 1), candidate_count(&config, &question));
 }
 
+/// Milliseconds, in nanoseconds, for the tests of the wait.
+const millisecond = 1_000_000;
+
+test "a server not measured yet waits the configured wait, clamped to the floor and the cap" {
+    const config = config_with(&.{}, 1);
+    try testing.expectEqual(@as(u64, 2_000 * millisecond), wait_ns(&config, null));
+    var short = config;
+    short.timeout_ns = 100 * millisecond;
+    try testing.expectEqual(@as(u64, 250 * millisecond), wait_ns(&short, null));
+    var long = config;
+    long.timeout_ns = 20_000 * millisecond;
+    long.timeout_ns_max = core.constants.timeout_ns_max;
+    try testing.expectEqual(@as(u64, 20_000 * millisecond), wait_ns(&long, null));
+}
+
+test "a measured server waits five times its average, between the floor and the cap" {
+    const config = config_with(&.{}, 1);
+    try testing.expectEqual(@as(u64, 1_000 * millisecond), wait_ns(&config, 200 * millisecond));
+    // 5 times 10 ms is under the 250 ms floor, and 5 times 2 s over the 5-second cap.
+    try testing.expectEqual(@as(u64, 250 * millisecond), wait_ns(&config, 10 * millisecond));
+    try testing.expectEqual(@as(u64, 5_000 * millisecond), wait_ns(&config, 2_000 * millisecond));
+    try testing.expectEqual(@as(u64, 5_000 * millisecond), wait_ns(&config, std.math.maxInt(u64)));
+    // A cap below the floor is the caller's, and wins.
+    var tight = config;
+    tight.timeout_ns = 100 * millisecond;
+    tight.timeout_ns_max = 100 * millisecond;
+    try testing.expectEqual(@as(u64, 100 * millisecond), wait_ns(&tight, 10 * millisecond));
+    try testing.expectEqual(@as(u64, 100 * millisecond), wait_ns(&tight, null));
+}
+
 test "the deadline doubles per pass and stops at the cap" {
     const config = config_with(&.{}, 1);
-    try testing.expectEqual(config.timeout_ns, deadline_ns(&config, 0, 0));
-    try testing.expectEqual(config.timeout_ns * 2, deadline_ns(&config, 1, 0));
-    try testing.expectEqual(config.timeout_ns * 4, deadline_ns(&config, 2, 0));
-    // 5 seconds doubled four times is 80, over the 30-second cap.
-    try testing.expectEqual(core.constants.timeout_ns_max, deadline_ns(&config, 4, 0));
-    try testing.expectEqual(core.constants.timeout_ns_max + 7, deadline_ns(&config, 4, 7));
+    const wait = 1_500 * millisecond;
+    try testing.expectEqual(@as(u64, wait), deadline_ns(&config, wait, 0, 0));
+    try testing.expectEqual(@as(u64, 2 * wait), deadline_ns(&config, wait, 1, 0));
+    // 1.5 seconds doubled twice is 6, over the 5-second cap.
+    try testing.expectEqual(config.timeout_ns_max, deadline_ns(&config, wait, 2, 0));
+    try testing.expectEqual(config.timeout_ns_max + 7, deadline_ns(&config, wait, 4, 7));
 }
 
 test "every response code maps to one decision" {

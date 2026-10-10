@@ -117,7 +117,7 @@
         .id = "S13",
         .what = "the deadline is not armed on a send",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        self.deadline_ns = policy.deadline_ns(self.config, self.round, now_ns);\n        assert(self.deadline_ns > now_ns);\n    }\n", .new = "    }\n" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.sent_at_ns = now_ns;\n        poll_module.arm(self, now_ns);\n    }\n", .new = "        self.sent_at_ns = now_ns;\n    }\n" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1161,6 +1161,276 @@
         .what = "a response to a query that carried no COOKIE option starts the silence, or moves its end",
         .edits = .{
             .{ .file = "src/resolver/lookup_cookie.zig", .old = "    if (cookie != null or self.cookie_form != .fresh) return;", .new = "    if (cookie != null) return;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT1",
+        .what = "an accepted response takes no sample",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    self.servers.record_latency(slot, now_ns - self.sent_at_ns, now_ns);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT2",
+        .what = "a sample is measured from instant zero, not from its query's send",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    self.servers.record_latency(slot, now_ns - self.sent_at_ns, now_ns);", .new = "    self.servers.record_latency(slot, now_ns, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT3",
+        .what = "a send does not keep its instant, so every sample is measured from instant zero",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.sent_at_ns = now_ns;\n        poll_module.arm(self, now_ns);", .new = "        poll_module.arm(self, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT4",
+        .what = "a response takes a sample before §7's checks, so an unmatched one does too",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    const accepted = accepted_header(self, message, from, &cased) orelse return .ignored;", .new = "    if (self.state == .awaiting_udp or self.state == .awaiting_tcp) self.servers.record_latency(self.server_slot(), now_ns - self.sent_at_ns, now_ns);\n    const accepted = accepted_header(self, message, from, &cased) orelse return .ignored;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT5",
+        .what = "a response that passes §7's checks takes a sample before its rcode and answer section are read",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    cookies.learn(self, accepted.cookie);\n", .new = "    cookies.learn(self, accepted.cookie);\n    self.servers.record_latency(self.server_slot(), now_ns - self.sent_at_ns, now_ns);\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT6",
+        .what = "an answer the memory recalled takes a sample",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_recall.zig", .old = "    lookup.state = .done;\n", .new = "    lookup.servers.record_latency(lookup.server_slot(), 0, lookup.now_ns_seen);\n    lookup.state = .done;\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT7",
+        .what = "a DoH or DoQ request that failed takes a sample",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_request.zig", .old = "    self.servers.record_failure(self.server_slot(), now_ns);\n", .new = "    self.servers.record_latency(self.server_slot(), now_ns - self.sent_at_ns, now_ns);\n    self.servers.record_failure(self.server_slot(), now_ns);\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT8",
+        .what = "a send that failed takes a sample",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.servers.record_failure(self.server_slot(), now_ns);\n        self.next_server(now_ns);", .new = "        self.servers.record_latency(self.server_slot(), now_ns - self.sent_at_ns, now_ns);\n        self.servers.record_failure(self.server_slot(), now_ns);\n        self.next_server(now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT9",
+        .what = "a window whose span has passed is not started again at its next sample",
+        .edits = .{
+            .{ .file = "src/resolver/servers_latency.zig", .old = "            if (window.count > 0 and passed(window, span_ns, now_ns)) window.* = .{};", .new = "            if (window.count > 0 and passed(window, span_ns, now_ns)) {}" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT10",
+        .what = "a window whose span has passed is read all the same",
+        .edits = .{
+            .{ .file = "src/resolver/servers_latency.zig", .old = "            if (passed(window, span_ns, now_ns)) continue;", .new = "            _ = passed(window, span_ns, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT11",
+        .what = "a window's span ends one nanosecond late",
+        .edits = .{
+            .{ .file = "src/resolver/servers_latency.zig", .old = "    return now_ns -| window.start_ns >= span;", .new = "    return now_ns -| window.start_ns > span;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT12",
+        .what = "the window since the table was built is read, whatever a shorter one holds",
+        .edits = .{
+            .{ .file = "src/resolver/servers_latency.zig", .old = "            return average(window);", .new = "            return average(&self.windows[since_built]);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT13",
+        .what = "the window since the table was built passes like the others",
+        .edits = .{
+            .{ .file = "src/resolver/servers_latency.zig", .old = "    const span = span_ns orelse return false;", .new = "    const span = span_ns orelse return true;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT14",
+        .what = "a window with one sample is read",
+        .edits = .{
+            .{ .file = "src/resolver/servers_latency.zig", .old = "            if (window.count < constants.latency_samples_min) continue;", .new = "            if (window.count < 1) continue;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT15",
+        .what = "a server with one sample has its wait read from samples",
+        .edits = .{
+            .{ .file = "src/resolver/servers_latency.zig", .old = "        if (self.samples() < constants.latency_samples_min) return null;", .new = "        if (self.samples() < 1) return null;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT16",
+        .what = "a sum that would pass 2^64 is not halved first",
+        .edits = .{
+            .{ .file = "src/resolver/servers_latency.zig", .old = "        window.count -= window.count >> 1;\n        window.sum_ns >>= 1;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT17",
+        .what = "a sum that would pass 2^64 halves its count down, which can raise the average",
+        .edits = .{
+            .{ .file = "src/resolver/servers_latency.zig", .old = "        window.count -= window.count >> 1;", .new = "        window.count >>= 1;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT18",
+        .what = "a sample longer than the longest wait is kept whole",
+        .edits = .{
+            .{ .file = "src/resolver/servers_latency.zig", .old = "        const sample = @min(sample_ns, core.constants.timeout_ns_max);", .new = "        const sample = sample_ns;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT19",
+        .what = "the wait ignores the samples and is always the configured one",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_policy.zig", .old = "    const base = if (average_ns) |average| average *| constants.latency_wait_multiplier else config.timeout_ns;", .new = "    const base = if (average_ns) |_| config.timeout_ns else config.timeout_ns;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT20",
+        .what = "a measured wait is four times the average, not five",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_policy.zig", .old = "average *| constants.latency_wait_multiplier else", .new = "average *| (constants.latency_wait_multiplier - 1) else" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT21",
+        .what = "the wait has no floor",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_policy.zig", .old = "    const clamped = @min(@max(base, core.constants.timeout_ns_min), config.timeout_ns_max);", .new = "    const clamped = @min(base, config.timeout_ns_max);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT22",
+        .what = "the floor wins over a cap below it",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_policy.zig", .old = "    const clamped = @min(@max(base, core.constants.timeout_ns_min), config.timeout_ns_max);", .new = "    const clamped = @max(@min(base, config.timeout_ns_max), core.constants.timeout_ns_min);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT23",
+        .what = "the doubled wait is not capped",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_policy.zig", .old = "    const waited = @min(doubled, config.timeout_ns_max);", .new = "    const waited = doubled;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT24",
+        .what = "the wait does not double per pass",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_policy.zig", .old = "    const doubled = wait << @intCast(round);", .new = "    const doubled = wait;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT25",
+        .what = "the deadline is armed from the first server's wait, not the current one's",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "    const slot = self.server_slot();\n    const wait", .new = "    const slot = self.order[0];\n    const wait" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT26",
+        .what = "a resolv.conf or RES_OPTIONS timeout longer than the cap leaves the cap",
+        .edits = .{
+            .{ .file = "src/config/resolv_conf.zig", .old = "            config.timeout_ns_max = @max(config.timeout_ns_max, timeout_ns);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-config" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT27",
+        .what = "a timeout sets the cap to itself, lowering a larger one",
+        .edits = .{
+            .{ .file = "src/config/resolv_conf.zig", .old = "            config.timeout_ns_max = @max(config.timeout_ns_max, timeout_ns);", .new = "            config.timeout_ns_max = timeout_ns;" },
+        },
+        .caught_by = .{ .step = "test-config" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT28",
+        .what = "the default cap is the most a cap may be, 30 seconds, as before 2026-10-09",
+        .edits = .{
+            .{ .file = "src/core/config.zig", .old = "    timeout_ns_max: u64 = constants.timeout_ns_max_default,", .new = "    timeout_ns_max: u64 = constants.timeout_ns_max," },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT29",
+        .what = "the default wait is 5 seconds, as before 2026-10-09",
+        .edits = .{
+            .{ .file = "src/core/constants.zig", .old = "pub const timeout_ns_default = 2_000_000_000;", .new = "pub const timeout_ns_default = 5_000_000_000;" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "Each server's wait from its measured latency",
+        .id = "DT30",
+        .what = "a server's state grows by a word, and the size design §9 gives the table goes stale",
+        .edits = .{
+            .{ .file = "src/resolver/servers.zig", .old = "    failed_at_ns: u64,\n", .new = "    failed_at_ns: u64,\n    spare_ns: u64 = 0,\n" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },

@@ -183,7 +183,7 @@ const World = struct {
         world.* = .{};
         const tls: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
         for (&world.rig.servers) |*server| server.quic = tls;
-        try world.rig.init(seed, scripts, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
+        try world.rig.init(seed, scripts, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
         for (&world.sides, 0..) |*side, index| {
             side.* = .{ .index = @intCast(index), .network = world.rig.loop.network() };
             world.rig.loop.network().responders[index] = side.responder();

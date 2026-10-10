@@ -29,8 +29,15 @@ const rotate_keyword = "rotate";
 /// `resolv.conf(5)` caps ndots at 15.
 const ndots_limit = 15;
 
-/// `resolv.conf(5)` caps timeout at 30 seconds, which is also cocuyo's `timeout_ns_max`.
+/// `resolv.conf(5)` caps timeout at 30 seconds, which is also the most cocuyo's
+/// `Config.timeout_ns_max` may be, so the parser can raise the cap to any timeout it reads.
 const timeout_seconds_limit = 30;
+
+comptime {
+    if (timeout_seconds_limit * constants.ns_per_s > core.constants.timeout_ns_max) {
+        @compileError("a timeout the parser reads would not fit under any cap");
+    }
+}
 
 /// The base an option's value is written in.
 const decimal_base = 10;

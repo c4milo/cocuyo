@@ -27,7 +27,7 @@ pub const Rig = sim_test.RigOf(Resolver);
 pub fn start(rig: *Rig, seed: u64, scripts: [fixtures.servers]rotor.server.Script) !void {
     const quic: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
     for (&rig.servers) |*server| server.quic = quic;
-    try rig.init(seed, scripts, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
+    try rig.init(seed, scripts, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
 }
 
 /// The server side of the twin's connection to server `server`, if one was opened.
@@ -190,7 +190,7 @@ test "a receive that runs out of buffers is armed again, and fails nothing" {
     for (&rig.servers) |*server| server.quic = quic;
     // Every answer comes at the same instant: more datagrams than the group has buffers.
     const script: rotor.server.Script = .{ .delay_ns_min = fixtures.slow_answer_ns, .delay_ns_max = fixtures.slow_answer_ns };
-    try rig.init(67, .{ script, .{} }, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
+    try rig.init(67, .{ script, .{} }, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     const names = [_][]const u8{ "a.example.", "b.example.", "c.example.", "d.example.", "e.example.", "f.example." };
     for (names) |name| _ = try rig.engine.start(question(name), rig.loop.now());
     for (names) |_| {

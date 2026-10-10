@@ -23,7 +23,9 @@ const seed = 0x5eed_e791;
 
 /// The model's tick: how long a connection nobody uses is kept, and what `idle` moves the clock
 /// by. A lookup waits two of them, the model's `timeoutTicks`, so an `idle` can end a wait as
-/// well as close a connection.
+/// well as close a connection. The model's wait is fixed, and the engine's is measured from each
+/// server's latency (docs/design.md §5), so the configuration caps it at the same two ticks: a cap
+/// below the floor wins, which holds every wait, measured or not, at the cap.
 const idle_ns = 1_000_000;
 const timeout_ns = 2 * idle_ns;
 
@@ -102,6 +104,7 @@ pub fn begin(self: anytype, transport: Transport) !void {
         .use_tcp = transport.tcp,
         .attempts = 1,
         .timeout_ns = timeout_ns,
+        .timeout_ns_max = timeout_ns,
         .failover_retry_chance = 0,
         .udp_queries_per_port = transport.per_port,
     };

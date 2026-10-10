@@ -70,6 +70,7 @@ pub fn init_in_place(
         .cname_hops = 0,
         .transaction = transaction,
         .deadline_ns = 0,
+        .sent_at_ns = 0,
         .now_ns_seen = 0,
         .entropy = entropy,
         .failure = core.Error.Timeout,

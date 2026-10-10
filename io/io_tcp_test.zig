@@ -164,7 +164,7 @@ test "a connection with a lookup on it is not closed for having been idle" {
         .delay_ns_min = fixtures.stream_delay_ns,
         .delay_ns_max = fixtures.stream_delay_ns,
     };
-    try rig.init(16, .{ script, .{ .down = true } }, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .attempts = 1 });
+    try rig.init(16, .{ script, .{ .down = true } }, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .attempts = 1 });
     _ = try rig.engine.start(question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);

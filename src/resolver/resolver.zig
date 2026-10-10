@@ -50,6 +50,7 @@ pub const Transaction = entropy.Transaction;
 test {
     _ = entropy;
     _ = servers;
+    _ = @import("servers_latency.zig");
     _ = policy;
     _ = lookup;
     _ = table;
@@ -75,6 +76,7 @@ test {
     _ = @import("lookup_config_test.zig");
     _ = @import("lookup_order.zig");
     _ = @import("lookup_failover_test.zig");
+    _ = @import("lookup_latency_test.zig");
     _ = @import("lookup_walk_test.zig");
     _ = address_lookup;
     _ = @import("address_lookup_walk.zig");

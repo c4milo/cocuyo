@@ -147,12 +147,27 @@ pub const attempts_max = 5;
 /// (`resolv.conf` ndots).
 pub const ndots_default = 1;
 
-/// The default wait for one server on the first pass: 5 seconds, as `resolv.conf` timeout.
-/// 5 * 1_000_000_000.
-pub const timeout_ns_default = 5_000_000_000;
+/// The default wait for a server that has not been measured yet: 2 seconds, the default of
+/// `ARES_OPT_TIMEOUTMS`, c-ares's, read from its features page, not measured. A server waits it
+/// until it has 3 samples (docs/design.md §5). It was 5 seconds, the `resolv.conf` default,
+/// until 2026-10-09. 2 * 1_000_000_000.
+pub const timeout_ns_default = 2_000_000_000;
 
-/// The cap on the doubling of `timeout_ns` per pass: 30 seconds. 30 * 1_000_000_000.
+/// The default cap on every wait, measured or doubled per pass: 5 seconds, the ceiling
+/// `ARES_OPT_MAXTIMEOUTMS` changes, c-ares's, read from its features page, not measured
+/// (docs/design.md §5). 5 * 1_000_000_000.
+pub const timeout_ns_max_default = 5_000_000_000;
+
+/// The most a configuration's cap on the wait may be: 30 seconds, which is `resolv.conf(5)`'s
+/// cap on `timeout:` too, so any wait a file asks for fits under it. It was the default cap
+/// until 2026-10-09. 30 * 1_000_000_000.
 pub const timeout_ns_max = 30_000_000_000;
+
+/// The floor under every wait, measured or configured: 250 milliseconds, c-ares's, read from its
+/// features page, not measured. The page gives it as roughly a round trip to the far side of the
+/// world, which leaves an upstream server time to recurse. A configuration's cap below it wins,
+/// since the cap is the caller's (docs/design.md §5). 250 * 1_000_000.
+pub const timeout_ns_min = 250_000_000;
 
 /// The IANA Dynamic port range, which the source-port hint is drawn from (RFC 6335 §6).
 pub const port_ephemeral_min = 49152;
@@ -297,6 +312,8 @@ comptime {
     if (query_bytes_max != parts) @compileError("query_bytes_max is not the sum of its parts");
     if (name_text_bytes_max != name_bytes_max * 4) @compileError("the escape bound is wrong");
     if (udp_payload_bytes_default < udp_payload_bytes_min) @compileError("payload below the floor");
-    if (timeout_ns_default > timeout_ns_max) @compileError("the default timeout exceeds the cap");
+    if (timeout_ns_default > timeout_ns_max_default) @compileError("the default timeout exceeds the cap");
+    if (timeout_ns_max_default > timeout_ns_max) @compileError("the default cap exceeds the most");
+    if (timeout_ns_min > timeout_ns_default) @compileError("the floor is above the default wait");
     if (port_ephemeral_min >= port_ephemeral_max) @compileError("the port range is empty");
 }

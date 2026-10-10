@@ -3730,3 +3730,69 @@ mutations, and caught each. Seven new mutations, seven `CAUGHT`; two written aga
 | CO34 | a response to a query that carried no COOKIE option starts the silence, or moves its end | RFC 9018 §3, no client cookie went unanswered | the silence test, `test-resolver` | CAUGHT |
 | CO12 | a server that answers a fresh cookie without one is never silenced, written again for `silence_if_missing` | RFC 9018 §3 | the silence, learned-through-the-silence and ignored-response silence tests, `test-resolver` | CAUGHT |
 | FR4 | an answer that marks no failure leaves the count as it stood, written again for `silence_if_missing` | §19 step 12 | the assertion in `heard`, by a panic under the `use_tcp` BADCOOKIE, SERVFAIL-counts, any-other-answer, ignored-response and reverse-walk tests, `test-resolver` | CAUGHT |
+
+## Each server's wait from its measured latency
+
+2026-10-09. The owner ruled that each server's wait comes from its measured latency, with the
+numbers c-ares's features page gives (design §5, §16 decision 36). A sample is the time from a
+transaction's send to a response the lookup accepts for it, on any transport. `Servers` keeps
+each server's samples in five windows (`servers_latency.zig`). A server waits `timeout_ns` until
+it has 3 samples, and then five times the average of the shortest window that holds 3. The wait
+is clamped to 250 ms and the cap, the cap winning, and doubles per pass. `timeout_ns` defaults to
+2 seconds and `timeout_ns_max` to 5, and a `resolv.conf` or `RES_OPTIONS` `timeout:` longer than
+the cap raises it. Design §5, §10, §12 and §19 changed first. The models leave the wait's length
+out, so neither changed, and the replays agree; the engine replay's configuration caps its wait
+at the model's two ticks (spec/README.md).
+
+S13's edit no longer applied, since `on_sent` arms its deadline through `lookup_poll.arm` now,
+and it was written again. DT9, DT10 and DT19 did not compile as first written, each leaving a
+capture or a parameter unused, and were written again so that they compile. Then `zig build
+mutations -- lookup` ran S13 and DT1 to DT29, each against the step it names, and caught each.
+Each was also broken by hand, to name the tests that fail. Twenty-nine new mutations,
+twenty-nine `CAUGHT`; one written again, one `CAUGHT`.
+
+On review, a test came to pin the size of `Servers`, 1488 octets, which design §9 states and no
+test held. DT30 grows a server's state by a word, and only that test fails. Then `zig build
+mutations -- lookup` ran S13 and DT1 to DT30 again, and caught each. One new mutation, one
+`CAUGHT`.
+
+The tests the table names: in `lookup_latency_test.zig`, the third-sample, doubling,
+ignored-response, resent-query, truncated-then-TCP, TLS, DoH or DoQ, and failed-send tests; in
+`servers_latency.zig`, the three-samples, shortest-window, day-apart, long-sample and halving
+tests; in `lookup_policy.zig`, the configured-wait, measured-wait and doubling tests; the memory-hit
+test of `table_memory.zig`; the cap test of `lookup_config_test.zig`; the large-timeout test of
+`resolv_conf.zig`; the defaults test of `config.zig`; and the size test of `servers.zig`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| DT1 | an accepted response takes no sample | §5, a sample per accepted response | the memory-hit test, and the third-sample, doubling, ignored-response, resent-query, truncated-then-TCP, TLS, and DoH or DoQ tests, `test-resolver` | CAUGHT |
+| DT2 | a sample is measured from instant zero, not from its query's send | §5, a sample from its transaction's send | the third-sample, doubling, resent-query, truncated-then-TCP, TLS, and DoH or DoQ tests, `test-resolver` | CAUGHT |
+| DT3 | a send does not keep its instant, so every sample is measured from instant zero | §5, a sample from its transaction's send | the same six tests, `test-resolver` | CAUGHT |
+| DT4 | a response takes a sample before §7's checks, so an unmatched one does too | §5, §16 decision 10 | the memory-hit test, and the third-sample, ignored-response, resent-query, truncated-then-TCP and TLS tests, `test-resolver` | CAUGHT |
+| DT5 | a response that passes §7's checks takes a sample before its rcode and answer section are read | §5, §16 decision 10 | the memory-hit test, and the third-sample, ignored-response, resent-query, truncated-then-TCP, TLS, and DoH or DoQ tests, `test-resolver` | CAUGHT |
+| DT6 | an answer the memory recalled takes a sample | §5, no query and no sample | the memory-hit test, `test-resolver` | CAUGHT |
+| DT7 | a DoH or DoQ request that failed takes a sample | §5, no answer and no sample | the DoH or DoQ test, `test-resolver` | CAUGHT |
+| DT8 | a send that failed takes a sample | §5, no answer and no sample | the failed-send test, `test-resolver` | CAUGHT |
+| DT9 | a window whose span has passed is not started again at its next sample | §5, the window spans | the shortest-window and day-apart tests, `test-resolver` | CAUGHT |
+| DT10 | a window whose span has passed is read all the same | §5, the window spans | the shortest-window test, `test-resolver` | CAUGHT |
+| DT11 | a window's span ends one nanosecond late | §5, the window spans | the shortest-window test, at 130 seconds, `test-resolver` | CAUGHT |
+| DT12 | the window since the table was built is read, whatever a shorter one holds | §5, the shortest window with 3 samples | the shortest-window test, `test-resolver` | CAUGHT |
+| DT13 | the window since the table was built passes like the others | §5, a window with no span | the five tests of `servers_latency.zig`, and the third-sample, doubling and truncated-then-TCP tests, `test-resolver` | CAUGHT |
+| DT14 | a window with one sample is read | `latency_samples_min` | the assertion in `average`, by a panic under the shortest-window and day-apart tests, `test-resolver` | CAUGHT |
+| DT15 | a server with one sample has its wait read from samples | `latency_samples_min` | the assertion in `average`, by a panic under 33 tests, the three-samples test among them, `test-resolver` | CAUGHT |
+| DT16 | a sum that would pass 2^64 is not halved first | §5, the bound on a sum | the halving test, by an integer overflow, `test-resolver` | CAUGHT |
+| DT17 | a sum that would pass 2^64 halves its count down, which can raise the average | §5, the bound on a sum | the halving test, `test-resolver` | CAUGHT |
+| DT18 | a sample longer than the longest wait is kept whole | `timeout_ns_max` | the assertion in `add`, by a panic under the long-sample test, `test-resolver` | CAUGHT |
+| DT19 | the wait ignores the samples and is always the configured one | RFC 1035 §4.2.1, §5 | the measured-wait test, and the third-sample and doubling tests, `test-resolver` | CAUGHT |
+| DT20 | a measured wait is four times the average, not five | `latency_wait_multiplier` | the measured-wait test, and the third-sample and doubling tests, `test-resolver` | CAUGHT |
+| DT21 | the wait has no floor | `timeout_ns_min` | the configured-wait and measured-wait tests, `test-resolver` | CAUGHT |
+| DT22 | the floor wins over a cap below it | §5, the caller's cap | the assertion in `wait_ns`, by a panic under the measured-wait test, `test-resolver` | CAUGHT |
+| DT23 | the doubled wait is not capped | `Config.timeout_ns_max` | the doubling test of `lookup_policy.zig`, the cap test, and the doubling test of `lookup_latency_test.zig`, `test-resolver` | CAUGHT |
+| DT24 | the wait does not double per pass | §5, doubled per pass | the two doubling tests, the cap test, and the deadline-after-the-cache test of `table_ready.zig`, `test-resolver` | CAUGHT |
+| DT25 | the deadline is armed from the first server's wait, not the current one's | §5, each server's own wait | the third-sample test, `test-resolver` | CAUGHT |
+| DT26 | a `timeout:` longer than the cap leaves the cap | §10 | the assertion in `apply_option`, by a panic under the large-timeout test and the text fuzz gate, `test-config` | CAUGHT |
+| DT27 | a `timeout:` sets the cap to itself, lowering a larger one | §10 | the large-timeout test, `test-config` | CAUGHT |
+| DT28 | the default cap is 30 seconds, as before 2026-10-09 | `timeout_ns_max_default` | the defaults test, `test-core` | CAUGHT |
+| DT29 | the default wait is 5 seconds, as before 2026-10-09 | `timeout_ns_default` | the defaults test, `test-core` | CAUGHT |
+| DT30 | a server's state grows by a word, and the size design §9 gives the table goes stale | §9, the size of `Servers` | the size test of `servers.zig`, `test-resolver` | CAUGHT |
+| S13 | the deadline is not armed on a send, written again for `lookup_poll.arm` | §5 retry policy | 39 tests, the wait test of `lookup_poll.zig` among them, `test-resolver` | CAUGHT |

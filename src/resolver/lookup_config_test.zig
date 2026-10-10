@@ -138,11 +138,12 @@ test "a server's own TCP port is where the connection goes, and where its answer
 }
 
 test "the timeout cap is the configuration's, not the constant's" {
-    const capped: Config = .{ .servers = &servers, .timeout_ns = 4_000_000_000, .timeout_ns_max = 5_000_000_000 };
-    try testing.expectEqual(@as(u64, 4_000_000_000), policy.deadline_ns(&capped, 0, 0));
-    try testing.expectEqual(@as(u64, 5_000_000_000), policy.deadline_ns(&capped, 1, 0));
-    const open: Config = .{ .servers = &servers, .timeout_ns = 4_000_000_000 };
-    try testing.expectEqual(@as(u64, 8_000_000_000), policy.deadline_ns(&open, 1, 0));
+    const capped: Config = .{ .servers = &servers, .timeout_ns = 4_000_000_000 };
+    const wait = policy.wait_ns(&capped, null);
+    try testing.expectEqual(@as(u64, 4_000_000_000), policy.deadline_ns(&capped, wait, 0, 0));
+    try testing.expectEqual(@as(u64, 5_000_000_000), policy.deadline_ns(&capped, wait, 1, 0));
+    const open: Config = .{ .servers = &servers, .timeout_ns = 4_000_000_000, .timeout_ns_max = core.constants.timeout_ns_max };
+    try testing.expectEqual(@as(u64, 8_000_000_000), policy.deadline_ns(&open, wait, 1, 0));
 }
 
 test "a configuration with no server fails every lookup at once" {

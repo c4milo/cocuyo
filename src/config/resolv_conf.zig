@@ -98,7 +98,13 @@ fn read_options(tokens: *Tokens, config: *Config) void {
 fn apply_option(option: options.Option, config: *Config) void {
     switch (option) {
         .ndots => |ndots| config.ndots = ndots,
-        .timeout_ns => |timeout_ns| config.timeout_ns = timeout_ns,
+        .timeout_ns => |timeout_ns| {
+            // The wait must fit under the cap, whose default is 5 seconds: a longer `timeout:`
+            // raises the cap to it, and a shorter one leaves it (docs/design.md §10).
+            config.timeout_ns = timeout_ns;
+            config.timeout_ns_max = @max(config.timeout_ns_max, timeout_ns);
+            assert(config.timeout_ns <= config.timeout_ns_max);
+        },
         .attempts => |attempts| config.attempts = attempts,
         .rotate => config.rotate = true,
         .use_tcp => config.use_tcp = true,
@@ -305,6 +311,26 @@ test "without the default server, a file naming none gives none" {
     config.assert_valid();
     const with_one = parse_with("nameserver 192.0.2.53\n", &storage, .{ .default_server = false });
     try testing.expectEqual(@as(usize, 1), with_one.servers.len);
+}
+
+test "a timeout longer than the cap raises it, and a shorter one leaves it" {
+    var storage: Storage = .{};
+    const long = parse_text("nameserver 192.0.2.53\noptions timeout:10\n", &storage);
+    try testing.expectEqual(@as(u64, 10_000_000_000), long.timeout_ns);
+    try testing.expectEqual(@as(u64, 10_000_000_000), long.timeout_ns_max);
+    const short = parse_text("nameserver 192.0.2.53\noptions timeout:3\n", &storage);
+    try testing.expectEqual(@as(u64, 3_000_000_000), short.timeout_ns);
+    try testing.expectEqual(core.constants.timeout_ns_max_default, short.timeout_ns_max);
+    // The longest a file may ask for fits under the most a cap may be.
+    const longest = parse_text("options timeout:600\n", &storage);
+    try testing.expectEqual(core.constants.timeout_ns_max, longest.timeout_ns_max);
+    // RES_OPTIONS raises the cap the same way, and never lowers it.
+    var config = parse_text("nameserver 192.0.2.53\n", &storage);
+    apply_options("timeout:20", &config);
+    try testing.expectEqual(@as(u64, 20_000_000_000), config.timeout_ns_max);
+    apply_options("timeout:1", &config);
+    try testing.expectEqual(@as(u64, 1_000_000_000), config.timeout_ns);
+    try testing.expectEqual(@as(u64, 20_000_000_000), config.timeout_ns_max);
 }
 
 test "RES_OPTIONS applies over a configuration, and LOCALDOMAIN replaces its search list" {

@@ -112,8 +112,12 @@ pub const Config = struct {
     ndots: u8 = constants.ndots_default,
     /// Passes over the server list before a lookup gives up.
     attempts: u8 = constants.attempts_default,
-    /// The wait for one server on the first pass. It doubles per pass, capped at
-    /// `constants.timeout_ns_max`.
+    /// The wait for a server until it has 3 samples of its latency; from then on its wait is
+    /// five times its measured average (docs/design.md §5). Either is clamped to at least
+    /// `constants.timeout_ns_min` and at most `timeout_ns_max`, and doubles per pass. 2 seconds
+    /// by default, c-ares's `ARES_OPT_TIMEOUTMS`. It may be no more than `timeout_ns_max`, whose
+    /// default is 5 seconds, so a configuration that sets it higher raises `timeout_ns_max` as
+    /// far; before 2026-10-09 the default cap was 30 seconds and this needed no such care.
     timeout_ns: u64 = constants.timeout_ns_default,
     /// The UDP payload size cocuyo advertises in OPT, which is also the smallest receive buffer
     /// the caller may use.
@@ -123,9 +127,11 @@ pub const Config = struct {
     mix_case: bool = true,
     /// Whether to start the first pass at a server the seed chooses rather than at the first.
     rotate: bool = false,
-    /// The cap on the doubling wait between passes: c-ares's `maxtimeout`. At most the
-    /// constant of the same name.
-    timeout_ns_max: u64 = constants.timeout_ns_max,
+    /// The cap on every wait, measured or doubled per pass: c-ares's `maxtimeout`. 5 seconds by
+    /// default, and at most the constant of the same name, 30. At least `timeout_ns`, which
+    /// `assert_valid` requires. A cap below `constants.timeout_ns_min` wins over that floor
+    /// (docs/design.md §5).
+    timeout_ns_max: u64 = constants.timeout_ns_max_default,
     /// Every query over TCP: `use-vc` in a `resolv.conf`, `ARES_FLAG_USEVC` in c-ares.
     use_tcp: bool = false,
     /// A truncated UDP answer is taken as it is rather than asked again over TCP
@@ -256,7 +262,7 @@ pub fn servers_agree(servers: []const Server) bool {
 // Tests.
 
 const testing = std.testing;
-test "the defaults are the resolv.conf defaults and are valid" {
+test "the defaults are the resolv.conf defaults, c-ares's waits, and are valid" {
     const servers = [_]Server{.{ .endpoint = .{ .address = Address.from_v4(.{ 127, 0, 0, 1 }) } }};
     const config: Config = .{ .servers = &servers };
     config.assert_valid();
@@ -264,10 +270,10 @@ test "the defaults are the resolv.conf defaults and are valid" {
     try testing.expect(config.recursion_desired);
     try testing.expect(config.check_response);
     try testing.expect(!config.use_tcp and !config.ignore_truncation and !config.primary);
-    try testing.expectEqual(constants.timeout_ns_max, config.timeout_ns_max);
+    try testing.expectEqual(@as(u64, 5_000_000_000), config.timeout_ns_max);
     try testing.expectEqualSlices(Source, &default_lookups, config.lookups);
     try testing.expectEqual(@as(u8, 2), config.attempts);
-    try testing.expectEqual(@as(u64, 5_000_000_000), config.timeout_ns);
+    try testing.expectEqual(@as(u64, 2_000_000_000), config.timeout_ns);
     try testing.expectEqual(@as(u16, 1232), config.udp_payload_bytes);
     try testing.expect(config.mix_case);
     try testing.expect(!config.rotate);

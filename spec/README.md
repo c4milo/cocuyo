@@ -55,7 +55,8 @@ would agree with the code by construction and prove nothing about it.
 ## What the lookup model leaves out
 
 - Time. A poll comes before the deadline or at it, and nothing else about the clock matters to a
-  transition.
+  transition. So the wait's length is left out too, which since 2026-10-09 comes from each
+  server's measured latency (docs/design.md §5), and the model did not change for it.
 - The message. A reply is what §7's checks and §5's rcode policy make of it: unmatched, an answer,
   a CNAME to a new name, NXDOMAIN, NODATA, a server failure, FORMERR, TC=1 with nothing else, or
   BADCOOKIE.
@@ -286,7 +287,13 @@ The replay cannot visit that many states, so it follows walks TLC takes through 
 where every operation waits until the walk ends it with the outcome it names, and the twin refuses
 what the walk says to refuse, which is how the replay reaches the orders rotor's rule 2 allows.
 After each event it compares the engine's state with the model's, and requires every buffer the
-event handed the engine to be back in its group.
+event handed the engine to be back in its group. The model's wait is two ticks, fixed, and since
+2026-10-09 the engine's comes from each server's latency (docs/design.md §5). The replay's
+configuration caps every wait at two ticks, under the 250 ms floor, and a cap below the floor
+wins, so every wait the engine arms is the model's. So no walk runs servers that wait different
+times, where a lookup sent later can run out sooner. The table's bound on the soonest deadline
+takes any deadline a lookup arms, and a test in `src/resolver/table_ready.zig` arms a later send
+with an earlier deadline, but no walk does.
 
 ## The engine in TLA+
 

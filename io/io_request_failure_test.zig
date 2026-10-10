@@ -126,7 +126,7 @@ test "an answer longer than the engine's buffer fails the connection" {
     var rig: sim_test.RigOf(Tiny) = .{};
     const quic: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
     for (&rig.servers) |*server| server.quic = quic;
-    try rig.init(80, .{ .{}, .{} }, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
+    try rig.init(80, .{ .{}, .{} }, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     // A name long enough that its answer, prefix and all, passes the buffer's 64 octets.
     _ = try rig.engine.start(question("a-name-long-enough-to-overflow.example."), rig.loop.now());
     const result = try rig.until_result();

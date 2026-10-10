@@ -195,7 +195,7 @@ const World = struct {
                 .https = .{ .template = if (quic) quic_template else template },
             };
         }
-        world.config = .{ .servers = &world.servers, .timeout_ns = timeout_ns, .failover_retry_chance = 0 };
+        world.config = .{ .servers = &world.servers, .timeout_ns = timeout_ns, .timeout_ns_max = timeout_ns, .failover_retry_chance = 0 };
         try world.engine.init(&world.loop, &world.config, seed, world.loop.now());
         world.engine.doh.context = .init(&anchors, @splat(@truncate(seed)), identity.unix_seconds, world.loop.now());
         for (&world.sides, &world.quic_sides, 0..) |*side, *quic_side, index| {

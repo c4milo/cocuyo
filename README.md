@@ -66,7 +66,7 @@ exactly what the rest of the machine sees.
 | `getaddrinfo` shape | `AddressLookup` joins A and AAAA, the hosts file and the search list, and orders addresses by RFC 6724; `NameLookup` does the reverse |
 | Transport | UDP with EDNS0 (RFC 6891) and its fallback, TCP on truncation or by choice (RFC 7766), with the length prefix handled for you |
 | Encryption | In the engine: DNS over TLS (RFC 7858, strict as RFC 8310 asks), DNS over QUIC (RFC 9250) and DNS over HTTPS (RFC 8484) on HTTP/3, HTTP/2 or HTTP/1.1, a server known by its name, by SPKI pins, or by both |
-| Robustness | Retries with a doubling timeout, rotation, and server failover that tracks failures per server |
+| Robustness | Retries with each server's wait set from its measured latency and doubled per pass, rotation, and server failover that tracks failures per server |
 | Configuration | `resolv.conf`, `RES_OPTIONS` and `LOCALDOMAIN`, and the hosts file, parsed from bytes you read |
 | Cache | Optional, sized by you, with SIEVE eviction and RFC 2308 negative caching |
 | Security | DNS cookies (RFC 7873), DNS-0x20 case randomisation, a source-port hint, and strict response matching |
@@ -204,7 +204,9 @@ exe.root_module.addImport("cocuyo_rotor", engine);
 
 Then give it its memory and ask it for its first action. `config`, `seed` and `now_ns` are yours:
 a `Config` from `cocuyo.resolv_conf.parse` or built by hand, a seed from a secure random source, and
-a monotonic clock in nanoseconds.
+a monotonic clock in nanoseconds. A `Config` built by hand that sets `timeout_ns`, a server's wait
+until it has been measured, above 5 seconds raises `timeout_ns_max` as far, since that cap on every
+wait defaults to 5 seconds.
 
 <!-- readme-check: quick-start -->
 ```zig

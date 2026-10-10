@@ -32,7 +32,7 @@ const template = "https://dns.example/dns-query{?dns}";
 /// A rig whose servers speak DoH through the twin's channel, their scripts as `scripts` say.
 pub fn start(rig: *Rig, seed: u64, scripts: [fixtures.servers]rotor.server.Script) !void {
     for (&rig.servers) |*server| server.https = .{ .template = template };
-    try rig.init(seed, scripts, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
+    try rig.init(seed, scripts, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
 }
 
 pub fn channel_of(rig: *Rig, server: u8) *rotor.channel.Channel {
@@ -112,7 +112,7 @@ test "a template the engine cannot read fails its server before its channel open
     var rig: Rig = .{};
     rig.servers[0].https = .{ .template = "http://dns.example/dns-query{?dns}" };
     rig.servers[1].https = .{ .template = template };
-    try rig.init(88, .{ .{}, .{} }, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
+    try rig.init(88, .{ .{}, .{} }, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     const handle = try rig.engine.start(question("example.com."), rig.loop.now());
     try testing.expect(rig.engine.doh.slots[0].state == .closed);
     try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(0));

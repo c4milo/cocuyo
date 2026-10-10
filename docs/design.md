@@ -210,8 +210,8 @@ pub const Config = struct {
     search: []const Name,
     ndots: u8 = ndots_default,
     attempts: u8 = attempts_default,
-    timeout_ns: u64 = timeout_ns_default,
-    timeout_ns_max: u64 = timeout_ns_max, // the cap on the doubling wait (c-ares maxtimeout)
+    timeout_ns: u64 = timeout_ns_default,         // 2 s: a wait before 3 samples (§5)
+    timeout_ns_max: u64 = timeout_ns_max_default, // 5 s: the cap on every wait (c-ares maxtimeout)
     udp_payload_bytes: u16 = udp_payload_bytes_default,
     mix_case: bool = true,
     rotate: bool = false,
@@ -234,7 +234,8 @@ pub const Config = struct {
 
 ```zig
 /// Per-server state every lookup of a caller shares: the DNS cookies of §19 step 10, the failover
-/// counters of step 12. `Resolver` holds one; a caller driving a `Lookup` alone builds one.
+/// counters of step 12, the latency samples a server's wait comes from (§5). `Resolver` holds
+/// one; a caller driving a `Lookup` alone builds one.
 pub const Servers = struct {
     pub fn init(config: *const Config, seed: u64) Servers;
 };
@@ -480,6 +481,10 @@ Eight states: `query_ready`, `awaiting_udp`, `tcp_needed`, `connecting_tcp`, `tc
 | `awaiting_tcp` | `on_response` BADCOOKIE again | `query_ready` or `failed` | advance the server, as SERVFAIL does |
 | `done`, `failed` | any | unchanged | `poll` returns the same value; `on_response` is `ignored` |
 
+Every row that accepts a response first takes a sample of its server's latency, which the next
+deadline armed for that server reads (retry and timeout policy, below). A response the lookup
+ignores, unmatched or malformed, takes none.
+
 Over DoH or DoQ (§22, §23) the lookup keeps the UDP states, and three rows change. `poll` in
 `query_ready` returns `send_request`. An answer comes through `on_request_answer`, and only for
 the transaction the lookup waits on; it is read as one over TCP is, so TC=1 sends the lookup
@@ -497,9 +502,70 @@ governs the read, and the framing rule is three lines in the example (§15 step 
 
 ### Retry and timeout policy
 
-- A deadline is `now_ns + (config.timeout_ns << round)`, capped at `timeout_ns_max`, where `round`
-  counts completed passes over the server list. Doubling per round rather than per try is what
-  glibc does; this is recalled, not measured.
+- Each server's wait comes from its measured latency, as the owner ruled on 2026-10-09 (decision
+  36). A sample is the time from a transaction's `on_sent` to a response the lookup accepts for
+  that transaction, whatever its rcode: over UDP, over TCP or TLS once the connection is up, or
+  as a DoH or DoQ request. The engine says a DoH or DoQ request went out when it takes it onto its
+  connection, before the connection's handshake ends (§24, request rule 3), so a request that
+  opened a connection carries the handshake in its sample. A response the lookup ignores, an
+  answer from the memory of §20, a send that failed and a request that failed give none. A
+  response is accepted only for the current transaction, and each transaction has an id of its
+  own (§7), so no sample pairs a response with the send of a query sent again. An off-path
+  attacker who cannot pass §7's checks cannot move a server's wait (decision 10). A sample
+  longer than the constant `timeout_ns_max`, 30 seconds, counts as 30 seconds, which bounds what
+  one sample adds to a sum.
+- `Servers` keeps each server's samples, their count and their sum, in five windows: a minute,
+  fifteen minutes, an hour, a day, and since the table was built. A window starts at its first
+  sample. Once its span has passed it holds nothing the wait reads, and its next sample starts
+  it again empty. `now_ns` is the caller's, so no window reads a clock. A window whose sum would
+  pass 2^64 halves its count and its sum first, which keeps its average.
+- Until a server has 3 samples since the table was built, its wait is `config.timeout_ns`. From
+  the third sample on, it is 5 times the average of the shortest window that holds at least 3
+  samples. Either way it is clamped to at least `timeout_ns_min`, 250 ms, and at most
+  `config.timeout_ns_max`. The cap is the caller's and the floor a constant, so a cap below the
+  floor wins.
+- A deadline is `now_ns + min(wait << round, config.timeout_ns_max)`, where `round` counts
+  completed passes over the server list, so the next try at the same server waits about twice
+  as long. Doubling per round rather than per try is what glibc does; this is recalled, not
+  measured. `on_sent`, `poll` in `tcp_needed` and `on_tcp_connected` arm it, each from the wait
+  of the server the lookup is on at that instant.
+- The numbers are c-ares's, read on 2026-10-09 from its features page under "Dynamic Server
+  Timeout Calculation", and not from its source. The page names the five windows, the factor of
+  5, the 3 queries a timeout needs before it is calculated, the 2000 ms default of
+  `ARES_OPT_TIMEOUTMS`, the 250 ms floor, the 5000 ms ceiling that `ARES_OPT_MAXTIMEOUTMS`
+  changes, and a retry to the same server whose wait about doubles. It does not say which window
+  a timeout reads. Reading the shortest one with 3 samples is cocuyo's own choice: a busy server's
+  wait follows its last minute, and a quiet one's its longer record. The page also keeps a prior
+  span beside each window's current one, and cocuyo keeps the current one alone.
+  `ares_init_options(3)` says the same of `ARES_OPT_TIMEOUTMS` in fewer words, that after the
+  first successful query to a server "the timeout is automatically calculated based on prior
+  query history". Of `ARES_OPT_MAXTIMEOUTMS` it says "The upper bound for timeout between
+  sequential retry attempts". cocuyo takes the page's 3 queries rather than the manual's one.
+- This follows one sentence of RFC 1035 §4.2.1 and departs from the next. "The retransmission
+  interval should be based on prior statistics if possible", which the samples are. "The minimum
+  retransmission interval should be 2-5 seconds", and the 250 ms floor is below it. The owner
+  ruled for c-ares's numbers on 2026-10-09. A wait scaled to the server's own latency, rather
+  than a fixed one, moves on from a silent server that usually answers in 20 ms after a quarter
+  of a second rather than after five seconds, and still gives a slow server five times what it
+  usually takes. Until then a deadline was `now_ns + (config.timeout_ns << round)`, capped at
+  `config.timeout_ns_max`, with 5 and 30 seconds as their defaults, the `resolv.conf` default
+  and its cap.
+- A new table, the engine's `reinit` among them (§19 step 13), forgets every sample, so each
+  server waits `config.timeout_ns` again until it has 3.
+- A server whose latency rises past its wait gives no sample after that. An answer that comes
+  after its deadline answers a transaction the lookup has left, so the lookup ignores it, and an
+  expiry counts a failure and takes no sample. The four windows with a span pass and are no
+  longer read, but the window since the table was built never passes, so the wait stays where
+  the server's old record left it. Take a server whose record averages 50 ms or less, so that
+  its wait is the 250 ms floor, under the default 2 attempts. If it comes to answer in 600 ms,
+  every try at it runs out, at 250 ms and then at 500 ms. A lookup with no other server ends in
+  `Timeout`, and this lasts until the table is built again. Under the fixed wait cocuyo had
+  until 2026-10-09, 5 seconds by default, those answers were accepted. §17 question 26 asks the
+  owner what to do.
+- `Config.assert_valid` requires `timeout_ns` at or under `timeout_ns_max`. A configuration built
+  by hand that sets `timeout_ns` above 5 seconds was valid before 2026-10-09, when the default
+  cap was 30. It must now raise `timeout_ns_max` as far, or it trips that assertion when a table
+  is built. `resolv.conf` and `RES_OPTIONS` raise the cap themselves (§10).
 - On expiry: `server_index += 1`. On wrap: `server_index = 0`, `round += 1`. When
   `round == config.attempts` the lookup fails with `Timeout`, or with `AllServersFailed` if any
   server answered SERVFAIL, REFUSED or NOTIMP, FORMERR without EDNS0, BADCOOKIE over TCP after
@@ -603,7 +669,9 @@ well-founded order, so no sequence of answers makes a lookup retry forever. `zig
 builds the proofs, then walks every state the model reaches under 109 configurations and replays
 each of the 2.7 million transitions against `Lookup`, comparing the answer and the whole state
 after every event. `zig build test` replays a committed slice of 4,414 of them without Lean.
-spec/README.md says what the model abstracts and why.
+spec/README.md says what the model abstracts and why. Time is one of those things: a poll comes
+before the deadline or at it. So when a server's wait came to be measured, on 2026-10-09, no
+transition changed, and neither did the model.
 
 Building the model and the replay found two defects in the code, fixed on 2026-09-23. A chain
 past `cname_hops_max` was ignored, so the lookup timed out instead of failing with
@@ -754,11 +822,11 @@ up as a diff rather than as a surprise. The pins that exist are in `src/core/cor
 
 | Part of `Lookup` | Bytes | Note |
 | --- | --- | --- |
-| the scalars | 100 | state, flags, four indices, the server order, the transaction with its client cookie's draw, two instants, the generator, the failure, the negative TTL, the chain's TTL, the config pointer, the servers pointer, and the COOKIE option the last query carried with its client cookie (§19 step 10) |
+| the scalars | 108 | state, flags, four indices, the server order, the transaction with its client cookie's draw, three instants, the generator, the failure, the negative TTL, the chain's TTL, the config pointer, the servers pointer, and the COOKIE option the last query carried with its client cookie (§19 step 10) |
 | `question` | 260 | the name as asked, its type, and whether it was absolute |
 | `current` | 256 | the current candidate, or where the CNAME chain has reached |
 | `answers` | 2448 | an extern union: `[addresses_max]Address` is 272, `[ptr_names_max]Name` is 256, and the records of §19 step 9 are 2436 — 32 references of 12 and a buffer of `rdata_bytes_max` — plus the question's type (decision 34), the count, the TTL, the hop count and two flags |
-| total | 3064, measured | pinned by a test in `src/resolver/lookup_init_test.zig`; 3048 until the cookies of 2026-10-08 (§19 step 10) |
+| total | 3072, measured | pinned by a test in `src/resolver/lookup_init_test.zig`; 3064 until the instant of the send, which a latency sample is measured from, on 2026-10-09 (§5), and 3048 until the cookies of 2026-10-08 (§19 step 10) |
 
 The total is larger than the parts because Zig chooses a struct's field order and pads accordingly.
 It also means a declaration order cannot be relied on for locality: the measurement that pinned
@@ -770,14 +838,16 @@ The caller-provided buffer §19 keeps as the fallback is what would take it back
 
 | Caller allocation | Size | For |
 | --- | --- | --- |
-| `[N]Resolver.Slot` | 3080 bytes each, measured | one per concurrent lookup: a lookup plus the table's own octets, the ready list's two links and its flag among them (§11) |
+| `[N]Resolver.Slot` | 3088 bytes each, measured | one per concurrent lookup: a lookup plus the table's own octets, the ready list's two links and its flag among them (§11) |
 | `[2N]MatchKey` | 4 bytes each | the id-to-slot table, power-of-two length |
 | send buffer | `query_bytes_max`, 386 | shared by the whole table |
 | receive buffer | `config.udp_payload_bytes`, 1232 by default | the caller's, per socket |
 | `[M]AddressLookup` | 1152 bytes each, measured | one per `getaddrinfo`-shaped lookup in flight: the name, the canonical name, 32 addresses, two handles and the walk's scalars, beside the two slots it takes; pinned by a test in `src/resolver/address_lookup_test.zig` |
 
-So 1024 concurrent lookups cost 3080 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
-ever, by anybody.
+So 1024 concurrent lookups cost 3088 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
+ever, by anybody. `Resolver` itself holds the `Servers` table, 1488 octets, measured and pinned
+by a test in `src/resolver/servers.zig`: 184 for each of `servers_max` servers, 120 of them the
+five windows of latency samples of §5, which 2026-10-09 added.
 
 ## 10. The config parser
 
@@ -819,6 +889,12 @@ with one entry, and the last of the two wins. An unrecognised line, a malformed 
 know is skipped, not an error — that is what every stub resolver does, and a config file with one
 bad line must not stop a program from resolving. Counts above `servers_max` or `search_max` are
 truncated, and the returned `Config` says so through the slice lengths.
+
+`timeout:N` sets `timeout_ns` to N seconds, a value over 30 read as 30 and zero as 1. The wait
+must fit under `timeout_ns_max` (§5), whose default is 5 s, so a longer `timeout:` raises the cap
+to it, and a shorter one leaves the cap as it was. The cap is never lowered, so `RES_OPTIONS`
+applied over a file, or over a cap the caller raised, keeps the larger. Before 2026-10-09 the
+default cap was 30 s, and no `timeout:` could pass it.
 
 `parse` cannot fail. It returns the default `Config` for empty input, which is the localhost
 nameserver, matching the historical behaviour of the platform stubs.
@@ -1206,8 +1282,13 @@ written at the use site. Shared limits live in `src/core/constants.zig`.
 | `attempts_default` | 2 | the `resolv.conf` default |
 | `attempts_max` | 5 | bounds the retry loop |
 | `ndots_default` | 1 | the `resolv.conf` default |
-| `timeout_ns_default` | 5 s | the `resolv.conf` default |
-| `timeout_ns_max` | 30 s | caps the doubling |
+| `timeout_ns_default` | 2 s | a server's wait until it has 3 samples (§5): c-ares's `ARES_OPT_TIMEOUTMS` default, read from its features page, not measured; 5 s, the `resolv.conf` default, until 2026-10-09 |
+| `timeout_ns_max_default` | 5 s | the default cap on every wait, measured or doubled: c-ares's, read from its features page, not measured |
+| `timeout_ns_max` | 30 s | the most a configuration's cap may be, and `resolv.conf(5)`'s cap on `timeout:`; the default cap until 2026-10-09 |
+| `timeout_ns_min` | 250 ms | the floor under every wait, which a lower cap overrides: c-ares's, read from its features page, not measured |
+| `latency_wait_multiplier` | 5 | a measured wait is the average latency times this: c-ares's, read from its features page, not measured; `src/resolver/constants.zig` |
+| `latency_samples_min` | 3 | the samples a server needs, and a window needs, before a wait is read from them: c-ares's, read from its features page, not measured; `src/resolver/constants.zig` |
+| `latency_window_minute_ns`, `_quarter_hour_ns`, `_hour_ns`, `_day_ns` | 1 min, 15 min, 1 h, 1 day | the spans of four of the five windows of samples, the fifth being since the table was built: c-ares's, read from its features page, not measured; `src/resolver/constants.zig` |
 | `port_ephemeral_min`, `_max` | 49152, 65535 | the IANA ephemeral range |
 | `lookup_slots_max` | 1024 | bounds a `Handle` index and the key table |
 
@@ -1522,6 +1603,16 @@ step until `zig build test` passes.
     and is a second implementation of SHA-2, P-256, P-384 and RSA in an image that already
     carries chapulin's, outside what chapulin proves and tests; and both at once, chapulin
     under the engine and `std.crypto` for a consumer with no colibri, which keeps two. §25.
+36. **A server's wait comes from its measured latency.** Ruled by the owner on 2026-10-09, with
+    c-ares's numbers: five times the average of the shortest window that holds 3 samples,
+    `timeout_ns` until a server has 3, at least 250 ms and at most `timeout_ns_max`, doubled per
+    pass. RFC 1035 §4.2.1 asks for a wait based on prior statistics. Rejected: the fixed wait,
+    doubled per pass, that cocuyo had, which waits as long for a server 20 ms away as for one
+    500 ms away; a floor at RFC 1035 §4.2.1's minimum of 2 to 5 seconds, which would hold a
+    server 20 ms away to a wait of 2 seconds or more, where five times its latency is 100 ms;
+    and a wait from the first sample, as `ares_init_options(3)` describes, which one slow or
+    fast answer would set. A server whose latency rises past its wait stops giving samples, and
+    §17 question 26 asks what to do about it. §5.
 
 ## 17. Questions for the owner
 
@@ -1631,6 +1722,19 @@ recommends, and none is taken until the owner answers.
 25. **What the reading found.** §25 ends with five things in the code as it stands that are not
     DNSSEC's: a citation, RCODE 6, `attempts_max` against RFC 9520 §3.1, no cache of failures
     against RFC 9520 §3.2, and compact denial without validation. Should each become an issue?
+
+### Asked on 2026-10-09, for the measured wait
+
+26. **A server whose latency rises past its wait.** §5's retry policy says why such a server
+    gives no more samples, and why its wait then stays where its old record left it until the
+    table is built again. There are two ways out, and neither is taken until the owner answers.
+    A try that ran out could count as a sample as long as the wait it used, so the server's
+    average rises with each silent try until its answers come in time again. Or the window since
+    the table was built could be read only while a window with a span holds 3 samples, with the
+    server waiting `timeout_ns` otherwise, which still leaves it stuck until its day's window has
+    passed. Recommended: the first, which ends the stuck state within a few tries rather than up
+    to a day later. Each changes the ruling of 2026-10-09, the first what a sample is and the
+    second which window the wait reads.
 
 ## 18. The cache
 
@@ -2362,7 +2466,8 @@ the length at 16 for servers that follow it, and a client reads only the length)
   RFC 9018 §3 and §8.1 forbid. The engine must be idle first: a consumer with lookups in flight
   calls `cancel_all` and takes their failures, then calls `reinit` (`io/io_lifecycle.zig`).
   Either way every pair and every silence is forgotten, so the next query to each server carries
-  a fresh client cookie. cocuyo adds no function of its own for it.
+  a fresh client cookie. So is every latency sample, so each server waits `timeout_ns` again
+  until it has 3 (§5). cocuyo adds no function of its own for it.
 
 **Gate.** The fake server of `resolver/fixtures.zig` learns cookies: a good one, a wrong
 client cookie, a malformed option, a BADCOOKIE once, twice, over TCP and over a stream under
@@ -2396,8 +2501,12 @@ sees the same behaviour:
 - `check_response` (`NOCHECKRESP` clears it): off, SERVFAIL, NOTIMP and REFUSED end the lookup
   as answers rather than moving to the next server.
 - `primary`: only the first server is asked.
-- `timeout_ns_max` (`MAXTIMEOUTMS`): the cap on the doubling wait, a field with the constant as
-  its default.
+- `timeout_ns_max` (`MAXTIMEOUTMS`): the cap on every wait, measured or doubled per pass (§5).
+  Its default is `timeout_ns_max_default`, 5 s, c-ares's, and the constant `timeout_ns_max`,
+  30 s, is the most it may be set to. Until 2026-10-09 it capped the doubled wait alone, and the
+  constant was its default. A `resolv.conf` or `RES_OPTIONS` `timeout:` longer than the cap
+  raises the cap to it, and one shorter leaves it, so a configured wait of up to 30 s is kept
+  whole and a cap set by hand is never lowered (§10).
 - `servers` becomes `[]const Server`, a `Server` being an endpoint and a TCP port, zero meaning
   the same port, because c-ares configures the two ports apart.
 - `lookups`: the order of `.file` and `.dns`, `fb` by default.
@@ -2657,19 +2766,20 @@ socket is opened before the old one steps aside, so a server always has one.
 **The rest of the engine, landed on 2026-09-22.** `cancel_all` ends every lookup at once, which
 is `ares_cancel`, and each failure comes through `take` like any other. `reinit` takes a new
 configuration, which is `ares_reinit`: it empties the cache, whose answers came from servers that
-may be gone, closes the streams and opens the sockets again. It requires an idle engine, because
-a lookup in flight was started against servers that are going away and its handle names a slot
-the new table has never heard of; a caller with lookups in flight calls `cancel_all` and takes
-their failures first, which is what tells it what it lost. `Config.udp_queries_per_port` is
-c-ares's `udp_max_queries`: a port that has carried its share is replaced at once, and the old
-socket drains, keeping its receive until the last query sent from it has its answer or its
-end (the datagram's rule 4). `Config.local_address` is `ARES_OPT_LOCAL_IP4`
-and `LOCAL_IP6`, and `socket_receive_bytes` and `socket_send_bytes` are the two buffer sizes,
-which rotor 0.2.0 made expressible. What a kernel grants is rarely what it was asked for: Linux
-doubles and caps, macOS grants and then refuses, and a socket that would not take the size is
-used with the size it has, because a buffer smaller than the caller wanted loses datagrams and a
-socket that was not opened loses every one. Binding to a device by name stays out: rotor names no
-device.
+may be gone, closes the streams and opens the sockets again. It builds the `Servers` table again
+too, so every server's latency samples start over and its wait is `timeout_ns` until it has 3
+(§5). It requires an idle engine, because a lookup in flight was started against servers that
+are going away and its handle names a slot the new table has never heard of; a caller with
+lookups in flight calls `cancel_all` and takes their failures first, which is what tells it what
+it lost. `Config.udp_queries_per_port` is c-ares's `udp_max_queries`: a port that has carried its
+share is replaced at once, and the old socket drains, keeping its receive until the last query sent
+from it has its answer or its end (the datagram's rule 4). `Config.local_address` is
+`ARES_OPT_LOCAL_IP4` and `LOCAL_IP6`, and `socket_receive_bytes` and `socket_send_bytes` are the two
+buffer sizes, which rotor 0.2.0 made expressible. What a kernel grants is rarely what it was asked
+for: Linux doubles and caps, macOS grants and then refuses, and a socket that would not take the
+size is used with the size it has, because a buffer smaller than the caller wanted loses datagrams
+and a socket that was not opened loses every one. Binding to a device by name stays out: rotor names
+no device.
 
 Three stale-event guards came with it, each the same shape as the timer's generation: a send
 completion the engine is not waiting for, a receive from a socket that has been replaced, and a
@@ -2714,7 +2824,8 @@ pub const Engine = struct {
     /// The results ready since the last call, one per call, until null. Pointers in a result
     /// are valid until the next call.
     pub fn take(self: *Engine, now_ns: u64) ?Result;
-    /// New configuration: the cache is flushed and the sockets rebound, which is `ares_reinit`.
+    /// New configuration: the cache is flushed, the sockets rebound and the latency samples
+    /// forgotten, which is `ares_reinit`.
     pub fn reinit(self: *Engine, config: *const Config, seed: u64, now_ns: u64) Error!void;
 };
 
@@ -5291,7 +5402,7 @@ Checks, one for each piece of Stage B:
 
 ### The decision this asks for, and what it would reject
 
-When the owner rules, this goes to §16 as decision 36, in these words or better ones.
+When the owner rules, this goes to §16 as its next decision, in these words or better ones.
 
 **Validation is a validator the table is handed, and the keys it needs are fetched under the
 table.** The table names a `Validator` as it names a `Memory` (decision 22), so every lookup it

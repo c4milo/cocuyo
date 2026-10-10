@@ -185,14 +185,16 @@ fn bad_cookie_fails(self: *const Lookup) bool {
 }
 
 /// What an answer the lookup takes says of the server that sent it (docs/design.md §19 step 12).
-/// One that marks the server's failure counts against it, as a timeout does, and any other is the
-/// server up. Its lack of a COOKIE option can start the server's silence (RFC 9018 §3,
-/// `lookup_cookie.zig`). Called before the lookup moves on, while the current server is still
-/// the one that answered. A response the lookup ignores is taken as never received (§16 decision
-/// 10) and never comes here. Its server cookie was cached all the same, by `apply`.
+/// It is one sample of the server's latency (§5). One that marks the server's failure counts
+/// against it, as a timeout does, and any other is the server up. Its lack of a COOKIE option can
+/// start the server's silence (RFC 9018 §3, `lookup_cookie.zig`). Called before the lookup moves
+/// on, while the current server and transaction are still the ones answered. A response the lookup
+/// ignores is taken as never received (§16 decision 10) and never comes here. Its server cookie
+/// was cached all the same, by `apply`.
 fn heard(self: *Lookup, cookie: ?wire.CookieView, failed: bool, now_ns: u64) void {
-    assert(!self.is_settled());
+    assert(self.state == .awaiting_udp or self.state == .awaiting_tcp);
     const slot = self.server_slot();
+    self.servers.record_latency(slot, now_ns - self.sent_at_ns, now_ns);
     if (failed) {
         self.servers.record_failure(slot, now_ns);
         self.flags.had_server_failure = true;

@@ -43,7 +43,9 @@ pub const always = 256;
 pub const tcp_idle_jump_ns = 11 * 1_000_000_000;
 
 /// A stream scenario slow enough to outlast the idle close, under a timeout that outlasts it in
-/// turn: the answer comes at `stream_delay_ns` over each of UDP and TCP.
+/// turn: the answer comes at `stream_delay_ns` over each of UDP and TCP. A configured wait may
+/// not pass the cap, so each scenario raises the cap to the timeout, past its 5-second default
+/// (docs/design.md §5).
 pub const stream_delay_ns = 12 * 1_000_000_000;
 pub const stream_timeout_ns = 25 * 1_000_000_000;
 

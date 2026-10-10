@@ -2,7 +2,8 @@
 //!
 //! One entry point reads the clock's value, so the timeout lives here rather than in a timer: a
 //! poll at or past the deadline is what makes the wait expire. The caller may poll as often as it
-//! likes, and a poll that changes nothing returns the same `wait` it returned before.
+//! likes, and a poll that changes nothing returns the same `wait` it returned before. The deadline
+//! is armed here too, from the wait of the server the lookup is on (`arm`).
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -68,9 +69,19 @@ fn send_request(self: *Lookup, now_ns: u64, out: []u8) Action {
 fn connect_tcp(self: *Lookup, now_ns: u64) Action {
     assert(self.state == .tcp_needed);
     self.state = .connecting_tcp;
-    self.deadline_ns = policy.deadline_ns(self.config, self.round, now_ns);
-    assert(self.deadline_ns > now_ns);
+    arm(self, now_ns);
     return .{ .connect_tcp = self.server_tcp() };
+}
+
+/// Arms the deadline at `now_ns` for the server the lookup is on: its wait, from its latency once
+/// it has been measured and from the configuration until then, doubled per pass
+/// (docs/design.md §5).
+pub fn arm(self: *Lookup, now_ns: u64) void {
+    assert(!self.is_settled());
+    const slot = self.server_slot();
+    const wait = policy.wait_ns(self.config, self.servers.latency_ns(slot, now_ns));
+    self.deadline_ns = policy.deadline_ns(self.config, wait, self.round, now_ns);
+    assert(self.deadline_ns > now_ns);
 }
 
 fn send_tcp(self: *Lookup, now_ns: u64, out: []u8) Action {

@@ -197,6 +197,9 @@ test "a question the memory holds is answered at its first poll, and nothing is 
     const event = rig.poll().?;
     try testing.expectEqual(@as(u32, 1), stub.recalls);
     try testing.expect(event.action == .done);
+    // No query went out, so the server's latency took no sample: the one it has is the first
+    // lookup's (docs/design.md §5).
+    try testing.expectEqual(@as(u64, 1), rig.resolver.servers.samples(0));
     // The life it has left, not the life it was given.
     try testing.expectEqual(@as(u32, 42), event.action.done.ttl_seconds);
     // Read back from the memory, so it is not written to it again.

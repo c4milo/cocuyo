@@ -167,6 +167,9 @@ pub const Lookup = struct {
     order: [core.constants.servers_max]u8,
     transaction: entropy_module.Transaction,
     deadline_ns: u64,
+    /// When the current transaction's query went out: what a response accepted for it measures
+    /// its server's latency from (docs/design.md §5).
+    sent_at_ns: u64,
     /// The last instant the caller passed in, so a clock going backwards is caught.
     now_ns_seen: u64,
     entropy: entropy_module.Entropy,
@@ -239,8 +242,8 @@ pub const Lookup = struct {
             .tcp_ready => .awaiting_tcp,
             else => unreachable,
         };
-        self.deadline_ns = policy.deadline_ns(self.config, self.round, now_ns);
-        assert(self.deadline_ns > now_ns);
+        self.sent_at_ns = now_ns;
+        poll_module.arm(self, now_ns);
     }
 
     /// The send failed. The server is no better than one that did not answer.
@@ -272,7 +275,7 @@ pub const Lookup = struct {
         self.see(now_ns);
         assert(self.state == .connecting_tcp);
         self.state = .tcp_ready;
-        self.deadline_ns = policy.deadline_ns(self.config, self.round, now_ns);
+        poll_module.arm(self, now_ns);
     }
 
     /// The connection failed: refused, reset, or its handshake failed. The server refused the

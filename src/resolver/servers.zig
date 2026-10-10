@@ -1,15 +1,20 @@
 //! Per-server state that outlives one lookup: the DNS cookies of RFC 7873 and RFC 9018
-//! (docs/design.md §19 step 10), and the failover counters of step 12. A configuration is shared
-//! and constant and a lookup is one question, so this is a third thing, owned by the caller —
-//! `Resolver` holds one for its table — and handed to every lookup by pointer.
+//! (docs/design.md §19 step 10), the failover counters of step 12, and the latency samples a
+//! server's wait comes from (§5). A configuration is shared and constant and a lookup is one
+//! question, so this is a third thing, owned by the caller — `Resolver` holds one for its table —
+//! and handed to every lookup by pointer. A table built again, the engine's `reinit` among them,
+//! starts every server over: no cookie, no failure and no sample.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const wire = @import("wire");
 const constants = @import("constants.zig");
+const latency_module = @import("servers_latency.zig");
 const Config = core.Config;
 const Endpoint = core.Endpoint;
 
+/// What every lookup has taught of one server: its cookies, its failures, and its latency, which
+/// its wait is read from (docs/design.md §5).
 pub const ServerState = struct {
     /// The client cookie that drew `cookie_server`: the pair every query to this server carries
     /// once `cookie_server_len` is above zero, as the client "should store the Client Cookie
@@ -30,6 +35,9 @@ pub const ServerState = struct {
     failures: u8,
     /// When the last of them happened.
     failed_at_ns: u64,
+    /// The time from each query's send to the response the lookup accepted for it, in the five
+    /// windows its wait is read from (docs/design.md §5, `servers_latency.zig`).
+    latency: latency_module.Latency,
 };
 
 /// The COOKIE option a query carries (docs/design.md §19 step 10).
@@ -63,6 +71,7 @@ pub const Servers = struct {
                 .cookie_silent_until_ns = 0,
                 .failures = 0,
                 .failed_at_ns = 0,
+                .latency = .{},
             };
         }
         assert(servers.count <= core.constants.servers_max);
@@ -135,6 +144,25 @@ pub const Servers = struct {
 
     pub fn failures(self: *const Servers, index: usize) u8 {
         return self.state(index).failures;
+    }
+
+    /// A response the lookup accepted from server `index` at `now_ns`, `sample_ns` after the
+    /// query it answers went out: one sample of the server's latency (docs/design.md §5).
+    pub fn record_latency(self: *Servers, index: usize, sample_ns: u64, now_ns: u64) void {
+        assert(index < self.count);
+        assert(sample_ns <= now_ns);
+        self.states[index].latency.record(sample_ns, now_ns);
+    }
+
+    /// What server `index` has taken on average at `now_ns`, read from its samples, or null
+    /// while it has fewer than `latency_samples_min` (docs/design.md §5).
+    pub fn latency_ns(self: *const Servers, index: usize, now_ns: u64) ?u64 {
+        return self.state(index).latency.average_ns(now_ns);
+    }
+
+    /// How many samples of server `index`'s latency came since the table was built.
+    pub fn samples(self: *const Servers, index: usize) u64 {
+        return self.state(index).latency.samples();
     }
 
     /// Keeps the pair a response carried: the client cookie the lookup sent, which the response
@@ -262,4 +290,12 @@ test "failures count up until an answer resets them, and the instant is the last
     try testing.expectEqual(@as(u8, 0), servers.failures(1));
     servers.record_success(0);
     try testing.expectEqual(@as(u8, 0), servers.failures(0));
+}
+
+test "the size of the table of servers is pinned" {
+    // docs/design.md §9: `Resolver` holds one, and a caller driving a `Lookup` alone builds one.
+    // It is measured, not computed, as a lookup's is: Zig chooses the field order and pads.
+    try testing.expectEqual(@as(usize, 1488), @sizeOf(Servers));
+    try testing.expectEqual(@as(usize, 184), @sizeOf(ServerState));
+    try testing.expectEqual(@as(usize, 120), @sizeOf(latency_module.Latency));
 }
