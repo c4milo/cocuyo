@@ -1830,4 +1830,112 @@
         },
         .caught_by = .{ .step = "test-wire" },
     },
+    .{
+        .section = "Names compared a word at a time",
+        .id = "NW1",
+        .what = "a word is compared unfolded",
+        .edits = .{
+            .{ .file = "src/core/name.zig", .old = "    return Name.fold_word(std.mem.readInt(u64, a, .native)) ==\n        Name.fold_word(std.mem.readInt(u64, b, .native));", .new = "    return std.mem.readInt(u64, a, .native) ==\n        std.mem.readInt(u64, b, .native);" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "Names compared a word at a time",
+        .id = "NW2",
+        .what = "only the first name's word is folded",
+        .edits = .{
+            .{ .file = "src/core/name.zig", .old = "    return Name.fold_word(std.mem.readInt(u64, a, .native)) ==\n        Name.fold_word(std.mem.readInt(u64, b, .native));", .new = "    return Name.fold_word(std.mem.readInt(u64, a, .native)) ==\n        std.mem.readInt(u64, b, .native);" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "Names compared a word at a time",
+        .id = "NW3",
+        .what = "the last word is not compared",
+        .edits = .{
+            .{ .file = "src/core/name.zig", .old = "    return words_equal(a[last..][0..word_bytes], b[last..][0..word_bytes]);", .new = "    return true;" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "Names compared a word at a time",
+        .id = "NW4",
+        .what = "the loop steps over every second word",
+        .edits = .{
+            .{ .file = "src/core/name.zig", .old = "    while (offset < last) : (offset += word_bytes) {", .new = "    while (offset < last) : (offset += 2 * word_bytes) {" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "Names compared a word at a time",
+        .id = "NW5",
+        .what = "the loop stops a word early",
+        .edits = .{
+            .{ .file = "src/core/name.zig", .old = "    while (offset < last) : (offset += word_bytes) {", .new = "    while (offset + word_bytes < last) : (offset += word_bytes) {" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "Names compared a word at a time",
+        .id = "NW6",
+        .what = "the last word stops one octet short of the end",
+        .edits = .{
+            .{ .file = "src/core/name.zig", .old = "    return words_equal(a[last..][0..word_bytes], b[last..][0..word_bytes]);", .new = "    return words_equal(a[last -| 1 ..][0..word_bytes], b[last -| 1 ..][0..word_bytes]);" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "Names compared a word at a time",
+        .id = "NW7",
+        .what = "a name shorter than a word is compared exactly",
+        .edits = .{
+            .{ .file = "src/core/name.zig", .old = "    if (a.len < word_bytes) return octets_equal(a, b);", .new = "    if (a.len < word_bytes) return std.mem.eql(u8, a, b);" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "Names compared a word at a time",
+        .id = "NW8",
+        .what = "a name of seven octets takes the word path",
+        .edits = .{
+            .{ .file = "src/core/name.zig", .old = "    if (a.len < word_bytes) return octets_equal(a, b);", .new = "    if (a.len < word_bytes - 1) return octets_equal(a, b);" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "Names compared a word at a time",
+        .id = "NW9",
+        .what = "the reference compares the octets exactly",
+        .edits = .{
+            .{ .file = "src/core/name.zig", .old = "        if (fold(mine) != fold(theirs)) return false;", .new = "        if (mine != theirs) return false;" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "Names compared a word at a time",
+        .id = "NW10",
+        .what = "the reference ignores the lengths",
+        .edits = .{
+            .{ .file = "src/core/name.zig", .old = "    if (a.len != b.len) return false;\n    assert(a.len <= constants.name_bytes_max);\n    for (a, b) |mine, theirs| {", .new = "    if (false and a.len != b.len) return false;\n    assert(a.len <= constants.name_bytes_max);\n    for (a, b) |mine, theirs| {" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "Names compared a word at a time",
+        .id = "NW11",
+        .what = "the word compare ignores the lengths",
+        .edits = .{
+            .{ .file = "src/core/name.zig", .old = "    if (a.len != b.len) return false;\n    assert(a.len <= constants.name_bytes_max);\n    if (a.len < word_bytes) return octets_equal(a, b);", .new = "    if (false and a.len != b.len) return false;\n    assert(a.len <= constants.name_bytes_max);\n    if (a.len < word_bytes) return octets_equal(a, b);" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "Names compared a word at a time",
+        .id = "NW12",
+        .what = "the loop compares the last word too",
+        .edits = .{
+            .{ .file = "src/core/name.zig", .old = "    while (offset < last) : (offset += word_bytes) {", .new = "    while (offset <= last) : (offset += word_bytes) {" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
 }

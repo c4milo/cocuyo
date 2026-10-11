@@ -209,15 +209,53 @@ fn fold(byte: u8) u8 {
     return if (byte >= 'A' and byte <= 'Z') byte | constants.ascii_case_bit else byte;
 }
 
+/// The octets `Name.fold_word` folds at once.
+const word_bytes = @sizeOf(u64);
+
 /// Two names in wire form, compared with the case of their ASCII letters folded (RFC 1035
-/// §2.3.3, clarified by RFC 4343). Every byte folds, length octets included, which is sound
+/// §2.3.3, clarified by RFC 4343 §3). Every byte folds, length octets included, which is sound
 /// because no length octet can be a letter (the comptime block at the top of this file).
 /// `Name.equal` shares it with the hosts table, whose names sit in an arena rather than in a
 /// `Name`.
+///
+/// It compares a word of eight octets at a time, each folded by `Name.fold_word`, which folds
+/// every octet as `fold` does. The words run from the first octet, and the last word ends at the
+/// last octet, so it overlaps the word before it when the length is not a multiple of eight. A
+/// name shorter than a word goes to `octets_equal`, the reference the tests hold this one to.
 pub fn wire_equal(a: []const u8, b: []const u8) bool {
     if (a.len != b.len) return false;
     assert(a.len <= constants.name_bytes_max);
+    if (a.len < word_bytes) return octets_equal(a, b);
+    const last = a.len - word_bytes;
+    var offset: usize = 0;
+    while (offset < last) : (offset += word_bytes) {
+        if (!words_equal(a[offset..][0..word_bytes], b[offset..][0..word_bytes])) return false;
+    }
+    // The last word starts at or before the first octet the loop left uncompared, and the loop
+    // stopped within a word of the last word's start, before the name's end.
+    assert(offset >= last);
+    assert(offset < a.len);
+    return words_equal(a[last..][0..word_bytes], b[last..][0..word_bytes]);
+}
+
+/// One word of each name, folded and compared. The byte order is the machine's, since the fold
+/// treats each octet alone. It carries no inline attribute (docs/design.md §11): LLVM inlines it
+/// into both of `wire_equal`'s compares on its own.
+fn words_equal(a: *const [word_bytes]u8, b: *const [word_bytes]u8) bool {
+    // RFC 1035 §2.3.3, as RFC 4343 §3 clarifies it: an octet from 0x41 to 0x5A matches itself
+    // and the octet 0x20 above it, in 0x61 to 0x7A, and the other way round. Any other octet
+    // matches itself alone. Eight octets are folded and compared at once.
+    return Name.fold_word(std.mem.readInt(u64, a, .native)) ==
+        Name.fold_word(std.mem.readInt(u64, b, .native));
+}
+
+/// `wire_equal` one octet at a time: the reference it is held to, and the compare of a name
+/// shorter than a word.
+pub fn octets_equal(a: []const u8, b: []const u8) bool {
+    if (a.len != b.len) return false;
+    assert(a.len <= constants.name_bytes_max);
     for (a, b) |mine, theirs| {
+        // The same rule, one octet at a time (RFC 1035 §2.3.3, as clarified by RFC 4343 §3).
         if (fold(mine) != fold(theirs)) return false;
     }
     return true;
@@ -308,6 +346,58 @@ test "equality is case-insensitive, per RFC 4343" {
     try testing.expect(mixed.equal(&lower));
     try testing.expect(!lower.equal(&other));
     try testing.expect(!lower.equal(&Name.root));
+    try testing.expect(!octets_equal(lower.wire(), Name.root.wire()));
+}
+
+/// Octets on either side of the fold's edges: below `A`, the letters' ends, past `Z`, their
+/// lowercase neighbours, and octets past ASCII whose low seven bits are a letter's. Twenty-one of
+/// them, a count prime to eight, so a run of them puts each in every position of a word.
+const edge_octets = "\x00\x05\x3f@AZ[`az{\x7f\x80\xc1\xda\xe1\xfa\xff09-";
+
+/// Changes `b`'s octet at `position` to `replacement`, requires both compares to give what
+/// `std.ascii.toLower` says of the two octets there, and puts the octet back.
+fn expect_one_change(a: []const u8, b: []u8, position: usize, replacement: u8) !void {
+    const kept = b[position];
+    defer b[position] = kept;
+    b[position] = replacement;
+    const expected = std.ascii.toLower(a[position]) == std.ascii.toLower(replacement);
+    try testing.expectEqual(expected, wire_equal(a, b));
+    try testing.expectEqual(expected, octets_equal(a, b));
+}
+
+test "the word compare and the octet compare see every one-octet change at every length" {
+    // Two runs of the edge octets, the second with every letter in the other case.
+    var a: [constants.name_bytes_max]u8 = undefined;
+    var b: [constants.name_bytes_max]u8 = undefined;
+    for (&a, &b, 0..) |*mine, *theirs, index| {
+        mine.* = edge_octets[index % edge_octets.len];
+        theirs.* = if (std.ascii.isAlphabetic(mine.*)) mine.* ^ constants.ascii_case_bit else mine.*;
+    }
+    for (0..constants.name_bytes_max + 1) |length| {
+        try testing.expect(wire_equal(a[0..length], b[0..length]));
+        try testing.expect(octets_equal(a[0..length], b[0..length]));
+        for (0..length) |position| {
+            // The octet with its case bit changed, which folds to the same octet only for a
+            // letter, and with its high bit or its low bit changed, which never does.
+            const octet = a[position];
+            const high_bit: u8 = 0x80;
+            for ([_]u8{ octet ^ constants.ascii_case_bit, octet ^ high_bit, octet ^ 1 }) |replacement| {
+                try expect_one_change(a[0..length], b[0..length], position, replacement);
+            }
+        }
+    }
+}
+
+test "a run of octets and a longer run that starts with it differ, in either order" {
+    const longer = "\x07example\x03com\x00\x03net";
+    // A run longer than a word and one shorter, each the start of the longer run. The shorter
+    // run comes first, where a compare that ignored the lengths would read only its octets.
+    for ([_]usize{ 13, 5 }) |length| {
+        try testing.expect(!wire_equal(longer[0..length], longer));
+        try testing.expect(!wire_equal(longer, longer[0..length]));
+        try testing.expect(!octets_equal(longer[0..length], longer));
+        try testing.expect(!octets_equal(longer, longer[0..length]));
+    }
 }
 
 test "concat builds a search candidate and refuses one too long" {

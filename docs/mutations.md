@@ -4091,3 +4091,113 @@ test; and in the twin, the record-length test of `sim_tls.zig`, the item-length 
 | QO21 | a COOKIE option as long as the longest server cookie makes it is refused, under a lookup | RFC 7873 §4, a server cookie of 8 to 32 octets | the longest-cookie test of `lookup_cookie_test.zig`, `test-resolver` | CAUGHT |
 | QO22 | a query advertises the default payload size whatever the configuration says | RFC 6891 §6.2.3, the payload size a configuration names | the payload test, `test-resolver` | CAUGHT |
 | QO23 | a lowercase echo of a question whose name is 250 octets long is not taken for one | §7, a server that changes the case, at every length the gate writes | the fuzz gate, `test-wire` | CAUGHT |
+
+## Names compared a word at a time
+
+2026-10-10. `wire_equal` in `src/core/name.zig`, which `Name.equal` and the hosts table compare
+names with, now compares eight octets at a time. It reads each word whole and folds it with
+`Name.fold_word`, the fold the cache's hash already uses, which folds each octet as the octet
+fold does. The last word ends at the name's last octet, so it overlaps the word before it when the
+length is not a multiple of eight. A name shorter than eight octets goes to `octets_equal`, the
+compare of one octet at a time that `wire_equal` was before. It stays as the reference the new
+compare is held to. No result changes: two names are equal when they have the same length and the
+same octets, with `A` to `Z` folded to `a` to `z` (RFC 1035 §2.3.3, RFC 4343 §3). Every caller
+gets the same answer: the record owner compare of `collect`, the cache's key compare, the
+assertion in `Lookup.cased_name`, and the hosts table. Neither model changed, since neither
+compares names. The word's compare carries no inline attribute, as design §11 asks: LLVM inlines
+it into `wire_equal` on its own.
+
+Two proofs came before the mutations. The first is a first-difference harness, kept out of the
+tree. It runs the new compare, the reference, the base's `wire_equal` and an oracle of its own,
+which lowers each octet with `std.ascii.toLower`, and prints the first input on which any of them
+differs. It found none over 4,697,734,090 inputs:
+
+- every pair of octet values at every position of every length from 0 to 255, the other octets
+  from two fillers, one with every letter in the other case and one the same: 4,278,190,080
+  inputs, each through the new compare and the reference;
+- every string over eight pairs of octets at every length from 0 to 9, and over four pairs from 0
+  to 12, in both orders: 351,522,620;
+- seeded random pairs of names in wire form at every length to 255, with letters in the other
+  case, up to four octets replaced, and one pair in sixteen of two lengths: 63,750,000;
+- every pair of lengths from 0 to 255: 65,536;
+- pairs of `Name`s through `Name.equal`, the new and the base's, with other octets past their
+  length: 4,000,000;
+- the benchmark's names and others, the root and a name of 255 octets among them, each against
+  itself in the other case and with each octet set to every value: 205,854.
+
+Built over a copy of `name.zig` under NW1, NW3, NW6 and NW7 in turn, it printed a first
+difference each time. The second proof is three tests of `name.zig`. The one-octet-change test
+lays a run of twenty-one octets from either side of the fold's edges against the same run in the
+other case, at every length from 0 to 255. It changes each octet in three ways, the case bit, the
+high bit and the low bit, and requires both compares to give what `std.ascii.toLower` says of the
+two octets. The length test requires a run and a longer run that starts with it to differ, in
+either order, for a run shorter than a word and one longer. The RFC 4343 case test requires the
+reference to refuse two lengths.
+
+A review of the same day asked for four things. Three are in:
+
+- `wire_equal` checks the lengths itself, and no row broke that check. NW11 does, and the length
+  test is the one that sees it.
+- The compare of two words cites its rule where it compares: RFC 1035 §2.3.3, as RFC 4343 §3
+  clarifies it.
+- The assertion after the loop restated the loop's condition. A second one says the loop stopped
+  before the name's end. NW4 and NW12 fail it.
+
+The fourth was a loss, and no code answers it. On aarch64 LLVM no longer inlines the compare into
+`Cache.find`. `find` calls `Name.equal`, keeps its walk in registers a call preserves, and saves
+six pairs of them on entry where it saved two. A miss that stops at the first key entry runs 39
+instructions in `find` where it ran 27, by the listing, though it compares no name. On x86-64
+`find` saves the same six registers in both builds. In the review's binary the filter's row for
+that miss, on a young index, lost past its noise in every job.
+
+Most of that loss was where the code sat, and what is left is under the floor:
+
+- The review's binary and this tree's run such a miss on the same instructions, addresses masked:
+  the harness's sampling loop, the case, `get`, `hash_of` and `find`. The second assertion is
+  two instructions in `Name.equal` and two in the program's `main`, neither of which that miss
+  runs. They moved `find` by 8 octets and the four others by 16.
+- The review's shape was built again on this base and timed in one job with the base and with
+  this tree's binary. It lost on that row past its noise, and this tree's did not.
+- With those five functions aligned to 64 octets in the base and in the change, the row stayed
+  inside the floor in two jobs.
+- In five paired jobs of five alternated runs, the base built in the main tree and the change in
+  this one, each with a cache of its own, no row loses past its noise (docs/performance.md, the
+  admission rule).
+
+So a later change that moves those functions can move that row again, by more than the frame
+costs. Three shapes were built to take the frame off that miss, and none is in:
+
+- The compare inlined into `find` with `@call(.always_inline, ...)` at both levels. Design §11
+  rules out an inline attribute without a new table, and `find` still saves four pairs.
+- `find` confirming its first candidate before its loop. LLVM kept the six pairs at the entry.
+- A `get` that reads the first key entry before it calls `find`, so that such a miss never enters
+  `find`. By the listing that miss runs 19 instructions fewer than the base's. Its row was slower
+  than the base's in three jobs, with those functions aligned or not, and the cause was not
+  found.
+
+None of the filter's numbers is recorded here: the judge decides a speed.
+
+Each of NW1 to NW12 was broken by hand against core's tests, in a copy of `src/core`, to name the
+tests that fail. NW4 and NW5 fail an assertion in the first test that compares two names, and
+the panic ends the run there. With the two assertions taken out, each fails the one-octet-change
+test, so the tests see the wrong result too. NW12 changes no result, since the word it adds is
+compared again as the last word: with the assertions out no test fails, and the assertion alone
+holds it. Then `zig build mutations -- lookup` ran the whole set, 214 rows, each against the step
+it names, after running each check once with nothing mutated, and caught every one. No row of any
+set edits a line this change replaced, so none was written again. Twelve mutations, twelve
+`CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| NW1 | a word is compared unfolded | RFC 1035 §2.3.3, RFC 4343 §3, the word's fold | the RFC 4343 case, `fold_case` and one-octet-change tests | CAUGHT |
+| NW2 | only the first name's word is folded | RFC 1035 §2.3.3, RFC 4343 §3, the word's fold | the RFC 4343 case, `fold_case` and one-octet-change tests | CAUGHT |
+| NW3 | the last word is not compared | the last word | the RFC 4343 case and one-octet-change tests | CAUGHT |
+| NW4 | the loop steps over every second word | the word loop | the assertion that the loop stopped before the name's end, by a panic in the RFC 4343 case test | CAUGHT |
+| NW5 | the loop stops a word early | the word loop | the assertion that the last word starts where the loop stopped or before, by a panic in the RFC 4343 case test | CAUGHT |
+| NW6 | the last word stops one octet short of the end | the last word | the one-octet-change test | CAUGHT |
+| NW7 | a name shorter than a word is compared exactly | RFC 1035 §2.3.3, RFC 4343 §3, a short name | the one-octet-change test and the hosts table's alias test | CAUGHT |
+| NW8 | a name of seven octets takes the word path | the bound of a short name | the one-octet-change test, by a panic at the subtraction that finds the last word | CAUGHT |
+| NW9 | the reference compares the octets exactly | RFC 1035 §2.3.3, RFC 4343 §3, the reference | the one-octet-change test and the hosts table's alias test | CAUGHT |
+| NW10 | the reference ignores the lengths | the reference's length check | the RFC 4343 case test, by a panic at the loop over two lengths | CAUGHT |
+| NW11 | the word compare ignores the lengths | the word compare's length check | the length test; the hosts table's alias test, by a panic at a word read past a name's end | CAUGHT |
+| NW12 | the loop compares the last word too | the word loop, one word and no more past the last word's start | the assertion that the loop stopped before the name's end, by a panic in the one-octet-change test | CAUGHT |
