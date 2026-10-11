@@ -2,8 +2,9 @@
 //! that lowercases the name (docs/design.md §7, A server that changes the case): which response
 //! marks its server, that the wait stands, that a marked server is asked in lowercase while
 //! every other keeps 0x20, and what the tries an ignored reply leaves to run out do to a server's
-//! wait (§5). The mark is `lookup_response.zig`'s and the choice to mix `lookup_poll.zig`'s.
-//! Split from `lookup_response.zig` by the file-length rule.
+//! wait (§5). Check 5's compare and the mark are `lookup_response_case.zig`'s, and the choice to
+//! mix `lookup_poll.zig`'s. Split from `lookup_response.zig` by the file-length rule; the tests of
+//! the compare read in place are `lookup_case_echo_test.zig`'s, which shares the helpers here.
 const std = @import("std");
 const testing = std.testing;
 const core = @import("core");
@@ -37,21 +38,21 @@ fn cname_capitals() [fixtures.record_cname.len]u8 {
 
 /// A reply that echoes the question with every letter lowercased: what a server that lowercases
 /// the name sends.
-const folded: fixtures.Reply = blk: {
+pub const folded: fixtures.Reply = blk: {
     var reply = fixtures.answer_a;
     reply.fold_case = true;
     break :blk reply;
 };
 
 /// The name the query the harness last sent carries, as it went out.
-fn sent_name(harness: *const fixtures.Harness) []const u8 {
+pub fn sent_name(harness: *const fixtures.Harness) []const u8 {
     const at = harness.query_body_offset + core.constants.header_bytes;
     return harness.query[at..][0..harness.lookup.current.len];
 }
 
 /// Whether the query the harness last sent mixed the case, read from its octets: the name differs
 /// from the one held, which is lowercase in these tests, so only mixing can make it differ.
-fn sent_mixed(harness: *const fixtures.Harness) bool {
+pub fn sent_mixed(harness: *const fixtures.Harness) bool {
     return !std.mem.eql(u8, sent_name(harness), harness.lookup.current.wire());
 }
 
@@ -138,7 +139,7 @@ const full_label_text = "x" ** core.constants.label_bytes_max ++ ".";
 /// last label's length octet, and the root's.
 const last_label_framing = 2;
 const last_label_bytes = core.constants.name_bytes_max - full_labels * full_label_text.len - last_label_framing;
-const longest_text = full_label_text ** full_labels ++ "x" ** last_label_bytes ++ ".";
+pub const longest_text = full_label_text ** full_labels ++ "x" ** last_label_bytes ++ ".";
 
 test "a name of 255 octets is asked and answered, mixed, in lowercase and as held" {
     // Its question's class lies past octet 255 of the message, where check 5's offsets, computed

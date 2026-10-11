@@ -64,12 +64,14 @@ test {
     _ = @import("lookup_poll.zig");
     _ = @import("lookup_recall.zig");
     _ = @import("lookup_response.zig");
+    _ = @import("lookup_response_case.zig");
     _ = @import("fixtures.zig");
     _ = @import("lookup_records_test.zig");
     _ = @import("lookup_cookie.zig");
     _ = @import("lookup_cookie_test.zig");
     _ = @import("lookup_chain_test.zig");
     _ = @import("lookup_case_test.zig");
+    _ = @import("lookup_case_echo_test.zig");
     _ = @import("lookup_request.zig");
     _ = @import("lookup_request_test.zig");
     _ = @import("lookup_init_test.zig");

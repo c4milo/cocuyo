@@ -35,7 +35,7 @@
         .id = "S4",
         .what = "the question section is not compared",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (!wire.question.matches(message, cased, self.question.kind)) {", .new = "    if (false and !wire.question.matches(message, cased, self.question.kind)) {" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (!casing.echoes_question(self, message)) {", .new = "    if (false and !casing.echoes_question(self, message)) {" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -54,7 +54,7 @@
         .what = "a response is read whatever the state",
         .edits = .{
             .{ .file = "src/resolver/lookup_response.zig", .old = "    if (self.state != .awaiting_udp and self.state != .awaiting_tcp) return null;", .new = "    if (false and self.state != .awaiting_udp and self.state != .awaiting_tcp) return null;" },
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    assert(!self.is_settled());\n    return apply(self, message, accepted, &cased, now_ns);", .new = "    return apply(self, message, accepted, &cased, now_ns);" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    assert(!self.is_settled());\n    return apply(self, message, accepted, now_ns);", .new = "    return apply(self, message, accepted, now_ns);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -351,7 +351,7 @@
         .id = "DH13",
         .what = "NXDOMAIN's negative TTL keeps its Age",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "            // is zero, which is not cached. The walk keeps the smallest of every candidate's.\n            bound_walk(self, negative_ttl(self, message, cased, accepted.age_seconds));", .new = "            // is zero, which is not cached. The walk keeps the smallest of every candidate's.\n            bound_walk(self, negative_ttl(self, message, cased, 0));" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            // is zero, which is not cached. The walk keeps the smallest of every candidate's.\n            bound_walk(self, negative_ttl(self, message, &self.current, accepted.age_seconds));", .new = "            // is zero, which is not cached. The walk keeps the smallest of every candidate's.\n            bound_walk(self, negative_ttl(self, message, &self.current, 0));" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -360,7 +360,7 @@
         .id = "DH14",
         .what = "NODATA's negative TTL keeps its Age",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "            // its authority section holds the whole of its answer section, empty.\n            bound_walk(self, negative_ttl(self, message, cased, accepted.age_seconds));", .new = "            // its authority section holds the whole of its answer section, empty.\n            bound_walk(self, negative_ttl(self, message, cased, 0));" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            // its authority section holds the whole of its answer section, empty.\n            bound_walk(self, negative_ttl(self, message, &before, accepted.age_seconds));", .new = "            // its authority section holds the whole of its answer section, empty.\n            bound_walk(self, negative_ttl(self, message, &before, 0));" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -577,7 +577,7 @@
         .id = "TT8",
         .what = "a negative's TTL is not bounded by the chain",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    const carried = wire.response.negative_ttl_seconds(message, cased) catch 0;\n    return bounded_by_chain(self, carried -| age_seconds);", .new = "    _ = self;\n    const carried = wire.response.negative_ttl_seconds(message, cased) catch 0;\n    return carried -| age_seconds;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    const carried = wire.response.negative_ttl_seconds(message, question) catch 0;\n    return bounded_by_chain(self, carried -| age_seconds);", .new = "    _ = self;\n    const carried = wire.response.negative_ttl_seconds(message, question) catch 0;\n    return carried -| age_seconds;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -703,7 +703,7 @@
         .id = "WN1",
         .what = "NXDOMAIN replaces the walk's negative TTL rather than keeping the smaller",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "            // is zero, which is not cached. The walk keeps the smallest of every candidate's.\n            bound_walk(self, negative_ttl(self, message, cased, accepted.age_seconds));", .new = "            // is zero, which is not cached. The walk keeps the smallest of every candidate's.\n            self.negative_ttl_seconds = negative_ttl(self, message, cased, accepted.age_seconds);" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            // is zero, which is not cached. The walk keeps the smallest of every candidate's.\n            bound_walk(self, negative_ttl(self, message, &self.current, accepted.age_seconds));", .new = "            // is zero, which is not cached. The walk keeps the smallest of every candidate's.\n            self.negative_ttl_seconds = negative_ttl(self, message, &self.current, accepted.age_seconds);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -712,7 +712,7 @@
         .id = "WN2",
         .what = "NODATA replaces the walk's negative TTL rather than keeping the smaller",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "            // its authority section holds the whole of its answer section, empty.\n            bound_walk(self, negative_ttl(self, message, cased, accepted.age_seconds));", .new = "            // its authority section holds the whole of its answer section, empty.\n            self.negative_ttl_seconds = negative_ttl(self, message, cased, accepted.age_seconds);" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            // its authority section holds the whole of its answer section, empty.\n            bound_walk(self, negative_ttl(self, message, &before, accepted.age_seconds));", .new = "            // its authority section holds the whole of its answer section, empty.\n            self.negative_ttl_seconds = negative_ttl(self, message, &before, accepted.age_seconds);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1196,7 +1196,7 @@
         .id = "DT4",
         .what = "a response takes a sample before §7's checks, so an unmatched one does too",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    const accepted = accepted_header(self, message, from, &cased) orelse return .ignored;", .new = "    if (self.state == .awaiting_udp or self.state == .awaiting_tcp) self.servers.record_latency(self.server_slot(), now_ns - self.sent_at_ns, now_ns);\n    const accepted = accepted_header(self, message, from, &cased) orelse return .ignored;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    const accepted = accepted_header(self, message, from) orelse return .ignored;", .new = "    if (self.state == .awaiting_udp or self.state == .awaiting_tcp) self.servers.record_latency(self.server_slot(), now_ns - self.sent_at_ns, now_ns);\n    const accepted = accepted_header(self, message, from) orelse return .ignored;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1439,7 +1439,7 @@
         .id = "CM1",
         .what = "the mark is never made",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (!cookies.accepted(self, opt.cookie)) return;\n    self.servers.record_case_change(self.server_slot());\n", .new = "    if (!cookies.accepted(self, opt.cookie)) return;\n" },
+            .{ .file = "src/resolver/lookup_response_case.zig", .old = "    if (!cookies.accepted(self, opt.cookie)) return;\n    self.servers.record_case_change(self.server_slot());\n", .new = "    if (!cookies.accepted(self, opt.cookie)) return;\n" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1448,7 +1448,7 @@
         .id = "CM2",
         .what = "a response in another case marks its server though the query did not mix the case",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (!self.flags.query_mixed) return;\n    // No query over DoH or DoQ mixes the case (docs/design.md §22, §23).\n    assert(self.flags.mix_case and !self.config.sends_requests());\n", .new = "" },
+            .{ .file = "src/resolver/lookup_response_case.zig", .old = "    if (!self.flags.query_mixed) return;\n    // No query over DoH or DoQ mixes the case (docs/design.md §22, §23).\n    assert(self.flags.mix_case and !self.config.sends_requests());\n", .new = "" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1457,7 +1457,7 @@
         .id = "CM3",
         .what = "the mark does not compare the question with the one asked in lowercase, so another question marks",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (!wire.question.matches_lowercase(message, cased, self.question.kind)) return;\n", .new = "" },
+            .{ .file = "src/resolver/lookup_response_case.zig", .old = "    if (!wire.question.matches_lowercase(message, &self.current, self.question.kind)) return;\n", .new = "" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1466,7 +1466,7 @@
         .id = "CM4",
         .what = "the mark skips check 6, so a wrong or missing cookie marks",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (!cookies.accepted(self, opt.cookie)) return;\n    self.servers.record_case_change", .new = "    _ = opt;\n    self.servers.record_case_change" },
+            .{ .file = "src/resolver/lookup_response_case.zig", .old = "    if (!cookies.accepted(self, opt.cookie)) return;\n    self.servers.record_case_change", .new = "    _ = opt;\n    self.servers.record_case_change" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1475,7 +1475,7 @@
         .id = "CM5",
         .what = "a malformed OPT record is read as none, and marks",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    const opt = opt_of(message, cased) orelse return;\n", .new = "    const opt = opt_of(message, cased) orelse OptFields{ .cookie = null, .extended_rcode_high = 0 };\n" },
+            .{ .file = "src/resolver/lookup_response_case.zig", .old = "    const opt = response.opt_of(message, &self.current) orelse return;\n", .new = "    const opt = response.opt_of(message, &self.current) orelse response.OptFields{ .cookie = null, .extended_rcode_high = 0 };\n" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1493,7 +1493,7 @@
         .id = "CM7",
         .what = "check 5 compares with the server's mark at the response, not with what the query sent",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        if (self.flags.query_mixed) {", .new = "        if (self.mixes_case()) {" },
+            .{ .file = "src/resolver/lookup_response_case.zig", .old = "    if (self.flags.query_mixed) {", .new = "    if (self.mixes_case()) {" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1502,7 +1502,7 @@
         .id = "CM8",
         .what = "the mark lands on the first server, not the one that answered",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    self.servers.record_case_change(self.server_slot());", .new = "    self.servers.record_case_change(0);" },
+            .{ .file = "src/resolver/lookup_response_case.zig", .old = "    self.servers.record_case_change(self.server_slot());", .new = "    self.servers.record_case_change(0);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1520,7 +1520,7 @@
         .id = "CM10",
         .what = "the lowercase compare ignores the type",
         .edits = .{
-            .{ .file = "src/wire/question.zig", .old = "    if (integer.read_u16(message, start + name.len) != kind.code()) return false;", .new = "    if (case == .exact and integer.read_u16(message, start + name.len) != kind.code()) return false;" },
+            .{ .file = "src/wire/question.zig", .old = "    if (integer.read_u16(message, start + name.len) != kind.code()) return false;", .new = "    if (case != .lowercase and integer.read_u16(message, start + name.len) != kind.code()) return false;" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -1529,7 +1529,7 @@
         .id = "CM11",
         .what = "the lowercase compare ignores the class",
         .edits = .{
-            .{ .file = "src/wire/question.zig", .old = "    return integer.read_u16(message, start + name.len + constants.u16_bytes) ==", .new = "    return case == .lowercase or integer.read_u16(message, start + name.len + constants.u16_bytes) ==" },
+            .{ .file = "src/wire/question.zig", .old = "    if (class != core.constants.class_internet) return false;", .new = "    if (case != .lowercase and class != core.constants.class_internet) return false;" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -1538,7 +1538,7 @@
         .id = "CM12",
         .what = "check 5 takes the question echoed in lowercase, so the response that marks is the answer too",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (!wire.question.matches(message, cased, self.question.kind)) {", .new = "    if (!wire.question.matches(message, cased, self.question.kind) and !wire.question.matches_lowercase(message, cased, self.question.kind)) {" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (!casing.echoes_question(self, message)) {", .new = "    if (!casing.echoes_question(self, message) and !wire.question.matches_lowercase(message, &self.current, self.question.kind)) {" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1601,7 +1601,7 @@
         .id = "CM19",
         .what = "a letter drawn small counts as a capital, so a draw that leaves every letter small stands",
         .edits = .{
-            .{ .file = "src/wire/name.zig", .old = "            drawn.capitals += @intFromBool(is_capital(byte.*));", .new = "            drawn.capitals += 1;" },
+            .{ .file = "src/wire/name_case.zig", .old = "        self.small &= bits;", .new = "        self.small = 0;" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -1610,7 +1610,7 @@
         .id = "CM20",
         .what = "a draw is repeated from the word the first started from, so it leaves every letter small again",
         .edits = .{
-            .{ .file = "src/wire/name.zig", .old = "        word = drawn.word;\n", .new = "        word = entropy;\n" },
+            .{ .file = "src/wire/name_case.zig", .old = "        word = drawn.word;\n", .new = "        word = entropy;\n" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -1619,7 +1619,7 @@
         .id = "CM21",
         .what = "the first letter is not made a capital once every draw left the name small",
         .edits = .{
-            .{ .file = "src/wire/name.zig", .old = "    capitalize_first(name);\n", .new = "" },
+            .{ .file = "src/wire/name_case.zig", .old = "    capitalize_first(name);\n", .new = "" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -1628,7 +1628,7 @@
         .id = "CM22",
         .what = "a name without a letter is drawn again as one left small",
         .edits = .{
-            .{ .file = "src/wire/name.zig", .old = "        if (drawn.capitals > 0 or drawn.letters == 0) return;", .new = "        if (drawn.capitals > 0) return;" },
+            .{ .file = "src/wire/name_case.zig", .old = "        return self.small & 1 == 0 or !self.lettered;", .new = "        return self.small & 1 == 0;" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -1736,7 +1736,7 @@
         .id = "QO2",
         .what = "the offset of a question's class is summed in the octet a name's length is held in",
         .edits = .{
-            .{ .file = "src/wire/question.zig", .old = "    return integer.read_u16(message, start + name.len + constants.u16_bytes) ==", .new = "    return integer.read_u16(message, core.constants.header_bytes + name.len + constants.u16_bytes) ==" },
+            .{ .file = "src/wire/question.zig", .old = "    const class = integer.read_u16(message, start + name.len + constants.u16_bytes);", .new = "    const class = integer.read_u16(message, core.constants.header_bytes + name.len + constants.u16_bytes);" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -1827,6 +1827,159 @@
         .what = "a lowercase echo of a question whose name is 250 octets long is not taken for one",
         .edits = .{
             .{ .file = "src/wire/question.zig", .old = "        .lowercase => is_lowercase_of(echoed, name.wire()),", .new = "        .lowercase => name.len != 250 and is_lowercase_of(echoed, name.wire())," },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "Check 5 read in place",
+        .id = "CP1",
+        .what = "a name whose first draw left every letter small is read against that draw, not the name the mixer drew again",
+        .edits = .{
+            .{ .file = "src/wire/name_case.zig", .old = "    if (!drawn.stands()) return .later;", .new = "    if (!drawn.stands() and !drawn.lettered) return .later;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Check 5 read in place",
+        .id = "CP2",
+        .what = "a letter that differs in more than its case is read as the same letter in another case",
+        .edits = .{
+            .{ .file = "src/wire/name_case.zig", .old = "        if (!is_letter(octet) or echo ^ expected != core.constants.ascii_case_bit) return .other;", .new = "        if (!is_letter(octet)) return .other;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "Check 5 read in place",
+        .id = "CP3",
+        .what = "a length octet, a digit or the root that differs by the case bit is read as a letter in another case",
+        .edits = .{
+            .{ .file = "src/wire/name_case.zig", .old = "        if (!is_letter(octet) or echo ^ expected != core.constants.ascii_case_bit) return .other;", .new = "        if (echo ^ expected != core.constants.ascii_case_bit) return .other;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "Check 5 read in place",
+        .id = "CP4",
+        .what = "an echo in another case than the draw gave is read as the name sent",
+        .edits = .{
+            .{ .file = "src/wire/name_case.zig", .old = "        exact = false;\n", .new = "        exact = true;\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Check 5 read in place",
+        .id = "CP5",
+        .what = "the first letter takes its bit from the seed itself, not from the word after it",
+        .edits = .{
+            .{ .file = "src/wire/name_case.zig", .old = "        return .{ .word = entropy, .used = core.mix.word_bits };", .new = "        return .{ .word = entropy, .used = 0 };" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "Check 5 read in place",
+        .id = "CP6",
+        .what = "a draw that cased letters counts as one that found none, so a draw that leaves every letter small stands",
+        .edits = .{
+            .{ .file = "src/wire/name_case.zig", .old = "        self.lettered = true;", .new = "        self.lettered = false;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "Check 5 read in place",
+        .id = "CP7",
+        .what = "a name the mixer drew again is compared in lowercase, its first draw's case",
+        .edits = .{
+            .{ .file = "src/wire/name_case.zig", .old = "    mix_case(&cased, entropy);\n    return std.mem.eql(u8, echoed, cased.wire());", .new = "    _ = entropy;\n    cased.fold_case();\n    return std.mem.eql(u8, echoed, cased.wire());" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Check 5 read in place",
+        .id = "CP8",
+        .what = "check 5 for a query that mixed takes the question echoed in lowercase",
+        .edits = .{
+            .{ .file = "src/wire/question.zig", .old = "        .mixed => name_codec.is_mix_of(echoed, name, entropy),", .new = "        .mixed => name_codec.is_mix_of(echoed, name, entropy) or is_lowercase_of(echoed, name.wire())," },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "Check 5 read in place",
+        .id = "CP9",
+        .what = "check 5 for a query that mixed ignores the type",
+        .edits = .{
+            .{ .file = "src/wire/question.zig", .old = "    if (integer.read_u16(message, start + name.len) != kind.code()) return false;", .new = "    if (case != .mixed and integer.read_u16(message, start + name.len) != kind.code()) return false;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "Check 5 read in place",
+        .id = "CP10",
+        .what = "check 5 for a query that mixed ignores the class",
+        .edits = .{
+            .{ .file = "src/wire/question.zig", .old = "    if (class != core.constants.class_internet) return false;", .new = "    if (case != .mixed and class != core.constants.class_internet) return false;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "Check 5 read in place",
+        .id = "CP11",
+        .what = "a reply to a query asked in lowercase is compared with the name as held",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response_case.zig", .old = "    if (self.flags.mix_case) return wire.question.matches_lowercase(message, &self.current, kind);", .new = "    if (self.flags.mix_case) return wire.question.matches(message, &self.current, kind);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Check 5 read in place",
+        .id = "CP12",
+        .what = "a response is applied cut at its header, short of the question check 5 read",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    assert(!self.is_settled());\n    return apply(self, message, accepted, now_ns);", .new = "    assert(!self.is_settled());\n    return apply(self, message[0..core.constants.header_bytes], accepted, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Check 5 read in place",
+        .id = "CP13",
+        .what = "the name a mark asserts the lowercase echo is not is built in lowercase",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response_case.zig", .old = "    wire.name.mix_case(&asked, self.transaction.case_seed);", .new = "    asked.fold_case();" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Check 5 read in place",
+        .id = "CP14",
+        .what = "the offsets of a question's type and class, read before its name, are summed in the octet a name's length is held in",
+        .edits = .{
+            .{ .file = "src/wire/question.zig", .old = "    const start: usize = core.constants.header_bytes;\n    const end = start + section_bytes(name);", .new = "    const start = core.constants.header_bytes;\n    const end = start + section_bytes(name);" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "Check 5 read in place",
+        .id = "CP15",
+        .what = "those offsets are summed in that octet for a query that mixed the case alone",
+        .edits = .{
+            .{ .file = "src/wire/question.zig", .old = "    const start: usize = core.constants.header_bytes;\n    const end = start + section_bytes(name);", .new = "    const start: if (case == .mixed) u8 else usize = core.constants.header_bytes;\n    const end = start + section_bytes(name);" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "Check 5 read in place",
+        .id = "CP16",
+        .what = "those offsets are summed in that octet for a query that mixed the case alone, under a lookup",
+        .edits = .{
+            .{ .file = "src/wire/question.zig", .old = "    const start: usize = core.constants.header_bytes;\n    const end = start + section_bytes(name);", .new = "    const start: if (case == .mixed) u8 else usize = core.constants.header_bytes;\n    const end = start + section_bytes(name);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Check 5 read in place",
+        .id = "CP17",
+        .what = "check 5 for a query that mixed refuses the echo of a question whose name is 250 octets long",
+        .edits = .{
+            .{ .file = "src/wire/question.zig", .old = "        .mixed => name_codec.is_mix_of(echoed, name, entropy),", .new = "        .mixed => name.len != 250 and name_codec.is_mix_of(echoed, name, entropy)," },
         },
         .caught_by = .{ .step = "test-wire" },
     },

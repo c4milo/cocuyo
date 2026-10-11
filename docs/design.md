@@ -808,7 +808,11 @@ A response is considered only if all of these hold, checked in this order:
 5. QDCOUNT is 1 and the question section is byte-identical to the one sent, case included.
    Since 2026-10-09 a response that fails this check because it echoes, in lowercase, the name a
    mixed query sent, and that passes check 6, marks its server as one that lowercases the name.
-   It is ignored all the same (A server that changes the case, below).
+   It is ignored all the same (A server that changes the case, below). By the owner's ruling of
+   the same day the check reads the echo in place, against the case the transaction's seed gives
+   the name held, without building the name the query sent, and the check that the name built is
+   the name held in another case runs where the query is built (A server that changes the case,
+   below).
 6. The cookie (RFC 7873 §5.3, since §19 step 10): when the query carried a COOKIE option, a
    COOKIE option in the response must echo the client cookie that query carried, which the lookup
    recorded when it built the query, whatever another lookup taught the server since. A response
@@ -891,6 +895,38 @@ fallback either: the rules are the owner's ruling and its review.
   carried (§19 step 10), and check 5 compares a response with the name as that query sent it. A
   mark another lookup makes between the send and the answer changes nothing for a query already
   sent: a reply to it in lowercase is still ignored.
+- Check 5 reads the echo in place, by the owner's ruling of 2026-10-09 on what building the name
+  cost every datagram offered to a lookup. The lookup holds the name without its case. Each branch
+  of the compare is a branch of the name the query was built with: mixed from the seed, in lowercase
+  for a marked server, or as held. For a mixed query the compare draws each letter's case from the
+  transaction's seed as it reads the echo, octet by octet, with the bit stream the mixer draws with
+  (`wire.name.is_mix_of`, `wire.question.matches_mixed`). They are new public declarations of
+  `wire`, which the owner allowed the same day, since `wire` is public through `src/cocuyo.zig`. The
+  mixer walks the labels, and that walk is the reference; the compare walks the bytes, which meets
+  the letters in the same order because no length octet is a letter. Its tests hold it to the mixer
+  over every label of one and of two octets drawn from fourteen octets at the edges of the letters
+  and of the case bit, each octet echoed in seven forms, under sixteen seeds, and the codec's fuzz
+  target holds it to the mixer over every question it writes, names of 192 to 255 octets among
+  them (§13). When the first draw left every letter small, with chance 2^-L for a name of L
+  letters, the name went out from a later draw or with its first letter a capital, and the compare
+  builds it with the mixer and compares that. A lowercase echo of a mixed query, about to mark its
+  server, builds the name too, to assert that the echo is not it.
+- The compare reads the type and the class first, at the offset where the name held ends, and
+  then the name. A question of a name of another length seldom holds them there, so it is refused
+  before its name is read octet by octet. All three compares read in that order: the exact one,
+  the lowercase one and the mixed one. The offsets are summed in `usize`, as the fix of 2026-10-10
+  left them (§13; docs/mutations.md, Sums at the most their operands reach). Read first, a sum
+  made in the octet a name's length is held in would panic on every reply that reached check 5
+  for a name of 242 octets or more and was long enough, and not only on the one whose echoed name
+  matched (docs/mutations.md, CP14 to CP16).
+- The owner's ruling of the same day moved the check that the cased name is the held name in another
+  case, which ran on every datagram the lookup was offered, to the build of the query alone. While a
+  lookup waits, the held name, the case seed and the record of whether the query mixed are what the
+  build had, so the name a reply would have built is the one the build built and checked: building
+  it again per reply re-ran a deterministic function on the same inputs. On the reply path the check
+  no longer runs. Nothing past check 5 reads the case the query carried: the OPT record, the
+  sections and the negative TTL take the name for its length alone, which says where the question
+  ends, and the answer walk compares names with `current` without regard to case.
 - A chain name that the answer compressed into the question decodes in the case the question was
   echoed in, so with 0x20 on every chain name is folded to lowercase, as it has been since the
   example of §15 step 6 met cocuyo's own case in one. That holds whatever the query carried, so a
@@ -1522,6 +1558,12 @@ each: the gate's seeds reach every one of those lengths, and most mazes aim past
 target runs check 5 over each such question, and `matches_lowercase` over its echo in lowercase,
 since the two compares share the reads that overflowed.
 
+Since check 5 reads a mixed query's echo in place (§7, A server that changes the case), the target
+holds that compare to the one it replaced, over every question that parses, the long ones among
+them. With the name parsed as the name held and a seed the header's octets give, `matches_mixed`
+must say what `matches` says of the name `mix_case` builds: of the message itself, and of the
+question a query mixed from that seed sends.
+
 A second target, since 2026-09-26, reads what the caller hands in rather than what the network
 sends (`src/config/fuzz/`): an address, a name, a `resolv.conf`, a hosts file and an SPKI pin.
 Each text is written whole from values the generator chose, and must read back as those; or has
@@ -1638,7 +1680,18 @@ step until `zig build test` passes.
    server, which costs every server its entropy for one server's fault; a mark on any case, which
    the table's own lookups make; a table that marks only when no lookup accepted the datagram,
    which a late answer escapes; and a mark on lowercase with the mix left as it was, which keeps
-   the false mark at a rate of 2^-L. §7, A server that changes the case.
+   the false mark at a rate of 2^-L. §7, A server that changes the case. Amended by the owner
+   on 2026-10-09 again, on what check 5 cost: a reply is read against the case the seed gives the
+   held name in place, and the cased name is built only when the first draw left every letter
+   small, or to assert that a lowercase echo about to mark its server is not the name sent. The
+   check that the cased name is the held name in another case runs where the query is built, and
+   no longer on each reply: while the lookup waits, the held name, the case seed and the record
+   of whether the query mixed are what the build had, so a rebuild per reply re-ran a
+   deterministic function the build had checked. `wire` gains the public declarations that carry
+   it, which the owner allowed the same day, since `wire` is public through `src/cocuyo.zig`.
+   Rejected: building the cased name for every datagram offered to a lookup, which was the
+   cost the ruling removed; and restating that check per octet inside the compare, which says
+   only what the compare computes.
 6. **Port randomisation is the caller's duty, with a hint offered.** Rejected: requiring a socket
    per query, which would mean owning sockets.
 7. **`Config` lives in `core`; the parser is a module the state machine cannot import.** Rejected:

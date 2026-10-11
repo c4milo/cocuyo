@@ -6,8 +6,9 @@
 //! server must echo the question section unchanged, so comparing case-insensitively would throw
 //! that entropy away. A response whose question came back folded is not our response. One that
 //! came back in lowercase can still say that its server lowercases the name, which
-//! `matches_lowercase` reads, and which never makes a response ours (§7, A server that changes
-//! the case).
+//! `matches_lowercase` reads, and which never makes a response to a mixed query ours (§7, A server
+//! that changes the case). A query that mixed the case is checked by `matches_mixed`, which reads
+//! the echo against the case its seed gives the name, in place, rather than against a cased copy.
 //!
 //! The question name is never compressed. Compression points backwards to an earlier name
 //! (RFC 1035 §4.1.4) and the question is the first name in the message, so a pointer there could
@@ -52,20 +53,39 @@ pub fn write(name: *const Name, kind: Kind, out: []u8) usize {
 /// This reads the message's own question area and compares it against what the lookup holds, so
 /// no copy of the sent bytes has to be kept anywhere (docs/design.md §16 decision 3).
 pub fn matches(message: []const u8, name: *const Name, kind: Kind) bool {
-    return section_matches(message, name, kind, .exact);
+    return section_matches(message, name, kind, .exact, case_seed_none);
+}
+
+/// `matches` for a query whose name `wire.name.mix_case` cased from `entropy`: `name` is the name
+/// as held, and the echo is read in place against the case that seed gives it
+/// (`wire.name.is_mix_of`), so a response is checked without a cased copy of the name
+/// (docs/design.md §7 check 5).
+pub fn matches_mixed(message: []const u8, name: *const Name, kind: Kind, entropy: u64) bool {
+    return section_matches(message, name, kind, .mixed, entropy);
 }
 
 /// Whether `message`'s question section is the question that was asked with every ASCII letter
 /// of its name small: the same type and class IN, and the name as a server that lowercases it
 /// echoes it (docs/design.md §7, A server that changes the case). Never a reason to accept a
-/// response: check 5 is `matches`.
+/// response to a query that mixed the case, whose check 5 is `matches_mixed`. For a query asked in
+/// lowercase it is check 5, read in place: that query's name is `name` with every letter small.
 pub fn matches_lowercase(message: []const u8, name: *const Name, kind: Kind) bool {
-    return section_matches(message, name, kind, .lowercase);
+    return section_matches(message, name, kind, .lowercase, case_seed_none);
 }
 
-const Case = enum { exact, lowercase };
+/// How the echoed name is held to the name: byte for byte, in lowercase, or as a seed mixes it.
+const Case = enum { exact, lowercase, mixed };
 
-fn section_matches(message: []const u8, name: *const Name, kind: Kind, comptime case: Case) bool {
+/// The seed a compare that mixes no case is passed, and never reads.
+const case_seed_none = 0;
+
+fn section_matches(
+    message: []const u8,
+    name: *const Name,
+    kind: Kind,
+    comptime case: Case,
+    entropy: u64,
+) bool {
     assert(name.len >= 1);
     // `usize`, not the `u8` a name's length is held in: the class of a question whose name is 242
     // octets or more lies past octet 255 of the message (12 + 242 + 2 = 256), and a name runs to
@@ -74,15 +94,18 @@ fn section_matches(message: []const u8, name: *const Name, kind: Kind, comptime 
     const end = start + section_bytes(name);
     if (message.len < end) return false;
     assert(end <= message.len);
+    // The type and the class first: two loads at the offset this name ends at. A question of a
+    // name of another length seldom holds them there, so it is refused before its name is read
+    // octet by octet.
+    if (integer.read_u16(message, start + name.len) != kind.code()) return false;
+    const class = integer.read_u16(message, start + name.len + constants.u16_bytes);
+    if (class != core.constants.class_internet) return false;
     const echoed = message[start..][0..name.len];
-    const same = switch (case) {
+    return switch (case) {
         .exact => std.mem.eql(u8, echoed, name.wire()),
         .lowercase => is_lowercase_of(echoed, name.wire()),
+        .mixed => name_codec.is_mix_of(echoed, name, entropy),
     };
-    if (!same) return false;
-    if (integer.read_u16(message, start + name.len) != kind.code()) return false;
-    return integer.read_u16(message, start + name.len + constants.u16_bytes) ==
-        core.constants.class_internet;
 }
 
 /// Whether `echoed` is `asked` with every capital made small. Only that spelling is taken, and no
@@ -187,6 +210,57 @@ test "matches_lowercase takes the name asked with every letter small, and nothin
     try testing.expect(!matches_lowercase(short, &mixed, .a));
 }
 
+/// `query_message` with its question's name replaced by `name`, of the same length.
+fn with_name(name: *const Name) [query_message.len]u8 {
+    var message = query_message;
+    assert(name.len == query_name_bytes);
+    @memcpy(message[core.constants.header_bytes..][0..name.len], name.wire());
+    return message;
+}
+
+/// The octets of the name `query_message` asks, `example.com`, in wire form.
+const query_name_bytes = "\x07example\x03com\x00".len;
+
+test "matches_mixed takes the question a mixed query asked, and refuses what matches refuses" {
+    const held = try Name.from_text("example.com");
+    const entropy = 0x0123456789abcdef;
+    var cased = held;
+    name_codec.mix_case(&cased, entropy);
+    const asked = with_name(&cased);
+    try testing.expect(matches(&asked, &cased, .a));
+    try testing.expect(matches_mixed(&asked, &held, .a, entropy));
+    // Another seed's case, the name as held, the type AAAA, class CH, and a message cut short.
+    try testing.expect(!matches_mixed(&asked, &held, .a, entropy + 1));
+    try testing.expect(!matches_mixed(&query_message, &held, .a, entropy));
+    try testing.expect(!matches_mixed(&asked, &held, .aaaa, entropy));
+    var chaos = asked;
+    chaos[chaos.len - 1] = 3; // class CH
+    try testing.expect(!matches_mixed(&chaos, &held, .a, entropy));
+    try testing.expect(!matches_mixed(asked[0 .. asked.len - 1], &held, .a, entropy));
+    // A name of another length: the echo is read for the name's octets alone.
+    try testing.expect(!matches_mixed(&asked, &try Name.from_text("example.co"), .a, entropy));
+}
+
+test "the lowercase compare reads the same against the name as held, mixed and folded" {
+    // A response is held to `matches_lowercase` over the name as held: by `case_change` for the
+    // name a mixed query sent, and by check 5 for a server asked in lowercase, which compares
+    // with the folded name byte for byte (docs/design.md §7).
+    const held = try Name.from_text("Example.COM");
+    var cased = held;
+    name_codec.mix_case(&cased, 0x0123456789abcdef);
+    var folded = held;
+    folded.fold_case();
+    var upper = folded;
+    for (upper.bytes[0..upper.len]) |*octet| octet.* = std.ascii.toUpper(octet.*);
+    for ([_]Name{ held, cased, folded, upper, try Name.from_text("example.net") }) |echo| {
+        const message = with_name(&echo);
+        const lowercase = matches_lowercase(&message, &held, .a);
+        try testing.expectEqual(lowercase, matches_lowercase(&message, &cased, .a));
+        try testing.expectEqual(lowercase, matches(&message, &folded, .a));
+    }
+    try testing.expect(matches_lowercase(&with_name(&folded), &held, .a));
+}
+
 /// A name of `length` octets in wire form, of letters: labels of 63 octets, then one of the rest.
 fn long_name(length: usize) !Name {
     const letters: [core.constants.label_bytes_max]u8 = @splat('x');
@@ -255,6 +329,49 @@ test "a question of the most labels a name holds is written, read back and match
     const short = message[0 .. message.len - 1];
     try testing.expectError(Error.MalformedMessage, parse(short, &read));
     try testing.expect(!matches(short, &most, .a) and !matches_lowercase(short, &most, .a));
+}
+
+/// Requires `matches_mixed` to take the question of `held` as `entropy` mixes its name, and to
+/// refuse it as held, under another seed, of another type, cut short, with its last letter in
+/// the other case, and with that letter another.
+fn expect_mixed_in_place(held: *const Name, entropy: u64) !void {
+    var cased = held.*;
+    name_codec.mix_case(&cased, entropy);
+    var asked_buffer: [long_message_bytes]u8 = undefined;
+    var mixed_buffer: [long_message_bytes]u8 = undefined;
+    const asked = question_message(held, &asked_buffer);
+    const mixed = question_message(&cased, &mixed_buffer);
+    try testing.expect(matches(mixed, &cased, .a) and matches_mixed(mixed, held, .a, entropy));
+    try testing.expect(!matches_mixed(asked, held, .a, entropy));
+    try testing.expect(!matches_mixed(mixed, held, .a, entropy + 1));
+    try testing.expect(!matches_mixed(mixed, held, .aaaa, entropy));
+    try testing.expect(!matches_mixed(mixed[0 .. mixed.len - 1], held, .a, entropy));
+    // Its last letter in the other case: each letter has a bit of its own, in whichever word.
+    const last_letter = core.constants.header_bytes + @as(usize, held.len) - last_letter_from_end;
+    mixed_buffer[last_letter] ^= core.constants.ascii_case_bit;
+    try testing.expect(!matches_mixed(mixed, held, .a, entropy));
+    // That letter another: the type and the class are read, where they lie, and then the name.
+    mixed_buffer[last_letter] = 'y';
+    try testing.expect(!matches_mixed(mixed, held, .a, entropy));
+}
+
+/// Where a name's last letter lies before its end: the root's octet follows it.
+const last_letter_from_end = 2;
+
+test "matches_mixed takes a question of a name of 241 octets or more, read in place" {
+    // The type and the class are read before the name, past octet 255 of the message from names
+    // of 244 and 242 octets on (the long-name test above). These names hold 236 to 250 letters,
+    // so the compare draws their cases from four words.
+    const entropy = 0x0123456789abcdef;
+    for ([_]usize{ 241, 242, 243, 244, core.constants.name_bytes_max }) |length| {
+        const held = try long_name(length);
+        try testing.expectEqual(length, @as(usize, held.len));
+        try expect_mixed_in_place(&held, entropy);
+    }
+    // The most labels a name holds: a length octet between every two of its 127 letters.
+    const most = try Name.from_text("a." ** 126 ++ "a");
+    try testing.expectEqual(@as(usize, core.constants.name_bytes_max), most.len);
+    try expect_mixed_in_place(&most, entropy);
 }
 
 test "matches refuses a message too short to hold the question" {

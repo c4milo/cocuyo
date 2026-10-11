@@ -46,6 +46,10 @@ test "an OPT in the additional section is found, past the answers and other addi
     const after = (try find(&fixtures.answer_a_opt_after_additional, &question)).?;
     try testing.expectEqual(@as(usize, 0), after.rdata.len);
     try testing.expectEqual(@as(?record_codec.Record, null), try find(&fixtures.answer_a, &question));
+    // The question is read for its length alone: a lookup passes the name it holds, not the case
+    // its query carried (docs/design.md §7).
+    const capitals = try Name.from_text("EXAMPLE.COM");
+    try testing.expectEqual(opt.end, (try find(&fixtures.answer_a_with_opt, &capitals)).?.end);
 }
 
 test "the OPT's cookie option reads through its rdata" {

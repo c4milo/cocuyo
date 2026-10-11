@@ -95,7 +95,8 @@ fn question_check(message: []const u8) ?[]const u8 {
     if (!question_codec.matches(message, &name, kind)) {
         return "a question did not match the bytes it was parsed from";
     }
-    return lowercase_echo_check(message[0..parsed.end], &name, kind);
+    if (lowercase_echo_check(message[0..parsed.end], &name, kind)) |failure| return failure;
+    return mixed_check(message, &name, kind);
 }
 
 /// The question that matched, echoed with every letter of its name small, is the lowercase echo
@@ -113,6 +114,33 @@ fn lowercase_echo_check(question: []const u8, name: *const Name, kind: core.Kind
     for (echo[header..][0..name.len]) |*octet| octet.* = std.ascii.toLower(octet.*);
     if (!question_codec.matches_lowercase(echo[0..question.len], name, kind)) {
         return "a question echoed in lowercase is not the lowercase echo of the question asked";
+    }
+    return null;
+}
+
+/// The octets a question of the longest name occupies, with the header before it.
+const question_message_bytes_max = core.constants.header_bytes + core.constants.name_bytes_max +
+    core.constants.question_fixed_bytes;
+
+/// Check 5 for a query that mixed the case, read in place, against the name it would build: with
+/// the question parsed as the name held and a seed the header gives, `matches_mixed` says what
+/// `matches` says of the name `mix_case` builds, of this message and of the question that query
+/// sent. The gate runs it wherever it runs `matches`, over the long names too, whose type and
+/// class it reads first (docs/design.md §7 check 5).
+fn mixed_check(message: []const u8, name: *const Name, kind: core.Kind) ?[]const u8 {
+    const entropy = std.mem.readInt(u64, message[0..@sizeOf(u64)], .little);
+    var cased = name.*;
+    name_codec.mix_case(&cased, entropy);
+    const in_place = question_codec.matches_mixed(message, name, kind, entropy);
+    if (in_place != question_codec.matches(message, &cased, kind)) {
+        return "check 5 read in place disagreed with the name it builds";
+    }
+    var sent: [question_message_bytes_max]u8 = undefined;
+    @memcpy(sent[0..core.constants.header_bytes], message[0..core.constants.header_bytes]);
+    const written = question_codec.write(&cased, kind, sent[core.constants.header_bytes..]);
+    const query = sent[0 .. core.constants.header_bytes + written];
+    if (!question_codec.matches_mixed(query, name, kind, entropy)) {
+        return "check 5 read in place refused the question a mixed query sent";
     }
     return null;
 }

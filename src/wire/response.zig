@@ -327,6 +327,10 @@ test "a negative answer's TTL is the SOA minimum, and zero with no SOA, which is
     // records are answers has no SOA to find.
     try testing.expectEqual(@as(u32, 60), try negative_ttl_seconds(&fixtures.answer_a_with_soa, &question));
     try testing.expectEqual(@as(u32, 0), try negative_ttl_seconds(&fixtures.answer_a_twice, &question));
+    // The question is read for its length alone, which says where the sections start: a lookup
+    // passes the name it holds, not the case its query carried (docs/design.md §7).
+    const capitals = try Name.from_text("EXAMPLE.COM");
+    try testing.expectEqual(@as(u32, 60), try negative_ttl_seconds(&fixtures.answer_name_error_soa, &capitals));
 }
 
 test "a response echoing a maximal name parses, and its offsets do not overflow an octet" {

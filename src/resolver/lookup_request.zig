@@ -37,10 +37,9 @@ pub fn on_request_answer(
     assert(self.config.sends_requests());
     if (!waits_on(self, transaction)) return .ignored;
     const header = response_module.header_of(message) orelse return .ignored;
-    const cased = self.cased_name();
-    var accepted = response_module.accepted_shape(self, message, header, &cased) orelse return .ignored;
+    var accepted = response_module.accepted_shape(self, message, header) orelse return .ignored;
     accepted.age_seconds = age_seconds;
-    return response_module.apply(self, message, accepted, &cased, now_ns);
+    return response_module.apply(self, message, accepted, now_ns);
 }
 
 /// The request that carried `transaction` ended without an answer. An HTTP status that is not

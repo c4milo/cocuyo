@@ -9,10 +9,11 @@
 //!   `ignored` and the caller polls afterwards either way, so a stray datagram costs one parse.
 //! - An unmatched datagram does not disturb the wait. Cutting the wait short on a malformed reply
 //!   would hand an off-path attacker a cheap way to force a retry it can race (§16 decision 10).
-//! - The name is held uncased and the case is applied when a query is built and again when a
-//!   response is checked, both from `transaction.case_seed`. One name is stored rather than two.
-//!   Whether the query mixed the case at all is recorded when it is built, since a server that
-//!   lowercases the name is asked in lowercase (§7), and another lookup can mark it in between.
+//! - The name is held uncased. The case is applied when a query is built, and a response's echo
+//!   is read against it in place, both from `transaction.case_seed`. One name is stored rather
+//!   than two. Whether the query mixed the case at all is recorded when it is built, since a
+//!   server that lowercases the name is asked in lowercase (§7), and another lookup can mark it
+//!   in between.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -355,7 +356,10 @@ pub const Lookup = struct {
 
     /// The name as the query last built carries it: the current name, with its case set from this
     /// transaction's seed when that query mixed it, in lowercase when 0x20 is on and that query's
-    /// server lowercases the name, and as it is held otherwise.
+    /// server lowercases the name, and as it is held otherwise. The query is built with it, and
+    /// check 5 reads a response against the same three branches in place without building it
+    /// (`lookup_response_case.zig`), so the check that it is `current` in another case runs at
+    /// the build (§16 decision 5, the ruling of 2026-10-09).
     pub fn cased_name(self: *const Lookup) Name {
         var name = self.current;
         if (self.flags.query_mixed) {

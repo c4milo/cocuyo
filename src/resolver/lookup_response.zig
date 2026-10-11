@@ -5,7 +5,8 @@
 //! source endpoint, then the header's shape, then the question section byte for byte with its
 //! case. The answer section is walked only after all of them pass. The security order and the fast
 //! order are the same order. A question echoed in lowercase can mark its server as one that
-//! lowercases the name, and the response is ignored all the same (§7, `case_change`).
+//! lowercases the name, and the response is ignored all the same (§7). Check 5's compare and that
+//! mark are `lookup_response_case.zig`'s.
 //!
 //! Anything that fails a check is `ignored`, in any state, and the wait stands. A late datagram
 //! for a settled lookup is normal for a caller with one socket, so it is an operational event and
@@ -22,13 +23,13 @@ const Lookup = lookup_module.Lookup;
 const Verdict = lookup_module.Verdict;
 const policy = @import("lookup_policy.zig");
 const cookies = @import("lookup_cookie.zig");
+const casing = @import("lookup_response_case.zig");
 
 pub fn on_response(self: *Lookup, message: []const u8, from: Endpoint, now_ns: u64) Verdict {
     self.see(now_ns);
-    const cased = self.cased_name();
-    const accepted = accepted_header(self, message, from, &cased) orelse return .ignored;
+    const accepted = accepted_header(self, message, from) orelse return .ignored;
     assert(!self.is_settled());
-    return apply(self, message, accepted, &cased, now_ns);
+    return apply(self, message, accepted, now_ns);
 }
 
 /// What the checks of §7 let through: the header, and what the OPT record said when there was
@@ -46,12 +47,7 @@ pub const Accepted = struct {
 
 /// Every check of §7, in order. Returns what was read when the message is ours, and null when it
 /// is not, without touching the lookup. Its server's state can learn that it changes the case.
-fn accepted_header(
-    self: *const Lookup,
-    message: []const u8,
-    from: Endpoint,
-    cased: *const core.Name,
-) ?Accepted {
+fn accepted_header(self: *const Lookup, message: []const u8, from: Endpoint) ?Accepted {
     if (self.state != .awaiting_udp and self.state != .awaiting_tcp) return null;
     // Over DoH or DoQ an answer comes by its transaction, and never as a datagram
     // (docs/design.md §22, §23).
@@ -63,7 +59,7 @@ fn accepted_header(
     //    not an answer to our query (RFC 5452 §4.4, §4.5).
     const server = if (self.state == .awaiting_tcp) self.server_tcp() else self.server();
     if (!server.equal(&from)) return null;
-    return accepted_shape(self, message, header, cased);
+    return accepted_shape(self, message, header);
 }
 
 /// 1. A message too short to hold a header, or longer than a message can be.
@@ -73,72 +69,45 @@ pub fn header_of(message: []const u8) ?wire.Header {
 }
 
 /// Checks 4 to 6 of §7, which an answer over DoH or DoQ passes as well (docs/design.md §22, §23).
-pub fn accepted_shape(
-    self: *const Lookup,
-    message: []const u8,
-    header: wire.Header,
-    cased: *const core.Name,
-) ?Accepted {
+pub fn accepted_shape(self: *const Lookup, message: []const u8, header: wire.Header) ?Accepted {
     // 4. A response to a standard query, not a query and not another opcode.
     if (!header.is_response()) return null;
     if (header.opcode() != wire.constants.opcode_query) return null;
     // 5. One question, byte-identical to the one asked (RFC 5452 §9.1), case included: DNS-0x20
     //    lives here, the practice of the expired draft-vixie-dnsext-dns0x20.
     if (header.qdcount != 1) return null;
-    if (!wire.question.matches(message, cased, self.question.kind)) {
-        case_change(self, message, cased);
+    if (!casing.echoes_question(self, message)) {
+        casing.case_change(self, message);
         return null;
     }
     // 6. The cookie (RFC 7873 §5.3): the client cookie must be the one this lookup's query
     //    carried, and a server that has given a server cookie must give one again.
-    const opt = opt_of(message, cased) orelse return null;
+    const opt = opt_of(message, &self.current) orelse return null;
     if (!cookies.accepted(self, opt.cookie)) return null;
     return .{ .header = header, .cookie = opt.cookie, .extended_rcode_high = opt.extended_rcode_high };
 }
 
-/// A response that echoed in lowercase the question a mixed query asked, and that passes check 6
-/// as an answer must, marks its server as one that lowercases the name: it is asked in lowercase
-/// from now on. It stays ignored, and the wait stands (§16 decision 10). A mixed name always
-/// carries a capital, so no echo of a mixed query of cocuyo's own is in lowercase. No RFC states
-/// DNS-0x20, so none states this: the rule is the owner's of 2026-10-09, narrowed by its review
-/// (docs/design.md §7, A server that changes the case; §16 decision 5).
-fn case_change(self: *const Lookup, message: []const u8, cased: *const core.Name) void {
-    assert(self.state == .awaiting_udp or self.state == .awaiting_tcp);
-    if (!self.flags.query_mixed) return;
-    // No query over DoH or DoQ mixes the case (docs/design.md §22, §23).
-    assert(self.flags.mix_case and !self.config.sends_requests());
-    // The same question with every letter small, which names the same name (RFC 1035 §2.3.3, as
-    // clarified by RFC 4343 §3); any other case may be another query's echo.
-    if (!wire.question.matches_lowercase(message, cased, self.question.kind)) return;
-    // Check 5 refused it, so the name asked was not already lowercase: it held a capital.
-    assert(!wire.question.matches(message, cased, self.question.kind));
-    const opt = opt_of(message, cased) orelse return;
-    // "MUST discard the response if it contains ... an incorrect Client Cookie value" (RFC 7873
-    // §5.3): a response check 6 refuses is no server's word on anything.
-    if (!cookies.accepted(self, opt.cookie)) return;
-    self.servers.record_case_change(self.server_slot());
-}
-
-const OptFields = struct { cookie: ?wire.CookieView, extended_rcode_high: u8 };
+pub const OptFields = struct { cookie: ?wire.CookieView, extended_rcode_high: u8 };
 
 /// The OPT record's fields; the defaults when the message carries no OPT; null when it is
 /// malformed: a version cocuyo does not speak (RFC 6891 §6.1.3), an owner that is not the root
-/// (§6.1.2), or a COOKIE option of a length neither form allows (RFC 7873 §5.2.2).
-fn opt_of(message: []const u8, cased: *const core.Name) ?OptFields {
-    const record = (wire.response_opt.find(message, cased) catch return null) orelse
+/// (§6.1.2), or a COOKIE option of a length neither form allows (RFC 7873 §5.2.2). `question` is
+/// the name the message echoes, read for its length alone: where the sections start.
+pub fn opt_of(message: []const u8, question: *const core.Name) ?OptFields {
+    const record = (wire.response_opt.find(message, question) catch return null) orelse
         return .{ .cookie = null, .extended_rcode_high = 0 };
     const opt = wire.edns.parse(record.class, record.ttl_seconds) catch return null;
     const cookie = wire.edns.find_cookie(record.rdata) catch return null;
     return .{ .cookie = cookie, .extended_rcode_high = opt.extended_rcode_high };
 }
 
-pub fn apply(
-    self: *Lookup,
-    message: []const u8,
-    accepted: Accepted,
-    cased: *const core.Name,
-    now_ns: u64,
-) Verdict {
+/// What a response the checks of §7 let through does to the lookup. Past check 5 the name is read
+/// for its length alone, which says where the question ends: the sections are walked from there,
+/// and the answer's names are compared with `current` without regard to case. The case the query
+/// carried is check 5's alone (`lookup_response_case.zig`).
+pub fn apply(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64) Verdict {
+    // Check 5 found the question, `current`'s length of it, inside the message.
+    assert(message.len >= wire.response.section_start(&self.current));
     const header = accepted.header;
     // The checks of §7 passed, the cookie's among them, so the server cookie is cached whatever
     // the lookup makes of the rest: an error, or a response it ignores (RFC 7873 §5.3).
@@ -159,7 +128,7 @@ pub fn apply(
     const action = policy.rcode_action(rcode, self.flags.edns_enabled, self.config.check_response);
     // NOERROR is believed only once its answer section is read, so `collect` tells the server's
     // state what it heard.
-    if (action == .collect) return collect(self, message, accepted, cased, now_ns);
+    if (action == .collect) return collect(self, message, accepted, now_ns);
     heard(self, accepted.cookie, fails_server(self, action), now_ns);
     switch (action) {
         .collect => unreachable,
@@ -167,7 +136,7 @@ pub fn apply(
             // NXDOMAIN. The SOA in the authority section says how long a cache may remember it
             // (RFC 2308 §5); a message with no SOA, or a malformed one, says nothing, and nothing
             // is zero, which is not cached. The walk keeps the smallest of every candidate's.
-            bound_walk(self, negative_ttl(self, message, cased, accepted.age_seconds));
+            bound_walk(self, negative_ttl(self, message, &self.current, accepted.age_seconds));
             self.next_candidate(now_ns);
         },
         .next_server => self.next_server(now_ns),
@@ -261,9 +230,10 @@ fn possibly_partial(self: *const Lookup, header: wire.Header) bool {
 
 /// The negative TTL a message carries, or zero, less its `Age` over DoH (RFC 8484 §5.1) and
 /// bounded by the chain. A malformed authority section is not a reason to refuse a message whose
-/// rcode was already acted on; it is a reason not to cache it.
-fn negative_ttl(self: *const Lookup, message: []const u8, cased: *const core.Name, age_seconds: u32) u32 {
-    const carried = wire.response.negative_ttl_seconds(message, cased) catch 0;
+/// rcode was already acted on; it is a reason not to cache it. `question` is the name the message
+/// echoes, read for its length alone.
+fn negative_ttl(self: *const Lookup, message: []const u8, question: *const core.Name, age_seconds: u32) u32 {
+    const carried = wire.response.negative_ttl_seconds(message, question) catch 0;
     return bounded_by_chain(self, carried -| age_seconds);
 }
 
@@ -296,13 +266,7 @@ fn bounded_by_walk(self: *const Lookup, ttl_seconds: u32) u32 {
     return bounded;
 }
 
-fn collect(
-    self: *Lookup,
-    message: []const u8,
-    accepted: Accepted,
-    cased: *const core.Name,
-    now_ns: u64,
-) Verdict {
+fn collect(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64) Verdict {
     // The chain walk moves `current`, so it is restored when the walk fails: a lookup must not be
     // left pointing at half a chain by a message it then ignores.
     const before = self.current;
@@ -360,7 +324,7 @@ fn collect(
             // c-ares (docs/design.md §18). TC set does not change it: truncation "should start at
             // the end of the response" (RFC 1035 §6.2), so a message that still holds the SOA of
             // its authority section holds the whole of its answer section, empty.
-            bound_walk(self, negative_ttl(self, message, cased, accepted.age_seconds));
+            bound_walk(self, negative_ttl(self, message, &before, accepted.age_seconds));
             self.next_candidate(now_ns);
         },
     }

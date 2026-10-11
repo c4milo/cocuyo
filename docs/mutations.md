@@ -4091,3 +4091,134 @@ test; and in the twin, the record-length test of `sim_tls.zig`, the item-length 
 | QO21 | a COOKIE option as long as the longest server cookie makes it is refused, under a lookup | RFC 7873 §4, a server cookie of 8 to 32 octets | the longest-cookie test of `lookup_cookie_test.zig`, `test-resolver` | CAUGHT |
 | QO22 | a query advertises the default payload size whatever the configuration says | RFC 6891 §6.2.3, the payload size a configuration names | the payload test, `test-resolver` | CAUGHT |
 | QO23 | a lowercase echo of a question whose name is 250 octets long is not taken for one | §7, a server that changes the case, at every length the gate writes | the fuzz gate, `test-wire` | CAUGHT |
+
+## Check 5 read in place
+
+2026-10-11. The owner ruled on 2026-10-09 that check 5 reads the echoed question in place, against
+the case the transaction's seed gives the name the lookup holds, so that a reply builds no cased
+copy of the name (design §7, A server that changes the case; §16 decision 5). Two rulings of that
+day carry it. New public declarations in `wire` are allowed, since `wire` is public through
+`src/cocuyo.zig`. And the check in `Lookup.cased_name` that the cased name is the held name in
+another case moves from every reply to the build of the query: while a lookup waits, the held
+name, the case seed and `query_mixed` are what the build had, so a rebuild per reply re-ran a
+deterministic function the build had checked. Design §7 and §16 decision 5 changed first. Neither
+model changed: the Lean model leaves the case out, and a reply that differs in case alone is an
+unmatched reply there; the engine's TLA+ model has no letter case. `zig build spec-lean` and the
+replays of `zig build test` agree.
+
+What the code does now:
+
+- `wire.name.is_mix_of`, in `src/wire/name_case.zig`, split from `name.zig` by the file-length
+  rule, reads an echo against the mixer's first draw octet by octet. The mixer and the compare
+  share one bit stream, `Draw`. The mixer walks the labels, and that walk is the reference; the
+  compare walks the bytes, which meets the letters in the same order because no length octet is a
+  letter. When the first draw left every letter small, the compare builds the name with
+  `mix_case` and compares that.
+- `wire.question.matches_mixed` is check 5 over it. `src/resolver/lookup_response_case.zig`,
+  split from `lookup_response.zig`, holds check 5's compare and the mark.
+- The question compare reads the type and the class before the name, in each of its three forms:
+  exact, lowercase and mixed. It sums their offsets in `usize`, as the fix above left them (Sums
+  at the most their operands reach). Read first, those sums are made for every reply that
+  reaches check 5 and is long enough, whether or not its name matches.
+- `apply` takes no name: past check 5 the name is read for its length alone. An assertion in
+  `apply` holds the question inside the message, and a test each of `response.zig` and
+  `response_opt.zig` holds the sections to the name's length.
+- The codec's fuzz target holds `matches_mixed` to `matches` over the name `mix_case` builds, on
+  every message whose question parses, the questions of 192 to 255 octets among them.
+
+The change removed the `old` text of S4 and S6 of the state machine, DH13, DH14, TT8, WN1, WN2,
+DT4, CM3, CM5, CM11, CM12, CM19, CM22 and QO2, and moved CM1, CM2, CM4, CM8, CM20 and CM21 into
+the files split off, so each was written again to apply. CM7's edit still applied to
+`cased_name`, but no reply reads `cased_name` any more, so CM7 was moved to check 5's own branch.
+CM10's edit still applied, but with the type read first for every compare it turned off the
+mixed compare's type check as well, so it was narrowed to the lowercase compare. CP1 to CP17 are
+new. Each of those forty rows was broken by hand against `test-wire` and against
+`test-resolver`, to name the tests that fail. So were QO1, QO3 and QO23, whose text the change
+left alone: each still fails the tests its row names.
+
+The sums have rows here beside those of the fix above. QO1 to QO3 take the type off the sums,
+and the tests of that fix catch each under `matches` and `matches_lowercase`. CP14 is QO3's edit
+against `test-wire`. CP15 and CP16 make the sums in the octet for the mixed compare alone, which
+no test of that fix calls: the long `matches_mixed` test and the fuzz gate catch CP15, and the
+three 255-octet tests of a lookup catch CP16, each by a panic. CP17 is to the mixed compare what
+QO23 is to the lowercase one: it refuses the question a mixed query sent when its name is 250
+octets long, a length no test asks. The fuzz gate fails under it at seed 0x120, and with the
+target's mixed check taken out again no test of `test-wire` or `test-resolver` fails.
+
+Part of the suite cannot see some of these rows, and the table names what does. CP2 and CP3
+break a shortcut whose work the reference redoes, one of the method's masks: `is_mix_of` answers
+the same under each, so no test of a lookup can see them, and the test of the first draw's
+reading, which says what the loop took, catches each. CP5 changes the bit
+stream the mixer and the compare share, so the two still agree, and only the tests that pin the
+stream catch it. CP12 and CP13 break no check, and each shows only that an assertion runs, by a
+panic. CP12's, in `apply`, is new. With that assertion taken out, the message CP12 cuts still
+stops 100 tests of `test-resolver` some other way, 92 by a failure and 8 by a panic, so CP12
+shows the assertion runs, not that it is needed. CP13's is the assertion `case_change` made
+before the change, that the lowercase echo is not the name sent, moved into `mark`. And the fuzz
+gate does not reach the path CP1 and CP7 break, another of the method's masks: for none of its
+seeds does the first draw leave every letter of the question's name small. It caught both before
+the fix above gave every seed another message. The later-draw tests and the boundary-octets test
+catch each, whatever the gate's seeds write.
+
+The tests the table names: in `src/wire/name_case.zig`, the redraw, one-letter and letterless
+tests, the takes-the-name test, the later-draw test (later draws and the fallback, for one, two
+and three letters), the first-draw-reading test, and the boundary-octets test (every one- and
+two-octet label of fourteen octets at the edges of the letters and of the case bit, each octet
+echoed in seven forms, under sixteen seeds); in `src/wire/question.zig`, the `matches_mixed` and
+lowercase tests, the long `matches_mixed` test (names of 241, 242, 243, 244 and 255 octets, and
+one of 127 labels, each as the seed mixes it and in six ways it must be refused), and the
+long-name and most-labels tests of the fix above; the fuzz gate of `src/wire/fuzz.zig`; in
+`lookup_case_echo_test.zig`, split from `lookup_case_test.zig` by the file-length rule, the
+later-draw test (each name sent from the second, third and fourth draw and from the fallback,
+for one, two and three letters), the type-or-class test and the every-letter test (a name of 255
+octets, the echo refused with each of its 250 letters in the other case, and with another type
+or class); and in `lookup_case_test.zig`, the two 255-octet tests of the fix above, beside the
+tests the rows of A server that changes the case name.
+
+Then `zig build mutations -- lookup` ran the whole set, after running each check once with
+nothing mutated: 219 mutations, each against the step it names, and caught each. Seventeen new
+mutations, seventeen `CAUGHT`; twenty-three written again or moved, twenty-three `CAUGHT`; the
+other 179 run again, 179 `CAUGHT`.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CP1 | a name whose first draw left every letter small is read against that draw, not the name the mixer drew again | §7 check 5, for a name the mixer drew again | the later-draw test, and two tests each of `address_lookup_test.zig` and `lookup_negative_test.zig`, `test-resolver`; the later-draw, first-draw-reading and boundary-octets tests, `test-wire` | CAUGHT |
+| CP2 | a letter that differs in more than its case is read as the same letter in another case | RFC 1035 §2.3.3, RFC 4343 §3, §7 check 5 | the first-draw-reading test, `test-wire` | CAUGHT |
+| CP3 | a length octet, a digit or the root that differs by the case bit is read as a letter in another case | §7 check 5, the name's own octets | the first-draw-reading test, `test-wire` | CAUGHT |
+| CP4 | an echo in another case than the draw gave is read as the name sent | RFC 5452 §9.1, §7 check 5 | nine tests, the folded-case, lowercasing and every-letter tests among them, `test-resolver`; the takes-the-name, first-draw-reading and boundary-octets tests, both `matches_mixed` tests, the fuzz gate and the fuzz target's two verdict tests, `test-wire` | CAUGHT |
+| CP5 | the first letter takes its bit from the seed itself, not from the word after it | §7 Entropy, each draw from the next word | the redraw, later-draw and first-draw-reading tests, `test-wire` | CAUGHT |
+| CP6 | a draw that cased letters counts as one that found none, so a draw that leaves every letter small stands | §7 Entropy, a capital in every mixed name | the redraw, one-letter, later-draw and first-draw-reading tests, `test-wire`; the later-draw test, `test-resolver` | CAUGHT |
+| CP7 | a name the mixer drew again is compared in lowercase, its first draw's case | §7 check 5, for a name the mixer drew again | the later-draw test, and two tests each of `address_lookup_test.zig` and `lookup_negative_test.zig`, `test-resolver`; the later-draw and boundary-octets tests, `test-wire` | CAUGHT |
+| CP8 | check 5 for a query that mixed takes the question echoed in lowercase | RFC 5452 §9.1, §7 check 5, decision 10 | both `matches_mixed` tests, the fuzz gate and the fuzz target's two verdict tests, `test-wire`; eight tests, the later-draw, folded-case and lowercasing tests among them, `test-resolver` | CAUGHT |
+| CP9 | check 5 for a query that mixed ignores the type | §7 check 5, the type compares exactly | both `matches_mixed` tests, `test-wire`; the type-or-class and every-letter tests, `test-resolver` | CAUGHT |
+| CP10 | check 5 for a query that mixed ignores the class | §7 check 5, class IN | the `matches_mixed` test, `test-wire`; the type-or-class and every-letter tests, `test-resolver` | CAUGHT |
+| CP11 | a reply to a query asked in lowercase is compared with the name as held | §7, a marked server is asked in lowercase | the capitals test, `test-resolver` | CAUGHT |
+| CP12 | a response is applied cut at its header, short of the question check 5 read | §7, past check 5 the name is read for its length | the assertion in `apply`, by a panic under 123 tests, `test-resolver` | CAUGHT |
+| CP13 | the name a mark asserts the lowercase echo is not is built in lowercase | §7 Entropy, a capital in every mixed name | the assertion in `mark`, by a panic under eleven tests, the lowercasing and later-draw tests among them, `test-resolver` | CAUGHT |
+| CP14 | the offsets of a question's type and class, read before its name, are summed in the octet a name's length is held in | RFC 1035 §2.3.4, §7 check 5 | the long-name and most-labels tests, the long `matches_mixed` test and the fuzz gate, each by a panic, `test-wire`; the three 255-octet tests of a lookup, each by a panic, `test-resolver` | CAUGHT |
+| CP15 | those offsets are summed in that octet for a query that mixed the case alone | RFC 1035 §2.3.4, §7 check 5 | the long `matches_mixed` test and the fuzz gate, each by a panic, `test-wire` | CAUGHT |
+| CP16 | those offsets are summed in that octet for a query that mixed the case alone, under a lookup | RFC 1035 §2.3.4, §7 check 5 | the every-letter test and the two 255-octet tests of `lookup_case_test.zig`, each by a panic, `test-resolver` | CAUGHT |
+| CP17 | check 5 for a query that mixed refuses the echo of a question whose name is 250 octets long | §7 check 5, at every length the gate writes | the fuzz gate, `test-wire` | CAUGHT |
+| S4 | the question section is not compared, written again for check 5 read in place | RFC 5452 §9.1 | thirteen tests of `lookup_case_test.zig` and `lookup_case_echo_test.zig`, the nobody-asked and type-or-class tests among them, `test-resolver` | CAUGHT |
+| S6 | a response is read whatever the state, written again for `apply` without a name | §5 | the after-settled test of `lookup_response.zig` and the shared-id test of `table.zig`, by a panic, `test-resolver` | CAUGHT |
+| DH13 | NXDOMAIN's negative TTL keeps its `Age`, written again for the name held | RFC 8484 §5.1, RFC 2308 §5 | the kept-record test, `test-resolver` | CAUGHT |
+| DH14 | NODATA's negative TTL keeps its `Age`, written again for the name held | RFC 8484 §5.1, RFC 2308 §5 | the kept-record test, `test-resolver` | CAUGHT |
+| TT8 | a negative's TTL is not bounded by the chain, written again for the name held | RFC 1035 §3.2.1, RFC 2308 §5 | the negative chain test, `test-resolver` | CAUGHT |
+| WN1 | NXDOMAIN replaces the walk's negative TTL rather than keeping the smaller, written again for the name held | §5 search list policy, RFC 2308 §5 | the all-negative walk test, `test-resolver` | CAUGHT |
+| WN2 | NODATA replaces the walk's negative TTL rather than keeping the smaller, written again for the name held | §5 search list policy, RFC 2308 §5 | the all-negative walk test, `test-resolver` | CAUGHT |
+| DT4 | a response takes a sample before §7's checks, so an unmatched one does too, written again for `on_response` without a name | §5, §16 decision 10 | eleven tests, the memory-hit, third-sample, ignored-response and TLS tests among them, `test-resolver` | CAUGHT |
+| CM1 | the mark is never made, moved to `lookup_response_case.zig` | §7, the mark | seven tests, the lowercasing, check-6, later-draw and 255-octet tests among them, `test-resolver` | CAUGHT |
+| CM2 | a response in another case marks its server though the query did not mix the case, moved to `lookup_response_case.zig` | §7, only a query that mixed | the unmixed-query test, `test-resolver` | CAUGHT |
+| CM3 | the mark does not compare the question with the one asked in lowercase, so another question marks, written again for the name held | RFC 1035 §2.3.3, RFC 4343 §3, §7 the mark | the more-than-case, other-way, later-draw and every-letter tests, `test-resolver` | CAUGHT |
+| CM4 | the mark skips check 6, so a wrong or a missing cookie marks, moved to `lookup_response_case.zig` | RFC 7873 §5.3, §7 check 6 | the check-6 and owed-cookie tests, `test-resolver` | CAUGHT |
+| CM5 | a malformed OPT record is read as none, and marks, written again for the name held | RFC 7873 §5.2.2, §7 check 6 | the check-6 test, `test-resolver` | CAUGHT |
+| CM7 | check 5 compares with the server's mark at the response, not with what the query sent, moved to check 5's branch | §7, the query's record | the later-draw test and the 255-octet test of `lookup_case_test.zig`, `test-resolver` | CAUGHT |
+| CM8 | the mark lands on the first server, not the one that answered, moved to `lookup_response_case.zig` | §7, that server alone | the other-server test, `test-resolver` | CAUGHT |
+| CM10 | the lowercase compare ignores the type, narrowed to the lowercase compare now that every compare reads the type first | §7, the type compares exactly | the lowercase test, `test-wire`; the more-than-case test, `test-resolver` | CAUGHT |
+| CM11 | the lowercase compare ignores the class, written again for the class read first | §7, the class compares exactly | the lowercase test, `test-wire` | CAUGHT |
+| CM12 | check 5 takes the question echoed in lowercase, so the response that marks is the answer too, written again for check 5 read in place | RFC 5452 §9.1, §7 check 5, decision 10 | nine tests, the folded-case, lowercasing and later-draw tests among them, `test-resolver` | CAUGHT |
+| CM19 | a letter drawn small counts as a capital, so a draw that leaves every letter small stands, written again for `Draw` | §7 Entropy, a capital in every mixed name | the redraw, one-letter, later-draw and first-draw-reading tests, `test-wire`; the later-draw test, `test-resolver` | CAUGHT |
+| CM20 | a draw is repeated from the word the first started from, so it leaves every letter small again, moved to `name_case.zig` | §7 Entropy, each draw from the next word | the redraw test, `test-wire` | CAUGHT |
+| CM21 | the first letter is not made a capital once every draw left the name small, moved to `name_case.zig` | `case_draws_max` | the one-letter and later-draw tests, `test-wire`; the later-draw test, `test-resolver` | CAUGHT |
+| CM22 | a name without a letter is drawn again as one left small, written again for `Draw` | §7 Entropy | the letterless, takes-the-name and boundary-octets tests, `test-wire`, by a panic at the `unreachable` past the last draw | CAUGHT |
+| QO2 | the offset of a question's class is summed in the octet a name's length is held in, written again for the class read first | RFC 1035 §2.3.4, §7 check 5 | the long-name and most-labels tests, the long `matches_mixed` test and the fuzz gate, each by a panic, `test-wire` | CAUGHT |

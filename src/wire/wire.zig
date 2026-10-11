@@ -43,6 +43,7 @@ test {
     _ = integer;
     _ = header;
     _ = name;
+    _ = @import("name_case.zig");
     _ = question;
     _ = edns;
     _ = edns_options;
