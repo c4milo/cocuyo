@@ -34,7 +34,7 @@ jobs:
     outputs:
       nightly: ${{ steps.list.outputs.nightly }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Each configuration whose header says `\* nightly:`, as a JSON list
         id: list
         run: |
@@ -57,7 +57,7 @@ jobs:
       matrix:
         configuration: ${{ fromJSON(needs.list.outputs.nightly) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Zig
         run: |
           set -euo pipefail
@@ -80,7 +80,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Zig
         run: |
           set -euo pipefail
