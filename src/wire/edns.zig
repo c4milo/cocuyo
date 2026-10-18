@@ -20,7 +20,7 @@ const rdata_opt = @import("rdata/rdata_opt.zig");
 /// The only EDNS version cocuyo implements (RFC 6891 §6.1.3).
 pub const version_supported = 0;
 
-/// The DO bit of the flags field, which cocuyo never sets (RFC 6891 §6.1.4).
+/// The DO bit of the flags field, which cocuyo never sets (RFC 3225 §3; field layout RFC 6891 §6.1.4).
 pub const flag_dnssec_ok = 0x8000;
 
 /// Where the extended rcode's high octet sits inside the TTL field.
