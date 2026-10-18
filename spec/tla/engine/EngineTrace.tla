@@ -46,11 +46,13 @@ SentToken(sl) ==
          ToString(from[1]) \o (CASE from[2] = "current" -> "c" [] from[2] = "draining" -> "d"
                                  [] from[2] = "gone" -> "g")
 
+\* A slot: `c` and its connection, `w` for a lookup that waits for a connection slot (the
+\* stream's rule 12), or `-` for neither. A walk where no lookup waits is written as before.
 SlotToken(sl) ==
     IF sl.lookup = {} THEN "free " \o Flag(sl.busy, "B") \o " u" \o SentToken(sl)
     ELSE LookupToken(Get(sl.lookup)) \o " o" \o NumbersToken(sl.order) \o " c" \o
-         (IF sl.conn = {} THEN "-" ELSE ToString(Get(sl.conn))) \o " u" \o SentToken(sl) \o " " \o
-         Flag(sl.busy, "B") \o Flag(sl.held, "H") \o Flag(sl.reported, "R")
+         (IF sl.conn = {} THEN Flag(sl.waits, "w") ELSE ToString(Get(sl.conn))) \o " u" \o
+         SentToken(sl) \o " " \o Flag(sl.busy, "B") \o Flag(sl.held, "H") \o Flag(sl.reported, "R")
 
 EntryToken(e) == IF e.kind = "query" THEN ToString(e.slot) ELSE "r"
 

@@ -739,9 +739,14 @@ it. A server fails a lookup at each event that the retry policy counts against `
   - Over TLS, a handshake that failed. A lookup on a TLS connection is told that it is up only
     after the handshake (§21, TLS rule 1).
   - A socket that the system refused.
-  - No free connection slot. A slot is not free while a lookup uses its connection, or while the
-    loop holds its memory. Over TLS a slot is free only when its connection has closed (§21, TLS
-    rules 4 and 6).
+  - No free connection slot, and none that frees with no lookup leaving it. A slot is not free
+    while a lookup uses its connection, or while the loop holds its memory. Over TLS a slot is free
+    only when its connection has closed (§21, TLS rules 4 and 6). Since 2026-10-18 a lookup waits
+    for a slot that frees with no lookup leaving it (§19 step 13, the stream's rule 12). Such a
+    slot holds a connection that closes, or memory that the loop holds. In the clear the lookup
+    closes a connection that no lookup uses while its connect is in flight, and waits for its
+    slot. Over TLS such a slot is always there. So this cause now comes in the clear alone, when
+    each slot holds a lookup.
   - An engine that keeps no TCP connection, as one built for DoQ alone does.
 - The last three of these are local, and no server took part in them. The last cause wins, so a
   local failure on a later pass replaces the cause that a server gave before it. §17 question 54
@@ -2691,11 +2696,13 @@ step until `zig build test` passes.
 
     §7, §19 step 13 (the datagram's rule 7; the cache's memory, rule 5), §24.
 45. **A failure keeps the last cause a server gave.** Ruled by the owner on 2026-10-17. On
-    2026-10-12 the daily DoT live check failed once at Quad9 with `AllServersFailed`, and nobody
-    could say why. The lookup kept the flag `had_server_failure` and no reason, and the example
-    printed `failure.err` alone. Now `Failure` has a field `cause: ?Cause`. It is null when no
-    server failed the lookup. Otherwise it holds the last failure of a server that the lookup
-    met: the rcode of a response, or the transport that failed (§4, §5).
+    2026-10-11 a run of the DoT live check failed once at Quad9 with `AllServersFailed`, and nobody
+    could say why. A dispatch started that run, 38168653502. Until 2026-10-18 this decision named
+    the daily check of 2026-10-12, but the run's record says otherwise. The lookup kept the flag
+    `had_server_failure` and no reason, and the example printed `failure.err` alone. Now
+    `Failure` has a field `cause: ?Cause`. It is null when no server failed the lookup. Otherwise
+    it holds the last failure of a server that the lookup met: the rcode of a response, or the
+    transport that failed (§4, §5).
 
     Choices the ruling did not make, made here:
 
@@ -2764,6 +2771,95 @@ step until `zig build test` passes.
     `tools/instructions.zig` (docs/mutations.md, The cause of a failure).
 
     §4, §5 (The cause of a failure), §19 step 14, §20.
+46. **A pass waits for a slot that frees with no lookup leaving it.** Ruled by the owner on
+    2026-10-18: fix the engine's defect now. Over TLS a lookup's second pass could find no free
+    connection slot. The connection of its first pass still held the slot, and closed once its
+    alert had gone (§21, TLS rules 4 and 5). The engine failed the pass at once with `connect`.
+    That local failure replaced the cause that the server gave (§5, The cause of a failure). Now
+    the stream's rule 12 holds: a lookup that finds no free slot waits while a slot is pending.
+
+    The sequence over TLS, with one server, one slot and two passes:
+
+    1. The first pass opens a connection in the slot, and the handshake starts.
+    2. The session refuses the server's handshake record. The lookup hears `on_tcp_failed` before
+       `on_tcp_connected`, keeps `connect`, and goes on to its second pass. The connection seals
+       its fatal alert, and closes once that has gone.
+    3. In the drive of the same event, the lookup asks for a stream for its second pass. `find`
+       passes over a connection that closes. `free_slot` finds the slot closing, and over TLS it
+       closes no slot to make room. So the open fails.
+    4. The engine calls `on_tcp_failed` again, and the lookup ends in `AllServersFailed` with
+       `connect`. No second query reached the server, and its count of failures rose twice.
+
+    A record that the session refuses once the connection is up leaves it closing in the same way,
+    after `stream`. The second pass then replaced `stream` with `connect`. In the clear no
+    connection closes after an alert: a failed connection closes at once, and its slot is free.
+    But a connect that outlasts its lookup's wait holds its slot until its event (the stream's rule
+    10). With one slot, the lookup at the next server found none, and failed at once with
+    `connect`.
+
+    Choices the ruling did not make, made here:
+
+    - The lookup waits in `connecting_tcp`, on no connection, and its deadline bounds the wait. The
+      lookup model does not change: that state waits for `on_tcp_connected`, `on_tcp_failed` or
+      its deadline already. A wait that runs out is a connect that ran out. It keeps no cause and
+      takes no sample, and it counts a failure of the server (§5, §19 step 12).
+    - A slot is pending when it frees with no lookup leaving it. Its connection closes, or the
+      loop holds its memory while it is closed. A slot that a lookup uses is not pending.
+    - In the clear, when no slot is pending, the lookup closes the first connection with no
+      lookups whose connect is in flight. The idle close cancels such a connect too, after
+      `tcp_idle_ns` (the stream's rule 4). The slot frees at the cancelled connect's event, about
+      one turn of the loop later, and the lookup waits for it. So a connect that hangs does not
+      keep the lookup from the next server. A lookup that finds each slot held by a lookup fails
+      at once (the stream's rule 1).
+    - The lookup closes such a connection only when no slot is pending. A slot that is pending
+      frees as soon, and the connection may still serve a later lookup of its server.
+    - The drive admits the lookups that wait at its end, after the idle close. That one place
+      covers each way a slot frees: an event before the drive, a send refused in the drive, and
+      the idle close.
+    - A refusal at admission leaves the lookup waiting, and so does a slot that it cannot have
+      then. A failure there would leave the lookup ready after the drive's polls.
+    - The engine keeps a flag for each lookup and a count of the lookups that wait. The count lets
+      a drive with no wait skip the scan.
+
+    Rejected:
+
+    - The slot of a closing connection freed at once, with its close kept elsewhere. The alert
+      waits in the slot's records buffer, which the loop holds until its send ends (TLS rule 3).
+      So the close needs a second slot.
+    - A spare slot, beside each one or for the engine. A slot holds a frame of 67,585 octets in the
+      clear and of 82,177 over TLS, and over TLS 22,789 octets of records beside it. A spare also
+      changes the bound that TLS rule 6 asserts, by which a caller sizes `tcp_connections`. And two
+      connections that close at once fill one spare slot.
+    - The alert dropped when a lookup needs the slot. RFC 9846 §6.2 asks for it: "Whenever an
+      implementation encounters a fatal error condition, it SHOULD send an appropriate fatal
+      alert". The loop also holds the records buffer until the send's event, so the lookup still
+      waits.
+    - Admission inside each event that frees a slot. `free_slot` closes a slot to make room inside
+      an open, so an admission there opens a connection inside another's open. The model would
+      need admission at each of those events too.
+    - A local failure that keeps no cause. The pass still never reaches the server. §17 question 54
+      asks about a reason in place of the cause.
+    - In the clear, a wait for the connect of an earlier try until its event. This decision chose
+      it first, and its review on the same day found its cost. The engine has one slot by default
+      (`tcp_connections_default`), a wait of 2 seconds, and an idle close at 10 seconds. A connect
+      that hangs then holds the slot past each wait. So the lookup at the next server waited out
+      each pass and never reached that server. It ended in `Timeout`, in about twice the time
+      that the engine took before to end in `AllServersFailed`. The stream's rule 10 does not
+      forbid the cancel. It keeps the slot closed until the connect's event, and the idle close
+      cancels such a connect already.
+    - In the clear, a connection with no lookups whose connect is in flight closed while a slot
+      is pending. That cancels a connect that a later lookup of its server could join, and the
+      lookup gets no slot sooner.
+
+    The engine model in TLA+ holds the rule (spec/README.md). Each slot of the table says whether
+    its lookup waits. `Want` waits while a slot is pending. In the clear `FreeConn` closes a
+    connection with no lookups whose connect is in flight, when no slot is pending. The drive's
+    end runs `Admit`. The trace writes a lookup that waits as `cw` in place of `c-`, so a walk with
+    no wait is written as before. No named limit and no entry point change. The engine grows by
+    an octet for each lookup and two more.
+
+    §5 (The cause of a failure), §17 questions 54 and 55, §19 step 13 (the stream's rules 1, 4, 10
+    and 12), §21 (TLS rule 6).
 
 ## 17. Questions for the owner
 
@@ -3204,14 +3300,15 @@ gave. The ruling approved a change to the public API, and did not name the field
     local failures are `connect` too, and no server took part in them:
 
     - a socket that the system refused;
-    - no free connection slot;
+    - no free connection slot, which since 2026-10-18 means each slot held by a lookup, in the
+      clear alone;
     - an engine that keeps no TCP connection.
 
     The last cause wins, so a local failure on a later pass replaces the cause that a server
-    gave before it. Over TLS the second pass can find no free slot while the connection of the
-    first pass still closes (§5, The cause of a failure). Over DoH and DoQ every failure is
-    `request`. A parameter on `on_tcp_failed` and on `on_request_failed` would let the engine
-    name each failure:
+    gave before it. Until 2026-10-18 the second pass over TLS could find no free slot while the
+    connection of the first pass still closed. Since then it waits for that slot (§16 decision 46).
+    Over DoH and DoQ every failure is `request`. A parameter on `on_tcp_failed` and on
+    `on_request_failed` would let the engine name each failure:
 
     - a connect, a handshake or a local failure;
     - a connection that failed after it was up, or a send on it;
@@ -3230,6 +3327,29 @@ gave. The ruling approved a change to the public API, and did not name the field
     Recommended: as built until a live failure needs more. The DoT check then tells a
     connection that never came up from one that failed under the lookup, and both from a
     server's rcode.
+
+### Asked on 2026-10-18, for a connection slot
+
+§16 decision 46 records the ruling of the day: fix the engine's defect now. A lookup with no free
+slot waits for one that frees with no lookup leaving it (§19 step 13, the stream's rule 12). The
+review of the change found that nothing bounds how long such a slot takes.
+
+55. **A time bound on a connection that closes.** A TLS connection that closes frees its slot at
+    the end of its last send, its alert or its `close_notify` (§21, TLS rules 4 and 5). The idle
+    close passes over it. Take a peer that stops reading and keeps its side open. Its send never
+    ends, so the slot never frees. Each lookup that waits for that slot waits until its deadline.
+    Each later connection to that server takes another slot, so in time the server can hold each
+    slot. Until 2026-10-18 such lookups failed at once with `connect`. Neither is a break of
+    safety, and each wait has its deadline. The ways:
+
+    - As built: the slot frees at the end of the send, or when the peer closes.
+    - A new named limit, `tcp_closing_ns`: the drive shuts a connection that has closed for that
+      long. The shut cancels the send, and the slot frees at the cancel's event (TLS rule 3).
+    - The idle close's wait, `tcp_idle_ns`, as that bound, with no new limit.
+
+    Recommended: the idle close's wait. No lookup is on a connection that closes, and the session
+    has said its last record. So the connection is idle, and the idle close's wait fits it. A
+    second limit beside it is one more number for a caller to size.
 
 ## 18. The cache
 
@@ -4180,7 +4300,10 @@ of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
 1. One connection per server, in one of `tcp_connections` slots. A lookup that needs a stream to
    its server is put on that server's connection. If there is none, one is opened in the first
    closed slot, or else in the first slot whose connection has no lookups on it, which is closed
-   to make room. When no slot can be had, the lookup is told its connection failed.
+   to make room. When no slot can be had, the lookup waits for one that frees with no lookup
+   leaving it (rule 12). In the clear, when none does, a connection with no lookups whose connect
+   is in flight is closed. The lookup then waits for its slot (rules 10 and 12). Otherwise the
+   lookup is told its connection failed.
 2. Each opening of a slot is an incarnation, and every operation on the connection carries the
    incarnation in its `user_data`. An event for another incarnation belongs to a connection
    that is gone and changes nothing, whatever it holds: a cancelled connect can still end in
@@ -4251,6 +4374,53 @@ of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
     until its deadline. The engine model holds no frame. It applies a message at the receive that
     brings it, so the code now does what the model does, and the model does not change.
 
+12. Written on 2026-10-18 (§16 decision 46), and amended on the same day after its review. A slot
+    is pending when no lookup is on it and it frees with no lookup leaving it. Two kinds of slot
+    are pending:
+
+    - a connection that closes once its alert or its `close_notify` has gone (§21, TLS rules 4
+      and 5);
+    - a closed slot whose memory the loop still holds: a connect that was cancelled (rule 10), or
+      a send of the session's records (TLS rule 3).
+
+    A lookup that finds no free slot waits while a slot is pending. In the clear, when no slot is
+    pending, the lookup closes the first connection with no lookups whose connect is in flight.
+    That cancels the connect, as the idle close does (rule 4), and the slot is then pending. When
+    the lookup can have no slot in either way, it is told its connection failed. In the clear each
+    slot then holds a lookup. Over TLS no connection is closed to make room (TLS rule 6). Each
+    server has at most one connection that a lookup may join, and a TLS configuration has a slot
+    for each server. So over TLS a slot is always free or pending, and no lookup is told that.
+
+    The lookup waits in `connecting_tcp`, on no connection, and its deadline still bounds the wait
+    (§5). At the end of each drive, after the idle close, the drive admits each lookup that waits,
+    in the order of the table's slots. The lookup joins its server's connection, or opens one as
+    rule 1 says. When it can have no slot, or the socket or the connect is refused, it waits for
+    the next drive.
+
+    In the clear a lookup can wait while no slot is pending. A slot that frees can go to a lookup
+    that asks in the polls of that drive, before the drive's end. Each slot may then hold a
+    lookup. The lookup that waits is admitted at the end of the drive after one of them leaves, or
+    its deadline moves it on.
+
+    The wait relies on the end of an operation that the loop holds. A connection that closes frees
+    its slot when its last send ends. A closed slot frees at the event of its connect or its send.
+    No time bounds them. Take a peer that stops reading and keeps its side open. It holds a TLS
+    connection in `closing`, and a lookup that waits for that slot waits until its deadline. §17
+    question 55 asks about a time bound.
+
+    After each drive a lookup waits only while its server has no connection that it may join. The
+    drive's end would have joined it to one. Between two drives a connection opens only through
+    `connect_again`, for a TLS connection that waits to connect again (TLS rule 8). A lookup may
+    join that connection, so a lookup of its server that waited joined it before. Each connection
+    that a drive opens is still connecting at the drive's end. So the end of a drive never admits a
+    lookup to a connection that is up, and no lookup is ready again after the polls.
+
+    Until 2026-10-18 a lookup that found no free slot was told at once. Over TLS a lookup's second
+    pass could come while the connection of its first pass still said its alert. That pass never
+    reached the server. The lookup kept `connect` as its cause, and that local failure replaced
+    the cause the server gave (§5, The cause of a failure). In the clear a connect that outlasted
+    its lookup's wait held the slot the same way. With one slot, the next server got none.
+
 **The datagram's rules, written on 2026-09-23** in the same way, for the same model. Rules 6 to 8
 of the stream hold for datagrams as they stand: a send lends its buffer, a completion speaks for
 the attempt that made it, and the drive goes on until nothing is left.
@@ -4301,19 +4471,18 @@ lookup waits two of them. The loop may refuse every submission for the length of
 socket opens may fail for the length of one event. A stream's send may come back short once a
 message, its rest then whole or failed: a second short send takes the same path as the first.
 
-- The Lean walker, `cocuyo-spec engine` until it retired on 2026-09-24, walked every state the
-  model reached in a configuration and checked ten invariants in each; TLC checks twenty-five now, eight of them the request rules' of §24
-  (spec/README.md). A connection's users are the lookups on it. A lookup is only on a
-  connection to its server. A buffer is lent to one send at most. A connection and a socket each
-  have at most one current operation of each kind. A drive leaves nothing on the ready list.
-  After a drive nothing refused, every socket has its receive armed and every connection that is
-  up has its receive. And after such a drive, a port that has carried its share is replaced
-  unless an older one still drains, and a draining socket nothing is owed on is gone. A stream
-  has one send in flight at most, its queue's head's, and no query waits twice. A slot whose
-  address a connect that is gone still borrows stays closed. They held in every state of one slot
-  and one connection over TCP, and in all 5.85 million of one slot over UDP; spec/README.md has
-  the counts. This is model checking over bounded configurations,
-  not a proof.
+- The Lean walker, `cocuyo-spec engine` until it retired on 2026-09-24, walked every state the model
+  reached in a configuration and checked ten invariants in each. TLC checks forty-one now, the
+  request rules' of §24 and the channel's among them (spec/README.md). A connection's users are the
+  lookups on it. A lookup is only on a connection to its server. A buffer is lent to one send at
+  most. A connection and a socket each have at most one current operation of each kind. A drive
+  leaves nothing on the ready list. After a drive nothing refused, every socket has its receive
+  armed and every connection that is up has its receive. And after such a drive, a port that has
+  carried its share is replaced unless an older one still drains, and a draining socket nothing is
+  owed on is gone. A stream has one send in flight at most, its queue's head's, and no query waits
+  twice. A slot whose address a connect that is gone still borrows stays closed. They held in every
+  state of one slot and one connection over TCP, and in all 5.85 million of one slot over UDP;
+  spec/README.md has the counts. This is model checking over bounded configurations, not a proof.
 - The replay drives the engine over the twin in manual mode, where the loop ends each operation
   when and how the walk says, and refuses what the walk says. It runs 16,000 walks and 3.2
   million events, 4,000 walks of them over TLS since 2026-09-24. After each event it compares the engine's whole state with the model's, and
@@ -4390,6 +4559,31 @@ server. The operator `Truncates` offers them, and three configurations set it:
 
 Every other configuration holds the states that it held before, and TLC writes the same walks
 for it (spec/README.md; docs/mutations.md, The owner's answers of 2026-10-14).
+
+**Checked on 2026-10-18.** The model holds the stream's rule 12 (§16 decision 46). Each slot of the
+table says whether its lookup waits for a connection slot. `Want` waits while a slot is pending,
+and `Admit` runs at the drive's end, after the idle close. Four checks hold it:
+
+- a lookup that waits is in `connectingTcp`, on no connection;
+- after a drive with nothing refused, a lookup waits only while no slot is free and its server has
+  no connection to join. A slot is then pending, or in the clear each slot holds a lookup;
+- no lookup in `connectingTcp` is on a connection that is up;
+- no lookup is told its connection failed for want of a slot over TLS, or in the clear while a slot
+  has no lookup on it. A refused socket or submission is not judged.
+
+Every configuration over TCP or TLS holds more states, since a lookup that failed there now waits.
+The configurations of UDP alone, of DoQ and of DoH hold the states that they held before. The
+mutants TS11 to TS13 break the rule three ways, and TLC finds each (spec/README.md). The trace
+writes a lookup that waits as `cw`, so a walk with no wait is written as before. Of the committed
+short walks, 11 hold a wait, and only they changed.
+
+After the review of the same day, `FreeConn` closes a connection that no lookup is on while its
+connect is in flight. It does so in the clear, when no slot is pending. Three configurations in the
+clear hold fewer states than the first form of the rule, and those over TLS hold the same. With two
+slots and two servers a slot is always free or pending then, so `Engine_tcp_2_2_bound_4_1` holds the
+same states too. The mutant TS18 keeps `FreeConn` as it was, and TLC finds "slot waited for" broken.
+Ten of the short walks changed again, each in the clear with one connection slot. The picks were
+chosen again, and are now fifteen (spec/README.md).
 
 **The rest of the engine, landed on 2026-09-22.** `cancel_all` ends every lookup at once, which
 is `ares_cancel`, and each failure comes through `take` like any other. `reinit` takes a new
@@ -5085,7 +5279,11 @@ code is.
    connection". Then the connection ends as rule 4 ends a refused record. Its lookups hear the
    failure at once, its queries not yet sealed leave, and it closes once the alert has gone.
 6. A TLS connection is never closed to make room for another. A TLS configuration needs a slot
-   for each of its servers, and the engine asserts it has them.
+   for each of its servers, and the engine asserts it has them. Each server has at most one
+   connection that a lookup may join. Take a lookup whose server has no such connection, and that
+   finds no free slot. A slot then frees with no lookup leaving it: a connection that closes, or a
+   slot whose memory the loop holds. Since 2026-10-18 the lookup waits for it (the stream's rule
+   12).
 7. Records received go to the session whole. The connection reads each record's length from
    its five-octet header, and keeps a partial record until the rest arrives. A header that says
    more than RFC 9846 §5.2 allows fails the connection. The session's `recv` hands over whole

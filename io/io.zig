@@ -162,6 +162,10 @@ pub fn Resolver(comptime options: Options) type {
         /// The streams of RFC 7766, and which one each lookup is on (`io_tcp.zig`).
         connections: [options.tcp_connections]tcp.Connection(options.tcp_message_bytes, options.lookups, options.tls),
         tcp_connection: [options.lookups]?u8,
+        /// Whether each lookup waits for a connection slot, on no connection, and how many do
+        /// (docs/design.md §19 step 13, the stream's rule 12).
+        tcp_waiting: [options.lookups]bool,
+        tcp_waiters: u16,
         tcp_group: tcp.Group(options.tcp_group_buffers),
         /// The newest ticket each server's sessions were given, kept for its next connection
         /// (docs/design.md §21, TLS rule 8).
@@ -260,6 +264,8 @@ pub fn Resolver(comptime options: Options) type {
             self.closing = false;
             self.connections = @splat(.{});
             self.tcp_connection = @splat(null);
+            self.tcp_waiting = @splat(false);
+            self.tcp_waiters = 0;
             self.tcp_idle_ns = constants.tcp_idle_ns_default;
             self.tls_tickets = @splat(null);
             // No context, whatever the memory held: the consumer names each after `init`, and a
@@ -313,6 +319,9 @@ pub fn Resolver(comptime options: Options) type {
             self.held[handle.index] = null;
             self.reported[handle.index] = false;
             self.tcp_connection[handle.index] = null;
+            // The lookup before in the slot left any wait for a connection slot at its end (the
+            // stream's rule 12).
+            assert(!self.tcp_waiting[handle.index]);
             drive_module.drive(self, now_ns);
             return handle;
         }
@@ -474,6 +483,7 @@ test {
         _ = @import("io_sim_datagram_test.zig");
         _ = @import("io_tcp_test.zig");
         _ = @import("io_tcp_cause_test.zig");
+        _ = @import("io_tcp_wait_test.zig");
         _ = @import("io_tcp_frame_test.zig");
         _ = @import("io_lifecycle_test.zig");
         _ = @import("io_lifecycle_cache_test.zig");

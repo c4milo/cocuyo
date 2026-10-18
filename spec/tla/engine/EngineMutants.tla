@@ -2,7 +2,8 @@
 \* The engine's rules broken on purpose, one operator each: the TLS rules as docs/mutations.md's
 \* TM1 to TM3 and R8a to R8d broke the Lean model and R4a and R4b break rule 4's alert, the
 \* stream's rule 9 as TQ1 breaks it, the request rules of §24 as RQ1 to RQ11 and RQ14 break them,
-\* the channel's rules as CH1 to CH10 do, and the datagram's rules 4 and 6 as OA34 does. A
+\* the channel's rules as CH1 to CH10 do, and the datagram's rules 4 and 6 as OA34 does. TS11 to
+\* TS13 and TS18 break the stream's rule 12. A
 \* configuration in mutants/ puts one in place of the rule with TLC's `Rule <- Mutant`, and TLC must
 \* find the check that catches it.
 EXTENDS Engine
@@ -307,5 +308,26 @@ CloseIfDrainedWaiting(st, v) ==
             sl.sentFrom = {<<v, "draining">>} /\
             (sl.busy \/ (sl.lookup # {} /\ Waiting(Get(sl.lookup).stage) /\ ServerOf(st, l) = v))
     IN IF st.socks[v].draining /\ ~owed THEN CloseDrain(st, v) ELSE st
+
+\* TS11: no slot is ever pending. So a lookup that finds no free slot is told at once, as the engine
+\* did until 2026-10-18 (the stream's rule 12).
+PendingNever(st) == FALSE
+
+\* TS12: only a connection that closes is pending, and a slot the loop borrows is not.
+PendingClosing(st) == \E k \in 0..Conns - 1 : st.conns[k].stage = "closing"
+
+\* TS13: the drive's end admits no lookup that waits.
+AdmitNone(st) == st
+
+\* TS18: in the clear, no connection nobody uses is closed while its connect is in flight. So a
+\* lookup at the next server is told at once while the connect of its last try holds the slot,
+\* as FreeConn did before the review of 2026-10-18 (the stream's rule 12).
+FreeConnKeepingConnects(st) ==
+    LET closed == {k \in 0..Conns - 1 : st.conns[k].stage = "closed" /\ ~Borrowed(st, k)}
+        unused == {k \in 0..Conns - 1 : st.conns[k].users = 0 /\ ~Borrowed(st, k)}
+    IN IF closed # {} THEN <<{Least(closed)}, st>>
+       ELSE IF Tls THEN <<{}, st>>
+       ELSE IF unused # {} THEN <<{Least(unused)}, Shut(st, Least(unused))>>
+       ELSE <<{}, st>>
 
 ===============================================================================

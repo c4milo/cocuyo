@@ -65,6 +65,11 @@ pub const slow_connect_timeout_ns = 2 * 1_000_000_000;
 /// What the next server takes: longer than the connect has left to run, so the lookup is still
 /// waiting on it when the connection comes up, and shorter than its own wait.
 pub const slow_answer_ns = 1_500_000_000;
+/// A connect that hangs past each wait of a lookup, and past the idle close of a connection that a
+/// lookup left (docs/design.md §19 step 13, the stream's rule 12).
+pub const hung_connect_ns = 30 * 1_000_000_000;
+/// Two connection slots: one that is pending while the other is free or connects (the same rule).
+pub const tcp_slots_pair = 2;
 
 /// The local address a socket is asked to bind to: the documentation range (RFC 5737).
 pub const local_octets = [_]u8{ 192, 0, 2, 200 };

@@ -13,14 +13,16 @@ Report(st, l) ==
     ELSE <<[Release([st EXCEPT !.slots[l].reported = TRUE], l) EXCEPT !.results = Append(@, l)],
            TRUE>>
 
-\* What the drive does with one lookup's poll: off its connection unless it streams to that
-\* connection's server (rule 3), then what the poll asked. Says whether the lookup moved on.
+\* What the drive does with one lookup's poll. The lookup no longer waits for a slot, and leaves
+\* its connection unless it streams to that connection's server (rules 3 and 12). Then the drive
+\* does what the poll asked, and says whether the lookup moved on.
 Act(st, l, out) ==
     LET sl == st.slots[l]
+        unwaited == [st EXCEPT !.slots[l].waits = FALSE]
         placed == IF sl.conn # {} /\ sl.lookup # {} /\
                      ~(OnStream(Get(sl.lookup).stage) /\
                        st.conns[Get(sl.conn)].server = ServerOf(st, l))
-                  THEN Release(st, l) ELSE st
+                  THEN Release(unwaited, l) ELSE unwaited
     IN CASE out = "connectTcp" -> <<Want(placed, l), TRUE>>
          [] out \in {"sendTcp", "sendUdp"} -> <<Send(placed, l), TRUE>>
          [] out = "sendRequest" ->
@@ -54,13 +56,13 @@ Go(fuel, polls, refused, st) ==
 \* Polls the table until nothing is left to do or the bound is reached, as the code's drive does.
 PollAll(st) == Go(4 * Slots * (Servers + 2) + 8, 0, 0, st)
 
-\* Every lookup polled and every request its lookup left cancelled, the idle connections and
-\* channels closed when time moved, then every connection that reads given its receive and every
-\* socket and link tended.
+\* Every lookup polled, and every request its lookup left cancelled. When time moved, the idle
+\* connections and channels closed. Every lookup that waits for a slot admitted (rule 12). Then
+\* every connection that reads given its receive, and every socket and link tended.
 Drive(st, moved) ==
     LET polled == IF Channel THEN CancelLeftC(PollAll(st)) ELSE CancelLeft(PollAll(st))
         idled == IF moved THEN CloseIdleC(CloseIdleR(CloseIdle(polled))) ELSE polled
-    IN TendLinks(TendRConns(TendSockets(TendConns(idled))))
+    IN TendLinks(TendRConns(TendSockets(TendConns(Admit(idled)))))
 
 -------------------------------------------------------------------------------
 \* Events.

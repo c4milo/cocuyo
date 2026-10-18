@@ -116,6 +116,8 @@ pub fn reinit(
     @TypeOf(self.*).assert_tls(config);
     assert_cache_memory(cache_memory);
     assert(self.resolver.in_flight() == 0);
+    // A lookup in flight is the only one that waits for a connection slot (the stream's rule 12).
+    assert(self.tcp_waiters == 0);
     _ = now_ns;
     try check_payload(config);
     tcp.cancel_all(self);

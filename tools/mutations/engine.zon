@@ -2619,7 +2619,7 @@
         .id = "LC33",
         .what = "a lookup that finds no free connection slot is told it is up before it is failed",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "    const at = attach(self, index, server, now_ns) orelse {\n        self.resolver.on_tcp_failed(handle, now_ns);\n        return;\n    };", .new = "    const at = attach(self, index, server, now_ns) orelse {\n        self.resolver.on_tcp_connected(handle, now_ns);\n        self.resolver.on_tcp_failed(handle, now_ns);\n        return;\n    };" },
+            .{ .file = "io/io_tcp.zig", .old = "        return self.resolver.on_tcp_failed(handle, now_ns);\n    };\n    if (self.connections[at].state == .up)", .new = "        self.resolver.on_tcp_connected(handle, now_ns);\n        return self.resolver.on_tcp_failed(handle, now_ns);\n    };\n    if (self.connections[at].state == .up)" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -2629,6 +2629,133 @@
         .what = "a stream send that moved nothing is reported as a failed send before the connection fails",
         .edits = .{
             .{ .file = "io/io_tcp_queue.zig", .old = "        finish_head(self, at);\n        send_module.give_back(self, slot);\n        return tcp.fail(self, at, now_ns);", .new = "        finish_head(self, at);\n        send_module.finish(self, slot, false, now_ns);\n        return tcp.fail(self, at, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A pass that waits for a connection slot",
+        .id = "TS1",
+        .what = "a lookup that finds no free slot is told at once, as the engine did until 2026-10-18",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        if (err == error.NoSlot and wait_module.pending(self)) return wait_module.wait(self, index);\n", .new = "        if (err == error.NoSlot and false) return wait_module.wait(self, index);\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A pass that waits for a connection slot",
+        .id = "TS2",
+        .what = "a connection that closes after its alert is not pending",
+        .edits = .{
+            .{ .file = "io/io_tcp_wait.zig", .old = "        if (connection.state == .closing) return true;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A pass that waits for a connection slot",
+        .id = "TS3",
+        .what = "a closed slot whose memory the loop holds is not pending",
+        .edits = .{
+            .{ .file = "io/io_tcp_wait.zig", .old = "        if (connection.state == .closed and connection.borrowed()) return true;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A pass that waits for a connection slot",
+        .id = "TS4",
+        .what = "in the clear, a lookup closes no connection that no lookup is on while its connect is in flight",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    wait_module.make_pending(self);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A pass that waits for a connection slot",
+        .id = "TS5",
+        .what = "the drive's end admits no lookup that waits",
+        .edits = .{
+            .{ .file = "io/io_drive.zig", .old = "    tcp.admit(self, now_ns);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A pass that waits for a connection slot",
+        .id = "TS6",
+        .what = "a lookup that acts still waits for a slot",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    wait_module.unwait(self, index);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A pass that waits for a connection slot",
+        .id = "TS7",
+        .what = "a lookup that the drive's end admits still waits for a slot",
+        .edits = .{
+            .{ .file = "io/io_tcp_wait.zig", .old = "        unwait(self, index);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A pass that waits for a connection slot",
+        .id = "TS8",
+        .what = "a lookup that begins to wait is not counted",
+        .edits = .{
+            .{ .file = "io/io_tcp_wait.zig", .old = "    self.tcp_waiters += 1;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A pass that waits for a connection slot",
+        .id = "TS9",
+        .what = "a lookup waits while every slot holds a lookup",
+        .edits = .{
+            .{ .file = "io/io_tcp_wait.zig", .old = "pub fn pending(self: anytype) bool {\n    for (self.connections[0..]) |*connection| {", .new = "pub fn pending(self: anytype) bool {\n    if (true) return true;\n    for (self.connections[0..]) |*connection| {" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A pass that waits for a connection slot",
+        .id = "TS10",
+        .what = "the replay writes a lookup that waits for a slot as one on no connection",
+        .edits = .{
+            .{ .file = "tools/spec_replay/engine_text.zig", .old = "if (engine.tcp_waiting[index]) 'w' else '-'", .new = "if (engine.tcp_waiting[index]) '-' else '-'" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "A pass that waits for a connection slot",
+        .id = "TS14",
+        .what = "in the clear, a lookup closes a connection that no lookup is on while a slot is pending",
+        .edits = .{
+            .{ .file = "io/io_tcp_wait.zig", .old = "    if (pending(self)) return;\n", .new = "" },
+            .{ .file = "io/io_tcp_wait.zig", .old = "        if (connection.users != 0) continue;\n", .new = "        if (connection.users != 0 or connection.state != .connecting) continue;\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A pass that waits for a connection slot",
+        .id = "TS15",
+        .what = "in the clear, a lookup closes a connection that a lookup is on while its connect is in flight",
+        .edits = .{
+            .{ .file = "io/io_tcp_wait.zig", .old = "        if (connection.users != 0) continue;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A pass that waits for a connection slot",
+        .id = "TS16",
+        .what = "a lookup whose socket or connect is refused waits while a slot is pending",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        if (err == error.NoSlot and wait_module.pending(self))", .new = "        if ((err == error.NoSlot or true) and wait_module.pending(self))" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A pass that waits for a connection slot",
+        .id = "TS17",
+        .what = "a lookup that the drive's end cannot place stops its wait",
+        .edits = .{
+            .{ .file = "io/io_tcp_wait.zig", .old = "        const at = tcp.attach(self, index, lookup.server_slot(), now_ns) catch continue;\n", .new = "        const at = tcp.attach(self, index, lookup.server_slot(), now_ns) catch {\n            unwait(self, index);\n            continue;\n        };\n" },
         },
         .caught_by = .{ .step = "test-io" },
     },

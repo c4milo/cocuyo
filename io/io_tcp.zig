@@ -19,8 +19,11 @@ const queue_module = @import("io_tcp_queue.zig");
 const tls_module = @import("io_tls.zig");
 const frame_module = @import("io_tcp_frame.zig");
 const reset = @import("io_reset.zig");
+const wait_module = @import("io_tcp_wait.zig");
 
 pub const Error = error{SocketFailed};
+/// What asking for a connection can meet: a socket or a connect refused, or no free slot.
+pub const OpenError = error{ SocketFailed, NoSlot };
 
 /// One connection, the queries waiting to go out on it, and the bytes it has read and not yet
 /// framed. `message_bytes` is what it can assemble: the longest a length prefix can describe,
@@ -112,27 +115,33 @@ fn reads(state: anytype) bool {
 /// The chunks a connection reads into (`io_tcp_group.zig`).
 pub const Group = @import("io_tcp_group.zig").Group;
 
+/// The drive's end, which admits each lookup that waits for a slot (`io_tcp_wait.zig`).
+pub const admit = wait_module.admit;
+
 // What a lookup asks for.
 
 /// The lookup at `index` needs a stream to its current server. It is put on that server's
 /// connection, which is opened if there is none; a connection that is already up is reported at
-/// once, and one still connecting reports when its event arrives. A lookup that cannot be given
-/// one is told, and fails over to the next server, as it is by an engine that keeps none.
+/// once, and one still connecting reports when its event arrives. With no slot free, the lookup
+/// waits for a pending slot (the stream's rule 12). The drive's end admits it, or its deadline
+/// moves it on. In the clear the wait may last while each slot holds a lookup. A lookup that
+/// can have no slot, or whose socket or connect is refused, is told, and fails over to the next
+/// server, as it is by an engine that keeps none.
 pub fn want(self: anytype, index: usize, now_ns: u64) void {
     const handle = self.handles[index];
     if (comptime !@TypeOf(self.*).keeps_tcp) return self.resolver.on_tcp_failed(handle, now_ns);
     const server = self.resolver.lookup_of(handle).server_slot();
-    const at = attach(self, index, server, now_ns) orelse {
-        self.resolver.on_tcp_failed(handle, now_ns);
-        return;
+    const at = attach(self, index, server, now_ns) catch |err| {
+        if (err == error.NoSlot and wait_module.pending(self)) return wait_module.wait(self, index);
+        return self.resolver.on_tcp_failed(handle, now_ns);
     };
     if (self.connections[at].state == .up) self.resolver.on_tcp_connected(handle, now_ns);
 }
 
 /// Puts the lookup on its server's connection, opening one if a slot can be had.
-fn attach(self: anytype, index: usize, server: u8, now_ns: u64) ?u8 {
+pub fn attach(self: anytype, index: usize, server: u8, now_ns: u64) OpenError!u8 {
     if (self.tcp_connection[index]) |at| return at;
-    const at = find(self, server) orelse open(self, server, now_ns) catch return null;
+    const at = find(self, server) orelse try open(self, server, now_ns);
     self.tcp_connection[index] = at;
     self.connections[at].users += 1;
     return at;
@@ -150,8 +159,8 @@ fn find(self: anytype, server: u8) ?u8 {
 
 /// Opens a connection to `server` in a free slot and submits the connect. Over TLS the opening
 /// resumes with the server's ticket when one is kept (§21, TLS rule 8).
-fn open(self: anytype, server: u8, now_ns: u64) Error!u8 {
-    const at = free_slot(self) orelse return error.SocketFailed;
+fn open(self: anytype, server: u8, now_ns: u64) OpenError!u8 {
+    const at = free_slot(self) orelse return error.NoSlot;
     try connect(self, at, server);
     if (tls_module.speaks(self)) tls_module.spend(self, at, server, now_ns);
     return at;
@@ -190,8 +199,9 @@ fn connect(self: anytype, at: u8, server: u8) Error!void {
 
 /// A slot with no connection in it: one that is closed, or one nobody is using, which is closed
 /// to make room. A connection with lookups on it is never taken, and neither is a slot whose
-/// memory the loop still borrows (the stream's rule 10). A TLS connection is never closed to make
-/// room (§21, TLS rule 6).
+/// memory the loop still borrows (the stream's rule 10). With none, and no slot pending, a
+/// connection nobody is using whose connect is in flight is closed, so that its slot is pending
+/// (rule 12). A TLS connection is never closed to make room (§21, TLS rule 6).
 fn free_slot(self: anytype) ?u8 {
     for (self.connections[0..], 0..) |*connection, at| {
         if (connection.state == .closed and !connection.borrowed()) return @intCast(at);
@@ -203,14 +213,17 @@ fn free_slot(self: anytype) ?u8 {
             return @intCast(at);
         }
     }
+    wait_module.make_pending(self);
     return null;
 }
 
 /// Takes the lookup off its connection unless it is on a stream to that connection's server
 /// (the stream's rule 3): its deadline passed, its connection failed, it moved to the next name,
-/// or it ended. What it asks for next is then asked of the right server's connection.
+/// or it ended. What it asks for next is then asked of the right server's connection. A lookup
+/// that acts no longer waits for a slot (rule 12).
 pub fn follow(self: anytype, index: usize, now_ns: u64) void {
     if (comptime !@TypeOf(self.*).keeps_tcp) return;
+    wait_module.unwait(self, index);
     const at = self.tcp_connection[index] orelse return;
     const lookup = self.resolver.lookup_of(self.handles[index]);
     if (lookup.is_on_stream() and self.connections[at].server == lookup.server_slot()) return;

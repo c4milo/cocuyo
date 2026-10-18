@@ -360,7 +360,7 @@ Three choices make TLC count what the Lean walker counts:
   and checked, and has no successor, as in the Lean walker; TLC leaves a state that breaks a
   `CONSTRAINT` out, and the check on the event that reached it with it. So every configuration
   says `CHECK_DEADLOCK FALSE`.
-- Thirteen of the thirty-seven checks read the event or the state before it, which a TLC
+- Fourteen of the forty-one checks read the event or the state before it, which a TLC
   invariant cannot. So `broken` holds the names of the checks the last event broke, and `Clean`
   asks it be empty. In a model that keeps its rules it always is, so it splits no state.
 
@@ -541,6 +541,65 @@ draining socket's receive. Its walk 24001, the first of the new walks, catches O
 which the short walks miss, so it is a pick (docs/mutations.md, The owner's answers of
 2026-10-14).
 
+On 2026-10-18 a lookup that finds no free connection slot began to wait for a slot that frees with
+no lookup leaving it (docs/design.md §19 step 13, the stream's rule 12; §16 decision 46). Until then
+the engine told it at once that its connection failed. The review of the same day amended the rule
+in the clear. There, when no slot is pending, the lookup closes a connection that no lookup is on
+while its connect is in flight. The model holds the rule as the code does:
+
+- Each slot of the table holds `waits`. `Want` sets it while a slot is pending, and `Act` clears it
+  at the lookup's next poll that acts.
+- `Frees` says which connection slots are pending: a connection that closes, and a closed slot that
+  the loop borrows.
+- In the clear, with no slot free and no closed slot borrowed, `FreeConn` closes a connection. It
+  closes the first one that no lookup is on and the loop borrows, and its slot is then pending.
+- `Admit` runs at the drive's end, after the idle close. Each lookup that waits joins its server's
+  connection, or opens one as `Want` does. A slot it cannot have, or a refusal, leaves it waiting.
+- Four checks hold the rule: "waits connecting", "waits for no free slot", "told when up" and "slot
+  waited for". The last reads `slotless`. `Want` sets it when it tells a lookup its connection
+  failed, with no socket or submission refused. It sets it over TLS, and in the clear while a slot
+  has no lookup on it. `slotless` reads neither `FreeConn` nor `Pending`, so the rule judges a
+  mutant of the engine's choice.
+
+TLC checked each configuration on 2026-10-18 on an Apple M1 Pro while other work ran. The first
+form is the rule before the review:
+
+| Configuration | Before | First form | Now |
+| --- | --- | --- | --- |
+| `Engine_tcp_1_1_bound_4_1` | 18,625 | 22,847 | 20,098 |
+| `Engine_tcp_2_1_bound_4_1` | 561,813 | 914,106 | 690,360 |
+| `Engine_tcp_2_2_bound_4_1` | 2,438,035 | 3,466,275 | 3,466,275 |
+| `Engine_tls_1_2_bound_2_1` | 252,573 | 294,898 | 294,898 |
+| `Engine_tls_1_2_bound_3_1` | 9,004,551 | 11,259,959 | 11,259,959 |
+| `Engine_tls_2_2_bound_2_1` | 16,382,680 | 28,446,316 | 28,446,316 |
+| `Engine_truncated_1_1_bound_4_1` | 426,197 | 451,556 | 427,125 |
+
+The other configurations, of UDP alone, of DoQ and of DoH, hold the states that they held before.
+With two slots and two servers, a lookup that finds no free slot always finds one pending, so it
+closes no connect there. So the largest configuration CI checks on each push holds 3,466,275
+states, `Engine_tcp_2_2_bound_4_1`. The largest it checks once a day holds 28,446,316,
+`Engine_tls_2_2_bound_2_1`. Four mutants break the rule, and TLC finds each:
+
+- `mutants/TS11`: no slot is ever pending, which is the engine before the change. Over TLS with one
+  lookup it breaks "slot waited for".
+- `mutants/TS12`: only a connection that closes is pending. Over TCP it breaks "slot waited for".
+- `mutants/TS13`: the drive's end admits no lookup. Over TCP it breaks "waits for no free slot".
+- `mutants/TS18`: `FreeConn` as it was in the first form, which closes no connect. Over TCP it
+  breaks "slot waited for".
+
+The trace writes a lookup that waits as `cw`, in place of `c-`. So a walk where no lookup waits is
+written octet for octet as before. Of the short walks, 11 of 130 hold a wait. The first form changed
+those 11. The review's rule changed ten of them again, five over TCP with one lookup and five over
+TCP with two lookups on one connection. The full run holds 23,831 states in which a lookup waits,
+where the first form held 26,687, and its replay agrees with the engine over 5,226,000 events.
+
+The picks were chosen again after the review (docs/mutations.md, A pass that waits for a connection
+slot). `zig build mutations -- engine` ran each of the 80 rows that the walks catch against the new
+full run. The short walks catch each row they caught before. The tool named the full run's first
+walk that catches each row that they miss, and those fifteen walks are the picks now. Against the
+fourteen picks before the change, walks 8025, 8241 and 12004 came in, and walks 13182 and 17842
+left. Each of the 24 rows that the picked walks catch is `CAUGHT` by the new picks.
+
 ### The walks TLC takes
 
 `tla/engine/EngineTrace.tla` runs the specification in TLC's simulation mode, which takes seeded
@@ -591,7 +650,7 @@ compares the walk's whole state after each.
   It also
   replays two sets of engine walks TLC wrote. `tools/spec_replay/engine_gate.txt` holds ten walks
   of forty events in each of the thirteen engine configurations.
-  `tools/spec_replay/engine_picks.txt` holds fourteen walks of the full run, which `engine_picks` in
+  `tools/spec_replay/engine_picks.txt` holds fifteen walks of the full run, which `engine_picks` in
   `build/spec.zig` names: each is where the full run caught a mutation of the engine that the
   short walks miss (docs/mutations.md). The gate also holds `tools/spec_replay/walk_gate.txt`, the
   forward walk with two candidates and both families and every reverse configuration. It needs

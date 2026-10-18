@@ -1,6 +1,7 @@
 //! The cause that each failure of a stream gives a lookup, on the twin (docs/design.md §5, The
 //! cause of a failure). A failure before the lookup hears that its connection is up is
-//! `connect`. These are a connect refused, no free slot, and an engine with no TCP connection.
+//! `connect`. These are a connect refused, no slot that is free or frees with no lookup leaving
+//! it, and an engine with no TCP connection.
 //! After it, a failure is `stream`: a reset, or a send that fails. Split from
 //! `io_tcp_test.zig` by the file-length rule. The rig is the one `io_sim_test.zig` builds.
 const std = @import("std");
@@ -91,25 +92,27 @@ test "a query send that fails on a connection that is up gives the stream as the
     try rig.deinit();
 }
 
-test "a lookup that finds no free connection slot fails over, its cause the connect" {
-    // The engine has one slot. The first server's connect outlasts the lookup's wait, so the
-    // lookup moves on while the loop still holds that slot's connect. The second server gets no
-    // slot, and nothing reaches it.
+test "a lookup that finds each slot held by a lookup fails over at once, its cause the connect" {
+    // One slot, and two lookups on the first server's connection, which drops their queries. The
+    // first whose wait runs out moves to the second server while the other is still on the
+    // connection. No slot is free, and none frees with no lookup leaving it. So nothing reaches the
+    // second server for that lookup (docs/design.md §19 step 13, the stream's rules 1 and 12).
     var rig: Rig = .{};
-    const slow: rotor.server.Script = .{ .connect_delay_ns = fixtures.slow_connect_ns };
-    try rig.init(119, .{ slow, .{} }, .{
-        .servers = &.{},
-        .use_tcp = true,
-        .timeout_ns = fixtures.slow_connect_timeout_ns,
-        .attempts = 1,
-        .failover_retry_chance = 0,
-    });
+    try rig.init(119, .{ .{ .drop_per_256 = fixtures.always }, .{} }, .{ .servers = &.{}, .use_tcp = true, .attempts = 1, .failover_retry_chance = 0 });
     try testing.expectEqual(@as(usize, 1), rig.engine.connections.len);
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
-    try expect_all_failed(&rig, .connect);
-    try testing.expectEqual(@as(u8, 0), rig.engine.connections[0].server);
-    // The connect lands after the end, on a connection that nobody is on.
-    _ = try rig.step(fixtures.slow_connect_ns);
+    const first = try rig.engine.start(question("one.example."), rig.loop.now());
+    _ = try rig.engine.start(question("two.example."), rig.loop.now());
+    const result = try rig.until_result();
+    try testing.expectEqual(first, result.handle);
+    const failure: ?cocuyo.Error = if (result.outcome == .failure) result.outcome.failure.err else null;
+    try testing.expectEqual(@as(?cocuyo.Error, cocuyo.Error.AllServersFailed), failure);
+    try testing.expectEqual(@as(?cocuyo.Cause, .connect), result.outcome.failure.cause);
+    _ = rig.engine.take(rig.loop.now());
+    // The other lookup left the connection next, and the slot went to its connection to the
+    // second server, which answers it.
+    try testing.expect((try rig.until_result()).outcome == .answer);
+    try testing.expectEqual(@as(u8, 1), rig.engine.connections[0].server);
+    _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
 }
 

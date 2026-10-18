@@ -119,9 +119,11 @@ it. The cause is the last such failure the lookup met:
 - `.rcode`, a response's code: SERVFAIL, REFUSED, NOTIMP or BADVERS, FORMERR to a query without
   EDNS0, or a BADCOOKIE that moves the lookup to the next server.
 - `.connect`, a connection that did not come up: its connect failed, or over TLS its handshake did.
-  The engine gives `.connect` for three local failures too: no socket, no free connection slot,
-  and an engine that keeps no TCP connection. No server took part in them, and one of them on a
-  later pass replaces the cause that a server gave before it.
+  The engine gives `.connect` for three local failures too: no socket, each connection slot held
+  by a lookup, and an engine with no TCP connection. No server took part in them, and one of them
+  on a later pass replaces the cause that a server gave before it. A lookup waits for a slot that
+  frees with no lookup leaving it. In the clear it closes a connect in flight that no lookup is on,
+  and waits for that slot. See docs/design.md §19 step 13, the stream's rule 12.
 - `.stream`, a connection that came up and then failed before the answer.
 - `.request`, a request over DoH or DoQ that ended without an answer.
 

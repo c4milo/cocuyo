@@ -141,6 +141,30 @@ RefusalSaid(before, e, st) ==
 Drove(before, e) ==
     e.kind \notin {"take", "jam", "starve", "lapse"} /\ ~before.jammed /\ ~before.starved
 
+\* A lookup that waits for a slot does so in connectingTcp, on no connection (the stream's rule 12).
+\* A slot of the table with no lookup waits for nothing.
+WaitsConnecting(st) ==
+    \A l \in 0..Slots - 1 :
+        LET sl == st.slots[l] IN
+        ~sl.waits \/ (sl.lookup # {} /\ Get(sl.lookup).stage = "connectingTcp" /\ sl.conn = {})
+
+\* After a drive with nothing refused, a lookup waits only while no slot is free and its server
+\* has no connection that it may join. A slot is then pending, or in the clear each slot holds a
+\* lookup. Over TLS a slot is always pending then: each server has at most one connection that a
+\* lookup may join, and the configuration has a slot for each server (TLS rule 6).
+WaitsForNone(st) ==
+    \A l \in 0..Slots - 1 :
+        ~st.slots[l].waits \/
+        (FreeConn(st)[1] = {} /\ FindConn(st, ServerOf(st, l)) = {} /\
+         (Pending(st) \/ (~Tls /\ \A k \in 0..Conns - 1 : st.conns[k].users > 0)))
+
+\* A lookup on a connection that is up has heard so: none waits for it in connectingTcp.
+ToldWhenUp(st) ==
+    \A l \in 0..Slots - 1 :
+        LET sl == st.slots[l] IN
+        sl.lookup = {} \/ sl.conn = {} \/ Get(sl.lookup).stage # "connectingTcp" \/
+        st.conns[Get(sl.conn)].stage # "up"
+
 Checks(before, e, st) ==
     << <<"users counted", UsersCounted(st)>>, <<"attached right", AttachedRight(st)>>,
        <<"buffers lent", BuffersLent(st)>>, <<"one send a stream", OneSendAStream(st)>>,
@@ -165,7 +189,10 @@ Checks(before, e, st) ==
        <<"shutting takes none", ShutTakesNone(before, st)>>,
        <<"channel held while sending", ChanHeldWhileSending(st)>>,
        <<"link ticket spent", LinkTicketSpent(before, st)>>,
-       <<"link end fails none", LinkEndFailsNone(before, e, st)>> >>
+       <<"link end fails none", LinkEndFailsNone(before, e, st)>>,
+       <<"waits connecting", WaitsConnecting(st)>>,
+       <<"waits for no free slot", ~Drove(before, e) \/ WaitsForNone(st)>>,
+       <<"told when up", ToldWhenUp(st)>>, <<"slot waited for", ~st.slotless>> >>
 
 Broken(before, e, st) ==
     LET checks == Checks(before, e, st) IN

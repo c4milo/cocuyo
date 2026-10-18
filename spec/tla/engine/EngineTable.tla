@@ -148,9 +148,10 @@ RServers == IF Request /\ ~Channel THEN Servers ELSE 0
 \* A channel for each server, over DoH through colibri's client, and two links each (rule 18).
 CServers == IF Channel THEN Servers ELSE 0
 
+\* `waits`: the slot's lookup waits for a connection slot, on no connection (the stream's rule 12).
 NoSlot == [lookup |-> {}, order |-> <<>>, conn |-> {}, busy |-> FALSE, held |-> FALSE,
            heldCurrent |-> FALSE, reported |-> FALSE, expired |-> FALSE, remaining |-> 0,
-           sentFrom |-> {}]
+           sentFrom |-> {}, waits |-> FALSE]
 NoConn == [stage |-> "closed", server |-> 0, users |-> 0, idleNow |-> FALSE, queue |-> <<>>,
            sealed |-> 0, partSent |-> FALSE, owes |-> FALSE, resumed |-> FALSE]
 NoSock == [sent |-> 0, retiring |-> FALSE, draining |-> FALSE]
@@ -174,7 +175,10 @@ Records == [kind |-> "records", slot |-> 0]
 Op(kind, target) == [kind |-> kind, target |-> target, current |-> TRUE, draining |-> FALSE]
 IsSend(kind) == kind \in {"send", "sendTo"}
 
-\* A socket per server, each with its receive armed; none over TLS (§21, TLS rule 9).
+\* A socket per server, each with its receive armed; none over TLS (§21, TLS rule 9). `slotless`
+\* says that the engine told a lookup its connection failed for want of a slot over TLS, or in the
+\* clear while a slot had no lookup on it. Both break the stream's rule 12. A model that keeps its
+\* rules never sets it, so it splits no state; the check "slot waited for" asks that.
 InitState ==
     [slots |-> [l \in 0..Slots - 1 |-> NoSlot],
      conns |-> [k \in 0..Conns - 1 |-> NoConn],
@@ -185,7 +189,7 @@ InitState ==
      rconns |-> [v \in 0..RServers - 1 |-> NoRConn], reqs |-> [l \in 0..Slots - 1 |-> {}],
      chans |-> [v \in 0..CServers - 1 |-> NoChan], links |-> [i \in 0..2 * CServers - 1 |-> NoLink],
      asked |-> [i \in 0..2 * CServers - 1 |-> FALSE],
-     linkTickets |-> [i \in 0..2 * CServers - 1 |-> FALSE]]
+     linkTickets |-> [i \in 0..2 * CServers - 1 |-> FALSE], slotless |-> FALSE]
 
 \* The configured server a slot's lookup is asking now.
 ServerOf(st, l) ==
@@ -344,13 +348,20 @@ Borrowed(st, k) ==
     \E op \in DOMAIN st.ops : op.kind \in {"connect", "sendRecords"} /\ op.target = k
 
 \* A slot for a new connection: the first closed one, or else the first nobody uses, closed to make
-\* room; never one the loop still borrows, and never closed to make room over TLS (TLS rule 6).
+\* room; never one the loop still borrows, and never closed to make room over TLS (TLS rule 6). In
+\* the clear, with no slot free and none that a cancelled connect borrows, the first connection
+\* nobody uses whose connect is in flight is closed. Its slot frees at that connect's event, and
+\* the lookup waits for it (rules 10 and 12).
 FreeConn(st) ==
     LET closed == {k \in 0..Conns - 1 : st.conns[k].stage = "closed" /\ ~Borrowed(st, k)}
         unused == {k \in 0..Conns - 1 : st.conns[k].users = 0 /\ ~Borrowed(st, k)}
+        lapsed == {k \in 0..Conns - 1 : st.conns[k].users = 0 /\ st.conns[k].stage # "closed" /\
+                                        Borrowed(st, k)}
+        cancelled == \E k \in 0..Conns - 1 : st.conns[k].stage = "closed" /\ Borrowed(st, k)
     IN IF closed # {} THEN <<{Least(closed)}, st>>
        ELSE IF Tls THEN <<{}, st>>
        ELSE IF unused # {} THEN <<{Least(unused)}, Shut(st, Least(unused))>>
+       ELSE IF lapsed # {} /\ ~cancelled THEN <<{}, Shut(st, Least(lapsed))>>
        ELSE <<{}, st>>
 
 \* Opens a connection to server v, resuming with its ticket and spending it over TLS (TLS rule 8).
@@ -372,20 +383,54 @@ FindConn(st, v) ==
                                     st.conns[k].server = v}
     IN IF ks = {} THEN {} ELSE {Least(ks)}
 
-\* The lookup asks for a stream to its server (rule 1).
+\* Whether connection slot k frees with no lookup leaving it (the stream's rule 12). Its connection
+\* closes, or the loop borrows it while it is closed.
+Frees(st, k) ==
+    LET c == st.conns[k] IN
+    c.stage = "closing" \/ (Borrowed(st, k) /\ c.stage = "closed")
+
+\* Whether a slot is pending, which a lookup that finds no free slot waits for (rule 12).
+Pending(st) == \E k \in 0..Conns - 1 : Frees(st, k)
+
+\* The lookup goes on connection k, and hears at once when it is up.
+JoinConn(st, l, k) ==
+    LET joined == IF st.slots[l].conn = {k} THEN st
+                  ELSE [st EXCEPT !.slots[l].conn = {k}, !.conns[k].users = @ + 1]
+    IN IF joined.conns[k].stage = "up" THEN TableEvent(joined, l, "tcpConnected") ELSE joined
+
+\* The lookup asks for a stream to its server (rule 1). With no slot free, it waits while one is
+\* pending, which FreeConn may have made so in the clear, and is told its connection failed when
+\* none is (rule 12).
 Want(st, l) ==
     LET v == ServerOf(st, l)
         found == IF st.slots[l].conn # {} THEN <<st.slots[l].conn, st>>
                  ELSE IF FindConn(st, v) # {} THEN <<FindConn(st, v), st>>
                  ELSE OpenConn(st, v)
-        at == found[1]
         now == found[2]
-    IN IF at = {} THEN TableEvent(now, l, "tcpFailed")
-       ELSE
-       LET k == Get(at)
-           joined == IF now.slots[l].conn = {k} THEN now
-                     ELSE [now EXCEPT !.slots[l].conn = {k}, !.conns[k].users = @ + 1]
-       IN IF joined.conns[k].stage = "up" THEN TableEvent(joined, l, "tcpConnected") ELSE joined
+        roomless == FreeConn(st)[1] = {}
+        \* What `slotless` judges by, read from neither FreeConn nor Pending, so that a mutant of
+        \* the engine's choice is judged by the rule. With no socket or submission refused, a
+        \* lookup told it failed has found each slot held by a lookup, and never over TLS.
+        unheld == ~st.jammed /\ ~st.starved /\
+                  (Tls \/ \E k \in 0..Conns - 1 : st.conns[k].users = 0)
+    IN IF found[1] # {} THEN JoinConn(now, l, Get(found[1]))
+       ELSE IF roomless /\ Pending(now) THEN [now EXCEPT !.slots[l].waits = TRUE]
+       ELSE TableEvent(IF unheld THEN [now EXCEPT !.slotless = TRUE] ELSE now, l, "tcpFailed")
+
+\* The lookup in table slot l, which waits, joins its server's connection or opens one as Want
+\* does. A slot it cannot have, or a refusal, leaves it waiting for the next drive (rule 12).
+AdmitOne(st, l) ==
+    LET v == ServerOf(st, l)
+        found == IF FindConn(st, v) # {} THEN <<FindConn(st, v), st>> ELSE OpenConn(st, v)
+    IN IF found[1] = {} THEN found[2]
+       ELSE JoinConn([found[2] EXCEPT !.slots[l].waits = FALSE], l, Get(found[1]))
+
+RECURSIVE AdmitFrom(_, _)
+AdmitFrom(st, l) ==
+    IF l >= Slots THEN st ELSE AdmitFrom(IF st.slots[l].waits THEN AdmitOne(st, l) ELSE st, l + 1)
+
+\* What the drive does at its end: each lookup that waits for a slot admitted, slot by slot.
+Admit(st) == AdmitFrom(st, 0)
 
 RECURSIVE TellFrom(_, _, _, _)
 TellFrom(st, k, connected, l) ==

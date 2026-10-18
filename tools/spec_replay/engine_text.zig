@@ -221,7 +221,12 @@ fn slot(line: *Line, world: anytype, index: usize) void {
     const ordered: usize = if (lookup.flags.ordered) world.config.servers.len else 0;
     for (order[0..ordered], 0..) |*position, at| position.* = lookup.order[at];
     line.list(order[0..ordered]);
-    if (engine.tcp_connection[index]) |at| line.print(" c{d} u", .{at}) else line.print(" c- u", .{});
+    // `w` is a lookup that waits for a connection slot, on no connection (the stream's rule 12).
+    if (engine.tcp_connection[index]) |at| {
+        line.print(" c{d} u", .{at});
+    } else {
+        line.print(" c{c} u", .{@as(u8, if (engine.tcp_waiting[index]) 'w' else '-')});
+    }
     sent_from(line, world, index);
     line.print(" ", .{});
     line.flag(engine.send_in_flight[index], 'B');

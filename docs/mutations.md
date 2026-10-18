@@ -6197,9 +6197,11 @@ Four mutations, four `CAUGHT`.
 ## The cause of a failure
 
 2026-10-17. The owner ruled that a lookup that fails keeps the last cause a server gave, and that
-the examples print it. On 2026-10-12 the daily DoT live check failed once at Quad9 with
-`AllServersFailed`, and nobody could say why. The lookup kept the flag `had_server_failure` and no
-reason, and the example printed `failure.err` alone.
+the examples print it. On 2026-10-11 a run of the DoT live check failed once at Quad9 with
+`AllServersFailed`, and nobody could say why. A dispatch started that run, 38168653502. Until
+2026-10-18 this section named the daily check of 2026-10-12, but the run's record says otherwise.
+The lookup kept the flag `had_server_failure` and no reason, and the example printed
+`failure.err` alone.
 
 docs/design.md §16 decision 45 records the rule, and §5 (The cause of a failure) says what each
 error carries. §17 question 53 asks the owner about the name and the type of the field. Question
@@ -6468,3 +6470,293 @@ CO30 and DT38 by `test-resolver`, and G1 by `test-tools`; A4 and A5 by `test-res
 RF2, CO22 and CO23 by `spec-lean`.
 
 Thirty-four mutations, thirty-four `CAUGHT`.
+
+## A pass that waits for a connection slot
+
+2026-10-18. The owner ruled that the engine's defect of the section before is fixed now. Over TLS a
+lookup's second pass could find no free connection slot, while the connection of its first pass
+still closed after its alert. The engine then failed the pass at once with `connect`, and that
+local failure replaced the cause that the server gave.
+
+docs/design.md §19 step 13 holds the new rule, the stream's rule 12, and §16 decision 46 records it
+with the alternatives that it beats. §21's TLS rule 6 says why a TLS lookup always has a slot to
+wait for. The lookup model does not change. The engine model in TLA+ does.
+
+### The sequence
+
+Over TLS, with one server, one slot and two passes:
+
+1. The first pass opens a connection, and the handshake starts.
+2. The session refuses the server's handshake record. The lookup hears `on_tcp_failed` before it
+   hears that the connection is up, so it keeps `connect`. It goes on to its second pass.
+3. The connection seals its fatal alert and stays `closing` until the alert's send ends (TLS rules
+   4 and 5). The loop holds the records buffer until then (TLS rule 3).
+4. In the drive of the same event, the lookup asks for a stream. `find` passes over a connection
+   that closes, and `free_slot` closes no TLS connection to make room (TLS rule 6). So `open`
+   returned `SocketFailed`, and the engine called `on_tcp_failed` at once.
+5. The lookup ended in `AllServersFailed` with `connect`. The server heard one alert, and its
+   count of failures rose by two.
+
+A record that the session refuses once the connection is up takes the same way, after `stream`. The
+second pass then replaced `stream` with `connect`. A slot is free over TLS only when its
+connection has closed. So the second pass found no slot when no other slot was free at that
+moment, as with one server and one slot. With more slots another may be free, or may close too.
+
+In the clear a connection that fails closes at once, and its slot is free unless the loop holds
+it. So the TLS sequence cannot happen there. Another sequence can. A connect that outlasts its
+lookup's wait holds its slot until its event (the stream's rule 10). With one slot, the lookup at
+the next server found no free slot, and failed at once with `connect`. That next server was never
+asked. `tcp_connections_default` is 1.
+
+### The Quad9 failure of run 38168653502
+
+The failed run is the `dot-live` workflow's run 38168653502, which a dispatch started at
+19:35:14 UTC on 2026-10-11, at commit `db4395a`. No `dot-live` run on 2026-10-12 failed, and none
+other failed from 2026-10-08 to 2026-10-18. Its log says, word for word:
+
+- "FAILS the types beyond A through dns.quad9.net", and the AAAA answer of `cloudflare.com`;
+- "cloudflare.com/MX: AllServersFailed".
+
+The evidence, read from the log and from the tree at `db4395a`:
+
+- `tools/dot_live/run.sh` hands `examples/dot_rotor.zig` one server at each run.
+- The example's engine has `tcp_connections = servers_max`, 8 slots, and 4 lookups at once on one
+  connection, with the default 2 passes.
+- `free_slot` took any closed slot that the loop did not hold, as it does now.
+- The typed turn took less than 0.87 seconds by the log's times, its build among them. The
+  default wait is 2 seconds, so no try at the MX lookup ran out.
+
+The inference: the sequence of this section cannot explain that failure. With one server, the
+server has at most one connection that a lookup may join. A pass finds no free slot only when the
+other slots are all closing or held by the loop. Each failed pass leaves one such slot, and the
+four lookups share the next connection. Eight such slots are needed at once, and two passes make
+two at most. So each of the
+MX lookup's two passes ended at a failure of the server: an rcode, a handshake, or a stream.
+The example printed no cause then, so which one is not known. A SERVFAIL for MX at both passes
+fits the times, and so do two connections that Quad9 closed. Neither is evidence. The next
+failure prints its cause.
+
+### The design and the model
+
+- A lookup that finds no free slot waits while a slot is pending, in `connecting_tcp` and on no
+  connection. Its deadline bounds the wait.
+- In the clear, when no slot is pending, the lookup closes a connection that no lookup is on while
+  its connect is in flight. Then it waits for that slot. The review of the change asked for this
+  (What the review found, below).
+- The drive's end admits each lookup that waits, after the idle close.
+- The engine keeps `tcp_waiting`, a flag for each lookup, and `tcp_waiters`, their count.
+  `io/io_tcp_wait.zig` holds the wait, split from `io_tcp.zig` by the file-length rule.
+- The model holds `waits` for each slot of the table. `Want` waits while a slot is pending, and
+  `Admit` runs at the drive's end. Four checks hold the rule:
+  - "waits connecting": a lookup that waits is in `connectingTcp`, on no connection;
+  - "waits for no free slot": after a drive with nothing refused, a lookup waits only while no
+    slot is free and its server has no connection to join. A slot is then pending, or in the
+    clear each slot holds a lookup;
+  - "told when up": no lookup in `connectingTcp` is on a connection that is up;
+  - "slot waited for": no lookup is told its connection failed for want of a slot over TLS, or in
+    the clear while a slot has no lookup on it. A refused socket or submission is not judged. The
+    field `slotless` holds that, and it is never set in a model that keeps its rules.
+- The trace writes a lookup that waits as `cw` in place of `c-`. So a walk with no wait is
+  written as before.
+
+`zig build tla` checked every configuration and mutant on 2026-10-18, the nightly ones among
+them. Each configuration holds, and each mutant is violated, TS11 to TS13 and TS18 among them. The
+configurations of UDP alone, of DoQ and of DoH hold the states that they held before. Those that
+reach a stream hold more, since a lookup that failed there now waits. The first form is the rule
+before the review:
+
+| Configuration | Before | First form | Now |
+| --- | --- | --- | --- |
+| `Engine_tcp_1_1_bound_4_1` | 18,625 | 22,847 | 20,098 |
+| `Engine_tcp_2_1_bound_4_1` | 561,813 | 914,106 | 690,360 |
+| `Engine_tcp_2_2_bound_4_1` | 2,438,035 | 3,466,275 | 3,466,275 |
+| `Engine_tls_1_2_bound_2_1` | 252,573 | 294,898 | 294,898 |
+| `Engine_tls_1_2_bound_3_1` | 9,004,551 | 11,259,959 | 11,259,959 |
+| `Engine_tls_2_2_bound_2_1` | 16,382,680 | 28,446,316 | 28,446,316 |
+| `Engine_truncated_1_1_bound_4_1` | 426,197 | 451,556 | 427,125 |
+
+### The tests, before the code
+
+The two tests of the defect came first, and each failed on the code of 95ef1d0:
+
+- `io_tls_failing_test.zig`, a second pass after a refused handshake, one server and one slot:
+  "expected null, found .{ .connect = void }". The lookup ended in `AllServersFailed` at 2 ms of
+  the twin's clock, under a wait of 25 seconds. Its server's failures were 2, and the connection
+  was still `closing`.
+- `io_tcp_test.zig`, the lookup at the next server after a connect that outlasted its wait:
+  "expected null, found error.AllServersFailed". After the review a test of
+  `io_tcp_wait_test.zig` replaces it.
+
+The failing session of `io_tls_failing_test.zig` gained a failure point, `handshake`. There it
+refuses the twin's `refused` step, and stages its fatal alert.
+
+Three tests came with the code. Their rows below show what each catches:
+
+- `io_tls_failing_test.zig`, a second pass that waits for a closed slot whose records the loop
+  still holds: the peer resets the connection while the hello's send is in flight.
+- `io_tcp_test.zig`, a lookup whose wait runs out at its deadline. It ends in `Timeout`, and the
+  slot that frees later admits nobody. After the review the lookup closes that connect, so a test
+  of a refused admission in `io_tcp_wait_test.zig` replaces it.
+- `io_tcp_cause_test.zig`, a lookup that finds each slot held by a lookup. It fails at once with
+  `connect`, as the stream's rule 1 says. This test replaces the one of a connect that outlasted
+  its wait, which now waits, and it catches LC33.
+
+### What the review found
+
+The review of the change found one fault that had to be fixed, and ten more:
+
+- §16 decision 46 rejected a choice for a false reason. It said that the close of an unused
+  connection while its connect is in flight changes the stream's rule 10. Rule 10 forbids a new
+  opening of the slot while that connect is in flight, and no cancel. The idle close cancels such a
+  connect already.
+- The rule's cost in the clear was real. The defaults are one slot, a wait of 2 seconds and an
+  idle close at 10 seconds. With them, a connect that hangs held the slot past each wait. The
+  lookup at the next server waited out each pass, never reached that server, and ended in `Timeout`.
+- So the rule changed in the clear. When no slot is pending, the lookup closes the first connection
+  that no lookup is on while its connect is in flight. Then it waits for that slot, which frees at
+  the cancelled connect's event. The design changed first, then the model, then the code.
+- No row broke the half of `want` that tells a want of a slot from a refused socket. TS16 does
+  now, and a TLS test catches it.
+- Nothing bounds how long a pending slot takes. A peer that stops reading holds a TLS connection in
+  `closing`, and a lookup that waits for its slot waits until its deadline. Rule 12 says so now,
+  and §17 question 55 asks the owner about a time bound. It needs a GitHub issue too.
+- Over TLS a query's send also goes out from the connection's records buffer. Only a send of the
+  session's own records marks that buffer as the loop's. A connection that fails during a query's
+  send leaves its slot free while the loop may still read the buffer. A new opening can then
+  write its hello there, which TLS rule 3 forbids. This was there before the change, and the change
+  does not touch it. It needs a GitHub issue of its own.
+- This section said that a configuration with as many slots as servers meets the defect at each
+  refusal. The defect needs no other slot free at that moment. The text says so now.
+- The heading named the Quad9 failure for 2026-10-12. The failed run was a dispatch on 2026-10-11.
+  Decision 45 and the section before named the day wrong too. Each now says what the run's record
+  says.
+- Rule 12 said that a lookup waits while a slot is pending. In the clear it can wait while each slot
+  holds a lookup. That happens when the slot that freed went to a lookup that asked in the drive's
+  polls. Rule 12 and the doc comments say so now.
+- Rule 12 said that no connection opens between two drives. `connect_again` opens one, for a TLS
+  connection that waits to connect again. The rule now says why that changes nothing.
+- A doc comment said that over TLS each server has a slot of its own. It now gives TLS rule 6's
+  argument: each server has at most one connection that a lookup may join.
+- The TLS test of a refused handshake did not count the server's failures. It now requires one
+  failure while the second pass waits.
+- §19 step 13 said that TLC checks twenty-five invariants. It checks forty-one.
+
+### The tests, before the code, after the review
+
+`io/io_tcp_wait_test.zig` holds the tests of the wait in the clear, split from `io_tcp_test.zig` by
+the file-length rule. Its first test came before the code. A lookup's first server has a connect
+that hangs, and its second server answers. On the first form of the rule it failed with "expected
+null, found error.Timeout". It replaces both tests of the first form in `io_tcp_test.zig`.
+
+These tests came with the code. Their rows below show what each catches:
+
+- `io_tcp_wait_test.zig`, a lookup whose admission the loop refuses waits for the next drive, and
+  that drive admits it.
+- `io_tcp_wait_test.zig`, a lookup whose admission the loop refuses until its deadline moves on
+  there, in `Timeout`, and a later lookup waits for nothing.
+- `io_tcp_wait_test.zig`, a lookup at the next server leaves alone a connect that a lookup is on,
+  and is told at once.
+- `io_tcp_wait_test.zig`, a lookup that waits while a slot is pending leaves alone a connect that
+  no lookup is on. Two slots, and the idle close makes the pending one.
+- `io_tls_failing_test.zig`, a second pass whose connect the loop refuses is told at once, though a
+  slot is pending.
+
+On the first form the three tests of a refused admission and of a connect that a lookup is on
+failed too. The last two passed: they keep what the first form did.
+
+### What ran on the first form
+
+These ran on the first form of the rule, before the review:
+
+- The tests of the defect, then the code, then `zig build test-io`: each test passed.
+- `zig build tla` over each configuration and mutant: each configuration held, and each mutant was
+  violated, TS11 to TS13 among them.
+- `zig build tla -- walks 1 10 41`, the short walks. Eleven of the 130 held a wait, and only they
+  changed. Five were over TCP with one lookup, five over TCP with two lookups on one connection,
+  and one over TLS.
+- `zig build tla -- walks 1 2000 201`, the full run. It held 26,687 states in which a lookup waits,
+  and its replay agreed with the engine over 5,226,000 events in 26,000 walks.
+- `zig build mutations -- engine --walks` that full run, over the 80 rows that the walks catch. Each
+  was `CAUGHT`, and the tool named sixteen walks to pick.
+- `zig build mutations -- engine TS1 TS2 TS3 TS4 TS5 TS6 TS7 TS8 TS9 TS10 LC33`: each was `CAUGHT`.
+  At the first run TS1 did not compile: its edit removed the line that waits, and left `err`
+  unused. Its edit now turns the wait off in place.
+
+### What ran after the review
+
+- The test of a connect that hangs, then the code, then `zig build test-io`: 174 tests pass.
+- `zig build tla` over the configurations in the clear and over the mutants of the rule:
+  `Engine_tcp_1_1_bound_4_1` holds 20,098 states, `Engine_tcp_2_1_bound_4_1` 690,360,
+  `Engine_tcp_2_2_bound_4_1` 3,466,275 and `Engine_truncated_1_1_bound_4_1` 427,125.
+  `Engine_tls_1_2_bound_2_1` holds 294,898, as on the first form. TS11, TS12 and TS18 break "slot
+  waited for", and TS13 breaks "waits for no free slot".
+- `zig build tla -- walks 1 10 41`, the short walks. Ten of them changed, the five over TCP with one
+  lookup and the five over TCP with two lookups that held a wait. The lookup there now closes the
+  connect of its last try, where the first form left it in flight.
+- `zig build tla -- walks 1 2000 201`, the full run, 880 MB. It holds 23,831 states in which a
+  lookup waits.
+- `zig build mutations -- engine --walks` that full run, over the 80 rows that the walks catch and
+  23 rows of `test-io` whose edits read `io_tcp.zig`, `io_tcp_wait.zig` or `io_drive.zig`. Each of
+  the 103 is `CAUGHT`. The replay of the full run with nothing mutated agrees with the engine. The
+  short walks catch each row they caught before. For each row that they miss, the tool named the
+  full run's first walk that catches it. These are walks 4, 8, 13, 2002, 4020, 4212, 8025, 8046,
+  8241, 12004, 12011, 16008, 16068, 16478 and 24001. These fifteen are the picks now, in
+  `engine_picks` of `build/spec.zig`.
+- The same, over the 24 rows that the picked walks catch, against the new picks: each is `CAUGHT`.
+- Each TS row of the code and LC33 ran by hand once, its step's output read, and each file put
+  back. The texts in the rows below come from there.
+
+Over the final tree:
+
+- `zig build test`: 1,119 tests pass of 1,119, where 1,111 passed before the change.
+- `zig build lint`: each function scores 15 or less.
+- `zig build spec-engine`: the committed short walks and the fifteen picks are the ones TLC
+  writes, and the full run agrees over 5,226,000 events in 26,000 walks. It took 9 minutes 17
+  seconds on an Apple M1 Pro.
+- `zig build tla`, the nightly configurations among them: 15 configurations hold, and 37 mutants
+  are violated. It took 2 hours 30 minutes, while a TLC check of another project ran.
+- `zig build examples` builds each example.
+- The live checks and the interop check need the network or dnsproxy, and did not run.
+
+### The instruction counts
+
+`bench/count.zig` imports `cocuyo` and `wire` alone, and no counted case runs the engine. This
+change touches no file under `src/`. So no count can move, and `bench/instructions.zon` did not
+change.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| TS1 | a lookup that finds no free slot is told at once, as the engine did until 2026-10-18 | the stream's rule 12 | seven tests: the test of a connect that hangs, "expected null, found error.AllServersFailed"; the test of a slot pending and a connect that no lookup is on, "expected 1, found 0"; both TLS tests of a wait, "expected 1, found 0"; three more of `io_tcp_wait_test.zig`, `test-io` | CAUGHT |
+| TS2 | a connection that closes after its alert is not pending | `pending` reads a connection that closes | the TLS test of a refused handshake: "expected 1, found 0", `test-io` | CAUGHT |
+| TS3 | a closed slot whose memory the loop holds is not pending | `pending` reads a closed slot that the loop holds | five tests of `io_tcp_wait_test.zig` trip an assertion of `make_pending`: "reached unreachable code"; the TLS test of a reset during the hello: "expected 1, found 0", `test-io` | CAUGHT |
+| TS4 | in the clear, a lookup closes no connection that no lookup is on while its connect is in flight | `free_slot` makes a slot pending | four tests: the test of a connect that hangs, "expected null, found error.AllServersFailed"; the test of a connect that a lookup is on, the same; both tests of a refused admission, `test-io` | CAUGHT |
+| TS5 | the drive's end admits no lookup that waits | `admit` in the drive | six tests: the test of a connect that hangs, "expected null, found error.Timeout"; the test of a refused admission that the next drive admits, "expected 0, found 1"; both TLS tests of a wait, "expected null, found .{ .connect = void }", `test-io` | CAUGHT |
+| TS6 | a lookup that acts still waits for a slot | `follow` ends the wait | the test of a refused admission until the deadline trips an assertion of `admit`: "reached unreachable code", `test-io` | CAUGHT |
+| TS7 | a lookup that the drive's end admits still waits | `admit` ends the wait | the test of a refused admission that the next drive admits, "expected 0, found 1"; both TLS tests of a wait trip an assertion of `admit`, "reached unreachable code", `test-io` | CAUGHT |
+| TS8 | a lookup that begins to wait is not counted | `wait` counts the lookup | seven tests: five trip the assertion of `unwait` on the count, "reached unreachable code"; the test of a slot pending and the TLS test of a reset, "expected 1, found 0", `test-io` | CAUGHT |
+| TS9 | a lookup waits while every slot holds a lookup | `pending` reads no slot that a lookup uses | five tests: the test of each slot held by a lookup, "expected error.AllServersFailed, found null"; the test of a connect that a lookup is on, "expected error.AllServersFailed, found error.Timeout", `test-io` | CAUGHT |
+| TS10 | the replay writes a lookup that waits as one on no connection | the trace's `cw` | the short walks, at walk 41 | CAUGHT |
+| TS11 | the model's engine finds no slot pending, as the engine did until 2026-10-18 | the model's `Pending` | TLC's check "slot waited for" on `mutants/TS11`, over TLS, `zig build tla` | CAUGHT |
+| TS12 | the model's pending slot is only a connection that closes | the model's `Pending` | TLC's check "slot waited for" on `mutants/TS12`, over TCP, `zig build tla` | CAUGHT |
+| TS13 | the model's drive admits no lookup that waits | the model's `Admit` | TLC's check "waits for no free slot" on `mutants/TS13`, over TCP, `zig build tla` | CAUGHT |
+| TS14 | in the clear, a lookup closes a connection that no lookup is on while a slot is pending | `make_pending` waits for a pending slot | the test of a slot pending and a connect that no lookup is on: its check that the other connect is still in flight fails, `test-io` | CAUGHT |
+| TS15 | in the clear, a lookup closes a connection that a lookup is on while its connect is in flight | `make_pending` passes over a slot with a lookup | the test of a connect that a lookup is on: "expected error.AllServersFailed, found null"; the test of each slot held by a lookup trips an assertion of `make_pending`, "reached unreachable code", `test-io` | CAUGHT |
+| TS16 | a lookup whose socket or connect is refused waits while a slot is pending | `want` waits only for want of a slot | the TLS test of a refused connect while a slot is pending: "expected 0, found 1", `test-io` | CAUGHT |
+| TS17 | a lookup that the drive's end cannot place stops its wait | `admit` keeps the wait | seven tests: the test of a connect that hangs, "expected null, found error.Timeout". The lookup leaves the wait at the end of the drive in which it began, `test-io` | CAUGHT |
+| TS18 | the model's `FreeConn` closes no connect, as in the first form | the model's `FreeConn` in the clear | TLC's check "slot waited for" on `mutants/TS18`, over TCP, `zig build tla` | CAUGHT |
+
+TS3's edit and TS4's row changed after the review. `pending` now reads a closed slot and its
+borrow on one line, and the slot of an unused connect is no kind of pending slot. TS4 now breaks the
+close that makes such a slot pending.
+
+LC33 was written again, since its edit named the code of `want`. It tells a lookup that its
+connection is up before it fails it, where no slot is free and none is pending. Three tests catch
+it, the test of each slot held by a lookup among them: "expected .connect, found .stream",
+`test-io`. `CAUGHT`.
+
+The 80 rows that the walks catch ran again against the new walks, and each is `CAUGHT` (What ran
+after the review, above).
+
+Eighteen mutations, eighteen `CAUGHT`.

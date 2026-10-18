@@ -10,15 +10,17 @@ const testing = std.testing;
 const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 const io = @import("io.zig");
+const tcp = @import("io_tcp.zig");
 
 const fixtures = @import("fixtures.zig");
 const sim_test = @import("io_sim_test.zig");
 const tls_test = @import("io_tls_test.zig");
 const question = sim_test.question;
 
-/// Where the failing session fails. A TLS stack can fail to start or to seal, refuse a record, as
-/// it refuses a forged one, or hear its peer close; the twin's session does none of these.
-const Failure = enum { start, seal, open, closed };
+/// Where the failing session fails. A TLS stack can fail to start or to seal. It can refuse a
+/// handshake, as it refuses a certificate that does not verify, or a record, as it refuses a forged
+/// one. It can hear its peer close. The twin's session does none of these.
+const Failure = enum { start, handshake, seal, open, closed };
 const Plan = struct { at: Failure = .start, left: u8 = 0 };
 threadlocal var failing: Plan = .{};
 /// How many empty records the failing session makes of its own accord, one at each collection,
@@ -61,6 +63,12 @@ fn FailingOf(comptime room: usize) type {
             return made + rotor.tls.write_record(rotor.constants.tls_content_application, &.{}, out[made..]);
         }
         pub fn handshake(self: *Self, record: []const u8) Error!Handshake {
+            // The twin's session refuses the `refused` step, and stages its fatal alert for the
+            // engine to say (§21, TLS rule 4).
+            if (fails_now(.handshake)) {
+                var refused: [rotor.constants.tls_record_header_bytes + 1]u8 = undefined;
+                return self.twin.handshake(refused[0..rotor.tls.write_step(.refused, &refused)]);
+            }
             return self.twin.handshake(record);
         }
         pub fn seal(self: *Self, plaintext: []const u8) Error!void {
@@ -151,6 +159,119 @@ test "a session that fails at each server ends in AllServersFailed, its cause wh
         _ = rig.engine.take(rig.loop.now());
         try rig.deinit();
     }
+}
+
+/// One server and one connection slot, the least that TLS rule 6 allows, over the failing session.
+const OneSlotRig = sim_test.RigOfServers(io.Resolver(.{
+    .lookups = fixtures.small_lookups,
+    .group_buffers = fixtures.group_buffers,
+    .tcp_connections = 1,
+    .tls = Failing,
+}), 1);
+
+test "a second pass waits for the slot that a refused connection holds while its alert goes" {
+    // The session refuses the first handshake. The connection says its alert, and holds its one
+    // slot until the alert has gone (TLS rules 4 and 5). The lookup's second pass to the same server
+    // comes at once. It waits for the slot, and the server answers it on a new connection
+    // (docs/design.md §19 step 13, the stream's rule 12).
+    failing = .{ .at = .handshake, .left = 1 };
+    defer failing = .{};
+    var rig: OneSlotRig = .{};
+    try tls_test.encrypt(&rig);
+    try rig.init(62, .{.{}}, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
+    rig.use_test_contexts();
+    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    for (0..fixtures.until_rounds_max) |_| {
+        if (rig.engine.tcp_waiters > 0) break;
+        _ = try rig.step(fixtures.wait_ns);
+    }
+    // The refusal counted one failure, and the pass that waits counts none.
+    try testing.expectEqual(@as(u16, 1), rig.engine.tcp_waiters);
+    try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(0));
+    const result = try rig.until_result();
+    const cause: ?cocuyo.Cause = if (result.outcome == .failure) result.outcome.failure.cause else null;
+    try testing.expectEqual(@as(?cocuyo.Cause, null), cause);
+    try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
+    try testing.expectEqual(@as(u8, 0), failing.left);
+    // The server heard the alert of the first connection, and answered on the second.
+    try testing.expectEqual(@as(u32, 1), rig.loop.network().alerts_heard[0]);
+    try testing.expect(rig.engine.connections[0].state == .up);
+    // At once, and not once the first pass's wait ran out.
+    try testing.expect(rig.loop.now() < rig.config.timeout_ns);
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
+test "a second pass waits for a closed slot whose records the loop still holds" {
+    // One server and one slot. The connect ends, the session's hello goes out, and the peer resets
+    // the connection before that send has ended. The connection closes at once, and the loop holds
+    // its records buffer until the send's event (TLS rule 3). The lookup's second pass waits for
+    // the slot, and the server answers it on a new connection (the stream's rule 12).
+    var rig: OneSlotRig = .{};
+    try tls_test.encrypt(&rig);
+    try rig.init(63, .{.{}}, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
+    rig.use_test_contexts();
+    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    const connection = &rig.engine.connections[0];
+    try until_hello_in_flight(&rig);
+    reset_first(&rig);
+    // The second pass asked in that event's drive, and found the slot closed and borrowed.
+    try testing.expect(connection.state == .closed and connection.borrowed());
+    try testing.expectEqual(@as(u16, 1), rig.engine.tcp_waiters);
+    const result = try rig.until_result();
+    const cause: ?cocuyo.Cause = if (result.outcome == .failure) result.outcome.failure.cause else null;
+    try testing.expectEqual(@as(?cocuyo.Cause, null), cause);
+    try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
+    try testing.expect(rig.loop.now() < rig.config.timeout_ns);
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
+/// Steps the rig until the first slot's connection handshakes with its hello's send in flight.
+fn until_hello_in_flight(rig: anytype) !void {
+    const connection = &rig.engine.connections[0];
+    for (0..fixtures.until_rounds_max) |_| {
+        if (connection.state == .handshaking) break;
+        _ = try rig.step(fixtures.wait_ns);
+    }
+    try testing.expect(connection.state == .handshaking and connection.records_in_flight);
+}
+
+/// The peer resets the first slot's connection.
+fn reset_first(rig: anytype) void {
+    const receive = tcp.user_data_of(&rig.engine, .tcp_receive, 0);
+    _ = rig.engine.apply(rotor.Event.failure(receive, .connection_reset), rig.loop.now());
+}
+
+/// One server and two connection slots over the failing session.
+const TwoSlotRig = sim_test.RigOfServers(io.Resolver(.{
+    .lookups = fixtures.small_lookups,
+    .group_buffers = fixtures.group_buffers,
+    .tcp_connections = fixtures.tcp_slots_pair,
+    .tls = Failing,
+}), 1);
+
+test "a second pass whose connect the loop refuses is told at once, though a slot is pending" {
+    // One server and two slots. The peer resets the first connection while its hello's send is in
+    // flight, so the loop holds that slot (TLS rule 3). The loop refuses each submission from then.
+    // The second pass finds the other slot free, and the loop refuses its connect. That is no want
+    // of a slot, so the lookup is told at once and does not wait (the stream's rule 12).
+    var rig: TwoSlotRig = .{};
+    try tls_test.encrypt(&rig);
+    try rig.init(64, .{.{}}, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
+    rig.use_test_contexts();
+    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    try until_hello_in_flight(&rig);
+    rig.loop.refuse_submissions = true;
+    reset_first(&rig);
+    rig.loop.refuse_submissions = false;
+    try testing.expect(rig.engine.connections[0].state == .closed and rig.engine.connections[0].borrowed());
+    try testing.expectEqual(@as(u16, 0), rig.engine.tcp_waiters);
+    const result = rig.engine.take(rig.loop.now()) orelse return error.NoResult;
+    const failure: ?cocuyo.Error = if (result.outcome == .failure) result.outcome.failure.err else null;
+    try testing.expectEqual(@as(?cocuyo.Error, cocuyo.Error.AllServersFailed), failure);
+    try testing.expectEqual(@as(?cocuyo.Cause, .connect), result.outcome.failure.cause);
+    try rig.deinit();
 }
 
 /// What one lookup came to: its error, null for an answer, the first server's failures, and

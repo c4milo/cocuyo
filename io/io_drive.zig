@@ -16,10 +16,11 @@ const channel_module = @import("io_channel.zig");
 const channel_link = @import("io_channel_link.zig");
 
 /// Polls the table for what every lookup wants and does it, until nothing is left: a send out
-/// or held, a connection asked for, a request taken, an end handed to `results`. Then every
-/// request its lookup left is cancelled, the idle connections close, the sockets and connections
-/// are tended, and the timer moves to the soonest deadline (docs/design.md §24, request rules 6,
-/// 9 and 11).
+/// or held, a connection asked for, a request taken, an end handed to `results`. Then it cancels
+/// every request that its lookup left, and closes the idle connections. It admits each lookup
+/// that waits for a connection slot (docs/design.md §19 step 13, the stream's rule 12). Last, it
+/// tends the sockets and the connections, and moves the timer to the soonest deadline (§24,
+/// request rules 6, 9 and 11).
 ///
 /// The table offers a lookup once for each thing it has to do (§11, §16 decision 20), so the
 /// drive ends when the ready list does. A lookup can be offered again inside one drive, when a
@@ -39,6 +40,7 @@ pub fn drive(self: anytype, now_ns: u64) void {
     tcp.close_idle(self, now_ns);
     request_connection.close_idle(self, now_ns);
     channel_module.close_idle(self, now_ns);
+    tcp.admit(self, now_ns);
     tcp.tend(self);
     tend_sockets(self);
     request_tend.tend(self, now_ns);
