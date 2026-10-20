@@ -314,7 +314,11 @@ fn take_out(self: anytype, at: u8) ?u16 {
     const Session = @TypeOf(self.*).Tls;
     const connection = &self.connections[at];
     const state = &connection.tls;
+    // No octet is written while a send of another opening may read it (rule 3).
+    assert(writable(connection));
     if (!connection.sending and state.out_head > 0) {
+        // No send reads the buffer, so its records may move to its start.
+        assert(connection.records_send == null);
         assert(state.out_head <= state.out_tail);
         const kept = state.out_tail - state.out_head;
         std.mem.copyForwards(u8, state.out[0..kept], state.out[state.out_head..state.out_tail]);
@@ -322,12 +326,23 @@ fn take_out(self: anytype, at: u8) ?u16 {
         state.out_head = 0;
         state.out_tail = kept;
     }
+    // The head's send reads records in front of `out_tail`, and the write goes behind them.
+    if (connection.sending) assert(connection.queue.first().?.end <= state.out_tail);
     const room = state.out[state.out_tail..];
     if (room.len < Session.out_bytes_max) return null;
     const made = state.session.take_out(room);
     // The session writes inside the room it is given, so the end is inside the buffer.
     assert(made <= room.len);
     return state.out_tail + @as(u16, @intCast(made));
+}
+
+/// Whether the records buffer may be written: no send reads it, or the one that does is the head's
+/// send of this opening. That send reads sealed records in front of `out_tail`, and a write goes
+/// behind them (rule 3).
+fn writable(connection: anytype) bool {
+    const sender = connection.records_send orelse return true;
+    const head = connection.queue.first() orelse return false;
+    return connection.sending and head.slot == sender;
 }
 
 /// What is left to send of the head, whose sealed records end at `end`.

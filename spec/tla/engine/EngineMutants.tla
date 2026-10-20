@@ -3,9 +3,9 @@
 \* TM1 to TM3 and R8a to R8d broke the Lean model and R4a and R4b break rule 4's alert, the
 \* stream's rule 9 as TQ1 breaks it, the request rules of §24 as RQ1 to RQ11 and RQ14 break them,
 \* the channel's rules as CH1 to CH10 do, and the datagram's rules 4 and 6 as OA34 does. TS11 to
-\* TS13 and TS18 break the stream's rule 12. A
-\* configuration in mutants/ puts one in place of the rule with TLC's `Rule <- Mutant`, and TLC must
-\* find the check that catches it.
+\* TS13 and TS18 break the stream's rule 12, and TB5 and TB8 break TLS rule 3 for a query's send.
+\* A configuration in mutants/ puts one in place of the rule with TLC's `Rule <- Mutant`, and TLC
+\* must find the check that catches it.
 EXTENDS Engine
 
 \* TM1: the session's records go to the back of the queue, behind queries not yet sealed.
@@ -329,5 +329,17 @@ FreeConnKeepingConnects(st) ==
        ELSE IF Tls THEN <<{}, st>>
        ELSE IF unused # {} THEN <<{Least(unused)}, Shut(st, Least(unused))>>
        ELSE <<{}, st>>
+
+\* TB5: only a connect or a send of the session's own records borrows its slot, as until
+\* 2026-10-18. A query's send over TLS reads the records buffer too. So a slot whose connection
+\* failed during that send opens again while the loop reads the buffer (TLS rule 3).
+BorrowedBeforeQueries(st, k) ==
+    \E op \in DOMAIN st.ops : op.kind \in {"connect", "sendRecords"} /\ op.target = k
+
+\* TB8: over TLS only a send of the session's own records names the records buffer that it reads,
+\* as `Pump` did until 2026-10-18. A query's send names none, so it borrows no slot.
+SendFromRecordsOnly(kind, target, k) ==
+    IF Tls /\ kind = "sendRecords" THEN [Op(kind, target) EXCEPT !.buffer = {k}]
+    ELSE Op(kind, target)
 
 ===============================================================================

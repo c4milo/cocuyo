@@ -2860,6 +2860,103 @@ step until `zig build test` passes.
 
     §5 (The cause of a failure), §17 questions 54 and 55, §19 step 13 (the stream's rules 1, 4, 10
     and 12), §21 (TLS rule 6).
+47. **A query's send lends its connection's records buffer.** Ruled by the owner on 2026-10-18:
+    prove the defect that the review of decision 46 found, and fix it if it is real. It is real.
+    Over TLS a query is sealed into its connection's records buffer, and its send reads the
+    sealed records there (§21, TLS rule 2). Until now only a send of the session's own records
+    marked that buffer as the loop's. A query's send marked only the lookup's send buffer, which
+    the loop does not read over TLS. So a connection that failed during a query's send left its
+    slot free while the loop could still read the buffer.
+
+    The sequence over TLS, with one server and one slot:
+
+    1. The connection is up. A lookup's query is sealed into the records buffer at its start, and
+       the query's send is in flight from there.
+    2. The peer resets the connection before that send ends. The connection fails, and closes at
+       once (TLS rule 5). Nothing marks its slot as borrowed.
+    3. The lookup hears the failure, and its second pass asks for a stream. `free_slot` takes the
+       closed slot, and a new opening connects there.
+    4. At the connect's event the new session starts. Its hello goes into the records buffer at
+       its start, over the query's sealed records.
+    5. The query's send has not ended. The loop may read its octets until the send's final event
+       (rotor decision 5, rule 3). From now it reads the hello's record and then the rest of the
+       query's record.
+
+    A test of the twin showed step 4. The query's record was 135 octets. Its first five, an
+    application data header, became the header of a handshake record of one octet. The twin's send
+    takes its octets when it is submitted, so no wrong octet reached the twin's server. rotor's
+    contract does not promise that.
+
+    Over plain TCP a query's send reads the lookup's own send buffer, which stays lent until the
+    send's event (the stream's rule 6). A new opening of the connection slot does not write that
+    buffer, so plain TCP has no such defect.
+
+    Choices the ruling did not make, made here:
+
+    - Each send from the records buffer marks the slot: one of the session's own records, and a
+      query's. The mark names the send, by the query's table slot or by `ring.records`. It
+      outlives the opening, as a connect's mark does (the stream's rule 10). Only the send's final
+      event clears it.
+    - A query's send keeps its `user_data`, which names its table slot. So its event still gives
+      the lookup's send buffer back and tells the attempt (the stream's rules 6 and 7). The event
+      finds the slot whose buffer it read by the mark, after its connection closed too.
+    - The event clears the mark whatever the engine speaks then. A `reinit` closes each connection
+      as a new opening does, and keeps the mark. So after a `reinit` from TLS to the clear, the
+      slot stays closed until the event of a send that the old configuration made.
+    - A slot whose buffer is lent is not free. A closed one is pending, and a lookup that finds no
+      free slot waits for it (the stream's rule 12). That wait ends at the send's event.
+    - The records buffer is written only while no send reads it, or while the head's send of the
+      same opening does. That send reads sealed octets in front of the room that a write takes.
+      Assertions hold both parts at each write. Another holds that records move to the buffer's
+      start only while no send reads them.
+
+    Nothing in the engine bounds how long such a slot stays pending. A send keeps no handle, and
+    `shut` cancels only a connect or a receive. So a send that stalls after its connection failed
+    keeps its slot pending until the loop ends the send. Each lookup that finds no other slot free
+    waits for that event, or until its own deadline (§5). A send of the session's own records held
+    a closed slot in the same way before this decision. §17 question 55 asks about a time bound on
+    a slot of the same kind, a connection that closes.
+
+    Rejected:
+
+    - The sealed query copied into the lookup's send buffer, and sent from there. That buffer holds
+      `query_bytes_max` octets of plaintext, and the sealed record is longer by its header and its
+      tag. Records sealed after the query wait in the records buffer anyway, in the order they
+      were sealed (TLS rule 2).
+    - A second records buffer for each slot, which a new opening writes. That is
+      `tls_records_out_bytes`, 4,096 octets, more for each slot. A failure while both buffers are
+      lent still needs the wait.
+    - A query's send named by its connection slot, as a send of the session's records is. Its event
+      must still give the lookup's send buffer back and tell the attempt. So the connection slot
+      must keep the table slot after its connection closed, as the mark does. The model and the
+      replay also name a query's send by its table slot.
+    - A mark for each lookup, of the connection slot whose buffer its send reads. A connection
+      carries one send at a time (the stream's rule 9), so one mark for each connection slot is
+      enough. A table holds up to `lookup_slots_max` lookups.
+    - A failed connection kept in its `closing` state until its send ends. A connection that fails
+      has no peer to send to, so it closes at once (TLS rule 5). The mark keeps its slot closed and
+      pending with no new state, as a connect's mark does.
+    - A send's event that looks for its mark only over TLS. It saves a scan of the connection slots
+      in the clear. But a `reinit` from TLS to the clear may come while a send is in flight. Its
+      mark would then stay for ever, and the slot would never free.
+
+    The engine model in TLA+ holds the rule (spec/README.md). Each operation names the connection
+    slot whose records buffer it reads: over TLS a query's send and a send of the session's
+    records. `Borrowed` reads that name, beside a connect. The check "records lent" holds TLS rule
+    3 in two parts:
+
+    - A slot's records buffer is lent to one send at most. A query's send that reads it is its
+      connection's head, or the slot is closed.
+    - Each operation names the buffer that it reads. Over TLS a send of the session's records names
+      its own connection. A query's send names the connection that its query heads, or a closed
+      slot. In the clear no operation names one.
+
+    The mutant TB5 puts back `Borrowed` as it was, and TLC finds that check broken. The mutant TB8
+    puts back `Pump` as it was, where a query's send names no buffer. The review of this decision
+    found that the first part alone did not catch TB8, so the second part came then. No named
+    limit and no entry point change.
+
+    §17 question 55, §19 step 13 (the stream's rule 12, and `reinit`), §21 (TLS rule 3).
 
 ## 17. Questions for the owner
 
@@ -4374,14 +4471,15 @@ of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
     until its deadline. The engine model holds no frame. It applies a message at the receive that
     brings it, so the code now does what the model does, and the model does not change.
 
-12. Written on 2026-10-18 (§16 decision 46), and amended on the same day after its review. A slot
+12. Written on 2026-10-18 (§16 decision 46), and amended on the same day after its review. A
+    query's send joined the sends that hold a closed slot on the same day (§16 decision 47). A slot
     is pending when no lookup is on it and it frees with no lookup leaving it. Two kinds of slot
     are pending:
 
     - a connection that closes once its alert or its `close_notify` has gone (§21, TLS rules 4
       and 5);
     - a closed slot whose memory the loop still holds: a connect that was cancelled (rule 10), or
-      a send of the session's records (TLS rule 3).
+      a send from the records buffer, of the session's own records or of a query's (TLS rule 3).
 
     A lookup that finds no free slot waits while a slot is pending. In the clear, when no slot is
     pending, the lookup closes the first connection with no lookups whose connect is in flight.
@@ -4472,7 +4570,7 @@ socket opens may fail for the length of one event. A stream's send may come back
 message, its rest then whole or failed: a second short send takes the same path as the first.
 
 - The Lean walker, `cocuyo-spec engine` until it retired on 2026-09-24, walked every state the model
-  reached in a configuration and checked ten invariants in each. TLC checks forty-one now, the
+  reached in a configuration and checked ten invariants in each. TLC checks forty-two now, the
   request rules' of §24 and the channel's among them (spec/README.md). A connection's users are the
   lookups on it. A lookup is only on a connection to its server. A buffer is lent to one send at
   most. A connection and a socket each have at most one current operation of each kind. A drive
@@ -4584,6 +4682,11 @@ slots and two servers a slot is always free or pending then, so `Engine_tcp_2_2_
 same states too. The mutant TS18 keeps `FreeConn` as it was, and TLC finds "slot waited for" broken.
 Ten of the short walks changed again, each in the clear with one connection slot. The picks were
 chosen again, and are now fifteen (spec/README.md).
+
+On the same day a query's send began to lend its connection's records buffer (§16 decision 47;
+§21, TLS rule 3). Each operation of the model names the buffer that it reads, and the check
+"records lent" holds the rule. Three configurations over TLS changed their counts, and 16 walks of
+the full run changed. Walk 16271 is one of them, and it is the sixteenth pick (spec/README.md).
 
 **The rest of the engine, landed on 2026-09-22.** `cancel_all` ends every lookup at once, which
 is `ares_cancel`, and each failure comes through `take` like any other. `reinit` takes a new
@@ -5249,10 +5352,18 @@ code is.
    the one in flight and the one behind it. Until 2026-09-24 each made its own entry, and a peer
    asking one KeyUpdate after another while a send stalled filled the queue; the model's walks
    found it.
-3. A connection's sealed records wait in a buffer of the connection's own, which a send lends to
-   the loop until its final event (rotor decision 5, rule 3). The slot is not opened again while
-   a send of an earlier incarnation's records is in flight, as the stream's rule 10 keeps it for
-   a connect. A reset leaves the buffer's bytes as they are, for the same reason.
+3. A connection's sealed records wait in a buffer of the connection's own. Each send from that
+   buffer lends it to the loop until the send's final event (rotor decision 5, rule 3). Two kinds
+   of send read it:
+
+   - a send of the session's own records;
+   - a query's send, which reads the query's sealed records there (rule 2).
+
+   The slot is not opened again while a send of an earlier incarnation reads the buffer. The
+   stream's rule 10 keeps it closed for a connect in the same way. A closed slot whose buffer is
+   lent is pending (the stream's rule 12). The buffer is written only behind what the send in
+   flight reads, and only by the opening that made that send. A reset leaves the buffer's bytes as
+   they are, for the same reason (§16 decision 47).
 4. A handshake that fails fails the connection (the stream's rule 5): a record the session
    refuses, a certificate or a name that does not verify. No query was sent on it, and each
    lookup on it fails over to the next server. The server has refused the lookup, so one whose
@@ -5319,13 +5430,19 @@ The model holds rules 1 to 6, 8 and 9. Rule 7 is about octets, which the model d
 invariants were added for them: a slot a send of records still borrows stays closed; the sealed
 entries lead each queue, so records go out in the order they were sealed; no query waits on a
 connection that is not up; and no event leaves the session owing an answer. The last came from a
-mutation nothing caught without it (docs/mutations.md TM3). Three more hold rule 8: a connection
-that opens resuming spends its server's ticket; one opened again after a declined ticket
-handshakes in full; and a declined ticket counts no failure and keeps its lookups on the
-connection. Since 2026-09-27 one more holds rule 4's alert: a handshake the session refused, not
-resumed, or a record it refused once up, leaves its connection closing, with no lookup on it, no
-query waiting unsealed, and the session's records queued. The replay drives no TLS
-configuration until step 5, when the engine speaks TLS.
+mutation nothing caught without it (docs/mutations.md TM3). The replay drives no TLS configuration
+until step 5, when the engine speaks TLS. Other checks hold rules 3, 4 and 8:
+
+- Three hold rule 8. A connection that opens resuming spends its server's ticket. One opened again
+  after a declined ticket handshakes in full. A declined ticket counts no failure, and keeps its
+  lookups on the connection.
+- Since 2026-09-27 one holds rule 4's alert. A handshake the session refused, not resumed, or a
+  record it refused once up, leaves its connection closing. No lookup is on it, no query waits
+  unsealed, and the session's records wait in its queue.
+- Since 2026-10-18 one holds rule 3 for each send from the records buffer. The buffer is lent to
+  one send at most, of whichever incarnation. A query's send that reads it is its connection's
+  head, or the slot is closed. Each operation names the buffer that it reads, so the model's
+  choice of a slot sees each send that reads one (§16 decision 47).
 
 ### The session interface, written on 2026-09-24
 

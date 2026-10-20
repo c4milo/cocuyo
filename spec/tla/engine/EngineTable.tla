@@ -172,7 +172,11 @@ NoLink == [state |-> "down", lent |-> FALSE, connectLent |-> FALSE, owes |-> FAL
 
 Query(l) == [kind |-> "query", slot |-> l]
 Records == [kind |-> "records", slot |-> 0]
-Op(kind, target) == [kind |-> kind, target |-> target, current |-> TRUE, draining |-> FALSE]
+\* An operation of the loop. `buffer` is the connection slot whose records buffer it reads, as a
+\* set of one. Over TLS each send from a connection reads one, a query's send and a send of the
+\* session's own records (TLS rule 3). Every other operation reads none.
+Op(kind, target) == [kind |-> kind, target |-> target, current |-> TRUE, draining |-> FALSE,
+                     buffer |-> {}]
 IsSend(kind) == kind \in {"send", "sendTo"}
 
 \* A socket per server, each with its receive armed; none over TLS (§21, TLS rule 9). `slotless`
@@ -343,9 +347,10 @@ Release(st, l) ==
                      !.conns[k].queue = IF waiting THEN SelectSeq(@, LAMBDA e : e # Query(l))
                                         ELSE @]
 
-\* Whether the loop still holds memory of slot k's, of whichever incarnation (rule 10, TLS rule 3).
+\* Whether the loop still holds memory of slot k's, of whichever incarnation: its address, which a
+\* connect reads, or its records buffer, which a send over TLS reads (rule 10, TLS rule 3).
 Borrowed(st, k) ==
-    \E op \in DOMAIN st.ops : op.kind \in {"connect", "sendRecords"} /\ op.target = k
+    \E op \in DOMAIN st.ops : (op.kind = "connect" /\ op.target = k) \/ op.buffer = {k}
 
 \* A slot for a new connection: the first closed one, or else the first nobody uses, closed to make
 \* room; never one the loop still borrows, and never closed to make room over TLS (TLS rule 6). In

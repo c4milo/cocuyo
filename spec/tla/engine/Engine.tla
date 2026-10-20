@@ -165,6 +165,27 @@ ToldWhenUp(st) ==
         sl.lookup = {} \/ sl.conn = {} \/ Get(sl.lookup).stage # "connectingTcp" \/
         st.conns[Get(sl.conn)].stage # "up"
 
+\* Each operation names the records buffer that it reads. Over TLS a send of the session's records
+\* reads its own connection's. A query's send reads the buffer of the connection that its query
+\* heads, or of a slot whose connection closed. In the clear no operation reads one.
+NamesItsBuffer(st, op) ==
+    IF ~Tls \/ op.kind \notin {"send", "sendRecords"} THEN op.buffer = {}
+    ELSE IF op.kind = "sendRecords" THEN op.buffer = {op.target}
+    ELSE op.buffer # {} /\ (HeadOf(st, op.target) = {} \/ op.buffer = HeadOf(st, op.target))
+
+\* A connection slot's records buffer is lent to one send at most, of whichever incarnation. A
+\* query's send that reads it is its connection's head, or the slot is closed. So no slot opens
+\* again while a send reads its buffer (TLS rule 3). Each operation names the buffer that it reads,
+\* so `Borrowed` sees each send that reads one.
+RecordsLent(st) ==
+    /\ \A k \in 0..Conns - 1 :
+          LET reads == {op \in DOMAIN st.ops : op.buffer = {k}} IN
+          /\ SumOver(reads, st.ops) <= 1
+          /\ \A op \in reads :
+                op.kind # "send" \/ HeadIs(st.conns[k].queue, Query(op.target)) \/
+                st.conns[k].stage = "closed"
+    /\ \A op \in DOMAIN st.ops : NamesItsBuffer(st, op)
+
 Checks(before, e, st) ==
     << <<"users counted", UsersCounted(st)>>, <<"attached right", AttachedRight(st)>>,
        <<"buffers lent", BuffersLent(st)>>, <<"one send a stream", OneSendAStream(st)>>,
@@ -192,7 +213,8 @@ Checks(before, e, st) ==
        <<"link end fails none", LinkEndFailsNone(before, e, st)>>,
        <<"waits connecting", WaitsConnecting(st)>>,
        <<"waits for no free slot", ~Drove(before, e) \/ WaitsForNone(st)>>,
-       <<"told when up", ToldWhenUp(st)>>, <<"slot waited for", ~st.slotless>> >>
+       <<"told when up", ToldWhenUp(st)>>, <<"slot waited for", ~st.slotless>>,
+       <<"records lent", RecordsLent(st)>> >>
 
 Broken(before, e, st) ==
     LET checks == Checks(before, e, st) IN

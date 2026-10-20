@@ -1,8 +1,9 @@
 //! What a consumer does to the engine besides asking it questions (docs/design.md §19 step 13):
 //! cancelling everything at once, taking a new configuration, binding to a local address of its
-//! own, and retiring a source port that has carried its share, or failing to. Last, the payload
-//! sizes that `init` and `reinit` refuse (docs/design.md §19 step 13, the datagram's rule 7). The
-//! rig is the one `io_sim_test.zig` builds, since these drive the same engine over the same
+//! own, and retiring a source port that has carried its share, or failing to. Then the payload
+//! sizes that `init` and `reinit` refuse (docs/design.md §19 step 13, the datagram's rule 7). Last,
+//! a `reinit` keeps a slot whose records buffer a query's send over TLS reads (§21, TLS rule 3).
+//! The rig is the one `io_sim_test.zig` builds, since these drive the same engine over the same
 //! scripted servers.
 const std = @import("std");
 const testing = std.testing;
@@ -12,6 +13,9 @@ const io = @import("io.zig");
 
 const fixtures = @import("fixtures.zig");
 const sim_test = @import("io_sim_test.zig");
+const tls_test = @import("io_tls_test.zig");
+const tcp_test = @import("io_tcp_test.zig");
+const failing_test = @import("io_tls_failing_test.zig");
 const Rig = sim_test.Rig;
 const question = sim_test.question;
 const endpoint_of = sim_test.endpoint_of;
@@ -307,6 +311,65 @@ test "reinit refuses a payload one octet past the room, and the engine keeps wha
     const handle = try rig.engine.start(question("example.com."), rig.loop.now());
     try testing.expectEqual(@as(u16, @intCast(io.constants.udp_payload_bytes_max)), try advertised(&rig.engine, handle));
     try testing.expect((try rig.until_result()).outcome == .answer);
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
+/// One server and one connection slot over the twin's TLS, the least that TLS rule 6 allows.
+const OneSlotTlsRig = sim_test.RigOfServers(io.Resolver(.{
+    .lookups = fixtures.small_lookups,
+    .group_buffers = fixtures.group_buffers,
+    .tcp_connections = 1,
+    .tls = rotor.tls.Session,
+}), 1);
+
+test "a reinit keeps a slot whose records a query's send reads until that send's event" {
+    try expect_reinit_waits(true, 68);
+    try expect_reinit_waits(false, 69);
+}
+
+/// A lookup's query over TLS is in flight when the caller cancels each lookup and calls `reinit`.
+/// The new configuration speaks TLS when `tls` says so, and the clear otherwise. The loop holds the
+/// send's event back. The slot stays closed and lent (§21, TLS rule 3), and a new lookup waits for
+/// it (the stream's rule 12). The send's event frees the slot, whatever the engine speaks then.
+fn expect_reinit_waits(tls: bool, seed: u64) !void {
+    var rig: OneSlotTlsRig = .{};
+    try tls_test.encrypt(&rig);
+    try rig.init(seed, .{.{}}, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
+    rig.use_test_contexts();
+    const first = try rig.engine.start(question("example.com."), rig.loop.now());
+    const connection = &rig.engine.connections[0];
+    try failing_test.until_query_in_flight(&rig);
+    const lent = io.tls.pending(&rig.engine, 0, connection.queue.first().?.end);
+    var sealed: [io.constants.tls_records_out_bytes]u8 = undefined;
+    @memcpy(sealed[0..lent.len], lent);
+    rig.engine.cancel_all(rig.loop.now());
+    const cancelled = rig.engine.take(rig.loop.now()) orelse return error.NoResult;
+    try testing.expectEqual(cocuyo.Error.Canceled, cancelled.outcome.failure.err);
+    _ = rig.engine.take(rig.loop.now());
+    var servers = rig.servers;
+    if (!tls) servers[0].tls = null;
+    const config: cocuyo.Config = .{ .servers = &servers, .use_tcp = !tls, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 };
+    try rig.engine.reinit(&config, rig.cache_memory.slices(), seed + 1, rig.loop.now());
+    try testing.expect(connection.state == .closed);
+    try testing.expectEqual(@as(?u16, first.index), connection.records_send);
+    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    try testing.expectEqual(@as(u16, 1), rig.engine.tcp_waiters);
+    const send = @TypeOf(rig.engine).user_data(.tcp_send, first.index);
+    var held: ?rotor.Event = null;
+    for (0..fixtures.until_rounds_max) |_| {
+        if (held != null) break;
+        try tcp_test.step_holding(&rig, send, &held);
+    }
+    // The octets the loop may still read are the ones it was lent, and the lookup still waits.
+    try testing.expect(held != null and connection.state == .closed);
+    try testing.expectEqualSlices(u8, sealed[0..lent.len], lent);
+    try testing.expectEqual(@as(u16, 1), rig.engine.tcp_waiters);
+    _ = rig.engine.apply(held.?, rig.loop.now());
+    try testing.expect(connection.state == .connecting and connection.records_send == null);
+    try testing.expectEqual(@as(u16, 0), rig.engine.tcp_waiters);
+    const result = try rig.until_result();
+    try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
 }

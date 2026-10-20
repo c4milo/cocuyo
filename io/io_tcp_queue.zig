@@ -9,7 +9,8 @@
 //! leaves the connection before any of it went out leaves the queue and gives its buffer back;
 //! one that has started is sent to its end, since half a message would break the stream for
 //! every lookup on it. Over TLS a query is sealed as it goes, and its bytes, and the session's
-//! own records, go out from the connection's records buffer.
+//! own records, go out from the connection's records buffer. Each such send lends that buffer
+//! until its final event, whichever opening made it (§21, TLS rule 3).
 //!
 //! Free functions over the engine, split out of `io_tcp.zig` so each is scored on its own.
 const std = @import("std");
@@ -58,6 +59,8 @@ pub fn pump(self: anytype, at: u8, now_ns: u64) void {
 fn submit_rest(self: anytype, at: u8, now_ns: u64) void {
     const connection = &self.connections[at];
     assert(!connection.sending);
+    // The slot was free when this opening began, and each send's event gave its buffer back.
+    assert(connection.records_send == null);
     const head = connection.queue.first().?;
     const user_data = if (head.is_query())
         @TypeOf(self.*).user_data(.tcp_send, head.slot)
@@ -66,8 +69,9 @@ fn submit_rest(self: anytype, at: u8, now_ns: u64) void {
     const operation: rotor.Operation = .send(user_data, connection.descriptor.?, rest_of(self, at, head));
     if (self.loop.submit(&.{operation}, &.{}) != 1) return tcp.fail(self, at, now_ns);
     connection.sending = true;
-    // The records buffer is the loop's until this send's final event (§21, TLS rule 3).
-    if (!head.is_query()) connection.records_in_flight = true;
+    // Over TLS each send reads the records buffer, a query's too, and the buffer is the loop's
+    // until the send's final event (§21, TLS rule 3).
+    if (tls.speaks(self)) connection.records_send = head.slot;
 }
 
 /// What is left to send of the head: a query's own bytes over a plain stream, and over TLS the
@@ -92,11 +96,19 @@ fn sending_connection(self: anytype, slot: usize) ?u8 {
 
 /// A query's send ended. A short one sends the rest; a whole one returns the buffer, tells the
 /// attempt that made it (rule 7), and lets the next go; a failed one fails the connection. One
-/// whose connection is gone only returns the buffer.
+/// whose connection is gone only returns the buffer. Over TLS the records buffer it read is its
+/// slot's own again, whichever opening sealed the query (§21, TLS rule 3).
 pub fn on_send_event(self: anytype, slot: usize, event: rotor.Event, now_ns: u64) void {
     if (comptime !@TypeOf(self.*).keeps_tcp) return;
     assert(slot < self.slots.len);
-    const at = sending_connection(self, slot) orelse return send_module.finish(self, slot, null, now_ns);
+    const lender = records_back(self, slot);
+    const at = sending_connection(self, slot) orelse {
+        // A connection that closed during the send kept its slot closed until now.
+        if (lender) |closed| assert(self.connections[closed].state == .closed);
+        return send_module.finish(self, slot, null, now_ns);
+    };
+    // Over TLS the send read the sealed records of its own connection.
+    assert(if (tls.speaks(self)) lender == at else lender == null);
     const connection = &self.connections[at];
     connection.sending = false;
     const count = event.outcome() catch 0;
@@ -112,6 +124,25 @@ pub fn on_send_event(self: anytype, slot: usize, event: rotor.Event, now_ns: u64
     after_send(self, at, now_ns);
 }
 
+/// The connection slot whose records buffer the send of `slot`'s query read, which is its own
+/// again: over TLS one slot's, of whichever opening (§21, TLS rule 3). Null over a plain stream,
+/// where the send read the lookup's own buffer. The scan reads each slot whatever the engine
+/// speaks now. After a `reinit` from TLS to the clear, a send of the old configuration still holds
+/// its slot.
+fn records_back(self: anytype, slot: usize) ?u8 {
+    assert(slot < self.slots.len);
+    var lender: ?u8 = null;
+    for (self.connections[0..], 0..) |*connection, at| {
+        const sender = connection.records_send orelse continue;
+        if (sender != slot) continue;
+        // A lookup has one send in flight at most (the stream's rule 6), so one slot lends to it.
+        assert(lender == null);
+        connection.records_send = null;
+        lender = @intCast(at);
+    }
+    return lender;
+}
+
 /// A send of a TLS session's own records ended (§21, TLS rule 3). Whichever opening made it, the
 /// slot's records buffer is the connection's own again, which may let a connection waiting on it
 /// connect again (TLS rule 8). One for an opening that is gone does nothing more.
@@ -119,8 +150,8 @@ pub fn on_records_event(self: anytype, index: usize, event: rotor.Event, now_ns:
     if (comptime !@TypeOf(self.*).keeps_tcp) return;
     const slot: u8 = @intCast(index & constants.tcp_slot_mask);
     const borrower = &self.connections[slot];
-    assert(borrower.records_in_flight);
-    borrower.records_in_flight = false;
+    assert(borrower.records_send == ring.records);
+    borrower.records_send = null;
     const at = tcp.current_of(self, index, event) orelse return tcp.connect_again(self, slot, now_ns);
     const connection = &self.connections[at];
     connection.sending = false;

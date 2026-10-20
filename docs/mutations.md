@@ -6760,3 +6760,285 @@ The 80 rows that the walks catch ran again against the new walks, and each is `C
 after the review, above).
 
 Eighteen mutations, eighteen `CAUGHT`.
+
+## A query's send lends the records buffer
+
+2026-10-18. The review of the section before found a possible defect of the engine by a read of the
+code alone. The owner ruled on the same day: prove it, and fix it if it is real. It is real, over
+TLS alone. docs/design.md §16 decision 47 records the fix with the alternatives that it beats.
+§21's TLS rule 3 holds the rule, and the stream's rule 12 names the slot that it makes pending. The
+lookup model does not change. The engine model in TLA+ does.
+
+### What the code did
+
+The line numbers in this part are those of 7b12c41.
+
+Over TLS each send of a connection reads the connection's records buffer, `tls.out`:
+
+- A query's send. `submit_rest` names the query's table slot in its `user_data`, as `tcp_send`
+  (`io/io_tcp_queue.zig:58-71`). `rest_of` hands the loop `tls.pending`, the query's sealed
+  records in `tls.out` (`io_tcp_queue.zig:75-76`, `io/io_tls.zig:334-339`). The lookup's own send
+  buffer is read only by `seal`, which gives the query to the session (`io_tls.zig:291-308`).
+- A send of the session's own records. These are its handshake flights, the records that it makes
+  of its own accord, the fatal alert of `refuse`, and a `close_notify`. Each is an entry
+  `ring.records` of the queue, which `make_records` seals into `tls.out` (`io_tls.zig:270-288`).
+  Its `user_data`, `tls_send`, names the connection slot and the opening.
+
+The marks of a lent buffer:
+
+- `send_in_flight` marks the lookup's own send buffer. `lend` sets it when the query joins the
+  queue, and the send's event clears it (`io/io_send.zig:90-94`, `:119-122`).
+- `records_in_flight` marked the records buffer. `submit_rest` set it only for an entry of the
+  session's records (`io_tcp_queue.zig:70`). `on_records_event` cleared it, of whichever opening
+  (`:122-123`).
+- `connect_in_flight` marks the address of a connect, until the connect's event.
+- `borrowed` read the last two (`io/io_tcp.zig:91-93`).
+
+A failure while a send is in flight: `fail` tells each lookup on the connection, and calls `shut`
+(`io_tcp.zig:359-382`). `shut` cancels the connection's one handle, a connect or a receive. A send
+keeps no handle. `release_all` gives back the buffer of each query that waits, but not that of the
+send in flight (`io_tcp_queue.zig:191-200`). `restart` resets each field but the opening's count,
+the marks, the address, the frame, the queue's entries and the records' octets. So `sending`
+became false, and `out_head` and `out_tail` became 0.
+
+A slot was free when it was closed and `borrowed` was false (`free_slot`, `io_tcp.zig:205-218`).
+The rule of 7b12c41 counts a slot as pending when its connection closes, or when it is closed and
+`borrowed` is true (`io/io_tcp_wait.zig:19-25`).
+
+The model at 7b12c41 held the same gap. `Borrowed` read a connect and a `sendRecords` of the slot
+(`spec/tla/engine/EngineTable.tla:347-348`). A query's send is `Op("send", l)`, whose target is the
+table slot, and it named no connection. "buffers lent" held one send for each lookup's buffer, and
+"one send a stream" one send for each queue. No check read the records buffer of a closed slot.
+
+Over plain TCP a query's send reads the lookup's own buffer (`rest_of`). `send_in_flight` keeps it
+lent past the connection, and `release_all` keeps the one in flight. The event of a send whose
+connection is gone gives it back (`on_send_event`). A new opening of the connection slot writes
+no lookup's buffer. A next send of the same lookup is held in `held_buffers` until the buffer comes
+back (`ask`, `io_send.zig:42-56`). So plain TCP holds the bound, and a new test shows it.
+
+### The sequence
+
+Over TLS, with one server and one slot:
+
+1. The connection is up. A lookup's query is sealed into `tls.out` from offset 0, and its send is
+   in flight. `records_in_flight` stays false.
+2. The peer resets the connection before the send ends. `fail` shuts the connection, and the slot
+   is closed with `borrowed` false.
+3. The lookup hears `on_tcp_failed`, and its second pass asks for a stream in the drive of the same
+   event. `free_slot` takes the slot, and `connect` opens it again.
+4. At the connect's event, `begin` starts the new session. `make_records` calls `take_out`, which
+   writes the hello into `tls.out` from offset 0.
+5. The query's send event comes later. Until then the loop may read the octets that it was lent.
+
+The test of the twin holds the send's event back, and reads the octets that the send was lent.
+Before the fix their first five changed:
+
+- lent: `17 03 03 00 82`, the header of an application data record of 130 octets;
+- read after the hello: `16 03 03 00 01`, the header of a handshake record of 1 octet, then `00`.
+
+So from step 4 the loop reads the hello's record, and then 129 octets of the query's record. A peer
+that reads them takes the first five of those octets for the header of the next record. The twin's
+send takes its octets when it is submitted, so no wrong octet reached the twin's server. rotor's
+contract lets the loop read them until the send's final event (rotor decision 5, rule 3).
+
+### The design and the model
+
+- Each send from the records buffer marks the slot, a query's send and a send of the session's own
+  records. `records_send` replaces `records_in_flight`, and names the send: the query's table slot,
+  or `ring.records`. `submit_rest` sets it over TLS, and only the send's final event clears it.
+- A query's send keeps its `user_data`. Its event finds the slot that it read by the mark, after
+  its connection closed too (`records_back` in `io_tcp_queue.zig`).
+- `borrowed` reads the mark, so a closed slot whose buffer a query's send reads is not free. It is
+  pending, and a lookup that finds no free slot waits for it (the stream's rule 12).
+- `take_out` asserts that the buffer is not lent to a send of another opening before it writes
+  (`writable` in `io_tls.zig`, named `lent_to_head` until the review). `submit_rest` asserts that
+  no send reads the buffer when it starts one. `on_send_event` asserts that a send over TLS read
+  its own connection's buffer. It also asserts that a slot whose connection closed during the send
+  is still closed at the send's event.
+- The connection does not grow: an optional `u16` takes the room of the flag and its padding. A
+  connection is 67,960 octets in the clear and 106,600 over the twin's TLS, before and after.
+- The model gives each operation `buffer`, the connection slot whose records buffer it reads.
+  `Borrowed` reads it, and the check "records lent" holds the rule (spec/README.md). `mutants/TB5`
+  puts back `Borrowed` as it was. TLC finds "records lent" broken at the seventh state of its
+  counterexample.
+
+No named limit and no entry point change. `Connection` is the engine's own type, and no consumer
+reads its fields.
+
+### The tests, before the code
+
+The test of the defect came first, `io_tls_failing_test.zig`: a second pass waits for a closed slot
+whose query's records the loop still holds. One server and one slot over TLS. The connection is up
+with a query's send in flight, and the peer resets it. The test holds that send's event back, steps
+the twin until the slot's connection handshakes again, and reads the octets that the send was lent.
+On 7b12c41 it failed at that read, after 174 tests passed: "slices differ. first difference occurs
+at index 0 (0x0)". Of the 135 octets, `17 03 03 00 82` had become `16 03 03 00 01`. With the fix
+the slot stays closed and borrowed, and the lookup waits. The send's event gives the buffer back,
+the drive's end admits the lookup, and the server answers it on a new connection.
+
+One test came with the code, `io_tcp_test.zig`: a new opening in the slot of a connection that
+failed mid-send writes none of that send's octets. In the clear the next server's connection takes
+the slot at once. The first lookup's next query waits, held, until the send's event, and the
+octets that the send was lent stay as they were. It shows the bound over plain TCP, and passes on
+7b12c41 as after the fix. `step_holding`, which holds an event back, is shared by both tests.
+
+### What ran on the first form
+
+- The test of the defect on 7b12c41: it failed, as above. Then the model, then the code, then
+  `zig build test-io`: 176 tests pass, the two new ones among them. The test of plain TCP passes
+  on a copy of 7b12c41 too.
+- `zig build tla` over each configuration and mutant, the nightly ones among them: 15
+  configurations hold, and 38 mutants are violated, TB5 among them. It took 2 hours 29 minutes
+  while other work ran. Three configurations over TLS changed their counts (spec/README.md):
+
+  | Configuration | Before | Now |
+  | --- | --- | --- |
+  | `Engine_tls_1_2_bound_2_1` | 294,898 | 297,743 |
+  | `Engine_tls_1_2_bound_3_1` | 11,259,959 | 11,165,668 |
+  | `Engine_tls_2_2_bound_2_1` | 28,446,316 | 28,696,711 |
+
+  Each other configuration holds the states that it held before.
+- `zig build tla -- walks 1 10 41`, the short walks: none changed.
+- `zig build tla -- walks 1 2000 201` with the fifteen picks, the full run, 880 MB. The picks did
+  not change. 16 of its 26,000 walks changed, all over TLS. In each, a connection failed while its
+  query's send was in flight. The model opened the same slot again there before, and now opens the
+  other.
+- `zig build spec-engine`: the committed short walks and picks are the ones that TLC writes. The
+  full run agrees with the engine over 5,226,000 events in 26,000 walks.
+- `zig build mutations -- engine --walks` that full run, over the six TB rows of the code and the
+  80 rows that the walks catch. Each of the 86 is `CAUGHT`, in 41 minutes. The short walks catch
+  each row that they caught before. For each row that they miss, the tool names the same walk as
+  before, so the fifteen picks of `engine_picks` in `build/spec.zig` stay.
+- ET9 and CR4 were written again, since their edits named `records_in_flight`. Each breaks its
+  rule as before, and each is `CAUGHT` by the short walks.
+- Each TB row of the code ran by hand once too, its step's output read, and each file put back.
+  The texts in the rows below come from there.
+
+On the first form, `zig build test` passed 1,121 tests of 1,121, where 1,119 passed before the
+change. `zig build lint` and `zig build examples` passed too.
+
+### What the review found
+
+The review of the change found one fault that had to be fixed, and eight more:
+
+- The model's check "records lent" read `buffer`, which only `SendFrom` writes, and TB5 replaces
+  only `Borrowed`. A mutant that puts back the `Pump` of 7b12c41 held under TLC, over 294,898
+  states, the count before the change. So the model did not require that a query's send lends the
+  buffer. Now the check also requires that each operation names the buffer that it reads.
+  `mutants/TB8` is that mutant, and TLC finds "records lent" broken at its sixth state.
+- TLS rule 3 grew to eleven sentences, and two paragraphs of §16 decision 47 to seven and eight.
+  The rule now lists its two kinds of send, and its history is in the decision alone. The two
+  paragraphs are split.
+- Three new lines of prose passed 100 columns. They are wrapped now.
+- The stream's rule 12 names a query's send in its list, but did not cite decision 47. It does now.
+- No committed walk drove the new path, so the replay of the gate never compared the model and the
+  code there. TB9 breaks the engine as TB4 does, and the walks must catch it. The full run caught
+  it first at walk 16271, which is the sixteenth pick now (spec/README.md).
+- `lent_to_head` was true when no send read the buffer, so its name said the opposite of its doc.
+  It is `writable` now. `take_out` also asserts that a write goes behind the records of the head's
+  send. And it asserts that records move to the buffer's start only while no send reads them.
+  TB12 found no test that made records while a send from inside the buffer was in flight, so a
+  test does now.
+- `records_back` had no assertion. It now asserts the slot that it is handed, and that one
+  connection slot alone holds a lookup's mark. The review also asked for a guard that skips the
+  scan in the clear. That guard is wrong. A `reinit` from TLS to the clear may come while a query's
+  send is in flight. The guard would then leave that send's mark for ever, and the slot would never
+  free. Decision 47 rejects the guard, and TB11 puts it in.
+- No test covered a `reinit` while a query's send over TLS is in flight. A test does now, once to
+  TLS and once to the clear, and TB10 breaks what it covers.
+- Decision 47 did not say what bounds the wait. Nothing in the engine does. A send keeps no
+  handle, so a send that stalls after its connection failed keeps its slot pending until the loop
+  ends it. The decision says so now, beside §17 question 55.
+
+### The tests after the review
+
+- `io_tls_failing_test.zig`, a second pass opens the other slot while a query's send reads the
+  first one's records. One server and two slots over TLS. The peer resets the first connection
+  while a query's send is in flight, and the second pass connects in the other slot at once. Its
+  query waits, held, until the send's event. It is the twin's form of walk 16271.
+- `io_tls_failing_test.zig`, records the session makes while a send is in flight go behind it,
+  and move none of it. It came after TB12 was `NOT CAUGHT`. The session makes records during a
+  query's send, and again during the send of those records, which starts inside the buffer. The
+  octets in flight stay where they were.
+- `io_lifecycle_test.zig`, a reinit keeps a slot whose records a query's send reads until that
+  send's event. The caller cancels each lookup and calls `reinit`, once to TLS and once to the
+  clear. The slot stays closed and lent, and a new lookup waits for it. The send's event frees it.
+
+Each test covers code that the change made right already, so none failed against the code. Two
+faults of the tests themselves came out at their first run. A `reinit` needs the cancelled lookup
+taken twice, and the second connection may still send its own records once it is up.
+
+One check ran by hand, with TB14 applied. The test of the other slot was changed in place to wait
+for the second connection's send, with its checks of the wait taken out. Then the first send's
+event tripped the assertion of `records_back` that one slot lends to a lookup: "reached
+unreachable code" at `io_tcp_queue.zig:138`. The test as committed catches TB14 before that, at
+its check that the query waits. The file was put back.
+
+### What ran after the review
+
+- `zig build tla -- spec/tla/engine/mutants/TB8.cfg` on the check as it was: "expected violated,
+  found holds", over 294,898 states. On the check with its second part, TB8 is violated after 771
+  distinct states and TB5 after 1,869. `Engine_tls_1_2_bound_2_1` holds 297,743 states, as before
+  the review. TLC by hand finds "records lent" broken at the sixth state of TB8 and at the seventh
+  of TB5.
+- `zig build tla -- walks 1 10 41` writes the octets of `engine_gate.txt`. `zig build tla -- walks
+  1 2000 201` writes the full run of the first form, octet for octet by SHA-256. So the second
+  part of the check changes no walk.
+- `zig build mutations -- engine --walks` that full run, TB9 alone: `NOT CAUGHT`, as it must be.
+  The short walks and the picks missed it, and the full run caught it at walk 16271. That walk
+  joined `engine_picks` in `build/spec.zig`, and `engine_picks.txt` holds the sixteen walks.
+- Each new TB row of the code ran by hand once, its step's output read, and each file put back.
+  TB1 to TB4, TB6 and TB7 ran by hand again, since the new tests catch them too. The texts in the
+  rows below come from there.
+- `zig build mutations -- engine --walks` that full run, over the eleven TB rows of the code and
+  the 81 rows that the walks catch, TB9 among them. Each of the 92 is `CAUGHT`, in 1 hour 16
+  minutes while other work ran. The short walks catch each row that they caught before. For the
+  rows that they miss, the tool names the sixteen picks, and the picks catch TB9 at walk 16271.
+- `zig build spec-engine`: the committed short walks and the sixteen picks are the ones that TLC
+  writes. The full run agrees with the engine over 5,226,000 events in 26,000 walks. It took 14
+  minutes 41 seconds while other work ran.
+- `zig build tla` over each configuration and mutant, the nightly ones among them: the 15
+  configurations hold and the 39 mutants are violated, as each header expects. TB5 and TB8 are
+  among the 39. The run took 5 hours 43 minutes, from 2026-10-19 to 2026-10-20.
+
+Over the final tree:
+
+- `zig build test`: 1,124 tests pass of 1,124, the three new ones among them.
+- `zig build lint`: each function scores 15 or less.
+- `zig build examples` builds each example.
+- The live checks and the interop check need the network or dnsproxy, and did not run.
+
+### The instruction counts
+
+`bench/count.zig` imports `cocuyo` and `wire` alone, and no counted case runs the engine. This
+change touches no file under `src/`. So no count can move, and `bench/instructions.zon` did not
+change.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| TB1 | a query's send over TLS marks no records buffer, as until 2026-10-18 | `submit_rest` marks each send over TLS | 23 tests over TLS trip the assertion of `on_send_event` that a send read its own connection's buffer: "reached unreachable code"; three tests fail, the test of the defect among them, "slices differ", and the test of a reinit, "expected 0, found null", `test-io` | CAUGHT |
+| TB2 | a query's send event leaves its records buffer lent | `records_back` clears the mark | 23 tests over TLS crash, 21 of them at the assertion of `take_out`: "reached unreachable code"; three tests fail, the test of the defect at its check that the mark is gone among them, `test-io` | CAUGHT |
+| TB3 | a closed slot whose records a query's send reads is free, as until 2026-10-18 | `borrowed` reads the mark of a query's send | the test of the defect and the test of the other slot trip the assertion of `take_out` when the new opening writes its hello: "reached unreachable code"; the test of a reinit, "expected 1, found 0", `test-io` | CAUGHT |
+| TB4 | as TB3, and no assertion guards the records buffer | the test reads the octets that the send was lent | three tests: the test of the defect, "slices differ. first difference occurs at index 0 (0x0)"; the test of the other slot, at its check that the second connection is up; the test of a reinit, "expected 1, found 0", `test-io` | CAUGHT |
+| TB5 | the model's `Borrowed` reads no query's send, as until 2026-10-18 | the model's `Borrowed` | TLC's check "records lent" on `mutants/TB5`, over TLS, at the seventh state of its counterexample, `zig build tla` | CAUGHT |
+| TB6 | a new opening forgets that a send reads the slot's records buffer | `restart` keeps the mark | six tests: the test of a reset slot, "expected 3, found null"; the test of a reinit, "expected 0, found null"; the test of the defect, "slices differ"; three more TLS tests of a slot that the loop holds, `test-io` | CAUGHT |
+| TB7 | a closed slot whose records a query's send reads is not pending | `pending` reads the mark | the test of the defect and the test of a reinit: "expected 1, found 0", `test-io` | CAUGHT |
+| TB8 | the model's `Pump` names no buffer for a query's send, as until 2026-10-18 | "records lent" requires that each operation names the buffer that it reads | TLC's check "records lent" on `mutants/TB8`, over TLS, at the sixth state of its counterexample, `zig build tla`. On the check before the review TLC found no error | CAUGHT |
+| TB9 | as TB4, against the walks | the replay of a walk in which a connection fails during a query's send | the picked walks, at walk 16271 | CAUGHT |
+| TB10 | a reinit writes each connection whole, its mark among it | `close_all` keeps the mark through `restart` | the test of a reinit: "expected 0, found null", `test-io` | CAUGHT |
+| TB11 | a query's send event looks for its mark only over TLS, the guard that the review asked for | `records_back` reads each slot whatever the engine speaks | the test of a reinit, in the clear, at its check that the slot connects after the send's event, `test-io` | CAUGHT |
+| TB12 | the records move to the buffer's start while a send reads them | `take_out` moves records only while no send is in flight | the test of records made during a send trips the new assertion of `take_out` before the move: "reached unreachable code", `test-io`. Before that test no test caught it | CAUGHT |
+| TB13 | a sealed query leaves the buffer's tail in front of its records | `seal` moves `out_tail` behind the query | the test of records made during a send trips the new assertion of `take_out` that a write goes behind the head's records; 25 tests over TLS trip the assertion of `sent_through`: "reached unreachable code", `test-io` | CAUGHT |
+| TB14 | a lookup's next query goes out while its send is in flight | `ask` holds the next send (the stream's rule 6) | three tests: the test of plain TCP and the test of the other slot, at their checks that the query waits; the test of `reinit` in the clear trips the assertion of `finish`, "reached unreachable code", `test-io` | CAUGHT |
+
+TB4 removes both assertions that guard the buffer, the one of `take_out` and the one of
+`submit_rest`. So it shows that the test of the defect reads the overwrite itself, and catches the
+defect with no assertion. TB9 has the same edits, and shows that the replay of walk 16271 catches
+it too.
+
+The 80 rows that the walks catch ran again against the full run and the sixteen picks, beside
+TB9, and each is `CAUGHT` (What ran after the review, above).
+
+Fourteen mutations, fourteen `CAUGHT`.

@@ -81,15 +81,17 @@ pub fn Connection(comptime message_bytes: u32, comptime lookups: u16, comptime T
         queue: queue_module.Queue(lookups + constants.tls_records_entries_max) = .{},
         sent_bytes: u16 = 0,
         sending: bool = false,
-        /// Whether a send of the TLS session's records is in flight from this slot, of whichever
-        /// opening: the records buffer is the loop's until its event, so the slot is not opened
-        /// again (§21, TLS rule 3). It outlives the connection, as `connect_in_flight` does.
-        records_in_flight: bool = false,
+        /// The send in flight from this slot's TLS records buffer, of whichever opening. It names
+        /// the table slot of a query whose sealed records it sends, or `records` of
+        /// `io_tcp_queue_ring.zig` for the session's own records. The buffer is the loop's until
+        /// that send's final event, so the slot is not opened again (§21, TLS rule 3). It outlives
+        /// the connection, as `connect_in_flight` does.
+        records_send: ?u16 = null,
         tls: tls_module.State(Tls) = .{},
 
         /// Whether the loop still holds memory of the slot's, of whichever opening.
         pub fn borrowed(self: *const Self) bool {
-            return self.connect_in_flight or self.records_in_flight;
+            return self.connect_in_flight or self.records_send != null;
         }
 
         /// A new opening of the slot: every field back to its default but what outlives an
@@ -101,7 +103,7 @@ pub fn Connection(comptime message_bytes: u32, comptime lookups: u16, comptime T
         pub fn restart(self: *Self) void {
             tls_module.reset(self);
             reset.defaults_except(@TypeOf(self.queue), &self.queue, &.{"items"});
-            reset.defaults_except(Self, self, &.{ "incarnation", "connect_in_flight", "records_in_flight", "address", "frame", "queue", "tls" });
+            reset.defaults_except(Self, self, &.{ "incarnation", "connect_in_flight", "records_send", "address", "frame", "queue", "tls" });
         }
     };
 }

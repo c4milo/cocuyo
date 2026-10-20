@@ -2,8 +2,10 @@
 //! more room than the twin's: a session that cannot start, seal or open, or whose peer closes,
 //! fails over to the next server; the records buffer holds a session that asks for all of it, and
 //! refuses one that asks for more (docs/design.md §21, TLS rule 3); a queue holds two entries of
-//! the records a session makes of its own accord beside each lookup's query (TLS rule 2); a reset
-//! empties the state.
+//! the records a session makes of its own accord beside each lookup's query (TLS rule 2), and
+//! such records move none of what a send reads (TLS rule 3); a reset empties the state. A second
+//! pass waits for a slot whose records buffer the loop holds, a query's send among the sends that
+//! hold it (TLS rule 3). Or it opens another slot.
 //! Split from `io_tls_test.zig` by the file-length rule.
 const std = @import("std");
 const testing = std.testing;
@@ -15,6 +17,7 @@ const tcp = @import("io_tcp.zig");
 const fixtures = @import("fixtures.zig");
 const sim_test = @import("io_sim_test.zig");
 const tls_test = @import("io_tls_test.zig");
+const tcp_test = @import("io_tcp_test.zig");
 const question = sim_test.question;
 
 /// Where the failing session fails. A TLS stack can fail to start or to seal. It can refuse a
@@ -227,6 +230,61 @@ test "a second pass waits for a closed slot whose records the loop still holds" 
     try rig.deinit();
 }
 
+test "a second pass waits for a closed slot whose query's records the loop still holds" {
+    // One server and one slot. The connection is up, and a query's send is in flight. That send
+    // reads the query's sealed records from the connection's records buffer. The peer resets the
+    // connection before the send has ended, and the connection closes at once. The loop holds the
+    // records buffer until the send's event (TLS rule 3). So the lookup's second pass waits for the
+    // slot, and no new opening writes its hello there. After the event, the server answers the
+    // second pass on a new connection (the stream's rule 12).
+    var rig: OneSlotRig = .{};
+    try tls_test.encrypt(&rig);
+    try rig.init(65, .{.{}}, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
+    rig.use_test_contexts();
+    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const connection = &rig.engine.connections[0];
+    try until_query_in_flight(&rig);
+    const lent = io.tls.pending(&rig.engine, 0, connection.queue.first().?.end);
+    var sealed: [io.constants.tls_records_out_bytes]u8 = undefined;
+    @memcpy(sealed[0..lent.len], lent);
+    reset_first(&rig);
+    // The loop holds the send's event back, as a slow send's end comes late.
+    const send = @TypeOf(rig.engine).user_data(.tcp_send, handle.index);
+    var held: ?rotor.Event = null;
+    for (0..fixtures.until_rounds_max) |_| {
+        if (connection.state == .handshaking) break;
+        try tcp_test.step_holding(&rig, send, &held);
+    }
+    try testing.expect(held != null);
+    // The octets the loop may still read are the ones it was lent.
+    try testing.expectEqualSlices(u8, sealed[0..lent.len], lent);
+    try testing.expect(connection.state == .closed and connection.borrowed());
+    try testing.expectEqual(@as(u16, 1), rig.engine.tcp_waiters);
+    // The reset counted one failure, and the pass that waits counts none.
+    try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(0));
+    // The send's event gives the buffer back, and the drive's end admits the lookup. The new
+    // opening's connect is in flight.
+    _ = rig.engine.apply(held.?, rig.loop.now());
+    try testing.expect(connection.state == .connecting and connection.records_send == null);
+    try testing.expectEqual(@as(u16, 0), rig.engine.tcp_waiters);
+    const result = try rig.until_result();
+    try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
+    try testing.expect(rig.loop.now() < rig.config.timeout_ns);
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
+/// Steps the rig until the first slot's connection is up with a query's send in flight.
+pub fn until_query_in_flight(rig: anytype) !void {
+    const connection = &rig.engine.connections[0];
+    for (0..fixtures.until_rounds_max) |_| {
+        const head = connection.queue.first();
+        if (connection.state == .up and connection.sending and head != null and head.?.is_query()) return;
+        _ = try rig.step(fixtures.channel_read_ns);
+    }
+    return error.NotSent;
+}
+
 /// Steps the rig until the first slot's connection handshakes with its hello's send in flight.
 fn until_hello_in_flight(rig: anytype) !void {
     const connection = &rig.engine.connections[0];
@@ -234,7 +292,7 @@ fn until_hello_in_flight(rig: anytype) !void {
         if (connection.state == .handshaking) break;
         _ = try rig.step(fixtures.wait_ns);
     }
-    try testing.expect(connection.state == .handshaking and connection.records_in_flight);
+    try testing.expect(connection.state == .handshaking and connection.records_send != null);
 }
 
 /// The peer resets the first slot's connection.
@@ -271,6 +329,44 @@ test "a second pass whose connect the loop refuses is told at once, though a slo
     const failure: ?cocuyo.Error = if (result.outcome == .failure) result.outcome.failure.err else null;
     try testing.expectEqual(@as(?cocuyo.Error, cocuyo.Error.AllServersFailed), failure);
     try testing.expectEqual(@as(?cocuyo.Cause, .connect), result.outcome.failure.cause);
+    try rig.deinit();
+}
+
+test "a second pass opens the other slot while a query's send reads the first one's records" {
+    // One server and two slots. The peer resets the first connection while a query's send is in
+    // flight. The loop holds that slot's records buffer until the send's event (TLS rule 3). The
+    // second pass opens the other slot at once. Its query waits, held, until the same event gives
+    // the lookup's buffer back (the stream's rule 6). Then it goes out on the new connection.
+    var rig: TwoSlotRig = .{};
+    try tls_test.encrypt(&rig);
+    try rig.init(66, .{.{}}, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
+    rig.use_test_contexts();
+    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const first = &rig.engine.connections[0];
+    const second = &rig.engine.connections[1];
+    try until_query_in_flight(&rig);
+    const lent = io.tls.pending(&rig.engine, 0, first.queue.first().?.end);
+    var sealed: [io.constants.tls_records_out_bytes]u8 = undefined;
+    @memcpy(sealed[0..lent.len], lent);
+    reset_first(&rig);
+    const send = @TypeOf(rig.engine).user_data(.tcp_send, handle.index);
+    var held: ?rotor.Event = null;
+    for (0..fixtures.until_rounds_max) |_| {
+        if (rig.engine.held[handle.index] != null) break;
+        try tcp_test.step_holding(&rig, send, &held);
+    }
+    try testing.expect(held != null and rig.engine.held[handle.index] != null);
+    try testing.expect(second.state == .up and !second.queue.contains(handle.index));
+    try testing.expect(first.state == .closed);
+    try testing.expectEqual(@as(?u16, handle.index), first.records_send);
+    try testing.expectEqualSlices(u8, sealed[0..lent.len], lent);
+    // The send's event frees the first slot, and the held query joins the second connection.
+    _ = rig.engine.apply(held.?, rig.loop.now());
+    try testing.expect(first.records_send == null and second.queue.contains(handle.index));
+    const result = try rig.until_result();
+    try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
+    try testing.expect(rig.loop.now() < rig.config.timeout_ns);
+    _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
 }
 
@@ -334,6 +430,33 @@ test "a queue holds a query for each lookup and two entries of the records the s
     }
     try testing.expectEqual(fixtures.small_lookups + io.constants.tls_records_entries_max, connection.queue.count);
     for (queued_names) |_| try testing.expect((try rig.until_result()).outcome == .answer);
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
+test "records the session makes while a send is in flight go behind it, and move none of it" {
+    // Sealed octets that the loop holds never move (TLS rule 3). The session makes records while a
+    // query's send is in flight, and they wait behind it. Once the query has gone, they are in
+    // flight from inside the buffer. The session makes records again, and these go behind them.
+    var rig: FailingRig = .{};
+    try tls_test.start(&rig, 67, .{ .{}, .{} });
+    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    const connection = &rig.engine.connections[0];
+    defer unasked = 0;
+    try until_query_in_flight(&rig);
+    unasked = 1;
+    try testing.expect(io.tls.make_records(&rig.engine, 0, rig.loop.now()));
+    for (0..fixtures.until_rounds_max) |_| {
+        const head = connection.queue.first() orelse break;
+        if (connection.tls.out_head > 0 and !head.is_query()) break;
+        _ = try rig.step(fixtures.channel_read_ns);
+    }
+    try testing.expect(connection.sending and connection.tls.out_head > 0);
+    const lent = io.tls.pending(&rig.engine, 0, connection.queue.first().?.end);
+    unasked = 1;
+    try testing.expect(io.tls.make_records(&rig.engine, 0, rig.loop.now()));
+    try testing.expectEqual(lent.ptr, io.tls.pending(&rig.engine, 0, connection.queue.first().?.end).ptr);
+    try testing.expect((try rig.until_result()).outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
 }

@@ -168,6 +168,9 @@ event, and the channel's rules below:
   has started going out.
 - A connect or a send of records that is gone keeps its slot closed until its final event, since
   it borrows the slot's memory until then.
+- A connection slot's records buffer is lent to one send at most, of whichever incarnation. A
+  query's send that reads it is its connection's head, or the slot is closed. Over TLS each send
+  names the buffer that it reads, and in the clear no operation names one.
 - The sealed entries lead each queue, only its head among them a query, and something is sealed
   only while a send is in flight: records go out in the order they were sealed.
 - No query waits on a connection that is not up.
@@ -360,7 +363,7 @@ Three choices make TLC count what the Lean walker counts:
   and checked, and has no successor, as in the Lean walker; TLC leaves a state that breaks a
   `CONSTRAINT` out, and the check on the event that reached it with it. So every configuration
   says `CHECK_DEADLOCK FALSE`.
-- Fourteen of the forty-one checks read the event or the state before it, which a TLC
+- Fourteen of the forty-two checks read the event or the state before it, which a TLC
   invariant cannot. So `broken` holds the names of the checks the last event broke, and `Clean`
   asks it be empty. In a model that keeps its rules it always is, so it splits no state.
 
@@ -600,6 +603,59 @@ walk that catches each row that they miss, and those fifteen walks are the picks
 fourteen picks before the change, walks 8025, 8241 and 12004 came in, and walks 13182 and 17842
 left. Each of the 24 rows that the picked walks catch is `CAUGHT` by the new picks.
 
+On 2026-10-18 a query's send began to lend its connection's records buffer, as a send of the
+session's own records does (docs/design.md §21, TLS rule 3; §16 decision 47). Over TLS a query is
+sealed into that buffer, and its send reads it there. Until then only a send of the session's own
+records borrowed the slot. So a connection that failed during a query's send left its slot free.
+A new opening then wrote its hello over the octets that the loop could still read. The model held
+the same gap, and the change came to the model first:
+
+- Each operation holds `buffer`, the connection slot whose records buffer it reads, as a set of
+  one. Over TLS `Pump` gives each send its connection: a query's send and a send of the session's
+  records. In the clear a query's send reads its lookup's own buffer, and every operation holds
+  none. So no configuration in the clear changes.
+- `Borrowed` reads a connect of the slot, and each operation whose `buffer` names the slot.
+- The check "records lent" holds the rule. A slot's records buffer is lent to one send at most, of
+  whichever incarnation. A query's send that reads it is its connection's head, or the slot is
+  closed.
+- The same check requires that each operation names the buffer that it reads. Over TLS a send of
+  the session's records names its own connection. A query's send names the connection that its
+  query heads, or a closed slot. In the clear no operation names one. The review of the change
+  added this part, since without it the check read only what `Pump` wrote.
+- `mutants/TB5` puts back `Borrowed` as it was. TLC finds "records lent" broken at the seventh
+  state of its counterexample. A connection fails while its query's send is in flight, and the
+  lookup's next pass opens the slot again.
+- `mutants/TB8` puts back `Pump` as it was, where a query's send names no buffer. Before the review
+  TLC found no error in it over 294,898 states, the count before the change. Now TLC finds "records
+  lent" broken at the sixth state, where the query's send names no buffer.
+
+TLC checked each configuration on 2026-10-18 on an Apple M1 Pro while other work ran:
+
+| Configuration | Before | Now |
+| --- | --- | --- |
+| `Engine_tls_1_2_bound_2_1` | 294,898 | 297,743 |
+| `Engine_tls_1_2_bound_3_1` | 11,259,959 | 11,165,668 |
+| `Engine_tls_2_2_bound_2_1` | 28,446,316 | 28,696,711 |
+
+A closed slot that a query's send borrows is pending now. So a lookup's next pass opens the other
+slot, or waits, where it opened the same slot again before. That adds states of a slot that frees
+at the send's event, and removes states of a second opening beside the send. The largest
+configuration CI checks once a day now holds 28,696,711 states, `Engine_tls_2_2_bound_2_1`.
+
+The configurations in the clear, of DoQ and of DoH hold the states that they held before. The
+second part of the check adds no state and changes no walk. The short walks did not change. Of
+the full run's 26,000 walks, 16 changed, all over TLS: 2 with one lookup and 14 with two. In each
+a connection failed while its query's send was in flight, and that send has not ended. The model
+opened the same slot again there before, and now opens the other. The replay of the full run
+agrees with the engine over 5,226,000 events.
+
+None of the fifteen picks was among the 16 walks, so the replay of the gate did not reach the new
+path. The row TB9 breaks the engine as TB4 does, with no assertion to help, and the walks must
+catch it. The short walks and the picks missed it, and the full run caught it first at walk 16271.
+That walk has one lookup and two servers over TLS. At its event 100 the connection fails while
+its query's send is in flight, and the lookup's next pass connects in the other slot. So walk
+16271 is the sixteenth pick, and the replay of the gate now drives that path.
+
 ### The walks TLC takes
 
 `tla/engine/EngineTrace.tla` runs the specification in TLC's simulation mode, which takes seeded
@@ -650,7 +706,7 @@ compares the walk's whole state after each.
   It also
   replays two sets of engine walks TLC wrote. `tools/spec_replay/engine_gate.txt` holds ten walks
   of forty events in each of the thirteen engine configurations.
-  `tools/spec_replay/engine_picks.txt` holds fifteen walks of the full run, which `engine_picks` in
+  `tools/spec_replay/engine_picks.txt` holds sixteen walks of the full run, which `engine_picks` in
   `build/spec.zig` names: each is where the full run caught a mutation of the engine that the
   short walks miss (docs/mutations.md). The gate also holds `tools/spec_replay/walk_gate.txt`, the
   forward walk with two candidates and both families and every reverse configuration. It needs

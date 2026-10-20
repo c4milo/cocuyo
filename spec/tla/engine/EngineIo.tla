@@ -93,6 +93,12 @@ TendConns(st) == TendConnsFrom(st, 0)
 -------------------------------------------------------------------------------
 \* Sends.
 
+\* A send from connection k. Over TLS it reads k's records buffer until its final event, whether it
+\* sends a query or the session's records (TLS rules 2 and 3). In the clear a query's send reads
+\* its lookup's own buffer.
+SendFrom(kind, target, k) ==
+    IF Tls THEN [Op(kind, target) EXCEPT !.buffer = {k}] ELSE Op(kind, target)
+
 \* Sends the head of connection k's queue unless a send is in flight; a query is sealed as it goes
 \* (TLS rule 2), and a send the loop refuses fails the connection (the stream's rule 9).
 Pump(st, k) ==
@@ -101,8 +107,8 @@ Pump(st, k) ==
     ELSE
     LET entry == Head(st.conns[k].queue) IN
     IF entry.kind = "query"
-    THEN [[st EXCEPT !.conns[k].sealed = 1] EXCEPT !.ops = Add(@, Op("send", entry.slot))]
-    ELSE [st EXCEPT !.ops = Add(@, Op("sendRecords", k))]
+    THEN [[st EXCEPT !.conns[k].sealed = 1] EXCEPT !.ops = Add(@, SendFrom("send", entry.slot, k))]
+    ELSE [st EXCEPT !.ops = Add(@, SendFrom("sendRecords", k, k))]
 
 \* The session made records: sealed now, after what is sealed and ahead of every query that is not;
 \* behind an entry of the session's own records that has not started, they join it (TLS rule 2).

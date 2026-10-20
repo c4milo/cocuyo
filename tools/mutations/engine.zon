@@ -151,7 +151,7 @@
         .id = "ET9",
         .what = "a records send's end leaves its slot borrowed",
         .edits = .{
-            .{ .file = "io/io_tcp_queue.zig", .old = "    assert(borrower.records_in_flight);\n    borrower.records_in_flight = false;", .new = "    assert(borrower.records_in_flight);" },
+            .{ .file = "io/io_tcp_queue.zig", .old = "    assert(borrower.records_send == ring.records);\n    borrower.records_send = null;", .new = "    assert(borrower.records_send == ring.records);" },
         },
         .caught_by = .short_walks,
     },
@@ -450,7 +450,7 @@
         .id = "CR4",
         .what = "closing a slot forgets its connect is in flight",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "&.{ \"incarnation\", \"connect_in_flight\", \"records_in_flight\",", .new = "&.{ \"incarnation\", \"records_in_flight\"," },
+            .{ .file = "io/io_tcp.zig", .old = "&.{ \"incarnation\", \"connect_in_flight\", \"records_send\",", .new = "&.{ \"incarnation\", \"records_send\"," },
         },
         .caught_by = .short_walks,
     },
@@ -2756,6 +2756,120 @@
         .what = "a lookup that the drive's end cannot place stops its wait",
         .edits = .{
             .{ .file = "io/io_tcp_wait.zig", .old = "        const at = tcp.attach(self, index, lookup.server_slot(), now_ns) catch continue;\n", .new = "        const at = tcp.attach(self, index, lookup.server_slot(), now_ns) catch {\n            unwait(self, index);\n            continue;\n        };\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A query's send lends the records buffer",
+        .id = "TB1",
+        .what = "a query's send over TLS marks no records buffer, as until 2026-10-18",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "    if (tls.speaks(self)) connection.records_send = head.slot;\n", .new = "    if (tls.speaks(self) and !head.is_query()) connection.records_send = head.slot;\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A query's send lends the records buffer",
+        .id = "TB2",
+        .what = "a query's send event leaves its records buffer lent",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "        connection.records_send = null;\n        lender = @intCast(at);", .new = "        lender = @intCast(at);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A query's send lends the records buffer",
+        .id = "TB3",
+        .what = "a closed slot whose records a query's send reads is free, as until 2026-10-18",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "            return self.connect_in_flight or self.records_send != null;", .new = "            return self.connect_in_flight or self.records_send == std.math.maxInt(u16);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A query's send lends the records buffer",
+        .id = "TB4",
+        .what = "as TB3, and no assertion guards the records buffer",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "            return self.connect_in_flight or self.records_send != null;", .new = "            return self.connect_in_flight or self.records_send == std.math.maxInt(u16);" },
+            .{ .file = "io/io_tls.zig", .old = "    // No octet is written while a send of another opening may read it (rule 3).\n    assert(writable(connection));\n", .new = "" },
+            .{ .file = "io/io_tcp_queue.zig", .old = "    // The slot was free when this opening began, and each send's event gave its buffer back.\n    assert(connection.records_send == null);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A query's send lends the records buffer",
+        .id = "TB6",
+        .what = "a new opening forgets that a send reads the slot's records buffer",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "\"connect_in_flight\", \"records_send\", \"address\",", .new = "\"connect_in_flight\", \"address\"," },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A query's send lends the records buffer",
+        .id = "TB7",
+        .what = "a closed slot whose records a query's send reads is not pending",
+        .edits = .{
+            .{ .file = "io/io_tcp_wait.zig", .old = "        if (connection.state == .closed and connection.borrowed()) return true;\n", .new = "        if (connection.state == .closed and (connection.connect_in_flight or connection.records_send == std.math.maxInt(u16))) return true;\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A query's send lends the records buffer",
+        .id = "TB9",
+        .what = "as TB4, against the walks",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "            return self.connect_in_flight or self.records_send != null;", .new = "            return self.connect_in_flight or self.records_send == std.math.maxInt(u16);" },
+            .{ .file = "io/io_tls.zig", .old = "    // No octet is written while a send of another opening may read it (rule 3).\n    assert(writable(connection));\n", .new = "" },
+            .{ .file = "io/io_tcp_queue.zig", .old = "    // The slot was free when this opening began, and each send's event gave its buffer back.\n    assert(connection.records_send == null);\n", .new = "" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "A query's send lends the records buffer",
+        .id = "TB10",
+        .what = "a reinit writes each connection whole, its mark among it",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        queue_module.release_all(self, @intCast(at));\n        if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);\n        connection.restart();", .new = "        queue_module.release_all(self, @intCast(at));\n        if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);\n        connection.* = .{};" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A query's send lends the records buffer",
+        .id = "TB11",
+        .what = "a query's send event looks for its mark only over TLS",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "    assert(slot < self.slots.len);\n    var lender: ?u8 = null;", .new = "    assert(slot < self.slots.len);\n    if (!tls.speaks(self)) return null;\n    var lender: ?u8 = null;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A query's send lends the records buffer",
+        .id = "TB12",
+        .what = "the records move to the buffer's start while a send reads them",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "    if (!connection.sending and state.out_head > 0) {", .new = "    if (state.out_head > 0) {" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A query's send lends the records buffer",
+        .id = "TB13",
+        .what = "a sealed query leaves the buffer's tail in front of its records",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "    assert(end > connection.tls.out_tail);\n    connection.tls.out_tail = end;\n", .new = "    assert(end > connection.tls.out_tail);\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A query's send lends the records buffer",
+        .id = "TB14",
+        .what = "a lookup's next query goes out while its send is in flight",
+        .edits = .{
+            .{ .file = "io/io_send.zig", .old = "    if (!self.send_in_flight[index]) return submit(self, index, asked, now_ns);", .new = "    if (true) return submit(self, index, asked, now_ns);" },
+            .{ .file = "io/io_send.zig", .old = "    assert(!self.send_in_flight[index]);\n    switch (asked) {", .new = "    switch (asked) {" },
+            .{ .file = "io/io_send.zig", .old = "    assert(!self.send_in_flight[index]);\n    self.send_in_flight[index] = true;", .new = "    self.send_in_flight[index] = true;" },
         },
         .caught_by = .{ .step = "test-io" },
     },

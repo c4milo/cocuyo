@@ -1,6 +1,7 @@
 //! The stream path of the engine on the twin (docs/design.md §19 step 13): a truncated answer
 //! asked again over TCP, the pipelining of one connection, a server that refuses one, the idle
-//! close, and what a connection that comes up too late tells nobody. The rig is the one
+//! close, and what a connection that comes up too late tells nobody. A send's buffer stays as it
+//! was until the send's event, after its connection failed too. The rig is the one
 //! `io_sim_test.zig` builds, since these drive the same engine over the same scripted servers.
 //! The cause that each failure of a stream gives a lookup is in `io_tcp_cause_test.zig`.
 const std = @import("std");
@@ -308,6 +309,57 @@ test "a connection that fails mid-send keeps that send's buffer until its event,
     try rig.deinit();
 }
 
+test "a new opening in the slot of a connection that failed mid-send writes none of that send's octets" {
+    // In the clear a query's send reads its lookup's own buffer, which is lent until the send's
+    // event (the stream's rule 6). The peer resets the connection while the first query is on its
+    // way out, and both lookups move to the next server. Its connection opens in the same slot at
+    // once, since the loop holds nothing of the slot's (rule 10). The first lookup's next query is
+    // held until the send's event, so the octets the loop may still read stay as they were.
+    var rig: Rig = .{};
+    try rig.init(23, .{ .{}, .{} }, .{ .servers = &.{}, .use_tcp = true, .attempts = 1 });
+    const first = try rig.engine.start(question("one.example."), rig.loop.now());
+    _ = try rig.engine.start(question("two.example."), rig.loop.now());
+    _ = try rig.step(fixtures.wait_ns);
+    const connection = &rig.engine.connections[0];
+    try testing.expect(connection.sending and connection.queue.first().?.slot == first.index);
+    const length = rig.engine.send_lengths[first.index];
+    var lent: [cocuyo.constants.query_bytes_max]u8 = undefined;
+    @memcpy(lent[0..length], rig.engine.send_buffers[first.index][0..length]);
+    const receive = tcp.user_data_of(&rig.engine, .tcp_receive, 0);
+    _ = rig.engine.apply(rotor.Event.failure(receive, .connection_reset), rig.loop.now());
+    try testing.expect(connection.state == .connecting and connection.server == 1);
+    // The loop holds the send's event back, as a slow send's end comes late.
+    const send = @TypeOf(rig.engine).user_data(.tcp_send, first.index);
+    var held: ?rotor.Event = null;
+    for (0..fixtures.until_rounds_max) |_| {
+        if (rig.engine.held[first.index] != null) break;
+        try step_holding(&rig, send, &held);
+    }
+    try testing.expect(held != null and rig.engine.held[first.index] != null);
+    try testing.expect(connection.state == .up and rig.engine.send_in_flight[first.index]);
+    try testing.expectEqualSlices(u8, lent[0..length], rig.engine.send_buffers[first.index][0..length]);
+    // The send's event gives the buffer back, and the held query goes out on the new connection.
+    _ = rig.engine.apply(held.?, rig.loop.now());
+    try testing.expect(rig.engine.held[first.index] == null and connection.queue.contains(first.index));
+    try testing.expect((try rig.until_result()).outcome == .answer);
+    try testing.expect((try rig.until_result()).outcome == .answer);
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
+/// One short wait of the rig, each event applied but the one whose `user_data` is `send`, which
+/// `held` keeps.
+pub fn step_holding(rig: anytype, send: u64, held: *?rotor.Event) !void {
+    const count = try sim_test.tick_for(&rig.loop, &rig.events, fixtures.channel_read_ns);
+    for (rig.events[0..count]) |event| {
+        if (event.user_data == send) {
+            held.* = event;
+            continue;
+        }
+        _ = rig.engine.apply(event, rig.loop.now());
+    }
+}
+
 /// The octet a test's buffer holds before a reset, which no reset writes.
 const untouched: u8 = 0x5a;
 
@@ -316,7 +368,7 @@ test "a new opening resets the slot but what outlives it, and writes none of its
     var slot: Slot = .{ .state = .up, .server = 1, .used = 3, .users = 2, .idle_since_ns = 42 };
     slot.incarnation = 5;
     slot.connect_in_flight = true;
-    slot.records_in_flight = true;
+    slot.records_send = 3;
     @memset(&slot.frame, untouched);
     @memset(std.mem.asBytes(&slot.address), untouched);
     @memset(std.mem.sliceAsBytes(&slot.queue.items), untouched);
@@ -333,7 +385,8 @@ test "a new opening resets the slot but what outlives it, and writes none of its
     try testing.expectEqual(@as(u64, 0), slot.idle_since_ns);
     // What outlives an opening: the stream's rules 2 and 10, and §21's TLS rule 3.
     try testing.expectEqual(@as(u32, 5), slot.incarnation);
-    try testing.expect(slot.connect_in_flight and slot.records_in_flight);
+    try testing.expect(slot.connect_in_flight);
+    try testing.expectEqual(@as(?u16, 3), slot.records_send);
     for (slot.frame) |octet| try testing.expectEqual(untouched, octet);
     for (std.mem.asBytes(&slot.address)) |octet| try testing.expectEqual(untouched, octet);
 }
