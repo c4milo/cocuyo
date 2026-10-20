@@ -122,7 +122,9 @@ The architecture depends on every rule in this section.
   `core` imports nothing, `wire` reads `core`, `resolver` reads `core` and `wire`, `config` reads
   `core` alone, `cache` reads `core` and `wire` and never `resolver`, and `sim` reads the first
   three. `resolver` cannot reach `config`, and `zig build graph-check` compiles a fixture to show
-  the compiler rejects it.
+  the compiler rejects it. Its second part (`build/graph_check_packages.zig`) walks each module's
+  imports at any depth: `src/` reaches neither colibri nor stdx, and `io/` reaches stdx only
+  through colibri.
 - `io/` holds the engine of §19 step 13, outside `src/` because it owns sockets. It reads
   `cocuyo` and a `rotor` import the build binds to `sim`, so `zig build test-io` runs it on the
   twin, and to rotor itself for `zig build bench-cares` alone. It is exported as `cocuyo_rotor`,
@@ -172,7 +174,11 @@ The architecture depends on every rule in this section.
   (c4milo/cocuyo#22): `tools/dnslib/run.sh` fetches them at a pinned commit and checks their tree
   id, and nothing builds, links or imports them. chapulin reaches cocuyo through colibri alone since
   2026-09-27 (decision 32): colibri's `tls` module carries its objects at the commit colibri pins,
-  and cocuyo pins no chapulin of its own.
+  and cocuyo pins no chapulin of its own. stdx is a ruled dependency of the DoT, DoQ and DoH
+  examples alone, approved by the owner on 2026-10-20 (design §16 decision 48 as amended):
+  `build.zig.zon` pins it by hash as a lazy dependency at the commit colibri pins, and only the
+  root build requests it. `zig build graph-check` fails when a module of `src/` reaches it, or a
+  module of `io/` reaches it other than through colibri.
 - Weakening an assertion or a check to make a test pass.
 - Adding anything §1 puts out of scope: DNSSEC validation, mDNS, zone transfers, nsswitch, IDN, the
   platform resolver configuration of §14. DoT and DoH were decided in on 2026-09-23: DoT in the
@@ -203,14 +209,14 @@ The architecture depends on every rule in this section.
   sessions' tests and a build of their examples, and the tools' own tests. Every change passes it
   before it is committed. `zig build test-<module>` (`test-core`, `test-wire`, `test-resolver`,
   `test-config`, `test-cache`, `test-sim`, `test-cocuyo`, `test-io`, `test-chapulin_hooks`,
-  `test-doh`, `test-cocuyo_quic`, `test-cocuyo_doh`, `test-chapulin`, `test-chapulin-quic`) and
-  `zig build test-tools` run one target's tests with nothing else in the graph, which is what a
-  mutation is measured against. `zig build consumer-check` alone builds `test/consumer/`, the
-  package that depends on cocuyo the way a consumer does, with `cocuyo_rotor` over a rotor of its
-  own, and requires the same package to fail when it reaches for a module the surface does not
-  export (design §20, §24). `zig build readme-check` alone builds every Zig block of README.md, each
-  under the `<!-- readme-check: ... -->` marker that names its harness in `tools/readme_check.zig`,
-  and runs the quick start. A new block brings its marker and harness.
+  `test-doh`, `test-cocuyo_quic`, `test-cocuyo_doh`, `test-chapulin`, `test-chapulin-quic`),
+  `zig build test-examples` and `zig build test-tools` run one target's tests with nothing else in
+  the graph, which is what a mutation is measured against. `zig build consumer-check` alone builds
+  `test/consumer/`, the package that depends on cocuyo the way a consumer does, with `cocuyo_rotor`
+  over a rotor of its own, and requires the same package to fail when it reaches for a module the
+  surface does not export (design §20, §24). `zig build readme-check` alone builds every Zig block
+  of README.md, each under the `<!-- readme-check: ... -->` marker that names its harness in
+  `tools/readme_check.zig`, and runs the quick start. A new block brings its marker and harness.
 - Fills: `zig build fill-check` compiles the library's hot paths, and the engine's over rotor,
   ReleaseSafe for x86-64 Linux and arm64 macOS, and requires their code to call `memset` or `bzero`
   exactly as often as `tools/fill_check/fill_check.zig` knows it does (c4milo/cocuyo#35): a new
@@ -274,6 +280,10 @@ The architecture depends on every rule in this section.
   and no network: names at once, resumption, the version DoH came up on, the certificate checks
   and pins, and records beyond A, which `tools/interop/zone.zig` serves as dnsproxy's upstream.
   The `interop` workflow runs it once a day on macOS.
+- The CPU word: `cpu`, first on the command line of the DoT, DoQ and DoH examples, has the example
+  probe the CPU through stdx and state it to its TLS session (design §16 decision 48). The live
+  checks and the interop check run each encrypted server without the word and with it, and
+  `tools/cpu_word/suite.sh` says which suite each run must reach.
 - Plain DNS through the engine: `zig build example-cleartext-rotor -- <name>[/TYPE][,...]
   <server>[:<port>] [udp | tcp]`, which the interop check drives.
 - dnslib: `tools/dnslib/run.sh` fetches dnslib's captured responses at a pinned commit and runs

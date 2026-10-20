@@ -3,7 +3,7 @@
 //! strict as RFC 8310 §5 asks.
 //!
 //!     zig build example-dot-rotor -- \
-//!         <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...
+//!         [cpu] <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...
 //!
 //! for instance `dns.google 8.8.8.8 dns.google gts-root-r1.der gts-root-r4.der`: Google shows a
 //! chain under either root, by the frontend a connection reaches. Each root is a DER certificate a
@@ -18,7 +18,14 @@
 //! in turn, each once the server's ticket is kept and the connection before has closed idle, so
 //! each opens a connection that resumes with the ticket (§21, TLS rule 8). Names joined by `+`,
 //! as `a.example+b.example`, are resolved at once, each query on the one connection (RFC 7766
-//! §6.2.1.1). After each turn the example says how its handshake went.
+//! §6.2.1.1). After each turn the example says how its handshake went, and the suite it chose.
+//!
+//! With the word `cpu` first, the example states its CPU (`examples/cpu_text.zig`, docs/design.md
+//! §16 decision 48). It probes the CPU through stdx's `platform`, and on arm64 sets PSTATE.DIT
+//! where the probe found FEAT_DIT. There it states `data_independent`, and each hello offers
+//! AES-GCM first where the probe also found the AES instructions. Elsewhere, and without the word,
+//! the example states nothing, and each hello offers TLS_CHACHA20_POLY1305_SHA256 alone. The
+//! example says what it states before the first turn.
 //!
 //! What cocuyo does not read, the caller hands in (§21):
 //!
@@ -33,6 +40,7 @@ const chapulin = @import("chapulin");
 const answer_text = @import("answer_text.zig");
 const server_text = @import("server_text.zig");
 const root_text = @import("root_text.zig");
+const cpu_text = @import("cpu_text.zig");
 
 const Resolver = io.Resolver(.{
     .lookups = at_once_max + 1,
@@ -51,11 +59,6 @@ var cache_memory: cocuyo.cache.Storage(io.constants.cache_slots_default) = undef
 /// The roots one run may trust: chapulin's bound on its anchors, as colibri's configuration holds
 /// them.
 const anchors_max = chapulin.Session.anchors_max;
-/// What the example states of the CPU: nothing, as a consumer does that cannot state its thread's
-/// timing mode (docs/design.md §16 decision 48). Each hello then offers
-/// TLS_CHACHA20_POLY1305_SHA256 alone. The probe colibri names is stdx's, which cocuyo does not
-/// depend on, and the example sets no timing mode (§17 question 58).
-const cpu_not_stated: chapulin.Session.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };
 /// The largest root certificate the example reads.
 const certificate_bytes_max = 8192;
 /// How long a lookup is given, in ticks of `tick_ns`, before the example gives up on it.
@@ -72,20 +75,22 @@ const at_once_max = 4;
 
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
-    const arguments = try init.minimal.args.toSlice(arena);
-    if (arguments.len < 4) {
-        std.debug.print("usage: dot-rotor <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...\n", .{});
+    // Once, at the start, on the one thread that drives the engine and each of its sessions.
+    const command = cpu_text.command(chapulin.Session.Cpu, try init.minimal.args.toSlice(arena));
+    const arguments = command.operands;
+    if (arguments.len < 3) {
+        std.debug.print("usage: dot-rotor [cpu] <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...\n", .{});
         std.process.exit(2);
     }
-    const at = try server_text.place_of(arguments[2]);
+    const at = try server_text.place_of(arguments[1]);
     var pins: [cocuyo.constants.spki_pins_max]cocuyo.Pin = undefined;
-    var tls = try known_by(arguments[3], &pins);
+    var tls = try known_by(arguments[2], &pins);
     if (at.port) |port| tls.port = port;
     const servers = [_]cocuyo.Server{.{ .endpoint = .{ .address = at.address }, .tls = tls }};
     const config: cocuyo.Config = .{ .servers = &servers, .search = &.{} };
 
     var anchors: [anchors_max]chapulin.Session.Anchor = undefined;
-    const roots = arguments[4..];
+    const roots = arguments[3..];
     if (roots.len > anchors_max) return error.TooManyRoots;
     for (roots, 0..) |path, index| {
         const der = try std.Io.Dir.cwd().readFileAlloc(init.io, path, arena, .limited(certificate_bytes_max));
@@ -98,6 +103,7 @@ pub fn main(init: std.process.Init) !void {
     try init.io.randomSecure(&engine_seed);
     const clock: Clock = .init(init.io);
     const unix_seconds: u64 = @intCast(@divFloor(std.Io.Timestamp.now(init.io, .real).nanoseconds, std.time.ns_per_s));
+    cpu_text.report(command.cpu);
 
     var loop: rotor.Loop = undefined;
     try loop.init(&loop_memory, loop_options);
@@ -106,19 +112,20 @@ pub fn main(init: std.process.Init) !void {
     try engine.init(&loop, &config, cache_memory.slices(), std.mem.readInt(u64, &engine_seed, .little), clock.read());
     // The engine has no context of its own, and a lookup started before this call would stop the
     // program at an assertion (docs/design.md §16 decision 39).
-    engine.use_tls(.init(anchors[0..roots.len], cpu_not_stated, seed, unix_seconds, clock.read()));
+    engine.use_tls(.init(anchors[0..roots.len], command.cpu, seed, unix_seconds, clock.read()));
     defer {
         engine.deinit();
         loop.drain(&events) catch {};
         engine.close();
     }
-    if (std.mem.count(u8, arguments[1], ",") >= names_max) return error.TooManyNames;
-    var turns = std.mem.splitScalar(u8, arguments[1], ',');
+    if (std.mem.count(u8, arguments[0], ",") >= names_max) return error.TooManyNames;
+    var turns = std.mem.splitScalar(u8, arguments[0], ',');
     for (0..names_max) |position| {
         const turn = turns.next() orelse return;
         if (position > 0) try wait_for_close(&loop, &events, clock);
         try resolve(&loop, &events, clock, turn);
         std.debug.print("{s}: handshake {s}\n", .{ turn, handshake() });
+        std.debug.print("{s}: suite {s}\n", .{ turn, cpu_text.suite_text(suite()) });
     }
 }
 
@@ -185,6 +192,18 @@ fn handshake() []const u8 {
         return "in full";
     }
     return "not seen: no connection is up";
+}
+
+/// The suite the connection that is up runs, as colibri's record provider says, or null with none
+/// up (RFC 9846 Appendix B.4).
+fn suite() ?u16 {
+    for (&engine.connections) |*connection| {
+        if (connection.state != .up) continue;
+        const records = connection.tls.session.records;
+        const negotiated = records.vtable.negotiated_parameters(records.context) orelse return null;
+        return negotiated.cipher_suite;
+    }
+    return null;
 }
 
 fn report(name: []const u8, result: Resolver.Result) !void {

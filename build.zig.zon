@@ -31,6 +31,17 @@
             .hash = "colibri-0.8.0-Wo-AvtBgiAT4kSDr1cu4LH3VfEM7FWSqBgPzmwq9JIa7",
             .lazy = true,
         },
+        // stdx's `platform`, the probe that the DoT, DoQ and DoH examples read under the word
+        // `cpu` (docs/design.md §16 decision 48, as amended). A dependency of those examples
+        // alone. No module rooted in `src/` reaches stdx, and none rooted in `io/` reaches it but
+        // through colibri. `zig build graph-check` holds both. Pinned at the commit colibri v0.8.0
+        // pins, so the probe's `Cpu` is the type colibri's `tls.Cpu` holds. Lazy, and requested
+        // only when cocuyo is the root build, so a project depending on cocuyo never fetches it.
+        .stdx = .{
+            .url = "git+https://github.com/c4milo/stdx#5da4397e3a49def3b3d738c3e949ff0cee67aa25",
+            .hash = "stdx-0.0.0-BD60tjBjKQDmd7emF55-59f7389mYnLFnlVxKDZVG3Tp",
+            .lazy = true,
+        },
     },
     .paths = .{
         "build.zig",

@@ -12,9 +12,9 @@
 const std = @import("std");
 const modules = @import("modules.zig");
 
-/// `zig build test-chapulin`, the session's own tests, which need no network; and, where rotor
-/// resolved, `zig build example-dot-rotor`, lookups over DNS over TLS. The gate runs the tests and
-/// builds the example, so a colibri that breaks the session fails it. Nothing until colibri is
+/// `zig build test-chapulin`, the session's own tests, which need no network; and, where rotor and
+/// stdx resolved, `zig build example-dot-rotor`, lookups over DNS over TLS. The gate runs the tests
+/// and builds the example, so a colibri that breaks the session fails it. Nothing until colibri is
 /// fetched, which the build runner does the first time it sees it requested.
 pub fn add(
     b: *std.Build,
@@ -22,16 +22,17 @@ pub fn add(
     optimize: std.builtin.OptimizeMode,
     graph: modules.Graph,
     test_step: *std.Build.Step,
-    rotor: ?*std.Build.Dependency,
-    colibri: ?*std.Build.Dependency,
+    lazy: modules.Lazy,
 ) void {
-    const resolved = colibri orelse return;
+    const resolved = lazy.colibri orelse return;
     const session = session_module(b, target, optimize, graph, resolved, graph.io);
     const tests = b.addTest(.{ .name = "chapulin", .root_module = session });
     const run = &b.addRunArtifact(tests).step;
     b.step("test-chapulin", "Run the DoT session's tests, over colibri's tls").dependOn(run);
     test_step.dependOn(run);
-    if (rotor) |loop| test_step.dependOn(add_example(b, target, optimize, graph, resolved, loop));
+    const loop = lazy.rotor orelse return;
+    const platform = lazy.platform orelse return;
+    test_step.dependOn(add_example(b, target, optimize, graph, resolved, loop, platform));
 }
 
 /// The engine over the real rotor with chapulin's session, built here privately, as the bench
@@ -44,6 +45,7 @@ fn add_example(
     graph: modules.Graph,
     colibri: *std.Build.Dependency,
     rotor: *std.Build.Dependency,
+    platform: *std.Build.Module,
 ) *std.Build.Step {
     const engine = b.createModule(.{
         .root_source_file = b.path(modules.roots.io),
@@ -63,10 +65,12 @@ fn add_example(
     module.addImport("rotor", rotor.module("rotor"));
     module.addImport("io", engine);
     module.addImport("chapulin", session);
+    // The probe the word `cpu` states the CPU from (`examples/cpu_text.zig`).
+    module.addImport("platform", platform);
     const exe = b.addExecutable(.{ .name = "dot-rotor", .root_module = module });
     const run = b.addRunArtifact(exe);
     if (b.args) |arguments| run.addArgs(arguments);
-    const step = b.step("example-dot-rotor", "Lookups over DNS over TLS: -- <name>[/TYPE][+...][,...] <address>[:<port>] <auth name | pin-sha256:<pin>,...> <root.der>...");
+    const step = b.step("example-dot-rotor", "Lookups over DNS over TLS: -- [cpu] <name>[/TYPE][+...][,...] <address>[:<port>] <auth name | pin-sha256:<pin>,...> <root.der>...");
     step.dependOn(&run.step);
     return &exe.step;
 }

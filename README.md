@@ -212,8 +212,25 @@ failover and cache stay as they are over UDP; what changes is the connection a q
   TLS_CHACHA20_POLY1305_SHA256 alone.
 - If you cannot state the mode, set `timing` to `.not_stated`. Put your probe beside it, or
   `.not_known` for each of its answers. Each hello then offers TLS_CHACHA20_POLY1305_SHA256
-  alone, and a server that holds only AES-GCM refuses it. The three examples do this, since
-  cocuyo does not depend on stdx (docs/design.md §17 question 58).
+  alone, and a server that holds only AES-GCM refuses it.
+- The three examples state nothing by default. The word `cpu`, first on the command line, turns
+  the statement on (docs/design.md §16 decision 48):
+
+  ```bash
+  zig build example-dot-rotor -- cpu dns.google 8.8.8.8 dns.google gts-root-r1.der gts-root-r4.der
+  ```
+
+  With the word, the example probes the CPU once, through stdx's `platform.probe()`. On arm64,
+  where the probe found FEAT_DIT, it sets PSTATE.DIT, reads the bit back, and states
+  `.data_independent` with its probe. Elsewhere it states nothing, as without the word: on x86-64
+  no program can read DOITM. Each example says what it states before its first lookup, and after
+  each turn the suite its handshake chose.
+- The word is off by default because an example is a model that you copy. A program states
+  `.data_independent` only for a thread that it put in that mode itself, and `.not_stated` is
+  true of each program. stdx is a dependency of these examples alone. Only cocuyo's own build
+  requests it, so a package that depends on cocuyo never fetches it. `zig build graph-check`
+  fails when a module of the library reaches stdx, or when a module of the engine reaches it
+  other than through colibri.
 - cocuyo's library depends on none of them. The engine speaks TLS through a session interface,
   which this repository fills with chapulin's session in colibri's `tls`; QUIC through
   `cocuyo_quic`, whose `quic` import a consumer that speaks DoQ binds to colibri's; and HTTPS
@@ -238,6 +255,12 @@ by its key alone resolves, and a wrong pin is refused, and each is asked for AAA
 HTTPS records as well as A. Every transport, plain DNS over UDP and TCP among them, also runs every
 day against AdGuard's dnsproxy on the loopback, an implementation written elsewhere, for addresses
 and for records of those four types and CNAME.
+
+Each of these checks resolves through each encrypted server in two runs: first without the word
+`cpu`, then with it. Without the word each handshake must run ChaCha20-Poly1305. With it each must
+run AES-GCM on an arm64 host whose system reports the AES instructions, PMULL and FEAT_DIT.
+Elsewhere each must run ChaCha20-Poly1305. The one exception is an arm64 Mac whose system hides
+one of the three: there each run with the word fails.
 
 ## Quick start
 
@@ -495,9 +518,9 @@ that depends on cocuyo, and every unit test. Other steps:
 | `zig build example-udp-rotor -- example.com` | Resolve a name over rotor's event loop |
 | `zig build example-threads-rotor` | Two engines on two threads, each on its own loop |
 | `zig build example-cleartext-rotor -- <name> <server>[:<port>] [udp \| tcp]` | Resolve over plain DNS through the engine |
-| `zig build example-dot-rotor -- ...` | Resolve over DNS over TLS |
-| `zig build example-doq-rotor -- ...` | Resolve over DNS over QUIC |
-| `zig build example-doh-rotor -- ...` | Resolve over DNS over HTTPS |
+| `zig build example-dot-rotor -- [cpu] ...` | Resolve over DNS over TLS |
+| `zig build example-doq-rotor -- [cpu] ...` | Resolve over DNS over QUIC |
+| `zig build example-doh-rotor -- [cpu] ...` | Resolve over DNS over HTTPS |
 | `tools/dot_live/run.sh`, `tools/doq_live/run.sh`, `tools/doh_live/run.sh` | The live checks against public resolvers |
 | `tools/interop/run.sh` | Every transport against dnsproxy on the loopback |
 | `tools/dnslib/run.sh` | The codec against dnslib's reading of real responses |

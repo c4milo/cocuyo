@@ -20,6 +20,11 @@
 # HTTPS at once, of a name that has each, and must answer each with records of that type. Google,
 # which shows one of two chains, is asked one name with each of its roots alone, and the run says
 # which chain it met.
+# Each resolver resolves its two names in two runs: first without the word `cpu`, then with it
+# (docs/design.md §16 decision 48). Without the word each handshake must run ChaCha20-Poly1305.
+# With it each must run AES-GCM on an arm64 host whose system reports the AES instructions, PMULL
+# and FEAT_DIT, and ChaCha20-Poly1305 elsewhere. On an arm64 Mac whose sysctl does not report all
+# three, each run with the word fails (tools/cpu_word/suite.sh).
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -27,6 +32,8 @@ root=$(cd "$here/../.." && pwd)
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 store=/System/Library/Keychains/SystemRootCertificates.keychain
+. "$root/tools/cpu_word/suite.sh"
+cpu_word_says
 
 # A root from the system store, by its common name, as DER. A name the store does not hold stops
 # the check here, by that name.
@@ -63,7 +70,7 @@ chain() {
 lookup_names() {
     names=$1
     shift
-    (cd "$root" && zig build example-dot-rotor -- "$names" "$@" 2>&1)
+    (cd "$root" && zig build example-dot-rotor -- $word "$names" "$@" 2>&1)
 }
 lookup() {
     lookup_names example.com,example.org "$@"
@@ -105,23 +112,32 @@ for resolver in "8.8.8.8 dns.google gts-root-r1 gts-root-r4" \
     roots=
     for each in "$@"; do roots="$roots $out/$each.der"; done
     set -- "$address" "$name"
-    if answer=$(lookup "$1" "$2" $roots) && echo "$answer" | grep -q "example.com A" &&
-        echo "$answer" | grep -q "example.org A"; then
-        how=$(echo "$answer" | sed -n 's/^example\.org: handshake //p')
-        case $how in
-        resumed)
-            echo "resolves through $2, and resumes"
-            resumed=$((resumed + 1)) ;;
-        "in full, its ticket declined")
-            echo "resolves through $2, which declined the ticket: in full on the same connection" ;;
-        *)
-            echo "resolves through $2, but spends no ticket: $how $(echo "$answer" | grep "ticks" | tr '\n' ' ')" ;;
-        esac
-    else
-        echo "FAILS through $2: $answer" >&2
-        echo "  $2 shows: $(chain "$1:853" "$2")" >&2
-        failures=$((failures + 1))
-    fi
+    for word in "" cpu; do
+        with=$(cpu_word_named)
+        if answer=$(lookup "$1" "$2" $roots) && echo "$answer" | grep -q "example.com A" &&
+            echo "$answer" | grep -q "example.org A"; then
+            how=$(echo "$answer" | sed -n 's/^example\.org: handshake //p')
+            if ! over=$(cpu_word_check "$answer"); then
+                echo "RESOLVES through $2$with, but $over" >&2
+                failures=$((failures + 1))
+                continue
+            fi
+            case $how in
+            resumed)
+                echo "resolves through $2$with over $over, and resumes"
+                resumed=$((resumed + 1)) ;;
+            "in full, its ticket declined")
+                echo "resolves through $2$with over $over, which declined the ticket: in full on the same connection" ;;
+            *)
+                echo "resolves through $2$with over $over, but spends no ticket: $how $(echo "$answer" | grep "ticks" | tr '\n' ' ')" ;;
+            esac
+        else
+            echo "FAILS through $2$with: $answer" >&2
+            echo "  $2 shows: $(chain "$1:853" "$2")" >&2
+            failures=$((failures + 1))
+        fi
+    done
+    word=
     reads_types "$2" "$1" "$2" $roots
 done
 if [ "$resumed" -eq 0 ]; then

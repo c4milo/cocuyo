@@ -49,6 +49,10 @@ const threads_example: Example = .{
 /// wrongly makes every example that takes one wrong.
 const shared_roots = [_][]const u8{ "examples/server_text.zig", "examples/answer_text.zig" };
 
+/// What the DoT, DoQ and DoH examples state of the CPU under the word `cpu` (docs/design.md §16
+/// decision 48). Its tests read stdx's `platform`, so they run where the build resolved stdx.
+const cpu_root = "examples/cpu_text.zig";
+
 /// The engine over plain DNS, UDP or TCP, on rotor's loop. It runs the engine, which is built
 /// privately against rotor here, as the two-engine example's is.
 const cleartext_example: Example = .{
@@ -64,6 +68,7 @@ pub fn add(
     optimize: std.builtin.OptimizeMode,
     test_step: *std.Build.Step,
     rotor: ?*std.Build.Dependency,
+    platform: ?*std.Build.Module,
     sanitize_thread: bool,
 ) void {
     // Built for another target with `-Dtarget`, an example cannot run where it was built, and
@@ -75,12 +80,23 @@ pub fn add(
     add_rotor(b, graph, target, optimize, test_step, install, rotor);
     add_threads(b, graph, target, optimize, test_step, install, rotor, sanitize_thread);
     add_cleartext(b, graph, target, optimize, test_step, install, rotor);
+    // `zig build test-examples`: the shared files' tests alone, which a mutation of them is
+    // measured against.
+    const examples_step = b.step("test-examples", "Run the tests of the files the examples share, alone");
     for (shared_roots) |root| {
         const module = b.createModule(.{ .root_source_file = b.path(root), .target = target, .optimize = optimize });
         module.addImport("cocuyo", graph.cocuyo);
         const tests = b.addTest(.{ .name = std.fs.path.stem(root), .root_module = module });
-        test_step.dependOn(&b.addRunArtifact(tests).step);
+        const run = &b.addRunArtifact(tests).step;
+        test_step.dependOn(run);
+        examples_step.dependOn(run);
     }
+    const probe = platform orelse return;
+    const module = b.createModule(.{ .root_source_file = b.path(cpu_root), .target = target, .optimize = optimize });
+    module.addImport("platform", probe);
+    const run = &b.addRunArtifact(b.addTest(.{ .name = std.fs.path.stem(cpu_root), .root_module = module })).step;
+    test_step.dependOn(run);
+    examples_step.dependOn(run);
 }
 
 fn add_one(

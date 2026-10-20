@@ -7373,3 +7373,194 @@ session. This change touches no file under `src/`. So no count can move, and
 
 Twenty-four mutations, twenty-four `CAUGHT`. Nine of them, CU13 to CU21, were `NOT CAUGHT` before
 the third tests.
+
+## The CPU an example states
+
+2026-10-20. The owner answered docs/design.md §17 question 58: the third way. stdx is a ruled
+dependency of the examples alone, and the word `cpu` on the command line of each TLS example turns
+the statement on. The owner answered question 59 the same day: as built, so `Session.Cpu` stays.
+§16 decision 48, as amended, records the rule.
+
+### What changed
+
+- `build.zig.zon` pins stdx at `5da4397`, the commit that colibri v0.8.0 pins, as a lazy
+  dependency. Only the root build requests it, with the options colibri gives it.
+- `examples/cpu_text.zig` holds what the three examples share of the word. That is its parse,
+  the statement of each value, the set and the read of PSTATE.DIT, and the text of each line. Its
+  `command` reads the word and states the CPU in one call.
+- Each of the three examples calls `command` first in `main`. It prints what it states before its
+  first turn, and the suite of each turn's handshake after the turn.
+- With the word, an example states `data_independent` and its probe where PSTATE.DIT reads as
+  set. Elsewhere it states nothing, as without the word.
+- `zig build graph-check` has a second part, `build/graph_check_packages.zig`. It reads the module
+  graph of the build, and follows each import at any depth. It fails when a module rooted in
+  `src/` reaches a module of stdx or of colibri. It also fails when a module rooted in `io/`
+  reaches a module of stdx other than through colibri.
+- `zig build test-examples` runs the tests of the files that the examples share, alone.
+- The live checks and the interop check run each encrypted server in two runs, without the word
+  and with it. Each sources `tools/cpu_word/suite.sh`, which says what each run must state and
+  reach.
+
+### What the review changed
+
+A review of the first build found two gaps that the gate passed. The review ran each of the three
+edits below against the first build, and each passed its check:
+
+- The second part of the graph check read the direct imports of each module alone. The library's
+  root module could import `examples/cpu_text.zig` and so reach stdx, and the check passed. It
+  could also import the DoH channel of `io/` and so reach colibri, and the check passed too. The
+  walk now follows each import at any depth. CX34 and CX35 are those two edits of the build. CX31
+  puts back the walk of the first build.
+- The test of the set without FEAT_DIT read only what the set returned. An earlier test had set
+  PSTATE.DIT on the same thread, so a set that ran the MSR and said no passed. The test now clears
+  the bit, requires it to read as clear, and requires it to stay clear after each set. CX26 is
+  that edit.
+
+The review also changed four things that no row of the first build broke:
+
+- Where the example states no mode, it stated its probe beside `not_stated`. The ruled way says
+  that it states nothing, so it now states nothing. The hello is the same. CX25 puts the probe
+  back.
+- The read of the word and the statement were two calls in each example, and no test read them.
+  `command` now makes both in one call, and its test reads it. CX28 to CX30 break it.
+- `tools/cpu_word/suite.sh` took the statement from FEAT_AES, FEAT_PMULL and FEAT_DIT together,
+  and the statement depends on FEAT_DIT alone. It now reads FEAT_DIT apart from the other two.
+- On arm64 macOS, where `sysctl` does not report the three features as 1, each run with the word
+  now fails. Before, such a run had to reach ChaCha20-Poly1305, so a check there never reached
+  AES-GCM, and passed.
+
+### The tests
+
+The tests of `examples/cpu_text.zig` run in the gate. They read:
+
+- the word, which is the first argument after the program's name, and only the word exactly;
+- `command`, which states the CPU as the word says, and keeps the operands after the word;
+- the value without the word, which states nothing, whatever the CPU;
+- each statement with the word, over each answer of the probe and each read of the bit;
+- the statement on this host, where arm64 with FEAT_DIT clears PSTATE.DIT, then sets it and reads
+  it as set;
+- the set where the probe did not find FEAT_DIT, which says no, and on arm64 with FEAT_DIT leaves
+  the cleared bit clear;
+- the line of the statement, the name of each suite, and the suite of a QUIC session.
+
+The second, the fifth and the sixth read this host. On arm64 with FEAT_DIT the fifth and the sixth
+run the MSR and the MRS, and the second sees which value the word gave. On x86-64 the word and its
+absence give the same value, and the set runs nothing. So CX10, CX27, CX28 and CX29 are caught
+only on an arm64 host with FEAT_DIT. CX11 and CX26 are caught only on an arm64 host. On one without
+FEAT_DIT, the assertion of `dit_write` stops CX11, and the MSR of CX26 is undefined. This host
+could not show that case. It is an Apple arm64 CPU whose system reports FEAT_AES, FEAT_PMULL and
+FEAT_DIT.
+
+No test of the gate reads two lines of each example: the report of `command.cpu`, and the
+context's `init` that takes it. The gate builds the examples and does not run them. The live
+checks and the interop check run those lines, and `tools/cpu_word/suite.sh` reads what they print.
+The mutation tool cannot run a server, so no row breaks them. Each was broken by hand instead,
+below.
+
+### What the graph check reads
+
+The first part of `zig build graph-check` compiles a fixture with the import set of `resolver`. It
+says what that one shape can import. The second part reads the module graph that the build made,
+so it sees each import that the build gives a module, at any depth.
+
+The rows CX16 to CX19, CX34 and CX35 give a library module an import that the rules forbid, in the
+build files alone. Each module that a compile step reaches holds the import, and no compile reads
+it, so no compile error is the catch. The other rows of the check break the check itself. Each
+control catches some of them:
+
+- CX20 and CX21: a canary that no rule reads.
+- CX22: the canary that sits one import below its root.
+- CX23: the walk that must reach a module rooted in `src/` and in `io/`.
+- CX24: a package that the graph holds, with no canary.
+- CX31: the canary that reaches stdx through `examples/cpu_text.zig`.
+- CX32: the canary in `src/` that reaches stdx below colibri's `tls`.
+- CX33: the canary in `io/` that reaches stdx below colibri's `tls`, which the rule must pass.
+
+### What ran by hand
+
+- The examples ran against two servers on the loopback, which this work wrote in Python over
+  OpenSSL. Neither is a check of the tree, and neither is in it.
+- DoT, two names: without the word each handshake ran TLS_CHACHA20_POLY1305_SHA256. With the word
+  each ran TLS_AES_256_GCM_SHA384, and the second name resumed. The server read the same suites.
+  `tools/cpu_word/suite.sh` passed both runs.
+- DoH on HTTP/1.1: TLS_CHACHA20_POLY1305_SHA256 without the word, and TLS_AES_256_GCM_SHA384 with
+  it. `tools/cpu_word/suite.sh` passed both runs.
+- The DoT example's context took the value that states nothing, whatever the word. The run with
+  the word failed: "2 of 2 turns not over AES-GCM".
+- The DoT example's report printed the value that states nothing, whatever the example stated.
+  The run with the word failed: "states [cpu: timing not_stated, aes_clmul not_known, dit
+  not_known], not [cpu: timing data_independent, aes_clmul yes, dit yes]".
+- DoQ, and DoH on HTTP/3, did not run: no QUIC server was at hand. Both examples build, and both
+  read the suite from chapulin's QUIC session, which records it on arm64 and x86-64.
+- The live checks need the network, and the interop check needs dnsproxy. Neither ran.
+
+### What ran
+
+- The disk had 42 GB free before the run of the rows.
+- This command ran the 35 rows, in 5 minutes and 34 seconds. It first ran each check once with
+  nothing mutated, `zig build test-examples` and `zig build graph-check`. Each row is `CAUGHT`:
+
+```sh
+zig build mutations -- engine CX1 CX2 CX3 CX4 CX5 CX6 CX7 CX8 CX9 CX10 CX11 CX12 \
+  CX13 CX14 CX15 CX16 CX17 CX18 CX19 CX20 CX21 CX22 CX23 CX24 CX25 CX26 CX27 CX28 \
+  CX29 CX30 CX31 CX32 CX33 CX34 CX35
+```
+
+- Each row also ran by hand, in a copy of the tree with a cache of its own. Those runs give the
+  texts of the rows below.
+- A row whose text says "the assertion" stops the test at an assertion of `cpu_text.zig`. The test
+  fails, and so does its step.
+- `zig build test`: 1,149 tests pass of 1,149, in 140 steps. The nine tests of
+  `examples/cpu_text.zig` are among them. `zig build test-examples` has 15 tests pass of 15.
+- `zig build lint`, `fmt`, `graph-check`, `consumer-check`, `readme-check` and `examples` pass.
+  The gate builds the DoT, DoQ and DoH examples.
+- No file of the engine changed, so `zig build spec-engine` did not run, and no model changes.
+
+### The instruction counts
+
+`bench/count.zig` imports `cocuyo` and `wire` alone, and no counted case runs an example. This
+change touches no file under `src/` or `io/`. So no count can move, and `bench/instructions.zon`
+did not change.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CX1 | the word is never read, and `cpu` is an operand | the word turns the statement on (§16 decision 48, as amended) | the test of the word: "TestUnexpectedResult", `test-examples` | CAUGHT |
+| CX2 | a first argument that starts with the word is taken for it | only the word exactly is the word | as CX1, at `cpu.` | CAUGHT |
+| CX3 | the word is read anywhere on the command line | only the first argument can be the word | as CX1, at the word after the first operand | CAUGHT |
+| CX4 | without the word, the example probes and states as with it | without the word an example states nothing | the test of `command`, at the assertion of `command`, `test-examples` | CAUGHT |
+| CX5 | the value that states nothing states a data-independent timing | as CX4, for the timing | as CX4 | CAUGHT |
+| CX6 | the value that states nothing states the AES instructions found | as CX4, for the probe | the test of the value without the word: "expected .not_known, found .yes", `test-examples` | CAUGHT |
+| CX7 | with the word, a probe that did not find FEAT_DIT still states a data-independent timing | the example states the mode only where the probe found FEAT_DIT | the test of each statement, at the assertion of `statement_of`, `test-examples` | CAUGHT |
+| CX8 | with the word, the timing is data-independent whatever the bit reads | the example states the mode only when the bit reads as set | the test of each statement: "expected .not_known, found .yes", `test-examples` | CAUGHT |
+| CX9 | with the word, the statement drops the probe's answers | the probe goes into the statement whole | the test of `command`, at the assertion of `statement_of` | CAUGHT |
+| CX10 | the example never sets PSTATE.DIT | on arm64 the example sets the bit where the probe found FEAT_DIT | the test of `command`: "expected .data_independent, found .not_stated", and the test of this host's statement, on an arm64 host with FEAT_DIT, `test-examples` | CAUGHT |
+| CX11 | the example sets PSTATE.DIT where the probe did not find FEAT_DIT | no MSR runs on a CPU that may lack the register | the test of the set without FEAT_DIT, at the assertion of `dit_write`, on an arm64 host, `test-examples` | CAUGHT |
+| CX12 | the suite TLS_AES_128_GCM_SHA256 is named TLS_AES_256_GCM_SHA384 | each suite has the name RFC 9846 Appendix B.4 gives it | the test of the suite names, `test-examples` | CAUGHT |
+| CX13 | a turn with no connection up is named ChaCha20-Poly1305 | a turn with no connection says so | as CX12 | CAUGHT |
+| CX14 | the statement's line drops the word `timing` | the line the checks read | the test of the statement's line, `test-examples` | CAUGHT |
+| CX15 | a QUIC session whose ServerHello named no suite is named ChaCha20-Poly1305 | as CX13, over QUIC | the test of a QUIC session's suite: "expected null, found 4867", `test-examples` | CAUGHT |
+| CX16 | the DoH example's channel module, rooted in `io/`, imports stdx's `platform` | no module rooted in `io/` reaches stdx but through colibri | the second part of the graph check: "graph-check FAILED: the module rooted at io/io_doh_channel.zig reaches stdx's module rooted at src/platform/platform.zig", `graph-check` | CAUGHT |
+| CX17 | the DoT example's engine, rooted in `io/`, imports stdx's `platform` | as CX16 | as CX16, at io/io.zig | CAUGHT |
+| CX18 | `core`, rooted in `src/`, imports stdx's `platform` | no module rooted in `src/` reaches stdx | as CX16, at src/core/core.zig | CAUGHT |
+| CX19 | the library's root module, rooted in `src/`, imports colibri's `tls` | no module rooted in `src/` reaches colibri | as CX16: "the module rooted at src/cocuyo.zig reaches stdx's module rooted at src/platform/platform.zig, which a module of colibri imports" | CAUGHT |
+| CX20 | the check holds no rule of stdx for `io/` | the rule of stdx for `io/` | the canary: "graph-check BROKEN: no rule of stdx reads the module rooted at io/io.zig", `graph-check` | CAUGHT |
+| CX21 | the check holds no rule for colibri | the rule of colibri | the canary: "graph-check BROKEN: no rule of colibri reads the module rooted at src/cocuyo.zig" | CAUGHT |
+| CX22 | the walk reads no import of any module | the walk reads each import, at any depth | the canary one import below its root: "the rule of stdx in src/ passes a module rooted at src/cocuyo.zig that imports stdx's platform" | CAUGHT |
+| CX23 | the walk reads no step below the top-level steps | the walk reaches each compile step | the control of the walk: "graph-check BROKEN: the walk reached no module rooted in src/" | CAUGHT |
+| CX24 | the check makes no canary | each package the graph holds has its canaries | the control of the canaries: "graph-check BROKEN: the graph holds stdx, and no canary rooted at src/cocuyo.zig imports it" | CAUGHT |
+| CX25 | with the word, where the example states no mode, it states the probe's answers beside `not_stated` | elsewhere the example states nothing, as the ruled way says | the test of each statement, at the assertion of `statement_of`, `test-examples` | CAUGHT |
+| CX26 | where the probe did not find FEAT_DIT, the set runs the MSR itself, and says no | no MSR runs on a CPU that may lack the register | the test of the set without FEAT_DIT: "TestUnexpectedResult", on an arm64 host with FEAT_DIT, `test-examples` | CAUGHT |
+| CX27 | the write of PSTATE.DIT sets the bit whatever it is asked, so the tests' clear sets it | the clear that the tests of the bit run first | the control of each test that reads the bit: "TestUnexpectedResult", on an arm64 host with FEAT_DIT, `test-examples` | CAUGHT |
+| CX28 | the command line states nothing, whatever the word | `command` states as the word says | the test of `command`: "expected .yes, found .not_known", on an arm64 host with FEAT_DIT, `test-examples` | CAUGHT |
+| CX29 | the command line states as with the word, whatever it says | as CX28 | the test of `command`, at the assertion of `command`, on an arm64 host with FEAT_DIT | CAUGHT |
+| CX30 | the command line keeps the word among the operands | the word is not an operand | the test of `command`: "expected 2, found 3", `test-examples` | CAUGHT |
+| CX31 | the walk from each module reads its direct imports alone | the walk follows each import, at any depth | the canary through a module of this tree: "graph-check BROKEN: the rule of stdx in src/ passes a module rooted at src/cocuyo.zig that imports stdx's platform through examples/cpu_text.zig", `graph-check` | CAUGHT |
+| CX32 | the walk from `src/` stops at a module of colibri, as the walk from `io/` does | the walk from `src/` reads below each package's module | the canary below colibri's `tls`: "the rule of stdx in src/ passes a module rooted at src/cocuyo.zig that imports colibri's tls" | CAUGHT |
+| CX33 | the walk from `io/` reads below a module of colibri | colibri's modules import stdx by right | the canary that must pass: "the rule of stdx in io/ flags a module rooted at io/io.zig that imports colibri's tls" | CAUGHT |
+| CX34 | the library's root module imports the examples' `cpu_text`, which imports stdx's `platform` | as CX18, through a module of this tree | "graph-check FAILED: the module rooted at src/cocuyo.zig reaches stdx's module rooted at src/platform/platform.zig, which examples/cpu_text.zig imports" | CAUGHT |
+| CX35 | the library's root module imports the DoH channel, rooted in `io/`, which imports colibri | as CX19, through a module of this tree | "graph-check FAILED: the module rooted at src/cocuyo.zig reaches stdx's module rooted at src/zstd/zstd.zig, which a module of colibri imports" | CAUGHT |
+
+Thirty-five mutations, thirty-five `CAUGHT`. The review ran CX26, CX34 and CX35 against the first
+build, and each passed its check.

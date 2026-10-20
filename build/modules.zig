@@ -48,6 +48,16 @@ pub const Graph = struct {
     io_doh_channel: *std.Build.Module,
 };
 
+/// The lazy dependencies the builds of the encrypted transports read, each null until the build has
+/// fetched it: rotor, which drives the examples; colibri; and stdx's `platform`, which the DoT, DoQ
+/// and DoH examples state their CPU from (docs/design.md §16 decision 48). Nothing in the graph
+/// above reads any of them.
+pub const Lazy = struct {
+    rotor: ?*std.Build.Dependency,
+    colibri: ?*std.Build.Dependency,
+    platform: ?*std.Build.Module,
+};
+
 /// The root source of each module. build/graph_check.zig hands `core`'s and `wire`'s to
 /// `tools/graph_check.zig`, which compiles a fixture as a module of the `resolver` shape.
 pub const roots = .{

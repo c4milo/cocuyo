@@ -25,6 +25,12 @@
 # HTTPS records of one name must be read at once, each record as the zone wrote it, and then a
 # CNAME to that name. Over plain DNS,
 # dnsproxy's own log must show the queries came over the transport asked for, and not the other.
+# Over DoT, DoQ and DoH on each version, the four names resolve in two runs (docs/design.md §16
+# decision 48). The first is without the word `cpu`, and the second is with it. Without the word
+# each handshake must run ChaCha20-Poly1305, and so must each handshake of the pins. With the word
+# each must run AES-GCM on an arm64 host whose system reports the AES instructions, PMULL and
+# FEAT_DIT, and ChaCha20-Poly1305 elsewhere. On an arm64 Mac whose sysctl does not report all three,
+# each run with the word fails (tools/cpu_word/suite.sh).
 set -eu
 
 dnsproxy=${1:?usage: tools/interop/run.sh <dnsproxy>}
@@ -35,6 +41,8 @@ proxy=
 tcp_proxy=
 zone=
 trap 'for pid in $proxy $tcp_proxy $zone; do kill "$pid" 2>/dev/null && wait "$pid" 2>/dev/null || true; done; rm -rf "$out"' EXIT
+. "$root/tools/cpu_word/suite.sh"
+cpu_word_says
 
 # A CA of the check's own, and a leaf for interop.example under it (RFC 2606 §3), both P-256,
 # and a second CA the chain does not end at.
@@ -86,7 +94,7 @@ done
 lookup() {
     step=$1
     shift
-    (cd "$root" && zig build "$step" -- "$@" 2>&1)
+    (cd "$root" && zig build "$step" -- $word "$@" 2>&1)
 }
 
 failures=0
@@ -108,13 +116,22 @@ answers() {
         fail "FAILS $what: $answer"
     fi
 }
+# Runs the check `$@` in two runs: without the word `cpu`, then with it.
+both() {
+    for word in "" cpu; do
+        "$@"
+    done
+    word=
+}
 resolves() {
-    what=$1
+    what=$1$(cpu_word_named)
     shift
     if answer=$(lookup "$@") && all_four "$answer"; then
         how=$(echo "$answer" | sed -n 's/^interop\.example: handshake //p')
-        if [ "$how" = resumed ]; then
-            echo "resolves $what, three names at once, and resumes"
+        if ! over=$(cpu_word_check "$answer"); then
+            fail "RESOLVES $what, but $over"
+        elif [ "$how" = resumed ]; then
+            echo "resolves $what, three names at once, over $over, and resumes"
         else
             fail "RESOLVES $what, but does not resume: $how"
         fi
@@ -125,14 +142,16 @@ resolves() {
 # As `resolves`, over DoH, and every turn came up on HTTP version `$2`, as the example says after
 # each: h3 over QUIC, or h2 over TCP.
 resolves_over() {
-    what=$1 version=$2
+    what=$1$(cpu_word_named) version=$2
     shift 2
     if answer=$(lookup "$@") && all_four "$answer"; then
         how=$(echo "$answer" | sed -n 's/^interop\.example: handshake //p')
         turns=$(echo "$answer" | grep -c ": over " || true)
         others=$(echo "$answer" | grep ": over " | grep -vc ": over $version\$" || true)
-        if [ "$how" = resumed ] && [ "$turns" -eq 2 ] && [ "$others" -eq 0 ]; then
-            echo "resolves $what, three names at once, and resumes, each turn over $version"
+        if ! suite=$(cpu_word_check "$answer"); then
+            fail "RESOLVES $what, but $suite"
+        elif [ "$how" = resumed ] && [ "$turns" -eq 2 ] && [ "$others" -eq 0 ]; then
+            echo "resolves $what, three names at once, over $suite, and resumes, each turn over $version"
         else
             fail "RESOLVES $what, but $how, and $others of $turns turns not over $version: $answer"
         fi
@@ -206,10 +225,10 @@ template="https://interop.example:$https_port/dns-query{?dns}"
 tcp_template="https://interop.example:$tcp_https_port/dns-query{?dns}"
 alone udp tcp answers "over UDP" example-cleartext-rotor "$at_once" "$plain" udp
 alone tcp udp answers "over TCP" example-cleartext-rotor "$at_once" "$plain" tcp
-resolves "over DoT" example-dot-rotor "$at_once" "$secure" interop.example "$out/ca.der"
-resolves "over DoQ" example-doq-rotor "$at_once" "$secure" interop.example "$out/ca.der"
-resolves_over "over DoH on HTTP/3" h3 example-doh-rotor "$at_once" 127.0.0.1 "$template" "$out/ca.der"
-resolves_over "over DoH on HTTP/2, with no QUIC listener" h2 example-doh-rotor "$at_once" 127.0.0.1 "$tcp_template" "$out/ca.der"
+both resolves "over DoT" example-dot-rotor "$at_once" "$secure" interop.example "$out/ca.der"
+both resolves "over DoQ" example-doq-rotor "$at_once" "$secure" interop.example "$out/ca.der"
+both resolves_over "over DoH on HTTP/3" h3 example-doh-rotor "$at_once" 127.0.0.1 "$template" "$out/ca.der"
+both resolves_over "over DoH on HTTP/2, with no QUIC listener" h2 example-doh-rotor "$at_once" 127.0.0.1 "$tcp_template" "$out/ca.der"
 alone udp tcp reads_types "over UDP" example-cleartext-rotor "$typed" "$plain" udp
 alone tcp udp reads_types "over TCP" example-cleartext-rotor "$typed" "$plain" tcp
 reads_types "over DoT" example-dot-rotor "$typed" "$secure" interop.example "$out/ca.der"

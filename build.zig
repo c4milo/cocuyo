@@ -148,7 +148,6 @@ pub fn build(b: *std.Build) void {
         tool_test_step.dependOn(run);
     }
 
-    test_step.dependOn(graph_check.add(b, host_module(b, "tools/graph_check.zig")));
     test_step.dependOn(consumer_check.add(b, host_module(b, "tools/consumer_check.zig")));
     test_step.dependOn(readme_check.add(b, host_module(b, "tools/readme_check.zig")));
     test_step.dependOn(fill_check.add(b, host_module(b, "tools/fill_check/fill_check.zig")));
@@ -158,22 +157,30 @@ pub fn build(b: *std.Build) void {
     // build has rotor, and what uses them adds nothing in that case.
     const rotor = b.lazyDependency("rotor", .{ .target = target, .release = release });
     const rotor_release = b.lazyDependency("rotor", .{ .target = target, .release = true });
+    const colibri = b.lazyDependency("colibri", .{ .target = target, .release = release });
+    // stdx's `platform`, which the DoT, DoQ and DoH examples state their CPU from under the word
+    // `cpu` (docs/design.md §16 decision 48). Only this root build requests it, once it has rotor
+    // and colibri. It takes the options colibri gives it, so the build holds one stdx, whose `Cpu`
+    // is the type colibri's `tls.Cpu` holds. The examples' compile proves it: a second stdx, at
+    // another commit or with other options, would be a second type, which `tls.Cpu` refuses.
+    const stdx = if (rotor != null and colibri != null) b.lazyDependency("stdx", .{ .target = target, .release = release }) else null;
+    const platform = if (stdx) |found| found.module("platform") else null;
+    test_step.dependOn(graph_check.add(b, host_module(b, "tools/graph_check.zig"), .{ .stdx = stdx, .colibri = colibri }));
     // ThreadSanitizer, over the comparison's tests and the two-engine example (Linux alone: Zig
     // 0.16 cannot build its runtime for arm64 macOS).
     const sanitize_thread = b.option(bool, "sanitize-thread", "Run the comparison's tests and the two-engine example under ThreadSanitizer (Linux)") orelse false;
-    examples.add(b, graph, target, optimize, test_step, rotor, sanitize_thread);
+    examples.add(b, graph, target, optimize, test_step, rotor, platform, sanitize_thread);
     bench.add(b, target, test_step, tool_test_step, rotor_release, sanitize_thread);
     const tla_tool = b.addExecutable(.{ .name = "tla", .root_module = tool_module(b, pepegrillo, "tools/tla.zig") });
     const replays = spec.add(b, target, test_step, tool_test_step, b.addExecutable(.{
         .name = "lean",
         .root_module = tool_module(b, pepegrillo, "tools/lean.zig"),
     }), tla_tool);
-    const colibri = b.lazyDependency("colibri", .{ .target = target, .release = release });
-    dot.add(b, target, optimize, graph, test_step, rotor, colibri);
+    dot.add(b, target, optimize, graph, test_step, .{ .rotor = rotor, .colibri = colibri, .platform = platform });
     quic.add(b, graph, colibri, test_step);
     add_coverage(b, &(unit_test_modules ++ replays), graph, colibri != null, test_step);
-    doq.add(b, target, optimize, graph, test_step, rotor, colibri);
-    doh.add(b, target, optimize, graph, test_step, rotor, colibri);
+    doq.add(b, target, optimize, graph, test_step, .{ .rotor = rotor, .colibri = colibri, .platform = platform });
+    doh.add(b, target, optimize, graph, test_step, .{ .rotor = rotor, .colibri = colibri, .platform = platform });
     dnslib.add(b, target, graph, test_step, tool_test_step);
     fuzz.add(b, target, graph, test_step, tool_test_step);
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));

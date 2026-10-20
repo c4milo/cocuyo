@@ -8,19 +8,19 @@ const modules = @import("modules.zig");
 
 /// Binds colibri's `client` and `tls` into the tests' module, and its `server`, which the tests
 /// answer with, and adds `zig build test-cocuyo_doh`: the type against colibri's server in memory,
-/// and the engine over it on the twin. Where rotor resolved, it adds `zig build example-doh-rotor`
-/// as well, lookups over DoH through the channel. The gate runs the tests and builds the example,
-/// so a colibri that breaks the type fails it. Null `colibri` is the build before the fetch.
+/// and the engine over it on the twin. Where rotor and stdx resolved, it adds `zig build
+/// example-doh-rotor` as well, lookups over DoH through the channel. The gate runs the tests and
+/// builds the example, so a colibri that breaks the type fails it. Null `colibri` is the build
+/// before the fetch.
 pub fn add(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     graph: modules.Graph,
     test_step: *std.Build.Step,
-    rotor: ?*std.Build.Dependency,
-    colibri: ?*std.Build.Dependency,
+    lazy: modules.Lazy,
 ) void {
-    const dependency = colibri orelse return;
+    const dependency = lazy.colibri orelse return;
     const module = graph.io_doh_channel;
     module.addImport("client", dependency.module("client"));
     module.addImport("tls", dependency.module("tls"));
@@ -34,7 +34,9 @@ pub fn add(
     const run = &b.addRunArtifact(tests).step;
     test_step.dependOn(run);
     b.step("test-cocuyo_doh", "Run cocuyo_doh's tests, over colibri's client and server").dependOn(run);
-    if (rotor) |loop| test_step.dependOn(add_example(b, target, optimize, graph, dependency, loop));
+    const loop = lazy.rotor orelse return;
+    const platform = lazy.platform orelse return;
+    test_step.dependOn(add_example(b, target, optimize, graph, dependency, loop, platform));
 }
 
 /// The engine over the real rotor with `cocuyo_doh`, both built here privately, as the bench builds
@@ -47,6 +49,7 @@ fn add_example(
     graph: modules.Graph,
     colibri: *std.Build.Dependency,
     rotor: *std.Build.Dependency,
+    platform: *std.Build.Module,
 ) *std.Build.Step {
     const engine = b.createModule(.{ .root_source_file = b.path(modules.roots.io), .target = target, .optimize = optimize });
     engine.addImport("cocuyo", graph.cocuyo);
@@ -73,10 +76,12 @@ fn add_example(
     module.addImport("io", engine);
     module.addImport("cocuyo_doh", doh);
     module.addImport("tls", colibri.module("tls"));
+    // The probe the word `cpu` states the CPU from (`examples/cpu_text.zig`).
+    module.addImport("platform", platform);
     const exe = b.addExecutable(.{ .name = "doh-rotor", .root_module = module });
     const run = b.addRunArtifact(exe);
     if (b.args) |arguments| run.addArgs(arguments);
-    const step = b.step("example-doh-rotor", "Lookups over DoH through colibri's channel: -- <name>[/TYPE][+...][,...] <address> <URI template> <root.der>...");
+    const step = b.step("example-doh-rotor", "Lookups over DoH through colibri's channel: -- [cpu] <name>[/TYPE][+...][,...] <address> <URI template> <root.der>...");
     step.dependOn(&run.step);
     return &exe.step;
 }

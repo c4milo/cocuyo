@@ -3197,4 +3197,319 @@
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX1",
+        .what = "the word is never read, and `cpu` is an operand",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = "if (after.len > 0 and std.mem.eql(u8, after[0], word))\n", .new = "if (after.len > 0 and std.mem.eql(u8, after[0], word) and false)\n" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX2",
+        .what = "a first argument that starts with the word is taken for it",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = "if (after.len > 0 and std.mem.eql(u8, after[0], word))\n", .new = "if (after.len > 0 and std.mem.startsWith(u8, after[0], word))\n" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX3",
+        .what = "the word is read anywhere on the command line",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = "if (after.len > 0 and std.mem.eql(u8, after[0], word))\n", .new = "if (for (after) |argument| {\n        if (std.mem.eql(u8, argument, word)) break true;\n    } else false)\n" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX4",
+        .what = "without the word, the example probes and states as with it",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = "    if (!stated) return nothing(Cpu);\n", .new = "    _ = stated;\n" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX5",
+        .what = "the value that states nothing states a data-independent timing",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = "    return .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };", .new = "    return .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .data_independent };" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX6",
+        .what = "the value that states nothing states the AES instructions found",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = "    return .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };", .new = "    return .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known }, .timing = .not_stated };" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX7",
+        .what = "with the word, a probe that did not find FEAT_DIT still states a data-independent timing",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = "    const independent = probe.dit == .yes and dit_set;", .new = "    const independent = dit_set;" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX8",
+        .what = "with the word, the timing is data-independent whatever the bit reads",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = "    const independent = probe.dit == .yes and dit_set;", .new = "    const independent = probe.dit == .yes;\n    _ = dit_set;" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX9",
+        .what = "with the word, the statement drops the probe's answers",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = "if (independent) .{ .probe = probe, .timing = .data_independent } else nothing(Cpu)", .new = "if (independent) .{ .probe = nothing(Cpu).probe, .timing = .data_independent } else nothing(Cpu)" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX10",
+        .what = "the example never sets PSTATE.DIT",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = "    dit_write(probe, true);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX11",
+        .what = "the example sets PSTATE.DIT where the probe did not find FEAT_DIT",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = "    if (probe.dit != .yes) return false;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX12",
+        .what = "the suite TLS_AES_128_GCM_SHA256 is named TLS_AES_256_GCM_SHA384",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = "        aes_128_gcm_sha256 => \"TLS_AES_128_GCM_SHA256\",", .new = "        aes_128_gcm_sha256 => \"TLS_AES_256_GCM_SHA384\"," },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX13",
+        .what = "a turn with no connection up is named ChaCha20-Poly1305",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = "    const code = suite orelse return \"not seen: no connection is up\";", .new = "    const code = suite orelse chacha20_poly1305_sha256;" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX14",
+        .what = "the statement's line drops the word `timing`",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = "\"cpu: timing {s}, aes_clmul {s}, dit {s}\"", .new = "\"cpu: {s}, aes_clmul {s}, dit {s}\"" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX15",
+        .what = "a QUIC session whose ServerHello named no suite is named ChaCha20-Poly1305",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = "    const chosen = session.suite() orelse return null;", .new = "    const chosen = session.suite() orelse return chacha20_poly1305_sha256;" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX16",
+        .what = "the DoH example's channel module, rooted in io/, imports stdx's platform",
+        .edits = .{
+            .{ .file = "build/doh.zig", .old = "    doh.addImport(\"tls\", colibri.module(\"tls\"));\n", .new = "    doh.addImport(\"tls\", colibri.module(\"tls\"));\n    doh.addImport(\"platform\", platform);\n" },
+        },
+        .caught_by = .{ .step = "graph-check" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX17",
+        .what = "the DoT example's engine, rooted in io/, imports stdx's platform",
+        .edits = .{
+            .{ .file = "build/dot.zig", .old = "    engine.addImport(\"rotor\", rotor.module(\"rotor\"));\n", .new = "    engine.addImport(\"rotor\", rotor.module(\"rotor\"));\n    engine.addImport(\"platform\", platform);\n" },
+        },
+        .caught_by = .{ .step = "graph-check" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX18",
+        .what = "`core`, rooted in src/, imports stdx's platform",
+        .edits = .{
+            .{ .file = "build/examples.zig", .old = "    module.addImport(\"platform\", probe);\n", .new = "    module.addImport(\"platform\", probe);\n    graph.core.addImport(\"platform\", probe);\n" },
+        },
+        .caught_by = .{ .step = "graph-check" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX19",
+        .what = "the library's root module, rooted in src/, imports colibri's tls",
+        .edits = .{
+            .{ .file = "build/doh.zig", .old = "    const module = graph.io_doh_channel;\n", .new = "    const module = graph.io_doh_channel;\n    graph.cocuyo.addImport(\"tls\", dependency.module(\"tls\"));\n" },
+        },
+        .caught_by = .{ .step = "graph-check" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX20",
+        .what = "the check holds no rule of stdx for io/",
+        .edits = .{
+            .{ .file = "build/graph_check_packages.zig", .old = "    .{ .package = .stdx, .under = \"io/\", .stop_at = &.{.colibri} },\n", .new = "" },
+        },
+        .caught_by = .{ .step = "graph-check" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX21",
+        .what = "the check holds no rule for colibri",
+        .edits = .{
+            .{ .file = "build/graph_check_packages.zig", .old = "    .{ .package = .colibri, .under = \"src/\", .stop_at = &.{} },\n", .new = "" },
+        },
+        .caught_by = .{ .step = "graph-check" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX22",
+        .what = "the walk reads no import of any module",
+        .edits = .{
+            .{ .file = "build/graph_check_packages.zig", .old = "        if (of_any(module, stop_at)) continue;\n        for (module.import_table.values()) |imported| try found.put(arena, imported, {});\n", .new = "        _ = .{ module, stop_at };\n" },
+        },
+        .caught_by = .{ .step = "graph-check" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX23",
+        .what = "the walk reads no step below the top-level steps",
+        .edits = .{
+            .{ .file = "build/graph_check_packages.zig", .old = "        for (step.dependencies.items) |dependency| try steps.put(arena, dependency, {});\n", .new = "" },
+        },
+        .caught_by = .{ .step = "graph-check" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX24",
+        .what = "the check makes no canary",
+        .edits = .{
+            .{ .file = "build/graph_check_packages.zig", .old = "        slot.* = canary_module(b, canary, found.module(canary.module));\n", .new = "        _ = .{ slot, canary_module(b, canary, found.module(canary.module)) };\n" },
+        },
+        .caught_by = .{ .step = "graph-check" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX25",
+        .what = "with the word, where the example states no mode, it states the probe's answers beside not_stated",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = ".timing = .data_independent } else nothing(Cpu);", .new = ".timing = .data_independent } else .{ .probe = probe, .timing = .not_stated };" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX26",
+        .what = "where the probe did not find FEAT_DIT, the set runs the MSR itself, and says no",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = "    if (probe.dit != .yes) return false;\n", .new = "    if (probe.dit != .yes) {\n        asm volatile (\"msr s3_3_c4_c2_5, %[value]\"\n            :\n            : [value] \"r\" (dit_bit),\n            : .{ .memory = true });\n        return false;\n    }\n" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX27",
+        .what = "the write of PSTATE.DIT sets the bit whatever it is asked, so the tests' clear sets it",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = "    const value: u64 = if (set) dit_bit else 0;\n", .new = "    const value: u64 = dit_bit;\n    _ = set;\n" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX28",
+        .what = "the command line states nothing, whatever the word",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = "    const cpu = state(Cpu, given.stated);\n", .new = "    const cpu = state(Cpu, false);\n" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX29",
+        .what = "the command line states as with the word, whatever it says",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = "    const cpu = state(Cpu, given.stated);\n", .new = "    const cpu = state(Cpu, true);\n" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX30",
+        .what = "the command line keeps the word among the operands",
+        .edits = .{
+            .{ .file = "examples/cpu_text.zig", .old = "    return .{ .cpu = cpu, .operands = given.operands };\n", .new = "    return .{ .cpu = cpu, .operands = arguments[1..] };\n" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX31",
+        .what = "the walk from each module reads its direct imports alone",
+        .edits = .{
+            .{ .file = "build/graph_check_packages.zig", .old = "        const closure = try reach(arena, &.{module}, rule.stop_at);\n", .new = "        _ = arena;\n        const closure = module.import_table.values();\n" },
+        },
+        .caught_by = .{ .step = "graph-check" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX32",
+        .what = "the walk from src/ stops at a module of colibri, as the walk from io/ does",
+        .edits = .{
+            .{ .file = "build/graph_check_packages.zig", .old = "        const closure = try reach(arena, &.{module}, rule.stop_at);\n", .new = "        const closure = try reach(arena, &.{module}, &.{.colibri});\n" },
+        },
+        .caught_by = .{ .step = "graph-check" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX33",
+        .what = "the walk from io/ reads below a module of colibri",
+        .edits = .{
+            .{ .file = "build/graph_check_packages.zig", .old = "    .{ .package = .stdx, .under = \"io/\", .stop_at = &.{.colibri} },\n", .new = "    .{ .package = .stdx, .under = \"io/\", .stop_at = &.{} },\n" },
+        },
+        .caught_by = .{ .step = "graph-check" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX34",
+        .what = "the library's root module imports the examples' cpu_text, which imports stdx's platform",
+        .edits = .{
+            .{ .file = "build/examples.zig", .old = "    module.addImport(\"platform\", probe);\n", .new = "    module.addImport(\"platform\", probe);\n    graph.cocuyo.addImport(\"cpu_text\", module);\n" },
+        },
+        .caught_by = .{ .step = "graph-check" },
+    },
+    .{
+        .section = "The CPU an example states",
+        .id = "CX35",
+        .what = "the library's root module imports the DoH channel, rooted in io/, which imports colibri",
+        .edits = .{
+            .{ .file = "build/doh.zig", .old = "    const module = graph.io_doh_channel;\n", .new = "    const module = graph.io_doh_channel;\n    graph.cocuyo.addImport(\"channel\", module);\n" },
+        },
+        .caught_by = .{ .step = "graph-check" },
+    },
 }

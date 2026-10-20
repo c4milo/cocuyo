@@ -114,6 +114,23 @@ The library root, `src/cocuyo.zig`, re-exports `core`, `wire`, `resolver`, `conf
 so a consumer writes `cocuyo.Lookup`, `cocuyo.resolv_conf.parse` and `cocuyo.Cache`. `sim` is
 never packaged.
 
+### What the build depends on
+
+The library in `src/` depends on nothing. Each other dependency is of one part of the build.
+`build.zig.zon` pins each by hash, as a lazy dependency that only the root build requests:
+
+- pepegrillo, of the tools (§17 question 1).
+- rotor, of the examples and of the comparison with c-ares (§17 question 8).
+- colibri, of the engine's DoT, DoQ and DoH, and of the tools (§16 decisions 29, 32 and 33).
+  No module rooted in `src/` reaches it.
+- stdx, of the DoT, DoQ and DoH examples alone, for the probe that the word `cpu` turns on (§16
+  decision 48, as amended on 2026-10-20). No module rooted in `src/` reaches it. A module rooted
+  in `io/` reaches it only through colibri, whose `tls` and `client` import stdx.
+
+`zig build graph-check` reads the module graph that the build made, at any depth. It fails when a
+module rooted in `src/` reaches a module of stdx or of colibri. It also fails when a module rooted
+in `io/` reaches a module of stdx other than through a module of colibri.
+
 ### File layout
 
 ```text
@@ -3061,18 +3078,20 @@ step until `zig build test` passes.
       seed, then the clock.
     - The DoT and DoQ sessions export the type as `Session.Cpu`, beside `Session.Anchor`. A DoH
       consumer binds colibri's `tls` itself, so it names `tls.Cpu`. The ruling named the
-      argument and not this name, so §17 question 59 asks the owner about it.
+      argument and not this name, so §17 question 59 asked the owner about it. The owner kept the
+      name on 2026-10-20.
     - cocuyo exports no value that states nothing. The consumer writes the value, as colibri asks
       of each program.
     - No assertion holds the value. colibri checks neither statement, and the engine cannot read
       the thread's mode either.
-    - The examples state nothing. The probe colibri names is stdx's, which no build of cocuyo
-      depends on, and neither colibri nor chapulin exports a probe. §17 question 58 asks the owner
-      about it.
+    - The examples stated nothing. The probe colibri names is stdx's, which no build of cocuyo
+      depended on, and neither colibri nor chapulin exports a probe. §17 question 58 asked the
+      owner about it, and the amendment below records the answer.
     - The tests name each value in a constant of their own. The test servers state nothing, as
-      before. So no test of cocuyo completes a handshake under AES-GCM, and no example does
-      either. colibri's own tests cover those sessions and their SHA-384 tickets (its
-      `record_aes_test.zig` and `quic_aes_test.zig`).
+      before. So no test of cocuyo completes a handshake under AES-GCM. colibri's own tests cover
+      those sessions and their SHA-384 tickets (its `record_aes_test.zig` and
+      `quic_aes_test.zig`). Since the amendment below, an example with the word completes
+      handshakes under AES-GCM against servers that cocuyo did not write.
 
     Rejected:
 
@@ -3103,6 +3122,132 @@ step until `zig build test` passes.
     The public API changes: the three `init` functions take one more argument, and the DoT and
     DoQ sessions export `Session.Cpu` (§17 question 59). No named limit changes. No model changes
     either: no transition of §5 and no rule of §19 steps 13 and 14 reads the value.
+
+    **Amended by the owner on 2026-10-20, on §17 question 58: the third way.** stdx is a ruled
+    dependency of the DoT, DoQ and DoH examples alone, and never of the library or the engine. A
+    word on each example's command line turns the statement on. Each live check and the interop
+    check then run each server twice, once without the word and once with it.
+
+    - The word is `cpu`. It comes first, before the names. Only the first argument can be the
+      word, and only when it is `cpu` exactly. A lookup of the one-label name `cpu` is written
+      `cpu.`, with the root's dot.
+    - Without the word, each example states nothing, as before: `not_known` for each answer of
+      the probe, and `not_stated` for the timing. Each hello offers TLS_CHACHA20_POLY1305_SHA256
+      alone.
+    - With the word, each example calls stdx's `platform.probe()` once, at its start, on the one
+      thread that drives the engine. On arm64, where the probe found FEAT_DIT, the example sets
+      PSTATE.DIT with an MSR to the DIT register. It then reads the bit back with an MRS.
+    - Where the bit reads as set, the example states `data_independent` and the probe's answers.
+      Where the probe also found the AES instructions, each hello offers TLS_AES_256_GCM_SHA384
+      and TLS_AES_128_GCM_SHA256 first.
+    - Elsewhere the example states nothing, as the ruled way says. That is arm64 without FEAT_DIT,
+      arm64 where the bit does not read as set, and each other CPU. On x86-64 the mode is DOITM.
+      The operating system sets it, and no program can read it. So each hello there offers
+      TLS_CHACHA20_POLY1305_SHA256 alone.
+    - The example states `data_independent` only for a thread that it put in that mode itself.
+      That is the rule colibri's guide gives each program, and an example is a model that a
+      consumer copies. colibri's test programs state the mode on each core. Their header says that
+      a program for real peers must not do this (§17 question 58).
+    - The word is off by default for the same reason. `not_stated` is the one value that each
+      program can state truthfully.
+    - Each example prints what it states before its first turn, on the line `cpu: timing
+      <timing>, aes_clmul <answer>, dit <answer>`. After each turn it prints the suite that the
+      handshake chose, on the line `<turn>: suite <name>`.
+    - The DoT example reads the suite from colibri's record provider. The DoQ example reads it
+      from chapulin's QUIC session in colibri's `tls`. The DoH example reads it from the link that
+      the channel came up on.
+    - The examples pin stdx at `5da4397`, the commit that colibri v0.8.0 pins. The build requests
+      it with colibri's options, the target and `release`. So the build holds one `platform`
+      module, and the probe's `Cpu` is the type that `tls.Cpu` holds. The examples' compile proves
+      it: a second stdx would give a second type, and `tls.Cpu` would refuse it.
+    - Only the root build requests stdx, once it has rotor and colibri. A build that depends on
+      cocuyo stops before that request, so it never fetches stdx.
+    - `examples/cpu_text.zig` holds what the three examples share of the word. Its `command` reads
+      the word and states the CPU in one call, the first of each example's `main`.
+
+    How each check runs both ways:
+
+    - The DoT, DoQ and DoH live checks resolve the two names of each resolver in two runs, first
+      without the word and then with it. The refusals, the pins, the record types and the report
+      of Google's chain run once, without the word.
+    - The interop check resolves its four names in two runs over DoT, over DoQ, and over DoH on
+      HTTP/3 and on HTTP/2. The refusals, the record types and the pins run once, without the
+      word.
+    - Each run without the word must state nothing. Each of its handshakes must run
+      TLS_CHACHA20_POLY1305_SHA256.
+    - A run with the word on a host whose system reports FEAT_DIT must state `data_independent`.
+      Each of its handshakes must run AES-GCM where the system also reports FEAT_AES and
+      FEAT_PMULL, and ChaCha20-Poly1305 where it does not.
+    - A run with the word on a host whose system does not report FEAT_DIT must state nothing. Each
+      of its handshakes must run TLS_CHACHA20_POLY1305_SHA256. On x86-64 no system reports
+      FEAT_DIT.
+    - On arm64 macOS each run with the word fails where `sysctl` does not report FEAT_AES,
+      FEAT_PMULL and FEAT_DIT as 1. Each Apple arm64 CPU has all three, so such a host hides one,
+      and no run there can reach AES-GCM.
+    - The check reads the host from the system itself: `sysctl` on macOS, and `/proc/cpuinfo` on
+      Linux. It never reads the host from the example, since an example whose probe broke would
+      then lower what its run must reach. `tools/cpu_word/suite.sh` holds the rule, and each of
+      the four checks sources it.
+    - Each run keeps each other requirement that it had, the resumption among them. So each check
+      makes twice as many handshakes for its resolutions.
+
+    Choices the amendment did not make, made here:
+
+    - The word comes first. The roots are the last arguments, and their count is not fixed, so a
+      word after them would be the path of a root.
+    - The example reads PSTATE.DIT back, and does not take the MSR on trust. An MSR that did not
+      set the bit would otherwise state a mode the thread does not run in.
+    - The example names the DIT register as S3_3_C4_C2_5, by its op0, op1, CRn, CRm and op2
+      fields. So an assembler that targets a CPU without FEAT_DIT takes the instructions too.
+      Only a CPU whose probe found FEAT_DIT runs them.
+    - Where the example states no mode, it states nothing, and not its probe beside `not_stated`.
+      The ruled way says so, and the hello is the same either way. colibri's guide shows the probe
+      beside `not_stated`, and both values are true.
+    - On arm64 macOS a check fails each run with the word where `sysctl` hides a feature. A check
+      that passed there would never reach AES-GCM, which is what the ruling asks the checks to
+      reach. stdx's CI read all three as 1 on GitHub's `macos-26` arm64 runner (stdx design §8,
+      2026-09-30).
+    - The check does not take the build target's answer where the system gives none, as stdx's
+      probe does. On arm64 macOS that case fails. On Linux the check and the probe both read the
+      AT_HWCAP word, which `/proc/cpuinfo` lists.
+    - `zig build graph-check` gains a second part, `build/graph_check_packages.zig`. It reads each
+      module that a compile step of the build reaches. From each module rooted in `src/` or `io/`,
+      it walks each module that the module reaches, at any depth.
+    - No module rooted in `src/` may reach a module of stdx or of colibri. No module rooted in
+      `io/` may reach a module of stdx, except below a module of colibri. colibri's `tls` imports
+      stdx's `platform`, its `client` imports stdx's decoders, and the engine imports both by
+      right.
+    - Three controls make that part fail when it did not read the graph. The walk must reach a
+      module rooted in each directory that a rule names. Each canary must get the verdict that it
+      expects, and no compile step reaches a canary. Each package that the graph holds must have
+      its canaries.
+    - A canary reaches the package directly, through a module of this tree outside the rule's
+      directory, or below colibri's `tls`. Each rule for `src/` must flag each of its canaries.
+      The rule of stdx for `io/` must flag the first two, and pass the third.
+
+    Rejected, with the other ways of §17 question 58:
+
+    - As built: no check against a server that cocuyo did not write runs AES-GCM.
+    - stdx with no word: a server then picks from three suites, and no check is sure to reach
+      ChaCha20-Poly1305.
+    - A probe of the examples' own: a second probe that must stay the same as stdx's. A consumer
+      that copies an example copies that probe too.
+    - The graph check over the text of each file. A line scanner sees an `@import` that a file
+      writes. The module graph shows what the build gives each module, and the compiler refuses
+      the import of a name that the build did not give.
+    - The graph check over the direct imports of each module alone. A module of `src/` could then
+      reach stdx through a module of `examples/`, or colibri through a module of `io/`, and the
+      check would pass.
+
+    The checks are the tests of `examples/cpu_text.zig`, and the second part of the graph check.
+    The tests read the word, the statement that each value gives, and the set and the read of
+    PSTATE.DIT. They also read `command`, the one call that each example makes for the word. `zig
+    build test-examples` runs them alone. No test reads two lines of each example: the report of
+    `command.cpu`, and the context's `init` that takes it. The live checks and the interop check
+    run those lines. docs/mutations.md, the CPU an example states, records the rows.
+
+    No named limit changes, and no public API either: the change is in the examples and the build.
+    No model changes. No transition of §5 and no rule of §19 steps 13 and 14 reads the value.
 
     §17 questions 56, 58 and 59, §21 (the session interface), §24 (the context a session starts
     from).
@@ -3700,6 +3845,10 @@ consumer fills. The examples do not fill it from a probe, and the sessions name 
     Recommended: the third. The checks then reach AES-GCM, the suite that RFC 9846 §9.1 says each
     application MUST implement. They still reach ChaCha20-Poly1305 too. Until the owner rules, the
     first.
+
+    Answered on 2026-10-20: the third. stdx is a ruled dependency of the examples alone, and the
+    word `cpu` turns the statement on. Each live check and the interop check run each server
+    twice. Built on 2026-10-20: §16 decision 48, as amended.
 59. **The name a DoT or DoQ consumer gives the type.** The sessions of `io/io_chapulin.zig` and
     `io/io_chapulin_quic.zig` export `Session.Cpu`, which is colibri's `tls.Cpu`. Each already
     exports `Session.Anchor`, which is `tls.Anchor`. So a consumer that copies an example names
@@ -3714,6 +3863,8 @@ consumer fills. The examples do not fill it from a probe, and the sessions name 
 
     Recommended: the first. It is the form `Session.Anchor` already has. Until the owner rules, the
     first.
+
+    Answered on 2026-10-20: as built. `Session.Cpu` stays, beside `Session.Anchor`.
 
 ## 18. The cache
 

@@ -9,7 +9,11 @@
 #
 # Zig is pinned as ci.yml pins it. colibri is a dependency the build fetches at the commit
 # build.zig.zon pins, checked by its hash, and its `tls` module carries chapulin's objects at the
-# commit colibri pins. No third-party action runs here; `actions/checkout` is GitHub's own.
+# commit colibri pins. Each resolver resolves in two runs, without the word `cpu` and then with it
+# (docs/design.md §16 decision 48). The run with the word reads stdx's probe, which the build
+# fetches at the commit build.zig.zon pins, colibri's own. On a runner whose sysctl does not report
+# FEAT_AES, FEAT_PMULL and FEAT_DIT as 1, each run with the word fails. No third-party action runs
+# here; `actions/checkout` is GitHub's own.
 name: dot-live
 
 on:
