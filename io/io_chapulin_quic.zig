@@ -23,36 +23,39 @@ comptime {
 
 const tls_provider = quic.tls_provider;
 
-/// What the session states of the CPU and the thread that drive it: nothing, as the DoT session
-/// states (docs/design.md §24, chapulin under colibri; §17 question 56). Its hello then offers
-/// TLS_CHACHA20_POLY1305_SHA256 alone. The module's tests state it for their server too.
-pub const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };
-
 pub const Session = struct {
     /// A root the chain may end at: its subject Name and its SubjectPublicKeyInfo, each a whole
     /// DER TLV (colibri's `values.zig`).
     pub const Anchor = tls.Anchor;
+    /// What the consumer states of its CPU: what its probe found, and the timing mode of the thread
+    /// that drives the engine (colibri's `values.zig`). It decides the suites of each hello
+    /// (docs/design.md §16 decision 48).
+    pub const Cpu = tls.Cpu;
     /// The most roots a context holds: what colibri's configuration takes, chapulin's
     /// `CH_WEBPKI_ANCHOR_MAX`.
     pub const anchors_max = tls.quic.ClientConfig.anchors_max;
 
-    /// What every session starts from (docs/design.md §24, the context a session starts from): the
-    /// anchors, the wall clock, and the stream chapulin draws from, seeded from a CSPRNG. No field
-    /// has a default, so a context is built by `init`, with each of them named (§16 decision 39).
-    /// The anchors are the caller's and outlive the engine.
+    /// What every session starts from (docs/design.md §24, the context a session starts from). It
+    /// holds the anchors, the consumer's statement of its CPU, the wall clock, and the stream
+    /// chapulin draws from. No field has a default, so a context is built by `init`, with each of
+    /// them named (§16 decision 39). The anchors are the caller's and outlive the engine.
     pub const Context = struct {
         anchors: []const Anchor,
+        cpu: Cpu,
         stream: std.Random.ChaCha,
         unix_seconds: u64,
         at_ns: u64,
 
-        /// `seed` must be 32 octets of a CSPRNG, drawn for this context alone: chapulin draws
-        /// each handshake's random and its key shares from the stream they key. `unix_seconds` is
-        /// the wall clock at the caller's `now_ns`. `anchors` may be none when every server is
-        /// known by its pins.
-        pub fn init(anchors: []const Anchor, seed: [std.Random.ChaCha.secret_seed_length]u8, unix_seconds: u64, now_ns: u64) Context {
+        /// `cpu` is the consumer's probe and its thread's timing mode, which the engine cannot
+        /// check (§16 decision 48). Under `data_independent`, with the AES instructions found,
+        /// each hello offers AES-GCM first; under any other value, ChaCha20-Poly1305 alone. `seed`
+        /// must be 32 octets of a CSPRNG, drawn for this context alone: chapulin draws each
+        /// handshake's random and its key shares from the stream they key. `unix_seconds` is the
+        /// wall clock at the caller's `now_ns`. `anchors` may be none when every server is known
+        /// by its pins.
+        pub fn init(anchors: []const Anchor, cpu: Cpu, seed: [std.Random.ChaCha.secret_seed_length]u8, unix_seconds: u64, now_ns: u64) Context {
             assert(anchors.len <= anchors_max);
-            return .{ .anchors = anchors, .stream = std.Random.ChaCha.init(seed), .unix_seconds = unix_seconds, .at_ns = now_ns };
+            return .{ .anchors = anchors, .cpu = cpu, .stream = std.Random.ChaCha.init(seed), .unix_seconds = unix_seconds, .at_ns = now_ns };
         }
 
         /// The wall clock at `now_ns`, carried forward from the instant the context was made.
@@ -93,7 +96,8 @@ pub const Session = struct {
         assert(server.valid());
         self.* = .{};
         self.alpn = .{start_with.alpn};
-        self.config.init(.{ .trust = trust(server, context, &self.hostname), .alpn = &self.alpn, .cpu = cpu_not_stated }) catch return error.Failed;
+        // What the consumer stated of its CPU decides the suites of the hello (§16 decision 48).
+        self.config.init(.{ .trust = trust(server, context, &self.hostname), .alpn = &self.alpn, .cpu = context.cpu }) catch return error.Failed;
         var resumption: ?tls.Resumption = null;
         if (start_with.ticket) |ticket| {
             self.resuming = ticket;

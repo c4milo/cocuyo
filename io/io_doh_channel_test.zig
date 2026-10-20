@@ -14,6 +14,7 @@ const identity = @import("io_doh_channel_identity.zig");
 const server_module = @import("io_doh_channel_server.zig");
 pub const constants = cocuyo_doh.constants;
 const doh_constants = @import("doh").constants;
+const tls = @import("tls");
 
 /// Two answer buffers: a test's second request fits beside its first, and a third waits.
 const test_answers = 2;
@@ -72,9 +73,14 @@ pub const Pair = struct {
     carried: bool = false,
 
     pub fn create(script: server_module.Script) !*Pair {
+        return create_with(script, identity.cpu_not_stated);
+    }
+
+    /// As `create`, with a context that states `cpu` of the CPU (docs/design.md §16 decision 48).
+    pub fn create_with(script: server_module.Script, cpu: tls.Cpu) !*Pair {
         const pair = try testing.allocator.create(Pair);
         errdefer testing.allocator.destroy(pair);
-        pair.* = .{};
+        pair.* = .{ .context = identity.test_context_with(cpu, seed_octet, round_ns) };
         try pair.open(script);
         return pair;
     }

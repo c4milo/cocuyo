@@ -186,23 +186,34 @@ failover and cache stay as they are over UDP; what changes is the connection a q
   time. A DoH server is named by its URI template.
 - Every server is authenticated, strictly (RFC 8310): by the name its certificate must carry, by
   SPKI pins of its key, or by both. A server that cannot be authenticated is not asked.
-- Each TLS session offers TLS_CHACHA20_POLY1305_SHA256 alone. colibri runs AES-GCM only for a
-  program that states the timing mode of its thread, and the engine states nothing
-  (docs/design.md §17 question 56).
 - DoQ and DoH over HTTP/3 offer QUIC version 2 beside version 1, and run on version 2 when the
   server switches to it. A ticket from such a connection resumes in version 2.
 - Each encrypted transport starts its sessions from a context you hand the engine: `use_tls` for
   DoT, `use_quic` for DoQ, `use_doh` for DoH. A context carries a stream seeded with 32 octets
-  from your secure random source, the roots a named server's chain may end at, and the wall
-  clock. DoQ's carries a second stream, for its connection IDs, seeded with a second draw of 32
-  octets. The three examples each build one. The call is required, after `init` and before the
-  first lookup that reaches a server of that transport. The engine has no context of its own:
-  a lookup started against a DoT, DoQ or DoH configuration whose context was never set stops
-  the program at an assertion, in every build. `has_context` says whether the engine has the
-  context its configuration needs. The engine cannot check the seed or the clock you hand it.
-  `reinit` keeps the contexts, and `init` forgets them. A context you hand over again is built
-  from a new draw. No context type has a default, so every field of one is written where it is
-  built.
+  from your secure random source. It also carries the roots a named server's chain may end at,
+  what you state of your CPU, and the wall clock. DoQ's carries a second stream, for its
+  connection IDs, seeded with a second draw of 32 octets. The three examples each build one.
+- The call is required, after `init` and before the first lookup that reaches a server of that
+  transport. The engine has no context of its own. A lookup started against a DoT, DoQ or DoH
+  configuration whose context was never set stops the program at an assertion, in every build.
+  `has_context` says whether the engine has the context its configuration needs.
+- The engine cannot check the seed, the clock or the statement of the CPU you hand it. `reinit`
+  keeps the contexts, and `init` forgets them. A context you hand over again is built from a new
+  draw. No context type has a default, so every field of one is written where it is built.
+- What you state of your CPU is a `tls.Cpu`, which each context's `init` takes after the
+  anchors. It holds what your probe of the CPU found, and the timing mode of the thread that
+  drives the engine. colibri reads it to choose the suites of each hello (docs/design.md §16
+  decision 48).
+- Fill `probe` once, at start, from `platform.probe()` of stdx, at the commit colibri pins. Set
+  `timing` to `.data_independent` only for a thread that runs in that mode. On arm64 that thread
+  has set PSTATE.DIT. On x86-64 the operating system has set DOITM. Where the probe also found
+  the AES instructions, each hello then offers TLS_AES_256_GCM_SHA384 and TLS_AES_128_GCM_SHA256,
+  then TLS_CHACHA20_POLY1305_SHA256. Where it did not, each hello offers
+  TLS_CHACHA20_POLY1305_SHA256 alone.
+- If you cannot state the mode, set `timing` to `.not_stated`. Put your probe beside it, or
+  `.not_known` for each of its answers. Each hello then offers TLS_CHACHA20_POLY1305_SHA256
+  alone, and a server that holds only AES-GCM refuses it. The three examples do this, since
+  cocuyo does not depend on stdx (docs/design.md §17 question 58).
 - cocuyo's library depends on none of them. The engine speaks TLS through a session interface,
   which this repository fills with chapulin's session in colibri's `tls`; QUIC through
   `cocuyo_quic`, whose `quic` import a consumer that speaks DoQ binds to colibri's; and HTTPS

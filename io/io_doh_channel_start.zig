@@ -11,24 +11,28 @@ const constants = @import("io_doh_channel_constants.zig");
 const exchange_module = @import("io_doh_channel_exchange.zig");
 const read_module = @import("io_doh_channel_read.zig");
 
-/// What every channel starts from (docs/design.md §24, the context a session starts from): the
-/// roots a named server's chain may end at, the stream chapulin and the QUIC connection IDs draw
-/// from, and the wall clock at an instant of the caller's. No field has a default, so a context is
-/// built by `init`, with each of them named (§16 decision 39). The anchors are the caller's and
-/// outlive the engine.
+/// What every channel starts from (docs/design.md §24, the context a session starts from). It holds
+/// the roots a named server's chain may end at, and the consumer's statement of its CPU. It holds
+/// the stream chapulin and the QUIC connection IDs draw from, and the wall clock at an instant of
+/// the caller's. No field has a default, so a context is built by `init`, with each of them named
+/// (§16 decision 39). The anchors are the caller's and outlive the engine.
 pub const Context = struct {
     anchors: []const tls.Anchor,
+    cpu: tls.Cpu,
     stream: std.Random.ChaCha,
     unix_seconds: u64,
     at_ns: u64,
 
-    /// `seed` must be 32 octets of a CSPRNG, drawn for this context alone: chapulin draws each
-    /// handshake's random and its key shares from the stream they key, and the QUIC link its
-    /// connection IDs. `unix_seconds` is the wall clock at the caller's `now_ns`. A DoH server is
-    /// known by its template's host, so `anchors` holds the roots its chain may end at.
-    pub fn init(anchors: []const tls.Anchor, seed: [std.Random.ChaCha.secret_seed_length]u8, unix_seconds: u64, now_ns: u64) Context {
+    /// `cpu` is the consumer's probe and its thread's timing mode, which the engine cannot check
+    /// (§16 decision 48). Under `data_independent`, with the AES instructions found, each hello
+    /// offers AES-GCM first; under any other value, ChaCha20-Poly1305 alone. `seed` must be 32
+    /// octets of a CSPRNG, drawn for this context alone: chapulin draws each handshake's random and
+    /// its key shares from the stream they key, and the QUIC link its connection IDs.
+    /// `unix_seconds` is the wall clock at the caller's `now_ns`. A DoH server is known by its
+    /// template's host, so `anchors` holds the roots its chain may end at.
+    pub fn init(anchors: []const tls.Anchor, cpu: tls.Cpu, seed: [std.Random.ChaCha.secret_seed_length]u8, unix_seconds: u64, now_ns: u64) Context {
         assert(anchors.len <= tls.record.ClientConfig.anchors_max);
-        return .{ .anchors = anchors, .stream = std.Random.ChaCha.init(seed), .unix_seconds = unix_seconds, .at_ns = now_ns };
+        return .{ .anchors = anchors, .cpu = cpu, .stream = std.Random.ChaCha.init(seed), .unix_seconds = unix_seconds, .at_ns = now_ns };
     }
 
     /// The wall clock at `now_ns`, carried forward from the instant the context was made.
@@ -36,12 +40,6 @@ pub const Context = struct {
         return context.unix_seconds + (now_ns -| context.at_ns) / constants.ns_per_second;
     }
 };
-
-/// What the channel states of the CPU and the thread that drive its sessions: nothing, as the DoT
-/// and DoQ sessions state (docs/design.md §24, §17 question 56). colibri then runs no AES
-/// instruction, so each hello offers TLS_CHACHA20_POLY1305_SHA256 alone. The module's test
-/// servers state it too.
-pub const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };
 
 /// What the channel speaks (rule 18): HTTP/3 over QUIC, and HTTP/2 or HTTP/1.1 over TCP. colibri
 /// builds each ALPN list from it: `h3` over QUIC (RFC 9114 §3.1), and `h2`, then `http/1.1`, over
@@ -62,10 +60,10 @@ fn assert_sizes() void {
     assert(constants.output_bytes_max >= client.constants.stream_output_len_min);
 }
 
-/// Makes a server's channel, with nothing opened (rule 18): its TLS names the server as its `Tls`
-/// does, and its connections go to the server's address on the template's port. colibri builds the
-/// TLS configuration of each transport from the one TLS value. A template whose GET would not fit
-/// is refused, and so is a TLS value colibri refuses.
+/// Makes a server's channel, with nothing opened (rule 18). Its TLS names the server as its `Tls`
+/// does, and states of the CPU what the context states. Its connections go to the server's address
+/// on the template's port. colibri builds the TLS configuration of each transport from the one TLS
+/// value. A template whose GET would not fit is refused, and so is a TLS value colibri refuses.
 pub fn start(self: anytype, context: anytype) error{Failed}!void {
     assert_sizes();
     const https = context.https;
@@ -73,8 +71,10 @@ pub fn start(self: anytype, context: anytype) error{Failed}!void {
     assert(!self.started);
     self.* = .{ .context = context.context, .path = https.path };
     const trust = trust_of(context.tls, self.context.anchors, &self.hostname);
+    // What the consumer stated of its CPU decides the suites of each link's hello (§16 decision
+    // 48). colibri builds the TLS of both transports from this one value (its decision 120).
     self.channel_config = .{
-        .tls = .{ .trust = trust, .cpu = cpu_not_stated },
+        .tls = .{ .trust = trust, .cpu = self.context.cpu },
         .versions = versions,
         .authority = https.authority,
         .fallback_delay_ns = constants.fallback_delay_ns,
@@ -144,6 +144,7 @@ fn trust_of(server: *const cocuyo.Tls, anchors: []const tls.Anchor, hostname: *[
 
 const testing = std.testing;
 const rig = @import("io_doh_channel_test.zig");
+const identity = @import("io_doh_channel_identity.zig");
 
 test "the context carries no default, so each of its fields is named where one is built" {
     // Until 2026-10-11 the fields defaulted to no anchors, a stream seeded with zeros and a wall
@@ -160,18 +161,40 @@ test "the context carries no default, so each of its fields is named where one i
 const message_header_bytes = 4;
 const legacy_version_bytes = 2;
 const random_bytes = 32;
-/// TLS_CHACHA20_POLY1305_SHA256, {0x13,0x03} (RFC 9846 Appendix B.4).
+/// TLS_AES_128_GCM_SHA256 {0x13,0x01}, TLS_AES_256_GCM_SHA384 {0x13,0x02} and
+/// TLS_CHACHA20_POLY1305_SHA256 {0x13,0x03} (RFC 9846 Appendix B.4).
+const aes_128_gcm_sha256: u16 = 0x1301;
+const aes_256_gcm_sha384: u16 = 0x1302;
 const chacha20_poly1305_sha256: u16 = 0x1303;
+/// The suites of a hello whose context states the AES instructions and a data-independent timing.
+/// colibri hands chapulin no order of its own, so the order is that of chapulin's host object (its
+/// `suite.h`): AES-256-GCM, AES-128-GCM, ChaCha20.
+const suites_with_aes = [_]u16{ aes_256_gcm_sha384, aes_128_gcm_sha256, chacha20_poly1305_sha256 };
+/// The suites of a hello whose context states no timing mode, or no AES instructions found.
+const suites_without_aes = [_]u16{chacha20_poly1305_sha256};
+/// A probe that found the AES instructions and FEAT_DIT, under a timing mode the test states and
+/// nothing checks. A test that names it reads the hello alone, which runs no AES instruction.
+const cpu_with_aes: tls.Cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .yes }, .timing = .data_independent };
+/// The same probe, with no timing mode stated.
+const cpu_aes_not_stated: tls.Cpu = .{ .probe = cpu_with_aes.probe, .timing = .not_stated };
+/// A probe that found FEAT_DIT and no AES instructions, under the timing mode of `cpu_with_aes`.
+const cpu_without_aes: tls.Cpu = .{ .probe = .{ .aes_clmul = .no, .dit = .yes }, .timing = .data_independent };
+/// A probe that found FEAT_DIT and gave no answer for the AES instructions, under the same mode.
+const cpu_aes_not_known: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .yes }, .timing = .data_independent };
 /// max_idle_timeout, of 30,000 milliseconds (RFC 9000 §18.2), which chapulin carries and does not
 /// read: its ID, its length, and its value as a two-octet varint.
 const transport_parameters = "\x01\x02\x75\x30";
 /// Room for a ClientHello at its longest: a post-quantum key share, a ticket and a cookie.
 const hello_bytes_max = 4096;
 
-/// Requires that `suites` offer TLS_CHACHA20_POLY1305_SHA256 and nothing else.
-fn expect_chacha20_alone(suites: []const u8) !void {
-    try testing.expectEqual(@as(usize, @sizeOf(u16)), suites.len);
-    try testing.expectEqual(chacha20_poly1305_sha256, std.mem.readInt(u16, suites[0..@sizeOf(u16)], .big));
+/// Requires that `suites`, a ClientHello's cipher_suites, offer `expected` in its order, and
+/// nothing else.
+fn expect_suites(expected: []const u16, suites: []const u8) !void {
+    try testing.expectEqual(expected.len * @sizeOf(u16), suites.len);
+    for (expected, 0..) |suite, index| {
+        const at = index * @sizeOf(u16);
+        try testing.expectEqual(suite, std.mem.readInt(u16, suites[at..][0..@sizeOf(u16)], .big));
+    }
 }
 
 /// The cipher_suites a ClientHello handshake message offers.
@@ -182,23 +205,24 @@ fn suites_of(message: []const u8) []const u8 {
     return message[suites_at..][0..suites_len];
 }
 
-test "the channel states nothing of the CPU, so its TCP hello offers TLS_CHACHA20_POLY1305_SHA256 alone" {
-    // docs/design.md §24 and §17 question 56: colibri runs the AES instructions only for a program
-    // that states its thread's timing mode, which the engine cannot state.
-    const pair = try rig.Pair.create(.{});
+/// Requires that the TCP link of a channel over `cpu` offers `expected` in its first hello. The
+/// QUIC link opens first, and goes nowhere; the TCP link's hello is its first output.
+fn expect_tcp_suites(cpu: tls.Cpu, expected: []const u16) !void {
+    const pair = try rig.Pair.create_with(.{}, cpu);
     defer pair.free();
     try testing.expect(pair.doh.request(0, &rig.query, pair.now_ns));
     try testing.expectEqual(rig.Doh.Link.quic, (try pair.run(.open)).open.link);
     try testing.expectEqual(rig.Doh.Link.tcp, (try pair.run(.open)).open.link);
     const hello_len = pair.doh.output(&pair.wire, pair.now_ns);
-    try expect_chacha20_alone(suites_of(pair.wire[constants.record_header_bytes..hello_len]));
+    try expect_suites(expected, suites_of(pair.wire[constants.record_header_bytes..hello_len]));
 }
 
-test "the channel states nothing of the CPU, so its QUIC hello offers TLS_CHACHA20_POLY1305_SHA256 alone" {
-    // colibri builds the QUIC link's TLS configuration from the channel's one TLS value (its
-    // decision 120). A session over that configuration writes the hello of the link's first
-    // Initial, and chapulin starts at the transport parameters (RFC 9001 §8.2).
-    const pair = try rig.Pair.create(.{});
+/// Requires that the QUIC link of a channel over `cpu` offers `expected` in its first hello.
+/// colibri builds the link's TLS configuration from the channel's one TLS value (its decision 120).
+/// A session over that configuration writes the hello of the link's first Initial, and chapulin
+/// starts at the transport parameters (RFC 9001 §8.2).
+fn expect_quic_suites(cpu: tls.Cpu, expected: []const u16) !void {
+    const pair = try rig.Pair.create_with(.{}, cpu);
     defer pair.free();
     const session = try testing.allocator.create(tls.quic.Client);
     defer testing.allocator.destroy(session);
@@ -207,5 +231,30 @@ test "the channel states nothing of the CPU, so its QUIC hello offers TLS_CHACHA
     try session.provider().set_transport_params(transport_parameters);
     var hello: [hello_bytes_max]u8 = undefined;
     const hello_len = try session.provider().write_handshake(.initial, &hello);
-    try expect_chacha20_alone(suites_of(hello[0..hello_len]));
+    try expect_suites(expected, suites_of(hello[0..hello_len]));
+}
+
+test "a context that states the AES instructions and a data-independent timing offers AES-GCM first, on each link" {
+    // docs/design.md §24 and §16 decision 48: the channel hands colibri what its context states,
+    // in its one TLS value. RFC 9846 §9.1 makes TLS_AES_128_GCM_SHA256 the suite to implement.
+    try expect_tcp_suites(cpu_with_aes, &suites_with_aes);
+    try expect_quic_suites(cpu_with_aes, &suites_with_aes);
+}
+
+test "a context that states no timing mode offers TLS_CHACHA20_POLY1305_SHA256 alone, on each link, whatever its probe" {
+    // docs/design.md §16 decision 48: the value a consumer passes when it cannot state its
+    // thread's mode. A probe that found the AES instructions changes nothing without the mode.
+    try expect_tcp_suites(identity.cpu_not_stated, &suites_without_aes);
+    try expect_quic_suites(identity.cpu_not_stated, &suites_without_aes);
+    try expect_tcp_suites(cpu_aes_not_stated, &suites_without_aes);
+    try expect_quic_suites(cpu_aes_not_stated, &suites_without_aes);
+}
+
+test "a context that states a data-independent timing and no AES instructions offers TLS_CHACHA20_POLY1305_SHA256 alone, on each link" {
+    // docs/design.md §16 decision 48, as over DoT: a probe's `no` or `not_known` gives colibri
+    // no ground to run the AES instructions.
+    try expect_tcp_suites(cpu_without_aes, &suites_without_aes);
+    try expect_quic_suites(cpu_without_aes, &suites_without_aes);
+    try expect_tcp_suites(cpu_aes_not_known, &suites_without_aes);
+    try expect_quic_suites(cpu_aes_not_known, &suites_without_aes);
 }

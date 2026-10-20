@@ -12,7 +12,6 @@ const tls = @import("tls");
 const doh = @import("doh");
 const identity = @import("io_doh_channel_identity.zig");
 const constants = @import("io_doh_channel_constants.zig");
-const start_module = @import("io_doh_channel_start.zig");
 
 /// What makes an answer of a query, into `out`, or null to refuse it.
 pub const Answerer = struct {
@@ -48,11 +47,6 @@ const ticket_key: [tls.constants.server_key_len]u8 = @splat(ticket_octet);
 const response_fields_max = 4;
 const length_digits_max = 20;
 
-/// What the server states of the CPU and its thread: nothing, as the channel states
-/// (`io_doh_channel_start.zig`, docs/design.md §17 question 56). Its sessions then hold
-/// TLS_CHACHA20_POLY1305_SHA256 alone.
-pub const cpu_not_stated = start_module.cpu_not_stated;
-
 /// The server's TLS identity, the test's, with no protocol named: the endpoint names those its
 /// versions allow (colibri's decision 119).
 pub fn identity_values(tickets: bool) tls.Server {
@@ -60,7 +54,8 @@ pub fn identity_values(tickets: bool) tls.Server {
         .ecdsa_p256 = .{ .chain = &identity.chain, .public_key = identity.public_key, .private_key = identity.private_key },
         .cookie_key = &cookie_key,
         .ticket_key = if (tickets) &ticket_key else null,
-        .cpu = cpu_not_stated,
+        // Nothing, so the server's sessions hold TLS_CHACHA20_POLY1305_SHA256 alone.
+        .cpu = identity.cpu_not_stated,
     };
 }
 

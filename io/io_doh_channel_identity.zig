@@ -47,9 +47,20 @@ pub const unix_seconds: u64 = 1_780_272_000;
 /// The roots a test's context trusts: the identity's CA alone.
 pub const anchors = [_]tls.Anchor{anchor};
 
-/// A channel's context for a test over the identity: its CA for the anchors, `unix_seconds` for the
-/// wall clock at `now_ns`, and a stream seeded with `seed_octet` repeated, so each run draws what
-/// the last drew. Never for a network, whose seed comes from a CSPRNG.
+/// What a test states of the CPU when it names nothing: no answer of the probe, and no timing
+/// mode. The test servers state it too. A consumer that cannot state its thread's mode passes it,
+/// and its hello offers TLS_CHACHA20_POLY1305_SHA256 alone (docs/design.md §16 decision 48).
+pub const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };
+
+/// A channel's context for a test over the identity. Its anchors are the identity's CA, and its
+/// wall clock is `unix_seconds` at `now_ns`. Its stream is seeded with `seed_octet` repeated, so
+/// each run draws what the last drew. It states nothing of the CPU. Never for a network, whose
+/// seed comes from a CSPRNG.
 pub fn test_context(seed_octet: u8, now_ns: u64) start_module.Context {
-    return .init(&anchors, @splat(seed_octet), unix_seconds, now_ns);
+    return test_context_with(cpu_not_stated, seed_octet, now_ns);
+}
+
+/// As `test_context`, with the statement of the CPU that the test names.
+pub fn test_context_with(cpu: tls.Cpu, seed_octet: u8, now_ns: u64) start_module.Context {
+    return .init(&anchors, cpu, @splat(seed_octet), unix_seconds, now_ns);
 }

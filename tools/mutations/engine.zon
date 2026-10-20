@@ -2875,33 +2875,6 @@
     },
     .{
         .section = "colibri v0.8.0",
-        .id = "CB1",
-        .what = "the DoT session states the AES instructions and a data-independent timing",
-        .edits = .{
-            .{ .file = "io/io_chapulin.zig", .old = "const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };", .new = "const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known }, .timing = .data_independent };" },
-        },
-        .caught_by = .{ .step = "test-chapulin" },
-    },
-    .{
-        .section = "colibri v0.8.0",
-        .id = "CB2",
-        .what = "the DoQ session states the AES instructions and a data-independent timing",
-        .edits = .{
-            .{ .file = "io/io_chapulin_quic.zig", .old = "const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };", .new = "const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known }, .timing = .data_independent };" },
-        },
-        .caught_by = .{ .step = "test-chapulin-quic" },
-    },
-    .{
-        .section = "colibri v0.8.0",
-        .id = "CB3",
-        .what = "the DoH channel states the AES instructions and a data-independent timing",
-        .edits = .{
-            .{ .file = "io/io_doh_channel_start.zig", .old = "const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };", .new = "const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known }, .timing = .data_independent };" },
-        },
-        .caught_by = .{ .step = "test-cocuyo_doh" },
-    },
-    .{
-        .section = "colibri v0.8.0",
         .id = "CB4",
         .what = "the DoH channel speaks no HTTP/2, so its TCP connection offers `http/1.1` alone",
         .edits = .{
@@ -3005,6 +2978,222 @@
         .what = "a record's protection adds one octet more than RFC 9846 allows, past colibri's room",
         .edits = .{
             .{ .file = "io/io_doh_channel_constants.zig", .old = "pub const record_expansion_bytes_max: usize = 256;", .new = "pub const record_expansion_bytes_max: usize = 257;" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CB1",
+        .what = "the DoT session states the AES instructions and a data-independent timing, whatever its context states",
+        .edits = .{
+            .{ .file = "io/io_chapulin.zig", .old = ".cpu = context.cpu })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known }, .timing = .data_independent } })" },
+        },
+        .caught_by = .{ .step = "test-chapulin" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CB2",
+        .what = "the DoQ session states the AES instructions and a data-independent timing, whatever its context states",
+        .edits = .{
+            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = context.cpu })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known }, .timing = .data_independent } })" },
+        },
+        .caught_by = .{ .step = "test-chapulin-quic" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CB3",
+        .what = "the DoH channel states the AES instructions and a data-independent timing, whatever its context states",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu },", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known }, .timing = .data_independent } }," },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU1",
+        .what = "the DoT session's context states nothing of the CPU by default",
+        .edits = .{
+            .{ .file = "io/io_chapulin.zig", .old = "        cpu: Cpu,\n", .new = "        cpu: Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated },\n" },
+        },
+        .caught_by = .{ .step = "test-chapulin" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU2",
+        .what = "the DoT session's context keeps the consumer's probe and drops its timing mode",
+        .edits = .{
+            .{ .file = "io/io_chapulin.zig", .old = ".cpu = cpu, .stream = std.Random.ChaCha.init(seed)", .new = ".cpu = .{ .probe = cpu.probe, .timing = .not_stated }, .stream = std.Random.ChaCha.init(seed)" },
+        },
+        .caught_by = .{ .step = "test-chapulin" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU3",
+        .what = "the DoT session states nothing of the CPU, whatever its context states",
+        .edits = .{
+            .{ .file = "io/io_chapulin.zig", .old = ".cpu = context.cpu })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated } })" },
+        },
+        .caught_by = .{ .step = "test-chapulin" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU4",
+        .what = "the DoT session states a data-independent timing, whatever its context states",
+        .edits = .{
+            .{ .file = "io/io_chapulin.zig", .old = ".cpu = context.cpu })", .new = ".cpu = .{ .probe = context.cpu.probe, .timing = .data_independent } })" },
+        },
+        .caught_by = .{ .step = "test-chapulin" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU5",
+        .what = "the DoQ session's context states nothing of the CPU by default",
+        .edits = .{
+            .{ .file = "io/io_chapulin_quic.zig", .old = "        cpu: Cpu,\n", .new = "        cpu: Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated },\n" },
+        },
+        .caught_by = .{ .step = "test-chapulin-quic" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU6",
+        .what = "the DoQ session's context keeps the consumer's probe and drops its timing mode",
+        .edits = .{
+            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = cpu, .stream = std.Random.ChaCha.init(seed)", .new = ".cpu = .{ .probe = cpu.probe, .timing = .not_stated }, .stream = std.Random.ChaCha.init(seed)" },
+        },
+        .caught_by = .{ .step = "test-chapulin-quic" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU7",
+        .what = "the DoQ session states nothing of the CPU, whatever its context states",
+        .edits = .{
+            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = context.cpu })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated } })" },
+        },
+        .caught_by = .{ .step = "test-chapulin-quic" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU8",
+        .what = "the DoQ session states a data-independent timing, whatever its context states",
+        .edits = .{
+            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = context.cpu })", .new = ".cpu = .{ .probe = context.cpu.probe, .timing = .data_independent } })" },
+        },
+        .caught_by = .{ .step = "test-chapulin-quic" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU9",
+        .what = "cocuyo_doh's context states nothing of the CPU by default",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_start.zig", .old = "    cpu: tls.Cpu,\n", .new = "    cpu: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated },\n" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU10",
+        .what = "cocuyo_doh's context keeps the consumer's probe and drops its timing mode",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = cpu, .stream = std.Random.ChaCha.init(seed)", .new = ".cpu = .{ .probe = cpu.probe, .timing = .not_stated }, .stream = std.Random.ChaCha.init(seed)" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU11",
+        .what = "the DoH channel states nothing of the CPU, whatever its context states",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu },", .new = ".cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated } }," },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU12",
+        .what = "the DoH channel states a data-independent timing, whatever its context states",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu },", .new = ".cpu = .{ .probe = self.context.cpu.probe, .timing = .data_independent } }," },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU13",
+        .what = "the DoT session states the AES instructions found, whatever its probe found",
+        .edits = .{
+            .{ .file = "io/io_chapulin.zig", .old = ".cpu = context.cpu })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = context.cpu.probe.dit }, .timing = context.cpu.timing } })" },
+        },
+        .caught_by = .{ .step = "test-chapulin" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU14",
+        .what = "the DoT session's context states the AES instructions found, whatever the consumer's probe found",
+        .edits = .{
+            .{ .file = "io/io_chapulin.zig", .old = ".cpu = cpu, .stream = std.Random.ChaCha.init(seed)", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = cpu.probe.dit }, .timing = cpu.timing }, .stream = std.Random.ChaCha.init(seed)" },
+        },
+        .caught_by = .{ .step = "test-chapulin" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU15",
+        .what = "the DoT session takes a probe that did not answer for one that found the AES instructions",
+        .edits = .{
+            .{ .file = "io/io_chapulin.zig", .old = ".cpu = context.cpu })", .new = ".cpu = .{ .probe = .{ .aes_clmul = if (context.cpu.probe.aes_clmul == .no) .no else .yes, .dit = context.cpu.probe.dit }, .timing = context.cpu.timing } })" },
+        },
+        .caught_by = .{ .step = "test-chapulin" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU16",
+        .what = "the DoQ session states the AES instructions found, whatever its probe found",
+        .edits = .{
+            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = context.cpu })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = context.cpu.probe.dit }, .timing = context.cpu.timing } })" },
+        },
+        .caught_by = .{ .step = "test-chapulin-quic" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU17",
+        .what = "the DoQ session's context states the AES instructions found, whatever the consumer's probe found",
+        .edits = .{
+            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = cpu, .stream = std.Random.ChaCha.init(seed)", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = cpu.probe.dit }, .timing = cpu.timing }, .stream = std.Random.ChaCha.init(seed)" },
+        },
+        .caught_by = .{ .step = "test-chapulin-quic" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU18",
+        .what = "the DoQ session takes a probe that did not answer for one that found the AES instructions",
+        .edits = .{
+            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = context.cpu })", .new = ".cpu = .{ .probe = .{ .aes_clmul = if (context.cpu.probe.aes_clmul == .no) .no else .yes, .dit = context.cpu.probe.dit }, .timing = context.cpu.timing } })" },
+        },
+        .caught_by = .{ .step = "test-chapulin-quic" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU19",
+        .what = "the DoH channel states the AES instructions found, whatever its probe found",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu },", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = self.context.cpu.probe.dit }, .timing = self.context.cpu.timing } }," },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU20",
+        .what = "cocuyo_doh's context states the AES instructions found, whatever the consumer's probe found",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = cpu, .stream = std.Random.ChaCha.init(seed)", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = cpu.probe.dit }, .timing = cpu.timing }, .stream = std.Random.ChaCha.init(seed)" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "The CPU a context states",
+        .id = "CU21",
+        .what = "the DoH channel takes a probe that did not answer for one that found the AES instructions",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu },", .new = ".cpu = .{ .probe = .{ .aes_clmul = if (self.context.cpu.probe.aes_clmul == .no) .no else .yes, .dit = self.context.cpu.probe.dit }, .timing = self.context.cpu.timing } }," },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },

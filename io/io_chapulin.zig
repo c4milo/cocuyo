@@ -39,12 +39,6 @@ comptime {
     }
 }
 
-/// What the session states of the CPU and the thread that drive it: nothing (docs/design.md §21,
-/// §17 question 56). colibri then runs no AES instruction and the portable multiply, so the hello
-/// offers TLS_CHACHA20_POLY1305_SHA256 alone. Only the program can state the timing mode of its
-/// thread, so the engine claims none.
-const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };
-
 pub const Session = struct {
     pub const enabled = true;
     /// What the session stages between two of the engine's calls: what one of colibri's handshake
@@ -61,28 +55,36 @@ pub const Session = struct {
     /// A root the chain may end at: its subject Name and its SubjectPublicKeyInfo, each a whole
     /// DER TLV (colibri's `values.zig`).
     pub const Anchor = tls.Anchor;
+    /// What the consumer states of its CPU: what its probe found, and the timing mode of the thread
+    /// that drives the engine (colibri's `values.zig`). It decides the suites of each hello
+    /// (docs/design.md §16 decision 48).
+    pub const Cpu = tls.Cpu;
     /// The most roots a context holds: what colibri's configuration takes, chapulin's
     /// `CH_WEBPKI_ANCHOR_MAX`.
     pub const anchors_max = tls.record.ClientConfig.anchors_max;
 
     /// What every session starts from (docs/design.md §21, and §24, the context a session starts
-    /// from): the roots a named server's chain may end at, the stream chapulin draws from, and
-    /// the wall clock at an instant of the caller's. No field has a default, so a context is
-    /// built by `init`, with each of them named (§16 decision 39). The anchors are the caller's
-    /// and outlive the engine.
+    /// from). It holds the roots a named server's chain may end at, and the consumer's statement
+    /// of its CPU. It holds the stream chapulin draws from, and the wall clock at an instant of the
+    /// caller's. No field has a default, so a context is built by `init`, with each of them named
+    /// (§16 decision 39). The anchors are the caller's and outlive the engine.
     pub const Context = struct {
         anchors: []const Anchor,
+        cpu: Cpu,
         stream: std.Random.ChaCha,
         unix_seconds: u64,
         at_ns: u64,
 
-        /// `seed` must be 32 octets of a CSPRNG, drawn for this context alone: chapulin draws
-        /// each handshake's random and its key shares from the stream they key. `unix_seconds` is
-        /// the wall clock at the caller's `now_ns`. `anchors` may be none when every server is
-        /// known by its pins.
-        pub fn init(anchors: []const Anchor, seed: [std.Random.ChaCha.secret_seed_length]u8, unix_seconds: u64, now_ns: u64) Context {
+        /// `cpu` is the consumer's probe and its thread's timing mode, which the engine cannot
+        /// check (§16 decision 48). Under `data_independent`, with the AES instructions found,
+        /// each hello offers AES-GCM first; under any other value, ChaCha20-Poly1305 alone. `seed`
+        /// must be 32 octets of a CSPRNG, drawn for this context alone: chapulin draws each
+        /// handshake's random and its key shares from the stream they key. `unix_seconds` is the
+        /// wall clock at the caller's `now_ns`. `anchors` may be none when every server is known
+        /// by its pins.
+        pub fn init(anchors: []const Anchor, cpu: Cpu, seed: [std.Random.ChaCha.secret_seed_length]u8, unix_seconds: u64, now_ns: u64) Context {
             assert(anchors.len <= anchors_max);
-            return .{ .anchors = anchors, .stream = std.Random.ChaCha.init(seed), .unix_seconds = unix_seconds, .at_ns = now_ns };
+            return .{ .anchors = anchors, .cpu = cpu, .stream = std.Random.ChaCha.init(seed), .unix_seconds = unix_seconds, .at_ns = now_ns };
         }
 
         /// The wall clock at `now_ns`, carried forward from the instant the context was made.
@@ -115,7 +117,8 @@ pub const Session = struct {
         const server: *const cocuyo.Tls = start_with.tls;
         const context = start_with.context;
         self.* = .{};
-        self.config.init(.{ .trust = trust(server, context, &self.hostname), .cpu = cpu_not_stated }) catch return self.fail();
+        // What the consumer stated of its CPU decides the suites of the hello (§16 decision 48).
+        self.config.init(.{ .trust = trust(server, context, &self.hostname), .cpu = context.cpu }) catch return self.fail();
         var resumption: ?tls.Resumption = null;
         if (start_with.ticket) |ticket| {
             self.resuming = ticket;
@@ -272,222 +275,8 @@ pub const Session = struct {
     }
 };
 
-// Tests. They need no network: a session starts, stages a hello, and refuses what chapulin
-// refuses.
+// Tests.
 
-const testing = std.testing;
-
-/// A handshake record's content type, and an alert's, and an alert's fatal level (RFC 9846 §5.1,
-/// §6).
-const content_handshake = 22;
-const content_alert = 21;
-const alert_fatal = 2;
-
-/// The wall clock the tests' contexts are made at.
-const test_seconds = 1_700_000_000;
-
-/// The octet a test's stream is seeded with when the test does not read what the stream gives.
-const test_seed_octet = 7;
-
-/// A context for a test: the stream seeded with `seed_octet` repeated, so each run draws what the
-/// last drew, and the wall clock at `test_seconds`. Never for a network, whose seed comes from a
-/// CSPRNG.
-fn test_context(anchors: []const tls.Anchor, seed_octet: u8) Session.Context {
-    return .init(anchors, @splat(seed_octet), test_seconds, 0);
-}
-
-/// The octets of the pin the tests' servers are known by, which no key hashes to.
-const pin_octet = 0xab;
-
-/// A session, which is too large for a test's stack, started as the engine starts one.
-fn started(server: *const cocuyo.Tls, context: *Session.Context) !*Session {
-    const session = try testing.allocator.create(Session);
-    errdefer testing.allocator.destroy(session);
-    session.* = .{};
-    try session.start(.{ .tls = server, .ticket = @as(?Session.Ticket, null), .ticket_age_ns = @as(u64, 0), .context = context, .now_ns = @as(u64, 0) });
-    return session;
-}
-
-fn finish(session: *Session) void {
-    session.wipe();
-    testing.allocator.destroy(session);
-}
-
-/// One octet of DER, which colibri hands chapulin as an anchor's name and key without reading.
-const anchor_octet = "\x30";
-const anchors_test = [_]tls.Anchor{.{ .subject = anchor_octet, .spki = anchor_octet }};
-
-test "the context carries no default, so each of its fields is named where one is built" {
-    // Until 2026-10-11 the fields defaulted to no anchors, an undefined stream and a wall clock of
-    // zero, and so did the engine's context when no consumer set one (docs/design.md §16
-    // decision 39).
-    inline for (comptime std.meta.fields(Session.Context)) |field| {
-        try testing.expectEqual(@as(?*const anyopaque, null), field.default_value_ptr);
-    }
-}
-
-test "a session starts and stages a hello, a TLS handshake record" {
-    var context = test_context(&.{}, test_seed_octet);
-    const pins = [_]cocuyo.Pin{@splat(pin_octet)};
-    const session = try started(&.{ .pins = &pins }, &context);
-    defer finish(session);
-    var out: [Session.out_bytes_max]u8 = undefined;
-    const made = session.take_out(&out);
-    // A handshake record (RFC 9846 §5.1): content type 22, then the length of the body.
-    try testing.expect(made > constants.tls_record_header_bytes);
-    try testing.expectEqual(@as(u8, content_handshake), out[0]);
-    const body = std.mem.readInt(u16, out[constants.tls_record_length_at..][0..@sizeOf(u16)], .big);
-    try testing.expectEqual(made, constants.tls_record_header_bytes + body);
-}
-
-/// The hello a session over `seed` stages first.
-const Hello = struct {
-    bytes: [Session.out_bytes_max]u8 = undefined,
-    len: usize = 0,
-
-    fn of(seed: u8) !Hello {
-        var context = test_context(&.{}, seed);
-        const pins = [_]cocuyo.Pin{@splat(pin_octet)};
-        const session = try started(&.{ .pins = &pins }, &context);
-        defer finish(session);
-        var hello: Hello = .{};
-        hello.len = session.take_out(&hello.bytes);
-        return hello;
-    }
-
-    fn slice(hello: *const Hello) []const u8 {
-        return hello.bytes[0..hello.len];
-    }
-};
-
-test "the hello is drawn from the context's stream: the same seed makes the same hello" {
-    const first = try Hello.of(1);
-    const again = try Hello.of(1);
-    const other = try Hello.of(2);
-    // The random and the key shares are the stream's (non-negotiable 4).
-    try testing.expectEqualSlices(u8, first.slice(), again.slice());
-    try testing.expect(!std.mem.eql(u8, first.slice(), other.slice()));
-}
-
-/// Where a ClientHello's cipher_suites start (RFC 9846 §4, §4.2.2): after the message's type and
-/// length, the legacy_version, the random, and the legacy_session_id's length octet and its body.
-const message_header_bytes = 4;
-const legacy_version_bytes = 2;
-const random_bytes = 32;
-/// TLS_CHACHA20_POLY1305_SHA256, {0x13,0x03} (RFC 9846 Appendix B.4).
-const chacha20_poly1305_sha256: u16 = 0x1303;
-
-/// Requires that `suites` offer TLS_CHACHA20_POLY1305_SHA256 and nothing else.
-fn expect_chacha20_alone(suites: []const u8) !void {
-    try testing.expectEqual(@as(usize, @sizeOf(u16)), suites.len);
-    try testing.expectEqual(chacha20_poly1305_sha256, std.mem.readInt(u16, suites[0..@sizeOf(u16)], .big));
-}
-
-/// The cipher_suites a ClientHello handshake message offers.
-fn suites_of(message: []const u8) []const u8 {
-    const session_id_at = message_header_bytes + legacy_version_bytes + random_bytes;
-    const suites_at = session_id_at + 1 + message[session_id_at] + @sizeOf(u16);
-    const suites_len = std.mem.readInt(u16, message[suites_at - @sizeOf(u16) ..][0..@sizeOf(u16)], .big);
-    return message[suites_at..][0..suites_len];
-}
-
-test "a session states nothing of the CPU, so its hello offers TLS_CHACHA20_POLY1305_SHA256 alone" {
-    // docs/design.md §21 and §17 question 56: colibri runs the AES instructions only for a program
-    // that states its thread's timing mode, which the engine cannot state.
-    const hello = try Hello.of(test_seed_octet);
-    try expect_chacha20_alone(suites_of(hello.slice()[constants.tls_record_header_bytes..]));
-}
-
-test "a handshake chapulin refuses hands over its fatal alert, though the session is wiped" {
-    // A first record from the server that is no ServerHello: chapulin fails the handshake and
-    // colibri writes the alert it chose, which the engine sends before it closes (RFC 9846 §6.2).
-    var context = test_context(&.{}, test_seed_octet);
-    const pins = [_]cocuyo.Pin{@splat(pin_octet)};
-    const session = try started(&.{ .pins = &pins }, &context);
-    defer finish(session);
-    var out: [Session.out_bytes_max]u8 = undefined;
-    _ = session.take_out(&out);
-    // A handshake record whose one message is of a type no server sends (RFC 9846 §4).
-    var record = [_]u8{ content_handshake, 3, 3, 0, 4, 0xfe, 0, 0, 0 };
-    try testing.expectError(Session.Error.Failed, session.handshake(&record));
-    try testing.expect(!session.started);
-    // An alert record, in the clear before any key: content type 21, and a fatal level (§6).
-    const made = session.take_out(&out);
-    try testing.expect(made >= constants.tls_record_header_bytes + 2);
-    try testing.expectEqual(@as(u8, content_alert), out[0]);
-    try testing.expectEqual(@as(u8, alert_fatal), out[constants.tls_record_header_bytes]);
-}
-
-test "a server known by pins alone gets no anchors, though the context carries them for named servers" {
-    // The anchors are for the servers that have names; one known by its key alone gets none,
-    // which chapulin would refuse with no name to check a chain against.
-    const context = test_context(&anchors_test, test_seed_octet);
-    const pins = [_]cocuyo.Pin{@splat(pin_octet)};
-    var hostname: [cocuyo.constants.name_text_bytes_max]u8 = undefined;
-    const trust = Session.trust(&.{ .pins = &pins }, &context, &hostname);
-    try testing.expect(trust == .pins);
-    try testing.expectEqual(pins.len, trust.pins.pins.len);
-    try testing.expectEqual(@as(?[]const u8, null), trust.pins.server_name);
-}
-
-test "a named server is checked against the anchors and its name, on the context's clock" {
-    const context = test_context(&anchors_test, test_seed_octet);
-    var hostname: [cocuyo.constants.name_text_bytes_max]u8 = undefined;
-    const trust = Session.trust(&.{ .name = try cocuyo.Name.from_text("dns.example.") }, &context, &hostname);
-    try testing.expect(trust == .web_pki);
-    try testing.expectEqual(anchors_test.len, trust.web_pki.anchors.len);
-    // chapulin takes a hostname, with no root label's dot.
-    try testing.expectEqualStrings("dns.example", trust.web_pki.server_name);
-    try testing.expectEqual(@as(u64, test_seconds + 5), context.seconds_at(5 * constants.ns_per_second));
-}
-
-test "a named server with no anchors to check is judged by its pins, and its name still sent" {
-    const context = test_context(&.{}, test_seed_octet);
-    const pins = [_]cocuyo.Pin{@splat(pin_octet)};
-    var hostname: [cocuyo.constants.name_text_bytes_max]u8 = undefined;
-    const trust = Session.trust(&.{ .name = try cocuyo.Name.from_text("dns.example."), .pins = &pins }, &context, &hostname);
-    try testing.expect(trust == .pins);
-    try testing.expectEqual(pins.len, trust.pins.pins.len);
-    try testing.expectEqualStrings("dns.example", trust.pins.server_name.?);
-}
-
-test "a session with neither pins nor anchors for its name is refused before a byte" {
-    var context = test_context(&.{}, test_seed_octet);
-    const server: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
-    const session = try testing.allocator.create(Session);
-    defer testing.allocator.destroy(session);
-    session.* = .{};
-    try testing.expectError(Session.Error.Failed, session.start(.{ .tls = &server, .ticket = @as(?Session.Ticket, null), .ticket_age_ns = @as(u64, 0), .context = &context, .now_ns = @as(u64, 0) }));
-    var out: [Session.out_bytes_max]u8 = undefined;
-    try testing.expectEqual(@as(usize, 0), session.take_out(&out));
-}
-
-test "the ticket a session would resume with is zeroed when its start fails" {
-    // The copy holds the resumption secret (RFC 9846 §4.7.1), which nothing may keep past the
-    // session it was for. This ticket's binding to the server matches nothing, so chapulin refuses
-    // it, and the failed start wipes the session.
-    var context = test_context(&.{}, test_seed_octet);
-    const pins = [_]cocuyo.Pin{@splat(pin_octet)};
-    var ticket = std.mem.zeroes(Session.Ticket);
-    ticket.identity_len = 1;
-    ticket.psk_len = tls.constants.sha256_len;
-    @memset(&ticket.psk, 0x5a);
-    @memset(&ticket.binding, 0x33);
-    ticket.lifetime_s = 1;
-    const session = try testing.allocator.create(Session);
-    defer testing.allocator.destroy(session);
-    session.* = .{};
-    try testing.expectError(Session.Error.Failed, session.start(.{ .tls = &cocuyo.Tls{ .pins = &pins }, .ticket = @as(?Session.Ticket, ticket), .ticket_age_ns = @as(u64, 0), .context = &context, .now_ns = @as(u64, 0) }));
-    try testing.expect(std.mem.allEqual(u8, std.mem.asBytes(&session.resuming), 0));
-    try testing.expect(!session.started);
-}
-
-test "chapulin starts a session for a server of four pins, the most a configuration names, and refuses five" {
-    // `spki_pins_max` is chapulin's own bound as well (docs/design.md §21). A server of four pins
-    // starts. Five pins, which no valid configuration names, are refused at the start.
-    var context = test_context(&.{}, test_seed_octet);
-    const pins: [cocuyo.constants.spki_pins_max + 1]cocuyo.Pin = @splat(@splat(pin_octet));
-    const most = try started(&.{ .pins = pins[0..cocuyo.constants.spki_pins_max] }, &context);
-    finish(most);
-    try testing.expectError(Session.Error.Failed, started(&.{ .pins = &pins }, &context));
+test {
+    _ = @import("io_chapulin_test.zig");
 }

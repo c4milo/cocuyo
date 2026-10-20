@@ -14,7 +14,6 @@ const server = @import("server");
 const tls = @import("tls");
 const constants = @import("io_doh_channel_constants.zig");
 const identity = @import("io_doh_channel_identity.zig");
-const tcp_server = @import("io_doh_channel_server.zig");
 
 /// The protocol the server selects (RFC 7301 §3.2): HTTP/1.1 alone.
 const alpn = [_][]const u8{"http/1.1"};
@@ -64,7 +63,7 @@ pub const RawServer = struct {
             .ecdsa_p256 = .{ .chain = &identity.chain, .public_key = identity.public_key, .private_key = identity.private_key },
             .cookie_key = &cookie_key,
             .alpn = &alpn,
-            .cpu = tcp_server.cpu_not_stated,
+            .cpu = identity.cpu_not_stated,
         });
         try self.session.start(&self.config, self.stream.random(), unix_seconds);
     }

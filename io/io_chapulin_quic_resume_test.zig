@@ -28,6 +28,9 @@ const public_key: *const [tls.constants.p256_public_key_len]u8 = @embedFile("tes
 const private_key: *const [tls.constants.p256_private_key_len]u8 = @embedFile("testdata/identity.priv");
 const anchors = [_]tls.Anchor{.{ .subject = @embedFile("testdata/identity.name"), .spki = @embedFile("testdata/identity.spki") }};
 const server_name = "dns.example.";
+/// What the server and the client state of the CPU: nothing (docs/design.md §16 decision 48). Each
+/// side then holds TLS_CHACHA20_POLY1305_SHA256 alone.
+const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };
 /// 2026-06-01T00:00:00Z, inside the identity's validity.
 const unix_seconds: u64 = 1_780_272_000;
 
@@ -76,7 +79,7 @@ const Server = struct {
             .cookie_key = &cookie_key,
             .ticket_key = &ticket_key,
             .alpn = &alpn,
-            .cpu = session_module.cpu_not_stated,
+            .cpu = cpu_not_stated,
         });
     }
 
@@ -159,7 +162,7 @@ const Side = struct {
     fn start(side: *Side, ticket: ?Session.Ticket, now_ns: u64) !void {
         side.* = .{};
         side.context = .{
-            .session = .init(&anchors, @splat(session_seed_octet), unix_seconds, now_ns),
+            .session = .init(&anchors, cpu_not_stated, @splat(session_seed_octet), unix_seconds, now_ns),
             .stream = std.Random.ChaCha.init(@splat(ids_seed_octet)),
         };
         const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(server_name) };

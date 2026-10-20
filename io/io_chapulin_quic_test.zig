@@ -18,15 +18,34 @@ const Context = struct { session: Session.Context };
 const test_seconds = 1;
 const test_ns = 1;
 
+/// What a test states of the CPU when it names nothing: no answer of the probe, and no timing
+/// mode. A consumer that cannot state its thread's mode passes it (docs/design.md §16 decision 48).
+const cpu_not_stated: Session.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };
+/// A probe that found the AES instructions and FEAT_DIT, under a timing mode the test states and
+/// nothing checks. A test that names it reads the hello alone, which runs no AES instruction.
+const cpu_with_aes: Session.Cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .yes }, .timing = .data_independent };
+/// The same probe, with no timing mode stated.
+const cpu_aes_not_stated: Session.Cpu = .{ .probe = cpu_with_aes.probe, .timing = .not_stated };
+/// A probe that found FEAT_DIT and no AES instructions, under the timing mode of `cpu_with_aes`.
+const cpu_without_aes: Session.Cpu = .{ .probe = .{ .aes_clmul = .no, .dit = .yes }, .timing = .data_independent };
+/// A probe that found FEAT_DIT and gave no answer for the AES instructions, under the same mode.
+const cpu_aes_not_known: Session.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .yes }, .timing = .data_independent };
+
 /// A session's context for a test: the stream seeded with `seed_octet` repeated, so each run draws
-/// what the last drew. Never for a network, whose seed comes from a CSPRNG.
+/// what the last drew. It states nothing of the CPU. Never for a network, whose seed comes from a
+/// CSPRNG.
 fn test_context(anchors: []const tls.Anchor, seed_octet: u8) Session.Context {
-    return test_context_at(anchors, seed_octet, test_seconds, test_ns);
+    return test_context_with(cpu_not_stated, anchors, seed_octet);
+}
+
+/// As `test_context`, with the statement of the CPU that the test names.
+fn test_context_with(cpu: Session.Cpu, anchors: []const tls.Anchor, seed_octet: u8) Session.Context {
+    return .init(anchors, cpu, @splat(seed_octet), test_seconds, test_ns);
 }
 
 /// As `test_context`, with the wall clock the test names: `unix_seconds` at `now_ns`.
 fn test_context_at(anchors: []const tls.Anchor, seed_octet: u8, unix_seconds: u64, now_ns: u64) Session.Context {
-    return .init(anchors, @splat(seed_octet), unix_seconds, now_ns);
+    return .init(anchors, cpu_not_stated, @splat(seed_octet), unix_seconds, now_ns);
 }
 
 /// max_idle_timeout, of 30,000 milliseconds (RFC 9000 §18.2), which chapulin carries without
@@ -141,13 +160,13 @@ test "chapulin starts a QUIC session for a server of four pins, the most a confi
     finish(try started(&.{ .pins = &pins }, &context, null));
 }
 
-/// The Initial CRYPTO data a session over `seed` owes first: its ClientHello.
+/// The Initial CRYPTO data a session over `seed` and `cpu` owes first: its ClientHello.
 const Hello = struct {
     bytes: [hello_bytes_max]u8 = undefined,
     len: usize = 0,
 
-    fn of(seed: u8) !Hello {
-        var context: Context = .{ .session = test_context(&.{}, seed) };
+    fn of(seed: u8, cpu: Session.Cpu) !Hello {
+        var context: Context = .{ .session = test_context_with(cpu, &.{}, seed) };
         const pins = [_]cocuyo.Pin{@splat(pin_octet)};
         const session = try started(&.{ .pins = &pins }, &context, null);
         defer finish(session);
@@ -162,9 +181,9 @@ const Hello = struct {
 };
 
 test "chapulin starts at the transport parameters, and draws its hello from the context's stream" {
-    const first = try Hello.of(1);
-    const again = try Hello.of(1);
-    const other = try Hello.of(2);
+    const first = try Hello.of(1, cpu_not_stated);
+    const again = try Hello.of(1, cpu_not_stated);
+    const other = try Hello.of(2, cpu_not_stated);
     try testing.expect(first.len > 0);
     try testing.expectEqual(@as(u8, client_hello), first.bytes[0]);
     // The same seed makes the same hello, and another seed another: the random and the key shares
@@ -178,13 +197,25 @@ test "chapulin starts at the transport parameters, and draws its hello from the 
 const message_header_bytes = 4;
 const legacy_version_bytes = 2;
 const random_bytes = 32;
-/// TLS_CHACHA20_POLY1305_SHA256, {0x13,0x03} (RFC 9846 Appendix B.4).
+/// TLS_AES_128_GCM_SHA256 {0x13,0x01}, TLS_AES_256_GCM_SHA384 {0x13,0x02} and
+/// TLS_CHACHA20_POLY1305_SHA256 {0x13,0x03} (RFC 9846 Appendix B.4).
+const aes_128_gcm_sha256: u16 = 0x1301;
+const aes_256_gcm_sha384: u16 = 0x1302;
 const chacha20_poly1305_sha256: u16 = 0x1303;
+/// The suites of a hello whose context states the AES instructions and a data-independent timing.
+/// The order is that of chapulin's host object, as over DoT (`io_chapulin_test.zig`).
+const suites_with_aes = [_]u16{ aes_256_gcm_sha384, aes_128_gcm_sha256, chacha20_poly1305_sha256 };
+/// The suites of a hello whose context states no timing mode, or no AES instructions found.
+const suites_without_aes = [_]u16{chacha20_poly1305_sha256};
 
-/// Requires that `suites` offer TLS_CHACHA20_POLY1305_SHA256 and nothing else.
-fn expect_chacha20_alone(suites: []const u8) !void {
-    try testing.expectEqual(@as(usize, @sizeOf(u16)), suites.len);
-    try testing.expectEqual(chacha20_poly1305_sha256, std.mem.readInt(u16, suites[0..@sizeOf(u16)], .big));
+/// Requires that `suites`, a ClientHello's cipher_suites, offer `expected` in its order, and
+/// nothing else.
+fn expect_suites(expected: []const u16, suites: []const u8) !void {
+    try testing.expectEqual(expected.len * @sizeOf(u16), suites.len);
+    for (expected, 0..) |suite, index| {
+        const at = index * @sizeOf(u16);
+        try testing.expectEqual(suite, std.mem.readInt(u16, suites[at..][0..@sizeOf(u16)], .big));
+    }
 }
 
 /// The cipher_suites a ClientHello handshake message offers.
@@ -195,10 +226,28 @@ fn suites_of(message: []const u8) []const u8 {
     return message[suites_at..][0..suites_len];
 }
 
-test "a session states nothing of the CPU, so its hello offers TLS_CHACHA20_POLY1305_SHA256 alone" {
-    // docs/design.md §24, chapulin under colibri, and §17 question 56, as over DoT.
-    const hello = try Hello.of(1);
-    try expect_chacha20_alone(suites_of(hello.slice()));
+test "a context that states the AES instructions and a data-independent timing offers AES-GCM first" {
+    // docs/design.md §24, chapulin under colibri, and §16 decision 48, as over DoT.
+    const hello = try Hello.of(1, cpu_with_aes);
+    try expect_suites(&suites_with_aes, suites_of(hello.slice()));
+}
+
+test "a context that states no timing mode offers TLS_CHACHA20_POLY1305_SHA256 alone, whatever its probe" {
+    // docs/design.md §16 decision 48: the value a consumer passes when it cannot state its
+    // thread's mode. A probe that found the AES instructions changes nothing without the mode.
+    const nothing = try Hello.of(1, cpu_not_stated);
+    try expect_suites(&suites_without_aes, suites_of(nothing.slice()));
+    const probe_alone = try Hello.of(1, cpu_aes_not_stated);
+    try expect_suites(&suites_without_aes, suites_of(probe_alone.slice()));
+}
+
+test "a context that states a data-independent timing and no AES instructions offers TLS_CHACHA20_POLY1305_SHA256 alone" {
+    // docs/design.md §16 decision 48, as over DoT: a probe's `no` or `not_known` gives colibri
+    // no ground to run the AES instructions.
+    const without = try Hello.of(1, cpu_without_aes);
+    try expect_suites(&suites_without_aes, suites_of(without.slice()));
+    const not_known = try Hello.of(1, cpu_aes_not_known);
+    try expect_suites(&suites_without_aes, suites_of(not_known.slice()));
 }
 
 test "the ticket a session would resume with is zeroed when it is wiped, or when its start fails" {

@@ -2114,10 +2114,10 @@ step until `zig build test` passes.
     Since colibri v0.8.0, pinned on 2026-10-20, each TLS value takes `cpu` (colibri's decision 97,
     as amended for chapulin 0.2.0). It holds what a probe found of the CPU, and the timing mode of
     the thread that drives the session. A session runs the AES instructions only where the program
-    states a data-independent timing, and only the program knows that mode. So each session of the
-    engine states nothing. It offers TLS_CHACHA20_POLY1305_SHA256 alone, and runs the portable
-    multiply. Until then colibri chose AES-GCM from the build target. §17 question 56 asks whether
-    the consumer passes the statement in each context.
+    states a data-independent timing, and only the program knows that mode. Until then colibri
+    chose AES-GCM from the build target. At the pin each session of the engine stated nothing, so
+    it offered TLS_CHACHA20_POLY1305_SHA256 alone and ran the portable multiply. Since decision 48,
+    of the same day, each session states what the consumer put in its context.
 33. **colibri's `client.Channel` carries DoH, and chooses between HTTP/3 and HTTP/2.** Ruled by
     the owner on 2026-09-28 (c4milo/cocuyo#18, c4milo/colibri#70). colibri's channel holds a QUIC
     connection and a TCP connection to one origin, and runs decision 30's race: QUIC first, TCP
@@ -3014,6 +3014,98 @@ step until `zig build test` passes.
     limit and no entry point change.
 
     §17 question 55, §19 step 13 (the stream's rule 12, and `reinit`), §21 (TLS rule 3).
+48. **Each context carries the consumer's statement of its CPU.** Ruled by the owner on
+    2026-10-20, on §17 question 56: the second way. The `init` of the DoT, DoQ and DoH contexts
+    takes a `tls.Cpu`, which the consumer fills. Each TLS value of colibri v0.8.0 takes one, with
+    no default (decision 32). It holds what the program's one probe found of the CPU, and the
+    timing mode of the thread that drives the session. Until the ruling each session built its TLS
+    value from a constant that stated nothing.
+
+    The value decides the suites of each hello. colibri v0.8.0 reads it in its
+    `src/tls/config.zig`, and the host object of chapulin 0.2.0 chooses the suites in its
+    `suite.h`:
+
+    - `timing` is `data_independent`, and `probe.aes_clmul` is `yes`. The hello offers
+      TLS_AES_256_GCM_SHA384, then TLS_AES_128_GCM_SHA256, then TLS_CHACHA20_POLY1305_SHA256. A
+      session whose server selects AES-GCM runs it on the AES instructions. Each session runs the
+      native multiply.
+    - `timing` is `data_independent`, and `aes_clmul` is `no` or `not_known`. The hello offers
+      TLS_CHACHA20_POLY1305_SHA256 alone, and the session runs the native multiply.
+    - `timing` is `not_stated`, whatever the probe found. The hello offers
+      TLS_CHACHA20_POLY1305_SHA256 alone, and the session runs the portable multiply. RFC 9846
+      §9.1 makes TLS_AES_128_GCM_SHA256 the suite to implement, so a server that holds only
+      AES-GCM refuses this hello.
+
+    colibri builds chapulin's host object for arm64 and x86-64 (its decision 97, as amended for
+    chapulin 0.2.0). On any other target the device object holds TLS_CHACHA20_POLY1305_SHA256
+    alone, and the value changes no suite.
+
+    **What a consumer passes.** A consumer that depends on stdx fills `probe` from
+    `platform.probe()` once, at its start. It pins stdx at the commit colibri pins, with the options
+    colibri gives it (colibri's decision 97, as amended on 2026-09-30). It states `data_independent`
+    only for a thread that runs in that mode. On arm64 that is a thread that set PSTATE.DIT on a
+    core with FEAT_DIT. On x86-64 it is a thread on a part of Intel's DOIT list, whose operating
+    system set DOITM.
+
+    A consumer that cannot state its thread's mode passes `not_stated` as the timing. Its probe
+    goes beside it, or `not_known` for each answer. That is the value of the first way, and its
+    hello offers TLS_CHACHA20_POLY1305_SHA256 alone. colibri's guide and its examples pass
+    `not_stated` with the probe.
+
+    Choices the ruling did not make, made here:
+
+    - The context keeps the value whole, in a field `cpu` with no default (decision 39). The DoT
+      and DoQ sessions hand it to the TLS value that each `start` builds. The DoH channel hands it
+      to its one TLS value, from which colibri builds the TLS of each transport.
+    - `init` takes the value after the anchors. What the consumer states comes first, then the
+      seed, then the clock.
+    - The DoT and DoQ sessions export the type as `Session.Cpu`, beside `Session.Anchor`. A DoH
+      consumer binds colibri's `tls` itself, so it names `tls.Cpu`. The ruling named the
+      argument and not this name, so §17 question 59 asks the owner about it.
+    - cocuyo exports no value that states nothing. The consumer writes the value, as colibri asks
+      of each program.
+    - No assertion holds the value. colibri checks neither statement, and the engine cannot read
+      the thread's mode either.
+    - The examples state nothing. The probe colibri names is stdx's, which no build of cocuyo
+      depends on, and neither colibri nor chapulin exports a probe. §17 question 58 asks the owner
+      about it.
+    - The tests name each value in a constant of their own. The test servers state nothing, as
+      before. So no test of cocuyo completes a handshake under AES-GCM, and no example does
+      either. colibri's own tests cover those sessions and their SHA-384 tickets (its
+      `record_aes_test.zig` and `quic_aes_test.zig`).
+
+    Rejected:
+
+    - As built: the sessions state nothing. Each server must take ChaCha20-Poly1305, and no
+      consumer can change that.
+    - cocuyo probes the CPU through stdx's `platform`. This adds a dependency and a system call in
+      `io/`, and the engine still cannot state the timing mode.
+    - The value as one more argument of `use_tls`, `use_quic` and `use_doh`. The context is what
+      each session starts from (decision 39), and the value is a part of it.
+    - The value in each server's `Tls`. It describes the consumer's thread, not a server. `Tls` is
+      also a type of `src/`, which names no type of colibri's.
+    - Two booleans, one for each claim chapulin reads. colibri refused that form for its own
+      values (its decision 97, as amended for chapulin 0.2.0). Each consumer would then work out
+      the claims from its probe and its mode.
+
+    The checks are tests of the three sessions. Each reads the suites of a hello under five
+    values:
+
+    - the AES instructions, and a data-independent timing;
+    - nothing, the value of a consumer that cannot state its thread's mode;
+    - a probe that found the AES instructions, and no timing mode;
+    - a probe that did not find them, and a data-independent timing;
+    - a probe that did not answer, and a data-independent timing.
+
+    The DoH channel's tests read the hello of each link. Twenty-four mutations break the rule, and
+    the tests catch each (docs/mutations.md, the CPU a context states).
+
+    The public API changes: the three `init` functions take one more argument, and the DoT and
+    DoQ sessions export `Session.Cpu` (§17 question 59). No named limit changes. No model changes
+    either: no transition of §5 and no rule of §19 steps 13 and 14 reads the value.
+
+    §17 questions 56, 58 and 59, §21 (the session interface), §24 (the context a session starts
+    from).
 
 ## 17. Questions for the owner
 
@@ -3546,8 +3638,10 @@ decisions 29, 32, 33 and 41 record what the move changed.
 
     Recommended: the second. The consumer is the program that probes the CPU and knows its
     thread's mode, as colibri's guide asks of a program. Until the owner rules, the first.
+
     Answered on 2026-10-20: the second. The `init` of the DoT, DoQ and DoH contexts takes a
-    `tls.Cpu`, which the consumer fills. The change that builds it follows the pin.
+    `tls.Cpu`, which the consumer fills. The change that builds it follows the pin. Built on
+    2026-10-20: §16 decision 48. The examples state nothing, and question 58 asks about them.
 57. **The QUIC version a session names.** Since colibri v0.8.0 a DoQ connection may run on QUIC
     version 2, and its ticket then names version 2 (§16 decision 29). A session that resumes with
     that ticket starts in version 2. colibri seals each packet in the connection's version, and
@@ -3568,6 +3662,58 @@ decisions 29, 32, 33 and 41 record what the move changed.
     Recommended: as built. The compiler finds each session that lacks the call, and resumption
     still works on version 2.
     Answered on 2026-10-20: as built.
+
+### Asked on 2026-10-20, for the CPU a session states
+
+§16 decision 48 records the ruling of the day: each context carries a `tls.Cpu`, which the
+consumer fills. The examples do not fill it from a probe, and the sessions name its type.
+
+58. **What the examples state of the CPU.** `examples/dot_rotor.zig`, `doq_rotor.zig` and
+    `doh_rotor.zig` state nothing: `not_known` for each answer of the probe, and `not_stated` for
+    the timing. The probe colibri names is stdx's `platform`, and no build of cocuyo depends on
+    stdx. colibri does not export `platform` (its decision 97, as amended on 2026-09-30), and
+    chapulin probes nothing (its `cpu_cfg.h`).
+
+    So each hello of an example offers TLS_CHACHA20_POLY1305_SHA256 alone. The live checks and
+    the interop check run the examples. So no check against a server that cocuyo did not write
+    runs AES-GCM. The ways:
+
+    - As built: the examples state nothing.
+    - stdx as a ruled dependency of the examples alone, never linked into the library. Each
+      example probes once, at its start. On arm64 it sets PSTATE.DIT where the probe finds
+      FEAT_DIT, and then states `data_independent`. Elsewhere it states nothing. A server then
+      picks from three suites, and no check is sure to reach ChaCha20-Poly1305.
+    - As the second way, with a word on each example's command line that turns the statement on.
+      Each live check and the interop check then run each server twice, once with each value. So
+      each check makes twice as many handshakes.
+    - No dependency: each example probes the CPU itself, as stdx's `platform` does. On arm64 it
+      reads FEAT_AES, FEAT_PMULL and FEAT_DIT: with `sysctlbyname` on macOS, and from the
+      AT_HWCAP word on Linux. It sets PSTATE.DIT itself, with Arm's `MSR DIT, #1`. On x86-64 it
+      states nothing, since no program can read DOITM. The cost is a second probe, which must
+      stay the same as stdx's. A consumer that copies an example copies that probe too.
+
+    The second way and the third are not what colibri's test programs do (its
+    `src/testing/cpu.zig`). Those state `data_independent` on each arm64 and x86-64 core, with
+    FEAT_DIT or without it. Their header says that a program for real peers must not do this. So
+    colibri's test programs are no model for an example.
+
+    Recommended: the third. The checks then reach AES-GCM, the suite that RFC 9846 §9.1 says each
+    application MUST implement. They still reach ChaCha20-Poly1305 too. Until the owner rules, the
+    first.
+59. **The name a DoT or DoQ consumer gives the type.** The sessions of `io/io_chapulin.zig` and
+    `io/io_chapulin_quic.zig` export `Session.Cpu`, which is colibri's `tls.Cpu`. Each already
+    exports `Session.Anchor`, which is `tls.Anchor`. So a consumer that copies an example names
+    each type through the session, and its root module needs no `tls` import.
+
+    The owner's ruling names the argument, not this name. The DoH channel exports neither name,
+    and its consumer names `tls.Cpu`. The ways:
+
+    - As built: `Session.Cpu`, beside `Session.Anchor`.
+    - No new name. A DoT or DoQ consumer imports colibri's `tls` in its root module, and names
+      `tls.Cpu`. The examples' builds add that import.
+
+    Recommended: the first. It is the form `Session.Anchor` already has. Until the owner rules, the
+    first.
 
 ## 18. The cache
 
@@ -5597,6 +5743,9 @@ Two types fill it:
 chapulin's session starts from a `Context` the caller hands `Resolver.use_tls`:
 
 - the trust anchors, at most 12, each a root's subject Name and SubjectPublicKeyInfo as DER;
+- since 2026-10-20, the consumer's statement of its CPU, a `tls.Cpu`: what its probe found, and
+  the timing mode of the thread that drives the engine. The session hands it to colibri's TLS
+  value, and it decides the suites of each hello (§16 decision 48);
 - the wall clock, as Unix seconds pinned to a `now_ns`, which the session carries forward by
   the elapsed `now_ns` when it starts a handshake;
 - a ChaCha20 stream the caller's 32-byte seed keys. chapulin draws randomness through
@@ -5619,9 +5768,10 @@ chapulin's session starts from a `Context` the caller hands `Resolver.use_tls`:
 Since 2026-10-11 the engine has no context of its own (§16 decision 39). It holds none until
 `use_tls` has run, and a lookup started against a TLS configuration before that stops the
 program at an assertion, since forgetting the call is a programmer error. The `Context` carries
-no default either. `Context.init` takes all of it: the anchors, the 32-octet seed, and the
-wall clock with the `now_ns` it was read at. §24, the context a session starts from, says what
-a context must carry for each of the three transports, and what the engine checks of it.
+no default either. `Context.init` takes all of it: the anchors, the statement of the CPU, the
+32-octet seed and the wall clock. The clock comes with the `now_ns` it was read at. §24, the
+context a session starts from, says what a context must carry for each transport, and what the
+engine checks of it.
 
 The session collects what chapulin makes as soon as chapulin makes it. chapulin says it is
 connected only once the client's last flight has been collected, so a session that left it for
@@ -5641,8 +5791,9 @@ is what the fake does show: which records go when, what a lookup hears, and when
   a buffer of at least 12338 octets for chapulin, and room for one whole record in and one
   chunk after it (TLS rule 7, since 2026-10-13).
 - Since colibri v0.8.0, pinned on 2026-10-20, a session runs AES-GCM only where the program states
-  its CPU and its thread's timing mode (§16 decision 32). The session states nothing, so its hello
-  offers TLS_CHACHA20_POLY1305_SHA256 alone (§17 question 56).
+  its CPU and its thread's timing mode (§16 decision 32). The session states what its context
+  carries (§16 decision 48). A context that states no timing mode makes a hello that offers
+  TLS_CHACHA20_POLY1305_SHA256 alone.
 
 RFC 8310 §9's other items stand as follows. chapulin speaks TLS 1.3 only and never compresses,
 which meets two MUSTs. It does not cite RFC 7525, and has neither False Start nor Cached
@@ -6253,13 +6404,18 @@ it. What its build and its checks give it:
   stream around those two calls and passed every call on to colibri's.
 - **One QUIC object in an image**, colibri's. Two would define the same calls. colibri's `h3` and
   cocuyo's session use the one object.
-- **ChaCha20-Poly1305 alone, since the session states nothing of the CPU.** cocuyo pins colibri
-  v0.8.0 since 2026-10-20. Its session runs the AES instructions only where the program states a
+- **The suites the context's statement of the CPU allows.** cocuyo pins colibri v0.8.0 since
+  2026-10-20. Its session runs the AES instructions only where the program states a
   data-independent timing for its thread (its decision 97, as amended for chapulin 0.2.0). The
-  session states nothing, so its hello offers ChaCha20-Poly1305 alone (§17 question 56). From
-  2026-09-27 colibri built its objects `SUITE=aesgcm AES=hw` for a target whose features include
-  them, and `SUITE=chacha` for any other. Until 2026-09-27 the session's object offered
-  ChaCha20-Poly1305 alone. The spike of 2026-09-24 found every server accepted it.
+  session states what its context carries, which the consumer fills (§16 decision 48). Under
+  `data_independent`, and a probe that found the AES instructions, the hello offers
+  TLS_AES_256_GCM_SHA384, TLS_AES_128_GCM_SHA256 and ChaCha20-Poly1305, in that order. Under any
+  other value it offers ChaCha20-Poly1305 alone.
+
+  At the pin, until decision 48, the session stated nothing. From 2026-09-27 colibri built its
+  objects `SUITE=aesgcm AES=hw` for a target whose features include them, and `SUITE=chacha` for
+  any other. Until 2026-09-27 the session's object offered ChaCha20-Poly1305 alone. The spike of
+  2026-09-24 found every server accepted it.
 - **QUIC version 2 beside version 1.** Since colibri v0.8.0 a client lists version 2 before
   version 1, and a server may switch it to version 2 (colibri's decisions 108 and 111). So DoQ
   and DoH on HTTP/3 may run on version 2. A ticket names the version of the connection that
@@ -6838,10 +6994,13 @@ Three types fill it:
   three response fields it wants, and its answer buffer, and a request past them waits (rule 21).
   The buffer is `message_bytes_max` long whatever `tcp_message_bytes` says: a DoH response's
   content is the message alone, with no prefix (RFC 8484 §6).
-  Its context is the DoQ session's: the anchors, the stream chapulin and the QUIC connection IDs
-  draw from, and the wall clock. The consumer hands it to `use_doh`, and since 2026-10-11 the
-  engine holds none until it does (the context a session starts from, below). It keeps a copy
-  of the ticket each link resumes with, which it wipes once the link's connection has ended.
+
+  Its context is the DoQ session's. It holds the anchors, the statement of the CPU (§16 decision
+  48) and the wall clock. It also holds the stream that chapulin and the QUIC connection IDs draw
+  from. The channel hands the statement to its one TLS value. The consumer hands the context to
+  `use_doh`, and since 2026-10-11 the engine holds none until it does (the context a session
+  starts from, below). It keeps a copy of the ticket each link resumes with, which it wipes once
+  the link's connection has ended.
 - The twin fills it with `sim.channel`, which says exactly the steps a test or the replay queues,
   one at each of the engine's reads. While it has one queued it is due at once, so the engine's
   timer brings the read when nothing else does. Its links carry an item of the twin's QUIC that
@@ -7069,8 +7228,8 @@ starts from. The consumer builds it and hands it to the engine once, after `init
 the first lookup:
 
 - **DoT.** `use_tls` takes the `Context` of `Options.tls`. The one of chapulin's session is
-  built by `Context.init`, from the anchors, a 32-octet seed, and the wall clock with the
-  `now_ns` it was read at (§21, the session interface).
+  built by `Context.init` (§21, the session interface). It takes the anchors, the statement of
+  the CPU, a 32-octet seed, and the wall clock with the `now_ns` it was read at.
 - **DoQ.** `use_quic` takes the `Context` of `Options.quic`. `cocuyo_quic`'s has two fields, and
   the consumer writes both. `session` is the context of the session its options name, and
   chapulin's is built as the DoT one is. `stream` is a ChaCha20 stream of a second seed, which
@@ -7079,7 +7238,7 @@ the first lookup:
   `Context.init` as the DoT one is. Its one stream serves chapulin, the connection IDs and the
   grease of the channel's QUIC link.
 
-**What a context carries.** A context that a network may see carries three things, and the
+**What a context carries.** A context that a network may see carries four things, and the
 consumer supplies each, as it supplies the engine's seed and its clock (§3):
 
 - **A stream seeded from the consumer's CSPRNG.** The seed is 32 octets, drawn for this context
@@ -7096,6 +7255,11 @@ consumer supplies each, as it supplies the engine's seed and its clock (§3):
 - **The wall clock.** Unix seconds at a `now_ns` of the consumer's clock, which the context
   carries forward by the `now_ns` that has passed since. A chain's dates are judged against
   it. A server known by pins alone reads no clock.
+- **The statement of the CPU.** A `tls.Cpu` since 2026-10-20: what the consumer's probe found,
+  and the timing mode of the thread that drives the engine. Each session hands it to colibri's
+  TLS value, and it decides the suites of each hello (§16 decision 48). A consumer that cannot
+  state the mode passes `not_stated`, and each hello then offers TLS_CHACHA20_POLY1305_SHA256
+  alone.
 
 **What the engine holds.** Until 2026-10-11 `init` set the three contexts to defaults: no
 anchor, a wall clock of zero, and a stream seeded with zeros for DoQ and DoH and left undefined
@@ -7130,8 +7294,9 @@ rules now:
 **What the engine cannot check.** It checks that the consumer set a context, which is the
 programmer error it can see. It cannot tell a seed drawn from a CSPRNG from any other 32
 octets, a seed drawn anew from one used before, a wall clock that is right from one that is
-not, or the anchors the consumer meant from others. Those are the consumer's to get right, as
-the `u64` seed of `init` is (§7).
+not, or the anchors the consumer meant from others. Nor can it tell a statement of the CPU that
+is true from one that is not. Those are the consumer's to get right, as the `u64` seed of `init`
+is (§7).
 
 **Contexts that carry nothing.** Seven context types are structs of no fields. Three are the
 twin's (`sim.tls`, `sim.quic` and `sim.channel`), whose sessions draw nothing, check no
@@ -7145,8 +7310,11 @@ a test's, and none of the helpers is exported:
 
 - `test_context`, in the tests of the two sessions over chapulin and of `cocuyo_quic`, and in
   the engine's tests over colibri on the twin. Each seeds its stream with one octet repeated.
+  The helpers of the two sessions state nothing of the CPU. Each session's tests also have a
+  `test_context_with`, which takes the statement a test names (§16 decision 48).
 - `identity.test_context`, for `cocuyo_doh`'s tests: the test identity's CA for the anchors and
-  an instant inside its validity for the wall clock (`io/io_doh_channel_identity.zig`).
+  an instant inside its validity for the wall clock (`io/io_doh_channel_identity.zig`). It
+  states nothing of the CPU, and `identity.test_context_with` takes the statement a test names.
 - `use_test_contexts`, on the twin's rig (`io/io_sim_test.zig`): it hands an engine the empty
   context of each of the twin's types it speaks.
 

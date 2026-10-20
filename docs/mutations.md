@@ -7227,3 +7227,149 @@ DS4 ran again with the new test, as the list above says. The 55 other rows of th
 move changed ran again on the first form, and each is `CAUGHT`.
 
 Fifteen mutations, fifteen `CAUGHT`.
+
+On 2026-10-20 §16 decision 48 changed the rule that CB1 to CB3 break. Their rows are rewritten
+under the CPU a context states, below, and `tools/mutations/engine.zon` files them there.
+
+## The CPU a context states
+
+2026-10-20. The owner answered docs/design.md §17 question 56: the second way. The `init` of the
+DoT, DoQ and DoH contexts takes a `tls.Cpu`, which the consumer fills. §16 decision 48 records the
+rule. §17 question 58 asks about the examples, and question 59 about the name of the type.
+
+### What changed
+
+- Each of the three contexts has a field `cpu`, with no default. Its `init` takes the value after
+  the anchors.
+- The DoT session and the DoQ session hand the value to the TLS value of each `start`. The DoH
+  channel hands it to its one TLS value, from which colibri builds the TLS of each transport.
+  Until now each built its TLS value from a constant that stated nothing.
+- The DoT and DoQ sessions export the type as `Session.Cpu`.
+- No TLS value in `io/` is built from a constant any more, the tests' apart. The tests and the
+  test servers name each value in a constant of their own.
+- The three examples pass the value that states nothing, since the probe colibri names is stdx's.
+  So the live checks and the interop check run as before.
+- The DoT session's tests moved to `io/io_chapulin_test.zig`, as the DoQ session's are in
+  `io_chapulin_quic_test.zig`. With the new tests, `io_chapulin.zig` would pass 500 lines.
+
+### The tests, before the code
+
+The tests came first. Each context took the value, and each session still built its TLS value
+from the constant. Then the new test of each of the three failed:
+
+- `test-chapulin`: "a context that states the AES instructions and a data-independent timing offers
+  AES-GCM first", with "expected 6, found 2".
+- `test-chapulin-quic`: the test of the same name, with "expected 6, found 2".
+- `test-cocuyo_doh`: the test of the same name, with ", on each link" at its end. It failed at
+  the TCP link, with "expected 6, found 2".
+
+A suite is two octets. Six octets are the three suites, and two are TLS_CHACHA20_POLY1305_SHA256
+alone. Each test passed once its session handed the context's value to colibri.
+
+Each session has a second test, of a context that states no timing mode. It reads the hello under
+the value that states nothing, and under a probe that found the AES instructions. Each hello offers
+ChaCha20-Poly1305 alone. The DoH channel's tests read the hello of the TCP link and of the QUIC
+link.
+
+A review of the change found a gap. No test read a hello under a data-independent timing and a
+probe that did not find the AES instructions. So a session that claimed the instructions under
+that timing passed each test. On a CPU without them, chapulin would then run them.
+
+So each session has a third test, under a data-independent timing. It reads the hello under a
+probe whose answer is `no`, and under one whose answer is `not_known`. Each hello offers
+ChaCha20-Poly1305 alone.
+
+CU13 to CU21 break that rule. They ran before the third tests, and each was `NOT CAUGHT`. With the
+tests, each is `CAUGHT`.
+
+No test of cocuyo completes a handshake under AES-GCM. Every test server states nothing, and so do
+the examples. colibri's own tests cover the AES-GCM sessions and their SHA-384 tickets
+(`record_aes_test.zig` and `quic_aes_test.zig`).
+
+### What the rows break
+
+- CB1 to CB3 broke the constant that stated nothing. Each now puts a constant back where the
+  session hands colibri the value. The constant states the AES instructions and a
+  data-independent timing, whatever the context states.
+- CU1 to CU12 break the rule in four ways, for each of the three:
+  - a default for the field;
+  - an `init` that drops the timing mode;
+  - a session that states nothing;
+  - a session that states a data-independent timing.
+- CU13 to CU21 break the probe's answer in three ways, for each of the three:
+  - a session that states the AES instructions found, whatever its probe found;
+  - an `init` that does the same;
+  - a session that takes a probe's `not_known` for a `yes`.
+- The edit of CU2, CU6 and CU10 keeps the probe. An edit that dropped the argument whole would
+  leave it unused, which Zig refuses at compile time. The tool reads a compile error as an edit
+  that no longer applies.
+- The edits of CU13 to CU21 change the answer for the AES instructions alone, and keep the rest of
+  the value.
+
+### What ran
+
+- The disk had 47 GB free before the first run below, and 43 GB before the second.
+- Before the third tests, this command ran the nine new rows, in 2 minutes and 16 seconds. It
+  first ran each check once with nothing mutated. Each row was `NOT CAUGHT`:
+
+```sh
+zig build mutations -- engine CU13 CU14 CU15 CU16 CU17 CU18 CU19 CU20 CU21
+```
+
+- With the third tests, this command ran the 24 rows, in 7 minutes and 17 seconds. It first ran
+  each check once with nothing mutated:
+
+```sh
+zig build mutations -- engine CU1 CU2 CU3 CU4 CU5 CU6 CU7 CU8 CU9 CU10 CU11 CU12 \
+  CU13 CU14 CU15 CU16 CU17 CU18 CU19 CU20 CU21 CB1 CB2 CB3
+```
+
+- Each of the 24 rows is `CAUGHT`. CU13 to CU21 and CB1 to CB3 also ran by hand, in a copy of the
+  tree with a cache of its own. Those runs give the texts of their rows. The texts of CU1 to CU12
+  come from the runs by hand of the first change.
+- `zig build test`: 1,140 tests pass of 1,140. Nine tests of the suites replace the four tests of
+  ChaCha20-Poly1305 alone. The DoT session's test file also adds the block that imports it.
+  `test-chapulin` has 14 tests pass of 14, `test-chapulin-quic` 15 of 15, `test-cocuyo_doh` 33 of
+  33, and `test-cocuyo_quic` 13 of 13.
+- `zig build lint`, `fmt`, `consumer-check`, `readme-check` and `examples` pass. The DoT, DoQ and
+  DoH examples build, since the gate builds them.
+- No file of the engine changed, so `zig build spec-engine` did not run, and no model changes.
+- The live checks and the interop check need the network or dnsproxy, and did not run.
+
+### The instruction counts
+
+`bench/count.zig` imports `cocuyo` and `wire` alone, and no counted case runs the engine or a TLS
+session. This change touches no file under `src/`. So no count can move, and
+`bench/instructions.zon` did not change.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CB1 | the DoT session states the AES instructions and a data-independent timing, whatever its context states | the session states what its context states (§16 decision 48) | the test of a context that states no timing mode, and the test of a data-independent timing and no AES instructions: each "expected 2, found 6", `test-chapulin` | CAUGHT |
+| CB2 | the DoQ session states the AES instructions and a data-independent timing, whatever its context states | as CB1, over QUIC | the same two tests: each "expected 2, found 6", `test-chapulin-quic` | CAUGHT |
+| CB3 | the DoH channel states the AES instructions and a data-independent timing, whatever its context states | as CB1, at the channel | the same two tests, each at the TCP link: "expected 2, found 6", `test-cocuyo_doh` | CAUGHT |
+| CU1 | the DoT session's context states nothing of the CPU by default | the context carries no default (§16 decision 39) | the test of the context's defaults: "expected null, found anyopaque@1011a3f1b", `test-chapulin` | CAUGHT |
+| CU2 | the DoT session's context keeps the consumer's probe and drops its timing mode | `init` keeps the value whole | the test of the AES instructions and a data-independent timing: "expected 6, found 2", `test-chapulin` | CAUGHT |
+| CU3 | the DoT session states nothing of the CPU, whatever its context states | the session states what its context states | as CU2 | CAUGHT |
+| CU4 | the DoT session states a data-independent timing, whatever its context states | as CU3 | the test of a context that states no timing mode, at the probe that found the AES instructions: "expected 2, found 6", `test-chapulin` | CAUGHT |
+| CU5 | the DoQ session's context states nothing of the CPU by default | as CU1, over QUIC | the test of the context's defaults: "expected null, found anyopaque@102416f60", `test-chapulin-quic` | CAUGHT |
+| CU6 | the DoQ session's context keeps the consumer's probe and drops its timing mode | as CU2, over QUIC | the test of the AES instructions and a data-independent timing: "expected 6, found 2", `test-chapulin-quic` | CAUGHT |
+| CU7 | the DoQ session states nothing of the CPU, whatever its context states | as CU3, over QUIC | as CU6 | CAUGHT |
+| CU8 | the DoQ session states a data-independent timing, whatever its context states | as CU4, over QUIC | the test of a context that states no timing mode, at the probe that found the AES instructions: "expected 2, found 6", `test-chapulin-quic` | CAUGHT |
+| CU9 | cocuyo_doh's context states nothing of the CPU by default | as CU1, at the channel | the test of the context's defaults: "expected null, found anyopaque@1029c77fd", `test-cocuyo_doh` | CAUGHT |
+| CU10 | cocuyo_doh's context keeps the consumer's probe and drops its timing mode | as CU2, at the channel | the test of the AES instructions and a data-independent timing, at the TCP link: "expected 6, found 2", `test-cocuyo_doh` | CAUGHT |
+| CU11 | the DoH channel states nothing of the CPU, whatever its context states | as CU3, at the channel | as CU10 | CAUGHT |
+| CU12 | the DoH channel states a data-independent timing, whatever its context states | as CU4, at the channel | the test of a context that states no timing mode, at the probe that found the AES instructions, at the TCP link: "expected 2, found 6", `test-cocuyo_doh` | CAUGHT |
+| CU13 | the DoT session states the AES instructions found, whatever its probe found | the session states what its probe found | the test of a data-independent timing and no AES instructions: "expected 2, found 6", `test-chapulin` | CAUGHT, and NOT CAUGHT before the test |
+| CU14 | the DoT session's context states the AES instructions found, whatever the consumer's probe found | `init` keeps the value whole | as CU13 | CAUGHT, and NOT CAUGHT before the test |
+| CU15 | the DoT session takes a probe that did not answer for one that found the AES instructions | as CU13, for `not_known` | as CU13, at the probe that did not answer | CAUGHT, and NOT CAUGHT before the test |
+| CU16 | the DoQ session states the AES instructions found, whatever its probe found | as CU13, over QUIC | the test of a data-independent timing and no AES instructions: "expected 2, found 6", `test-chapulin-quic` | CAUGHT, and NOT CAUGHT before the test |
+| CU17 | the DoQ session's context states the AES instructions found, whatever the consumer's probe found | as CU14, over QUIC | as CU16 | CAUGHT, and NOT CAUGHT before the test |
+| CU18 | the DoQ session takes a probe that did not answer for one that found the AES instructions | as CU15, over QUIC | as CU16, at the probe that did not answer | CAUGHT, and NOT CAUGHT before the test |
+| CU19 | the DoH channel states the AES instructions found, whatever its probe found | as CU13, at the channel | the test of a data-independent timing and no AES instructions, at the TCP link: "expected 2, found 6", `test-cocuyo_doh` | CAUGHT, and NOT CAUGHT before the test |
+| CU20 | cocuyo_doh's context states the AES instructions found, whatever the consumer's probe found | as CU14, at the channel | as CU19 | CAUGHT, and NOT CAUGHT before the test |
+| CU21 | the DoH channel takes a probe that did not answer for one that found the AES instructions | as CU15, at the channel | as CU19, at the probe that did not answer | CAUGHT, and NOT CAUGHT before the test |
+
+Twenty-four mutations, twenty-four `CAUGHT`. Nine of them, CU13 to CU21, were `NOT CAUGHT` before
+the third tests.

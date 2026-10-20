@@ -20,8 +20,11 @@
 //! as `a.example+b.example`, are resolved at once, each query on the one connection (RFC 7766
 //! §6.2.1.1). After each turn the example says how its handshake went.
 //!
-//! What cocuyo does not read, the caller hands in (§21): the wall clock for the certificate's
-//! dates, and 32 octets from a CSPRNG for the handshake's keys.
+//! What cocuyo does not read, the caller hands in (§21):
+//!
+//! - the wall clock, for the certificate's dates;
+//! - 32 octets from a CSPRNG, for the handshake's keys;
+//! - what it states of its CPU.
 const std = @import("std");
 const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
@@ -48,6 +51,11 @@ var cache_memory: cocuyo.cache.Storage(io.constants.cache_slots_default) = undef
 /// The roots one run may trust: chapulin's bound on its anchors, as colibri's configuration holds
 /// them.
 const anchors_max = chapulin.Session.anchors_max;
+/// What the example states of the CPU: nothing, as a consumer does that cannot state its thread's
+/// timing mode (docs/design.md §16 decision 48). Each hello then offers
+/// TLS_CHACHA20_POLY1305_SHA256 alone. The probe colibri names is stdx's, which cocuyo does not
+/// depend on, and the example sets no timing mode (§17 question 58).
+const cpu_not_stated: chapulin.Session.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };
 /// The largest root certificate the example reads.
 const certificate_bytes_max = 8192;
 /// How long a lookup is given, in ticks of `tick_ns`, before the example gives up on it.
@@ -98,7 +106,7 @@ pub fn main(init: std.process.Init) !void {
     try engine.init(&loop, &config, cache_memory.slices(), std.mem.readInt(u64, &engine_seed, .little), clock.read());
     // The engine has no context of its own, and a lookup started before this call would stop the
     // program at an assertion (docs/design.md §16 decision 39).
-    engine.use_tls(.init(anchors[0..roots.len], seed, unix_seconds, clock.read()));
+    engine.use_tls(.init(anchors[0..roots.len], cpu_not_stated, seed, unix_seconds, clock.read()));
     defer {
         engine.deinit();
         loop.drain(&events) catch {};
