@@ -186,6 +186,11 @@ failover and cache stay as they are over UDP; what changes is the connection a q
   time. A DoH server is named by its URI template.
 - Every server is authenticated, strictly (RFC 8310): by the name its certificate must carry, by
   SPKI pins of its key, or by both. A server that cannot be authenticated is not asked.
+- Each TLS session offers TLS_CHACHA20_POLY1305_SHA256 alone. colibri runs AES-GCM only for a
+  program that states the timing mode of its thread, and the engine states nothing
+  (docs/design.md §17 question 56).
+- DoQ and DoH over HTTP/3 offer QUIC version 2 beside version 1, and run on version 2 when the
+  server switches to it. A ticket from such a connection resumes in version 2.
 - Each encrypted transport starts its sessions from a context you hand the engine: `use_tls` for
   DoT, `use_quic` for DoQ, `use_doh` for DoH. A context carries a stream seeded with 32 octets
   from your secure random source, the roots a named server's chain may end at, and the wall
@@ -204,12 +209,12 @@ failover and cache stay as they are over UDP; what changes is the connection a q
   through `cocuyo_doh`, whose `client` and `tls` imports a consumer that speaks DoH binds to
   colibri's.
 - `cocuyo_quic` takes its TLS as a type, in `Options.Session`, and the option has no default: a
-  consumer that names no session does not compile. The session to name is the one over chapulin,
-  `Session` of `io/io_chapulin_quic.zig`, as `examples/doq_rotor.zig` does. The package ships
-  that file and registers no module for it, so your build makes one, as `build/doq.zig` does. Its
-  root is `cocuyo.path("io/io_chapulin_quic.zig")`, it links libc, and it imports `cocuyo`,
-  `cocuyo_quic` and `chapulin_hooks`, which are cocuyo's modules, and `quic` and `tls`, which
-  are colibri's.
+  consumer that names no session does not compile. A session names the QUIC version it started in,
+  `original_version`, and the connection starts in it. The session to name is the one over chapulin,
+  `Session` of `io/io_chapulin_quic.zig`, as `examples/doq_rotor.zig` does. The package ships that
+  file and registers no module for it, so your build makes one, as `build/doq.zig` does. Its root is
+  `cocuyo.path("io/io_chapulin_quic.zig")`, it links libc, and it imports `cocuyo`, `cocuyo_quic`
+  and `chapulin_hooks`, which are cocuyo's modules, and `quic` and `tls`, which are colibri's.
 - `cocuyo_quic` also exports `plain`, `Plain` and `server`, for tests: a session, the same
   session behind the option's interface, and a DoQ server over it. They encrypt nothing,
   authenticate nobody, and are never for a network.

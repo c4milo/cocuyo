@@ -42,6 +42,10 @@ const hello_bytes_max = 4096;
 /// The octets of the pin the tests' servers are known by, which no key hashes to.
 const pin_octet = 0xab;
 
+/// QUIC version 1's Version field (RFC 9000 §15). colibri offers a ticket only to a connection of
+/// the QUIC version that issued it, so a test's ticket names the version a session starts on.
+const quic_version_1: u32 = 0x0000_0001;
+
 /// A session, which is too large for a test's stack, started as `cocuyo_quic` starts one: the
 /// session, then the transport parameters colibri sets, where chapulin starts.
 fn started(server: *const cocuyo.Tls, context: *Context, ticket: ?Session.Ticket) !*Session {
@@ -169,8 +173,36 @@ test "chapulin starts at the transport parameters, and draws its hello from the 
     try testing.expect(!std.mem.eql(u8, first.slice(), other.slice()));
 }
 
+/// Where a ClientHello's cipher_suites start (RFC 9846 §4, §4.2.2): after the message's type and
+/// length, the legacy_version, the random, and the legacy_session_id's length octet and its body.
+const message_header_bytes = 4;
+const legacy_version_bytes = 2;
+const random_bytes = 32;
+/// TLS_CHACHA20_POLY1305_SHA256, {0x13,0x03} (RFC 9846 Appendix B.4).
+const chacha20_poly1305_sha256: u16 = 0x1303;
+
+/// Requires that `suites` offer TLS_CHACHA20_POLY1305_SHA256 and nothing else.
+fn expect_chacha20_alone(suites: []const u8) !void {
+    try testing.expectEqual(@as(usize, @sizeOf(u16)), suites.len);
+    try testing.expectEqual(chacha20_poly1305_sha256, std.mem.readInt(u16, suites[0..@sizeOf(u16)], .big));
+}
+
+/// The cipher_suites a ClientHello handshake message offers.
+fn suites_of(message: []const u8) []const u8 {
+    const session_id_at = message_header_bytes + legacy_version_bytes + random_bytes;
+    const suites_at = session_id_at + 1 + message[session_id_at] + @sizeOf(u16);
+    const suites_len = std.mem.readInt(u16, message[suites_at - @sizeOf(u16) ..][0..@sizeOf(u16)], .big);
+    return message[suites_at..][0..suites_len];
+}
+
+test "a session states nothing of the CPU, so its hello offers TLS_CHACHA20_POLY1305_SHA256 alone" {
+    // docs/design.md §24, chapulin under colibri, and §17 question 56, as over DoT.
+    const hello = try Hello.of(1);
+    try expect_chacha20_alone(suites_of(hello.slice()));
+}
+
 test "the ticket a session would resume with is zeroed when it is wiped, or when its start fails" {
-    // The copy holds the resumption secret (RFC 9846 §4.6.1), which nothing may keep past the
+    // The copy holds the resumption secret (RFC 9846 §4.7.1), which nothing may keep past the
     // session it was for.
     var context: Context = .{ .session = test_context(&.{}, 0) };
     const pins = [_]cocuyo.Pin{@splat(pin_octet)};
@@ -179,6 +211,7 @@ test "the ticket a session would resume with is zeroed when it is wiped, or when
     ticket.psk_len = tls.constants.sha256_len;
     @memset(&ticket.psk, 0x5a);
     ticket.lifetime_s = 1;
+    ticket.quic_version = quic_version_1;
     const session = try testing.allocator.create(Session);
     defer testing.allocator.destroy(session);
     session.* = .{};

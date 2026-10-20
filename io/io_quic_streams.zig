@@ -43,7 +43,7 @@ pub fn Streams(comptime capacity: u16, comptime bytes_max: usize) type {
         slots: [capacity]Slot(bytes_max) = @splat(.{}),
 
         /// The provider colibri reads each request's bytes through.
-        pub fn provider(self: *Self) quic.stream.stream_provider.StreamProvider {
+        pub fn provider(self: *Self) quic.stream.StreamProvider {
             return .{ .context = self, .vtable = &vtable };
         }
 

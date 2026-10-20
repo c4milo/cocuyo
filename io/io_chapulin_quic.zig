@@ -23,6 +23,11 @@ comptime {
 
 const tls_provider = quic.tls_provider;
 
+/// What the session states of the CPU and the thread that drive it: nothing, as the DoT session
+/// states (docs/design.md §24, chapulin under colibri; §17 question 56). Its hello then offers
+/// TLS_CHACHA20_POLY1305_SHA256 alone. The module's tests state it for their server too.
+pub const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };
+
 pub const Session = struct {
     /// A root the chain may end at: its subject Name and its SubjectPublicKeyInfo, each a whole
     /// DER TLV (colibri's `values.zig`).
@@ -57,7 +62,7 @@ pub const Session = struct {
     };
 
     /// A ticket as colibri hands it over: the identity, the resumption secret, the lifetime, the
-    /// age mask and the binding to the trust it was issued under (RFC 9846 §4.6.1).
+    /// age mask and the binding to the trust it was issued under (RFC 9846 §4.7.1).
     pub const Ticket = tls.Ticket;
 
     client: tls.quic.Client = undefined,
@@ -67,7 +72,7 @@ pub const Session = struct {
     alpn: [1][]const u8 = undefined,
     /// The ticket this session resumes with: a copy, which `wipe` zeroes.
     resuming: Ticket = undefined,
-    /// Whether the session offered a ticket, which the server may have declined (RFC 9846 §4.2.11).
+    /// Whether the session offered a ticket, which the server may have declined (RFC 9846 §4.3.11).
     offered: bool = false,
     /// `client` was started, so it has secrets to wipe and state to read.
     started: bool = false,
@@ -88,7 +93,7 @@ pub const Session = struct {
         assert(server.valid());
         self.* = .{};
         self.alpn = .{start_with.alpn};
-        self.config.init(.{ .trust = trust(server, context, &self.hostname), .alpn = &self.alpn }) catch return error.Failed;
+        self.config.init(.{ .trust = trust(server, context, &self.hostname), .alpn = &self.alpn, .cpu = cpu_not_stated }) catch return error.Failed;
         var resumption: ?tls.Resumption = null;
         if (start_with.ticket) |ticket| {
             self.resuming = ticket;
@@ -116,6 +121,15 @@ pub const Session = struct {
         return .{ .web_pki = .{ .anchors = context.anchors, .server_name = server_name, .pins = pins } };
     }
 
+    /// The QUIC version the session starts in, which colibri chose at `start`: the version of the
+    /// ticket it resumes with, or version 1 with none (colibri's decision 111). The connection
+    /// starts in it too, since colibri seals each packet in the connection's version and chapulin
+    /// asserts that its own is the same (docs/design.md §24, chapulin under colibri).
+    pub fn original_version(self: *const Session) quic.crypto.suite.Version {
+        assert(self.started);
+        return self.client.original_version();
+    }
+
     pub fn provider(self: *Session) tls_provider.QuicProvider {
         assert(self.started);
         return self.client.provider();
@@ -131,7 +145,7 @@ pub const Session = struct {
         return self.client.take_ticket();
     }
 
-    /// Whether the server took the ticket the session offered (RFC 9846 §4.2.11).
+    /// Whether the server took the ticket the session offered (RFC 9846 §4.3.11).
     pub fn resumed(self: *const Session) bool {
         return self.started and self.client.resumed();
     }
@@ -154,4 +168,5 @@ pub const Session = struct {
 
 test {
     _ = @import("io_chapulin_quic_test.zig");
+    _ = @import("io_chapulin_quic_resume_test.zig");
 }

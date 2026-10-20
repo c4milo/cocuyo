@@ -11,17 +11,17 @@ const exchange_module = @import("io_doh_channel_exchange.zig");
 /// A channel's two links: QUIC over a datagram socket, TCP over a stream socket.
 pub const Link = enum(u1) { quic, tcp };
 
-/// Takes request slot `index`'s query as an exchange, or says no answer buffer is free, and the
-/// request waits (rule 21).
+/// Takes request slot `index`'s query as colibri's request, or says no answer buffer is free, and
+/// the request waits (rule 21).
 pub fn request(self: anytype, index: u16, message: []const u8) bool {
     assert(self.started);
     assert(slot_of(self, index) == null);
     const slot = for (&self.exchanges) |*slot| {
         if (!slot.live) break slot;
     } else return false;
-    const exchange = exchange_module.make(slot, index, self.path, message);
+    exchange_module.make(slot, index, self.path, message);
     // The GET is one colibri takes, and an answer buffer was free, so colibri had room.
-    slot.id = self.channel.request(exchange) catch unreachable;
+    slot.id = self.channel.request(&slot.request, &slot.response) catch unreachable;
     slot.live = true;
     return true;
 }
@@ -107,7 +107,7 @@ fn slot_by_id(self: anytype, id: client.Id) ?*exchange_module.Exchange {
 }
 
 /// What a link read that the channel is to take next: the datagram, then the stream.
-fn pending(self: anytype) client.channel.Input {
+fn pending(self: anytype) client.Input {
     if (self.inbound_len > 0) return .{ .datagram = .{ .octets = self.inbound[0..self.inbound_len], .from = self.quic_to } };
     if (self.stream_len > 0) return .{ .stream = self.stream[0..self.stream_len] };
     return .none;
@@ -135,7 +135,7 @@ fn overrun(self: anytype) @TypeOf(self.*).Event {
 }
 
 /// What one of colibri's events tells the engine, if anything.
-fn told(self: anytype, said: client.channel.Event) ?@TypeOf(self.*).Event {
+fn told(self: anytype, said: client.Event) ?@TypeOf(self.*).Event {
     switch (said) {
         .open => |asked| {
             const link = link_of(asked.transport);
@@ -173,19 +173,20 @@ pub fn connected(self: anytype) ?@TypeOf(self.*).Connected {
 /// the engine cancelled tells nothing.
 fn finished(self: anytype, ended: client.Finished) ?@TypeOf(self.*).Event {
     const slot = slot_by_id(self, ended.id) orelse return null;
-    assert(ended.exchange == &slot.exchange);
+    assert(ended.request == &slot.request);
+    assert(ended.response == &slot.response);
     slot.live = false;
     return .{ .finished = .{ .index = slot.index, .answer = exchange_module.answer_of(slot) } };
 }
 
-pub fn link_of(transport: client.channel.Transport) Link {
+pub fn link_of(transport: client.Transport) Link {
     return switch (transport) {
         .quic => .quic,
         .tcp => .tcp,
     };
 }
 
-pub fn transport_of(link: Link) client.channel.Transport {
+pub fn transport_of(link: Link) client.Transport {
     return switch (link) {
         .quic => .quic,
         .tcp => .tcp,
@@ -193,7 +194,7 @@ pub fn transport_of(link: Link) client.channel.Transport {
 }
 
 /// The endpoint a transport goes to, as colibri names it.
-fn endpoint_of(to: client.channel.Address) cocuyo.Endpoint {
+fn endpoint_of(to: client.Address) cocuyo.Endpoint {
     const address = switch (to.len) {
         cocuyo.constants.address_v4_bytes => cocuyo.Address.from_v4(to.octets[0..cocuyo.constants.address_v4_bytes].*),
         cocuyo.constants.address_v6_bytes => cocuyo.Address.from_v6(to.octets[0..cocuyo.constants.address_v6_bytes].*),

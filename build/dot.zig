@@ -2,11 +2,13 @@
 //! `tls.record.Client`, whose module carries chapulin's record-mode object (§16 decision 32).
 //! colibri is a lazy dependency, so a project that depends on cocuyo never fetches it for this.
 //!
-//! colibri builds the object `RAND=session TRUST=webpki TRANSPORT=tcp-nonblocking`, with AES-GCM on
-//! the AES instructions where the target has them and ChaCha20-Poly1305 alone elsewhere (its
-//! decision 97). It compares the object's build record with the headers it translated whenever a
-//! configuration is made, so an object built another way stops the program there, rather than lay
-//! its sessions out otherwise unnoticed.
+//! colibri builds the object `RAND=session TRUST=webpki TRANSPORT=tcp-nonblocking`. On x86-64 and
+//! arm64 it is chapulin's host object. A session runs AES only where the program states its CPU and
+//! its thread's timing mode (colibri's decision 97, as amended for chapulin 0.2.0). The session
+//! states nothing, so it holds ChaCha20-Poly1305 alone (docs/design.md §17 question 56). colibri
+//! compares the object's build record with the headers it translated at each configuration. So an
+//! object built another way stops the program there, and does not lay its sessions out otherwise
+//! unnoticed.
 const std = @import("std");
 const modules = @import("modules.zig");
 

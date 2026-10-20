@@ -857,7 +857,7 @@
         .id = "DC9",
         .what = "a response of any status is an answer",
         .edits = .{
-            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    if (exchange.status < constants.status_success_first or exchange.status > constants.status_success_last) return null;\n", .new = "" },
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    if (response.status < constants.status_success_first or response.status > constants.status_success_last) return null;\n", .new = "" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -893,7 +893,7 @@
         .id = "DC13",
         .what = "an exchange that ended without a whole response is an answer",
         .edits = .{
-            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    if (exchange.outcome != .response) return null;\n", .new = "" },
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    if (response.outcome != .response) return null;\n", .new = "" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -983,7 +983,7 @@
         .id = "DC23",
         .what = "a finished exchange keeps its buffer",
         .edits = .{
-            .{ .file = "io/io_doh_channel_read.zig", .old = "    assert(ended.exchange == &slot.exchange);\n    slot.live = false;\n", .new = "    assert(ended.exchange == &slot.exchange);\n" },
+            .{ .file = "io/io_doh_channel_read.zig", .old = "    assert(ended.response == &slot.response);\n    slot.live = false;\n", .new = "    assert(ended.response == &slot.response);\n" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -1949,7 +1949,7 @@
         .id = "LM45",
         .what = "a DoH status of 299 is no answer",
         .edits = .{
-            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    if (exchange.status < constants.status_success_first or exchange.status > constants.status_success_last) return null;", .new = "    if (exchange.status < constants.status_success_first or exchange.status >= constants.status_success_last) return null;" },
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    if (response.status < constants.status_success_first or response.status > constants.status_success_last) return null;", .new = "    if (response.status < constants.status_success_first or response.status >= constants.status_success_last) return null;" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -1958,7 +1958,7 @@
         .id = "LM46",
         .what = "a DoH status of 300 is an answer",
         .edits = .{
-            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    if (exchange.status < constants.status_success_first or exchange.status > constants.status_success_last) return null;", .new = "    if (exchange.status < constants.status_success_first or exchange.status > constants.status_success_last + 1) return null;" },
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    if (response.status < constants.status_success_first or response.status > constants.status_success_last) return null;", .new = "    if (response.status < constants.status_success_first or response.status > constants.status_success_last + 1) return null;" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -2872,5 +2872,140 @@
             .{ .file = "io/io_send.zig", .old = "    assert(!self.send_in_flight[index]);\n    self.send_in_flight[index] = true;", .new = "    self.send_in_flight[index] = true;" },
         },
         .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "colibri v0.8.0",
+        .id = "CB1",
+        .what = "the DoT session states the AES instructions and a data-independent timing",
+        .edits = .{
+            .{ .file = "io/io_chapulin.zig", .old = "const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };", .new = "const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known }, .timing = .data_independent };" },
+        },
+        .caught_by = .{ .step = "test-chapulin" },
+    },
+    .{
+        .section = "colibri v0.8.0",
+        .id = "CB2",
+        .what = "the DoQ session states the AES instructions and a data-independent timing",
+        .edits = .{
+            .{ .file = "io/io_chapulin_quic.zig", .old = "const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };", .new = "const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known }, .timing = .data_independent };" },
+        },
+        .caught_by = .{ .step = "test-chapulin-quic" },
+    },
+    .{
+        .section = "colibri v0.8.0",
+        .id = "CB3",
+        .what = "the DoH channel states the AES instructions and a data-independent timing",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_start.zig", .old = "const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };", .new = "const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known }, .timing = .data_independent };" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "colibri v0.8.0",
+        .id = "CB4",
+        .what = "the DoH channel speaks no HTTP/2, so its TCP connection offers `http/1.1` alone",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_start.zig", .old = "const versions: client.Versions = .{ .h11 = true, .h2 = true, .h3 = true };", .new = "const versions: client.Versions = .{ .h11 = true, .h2 = false, .h3 = true };" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "colibri v0.8.0",
+        .id = "CB5",
+        .what = "the DoH channel speaks no HTTP/3, so it opens no QUIC link",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_start.zig", .old = "const versions: client.Versions = .{ .h11 = true, .h2 = true, .h3 = true };", .new = "const versions: client.Versions = .{ .h11 = true, .h2 = true, .h3 = false };" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "colibri v0.8.0",
+        .id = "CB6",
+        .what = "the test server's route table has no root, so a GET of the root gets 404",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_server.zig", .old = "    .{ .get, \"/\", .query },\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "colibri v0.8.0",
+        .id = "CB7",
+        .what = "a test server that is to select no protocol names its versions in ALPN",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_server.zig", .old = "        if (script.selects_none) try self.endpoint.tcp_tls.init(self.config.tls.?);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "colibri v0.8.0",
+        .id = "CB8",
+        .what = "the plain suite takes a switch to QUIC version 2",
+        .edits = .{
+            .{ .file = "io/io_quic_plain.zig", .old = "    _ = version;\n    return error.Refused;\n}", .new = "    _ = version;\n}" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_quic" },
+    },
+    .{
+        .section = "colibri v0.8.0",
+        .id = "CB9",
+        .what = "the assertion that a finished exchange's request is its slot's, inverted",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "    assert(ended.request == &slot.request);\n", .new = "    assert(ended.request != &slot.request);\n" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "colibri v0.8.0",
+        .id = "CB10",
+        .what = "the assertion that a new exchange's response has no outcome yet, inverted",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    assert(slot.response.outcome == .pending);\n", .new = "    assert(slot.response.outcome != .pending);\n" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "colibri v0.8.0",
+        .id = "CB11",
+        .what = "a DoQ connection starts in QUIC version 1, whatever version its session names",
+        .edits = .{
+            .{ .file = "io/io_quic_connection.zig", .old = "        .version = self.session.original_version(),\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_quic" },
+    },
+    .{
+        .section = "colibri v0.8.0",
+        .id = "CB12",
+        .what = "the DoQ session names QUIC version 1, whatever version its ticket names",
+        .edits = .{
+            .{ .file = "io/io_chapulin_quic.zig", .old = "        return self.client.original_version();\n", .new = "        return .v1;\n" },
+        },
+        .caught_by = .{ .step = "test-chapulin-quic" },
+    },
+    .{
+        .section = "colibri v0.8.0",
+        .id = "CB13",
+        .what = "`Plain` names QUIC version 2, which its suite refuses",
+        .edits = .{
+            .{ .file = "io/io_quic.zig", .old = "        _ = self;\n        return .v1;\n", .new = "        _ = self;\n        return .v2;\n" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_quic" },
+    },
+    .{
+        .section = "colibri v0.8.0",
+        .id = "CB14",
+        .what = "the DoH channel's output is one octet shorter than colibri's least output",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_constants.zig", .old = "pub const output_bytes_max = record_bytes_max;", .new = "pub const output_bytes_max = record_bytes_max - 1;" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "colibri v0.8.0",
+        .id = "CB15",
+        .what = "a record's protection adds one octet more than RFC 9846 allows, past colibri's room",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_constants.zig", .old = "pub const record_expansion_bytes_max: usize = 256;", .new = "pub const record_expansion_bytes_max: usize = 257;" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
     },
 }

@@ -39,6 +39,12 @@ comptime {
     }
 }
 
+/// What the session states of the CPU and the thread that drive it: nothing (docs/design.md §21,
+/// §17 question 56). colibri then runs no AES instruction and the portable multiply, so the hello
+/// offers TLS_CHACHA20_POLY1305_SHA256 alone. Only the program can state the timing mode of its
+/// thread, so the engine claims none.
+const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };
+
 pub const Session = struct {
     pub const enabled = true;
     /// What the session stages between two of the engine's calls: what one of colibri's handshake
@@ -49,7 +55,7 @@ pub const Session = struct {
     pub const Error = error{Failed};
     pub const Handshake = enum { going, done };
     pub const Opened = union(enum) { data: usize, nothing, closed };
-    /// A NewSessionTicket as colibri hands it over, its identity included (RFC 9846 §4.6.1). A
+    /// A NewSessionTicket as colibri hands it over, its identity included (RFC 9846 §4.7.1). A
     /// copy holds a resumption secret, and whoever holds one zeroes it.
     pub const Ticket = tls.Ticket;
     /// A root the chain may end at: its subject Name and its SubjectPublicKeyInfo, each a whole
@@ -109,7 +115,7 @@ pub const Session = struct {
         const server: *const cocuyo.Tls = start_with.tls;
         const context = start_with.context;
         self.* = .{};
-        self.config.init(.{ .trust = trust(server, context, &self.hostname), .alpn = &.{} }) catch return self.fail();
+        self.config.init(.{ .trust = trust(server, context, &self.hostname), .cpu = cpu_not_stated }) catch return self.fail();
         var resumption: ?tls.Resumption = null;
         if (start_with.ticket) |ticket| {
             self.resuming = ticket;
@@ -221,7 +227,7 @@ pub const Session = struct {
             .new_session_ticket, .key_update => .nothing,
             // The peer's close_notify (RFC 9846 §6.1), the one alert a record read leaves unfailed.
             .alert => .closed,
-            // RFC 8310 §9 asks no client certificate of DoT, and RFC 9846 §4.6.2 lets a client
+            // RFC 8310 §9 asks no client certificate of DoT, and RFC 9846 §4.7.2 lets a client
             // answer a CertificateRequest it did not offer to take with a failure.
             .certificate_request, .incomplete => self.fail(),
         };
@@ -363,6 +369,35 @@ test "the hello is drawn from the context's stream: the same seed makes the same
     try testing.expect(!std.mem.eql(u8, first.slice(), other.slice()));
 }
 
+/// Where a ClientHello's cipher_suites start (RFC 9846 §4, §4.2.2): after the message's type and
+/// length, the legacy_version, the random, and the legacy_session_id's length octet and its body.
+const message_header_bytes = 4;
+const legacy_version_bytes = 2;
+const random_bytes = 32;
+/// TLS_CHACHA20_POLY1305_SHA256, {0x13,0x03} (RFC 9846 Appendix B.4).
+const chacha20_poly1305_sha256: u16 = 0x1303;
+
+/// Requires that `suites` offer TLS_CHACHA20_POLY1305_SHA256 and nothing else.
+fn expect_chacha20_alone(suites: []const u8) !void {
+    try testing.expectEqual(@as(usize, @sizeOf(u16)), suites.len);
+    try testing.expectEqual(chacha20_poly1305_sha256, std.mem.readInt(u16, suites[0..@sizeOf(u16)], .big));
+}
+
+/// The cipher_suites a ClientHello handshake message offers.
+fn suites_of(message: []const u8) []const u8 {
+    const session_id_at = message_header_bytes + legacy_version_bytes + random_bytes;
+    const suites_at = session_id_at + 1 + message[session_id_at] + @sizeOf(u16);
+    const suites_len = std.mem.readInt(u16, message[suites_at - @sizeOf(u16) ..][0..@sizeOf(u16)], .big);
+    return message[suites_at..][0..suites_len];
+}
+
+test "a session states nothing of the CPU, so its hello offers TLS_CHACHA20_POLY1305_SHA256 alone" {
+    // docs/design.md §21 and §17 question 56: colibri runs the AES instructions only for a program
+    // that states its thread's timing mode, which the engine cannot state.
+    const hello = try Hello.of(test_seed_octet);
+    try expect_chacha20_alone(suites_of(hello.slice()[constants.tls_record_header_bytes..]));
+}
+
 test "a handshake chapulin refuses hands over its fatal alert, though the session is wiped" {
     // A first record from the server that is no ServerHello: chapulin fails the handshake and
     // colibri writes the alert it chose, which the engine sends before it closes (RFC 9846 §6.2).
@@ -428,7 +463,7 @@ test "a session with neither pins nor anchors for its name is refused before a b
 }
 
 test "the ticket a session would resume with is zeroed when its start fails" {
-    // The copy holds the resumption secret (RFC 9846 §4.6.1), which nothing may keep past the
+    // The copy holds the resumption secret (RFC 9846 §4.7.1), which nothing may keep past the
     // session it was for. This ticket's binding to the server matches nothing, so chapulin refuses
     // it, and the failed start wipes the session.
     var context = test_context(&.{}, test_seed_octet);

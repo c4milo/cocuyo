@@ -5,9 +5,10 @@
 //!
 //! The channel carries a server's requests over HTTP/3, or over HTTP/2 or HTTP/1.1 on TCP, and asks
 //! the engine to open and close the sockets it runs over (rules 18 to 25). The type turns a request
-//! into colibri's exchange and an exchange's end into an answer (`io_doh_channel_exchange.zig`),
-//! keeps what a link read until the channel takes it, and keeps the ticket each link resumes with.
-//! Its TLS is colibri's `tls` over chapulin, so an image that links it links chapulin.
+//! into colibri's `client.Request` and `client.Response`, and an exchange's end into an answer
+//! (`io_doh_channel_exchange.zig`). It keeps what a link read until the channel takes it, and keeps
+//! the ticket each link resumes with. Its TLS is colibri's `tls` over chapulin, so an image that
+//! links it links chapulin.
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
@@ -45,7 +46,7 @@ pub fn Channel(comptime options: Options) type {
         pub const Error = error{Failed};
         pub const Context = start_module.Context;
         pub const Ticket = tls.Ticket;
-        pub const Alternative = client.channel.Alternative;
+        pub const Alternative = client.Alternative;
         pub const Answer = exchange_module.Answer;
         pub const Finished = struct { index: u16, answer: ?Answer };
         pub const Open = struct { link: Link, endpoint: cocuyo.Endpoint };
@@ -57,14 +58,11 @@ pub fn Channel(comptime options: Options) type {
 
         channel: client.Channel = undefined,
         pool: client.ReceivePool(constants.receive_bytes) = undefined,
-        /// What the channel starts from, which colibri and chapulin read through pointers into it.
-        channel_config: client.ChannelConfig = undefined,
-        tcp_config: client.Config = undefined,
-        quic_config: client.QuicConfig = undefined,
-        record_tls: tls.record.ClientConfig = undefined,
-        quic_tls: tls.quic.ClientConfig = undefined,
+        /// What the channel starts from, which colibri reads through a pointer into it. The channel
+        /// builds the TLS configuration of each transport from it, in its own storage.
+        channel_config: client.Config = undefined,
         hostname: [cocuyo.constants.name_text_bytes_max]u8 = undefined,
-        addresses: [1]client.channel.Address = undefined,
+        addresses: [1]client.Address = undefined,
         context: *Context = undefined,
         /// The template's path, which each request's GET expands; the engine's configuration holds it.
         path: []const u8 = "",
@@ -73,7 +71,7 @@ pub fn Channel(comptime options: Options) type {
         /// went, and the stream's octets. A stream that ran past its buffer owes the TCP link's close.
         inbound: [constants.datagram_bytes]u8 = undefined,
         inbound_len: usize = 0,
-        quic_to: client.channel.Address = .{},
+        quic_to: client.Address = .{},
         stream: [constants.stream_bytes]u8 = undefined,
         stream_len: usize = 0,
         stream_overrun: bool = false,

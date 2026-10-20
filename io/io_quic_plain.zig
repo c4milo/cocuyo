@@ -294,6 +294,7 @@ fn export_keying_material(context: *anyopaque, label: []const u8, context_value:
 
 const suite_vtable: suite_module.VTable = .{
     .install_initial_keys = install_initial_keys,
+    .switch_version = switch_version,
     .keys_available = keys_available,
     .seal = seal,
     .open = open,
@@ -348,24 +349,36 @@ fn open(context: *anyopaque, opening: suite_module.Opening) suite_module.OpenErr
     };
 }
 
-// What the gate's QUIC never does: a Retry, a key update.
+// What the gate's QUIC never does: a switch to QUIC version 2 (colibri's decision 108), a Retry, a
+// key update. colibri drops a packet whose switch the suite refuses (its `connection_receive.zig`).
+// No packet on the twin asks for a switch: the test server never asks colibri to choose a version,
+// so it answers in version 1 (RFC 9000 §15).
 
-fn retry_tag_valid(context: *const anyopaque, pseudo_packet: []const u8, tag: *const [crypto.constants.retry_integrity_tag_len]u8) bool {
+fn switch_version(context: *anyopaque, version: suite_module.Version) suite_module.SwitchError!void {
     _ = context;
+    _ = version;
+    return error.Refused;
+}
+
+fn retry_tag_valid(context: *const anyopaque, version: suite_module.Version, pseudo_packet: []const u8, tag: *const [crypto.constants.retry_integrity_tag_len]u8) bool {
+    _ = context;
+    _ = version;
     _ = pseudo_packet;
     _ = tag;
     return false;
 }
 
-fn retry_tag_write(context: *const anyopaque, pseudo_packet: []const u8, tag: *[crypto.constants.retry_integrity_tag_len]u8) suite_module.RetryTagError!void {
+fn retry_tag_write(context: *const anyopaque, version: suite_module.Version, pseudo_packet: []const u8, tag: *[crypto.constants.retry_integrity_tag_len]u8) suite_module.RetryTagError!void {
     _ = context;
+    _ = version;
     _ = pseudo_packet;
     _ = tag;
     return error.Unsupported;
 }
 
-fn retry_token_write(context: *anyopaque, address: []const u8, ids: *const suite_module.RetryConnectionIds, now_ns: u64, output: []u8) suite_module.TokenError!usize {
+fn retry_token_write(context: *anyopaque, version: suite_module.Version, address: []const u8, ids: *const suite_module.RetryConnectionIds, now_ns: u64, output: []u8) suite_module.TokenError!usize {
     _ = context;
+    _ = version;
     _ = address;
     _ = ids;
     _ = now_ns;
@@ -373,8 +386,9 @@ fn retry_token_write(context: *anyopaque, address: []const u8, ids: *const suite
     return error.Unsupported;
 }
 
-fn retry_token_check(context: *const anyopaque, address: []const u8, token: []const u8, now_ns: u64) suite_module.TokenCheck {
+fn retry_token_check(context: *const anyopaque, version: suite_module.Version, address: []const u8, token: []const u8, now_ns: u64) suite_module.TokenCheck {
     _ = context;
+    _ = version;
     _ = address;
     _ = token;
     _ = now_ns;
@@ -466,4 +480,12 @@ test "a server refuses a second ClientHello, and its flight at its longest fits 
     try testing.expectError(error.TlsFailed, session.provider().provide_handshake(.initial, &hello));
     try testing.expectEqual(@as(?tls.Alert, .unexpected_message), session.alert);
     try testing.expectEqual(owed, session.owed_len);
+}
+
+test "the plain suite refuses a switch to QUIC version 2, so colibri drops a packet that asks for one" {
+    // colibri's suite names the QUIC version of each packet (its decision 108). The gate's QUIC
+    // speaks version 1 alone, which RFC 9000 §15 numbers 0x00000001: the test server never asks
+    // colibri to choose a version, and `Plain` starts in version 1.
+    var session = try started_client();
+    try testing.expectError(error.Refused, session.suite().vtable.switch_version(&session, .v2));
 }

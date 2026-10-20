@@ -26,11 +26,13 @@ pub const plain = @import("io_quic_plain.zig");
 pub const server = @import("io_quic_server.zig");
 
 pub const Options = struct {
-    /// The TLS: colibri's provider and suite at once, with `start`, `provider`, `suite`,
-    /// `take_ticket`, `lifetime_ns` and `wipe`, and its `Context` and `Ticket`. It has no default:
-    /// a consumer names the session that encrypts its queries and authenticates its server, as
-    /// "DoQ stubs SHOULD use a Strict usage profile" (RFC 9250 §5.1), and one that names none does
-    /// not compile (docs/design.md §16 decision 38). A test may name `Plain`.
+    /// The TLS: colibri's provider and suite at once, with `start`, `original_version`,
+    /// `provider`, `suite`, `take_ticket`, `lifetime_ns` and `wipe`, and its `Context` and
+    /// `Ticket`. `original_version` names the QUIC version the session started in, which the
+    /// connection starts in too (docs/design.md §24, the session a connection names). It has no
+    /// default: a consumer names the session that encrypts its queries and authenticates its
+    /// server, as "DoQ stubs SHOULD use a Strict usage profile" (RFC 9250 §5.1), and one that names
+    /// none does not compile (docs/design.md §16 decision 38). A test may name `Plain`.
     Session: type,
     /// The requests one connection holds at once: the engine's `lookups`, one each at most.
     streams: u16,
@@ -51,6 +53,11 @@ pub const Plain = struct {
 
     pub fn start(self: *Plain, context: anytype) error{Failed}!void {
         self.session = plain.Session.init(.client, context.alpn, false);
+    }
+    /// QUIC version 1 (RFC 9000 §15): the plain suite refuses a switch to any other.
+    pub fn original_version(self: *const Plain) quic.crypto.suite.Version {
+        _ = self;
+        return .v1;
     }
     pub fn provider(self: *Plain) quic.tls_provider.QuicProvider {
         return self.session.provider();
@@ -283,6 +290,65 @@ test "a cancelled stream keeps its slot until its answer is read, which ends its
         .unopened => false,
     };
     try testing.expect(ended);
+}
+
+/// `Plain` in the original version `version` names, as a session that resumes with a ticket of
+/// another version starts in it. Test-only.
+fn PlainIn(comptime version: quic.crypto.suite.Version) type {
+    return struct {
+        const Self = @This();
+        pub const Context = Plain.Context;
+        pub const Ticket = Plain.Ticket;
+        pub const lifetime_ns = Plain.lifetime_ns;
+
+        plain: Plain = .{},
+
+        pub fn start(self: *Self, context: anytype) error{Failed}!void {
+            return self.plain.start(context);
+        }
+        pub fn original_version(self: *const Self) quic.crypto.suite.Version {
+            _ = self;
+            return version;
+        }
+        pub fn provider(self: *Self) quic.tls_provider.QuicProvider {
+            return self.plain.provider();
+        }
+        pub fn suite(self: *Self) quic.crypto.Suite {
+            return self.plain.suite();
+        }
+        pub fn take_ticket(self: *Self) ?Ticket {
+            return self.plain.take_ticket();
+        }
+        pub fn wipe(self: *Self) void {
+            self.plain.wipe();
+        }
+    };
+}
+
+/// Where a long header carries its Version field: after its first octet (RFC 9000 §17.2).
+const version_at = 1;
+
+/// The Version field of the first datagram a client over `Session` sends.
+fn first_version(comptime Session: type) !u32 {
+    const Client = Connection(.{ .Session = Session, .streams = 1 });
+    const client = try testing.allocator.create(Client);
+    defer testing.allocator.destroy(client);
+    client.* = .{};
+    var context: Client.Context = .{ .session = .{}, .stream = std.Random.ChaCha.init(@splat(0)) };
+    try client.start(.{ .alpn = "doq", .ticket = @as(?Client.Ticket, null), .ticket_age_ns = 0, .context = &context, .now_ns = 1 });
+    defer client.wipe();
+    var datagram: [quic.constants.datagram_len_min]u8 = undefined;
+    const sent = client.output(&datagram, 1);
+    try testing.expect(sent > version_at + @sizeOf(u32));
+    return std.mem.readInt(u32, datagram[version_at..][0..@sizeOf(u32)], .big);
+}
+
+test "a connection starts in the QUIC version its session names, as a session that resumes does" {
+    // docs/design.md §16 decision 29 and §24: colibri v0.8.0 seals each packet in the connection's
+    // version, and chapulin's suite asserts that its own is the same. A session that resumes with
+    // a ticket of version 2 starts in version 2, so the connection must too (§17 question 57).
+    try testing.expectEqual(@intFromEnum(quic.crypto.suite.Version.v1), try first_version(Plain));
+    try testing.expectEqual(@intFromEnum(quic.crypto.suite.Version.v2), try first_version(PlainIn(.v2)));
 }
 
 test "a connection's context carries no default, so a consumer writes its session's and its stream" {

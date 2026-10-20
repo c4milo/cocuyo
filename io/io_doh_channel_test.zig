@@ -19,6 +19,10 @@ const doh_constants = @import("doh").constants;
 const test_answers = 2;
 pub const Doh = cocuyo_doh.Channel(.{ .answers = test_answers });
 pub const Event = Doh.Event;
+pub const Answerer = server_module.Answerer;
+pub const Versions = @FieldType(server_module.Script, "versions");
+/// The wall clock a test's server starts at, inside the test identity's validity.
+pub const identity_seconds = identity.unix_seconds;
 const Tag = std.meta.Tag(Event);
 
 /// A millisecond a round, and rounds enough for the fallback delay and a handshake after it.
@@ -81,8 +85,8 @@ pub const Pair = struct {
     }
 
     /// A new channel, and a new connection of the server's for it.
-    fn open(pair: *Pair, script: server_module.Script) !void {
-        try pair.server.init(script, identity.unix_seconds);
+    pub fn open(pair: *Pair, script: server_module.Script) !void {
+        try pair.server.init(script, identity.unix_seconds, pair.now_ns);
         const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(identity.server_name) };
         try pair.doh.start(.{
             .server = 0,
@@ -99,7 +103,7 @@ pub const Pair = struct {
     /// Reads what the channel says and carries what each side owes the other, a round at a time,
     /// until the channel says `until`. A round moves the clock a millisecond, or to the channel's
     /// next instant when nothing moved, as the engine's timer would.
-    fn run(pair: *Pair, until: Tag) !Event {
+    pub fn run(pair: *Pair, until: Tag) !Event {
         for (0..rounds_max) |_| {
             if (try pair.hear(until)) |event| return event;
             const moved = pair.carried;
@@ -148,9 +152,10 @@ pub const Pair = struct {
     /// after each.
     fn carry(pair: *Pair, until: Tag) !?Event {
         _ = pair.doh.datagram(&pair.wire, pair.now_ns);
+        const answerer: server_module.Answerer = .{ .context = pair, .answer = echo };
         const up = pair.doh.output(&pair.wire, pair.now_ns);
-        if (up > 0) pair.server.receive(pair.wire[0..up], .{ .context = pair, .answer = echo }, pair.now_ns);
-        const down = pair.server.send(&pair.wire, pair.now_ns);
+        if (up > 0) pair.server.receive(pair.wire[0..up], answerer, pair.now_ns);
+        const down = pair.server.send(&pair.wire, answerer, pair.now_ns);
         pair.carried = pair.carried or up > 0 or down > 0;
         var at: usize = 0;
         while (at < down) : (at += constants.engine_chunk_bytes) {
@@ -186,7 +191,7 @@ test "a query goes over HTTP/2 once QUIC's datagrams have gone nowhere for the f
     try testing.expectEqual(@as(u32, 7), finished.answer.?.age_seconds);
     // RFC 8484 §4.1: the GET carried the query in `dns`.
     try testing.expectEqualSlices(u8, &query, pair.server.query[0..pair.server.query_len]);
-    try testing.expectEqual(.h2, pair.server.connection.protocol().?);
+    try testing.expectEqual(server_module.http_2, pair.server.version.?);
     const connected = pair.doh.connected().?;
     try testing.expectEqual(.h2, connected.protocol);
     try testing.expect(!connected.offered and !connected.resumed);
@@ -204,9 +209,9 @@ test "the GET asks for a DNS message in no content coding, and its path goes int
     const pair = try Pair.create(.{});
     defer pair.free();
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
-    const exchange = &pair.doh.exchanges[0].exchange;
-    try testing.expect(exchange.never_indexed.path);
-    try testing.expectEqualStrings("GET", exchange.method);
+    const request = &pair.doh.exchanges[0].request;
+    try testing.expect(request.never_indexed.path);
+    try testing.expectEqualStrings("GET", request.method);
     _ = try pair.run(.finished);
     try testing.expectEqualStrings("application/dns-message", pair.server.accept.text());
     try testing.expectEqualStrings("identity", pair.server.accept_encoding.text());
@@ -239,15 +244,16 @@ test "a datagram of exactly what the type keeps is kept, and stream octets of ex
 }
 
 test "a server that selects HTTP/1.1, or selects no protocol, answers over HTTP/1.1" {
-    const selections = [_][]const []const u8{ &.{"http/1.1"}, &.{} };
-    for (selections) |alpn| {
-        const pair = try Pair.create(.{ .alpn = alpn });
+    // colibri speaks HTTP/1.1 when the server selects it or selects nothing (its decision 88).
+    const scripts = [_]server_module.Script{ .{ .versions = .{ .h2 = false } }, .{ .selects_none = true } };
+    for (scripts) |script| {
+        const pair = try Pair.create(script);
         defer pair.free();
         try testing.expect(pair.doh.request(1, &query, pair.now_ns));
         const finished = (try pair.run(.finished)).finished;
         try testing.expectEqual(@as(u16, 1), finished.index);
         try testing.expectEqualSlices(u8, &expected_answer(), finished.answer.?.message);
-        try testing.expectEqual(.h11, pair.server.connection.protocol().?);
+        try testing.expectEqual(server_module.http_1_1, pair.server.version.?);
         try testing.expectEqual(.h11, pair.doh.connected().?.protocol);
     }
 }
@@ -307,7 +313,7 @@ test "a 2xx response whose field values do not fit fails its request as too larg
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
     const finished = (try pair.run(.finished)).finished;
     try testing.expectEqual(@as(?Doh.Answer, null), finished.answer);
-    try testing.expectEqual(.too_large, pair.doh.exchanges[0].exchange.outcome);
+    try testing.expectEqual(.too_large, pair.doh.exchanges[0].response.outcome);
 }
 
 test "a stream the server resets after a 2xx head fails its request" {
@@ -317,8 +323,8 @@ test "a stream the server resets after a 2xx head fails its request" {
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
     const finished = (try pair.run(.finished)).finished;
     try testing.expectEqual(@as(?Doh.Answer, null), finished.answer);
-    try testing.expectEqual(.reset, pair.doh.exchanges[0].exchange.outcome);
-    try testing.expectEqual(@as(u16, 200), pair.doh.exchanges[0].exchange.status);
+    try testing.expectEqual(.reset, pair.doh.exchanges[0].response.outcome);
+    try testing.expectEqual(@as(u16, 200), pair.doh.exchanges[0].response.status);
 }
 
 test "a request past the answer buffers waits, and one cancelled frees its buffer and tells nothing" {
@@ -348,7 +354,7 @@ test "a request past the answer buffers waits, and one cancelled frees its buffe
 }
 
 test "a ticket the server gives is taken, and the next channel's TCP link resumes with it" {
-    // Rule 23, and RFC 9846 §4.6.1: the server gives a ticket after the handshake.
+    // Rule 23, and RFC 9846 §4.7.1: the server gives a ticket after the handshake.
     const pair = try Pair.create(.{ .tickets = true });
     defer pair.free();
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
@@ -362,7 +368,7 @@ test "a ticket the server gives is taken, and the next channel's TCP link resume
     try pair.open(.{ .tickets = true });
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
     try testing.expect((try pair.run(.finished)).finished.answer != null);
-    try testing.expect(pair.server.connection.tls_server.resumed());
+    try testing.expect(pair.server.endpoint.tcp[0].tls_server.resumed());
     const connected = pair.doh.connected().?;
     try testing.expect(connected.offered and connected.resumed);
     // The copy the link resumed with is zeroed once its connection has ended.
@@ -434,7 +440,7 @@ test "a template whose GET path at its longest fills the path buffer starts, and
     const pair = try testing.allocator.create(Pair);
     defer testing.allocator.destroy(pair);
     pair.* = .{ .endpoint = endpoint };
-    try pair.server.init(.{}, identity.unix_seconds);
+    try pair.server.init(.{}, identity.unix_seconds, pair.now_ns);
     const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(identity.server_name) };
     const fits_slot = .{ .authority = host ++ ":8443", .host = host, .port = port, .path = longest };
     try pair.doh.start(.{ .server = 0, .endpoint = pair.endpoint, .tls = &named, .https = fits_slot, .alternative = null, .context = &pair.context, .now_ns = pair.now_ns });
@@ -456,7 +462,7 @@ test "a template whose path starts with a slash and fills the path buffer starts
     const pair = try testing.allocator.create(Pair);
     defer testing.allocator.destroy(pair);
     pair.* = .{ .endpoint = endpoint };
-    try pair.server.init(.{}, identity.unix_seconds);
+    try pair.server.init(.{}, identity.unix_seconds, pair.now_ns);
     const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(identity.server_name) };
     const fills = .{ .authority = "dns.example:8443", .host = "dns.example", .port = port, .path = "/" ++ "p" ** filler ++ "{?dns}" };
     try pair.doh.start(.{ .server = 0, .endpoint = pair.endpoint, .tls = &named, .https = fills, .alternative = null, .context = &pair.context, .now_ns = pair.now_ns });

@@ -29,6 +29,9 @@ const seed_octet = 9;
 /// The client's port, as the server sees the datagrams come from it. Test-only.
 const client_port = 50_000;
 
+/// QUIC version 2's Version field, 0x6b3343cf, as colibri's suite names it (its decision 108).
+const quic_version_2: u32 = 0x6b33_43cf;
+
 const port = 8443;
 const endpoint: cocuyo.Endpoint = .{ .address = cocuyo.Address.from_text("192.0.2.1").?, .port = port };
 const client_address = cocuyo.Address.from_text("192.0.2.9").?;
@@ -151,7 +154,7 @@ const Pair = struct {
     /// The channel's datagrams go to the server, and the server's come back, the channel read after
     /// each.
     fn carry(pair: *Pair, until: Tag) !?Event {
-        const from = server.quic_connection.PeerAddress.of(client_address.slice(), client_port);
+        const from = server.Address.of(client_address.slice(), client_port);
         for (0..said_max) |_| {
             const up = pair.doh.datagram(&pair.wire, pair.now_ns);
             if (up == 0) break;
@@ -176,7 +179,7 @@ const Pair = struct {
 
 test "a query goes over HTTP/3 to colibri's server over QUIC, and the next channel's QUIC link resumes" {
     // Rule 18: QUIC first, and no TCP when its handshake ends in time; rule 23: the ticket QUIC's
-    // connection gave is spent by the next QUIC link (RFC 9846 §4.6.1).
+    // connection gave is spent by the next QUIC link (RFC 9846 §4.7.1).
     const pair = try Pair.create(.{ .age = "5", .tickets = true });
     defer pair.free();
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
@@ -192,6 +195,9 @@ test "a query goes over HTTP/3 to colibri's server over QUIC, and the next chann
     try testing.expectEqualSlices(u8, &query, pair.server.query[0..pair.server.query_len]);
     if (pair.count(.ticket) == 0) _ = try pair.run(.ticket);
     try testing.expect(pair.ticket != null);
+    // colibri's server switched the channel's QUIC connection to version 2, and the ticket names
+    // that version (docs/design.md §24, chapulin under colibri). The resumed link starts in it.
+    try testing.expectEqual(quic_version_2, pair.ticket.?.quic_version);
     pair.doh.shutdown();
     _ = try pair.run(.closed);
     pair.doh.wipe();

@@ -37,38 +37,61 @@ pub const Context = struct {
     }
 };
 
-/// What each transport's connection offers (RFC 7301 §3.1): HTTP/3 over QUIC (RFC 9114 §3.1), and
-/// over TCP HTTP/2, then HTTP/1.1 (rule 18).
-const quic_alpn = [_][]const u8{"h3"};
-const tcp_alpn = [_][]const u8{ "h2", "http/1.1" };
+/// What the channel states of the CPU and the thread that drive its sessions: nothing, as the DoT
+/// and DoQ sessions state (docs/design.md §24, §17 question 56). colibri then runs no AES
+/// instruction, so each hello offers TLS_CHACHA20_POLY1305_SHA256 alone. The module's test
+/// servers state it too.
+pub const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };
+
+/// What the channel speaks (rule 18): HTTP/3 over QUIC, and HTTP/2 or HTTP/1.1 over TCP. colibri
+/// builds each ALPN list from it: `h3` over QUIC (RFC 9114 §3.1), and `h2`, then `http/1.1`, over
+/// TCP (RFC 7301 §3.1; its decision 120).
+const versions: client.Versions = .{ .h11 = true, .h2 = true, .h3 = true };
+
+/// The least memory colibri v0.8.0 names for a TCP transport (its decision 124, ruling 5;
+/// docs/design.md §24, the interface). `stream_input_len_min` holds a whole head of HTTP/1.1,
+/// which cleartext needs. Over TLS colibri keeps the partial head in its own room beside one
+/// whole record. So the type's buffer holds a whole record and a chunk, and not
+/// `stream_input_len_min`. Each start asserts it, so a test that starts a channel reads it.
+fn assert_sizes() void {
+    const record_body_bytes_max = constants.record_bytes_max - constants.record_header_bytes;
+    const room_least = client.constants.stream_input_len_min - 1 + record_body_bytes_max;
+    assert(client.constants.plaintext_in_len >= room_least);
+    assert(constants.stream_bytes >= constants.record_bytes_max + constants.engine_chunk_bytes);
+    // `send_stream` always writes a record it owes into an output this long.
+    assert(constants.output_bytes_max >= client.constants.stream_output_len_min);
+}
 
 /// Makes a server's channel, with nothing opened (rule 18): its TLS names the server as its `Tls`
-/// does, and its connections go to the server's address on the template's port. A template whose
-/// GET would not fit is refused.
+/// does, and its connections go to the server's address on the template's port. colibri builds the
+/// TLS configuration of each transport from the one TLS value. A template whose GET would not fit
+/// is refused, and so is a TLS value colibri refuses.
 pub fn start(self: anytype, context: anytype) error{Failed}!void {
+    assert_sizes();
     const https = context.https;
     if (!exchange_module.fits(https.path)) return error.Failed;
     assert(!self.started);
     self.* = .{ .context = context.context, .path = https.path };
     const trust = trust_of(context.tls, self.context.anchors, &self.hostname);
-    self.record_tls.init(.{ .trust = trust, .alpn = &tcp_alpn }) catch return error.Failed;
-    self.quic_tls.init(.{ .trust = trust, .alpn = &quic_alpn }) catch return error.Failed;
-    self.tcp_config = .{ .tls = &self.record_tls, .authority = https.authority };
-    self.quic_config = .{ .tls = &self.quic_tls, .authority = https.authority };
-    self.channel_config = .{ .tcp = &self.tcp_config, .quic = &self.quic_config, .fallback_delay_ns = constants.fallback_delay_ns };
-    self.addresses = .{client.channel.Address.of(context.endpoint.address.slice(), 0)};
+    self.channel_config = .{
+        .tls = .{ .trust = trust, .cpu = cpu_not_stated },
+        .versions = versions,
+        .authority = https.authority,
+        .fallback_delay_ns = constants.fallback_delay_ns,
+    };
+    self.addresses = .{client.Address.of(context.endpoint.address.slice(), 0)};
     self.channel.init(&self.channel_config, .{
         .addresses = &self.addresses,
         .port = context.endpoint.port,
         .alternative = context.alternative,
-    }, self.pool.storage());
+    }, self.pool.storage()) catch return error.Failed;
     self.started = true;
 }
 
-/// Starts a link's connection once its socket carries octets: QUIC's with connection IDs and grease
-/// drawn from the context's stream (RFC 9000 §7.2), and each with the context's wall clock and the
-/// ticket kept for its transport, offered at its age (RFC 9846 §4.3.11.1). One chapulin refuses
-/// fails the link.
+/// Starts a link's connection once its socket carries octets, with the context's wall clock and the
+/// ticket kept for its transport, offered at its age (RFC 9846 §4.3.11.1). colibri draws a QUIC
+/// connection's grease value and its connection IDs from the context's stream (RFC 9000 §7.2; its
+/// decision 120), then every draw of its handshake. One chapulin refuses fails the link.
 pub fn start_link(self: anytype, link: read_module.Link, ticket: anytype, ticket_age_ns: u64, now_ns: u64) error{Failed}!void {
     const at = @intFromEnum(link);
     var resumption: ?tls.Resumption = null;
@@ -80,13 +103,7 @@ pub fn start_link(self: anytype, link: read_module.Link, ticket: anytype, ticket
     const random = self.context.stream.random();
     const seconds = self.context.seconds_at(now_ns);
     switch (link) {
-        .quic => {
-            var start_values: client.QuicStart = undefined;
-            self.context.stream.fill(&start_values.source_id);
-            self.context.stream.fill(&start_values.original_destination_id);
-            start_values.grease = self.context.stream.random().int(u64);
-            self.channel.start_quic(start_values, random, seconds, now_ns, resumption) catch return error.Failed;
-        },
+        .quic => self.channel.start_quic(random, seconds, now_ns, resumption) catch return error.Failed,
         .tcp => self.channel.start_tcp(random, seconds, resumption) catch return error.Failed,
     }
 }
@@ -126,6 +143,7 @@ fn trust_of(server: *const cocuyo.Tls, anchors: []const tls.Anchor, hostname: *[
 // Tests.
 
 const testing = std.testing;
+const rig = @import("io_doh_channel_test.zig");
 
 test "the context carries no default, so each of its fields is named where one is built" {
     // Until 2026-10-11 the fields defaulted to no anchors, a stream seeded with zeros and a wall
@@ -134,4 +152,60 @@ test "the context carries no default, so each of its fields is named where one i
     inline for (comptime std.meta.fields(Context)) |field| {
         try testing.expectEqual(@as(?*const anyopaque, null), field.default_value_ptr);
     }
+}
+
+/// Where a ClientHello's cipher_suites start in its handshake message (RFC 9846 §4, §4.2.2): after
+/// the message's type and length, the legacy_version, the random, and the legacy_session_id's
+/// length octet and its body. Over TCP a record's header comes first (RFC 9846 §5.1).
+const message_header_bytes = 4;
+const legacy_version_bytes = 2;
+const random_bytes = 32;
+/// TLS_CHACHA20_POLY1305_SHA256, {0x13,0x03} (RFC 9846 Appendix B.4).
+const chacha20_poly1305_sha256: u16 = 0x1303;
+/// max_idle_timeout, of 30,000 milliseconds (RFC 9000 §18.2), which chapulin carries and does not
+/// read: its ID, its length, and its value as a two-octet varint.
+const transport_parameters = "\x01\x02\x75\x30";
+/// Room for a ClientHello at its longest: a post-quantum key share, a ticket and a cookie.
+const hello_bytes_max = 4096;
+
+/// Requires that `suites` offer TLS_CHACHA20_POLY1305_SHA256 and nothing else.
+fn expect_chacha20_alone(suites: []const u8) !void {
+    try testing.expectEqual(@as(usize, @sizeOf(u16)), suites.len);
+    try testing.expectEqual(chacha20_poly1305_sha256, std.mem.readInt(u16, suites[0..@sizeOf(u16)], .big));
+}
+
+/// The cipher_suites a ClientHello handshake message offers.
+fn suites_of(message: []const u8) []const u8 {
+    const session_id_at = message_header_bytes + legacy_version_bytes + random_bytes;
+    const suites_at = session_id_at + 1 + message[session_id_at] + @sizeOf(u16);
+    const suites_len = std.mem.readInt(u16, message[suites_at - @sizeOf(u16) ..][0..@sizeOf(u16)], .big);
+    return message[suites_at..][0..suites_len];
+}
+
+test "the channel states nothing of the CPU, so its TCP hello offers TLS_CHACHA20_POLY1305_SHA256 alone" {
+    // docs/design.md §24 and §17 question 56: colibri runs the AES instructions only for a program
+    // that states its thread's timing mode, which the engine cannot state.
+    const pair = try rig.Pair.create(.{});
+    defer pair.free();
+    try testing.expect(pair.doh.request(0, &rig.query, pair.now_ns));
+    try testing.expectEqual(rig.Doh.Link.quic, (try pair.run(.open)).open.link);
+    try testing.expectEqual(rig.Doh.Link.tcp, (try pair.run(.open)).open.link);
+    const hello_len = pair.doh.output(&pair.wire, pair.now_ns);
+    try expect_chacha20_alone(suites_of(pair.wire[constants.record_header_bytes..hello_len]));
+}
+
+test "the channel states nothing of the CPU, so its QUIC hello offers TLS_CHACHA20_POLY1305_SHA256 alone" {
+    // colibri builds the QUIC link's TLS configuration from the channel's one TLS value (its
+    // decision 120). A session over that configuration writes the hello of the link's first
+    // Initial, and chapulin starts at the transport parameters (RFC 9001 §8.2).
+    const pair = try rig.Pair.create(.{});
+    defer pair.free();
+    const session = try testing.allocator.create(tls.quic.Client);
+    defer testing.allocator.destroy(session);
+    try session.start(&pair.doh.channel.quic_tls, pair.context.stream.random(), rig.identity_seconds, null);
+    defer session.close();
+    try session.provider().set_transport_params(transport_parameters);
+    var hello: [hello_bytes_max]u8 = undefined;
+    const hello_len = try session.provider().write_handshake(.initial, &hello);
+    try expect_chacha20_alone(suites_of(hello[0..hello_len]));
 }

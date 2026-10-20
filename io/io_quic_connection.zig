@@ -11,7 +11,8 @@ const constants = @import("io_quic_constants.zig");
 pub const Stage = enum { idle, handshaking, up, failed, done };
 
 /// Begins a connection: its IDs, drawn from the context's stream, its transport parameters, and
-/// the session's first flight owed.
+/// the session's first flight owed. The connection starts in the QUIC version the session started
+/// in, a resumed ticket's (docs/design.md §24, chapulin under colibri).
 pub fn start(self: anytype, context: anytype) error{Failed}!void {
     const Self = @TypeOf(self.*);
     assert(self.stage == .idle);
@@ -21,6 +22,9 @@ pub fn start(self: anytype, context: anytype) error{Failed}!void {
     try self.session.start(context);
     self.connection.init(.{
         .role = .client,
+        // RFC 9000 §15: the version of the first Initial. colibri seals each packet in the
+        // connection's version, and chapulin asserts its own is the same.
+        .version = self.session.original_version(),
         .local_parameters = parameters(Self.receive_bytes),
         .now_ns = context.now_ns,
         .identity = .{ .local_initial_source = &self.source, .original_destination = &self.destination },

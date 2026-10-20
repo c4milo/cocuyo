@@ -7042,3 +7042,188 @@ The 80 rows that the walks catch ran again against the full run and the sixteen 
 TB9, and each is `CAUGHT` (What ran after the review, above).
 
 Fourteen mutations, fourteen `CAUGHT`.
+
+## colibri v0.8.0
+
+2026-10-20. The owner ruled that cocuyo moves its pin of colibri from v0.6.0 to v0.8.0. The move
+does c4milo/cocuyo#47, and finishes c4milo/cocuyo#44. docs/design.md §16 decisions 29, 32, 33
+and 41 record what changed, and §17 questions 51 and 52 are done. §17 question 56 asks the owner
+what a session states of the CPU, and question 57 asks about the QUIC version a session names.
+
+### What the move changed
+
+- `build.zig.zon` pins colibri v0.8.0, at 7496cdc, by the hash that `zig fetch` wrote.
+- `cocuyo_doh` hands colibri a `client.Request` and a `client.Response` in place of a
+  `client.HttpExchange` (colibri's decision 124). It hands the channel one `client.Config`. The
+  channel builds the TLS configuration of each transport, and draws QUIC's grease value and
+  connection IDs (decision 120).
+- Each root exports a type under its own name (decisions 115 and 121). So
+  `client.channel.Address` is `client.Address`, and the channel's other types change the same way.
+- Each TLS value takes `cpu`, which has no default. The DoT, DoQ and DoH sessions state nothing,
+  so each hello offers TLS_CHACHA20_POLY1305_SHA256 alone. Before v0.8.0 colibri chose AES-GCM
+  from the build target.
+- colibri's suite names the QUIC version of each packet (decision 108). A client lists version 2
+  first, and colibri's server switches it to version 2 (decision 111). The plain suite of
+  `io/io_quic_plain.zig` refuses a switch to version 2, and colibri drops the packet that asks
+  for it. No packet on the twin asks for one.
+- A ticket names the QUIC version of its connection, and a session that resumes with it starts
+  in that version. Since the review each connection of `cocuyo_quic` starts in the version its
+  session names, `original_version`.
+- colibri sends a GET again, once, on another connection, when its connection closes before any
+  octet of the response (decision 124, ruling 3).
+- The DoH test servers run on `server.Endpoint`, and route each GET through `server.router`
+  (decisions 119, 121 and 122). c4milo/cocuyo#47 calls the router `server.routes`. colibri
+  renamed it on 2026-10-14, before v0.8.0.
+- `io/io_doh_channel_server_raw.zig` is a third test server. It writes its own octets over
+  colibri's TLS record server.
+
+No file under `src/` changed, and no file of the engine changed. In `cocuyo_quic` the plain suite
+changed, one name in two files, and, after the review, the version a connection starts in.
+
+### The two holds
+
+- **A long head or trailer section over HTTP/1.1.** A test of `io_doh_channel_read_test.zig`
+  sends heads of 20,000 and 32,768 octets. Its records leave 17,384 or 32,767 octets of a head in
+  colibri before a full record. On v0.8.0 each exchange ends with its answer. The test also ran on
+  a copy of the tree at 9d94399, with colibri v0.6.0. There it fails in `deliver`: "expected 0,
+  found 1". A whole record stayed in the type's buffer after a read. Each of the two heads fails
+  alone too. Since the review a second test sends a trailer section of 24,000 octets, and a
+  second response after it. Its records leave 17,000 octets of the trailer section in colibri
+  before a full record. That is the shape of the heads' cases, past the 16,632 octets that v0.6.0
+  held beside a full record. This test did not run on v0.6.0: the disk had too little room for a
+  second copy of the tree.
+- **A KeyUpdate that asks for a reply.** No test of cocuyo's sends one. chapulin's record mode
+  starts no KeyUpdate: colibri's `src/tls/record/record_provider.zig` answers
+  `initiate_key_update` with `error.Unsupported`. So neither colibri's server nor its `tls` can
+  send one. colibri's own tests show the fix over a provider that protects nothing:
+  `connection_records_test.zig` of its client and of its server, at its commit 5368f5b. colibri
+  still owes two replies at most, `tls.constants.key_update_replies_max`, and a third request
+  fails the read (its `record_keylog_test.zig`). RFC 9846 §4.7.3 forbids a server that request.
+
+### The rows of the files that the move changed
+
+- DC9, DC13, DC23, LM45 and LM46 edited code that named `exchange`. Their edits now name
+  `response`, and each applies once. The edit of DC23 keeps the assertion on the response, beside
+  the new assertion on the request. No other row needed a new edit.
+- 52 rows edit a file that the move changed: TR4, DC1 to DC28, QO12, QO13, QO17, QO18, TC17 to
+  TC21, TC24 to TC30, and LM45 to LM51. DS1 to DS4 ran too, since their tests changed. DS1 edits
+  `io_doh_channel_constants.zig`, which the move did not change. With the ten CB rows of the first
+  form, that is 66.
+- CZ24 edits `README.md`, whose prose the move changed. Its edit is a line of the README's Zig
+  block, which did not change, and `readme-check` builds that block alone. So CZ24 did not run
+  again, and its row stands.
+- The first run, of DS1 to DS4 and the CB rows, found DS4 `NOT CAUGHT`. In colibri v0.8.0 the
+  protocol reads what a record held before the next record opens. So one pass of the read opens
+  each whole record of the stream, and no run of the test made a second pass.
+- A pass that takes octets and says nothing still comes before more octets in one case. The type
+  holds a datagram and the stream apart, and `next` hands colibri the datagram first. A new test
+  of `io_doh_channel_read_test.zig` hands the type a datagram of zeros before each chunk. colibri
+  takes it whole and says nothing of it, so the read must go on to the stream. The test catches
+  DS4: "expected 0, found 5".
+
+### What ran on the first form
+
+- `zig build mutations -- engine` over the 66 rows ran after it ran each check once with nothing
+  mutated. Each of the 66 is `CAUGHT`, in 27 minutes. The run was on a copy of the working tree,
+  with a cache of its own in a scratchpad directory. The disk had less than 20 GB free, and that
+  cache went after the run. The copy held the tree's code. After the run only comments changed.
+- Each CB row and DS4 ran by hand once more on that copy, to read its step's output. The texts in
+  the rows below come from there.
+- `zig build test`: 1,130 tests pass of 1,130, six of them new.
+- `zig build lint`, `consumer-check` and `examples` pass.
+
+### What the review found
+
+The review of the first form found four faults to fix, and eight to consider:
+
+- A DoQ session that resumed with a ticket of QUIC version 2 stopped the program. colibri's
+  `tls.quic.Client` started in the ticket's version, and colibri's connection started in version
+  1, its default. The first send then failed chapulin's assertion that the two agree
+  (`quic_suite.zig`, `protect`). The test of a ticket named version 1, so no test met it.
+- A comment of `io_quic_plain.zig` cited RFC 9369, which `docs/rfcs/` does not hold. It also said
+  that a refused switch keeps the connection in version 1. In colibri v0.8.0 a refused switch
+  drops the packet, and the twin stays in version 1 because no server asks for a switch.
+- Three comments cited RFC 9846 §4.1.2 for a ClientHello. In RFC 9846 the ClientHello is §4.2.2.
+  Nine older comments of the same files used RFC 8446's numbers too: §4.6.1, §4.6.2 and §4.2.11.
+  They now cite RFC 9846's §4.7.1, §4.7.2 and §4.3.11.
+- The design named no resend of a GET (colibri's decision 124, ruling 3).
+- The ones to consider:
+  - colibri's least memory for a TCP transport (its decision 124, ruling 5);
+  - the bound of two KeyUpdate replies, and the state in which h2 reads no more;
+  - the 405 of the test servers, and the POST route of c4milo/cocuyo#47;
+  - CZ24 and DS1 in the list above;
+  - prose, and copies in the tests;
+  - the QUIC hello of the DoH channel, and a long trailer section;
+  - what the commit must not close.
+
+### The tests, before the code, after the review
+
+- `io/io_chapulin_quic_resume_test.zig` runs a server of colibri's QUIC over chapulin in memory,
+  under the test identity. It selects `doq`, issues a ticket, and switches the client to version
+  2. The client's first connection runs on version 2, and its ticket names version 2. The next
+  connection resumes with that ticket. Before the fix its first send stopped the program:
+  "reached unreachable code" at `quic_suite.zig:166`, in `test-chapulin-quic`.
+- A test of `io/io_quic.zig` reads the Version field of a connection's first Initial, over
+  `Plain` and over a session that names version 2. Before the fix the second was version 1:
+  "expected 1798521807, found 1", in `test-cocuyo_quic`.
+- A test of `io_doh_channel_start.zig` reads the suites of the hello that the QUIC link's TLS
+  configuration writes: ChaCha20-Poly1305 alone.
+- The test of the DoH channel over QUIC requires that its ticket names version 2.
+- The trailer test of the holds, above.
+- Assertions in `start` (`io_doh_channel_start.zig`) hold the type's sizes to colibri's
+  `stream_output_len_min` and to its room, `plaintext_in_len`, at each start of a channel.
+
+### What ran after the review
+
+- `zig build test`: 1,134 tests pass of 1,134, four of them new. `zig build lint`, `fmt`,
+  `consumer-check` and `examples` pass. `test-cocuyo_doh` has 32 tests pass of 32,
+  `test-cocuyo_quic` 13 of 13, `test-chapulin` 11 of 11, and `test-chapulin-quic` 13 of 13.
+- CB11 ran when the tests above failed, since the code before the fix is CB11's edit.
+- On 2026-10-20 the owner's session deleted the main tree's build cache, 42 GB that a build
+  makes again, and the disk then had 50 GB free. Then this command ran over the 30 rows: CB11 to
+  CB15, the rows that edit a file the review changed, and DS1 to DS4.
+
+```sh
+zig build mutations -- engine CB11 CB12 CB13 CB14 CB15 QS1 QS2 QS3 TC21 TC22 TC23 TC25 TC26 \
+    TC27 QO12 QO13 QO17 QO18 CB2 CB3 CB8 DS1 DS2 DS3 DS4 TY36 SB16 SB17 SB18 SB24
+```
+
+- 26 of the 30 rows were `CAUGHT`. SB24, DS1, CB14 and CB15 were `NOT CAUGHT`, because the build
+  stopped at the review's checks at compile time. The tool reads a compile error as an edit that
+  no longer applies. So the three checks moved into `assert_sizes`, which `start` calls first, as
+  assertions that stay in the program. Run again, the four rows were each `CAUGHT` by
+  `test-cocuyo_doh`, at the assertion in `start`.
+- No file of the engine changed, so `zig build spec-engine` did not run, and neither model
+  changes.
+- The live checks and the interop check need the network or dnsproxy, and did not run.
+
+### The instruction counts
+
+`bench/count.zig` imports `cocuyo` and `wire` alone, and no counted case runs the engine. This
+change touches no file under `src/`. So no count can move, and `bench/instructions.zon` did not
+change.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CB1 | the DoT session states the AES instructions and a data-independent timing | the session states nothing of the CPU (§17 question 56) | the test of the hello's suites: "expected 2, found 6", `test-chapulin` | CAUGHT |
+| CB2 | the DoQ session states the AES instructions and a data-independent timing | as CB1, over QUIC | the test of the hello's suites: "expected 2, found 6", `test-chapulin-quic` | CAUGHT |
+| CB3 | the DoH channel states the AES instructions and a data-independent timing | as CB1, at the channel | the test of the TCP hello's suites: "expected 2, found 6", `test-cocuyo_doh` | CAUGHT |
+| CB4 | the DoH channel speaks no HTTP/2, so its TCP connection offers `http/1.1` alone | rule 18's versions | five tests, the test of HTTP/2 among them: "expected 2, found 1"; the test of a reset stream, "expected .reset, found .closed", `test-cocuyo_doh` | CAUGHT |
+| CB5 | the DoH channel speaks no HTTP/3, so it opens no QUIC link | rule 18's versions | three tests fail, the test of HTTP/2 among them: "expected .quic, found .tcp"; two tests of the engine crash, `test-cocuyo_doh` | CAUGHT |
+| CB6 | the test server's route table has no root, so a GET of the root gets 404 | the server's routes | the test of the longest GET of a template of a query alone: no answer, `test-cocuyo_doh` | CAUGHT |
+| CB7 | a test server that is to select no protocol names its versions in ALPN | the server that selects no protocol | the two tests of HTTP/1.1 from a server that selects none: "expected 1, found 2", `test-cocuyo_doh` | CAUGHT |
+| CB8 | the plain suite takes a switch to QUIC version 2 | the plain suite speaks version 1 alone | the test of the switch: "expected error.Refused, found void", `test-cocuyo_quic` | CAUGHT |
+| CB9 | the assertion that a finished exchange's request is its slot's, inverted | the assertion | each test that finishes an exchange: "reached unreachable code", `test-cocuyo_doh` | CAUGHT |
+| CB10 | the assertion that a new exchange's response has no outcome yet, inverted | the assertion | each test that makes a request: "reached unreachable code", `test-cocuyo_doh` | CAUGHT |
+| CB11 | a DoQ connection starts in QUIC version 1, whatever version its session names | the connection starts in its session's version (§16 decision 29) | the test of the first Initial's version: "expected 1798521807, found 1", `test-cocuyo_quic`; the resumed DoQ session stops at chapulin's assertion, `test-chapulin-quic` | CAUGHT, by the tests that failed before the fix |
+| CB12 | the DoQ session names QUIC version 1, whatever version its ticket names | as CB11, at the session | the resumed DoQ session, `test-chapulin-quic` | CAUGHT |
+| CB13 | `Plain` names QUIC version 2, which its suite refuses | the gate's QUIC speaks version 1 alone | the test of the first Initial's version, `test-cocuyo_quic` | CAUGHT |
+| CB14 | the DoH channel's output is one octet shorter than colibri's least output | the output holds what `send_stream` owes (colibri's decision 124, ruling 5) | the assertion in `start`, `test-cocuyo_doh` | CAUGHT |
+| CB15 | a record's protection adds one octet more than RFC 9846 allows, past colibri's room | colibri's room holds the longest partial unit and one record | the assertion in `start`, `test-cocuyo_doh` | CAUGHT |
+
+DS4 ran again with the new test, as the list above says. The 55 other rows of the files that the
+move changed ran again on the first form, and each is `CAUGHT`.
+
+Fifteen mutations, fifteen `CAUGHT`.

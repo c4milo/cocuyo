@@ -71,11 +71,12 @@ const Side = struct {
 
     fn hear(context: *anyopaque, socket: rotor.Descriptor, bytes: []const u8, now_ns: u64) void {
         const side: *Side = @ptrCast(@alignCast(context));
-        const entry = side.entry_of(socket) orelse return;
-        entry.server.receive(bytes, .{ .context = side, .answer = answer }, now_ns);
+        const entry = side.entry_of(socket, now_ns) orelse return;
+        const answerer: server_module.Answerer = .{ .context = side, .answer = answer };
+        entry.server.receive(bytes, answerer, now_ns);
         var out: [cocuyo_doh.constants.output_bytes_max]u8 = undefined;
         for (0..sends_per_hear_max) |_| {
-            const len = entry.server.send(&out, now_ns);
+            const len = entry.server.send(&out, answerer, now_ns);
             if (len == 0) return;
             const delay_ns = side.network.scripts[side.index].delay_ns_min;
             _ = side.network.write_stream(socket, out[0..len], now_ns + delay_ns);
@@ -83,11 +84,11 @@ const Side = struct {
     }
 
     /// The connection from `socket`, or a new one for a socket the side has not heard from.
-    fn entry_of(side: *Side, socket: rotor.Descriptor) ?*Side.Entry {
+    fn entry_of(side: *Side, socket: rotor.Descriptor, now_ns: u64) ?*Side.Entry {
         for (&side.entries) |*entry| if (entry.socket == socket) return entry;
         for (&side.entries) |*entry| {
             if (entry.socket != null) continue;
-            entry.server.init(side.script, identity.unix_seconds) catch return null;
+            entry.server.init(side.script, identity.unix_seconds, now_ns) catch return null;
             entry.socket = socket;
             return entry;
         }
@@ -121,7 +122,7 @@ const QuicSide = struct {
     fn hear(context: *anyopaque, socket: rotor.Descriptor, bytes: []const u8, now_ns: u64) void {
         const side: *QuicSide = @ptrCast(@alignCast(context));
         side.socket = socket;
-        const from = colibri_server.quic_connection.PeerAddress.of(rotor.Network.server_address(side.index).bytes[0..cocuyo.constants.address_v4_bytes], client_port);
+        const from = colibri_server.Address.of(rotor.Network.server_address(side.index).bytes[0..cocuyo.constants.address_v4_bytes], client_port);
         side.server.receive(bytes, from, .{ .context = side, .answer = answer }, now_ns);
         side.pump(now_ns);
     }
@@ -254,7 +255,7 @@ test "a lookup through colibri's channel is answered over HTTP/2 once QUIC's dat
     // Rule 18: QUIC went first, and its fallback delay passed before TCP carried the request.
     const side = &world.sides[0];
     try testing.expectEqual(@as(usize, 1), side.entries[0].server.answered);
-    try testing.expectEqual(.h2, side.entries[0].server.connection.protocol().?);
+    try testing.expectEqual(server_module.http_2, side.entries[0].server.version.?);
     try testing.expect(world.loop.now() >= cocuyo_doh.constants.fallback_delay_ns);
     const links = &world.engine.doh.slots[0].links;
     try testing.expect(links[@intFromEnum(Resolver.Doh.Link.tcp)].state == .running);
@@ -263,10 +264,10 @@ test "a lookup through colibri's channel is answered over HTTP/2 once QUIC's dat
 
 test "a server that selects no protocol answers the engine over HTTP/1.1" {
     // Rule 20: whatever version the channel comes up on carries the GET alike.
-    const world = try World.create(142, .{ .alpn = &.{} });
+    const world = try World.create(142, .{ .selects_none = true });
     const result = try world.resolve("example.com.");
     try testing.expect(result.outcome == .answer);
-    try testing.expectEqual(.h11, world.sides[0].entries[0].server.connection.protocol().?);
+    try testing.expectEqual(server_module.http_1_1, world.sides[0].entries[0].server.version.?);
     try world.destroy();
 }
 

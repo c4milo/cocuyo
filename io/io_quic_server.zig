@@ -258,12 +258,12 @@ fn release_if_done(self: anytype, request: *Request) void {
 }
 
 fn send_datagram(self: anytype, out: []u8, now_ns: u64) usize {
-    const provider: quic.stream.stream_provider.StreamProvider = .{ .context = self, .vtable = &@TypeOf(self.*).stream_vtable };
+    const provider: quic.stream.StreamProvider = .{ .context = self, .vtable = &@TypeOf(self.*).stream_vtable };
     return send(self, out, now_ns, provider);
 }
 
 /// The next datagram the server owes, its streams read through `provider`, or nothing.
-pub fn send(self: anytype, out: []u8, now_ns: u64, provider: quic.stream.stream_provider.StreamProvider) usize {
+pub fn send(self: anytype, out: []u8, now_ns: u64, provider: quic.stream.StreamProvider) usize {
     if (!self.started) return 0;
     const sent = quic.connection_send.send(
         &self.connection,

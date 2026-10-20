@@ -1,8 +1,9 @@
-//! A DoH server over colibri's `server`, for `cocuyo_doh`'s tests (docs/design.md §24, DoH over
-//! colibri's client): colibri's server over TLS under the test identity (`io_doh_channel_identity`),
-//! selecting from the protocols its script names, which reads each GET's query out of its `dns`
-//! parameter (RFC 8484 §4.1). It answers the query with what an `Answerer` makes of it, under the
-//! status, media type, content coding and `Age` its script says, or holds it unanswered.
+//! A DoH server over colibri's `server.Endpoint`, for `cocuyo_doh`'s tests (docs/design.md §24, DoH
+//! over colibri's client): an endpoint of one TCP connection over TLS under the test identity
+//! (`io_doh_channel_identity`), which serves the versions its script names. Its route table sends a
+//! GET to the query in the path's `dns` parameter (RFC 8484 §4.1). It answers the query with what
+//! an `Answerer` makes of it, under the status, media type, content coding and `Age` its script
+//! says. A script may also hold the query unanswered.
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
@@ -11,6 +12,7 @@ const tls = @import("tls");
 const doh = @import("doh");
 const identity = @import("io_doh_channel_identity.zig");
 const constants = @import("io_doh_channel_constants.zig");
+const start_module = @import("io_doh_channel_start.zig");
 
 /// What makes an answer of a query, into `out`, or null to refuse it.
 pub const Answerer = struct {
@@ -18,11 +20,14 @@ pub const Answerer = struct {
     answer: *const fn (context: *anyopaque, query: []const u8, out: []u8) ?usize,
 };
 
-/// What a test has the server do: the protocols it selects from, in its order (RFC 7301 §3.2),
-/// what its responses say, whether it issues tickets, whether it holds each request unanswered,
-/// and whether it resets a stream once its head has gone.
+/// What a test has the server do: its versions and its protocol, its responses, its tickets, and
+/// whether it holds each request or resets its stream once the head has gone.
 pub const Script = struct {
-    alpn: []const []const u8 = &.{ "h2", "http/1.1" },
+    /// Over TLS the endpoint offers `h2`, then `http/1.1`, as `versions` allows each (RFC 7301
+    /// §3.2; colibri's decision 119).
+    versions: server.Versions = .{},
+    /// The handshake selects no protocol: the server's TLS names none (RFC 7301 §3.2).
+    selects_none: bool = false,
     status: u16 = 200,
     content_type: []const u8 = "application/dns-message",
     content_encoding: ?[]const u8 = null,
@@ -43,6 +48,22 @@ const ticket_key: [tls.constants.server_key_len]u8 = @splat(ticket_octet);
 const response_fields_max = 4;
 const length_digits_max = 20;
 
+/// What the server states of the CPU and its thread: nothing, as the channel states
+/// (`io_doh_channel_start.zig`, docs/design.md §17 question 56). Its sessions then hold
+/// TLS_CHACHA20_POLY1305_SHA256 alone.
+pub const cpu_not_stated = start_module.cpu_not_stated;
+
+/// The server's TLS identity, the test's, with no protocol named: the endpoint names those its
+/// versions allow (colibri's decision 119).
+pub fn identity_values(tickets: bool) tls.Server {
+    return .{
+        .ecdsa_p256 = .{ .chain = &identity.chain, .public_key = identity.public_key, .private_key = identity.private_key },
+        .cookie_key = &cookie_key,
+        .ticket_key = if (tickets) &ticket_key else null,
+        .cpu = cpu_not_stated,
+    };
+}
+
 /// A field's value a request carried, kept for a test to read.
 pub const Heard = struct {
     value: [heard_bytes_max]u8 = undefined,
@@ -60,35 +81,49 @@ pub const Heard = struct {
 };
 const heard_bytes_max = 64;
 
+/// The versions a request comes in, as RFC 9110 §2.5 numbers them, which a test reads: 1.1 for
+/// HTTP/1.1, and 2.0 for HTTP/2.
+const http_2_major: u8 = 2;
+pub const http_1_1: server.Version = .{ .major = 1, .minor = 1 };
+pub const http_2: server.Version = .{ .major = http_2_major, .minor = 0 };
+
+/// An endpoint of one TCP connection, the one a test's channel opens.
+const Endpoint = server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
+
+/// The events the server reads for one input at most: each takes octets of the input, or reports
+/// one of a request's events or the connection's.
+const events_per_input_max = constants.stream_bytes + 1;
+
 pub const Server = struct {
     script: Script = .{},
-    tls_config: tls.record.ServerConfig = undefined,
     config: server.Config = undefined,
-    connection: server.Connection = undefined,
+    endpoint: Endpoint = undefined,
+    /// The connection the endpoint accepted, which each call names.
+    connection: server.ConnectionHandle = undefined,
     stream: std.Random.ChaCha = std.Random.ChaCha.init(@splat(stream_octet)),
     /// The records the client sent and the server has not read.
     input: [constants.stream_bytes]u8 = undefined,
     input_len: usize = 0,
     owed: [owed_max]Owed = @splat(.{}),
     /// What it heard, which a test reads: the queries it answered, the requests it holds, the last
-    /// query it read, and what that request's `accept` and `accept-encoding` asked for.
+    /// query it read, the version of its request, and what its `accept` and `accept-encoding` asked
+    /// for. A program reads a request's version from the request (colibri's decision 121).
     answered: usize = 0,
     held: usize = 0,
     query: [cocuyo.constants.message_bytes_max]u8 = undefined,
     query_len: usize = 0,
+    version: ?server.Version = null,
     accept: Heard = .{},
     accept_encoding: Heard = .{},
 
-    pub fn init(self: *Server, script: Script, unix_seconds: u64) !void {
+    pub fn init(self: *Server, script: Script, unix_seconds: u64, now_ns: u64) !void {
         self.* = .{ .script = script };
-        try self.tls_config.init(.{
-            .ecdsa_p256 = .{ .chain = &identity.chain, .public_key = identity.public_key, .private_key = identity.private_key },
-            .cookie_key = &cookie_key,
-            .ticket_key = if (script.tickets) &ticket_key else null,
-            .alpn = script.alpn,
-        });
-        self.config = .{ .tls = &self.tls_config };
-        try self.connection.init(&self.config, self.stream.random(), unix_seconds);
+        self.config = .{ .tls = identity_values(script.tickets), .versions = script.versions };
+        try self.endpoint.init(&self.config, self.stream.random(), unix_seconds, now_ns);
+        // The endpoint names in ALPN the versions it serves. A server that names none has its
+        // TCP configuration made again with the identity's empty list, which a test alone does.
+        if (script.selects_none) try self.endpoint.tcp_tls.init(self.config.tls.?);
+        self.connection = self.endpoint.accept(.tls, now_ns) orelse return error.AcceptRefused;
     }
 
     /// Takes what the client sent, and answers each request it reads whole.
@@ -96,29 +131,43 @@ pub const Server = struct {
         assert(self.input_len + bytes.len <= self.input.len);
         @memcpy(self.input[self.input_len..][0..bytes.len], bytes);
         self.input_len += bytes.len;
-        // Bounded: each pass takes octets or reads an event, and the input holds finitely many.
-        for (0..self.input.len + 1) |_| {
-            const received = self.connection.receive(self.input[0..self.input_len], now_ns) catch return;
+        self.read(answerer, now_ns);
+    }
+
+    /// Writes what the answers still owe of their content, reads what that changed, then writes
+    /// what the connection owes.
+    pub fn send(self: *Server, out: []u8, answerer: Answerer, now_ns: u64) usize {
+        self.write_owed();
+        self.read(answerer, now_ns);
+        return self.endpoint.send_stream(self.connection, out, now_ns);
+    }
+
+    /// Hands the endpoint the octets it holds, or none, until it takes nothing and says nothing.
+    /// An event's slices point into the octets, so they leave once the event is read.
+    fn read(self: *Server, answerer: Answerer, now_ns: u64) void {
+        for (0..events_per_input_max) |_| {
+            const input: server.Input = if (self.input_len == 0) .none else .{ .stream = .{ .connection = self.connection, .octets = self.input[0..self.input_len] } };
+            const received = self.endpoint.receive(input, now_ns);
+            if (received.event) |event| self.take(event, answerer);
             std.mem.copyForwards(u8, self.input[0 .. self.input_len - received.consumed], self.input[received.consumed..self.input_len]);
             self.input_len -= received.consumed;
-            const event = received.event orelse {
-                if (received.consumed == 0) return;
-                continue;
-            };
-            if (event == .request) self.answer(event.request, answerer);
+            if (received.event == null and received.consumed == 0) return;
         }
     }
 
-    /// Writes what the answers still owe of their content, then what the connection owes.
-    pub fn send(self: *Server, out: []u8, now_ns: u64) usize {
-        self.write_owed();
-        return self.connection.send(out, now_ns);
+    fn take(self: *Server, event: server.Event, answerer: Answerer) void {
+        switch (event) {
+            .request => |request| self.answer(request, answerer),
+            .writable => self.write_owed(),
+            .body, .trailers, .cancelled, .done, .send, .close, .ended, .closed => {},
+        }
     }
 
     /// Reads the request's query, and answers it as the script says. The content goes into the
     /// connection as its output and the stream's window take it (RFC 9113 §6.9).
     fn answer(self: *Server, request: server.Request, answerer: Answerer) void {
-        const query = read_request(self, request) orelse return;
+        self.version = request.version;
+        const query = read_request(self, &self.endpoint, request) orelse return;
         if (self.script.hold) {
             self.held += 1;
             return;
@@ -127,7 +176,7 @@ pub const Server = struct {
             if (!slot.live) break slot;
         } else return;
         const len = answerer.answer(answerer.context, query, &owed.content) orelse return;
-        if (!respond_head(&self.connection, request.id, self.script, len)) return;
+        if (!respond_head(&self.endpoint, request.id, self.script, len)) return;
         owed.live = true;
         owed.id = request.id;
         owed.len = len;
@@ -140,7 +189,7 @@ pub const Server = struct {
     fn write_owed(self: *Server) void {
         for (&self.owed) |*owed| {
             if (!owed.live) continue;
-            owed.written += write_content(&self.connection, owed.id, owed.content[owed.written..owed.len]) orelse {
+            owed.written += write_content(&self.endpoint, owed.id, owed.content[owed.written..owed.len]) orelse {
                 owed.live = false;
                 continue;
             };
@@ -158,20 +207,21 @@ const owed_max = 2;
 /// An answer whose head has gone, and the content that it still owes.
 const Owed = struct {
     live: bool = false,
-    id: server.Id = 0,
+    id: server.Id = undefined,
     content: [cocuyo.constants.message_bytes_max]u8 = undefined,
     len: usize = 0,
     written: usize = 0,
 };
 
-/// Writes `content`, the rest of request `id`'s content, until the connection takes no more. The
-/// octets written, or null when the connection refused the request.
-fn write_content(connection: *server.Connection, id: server.Id, content: []const u8) ?usize {
+/// Writes `content`, the rest of request `id`'s content, until the endpoint takes no more. The
+/// octets written, or null when the endpoint refused the request.
+fn write_content(endpoint: anytype, id: server.Id, content: []const u8) ?usize {
     var written: usize = 0;
     // Bounded: each pass writes an octet of the content, or stops.
     for (0..content.len + 1) |_| {
-        written += connection.write_body(id, .{ .octets = content[written..], .end = true }) catch |failure| switch (failure) {
-            // No room in the output, or no window (RFC 9113 §6.9): the next send makes room.
+        written += endpoint.write_body(id, .{ .octets = content[written..], .end = true }) catch |failure| switch (failure) {
+            // No room in the output, or no window (RFC 9113 §6.9): the request's `writable` says
+            // when to write again.
             error.Blocked, error.NoSpaceLeft => return written,
             else => return null,
         };
@@ -180,11 +230,36 @@ fn write_content(connection: *server.Connection, id: server.Id, content: []const
     return written;
 }
 
+/// What a route of the server names: a query in a GET's `dns` parameter (RFC 8484 §4.1).
+const Route = enum { query };
+
+/// The paths a test's channel asks for, which colibri's router matches (its decision 122): the
+/// root, which a template of a query alone gives, and a path of one segment, such as the template's
+/// `/dns-query`. The router reads a path up to its first "?", so the query stays for `dns`.
+const routes = server.router(Route, .{
+    .{ .get, "/", .query },
+    .{ .get, "/:resource", .query },
+});
+
+/// The status of a request that no route takes: 404 for a path, 405 for a method of another path
+/// (RFC 9110 §15.5.5, §15.5.6), and 501 for a method no route names (§15.6.2).
+const status_not_found: u16 = 404;
+const status_method_not_allowed: u16 = 405;
+const status_not_implemented: u16 = 501;
+
 /// Reads a request's query out of its path's `dns` parameter (RFC 8484 §4.1) into `record`, a
 /// server that keeps what it heard, and what the request's `accept` and `accept-encoding` asked for.
-/// Null when the path carries no query.
-pub fn read_request(record: anytype, request: server.Request) ?[]const u8 {
+/// A request that no route takes gets the status the router names from `endpoint`, and null; so
+/// does one whose path carries no query, with nothing.
+pub fn read_request(record: anytype, endpoint: anytype, request: server.Request) ?[]const u8 {
     const path = request.path orelse return null;
+    var parameters: server.PathParameters = .{};
+    switch (routes.match(request.method, path, &parameters)) {
+        .found => |route| assert(route == .query),
+        .method_not_allowed => |allow| return refuse(endpoint, request.id, status_method_not_allowed, allow),
+        .not_found => return refuse(endpoint, request.id, status_not_found, null),
+        .not_implemented => return refuse(endpoint, request.id, status_not_implemented, null),
+    }
     const query = doh.query.query_of(path, &record.query) orelse return null;
     record.query_len = query.len;
     record.accept.keep(request.fields.find("accept"));
@@ -192,14 +267,23 @@ pub fn read_request(record: anytype, request: server.Request) ?[]const u8 {
     return query;
 }
 
-/// Answers request `id` on `connection`, colibri's TCP or QUIC one, whose calls are alike: the head
-/// the script says, then `content`, or a reset once the head has gone. Whether it answered.
-pub fn respond(connection: anytype, id: server.Id, script: Script, content: []const u8) bool {
-    if (!respond_head(connection, id, script, content.len)) return false;
+/// Answers request `id` with `status` and no content, and with the Allow field a 405 carries (RFC
+/// 9110 §15.5.6). Null, for the caller to return.
+fn refuse(endpoint: anytype, id: server.Id, status: u16, allow: ?[]const u8) ?[]const u8 {
+    const fields = [_]server.Field{.{ .name = "allow", .value = allow orelse "" }};
+    const named: usize = if (allow != null) fields.len else 0;
+    endpoint.respond(id, .{ .status = status, .fields = fields[0..named], .end = true }) catch {};
+    return null;
+}
+
+/// Answers request `id` on `endpoint`, over TCP or QUIC: the head the script says, then `content`,
+/// or a reset once the head has gone. Whether it answered.
+pub fn respond(endpoint: anytype, id: server.Id, script: Script, content: []const u8) bool {
+    if (!respond_head(endpoint, id, script, content.len)) return false;
     var written: usize = 0;
     // Bounded: each pass writes an octet of the content, or stops.
     for (0..content.len + 1) |_| {
-        written += connection.write_body(id, .{ .octets = content[written..], .end = true }) catch return false;
+        written += endpoint.write_body(id, .{ .octets = content[written..], .end = true }) catch return false;
         if (written == content.len) return true;
     }
     return false;
@@ -207,7 +291,7 @@ pub fn respond(connection: anytype, id: server.Id, script: Script, content: []co
 
 /// Writes the head the script says for content `content_len` octets long, or a reset once the
 /// head has gone. Whether the content goes next.
-fn respond_head(connection: anytype, id: server.Id, script: Script, content_len: usize) bool {
+fn respond_head(endpoint: anytype, id: server.Id, script: Script, content_len: usize) bool {
     var digits: [length_digits_max]u8 = undefined;
     var fields: [response_fields_max]server.Field = undefined;
     var count: usize = 0;
@@ -223,10 +307,10 @@ fn respond_head(connection: anytype, id: server.Id, script: Script, content_len:
         fields[count] = .{ .name = "age", .value = age };
         count += 1;
     }
-    connection.respond(id, .{ .status = script.status, .fields = fields[0..count], .end = false }) catch return false;
+    endpoint.respond(id, .{ .status = script.status, .fields = fields[0..count], .end = false }) catch return false;
     if (script.reset_after_head) {
         // RFC 9113 §6.4 and RFC 9114 §4.1.1: the stream ends at once, before its content.
-        connection.cancel(id);
+        endpoint.cancel(id);
         return false;
     }
     return true;

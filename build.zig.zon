@@ -27,8 +27,8 @@
         // engine's DoH interface (decision 33). Never of the library in `src/`. Lazy, so a build
         // that asks for none of them does not resolve it.
         .colibri = .{
-            .url = "git+https://github.com/c4milo/colibri?ref=v0.6.0#830af4cfda3facdf7fef705cef95eb095928b50b",
-            .hash = "colibri-0.6.0-Wo-AvlywZwSjKgl1SiGZYDw664cHChQ8IOjVzxLYtIHp",
+            .url = "git+https://github.com/c4milo/colibri?ref=v0.8.0#7496cdc7323848cffe4774503103cd529701cb8f",
+            .hash = "colibri-0.8.0-Wo-AvtBgiAT4kSDr1cu4LH3VfEM7FWSqBgPzmwq9JIa7",
             .lazy = true,
         },
     },

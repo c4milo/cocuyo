@@ -2072,6 +2072,18 @@ step until `zig build test` passes.
     and colibri is pinned by hash as a lazy dependency. Rejected: colibri alone, which makes
     those steps from packets and loss timers, never on demand; and the twin alone, which leaves
     real QUIC to the live check that runs once a day. §24.
+
+    Since colibri v0.8.0, pinned on 2026-10-20, the suite names the QUIC version of each packet
+    (colibri's decision 108). A client lists version 2 first, and a server may switch it to
+    version 2, as colibri's server does by default (its decision 111). The suite that encrypts
+    nothing refuses that switch, and colibri then drops the packet that asked for it. No packet on
+    the twin asks for it, because the test server never asks colibri to choose a version. So
+    colibri's QUIC on the twin speaks version 1 alone, 0x00000001 (RFC 9000 §15).
+
+    Over chapulin, DoQ and DoH on HTTP/3 may run on version 2, and a ticket names the version of
+    its connection. A session that resumes with such a ticket starts in that version. So since
+    2026-10-20 each connection of `cocuyo_quic` starts in the version that its session names
+    (§24, chapulin under colibri). §17 question 57 asks about the call that names it.
 30. **A DoH server is tried over HTTP/3 first, and over HTTP/2 when that fails.** Ruled by the
     owner on 2026-09-26. RFC 9114 §3.1 asks for it: a network that blocks UDP fails the QUIC
     connection, and "clients SHOULD attempt to use TCP-based versions of HTTP in this case". So
@@ -2098,6 +2110,14 @@ step until `zig build test` passes.
     that its QUIC half links one object, which still clashes with any consumer that speaks HTTPS
     through colibri; and DoQ over an object made from a chapulin checkout, which every build of
     DoQ had to make first. §21, §24.
+
+    Since colibri v0.8.0, pinned on 2026-10-20, each TLS value takes `cpu` (colibri's decision 97,
+    as amended for chapulin 0.2.0). It holds what a probe found of the CPU, and the timing mode of
+    the thread that drives the session. A session runs the AES instructions only where the program
+    states a data-independent timing, and only the program knows that mode. So each session of the
+    engine states nothing. It offers TLS_CHACHA20_POLY1305_SHA256 alone, and runs the portable
+    multiply. Until then colibri chose AES-GCM from the build target. §17 question 56 asks whether
+    the consumer passes the statement in each context.
 33. **colibri's `client.Channel` carries DoH, and chooses between HTTP/3 and HTTP/2.** Ruled by
     the owner on 2026-09-28 (c4milo/cocuyo#18, c4milo/colibri#70). colibri's channel holds a QUIC
     connection and a TCP connection to one origin, and runs decision 30's race: QUIC first, TCP
@@ -2110,6 +2130,20 @@ step until `zig build test` passes.
     does not ask for, since it recommends HTTP/2 for speed alone, and which makes a slow server a
     failed one; and channels the caller hands `init`, which changes `init` where every other
     connection set is a fixed array. §24.
+
+    Since colibri v0.8.0, pinned on 2026-10-20, the channel takes one `client.Config` with one TLS
+    value. It builds the TLS configuration of each transport itself, and its `versions` name the
+    protocols of each ALPN list (colibri's decision 120). It draws QUIC's grease value and
+    connection IDs from the stream the link hands it. A request is a `client.Request`, and its
+    answer goes into a `client.Response` (colibri's decision 124). The test servers run on
+    `server.Endpoint`, and route each GET through `server.router` (colibri's decisions 119, 121 and
+    122). §24.
+
+    colibri v0.8.0 also sends a GET again, once, on another connection (its decision 124, ruling 3).
+    It does so when the connection closes or fails before any octet of the response arrives. A GET
+    is idempotent (RFC 9110 §9.2.2), so the server may process one query twice before the engine
+    fails the request over. The resend and the move after a GOAWAY share one move, and a resend that
+    is refused ends `closed`. §24, request rules 21 and 22.
 34. **The answers keep the type of the question they answer, and change lists without writing their
     storage.** Ruled by the owner on 2026-09-30 (c4milo/cocuyo#34). ReleaseSafe writes 0xAA over
     memory assigned `undefined`, and a bare union changes its member only by being assigned whole.
@@ -2470,33 +2504,56 @@ step until `zig build test` passes.
     issue said that whole records could stay there when the next chunk comes. Then they and the
     chunk count against one room. It named two causes:
 
-    - The bound of the engine's read of a channel. This cause cannot happen with colibri v0.6.0.
-      A sound channel says less than the bound at each read: an end for each request at most,
-      and a few events of its own. The bound gives it `channel_events_max`, 16, of those
-      (`io/constants.zig`).
+    - The bound of the engine's read of a channel. This cause cannot happen with colibri v0.6.0,
+      nor with v0.8.0. A sound channel says less than the bound at each read: an end for each
+      request at most, and a few events of its own. The bound gives it `channel_events_max`, 16,
+      of those (`io/constants.zig`).
     - Records that colibri keeps for want of room. colibri opens a record only into room for its
-      body. Its connection has room for a partial HTTP/2 frame and one record more. A pass that
-      opened a record can find no room for the next one. That pass took octets, so the read makes
-      one more pass, and the record fits then. So over HTTP/2 each whole record opens in the read
-      after the chunk that made it whole.
+      body. Its connection has room for a partial HTTP/2 frame and one record more. In v0.6.0 a
+      pass that opened a record could find no room for the next one. That pass took octets, so
+      the read made one more pass, and the record fitted then. Since v0.8.0 the protocol reads
+      what a record held before the next record opens, so one pass opens each whole record. So
+      over HTTP/2 each whole record opens in the read after the chunk that made it whole. After a
+      pass that took octets the read still makes one more pass. The type holds a datagram and the
+      stream apart, and hands colibri the datagram first.
 
-    Over HTTP/1.1 the second cause can happen (§17 question 52). colibri reads a head or a trailer
-    section only when it is whole. It accepts a head of up to 32,768 octets, and a trailer section
-    of up to 24,576. When more than 16,632 octets of either wait, no room is left for a record of
-    2^14 octets of plaintext. colibri then opens no more records, so the head or the trailer
-    section never becomes whole.
+    Over HTTP/1.1 the second cause could happen with colibri v0.6.0 (§17 question 52). colibri
+    reads a head or a trailer section only when it is whole. It accepts a head of up to 32,768
+    octets, and a trailer section of up to 24,576. In v0.6.0 its room was 33,033 octets. When more
+    than 16,632 octets of either waited, no room was left for a record of 2^14 octets of plaintext.
+    colibri then opened no more records, so the head or the trailer section never became whole.
+    The next chunks passed the buffer and ended the link. No size of the buffer helped, because
+    colibri never took the record.
 
-    The next chunks pass the buffer and end the link. If no chunk comes, the request waits for its
-    deadline. No size of the buffer helps, because colibri never takes the record.
+    Since colibri v0.8.0, pinned on 2026-10-20, the room holds 49,407 octets (colibri's decision
+    124, ruling 7). That is a head at its longest less one octet, and one record more. So the
+    record after a long partial head opens, and the head becomes whole.
 
     A test sends whole records back to back over HTTP/2 and HTTP/1.1, with heads of a usual length
     (`io_doh_channel_read_test.zig`). After each read the buffer holds a partial record at most, as
-    the engine's own buffers do. Neither the buffer nor its check changed.
+    the engine's own buffers do. A second test sends heads of 20,000 and 32,768 octets over
+    HTTP/1.1. Then 17,384 or 32,767 octets of a head wait in colibri before a full record comes.
+    Each exchange ends with its answer. On colibri v0.6.0 the second test fails: a whole record
+    stays in the buffer after a read. A third test sends a trailer section of 24,000 octets over
+    HTTP/1.1. Then 17,000 octets of it wait before a full record, which the next response fills.
+    Both exchanges end with their answers. A fourth test hands the type a datagram before each
+    chunk, so each read makes its second pass over the stream. Neither the buffer nor its check
+    changed.
 
-    In three more states colibri opens no record, and the type keeps what comes:
+    Before v0.8.0 colibri opened no record after a KeyUpdate that asked for a reply. It waited
+    until the engine next asked the channel for octets to send (§17 question 51). Since v0.8.0 it
+    opens records while the reply is owed, and writes the reply before its next record of data
+    (RFC 9846 §4.7.3). It owes two replies at most, `tls.constants.key_update_replies_max`. A
+    third request fails the read, and the link ends. A sound server never sends that third
+    request: it asks for no second reply until the first has come (RFC 9846 §4.7.3).
 
-    - After a KeyUpdate that asks for a reply, until the engine next asks the channel for octets to
-      send. This rule cannot hand those records over, so §17 question 51 asks the owner.
+    In three states colibri still opens no record, and the type keeps what comes:
+
+    - Over HTTP/2, while h2 owes a reply that has no room in colibri's output. Such a reply is the
+      acknowledgment of a SETTINGS or a PING (RFC 9113 §6.5.3, §6.7). h2 reads nothing more until
+      it writes the reply (colibri's `connection_h2.zig`, as in v0.6.0). The output frees when
+      the engine next asks the channel for octets, after the link's send ends. Only a peer that
+      fills the output with such frames while the send is busy meets this state.
     - After the connection stopped: it failed, or its last exchange ended after a shutdown. No
       exchange is left on it. The octets go when the link closes, or sooner at an overrun.
     - After the server's `close_notify`. The server sends no more messages after it, and data
@@ -3342,6 +3399,14 @@ still ends the TCP link of a DoH channel.
 
     Recommended: the first. The hold is colibri's, and colibri can remove it with no new memory.
     Answered on 2026-10-17: the first. colibri writes the reply at once, and cocuyo moves its pin.
+    Done on 2026-10-20: colibri v0.8.0 opens records while the reply is owed, and writes the reply
+    before its next record of data (its commit 5368f5b). cocuyo pins v0.8.0. No test of cocuyo's
+    shows a KeyUpdate: chapulin's record mode starts none, so neither colibri's server nor its
+    `tls` can send one. colibri's own tests show it, in `connection_records_test.zig` of its
+    client and of its server, over a provider that protects nothing. One bound stays: colibri owes
+    two replies at most (`tls.constants.key_update_replies_max`), and a third request ends the
+    link. RFC 9846 §4.7.3 forbids a server that third request, because it asks for no second reply
+    before the first has come (§16 decision 41).
 52. **A long head or trailer section over HTTP/1.1.** colibri v0.6.0 reads a head or a trailer
     section only when it is whole. Its h11 accepts a head of up to 32,768 octets (`head_len_max`).
     Whitespace around a value and the reason phrase count in that length, and not in the size of
@@ -3365,9 +3430,14 @@ still ends the TCP link of a DoH channel.
       record. The request then fails at once, and not at the overrun or the deadline.
     - The link ends, as now. No measurement shows how often a DoH server sends a head that long.
 
-    Recommended: the first. The hold is colibri's, and only colibri can remove it.
-    Answered on 2026-10-17: the first. colibri sizes its room for h11's longest head and one record
-    more, and cocuyo moves its pin.
+    Recommended: the first. The hold is colibri's, and only colibri can remove it. Answered on
+    2026-10-17: the first. colibri sizes its room for h11's longest head and one record more, and
+    cocuyo moves its pin. Done on 2026-10-20: colibri v0.8.0 sizes the room at 49,407 octets (its
+    decision 124, ruling 7), and cocuyo pins v0.8.0. A test of `io_doh_channel_read_test.zig` sends
+    heads of 20,000 and 32,768 octets, whose records leave a long partial head before a full record.
+    Each exchange ends with its answer, and on v0.6.0 the test fails (docs/mutations.md, colibri
+    v0.8.0). A second test does the same with a trailer section of 24,000 octets, and a second
+    response after it.
 
 ### Asked on 2026-10-17, for the cause of a failure
 
@@ -3447,6 +3517,57 @@ review of the change found that nothing bounds how long such a slot takes.
     Recommended: the idle close's wait. No lookup is on a connection that closes, and the session
     has said its last record. So the connection is idle, and the idle close's wait fits it. A
     second limit beside it is one more number for a caller to size.
+
+### Asked on 2026-10-20, for colibri v0.8.0
+
+The owner ruled on 2026-10-20 that cocuyo moves its pin of colibri from v0.6.0 to v0.8.0. §16
+decisions 29, 32, 33 and 41 record what the move changed.
+
+56. **What a session states of the CPU.** Each TLS value of colibri v0.8.0 takes `cpu`, which has
+    no default (colibri's decision 97, as amended for chapulin 0.2.0). It holds what the program's
+    one probe found of the CPU, and the timing mode of the thread that drives the session. A
+    session runs the AES instructions only where the probe found them and the program states
+    `data_independent`. Otherwise it offers TLS_CHACHA20_POLY1305_SHA256 alone, and runs the
+    portable multiply. Only the program knows its thread's mode, so the engine cannot state it.
+
+    As built, the DoT, DoQ and DoH sessions state nothing. RFC 9846 §9.1 asks a TLS-compliant
+    application to implement TLS_AES_128_GCM_SHA256. It makes TLS_CHACHA20_POLY1305_SHA256 a
+    SHOULD, so a server that holds only the first refuses each handshake. The spike of 2026-09-24
+    found that each server it tried took ChaCha20-Poly1305. The ways:
+
+    - As built: the sessions state nothing. No public API changes. Each server must take
+      ChaCha20-Poly1305, and each handshake runs the portable multiply.
+    - A `tls.Cpu` in each context. The `init` of the DoT, DoQ and DoH contexts takes one more
+      argument. The consumer fills it from stdx's `platform.probe()` and its word on the timing
+      mode. This changes the public API. A consumer that states nothing passes the value of the
+      first way.
+    - cocuyo probes the CPU itself, through stdx's `platform`. This adds a dependency and a system
+      call in `io/`, and the engine still cannot state the timing mode.
+
+    Recommended: the second. The consumer is the program that probes the CPU and knows its
+    thread's mode, as colibri's guide asks of a program. Until the owner rules, the first.
+    Answered on 2026-10-20: the second. The `init` of the DoT, DoQ and DoH contexts takes a
+    `tls.Cpu`, which the consumer fills. The change that builds it follows the pin.
+57. **The QUIC version a session names.** Since colibri v0.8.0 a DoQ connection may run on QUIC
+    version 2, and its ticket then names version 2 (§16 decision 29). A session that resumes with
+    that ticket starts in version 2. colibri seals each packet in the connection's version, and
+    chapulin asserts that the two versions agree. With the connection in version 1, the first
+    send stops the program.
+
+    So `cocuyo_quic`'s `Options.Session` gains a call, `original_version`, and the connection starts
+    in what it returns (§24, the session a connection names). The session of
+    `io/io_chapulin_quic.zig` returns colibri's choice, and `Plain` returns version 1. A consumer's
+    own session must now add the call. The ways:
+
+    - As built: the call is part of the interface, and a session that lacks it does not compile.
+    - The call is optional, and a session that lacks it starts in version 1. Such a session
+      still stops the program when it resumes with a ticket of version 2.
+    - No new call: the session refuses a ticket whose version is not 1, and starts without it.
+      Then no DoQ connection resumes with a server that switched it to version 2.
+
+    Recommended: as built. The compiler finds each session that lacks the call, and resumption
+    still works on version 2.
+    Answered on 2026-10-20: as built.
 
 ## 18. The cache
 
@@ -5519,6 +5640,9 @@ is what the fake does show: which records go when, what a lookup hears, and when
 - A connection holds a `ch_record` of 2744 octets (measured with clang on arm64, 2026-09-23),
   a buffer of at least 12338 octets for chapulin, and room for one whole record in and one
   chunk after it (TLS rule 7, since 2026-10-13).
+- Since colibri v0.8.0, pinned on 2026-10-20, a session runs AES-GCM only where the program states
+  its CPU and its thread's timing mode (§16 decision 32). The session states nothing, so its hello
+  offers TLS_CHACHA20_POLY1305_SHA256 alone (§17 question 56).
 
 RFC 8310 §9's other items stand as follows. chapulin speaks TLS 1.3 only and never compresses,
 which meets two MUSTs. It does not cite RFC 7525, and has neither False Start nor Cached
@@ -6129,10 +6253,25 @@ it. What its build and its checks give it:
   stream around those two calls and passed every call on to colibri's.
 - **One QUIC object in an image**, colibri's. Two would define the same calls. colibri's `h3` and
   cocuyo's session use the one object.
-- **AES-GCM where the machine has the AES instructions, ChaCha20-Poly1305 alone elsewhere.**
-  colibri builds its objects `SUITE=aesgcm AES=hw` for a target whose features include them, and
-  `SUITE=chacha` for any other (its decision 97). Until 2026-09-27 the session's object offered
+- **ChaCha20-Poly1305 alone, since the session states nothing of the CPU.** cocuyo pins colibri
+  v0.8.0 since 2026-10-20. Its session runs the AES instructions only where the program states a
+  data-independent timing for its thread (its decision 97, as amended for chapulin 0.2.0). The
+  session states nothing, so its hello offers ChaCha20-Poly1305 alone (§17 question 56). From
+  2026-09-27 colibri built its objects `SUITE=aesgcm AES=hw` for a target whose features include
+  them, and `SUITE=chacha` for any other. Until 2026-09-27 the session's object offered
   ChaCha20-Poly1305 alone. The spike of 2026-09-24 found every server accepted it.
+- **QUIC version 2 beside version 1.** Since colibri v0.8.0 a client lists version 2 before
+  version 1, and a server may switch it to version 2 (colibri's decisions 108 and 111). So DoQ
+  and DoH on HTTP/3 may run on version 2. A ticket names the version of the connection that
+  received it, and a session that resumes with it starts in that version. colibri seals each
+  packet in the connection's version, and chapulin's suite asserts that its own version is the
+  same. So `cocuyo_quic` starts colibri's connection in the version its session names,
+  `original_version` (the session a connection names, below). colibri's own client does the
+  same. Until colibri v0.8.0 both sides spoke version 1 alone (RFC 9000 §15).
+- **A test on version 2.** A test of the session runs colibri's QUIC server over chapulin in
+  memory, under the DoH tests' identity (`io/testdata/`). The server switches the session to
+  version 2, and issues a ticket. It takes that ticket on the next connection, which starts in
+  version 2 (`io_chapulin_quic_resume_test.zig`).
 
 ### colibri over the twin
 
@@ -6547,7 +6686,7 @@ colibri's `tls`, over chapulin (decision 32).
 - **What a GOAWAY leaves.** An exchange that a connection refused unprocessed, because it takes no
   new exchange, moves once to another connection (RFC 9113 §8.7, RFC 9114 §4.1.1). So request rule
   13's drain is the channel's, and the engine hears `refused` only when no connection took the
-  exchange.
+  exchange. Since colibri v0.8.0 that move shares its one budget with a resend (below).
 - **One event at a time.** `receive` returns at most one: `open` a transport to an address, `close`
   one, `connected` on a protocol, a transport's `ticket`, an exchange `finished`, and `closed` once
   the channel was shut down and every exchange has ended. The caller reads until nothing is taken
@@ -6559,6 +6698,32 @@ colibri's `tls`, over chapulin (decision 32).
   1,364,720 octets, and eight servers' are 10.9 MB. Every window the channel advertises follows
   the pool's capacity (RFC 9000 §4.1).
 
+**What colibri v0.8.0 changed**, pinned on 2026-10-20 (its decisions 120, 121 and 124):
+
+- **A request and a response.** `HttpExchange` became two types. `client.Request` holds the
+  method, the path, the field lines and the never-indexed marks. `client.Response` holds the
+  fields wanted, the octets of their values and the body, then what arrived and how the exchange
+  ended. `request` takes both, and the `finished` event names both. The memory stays the
+  caller's.
+- **One configuration.** `client.Config` holds one TLS value, and the channel builds the TLS
+  configuration of each transport from it. Its `versions` name the protocols, so the type writes
+  no ALPN list. `start_quic` draws the grease value and the two connection IDs itself.
+- **A GET sent again.** A connection may close or fail before any octet of a request's response
+  arrives. colibri then sends an idempotent request again, once, on another connection (its
+  decision 124, ruling 3). A GET is idempotent (RFC 9110 §9.2.2), so each of the engine's
+  requests can reach the server twice before the engine fails it over. The resend and a move
+  after a GOAWAY share one budget, `moves_max`. A resend that is refused ends `closed`, not
+  `refused`, since the first try may have reached the server. The lookup's deadline still bounds
+  both tries (rule 22).
+- **Names.** The root exports each type under its own name, such as `client.Address`,
+  `client.Event`, `client.Input`, `client.Transport` and `client.Alternative`.
+- **Its size.** 1,012,272 octets, of which the QUIC connection is 703,984 and the TCP one
+  305,704, and 378,144 for the pool. At v0.6.0 they were 988,744, 701,296, 286,584 and 377,504.
+  The TCP connection grew by its room for a long head (§16 decision 41). A server's channel and
+  pool are 1,390,416 octets, and eight servers' are 11.1 MB. `cocuyo_doh`'s type of 4 answers is
+  1,683,816 octets, 22,880 more than at v0.6.0. `@sizeOf` gave each number, in a Debug build on
+  an Apple M1 Pro on 2026-10-20.
+
 **The request rules over a channel.** A DoH configuration's requests go to its servers' channels.
 Rules 3 to 8, 10 to 12 and 17 hold, rule 8 for the QUIC link and rules 14 to 16 for the TCP link.
 Rules 1, 2, 9 and 13 give way to these, for DoH alone:
@@ -6569,12 +6734,14 @@ Rules 1, 2, 9 and 13 give way to these, for DoH alone:
     template's port, since the engine resolves no host to reach a resolver; no HTTPS record; and
     the HTTP/3 alternative the server's last channel learned from Alt-Svc, which the channel uses
     while it is fresh. Its TLS names what the server's `Tls` names, and offers `h3` over QUIC, and
-    `h2` then `http/1.1` over TCP. It gives QUIC's handshake `doh_fallback_delay_ns` before TCP
-    opens beside it.
+    `h2` then `http/1.1` over TCP. Since colibri v0.8.0 the channel builds those lists from its
+    `versions`, which allow all three (colibri's decision 120). It gives QUIC's handshake
+    `doh_fallback_delay_ns` before TCP opens beside it.
 19. **A link opens and closes when the channel says.**
-    - `open` for QUIC opens the link's datagram socket and arms its receive, and starts the
-      channel's QUIC connection with connection IDs and grease drawn from the engine's stream, the
-      wall clock, and the server's QUIC ticket.
+    - `open` for QUIC opens the link's datagram socket and arms its receive. Then it starts the
+      channel's QUIC connection with the engine's stream, the wall clock, and the server's QUIC
+      ticket. colibri draws the connection IDs and the grease from that stream (its decision 120,
+      since v0.8.0). Until then the type drew them, from the same stream.
     - `open` for TCP opens the link's stream socket and connects, as rule 14 has it. When the
       connect succeeds, the link starts the channel's TCP connection with the server's TCP ticket.
     - `close` closes the link's socket once what it holds to send has gone.
@@ -6591,13 +6758,15 @@ Rules 1, 2, 9 and 13 give way to these, for DoH alone:
     GET of the path the template expands with `dns`, with `accept: application/dns-message` and
     `accept-encoding: identity` (rule 12), the path never indexed, and `content-type`,
     `content-encoding` and `age` wanted. The body goes into the answer buffer. A channel holds 16
-    exchanges at most, and past them a request waits for one to end.
+    exchanges at most, and past them a request waits for one to end. Since colibri v0.8.0 the
+    channel may send the GET again, once, on another connection (A GET sent again, above).
 22. **An exchange ends once.** A `response` of a 2xx status, whose content is a DNS message in no
     content coding, goes to the lookup with its `Age` (rule 5). Any other response, `refused`,
     `reset`, `closed`, `malformed` and `too_large` fail the request, once, if its attempt is
-    current, and decision 25 counts each as the server's failure. The engine writes every request
-    from a template it checked at `start`, so `invalid` is its own error, and it asserts none
-    comes.
+    current, and decision 25 counts each as the server's failure. Since colibri v0.8.0 a `closed`
+    can end a GET that went twice, so the server may have answered its first try. The engine writes
+    every request from a template it checked at `start`, so `invalid` is its own error, and it
+    asserts none comes.
 23. **A ticket for each transport.** Each server keeps the newest ticket of each transport, spent
     once, and dropped at its lifetime or 7 days after it came, as rule 10 has it.
 24. **An idle channel shuts down.** A channel with no request on it for `quic_idle_ns` shuts down.
@@ -6626,22 +6795,29 @@ through the request interface, so `cocuyo_rotor` never imports colibri. The type
 - `receive` hands the channel a datagram or octets of the stream a link read, and `next` returns
   what it says, one thing at a time, until it has nothing more. The octets of the stream the
   channel has not taken stay with the type until it takes them: a partial record until the rest
-  arrives (TLS rule 7). Over HTTP/2, colibri takes each whole record in the read after the chunk
-  that made it whole. Its connection has room for a partial frame and one record more (§16
-  decision 41, checked on 2026-10-17). colibri takes no record in four states:
-  - after a KeyUpdate that asks for a reply, until the engine next asks it for octets to send
-    (§17 question 51);
-  - over HTTP/1.1, while a long partial head or trailer section leaves no room for the next
-    record (§17 question 52);
+  arrives (TLS rule 7). colibri takes each whole record in the read after the chunk that made it
+  whole. Its connection has room for a partial frame of HTTP/2 and one record more (§16 decision
+  41, checked on 2026-10-17). Since colibri v0.8.0 it has room for a partial head of HTTP/1.1 and
+  one record more (§17 question 52). It also opens records while a KeyUpdate's reply is owed (§17
+  question 51). colibri takes no record in three states (§16 decision 41):
+  - over HTTP/2, while h2 owes a reply that has no room in colibri's output;
   - after its connection stopped;
   - after the server's `close_notify` (RFC 9846 §6.1).
 
   The type keeps a record at its longest and one of the engine's chunks after it. Since 2026-10-13
   the engine's own record buffer has the same size (TLS rule 7). Octets past what the type keeps
-  end the TCP link, as they failed
-  `cocuyo_h2`'s connection (request rule 7): the type tells the channel the link ended, and says
-  `close` for it. A datagram the channel has not taken when the next arrives is dropped, as the
-  network may drop one.
+  end the TCP link, as they failed `cocuyo_h2`'s connection (request rule 7): the type tells the
+  channel the link ended, and says `close` for it. A datagram the channel has not taken when the
+  next arrives is dropped, as the network may drop one.
+
+  Since v0.8.0 colibri names the least memory a program gives a TCP transport (its decision 124,
+  ruling 5). `client.constants.stream_input_len_min`, 32,768 octets, is what a program holds so
+  that `receive` takes some octets. That size is for cleartext, where the program holds a whole
+  head of HTTP/1.1. Over TLS colibri keeps the partial head in its own room, so a whole record is
+  enough. So the type keeps 18,693 octets. Each start of a channel asserts that colibri's room
+  holds its longest partial unit and one record more. A second assertion holds `output_bytes_max` to
+  `client.constants.stream_output_len_min`, 16,645 octets, the least output that takes any
+  record colibri owes.
 - The type reads a response for the engine. An exchange's end carries a DNS message and its
   `Age`, or nothing, and the engine hands the one to the lookup and fails the request on the
   other (rule 22).
@@ -6727,7 +6903,17 @@ dropped, and HTTP/1.1 from a server that selects no protocol. colibri's channel 
 chapulin, so those tests run with the sessions' tests, which link it. The server runs under a TLS
 identity of cocuyo's own (`io/testdata/`), the owner's ruling of 2026-09-28: a CA and a leaf for
 `dns.example`, made once with openssl and valid for a hundred years, so no test reads colibri's
-test files or moves its clock to fit them. The interop check runs
+test files or moves its clock to fit them. Since colibri v0.8.0 the server is `server.Endpoint`,
+which names in ALPN the versions it serves (colibri's decision 119). A test server that selects no
+protocol has its TCP configuration made again with none, which only a test does. Its route table,
+`server.router` (colibri's decision 122), sends a GET of the root or of one segment to the query
+in `dns`. A path that no route names gets 404, and another method of a routed path gets 405 with
+an `Allow` field. A method that no route names gets 501 (RFC 9110 §15.5.5, §15.5.6, §15.6.2).
+RFC 8484 §4.1 asks a DoH server for both GET and POST, but the test servers have no POST route.
+The engine sends GET alone (rule 21), so no test would send a POST, and a route that no test
+reaches checks nothing. One more server writes its own octets over colibri's TLS, with whitespace
+before a value. So its head or its trailer section can be longer than the field section that
+colibri's client takes. The interop check runs
 dnsproxy on the loopback over HTTP/3, and over HTTP/2 with no UDP listener. The live check runs
 against Google and Cloudflare.
 
@@ -6789,9 +6975,11 @@ consumer that reads the size of a payload at run time compares it with
 §16 decision 38 has the ruling. `cocuyo_quic.Options` has three fields, and the first names the
 TLS a connection runs:
 
-- `Session`, a type: colibri's provider and its packet suite at once, with `start`, `provider`,
-  `suite`, `take_ticket`, `lifetime_ns` and `wipe`, and its `Context` and `Ticket` (colibri
-  under the request interface, above). It has no default.
+- `Session`, a type: colibri's provider and its packet suite at once, with `start`,
+  `original_version`, `provider`, `suite`, `take_ticket`, `lifetime_ns` and `wipe`, and its
+  `Context` and `Ticket` (colibri under the request interface, above). It has no default.
+  `original_version` joined on 2026-10-20. It names the version the session started in, and the
+  connection starts in it too (chapulin under colibri, above; §17 question 57).
 - `streams`, the requests one connection holds at once. It has no default either.
 - `receive_bytes`, colibri's receive pool, `receive_bytes_default` when the consumer names none.
 
@@ -7558,7 +7746,9 @@ consumer of the library alone, with no colibri, hands in a verifier of its own o
 validate.
 
 **What chapulin has, and what it would gain.** Read on 2026-10-03 at `c798fb8`, the commit
-colibri v0.6.0 pins. The third column is RFC 9904 §3's "Implement for DNSSEC Validation".
+colibri v0.6.0 pins. Since 2026-10-20 cocuyo pins colibri v0.8.0, which pins chapulin `e6e3c1e7`,
+and nobody read that commit for this table. The third column is RFC 9904 §3's "Implement for
+DNSSEC Validation".
 
 | Number | Algorithm | RFC 9904 §3 | chapulin at `c798fb8` | What it would gain |
 | --- | --- | --- | --- | --- |
