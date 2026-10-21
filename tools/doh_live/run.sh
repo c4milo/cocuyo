@@ -15,11 +15,12 @@
 # Two lookups must fail, and fail rather than fall back: a template whose host the certificate does
 # not carry, and the right template with a root the chain does not end at (RFC 9110 §4.3.4). Each
 # must end in AllServersFailed, a refusal: one that ends in Timeout was not answered at all, which
-# is the network and not the certificate check (§16 decision 25). Its cause must be the request's,
-# as each failure over DoH is (§5, The cause of a failure). Each resolver is also asked
-# AAAA, MX, TXT and HTTPS at once, of a name that has each, and must answer each with records of
-# that type. Google, which shows one of two chains, is asked one name with each of its roots
-# alone, and the run says which chain it met.
+# is the network and not the certificate check (§16 decision 25). Its cause must be the
+# handshake's, from the one server the example names: colibri's channel gives the exchange up when
+# each connection it tried failed, and a server took part (§5, The cause of a failure). Each
+# resolver is also asked AAAA, MX, TXT and HTTPS at once, of a name that has each, and must answer
+# each with records of that type. Google, which shows one of two chains, is asked one name with
+# each of its roots alone, and the run says which chain it met.
 # Each resolver resolves its two names in two runs: first without the word `cpu`, then with it
 # (docs/design.md §16 decision 48). Without the word each handshake must run ChaCha20-Poly1305.
 # With it each must run AES-GCM on an arm64 host whose system reports the AES instructions, PMULL
@@ -163,7 +164,7 @@ refuse() {
     if answer=$(lookup "$address" "$template" "$@"); then
         echo "RESOLVED what HTTPS refuses: $template at $address with $with" >&2
         failures=$((failures + 1))
-    elif echo "$answer" | grep -q "^example.com: AllServersFailed (request)$"; then
+    elif echo "$answer" | grep -q "^example.com: AllServersFailed (handshake from server 0)$"; then
         echo "refuses $template with $with"
     else
         echo "DID NOT SEE a refusal of $template with $with: $answer" >&2

@@ -168,12 +168,12 @@ theorem step_le (c : Config) (s : State) (e : Event) (g : Good c s) :
       cases hs : s.stage <;> simp only [step, hs] <;>
         first | exact lexLt_le _ _ (advanceServer_lt c s h2) | exact lexLe_refl _
     | tcpConnected => cases hs : s.stage <;> simp [step, measure, LexLe, phase, stagePhase, hs]
-    | tcpFailed =>
+    | tcpFailed _ =>
       simp only [step]
       split
       · exact lexLt_le _ _ (advanceServer_lt c _ h2)
       · exact lexLe_refl _
-    | requestFailed =>
+    | requestFailed _ =>
       simp only [step]
       split
       · exact lexLt_le _ _ (advanceServer_lt c _ h2)
@@ -303,12 +303,12 @@ theorem step_good (c : Config) (s : State) (e : Event) (hc : Sane c) (g : Good c
       cases hs : s.stage <;> simp only [step, hs] <;>
         first | exact advanceServer_good c s hc h2 h4 h3 | exact gs
     | tcpConnected => cases hs : s.stage <;> simp_all [step, Good]
-    | tcpFailed =>
+    | tcpFailed _ =>
       simp only [step]
       split
       · exact advanceServer_good c _ hc h2 h4 h3
       · exact gs
-    | requestFailed =>
+    | requestFailed _ =>
       simp only [step]
       split
       · exact advanceServer_good c _ hc h2 h4 h3

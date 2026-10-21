@@ -135,15 +135,15 @@ pub const admit = wait_module.admit;
 /// once, and one still connecting reports when its event arrives. With no slot free, the lookup
 /// waits for a pending slot (the stream's rule 12). The drive's end admits it, or its deadline
 /// moves it on. In the clear the wait may last while each slot holds a lookup. A lookup that
-/// can have no slot, or whose socket or connect is refused, is told, and fails over to the next
-/// server, as it is by an engine that keeps none.
+/// can have no slot, or whose socket or connect is refused, is told `local`, and fails over to the
+/// next server, as it is by an engine that keeps none (docs/design.md §5, The cause of a failure).
 pub fn want(self: anytype, index: usize, now_ns: u64) void {
     const handle = self.handles[index];
-    if (comptime !@TypeOf(self.*).keeps_tcp) return self.resolver.on_tcp_failed(handle, now_ns);
+    if (comptime !@TypeOf(self.*).keeps_tcp) return self.resolver.on_tcp_failed(handle, .local, now_ns);
     const server = self.resolver.lookup_of(handle).server_slot();
     const at = attach(self, index, server, now_ns) catch |err| {
         if (err == error.NoSlot and wait_module.pending(self)) return wait_module.wait(self, index);
-        return self.resolver.on_tcp_failed(handle, now_ns);
+        return self.resolver.on_tcp_failed(handle, .local, now_ns);
     };
     if (self.connections[at].state == .up) self.resolver.on_tcp_connected(handle, now_ns);
 }
@@ -304,9 +304,9 @@ pub fn on_connect_event(self: anytype, index: usize, event: rotor.Event, now_ns:
         }
         connection.state = .up;
         receive_again(self, @intCast(at));
-        tell_all(self, @intCast(at), now_ns, true);
+        tell_all(self, @intCast(at), now_ns, null);
     } else |_| {
-        fail(self, @intCast(at), now_ns);
+        fail(self, @intCast(at), .connect, now_ns);
     }
 }
 
@@ -320,13 +320,13 @@ pub fn on_receive_event(self: anytype, index: usize, event: rotor.Event, now_ns:
     assert(reads(connection.state) or connection.state == .closing);
     if (event.outcome()) |count| {
         // Zero is the peer closing its side, which ends every lookup on the connection.
-        if (count == 0) return fail(self, @intCast(at), now_ns);
+        if (count == 0) return fail(self, @intCast(at), reason_of(self, @intCast(at), .handshake), now_ns);
         frame_module.take_chunk(self, @intCast(at), event, count, now_ns);
     } else |err| {
         // A group with no buffer left is not a broken connection: the multishot ends, the bytes
         // wait, and the receive below takes them. A stream is cut into chunks the reader does
         // not choose, so this is the ordinary way a busy connection ends its receive.
-        if (err != error.BuffersExhausted) return fail(self, @intCast(at), now_ns);
+        if (err != error.BuffersExhausted) return fail(self, @intCast(at), reason_of(self, @intCast(at), .handshake), now_ns);
     }
     if (event.is_final() and !self.closing and connection.state != .closed) {
         connection.receiving = false;
@@ -348,8 +348,9 @@ fn receive_again(self: anytype, at: u8) void {
     }
 }
 
-/// Tells every lookup on the connection that it is up, or that it is not.
-pub fn tell_all(self: anytype, at: u8, now_ns: u64, connected: bool) void {
+/// Tells every lookup on the connection that it is up, when `failed` is null, or that it failed for
+/// `failed` (docs/design.md §5, The cause of a failure).
+pub fn tell_all(self: anytype, at: u8, now_ns: u64, failed: ?cocuyo.Reason) void {
     for (self.tcp_connection[0..], 0..) |held, index| {
         if (held != at) continue;
         if (!self.slots[index].occupied) continue;
@@ -357,23 +358,25 @@ pub fn tell_all(self: anytype, at: u8, now_ns: u64, connected: bool) void {
         // Only a lookup that is on the stream hears this: one that moved on has a server of its
         // own now, and telling it would be telling it about somebody else's connection.
         if (!self.resolver.lookup_of(handle).is_on_stream()) continue;
-        if (connected) {
-            self.resolver.on_tcp_connected(handle, now_ns);
+        if (failed) |reason| {
+            self.resolver.on_tcp_failed(handle, reason, now_ns);
         } else {
-            self.resolver.on_tcp_failed(handle, now_ns);
+            self.resolver.on_tcp_connected(handle, now_ns);
         }
     }
 }
 
-/// The connection is no good: every lookup on it is told, and it is closed.
-pub fn fail(self: anytype, at: u8, now_ns: u64) void {
-    abandon(self, at, now_ns);
+/// The connection is no good, for `reason`: every lookup on it is told, and it is closed.
+pub fn fail(self: anytype, at: u8, reason: cocuyo.Reason, now_ns: u64) void {
+    abandon(self, at, reason, now_ns);
     shut(self, at);
 }
 
-/// Every lookup on the connection is told it failed, and leaves it.
-pub fn abandon(self: anytype, at: u8, now_ns: u64) void {
-    tell_all(self, at, now_ns, false);
+/// Every lookup on the connection is told it failed, for `reason`, and leaves it (`reason_of`).
+pub fn abandon(self: anytype, at: u8, reason: cocuyo.Reason, now_ns: u64) void {
+    const state = self.connections[at].state;
+    assert(state == .closing or (state == .up) == (reason == .closed));
+    tell_all(self, at, now_ns, reason);
     for (self.tcp_connection[0..], 0..) |held, index| {
         if (held == at) self.tcp_connection[index] = null;
     }
@@ -426,7 +429,14 @@ pub fn retry_full(self: anytype, at: u8, now_ns: u64) void {
 pub fn connect_again(self: anytype, at: u8, now_ns: u64) void {
     const connection = &self.connections[at];
     if (connection.state != .reopening or connection.borrowed()) return;
-    connect(self, at, connection.server) catch return fail(self, at, now_ns);
+    connect(self, at, connection.server) catch return fail(self, at, .local, now_ns);
+}
+
+/// The reason a failure of the connection in slot `at` gives its lookups: `closed` once it is up,
+/// and `before` until then (docs/design.md §5, The cause of a failure).
+pub fn reason_of(self: anytype, at: u8, before: cocuyo.Reason) cocuyo.Reason {
+    assert(before != .closed);
+    return if (self.connections[at].state == .up) .closed else before;
 }
 
 /// A receive for every connection that is up and has none: one the loop refused before is asked

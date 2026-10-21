@@ -20,10 +20,10 @@
 # the server offers: HTTP/3, or HTTP/2 when no QUIC listener answers and the fallback delay passes. What the certificate check refuses must end in AllServersFailed: a name
 # the leaf does not carry and a root the chain does not end at, over each encrypted transport, and
 # a pin on the issuer's key over DoT and DoQ, where a server known by its leaf key alone, with a
-# backup pin, must resolve. A refusal's cause is the connect's over DoT, and the request's over DoQ
-# and DoH (docs/design.md §5, The cause of a failure). Over each transport, AAAA, MX, TXT and
-# HTTPS records of one name must be read at once, each record as the zone wrote it, and then a
-# CNAME to that name. Over plain DNS,
+# backup pin, must resolve. A refusal's cause is the handshake's over each encrypted transport,
+# from the one server each example names (docs/design.md §5, The cause of a failure).
+# Over each transport, AAAA, MX, TXT and HTTPS records of one name must be read at once, each
+# record as the zone wrote it, and then a CNAME to that name. Over plain DNS,
 # dnsproxy's own log must show the queries came over the transport asked for, and not the other.
 # Over DoT, DoQ and DoH on each version, the four names resolve in two runs (docs/design.md §16
 # decision 48). The first is without the word `cpu`, and the second is with it. Without the word
@@ -159,13 +159,13 @@ resolves_over() {
         fail "FAILS $what: $answer"
     fi
 }
-# A refusal, whose cause is `connect` over DoT and `request` over DoQ and DoH.
+# A refusal, whose cause is `handshake` over each encrypted transport, from server 0.
 refuses() {
     what=$1 cause=$2
     shift 2
     if answer=$(lookup "$@"); then
         fail "RESOLVED what the certificate check refuses: $what"
-    elif echo "$answer" | grep -q ": AllServersFailed ($cause)$"; then
+    elif echo "$answer" | grep -q ": AllServersFailed ($cause from server 0)$"; then
         echo "refuses $what"
     else
         fail "DID NOT SEE a refusal of $what, cause $cause: $answer"
@@ -235,14 +235,14 @@ reads_types "over DoT" example-dot-rotor "$typed" "$secure" interop.example "$ou
 reads_types "over DoQ" example-doq-rotor "$typed" "$secure" interop.example "$out/ca.der"
 reads_types "over DoH on HTTP/3" example-doh-rotor "$typed" 127.0.0.1 "$template" "$out/ca.der"
 reads_types "over DoH on HTTP/2" example-doh-rotor "$typed" 127.0.0.1 "$tcp_template" "$out/ca.der"
-for transport in dot:DoT:connect doq:DoQ:request; do
+for transport in dot:DoT:handshake doq:DoQ:handshake; do
     example=example-${transport%%:*}-rotor rest=${transport#*:}
     label=${rest%%:*} cause=${rest#*:}
     refuses "over $label a name the leaf does not carry" "$cause" "$example" example.com "$secure" dns.example "$out/ca.der"
     refuses "over $label a root the chain does not end at" "$cause" "$example" example.com "$secure" interop.example "$out/unrelated.der"
 done
-refuses "over DoH a host the leaf does not carry" request example-doh-rotor example.com 127.0.0.1 "https://dns.example:$https_port/dns-query{?dns}" "$out/ca.der"
-refuses "over DoH a root the chain does not end at" request example-doh-rotor example.com 127.0.0.1 "$template" "$out/unrelated.der"
+refuses "over DoH a host the leaf does not carry" handshake example-doh-rotor example.com 127.0.0.1 "https://dns.example:$https_port/dns-query{?dns}" "$out/ca.der"
+refuses "over DoH a root the chain does not end at" handshake example-doh-rotor example.com 127.0.0.1 "$template" "$out/unrelated.der"
 
 # RFC 8310 §6.3's "SPKI + IP": the leaf's key and a backup pin, the unrelated CA's (RFC 7858
 # §4.2), with no name and no root. A pin on the issuer's key alone is refused.
@@ -252,7 +252,7 @@ spki_pin() {
 leaf=$(spki_pin "$out/leaf.pem")
 issuer=$(spki_pin "$out/ca.pem")
 backup=$(spki_pin "$out/unrelated.pem")
-for transport in dot:DoT:connect doq:DoQ:request; do
+for transport in dot:DoT:handshake doq:DoQ:handshake; do
     example=example-${transport%%:*}-rotor rest=${transport#*:}
     label=${rest%%:*} cause=${rest#*:}
     resolves "over $label by the leaf's key alone" "$example" "$at_once" "$secure" "pin-sha256:$leaf,$backup"

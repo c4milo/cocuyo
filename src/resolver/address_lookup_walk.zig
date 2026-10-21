@@ -145,8 +145,12 @@ pub fn take_answer(self: *AddressLookup, pending: *Pending, answer: *const Answe
 pub fn take_failure(self: *AddressLookup, pending: *Pending, failure: Failure) void {
     pending.failure = failure;
     // A cancel is nobody's failure: the walk's own, or the consumer's, which ends the walk as
-    // `Canceled` whatever else was seen.
-    if (failure.err != core.Error.Canceled) self.last_failure = failure;
+    // `Canceled` whatever else was seen. Once the consumer cancelled, a `Canceled` end that carries
+    // a cause is the last failure, so the walk hands that cause on, as `NameLookup` does
+    // (docs/design.md §19 step 14). The walk's own cancel keeps no failure, so that a negative end
+    // keeps the negative TTL of the lookup that said it.
+    const handed_on = self.cancelled and failure.cause != null;
+    if (failure.err != core.Error.Canceled or handed_on) self.last_failure = failure;
     if (failure.err == core.Error.NoData) self.saw_no_data = true;
     // A name that does not exist (RFC 1035 §4.1.1) has no record of the other type either, so
     // the other lookup has nothing left to learn.
@@ -356,7 +360,65 @@ test "a walk that ends on a hard failure carries that lookup's failure whole, it
         try rig.drive();
         const failure = rig.lookup.outcome().?.failed;
         try testing.expectEqual(core.Error.AllServersFailed, failure.err);
-        try testing.expectEqual(@as(?lookup_module.Cause, .{ .rcode = .server_failure }), failure.cause);
+        try testing.expectEqual(@as(?lookup_module.Cause, .{ .server_index = 0, .what = .{ .rcode = .server_failure } }), failure.cause);
         try testing.expectEqual(@as(u32, 0), failure.negative_ttl_seconds);
     }
+}
+
+test "a cancel hands on the cause that a lookup's own Canceled end carries" {
+    // The A lookup's first server fails it, and the consumer cancels the walk while the second
+    // server has the query. Both ends are `Canceled`, and the A lookup's carries the cause, as a
+    // `NameLookup` hands it on (docs/design.md §5, The cause of a failure; §16 decision 51).
+    const config: core.Config = .{ .servers = &fixtures.servers_two, .search = &.{}, .attempts = 1, .failover_retry_chance = 0 };
+    var rig: lookup_test.Rig = .{ .table = .{ .config = config } };
+    try rig.open();
+    try rig.start(null, "host.example.", null, .{});
+    try rig.drive();
+    try rig.reply(rig.lookup.a.handle, fixtures.server_failure);
+    try rig.drive();
+    try testing.expectEqual(@as(?address_lookup.AddressOutcome, null), rig.lookup.outcome());
+    rig.lookup.cancel();
+    try rig.drive();
+    const failure = rig.lookup.outcome().?.failed;
+    try testing.expectEqual(core.Error.Canceled, failure.err);
+    try testing.expectEqual(@as(?lookup_module.Cause, .{ .server_index = 0, .what = .{ .rcode = .server_failure } }), failure.cause);
+    // The lookup was on the second server when the cancel came.
+    try testing.expectEqual(@as(u8, 1), failure.server_index);
+}
+
+test "a cancel after one family failed hands on that failure, when the other's Canceled end has no cause" {
+    // The A lookup's server fails it, and the AAAA lookup still waits when the consumer cancels.
+    // Its `Canceled` end carries no cause, so the walk keeps the A lookup's (§19 step 14, rule 7).
+    var rig: lookup_test.Rig = .{ .table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{}, .attempts = 1 } } };
+    try rig.open();
+    try rig.start(null, "host.example.", null, .{});
+    try rig.drive();
+    try rig.reply(rig.lookup.a.handle, fixtures.server_failure);
+    try rig.drive();
+    rig.lookup.cancel();
+    try rig.drive();
+    const failure = rig.lookup.outcome().?.failed;
+    try testing.expectEqual(core.Error.Canceled, failure.err);
+    try testing.expectEqual(@as(?lookup_module.Cause, .{ .server_index = 0, .what = .{ .rcode = .server_failure } }), failure.cause);
+}
+
+test "the walk's own cancel keeps no failure, so a negative end is on the lookup that said it" {
+    // The AAAA lookup's first server fails it, and the A lookup's says that the name does not
+    // exist. The walk cancels the AAAA lookup itself (rule 4). Its `Canceled` end carries a cause,
+    // and the walk ends `NameNotFound` on the A lookup's failure all the same, whose negative TTL
+    // is the one to keep (RFC 2308 §5).
+    const config: core.Config = .{ .servers = &fixtures.servers_two, .search = &.{}, .attempts = 1, .failover_retry_chance = 0 };
+    var rig: lookup_test.Rig = .{ .table = .{ .config = config } };
+    try rig.open();
+    try rig.start(null, "host.example.", null, .{});
+    try rig.drive();
+    try rig.reply(rig.lookup.aaaa.handle, fixtures.server_failure);
+    try rig.drive();
+    try rig.reply(rig.lookup.a.handle, fixtures.name_error_soa);
+    try rig.drive();
+    const failure = rig.lookup.outcome().?.failed;
+    try testing.expectEqual(core.Error.NameNotFound, failure.err);
+    // The A lookup's own fields: the first server, and no cause.
+    try testing.expectEqual(@as(u8, 0), failure.server_index);
+    try testing.expectEqual(@as(?lookup_module.Cause, null), failure.cause);
 }

@@ -138,15 +138,15 @@ test "a session that cannot start, seal or open, or whose peer closes, fails ove
 }
 
 test "a session that fails at each server ends in AllServersFailed, its cause where it failed" {
-    // A session that cannot start fails its connection before the lookup hears that it is up, so
-    // the cause is the connect's. One that cannot seal, or opens a record it refuses or a
-    // `close_notify`, fails it once up, and the cause is the stream's (docs/design.md §5, The
-    // cause of a failure).
-    const cases = [_]struct { at: Failure, cause: cocuyo.Cause }{
-        .{ .at = .start, .cause = .connect },
-        .{ .at = .seal, .cause = .stream },
-        .{ .at = .open, .cause = .stream },
-        .{ .at = .closed, .cause = .stream },
+    // A session that cannot start fails its connection before the lookup hears that it is up,
+    // and no server took part: `local`. One that cannot seal, or opens a record it refuses or a
+    // `close_notify`, fails it once up: `closed`. The cause names the last server (docs/design.md
+    // §5, The cause of a failure).
+    const cases = [_]struct { at: Failure, reason: cocuyo.Reason }{
+        .{ .at = .start, .reason = .local },
+        .{ .at = .seal, .reason = .closed },
+        .{ .at = .open, .reason = .closed },
+        .{ .at = .closed, .reason = .closed },
     };
     for (cases) |case| {
         failing = .{ .at = case.at, .left = std.math.maxInt(u8) };
@@ -158,7 +158,7 @@ test "a session that fails at each server ends in AllServersFailed, its cause wh
         _ = try rig.engine.start(question("example.com."), rig.loop.now());
         const result = try rig.until_result();
         try testing.expectEqual(cocuyo.Error.AllServersFailed, result.outcome.failure.err);
-        try testing.expectEqual(@as(?cocuyo.Cause, case.cause), result.outcome.failure.cause);
+        try testing.expectEqual(@as(?cocuyo.Cause, .{ .server_index = 1, .what = .{ .reason = case.reason } }), result.outcome.failure.cause);
         _ = rig.engine.take(rig.loop.now());
         try rig.deinit();
     }
@@ -328,7 +328,8 @@ test "a second pass whose connect the loop refuses is told at once, though a slo
     const result = rig.engine.take(rig.loop.now()) orelse return error.NoResult;
     const failure: ?cocuyo.Error = if (result.outcome == .failure) result.outcome.failure.err else null;
     try testing.expectEqual(@as(?cocuyo.Error, cocuyo.Error.AllServersFailed), failure);
-    try testing.expectEqual(@as(?cocuyo.Cause, .connect), result.outcome.failure.cause);
+    // The loop refused the connect, and no server took part.
+    try testing.expectEqual(@as(?cocuyo.Cause, .{ .server_index = 0, .what = .{ .reason = .local } }), result.outcome.failure.cause);
     try rig.deinit();
 }
 
@@ -370,9 +371,9 @@ test "a second pass opens the other slot while a query's send reads the first on
     try rig.deinit();
 }
 
-/// What one lookup came to: its error, null for an answer, the first server's failures, and
-/// whether it ended before its wait ran out.
-const Seen = struct { failure: ?cocuyo.Error, failures: u8, at_once: bool };
+/// What one lookup came to: its error and its cause, null for an answer, the first server's
+/// failures, and whether it ended before its wait ran out.
+const Seen = struct { failure: ?cocuyo.Error, cause: ?cocuyo.Cause, failures: u8, at_once: bool };
 
 /// One lookup on an engine over a session that asks for `room` octets of the records buffer.
 /// Both servers answer.
@@ -382,7 +383,8 @@ fn lookup_with_room(comptime room: usize, seed: u64) !Seen {
     _ = try rig.engine.start(question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     const failure: ?cocuyo.Error = if (result.outcome == .failure) result.outcome.failure.err else null;
-    const seen: Seen = .{ .failure = failure, .failures = rig.engine.resolver.servers.failures(0), .at_once = rig.loop.now() < rig.config.timeout_ns };
+    const cause: ?cocuyo.Cause = if (result.outcome == .failure) result.outcome.failure.cause else null;
+    const seen: Seen = .{ .failure = failure, .cause = cause, .failures = rig.engine.resolver.servers.failures(0), .at_once = rig.loop.now() < rig.config.timeout_ns };
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
     return seen;
@@ -399,6 +401,8 @@ test "the records buffer takes a session that asks for all of it, and a session 
     const over = try lookup_with_room(io.constants.tls_records_out_bytes + 1, 60);
     // Each pass over the servers fails both at once, and the first server is charged each time.
     try testing.expectEqual(@as(?cocuyo.Error, cocuyo.Error.AllServersFailed), over.failure);
+    // No server took part: the room is the engine's (docs/design.md §5, The cause of a failure).
+    try testing.expectEqual(@as(?cocuyo.Cause, .{ .server_index = 1, .what = .{ .reason = .local } }), over.cause);
     try testing.expectEqual(@as(u8, cocuyo.constants.attempts_default), over.failures);
     try testing.expect(over.at_once);
 }

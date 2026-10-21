@@ -324,7 +324,7 @@ test "a server that fails ends the reverse walk with its failure, and NODATA end
     // The failure is the lookup's, handed on whole, its cause included (docs/design.md §5, The
     // cause of a failure).
     const cases = [_]struct { reply: fixtures.Reply, err: core.Error, cause: ?Cause }{
-        .{ .reply = fixtures.server_failure, .err = core.Error.AllServersFailed, .cause = .{ .rcode = .server_failure } },
+        .{ .reply = fixtures.server_failure, .err = core.Error.AllServersFailed, .cause = .{ .server_index = 0, .what = .{ .rcode = .server_failure } } },
         .{ .reply = fixtures.no_data, .err = core.Error.NoData, .cause = null },
     };
     for (cases) |case| {
@@ -362,7 +362,7 @@ test "a negative end of the reverse walk carries the lookup's failure, the cause
     try drive(&rig, &lookup);
     const failure = lookup.outcome().?.failed;
     try testing.expectEqual(core.Error.NameNotFound, failure.err);
-    try testing.expectEqual(@as(?Cause, .{ .rcode = .server_failure }), failure.cause);
+    try testing.expectEqual(@as(?Cause, .{ .server_index = 0, .what = .{ .rcode = .server_failure } }), failure.cause);
     try testing.expectEqual(@as(usize, 0), rig.resolver.in_flight());
 }
 
@@ -382,7 +382,35 @@ test "a cancel after the reverse walk's lookup failed carries the cause of that 
     try drive(&rig, &lookup);
     const failure = lookup.outcome().?.failed;
     try testing.expectEqual(core.Error.Canceled, failure.err);
-    try testing.expectEqual(@as(?Cause, .{ .rcode = .server_failure }), failure.cause);
+    try testing.expectEqual(@as(?Cause, .{ .server_index = 0, .what = .{ .rcode = .server_failure } }), failure.cause);
+    try testing.expectEqual(@as(usize, 0), rig.resolver.in_flight());
+}
+
+test "a cancel while the second server has the query hands on the cause of the lookup's own Canceled end" {
+    // The first server fails the PTR lookup, and the caller cancels while the second server has
+    // the query. The lookup's own end is `Canceled`, and it carries the first server's cause,
+    // which the walk hands on whole (docs/design.md §5, The cause of a failure; §16 decision 51).
+    const config: core.Config = .{ .servers = &fixtures.servers_two, .search = &.{}, .attempts = 1, .failover_retry_chance = 0 };
+    var rig: Table = .{ .config = config };
+    rig.open();
+    const address = Address.from_v4(.{ 192, 0, 2, 1 });
+    var lookup = try NameLookup.init(&rig.resolver, null, &address);
+    const first = rig.poll().?;
+    rig.resolver.on_sent(first.handle, rig.now_ns);
+    const asked = rig.resolver.lookup_of(lookup.handle.?);
+    const message = rig.build(asked, fixtures.server_failure);
+    rig.now_ns += 1;
+    _ = rig.resolver.on_datagram(message, asked.server(), rig.now_ns);
+    const second = rig.poll().?;
+    try testing.expect(second.action == .send_udp);
+    rig.resolver.on_sent(second.handle, rig.now_ns);
+    lookup.cancel();
+    try drive(&rig, &lookup);
+    const failure = lookup.outcome().?.failed;
+    try testing.expectEqual(core.Error.Canceled, failure.err);
+    try testing.expectEqual(@as(?Cause, .{ .server_index = 0, .what = .{ .rcode = .server_failure } }), failure.cause);
+    // The lookup was on the second server when the cancel came.
+    try testing.expectEqual(@as(u8, 1), failure.server_index);
     try testing.expectEqual(@as(usize, 0), rig.resolver.in_flight());
 }
 

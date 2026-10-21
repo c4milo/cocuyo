@@ -12,6 +12,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
+const resolver = @import("resolver");
 const constants = @import("constants.zig");
 const network_module = @import("sim_network.zig");
 const server = @import("sim_server.zig");
@@ -19,8 +20,9 @@ const quic = @import("sim_quic.zig");
 const stream = @import("sim_quic_stream.zig");
 
 /// An exchange's end, as a step says it: an answer to the exchange's query, from the server's
-/// script, or a failure.
-pub const End = struct { index: u16, answer: bool };
+/// script, or a failure for `reason` (docs/design.md §16 decision 51). A script that has no answer
+/// fails the exchange with `status`, as a server's HTTP that holds no DNS message does.
+pub const End = struct { index: u16, answer: bool, reason: resolver.Reason = .status };
 
 /// What the channel says at a read, as a test or the replay queues it: open or close a link, owe
 /// octets on one or give a ticket of its transport, end an exchange, hold an end until the next
@@ -50,7 +52,8 @@ pub const Channel = struct {
     /// What the channel learned of the origin's HTTP/3: the twin learns nothing.
     pub const Alternative = struct {};
     pub const Answer = struct { message: []const u8, age_seconds: u32 };
-    pub const Finished = struct { index: u16, answer: ?Answer };
+    pub const Outcome = union(enum) { answer: Answer, failed: resolver.Reason };
+    pub const Finished = struct { index: u16, outcome: Outcome };
     pub const Open = struct { link: Link, endpoint: core.Endpoint };
     pub const Event = union(enum) { open: Open, close: Link, ticket: Link, finished: Finished, closed };
     pub const Input = union(enum) { none, datagram: []const u8, stream: []const u8 };
@@ -203,14 +206,14 @@ pub const Channel = struct {
     fn ended(self: *Channel, end: End) ?Event {
         const exchange = self.exchange_of(end.index) orelse return null;
         exchange.live = false;
-        if (!end.answer) return .{ .finished = .{ .index = end.index, .answer = null } };
+        if (!end.answer) return .{ .finished = .{ .index = end.index, .outcome = .{ .failed = end.reason } } };
         const script = &network_module.network.scripts[self.server];
         const address = network_module.Network.server_address(self.server);
         const query = exchange.query[0..exchange.len];
         const answered = server.respond(script, &address, query, true, 0, &self.answer) orelse
-            return .{ .finished = .{ .index = end.index, .answer = null } };
+            return .{ .finished = .{ .index = end.index, .outcome = .{ .failed = .status } } };
         const message = self.answer[0..answered.len];
-        return .{ .finished = .{ .index = end.index, .answer = .{ .message = message, .age_seconds = 0 } } };
+        return .{ .finished = .{ .index = end.index, .outcome = .{ .answer = .{ .message = message, .age_seconds = 0 } } } };
     }
 
     /// The QUIC link's next datagram: an acknowledgement when it owes one.
@@ -343,7 +346,7 @@ test "a held end is told at the read after the one that held it" {
     try testing.expectEqual(@as(?Channel.Event, null), channel.next(0));
     const told = channel.next(0).?;
     try testing.expectEqual(@as(u16, 3), told.finished.index);
-    try testing.expectEqual(@as(?Channel.Answer, null), told.finished.answer);
+    try testing.expectEqual(Channel.Outcome{ .failed = .status }, told.finished.outcome);
     try testing.expect(!channel.holds(3));
 }
 

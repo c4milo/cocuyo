@@ -39,10 +39,10 @@ test "a lookup that saw a server failure fails with that rather than a timeout" 
     const config: Config = .{ .servers = &one_server, .attempts = 1 };
     var servers_config = Servers.init(&config, 1);
     var lookup = Lookup.init(&config, &servers_config, try Question.from_text("example.com.", .a), 1);
-    lookup.cause = .{ .rcode = .server_failure };
+    lookup.cause = .{ .server_index = 0, .what = .{ .rcode = .server_failure } };
     lookup.next_server(1);
     try testing.expectEqual(core.Error.AllServersFailed, lookup.failure_of().err);
-    try testing.expectEqual(@as(?lookup_module.Cause, .{ .rcode = .server_failure }), lookup.failure_of().cause);
+    try testing.expectEqual(@as(?lookup_module.Cause, .{ .server_index = 0, .what = .{ .rcode = .server_failure } }), lookup.failure_of().cause);
 }
 
 test "the candidate walk ends in NameNotFound, or NoData when a name existed" {

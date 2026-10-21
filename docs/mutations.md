@@ -7910,3 +7910,442 @@ The carried rows were each `CAUGHT` again by `test-resolver`: DT31 to DT37, CM1,
 LC10.
 
 Twelve mutations, twelve `CAUGHT`; eleven run again, eleven `CAUGHT`.
+
+## A cause with its server and its reason
+
+2026-10-21. The owner ruled on 2026-10-18 on design §17 questions 53 and 54, and on the rule of a
+cancel. A cause names the server that gave it. `on_tcp_failed` and `on_request_failed` take a
+reason, which the engine sets at each of its failures. The cause reports it in place of `connect`,
+`stream` and `request`. `AddressLookup` hands on the cause that a lookup's own `Canceled` end
+carries, as `NameLookup` does.
+
+The design and the README changed first. The design changed in §4, §5 (The cause of a failure),
+§9, §16, §17, §19 step 14 and §24. In §16 these are decisions 25, 45 and 51, and in §17 questions
+53, 54, 66 and 67. Decision 51 records the shape, the six reasons, what each failure site passes,
+why decision 25's rejection no longer holds, and the alternatives.
+
+### What changed
+
+- `Cause` is `struct { server_index: u8, what: What }`, and `What` is `union(enum) { rcode:
+  wire.Rcode, reason: Reason }`. `Reason` is `connect`, `handshake`, `local`, `closed`, `status`
+  or `reset`, and `cocuyo.Reason` exports it.
+- `on_tcp_failed` and `on_request_failed` take a `Reason`, on `Lookup` and on `Resolver`.
+  `fits_stream` and `fits_request` say which reason may come at which call, and an assertion of
+  each call holds them. `keep` in `lookup_failure.zig` gives each server failure its cause, with
+  the configured server that the lookup is on.
+- `failure_of` asserts that a cause names a server of the configuration.
+- `Failure` stays at 12 octets. A `?Cause` takes four octets, so the lookup holds its cause as
+  `Held`, in three. A `Lookup` stays at 3,072 octets, and a slot of the table at 3,088. Until the
+  review a `Lookup` held a `?Cause` and took 3,080 octets (The review, below).
+- The engine passes a reason at each failure (design §5, The cause of a failure). `reason_of` in
+  `io_tcp.zig` and in `io_request_connection.zig` gives `closed` once a connection is up, and the
+  reason of the failure before. `abandon` asserts that a connection that is up tells `closed`, and
+  one that is not tells no `closed`.
+- The DoH interface of the engine carries the reason of an exchange that ends without an answer.
+  `Finished.outcome` holds the answer or the reason, in `cocuyo_doh` and in the twin's channel.
+  `outcome_of` in `io_doh_channel_exchange.zig` reads colibri's outcome. Since the review it also
+  reads two facts that the channel keeps for each exchange. One is whether a connection came up,
+  and the other whether a server took part in one.
+- `AddressLookup.take_failure` keeps a `Canceled` end as its last failure when the consumer
+  cancelled the walk and the end carries a cause.
+- The examples print `<name>: <error> (<what> from server <index>)`. The live checks and the
+  interop check expect `handshake from server 0` over DoT, DoQ and DoH. Until the review they
+  expected `closed from server 0` over DoH.
+
+### The models
+
+- The Lean model of the lookup has `Reason`, and its `Cause` holds the position of its server and
+  what the server gave. The events `tcpFailed` and `requestFailed` take a reason. `tcpReasons` and
+  `requestReasons` say which reasons `enabled` offers, as the assertions of the calls do. The
+  model holds no TLS, so its streams take no `handshake`.
+- `failure_cause` proves too that the cause names a server of the configuration, with
+  `ServerFits`. Its pin in `Axioms.lean` now lists `Quot.sound` beside `propext`. Since the review
+  its lemma `keep_server` reads no more of `keep` than the bound of its server, and the pin holds.
+- The full transcript grew from 7,530,842 transitions to 19,921,682, 183 deep. The committed slice
+  gained two servers and one pass over DoQ, and grew from 6,696 transitions to 13,694. The replay
+  spells a cause as `servfail@1`, and finds the position of the cause's server in the lookup's
+  order.
+- The TLA+ model of the engine did not change. Which reason the engine gives changes no transition
+  of the engine, and its walks spell a lookup without its cause. The model of the walks holds no
+  `Failure`.
+
+### The tests, before the code
+
+The tests came first, over a stub. It had the types and the calls with their reason. Its lookup
+kept the cause of its own state, on the first server. The engine passed its reasons already, and the
+stub took none of them.
+
+- `zig build test-resolver` had 272 tests pass of 281:
+  - the reason test of `lookup_failure.zig`, each reason that a stream gives: "expected .local,
+    found .connect";
+  - the fits test there, each reason at each call: "expected false, found true";
+  - the last-failure test there: "expected 1, found 0", the server of the cause;
+  - the later-pass test there, a cause from the second server and an end on the first:
+    "expected 1, found 0";
+  - the stream-after-rcode test there: "expected 1, found 0";
+  - the request test of `lookup_request_test.zig`, each reason over DoH and DoQ: "expected 1,
+    found 0";
+  - the cancel test of `address_lookup_walk.zig`: "expected .{ .server_index = 0, .what = .{
+    .rcode = .server_failure } }, found null";
+  - the two size pins: "expected 3072, found 3080" and "expected 3088, found 3096". These two
+    are measurements, and at first they took the larger sizes. Since the review `Held` keeps
+    3,072 and 3,088.
+- `zig build test-io` had 165 tests pass of 186. Each test of a cause failed. Most failed at the
+  server, as "expected 1, found 0". Others failed at the reason, as "expected .local, found
+  .connect" and "expected .handshake, found .closed".
+
+Some tests came after the code. These are the order test of `lookup_failure.zig`, and the two
+cancel tests after the first in `address_lookup_walk.zig`. The tests of the engine that RS23 to
+RS56 and RS71 name came after it too. Each passed at once, since the code took each path already.
+The rows below show what each catches.
+
+### What the rows found
+
+- The first run of the engine's rows had 13 of them `NOT CAUGHT`. These are RS23, RS24, RS27 to
+  RS29, RS31, RS34, RS41, RS51, RS52, RS55, RS56 and RS71. No test took those paths. Each now has
+  a test of its own, in `io_tcp_cause_test.zig`, the new `io_tls_cause_test.zig`,
+  `io_request_failure_test.zig` and `io_channel_test.zig`.
+- Two of those tests need the twin's QUIC to fail. `refuses_datagrams` and `refuses_requests` in
+  `src/sim/sim_quic.zig` make it refuse a datagram or a request, as a protocol error does.
+- The first test of RS52 ran on two servers, and the second server's failure replaced the cause
+  that the first gave. The test now runs on one server and one pass.
+- RS41 is gone. It changed the reason of a query that finds no room in the records buffer when it
+  is sealed. That path cannot come. A query is sealed when no send is in flight and nothing else
+  is sealed. So the whole buffer is room, and the handshake already needed that much room. Since
+  the connection is up there, the assertion of `abandon` holds any other reason in any case. Design
+  §17 question 66 asks whether the path becomes an assertion.
+- `send` in `io_tcp_queue.zig` had two checks for a lookup ready to send on a connection that is
+  not up, each with its reason. Neither can come from a drive. They are one check now, through
+  `up_connection`, and the test of RS28 reaches it by hand. Design §17 question 66 asks about it.
+- RS11 and RS12 did not compile at first: their edit left `reason` unused. Each now discards it,
+  as RS63 and RS73 do.
+
+The rows of earlier sections whose edits no longer applied were written again, with the same
+intent:
+
+- LC1 to LC4, LC11, LC12, LC31, DH20, RF3, RF4, FR2, FR3 and DT38 in `lookup.zon`;
+- ET4, ET15, ET17, ET18, SQ5, SQ9, RW3, CE2, CE7, CE21, SB27, SB28, LC20, LC21 and LC32 to LC34 in
+  `engine.zon`;
+- DM3, RF1, RF2, LC23 to LC25 and LC28 in `lean.zon`.
+
+LC1 to LC3, LC23 and LC24 now keep one reason, whatever the call gave. Before, they kept the cause
+of one state.
+
+### What ran
+
+- `zig build mutations -- lookup` ran the 13 rows written again and RS1 to RS12. `zig build
+  mutations -- address` ran RS13 to RS15.
+- `zig build mutations -- engine` ran the 17 rows written again and RS20 to RS80. For the rows
+  that the walks catch it took the full run of TLC's walks that an earlier `zig build spec` wrote,
+  through `--walks`. The engine model did not change, so those walks are the ones TLC writes now.
+- `zig build mutations -- lean` ran the 7 rows written again, the 5 carried rows and RS90 to RS96.
+- Each run ran its steps once with nothing mutated first, and left the tree as it was. After the
+  tests of the 13 rows that the first engine run missed, those rows ran again, each `CAUGHT`.
+- Each row ran by hand after the tool, against its step, to name the tests that fail. The rows
+  that the walks catch did not, since the tool names their walks. The runs edited the tree in
+  place and put each file back.
+- With the change, `zig build test` has 1,181 tests pass of 1,181, in 140 steps. `test-resolver`
+  has 284 of 284, and `test-io` 199 of 199. `zig build lint` passes, with each function at a
+  complexity of 15 or less. `zig build examples` builds each example.
+- `zig build spec` passes. The lookup's replay agrees over 19,921,791 events in 109 configurations
+  and 2,500,741 cut datagrams. The walks' replay agrees over 66,565 events, and the engine's over
+  5,226,000 events in 26,000 walks. It took 17 minutes 40 seconds on 2026-10-21. `zig build tla`
+  did not run, since the TLA+ model did not change.
+- `example-cleartext-rotor` over TCP to a closed port on the loopback prints `example.com:
+  AllServersFailed (connect from server 0)`. The live checks and the interop check need the
+  network or dnsproxy, and did not run.
+
+### The review, on 2026-10-21
+
+The review found three faults that blocked the change:
+
+- RS90 and LC25 broke the proof script of `keep_server` alone, and its statement still held. The
+  proof read `keep` term by term, so no check of the step ran. The proof now reads no more of
+  `keep` than the bound of its server. With either edit the proofs build, and the check of the
+  slice catches the edit.
+- No test reached the place where `NameLookup` hands on the cause that its lookup's own `Canceled`
+  end carries. The new test of `name_lookup.zig` cancels while the second server has the query.
+  Row RS16 breaks that place.
+- Some lines of prose passed 100 columns, and some sentences passed 25 words.
+
+The review also found these, and the change now does them:
+
+- Over DoH a certificate that the check refused gave `reset`, where the live checks expected
+  `closed`. colibri ends an exchange as refused when each connection that its channel tried
+  failed. `reason_of` read every refused end as a stream that the server refused. The DoH
+  type now keeps two facts for each exchange: whether a connection came up, and whether a server
+  took part in one. A refused certificate is `handshake`, and links that never connect are
+  `connect`. The live checks and the interop check now expect `handshake from server 0` over DoH.
+- The lookup holds its cause as `Held`, three octets, so a `Lookup` stays at 3,072 octets and a
+  slot at 3,088. `failure_of` gives the `?Cause`. The name is not `Kept`, since `wire.Kept` names
+  a record that an answer keeps.
+- Decision 25 points to decision 51. The README says which reason fits which call, and that a
+  reason that does not fit stops the program.
+- `too_large` over DoH stays `status`, and decision 51 says why. Its content passed 65,535 octets,
+  the largest DNS message (RFC 8484 §6), or a field value passed `doh_values_bytes`. Over DoQ a
+  long answer fails the connection, so it is `closed` there.
+
+Some rows no longer broke what they named, and the review wrote each again with the same intent:
+
+- LC14 and LC15 named the causes `stream` and `request`, which no longer exist, so their edits did
+  not build. LC9 to LC13, LC31 and RS1 to RS3 named the `?Cause` that `Held` replaced.
+- LC19 and DC21 no longer applied, since the lines they edit changed. DC25 discarded the version,
+  which the new `came_up` reads, so its edit now removes the line that keeps it.
+- DC13 had become an edit that changes nothing. `outcome_of` reads whether a response is whole
+  before `answer_of` does, so the edit of `answer_of` met no end that is not whole. Its edit is
+  now in `outcome_of`.
+- RS75 and RS76 edit `reason_of`, whose refused and reset ends now have an arm each.
+
+Two go to the owner, and neither changed the code:
+
+- Design §17 question 66: the two paths that no drive reaches, the send of RS28 and the seal of
+  RS41, as checks or as assertions.
+- Design §17 question 67: the shape of `Finished` in the DoH interface, which `cocuyo_doh` exports.
+
+`io/io.zig` is at 500 lines. The review's new test file registers in `io_doh_channel.zig`, so
+`io.zig` did not grow, and its next registration needs a split.
+
+The fixes found four more things:
+
+- `came_up` asserted that no other link was up. A connection that drains on the other link can
+  still be up when a new one comes up, so the assertion is gone.
+- Design §24's rule 22 said that the engine asserts that no `invalid` end comes. No assertion did,
+  before the change or after it, so the rule now says that such a request fails with `local`.
+- The three-octet cause was `Kept` at first, and `wire.Kept` names a record that an answer keeps.
+  It is `Held` now.
+- Of the counted cases, `round-trip` alone starts a lookup, so the estimate of the instruction
+  counts names that case alone.
+
+The tests came before the code:
+
+- `io/io_doh_channel_cause_test.zig`, new:
+  - a name that the certificate does not carry;
+  - a pin that the chain does not hold;
+  - links whose sockets end before they connect;
+  - a request made while the TCP handshake runs.
+- `io/io_doh_channel_quic_test.zig`: a name that the certificate does not carry, over QUIC.
+- The two size pins, at 3,072 and 3,088 again.
+
+Before the code, `zig build test-cocuyo_doh` failed each of the five DoH tests. Four failed as
+"expected .handshake, found .reset", and the test of the links as "expected .connect, found
+.reset". A test of the engine over the type met the same refusal, and ended in `Timeout`. In the
+pair's test colibri gave up at 30 seconds of the test's clock, once QUIC's handshake went
+unanswered. `timeout_ns_max` caps a try at 30 seconds. That test is gone, and the live check holds
+the case.
+
+`zig build test-resolver` had 283 tests pass of 285. The two size pins failed: "expected 3072,
+found 3080" and "expected 3088, found 3096".
+
+Three tests came after the code, and each passed at once:
+
+- the cancel test of `name_lookup.zig`, since its path was there already;
+- the test of a request after the connection that came up is over, for RS108 and RS109;
+- the test of a request made while a connection is up, for RS103.
+
+What the review ran:
+
+- `zig build mutations -- lookup` over LC1 to LC19, LC29 to LC31, RS1 to RS12, RS97 and RS98:
+  36 rows, each `CAUGHT`. These are the rows of the cause in `lookup.zon`, since `Held` changed
+  the code that each reads.
+- `zig build mutations -- address RS13 RS14 RS15 RS16`: each `CAUGHT` by `test-resolver`.
+- `zig build mutations -- engine` over 40 rows, each `CAUGHT`. These are RS70 to RS80, RS99 to
+  RS109, and the rows of earlier sections whose edits sit by the change. Those are DC2, DC5, DC6,
+  DC9 to DC13, DC16, DC17, DC21 to DC23, DC25 to DC27, LM48 and CB10.
+- RS107 and RS108 ran again after `came_up` lost an assertion, each `CAUGHT`. The assertion said
+  that no other link was up, but a connection on the other link may still drain.
+- `zig build mutations -- lean RS90 LC25`: each `CAUGHT` by `spec-lean`. By hand, each now fails
+  `cocuyo-spec check`, "lookup_gate.txt is not the slice the model writes", and no proof.
+- Each new row and each row written again ran by hand after the tool, against its step, to name
+  the tests that fail. The texts in the rows come from there.
+- `zig build test`: 1,189 tests pass of 1,189, in 140 steps. `test-resolver` has 285, `test-io`
+  199 and `test-cocuyo_doh` 41. `zig build lint` passes, each function at a complexity of 15 or
+  less. `zig build examples` builds each example.
+- `zig build spec` passes, 19 of 19 steps, in 14 minutes on 2026-10-21. The lookup's replay
+  agrees over 19,921,791 events in 109 configurations and 2,500,741 cut datagrams. The walks'
+  replay agrees over 66,565 events in 95 configurations. The engine's agrees over 5,226,000
+  events in 26,000 walks, which TLC wrote fresh.
+- Then the review named the lookup's cause type `Held`, which was `Kept` until then.
+  `zig build mutations -- lookup RS1 RS3 RS97 RS98`, the rows whose edits name it, each `CAUGHT`.
+  Then `zig build test` passed again, 1,189 tests of 1,189 in 140 steps, and so did `zig build
+  lint` and `zig build examples`. Last, `zig build spec` passed again, 19 of 19 steps, in 13
+  minutes, with the same counts as above.
+
+### The instruction counts
+
+No counted case of `bench/count.zig` fails a server, so `keep`, `fits_stream` and `fits_request`
+run in none of them. Of the counted cases, `round-trip` alone runs `init_in_place`. It writes the
+three octets of `Held` where it wrote a `?Cause` of three. `match-accept` copies a slot back, and
+a slot keeps its size. So `round-trip` can move by a few instructions at most, and the other
+thirteen should not move. That is an estimate, not a measurement. The counts need valgrind, which
+runs on Linux alone, so they did not run here. `zig build fill-check` passes, so no hot path gained
+or lost a fill. `bench/instructions.zon` did not change, and CI's Linux job prints the counts when
+they move. The DoH changes of the review are in `io/`, which no counted case runs.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| RS1 | a cause names the first server, whichever server gave it | `keep` names the server the lookup is on | the request test: "expected 1, found 0"; the later-pass, last-failure and order tests, `test-resolver` | CAUGHT |
+| RS2 | the failure names the server the lookup ended on as the cause's | `failure_of` copies the cause whole | the request test: "expected 1, found 0"; five more tests of `lookup_failure.zig`, `test-resolver` | CAUGHT |
+| RS3 | a cause names its server by its place in the lookup's order | the cause names the configured server | the order test: "expected 1, found 0", `test-resolver` | CAUGHT |
+| RS4 | a stream takes closed before it is up | `fits_stream`: `closed` after `on_tcp_connected` alone | the fits test: "expected false, found true", `test-resolver` | CAUGHT |
+| RS5 | a stream refuses local before it is up | `fits_stream`: `local` before `on_tcp_connected` | the reason test, at the assertion of `on_tcp_failed`: "reached unreachable code"; the fits test: "expected true, found false", `test-resolver` | CAUGHT |
+| RS6 | a stream in the clear takes a handshake | `fits_stream`: a handshake over TLS alone | the fits test: "expected false, found true", `test-resolver` | CAUGHT |
+| RS7 | a request over DoQ takes connect and status | `fits_request`: `connect` and `status` over DoH alone | the fits test: "expected false, found true", `test-resolver` | CAUGHT |
+| RS8 | a request over DoH refuses connect and status | `fits_request` takes each reason over DoH | the request test, at the assertion of `on_request_failed`: "reached unreachable code"; the fits test, `test-resolver` | CAUGHT |
+| RS9 | the replay spells a cause's server by its index in the configuration, not its place in the order | the replay finds the server's position in the order | the spelling test of `replay_text.zig`, `test-tools` | CAUGHT |
+| RS10 | the replay hands every failed connection the reason connect | the replay hands the transcript's reason | the replay of the committed slice, at the assertion of `on_tcp_failed`: "reached unreachable code", `test-tools` | CAUGHT |
+| RS11 | the table hands every failed connection the reason connect | `Resolver.on_tcp_failed` hands its reason on | 20 tests of `test-io`, 13 of them at the assertion of `on_tcp_failed`: "reached unreachable code" | CAUGHT |
+| RS12 | the table hands every failed request the reason closed | `Resolver.on_request_failed` hands its reason on | eight DoQ tests, among them the refused handshake: "expected .handshake, found .closed", `test-io` | CAUGHT |
+| RS13 | a Canceled end keeps no failure, and its cause is lost | a cancel hands on a `Canceled` end's cause | the cancel test of `address_lookup_walk.zig`: "expected .{ .server_index = 0, .what = .{ .rcode = .server_failure } }, found null", `test-resolver` | CAUGHT |
+| RS14 | a Canceled end with no cause replaces the failure before it | a `Canceled` end counts only with a cause | the cancel test, as RS13; the test of a cancel after one family failed, `test-resolver` | CAUGHT |
+| RS15 | the walk's own cancel keeps its Canceled end as the last failure | the walk's own cancel keeps no failure | the test of the walk's own cancel: "expected 0, found 1", `test-resolver` | CAUGHT |
+| RS20 | an engine with no TCP connection gives the reason connect | no TCP is `local` | the test of an engine with no TCP connection: "expected .local, found .connect", `test-io` | CAUGHT |
+| RS21 | no slot, or a socket refused, gives the reason connect | no slot and a socket refused are `local` | the test of no free slot and a tcp_wait test: "expected .local, found .connect", `test-io` | CAUGHT |
+| RS22 | a connect that failed gives the reason local | a connect that failed is `connect` | the two tests of `two_queued` in `io_tcp_test.zig`: "expected .connect, found .local", `test-io` | CAUGHT |
+| RS23 | a peer that closes gives the handshake's reason once the connection is up | a peer's close once up is `closed` | the test of a peer that closed each stream once up, at the assertion of `abandon`: "reached unreachable code", `test-io` | CAUGHT |
+| RS24 | a peer that closes during the handshake gives the reason local | a peer's close while the handshake runs is `handshake` | the TLS test of a peer that closes: "expected .handshake, found .local", `test-io` | CAUGHT |
+| RS25 | a receive that failed during the handshake gives the reason closed | a receive that failed while the handshake runs is `handshake` | two TLS tests of a reset, at the assertion of `abandon`: "reached unreachable code", `test-io` | CAUGHT |
+| RS26 | a failure of a connection that is up gives the reason it would give before | `reason_of` gives `closed` once up | six tests, at the assertion of `abandon`: "reached unreachable code", `test-io` | CAUGHT |
+| RS27 | a connection that cannot connect again gives the reason connect | a connection that cannot connect again is `local` | the TLS test of a refused socket after a declined ticket: "expected .local, found .connect", `test-io` | CAUGHT |
+| RS28 | a lookup ready to send on a connection that is gone gives the reason connect | a lookup ready to send on a connection it left is `closed` | the test of a lookup no longer on its connection, at the assertion of `on_tcp_failed`: "reached unreachable code", `test-io` | CAUGHT |
+| RS29 | a send the loop refuses during the handshake gives the reason handshake | a send the loop refuses while the handshake runs is `local` | the TLS test of a refused send: "expected .local, found .handshake", `test-io` | CAUGHT |
+| RS30 | a query's send that moved nothing gives the reason local | a query's send that moved nothing is `closed` | two tests, at the assertion of `abandon`: "reached unreachable code", `test-io` | CAUGHT |
+| RS31 | a send of the session's records that moved nothing during the handshake gives the reason local | a records send that moved nothing while the handshake runs is `handshake` | the TLS test of a send that moved nothing: "expected .handshake, found .local", `test-io` | CAUGHT |
+| RS32 | a prefix that says more than the connection assembles gives the reason local in the clear | a prefix too long in the clear is `closed` | three tests, at the assertion of `abandon`: "reached unreachable code", `test-io` | CAUGHT |
+| RS33 | a TLS session that cannot start gives the reason handshake | a session that cannot start is `local` | the TLS failing test: "expected .local, found .handshake", `test-io` | CAUGHT |
+| RS34 | a record longer than TLS allows during the handshake gives the reason local | a record too long while the handshake runs is `handshake` | the TLS test of a record too long: "expected .handshake, found .local", `test-io` | CAUGHT |
+| RS35 | a handshake the session refused gives the reason connect | a refused handshake is `handshake` | the refused-handshake test of `io_tls_test.zig`: "expected .handshake, found .connect", `test-io` | CAUGHT |
+| RS36 | a connection that quits gives the reason handshake | a connection that quits is `closed` | the TLS prefix test, at the assertion of `abandon`: "reached unreachable code", `test-io` | CAUGHT |
+| RS37 | a record the session refused once up gives the reason handshake | a record refused once up is `closed` | three tests, at the assertion of `abandon`: "reached unreachable code", `test-io` | CAUGHT |
+| RS38 | the peer's close_notify gives the reason handshake | the peer's `close_notify` is `closed` | two tests, at the assertion of `abandon`: "reached unreachable code", `test-io` | CAUGHT |
+| RS39 | a records buffer with no room during the handshake gives the reason handshake | no room for records while the handshake runs is `local` | the records-buffer test: "expected .local, found .handshake", `test-io` | CAUGHT |
+| RS40 | a query the session cannot seal gives the reason local | a query the session cannot seal is `closed` | two tests, at the assertion of `abandon`: "reached unreachable code", `test-io` | CAUGHT |
+| RS50 | a DoQ connection that cannot open gives the reason closed | a DoQ connection that cannot open is `local` | the DoQ socket test: "expected .local, found .closed", `test-io` | CAUGHT |
+| RS51 | a DoQ stream that cannot open gives the reason local | a DoQ stream that cannot open is `closed` | the DoQ stream test: "expected .closed, found .local", `test-io` | CAUGHT |
+| RS52 | a DoQ connection that cannot open again gives the reason closed | a DoQ connection that cannot open again is `local` | the DoQ reopen test: "expected .local, found .closed", `test-io` | CAUGHT |
+| RS53 | a failure of a DoQ connection that is up gives the reason it would give before | `reason_of` of DoQ gives `closed` once up | the DoQ close test: "expected .closed, found .handshake", `test-io` | CAUGHT |
+| RS54 | a DoQ datagram whose send failed during the handshake gives the reason local | a DoQ send that failed before up is `handshake` | the DoQ send test: "expected .handshake, found .local", `test-io` | CAUGHT |
+| RS55 | a DoQ receive that failed during the handshake gives the reason local | a DoQ receive that failed before up is `handshake` | the DoQ receive test: "expected .handshake, found .local", `test-io` | CAUGHT |
+| RS56 | a DoQ datagram the transport refused during the handshake gives the reason local | a DoQ datagram refused before up is `handshake` | the DoQ datagram test: "expected .handshake, found .local", `test-io` | CAUGHT |
+| RS57 | a refused QUIC handshake gives the reason closed | a refused QUIC handshake is `handshake` | the DoQ refused-handshake test: "expected .handshake, found .closed", `test-io` | CAUGHT |
+| RS58 | a DoQ connection that ended during the handshake gives the reason local | a DoQ connection that ended before up is `handshake` | the DoQ timer test: "expected .handshake, found .local", `test-io` | CAUGHT |
+| RS59 | a handshake that ended on another ALPN gives the reason closed | an ALPN other than doq is `handshake` (RFC 9250 §4.1) | the DoQ ALPN test: "expected .handshake, found .closed", `test-io` | CAUGHT |
+| RS60 | a DoQ answer longer than the engine's buffer gives the reason local | a DoQ answer too long is `closed` | the DoQ long-answer test: "expected .closed, found .local", `test-io` | CAUGHT |
+| RS61 | a DoQ answer that breaks RFC 9250 gives the reason local | a DoQ answer that breaks RFC 9250 §4.2 is `closed` | the DoQ prefix test: "expected .closed, found .local", `test-io` | CAUGHT |
+| RS62 | a DoQ stream the server reset gives the reason closed | a reset DoQ stream is `reset` (RFC 9250 §4.3.2) | the DoQ reset test: "expected .reset, found .closed", `test-io` | CAUGHT |
+| RS63 | a DoQ request fails with closed, whatever reason its connection gave | a DoQ request hands its connection's reason on | the DoQ refused-handshake and ALPN tests: "expected .handshake, found .closed", `test-io` | CAUGHT |
+| RS70 | a DoH channel that cannot open gives the reason closed | a DoH channel that cannot open is `local` | the template test: "expected .local, found .closed", `test-io` | CAUGHT |
+| RS71 | a DoH channel that cannot open again gives the reason closed | a DoH channel that cannot open again is `local` | the channel reopen test: "expected .local, found .closed", `test-io` | CAUGHT |
+| RS72 | a DoH exchange fails with closed, whatever reason the channel gave | a DoH exchange hands the channel's reason on | the channel-reason test: "expected .status, found .closed", `test-io` | CAUGHT |
+| RS73 | a DoH request that fails before its exchange gives closed, whatever its reason | a DoH request hands its reason on | the template test: "expected .local, found .closed", `test-io` | CAUGHT |
+| RS74 | a whole response that holds no DNS message gives the reason closed | a whole response with no DNS message is `status` (RFC 8484 §4.2.1) | the 404 test of `io_doh_channel_test.zig`: "expected .status, found .closed", `test-cocuyo_doh` | CAUGHT |
+| RS75 | a stream that the server reset gives the reason closed | a reset stream is `reset` (RFC 9113 §6.4) | the outcome test of `io_doh_channel_exchange.zig` and the reset test: "expected .reset, found .closed", `test-cocuyo_doh` | CAUGHT |
+| RS76 | a stream that the server refused gives the reason closed | a refused stream is `reset` (RFC 9113 §8.7) | the outcome test: "expected .reset, found .closed", `test-cocuyo_doh` | CAUGHT |
+| RS77 | a connection that ended before the response was whole gives the reason reset | a connection that ended early is `closed` | the outcome test and the overrun test: "expected .closed, found .reset", `test-cocuyo_doh` | CAUGHT |
+| RS78 | a response that colibri refused gives the reason closed | a response colibri refused is `status` | the outcome test and the too-large test: "expected .status, found .closed", `test-cocuyo_doh` | CAUGHT |
+| RS79 | a malformed response gives the reason closed | a malformed response is `status` | the outcome test: "expected .status, found .closed", `test-cocuyo_doh` | CAUGHT |
+| RS80 | a request that the protocol refuses to send gives the reason closed | a request the protocol refuses is `local` | the outcome test: "expected .local, found .closed", `test-cocuyo_doh` | CAUGHT |
+| RS90 | the model's cause names the first server, whichever server gave it | the model's `keep` names the lookup's server | `cocuyo-spec check`: "lookup_gate.txt is not the slice the model writes", `spec-lean`. Until the review, the proof script of `keep_server` alone | CAUGHT |
+| RS91 | the model's stream takes local after it is up | `tcpReasons`: `closed` alone once up | `cocuyo-spec check`: "lookup_gate.txt is not the slice the model writes", `spec-lean` | CAUGHT |
+| RS92 | the model's request over DoQ takes an HTTP status | `requestReasons`: no HTTP status over DoQ | the same check, `spec-lean` | CAUGHT |
+| RS93 | the model's request over DoH takes no connect | `requestReasons`: `connect` over DoH | the same check, `spec-lean` | CAUGHT |
+| RS94 | the transcript writes a cause without its server | the transcript writes the cause's server | the same check, `spec-lean` | CAUGHT |
+| RS95 | the transcript writes a failed connection without its reason | the transcript writes the reason of an event | the same check, `spec-lean` | CAUGHT |
+| RS96 | the proof that a cause names a server of the configuration rests on sorry | the axiom pins | "Axioms.lean:49:0: Docstring on `#guard_msgs` does not match generated message", `spec-lean` | CAUGHT |
+
+The rows written again, each `CAUGHT`:
+
+| # | Caught by |
+| --- | --- |
+| LC1 | the reason test: "expected .local, found .connect", `test-resolver` |
+| LC2 | the reason test: "expected .connect, found .closed", and two more, `test-resolver` |
+| LC3 | the request test: "expected .connect, found .closed", `test-resolver` |
+| LC4 | 19 tests, the BADCOOKIE tests among them: "expected .{ .server_index = 0, .what = .{ .rcode = .bad_cookie } }, found null", `test-resolver` |
+| LC11 | the last-failure test: "expected 1, found 0", and the stream-after-rcode test, `test-resolver` |
+| LC12 | the stream-after-rcode test: "expected 1, found 0", `test-resolver` |
+| LC31 | the replay of the committed slice: "Mismatch at line 5257", `test-tools` |
+| DH20 | a table test: "attempt to use null value", `test-resolver` |
+| RF3 | four tests, the reason test among them: "expected error.AllServersFailed, found error.Timeout", `test-resolver` |
+| RF4 | the request test: "expected error.AllServersFailed, found error.Timeout", `test-resolver` |
+| FR2 | 24 tests, at an assertion of `heard`: "reached unreachable code", `test-resolver` |
+| FR3 | two failover tests: "expected 2, found 0", `test-resolver` |
+| DT38 | the latency test of a failed connection: "expected 1, found 2", `test-resolver` |
+| ET4 | the picked walks: the short walks missed, the full run caught at walk 16478, the picked walks at walk 17 |
+| ET15 | the short walks, at walk 82 |
+| ET17 | the picked walks: the full run caught at walk 16008, the picked walks at walk 13 |
+| ET18 | the picked walks, as ET17 |
+| SQ5 | the short walks, at walk 43 |
+| SQ9 | the short walks, at walk 46 |
+| RW3 | the short walks, at walk 21 |
+| CE2 | the short walks, at walk 1 |
+| CE7 | the short walks, at walk 1 |
+| CE21 | the template test: "expected 1, found 0", `test-io` |
+| SB27 | the TLS prefix test, `test-io` |
+| SB28 | the TLS prefix test, `test-io` |
+| LC20 | six tests, at the assertion of `on_tcp_failed`: "reached unreachable code", `test-io` |
+| LC21 | 14 tests, the resumed-handshake test of `io_tcp_wait_test.zig` among them: "expected null, found error.AllServersFailed", `test-io` |
+| LC32 | three tests, at the assertion of `on_tcp_failed`: "reached unreachable code", `test-io` |
+| LC33 | four tests, as LC32, `test-io` |
+| LC34 | the query-send test: "expected error.AllServersFailed, found error.Timeout", `test-io` |
+| DM3 | the proofs: "LookupProofs.lean:132:13: Application type mismatch", `spec-lean` |
+| RF1 | the proofs: "Timeout.lean:115:19: Application type mismatch", `spec-lean` |
+| RF2 | the proofs: "Timeout.lean:120:19: Application type mismatch", `spec-lean` |
+| LC23 | `cocuyo-spec check`: "lookup_gate.txt is not the slice the model writes", `spec-lean` |
+| LC24 | the same check, `spec-lean` |
+| LC25 | `cocuyo-spec check`: "lookup_gate.txt is not the slice the model writes", `spec-lean`. Until the review, the proof script of `keep_server` alone |
+| LC28 | the axiom pins: "Axioms.lean:49:0: Docstring on `#guard_msgs` does not match generated message", `spec-lean` |
+
+DM3, RF1 and RF2 break a proof before the check of the slice runs. Each edit makes the statement
+of `refused_never_timeout` false, since a refusal then leaves no cause, so no proof of it can
+hold. Until the review LC25 broke the proof script of `keep_server` alone, and so did RS90, while
+the statement held. A failed script is no check, so the review made `keep_server` read no more of
+`keep` than the bound of its server. Both rows now reach `cocuyo-spec check` (The review, above).
+LC22, LC26, LC27, CO22 and CO23 kept their edits, and each was `CAUGHT` again by `spec-lean`.
+
+Sixty-eight mutations, sixty-eight `CAUGHT`. Thirty-seven rows written again, thirty-seven
+`CAUGHT`, and five carried rows `CAUGHT` again.
+
+The review's rows:
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| RS16 | the reverse walk ends its lookup's own `Canceled` end on its own fields, and the cause is lost | `NameLookup` hands a lookup's `Canceled` end on whole | the new cancel test of `name_lookup.zig`: "expected .{ .server_index = 0, .what = .{ .rcode = .server_failure } }, found null", `test-resolver` | CAUGHT |
+| RS97 | the kept rcode loses its server when the failure reads it | `Held.get` gives the server it holds | the last-failure, later-pass, order and stream-after-rcode tests of `lookup_failure.zig`: "expected 1, found 0", `test-resolver` | CAUGHT |
+| RS98 | a reason is kept as no cause | `Held.of` keeps a reason | five tests, the reason test and the request test among them: "expected error.AllServersFailed, found error.Timeout", `test-resolver` | CAUGHT |
+| RS99 | an exchange that ends with no connection up has the reason of colibri's outcome alone | an exchange that ends with no connection up is `handshake` or `connect` | seven tests, the outcome test of `io_doh_channel_exchange.zig` and each refusal test among them: "expected .handshake, found .reset", `test-cocuyo_doh` | CAUGHT |
+| RS100 | an exchange that ends with no connection up is a handshake, whether a server took part or not | with no server taking part it is `connect` | the outcome test, the test of the links, and the test of a request after the connection is over: "expected .connect, found .handshake", `test-cocuyo_doh` | CAUGHT |
+| RS101 | an exchange that ends with no connection up is a connect, whether a server took part or not | with a server taking part it is `handshake` | the outcome test and the four tests of a refused handshake: "expected .handshake, found .connect", `test-cocuyo_doh` | CAUGHT |
+| RS102 | a new exchange starts as if no server took part in a connection | a new exchange starts from the channel's `heard` | the test of a request made while the TCP handshake runs: "expected .handshake, found .connect", `test-cocuyo_doh` | CAUGHT |
+| RS103 | a new exchange starts as if no connection were up | a new exchange starts from the channel's `up` | the test of a request made while a connection is up: "TestUnexpectedResult", `test-cocuyo_doh` | CAUGHT |
+| RS104 | a QUIC datagram from the server tells nothing of a server that took part | a QUIC datagram marks the QUIC link heard | the test of a name refused over QUIC: "expected .handshake, found .connect", `test-cocuyo_doh` | CAUGHT |
+| RS105 | a TCP link that connected and started tells nothing of a server that took part | a TCP link that starts marks the TCP link heard | the three refusal tests over TCP: "expected .handshake, found .connect", `test-cocuyo_doh` | CAUGHT |
+| RS106 | a server that took part tells no live exchange | `heard_from` marks each live exchange | the four tests of a refused handshake: "expected .handshake, found .connect", `test-cocuyo_doh` | CAUGHT |
+| RS107 | a connection that came up tells no live exchange | `came_up` marks each live exchange up | 25 tests: 24 at an assertion, "reached unreachable code", among them each answer over HTTP/2 and HTTP/3; and the overrun test: "expected .closed, found .handshake", `test-cocuyo_doh` | CAUGHT |
+| RS108 | a link whose connection is over leaves it up | `forget` clears `up` for its link | the test of a request after the connection that came up is over: "expected .connect, found .reset", `test-cocuyo_doh` | CAUGHT |
+| RS109 | a link whose connection is over keeps what it told of a server that took part | `forget` clears `heard` for its link | the test of a request after the connection that came up is over: "expected .connect, found .handshake", `test-cocuyo_doh` | CAUGHT |
+
+The rows that the review wrote again, each `CAUGHT`:
+
+| # | Edit now | Caught by |
+| --- | --- | --- |
+| LC9 | the next candidate sets the cause to `.none` | the test of an error but `AllServersFailed`, and the negative-end test of `name_lookup.zig`: "expected .{ .server_index = 0, .what = .{ .rcode = .server_failure } }, found null", `test-resolver` |
+| LC10 | a try that ran out sets the cause to `.none` | four tests, the last-failure test among them: "expected error.AllServersFailed, found error.Timeout", `test-resolver` |
+| LC11 | a later rcode is kept only when the cause is `.none` | the last-failure test: "expected 1, found 0", and the stream-after-rcode test, `test-resolver` |
+| LC12 | a failed stream is kept only when the cause is `.none` | the stream-after-rcode test: "expected 1, found 0", `test-resolver` |
+| LC13 | `failure_of` reports `null` in place of `self.cause.get()` | 17 tests, each test of a cause among them: "expected .{ .server_index = 0, .what = .{ .rcode = .server_failure } }, found null"; two at the walks' assertion that `AllServersFailed` carries a cause: "reached unreachable code", `test-resolver` |
+| LC14 | a failed send keeps `closed` through `keep` | the test of a lookup no server failed: "expected error.Timeout, found error.AllServersFailed", `test-resolver` |
+| LC15 | a lookup starts with `closed` from server 0 | 22 tests, the timeout test of `lookup_poll.zig` among them: "expected error.Timeout, found error.AllServersFailed"; the test of no server at an assertion of `failure_of`, `test-resolver` |
+| LC19 | the replay's flag reads `false` in place of the kept cause | the replay of the committed slice: "Mismatch at line 5128", and the engine's replays of the committed and the picked walks, `test-tools` |
+| LC31 | a later rcode is kept only when the cause is `.none` | the replay of the committed slice: "Mismatch at line 5257", `test-tools` |
+| RS1 | `Held.of` from server 0 | five tests, the request test and the order test among them: "expected 1, found 0", `test-resolver` |
+| RS2 | `failure_of` puts the server the lookup ended on in the cause | seven tests: "expected 1, found 0" in the request test, and "expected 0, found 1" in the cancel tests of both walks, `test-resolver` |
+| RS3 | `Held.of` from the place in the order | the order test: "expected 1, found 0", `test-resolver` |
+| RS75 | a reset stream once up gives `closed`, on its own arm | the outcome test and the reset test: "expected .reset, found .closed", `test-cocuyo_doh` |
+| RS76 | a refused stream once up gives `closed`, on its own arm | the outcome test: "expected .reset, found .closed", `test-cocuyo_doh` |
+| DC13 | `outcome_of` reads an end that is not a whole response as one | eight tests: the reset test, "expected .reset, found .status", the overrun test, "expected .closed, found .status", and six refusal tests at an assertion, "reached unreachable code", `test-cocuyo_doh` |
+| DC21 | the version that a connection speaks is told as the TCP link's close, after `came_up` | the three tests of the engine over TCP in `io_doh_channel_engine_test.zig`: "TestUnexpectedResult", `test-cocuyo_doh` |
+| DC25 | the line that keeps the version is gone | seven tests of an answer over each version: "attempt to use null value", where each reads `connected()`, `test-cocuyo_doh` |
+
+The review: fourteen new rows, fourteen `CAUGHT`. Seventeen rows written again, seventeen
+`CAUGHT`. With the rows that ran again unchanged, 82 rows ran in the review, each `CAUGHT`.

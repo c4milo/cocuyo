@@ -14,21 +14,30 @@ def replyToken : Reply → String
   | .nxdomain => "nxdomain" | .nodata => "nodata" | .servfail => "servfail"
   | .formerr => "formerr" | .truncated => "truncated" | .badcookie => "badcookie"
 
+def reasonToken : Reason → String
+  | .connect => "connect" | .handshake => "handshake" | .«local» => "local"
+  | .closed => "closed" | .status => "status" | .reset => "reset"
+
 def eventToken : Event → String
   | .poll => "poll" | .expire => "expire" | .sent => "sent" | .sendFailed => "send_failed"
-  | .tcpConnected => "tcp_connected" | .tcpFailed => "tcp_failed" | .cancel => "cancel"
-  | .requestFailed => "request_failed" | .reply r => "reply_" ++ replyToken r
+  | .tcpConnected => "tcp_connected" | .tcpFailed r => "tcp_failed_" ++ reasonToken r
+  | .cancel => "cancel" | .requestFailed r => "request_failed_" ++ reasonToken r
+  | .reply r => "reply_" ++ replyToken r
 
 def errToken : Err → String
   | .nameNotFound => "name_not_found" | .noData => "no_data" | .timeout => "timeout"
   | .allServersFailed => "all_servers_failed" | .chainTooLong => "chain_too_long"
   | .canceled => "canceled" | .noServers => "no_servers"
 
-/-- A cause as the transcript writes it, and `-` for none: the last column of a line. -/
+def whatToken : What → String
+  | .servfail => "servfail" | .formerr => "formerr" | .badcookie => "badcookie"
+  | .reason r => reasonToken r
+
+/-- A cause as the transcript writes it, what the server gave and then its position in the order,
+as `servfail@1`, and `-` for none: the last column of a line. -/
 def causeToken : Option Cause → String
-  | none => "-" | some .servfail => "servfail" | some .formerr => "formerr"
-  | some .badcookie => "badcookie" | some .connect => "connect" | some .stream => "stream"
-  | some .request => "request"
+  | none => "-"
+  | some k => s!"{whatToken k.what}@{k.server}"
 
 def outToken : Out → String
   | .sendUdp => "send_udp" | .connectTcp => "connect_tcp" | .sendTcp => "send_tcp"

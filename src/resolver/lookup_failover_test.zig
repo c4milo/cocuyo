@@ -161,7 +161,7 @@ test "a failed send and a failed connection are failures of the server they were
     var over_tcp: fixtures.Harness = .{ .config = .{ .servers = &servers, .use_tcp = true, .failover_retry_chance = 0 } };
     try over_tcp.start("example.com.", .a, seed);
     _ = over_tcp.poll();
-    over_tcp.lookup.on_tcp_failed(over_tcp.now_ns);
+    over_tcp.lookup.on_tcp_failed(.connect, over_tcp.now_ns);
     try testing.expectEqual(@as(u8, 1), over_tcp.servers.failures(0));
 }
 
@@ -172,7 +172,7 @@ test "a lookup a server refused ends in AllServersFailed, and one none answered 
     var refused: fixtures.Harness = .{ .config = config };
     try refused.start("example.com.", .a, seed);
     try testing.expect(refused.poll() == .connect_tcp);
-    refused.lookup.on_tcp_failed(refused.now_ns);
+    refused.lookup.on_tcp_failed(.connect, refused.now_ns);
     try testing.expect(refused.poll() == .connect_tcp);
     refused.now_ns += config.timeout_ns;
     try testing.expectEqual(core.Error.AllServersFailed, refused.poll().failed.err);

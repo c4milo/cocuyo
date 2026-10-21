@@ -5,8 +5,9 @@ import Spec.LookupProofs.Timeout
 
 `AllServersFailed` rests on a server that failed the lookup, and `Timeout` on none (docs/design.md
 §5, The cause of a failure; §16 decision 45). So a lookup that fails with `allServersFailed` holds
-a cause, and a lookup that fails with `timeout` holds none. `init` gives both, and no event breaks
-them, so each state that a lookup reaches has them.
+a cause, and a lookup that fails with `timeout` holds none. A cause names the server that gave it
+(§16 decision 51), and that server is one of the configuration's. `init` gives all three, and no
+event breaks them, so each state that a lookup reaches has them.
 -/
 namespace Spec.Lookup
 
@@ -94,12 +95,12 @@ theorem step_fits (c : Config) (s : State) (e : Event) (h : CauseFits s) :
     cases hst : s.stage <;> simp only [step, hst] <;>
       first | exact advanceServer_fits c s | exact h
   | tcpConnected => cases hst : s.stage <;> simp_all [step, CauseFits]
-  | tcpFailed =>
+  | tcpFailed _ =>
     simp only [step]
     split
     · exact advanceServer_fits c _
     · exact h
-  | requestFailed =>
+  | requestFailed _ =>
     simp only [step]
     split
     · exact advanceServer_fits c _
@@ -121,15 +122,150 @@ theorem init_fits (c : Config) : CauseFits (init c) := by
   · exact fail_fits _ .noServers (by simp) (by simp)
   · intro hf; exact absurd hf (fresh_ne_failed c)
 
+/-- The server a cause names is one of the configuration's. A cause names the position the lookup
+was on when the server failed it (`keep`), and that position stays inside the configuration while
+the lookup runs. -/
+def ServerFits (c : Config) (s : State) : Prop :=
+  (ended s.stage = false → s.server < c.servers) ∧ (∀ k, s.cause = some k → k.server < c.servers)
+
+/-- A cause that `keep` writes names a server of the configuration. The proof reads no more of
+`keep` than that its cause is the state's, or a new one whose server the arithmetic bounds, so a
+`keep` that a mutation changed reaches the replay's check, and not a proof that stops. -/
+theorem keep_server (c : Config) (s : State) (w : What) (h : ServerFits c s)
+    (hs : s.server < c.servers) : ServerFits c (keep s w) := by
+  refine ⟨fun _ => hs, fun k hk => ?_⟩
+  have old := h.2
+  simp only [keep] at hk
+  cases hc : s.cause <;> (try rw [hc] at hk) <;> (try simp_all) <;> (try subst hk) <;>
+    (try simp_all) <;> omega
+
+theorem advanceServer_server (c : Config) (s : State) (h : ServerFits c s)
+    (hs : s.server < c.servers) : ServerFits c (advanceServer c s) := by
+  obtain ⟨_, hk⟩ := h
+  unfold advanceServer
+  split
+  · exact ⟨fun _ => by assumption, hk⟩
+  · split
+    · exact ⟨fun _ => by simp; omega, hk⟩
+    · exact ⟨fun hf => by simp [fail, ended] at hf, hk⟩
+
+theorem nextCandidate_server (c : Config) (s : State) (b : Bool) (h : ServerFits c s)
+    (hs : s.server < c.servers) : ServerFits c (nextCandidate c s b) := by
+  obtain ⟨_, hk⟩ := h
+  unfold nextCandidate
+  dsimp only
+  split
+  · exact ⟨fun _ => by simp; omega, hk⟩
+  · exact ⟨fun hf => by simp [fail, ended] at hf, hk⟩
+
+theorem poll_server (c : Config) (s : State) (h : ServerFits c s) : ServerFits c (poll c s).1 := by
+  have h1 : (poll c s).1.server = s.server := by unfold poll; cases s.stage <;> simp
+  have h2 : (poll c s).1.cause = s.cause := by unfold poll; cases s.stage <;> simp
+  have h3 : ended (poll c s).1.stage = ended s.stage := by
+    unfold poll; cases hs : s.stage <;> simp [hs, ended]
+  exact ⟨fun hn => h1 ▸ h.1 (h3 ▸ hn), fun k hk => h.2 k (h2 ▸ hk)⟩
+
+theorem onReply_server (c : Config) (s : State) (stream : Bool) (r : Reply) (h : ServerFits c s)
+    (hs : s.server < c.servers) : ServerFits c (onReply c s stream r).1 := by
+  have same : ∀ t : State, t.server = s.server → t.cause = s.cause → ServerFits c t :=
+    fun t h1 h2 => ⟨fun _ => h1 ▸ hs, fun k hk => h.2 k (h2 ▸ hk)⟩
+  have ends : ∀ e : Err, ServerFits c (fail s e) :=
+    fun e => ⟨fun hf => by simp [fail, ended] at hf, h.2⟩
+  have hadv : ∀ w : What, ServerFits c (advanceServer c (keep s w)) :=
+    fun w => advanceServer_server c _ (keep_server c s w h hs) hs
+  cases r with
+  | unmatched => exact h
+  | truncated =>
+    simp only [onReply]
+    split
+    · exact nextCandidate_server c s true h hs
+    · exact same _ rfl rfl
+  | answer => exact same _ rfl rfl
+  | cname =>
+    simp only [onReply]
+    split
+    · exact ends _
+    · exact same _ rfl rfl
+  | nxdomain => exact nextCandidate_server c s false h hs
+  | nodata => exact nextCandidate_server c s true h hs
+  | servfail => exact hadv _
+  | formerr =>
+    simp only [onReply]
+    split
+    · exact same _ rfl rfl
+    · exact hadv _
+  | badcookie =>
+    simp only [onReply]
+    split
+    · split
+      · exact hadv _
+      · exact same _ rfl rfl
+    · split
+      · exact same _ rfl rfl
+      · exact same _ rfl rfl
+
+/-- No event moves a cause, or the lookup's position, outside the configuration. -/
+theorem step_server (c : Config) (s : State) (e : Event) (h : ServerFits c s) :
+    ServerFits c (step c s e).1 := by
+  by_cases hend : ended s.stage = true
+  · rw [ended_absorbing c s e hend]; exact h
+  have hs : s.server < c.servers := h.1 (by simpa using hend)
+  have same : ∀ t : State, t.server = s.server → t.cause = s.cause → ServerFits c t :=
+    fun t h1 h2 => ⟨fun _ => h1 ▸ hs, fun k hk => h.2 k (h2 ▸ hk)⟩
+  have hadv : ∀ w : What, ServerFits c (advanceServer c (keep s w)) :=
+    fun w => advanceServer_server c _ (keep_server c s w h hs) hs
+  cases e with
+  | poll => exact poll_server c s h
+  | expire =>
+    simp only [step]
+    split
+    · exact poll_server c _ (advanceServer_server c s h hs)
+    · exact poll_server c s h
+  | sent => cases hst : s.stage <;> simp only [step, hst] <;> exact same _ rfl rfl
+  | sendFailed =>
+    cases hst : s.stage <;> simp only [step, hst] <;>
+      first | exact advanceServer_server c s h hs | exact h
+  | tcpConnected => cases hst : s.stage <;> simp only [step, hst] <;> exact same _ rfl rfl
+  | tcpFailed _ =>
+    simp only [step]
+    split
+    · exact hadv _
+    · exact h
+  | requestFailed _ =>
+    simp only [step]
+    split
+    · exact hadv _
+    · exact h
+  | reply r =>
+    cases hst : s.stage <;> simp only [step, hst]
+    all_goals first
+      | exact onReply_server c s _ r h hs
+      | exact h
+  | cancel =>
+    simp only [step]
+    split
+    · exact h
+    · exact ⟨fun hf => by simp [fail, ended] at hf, h.2⟩
+
+theorem init_server (c : Config) : ServerFits c (init c) := by
+  unfold init
+  split
+  · exact ⟨fun hf => by simp [fail, ended] at hf, fun k hk => by simp [fail] at hk⟩
+  · rename_i hc
+    exact ⟨fun _ => by simp; omega, fun k hk => by simp at hk⟩
+
 /-- A lookup that fails with `allServersFailed` holds the cause of the last server failure, and one
 that fails with `timeout` holds none, whatever the caller tells it (§5, The cause of a failure;
-§16 decision 45). -/
-theorem failure_cause (c : Config) (es : List Event) : CauseFits (run c (init c) es) := by
-  have key : ∀ (es : List Event) (t : State), CauseFits t → CauseFits (run c t es) := by
+§16 decision 45). The cause it holds names one of the configuration's servers (§16 decision
+51). -/
+theorem failure_cause (c : Config) (es : List Event) :
+    CauseFits (run c (init c) es) ∧ ServerFits c (run c (init c) es) := by
+  have key : ∀ (es : List Event) (t : State), CauseFits t ∧ ServerFits c t →
+      CauseFits (run c t es) ∧ ServerFits c (run c t es) := by
     intro es
     induction es with
     | nil => intro t h; exact h
-    | cons e rest ih => intro t h; exact ih _ (step_fits c t e h)
-  exact key es _ (init_fits c)
+    | cons e rest ih => intro t h; exact ih _ ⟨step_fits c t e h.1, step_server c t e h.2⟩
+  exact key es _ ⟨init_fits c, init_server c⟩
 
 end Spec.Lookup

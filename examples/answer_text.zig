@@ -10,7 +10,8 @@
 //! for each address and each record kept, and `<name> canonical <target>` for the end of a CNAME
 //! chain. A record kept as rdata prints through `cocuyo.wire.rdata`'s view of its type. A type
 //! this file has no view for prints in RFC 3597 §5's generic form, `\# <length> <hex>`. A failure
-//! prints as `<name>: <error>`, with `(<cause>)` after it when a server failed the lookup.
+//! prints as `<name>: <error>`, with `(<cause> from server <index>)` after it when a server failed
+//! the lookup.
 const std = @import("std");
 const cocuyo = @import("cocuyo");
 const rdata = cocuyo.wire.rdata;
@@ -47,19 +48,20 @@ fn kind_of(type_text: []const u8) ?cocuyo.Kind {
 }
 
 /// A failure as one line: `<name>: <error>`, and the cause in parentheses when a server failed the
-/// lookup. The cause is the rcode as `cocuyo.wire.Rcode` names it, or `connect`, `stream` or
-/// `request` for a transport (docs/design.md §5, The cause of a failure). So a refusal over DoT
-/// prints `example.com: AllServersFailed (connect)`, and silence `example.com: Timeout`.
+/// lookup, with the index of that server in the configuration. The cause is the rcode as
+/// `cocuyo.wire.Rcode` names it, or the reason as `cocuyo.Reason` names it (docs/design.md §5, The
+/// cause of a failure). So a certificate refused over DoT prints `example.com: AllServersFailed
+/// (handshake from server 0)`, and silence `example.com: Timeout`.
 pub fn report_failure(label: []const u8, failure: *const cocuyo.Failure) void {
     const cause = failure.cause orelse return std.debug.print("{s}: {t}\n", .{ label, failure.err });
-    std.debug.print("{s}: {t} ({s})\n", .{ label, failure.err, cause_text(cause) });
+    std.debug.print("{s}: {t} ({s} from server {d})\n", .{ label, failure.err, cause_text(cause), cause.server_index });
 }
 
-/// A cause's name: the rcode's, or the transport's.
+/// What a cause's server gave: the rcode's name, or the reason's.
 pub fn cause_text(cause: cocuyo.Cause) []const u8 {
-    return switch (cause) {
+    return switch (cause.what) {
         .rcode => |rcode| @tagName(rcode),
-        .connect, .stream, .request => @tagName(cause),
+        .reason => |reason| @tagName(reason),
     };
 }
 

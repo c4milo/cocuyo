@@ -31,15 +31,24 @@ pub const Queue = ring.Queue;
 pub fn send(self: anytype, index: usize, bytes: []const u8, now_ns: u64) void {
     if (comptime !@TypeOf(self.*).keeps_tcp) return;
     const handle = self.handles[index];
-    const at = self.tcp_connection[index] orelse return self.resolver.on_tcp_failed(handle, now_ns);
+    // The lookup heard that its connection was up, so its reason is `closed` (docs/design.md §5,
+    // The cause of a failure).
+    const at = up_connection(self, index) orelse return self.resolver.on_tcp_failed(handle, .closed, now_ns);
     const connection = &self.connections[at];
-    if (connection.state != .up or connection.descriptor == null) return self.resolver.on_tcp_failed(handle, now_ns);
     assert(bytes.len <= cocuyo.constants.query_bytes_max);
     @memcpy(self.send_buffers[index][0..bytes.len], bytes);
     self.send_lengths[index] = @intCast(bytes.len);
     send_module.lend(self, index);
     connection.queue.push(.{ .slot = @intCast(index) });
     pump(self, at, now_ns);
+}
+
+/// The slot of the connection that the lookup at `index` is on, while that connection is up.
+fn up_connection(self: anytype, index: usize) ?u8 {
+    const at = self.tcp_connection[index] orelse return null;
+    const connection = &self.connections[at];
+    if (connection.state != .up or connection.descriptor == null) return null;
+    return at;
 }
 
 /// Sends the head of the connection's queue, unless a send is in flight already. Over TLS a
@@ -68,7 +77,7 @@ fn submit_rest(self: anytype, at: u8, now_ns: u64) void {
         tcp.user_data_of(self, .tls_send, at);
     const operation: rotor.Operation = .send(user_data, connection.descriptor.?, rest_of(self, at, head));
     var handles: [1]rotor.Handle = undefined;
-    if (self.loop.submit(&.{operation}, &handles) != 1) return tcp.fail(self, at, now_ns);
+    if (self.loop.submit(&.{operation}, &handles) != 1) return tcp.fail(self, at, tcp.reason_of(self, at, .local), now_ns);
     connection.sending = true;
     // `shut` cancels the send by this handle (docs/design.md §16 decision 49).
     connection.send_handle = handles[0];
@@ -122,7 +131,7 @@ pub fn on_send_event(self: anytype, slot: usize, event: rotor.Event, now_ns: u64
     if (count == 0) {
         finish_head(self, at);
         send_module.give_back(self, slot);
-        return tcp.fail(self, at, now_ns);
+        return tcp.fail(self, at, .closed, now_ns);
     }
     if (!advance(self, at, count)) return submit_rest(self, at, now_ns);
     finish_head(self, at);
@@ -165,7 +174,7 @@ pub fn on_records_event(self: anytype, index: usize, event: rotor.Event, now_ns:
     connection.sending = false;
     connection.send_handle = null;
     const count = event.outcome() catch 0;
-    if (count == 0) return tcp.fail(self, at, now_ns);
+    if (count == 0) return tcp.fail(self, at, tcp.reason_of(self, at, .handshake), now_ns);
     if (!advance(self, at, count)) return submit_rest(self, at, now_ns);
     finish_head(self, at);
     after_send(self, at, now_ns);

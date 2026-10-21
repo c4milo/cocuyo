@@ -48,7 +48,10 @@ pub fn Channel(comptime options: Options) type {
         pub const Ticket = tls.Ticket;
         pub const Alternative = client.Alternative;
         pub const Answer = exchange_module.Answer;
-        pub const Finished = struct { index: u16, answer: ?Answer };
+        pub const Outcome = exchange_module.Outcome;
+        /// An exchange's end: its answer, or the reason its request failed (docs/design.md §16
+        /// decision 51).
+        pub const Finished = struct { index: u16, outcome: Outcome };
         pub const Open = struct { link: Link, endpoint: cocuyo.Endpoint };
         pub const Event = union(enum) { open: Open, close: Link, ticket: Link, finished: Finished, closed };
         pub const Input = union(enum) { none, datagram: []const u8, stream: []const u8 };
@@ -80,6 +83,12 @@ pub fn Channel(comptime options: Options) type {
         resuming: [@typeInfo(Link).@"enum".fields.len]Ticket = undefined,
         offered: [@typeInfo(Link).@"enum".fields.len]bool = @splat(false),
         protocol: ?client.Protocol = null,
+        /// The link whose connection takes the exchanges, from colibri's `connected` until that
+        /// connection is over, and whether a server took part in each link's opening: a TCP link
+        /// that connected, or a QUIC datagram that came. A new exchange starts from them, and each
+        /// live exchange learns what changes (docs/design.md §16 decision 51).
+        up: ?Link = null,
+        heard: [@typeInfo(Link).@"enum".fields.len]bool = @splat(false),
         started: bool = false,
 
         pub fn start(self: *Self, context: anytype) Error!void {
@@ -147,4 +156,5 @@ test {
     _ = @import("io_doh_channel_read_test.zig");
     _ = @import("io_doh_channel_engine_test.zig");
     _ = @import("io_doh_channel_quic_test.zig");
+    _ = @import("io_doh_channel_cause_test.zig");
 }

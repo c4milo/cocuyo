@@ -414,7 +414,7 @@
         .id = "DH20",
         .what = "the table does not follow an HTTP failure",
         .edits = .{
-            .{ .file = "src/resolver/table.zig", .old = "        self.slot_of(handle).lookup.on_request_failed(transaction, now_ns);\n        self.follow(handle.index);\n", .new = "        self.slot_of(handle).lookup.on_request_failed(transaction, now_ns);\n" },
+            .{ .file = "src/resolver/table.zig", .old = "        self.slot_of(handle).lookup.on_request_failed(transaction, reason, now_ns);\n        self.follow(handle.index);\n", .new = "        self.slot_of(handle).lookup.on_request_failed(transaction, reason, now_ns);\n" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -586,7 +586,7 @@
         .id = "RF3",
         .what = "a failed connection is counted as silence",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        self.servers.record_failure(self.server_slot(), now_ns);\n        self.cause = failure_module.stream_cause(self.state);\n        self.next_server(now_ns);\n    }\n\n    /// Gives up", .new = "        self.servers.record_failure(self.server_slot(), now_ns);\n        self.next_server(now_ns);\n    }\n\n    /// Gives up" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.servers.record_failure(self.server_slot(), now_ns);\n        failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// Gives up", .new = "        self.servers.record_failure(self.server_slot(), now_ns);\n        self.next_server(now_ns);\n    }\n\n    /// Gives up" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -595,7 +595,7 @@
         .id = "RF4",
         .what = "a failed request is counted as silence",
         .edits = .{
-            .{ .file = "src/resolver/lookup_request.zig", .old = "    self.servers.record_failure(self.server_slot(), now_ns);\n    self.cause = .request;\n", .new = "    self.servers.record_failure(self.server_slot(), now_ns);\n" },
+            .{ .file = "src/resolver/lookup_request.zig", .old = "    self.servers.record_failure(self.server_slot(), now_ns);\n    failure_module.keep(self, .{ .reason = reason });\n", .new = "    self.servers.record_failure(self.server_slot(), now_ns);\n" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -785,7 +785,7 @@
         .id = "FR2",
         .what = "an answer that marks the server's failure records a success, and marks the lookup's failure still",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "        self.servers.record_failure(slot, now_ns);\n        self.cause = failed;", .new = "        self.servers.record_success(slot);\n        self.cause = failed;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        self.servers.record_failure(slot, now_ns);\n        failure_module.keep(self, failed);", .new = "        self.servers.record_success(slot);\n        failure_module.keep(self, failed);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -794,7 +794,7 @@
         .id = "FR3",
         .what = "an answer's failure is recorded at instant zero, not the instant it came",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "        self.servers.record_failure(slot, now_ns);\n        self.cause = failed;", .new = "        self.servers.record_failure(slot, 0);\n        self.cause = failed;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        self.servers.record_failure(slot, now_ns);\n        failure_module.keep(self, failed);", .new = "        self.servers.record_failure(slot, 0);\n        failure_module.keep(self, failed);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1709,7 +1709,7 @@
         .id = "DT38",
         .what = "a connection or a handshake that failed takes a sample",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        self.servers.record_failure(self.server_slot(), now_ns);\n        self.cause = failure_module.stream_cause(self.state);\n", .new = "        self.servers.record_latency(self.server_slot(), now_ns - self.sent_at_ns, now_ns);\n        self.servers.record_failure(self.server_slot(), now_ns);\n        self.cause = failure_module.stream_cause(self.state);\n" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.servers.record_failure(self.server_slot(), now_ns);\n        failure_module.keep(self, .{ .reason = reason });\n", .new = "        self.servers.record_latency(self.server_slot(), now_ns - self.sent_at_ns, now_ns);\n        self.servers.record_failure(self.server_slot(), now_ns);\n        failure_module.keep(self, .{ .reason = reason });\n" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -2957,39 +2957,43 @@
     .{
         .section = "The cause of a failure",
         .id = "LC1",
-        .what = "the cause of a failed stream is the connect's in every state",
+        .what = "the cause of a failed stream is the connect's, whatever reason it came with",
         .edits = .{
-            .{ .file = "src/resolver/lookup_failure.zig", .old = "    const cause: Cause = if (state == .connecting_tcp) .connect else .stream;", .new = "    const cause: Cause = .connect;" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// Gives up", .new = "        failure_module.keep(self, .{ .reason = .connect });\n        self.next_server(now_ns);\n    }\n\n    /// Gives up" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
+
     .{
         .section = "The cause of a failure",
         .id = "LC2",
-        .what = "the cause of a failed stream is the stream's in every state",
+        .what = "the cause of a failed stream is the closed connection's, whatever reason it came with",
         .edits = .{
-            .{ .file = "src/resolver/lookup_failure.zig", .old = "    const cause: Cause = if (state == .connecting_tcp) .connect else .stream;", .new = "    const cause: Cause = .stream;" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// Gives up", .new = "        failure_module.keep(self, .{ .reason = .closed });\n        self.next_server(now_ns);\n    }\n\n    /// Gives up" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
+
     .{
         .section = "The cause of a failure",
         .id = "LC3",
-        .what = "a failed request keeps the stream's cause",
+        .what = "a failed request keeps the closed connection's cause, whatever reason it came with",
         .edits = .{
-            .{ .file = "src/resolver/lookup_request.zig", .old = "    self.cause = .request;", .new = "    self.cause = .stream;" },
+            .{ .file = "src/resolver/lookup_request.zig", .old = "    failure_module.keep(self, .{ .reason = reason });\n", .new = "    failure_module.keep(self, .{ .reason = .closed });\n" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
+
     .{
         .section = "The cause of a failure",
         .id = "LC4",
         .what = "a response that fails its server keeps no cause",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "        self.cause = failed;", .new = "        _ = failed;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        failure_module.keep(self, failed);", .new = "        _ = failed;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
+
     .{
         .section = "The cause of a failure",
         .id = "LC5",
@@ -3031,7 +3035,7 @@
         .id = "LC9",
         .what = "the next candidate clears the cause",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        self.cname_hops = 0;\n        self.flags.aliased = false;\n        self.take_candidate(self.candidate_index + 1);", .new = "        self.cname_hops = 0;\n        self.flags.aliased = false;\n        self.cause = null;\n        self.take_candidate(self.candidate_index + 1);" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.cname_hops = 0;\n        self.flags.aliased = false;\n        self.take_candidate(self.candidate_index + 1);", .new = "        self.cname_hops = 0;\n        self.flags.aliased = false;\n        self.cause = .none;\n        self.take_candidate(self.candidate_index + 1);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -3040,7 +3044,7 @@
         .id = "LC10",
         .what = "a try that ran out clears the cause",
         .edits = .{
-            .{ .file = "src/resolver/lookup_poll.zig", .old = "    self.servers.record_failure(slot, now_ns);\n    self.next_server(now_ns);", .new = "    self.servers.record_failure(slot, now_ns);\n    self.cause = null;\n    self.next_server(now_ns);" },
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "    self.servers.record_failure(slot, now_ns);\n    self.next_server(now_ns);", .new = "    self.servers.record_failure(slot, now_ns);\n    self.cause = .none;\n    self.next_server(now_ns);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -3049,25 +3053,27 @@
         .id = "LC11",
         .what = "the first rcode stays the cause, and a later one does not replace it",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "        self.cause = failed;", .new = "        if (self.cause == null) self.cause = failed;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        failure_module.keep(self, failed);", .new = "        if (self.cause.what == .none) failure_module.keep(self, failed);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
+
     .{
         .section = "The cause of a failure",
         .id = "LC12",
         .what = "the first cause stays, and a failed stream after it does not replace it",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        self.cause = failure_module.stream_cause(self.state);", .new = "        if (self.cause == null) self.cause = failure_module.stream_cause(self.state);" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// Gives up", .new = "        if (self.cause.what == .none) failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// Gives up" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
+
     .{
         .section = "The cause of a failure",
         .id = "LC13",
         .what = "the failure reports no cause",
         .edits = .{
-            .{ .file = "src/resolver/lookup_failure.zig", .old = "        .cause = self.cause,", .new = "        .cause = null," },
+            .{ .file = "src/resolver/lookup_failure.zig", .old = "        .cause = self.cause.get(),", .new = "        .cause = null," },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -3076,7 +3082,7 @@
         .id = "LC14",
         .what = "a failed send keeps a cause",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        assert(self.state == .query_ready or self.state == .tcp_ready);\n        self.servers.record_failure(self.server_slot(), now_ns);\n        self.next_server(now_ns);", .new = "        assert(self.state == .query_ready or self.state == .tcp_ready);\n        self.servers.record_failure(self.server_slot(), now_ns);\n        self.cause = .stream;\n        self.next_server(now_ns);" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        assert(self.state == .query_ready or self.state == .tcp_ready);\n        self.servers.record_failure(self.server_slot(), now_ns);\n        self.next_server(now_ns);", .new = "        assert(self.state == .query_ready or self.state == .tcp_ready);\n        self.servers.record_failure(self.server_slot(), now_ns);\n        failure_module.keep(self, .{ .reason = .closed });\n        self.next_server(now_ns);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -3085,7 +3091,7 @@
         .id = "LC15",
         .what = "a lookup starts with a cause",
         .edits = .{
-            .{ .file = "src/resolver/lookup_init.zig", .old = "        .cause = null,", .new = "        .cause = .request," },
+            .{ .file = "src/resolver/lookup_init.zig", .old = "        .cause = .none,", .new = "        .cause = .{ .server_index = 0, .what = .{ .reason = .closed } }," },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -3121,7 +3127,7 @@
         .id = "LC19",
         .what = "the replay's flag that a server failed ignores the cause",
         .edits = .{
-            .{ .file = "tools/spec_replay/replay_text.zig", .old = "        flag(lookup.cause != null, 'F'),", .new = "        flag(false, 'F')," },
+            .{ .file = "tools/spec_replay/replay_text.zig", .old = "        flag(lookup.cause.what != .none, 'F'),", .new = "        flag(false, 'F')," },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -3148,10 +3154,11 @@
         .id = "LC31",
         .what = "the first rcode stays the cause, as the replay of the committed slice sees it",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "        self.cause = failed;", .new = "        if (self.cause == null) self.cause = failed;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        failure_module.keep(self, failed);", .new = "        if (self.cause.what == .none) failure_module.keep(self, failed);" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
+
     .{
         .section = "A try whose server was marked",
         .id = "LS1",
@@ -3258,6 +3265,133 @@
         .what = "the deadline of a marked try takes its sample when the table holds no mark",
         .edits = .{
             .{ .file = "src/resolver/lookup_poll.zig", .old = "        if (!self.flags.reply_marked) {\n", .new = "        if (!self.flags.reply_marked or !self.servers.changes_case(slot)) {\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS1",
+        .what = "a cause names the first server, whichever server gave it",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_failure.zig", .old = "    self.cause = Held.of(self.server_slot(), what);", .new = "    self.cause = Held.of(0, what);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS2",
+        .what = "the failure names the server the lookup ended on as the cause's",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_failure.zig", .old = "        .cause = self.cause.get(),", .new = "        .cause = if (self.cause.get()) |cause| .{ .server_index = self.server_slot(), .what = cause.what } else null," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS3",
+        .what = "a cause names its server by its place in the lookup's order",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_failure.zig", .old = "    self.cause = Held.of(self.server_slot(), what);", .new = "    self.cause = Held.of(self.server_index, what);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS4",
+        .what = "a stream takes closed before it is up",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_failure.zig", .old = "        .closed => self.state != .connecting_tcp,", .new = "        .closed => true," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS5",
+        .what = "a stream refuses local before it is up",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_failure.zig", .old = "        .connect, .local => self.state == .connecting_tcp,", .new = "        .connect => self.state == .connecting_tcp,\n        .local => false," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS6",
+        .what = "a stream in the clear takes a handshake",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_failure.zig", .old = "        .handshake => self.state == .connecting_tcp and self.config.uses_tls(),", .new = "        .handshake => self.state == .connecting_tcp," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS7",
+        .what = "a request over DoQ takes connect and status",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_failure.zig", .old = "        .connect, .status => self.config.transport() == .https,", .new = "        .connect, .status => true," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS8",
+        .what = "a request over DoH refuses connect and status",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_failure.zig", .old = "        .connect, .status => self.config.transport() == .https,", .new = "        .connect, .status => self.config.transport() == .quic," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS9",
+        .what = "the replay spells a cause's server by its index in the configuration, not its place in the order",
+        .edits = .{
+            .{ .file = "tools/spec_replay/replay_text.zig", .old = "    const position = std.mem.indexOfScalar(u8, order, held.server_index) orelse return \"outside\";", .new = "    _ = order;\n    const position = held.server_index;" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS10",
+        .what = "the replay hands every failed connection the reason connect",
+        .edits = .{
+            .{ .file = "tools/spec_replay/replay.zig", .old = "                lookup.on_tcp_failed(reason_of(event), self.now_ns);", .new = "                lookup.on_tcp_failed(.connect, self.now_ns);" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS11",
+        .what = "the table hands every failed connection the reason connect",
+        .edits = .{
+            .{ .file = "src/resolver/table.zig", .old = "        self.slot_of(handle).lookup.on_tcp_failed(reason, now_ns);", .new = "        _ = reason;\n        self.slot_of(handle).lookup.on_tcp_failed(.connect, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS12",
+        .what = "the table hands every failed request the reason closed",
+        .edits = .{
+            .{ .file = "src/resolver/table.zig", .old = "        self.slot_of(handle).lookup.on_request_failed(transaction, reason, now_ns);", .new = "        _ = reason;\n        self.slot_of(handle).lookup.on_request_failed(transaction, .closed, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS97",
+        .what = "the kept rcode loses its server when the failure reads it",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_failure.zig", .old = "            .rcode => |rcode| .{ .server_index = held.server_index, .what = .{ .rcode = rcode } },", .new = "            .rcode => |rcode| .{ .server_index = 0, .what = .{ .rcode = rcode } }," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS98",
+        .what = "a reason is kept as no cause",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_failure.zig", .old = "            .reason => |reason| .{ .server_index = server_index, .what = .{ .reason = reason } },", .new = "            .reason => none," },
         },
         .caught_by = .{ .step = "test-resolver" },
     },

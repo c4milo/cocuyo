@@ -63,7 +63,7 @@ pub fn deliver(self: anytype, at: u8, now_ns: u64) bool {
 /// Ends a connection whose stream cannot be read past a message. In the clear it closes at once.
 /// Over TLS the peer is still there, so the session says `close_notify` first (§21, TLS rule 5).
 fn end(self: anytype, at: u8, now_ns: u64) void {
-    if (tls_module.speaks(self)) tls_module.quit(self, at, now_ns) else tcp.fail(self, at, now_ns);
+    if (tls_module.speaks(self)) tls_module.quit(self, at, now_ns) else tcp.fail(self, at, .closed, now_ns);
 }
 
 /// Whether the prefix at `start` in the frame says more than the connection assembles.

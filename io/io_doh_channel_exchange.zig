@@ -12,6 +12,10 @@ const constants = @import("io_doh_channel_constants.zig");
 /// What an exchange's end gives the engine: a DNS message and its `Age` in seconds.
 pub const Answer = struct { message: []const u8, age_seconds: u32 };
 
+/// How an exchange ended: its answer, or the reason its request failed, which the lookup keeps as
+/// its cause (docs/design.md §5, The cause of a failure; §16 decision 51).
+pub const Outcome = union(enum) { answer: Answer, failed: cocuyo.Reason };
+
 /// The GET's own field lines: a DNS message is what it accepts (RFC 8484 §4.1), and "identity" asks
 /// for no content coding (RFC 9110 §12.5.3, request rule 12).
 const fields = [_]client.Field{
@@ -30,6 +34,12 @@ const age_at = 2;
 /// It also holds the memory the two name: the GET's path, the values wanted, and the answer buffer.
 pub const Exchange = struct {
     live: bool = false,
+    /// Whether a connection of the channel came up while the exchange was live, and whether a
+    /// server took part in one: a TCP link that connected, or a QUIC datagram that came. colibri
+    /// does not say which connection an exchange's end came from, so its reason rests on these
+    /// (docs/design.md §5, The cause of a failure; §16 decision 51).
+    up: bool = false,
+    heard: bool = false,
     index: u16 = 0,
     id: client.Id = 0,
     request: client.Request = undefined,
@@ -75,13 +85,56 @@ pub fn make(slot: *Exchange, index: u16, template_path: []const u8, message: []c
     assert(slot.response.outcome == .pending);
 }
 
+/// How an exchange ended, as the engine reads it: its answer, or the reason its request failed. A
+/// whole response that holds no DNS message is `status`: the server answered with HTTP that the
+/// engine cannot read as DNS. Every other end has the reason of colibri's outcome, and of what the
+/// channel's connections did while the exchange was live (docs/design.md §5, The cause of a
+/// failure).
+pub fn outcome_of(slot: *const Exchange) Outcome {
+    const outcome = slot.response.outcome;
+    // An exchange ends once, and colibri says how before it says that it ended.
+    assert(outcome != .pending);
+    if (outcome != .response) return .{ .failed = reason_of(outcome, slot.up, slot.heard) };
+    // A whole response came over a connection that came up.
+    assert(slot.up);
+    const answer = answer_of(slot) orelse return .{ .failed = .status };
+    return .{ .answer = answer };
+}
+
+/// The reason of an end that is not a whole response (rule 22). `up` says whether a connection of
+/// the channel came up while the exchange was live, and `heard` whether a server took part in one.
+fn reason_of(outcome: client.Outcome, up: bool, heard: bool) cocuyo.Reason {
+    // A reset, or a response that colibri refused, needs a stream on a connection that came up.
+    assert(up or outcome == .refused or outcome == .closed or outcome == .invalid);
+    // colibri gave up on it: no connection came up, and each one that the channel tried failed. A
+    // server that took part refused the handshake, and with none the connect failed.
+    if (!up and (outcome == .refused or outcome == .closed)) return if (heard) .handshake else .connect;
+    return switch (outcome) {
+        .pending, .response => unreachable,
+        // The server processed none of the request: it refused the stream (RFC 9113 §8.7), a
+        // GOAWAY left it unprocessed (RFC 9113 §6.8), or an HTTP/1.1 connection closed before the
+        // request went out.
+        .refused => .reset,
+        // The server reset the stream (RFC 9113 §6.4).
+        .reset => .reset,
+        // A connection that came up ended before the response was whole.
+        .closed => .closed,
+        // colibri refused the response: its protocol's rules make it malformed (RFC 9113 §8.1.1),
+        // or it did not fit the memory the engine gave. Content past 65,535 octets is no DNS
+        // message (RFC 8484 §6).
+        .malformed, .too_large => .status,
+        // A request that the protocol refuses to send: no server took part.
+        .invalid => .local,
+    };
+}
+
 /// What an ended exchange gives the engine: its answer, or null for a failed request. "A successful
 /// HTTP response with a 2xx status code ... is used for any valid DNS response", and "HTTP responses
 /// with non-successful HTTP status codes do not contain replies to the original DNS question" (RFC
 /// 8484 §4.2.1). Content that is not a DNS message, or was coded, is none either (request rule 12),
 /// and so is every end that is not a whole response (rule 22). The TTLs are lowered by the `Age`
 /// (RFC 8484 §5.1), which the lookup does.
-pub fn answer_of(slot: *const Exchange) ?Answer {
+fn answer_of(slot: *const Exchange) ?Answer {
     const response = &slot.response;
     if (response.outcome != .response) return null;
     if (response.status < constants.status_success_first or response.status > constants.status_success_last) return null;
@@ -91,4 +144,24 @@ pub fn answer_of(slot: *const Exchange) ?Answer {
     }
     assert(response.body_len <= slot.answer.len);
     return .{ .message = response.content_received(), .age_seconds = doh.response.age_seconds(slot.wanted[age_at].value) };
+}
+
+// Tests. The ends of a whole response are `io_doh_channel_test.zig`'s, over colibri's server.
+
+const testing = std.testing;
+
+test "each end of colibri's that is not a whole response gives its reason" {
+    // docs/design.md §5, The cause of a failure: once a connection came up.
+    try testing.expectEqual(cocuyo.Reason.reset, reason_of(.reset, true, true));
+    try testing.expectEqual(cocuyo.Reason.reset, reason_of(.refused, true, true));
+    try testing.expectEqual(cocuyo.Reason.closed, reason_of(.closed, true, true));
+    try testing.expectEqual(cocuyo.Reason.status, reason_of(.malformed, true, true));
+    try testing.expectEqual(cocuyo.Reason.status, reason_of(.too_large, true, true));
+    try testing.expectEqual(cocuyo.Reason.local, reason_of(.invalid, true, true));
+    // With no connection up: a handshake when a server took part, a connect when none did.
+    for ([_]client.Outcome{ .refused, .closed }) |outcome| {
+        try testing.expectEqual(cocuyo.Reason.handshake, reason_of(outcome, false, true));
+        try testing.expectEqual(cocuyo.Reason.connect, reason_of(outcome, false, false));
+    }
+    try testing.expectEqual(cocuyo.Reason.local, reason_of(.invalid, false, false));
 }

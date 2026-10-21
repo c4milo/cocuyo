@@ -317,4 +317,40 @@
         },
         .caught_by = .{ .step = "test-resolver" },
     },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS13",
+        .what = "a Canceled end keeps no failure, and its cause is lost",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    const handed_on = self.cancelled and failure.cause != null;", .new = "    const handed_on = false;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS14",
+        .what = "a Canceled end with no cause replaces the failure before it",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    const handed_on = self.cancelled and failure.cause != null;", .new = "    const handed_on = self.cancelled;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS15",
+        .what = "the walk's own cancel keeps its Canceled end as the last failure",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    const handed_on = self.cancelled and failure.cause != null;", .new = "    const handed_on = failure.cause != null;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS16",
+        .what = "the reverse walk ends a Canceled end of its lookup on its own fields, and the cause is lost",
+        .edits = .{
+            .{ .file = "src/resolver/name_lookup.zig", .old = "    if (failure.err == core.Error.Canceled) return end_failed_with(self, failure);", .new = "    if (failure.err == core.Error.Canceled) return end_failed(self, core.Error.Canceled);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
 }

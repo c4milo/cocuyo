@@ -25,6 +25,7 @@ const Cause = lookup_module.Cause;
 const policy = @import("lookup_policy.zig");
 const cookies = @import("lookup_cookie.zig");
 const casing = @import("lookup_response_case.zig");
+const failure_module = @import("lookup_failure.zig");
 
 pub fn on_response(self: *Lookup, message: []const u8, from: Endpoint, now_ns: u64) Verdict {
     self.see(now_ns);
@@ -192,13 +193,13 @@ fn bad_cookie_fails(self: *const Lookup) bool {
 /// before the lookup moves on, while the current server and transaction are still the ones
 /// answered. A response the lookup ignores is taken as never received (§16 decision 10) and
 /// never comes here. Its server cookie was cached all the same, by `apply`.
-fn heard(self: *Lookup, cookie: ?wire.CookieView, cause: ?Cause, now_ns: u64) void {
+fn heard(self: *Lookup, cookie: ?wire.CookieView, cause: ?Cause.What, now_ns: u64) void {
     assert(self.state == .awaiting_udp or self.state == .awaiting_tcp);
     const slot = self.server_slot();
     self.servers.record_latency(slot, now_ns - self.sent_at_ns, now_ns);
     if (cause) |failed| {
         self.servers.record_failure(slot, now_ns);
-        self.cause = failed;
+        failure_module.keep(self, failed);
     } else {
         self.servers.record_success(slot);
     }
@@ -207,7 +208,7 @@ fn heard(self: *Lookup, cookie: ?wire.CookieView, cause: ?Cause, now_ns: u64) vo
 }
 
 /// The cause a response keeps, its rcode, when that rcode fails the server; null when it does not.
-fn cause_of(self: *const Lookup, action: policy.RcodeAction, rcode: wire.Rcode) ?Cause {
+fn cause_of(self: *const Lookup, action: policy.RcodeAction, rcode: wire.Rcode) ?Cause.What {
     if (!fails_server(self, action)) return null;
     // NOERROR is collected and NXDOMAIN moves to the next candidate: neither fails a server.
     assert(rcode != .no_error and rcode != .name_error);

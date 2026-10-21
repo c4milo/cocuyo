@@ -272,7 +272,7 @@ test "a connection that failed costs the server its turn" {
     var out: Buffer = @splat(0);
     lookup.state = .tcp_needed;
     _ = lookup.poll(0, &out);
-    lookup.on_tcp_failed(1);
+    lookup.on_tcp_failed(.connect, 1);
     try testing.expectEqual(@as(u8, 1), lookup.server_index);
     try testing.expectEqual(lookup_module.State.query_ready, lookup.state);
 }

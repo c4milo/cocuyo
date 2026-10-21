@@ -73,8 +73,7 @@ pub const InitError = error{ SocketFailed, ReceiveFailed, UdpPayloadTooLarge };
 /// What one of the engine's `user_data` values says.
 pub const Kind = enum(u8) { udp_send, udp_receive, timer, tcp_connect, tcp_send, tcp_receive, tls_send, quic_send, quic_receive, doh_connect, doh_send, doh_receive };
 
-/// `count`, for an engine with a QUIC transport, and none without: such an engine holds no QUIC
-/// connection.
+/// `count` with a QUIC transport, and none without one: that engine holds no QUIC connection.
 fn with_quic(comptime options: Options, comptime count: usize) usize {
     return if (options.quic.enabled) count else 0;
 }
@@ -489,6 +488,7 @@ test {
         _ = @import("io_lifecycle_cache_test.zig");
         _ = @import("io_tls_test.zig");
         _ = @import("io_tls_failing_test.zig");
+        _ = @import("io_tls_cause_test.zig");
         _ = @import("io_request_test.zig");
         _ = @import("io_request_failure_test.zig");
         _ = @import("io_channel_test.zig");

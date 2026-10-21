@@ -9,6 +9,7 @@
 //! Free functions over the engine, split out of `io_tcp.zig` so each is scored on its own.
 const std = @import("std");
 const assert = std.debug.assert;
+const cocuyo = @import("cocuyo");
 const constants = @import("constants.zig");
 const tcp = @import("io_tcp.zig");
 const frame_module = @import("io_tcp_frame.zig");
@@ -119,7 +120,8 @@ pub fn fresh(comptime Session: type, kept: *const Kept(Session), now_ns: u64) bo
 // The handshake (rules 1 and 4).
 
 /// A connection to a TLS server came up: the session starts, with the ticket its opening spent,
-/// and its first flight goes (rule 1). A session that cannot start fails the connection.
+/// and its first flight goes (rule 1). A session that cannot start fails the connection, and no
+/// server took part (docs/design.md §5, The cause of a failure).
 pub fn begin(self: anytype, at: u8, now_ns: u64) void {
     const connection = &self.connections[at];
     const server = &self.config.servers[connection.server];
@@ -130,7 +132,7 @@ pub fn begin(self: anytype, at: u8, now_ns: u64) void {
         .ticket_age_ns = now_ns -| connection.tls.ticket_since_ns,
         .context = context_module.of_tls(self),
         .now_ns = now_ns,
-    }) catch return tcp.fail(self, at, now_ns);
+    }) catch return tcp.fail(self, at, .local, now_ns);
     _ = make_records(self, at, now_ns);
 }
 
@@ -149,7 +151,7 @@ pub fn take(self: anytype, at: u8, bytes: []const u8, now_ns: u64) void {
     var start: usize = 0;
     var records: usize = 0;
     while (records < constants.tls_records_per_buffer_max) : (records += 1) {
-        const whole = record_len(state.record_in[start..state.record_in_used]) catch return tcp.fail(self, at, now_ns);
+        const whole = record_len(state.record_in[start..state.record_in_used]) catch return tcp.fail(self, at, tcp.reason_of(self, at, .handshake), now_ns);
         if (whole == 0) break;
         // A connection that failed, or opens again, keeps nothing of this opening's (rule 8). One
         // that refused the record is closing, and passes the rest over unread (rules 4 and 5).
@@ -190,13 +192,13 @@ fn shake(self: anytype, at: u8, record: []u8, now_ns: u64) bool {
     const connection = &self.connections[at];
     const step = connection.tls.session.handshake(record) catch {
         // A resumed handshake that fails is not the server's failure (rule 8).
-        if (connection.tls.ticket != null) tcp.retry_full(self, at, now_ns) else refuse(self, at, now_ns);
+        if (connection.tls.ticket != null) tcp.retry_full(self, at, now_ns) else refuse(self, at, .handshake, now_ns);
         return false;
     };
     if (!make_records(self, at, now_ns)) return false;
     if (step == .done) {
         connection.state = .up;
-        tcp.tell_all(self, at, now_ns, true);
+        tcp.tell_all(self, at, now_ns, null);
     }
     return true;
 }
@@ -207,11 +209,12 @@ fn shake(self: anytype, at: u8, record: []u8, now_ns: u64) bool {
 /// idle close's `close_notify` does (rules 4 and 5). "Whenever an implementation encounters a
 /// fatal error condition, it SHOULD send an appropriate fatal alert" (RFC 9846 §6.2). A session
 /// that staged no alert closes the connection once what is sealed has gone, or at once. `quit`
-/// ends a connection the same way, its session's `close_notify` staged in place of an alert.
-fn refuse(self: anytype, at: u8, now_ns: u64) void {
+/// ends a connection the same way, its session's `close_notify` staged in place of an alert. The
+/// lookups hear `reason`: `handshake`, or `closed` once up.
+fn refuse(self: anytype, at: u8, reason: cocuyo.Reason, now_ns: u64) void {
     const connection = &self.connections[at];
     assert(connection.state == .handshaking or connection.state == .up);
-    tcp.abandon(self, at, now_ns);
+    tcp.abandon(self, at, reason, now_ns);
     queue_module.drop_unsealed(self, at);
     connection.state = .closing;
     // It is idle from now, so the idle close's wait bounds it (docs/design.md §16 decision 49).
@@ -230,7 +233,7 @@ pub fn quit(self: anytype, at: u8, now_ns: u64) void {
     const connection = &self.connections[at];
     assert(connection.state == .up);
     connection.tls.session.close();
-    refuse(self, at, now_ns);
+    refuse(self, at, .closed, now_ns);
     assert(connection.state == .closing or connection.state == .closed);
 }
 
@@ -245,7 +248,7 @@ fn open(self: anytype, at: u8, record: []u8, now_ns: u64) bool {
     const opened = connection.tls.session.open(record, connection.frame[connection.used..]) catch {
         // "If the decryption fails, the receiver MUST terminate the connection" (RFC 9846 §5.2),
         // the session's alert said first (rule 4).
-        refuse(self, at, now_ns);
+        refuse(self, at, .closed, now_ns);
         return false;
     };
     if (connection.tls.session.take_ticket()) |ticket| keep(self, connection.server, ticket, now_ns);
@@ -257,7 +260,7 @@ fn open(self: anytype, at: u8, record: []u8, now_ns: u64) bool {
         },
         .nothing => {},
         .closed => {
-            tcp.fail(self, at, now_ns);
+            tcp.fail(self, at, .closed, now_ns);
             return false;
         },
     }
@@ -272,7 +275,7 @@ fn open(self: anytype, at: u8, record: []u8, now_ns: u64) bool {
 pub fn make_records(self: anytype, at: u8, now_ns: u64) bool {
     const connection = &self.connections[at];
     const end = take_out(self, at) orelse {
-        tcp.fail(self, at, now_ns);
+        tcp.fail(self, at, tcp.reason_of(self, at, .local), now_ns);
         return false;
     };
     if (end == connection.tls.out_tail) return true;
@@ -295,11 +298,11 @@ pub fn seal(self: anytype, at: u8, slot: u16, now_ns: u64) bool {
     assert(connection.queue.sealed == 0);
     const query = self.send_buffers[slot][0..self.send_lengths[slot]];
     connection.tls.session.seal(query) catch {
-        tcp.fail(self, at, now_ns);
+        tcp.fail(self, at, .closed, now_ns);
         return false;
     };
     const end = take_out(self, at) orelse {
-        tcp.fail(self, at, now_ns);
+        tcp.fail(self, at, .closed, now_ns);
         return false;
     };
     assert(end > connection.tls.out_tail);

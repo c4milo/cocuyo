@@ -36,7 +36,7 @@ test "a request that failed in a table offers the lookup to the next server" {
     const first = table.poll().?.action.send_request;
     table.resolver.on_sent(handle, table.now_ns);
     try testing.expectEqual(@as(?Event, null), table.poll());
-    table.resolver.on_request_failed(handle, first.transaction, table.now_ns);
+    table.resolver.on_request_failed(handle, first.transaction, .closed, table.now_ns);
     const second = table.poll().?.action.send_request;
     try testing.expect(second.server_index != first.server_index);
     try testing.expect(second.transaction != first.transaction);

@@ -113,6 +113,7 @@ pub const Answer = struct {
 
 pub const Failure = failure_module.Failure;
 pub const Cause = failure_module.Cause;
+pub const Reason = failure_module.Reason;
 
 /// The flags one lookup carries, packed into an octet so the hot block stays inside a cache line.
 /// Whether a server failed the lookup is not one of them: the lookup's `cause` says it
@@ -171,11 +172,11 @@ pub const Lookup = struct {
     now_ns_seen: u64,
     entropy: entropy_module.Entropy,
     failure: core.Error,
-    /// The cause of the last server failure, which `Failure.cause` reports. It is null until a
+    /// The cause of the last server failure, which `Failure.cause` reports. It is `none` until a
     /// server fails the lookup, and nothing clears it after. `Cause` lists each way a server
-    /// fails it: an rcode, or a connection, a handshake or a request that failed. Whether there
-    /// is one decides `AllServersFailed` against `Timeout` (docs/design.md §5).
-    cause: ?Cause,
+    /// fails it: an rcode, or the reason a connection or a request failed. Whether there is one
+    /// decides `AllServersFailed` against `Timeout` (docs/design.md §5).
+    cause: failure_module.Held,
     /// The smallest negative TTL of the candidates the search walk moved past: what
     /// `Failure.negative_ttl_seconds` reports, and what bounds `Answer.ttl_seconds`
     /// (docs/design.md §5). The largest TTL there is until a candidate answers NXDOMAIN or
@@ -271,9 +272,9 @@ pub const Lookup = struct {
         return request_module.on_request_answer(self, transaction, message, age_seconds, now_ns);
     }
 
-    /// A request over DoH or DoQ ended without an answer (docs/design.md §22, §23).
-    pub fn on_request_failed(self: *Lookup, transaction: u16, now_ns: u64) void {
-        request_module.on_request_failed(self, transaction, now_ns);
+    /// A request over DoH or DoQ ended without an answer, for `reason` (docs/design.md §22, §23).
+    pub fn on_request_failed(self: *Lookup, transaction: u16, reason: Reason, now_ns: u64) void {
+        request_module.on_request_failed(self, transaction, reason, now_ns);
     }
 
     pub fn on_tcp_connected(self: *Lookup, now_ns: u64) void {
@@ -283,15 +284,16 @@ pub const Lookup = struct {
         poll_module.arm(self, now_ns);
     }
 
-    /// The connection failed: refused, reset, or its handshake failed. The server refused the
-    /// lookup, which counts as SERVFAIL does (docs/design.md §16 decision 25). The cause is the
-    /// connect's before `on_tcp_connected`, and the stream's after it (§5, The cause of a failure).
-    pub fn on_tcp_failed(self: *Lookup, now_ns: u64) void {
+    /// The connection failed, for `reason`: refused, reset, or its handshake failed. The server
+    /// refused the lookup, which counts as SERVFAIL does (docs/design.md §16 decision 25). The
+    /// reason is the cause, and it must fit the state (§5, The cause of a failure).
+    pub fn on_tcp_failed(self: *Lookup, reason: Reason, now_ns: u64) void {
         self.see(now_ns);
         assert(self.state == .connecting_tcp or self.state == .tcp_ready or
             self.state == .awaiting_tcp);
+        assert(failure_module.fits_stream(self, reason));
         self.servers.record_failure(self.server_slot(), now_ns);
-        self.cause = failure_module.stream_cause(self.state);
+        failure_module.keep(self, .{ .reason = reason });
         self.next_server(now_ns);
     }
 
@@ -394,7 +396,7 @@ pub const Lookup = struct {
         }
         if (self.round == self.config.attempts) {
             // A server that failed the lookup left a cause; silence leaves none (§16 decision 25).
-            self.fail(if (self.cause != null)
+            self.fail(if (self.cause.what != .none)
                 core.Error.AllServersFailed
             else
                 core.Error.Timeout);

@@ -38,7 +38,10 @@ would agree with the code by construction and prove nothing about it.
     unanswered, which nothing checked before the decision.
   - In `LookupProofs/Cause.lean`, `failure_cause`: a lookup that fails with `allServersFailed`
     holds a cause, and one that fails with `timeout` holds none, whatever the caller tells it
-    (design §5, The cause of a failure; §16 decision 45).
+    (design §5, The cause of a failure; §16 decision 45). Since 2026-10-21 it proves too that the
+    cause names a server of the configuration (§16 decision 51). Its lemma `keep_server` reads no
+    more of `keep` than the bound of that server, so an edit of `keep` meets the check of the
+    slice, and not a proof that stops.
 - `lean/Spec/Axioms.lean` pins the axioms each theorem rests on. A proof left unfinished rests on
   `sorryAx`, which changes a pinned line and fails the build.
 - `lean/Spec/Address.lean` is the model of both walks, and `lean/Spec/AddressWalk.lean` walks it and
@@ -74,7 +77,11 @@ would agree with the code by construction and prove nothing about it.
   nothing. The model holds no such state but the cause of the last server failure, and TC=1 does
   not touch that.
 - The server order of §19 step 12. The model counts a position in the order, which is what the
-  lookup's `server_index` is.
+  lookup's `server_index` is. A cause names its server by that position too. The Zig cause names
+  the configured server, and the replay finds that server's position in the lookup's order.
+- TLS. A stream of the model is TCP's, so a failed connection never gives `handshake`. The unit
+  tests of `src/resolver/lookup_failure.zig` and of `io/` show that reason (docs/design.md §16
+  decision 51).
 - Entropy, the cookies' values and the answers' records. Which COOKIE option a query carries,
   none, a fresh client cookie or the server's pair, and a server's silence (docs/design.md §19
   step 10) change no transition: a response that check 6 refuses is an unmatched reply. Nor does
@@ -96,7 +103,7 @@ would agree with the code by construction and prove nothing about it.
 none, one, two or three servers, one to three passes and one to three names, over UDP, under
 `use_tcp`, over DoH, or over DoQ. It tries every enabled event in every state and writes one line
 per transition, with the model's answer and its whole state after it. A state reached a second
-time is written but not walked again, so each transition appears once, 7,530,842 of them in all,
+time is written but not walked again, so each transition appears once, 19,921,682 of them in all,
 183 deep at most. On 2026-10-08 a first BADCOOKIE over a stream became a retry on the stream with
 the fresh server cookie (docs/design.md §5, §19 step 10; c4milo/cocuyo#36), where before it
 advanced the server. The retry reaches states the walk did not reach before: the transcript held
@@ -110,6 +117,16 @@ state's cause is not part of what makes it new to the walk: each line below it r
 which the line that reached it checked. In that slice one pass ended a lookup at its first server
 failure, so no lookup ran with a cause, and no cause replaced another. So the slice gained one
 server with two passes over DoH, 2,282 transitions more, and holds 6,696.
+
+On 2026-10-21 the cause came to name the position of its server. A failed connection or request
+came to carry its reason (docs/design.md §16 decision 51). The model's events `tcp_failed` and
+`request_failed` each take a reason, and the transcript spells one as `tcp_failed_connect`. A
+cause is spelt as what the server gave and that position, as `servfail@1`. A stream before it is
+up takes `connect` or `local`, and after it `closed`. A request takes each reason over DoH, and all
+but `connect` and `status` over DoQ. States that differ in a reason or a server alone are walked
+apart. So the transcript grew from 7,530,842 transitions to 19,921,682, 183 deep. The slice gained
+two servers and one pass over DoQ. There a cause can name a server that the lookup is not on at its
+end. The slice grew from 6,696 transitions to 13,694.
 
 `tools/spec_replay/replay.zig` drives `Lookup` down the same tree. It builds each reply around the
 question the lookup is asking, and it compares the answer and the state after every event: the
@@ -755,9 +772,10 @@ compares the walk's whole state after each.
 
 ## Running it
 
-- `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 6,696
+- `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 13,694
   transitions. It holds one server, one pass and one name, over UDP, over TCP, over DoH and over
   DoQ. It holds one server with two passes over DoH too, where a second cause replaces the first.
+  It holds two servers with one pass over DoQ, where a cause names a server that the lookup left.
   It also
   replays two sets of engine walks TLC wrote. `tools/spec_replay/engine_gate.txt` holds ten walks
   of forty events in each of the thirteen engine configurations.

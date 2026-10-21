@@ -68,7 +68,9 @@ def configsAll (hops : Nat) : List Config := Id.run do
 server, one attempt and one name reach every reply in every state, the whole CNAME chain, the
 TCP path, the DoH path and the DoQ path. One pass ends a lookup at its first server failure.
 So one server with two passes over DoH is walked too. There a lookup runs with a cause, and a
-second cause replaces the first (docs/design.md §5, The cause of a failure). -/
+second cause replaces the first (docs/design.md §5, The cause of a failure). Two servers and one
+pass over DoQ are walked last: there a cause names a server that the lookup is not on at its end
+(docs/design.md §16 decision 51). -/
 def configsGate (hops : Nat) : List Config :=
   [{ servers := 0, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false },
    { servers := 1, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false },
@@ -76,7 +78,9 @@ def configsGate (hops : Nat) : List Config :=
    { servers := 1, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false, request := true },
    { servers := 1, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false, request := true,
      quic := true },
-   { servers := 1, attempts := 2, candidates := 1, hopsMax := hops, useTcp := false, request := true }]
+   { servers := 1, attempts := 2, candidates := 1, hopsMax := hops, useTcp := false, request := true },
+   { servers := 2, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false, request := true,
+     quic := true }]
 
 /-- Writes the transcript of `configs` to `out`. Returns the events written and the deepest. -/
 def transcript (out : IO.FS.Stream) (hops : Nat) (configs : List Config) : IO (Nat × Nat) := do

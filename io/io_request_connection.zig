@@ -111,8 +111,10 @@ pub fn place(self: anytype, index: usize, now_ns: u64) void {
     if (connection.state == .up and connection.users() == 0 and near_idle(self, server, now_ns)) {
         begin_close(self, server);
     }
+    // A connection that cannot open fails its requests, and no server took part (docs/design.md
+    // §5, The cause of a failure).
     if (connection.state == .closed and !open(self, server, now_ns)) {
-        return request_module.fail_all_of(self, server, now_ns);
+        return request_module.fail_all_of(self, server, .local, now_ns);
     }
     // The connection opened above is handshaking: the request waits for its end (rule 4).
     if (connection.state == .up and open_stream(self, server, index, now_ns)) return;
@@ -150,7 +152,7 @@ fn open_stream(self: anytype, server: u8, index: usize, now_ns: u64) bool {
     const request = &self.requests[index];
     assert(connection.state == .up and request.live and request.stream == null);
     const opened = connection.transport.request(&request.bytes, request.len) catch {
-        fail(self, server, now_ns);
+        fail(self, server, .closed, now_ns);
         return false;
     };
     const stream = opened orelse return false;
@@ -237,9 +239,9 @@ pub fn user_data_of(self: anytype, kind: Kind, server: u8) u64 {
 
 // Failing and closing (request rules 7 and 9).
 
-/// Server `server`'s connection fails: each request on it hears so once, and it closes (request
-/// rule 7).
-pub fn fail(self: anytype, server: u8, now_ns: u64) void {
+/// Server `server`'s connection fails, for `reason`: each request on it hears so once, and it
+/// closes (request rule 7).
+pub fn fail(self: anytype, server: u8, reason: cocuyo.Reason, now_ns: u64) void {
     const connection = &self.quic.connections[server];
     // One that closes went idle first, so no request has a stream on it: those that wait never
     // went to it, and it opens again for them (request rule 9).
@@ -247,8 +249,19 @@ pub fn fail(self: anytype, server: u8, now_ns: u64) void {
         assert(connection.streams == 0);
         return reopen(self, server, now_ns);
     }
-    request_module.fail_all_of(self, server, now_ns);
+    // QUIC has no connect of its own, and DoQ no HTTP status (docs/design.md §5, The cause of a
+    // failure).
+    assert(reason != .connect and reason != .status);
+    request_module.fail_all_of(self, server, reason, now_ns);
     shut(self, server);
+}
+
+/// The reason a failure of server `server`'s connection gives its requests: `before` until the
+/// handshake ends, and `closed` once the connection is up (docs/design.md §5, The cause of a
+/// failure).
+pub fn reason_of(self: anytype, server: u8, before: cocuyo.Reason) cocuyo.Reason {
+    assert(before != .closed);
+    return if (self.quic.connections[server].state == .up) .closed else before;
 }
 
 /// Ends an opening: its receive cancelled, which is what makes the loop let it go (rotor decision
@@ -283,7 +296,7 @@ fn reopen(self: anytype, server: u8, now_ns: u64) void {
     const connection = &self.quic.connections[server];
     shut(self, server);
     if (connection.queue_len == 0) return;
-    if (!open(self, server, now_ns)) request_module.fail_all_of(self, server, now_ns);
+    if (!open(self, server, now_ns)) request_module.fail_all_of(self, server, .local, now_ns);
 }
 
 /// Closes every connection with no request on it for `idle_ns`, or near the idle timeout it

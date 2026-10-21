@@ -14,8 +14,8 @@
 # right roots with a name the certificate does not carry, and the right name with a root the chain
 # does not end at (RFC 8310 §5). Each must end in AllServersFailed, a refusal: one that ends in
 # Timeout was not answered at all, which is the network and not strict mode (§16 decision 25). Its
-# cause must be the connect's, since the handshake failed before the connection was up (§5, The
-# cause of a failure).
+# cause must be the handshake's, from the one server the example names (§5, The cause of a
+# failure).
 # Cloudflare is then known by its leaf key alone. Each resolver is also asked AAAA, MX, TXT and
 # HTTPS at once, of a name that has each, and must answer each with records of that type. Google,
 # which shows one of two chains, is asked one name with each of its roots alone, and the run says
@@ -170,7 +170,7 @@ refuse() {
     if answer=$(lookup "$address" "$name" "$@"); then
         echo "RESOLVED what strict mode refuses: $name at $address with $with" >&2
         failures=$((failures + 1))
-    elif echo "$answer" | grep -q "^example.com: AllServersFailed (connect)$"; then
+    elif echo "$answer" | grep -q "^example.com: AllServersFailed (handshake from server 0)$"; then
         echo "refuses $name with $with"
     else
         echo "DID NOT SEE a refusal of $name with $with: $answer" >&2
@@ -208,7 +208,7 @@ pinned() {
         if answer=$(lookup "$address" "pin-sha256:$pin"); then
             echo "RESOLVED through $address by $what alone" >&2
             failures=$((failures + 1))
-        elif echo "$answer" | grep -q "^example.com: AllServersFailed (connect)$"; then
+        elif echo "$answer" | grep -q "^example.com: AllServersFailed (handshake from server 0)$"; then
             echo "refuses $address by $what alone"
         else
             echo "DID NOT SEE a refusal of $address by $what alone: $answer" >&2

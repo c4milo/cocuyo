@@ -162,31 +162,38 @@ test "a request that failed moves the lookup to the next server and counts one f
         try start_over(&harness, list, "example.com.", .a, seed);
         const transaction = (try send(&harness)).send_request.transaction;
         // A failure for a transaction the lookup is not on is nobody's.
-        harness.lookup.on_request_failed(transaction +% 1, harness.now_ns);
+        harness.lookup.on_request_failed(transaction +% 1, .closed, harness.now_ns);
         try testing.expectEqual(@as(u8, 0), harness.lookup.server_index);
-        harness.lookup.on_request_failed(transaction, harness.now_ns);
+        harness.lookup.on_request_failed(transaction, .closed, harness.now_ns);
         try testing.expectEqual(@as(u8, 1), harness.lookup.server_index);
         try testing.expectEqual(@as(u8, 1), harness.servers.failures(0));
         try testing.expectEqual(@as(u8, 1), (try send(&harness)).send_request.server_index);
     }
 }
 
-test "a lookup whose every request failed ends in AllServersFailed" {
+test "a lookup whose every request failed ends in AllServersFailed, on the last reason and its server" {
     // A request that ended without an answer is the server failing the lookup, as SERVFAIL is:
-    // the lookup did not run out of time (docs/design.md §16 decision 25).
-    for (both) |list| {
-        var harness: fixtures.Harness = undefined;
-        try start_over(&harness, list, "example.com.", .a, seed);
-        const tries = @as(usize, harness.config.attempts) * list.len;
-        for (0..tries) |_| {
-            const transaction = (try send(&harness)).send_request.transaction;
-            harness.lookup.on_request_failed(transaction, harness.now_ns);
+    // the lookup did not run out of time (docs/design.md §16 decision 25). The cause is the
+    // reason that the caller gave, from the server that gave it (§5, The cause of a failure).
+    // `connect` and `status` come over DoH alone.
+    const over_https = [_]lookup_module.Reason{ .connect, .handshake, .local, .closed, .status, .reset };
+    const over_quic = [_]lookup_module.Reason{ .handshake, .local, .closed, .reset };
+    const reasons = [_][]const lookup_module.Reason{ &over_https, &over_quic };
+    for (both, reasons) |list, given| {
+        for (given) |reason| {
+            var harness: fixtures.Harness = undefined;
+            try start_over(&harness, list, "example.com.", .a, seed);
+            const tries = @as(usize, harness.config.attempts) * list.len;
+            for (0..tries) |_| {
+                const transaction = (try send(&harness)).send_request.transaction;
+                harness.lookup.on_request_failed(transaction, reason, harness.now_ns);
+            }
+            const failure = harness.poll().failed;
+            try testing.expectEqual(core.Error.AllServersFailed, failure.err);
+            // The last pass failed at the second server, and the lookup ended on the first.
+            try testing.expectEqual(@as(u8, 0), failure.server_index);
+            try testing.expectEqual(@as(?Cause, .{ .server_index = 1, .what = .{ .reason = reason } }), failure.cause);
         }
-        const failure = harness.poll().failed;
-        try testing.expectEqual(core.Error.AllServersFailed, failure.err);
-        // Over DoH and DoQ each failure of a server is the request's: an HTTP status, a stream
-        // the server reset, or a connection or a handshake under it (docs/design.md §5).
-        try testing.expectEqual(@as(?Cause, .request), failure.cause);
     }
 }
 
@@ -207,7 +214,7 @@ test "over DoH or DoQ a truncated answer is read as it stands, marked, and BADCO
         transaction = (try send(&harness)).send_request.transaction;
         try testing.expectEqual(Verdict.accepted, answer(&harness, bad_cookie, transaction, 0));
         try testing.expectEqual(@as(u8, 1), harness.lookup.server_index);
-        try testing.expectEqual(@as(?Cause, .{ .rcode = .bad_cookie }), harness.lookup.cause);
+        try testing.expectEqual(@as(?Cause, .{ .server_index = 0, .what = .{ .rcode = .bad_cookie } }), harness.lookup.cause.get());
         // The server failed the lookup, so it counts against it (§19 step 12).
         try testing.expectEqual(@as(u8, 1), harness.servers.failures(0));
     }

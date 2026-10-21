@@ -1,8 +1,10 @@
 //! `cocuyo_doh` against colibri's server over QUIC in memory (docs/design.md §24, DoH over colibri's
 //! client): a query over HTTP/3, its answer and `Age`, a QUIC ticket, and a second channel whose
-//! QUIC link resumes with it. The test plays the engine, as `io_doh_channel_test.zig`'s does: a
-//! link's connection starts as soon as the channel asks for it, and the channel is read after each
-//! datagram. No TCP server listens, so a TCP link the channel asks for fails at once.
+//! QUIC link resumes with it. A name that the certificate does not carry ends the exchange as a
+//! handshake (docs/design.md §5, The cause of a failure). The test plays the engine, as
+//! `io_doh_channel_test.zig`'s does: a link's connection starts as soon as the channel asks for it,
+//! and the channel is read after each datagram. No TCP server listens, so a TCP link the channel
+//! asks for fails at once.
 const std = @import("std");
 const testing = std.testing;
 const cocuyo = @import("cocuyo");
@@ -61,6 +63,8 @@ const Pair = struct {
     ticket: ?Doh.Ticket = null,
     offer: ?Doh.Ticket = null,
     carried: bool = false,
+    /// The name the channel knows the server by.
+    name: []const u8 = identity.server_name,
 
     fn create(script: tcp_server.Script) !*Pair {
         const pair = try testing.allocator.create(Pair);
@@ -77,7 +81,7 @@ const Pair = struct {
 
     fn open(pair: *Pair, script: tcp_server.Script) !void {
         try pair.server.init(script, identity.unix_seconds, pair.now_ns);
-        const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(identity.server_name) };
+        const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(pair.name) };
         try pair.doh.start(.{
             .server = 0,
             .endpoint = pair.endpoint,
@@ -186,8 +190,8 @@ test "a query goes over HTTP/3 to colibri's server over QUIC, and the next chann
     const finished = (try pair.run(.finished)).finished;
     var answer = query;
     answer[flags_at] |= qr_bit;
-    try testing.expectEqualSlices(u8, &answer, finished.answer.?.message);
-    try testing.expectEqual(@as(u32, 5), finished.answer.?.age_seconds);
+    try testing.expectEqualSlices(u8, &answer, finished.outcome.answer.message);
+    try testing.expectEqual(@as(u32, 5), finished.outcome.answer.age_seconds);
     const first = pair.doh.connected().?;
     try testing.expectEqual(.h3, first.protocol);
     try testing.expect(!first.offered and !first.resumed);
@@ -204,8 +208,21 @@ test "a query goes over HTTP/3 to colibri's server over QUIC, and the next chann
     pair.offer = pair.ticket;
     try pair.open(.{ .tickets = true });
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
-    try testing.expect((try pair.run(.finished)).finished.answer != null);
+    try testing.expect((try pair.run(.finished)).finished.outcome == .answer);
     const second = pair.doh.connected().?;
     try testing.expectEqual(.h3, second.protocol);
     try testing.expect(second.offered and second.resumed);
+}
+
+test "a name the certificate does not carry over QUIC ends the exchange as a handshake" {
+    // The server's datagrams came, so a server took part, though no TCP link connected: no TCP
+    // server listens (docs/design.md §5, The cause of a failure).
+    const pair = try testing.allocator.create(Pair);
+    pair.* = .{ .name = "other.example" };
+    defer pair.free();
+    try pair.open(.{});
+    try testing.expect(pair.doh.request(0, &query, pair.now_ns));
+    const finished = (try pair.run(.finished)).finished;
+    try testing.expectEqual(Doh.Outcome{ .failed = .handshake }, finished.outcome);
+    try testing.expectEqual(.refused, pair.doh.exchanges[0].response.outcome);
 }

@@ -19,22 +19,42 @@ inductive Err where
   | nameNotFound | noData | timeout | allServersFailed | chainTooLong | canceled | noServers
   deriving DecidableEq, Repr, Inhabited, Hashable
 
-/-- What made a server fail the lookup: the cause it keeps, of the last such failure (docs/design.md
-§5, The cause of a failure; §16 decision 45). A reply's rcode, as the model's replies name it, or
-the event that said a transport failed. -/
-inductive Cause where
+/-- Why a transport failed the lookup: the reason the caller passes with `on_tcp_failed` and
+`on_request_failed` (docs/design.md §5, The cause of a failure; §16 decision 51). -/
+inductive Reason where
+  /-- The connect failed. -/
+  | connect
+  /-- The TLS handshake failed, or over DoQ the QUIC handshake. -/
+  | handshake
+  /-- No server took part: no socket, no free connection slot, or no TCP at all. -/
+  | «local»
+  /-- A connection that was up failed, or a send on it. -/
+  | closed
+  /-- Over DoH, an HTTP response that holds no DNS message. -/
+  | status
+  /-- Over DoH or DoQ, a stream that the server reset. -/
+  | reset
+  deriving DecidableEq, Repr, Inhabited, Hashable
+
+/-- What a server gave when it failed the lookup: a reply's rcode, as the model's replies name it,
+or the reason the caller passed. -/
+inductive What where
   /-- SERVFAIL, REFUSED or NOTIMP. -/
   | servfail
   /-- FORMERR to a query without EDNS0. -/
   | formerr
   /-- BADCOOKIE that advances the server: over a stream after its retry, or over DoH or DoQ. -/
   | badcookie
-  /-- `on_tcp_failed` while the lookup connects: the connect, or over TLS the handshake. -/
-  | connect
-  /-- `on_tcp_failed` once the connection is up. -/
-  | stream
-  /-- `on_request_failed`: a request over DoH or DoQ ended without an answer. -/
-  | request
+  /-- A connection or a request that failed, and why. -/
+  | reason (r : Reason)
+  deriving DecidableEq, Repr, Inhabited, Hashable
+
+/-- What made a server fail the lookup, and that server: the cause the lookup keeps, of the last
+such failure (docs/design.md §5, The cause of a failure; §16 decisions 45 and 51). The server is a
+position in the order, as the state's `server` is. -/
+structure Cause where
+  server : Nat
+  what : What
   deriving DecidableEq, Repr, Inhabited, Hashable
 
 /-- What a datagram or a stream message is, once §7's checks and §5's rcode policy have read it. -/
@@ -70,10 +90,11 @@ inductive Event where
   | sent
   | sendFailed
   | tcpConnected
-  | tcpFailed
-  /-- A request over DoH or DoQ ended without an answer: an HTTP status that is not 2xx, a QUIC
-  stream the server reset, or the connection lost (docs/design.md §22, §23). -/
-  | requestFailed
+  /-- A connection failed, and why (docs/design.md §16 decision 51). -/
+  | tcpFailed (r : Reason)
+  /-- A request over DoH or DoQ ended without an answer, and why: an HTTP status that is not 2xx,
+  a stream the server reset, or the connection lost (docs/design.md §22, §23). -/
+  | requestFailed (r : Reason)
   | reply (r : Reply)
   | cancel
   deriving DecidableEq, Repr, Inhabited
@@ -138,9 +159,9 @@ def init (c : Config) : State :=
                      cookieRetried := false, offered := false, err := .timeout }
   if c.servers = 0 then fail s .noServers else s
 
-/-- A server failed the lookup with cause `k`: the cause replaces the one the lookup held, and
-nothing else changes (§5, The cause of a failure). -/
-def keep (s : State) (k : Cause) : State := { s with cause := some k }
+/-- The current server failed the lookup with `w`: the cause, `w` and that server, replaces the one
+the lookup held, and nothing else changes (§5, The cause of a failure). -/
+def keep (s : State) (w : What) : State := { s with cause := some { server := s.server, what := w } }
 
 /-- The next server, then the next pass, then failure (§5, retry policy). EDNS0 is back on: that a
 server does not speak it is a fact about that server (RFC 6891 §6.2.2). -/
@@ -222,10 +243,17 @@ def onStream (s : Stage) : Bool :=
   | .connectingTcp | .tcpReady | .awaitingTcp => true
   | _ => false
 
-/-- The cause a failed stream keeps: the connect's while the lookup connects, which over TLS is the
-handshake's too, and the stream's once the lookup was told the connection is up (§5, The cause of
-a failure). -/
-def streamCause (s : Stage) : Cause := if s = .connectingTcp then .connect else .stream
+/-- The reasons a caller may give a failed connection (§16 decision 51): what failed before the
+lookup was told the connection is up, and `closed` after. The model holds no TLS, so `handshake`
+never comes here. -/
+def tcpReasons (s : Stage) : List Reason :=
+  if s = .connectingTcp then [.connect, .«local»] else [.closed]
+
+/-- The reasons a caller may give a failed request (§16 decision 51): over DoQ no connect and no
+HTTP status, and over DoH each reason. -/
+def requestReasons (c : Config) : List Reason :=
+  if c.quic then [.handshake, .«local», .closed, .reset]
+  else [.connect, .handshake, .«local», .closed, .status, .reset]
 
 /-- One event, and what the lookup answers. -/
 def step (c : Config) (s : State) : Event → State × Out
@@ -245,15 +273,14 @@ def step (c : Config) (s : State) : Event → State × Out
     | .connectingTcp => ({ s with stage := .tcpReady }, .none)
     | _ => (s, .none)
   -- A connection or a handshake that failed is the server refusing the lookup, which counts as
-  -- SERVFAIL does (§16 decision 25). The lookup is told that a connection is up only after its
-  -- handshake (§21, TLS rule 1), so a failure before that is the connect's (§16 decision 45).
-  | .tcpFailed =>
-    if onStream s.stage then (advanceServer c (keep s (streamCause s.stage)), .none)
+  -- SERVFAIL does (§16 decision 25). The cause is the reason the caller gave (§16 decision 51).
+  | .tcpFailed r =>
+    if onStream s.stage then (advanceServer c (keep s (.reason r)), .none)
     else (s, .none)
   -- An HTTP or a QUIC failure is the server's: the next one (docs/design.md §22, §23), counted as
   -- the stream's is.
-  | .requestFailed =>
-    if c.request ∧ s.stage = .awaitingUdp then (advanceServer c (keep s .request), .none)
+  | .requestFailed r =>
+    if c.request ∧ s.stage = .awaitingUdp then (advanceServer c (keep s (.reason r)), .none)
     else (s, .none)
   | .reply r =>
     match s.stage with
@@ -276,8 +303,9 @@ def enabled (c : Config) (s : State) : List Event :=
     ++ (if waiting s.stage then [Event.expire] else [])
     ++ (if s.offered then [Event.sent, .sendFailed] else [])
     ++ (if s.stage = .connectingTcp then [Event.tcpConnected] else [])
-    ++ (if onStream s.stage then [Event.tcpFailed] else [])
-    ++ (if c.request ∧ s.stage = .awaitingUdp then [Event.requestFailed] else [])
+    ++ (if onStream s.stage then (tcpReasons s.stage).map Event.tcpFailed else [])
+    ++ (if c.request ∧ s.stage = .awaitingUdp then (requestReasons c).map Event.requestFailed
+        else [])
     ++ (if waiting s.stage then replies else [Event.reply .unmatched])
     ++ (if ended s.stage then [] else [Event.cancel])
 

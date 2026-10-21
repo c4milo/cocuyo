@@ -13,8 +13,8 @@ namespace Spec.Lookup
 
 /-- An event that is a server refusing the lookup, delivered while the lookup can take it. -/
 def Refusal (c : Config) (s : State) (e : Event) : Prop :=
-  (e = .tcpFailed ∧ onStream s.stage = true) ∨
-    (e = .requestFailed ∧ c.request = true ∧ s.stage = .awaitingUdp)
+  ((∃ r, e = .tcpFailed r) ∧ onStream s.stage = true) ∨
+    ((∃ r, e = .requestFailed r) ∧ c.request = true ∧ s.stage = .awaitingUdp)
 
 /-- A lookup a server failed: it holds the cause that decides the failure, and a lookup that has
 failed did not fail with `timeout`. -/
@@ -109,12 +109,12 @@ theorem marked_step (c : Config) (s : State) (e : Event) (m : Marked s) :
     cases hst : s.stage <;> simp only [step, hst] <;>
       first | exact hadv s h | exact ⟨h, ht⟩
   | tcpConnected => cases hst : s.stage <;> simp_all [step, Marked]
-  | tcpFailed =>
+  | tcpFailed _ =>
     simp only [step]
     split
     · exact hadv _ (keep_isSome _ _)
     · exact ⟨h, ht⟩
-  | requestFailed =>
+  | requestFailed _ =>
     simp only [step]
     split
     · exact hadv _ (keep_isSome _ _)
@@ -133,7 +133,7 @@ theorem marked_step (c : Config) (s : State) (e : Event) (m : Marked s) :
 /-- A refusal marks the lookup. -/
 theorem refusal_marks (c : Config) (s : State) (e : Event) (r : Refusal c s e) :
     Marked (step c s e).1 := by
-  rcases r with ⟨he, hs⟩ | ⟨he, hc, hs⟩
+  rcases r with ⟨⟨_, he⟩, hs⟩ | ⟨⟨_, he⟩, hc, hs⟩
   · subst he; simp only [step, hs]; exact marked_advanceServer c _ (keep_isSome _ _)
   · subst he; simp only [step, hc, hs]; exact marked_advanceServer c _ (keep_isSome _ _)
 

@@ -106,10 +106,11 @@
         .id = "ET4",
         .what = "a declined ticket fails the connection",
         .edits = .{
-            .{ .file = "io/io_tls.zig", .old = "        if (connection.tls.ticket != null) tcp.retry_full(self, at, now_ns) else refuse(self, at, now_ns);", .new = "        if (connection.tls.ticket != null) tcp.fail(self, at, now_ns) else refuse(self, at, now_ns);" },
+            .{ .file = "io/io_tls.zig", .old = "        if (connection.tls.ticket != null) tcp.retry_full(self, at, now_ns) else refuse(self, at, .handshake, now_ns);", .new = "        if (connection.tls.ticket != null) tcp.fail(self, at, .handshake, now_ns) else refuse(self, at, .handshake, now_ns);" },
         },
         .caught_by = .picked_walks,
     },
+
     .{
         .section = "The engine over TLS",
         .id = "ET5",
@@ -205,10 +206,11 @@
         .id = "ET15",
         .what = "a handshake the session refused closes its connection at once, its alert unsent",
         .edits = .{
-            .{ .file = "io/io_tls.zig", .old = "        if (connection.tls.ticket != null) tcp.retry_full(self, at, now_ns) else refuse(self, at, now_ns);", .new = "        if (connection.tls.ticket != null) tcp.retry_full(self, at, now_ns) else tcp.fail(self, at, now_ns);" },
+            .{ .file = "io/io_tls.zig", .old = "        if (connection.tls.ticket != null) tcp.retry_full(self, at, now_ns) else refuse(self, at, .handshake, now_ns);", .new = "        if (connection.tls.ticket != null) tcp.retry_full(self, at, now_ns) else tcp.fail(self, at, .handshake, now_ns);" },
         },
         .caught_by = .short_walks,
     },
+
     .{
         .section = "The engine over TLS",
         .id = "ET16",
@@ -223,19 +225,21 @@
         .id = "ET17",
         .what = "a record the session refuses once up closes the connection at once, its alert unsent",
         .edits = .{
-            .{ .file = "io/io_tls.zig", .old = "        // the session's alert said first (rule 4).\n        refuse(self, at, now_ns);", .new = "        // the session's alert said first (rule 4).\n        tcp.fail(self, at, now_ns);" },
+            .{ .file = "io/io_tls.zig", .old = "        // the session's alert said first (rule 4).\n        refuse(self, at, .closed, now_ns);", .new = "        // the session's alert said first (rule 4).\n        tcp.fail(self, at, .closed, now_ns);" },
         },
         .caught_by = .picked_walks,
     },
+
     .{
         .section = "The engine over TLS",
         .id = "ET18",
         .what = "a refusal leaves the queries not yet sealed queued behind the alert",
         .edits = .{
-            .{ .file = "io/io_tls.zig", .old = "    tcp.abandon(self, at, now_ns);\n    queue_module.drop_unsealed(self, at);\n", .new = "    tcp.abandon(self, at, now_ns);\n" },
+            .{ .file = "io/io_tls.zig", .old = "    tcp.abandon(self, at, reason, now_ns);\n    queue_module.drop_unsealed(self, at);\n", .new = "    tcp.abandon(self, at, reason, now_ns);\n" },
         },
         .caught_by = .picked_walks,
     },
+
     .{
         .section = "One send a stream",
         .id = "SQ1",
@@ -277,10 +281,11 @@
         .id = "SQ5",
         .what = "a failed send leaves the connection up",
         .edits = .{
-            .{ .file = "io/io_tcp_queue.zig", .old = "        send_module.give_back(self, slot);\n        return tcp.fail(self, at, now_ns);", .new = "        send_module.give_back(self, slot);\n        return after_send(self, at, now_ns);" },
+            .{ .file = "io/io_tcp_queue.zig", .old = "        send_module.give_back(self, slot);\n        return tcp.fail(self, at, .closed, now_ns);", .new = "        send_module.give_back(self, slot);\n        return after_send(self, at, now_ns);" },
         },
         .caught_by = .short_walks,
     },
+
     .{
         .section = "One send a stream",
         .id = "SQ6",
@@ -313,10 +318,11 @@
         .id = "SQ9",
         .what = "a send the loop refuses leaves the queue stuck",
         .edits = .{
-            .{ .file = "io/io_tcp_queue.zig", .old = "    if (self.loop.submit(&.{operation}, &handles) != 1) return tcp.fail(self, at, now_ns);", .new = "    _ = now_ns;\n    if (self.loop.submit(&.{operation}, &handles) != 1) return;" },
+            .{ .file = "io/io_tcp_queue.zig", .old = "    if (self.loop.submit(&.{operation}, &handles) != 1) return tcp.fail(self, at, tcp.reason_of(self, at, .local), now_ns);", .new = "    _ = now_ns;\n    if (self.loop.submit(&.{operation}, &handles) != 1) return;" },
         },
         .caught_by = .short_walks,
     },
+
     .{
         .section = "One send a stream",
         .id = "SQ10",
@@ -496,10 +502,11 @@
         .id = "RW3",
         .what = "a connection that fails tells none of its requests",
         .edits = .{
-            .{ .file = "io/io_request.zig", .old = "    if (current(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, now_ns);", .new = "    if (current(self, index) and false) self.resolver.on_request_failed(request.handle, request.transaction, now_ns);" },
+            .{ .file = "io/io_request.zig", .old = "    if (current(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns);", .new = "    if (current(self, index) and false) self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns);" },
         },
         .caught_by = .short_walks,
     },
+
     .{
         .section = "Requests replayed on the model's walks",
         .id = "RW4",
@@ -604,10 +611,11 @@
         .id = "CE2",
         .what = "an exchange that ends in failure tells its lookup nothing",
         .edits = .{
-            .{ .file = "io/io_channel.zig", .old = "            self.resolver.on_request_failed(request.handle, request.transaction, now_ns);\n        }\n", .new = "            {}\n        }\n" },
+            .{ .file = "io/io_channel.zig", .old = "            .failed => |reason| self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns),", .new = "            .failed => {}," },
         },
         .caught_by = .short_walks,
     },
+
     .{
         .section = "The engine's DoH over a channel",
         .id = "CE3",
@@ -650,10 +658,11 @@
         .id = "CE7",
         .what = "a channel's close drops the requests that waited, and opens none",
         .edits = .{
-            .{ .file = "io/io_channel.zig", .old = "    if (slot.queue_len == 0) return;\n    if (!open(self, server, now_ns)) return fail_waiting(self, server, now_ns);\n    give_waiting(self, server, now_ns);\n", .new = "    slot.queue_len = 0;\n    _ = now_ns;\n" },
+            .{ .file = "io/io_channel.zig", .old = "    if (slot.queue_len == 0) return;\n    if (!open(self, server, now_ns)) return fail_waiting(self, server, .local, now_ns);\n    give_waiting(self, server, now_ns);\n", .new = "    slot.queue_len = 0;\n    _ = now_ns;\n" },
         },
         .caught_by = .short_walks,
     },
+
     .{
         .section = "The engine's DoH over a channel",
         .id = "CE8",
@@ -776,10 +785,11 @@
         .id = "CE21",
         .what = "a request whose channel cannot open is dropped, and not failed",
         .edits = .{
-            .{ .file = "io/io_channel.zig", .old = "!open(self, server, now_ns)) return fail_one(self, index, now_ns);", .new = "!open(self, server, now_ns)) return;" },
+            .{ .file = "io/io_channel.zig", .old = "!open(self, server, now_ns)) return fail_one(self, index, .local, now_ns);", .new = "!open(self, server, now_ns)) return;" },
         },
         .caught_by = .{ .step = "test-io" },
     },
+
     .{
         .section = "cocuyo_doh over colibri's channel",
         .id = "DC1",
@@ -891,9 +901,9 @@
     .{
         .section = "cocuyo_doh over colibri's channel",
         .id = "DC13",
-        .what = "an exchange that ended without a whole response is an answer",
+        .what = "an exchange that ended without a whole response is read as a response",
         .edits = .{
-            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    if (response.outcome != .response) return null;\n", .new = "" },
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    if (outcome != .response) return .{ .failed = reason_of(outcome, slot.up, slot.heard) };\n", .new = "" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -965,7 +975,7 @@
         .id = "DC21",
         .what = "the version a connection speaks is told to the engine as the TCP link's close",
         .edits = .{
-            .{ .file = "io/io_doh_channel_read.zig", .old = "            self.protocol = protocol;\n            return null;", .new = "            self.protocol = protocol;\n            return .{ .close = .tcp };" },
+            .{ .file = "io/io_doh_channel_read.zig", .old = "            came_up(self, if (protocol == .h3) .quic else .tcp);\n            return null;", .new = "            came_up(self, if (protocol == .h3) .quic else .tcp);\n            return .{ .close = .tcp };" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -1001,7 +1011,7 @@
         .id = "DC25",
         .what = "the version the channel came up on is not kept",
         .edits = .{
-            .{ .file = "io/io_doh_channel_read.zig", .old = "            self.protocol = protocol;\n", .new = "            _ = protocol;\n" },
+            .{ .file = "io/io_doh_channel_read.zig", .old = "            self.protocol = protocol;\n", .new = "" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -1787,19 +1797,21 @@
         .id = "SB27",
         .what = "a prefix too long over TLS closes the connection at once, its close_notify unsaid",
         .edits = .{
-            .{ .file = "io/io_tcp_frame.zig", .old = "    if (tls_module.speaks(self)) tls_module.quit(self, at, now_ns) else tcp.fail(self, at, now_ns);", .new = "    tcp.fail(self, at, now_ns);" },
+            .{ .file = "io/io_tcp_frame.zig", .old = "    if (tls_module.speaks(self)) tls_module.quit(self, at, now_ns) else tcp.fail(self, at, .closed, now_ns);", .new = "    tcp.fail(self, at, .closed, now_ns);" },
         },
         .caught_by = .{ .step = "test-io" },
     },
+
     .{
         .section = "What a survey of the named limits found",
         .id = "SB28",
         .what = "a connection that quits stages no close_notify, and closes at once",
         .edits = .{
-            .{ .file = "io/io_tls.zig", .old = "    connection.tls.session.close();\n    refuse(self, at, now_ns);", .new = "    refuse(self, at, now_ns);" },
+            .{ .file = "io/io_tls.zig", .old = "    connection.tls.session.close();\n    refuse(self, at, .closed, now_ns);", .new = "    refuse(self, at, .closed, now_ns);" },
         },
         .caught_by = .{ .step = "test-io" },
     },
+
     .{
         .section = "Tests at the named limits",
         .id = "LM29",
@@ -2592,46 +2604,51 @@
         .id = "LC20",
         .what = "a connect that failed tells its lookups the connection is up first",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "    } else |_| {\n        fail(self, @intCast(at), now_ns);\n    }", .new = "    } else |_| {\n        tell_all(self, @intCast(at), now_ns, true);\n        fail(self, @intCast(at), now_ns);\n    }" },
+            .{ .file = "io/io_tcp.zig", .old = "    } else |_| {\n        fail(self, @intCast(at), .connect, now_ns);\n    }", .new = "    } else |_| {\n        tell_all(self, @intCast(at), now_ns, null);\n        fail(self, @intCast(at), .connect, now_ns);\n    }" },
         },
         .caught_by = .{ .step = "test-io" },
     },
+
     .{
         .section = "The cause of a failure",
         .id = "LC21",
         .what = "a TLS connection tells its lookups it is up when its handshake starts",
         .edits = .{
-            .{ .file = "io/io_tls.zig", .old = "    }) catch return tcp.fail(self, at, now_ns);\n    _ = make_records(self, at, now_ns);\n}", .new = "    }) catch return tcp.fail(self, at, now_ns);\n    tcp.tell_all(self, at, now_ns, true);\n    _ = make_records(self, at, now_ns);\n}" },
+            .{ .file = "io/io_tls.zig", .old = "    }) catch return tcp.fail(self, at, .local, now_ns);\n    _ = make_records(self, at, now_ns);\n}", .new = "    }) catch return tcp.fail(self, at, .local, now_ns);\n    tcp.tell_all(self, at, now_ns, null);\n    _ = make_records(self, at, now_ns);\n}" },
         },
         .caught_by = .{ .step = "test-io" },
     },
+
     .{
         .section = "The cause of a failure",
         .id = "LC32",
         .what = "an engine that keeps no TCP connection tells the lookup it is up before it fails it",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "    if (comptime !@TypeOf(self.*).keeps_tcp) return self.resolver.on_tcp_failed(handle, now_ns);\n    const server", .new = "    if (comptime !@TypeOf(self.*).keeps_tcp) {\n        self.resolver.on_tcp_connected(handle, now_ns);\n        return self.resolver.on_tcp_failed(handle, now_ns);\n    }\n    const server" },
+            .{ .file = "io/io_tcp.zig", .old = "    if (comptime !@TypeOf(self.*).keeps_tcp) return self.resolver.on_tcp_failed(handle, .local, now_ns);\n    const server", .new = "    if (comptime !@TypeOf(self.*).keeps_tcp) {\n        self.resolver.on_tcp_connected(handle, now_ns);\n        return self.resolver.on_tcp_failed(handle, .local, now_ns);\n    }\n    const server" },
         },
         .caught_by = .{ .step = "test-io" },
     },
+
     .{
         .section = "The cause of a failure",
         .id = "LC33",
         .what = "a lookup that finds no free connection slot is told it is up before it is failed",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "        return self.resolver.on_tcp_failed(handle, now_ns);\n    };\n    if (self.connections[at].state == .up)", .new = "        self.resolver.on_tcp_connected(handle, now_ns);\n        return self.resolver.on_tcp_failed(handle, now_ns);\n    };\n    if (self.connections[at].state == .up)" },
+            .{ .file = "io/io_tcp.zig", .old = "        return self.resolver.on_tcp_failed(handle, .local, now_ns);\n    };\n    if (self.connections[at].state == .up)", .new = "        self.resolver.on_tcp_connected(handle, now_ns);\n        return self.resolver.on_tcp_failed(handle, .local, now_ns);\n    };\n    if (self.connections[at].state == .up)" },
         },
         .caught_by = .{ .step = "test-io" },
     },
+
     .{
         .section = "The cause of a failure",
         .id = "LC34",
         .what = "a stream send that moved nothing is reported as a failed send before the connection fails",
         .edits = .{
-            .{ .file = "io/io_tcp_queue.zig", .old = "        finish_head(self, at);\n        send_module.give_back(self, slot);\n        return tcp.fail(self, at, now_ns);", .new = "        finish_head(self, at);\n        send_module.finish(self, slot, false, now_ns);\n        return tcp.fail(self, at, now_ns);" },
+            .{ .file = "io/io_tcp_queue.zig", .old = "        finish_head(self, at);\n        send_module.give_back(self, slot);\n        return tcp.fail(self, at, .closed, now_ns);", .new = "        finish_head(self, at);\n        send_module.finish(self, slot, false, now_ns);\n        return tcp.fail(self, at, .closed, now_ns);" },
         },
         .caught_by = .{ .step = "test-io" },
     },
+
     .{
         .section = "A pass that waits for a connection slot",
         .id = "TS1",
@@ -3646,5 +3663,522 @@
             .{ .file = "io/io_tcp.zig", .old = "    if (connection.send_handle) |handle| self.loop.cancel(handle);\n    if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);\n", .new = "    if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);\n" },
         },
         .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS20",
+        .what = "an engine with no TCP connection gives the reason connect",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    if (comptime !@TypeOf(self.*).keeps_tcp) return self.resolver.on_tcp_failed(handle, .local, now_ns);", .new = "    if (comptime !@TypeOf(self.*).keeps_tcp) return self.resolver.on_tcp_failed(handle, .connect, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS21",
+        .what = "no slot, or a socket refused, gives the reason connect",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        return self.resolver.on_tcp_failed(handle, .local, now_ns);\n    };", .new = "        return self.resolver.on_tcp_failed(handle, .connect, now_ns);\n    };" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS22",
+        .what = "a connect that failed gives the reason local",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        fail(self, @intCast(at), .connect, now_ns);", .new = "        fail(self, @intCast(at), .local, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS23",
+        .what = "a peer that closes gives the handshake's reason once the connection is up",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        if (count == 0) return fail(self, @intCast(at), reason_of(self, @intCast(at), .handshake), now_ns);", .new = "        if (count == 0) return fail(self, @intCast(at), .handshake, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS24",
+        .what = "a peer that closes during the handshake gives the reason local",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        if (count == 0) return fail(self, @intCast(at), reason_of(self, @intCast(at), .handshake), now_ns);", .new = "        if (count == 0) return fail(self, @intCast(at), reason_of(self, @intCast(at), .local), now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS25",
+        .what = "a receive that failed during the handshake gives the reason closed",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        if (err != error.BuffersExhausted) return fail(self, @intCast(at), reason_of(self, @intCast(at), .handshake), now_ns);", .new = "        if (err != error.BuffersExhausted) return fail(self, @intCast(at), .closed, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS26",
+        .what = "a failure of a connection that is up gives the reason it would give before",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    return if (self.connections[at].state == .up) .closed else before;", .new = "    _ = self;\n    _ = at;\n    return before;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS27",
+        .what = "a connection that cannot connect again gives the reason connect",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    connect(self, at, connection.server) catch return fail(self, at, .local, now_ns);", .new = "    connect(self, at, connection.server) catch return fail(self, at, .connect, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS28",
+        .what = "a lookup ready to send on a connection that is gone gives the reason connect",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "    const at = up_connection(self, index) orelse return self.resolver.on_tcp_failed(handle, .closed, now_ns);", .new = "    const at = up_connection(self, index) orelse return self.resolver.on_tcp_failed(handle, .connect, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS29",
+        .what = "a send the loop refuses during the handshake gives the reason handshake",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "    if (self.loop.submit(&.{operation}, &handles) != 1) return tcp.fail(self, at, tcp.reason_of(self, at, .local), now_ns);", .new = "    if (self.loop.submit(&.{operation}, &handles) != 1) return tcp.fail(self, at, tcp.reason_of(self, at, .handshake), now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS30",
+        .what = "a query's send that moved nothing gives the reason local",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "        send_module.give_back(self, slot);\n        return tcp.fail(self, at, .closed, now_ns);", .new = "        send_module.give_back(self, slot);\n        return tcp.fail(self, at, .local, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS31",
+        .what = "a send of the session's records that moved nothing during the handshake gives the reason local",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "    if (count == 0) return tcp.fail(self, at, tcp.reason_of(self, at, .handshake), now_ns);", .new = "    if (count == 0) return tcp.fail(self, at, tcp.reason_of(self, at, .local), now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS32",
+        .what = "a prefix that says more than the connection assembles gives the reason local in the clear",
+        .edits = .{
+            .{ .file = "io/io_tcp_frame.zig", .old = "    if (tls_module.speaks(self)) tls_module.quit(self, at, now_ns) else tcp.fail(self, at, .closed, now_ns);", .new = "    if (tls_module.speaks(self)) tls_module.quit(self, at, now_ns) else tcp.fail(self, at, .local, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS33",
+        .what = "a TLS session that cannot start gives the reason handshake",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "    }) catch return tcp.fail(self, at, .local, now_ns);", .new = "    }) catch return tcp.fail(self, at, .handshake, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS34",
+        .what = "a record longer than TLS allows during the handshake gives the reason local",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "catch return tcp.fail(self, at, tcp.reason_of(self, at, .handshake), now_ns);", .new = "catch return tcp.fail(self, at, tcp.reason_of(self, at, .local), now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS35",
+        .what = "a handshake the session refused gives the reason connect",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "        if (connection.tls.ticket != null) tcp.retry_full(self, at, now_ns) else refuse(self, at, .handshake, now_ns);", .new = "        if (connection.tls.ticket != null) tcp.retry_full(self, at, now_ns) else refuse(self, at, .connect, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS36",
+        .what = "a connection that quits gives the reason handshake",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "    connection.tls.session.close();\n    refuse(self, at, .closed, now_ns);", .new = "    connection.tls.session.close();\n    refuse(self, at, .handshake, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS37",
+        .what = "a record the session refused once up gives the reason handshake",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "        // the session's alert said first (rule 4).\n        refuse(self, at, .closed, now_ns);", .new = "        // the session's alert said first (rule 4).\n        refuse(self, at, .handshake, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS38",
+        .what = "the peer's close_notify gives the reason handshake",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "        .closed => {\n            tcp.fail(self, at, .closed, now_ns);", .new = "        .closed => {\n            tcp.fail(self, at, .handshake, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS39",
+        .what = "a records buffer with no room during the handshake gives the reason handshake",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "    const end = take_out(self, at) orelse {\n        tcp.fail(self, at, tcp.reason_of(self, at, .local), now_ns);", .new = "    const end = take_out(self, at) orelse {\n        tcp.fail(self, at, tcp.reason_of(self, at, .handshake), now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS40",
+        .what = "a query the session cannot seal gives the reason local",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "    connection.tls.session.seal(query) catch {\n        tcp.fail(self, at, .closed, now_ns);", .new = "    connection.tls.session.seal(query) catch {\n        tcp.fail(self, at, .local, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS50",
+        .what = "a DoQ connection that cannot open gives the reason closed",
+        .edits = .{
+            .{ .file = "io/io_request_connection.zig", .old = "        return request_module.fail_all_of(self, server, .local, now_ns);\n    }", .new = "        return request_module.fail_all_of(self, server, .closed, now_ns);\n    }" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS51",
+        .what = "a DoQ stream that cannot open gives the reason local",
+        .edits = .{
+            .{ .file = "io/io_request_connection.zig", .old = "        fail(self, server, .closed, now_ns);\n        return false;", .new = "        fail(self, server, .local, now_ns);\n        return false;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS52",
+        .what = "a DoQ connection that cannot open again gives the reason closed",
+        .edits = .{
+            .{ .file = "io/io_request_connection.zig", .old = "    if (!open(self, server, now_ns)) request_module.fail_all_of(self, server, .local, now_ns);", .new = "    if (!open(self, server, now_ns)) request_module.fail_all_of(self, server, .closed, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS53",
+        .what = "a failure of a DoQ connection that is up gives the reason it would give before",
+        .edits = .{
+            .{ .file = "io/io_request_connection.zig", .old = "    return if (self.quic.connections[server].state == .up) .closed else before;", .new = "    _ = self;\n    _ = server;\n    return before;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS54",
+        .what = "a DoQ datagram whose send failed during the handshake gives the reason local",
+        .edits = .{
+            .{ .file = "io/io_request_events.zig", .old = "    if (event.outcome()) |_| {} else |_| return connection_module.fail(self, server, connection_module.reason_of(self, server, .handshake), now_ns);", .new = "    if (event.outcome()) |_| {} else |_| return connection_module.fail(self, server, connection_module.reason_of(self, server, .local), now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS55",
+        .what = "a DoQ receive that failed during the handshake gives the reason local",
+        .edits = .{
+            .{ .file = "io/io_request_events.zig", .old = "        if (err != error.BuffersExhausted) return connection_module.fail(self, server, connection_module.reason_of(self, server, .handshake), now_ns);", .new = "        if (err != error.BuffersExhausted) return connection_module.fail(self, server, connection_module.reason_of(self, server, .local), now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS56",
+        .what = "a DoQ datagram the transport refused during the handshake gives the reason local",
+        .edits = .{
+            .{ .file = "io/io_request_events.zig", .old = "        connection_module.fail(self, server, connection_module.reason_of(self, server, .handshake), now_ns);\n        return false;", .new = "        connection_module.fail(self, server, connection_module.reason_of(self, server, .local), now_ns);\n        return false;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS57",
+        .what = "a refused QUIC handshake gives the reason closed",
+        .edits = .{
+            .{ .file = "io/io_request_events.zig", .old = "            .refused => connection_module.fail(self, server, .handshake, now_ns),", .new = "            .refused => connection_module.fail(self, server, .closed, now_ns)," },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS58",
+        .what = "a DoQ connection that ended during the handshake gives the reason local",
+        .edits = .{
+            .{ .file = "io/io_request_events.zig", .old = "            .closed => connection_module.fail(self, server, connection_module.reason_of(self, server, .handshake), now_ns),", .new = "            .closed => connection_module.fail(self, server, connection_module.reason_of(self, server, .local), now_ns)," },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS59",
+        .what = "a handshake that ended on another ALPN gives the reason closed",
+        .edits = .{
+            .{ .file = "io/io_request_events.zig", .old = "    if (!std.mem.eql(u8, alpn, constants.quic_alpn_doq)) return connection_module.fail(self, server, .handshake, now_ns);", .new = "    if (!std.mem.eql(u8, alpn, constants.quic_alpn_doq)) return connection_module.fail(self, server, .closed, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS60",
+        .what = "a DoQ answer longer than the engine's buffer gives the reason local",
+        .edits = .{
+            .{ .file = "io/io_request_events.zig", .old = "    if (answered.len > self.answer.len) return connection_module.fail(self, server, .closed, now_ns);", .new = "    if (answered.len > self.answer.len) return connection_module.fail(self, server, .local, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS61",
+        .what = "a DoQ answer that breaks RFC 9250 gives the reason local",
+        .edits = .{
+            .{ .file = "io/io_request_events.zig", .old = "orelse return connection_module.fail(self, server, .closed, now_ns);\n    ended(", .new = "orelse return connection_module.fail(self, server, .local, now_ns);\n    ended(" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS62",
+        .what = "a DoQ stream the server reset gives the reason closed",
+        .edits = .{
+            .{ .file = "io/io_request_events.zig", .old = "            self.resolver.on_request_failed(request.handle, request.transaction, .reset, now_ns);", .new = "            self.resolver.on_request_failed(request.handle, request.transaction, .closed, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS63",
+        .what = "a DoQ request fails with closed, whatever reason its connection gave",
+        .edits = .{
+            .{ .file = "io/io_request.zig", .old = "    if (current(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns);", .new = "    _ = reason;\n    if (current(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, .closed, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS70",
+        .what = "a DoH channel that cannot open gives the reason closed",
+        .edits = .{
+            .{ .file = "io/io_channel.zig", .old = "!open(self, server, now_ns)) return fail_one(self, index, .local, now_ns);", .new = "!open(self, server, now_ns)) return fail_one(self, index, .closed, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS71",
+        .what = "a DoH channel that cannot open again gives the reason closed",
+        .edits = .{
+            .{ .file = "io/io_channel.zig", .old = "    if (!open(self, server, now_ns)) return fail_waiting(self, server, .local, now_ns);", .new = "    if (!open(self, server, now_ns)) return fail_waiting(self, server, .closed, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS72",
+        .what = "a DoH exchange fails with closed, whatever reason the channel gave",
+        .edits = .{
+            .{ .file = "io/io_channel.zig", .old = "            .failed => |reason| self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns),", .new = "            .failed => self.resolver.on_request_failed(request.handle, request.transaction, .closed, now_ns)," },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS73",
+        .what = "a DoH request that fails before its exchange gives closed, whatever its reason",
+        .edits = .{
+            .{ .file = "io/io_channel.zig", .old = "    if (request_module.current(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns);", .new = "    _ = reason;\n    if (request_module.current(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, .closed, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS74",
+        .what = "a whole response that holds no DNS message gives the reason closed",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    const answer = answer_of(slot) orelse return .{ .failed = .status };", .new = "    const answer = answer_of(slot) orelse return .{ .failed = .closed };" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS75",
+        .what = "a stream that the server reset gives the reason closed",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "        .reset => .reset,", .new = "        .reset => .closed," },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS76",
+        .what = "a stream that the server refused gives the reason closed",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "        .refused => .reset,", .new = "        .refused => .closed," },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS77",
+        .what = "a connection that ended before the response was whole gives the reason reset",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "        .closed => .closed,", .new = "        .closed => .reset," },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS78",
+        .what = "a response that colibri refused gives the reason closed",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "        .malformed, .too_large => .status,", .new = "        .malformed, .too_large => .closed," },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS79",
+        .what = "a malformed response gives the reason closed",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "        .malformed, .too_large => .status,", .new = "        .malformed => .closed,\n        .too_large => .status," },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS80",
+        .what = "a request that the protocol refuses to send gives the reason closed",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "        .invalid => .local,", .new = "        .invalid => .closed," },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS99",
+        .what = "an exchange that ends with no connection up has the reason of colibri's outcome alone",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    if (!up and (outcome == .refused or outcome == .closed)) return if (heard) .handshake else .connect;\n", .new = "    _ = heard;\n" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS100",
+        .what = "an exchange that ends with no connection up is a handshake, whether a server took part or not",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    if (!up and (outcome == .refused or outcome == .closed)) return if (heard) .handshake else .connect;\n", .new = "    _ = heard;\n    if (!up and (outcome == .refused or outcome == .closed)) return .handshake;\n" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS101",
+        .what = "an exchange that ends with no connection up is a connect, whether a server took part or not",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    if (!up and (outcome == .refused or outcome == .closed)) return if (heard) .handshake else .connect;\n", .new = "    _ = heard;\n    if (!up and (outcome == .refused or outcome == .closed)) return .connect;\n" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS102",
+        .what = "a new exchange starts as if no server took part in a connection",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "    slot.heard = slot.up or self.heard[@intFromEnum(Link.quic)] or self.heard[@intFromEnum(Link.tcp)];", .new = "    slot.heard = slot.up;" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS103",
+        .what = "a new exchange starts as if no connection were up",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "    slot.up = self.up != null;", .new = "    slot.up = false;" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS104",
+        .what = "a QUIC datagram from the server tells nothing of a server that took part",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "            self.inbound_len = bytes.len;\n            heard_from(self, .quic);\n", .new = "            self.inbound_len = bytes.len;\n" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS105",
+        .what = "a TCP link that connected and started tells nothing of a server that took part",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_start.zig", .old = "    if (link == .tcp) read_module.heard_from(self, .tcp);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS106",
+        .what = "a server that took part tells no live exchange",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "        if (slot.live) slot.heard = true;\n", .new = "        _ = slot;\n" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS107",
+        .what = "a connection that came up tells no live exchange",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "        slot.up = true;\n        slot.heard = true;\n", .new = "        slot.heard = true;\n" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS108",
+        .what = "a link whose connection is over leaves it up",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "    if (self.up == link) self.up = null;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "A cause with its server and its reason",
+        .id = "RS109",
+        .what = "a link whose connection is over keeps what it told of a server that took part",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_read.zig", .old = "    self.heard[@intFromEnum(link)] = false;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
     },
 }

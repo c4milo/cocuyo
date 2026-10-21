@@ -134,7 +134,8 @@ test "a lookup at the next server leaves alone a connect that a lookup is on, an
     const result = try rig.until_result();
     try testing.expectEqual(first, result.handle);
     try testing.expectEqual(@as(?cocuyo.Error, cocuyo.Error.AllServersFailed), failure_of(result));
-    try testing.expectEqual(@as(?cocuyo.Cause, .connect), result.outcome.failure.cause);
+    // No slot was free, and no server took part (docs/design.md §5, The cause of a failure).
+    try testing.expectEqual(@as(?cocuyo.Cause, .{ .server_index = 1, .what = .{ .reason = .local } }), result.outcome.failure.cause);
     // The second lookup is still on the connection, whose connect is still in flight.
     try testing.expectEqual(@as(?u8, 0), rig.engine.tcp_connection[second.index]);
     try testing.expect(connection.state == .connecting and connection.server == 0);

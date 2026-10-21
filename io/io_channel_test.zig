@@ -106,22 +106,24 @@ test "an exchange that fails fails its request once, as the server's failure, an
     try rig.deinit();
 }
 
-test "a lookup whose every exchange failed ends in AllServersFailed, and its cause is the request" {
-    var rig: Rig = .{};
-    try start(&rig, 115, .{ .{}, .{} });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
-    for (0..rig.config.attempts) |_| {
-        for (0..fixtures.servers) |server| {
-            try tell(&rig, @intCast(server), .{ .finished = .{ .index = handle.index, .answer = false } });
+test "a lookup whose every exchange failed ends in AllServersFailed, its cause the channel's reason" {
+    // The channel says why each exchange failed, and the lookup keeps the last reason with its
+    // server (docs/design.md §5, The cause of a failure).
+    for ([_]cocuyo.Reason{ .status, .reset, .closed }, 0..) |reason, at| {
+        var rig: Rig = .{};
+        try start(&rig, 115 + at, .{ .{}, .{} });
+        const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+        for (0..rig.config.attempts) |_| {
+            for (0..fixtures.servers) |server| {
+                try tell(&rig, @intCast(server), .{ .finished = .{ .index = handle.index, .answer = false, .reason = reason } });
+            }
         }
+        const result = try rig.until_result();
+        try testing.expectEqual(cocuyo.Error.AllServersFailed, result.outcome.failure.err);
+        try testing.expectEqual(@as(?cocuyo.Cause, .{ .server_index = 1, .what = .{ .reason = reason } }), result.outcome.failure.cause);
+        _ = rig.engine.take(rig.loop.now());
+        try rig.deinit();
     }
-    const result = try rig.until_result();
-    try testing.expectEqual(cocuyo.Error.AllServersFailed, result.outcome.failure.err);
-    // Over DoH each failure of a server is the request's (docs/design.md §5, The cause of a
-    // failure).
-    try testing.expectEqual(@as(?cocuyo.Cause, .request), result.outcome.failure.cause);
-    _ = rig.engine.take(rig.loop.now());
-    try rig.deinit();
 }
 
 test "a template the engine cannot read fails its server before its channel opens" {
@@ -135,6 +137,9 @@ test "a template the engine cannot read fails its server before its channel open
     const handle = try rig.engine.start(question("example.com."), rig.loop.now());
     try testing.expect(rig.engine.doh.slots[0].state == .closed);
     try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(0));
+    // No server took part (docs/design.md §5, The cause of a failure).
+    const cause = rig.engine.resolver.lookup_of(handle).cause.get();
+    try testing.expectEqual(@as(?cocuyo.Cause, .{ .server_index = 0, .what = .{ .reason = .local } }), cause);
     try testing.expect(channel_of(&rig, 1).holds(handle.index));
     try tell(&rig, 1, .{ .finished = .{ .index = handle.index, .answer = true } });
     const result = try rig.until_result();
@@ -229,6 +234,27 @@ test "an idle channel shuts down, a request taken meanwhile waits, and the next 
     try tell(&rig, 0, .{ .finished = .{ .index = handle.index, .answer = true } });
     const result = try rig.until_result();
     try testing.expect(result.outcome == .answer);
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
+test "a channel that cannot open again for the request that waited gives local as the cause" {
+    // The channel said closed with a request waiting, and the next cannot start: the template
+    // changed to one the engine cannot read (RFC 8484 §5). No server took part (docs/design.md §5,
+    // The cause of a failure).
+    var rig: Rig = .{};
+    try start(&rig, 97, .{ .{}, .{} });
+    try answer(&rig, 0, "one.example.");
+    try idle(&rig);
+    const handle = try rig.engine.start(question("two.example."), rig.loop.now());
+    rig.servers[0].https = .{ .template = "http://dns.example/dns-query{?dns}" };
+    try tell(&rig, 0, .closed);
+    try testing.expect(rig.engine.doh.slots[0].state == .closed);
+    const cause = rig.engine.resolver.lookup_of(handle).cause.get();
+    try testing.expectEqual(@as(?cocuyo.Cause, .{ .server_index = 0, .what = .{ .reason = .local } }), cause);
+    try testing.expect(channel_of(&rig, 1).holds(handle.index));
+    try tell(&rig, 1, .{ .finished = .{ .index = handle.index, .answer = true } });
+    try testing.expect((try rig.until_result()).outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
 }

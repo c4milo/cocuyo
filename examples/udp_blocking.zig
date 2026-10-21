@@ -199,13 +199,14 @@ fn report(name: []const u8, answer: cocuyo.Answer) void {
 }
 
 /// A failure as one line: `<name>: <error>`, and the cause in parentheses when a server failed the
-/// lookup: the rcode, or `connect`, `stream` or `request` for a transport (docs/design.md §5, The
-/// cause of a failure). Silence has no cause: `example.com: Timeout`.
+/// lookup: the rcode, or the reason of a transport, and the index of the server that gave it
+/// (docs/design.md §5, The cause of a failure). So `example.com: AllServersFailed (server_failure
+/// from server 1)`. Silence has no cause: `example.com: Timeout`.
 fn report_failure(name: []const u8, failure: *const cocuyo.Failure) void {
     const cause = failure.cause orelse return std.debug.print("{s}: {t}\n", .{ name, failure.err });
-    const cause_text = switch (cause) {
+    const cause_text = switch (cause.what) {
         .rcode => |rcode| @tagName(rcode),
-        .connect, .stream, .request => @tagName(cause),
+        .reason => |reason| @tagName(reason),
     };
-    std.debug.print("{s}: {t} ({s})\n", .{ name, failure.err, cause_text });
+    std.debug.print("{s}: {t} ({s} from server {d})\n", .{ name, failure.err, cause_text, cause.server_index });
 }

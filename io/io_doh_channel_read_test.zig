@@ -183,7 +183,7 @@ fn expect_answers(pair: *const rig.Pair, answer_length: usize) !void {
     expected[rig.flags_at] |= rig.qr_bit;
     for (pair.said[0..pair.said_len]) |event| {
         if (event != .finished) continue;
-        const message = (event.finished.answer orelse return error.NoAnswer).message;
+        const message = (if (event.finished.outcome == .answer) event.finished.outcome.answer else return error.NoAnswer).message;
         try testing.expectEqual(answer_length, message.len);
         try testing.expectEqualSlices(u8, &expected, message[0..expected.len]);
         try testing.expect(std.mem.allEqual(u8, message[expected.len..], filler));

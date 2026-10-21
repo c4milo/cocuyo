@@ -25,6 +25,7 @@ pub const Action = lookup.Action;
 pub const Answer = lookup.Answer;
 pub const Failure = lookup.Failure;
 pub const Cause = lookup.Cause;
+pub const Reason = lookup.Reason;
 pub const Verdict = lookup.Verdict;
 pub const State = lookup.State;
 pub const Resolver = table.Resolver;

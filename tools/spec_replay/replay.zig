@@ -71,8 +71,18 @@ pub const Event = enum {
     sent,
     send_failed,
     tcp_connected,
-    tcp_failed,
-    request_failed,
+    // A failed connection or request and its reason (docs/design.md §16 decision 51). A stream
+    // never takes `status` or `reset`.
+    tcp_failed_connect,
+    tcp_failed_handshake,
+    tcp_failed_local,
+    tcp_failed_closed,
+    request_failed_connect,
+    request_failed_handshake,
+    request_failed_local,
+    request_failed_closed,
+    request_failed_status,
+    request_failed_reset,
     cancel,
     reply_unmatched,
     reply_answer,
@@ -255,8 +265,16 @@ pub const Replay = struct {
             .sent => lookup.on_sent(self.now_ns),
             .send_failed => lookup.on_send_failed(self.now_ns),
             .tcp_connected => lookup.on_tcp_connected(self.now_ns),
-            .tcp_failed => lookup.on_tcp_failed(self.now_ns),
-            .request_failed => lookup.on_request_failed(lookup.transaction.number, self.now_ns),
+            .tcp_failed_connect, .tcp_failed_handshake, .tcp_failed_local, .tcp_failed_closed => {
+                lookup.on_tcp_failed(reason_of(event), self.now_ns);
+            },
+            .request_failed_connect,
+            .request_failed_handshake,
+            .request_failed_local,
+            .request_failed_closed,
+            .request_failed_status,
+            .request_failed_reset,
+            => lookup.on_request_failed(lookup.transaction.number, reason_of(event), self.now_ns),
             .cancel => lookup.cancel(),
             else => return self.respond(reply_of(event)),
         }
@@ -314,6 +332,13 @@ fn count(token: ?[]const u8, min: usize, max: usize) Error!usize {
 fn transaction_of(lookup: *const Lookup, reply: fixtures.Reply) u16 {
     const number = lookup.transaction.number;
     return if (reply == .unmatched) number -% 1 else number;
+}
+
+/// The reason a failed connection or request carries: the last word of its event's name.
+fn reason_of(event: Event) resolver.Reason {
+    const name = @tagName(event);
+    const at = std.mem.lastIndexOfScalar(u8, name, '_') orelse unreachable;
+    return std.meta.stringToEnum(resolver.Reason, name[at + 1 ..]) orelse unreachable;
 }
 
 fn reply_of(event: Event) fixtures.Reply {
@@ -382,9 +407,11 @@ test "the committed slice of the model's transcript replays against the lookup" 
         replay.report(err);
         return err;
     };
-    // Since 2026-10-17 the sixth, two passes over DoH, holds a lookup that runs with a cause.
-    try testing.expectEqual(@as(usize, 6), replay.configs);
-    try testing.expect(replay.events > 6600);
+    // Since 2026-10-17 the sixth, two passes over DoH, holds a lookup that runs with a cause. Since
+    // 2026-10-21 the seventh, two servers over DoQ, holds a cause from a server that the lookup
+    // is not on at its end.
+    try testing.expectEqual(@as(usize, 7), replay.configs);
+    try testing.expect(replay.events > 13600);
     try testing.expect(replay.cuts > 0);
 }
 

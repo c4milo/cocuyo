@@ -106,6 +106,9 @@ pub fn start_link(self: anytype, link: read_module.Link, ticket: anytype, ticket
         .quic => self.channel.start_quic(random, seconds, now_ns, resumption) catch return error.Failed,
         .tcp => self.channel.start_tcp(random, seconds, resumption) catch return error.Failed,
     }
+    // A TCP link starts once its connect has finished, so a server took part (docs/design.md §16
+    // decision 51). A QUIC link's server takes part when its first datagram comes.
+    if (link == .tcp) read_module.heard_from(self, .tcp);
 }
 
 /// A link's socket ended: its connection is gone, and what the link read of it with it.

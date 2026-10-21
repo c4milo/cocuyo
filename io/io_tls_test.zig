@@ -101,9 +101,9 @@ test "a lookup every server refused over TLS ends in AllServersFailed, not Timeo
     try rig.deinit();
 }
 
-test "a refused handshake is the connect's cause, since the lookup hears the connection was never up" {
-    // The lookup hears that a TLS connection is up only at the handshake's end (TLS rule 1), so a
-    // refusal is the connect's (docs/design.md §5, The cause of a failure). One pass, so the last
+test "a refused handshake is the handshake's cause, and names the server that refused it" {
+    // The lookup hears that a TLS connection is up only at the handshake's end (TLS rule 1), and a
+    // refusal is the handshake's (docs/design.md §5, The cause of a failure). One pass, so the last
     // failure is the second server's own refusal, on a connection slot of its own.
     var rig: Rig = .{};
     try encrypt(&rig);
@@ -113,7 +113,7 @@ test "a refused handshake is the connect's cause, since the lookup hears the con
     _ = try rig.engine.start(question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(cocuyo.Error.AllServersFailed, result.outcome.failure.err);
-    try testing.expectEqual(@as(?cocuyo.Cause, .connect), result.outcome.failure.cause);
+    try testing.expectEqual(@as(?cocuyo.Cause, .{ .server_index = 1, .what = .{ .reason = .handshake } }), result.outcome.failure.cause);
     // Both servers heard the session's fatal alert, so each refused a handshake of its own.
     try testing.expectEqual(@as(u32, 1), rig.loop.network().alerts_heard[0]);
     try testing.expectEqual(@as(u32, 1), rig.loop.network().alerts_heard[1]);

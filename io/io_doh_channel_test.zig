@@ -37,8 +37,8 @@ pub const qr_bit = 0x80;
 /// The server's address, and its template as the engine splits it, on a port of its own, so a link
 /// that went to HTTPS's 443 anyway shows.
 const port = 8443;
-const endpoint: cocuyo.Endpoint = .{ .address = cocuyo.Address.from_text("192.0.2.1").?, .port = port };
-const template = .{ .authority = "dns.example:8443", .host = "dns.example", .port = port, .path = "/dns-query{?dns}" };
+pub const endpoint: cocuyo.Endpoint = .{ .address = cocuyo.Address.from_text("192.0.2.1").?, .port = port };
+pub const template = .{ .authority = "dns.example:8443", .host = "dns.example", .port = port, .path = "/dns-query{?dns}" };
 /// A query of a header alone, ID 0, as DoH asks (RFC 8484 §4.1), recursion desired: the server
 /// echoes it, so it need not ask anything.
 pub const query = [_]u8{ 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
@@ -71,6 +71,8 @@ pub const Pair = struct {
     endpoint: cocuyo.Endpoint = endpoint,
     /// Whether the last round carried octets either way over TCP.
     carried: bool = false,
+    /// Whether a link's socket ends as soon as the channel asks for it, before it connects.
+    refuses_links: bool = false,
 
     pub fn create(script: server_module.Script) !*Pair {
         return create_with(script, identity.cpu_not_stated);
@@ -140,7 +142,7 @@ pub const Pair = struct {
         pair.said[pair.said_len] = event;
         pair.said_len += 1;
         switch (event) {
-            .open => |asked| try pair.start_link(asked.link),
+            .open => |asked| if (pair.refuses_links) pair.doh.link_ended(asked.link) else try pair.start_link(asked.link),
             .ticket => |link| pair.ticket = pair.doh.take_ticket(link),
             else => {},
         }
@@ -193,8 +195,8 @@ test "a query goes over HTTP/2 once QUIC's datagrams have gone nowhere for the f
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
     const finished = (try pair.run(.finished)).finished;
     try testing.expectEqual(@as(u16, 0), finished.index);
-    try testing.expectEqualSlices(u8, &expected_answer(), finished.answer.?.message);
-    try testing.expectEqual(@as(u32, 7), finished.answer.?.age_seconds);
+    try testing.expectEqualSlices(u8, &expected_answer(), finished.outcome.answer.message);
+    try testing.expectEqual(@as(u32, 7), finished.outcome.answer.age_seconds);
     // RFC 8484 §4.1: the GET carried the query in `dns`.
     try testing.expectEqualSlices(u8, &query, pair.server.query[0..pair.server.query_len]);
     try testing.expectEqual(server_module.http_2, pair.server.version.?);
@@ -258,14 +260,15 @@ test "a server that selects HTTP/1.1, or selects no protocol, answers over HTTP/
         try testing.expect(pair.doh.request(1, &query, pair.now_ns));
         const finished = (try pair.run(.finished)).finished;
         try testing.expectEqual(@as(u16, 1), finished.index);
-        try testing.expectEqualSlices(u8, &expected_answer(), finished.answer.?.message);
+        try testing.expectEqualSlices(u8, &expected_answer(), finished.outcome.answer.message);
         try testing.expectEqual(server_module.http_1_1, pair.server.version.?);
         try testing.expectEqual(.h11, pair.doh.connected().?.protocol);
     }
 }
 
 test "a response that is not a 2xx, not a DNS message, or coded fails its request" {
-    // RFC 8484 §4.2.1 and request rule 12: none of them is an answer.
+    // RFC 8484 §4.2.1 and request rule 12: none of them is an answer, and each is the server's
+    // HTTP that holds no DNS message (docs/design.md §5, The cause of a failure).
     const scripts = [_]server_module.Script{
         .{ .status = 404 },
         .{ .content_type = "text/html" },
@@ -276,13 +279,13 @@ test "a response that is not a 2xx, not a DNS message, or coded fails its reques
         defer pair.free();
         try testing.expect(pair.doh.request(0, &query, pair.now_ns));
         const finished = (try pair.run(.finished)).finished;
-        try testing.expectEqual(@as(?Doh.Answer, null), finished.answer);
+        try testing.expectEqual(Doh.Outcome{ .failed = .status }, finished.outcome);
     }
     // An identity coding is no coding (RFC 9110 §8.4.1).
     const pair = try Pair.create(.{ .content_encoding = "identity" });
     defer pair.free();
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
-    try testing.expect((try pair.run(.finished)).finished.answer != null);
+    try testing.expect((try pair.run(.finished)).finished.outcome == .answer);
 }
 
 test "a status of 299, the last 2xx, is an answer, and 300 is none" {
@@ -292,7 +295,7 @@ test "a status of 299, the last 2xx, is an answer, and 300 is none" {
         defer pair.free();
         try testing.expect(pair.doh.request(0, &query, pair.now_ns));
         const finished = (try pair.run(.finished)).finished;
-        try testing.expectEqual(status == constants.status_success_last, finished.answer != null);
+        try testing.expectEqual(status == constants.status_success_last, finished.outcome == .answer);
     }
 }
 
@@ -306,7 +309,7 @@ test "field values that fill the buffer to its last octet are read, and one octe
         defer pair.free();
         try testing.expect(pair.doh.request(0, &query, pair.now_ns));
         const finished = (try pair.run(.finished)).finished;
-        try testing.expectEqual(content_type.len == constants.values_bytes, finished.answer != null);
+        try testing.expectEqual(content_type.len == constants.values_bytes, finished.outcome == .answer);
     }
 }
 
@@ -318,7 +321,7 @@ test "a 2xx response whose field values do not fit fails its request as too larg
     defer pair.free();
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
     const finished = (try pair.run(.finished)).finished;
-    try testing.expectEqual(@as(?Doh.Answer, null), finished.answer);
+    try testing.expectEqual(Doh.Outcome{ .failed = .status }, finished.outcome);
     try testing.expectEqual(.too_large, pair.doh.exchanges[0].response.outcome);
 }
 
@@ -328,7 +331,7 @@ test "a stream the server resets after a 2xx head fails its request" {
     defer pair.free();
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
     const finished = (try pair.run(.finished)).finished;
-    try testing.expectEqual(@as(?Doh.Answer, null), finished.answer);
+    try testing.expectEqual(Doh.Outcome{ .failed = .reset }, finished.outcome);
     try testing.expectEqual(.reset, pair.doh.exchanges[0].response.outcome);
     try testing.expectEqual(@as(u16, 200), pair.doh.exchanges[0].response.status);
 }
@@ -373,7 +376,7 @@ test "a ticket the server gives is taken, and the next channel's TCP link resume
     pair.offer = pair.ticket;
     try pair.open(.{ .tickets = true });
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
-    try testing.expect((try pair.run(.finished)).finished.answer != null);
+    try testing.expect((try pair.run(.finished)).finished.outcome == .answer);
     try testing.expect(pair.server.endpoint.tcp[0].tls_server.resumed());
     const connected = pair.doh.connected().?;
     try testing.expect(connected.offered and connected.resumed);
@@ -409,9 +412,10 @@ test "stream octets past what the type keeps end the TCP link, which the channel
     var junk: [constants.stream_bytes + 1]u8 = @splat(0);
     pair.doh.receive(.{ .stream = &junk }, pair.now_ns);
     try testing.expectEqual(Event{ .close = .tcp }, pair.doh.next(pair.now_ns).?);
-    // colibri was told the link ended, so the exchange it carried ends as a failure.
+    // colibri was told the link ended, so the exchange it carried ends as a failure of its
+    // connection.
     const finished = (try pair.run(.finished)).finished;
-    try testing.expectEqual(@as(?Doh.Answer, null), finished.answer);
+    try testing.expectEqual(Doh.Outcome{ .failed = .closed }, finished.outcome);
 }
 
 test "a template whose GET would not fit is refused when the channel starts" {
@@ -453,7 +457,9 @@ test "a template whose GET path at its longest fills the path buffer starts, and
     var longest_query: [cocuyo.wire.constants.dns_variable_bytes_max / 4 * 3]u8 = @splat(0);
     @memcpy(longest_query[0..query.len], &query);
     try testing.expect(pair.doh.request(0, &longest_query, pair.now_ns));
-    const answer = (try pair.run(.finished)).finished.answer orelse return error.TestUnexpectedResult;
+    const outcome = (try pair.run(.finished)).finished.outcome;
+    if (outcome != .answer) return error.TestUnexpectedResult;
+    const answer = outcome.answer;
     try testing.expectEqual(longest_query.len, answer.message.len);
     pair.doh.wipe();
     const over = .{ .authority = "dns.example:8443", .host = "dns.example", .port = port, .path = query_part ++ "p" ** (filler + 1) ++ "{&dns}" };
@@ -477,7 +483,9 @@ test "a template whose path starts with a slash and fills the path buffer starts
     var longest_query: [cocuyo.wire.constants.dns_variable_bytes_max / 4 * 3]u8 = @splat(0);
     @memcpy(longest_query[0..query.len], &query);
     try testing.expect(pair.doh.request(0, &longest_query, pair.now_ns));
-    const answer = (try pair.run(.finished)).finished.answer orelse return error.TestUnexpectedResult;
+    const outcome = (try pair.run(.finished)).finished.outcome;
+    if (outcome != .answer) return error.TestUnexpectedResult;
+    const answer = outcome.answer;
     try testing.expectEqual(longest_query.len, answer.message.len);
     pair.doh.wipe();
     const over = .{ .authority = "dns.example:8443", .host = "dns.example", .port = port, .path = "/" ++ "p" ** (filler + 1) ++ "{?dns}" };

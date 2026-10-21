@@ -42,7 +42,7 @@ test "BADCOOKIE is retried once with the fresh cookie, then over TCP, then the n
     try testing.expect(!harness.lookup.flags.cookie_retried);
     // Over TCP the server fails the lookup: that counts against it, and its rcode is the cause.
     try testing.expectEqual(@as(u8, 1), harness.servers.failures(0));
-    try testing.expectEqual(@as(?Cause, .{ .rcode = .bad_cookie }), harness.lookup.cause);
+    try testing.expectEqual(@as(?Cause, .{ .server_index = 0, .what = .{ .rcode = .bad_cookie } }), harness.lookup.cause.get());
 }
 
 /// Connects the harness's lookup, which must want a stream, and sends its query over it.
@@ -64,14 +64,14 @@ test "under use_tcp a BADCOOKIE is retried once on the stream with the fresh coo
     try testing.expectEqual(State.tcp_needed, harness.lookup.state);
     try testing.expectEqual(@as(u8, 0), harness.lookup.server_index);
     try testing.expectEqual(@as(u8, 0), harness.servers.failures(0));
-    try testing.expectEqual(@as(?Cause, null), harness.lookup.cause);
+    try testing.expectEqual(@as(?Cause, null), harness.lookup.cause.get());
     try send_on_stream(&harness);
     try testing.expectEqual(number + 1, harness.lookup.transaction.number);
     try testing.expectEqualSlices(u8, &fixtures.server_cookie_fresh, (try sent_cookie(&harness)).?.server);
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.bad_cookie_fresh, servers[0].endpoint));
     try testing.expectEqual(@as(u8, 1), harness.lookup.server_index);
     try testing.expectEqual(@as(u8, 1), harness.servers.failures(0));
-    try testing.expectEqual(@as(?Cause, .{ .rcode = .bad_cookie }), harness.lookup.cause);
+    try testing.expectEqual(@as(?Cause, .{ .server_index = 0, .what = .{ .rcode = .bad_cookie } }), harness.lookup.cause.get());
 }
 
 test "a BADCOOKIE over the TCP a truncated answer led to is retried on the stream, not over UDP" {

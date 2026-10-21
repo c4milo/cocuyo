@@ -78,7 +78,7 @@ pub fn init_in_place(
         .entropy = entropy,
         .failure = core.Error.Timeout,
         // No server has failed the lookup yet (docs/design.md §5, The cause of a failure).
-        .cause = null,
+        .cause = .none,
         // No candidate has answered NXDOMAIN or NODATA, so nothing bounds the walk's end yet
         // (docs/design.md §5): the largest TTL, which a smaller one replaces.
         .negative_ttl_seconds = std.math.maxInt(u32),

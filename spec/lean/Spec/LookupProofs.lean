@@ -9,8 +9,8 @@ to the Zig code; these tie the model to the promises.
 -/
 namespace Spec.Lookup
 
-/-- A cause kept is a cause held, whichever cause it is. -/
-theorem keep_isSome (s : State) (k : Cause) : (keep s k).cause.isSome = true := by
+/-- A cause kept is a cause held, whatever the server gave. -/
+theorem keep_isSome (s : State) (w : What) : (keep s w).cause.isSome = true := by
   unfold keep
   cases s.cause <;> rfl
 
@@ -121,12 +121,12 @@ theorem useTcp_never_udp (c : Config) (s : State) (e : Event) (h : c.useTcp = tr
   | sendFailed =>
     cases hs : s.stage <;> simp only [step, hs] <;> first | exact ⟨hadv s, by simp⟩ | exact ⟨⟨hq, ha⟩, by simp⟩ | simp_all
   | tcpConnected => cases hs : s.stage <;> simp_all [step, NoUdp]
-  | tcpFailed =>
+  | tcpFailed _ =>
     simp only [step]
     split
     · exact ⟨hadv _, by simp⟩
     · exact ⟨⟨hq, ha⟩, by simp⟩
-  | requestFailed =>
+  | requestFailed _ =>
     simp only [step]
     split
     · exact ⟨hadv _, by simp⟩
@@ -221,12 +221,12 @@ theorem request_never_stream (c : Config) (s : State) (e : Event) (hh : c.reques
     cases hs : s.stage <;> simp only [step, hs] <;>
       first | exact ⟨hadv s, none⟩ | exact ⟨keep, none⟩ | simp_all
   | tcpConnected => cases hs : s.stage <;> simp_all [step, NoStream, NotPlain]
-  | tcpFailed =>
+  | tcpFailed _ =>
     simp only [step]
     split
     · exact ⟨hadv _, none⟩
     · exact ⟨keep, none⟩
-  | requestFailed =>
+  | requestFailed _ =>
     simp only [step]
     split
     · exact ⟨hadv _, none⟩

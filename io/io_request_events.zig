@@ -32,7 +32,7 @@ pub fn on_send_event(self: anytype, index: usize, event: rotor.Event, now_ns: u6
     assert(slot.lent);
     slot.lent = false;
     const server = current_of(self, index) orelse return;
-    if (event.outcome()) |_| {} else |_| return connection_module.fail(self, server, now_ns);
+    if (event.outcome()) |_| {} else |_| return connection_module.fail(self, server, connection_module.reason_of(self, server, .handshake), now_ns);
     const connection = &self.quic.connections[server];
     if (connection.state != .closing) return;
     if (connection.made == 0) connection.made = @intCast(connection.transport.output(&slot.bytes, now_ns));
@@ -54,7 +54,7 @@ pub fn on_receive_event(self: anytype, index: usize, event: rotor.Event, now_ns:
     if (!event.is_final() or connection.state == .closed) return;
     connection.receive = null;
     if (event.outcome()) |_| {} else |err| {
-        if (err != error.BuffersExhausted) return connection_module.fail(self, server, now_ns);
+        if (err != error.BuffersExhausted) return connection_module.fail(self, server, connection_module.reason_of(self, server, .handshake), now_ns);
     }
     // The next drive arms it again (`tend`).
 }
@@ -73,7 +73,7 @@ fn take_datagram(self: anytype, server: u8, event: rotor.Event, now_ns: u64) boo
     }
     self.loop.give_back_buffer(constants.group_id, event.flags.buffer_id);
     if (refused) {
-        connection_module.fail(self, server, now_ns);
+        connection_module.fail(self, server, connection_module.reason_of(self, server, .handshake), now_ns);
         return false;
     }
     if (!closing) hear(self, server, now_ns);
@@ -105,7 +105,11 @@ fn hear(self: anytype, server: u8, now_ns: u64) void {
         const next = connection.transport.next(&self.answer) orelse return;
         switch (next) {
             .up => |alpn| up(self, server, alpn, now_ns),
-            .refused, .closed => connection_module.fail(self, server, now_ns),
+            // A connection that failed before its handshake ended is refused, and one that
+            // ended on its own or by the server is closed (docs/design.md §5, The cause of a
+            // failure).
+            .refused => connection_module.fail(self, server, .handshake, now_ns),
+            .closed => connection_module.fail(self, server, connection_module.reason_of(self, server, .handshake), now_ns),
             .answered => |answered| answer(self, server, answered, now_ns),
             .reset => |stream| ended(self, server, stream, null, now_ns),
             .ticket => |ticket| self.quic.tickets[server] = .{ .ticket = ticket, .since_ns = now_ns },
@@ -120,7 +124,7 @@ fn up(self: anytype, server: u8, alpn: []const u8, now_ns: u64) void {
     assert(connection.state == .handshaking);
     // "DoQ support is indicated by selecting the Application-Layer Protocol Negotiation (ALPN)
     // token "doq" in the crypto handshake" (RFC 9250 §4.1). colibri's QUIC does not check it.
-    if (!std.mem.eql(u8, alpn, constants.quic_alpn_doq)) return connection_module.fail(self, server, now_ns);
+    if (!std.mem.eql(u8, alpn, constants.quic_alpn_doq)) return connection_module.fail(self, server, .handshake, now_ns);
     connection.state = .up;
     connection_module.open_waiting(self, server, now_ns);
 }
@@ -129,8 +133,8 @@ fn up(self: anytype, server: u8, alpn: []const u8, now_ns: u64) void {
 /// else is a protocol error, which fails the connection (request rule 5). An answer longer than the
 /// engine's buffer fails it too.
 fn answer(self: anytype, server: u8, answered: anytype, now_ns: u64) void {
-    if (answered.len > self.answer.len) return connection_module.fail(self, server, now_ns);
-    const message = doq_message(self.answer[0..answered.len]) orelse return connection_module.fail(self, server, now_ns);
+    if (answered.len > self.answer.len) return connection_module.fail(self, server, .closed, now_ns);
+    const message = doq_message(self.answer[0..answered.len]) orelse return connection_module.fail(self, server, .closed, now_ns);
     ended(self, server, answered.stream, message, now_ns);
 }
 
@@ -149,8 +153,9 @@ pub fn doq_message(bytes: []const u8) ?[]const u8 {
     return message;
 }
 
-/// A stream ended: answered, or failed when `answered` is null. The lookup hears it if the request
-/// is still its attempt (request rules 5 and 7), and the slot is free. A DoQ answer's `Age` is 0.
+/// A stream ended: answered, or reset by the server when `answered` is null. The lookup hears it if
+/// the request is still its attempt (request rules 5 and 7), and the slot is free. A DoQ answer's
+/// `Age` is 0.
 fn ended(self: anytype, server: u8, stream: u64, answered: ?[]const u8, now_ns: u64) void {
     // A stream the engine let go of: its request was cancelled, and whatever it carries tells
     // nobody (request rule 6).
@@ -160,7 +165,7 @@ fn ended(self: anytype, server: u8, stream: u64, answered: ?[]const u8, now_ns: 
         if (answered) |message| {
             _ = self.resolver.on_request_answer(request.handle, request.transaction, message, 0, now_ns);
         } else {
-            self.resolver.on_request_failed(request.handle, request.transaction, now_ns);
+            self.resolver.on_request_failed(request.handle, request.transaction, .reset, now_ns);
         }
     }
     request.live = false;

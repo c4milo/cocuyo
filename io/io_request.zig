@@ -151,20 +151,20 @@ pub fn cancel_left(self: anytype, now_ns: u64) void {
     }
 }
 
-/// Slot `index`'s request failed: its lookup hears so if the request is still its attempt, once,
-/// since the slot is free before anyone else could tell it (request rule 7).
-fn fail_one(self: anytype, index: usize, now_ns: u64) void {
+/// Slot `index`'s request failed, for `reason`: its lookup hears so if the request is still its
+/// attempt, once, since the slot is free before anyone else could tell it (request rule 7).
+fn fail_one(self: anytype, index: usize, reason: cocuyo.Reason, now_ns: u64) void {
     const request = &self.requests[index];
     assert(request.live);
-    if (current(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, now_ns);
+    if (current(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns);
     request.live = false;
 }
 
-/// Every request on server `server`'s connection fails, each once (request rule 7). Decision 25
-/// counts each as the server's failure, which the table does.
-pub fn fail_all_of(self: anytype, server: u8, now_ns: u64) void {
+/// Every request on server `server`'s connection fails, each once, for `reason` (request rule 7).
+/// Decision 25 counts each as the server's failure, which the table does.
+pub fn fail_all_of(self: anytype, server: u8, reason: cocuyo.Reason, now_ns: u64) void {
     for (self.requests[0..], 0..) |*request, index| {
-        if (request.live and request.server == server) fail_one(self, index, now_ns);
+        if (request.live and request.server == server) fail_one(self, index, reason, now_ns);
     }
     const connection = &self.quic.connections[server];
     connection.queue_len = 0;

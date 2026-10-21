@@ -112,12 +112,13 @@ test "a server that refuses the connection costs it the lookup, and the next ser
 
 /// Both lookups that `two_queued` started end in `AllServersFailed`. The first server's
 /// connection failed under them, and then the second server, which is down, refused theirs. Each
-/// failure carries the last cause, the connect's (docs/design.md §5, The cause of a failure).
+/// failure carries the last cause, the second server's connect (docs/design.md §5, The cause of a
+/// failure).
 fn expect_both_failed(rig: *Rig) !void {
     for (0..fixtures.queued_lookups) |_| {
         const result = try rig.until_result();
         try testing.expectEqual(cocuyo.Error.AllServersFailed, result.outcome.failure.err);
-        try testing.expectEqual(@as(?cocuyo.Cause, .connect), result.outcome.failure.cause);
+        try testing.expectEqual(@as(?cocuyo.Cause, .{ .server_index = 1, .what = .{ .reason = .connect } }), result.outcome.failure.cause);
     }
 }
 

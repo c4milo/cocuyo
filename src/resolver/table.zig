@@ -195,8 +195,10 @@ pub const Resolver = struct {
         self.event(handle, now_ns, Lookup.on_tcp_connected);
     }
 
-    pub fn on_tcp_failed(self: *Resolver, handle: Handle, now_ns: u64) void {
-        self.event(handle, now_ns, Lookup.on_tcp_failed);
+    /// The connection failed, for `reason` (docs/design.md §5, The cause of a failure).
+    pub fn on_tcp_failed(self: *Resolver, handle: Handle, reason: lookup_module.Reason, now_ns: u64) void {
+        self.slot_of(handle).lookup.on_tcp_failed(reason, now_ns);
+        self.follow(handle.index);
     }
 
     /// Hands the answer to a request over DoH or DoQ to the lookup whose query it answers, with
@@ -215,9 +217,9 @@ pub const Resolver = struct {
         return verdict;
     }
 
-    /// A request over DoH or DoQ ended without an answer (docs/design.md §22, §23).
-    pub fn on_request_failed(self: *Resolver, handle: Handle, transaction: u16, now_ns: u64) void {
-        self.slot_of(handle).lookup.on_request_failed(transaction, now_ns);
+    /// A request over DoH or DoQ ended without an answer, for `reason` (docs/design.md §22, §23).
+    pub fn on_request_failed(self: *Resolver, handle: Handle, transaction: u16, reason: lookup_module.Reason, now_ns: u64) void {
+        self.slot_of(handle).lookup.on_request_failed(transaction, reason, now_ns);
         self.follow(handle.index);
     }
 

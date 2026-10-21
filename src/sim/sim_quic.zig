@@ -100,6 +100,10 @@ pub const Connection = struct {
     timed_out: bool = false,
     /// How long before the idle timeout it negotiated: never near, unless a test says so.
     idle_left: u64 = std.math.maxInt(u64),
+    /// Whether it refuses each datagram, or each request, as a transport that a protocol error
+    /// failed does: set by tests, once the connection has started.
+    refuses_datagrams: bool = false,
+    refuses_requests: bool = false,
 
     /// Stages the hello, a resumed one when the engine hands over a ticket, offering the ALPN the
     /// engine names.
@@ -119,7 +123,7 @@ pub const Connection = struct {
     pub fn receive(self: *Connection, bytes: []const u8, now_ns: u64) Error!void {
         _ = now_ns;
         assert(self.state != .idle);
-        if (bytes.len > self.inbound.len) return self.fail();
+        if (self.refuses_datagrams or bytes.len > self.inbound.len) return self.fail();
         @memcpy(self.inbound[0..bytes.len], bytes);
         self.inbound_len = bytes.len;
         self.inbound_at = 0;
@@ -188,6 +192,7 @@ pub const Connection = struct {
     pub fn request(self: *Connection, bytes: []u8, len: usize) Error!?u64 {
         assert(self.state == .up);
         assert(len <= bytes.len);
+        if (self.refuses_requests) return self.fail();
         const room = self.pending.len - self.pending_len;
         if (room < header_bytes + len + constants.quic_pending_reserve_bytes) return null;
         const stream = self.next_stream;

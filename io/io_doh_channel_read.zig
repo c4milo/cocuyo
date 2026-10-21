@@ -20,6 +20,8 @@ pub fn request(self: anytype, index: u16, message: []const u8) bool {
         if (!slot.live) break slot;
     } else return false;
     exchange_module.make(slot, index, self.path, message);
+    slot.up = self.up != null;
+    slot.heard = slot.up or self.heard[@intFromEnum(Link.quic)] or self.heard[@intFromEnum(Link.tcp)];
     // The GET is one colibri takes, and an answer buffer was free, so colibri had room.
     slot.id = self.channel.request(&slot.request, &slot.response) catch unreachable;
     slot.live = true;
@@ -43,6 +45,7 @@ pub fn receive(self: anytype, input: anytype) void {
             if (bytes.len > self.inbound.len) return;
             @memcpy(self.inbound[0..bytes.len], bytes);
             self.inbound_len = bytes.len;
+            heard_from(self, .quic);
         },
         .stream => |bytes| {
             if (self.stream_overrun) return;
@@ -80,8 +83,35 @@ pub fn datagram(self: anytype, out: []u8, now_ns: u64) usize {
     return sent.octets.len;
 }
 
-/// A link's connection is over: what it read and the ticket it resumed with go.
+/// A server took part in `link`'s opening: each live exchange learns it, and each exchange made
+/// before that opening is over starts from it (docs/design.md §16 decision 51).
+pub fn heard_from(self: anytype, link: Link) void {
+    const at = @intFromEnum(link);
+    if (self.heard[at]) return;
+    self.heard[at] = true;
+    for (&self.exchanges) |*slot| {
+        if (slot.live) slot.heard = true;
+    }
+    assert(self.heard[at]);
+}
+
+/// The connection on `link` came up and takes the exchanges: each live exchange learns it. A
+/// connection on the other link may still drain, so `up` names the newer one.
+fn came_up(self: anytype, link: Link) void {
+    self.up = link;
+    for (&self.exchanges) |*slot| {
+        if (!slot.live) continue;
+        slot.up = true;
+        slot.heard = true;
+    }
+    assert(self.up == link);
+}
+
+/// A link's connection is over: what it read and the ticket it resumed with go, and so do what it
+/// told of a server that took part, and of a connection that came up.
 pub fn forget(self: anytype, link: Link) void {
+    if (self.up == link) self.up = null;
+    self.heard[@intFromEnum(link)] = false;
     switch (link) {
         .quic => self.inbound_len = 0,
         .tcp => {
@@ -149,6 +179,7 @@ fn told(self: anytype, said: client.Event) ?@TypeOf(self.*).Event {
         },
         .connected => |protocol| {
             self.protocol = protocol;
+            came_up(self, if (protocol == .h3) .quic else .tcp);
             return null;
         },
         .ticket => |transport| return .{ .ticket = link_of(transport) },
@@ -176,7 +207,7 @@ fn finished(self: anytype, ended: client.Finished) ?@TypeOf(self.*).Event {
     assert(ended.request == &slot.request);
     assert(ended.response == &slot.response);
     slot.live = false;
-    return .{ .finished = .{ .index = slot.index, .answer = exchange_module.answer_of(slot) } };
+    return .{ .finished = .{ .index = slot.index, .outcome = exchange_module.outcome_of(slot) } };
 }
 
 pub fn link_of(transport: client.Transport) Link {

@@ -212,7 +212,9 @@ pub fn take(self: anytype, index: usize, send: anytype, now_ns: u64) void {
 fn place(self: anytype, index: usize, now_ns: u64) void {
     const server = self.requests[index].server;
     const slot = &self.doh.slots[server];
-    if (slot.state == .closed and !open(self, server, now_ns)) return fail_one(self, index, now_ns);
+    // A channel that cannot open fails its request, and no server took part (docs/design.md §5,
+    // The cause of a failure).
+    if (slot.state == .closed and !open(self, server, now_ns)) return fail_one(self, index, .local, now_ns);
     enqueue(slot, @intCast(index));
     if (slot.state == .open) give_waiting(self, server, now_ns);
     hear(self, server, now_ns);
@@ -246,12 +248,12 @@ pub fn cancel_left(self: anytype, now_ns: u64) void {
     }
 }
 
-/// Slot `index`'s request failed: its lookup hears so if the request is still its attempt, once
-/// (request rule 7), and decision 25 counts it as the server's failure.
-fn fail_one(self: anytype, index: usize, now_ns: u64) void {
+/// Slot `index`'s request failed, for `reason`: its lookup hears so if the request is still its
+/// attempt, once (request rule 7), and decision 25 counts it as the server's failure.
+fn fail_one(self: anytype, index: usize, reason: cocuyo.Reason, now_ns: u64) void {
     const request = &self.requests[index];
     assert(request.live);
-    if (request_module.current(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, now_ns);
+    if (request_module.current(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns);
     request.live = false;
     request.exchange = false;
 }
@@ -326,14 +328,14 @@ fn closed(self: anytype, server: u8, now_ns: u64) void {
     slot.channel.wipe();
     slot.state = .closed;
     if (slot.queue_len == 0) return;
-    if (!open(self, server, now_ns)) return fail_waiting(self, server, now_ns);
+    if (!open(self, server, now_ns)) return fail_waiting(self, server, .local, now_ns);
     give_waiting(self, server, now_ns);
 }
 
-/// Each request waiting on server `server`'s channel fails, once (request rule 7).
-fn fail_waiting(self: anytype, server: u8, now_ns: u64) void {
+/// Each request waiting on server `server`'s channel fails, once, for `reason` (request rule 7).
+fn fail_waiting(self: anytype, server: u8, reason: cocuyo.Reason, now_ns: u64) void {
     const slot = &self.doh.slots[server];
-    for (slot.queue[0..slot.queue_len]) |index| fail_one(self, index, now_ns);
+    for (slot.queue[0..slot.queue_len]) |index| fail_one(self, index, reason, now_ns);
     slot.queue_len = 0;
 }
 
@@ -389,10 +391,10 @@ fn ended(self: anytype, server: u8, finished: anytype, now_ns: u64) void {
     // A request the engine cancelled tells nobody (request rule 6): the channel says no end of it.
     assert(request.live and request.exchange and request.server == server);
     if (request_module.current(self, index)) {
-        if (finished.answer) |answer| {
-            _ = self.resolver.on_request_answer(request.handle, request.transaction, answer.message, answer.age_seconds, now_ns);
-        } else {
-            self.resolver.on_request_failed(request.handle, request.transaction, now_ns);
+        switch (finished.outcome) {
+            .answer => |answer| _ = self.resolver.on_request_answer(request.handle, request.transaction, answer.message, answer.age_seconds, now_ns),
+            // The channel says why the request failed (docs/design.md §5, The cause of a failure).
+            .failed => |reason| self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns),
         }
     }
     request.live = false;
