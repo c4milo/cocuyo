@@ -4,6 +4,7 @@
 \* stream's rule 9 as TQ1 breaks it, the request rules of §24 as RQ1 to RQ11 and RQ14 break them,
 \* the channel's rules as CH1 to CH10 do, and the datagram's rules 4 and 6 as OA34 does. TS11 to
 \* TS13 and TS18 break the stream's rule 12, and TB5 and TB8 break TLS rule 3 for a query's send.
+\* CL5 breaks TLS rule 5's bound on a connection that closes.
 \* A configuration in mutants/ puts one in place of the rule with TLC's `Rule <- Mutant`, and TLC
 \* must find the check that catches it.
 EXTENDS Engine
@@ -341,5 +342,21 @@ BorrowedBeforeQueries(st, k) ==
 SendFromRecordsOnly(kind, target, k) ==
     IF Tls /\ kind = "sendRecords" THEN [Op(kind, target) EXCEPT !.buffer = {k}]
     ELSE Op(kind, target)
+
+RECURSIVE CloseIdlePassingFrom(_, _)
+\* CL5: the idle close passes over a connection that closes, as it did until 2026-10-20. So a
+\* connection whose last send does not end stays closing for ever (TLS rule 5, §16 decision 49).
+CloseIdlePassingFrom(st, k) ==
+    IF k >= Conns THEN st
+    ELSE
+    LET c == st.conns[k]
+        closed == IF c.stage \in {"closed", "closing"} \/ c.users # 0 \/ c.idleNow THEN st
+                  ELSE IF Tls /\ c.stage = "up"
+                  THEN MakeRecords([st EXCEPT !.conns[k].stage = "closing",
+                                              !.conns[k].idleNow = TRUE], k)
+                  ELSE Shut(st, k)
+    IN CloseIdlePassingFrom(closed, k + 1)
+
+CloseIdlePassing(st) == CloseIdlePassingFrom(st, 0)
 
 ===============================================================================

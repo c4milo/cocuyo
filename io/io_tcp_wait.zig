@@ -13,9 +13,10 @@ const tcp = @import("io_tcp.zig");
 const tls_module = @import("io_tls.zig");
 
 /// Whether a slot is pending: no lookup is on it, and it frees with no lookup leaving it. Its
-/// connection closes once its alert or `close_notify` has gone. Or the slot is closed, and the
-/// loop holds its memory: a cancelled connect's address, or the records buffer that a send reads,
-/// a query's or the session's own. See the stream's rules 10 and 12, and §21's TLS rules 3 to 5.
+/// connection closes once its alert or `close_notify` has gone, or once it has closed for
+/// `tcp_idle_ns` (docs/design.md §16 decision 49). Or the slot is closed, and the loop holds its
+/// memory. That is a cancelled connect's address, or the records buffer that a send reads, a
+/// query's or the session's own. See the stream's rules 10 and 12, and §21's TLS rules 3 to 5.
 pub fn pending(self: anytype) bool {
     for (self.connections[0..]) |*connection| {
         if (connection.state == .closing) return true;

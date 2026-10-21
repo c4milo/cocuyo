@@ -71,6 +71,9 @@ pub fn Connection(comptime message_bytes: u32, comptime lookups: u16, comptime T
         receiving: bool = false,
         /// How many lookups are on it. One with none is closed when it has been idle long enough.
         users: u16 = 0,
+        /// The instant from which the idle close's wait counts while no lookup is on it. Its
+        /// connect's success sets it. So do its last lookup's leave and the start of its close (the
+        /// stream's rule 4, §21's TLS rule 5).
         idle_since_ns: u64 = 0,
         /// Which opening of the slot this is. Every operation on the connection carries it, so
         /// the event of an opening that is gone is told from the current one's (docs/design.md
@@ -81,6 +84,11 @@ pub fn Connection(comptime message_bytes: u32, comptime lookups: u16, comptime T
         queue: queue_module.Queue(lookups + constants.tls_records_entries_max) = .{},
         sent_bytes: u16 = 0,
         sending: bool = false,
+        /// The head's send in flight: a connection carries one at a time (the stream's rule 9). A
+        /// send to a peer that stops reading ends only at its cancel. So each way that ends the
+        /// connection cancels it: `shut`, `retry_full` and `cancel_all` (docs/design.md §16
+        /// decision 49).
+        send_handle: ?rotor.Handle = null,
         /// The send in flight from this slot's TLS records buffer, of whichever opening. It names
         /// the table slot of a query whose sealed records it sends, or `records` of
         /// `io_tcp_queue_ring.zig` for the session's own records. The buffer is the loop's until
@@ -372,24 +380,35 @@ pub fn abandon(self: anytype, at: u8, now_ns: u64) void {
     self.connections[at].users = 0;
 }
 
-/// Ends a connection: the operation on it is cancelled, which is what makes the loop let it go
-/// (rotor decision 5, rule 1), the queries waiting on it give their buffers back, and the socket
-/// is closed. The events that follow name a connection that is closed, and are ignored.
+/// Ends a connection. Each operation on it is cancelled, which is what makes the loop let it go
+/// (rotor decision 5, rule 1). The queries waiting on it give their buffers back, and the socket
+/// is closed. The events that follow name a connection that is closed, and are ignored. The send
+/// keeps what it reads lent until its cancel's event (§21, TLS rule 3; the stream's rule 6). That
+/// is the slot's records buffer over TLS, and its lookup's own buffer in the clear.
 pub fn shut(self: anytype, at: u8) void {
     const connection = &self.connections[at];
+    // A send is in flight exactly while its handle is kept (the stream's rule 9).
+    assert(connection.sending == (connection.send_handle != null));
     if (connection.handle) |handle| self.loop.cancel(handle);
+    if (connection.send_handle) |handle| self.loop.cancel(handle);
     queue_module.release_all(self, at);
     if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);
     connection.restart();
 }
 
-/// A resumed handshake failed, which is not the server's failure (§21, TLS rule 8): the session
-/// and its socket go, and the connection waits, its lookups still on it, to connect again in full
-/// once the loop holds nothing of its slot's.
+/// A resumed handshake failed, which is not the server's failure (§21, TLS rule 8). The session
+/// and its socket go. The connection waits, its lookups still on it, to connect again in full once
+/// the loop holds nothing of its slot's. A send in flight is cancelled, so the loop gives the
+/// records buffer back at the cancel's event (docs/design.md §16 decision 49).
 pub fn retry_full(self: anytype, at: u8, now_ns: u64) void {
     const connection = &self.connections[at];
     assert(connection.state == .handshaking);
+    // A send is in flight exactly while its handle is kept (the stream's rule 9).
+    assert(connection.sending == (connection.send_handle != null));
     if (connection.handle) |handle| self.loop.cancel(handle);
+    // A peer that stops reading never ends a send of the session's records. The connection waits
+    // for that send's event to connect again (TLS rules 3 and 8).
+    if (connection.send_handle) |handle| self.loop.cancel(handle);
     if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);
     const server = connection.server;
     const users = connection.users;
@@ -420,10 +439,14 @@ pub fn tend(self: anytype) void {
 }
 
 /// Closes every connection nobody is using and has not used for `tcp_idle_ns` (RFC 7766 §6.2.3).
+/// A TLS connection that closes is idle from the instant it began to close, and the same wait
+/// bounds it (docs/design.md §16 decision 49).
 pub fn close_idle(self: anytype, now_ns: u64) void {
     if (comptime !@TypeOf(self.*).keeps_tcp) return;
     for (self.connections[0..], 0..) |*connection, at| {
-        if (connection.state == .closed or connection.state == .closing or connection.users != 0) continue;
+        // No lookup is on a connection that closes, and none joins it (§21, TLS rules 4 and 5).
+        assert(connection.state != .closing or connection.users == 0);
+        if (connection.state == .closed or connection.users != 0) continue;
         if (now_ns -| connection.idle_since_ns < self.tcp_idle_ns) continue;
         // A TLS connection that is up says `close_notify`, and closes once it has gone; one whose
         // handshake has not ended has no session to close (§21, TLS rule 5).
@@ -431,19 +454,28 @@ pub fn close_idle(self: anytype, now_ns: u64) void {
             tls_module.close(self, @intCast(at), now_ns);
             continue;
         }
+        // One that closes has had the wait for its last send, which a peer that stops reading
+        // never ends. The shut cancels that send, and the slot frees at the cancel's event.
         shut(self, @intCast(at));
     }
 }
 
-/// Ends every connection's operation, so the loop can be drained (rotor decision 5, rule 7).
-/// The sockets stay open until `close_all`, which runs after the drain.
+/// Ends each operation of every connection, its send among them, so the loop can be drained
+/// (rotor decision 5, rule 7). The sockets stay open until `close_all`: `close` runs it after the
+/// drain, and `reinit` at once. The send's fields stay as they are, for its event or for
+/// `close_all` to clear (docs/design.md §16 decision 49).
 pub fn cancel_all(self: anytype) void {
     if (comptime !@TypeOf(self.*).keeps_tcp) return;
     for (self.connections[0..]) |*connection| {
         if (connection.state == .closed) continue;
+        // A send is in flight exactly while its handle is kept (the stream's rule 9).
+        assert(connection.sending == (connection.send_handle != null));
         if (connection.handle) |handle| self.loop.cancel(handle);
         connection.handle = null;
         connection.receiving = false;
+        // A send to a peer that stops reading ends only at its cancel. After a `reinit` its slot
+        // frees at that event, and after a `deinit` the loop drains.
+        if (connection.send_handle) |handle| self.loop.cancel(handle);
     }
 }
 

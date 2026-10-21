@@ -214,6 +214,8 @@ fn refuse(self: anytype, at: u8, now_ns: u64) void {
     tcp.abandon(self, at, now_ns);
     queue_module.drop_unsealed(self, at);
     connection.state = .closing;
+    // It is idle from now, so the idle close's wait bounds it (docs/design.md §16 decision 49).
+    connection.idle_since_ns = now_ns;
     if (!make_records(self, at, now_ns)) return;
     if (connection.queue.count == 0) tcp.shut(self, at);
     assert(connection.users == 0);
@@ -366,11 +368,15 @@ pub fn sent_through(self: anytype, at: u8, end: u16) void {
 
 // Closing (rule 5).
 
-/// An idle connection that is up says `close_notify`, and closes once that has gone.
+/// An idle connection that is up says `close_notify`, and closes once that has gone. The idle
+/// close's wait starts again now, and bounds the close (docs/design.md §16 decision 49).
 pub fn close(self: anytype, at: u8, now_ns: u64) void {
     const connection = &self.connections[at];
     assert(connection.state == .up and connection.users == 0);
+    // The connection had been idle for the wait already.
+    assert(now_ns -| connection.idle_since_ns >= self.tcp_idle_ns);
     connection.state = .closing;
+    connection.idle_since_ns = now_ns;
     connection.tls.session.close();
     _ = make_records(self, at, now_ns);
 }

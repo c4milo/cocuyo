@@ -2991,6 +2991,11 @@ step until `zig build test` passes.
     a closed slot in the same way before this decision. §17 question 55 asks about a time bound on
     a slot of the same kind, a connection that closes.
 
+    Amended on 2026-10-20 by decision 49: `shut` cancels the send too. So a closed slot that a send
+    holds frees at the cancel's event, about one turn of the loop after the shut. Since 2026-10-21
+    `cancel_all` cancels it as well. So after a `reinit` the slot frees at the cancel's event, not
+    at the end of a send that may never end.
+
     Rejected:
 
     - The sealed query copied into the lookup's send buffer, and sent from there. That buffer holds
@@ -3251,6 +3256,115 @@ step until `zig build test` passes.
 
     §17 questions 56, 58 and 59, §21 (the session interface), §24 (the context a session starts
     from).
+49. **A connection that closes is shut once it has closed for `tcp_idle_ns`.** Ruled by the owner
+    on 2026-10-20, on §17 question 55: the idle close's wait bounds a connection that closes, with
+    no new limit. Until then a TLS connection that closed freed its slot only at the end of its
+    last send. That send held its alert or its `close_notify` (§21, TLS rules 4 and 5). The idle
+    close passed over the connection. A send kept no handle, and `shut` cancelled only a connect or
+    a receive.
+
+    The sequence over TLS, with one server, one slot and two passes:
+
+    1. The session refuses the server's handshake record. The connection seals its alert, and
+       begins to close (TLS rule 4).
+    2. The peer has stopped reading, and keeps its side open. So the alert's send takes nothing,
+       and does not end.
+    3. The lookup's second pass finds the slot closing, and waits for it (§19 step 13, the stream's
+       rule 12).
+    4. Until 2026-10-20 nothing ended that send. The lookup ended at its deadline, and the slot
+       stayed closing. Each later connection to that server took another slot, so in time the
+       server could hold each slot.
+    5. Now the first drive after `tcp_idle_ns` shuts the connection, and the shut cancels the send.
+       At the cancel's event the slot is free, and the drive's end admits the lookup.
+
+    Choices the ruling did not make, made here:
+
+    - A connection that closes is idle from the instant it began to close. No lookup is on it, and
+      no lookup joins it (TLS rule 5). It has no query to send and no answer to wait for, so it is
+      idle (RFC 7766 §3). The idle close shuts it after `tcp_idle_ns`, as it shuts each idle
+      connection (the stream's rule 4).
+    - The connection keeps that instant in its `idle_since_ns`, a `u64` of 8 octets that each
+      connection holds already. `refuse` and `close` in `io/io_tls.zig` set it as the connection
+      begins to close. Nothing else reads the field of such a connection, since no lookup joins it.
+    - So a `close_notify` gets a wait of its own. The connection that says it was idle for
+      `tcp_idle_ns` already, and the instant of the idle close starts the wait again.
+    - `shut` cancels each operation in flight on the connection: its connect or its receive, and
+      now its send. A connection carries one send at a time (the stream's rule 9), so one handle
+      names it. The connection keeps it in `send_handle`, an optional `rotor.Handle` of 16 octets.
+      With the default options a connection grows from 68,728 to 68,744 octets in the clear, and
+      from 107,368 to 107,384 over the twin's TLS.
+    - The slot frees at the cancel's event, not at the shut. The loop may read the records buffer
+      until the send's final event (rotor decision 5, rule 3). The slot is pending until then (TLS
+      rule 3).
+    - Each way that ends a connection cancels its send, not only the shut of the idle close. Each
+      failure and each close calls `shut`. A resumed handshake that fails calls `retry_full` before
+      the connection connects again in full (TLS rule 8). `deinit` and `reinit` call `cancel_all`.
+      Each of the three cancels the send.
+    - So a connection that fails during a send frees its slot at the cancel's event too, and so
+      does one that a `reinit` drops. The wait that decision 47 left with no bound has one now. In
+      the clear the cancel gives the lookup's send buffer back at that event (the stream's rule 6).
+      After `deinit` the loop drains, since no send waits for ever (rotor decision 5, rule 7).
+    - No timer is armed for the bound. The first drive at or after the bound shuts the connection,
+      as the idle close of rule 4 does. A lookup's default wait, 2 seconds, ends before
+      `tcp_idle_ns_default`, 10 seconds. So a timer would seldom serve the lookup that waits, and
+      the start of each later lookup runs a drive.
+
+    In the clear no connection closes slowly. It has no `closing` state: the idle close and each
+    failure shut it at once. Its slot is free at once, unless a cancelled connect still borrows its
+    address (the stream's rule 10). A query's send in the clear reads its lookup's own buffer, not
+    the slot's. So a send that stalls there holds the lookup's buffer and no slot. The shut now
+    cancels that send as well.
+
+    What the peer sees: the engine closes its socket after the cancel. A part of the alert or the
+    `close_notify` may wait in the kernel's send buffer, and the kernel may still try to send it.
+    The rest never goes. So the peer sees its stream end after all of that record, a part of it, or
+    none of it. RFC 9846 §6.1 says that a peer that sees the transport close before a
+    `close_notify` cannot know that all the data reached it. No lookup is on the connection, so no
+    query of the engine's is lost.
+
+    Rejected:
+
+    - As built: the slot frees at the end of the send, or when the peer closes. A peer that never
+      reads then holds the slot for ever.
+    - A new named limit, `tcp_closing_ns`. It is one more number for a caller to size, and the
+      owner ruled against it.
+    - A field of its own for the instant a connection began to close, 8 octets more for each
+      connection. The idle instant is free from that instant on, and the wait is the same one.
+    - The slot freed at the shut, before the cancel's event. The loop may still read the records
+      buffer then (TLS rule 3), and a new opening writes its hello there (decision 47).
+    - The socket closed, and the send not cancelled. A cancel is what makes the loop let an
+      operation go (rotor decision 5, rule 1), and a close is no cancel. A send that waits to write
+      could then stay in flight for ever.
+    - A timer at the bound, armed while a connection closes. It costs a submit and a cancel at each
+      idle close of a TLS connection, whose `close_notify` goes at once in the usual case. And the
+      lookup that waits seldom outlasts the bound.
+    - The bound only while a lookup waits for a slot. The server can still come to hold each slot
+      with no lookup that waits, one connection that closes after another.
+
+    The engine model in TLA+ holds the rule (spec/README.md). `CloseIdle` shuts a connection that
+    closes, as it shuts each connection that no lookup is on. `Refuse`, and the idle close of a
+    connection that is up, mark the connection idle at that instant. So the trace writes the instant
+    a connection began to close as the code does. The check "closing bounded" holds the rule: after
+    the clock moves, no connection that closed before it still closes. The mutant CL5 puts back
+    `CloseIdle` as it was, and TLC finds that check broken.
+
+    The model holds no cancel. It may end each operation at each event already, so the cancel's
+    event is one that it holds. It holds no `deinit` and no `reinit`. Its `RetryFull` already
+    leaves each operation of the connection to the loop, the send of the session's records among
+    them. No named limit and no entry point change. `Connection` is the engine's own type, and no
+    consumer reads its fields.
+
+    The review of this decision found on 2026-10-21 that `cancel_all` and `retry_full` cancelled no
+    send. Each dropped the handle, and after that nothing could cancel the send. A test of the
+    review stalled a `close_notify`, then called `reinit`. A later lookup waited for that slot, and
+    failed with `Timeout`. After `deinit` the loop could not drain the send.
+
+    A resumed connection whose last send stalled could never connect again in the same way. Each of
+    the two functions now cancels the send, and a test shows each path. The review also found two
+    waits that no time bounds, older than this decision and outside question 55. §17 questions 60
+    and 61 ask about them.
+
+    §17 question 55, §19 step 13 (the stream's rules 4 and 12), §21 (TLS rules 3, 5 and 8).
 
 ## 17. Questions for the owner
 
@@ -3755,6 +3869,9 @@ review of the change found that nothing bounds how long such a slot takes.
     has said its last record. So the connection is idle, and the idle close's wait fits it. A
     second limit beside it is one more number for a caller to size.
 
+    Answered on 2026-10-20: the idle close's wait, `tcp_idle_ns`, bounds a connection that closes,
+    with no new limit. Built on 2026-10-20: §16 decision 49.
+
 ### Asked on 2026-10-20, for colibri v0.8.0
 
 The owner ruled on 2026-10-20 that cocuyo moves its pin of colibri from v0.6.0 to v0.8.0. §16
@@ -3865,6 +3982,45 @@ consumer fills. The examples do not fill it from a probe, and the sessions name 
     first.
 
     Answered on 2026-10-20: as built. `Session.Cpu` stays, beside `Session.Anchor`.
+
+### Asked on 2026-10-21, for a send that never ends
+
+The review of §16 decision 49 found two more waits that no time bounds. Each is older than the
+decision, and outside question 55. Each needs a peer that stops reading and keeps its side open.
+
+60. **A query's send that never ends.** A lookup in `tcp_ready` waits for the event of its query's
+    send (§5). That state does not wait for an instant, so no deadline ends it (`is_waiting`). The
+    lookup stays on its connection, so the idle close passes over the connection. Over TLS such a
+    lookup also holds the server's slot. The caller's `cancel` still ends it.
+
+    A test of the review stalled the peer before the query went, in the clear. After 18 minutes of
+    the twin's clock the lookup was still in `tcp_ready`. The ways:
+
+    - As built: the lookup waits until its send ends, or until the caller cancels it.
+    - `tcp_ready` waits for the deadline too, as `awaiting_tcp` does. At the deadline the lookup
+      moves on, and leaves its connection (the stream's rule 3). The connection then has no
+      lookup, and the idle close shuts it, which cancels the send (decision 49). This changes §5's
+      table, the Lean model of the lookup and the engine model.
+    - The engine fails a connection whose query's send has not ended at that lookup's deadline.
+      §5 does not change, and each lookup on the connection hears the failure.
+
+    Recommended: the second. The deadline bounds each other state that waits on a server, and the
+    connection then ends as decision 49 ends an idle one. Until the owner rules, as built.
+61. **A DoH link whose send never ends.** The send of a channel's TCP link keeps no handle, so
+    neither the link's `shut` nor its `cancel_all` can cancel it (`io/io_channel_link.zig`). A link
+    that closes waits for that send to end (§24, request rule 19). A new opening of the link sends
+    nothing until an earlier opening's send has ended. So a peer that stops reading may hold each
+    later request to that server until its deadline. After `deinit` the loop may not drain.
+
+    The review read this path, and no test shows it yet. The ways:
+
+    - As built.
+    - The rule of decision 49 for a link. The link keeps its send's handle, and each way that ends
+      the link cancels the send. `quic_idle_ns` bounds a link that closes, as `tcp_idle_ns` bounds
+      a connection (request rule 24).
+
+    Recommended: the second, with a test on the twin first. It is the same wait, and the same rule
+    bounds it. Until the owner rules, as built.
 
 ## 18. The cache
 
@@ -4829,6 +4985,8 @@ of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
    deadline passed, its connection failed, it moved to the next name, it ended.
 4. A connection's users are the lookups on it. When the last leaves, the connection is idle from
    that instant, and one idle for `tcp_idle_ns` is closed by the drive at an instant that late.
+   Since 2026-10-20 a TLS connection that closes is idle from the instant it began to close. The
+   same wait bounds it (§21, TLS rule 5; §16 decision 49).
 5. When the connect succeeds, the receive is armed and every lookup on the connection that is
    still connecting is told. When the connect fails, the receive fails, or the peer closes,
    every lookup on the connection is told its connection failed and leaves it, and the
@@ -4920,9 +5078,14 @@ of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
 
     The wait relies on the end of an operation that the loop holds. A connection that closes frees
     its slot when its last send ends. A closed slot frees at the event of its connect or its send.
-    No time bounds them. Take a peer that stops reading and keeps its side open. It holds a TLS
-    connection in `closing`, and a lookup that waits for that slot waits until its deadline. §17
-    question 55 asks about a time bound.
+    Since 2026-10-20 a time bounds each (§16 decision 49). The drive shuts a connection that has
+    closed for `tcp_idle_ns`. Each way that ends a connection cancels its send, and the slot frees
+    at the cancel's event. A lookup that still waits gets the slot at that event.
+
+    Until 2026-10-20 no time bounded the wait. Take a peer that stops reading and keeps its side
+    open. It held a TLS connection in `closing`, and a lookup that waited for that slot waited until
+    its deadline. A send held a closed slot in the same way after its connection failed. Each way
+    that ends a connection now cancels that send too.
 
     After each drive a lookup waits only while its server has no connection that it may join. The
     drive's end would have joined it to one. Between two drives a connection opens only through
@@ -4988,7 +5151,7 @@ socket opens may fail for the length of one event. A stream's send may come back
 message, its rest then whole or failed: a second short send takes the same path as the first.
 
 - The Lean walker, `cocuyo-spec engine` until it retired on 2026-09-24, walked every state the model
-  reached in a configuration and checked ten invariants in each. TLC checks forty-two now, the
+  reached in a configuration and checked ten invariants in each. TLC checks forty-three now, the
   request rules' of §24 and the channel's among them (spec/README.md). A connection's users are the
   lookups on it. A lookup is only on a connection to its server. A buffer is lent to one send at
   most. A connection and a socket each have at most one current operation of each kind. A drive
@@ -5807,6 +5970,13 @@ code is.
    it: "Each party MUST send a "close_notify" alert before closing its write side of the
    connection". Then the connection ends as rule 4 ends a refused record. Its lookups hear the
    failure at once, its queries not yet sealed leave, and it closes once the alert has gone.
+
+   Since 2026-10-20 the idle close's wait bounds a connection that closes (§16 decision 49). No
+   lookup is on it, and the session has said its last record, so it is idle (RFC 7766 §3). Its
+   wait counts from the instant it began to close. When its last record has not gone after
+   `tcp_idle_ns`, the drive shuts it. The shut cancels the send, and the slot frees at the
+   cancel's event (rule 3). The peer then sees the stream end, after all of that record, a part of
+   it, or none of it.
 6. A TLS connection is never closed to make room for another. A TLS configuration needs a slot
    for each of its servers, and the engine asserts it has them. Each server has at most one
    connection that a lookup may join. Take a lookup whose server has no such connection, and that
@@ -5840,6 +6010,10 @@ code is.
    the connection is opened again in the same slot, in full. That happens as soon as the loop
    has given back any records the failed session had in flight (TLS rule 3). Its lookups stay on
    it meanwhile, count no failure, and hear only how the full handshake ends.
+
+   Since 2026-10-21 the connection cancels a send in flight as it drops the failed session (§16
+   decision 49). So the loop gives the records back at the cancel's event. A peer that stops
+   reading cannot hold the connection in its wait.
 9. A TLS configuration opens no UDP socket. Every query goes on a stream (all or none), so a
    datagram socket would only hold a descriptor and a receive that nothing may use. The owner
    ruled so on 2026-09-23.
@@ -5849,7 +6023,7 @@ invariants were added for them: a slot a send of records still borrows stays clo
 entries lead each queue, so records go out in the order they were sealed; no query waits on a
 connection that is not up; and no event leaves the session owing an answer. The last came from a
 mutation nothing caught without it (docs/mutations.md TM3). The replay drives no TLS configuration
-until step 5, when the engine speaks TLS. Other checks hold rules 3, 4 and 8:
+until step 5, when the engine speaks TLS. Other checks hold rules 3, 4, 5 and 8:
 
 - Three hold rule 8. A connection that opens resuming spends its server's ticket. One opened again
   after a declined ticket handshakes in full. A declined ticket counts no failure, and keeps its
@@ -5861,6 +6035,8 @@ until step 5, when the engine speaks TLS. Other checks hold rules 3, 4 and 8:
   one send at most, of whichever incarnation. A query's send that reads it is its connection's
   head, or the slot is closed. Each operation names the buffer that it reads, so the model's
   choice of a slot sees each send that reads one (§16 decision 47).
+- Since 2026-10-20 one holds rule 5's bound. After the clock moves, no connection that closed
+  before it still closes (§16 decision 49).
 
 ### The session interface, written on 2026-09-24
 

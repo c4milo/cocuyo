@@ -177,6 +177,56 @@ test "a connection with a lookup on it is not closed for having been idle" {
     try rig.deinit();
 }
 
+/// In the clear a query's send reads its lookup's own buffer (the stream's rule 6). The peer stops
+/// reading before the query goes, so the send takes nothing and never ends. The caller cancels
+/// the lookup, and the connection is idle with that send in flight (rule 9).
+fn stall_a_query(rig: *Rig, seed: u64) !cocuyo.Handle {
+    try rig.init(seed, .{ .{}, .{} }, .{ .servers = &.{}, .use_tcp = true, .attempts = 1 });
+    const first = try rig.engine.start(question("one.example."), rig.loop.now());
+    const connection = &rig.engine.connections[0];
+    rig.loop.network().stall(connection.descriptor.?);
+    _ = try rig.step(fixtures.wait_ns);
+    try testing.expect(connection.state == .up and connection.sending);
+    rig.engine.cancel(first, rig.loop.now());
+    try testing.expectEqual(cocuyo.Error.Canceled, (try rig.until_result()).outcome.failure.err);
+    _ = rig.engine.take(rig.loop.now());
+    try testing.expect(connection.users == 0 and rig.engine.send_in_flight[first.index]);
+    return first;
+}
+
+/// The connection is closed, and the stalled send still holds the buffer. At the cancel's event the
+/// buffer comes back. A later lookup opens the slot again, and the server answers it.
+fn expect_buffer_at_cancel(rig: *Rig, first: cocuyo.Handle) !void {
+    try testing.expect(rig.engine.connections[0].state == .closed and rig.engine.send_in_flight[first.index]);
+    _ = try rig.step(fixtures.channel_read_ns);
+    try testing.expect(!rig.engine.send_in_flight[first.index]);
+    _ = try rig.engine.start(question("two.example."), rig.loop.now());
+    try testing.expect((try rig.until_result()).outcome == .answer);
+    _ = rig.engine.take(rig.loop.now());
+}
+
+test "the idle close cancels a send that never ends, and its buffer comes back at the cancel" {
+    // The idle close shuts the connection, and the shut cancels the send (docs/design.md §16
+    // decision 49).
+    var rig: Rig = .{};
+    const first = try stall_a_query(&rig, 24);
+    _ = try rig.step(fixtures.tcp_idle_jump_ns);
+    _ = try rig.step(fixtures.tcp_idle_jump_ns);
+    rig.engine.drive(rig.loop.now());
+    try expect_buffer_at_cancel(&rig, first);
+    try rig.deinit();
+}
+
+test "a reinit cancels a send that never ends, and its buffer comes back at the cancel" {
+    // A reinit drops the connection before the idle close, and cancels the send too (docs/design.md
+    // §16 decision 49).
+    var rig: Rig = .{};
+    const first = try stall_a_query(&rig, 25);
+    try rig.engine.reinit(&rig.config, rig.cache_memory.slices(), 26, rig.loop.now());
+    try expect_buffer_at_cancel(&rig, first);
+    try rig.deinit();
+}
+
 test "a stream answer comes from the server's own TCP port" {
     var rig: Rig = .{};
     rig.servers[0].tcp_port = rotor.constants.server_tcp_port;

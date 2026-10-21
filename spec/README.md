@@ -191,6 +191,8 @@ event, and the channel's rules below:
   refused, every open connection has its receive.
 - A connection that opens resuming spends its server's ticket.
 - A connection that fails while it closes fails none of the requests that wait on it.
+- After the clock moves, no TLS connection that closed before still closes: the idle close's wait
+  bounds it (docs/design.md §16 decision 49).
 
 Each configuration bounds the operations in flight, the failures a server and the queries a port
 (`OpsMax`, `FailuresMax` and `SentMax`), since nothing else bounds the graph. A stream's send may
@@ -363,7 +365,7 @@ Three choices make TLC count what the Lean walker counts:
   and checked, and has no successor, as in the Lean walker; TLC leaves a state that breaks a
   `CONSTRAINT` out, and the check on the event that reached it with it. So every configuration
   says `CHECK_DEADLOCK FALSE`.
-- Fourteen of the forty-two checks read the event or the state before it, which a TLC
+- Fifteen of the forty-three checks read the event or the state before it, which a TLC
   invariant cannot. So `broken` holds the names of the checks the last event broke, and `Clean`
   asks it be empty. In a model that keeps its rules it always is, so it splits no state.
 
@@ -656,6 +658,56 @@ That walk has one lookup and two servers over TLS. At its event 100 the connecti
 its query's send is in flight, and the lookup's next pass connects in the other slot. So walk
 16271 is the sixteenth pick, and the replay of the gate now drives that path.
 
+On 2026-10-20 the idle close's wait began to bound a connection that closes (docs/design.md §21,
+TLS rule 5; §16 decision 49). Until then a TLS connection that closed freed its slot only at the
+end of its last send. A peer that stopped reading held that slot for ever. The model held the same
+gap: `CloseIdle` passed over a connection that closes. The change came to the model first:
+
+- `CloseIdle` shuts a connection that closes, as it shuts each connection that no lookup is on.
+  A tick is the idle close's wait, so the first move of the clock after the connection began to
+  close shuts it. The shut leaves the send in flight, and its slot is pending until that send ends.
+- `Refuse`, and the idle close of a connection that is up, set `idleNow`. The connection is idle
+  from the instant it began to close. The code keeps that instant where it keeps the instant its
+  last lookup left. So the trace writes `I` there, as the code does.
+- The check "closing bounded" holds the rule. After the clock moves, no connection that closed
+  before it still closes.
+- `mutants/CL5` puts back `CloseIdle` as it was. TLC finds "closing bounded" broken at the sixth
+  state of its counterexample. A handshake is refused, its alert's send is in flight, and the clock
+  moves.
+
+The model holds no cancel. Each operation may end at each event already, so the cancel's event is
+one that the model holds. In the clear no connection closes, so no configuration in the clear
+changes. Neither does a configuration of UDP, DoQ or DoH.
+
+TLC checked each configuration over TLS on 2026-10-20 on an Apple M1 Pro while other work ran:
+
+| Configuration | Before | Now |
+| --- | --- | --- |
+| `Engine_tls_1_2_bound_2_1` | 297,743 | 213,063 |
+| `Engine_tls_1_2_bound_3_1` | 11,165,668 | 5,747,714 |
+| `Engine_tls_2_2_bound_2_1` | 28,696,711 | 21,536,161 |
+
+A connection that closes no longer stays closing past a move of the clock, so TLC reaches fewer
+states. The largest configuration CI checks once a day now holds 21,536,161 states,
+`Engine_tls_2_2_bound_2_1`. TLC took 3 hours 26 minutes over it with three workers, and 1 hour 59
+minutes over `Engine_tls_1_2_bound_3_1`, while other work ran.
+
+Two of the 130 short walks changed, one in each configuration over TLS. In each the idle close
+makes a `close_notify`, and the trace now writes `I` there. No short walk moves the clock while a
+connection closes. Of the full run's 26,000 walks, 2,014 changed, all over TLS: 839 with one lookup
+and 1,175 with two. In 1,715 of them the clock moves while a connection closes, 2,236 times, and
+the idle close shuts it. The replay of the full run agrees with the engine over 5,226,000 events.
+
+Three of the sixteen picks changed, walks 16068, 16271 and 16478, and each now drives the new path.
+The rows of docs/mutations.md that the walks catch ran again against the full run (The wait on a
+connection that closes). For each older row that the short walks miss, the tool named the walk that
+it named before. For the new rows it named two walks more, 16003 for CL11 and 16135 for CL13.
+
+CL11 puts back the old `close_idle`, and the full run caught it first at walk 16003. CL13 drops the
+instant at which a refused connection begins to close. The full run caught it first at walk 16135,
+where a handshake is refused after the clock moved. No pick caught CL13, so both walks are picks
+now, eighteen in all.
+
 ### The walks TLC takes
 
 `tla/engine/EngineTrace.tla` runs the specification in TLC's simulation mode, which takes seeded
@@ -706,8 +758,8 @@ compares the walk's whole state after each.
   It also
   replays two sets of engine walks TLC wrote. `tools/spec_replay/engine_gate.txt` holds ten walks
   of forty events in each of the thirteen engine configurations.
-  `tools/spec_replay/engine_picks.txt` holds sixteen walks of the full run, which `engine_picks` in
-  `build/spec.zig` names: each is where the full run caught a mutation of the engine that the
+  `tools/spec_replay/engine_picks.txt` holds eighteen walks of the full run, which `engine_picks` in
+  `build/spec.zig` names. Each is where the full run caught a mutation of the engine that the
   short walks miss (docs/mutations.md). The gate also holds `tools/spec_replay/walk_gate.txt`, the
   forward walk with two candidates and both families and every reverse configuration. It needs
   neither Lean nor Java.

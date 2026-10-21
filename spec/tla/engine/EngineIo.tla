@@ -122,7 +122,8 @@ MakeRecords(st, k) ==
 \* A handshake the session refused, not resumed, or a record it refused once up: every lookup on
 \* the connection is told and leaves it, its queries not yet sealed leave the queue with their
 \* buffers, and the session's fatal alert is sealed behind what is; the connection closes once it
-\* has gone, as an idle one does after its close_notify (TLS rules 4 and 5, RFC 9846 §6.2).
+\* has gone, as an idle one does after its close_notify (TLS rules 4 and 5, RFC 9846 §6.2). It is
+\* idle from this instant, so the idle close's wait bounds it (§16 decision 49).
 Refuse(st, k) ==
     LET told == TellAll(st, k, FALSE)
         sl == told.slots
@@ -132,7 +133,8 @@ Refuse(st, k) ==
                                      IF sl[l].conn = {k} THEN [freed.slots[l] EXCEPT !.conn = {}]
                                      ELSE freed.slots[l]],
                                  !.conns[k].queue = Take(c.queue, c.sealed),
-                                 !.conns[k].stage = "closing", !.conns[k].users = 0], k)
+                                 !.conns[k].stage = "closing", !.conns[k].users = 0,
+                                 !.conns[k].idleNow = TRUE], k)
 
 \* The query joins its connection's queue, lending its buffer from now (the stream's rule 9).
 SubmitStream(st, l, k) ==
@@ -143,14 +145,18 @@ CloseIdleFrom(st, k) ==
     IF k >= Conns THEN st
     ELSE
     LET c == st.conns[k]
-        closed == IF c.stage \in {"closed", "closing"} \/ c.users # 0 \/ c.idleNow THEN st
+        closed == IF c.stage = "closed" \/ c.users # 0 \/ c.idleNow THEN st
                   ELSE IF Tls /\ c.stage = "up"
-                  THEN MakeRecords([st EXCEPT !.conns[k].stage = "closing"], k)
+                  THEN MakeRecords([st EXCEPT !.conns[k].stage = "closing",
+                                              !.conns[k].idleNow = TRUE], k)
                   ELSE Shut(st, k)
     IN CloseIdleFrom(closed, k + 1)
 
-\* Closes every connection nobody has used since before this instant (rule 4); over TLS one that
-\* is up says close_notify first and closes once it has gone (TLS rule 5).
+\* Closes every connection nobody has used since before this instant (rule 4). Over TLS one that
+\* is up says close_notify first, and closes once it has gone (TLS rule 5). One that closes is idle
+\* from the instant it began to close. It is shut once the wait has passed since then. The shut
+\* leaves its last send to the loop, and its slot frees at that send's end (TLS rules 3 and 5; §16
+\* decision 49).
 CloseIdle(st) == CloseIdleFrom(st, 0)
 
 \* The query goes out from the current socket of the lookup's server, which counts it.

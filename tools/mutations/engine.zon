@@ -313,7 +313,7 @@
         .id = "SQ9",
         .what = "a send the loop refuses leaves the queue stuck",
         .edits = .{
-            .{ .file = "io/io_tcp_queue.zig", .old = "    if (self.loop.submit(&.{operation}, &.{}) != 1) return tcp.fail(self, at, now_ns);", .new = "    _ = now_ns;\n    if (self.loop.submit(&.{operation}, &.{}) != 1) return;" },
+            .{ .file = "io/io_tcp_queue.zig", .old = "    if (self.loop.submit(&.{operation}, &handles) != 1) return tcp.fail(self, at, now_ns);", .new = "    _ = now_ns;\n    if (self.loop.submit(&.{operation}, &handles) != 1) return;" },
         },
         .caught_by = .short_walks,
     },
@@ -3511,5 +3511,140 @@
             .{ .file = "build/doh.zig", .old = "    const module = graph.io_doh_channel;\n", .new = "    const module = graph.io_doh_channel;\n    graph.cocuyo.addImport(\"channel\", module);\n" },
         },
         .caught_by = .{ .step = "graph-check" },
+    },
+    .{
+        .section = "The wait on a connection that closes",
+        .id = "CL1",
+        .what = "the idle close passes over a connection that closes, as until 2026-10-20",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        if (connection.state == .closed or connection.users != 0) continue;\n", .new = "        if (connection.state == .closed or connection.state == .closing or connection.users != 0) continue;\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The wait on a connection that closes",
+        .id = "CL2",
+        .what = "`shut` cancels no send, as until 2026-10-20",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    if (connection.send_handle) |handle| self.loop.cancel(handle);\n    queue_module.release_all(self, at);\n", .new = "    queue_module.release_all(self, at);\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The wait on a connection that closes",
+        .id = "CL3",
+        .what = "a connection that the idle close begins to close keeps the instant it went idle",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "    connection.state = .closing;\n    connection.idle_since_ns = now_ns;\n    connection.tls.session.close();", .new = "    connection.state = .closing;\n    connection.tls.session.close();" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The wait on a connection that closes",
+        .id = "CL4",
+        .what = "a connection whose record the session refused keeps the instant it went idle",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "    // It is idle from now, so the idle close's wait bounds it (docs/design.md §16 decision 49).\n    connection.idle_since_ns = now_ns;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The wait on a connection that closes",
+        .id = "CL6",
+        .what = "a connection that closes is shut at the next drive, with no wait",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        if (now_ns -| connection.idle_since_ns < self.tcp_idle_ns) continue;", .new = "        if (connection.state != .closing and now_ns -| connection.idle_since_ns < self.tcp_idle_ns) continue;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The wait on a connection that closes",
+        .id = "CL7",
+        .what = "a send keeps no handle",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "    connection.send_handle = handles[0];\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The wait on a connection that closes",
+        .id = "CL8",
+        .what = "a query's send keeps its handle after its event",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "    assert(connection.send_handle != null);\n    connection.sending = false;\n    connection.send_handle = null;\n", .new = "    assert(connection.send_handle != null);\n    connection.sending = false;\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The wait on a connection that closes",
+        .id = "CL9",
+        .what = "a send of the session's records keeps its handle after its event",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "    assert(connection.sending and connection.send_handle != null);\n    connection.sending = false;\n    connection.send_handle = null;\n", .new = "    assert(connection.sending and connection.send_handle != null);\n    connection.sending = false;\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The wait on a connection that closes",
+        .id = "CL10",
+        .what = "the twin's send to a peer that stopped reading ends at once",
+        .edits = .{
+            .{ .file = "src/sim/sim_loop_perform.zig", .old = "    if (connection.stalled) return;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-sim" },
+    },
+    .{
+        .section = "The wait on a connection that closes",
+        .id = "CL11",
+        .what = "as CL1, against the walks",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        if (connection.state == .closed or connection.users != 0) continue;\n", .new = "        if (connection.state == .closed or connection.state == .closing or connection.users != 0) continue;\n" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "The wait on a connection that closes",
+        .id = "CL12",
+        .what = "as CL3, against the walks",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "    connection.state = .closing;\n    connection.idle_since_ns = now_ns;\n    connection.tls.session.close();", .new = "    connection.state = .closing;\n    connection.tls.session.close();" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "The wait on a connection that closes",
+        .id = "CL13",
+        .what = "as CL4, against the walks",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "    // It is idle from now, so the idle close's wait bounds it (docs/design.md §16 decision 49).\n    connection.idle_since_ns = now_ns;\n", .new = "" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "The wait on a connection that closes",
+        .id = "CL14",
+        .what = "as CL6, against the walks",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        if (now_ns -| connection.idle_since_ns < self.tcp_idle_ns) continue;", .new = "        if (connection.state != .closing and now_ns -| connection.idle_since_ns < self.tcp_idle_ns) continue;" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "The wait on a connection that closes",
+        .id = "CL15",
+        .what = "`cancel_all` cancels no send, as until 2026-10-21",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        if (connection.send_handle) |handle| self.loop.cancel(handle);\n    }\n", .new = "    }\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The wait on a connection that closes",
+        .id = "CL16",
+        .what = "`retry_full` cancels no send, as until 2026-10-21",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    if (connection.send_handle) |handle| self.loop.cancel(handle);\n    if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);\n", .new = "    if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
     },
 }

@@ -186,6 +186,13 @@ RecordsLent(st) ==
                 st.conns[k].stage = "closed"
     /\ \A op \in DOMAIN st.ops : NamesItsBuffer(st, op)
 
+\* A connection that closes is idle from the instant it began to close. A tick is the idle close's
+\* wait. So after the clock moves, no connection that closed before it still closes: the drive shut
+\* it (TLS rule 5, §16 decision 49). Its slot frees at the end of its last send.
+ClosingBounded(before, e, st) ==
+    e.kind \notin {"idle", "expire"} \/
+    \A k \in 0..Conns - 1 : before.conns[k].stage # "closing" \/ st.conns[k].stage # "closing"
+
 Checks(before, e, st) ==
     << <<"users counted", UsersCounted(st)>>, <<"attached right", AttachedRight(st)>>,
        <<"buffers lent", BuffersLent(st)>>, <<"one send a stream", OneSendAStream(st)>>,
@@ -214,7 +221,8 @@ Checks(before, e, st) ==
        <<"waits connecting", WaitsConnecting(st)>>,
        <<"waits for no free slot", ~Drove(before, e) \/ WaitsForNone(st)>>,
        <<"told when up", ToldWhenUp(st)>>, <<"slot waited for", ~st.slotless>>,
-       <<"records lent", RecordsLent(st)>> >>
+       <<"records lent", RecordsLent(st)>>,
+       <<"closing bounded", ClosingBounded(before, e, st)>> >>
 
 Broken(before, e, st) ==
     LET checks == Checks(before, e, st) IN

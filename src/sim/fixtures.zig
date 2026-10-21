@@ -15,6 +15,9 @@ pub const connect_tag = 4;
 /// A timer that fills the one event a tick has room for, so another waits in the loop.
 pub const filler_tag = 5;
 
+/// How long a scenario waits on a send to a peer that stopped reading: a second, with nothing due.
+pub const stall_wait_ns = 1_000_000_000;
+
 /// The ids the scenarios' queries carry, over UDP and over the stream.
 pub const query_id = 0x4242;
 pub const stream_query_id = 0x0707;

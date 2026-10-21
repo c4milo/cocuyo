@@ -265,6 +265,37 @@ test "a query over a stream is answered in framed chunks the seed sizes" {
     rig.loop.deinit();
 }
 
+test "a send to a peer that stopped reading takes nothing, and ends only at its cancel" {
+    var rig: Rig = .{};
+    try rig.init(9, .{ .delay_ns_min = 10, .delay_ns_max = 10 });
+    const socket = try sim.sync.open_socket(.ipv4);
+    defer sim.sync.close_now(socket);
+    const address = sim.Network.server_address(0);
+    const connect: Operation = .{ .user_data = connect_tag, .kind = .{ .connect = .{ .socket = socket, .address = &address } } };
+    _ = rig.loop.submit(&.{connect}, &.{});
+    var events: [4]Event = undefined;
+    try testing.expectEqual(@as(u32, 1), try rig.collect(&events, 1000));
+    rig.loop.network().stall(socket);
+    var framed: [core.constants.query_bytes_max]u8 = undefined;
+    var query: wire.Query = .{ .id = fixtures.stream_query_id, .name = try core.Name.from_text("example.com"), .kind = .a, .tcp = true };
+    const framed_len = wire.query.write(&query, &framed);
+    const send: Operation = .{ .user_data = send_tag, .kind = .{ .send = .{ .socket = socket, .buffer = .{ .bytes = framed[0..framed_len] } } } };
+    var handles: [1]sim.Handle = undefined;
+    try testing.expectEqual(@as(u32, 1), rig.loop.submit(&.{send}, &handles));
+    // Nothing is due, so the wait moves the clock and ends with no event. The server heard nothing.
+    try testing.expectEqual(@as(u32, 0), try rig.collect(&events, fixtures.stall_wait_ns));
+    try testing.expectEqual(@as(u32, 1), rig.loop.in_flight());
+    const connection = rig.loop.network().connection(rig.loop.network().socket(socket).connection.?);
+    try testing.expectEqual(@as(usize, 0), connection.partial_len);
+    try testing.expectEqual(@as(usize, 0), connection.inbound_len);
+    rig.loop.cancel(handles[0]);
+    try testing.expectEqual(@as(u32, 1), try rig.collect(&events, 0));
+    try testing.expectEqual(@as(u64, send_tag), events[0].user_data);
+    try testing.expectError(error.Canceled, events[0].outcome());
+    try testing.expectEqual(@as(u32, 0), rig.loop.in_flight());
+    rig.loop.deinit();
+}
+
 test "a TLS server answers nothing to a record that is a length prefix of 65534 and no message" {
     // The plaintext's two octets say a message that long follows, and none does: the prefix and
     // its own two octets pass sixteen bits, and the record is no framed query.

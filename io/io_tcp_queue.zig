@@ -58,7 +58,7 @@ pub fn pump(self: anytype, at: u8, now_ns: u64) void {
 /// cannot go on without it.
 fn submit_rest(self: anytype, at: u8, now_ns: u64) void {
     const connection = &self.connections[at];
-    assert(!connection.sending);
+    assert(!connection.sending and connection.send_handle == null);
     // The slot was free when this opening began, and each send's event gave its buffer back.
     assert(connection.records_send == null);
     const head = connection.queue.first().?;
@@ -67,8 +67,11 @@ fn submit_rest(self: anytype, at: u8, now_ns: u64) void {
     else
         tcp.user_data_of(self, .tls_send, at);
     const operation: rotor.Operation = .send(user_data, connection.descriptor.?, rest_of(self, at, head));
-    if (self.loop.submit(&.{operation}, &.{}) != 1) return tcp.fail(self, at, now_ns);
+    var handles: [1]rotor.Handle = undefined;
+    if (self.loop.submit(&.{operation}, &handles) != 1) return tcp.fail(self, at, now_ns);
     connection.sending = true;
+    // `shut` cancels the send by this handle (docs/design.md §16 decision 49).
+    connection.send_handle = handles[0];
     // Over TLS each send reads the records buffer, a query's too, and the buffer is the loop's
     // until the send's final event (§21, TLS rule 3).
     if (tls.speaks(self)) connection.records_send = head.slot;
@@ -110,7 +113,10 @@ pub fn on_send_event(self: anytype, slot: usize, event: rotor.Event, now_ns: u64
     // Over TLS the send read the sealed records of its own connection.
     assert(if (tls.speaks(self)) lender == at else lender == null);
     const connection = &self.connections[at];
+    // The connection kept the handle of the send that just ended.
+    assert(connection.send_handle != null);
     connection.sending = false;
+    connection.send_handle = null;
     const count = event.outcome() catch 0;
     // A send that moved nothing failed, or would be asked again for ever.
     if (count == 0) {
@@ -154,7 +160,10 @@ pub fn on_records_event(self: anytype, index: usize, event: rotor.Event, now_ns:
     borrower.records_send = null;
     const at = tcp.current_of(self, index, event) orelse return tcp.connect_again(self, slot, now_ns);
     const connection = &self.connections[at];
+    // The connection kept the handle of the send that just ended.
+    assert(connection.sending and connection.send_handle != null);
     connection.sending = false;
+    connection.send_handle = null;
     const count = event.outcome() catch 0;
     if (count == 0) return tcp.fail(self, at, now_ns);
     if (!advance(self, at, count)) return submit_rest(self, at, now_ns);

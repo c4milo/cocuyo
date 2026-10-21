@@ -134,8 +134,9 @@ fn kind_of(port: u16) network_module.ConnectionKind {
 }
 
 /// Bytes to the server: whole frames are answered, a partial one waits for the rest
-/// (RFC 7766 §8). The send succeeds now, and moves no more than the socket's send buffer when
-/// the caller sized one: the short send rotor's contract allows, which a caller has to finish.
+/// (RFC 7766 §8). The send succeeds now. It moves no more than the socket's send buffer when the
+/// caller sized one. rotor's contract allows such a short send, and a caller has to finish it. A
+/// send to a peer that stopped reading takes nothing, and queues no event: its cancel ends it.
 fn send_stream(loop: *Loop, slot: u32, send: *const Operation.Send) void {
     const entry = network().socket(send.socket);
     const user_data = loop.slots[slot].user_data;
@@ -144,6 +145,7 @@ fn send_stream(loop: *Loop, slot: u32, send: *const Operation.Send) void {
         return;
     };
     const connection = network().connection(index);
+    if (connection.stalled) return;
     const whole = send.buffer.bytes;
     const bytes = if (entry.send_buffer_bytes == 0) whole else whole[0..@min(whole.len, entry.send_buffer_bytes)];
     if (connection.request) {

@@ -71,6 +71,14 @@ pub const hung_connect_ns = 30 * 1_000_000_000;
 /// Two connection slots: one that is pending while the other is free or connects (the same rule).
 pub const tcp_slots_pair = 2;
 
+/// A server whose each reply takes a second: its connect, each step of its handshake and each
+/// answer. So a refused connection begins to close a second after its connect (docs/design.md §16
+/// decision 49).
+pub const slow_step_ns = 1_000_000_000;
+/// Half a slow step. A test drives the engine this long before an instant that it must not reach
+/// yet. It is less than a slow step, so no reply of a slow server comes in that time.
+pub const half_step_ns = 500_000_000;
+
 /// The local address a socket is asked to bind to: the documentation range (RFC 5737).
 pub const local_octets = [_]u8{ 192, 0, 2, 200 };
 pub const unspecified_v4 = [_]u8{ 0, 0, 0, 0 };

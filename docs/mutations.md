@@ -7564,3 +7564,216 @@ did not change.
 
 Thirty-five mutations, thirty-five `CAUGHT`. The review ran CX26, CX34 and CX35 against the first
 build, and each passed its check.
+
+## The wait on a connection that closes
+
+2026-10-20. The owner answered docs/design.md §17 question 55 on the same day: the idle close's
+wait, `tcp_idle_ns`, bounds a connection that closes, with no new limit. §16 decision 49 records
+the rule with the alternatives that it beats. §21's TLS rule 5 holds it, and the stream's rules 4
+and 12 name it. The lookup model does not change. The engine model in TLA+ does.
+
+### What the code did
+
+The line numbers in this part are those of 0a277dd.
+
+- `close_idle` passed over a connection that closes (`io/io_tcp.zig:426`). Such a connection
+  freed its slot only when its last send ended, in `after_send` (`io/io_tcp_queue.zig:186-190`).
+- `shut` cancelled the connection's one handle, a connect or a receive (`io_tcp.zig:378-384`).
+  `submit_rest` submitted each send with no handle (`io_tcp_queue.zig:70`). So nothing in the
+  engine could end a send.
+- `refuse` and `close` in `io/io_tls.zig` set the state `closing` and kept no instant (`:216` and
+  `:373`). A connection that closed kept the instant of its connect, or of its last lookup's leave.
+- A peer that stops reading and keeps its side open takes no octet of a send. So the send of the
+  alert or of the `close_notify` never ended, and the slot stayed closing for ever.
+
+### The design and the model
+
+- The idle close shuts a connection that closes, once it has closed for `tcp_idle_ns`. Such a
+  connection is idle from the instant it began to close. `refuse` and `close` keep that instant in
+  `idle_since_ns`, which each connection holds already.
+- `shut` cancels each operation in flight: the connect or the receive, and now the send. A
+  connection keeps its send's handle in `send_handle`, an optional `rotor.Handle` of 16 octets.
+  `submit_rest` sets it, and the send's event clears it. With the default options a connection
+  grows from 68,728 to 68,744 octets in the clear, and from 107,368 to 107,384 over the twin's TLS.
+- The slot frees at the cancel's event. That event gives back what the send read: the records
+  buffer over TLS, or the lookup's own buffer in the clear.
+- Assertions hold the handle. `submit_rest` asserts that no send is in flight and no handle kept.
+  Each send's event asserts the handle kept. `shut` asserts that a send is in flight exactly while
+  its handle is kept. `close_idle` asserts that no lookup is on a connection that closes. `close`
+  asserts that the connection had been idle for the wait.
+- The model's `CloseIdle` shuts a connection that closes, and `Refuse` and the idle close of a
+  connection that is up set `idleNow`. The check "closing bounded" requires that no connection
+  that closed before a move of the clock still closes after it. `mutants/CL5` puts back `CloseIdle`
+  as it was (spec/README.md).
+
+No named limit and no entry point change. `Connection` is the engine's own type, and no consumer
+reads its fields.
+
+### The tests, before the code
+
+The twin gained a peer that stops reading. `Network.stall` marks the TCP connection of a socket
+`stalled`, and a send to it takes nothing and queues no event. Its cancel ends it. A test of the
+twin's scenarios shows both, `src/sim/sim_scenarios_test.zig`. Three tests of the engine came
+before the code:
+
+- `io/io_tcp_wait_test.zig`, a second pass gets a slot whose alert never goes once the idle
+  close's wait has passed. One server and one slot over TLS. The server refuses the handshake, and
+  stops reading before its refusal comes. The lookup's second pass waits for the slot.
+- `io/io_tcp_wait_test.zig`, a lookup gets a slot whose close_notify never goes once the idle
+  close's wait has passed. The idle close's `close_notify` never goes, and a later lookup waits.
+- `io/io_tcp_test.zig`, the idle close cancels a send that never ends, and its buffer comes back
+  at the cancel. In the clear a cancelled lookup's query never goes, and the idle close shuts its
+  connection.
+
+Each TLS test drives the engine half a second before the bound, and requires the connection still
+closing. Then it drives at the bound, and requires the slot closed and lent. At the cancel's event
+the slot is free, and the drive's end admits the lookup that waits.
+
+On 0a277dd with the twin's change, `zig build test-io` passed 179 tests of 182, and failed three:
+
+- the test of the alert: "expected .closed, found .closing", at the drive at the bound;
+- the test of the `close_notify`: "expected .closed, found .closing", at the same check;
+- the test in the clear: "TestUnexpectedResult" at `io_tcp_test.zig:202`, since the buffer was
+  still lent after the shut.
+
+By hand, the test of the alert ran on to its result with no checks. The second pass ended at its
+deadline, 27 seconds, 25 seconds after the connection began to close. Its error was
+`AllServersFailed`, its cause `connect`. The connection was still in `closing`, its records
+buffer lent. After the fix each of the three tests passes.
+
+### What ran
+
+- `zig build tla` over `Engine_tls_1_2_bound_2_1` and `mutants/CL5`: the configuration holds
+  213,063 states, where it held 297,743. CL5 is violated. TLC by hand finds "closing bounded"
+  broken at the sixth state of CL5's counterexample. The count of distinct states before that
+  depends on the number of TLC's workers, so this record keeps none.
+- TLC ran by hand over the two nightly configurations over TLS, with three workers each while
+  other work ran. `Engine_tls_1_2_bound_3_1` holds 5,747,714 states, after 1 hour 59 minutes.
+  `Engine_tls_2_2_bound_2_1` holds 21,536,161, after 3 hours 26 minutes (spec/README.md).
+- `zig build tla -- walks 1 10 41` wrote the short walks. 2 of 130 changed, walks 88 and 98: one
+  over TLS with each count of lookups. In each the trace writes `I` where the idle close makes a
+  `close_notify`. `zig build spec-engine -Dengine-walks` replayed the new short walks: 5,330 events
+  over 130 walks agree with the model.
+- `zig build tla -- walks 1 2000 201` wrote the full run with the sixteen picks: 880 MB, in 64
+  minutes while other work ran. 2,014 of its 26,000 walks changed, all over TLS. TLC by hand wrote
+  the old model's walks over TLS with the same arguments. They held the three picks committed
+  before, octet for octet, so the count compares like with like. Three picks changed: walks 16068,
+  16271 and 16478. The replay of the full run agrees with the engine over 5,226,000 events.
+- `zig build mutations -- engine --walks` that full run, over the thirteen CL rows of the code and
+  the 81 rows that the walks catch. It took 1 hour 13 minutes, and 93 are `CAUGHT`. CL13 was
+  `NOT CAUGHT` by the picked walks: the short walks missed it, and the full run caught it first at
+  walk 16135.
+  For the other rows that the short walks miss, the tool named the walk that it named before. It
+  named walk 16003 for CL11, which the picks caught at walk 16068 already.
+- Walks 16003 and 16135 joined `engine_picks` in `build/spec.zig`, and `engine_picks.txt` holds the
+  eighteen walks. `zig build mutations -- engine --walks` that full run, CL11 and CL13: each is
+  `CAUGHT` by the picked walks.
+- SQ9 was written again, since its edit named the submit with no handle. It breaks its rule as
+  before, and the short walks catch it.
+- Each CL row of the code ran by hand once too, in a copy of the tree with a cache of its own. The
+  texts in the rows below come from there.
+- `zig build spec-engine`: the committed short walks and the eighteen picks are the ones that TLC
+  writes. The full run agrees with the engine over 5,226,000 events in 26,000 walks. It took 42
+  minutes while other work ran.
+- `zig build test`: 1,153 tests pass of 1,153, in 140 steps, where 1,149 passed before. The four
+  new tests are among them. `zig build lint`: each function scores 15 or less. `zig build
+  examples` builds each example.
+- `zig build tla` over each configuration and mutant, the nightly ones among them, ran last. It
+  took 8 hours 8 minutes while other work ran. Each of the 15 configurations held, and each of the
+  40 mutants was violated, as its header expects. CL5 is among the 40.
+- The live checks and the interop check need the network or dnsproxy, and did not run.
+
+### The review, on 2026-10-21
+
+The review found two more ways to end a connection that dropped the send's handle with no cancel.
+The line numbers are those of the change before the review's fix.
+
+- `cancel_all` cancelled the connect or the receive alone (`io/io_tcp.zig:457-465`). `deinit` and
+  `reinit` call it, and `close_all` then dropped the handle. So after a `reinit` a send that never
+  ended kept its slot lent for ever. After a `deinit` the loop could not drain.
+- `retry_full` cancelled the connect or the receive alone, then dropped the handle
+  (`io_tcp.zig:400-414`). So a resumed connection whose last send never ended stayed
+  `reopening` for ever, and its lookups waited until their deadlines.
+
+§16 decision 49 now says that each way that ends a connection cancels its send. §21's TLS rule 8
+says so for the retry, and decision 47's amendment says so for the `reinit`. The model holds no
+`deinit` and no `reinit`, and its `RetryFull` already leaves each operation to the loop. So no
+operator of the model changed, and TLC's counts above stand. Two comments of the model became
+shorter.
+
+`cancel_all` and `retry_full` now cancel the send, and each asserts that a send is in flight
+exactly while its handle is kept. `cancel_all` leaves the send's fields for the send's event or
+for `close_all` to clear. CL2's edit now names the line after the cancel in `shut` too, since
+`cancel_all` and `retry_full` hold the same line. The fixture `closing_early_ns` became
+`half_step_ns`, since the test of the retry waits that long for another reason.
+
+Four tests came before the code:
+
+- `io/io_tcp_wait_test.zig`, a reinit cancels a close_notify that never goes, and a later lookup
+  gets its slot. The later lookup waits for the slot, which the cancel's event frees.
+- `io/io_tcp_wait_test.zig`, a close of the engine cancels a close_notify that never goes, so the
+  loop drains.
+- `io/io_tcp_wait_test.zig`, a resumed handshake that fails while its hello never goes connects
+  again in full at the cancel. The stalled peer reads no hello and answers none. So the test
+  writes the server's refusal into the stream itself, as a peer that stopped reading after it
+  sent the refusal.
+- `io/io_tcp_test.zig`, a reinit cancels a send that never ends, and its buffer comes back at the
+  cancel. It is the test in the clear above, with a `reinit` in place of the idle close.
+
+Before the fix `zig build test-io` failed the four, and passed each other test:
+
+- the test of the reinit over TLS: "expected null, found 65535", at the step after the reinit;
+- the test of the close: `error.Timeout`, from the twin's `drain`;
+- the test of the retry: "expected null, found 65535", at the step after the retry;
+- the test of the reinit in the clear: "TestUnexpectedResult" at `io_tcp_test.zig:202`, since the
+  buffer stayed lent.
+
+A probe of §17 question 60 ran in the same build, and then left the tree. A lookup's query went to
+a peer that stopped reading. After 1,082 seconds of the twin's clock the lookup was still in
+`tcp_ready`, on its connection.
+
+What the review ran:
+
+- `zig build mutations -- engine CL1 CL2 CL3 CL4 CL6 CL15 CL16`, in 52 seconds. Each is `CAUGHT`
+  by `test-io`. These are the rows whose code or whose tests the review changed. CL15 and CL16 ran
+  by hand too, and the texts in their rows come from there.
+- The other CL rows did not run again. Their code, their tests and the walks that catch them did
+  not change.
+- `zig build test`: 1,157 tests pass of 1,157, in 140 steps. The four new tests are among them.
+  `zig build lint`: each function scores 15 or less. `zig build examples` builds each example.
+- `zig build spec-engine`, in 12 minutes: the committed short walks and the eighteen picks are the
+  ones that TLC writes. The full run agrees with the engine over 5,226,000 events in 26,000 walks.
+
+### The instruction counts
+
+`bench/count.zig` imports `cocuyo` and `wire` alone, and no counted case runs the engine or the
+twin. This change touches the engine in `io/` and the twin in `src/sim/`, and no file of `core`,
+`wire` or `resolver`. So no count can move, and `bench/instructions.zon` did not change. The
+review's fix touches `io/` alone, so the same holds for it.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| CL1 | the idle close passes over a connection that closes, as until 2026-10-20 | `close_idle` shuts a connection that has closed for `tcp_idle_ns` (TLS rule 5) | the two tests over TLS: "expected .closed, found .closing", at the drive at the bound, `test-io` | CAUGHT |
+| CL2 | `shut` cancels no send, as until 2026-10-20 | `shut` cancels the send in flight | the two tests over TLS: "expected null, found 65535", since the records stay lent after the shut; the test in the clear: "TestUnexpectedResult", since the buffer stays lent, `test-io` | CAUGHT |
+| CL3 | a connection that the idle close begins to close keeps the instant it went idle | `close` starts the wait again | the test of the `close_notify`: "TestUnexpectedResult", since the next lookup's start shut the connection at once, `test-io` | CAUGHT |
+| CL4 | a connection whose record the session refused keeps the instant it went idle | `refuse` starts the wait | the test of the alert: "expected .closing, found .closed", at the drive half a second before the bound, `test-io` | CAUGHT |
+| CL5 | the model's `CloseIdle` passes over a connection that closes, as until 2026-10-20 | the model's `CloseIdle` | TLC's check "closing bounded" on `mutants/CL5`, over TLS, at the sixth state of its counterexample, `zig build tla` | CAUGHT |
+| CL6 | a connection that closes is shut at the next drive, with no wait | the wait counts for a connection that closes | the two tests over TLS: "TestUnexpectedResult", at their check that the connection still closes, `test-io` | CAUGHT |
+| CL7 | a send keeps no handle | `submit_rest` keeps the send's handle | 63 tests crash at the assertions of the handle: "reached unreachable code", `test-io` | CAUGHT |
+| CL8 | a query's send keeps its handle after its event | the event clears the handle | 24 tests crash at the assertions of the handle, `test-io` | CAUGHT |
+| CL9 | a send of the session's records keeps its handle after its event | as CL8, for the session's records | 30 tests crash at the assertions of the handle, `test-io` | CAUGHT |
+| CL10 | the twin's send to a peer that stopped reading ends at once | the twin holds the send's event until its cancel | the test of the twin: "expected 0, found 1", `test-sim` | CAUGHT |
+| CL11 | as CL1, against the walks | the replay of a walk in which the clock moves while a connection closes | the picked walks, at walk 16003 | CAUGHT |
+| CL12 | as CL3, against the walks | the replay writes `I` where the idle close begins to close a connection | the short walks, at walk 88 | CAUGHT |
+| CL13 | as CL4, against the walks | as CL12, for a refused record | the picked walks, at walk 16135. Before that pick no committed walk caught it | CAUGHT |
+| CL14 | as CL6, against the walks | as CL11 | the short walks, at walk 82 | CAUGHT |
+| CL15 | `cancel_all` cancels no send, as until 2026-10-21 | `cancel_all` cancels the send in flight, for `deinit` and `reinit` | the test of the reinit over TLS: "expected null, found 65535"; the test of the close: `error.Timeout`; the test of the reinit in the clear: "TestUnexpectedResult", `test-io` | CAUGHT |
+| CL16 | `retry_full` cancels no send, as until 2026-10-21 | `retry_full` cancels the send in flight (TLS rule 8) | the test of the retry: "expected null, found 65535", `test-io` | CAUGHT |
+
+The 81 rows that the walks catch ran again against the full run and the picks, and each is
+`CAUGHT` (What ran, above). The review ran CL1 to CL4, CL6, CL15 and CL16 again (The review, on
+2026-10-21).
+
+Sixteen mutations, sixteen `CAUGHT`.

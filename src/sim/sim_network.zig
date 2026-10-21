@@ -61,6 +61,9 @@ pub const Connection = struct {
     /// Whether it carries the twin's QUIC in frames, on a connection to the HTTPS port
     /// (sim_quic_stream.zig): a channel's TCP link, as the twin runs it.
     request: bool = false,
+    /// Whether the peer stopped reading and keeps its side open. A send to it takes nothing, and
+    /// its event comes only at its cancel (docs/design.md §16 decision 49).
+    stalled: bool = false,
 };
 
 /// What a stream to a scripted server carries, by the port it went to.
@@ -157,6 +160,16 @@ pub const Network = struct {
         stream.inbound_len += bytes.len;
         stream.available_at_ns = @max(stream.available_at_ns, due_ns);
         return true;
+    }
+
+    /// The peer of the TCP connection of the client's socket `descriptor` stops reading, and
+    /// keeps its side open. Each send from then on waits for its cancel.
+    pub fn stall(self: *Network, descriptor: Descriptor) void {
+        const index = self.socket(descriptor).connection.?;
+        const stream = &self.connections[index];
+        assert(stream.open);
+        assert(!stream.stalled);
+        stream.stalled = true;
     }
 
     /// Which scripted server an address names, or null for anywhere else: a datagram there is
