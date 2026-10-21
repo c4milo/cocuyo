@@ -7777,3 +7777,136 @@ The 81 rows that the walks catch ran again against the full run and the picks, a
 2026-10-21).
 
 Sixteen mutations, sixteen `CAUGHT`.
+
+## A try whose server was marked
+
+2026-10-20. The owner answered design §17 question 27 on 2026-10-17: yes, no sample. A server that
+lowercases the name answers in time, and the lookup ignores the reply that marks it (design §7).
+Until now that try ran out and was a sample as long as its wait. On a fresh table, that sample was 2
+seconds for a server that answers in 10 ms. The third lookup to that server then waited 3.37
+seconds, where the configured wait is 2.
+
+Design §5, §7, §16 decisions 36 and 50, and §17 question 27 changed first. Decision 50 records
+the rule, the choices that the ruling did not make, and the alternatives that it beats. §17
+questions 62 and 63 ask the owner about two of those choices.
+
+### What changed
+
+- `Lookup.Flags` gains `reply_marked`. `mark` in `lookup_response_case.zig` sets it when the
+  reply marks its server, and `on_sent` clears it. The flags grow from seven bits to eight, and a
+  `Lookup` stays at 3,072 octets.
+- `ran_out` in `lookup_poll.zig` takes no sample of a try with the flag set. It still counts the
+  failure of the server.
+- The checks of §7 take a lookup that they can change, from `accepted_header` down to `mark`.
+  Only `mark` changes it.
+- Two assertions hold the flag. In `mark`, the query of the marked try mixed the case, and its
+  server is marked. In `ran_out`, each marked try that runs out mixed the case.
+- `ran_out` asserts nothing of the table's mark. A caller that drives lookups alone can build a
+  new `Servers` table over the old one during the wait (design §19 step 10). The new table holds
+  no mark. The first build asserted the mark there, and the review showed that the deadline
+  then stopped the program (The review of 2026-10-20, below).
+
+### The models
+
+Neither model changed. The Lean model of the lookup leaves out time and samples (`spec/README.md`).
+It reads a reply in lowercase as its unmatched reply, and the deadline after that reply moves the
+lookup as each deadline does. The TLA+ model of the engine holds no latency. So no line of a
+transcript changed, and the replays of `zig build test` agree as before. `zig build spec-lean` and
+`zig build spec` did not need to run.
+
+### The tests, before the code
+
+The test of the cost in `lookup_case_test.zig` was written again, and three tests were added
+beside it:
+
+- the marked-try test: a server that answers in 10 ms, whose reply marks the first try;
+- the own-reply test: on two servers, a reply that check 6 refuses, then a reply that marks;
+- the other-lookup test: three lookups, two replies that mark, and one reply that never comes;
+- the later-answer test: a reply that marks, then an answer in the same try.
+
+Before the code, `zig build test-resolver` had 274 tests pass of 277:
+
+- the marked-try test: "expected 2000000000, found 3366666665", the wait of the third lookup;
+- the own-reply test: "expected 1, found 2", the samples of the marked server;
+- the other-lookup test: "expected 1, found 3", the samples of the server;
+- the later-answer test passed, since an answer was a sample before too. LS9 shows what it
+  catches.
+
+The own-reply test holds the rule's second half: a try that no reply marked still gives its
+sample. Its first server's try, whose reply check 6 refused, is one. So are the tries of the next
+pass, the marked server's among them.
+
+### The review of 2026-10-20
+
+The review of the first build found an assertion of `ran_out` that read the table at a later
+instant than the lookup. `mark` records the mark, and the deadline can come seconds after it. A
+caller that drives lookups alone builds a new `Servers` table when its address changes (design §19
+step 10). When it built that table over the old one while a marked try waited, the deadline
+reached unreachable code. Assertions stay on in production, so the program stopped on a path that
+the documents describe.
+
+The table test in `lookup_latency_test.zig` came first. A reply marks the try, and a new table
+replaces the old one before the deadline. Against the first build, `test-resolver` had 277 tests
+pass of 278. The table test stopped with "panic: reached unreachable code", at that assertion in
+`lookup_poll.zig`. With the assertion gone, the table test passes. LS11 puts the assertion back,
+and LS12 takes the sample when the table holds no mark.
+
+The other items of the review changed prose alone: the §5 sentence on an unmatched response, the
+§7 wait of a server that answers in 10 ms, and two doc comments. The last item named the two
+choices of decision 50 that the ruling did not make. §17 questions 62 and 63 now ask the owner
+about them.
+
+### What ran
+
+- Each row ran by hand first, against `test-resolver`, to name the tests that fail. The runs
+  edited the tree in place and put each file back.
+- `zig build mutations -- lookup` then ran LS1 to LS10 and eleven carried rows: DT31 to DT37,
+  CM1, CM8, CM14 and LC10. Their edits are in the lines that this change touched, or beside them.
+  The tool ran `test-resolver` once with nothing mutated first. It found each row `CAUGHT`, and it
+  left the tree as it was.
+- After the review, the rows LS1 to LS12 ran by hand again, and the tool ran them and the eleven
+  carried rows again. It found each row `CAUGHT`, and it left the tree as it was.
+- LS4 stops at the assertion of `ran_out` that a marked try's query mixed the case. The test
+  fails with "reached unreachable code", and so does its step. LS11 stops at the assertion that
+  it puts back.
+- Against the first build, LS5 and LS6 stopped at the assertion on the table's mark, and LS4 did
+  too. Since the review, LS5 and LS6 fail an expectation of the own-reply test instead.
+- CM1 and CM8 are caught another way now. Each stops at the assertion of `mark`, CM1 in 13 tests
+  and CM8 in 2. Before, the tests that their rows name failed at an expectation.
+- DT31 no longer fails the test of the cost, which was written again. Its one try that runs out
+  is a marked try, which is no sample anyway. DT31 fails 14 other tests, the own-reply and
+  other-lookup tests among them.
+- With the change, `zig build test` has 1,153 tests pass of 1,153, in 140 steps. `test-resolver`
+  has 278 of 278. `zig build lint` passes, with each function at a complexity of 15 or less.
+
+### The instruction counts
+
+`bench/count.zig` counts `round-trip`, which runs `init_in_place`, `poll`, `on_sent` and
+`on_response`. `on_sent` now clears one bit of the flags, so that case can move by an instruction or
+two. That is an estimate, not a measurement. The match cases run `on_response` and check 5, and the
+mark runs out of line, so they should not move. No counted case ends a try at its deadline.
+
+The counts need valgrind, which runs on Linux alone, so they did not run here.
+`bench/instructions.zon` did not change. CI's Linux job prints the counts when they move.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| LS1 | the deadline of a marked try takes its sample all the same | design §5, a marked try is no sample | the marked-try test: "expected 2000000000, found 3366666665"; the own-reply, other-lookup and table tests, `test-resolver` | CAUGHT |
+| LS2 | the deadline takes a sample of a marked try alone | design §5, a try that ran out is a sample | sixteen tests, the own-reply test and the table test among them, `test-resolver` | CAUGHT |
+| LS3 | the reply that marks its server marks no try | decision 50, the reply marks its own try | as LS1; the other-lookup test: "expected 1, found 3" | CAUGHT |
+| LS4 | `on_sent` keeps the mark of the try before it | decision 50, a try is one send | the own-reply test, at the assertion of `ran_out` that the query mixed the case: "reached unreachable code", `test-resolver` | CAUGHT |
+| LS5 | a reply in lowercase that check 6 refuses marks its try | RFC 7873 §5.3, design §7 check 6 | the own-reply test: "expected 2, found 1", `test-resolver` | CAUGHT |
+| LS6 | each reply to a mixed query that fails check 5 marks its try | design §7, only an echo in lowercase marks | the own-reply test: "expected 2, found 1"; the other-case test: "expected 7000000000, found 6000000000", `test-resolver` | CAUGHT |
+| LS7 | the deadline reads the mark of the table, not the mark of the try | decision 50, a mark that another lookup makes | the other-lookup test: "expected 1, found 0"; the table test, `test-resolver` | CAUGHT |
+| LS8 | only the reply that first marks the server marks its try | decision 50, whether the server was marked before or not | the other-lookup test: "expected 1, found 2", `test-resolver` | CAUGHT |
+| LS9 | an answer that the lookup takes after a mark, in the same try, is no sample | decision 50, an answer is a sample | the later-answer test: "expected 1, found 0", `test-resolver` | CAUGHT |
+| LS10 | the deadline of a marked try counts no failure of its server | decision 50, the failure still counts | the own-reply test: "expected 2, found 1"; the table test: "expected 1, found 0", `test-resolver` | CAUGHT |
+| LS11 | the deadline asserts that the table still marks the server of a marked try | decision 50, the deadline reads the flag alone | the table test, at that assertion: "reached unreachable code", `test-resolver` | CAUGHT |
+| LS12 | the deadline of a marked try takes its sample when the table holds no mark | decision 50, the deadline reads the flag alone | the table test: "expected 0, found 1", `test-resolver` | CAUGHT |
+
+The carried rows were each `CAUGHT` again by `test-resolver`: DT31 to DT37, CM1, CM8, CM14 and
+LC10.
+
+Twelve mutations, twelve `CAUGHT`; eleven run again, eleven `CAUGHT`.

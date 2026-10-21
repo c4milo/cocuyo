@@ -4,7 +4,8 @@
 //! poll at or past the deadline is what makes the wait expire. The caller may poll as often as it
 //! likes, and a poll that changes nothing returns the same `wait` it returned before. The deadline
 //! is armed here too, from the wait of the server the lookup is on (`arm`), and a try that ran out
-//! is a sample of that server's latency here (`ran_out`).
+//! is a sample of that server's latency here (`ran_out`). A try that a reply to it marked is no
+//! sample (docs/design.md §16 decision 50).
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -44,14 +45,23 @@ fn expired(self: *const Lookup, now_ns: u64) bool {
 /// the wait the try used, from the send to the deadline, a later pass's doubled wait included.
 /// No RFC states this: it is the owner's ruling of 2026-10-09 (docs/design.md §5, §17 question
 /// 26), so that a server whose latency rose past its wait has its wait rise with it. A connect
-/// that ran out sent no query, so it measured no wait for an answer and is no sample.
+/// that ran out sent no query, so it measured no wait for an answer and is no sample. Nor is a
+/// try that a reply to it marked, by the owner's ruling of 2026-10-17 (§16 decision 50).
 fn ran_out(self: *Lookup, now_ns: u64) void {
     assert(expired(self, now_ns));
     const slot = self.server_slot();
     if (self.state == .awaiting_udp or self.state == .awaiting_tcp) {
         const waited_ns = self.deadline_ns - self.sent_at_ns;
         assert(waited_ns >= 1 and waited_ns <= self.config.timeout_ns_max);
-        self.servers.record_latency(slot, waited_ns, now_ns);
+        // Only a reply to a query that mixed the case marks a try. A caller can build the table
+        // again during the wait, and the new table holds no mark (§16 decision 50). So this
+        // asserts nothing of the table's mark.
+        assert(!self.flags.reply_marked or self.flags.query_mixed);
+        // The reply that marked this try shows that the server answered it in time. So the wait
+        // says nothing of its latency (§7, A server that changes the case).
+        if (!self.flags.reply_marked) {
+            self.servers.record_latency(slot, waited_ns, now_ns);
+        }
     }
     self.servers.record_failure(slot, now_ns);
     self.next_server(now_ns);

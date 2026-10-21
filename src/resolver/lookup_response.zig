@@ -47,8 +47,10 @@ pub const Accepted = struct {
 };
 
 /// Every check of §7, in order. Returns what was read when the message is ours, and null when it
-/// is not, without touching the lookup. Its server's state can learn that it changes the case.
-fn accepted_header(self: *const Lookup, message: []const u8, from: Endpoint) ?Accepted {
+/// is not. A message that is not ours touches nothing but the case mark. Its server can learn
+/// that it lowercases the name, and the lookup can learn that the reply marked its try
+/// (`lookup_response_case.zig`).
+fn accepted_header(self: *Lookup, message: []const u8, from: Endpoint) ?Accepted {
     if (self.state != .awaiting_udp and self.state != .awaiting_tcp) return null;
     // Over DoH or DoQ an answer comes by its transaction, and never as a datagram
     // (docs/design.md §22, §23).
@@ -70,7 +72,8 @@ pub fn header_of(message: []const u8) ?wire.Header {
 }
 
 /// Checks 4 to 6 of §7, which an answer over DoH or DoQ passes as well (docs/design.md §22, §23).
-pub fn accepted_shape(self: *const Lookup, message: []const u8, header: wire.Header) ?Accepted {
+/// A reply that fails check 5 can mark its server and its try (`lookup_response_case.zig`).
+pub fn accepted_shape(self: *Lookup, message: []const u8, header: wire.Header) ?Accepted {
     // 4. A response to a standard query, not a query and not another opcode.
     if (!header.is_response()) return null;
     if (header.opcode() != wire.constants.opcode_query) return null;

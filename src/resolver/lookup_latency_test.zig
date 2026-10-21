@@ -11,6 +11,8 @@ const Verdict = lookup_module.Verdict;
 const State = lookup_module.State;
 const fixtures = @import("fixtures.zig");
 const constants = @import("constants.zig");
+const Servers = @import("servers.zig").Servers;
+const case_test = @import("lookup_case_test.zig");
 
 const servers = fixtures.servers_two;
 const seed = fixtures.seed;
@@ -229,6 +231,24 @@ test "a try that ran out is one sample as long as its wait, on its own server, a
     harness.now_ns = harness.lookup.deadline_ns - 1;
     try testing.expectEqual(core.Error.Timeout, harness.poll().failed.err);
     try expect_samples(&harness, 1, 2, 6 * second);
+}
+
+test "a try that its reply marked is no sample, though a table built again holds no mark" {
+    // A caller that drives lookups alone builds a new table over the old one when its address
+    // changes (docs/design.md §19 step 10). The deadline reads the flag of the try, and not the
+    // table (§16 decision 50): the try is no sample, and it counts one failure.
+    const only = fixtures.servers_one[0].endpoint;
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &fixtures.servers_one } };
+    try harness.start("example.com.", .a, seed);
+    _ = harness.send();
+    try testing.expectEqual(Verdict.ignored, harness.respond(case_test.folded, only));
+    try testing.expect(harness.servers.changes_case(0));
+    harness.servers = Servers.init(&harness.config, seed + 1);
+    try testing.expect(!harness.servers.changes_case(0));
+    harness.now_ns = harness.lookup.deadline_ns - 1;
+    _ = harness.send();
+    try expect_samples(&harness, 0, 0, 0);
+    try testing.expectEqual(@as(u8, 1), harness.servers.failures(0));
 }
 
 test "a try over TLS that ran out is a sample, and a connect that ran out is none" {

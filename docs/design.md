@@ -504,7 +504,7 @@ Eight states: `query_ready`, `awaiting_udp`, `tcp_needed`, `connecting_tcp`, `tc
 | `query_ready` | `on_sent` | `awaiting_udp` | arm the deadline |
 | `query_ready` | `on_send_failed` | `query_ready` or `failed` | advance the server |
 | `awaiting_udp` | `poll` before the deadline | unchanged | return `wait` |
-| `awaiting_udp` | `poll` at or past it | `query_ready` or `failed` | a sample as long as the wait, then advance the server, then the attempt |
+| `awaiting_udp` | `poll` at or past it | `query_ready` or `failed` | a sample as long as the wait, unless a reply to the try marked its server (§7), then advance the server, then the attempt |
 | `awaiting_udp` | `on_response` unmatched | unchanged | return `ignored`, the wait stands |
 | `awaiting_udp` | `on_response` with TC=1 | `tcp_needed` | keep the same server |
 | `awaiting_udp` | `on_datagram_cut` that passes the checks of a cut datagram (§7) | `tcp_needed` | keep the same server, and take no sample |
@@ -526,24 +526,27 @@ Eight states: `query_ready`, `awaiting_udp`, `tcp_needed`, `connecting_tcp`, `tc
 | `awaiting_tcp` | `on_response` | as the UDP rows | TC=1 sends the lookup nowhere, so the message is read as if it were clear, and an answer it gives is marked `truncated` |
 | `awaiting_tcp` | `on_response` BADCOOKIE, the first from this server | `tcp_needed` | same server, a new transaction on the stream, the fresh cookie |
 | `awaiting_tcp` | `on_response` BADCOOKIE again | `query_ready` or `failed` | keep the rcode as the cause, advance the server, as SERVFAIL does |
-| `awaiting_tcp` | `poll` at or past the deadline | `query_ready` or `failed` | a sample as long as the wait, then advance the server, then the attempt |
+| `awaiting_tcp` | `poll` at or past the deadline | `query_ready` or `failed` | a sample as long as the wait, unless a reply to the try marked its server (§7), then advance the server, then the attempt |
 | `done`, `failed` | any | unchanged | `poll` returns the same value; `on_response` is `ignored` |
 
 Every row that accepts a response first takes a sample of its server's latency, which the next
 deadline armed for that server reads (retry and timeout policy, below). So does a deadline that
 passes in `awaiting_udp` or `awaiting_tcp`, with a sample as long as the wait that try used. A
 response the lookup ignores, unmatched or malformed, takes none, and neither does a deadline that
-passes in `connecting_tcp`, since no query went out.
+passes in `connecting_tcp`, since no query went out. Since 2026-10-20 a deadline that passes
+after a reply to the try marked its server takes none either (below).
 
 The row of a cut datagram is the one exception, since 2026-10-14. It accepts the datagram and
 takes no sample, and it tells the server's state nothing (§7, A datagram that the buffer cut). A
 cut datagram is `ignored` in each other state, over DoH or DoQ, and under
 `Config.ignore_truncation`.
 
-An unmatched response changes no state of the lookup's. One that echoes a mixed query's question
-in lowercase can mark its server as one that lowercases the name, in the `Servers` table, and the
-next query built for that server carries the name in lowercase (§7, A server that changes the
-case). The wait stands all the same, so no row of the table changes.
+An unmatched response moves the lookup to no other state, and the wait stands. One that echoes a
+mixed query's question in lowercase can mark its server, in the `Servers` table, as one that
+lowercases the name. The next query built for that server carries the name in lowercase (§7, A
+server that changes the case). Since 2026-10-20 such a reply also sets the flag `reply_marked` of
+the lookup, which marks its own try. A try so marked is no sample when it runs out (§16 decision
+50). The flag changes the effect of a deadline's row alone, and the next state of no row.
 
 Over DoH or DoQ (§22, §23) the lookup keeps the UDP states, and three rows change. `poll` in
 `query_ready` returns `send_request`. An answer comes through `on_request_answer`, and only for
@@ -576,7 +579,8 @@ decision 40). A sum with a literal `2` is still a `u16`.
   request rule 3), so a request that opened a connection carries the handshake in its sample. A
   response the lookup ignores, an answer from the memory of §20, a send that failed, a connect
   that ran out, a connection or a handshake that failed, a request that failed and a lookup
-  cancelled give none. A response is accepted only for the current transaction, and each
+  cancelled give none. Since 2026-10-20 a try that runs out after a reply to it marked its
+  server gives none too (below). A response is accepted only for the current transaction, and each
   transaction has an id of its own (§7), so no sample pairs a response with the send of a query
   sent again. A datagram that fails §7's checks is no sample, so it moves no server's wait
   (decision 10). An attacker who can make a server's answers go missing moves it all the same,
@@ -630,7 +634,8 @@ decision 40). A sum with a literal `2` is still a `u16`.
   failed request and a lookup cancelled measured no wait for an answer, so none of them is a
   sample. No RFC states this rule; it is the owner's. RFC 1035 §7.2 keeps two histories of each
   server address, its response time and how often it "responded at all", and under it a try
-  that ran out would count in the second alone.
+  that ran out would count in the second alone. A try that a reply to it marked is the one
+  exception (below).
 - Before that ruling only an answer that came in time was a sample, and a server whose latency
   rose past its wait gave no sample after that. An answer after the deadline answers a
   transaction the lookup has left, so the lookup ignores it. The window since the table was
@@ -693,19 +698,22 @@ decision 40). A sum with a literal `2` is still a `u16`.
   where its record left it. A connection that fails is no sample over any of them. The lookup
   cannot tell a request that waited on its handshake from one that waited on its answer, since
   it does not see the handshake. §17 question 28 asks whether it should.
-- A reply the lookup ignores leaves its try to run out, a sample as long as its wait, though
-  the server answered in time. Two kinds of server answer so (§7, A server that changes the
-  case). A server that lowercases the name has one reply ignored, the one that marks it. Take
-  such a server that answers in 10 ms, on a fresh table, under the defaults. The first lookup's
-  first try runs out at 2 seconds and its second pass is answered, and the next lookup is
-  answered at its first try: samples of 2 seconds, 10 ms and 10 ms, an average of 673 ms, and a
-  wait of 3.37 seconds, above the configured 2. The wait falls with each answer after that, and
-  leaves that sample behind once it reads a window that started after it. A server that changes
-  the case another way has every reply ignored, so it is sampled as one that never answers.
-  With one server and 2 passes, each lookup to it ended in `Timeout` after waits of 2 seconds
-  and then 4, 6 in all. Now the second ends after 7, and every one from the third on after 10,
-  the 5-second cap twice (`src/resolver/lookup_case_test.zig`). §17 question 27 asks whether a
-  try whose server was marked during it should be no sample.
+- A reply the lookup ignores leaves its try to run out, though the server answered in time.
+  Two kinds of server answer so (§7, A server that changes the case). A server that lowercases
+  the name has one reply ignored, the one that marks it. That reply marks its own try too, and
+  since 2026-10-20 a try so marked is no sample when it runs out (§16 decision 50).
+- Take such a server that answers in 10 ms, on a fresh table, under the defaults. The first
+  lookup's first try runs out at 2 seconds with no sample, and its second pass is answered. The
+  next two lookups are answered at their first try, so the first three samples are each 10 ms.
+  Each first try waits the configured 2 seconds until the third sample, and the fourth lookup's
+  waits the 250 ms floor (`src/resolver/lookup_case_test.zig`). Before the ruling that try was a
+  sample of 2 seconds, and its average with the next two was 673 ms. So the third lookup waited
+  3.37 seconds, above the configured 2.
+- A server that changes the case another way has every reply ignored and no try marked, so it is
+  sampled as one that never answers. Before 2026-10-09, with one server and 2 passes, each lookup
+  to it ended in `Timeout` after 6 seconds, a wait of 2 and then 4. Since then the second
+  ends after 7, and every one from the third on after 10, the 5-second cap twice
+  (`src/resolver/lookup_case_test.zig`).
 - `Config.assert_valid` requires `timeout_ns` at or under `timeout_ns_max`. A configuration built
   by hand that sets `timeout_ns` above 5 seconds was valid before 2026-10-09, when the default
   cap was 30. It must now raise `timeout_ns_max` as far, or it trips that assertion when a table
@@ -1062,11 +1070,10 @@ fallback either: the rules are the owner's ruling and its review.
   needs an attacker, and both would mark a server that echoes the case as sent if any case marked.
 - The response is ignored all the same, and the wait stands. A datagram that fails a check never
   cuts the wait short (decision 10): an off-path attacker could send one to force a retry they can
-  race. The lookup moves on at its deadline, as it would have. Since that try ran out, it is a
-  sample as long as its wait (§5), though the server answered in time. So a server that answers
-  in 10 ms, met on a fresh table under the defaults, has a wait of 3.37 seconds after its first
-  two lookups, above the configured 2, and the wait falls as its answers come (§5, What the rule
-  costs).
+  race. The lookup moves on at its deadline, as it would have. The response marks its own try
+  too, and since 2026-10-20 a try so marked is no sample when it runs out (§5, §16 decision 50).
+  The reply shows that the server answered in time. On a fresh table, each first try at a server
+  that answers in 10 ms waits the configured 2 seconds until the third sample (§5).
 - From then on every query built for that server carries the name in lowercase, without case
   mixing, for the life of the `Servers` table, and its response's question must be byte-identical
   to the name as sent. So a name the caller wrote with capitals, or a chain name, is answered too.
@@ -1075,7 +1082,8 @@ fallback either: the rules are the owner's ruling and its review.
 - A lookup records whether the query it built mixed the case, as it records the cookie the query
   carried (§19 step 10), and check 5 compares a response with the name as that query sent it. A
   mark another lookup makes between the send and the answer changes nothing for a query already
-  sent: a reply to it in lowercase is still ignored.
+  sent: a reply to it in lowercase is still ignored. That reply marks its own try all the same,
+  so the try is no sample when it runs out (§16 decision 50).
 - Check 5 reads the echo in place, by the owner's ruling of 2026-10-09 on what building the name
   cost every datagram offered to a lookup. The lookup holds the name without its case. Each branch
   of the compare is a branch of the name the query was built with: mixed from the seed, in lowercase
@@ -1160,8 +1168,9 @@ Rejected:
   costs the caller one bounded pass per datagram and changes no state, which is what makes the
   birthday attack of RFC 5452 §4 not worth running against a lookup that keeps listening until its
   deadline. The one exception since 2026-10-09 is a datagram that matches the id, the port and
-  the cookie and echoes a mixed question in lowercase: it marks its server, and still leaves the
-  wait as it was (A server that changes the case, above). Since 2026-10-14 a datagram that the
+  the cookie and echoes a mixed question in lowercase: it marks its server and its own try, and
+  still leaves the wait as it was (A server that changes the case, above). A try so marked is no
+  sample when it runs out (§5, §16 decision 50). Since 2026-10-14 a datagram that the
   buffer cut and that passes the checks of a cut datagram ends the wait. It moves the lookup to
   TCP, as an answer with TC set does. Usually an off-path attacker cannot race the answer there.
   With no connection to have, the lookup asks the next server over UDP (A datagram that the
@@ -2204,7 +2213,8 @@ step until `zig build test` passes.
     wait stayed where its old record left it until the table was built again. Rejected with it:
     reading the window since the table was built only while a window with a span holds 3
     samples, which would still have left such a server's wait where it was until its day's
-    window had passed. §5.
+    window had passed. Decision 50 makes one exception, on §17 question 27: a try that a reply to
+    it marked is no sample. §5.
 37. **The engine's cache is built over memory the caller hands `init` and `reinit`, or there is
     none, and its TTL cap is `Config.cache_ttl_seconds_max`.** Ruled by the owner on 2026-10-11,
     in two answers: the caller hands the engine its cache memory at init, as the library's
@@ -3366,6 +3376,81 @@ step until `zig build test` passes.
 
     §17 question 55, §19 step 13 (the stream's rules 4 and 12), §21 (TLS rules 3, 5 and 8).
 
+50. **A try that a reply to it marked is no sample.** Ruled by the owner on 2026-10-17, on §17
+    question 27: yes, no sample. A server that lowercases the name answers in time, and the
+    lookup ignores the reply that marks it (§7, A server that changes the case). Until the ruling
+    that try ran out and was a sample as long as its wait (decision 36, as amended). On a fresh
+    table that sample was 2 seconds for a server that answers in 10 ms.
+
+    Since 2026-10-20 the reply that marks the server marks its own try too, in the flag
+    `reply_marked` of the lookup. A try so marked is no sample when its deadline passes. No RFC
+    states DNS-0x20, so none states this rule either: it is the owner's.
+
+    Choices the ruling did not make, made here:
+
+    - A try is one send of a query: from its `on_sent` to its deadline, or to the answer that
+      ends it. `on_sent` clears the flag, and a reply to that send sets it. A query sent again
+      over TCP after TC=1 keeps its transaction, and is a try of its own.
+    - A try is marked when a reply to it marks its server. That reply echoes in lowercase the name
+      that the try's query mixed, and passes checks 1 to 4 and check 6. It marks the try whether
+      the server was marked before it or not. So a query that went out mixed before another
+      lookup marked the server has its try marked by its own reply, when that reply comes.
+    - A mark that another lookup makes during the wait of this try does not mark this try. With
+      no reply of its own, the try does not show that the server answered it. A reply lost on the
+      path leaves a try that ran out, and §5 counts it as one. §17 question 62 asks the owner
+      about this choice.
+    - A marked try gives no sample at all when it runs out. The reply that marked it gives none
+      either: it failed check 5, and a datagram that fails a check moves no server's wait
+      (decision 10).
+    - The deadline reads the flag of the try alone, and never the mark of the table. A caller
+      that drives lookups alone can build a new `Servers` table over the old one while a try
+      waits (§19 step 10). The new table holds no mark, and the marked try is still no sample.
+      So no assertion at the deadline reads the table's mark. `mark` asserts it at the instant of
+      the reply alone.
+    - The deadline of a marked try still counts the server's failure, as before. The ruling is on
+      the sample alone, and failover takes a response that the lookup ignores as never received
+      (§19 step 12). §17 question 63 asks the owner about this choice.
+    - An answer that the lookup accepts after the mark, in the same try, is still a sample. It
+      measures the time to an answer that the lookup took. A server that lowercases the name
+      never echoes a mixed name, so only an attacker who passes checks 2, 3 and 6 can send both.
+    - Over DoH and DoQ no query mixes the case, so no reply marks a try (§22, §23). A cut datagram
+      marks no server (§7, A datagram that the buffer cut), so it marks no try either.
+
+    What it costs. An attacker who matches the id, the port and the client cookie takes away the
+    sample of each try whose reply they echo in lowercase. That attacker can send an answer too,
+    which is a sample of any length they choose, so the rule gives them nothing new. Only a try
+    whose query mixed the case can be marked. Once its server is marked, each query to it goes in
+    lowercase. So at most the tries in flight to it at the mark lose their sample, until the table
+    is built again.
+
+    Rejected:
+
+    - As built: a marked try is a sample as long as its wait. It raises the wait of a server that
+      answers in time. The third lookup to a server that answers in 10 ms waited 3.37 seconds,
+      above the configured 2.
+    - The mark of the table, read at the deadline: no sample for a try whose query mixed the case
+      and whose server is marked when it runs out. This needs no flag. It also takes the sample
+      away from a try whose own reply never came, when another lookup's reply marked the server.
+      Nothing showed that the server answered that try. And a table built again during the wait
+      holds no mark, so a try that its reply marked is a sample again.
+    - A sample from the send to the reply that marked the try. That reply failed check 5, and
+      decision 10 lets no such datagram move a server's wait.
+    - No failure for a marked try either. The ruling made one exception to decision 10, for the
+      sample, and this would make a second, which the owner did not rule on.
+
+    The checks are the tests of a marked try in `src/resolver/lookup_case_test.zig` and
+    `src/resolver/lookup_latency_test.zig`. The rows LS1 to LS12 break them (docs/mutations.md, A
+    try whose server was marked).
+
+    No named limit changes. The public API does not change either: `Lookup.Flags` gains one field,
+    as it did for `query_mixed`, and stays one octet, so a `Lookup` stays 3,072 octets. No model
+    changes. The Lean model of the lookup leaves out time and samples, and reads a reply in
+    lowercase as its unmatched reply (spec/README.md). The TLA+ model of the engine holds no
+    latency. The rows of a deadline in §5 change their effect, and no next state.
+
+    §5 (retry and timeout policy), §7 (A server that changes the case), §17 questions 27, 60 and
+    61.
+
 ## 17. Questions for the owner
 
 ### Settled on 2026-09-21
@@ -3500,7 +3585,7 @@ recommends, and none is taken until the owner answers.
     yes. The reply that marks it shows the server answered in time, so the try's wait says
     nothing of its latency. A server that changes the case another way is not marked, and stays
     sampled as one that never answers, which is what it is to every lookup that mixes the case.
-    Answered on 2026-10-17: yes, no sample.
+    Answered on 2026-10-17: yes, no sample. Built on 2026-10-20: §5, §16 decision 50.
 28. **A DoH or DoQ server that never completes the handshake.** The engine says a DoH or DoQ
     request went out before its connection's handshake ends (§24, request rule 3), so a try at
     a server that never answers the handshake runs out as a sent one and is a sample as long as
@@ -4021,6 +4106,43 @@ decision, and outside question 55. Each needs a peer that stops reading and keep
 
     Recommended: the second, with a test on the twin first. It is the same wait, and the same rule
     bounds it. Until the owner rules, as built.
+
+### Asked on 2026-10-20, for a try whose server was marked
+
+§16 decision 50 builds the answer to question 27: a try that a reply to it marked is no sample.
+The ruling did not make two of the choices that decision 50 makes.
+
+62. **A mark that another lookup makes during a try.** The ruling says that a try whose server was
+    marked during it is no sample. As built, only a reply to the try marks the try. So a try whose
+    own reply never comes is a sample, even when another lookup marked the server during its
+    wait. The ways:
+
+    - As built: the try's own reply marks it. A try with no reply of its own is a sample as long
+      as its wait.
+    - The mark of the table, read at the deadline. A try whose query mixed the case, and whose
+      server is marked when it runs out, is no sample. This needs no flag. It takes the sample
+      from a try whose reply was lost, and nothing shows that the server answered that try. A
+      table built again during the wait holds no mark, so a try that its reply marked is a
+      sample again.
+
+    Recommended: as built. The question asked for one flag per try, and the ruling's reason is
+    the reply that shows the server answered in time. A try with no reply shows nothing of the
+    kind. Until the owner rules, as built. Answered on 2026-10-20: as built.
+63. **The failure of a marked try.** As built, a marked try that runs out counts a failure of its
+    server, as each try that runs out does. Failover takes a response that the lookup ignores as
+    never received (§19 step 12), and the ruling was on the sample alone. With two servers or
+    more, the next lookups ask the marked server after each server with fewer failures. A retry
+    of failover gives it the first place again, and its answer then clears the count (§16
+    decision 17). The ways:
+
+    - As built: the failure counts. The lookup could not take the reply, so it waited out the
+      try as for a server that did not answer.
+    - No failure for a marked try. The server answered in time, so its deadline counts neither a
+      sample nor a failure. This is a second exception to decision 10, and a change to failover.
+
+    Recommended: as built. Once marked, the server is asked in lowercase, and its answers come
+    in time. So only the tries in flight to it at the mark count this failure. Until the owner
+    rules, as built. Answered on 2026-10-20: as built.
 
 ## 18. The cache
 

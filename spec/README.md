@@ -60,7 +60,10 @@ would agree with the code by construction and prove nothing about it.
 - Time. A poll comes before the deadline or at it, and nothing else about the clock matters to a
   transition. So the wait's length is left out too, which since 2026-10-09 comes from each
   server's measured latency, a try that ran out counting as a sample as long as its wait
-  (docs/design.md §5). The model did not change for either.
+  (docs/design.md §5). The model did not change for either. Since 2026-10-20 a try that a reply
+  to it marked is no sample, and that reply is the model's unmatched reply (docs/design.md §16
+  decision 50). The deadline after it moves the lookup as each deadline does, so the model did not
+  change for that either.
 - The message. A reply is what §7's checks and §5's rcode policy make of it: unmatched, an answer,
   a CNAME to a new name, NXDOMAIN, NODATA, a server failure, FORMERR, TC=1 with nothing else, or
   BADCOOKIE. Since 2026-10-14 a datagram that the buffer cut can move a lookup. When the lookup

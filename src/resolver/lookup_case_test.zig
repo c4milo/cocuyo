@@ -1,10 +1,10 @@
 //! Check 5 of §7 through the fake server: the question, DNS-0x20, and its fallback for a server
 //! that lowercases the name (docs/design.md §7, A server that changes the case): which response
 //! marks its server, that the wait stands, that a marked server is asked in lowercase while
-//! every other keeps 0x20, and what the tries an ignored reply leaves to run out do to a server's
-//! wait (§5). Check 5's compare and the mark are `lookup_response_case.zig`'s, and the choice to
-//! mix `lookup_poll.zig`'s. Split from `lookup_response.zig` by the file-length rule; the tests of
-//! the compare read in place are `lookup_case_echo_test.zig`'s, which shares the helpers here.
+//! every other keeps 0x20, and which tries that an ignored reply leaves to run out are samples
+//! (§5, §16 decision 50). Check 5's compare and the mark are `lookup_response_case.zig`'s, and
+//! the choice to mix `lookup_poll.zig`'s. Split from `lookup_response.zig` by the file-length
+//! rule; the tests of the compare read in place are `lookup_case_echo_test.zig`'s.
 const std = @import("std");
 const testing = std.testing;
 const core = @import("core");
@@ -365,10 +365,17 @@ test "a chain name a server spelled with capitals is folded, though the query we
 const millisecond_ns = 1_000_000;
 const second_ns = 1_000_000_000;
 
-test "a server that lowercases has the try its mark ignored counted as a wait it did not take" {
-    // A fresh table, and a server that answers in 10 ms. The first lookup's reply marks it and is
-    // ignored, so that try runs out at the configured 2 seconds, a sample as long (docs/design.md
-    // §5). The second pass asks in lowercase and is answered in 10 ms, and so is the next lookup.
+/// Requires server `slot` to hold `count` samples since the table was built, and its minute's
+/// window to sum to `sum_ns`. That window holds each sample of a test this short.
+fn expect_samples(harness: *const fixtures.Harness, slot: usize, count: u64, sum_ns: u64) !void {
+    try testing.expectEqual(count, harness.servers.samples(slot));
+    try testing.expectEqual(sum_ns, harness.servers.state(slot).latency.windows[0].sum_ns);
+}
+
+test "a try that its reply marked is no sample, so its server waits the configured wait" {
+    // A fresh table, and a server that answers in 10 ms. The first lookup's reply marks it, and
+    // that try runs out at 2 seconds as no sample (docs/design.md §16 decision 50). The second
+    // pass asks in lowercase and is answered in 10 ms, and so are the next two lookups.
     var harness: fixtures.Harness = .{ .config = .{ .servers = &fixtures.servers_one } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
@@ -376,18 +383,87 @@ test "a server that lowercases has the try its mark ignored counted as a wait it
     try testing.expectEqual(Verdict.ignored, harness.respond(folded, only));
     try testing.expect(harness.servers.changes_case(0));
     harness.now_ns = harness.lookup.deadline_ns - 1;
-    for (0..2) |_| {
+    // The second pass waits twice the configured wait, and each next lookup the configured one.
+    const configured = harness.config.timeout_ns;
+    for ([_]u64{ 2 * configured, configured, configured }) |wait_ns| {
         _ = harness.send();
+        try testing.expectEqual(wait_ns, harness.lookup.deadline_ns - harness.now_ns);
         harness.now_ns += 10 * millisecond_ns - 1;
         try testing.expectEqual(Verdict.accepted, harness.respond(folded, only));
         try testing.expect(harness.poll() == .done);
         try harness.start("example.com.", .a, seed + 1);
     }
-    // 2 seconds, 10 ms and 10 ms average 673 ms, so the third lookup waits 3.37 seconds where the
-    // configured wait is 2.
+    // Three samples of 10 ms, and none of 2 seconds: five times their average is under the floor.
     _ = harness.send();
-    const average = (2 * second_ns + 2 * 10 * millisecond_ns) / 3;
-    try testing.expectEqual(5 * average, harness.lookup.deadline_ns - harness.now_ns);
+    try testing.expectEqual(core.constants.timeout_ns_min, harness.lookup.deadline_ns - harness.now_ns);
+    try expect_samples(&harness, 0, 3, 3 * 10 * millisecond_ns);
+}
+
+test "each try is marked by its own reply alone, so a try that no reply marked is a sample" {
+    // Two servers, two passes. A reply in lowercase that check 6 refuses marks nothing, so that
+    // try is a sample. The second server's reply marks it and its try. On the next pass no reply
+    // comes, so each try is a sample of its doubled wait. Each try counts a failure.
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
+    try harness.start("example.com.", .a, seed);
+    var wrong = folded;
+    wrong.cookie = .wrong;
+    for ([_]fixtures.Reply{ wrong, folded }, servers) |reply, server| {
+        _ = harness.send();
+        try testing.expectEqual(Verdict.ignored, harness.respond(reply, server.endpoint));
+        harness.now_ns = harness.lookup.deadline_ns - 1;
+    }
+    try testing.expect(!harness.servers.changes_case(0) and harness.servers.changes_case(1));
+    for (servers) |_| {
+        _ = harness.send();
+        harness.now_ns = harness.lookup.deadline_ns - 1;
+    }
+    try testing.expectEqual(core.Error.Timeout, harness.poll().failed.err);
+    const configured = harness.config.timeout_ns;
+    try expect_samples(&harness, 0, 2, 3 * configured);
+    try expect_samples(&harness, 1, 1, 2 * configured);
+    try testing.expectEqual(@as(u8, 2), harness.servers.failures(1));
+}
+
+/// Starts a lookup of `example.com.` on `other`, over the table of `first`, and sends its query.
+fn send_beside(first: *const fixtures.Harness, other: *fixtures.Harness, lookup_seed: u64) !void {
+    const question = try Question.from_text("example.com.", .a);
+    other.lookup = Lookup.init(&other.config, first.lookup.servers, question, lookup_seed);
+    other.now_ns = first.now_ns;
+    _ = other.send();
+}
+
+test "a try is marked by its own reply, and not by a mark another lookup made during it" {
+    // Three lookups on one table send mixed queries to one server. The first one's reply marks
+    // the server. The second one's reply comes after that mark, and marks its own try. The third
+    // one's reply never comes, so nothing shows that the server answered it: its try is a sample.
+    var first: fixtures.Harness = .{ .config = .{ .servers = &fixtures.servers_one } };
+    try first.start("example.com.", .a, seed);
+    _ = first.send();
+    var second: fixtures.Harness = .{ .config = first.config };
+    try send_beside(&first, &second, seed + 1);
+    var third: fixtures.Harness = .{ .config = first.config };
+    try send_beside(&second, &third, seed + 2);
+    try testing.expectEqual(Verdict.ignored, first.respond(folded, only));
+    try testing.expectEqual(Verdict.ignored, second.respond(folded, only));
+    try testing.expect(first.servers.changes_case(0));
+    for ([_]*fixtures.Harness{ &first, &second, &third }) |harness| {
+        harness.now_ns = harness.lookup.deadline_ns - 1;
+        _ = harness.send();
+    }
+    try expect_samples(&first, 0, 1, first.config.timeout_ns);
+}
+
+test "an answer the lookup takes after a reply marked its try is a sample all the same" {
+    // A server that lowercases never echoes a mixed name, so only a forger sends both. The answer
+    // measures the time to an answer that the lookup took (docs/design.md §16 decision 50).
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &fixtures.servers_one } };
+    try harness.start("example.com.", .a, seed);
+    _ = harness.send();
+    const sent_ns = harness.now_ns;
+    try testing.expectEqual(Verdict.ignored, harness.respond(folded, only));
+    harness.now_ns += 20 * millisecond_ns;
+    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a, only));
+    try expect_samples(&harness, 0, 1, harness.now_ns - sent_ns);
 }
 
 /// Answers the query last sent with its name in capitals, which is how a server that changes the

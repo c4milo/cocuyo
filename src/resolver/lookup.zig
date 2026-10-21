@@ -117,7 +117,7 @@ pub const Cause = failure_module.Cause;
 /// The flags one lookup carries, packed into an octet so the hot block stays inside a cache line.
 /// Whether a server failed the lookup is not one of them: the lookup's `cause` says it
 /// (docs/design.md §5, The cause of a failure).
-pub const Flags = packed struct(u7) {
+pub const Flags = packed struct(u8) {
     /// Whether the query carries an OPT record. Cleared for one server that answers FORMERR, and
     /// set again when the lookup moves to another server or another name: that a server does
     /// not speak EDNS0 is a fact about that server (RFC 6891 §6.2.2).
@@ -140,6 +140,10 @@ pub const Flags = packed struct(u7) {
     /// compares a response with, whatever another lookup taught the server since
     /// (docs/design.md §7, A server that changes the case).
     query_mixed: bool,
+    /// Whether a reply to the query last sent marked its server as one that lowercases the name.
+    /// The reply shows that the server answered this try in time. So the try is no sample when it
+    /// runs out (docs/design.md §5, §16 decision 50). `on_sent` clears it.
+    reply_marked: bool,
 };
 
 pub const Lookup = struct {
@@ -241,6 +245,8 @@ pub const Lookup = struct {
             .tcp_ready => .awaiting_tcp,
             else => unreachable,
         };
+        // A try starts at its send, and no reply to it has marked its server yet (§16 decision 50).
+        self.flags.reply_marked = false;
         self.sent_at_ns = now_ns;
         poll_module.arm(self, now_ns);
     }

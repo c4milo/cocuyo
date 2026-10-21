@@ -36,8 +36,9 @@ pub fn echoes_question(self: *const Lookup, message: []const u8) bool {
 /// from now on. It stays ignored, and the wait stands (§16 decision 10). A mixed name always
 /// carries a capital, so no echo of a mixed query of cocuyo's own is in lowercase. No RFC states
 /// DNS-0x20, so none states this: the rule is the owner's of 2026-10-09, narrowed by its review
-/// (docs/design.md §7, A server that changes the case; §16 decision 5).
-pub fn case_change(self: *const Lookup, message: []const u8) void {
+/// (docs/design.md §7, A server that changes the case; §16 decision 5). The response marks its
+/// own try too, which is then no sample when it runs out (§16 decision 50).
+pub fn case_change(self: *Lookup, message: []const u8) void {
     assert(self.state == .awaiting_udp or self.state == .awaiting_tcp);
     if (!self.flags.query_mixed) return;
     // No query over DoH or DoQ mixes the case (docs/design.md §22, §23).
@@ -51,7 +52,7 @@ pub fn case_change(self: *const Lookup, message: []const u8) void {
 
 /// The rest of `case_change`, for an echo in lowercase alone. Out of line, so the name it builds
 /// is no cost to the path every response that fails check 5 takes.
-noinline fn mark(self: *const Lookup, message: []const u8) void {
+noinline fn mark(self: *Lookup, message: []const u8) void {
     @branchHint(.cold);
     // Check 5 refused it, so the name asked was not already lowercase: it held a capital. The name
     // the query sent, built as `cased_name` builds it, says so without the compare in place.
@@ -63,4 +64,8 @@ noinline fn mark(self: *const Lookup, message: []const u8) void {
     // §5.3): a response check 6 refuses is no server's word on anything.
     if (!cookies.accepted(self, opt.cookie)) return;
     self.servers.record_case_change(self.server_slot());
+    // The reply marks this try whether or not another lookup marked the server before it: the
+    // server answered this try in time (§16 decision 50).
+    self.flags.reply_marked = true;
+    assert(self.flags.query_mixed and self.servers.changes_case(self.server_slot()));
 }

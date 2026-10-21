@@ -63,6 +63,8 @@ pub fn init_in_place(
             .ordered = false,
             // No query is built yet, so none mixed the case.
             .query_mixed = false,
+            // No query is sent yet, so no reply marked a try.
+            .reply_marked = false,
         },
         .server_index = 0,
         .order = identity_order,

@@ -3152,4 +3152,113 @@
         },
         .caught_by = .{ .step = "test-tools" },
     },
+    .{
+        .section = "A try whose server was marked",
+        .id = "LS1",
+        .what = "the deadline of a marked try takes its sample all the same",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        if (!self.flags.reply_marked) {\n", .new = "        if (true) {\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A try whose server was marked",
+        .id = "LS2",
+        .what = "the deadline takes a sample of a marked try alone",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        if (!self.flags.reply_marked) {\n", .new = "        if (self.flags.reply_marked) {\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A try whose server was marked",
+        .id = "LS3",
+        .what = "the reply that marks its server marks no try",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response_case.zig", .old = "    self.flags.reply_marked = true;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A try whose server was marked",
+        .id = "LS4",
+        .what = "`on_sent` keeps the mark of the try before it",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.flags.reply_marked = false;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A try whose server was marked",
+        .id = "LS5",
+        .what = "a reply in lowercase that check 6 refuses marks its try",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response_case.zig", .old = "    const opt = response.opt_of(message, &self.current) orelse return;\n", .new = "    self.flags.reply_marked = true;\n    const opt = response.opt_of(message, &self.current) orelse return;\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A try whose server was marked",
+        .id = "LS6",
+        .what = "each reply to a mixed query that fails check 5 marks its try",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response_case.zig", .old = "    if (!self.flags.query_mixed) return;\n", .new = "    if (!self.flags.query_mixed) return;\n    self.flags.reply_marked = true;\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A try whose server was marked",
+        .id = "LS7",
+        .what = "the deadline reads the mark of the table, not the mark of the try",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        if (!self.flags.reply_marked) {\n", .new = "        if (!(self.flags.query_mixed and self.servers.changes_case(slot))) {\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A try whose server was marked",
+        .id = "LS8",
+        .what = "only the reply that first marks the server marks its try",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response_case.zig", .old = "    self.servers.record_case_change(self.server_slot());\n", .new = "    const first = !self.servers.changes_case(self.server_slot());\n    self.servers.record_case_change(self.server_slot());\n" },
+            .{ .file = "src/resolver/lookup_response_case.zig", .old = "    self.flags.reply_marked = true;\n", .new = "    self.flags.reply_marked = first;\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A try whose server was marked",
+        .id = "LS9",
+        .what = "an answer that the lookup takes after a mark, in the same try, is no sample",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    self.servers.record_latency(slot, now_ns - self.sent_at_ns, now_ns);\n", .new = "    if (!self.flags.reply_marked) self.servers.record_latency(slot, now_ns - self.sent_at_ns, now_ns);\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A try whose server was marked",
+        .id = "LS10",
+        .what = "the deadline of a marked try counts no failure of its server",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "    self.servers.record_failure(slot, now_ns);\n    self.next_server(now_ns);", .new = "    if (!self.flags.reply_marked) self.servers.record_failure(slot, now_ns);\n    self.next_server(now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A try whose server was marked",
+        .id = "LS11",
+        .what = "the deadline asserts that the table still marks the server of a marked try",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        assert(!self.flags.reply_marked or self.flags.query_mixed);\n", .new = "        assert(!self.flags.reply_marked or self.flags.query_mixed);\n        assert(!self.flags.reply_marked or self.servers.changes_case(slot));\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "A try whose server was marked",
+        .id = "LS12",
+        .what = "the deadline of a marked try takes its sample when the table holds no mark",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        if (!self.flags.reply_marked) {\n", .new = "        if (!self.flags.reply_marked or !self.servers.changes_case(slot)) {\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
 }
