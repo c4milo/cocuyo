@@ -2383,6 +2383,57 @@ step until `zig build test` passes.
       value, and its type is `type`, so the options hold no value that means no session.
 
     §24.
+
+    **Amended by the owner on 2026-10-17, on §17 question 34: register it.** The build registers
+    a module for the session over chapulin, `chapulin_quic`, rooted at `io/io_chapulin_quic.zig`.
+    Its `quic` and `tls` imports are left for the consumer to bind, as `cocuyo_doh`'s `client`
+    and `tls` are. Before the ruling the package shipped the file, and no registered module
+    named it. So each consumer's build made the module itself, and no check of the gate built
+    such a consumer. The change was built on 2026-10-20.
+
+    Choices the ruling did not make, made here:
+
+    - The name is `chapulin_quic`. The build registers `io/io_chapulin_hooks.zig` as
+      `chapulin_hooks`. So a module for a file of `io/` that holds chapulin's session or hooks
+      takes the file's name without `io_`. The DoQ example imported the session under this name
+      already, and `zig build test-chapulin-quic` runs its tests. A consumer that copied the
+      example keeps its import.
+    - The module links libc, which chapulin's object needs. The module of chapulin's C headers
+      links libc too, so no program changes without the flag (docs/mutations.md, the session
+      module). The build binds the session's `cocuyo`, `cocuyo_quic` and `chapulin_hooks` to the
+      modules that it registers under those names. So the session reads the `cocuyo_quic` that
+      the consumer binds colibri's `quic` into.
+    - The DoQ example and the session's tests use the registered module. `build/doq.zig` binds
+      colibri into it and into `cocuyo_quic`, as a consumer does. Before the change it made a
+      module of its own for both.
+    - `test/consumer/` depends on colibri, at the pin of `build.zig.zon`, and builds a third
+      program, `doq`. The program names the session in the options of its connection, and
+      states its CPU through `Session.Cpu` (decision 48). It runs the resolver over DoQ on its
+      own loop. `zig build consumer-check` builds the program, and does not run it.
+    - The check compares the package's pins of rotor and colibri with the pins of
+      `build.zig.zon`, before it builds. At another pin the package builds cocuyo against a
+      package that cocuyo does not pin. Before the change nothing compared the pin of rotor.
+    - A dependent of colibri fetches chapulin and stdx too, since colibri requires both. The root
+      build fetches all three for its own tests, so the check fetches nothing more. It compiles
+      colibri's `quic` and `tls`, and chapulin's objects, a second time, in the cache of the
+      nested build. §17 question 65 asks the owner about that cost.
+
+    Rejected:
+
+    - The name `cocuyo_doq`. Beside `cocuyo_doh` it reads as the DoQ transport, which is
+      `cocuyo_quic`. The module holds only the TLS that a connection of `cocuyo_quic` names.
+    - A second module of the session for this build alone, as `io_doh_channel` is to
+      `cocuyo_doh`. The session's tests import nothing that a consumer does not bind. A second
+      module keeps the gate's builds of the session apart from the build of a consumer.
+    - The check in a package of its own beside `test/consumer/`. It compiles the same colibri,
+      and it adds a second manifest and a second build to keep.
+
+    The checks are the build of `doq` and the comparison of the pins. Seven mutations break the
+    module or the check, and the checks catch each (docs/mutations.md, the session module). The
+    public API changes: the package exports one more module. No named limit changes. No model
+    changes either: no transition of §5 and no rule of §19 steps 13 and 14 reads the build.
+
+    §17 questions 34, 64 and 65, §24 (the session a connection names).
 39. **The engine holds no default context, and a lookup whose transport's context was never set
     stops it.** Ruled by the owner on 2026-10-11, on a finding of the same day: "No default
     context. An engine asked to open a DoT, DoQ or DoH session whose context was never set
@@ -3869,7 +3920,8 @@ about.
     `tls` are? Recommended: yes, since it is the session every consumer on a network names.
     Not built: it adds a name to the public surface, which is the owner's to rule. Until then
     no check of the gate builds a consumer that makes the module, since `test/consumer/` binds
-    no colibri. Answered on 2026-10-17: yes, register it.
+    no colibri. Answered on 2026-10-17: yes, register it. Built on 2026-10-20: the module is
+    `chapulin_quic`, and `test/consumer/` builds a program over it (§16 decision 38, as amended).
 
 ### Asked on 2026-10-11, for the context a session starts from
 
@@ -4372,6 +4424,39 @@ The ruling did not make two of the choices that decision 50 makes.
     Recommended: as built. Once marked, the server is asked in lowercase, and its answers come
     in time. So only the tries in flight to it at the mark count this failure. Until the owner
     rules, as built. Answered on 2026-10-20: as built.
+
+### Asked on 2026-10-20, for the session module
+
+§16 decision 38, as amended, records the ruling on question 34. The change left two questions.
+
+64. **A module for the DoT session.** The DoT session over chapulin, `io/io_chapulin.zig`, has
+    the shape that the DoQ session had before question 34. The package ships the file, and no
+    registered module names it, so a consumer's build makes the module itself, as
+    `build/dot.zig` does. The module imports `cocuyo` and `chapulin_hooks`, colibri's `tls` and
+    `tls_provider`, and `io`, the engine whose limits it reads. Should the build register it too,
+    as `chapulin`? Its `io` would then be `cocuyo_rotor`, and colibri's two modules would be left
+    for the consumer to bind.
+
+    Recommended: yes, for the reason question 34 gave. Not built: it adds a name to the public
+    surface, which is the owner's to rule, and question 34 named the DoQ session alone. Answered
+    on 2026-10-20: yes, register it. A later change builds it.
+65. **colibri in the consumer fixture.** `test/consumer/` depends on colibri since question 34
+    was built, so that the gate builds a consumer of `chapulin_quic`. The check fetches nothing
+    more, since the root build fetches colibri, chapulin and stdx for its own tests. But it
+    compiles colibri's `quic` and `tls`, and chapulin's objects, a second time.
+
+    Measured on 2026-10-20 on an Apple M1 Pro, one build of the package with its cache empty
+    took 33 seconds before the change. After the change the same build took 61 to 63 seconds.
+    With the cache full the whole check takes 2 seconds. The ways:
+
+    - As built: the fixture depends on colibri, and the gate builds `doq`.
+    - The fixture as before, with no colibri. No check of the gate then builds a consumer of the
+      session, and the registration can break while the gate passes.
+
+    Recommended: the first. Row SM1 removes the registration, and only the build of `doq`
+    catches it. Until the owner rules, the first. Answered on 2026-10-21: the first. The owner
+    asked why a fixture needs colibri. It needs colibri's `quic` and `tls`, which a consumer of
+    `chapulin_quic` binds, and not colibri's HTTP client.
 
 ### Asked on 2026-10-21, for the reason of a failure
 
@@ -7084,7 +7169,8 @@ names, below):
 
 - `io/io_chapulin_quic.zig` puts colibri's `tls.quic.Client`, chapulin's QUIC session, behind
   both vtables (decision 32). It is built where the build resolves colibri, as the DoT session
-  is, and the live check of step 4 runs it against AdGuard and NextDNS.
+  is, and the live check of step 4 runs it against AdGuard and NextDNS. Since 2026-10-20 the
+  build registers it as `chapulin_quic` (decision 38, as amended).
 - `io/io_quic_plain.zig` is a provider and a suite that encrypt nothing, for the gate: the
   handshake's messages are made-up octets at the Initial, Handshake and 1-RTT levels of RFC 9001
   §4, in the order §4.1.5's Figure 5 puts them. A packet is sealed by appending sixteen octets,
@@ -7159,13 +7245,20 @@ control, loss and its recovery, with the twin's clock and its seeds.
 ### colibri as a dependency
 
 colibri is pinned by hash in `build.zig.zon` as a lazy dependency (decision 29). `io/io_quic.zig`
-is a module of its own, `cocuyo_quic`, which imports colibri's `quic`, and its `h3` for DoH,
-and gives the type a consumer names in `Options.quic`. `cocuyo_rotor` never imports colibri, so a consumer that speaks
-no DoQ binds nothing more; one that does binds `cocuyo_quic` and colibri's `quic` into it. The gate
-fetches colibri for the engine's tests over colibri on the twin. cocuyo's own build resolves it
-for the DoT and DoQ sessions too, which import its `tls` (decision 32), and the gate runs both
-sessions' tests and builds their examples, so a colibri that breaks a session fails it. The
-library in `src/` never imports it.
+is a module of its own, `cocuyo_quic`. It imports colibri's `quic`, and gives the type that a
+consumer names in `Options.quic`. `cocuyo_rotor` never imports colibri. So a consumer binds
+colibri only into the modules of the encrypted transports it speaks:
+
+- For DoQ, colibri's `quic` into `cocuyo_quic`, and colibri's `quic` and `tls` into
+  `chapulin_quic`, the session over chapulin (the session a connection names, below).
+- For DoH, colibri's `client` and `tls` into `cocuyo_doh` (DoH over colibri's client, below).
+- For DoT, colibri's `tls` and `tls_provider` into the module of `io/io_chapulin.zig`, which the
+  consumer's build makes itself (§17 question 64).
+
+The gate fetches colibri for the engine's tests over colibri on the twin. cocuyo's own build
+resolves it for the DoT and DoQ sessions too, which import its `tls` (decision 32). The gate runs
+the tests of both sessions and builds their examples. So a colibri that breaks a session fails the
+gate. The library in `src/` never imports colibri.
 
 An engine over colibri holds, for each server, colibri's connection, its receive pool, its two
 scratch buffers and a request buffer for each lookup. Measured with `@sizeOf` on 2026-09-25, in a
@@ -7863,7 +7956,7 @@ TLS a connection runs:
 
 A consumer that names no session does not compile. The compiler stops where the options are
 written, with `missing struct field: Session`. A consumer writes its options as
-`examples/doq_rotor.zig` does, with the session over chapulin of `io/io_chapulin_quic.zig`.
+`examples/doq_rotor.zig` does, with `Session` of `chapulin_quic`, the session over chapulin.
 Here `dns` is `cocuyo_rotor`, where the example has an engine its own build makes:
 
 ```zig
@@ -7871,22 +7964,26 @@ const Quic = cocuyo_quic.Connection(.{ .Session = chapulin.Session, .streams = a
 const Resolver = dns.Resolver(.{ .lookups = at_once_max + 1, .tcp_connections = 0, .quic = Quic });
 ```
 
-The build registers no module for that session. `build/doq.zig` makes one from the file, which
-the package ships, for the example and for the session's own tests, as `build/dot.zig` does for
-the DoT session. So `cocuyo_quic` by itself exports no session that protects anything, and a
-consumer's build makes the session's module as `build/doq.zig` does:
+`cocuyo_quic` by itself exports no session that protects anything. Since 2026-10-20 the build
+registers `chapulin_quic`, rooted at `io/io_chapulin_quic.zig` (§16 decision 38, as amended).
+Before that the package shipped the file and registered no module for it, so each consumer's
+build made one. The registered module links libc, which chapulin's object needs. It imports
+three modules that the build registers: `cocuyo`, `cocuyo_quic` and `chapulin_hooks`. It leaves
+`quic` and `tls` for the consumer to bind.
 
-- Its root is the file, which a dependent names as `cocuyo.path("io/io_chapulin_quic.zig")`,
-  where `cocuyo` is its dependency on this package.
-- It links libc, which chapulin's object needs.
-- It imports `cocuyo`, `cocuyo_quic` and `chapulin_hooks`, three modules this build registers,
-  and `quic` and `tls`, which are colibri's. The `cocuyo_quic` it imports is the one whose
-  `quic` import the consumer bound to the same colibri.
+So a consumer that speaks DoQ binds colibri into two modules of this package:
 
-No check of the gate builds a consumer that does, since `test/consumer/` binds no colibri. A
-package outside the tree did on 2026-10-11, built by hand (docs/mutations.md, cocuyo_quic's
-session with no default). Whether the build registers a module for the session is §17
-question 34.
+- colibri's `quic` into `cocuyo_quic`;
+- colibri's `quic` and `tls` into `chapulin_quic`.
+
+The session's `cocuyo_quic` is the module that the consumer binds colibri's `quic` into. So the
+session and its connection read one `cocuyo_quic` and one colibri. `test/consumer/build.zig`
+binds them so, and `zig build consumer-check` builds its program `doq` over them. The check
+first requires the package's pins of rotor and colibri to be the pins of `build.zig.zon`.
+The DoQ example and the session's tests use the registered module, into which `build/doq.zig`
+binds colibri as a consumer does. A package outside the tree made the module by hand on
+2026-10-11, before the build registered it (docs/mutations.md, cocuyo_quic's session with no
+default).
 
 Until the ruling the option defaulted to `cocuyo_quic.Plain`. A consumer that wrote
 `Connection(.{ .streams = at_once_max })` built, and its connections ran the plain session.
@@ -7933,7 +8030,7 @@ This is true of each of the three:
 A test that runs colibri's QUIC without chapulin writes `.Session = cocuyo_quic.Plain`, so the
 choice stands in the test's own text. The module's tests do (`io/io_quic.zig`), and so do the
 engine's over colibri on the twin (`io/io_quic_test.zig`). Nothing else in the tree left the
-option unset: the example names chapulin's session, and the benchmarks, `test/consumer/` and
+option unset: the example and `test/consumer/` name chapulin's session, and the benchmarks and
 the README's blocks name no connection of `cocuyo_quic`.
 
 The check is a test of `io/io_quic.zig` that reads the fields of `Options` when it compiles. It
@@ -8252,6 +8349,9 @@ Checks, one for each piece:
 - A server that selects `http/1.1`, or no protocol, answers over HTTP/1.1.
 - An idle channel shuts down, and a request taken meanwhile opens the next channel.
 - `cocuyo_quic`'s options carry no default session, and no value that means none.
+- A package that depends on cocuyo and colibri binds colibri into `cocuyo_quic` and
+  `chapulin_quic`, and builds a resolver over DoQ that names the session. The package's pins of
+  rotor and colibri are the pins of `build.zig.zon`.
 - An engine has no context for an encrypted transport until its `use_` call, a configuration of
   plain DNS needs none, `init` leaves none, `reinit` keeps each, and no context type carries a
   default.

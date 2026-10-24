@@ -4181,4 +4181,67 @@
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
+    .{
+        .section = "The session module",
+        .id = "SM1",
+        .what = "the build makes the session's module and registers it under no name, as before the ruling",
+        .edits = .{
+            .{ .file = "build/modules.zig", .old = "\"chapulin_quic\", roots.chapulin_quic, register),", .new = "\"chapulin_quic\", roots.chapulin_quic, false)," },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "The session module",
+        .id = "SM2",
+        .what = "the session's cocuyo_quic is the tests' io_quic, and not the module a consumer binds colibri into",
+        .edits = .{
+            .{ .file = "build/modules.zig", .old = "    graph.chapulin_quic.addImport(\"cocuyo_quic\", graph.cocuyo_quic);\n", .new = "    graph.chapulin_quic.addImport(\"cocuyo_quic\", graph.io_quic);\n" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "The session module",
+        .id = "SM3",
+        .what = "the build binds no chapulin_hooks into the session's module",
+        .edits = .{
+            .{ .file = "build/modules.zig", .old = "    graph.chapulin_quic.addImport(\"chapulin_hooks\", graph.chapulin_hooks);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "The session module",
+        .id = "SM4",
+        .what = "the consumer fixture pins colibri v0.7.0, where build.zig.zon pins v0.8.0",
+        .edits = .{
+            .{ .file = "test/consumer/build.zig.zon", .old = ".hash = \"colibri-0.8.0-Wo-AvtBgiAT4kSDr1cu4LH3VfEM7FWSqBgPzmwq9JIa7\",", .new = ".hash = \"colibri-0.7.0-Wo-AvnvDigTcA-Gfby9QcjS1khCNKsyoFdt04Z_BX1xj\"," },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "The session module",
+        .id = "SM5",
+        .what = "the consumer check compares the pins of colibri alone",
+        .edits = .{
+            .{ .file = "tools/consumer_check.zig", .old = "const pinned = [_][]const u8{ \"rotor\", \"colibri\" };", .new = "const pinned = [_][]const u8{\"colibri\"};" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "The session module",
+        .id = "SM6",
+        .what = "a pin is read at the first mention of the package's name, in its entry or not",
+        .edits = .{
+            .{ .file = "tools/consumer_check.zig", .old = "        if (found == 0 or manifest[found - 1] != '.' or !std.mem.startsWith(u8, manifest[at..], \" = .{\")) continue;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "The session module",
+        .id = "SM7",
+        .what = "a pin is read past the end of the package's entry",
+        .edits = .{
+            .{ .file = "tools/consumer_check.zig", .old = "        const end = std.mem.indexOfScalarPos(u8, manifest, at, '}') orelse return null;\n", .new = "        const end = manifest.len;\n" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
 }

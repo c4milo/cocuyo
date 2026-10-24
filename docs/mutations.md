@@ -8349,3 +8349,103 @@ The rows that the review wrote again, each `CAUGHT`:
 
 The review: fourteen new rows, fourteen `CAUGHT`. Seventeen rows written again, seventeen
 `CAUGHT`. With the rows that ran again unchanged, 82 rows ran in the review, each `CAUGHT`.
+
+## The session module
+
+2026-10-20. The owner answered docs/design.md §17 question 34 on 2026-10-17: "yes, register it".
+The build registers the session over chapulin as `chapulin_quic`. Its `quic` and `tls` imports
+are left for the consumer to bind. §16 decision 38, as amended, records the rule.
+
+### What changed
+
+- `build/modules.zig` registers `chapulin_quic`, rooted at `io/io_chapulin_quic.zig`. The module
+  links libc, and imports the registered `cocuyo`, `cocuyo_quic` and `chapulin_hooks`.
+- `build/doq.zig` binds colibri's `quic` into `cocuyo_quic`, and colibri's `quic` and `tls` into
+  `chapulin_quic`, as a consumer does. The DoQ example and the session's tests use those two
+  modules. Before the change the file made a module of its own for both.
+- `test/consumer/` depends on colibri, at the pin of `build.zig.zon`. Its build binds colibri
+  into the two modules, and builds a third program, `doq`. The program names the session in the
+  options of its connection, and runs the resolver over DoQ on its own loop.
+- `tools/consumer_check.zig` compares the package's pins of rotor and colibri with the pins of
+  `build.zig.zon`. It does so before it builds, and it stops at a pin that differs.
+- Design §24 and the README say how a consumer binds colibri into the two modules.
+- Three edits came after the review. The headers of `io/io_quic.zig` and
+  `io/io_chapulin_quic.zig` name the module, in comments alone. `tools/consumer_check.zig` gained
+  assertions in its three functions of the pins. Design §24 no longer says that `cocuyo_quic`
+  imports colibri's `h3`, which no file imports.
+
+### What the rows break
+
+- SM1 to SM3 break the module in `build/modules.zig`. In a dependent's build each one stops the
+  build of `doq`, so the control of the consumer check fails. The check does not print what the
+  nested build prints. So the tool reads the failure as the check's, and not as a compile error
+  of the tree.
+- SM1 passes each other step of the gate. The root build reads the module through its graph,
+  and not by its name.
+- SM2 and SM3 also stop compiles of the root build: the DoQ example's for both, and the session
+  tests' for SM3. The tool reads such a compile error as an edit that no longer applies. So
+  each of the two rows names the consumer check.
+- SM4 gives the package a pin of colibri that differs. The check stops at it before it builds.
+- SM5 to SM7 break the read of the pins. The tests of `tools/consumer_check.zig` catch each.
+
+Two edits have no row:
+
+- The module without libc. The module of chapulin's C headers links libc too. Zig 0.16 links
+  libc into a program when any module of its graph links libc (`std/Build/Step/Compile.zig`).
+  So without the flag each program that holds the session still links libc, on each target. By
+  hand, the edit passed the consumer check on this host.
+- The DoQ example and the session's tests over a module of their own again, as before the
+  change. The gate then builds the session as it did before, and each check passes. No check
+  reads which module the root build gives the example.
+
+The new assertions of `tools/consumer_check.zig` have no rows either. A test cannot see an
+assertion taken away, as with Z10 and T11.
+
+### What ran
+
+- The disk had 36 GB free before the first run of the rows.
+- The first run of the seven rows found that SM7, as first written, did not compile: its edit
+  left a constant unused. SM7 now replaces the end of the entry with the end of the manifest.
+- This command then ran the seven rows, in 3 minutes and 5 seconds. It first ran each check once
+  with nothing mutated, `zig build consumer-check` and `zig build test-tools`. Each row is
+  `CAUGHT`:
+
+```sh
+zig build mutations -- engine SM1 SM2 SM3 SM4 SM5 SM6 SM7
+```
+
+- The review's fixes changed `tools/consumer_check.zig`, whose lines SM5 to SM7 edit. So the
+  same command ran the seven rows again after the fixes, in 2 minutes and 48 seconds. The disk
+  had 29 GB free. Each row is `CAUGHT`.
+- Each row also ran by hand in the tree, one at a time. Those runs give the texts of the rows.
+  For SM1 to SM3 the nested build ran by hand too, and gave the error that each row quotes.
+- On an Apple M1 Pro, one build of the package with its cache empty took 33 seconds before the
+  change. After the change it took 61 to 63 seconds. With that cache full the whole check takes
+  2 seconds (design §17 question 65).
+- `zig build test`: 1,151 tests pass of 1,151, in 140 steps. The two new tests of
+  `tools/consumer_check.zig` are among them. `zig build test-chapulin-quic` has 15 tests pass
+  of 15.
+- `zig build lint`, `consumer-check`, `readme-check`, `examples` and `test-chapulin-quic`
+  pass. The gate builds the DoQ example and runs the session's tests over the registered
+  module.
+- No file of the engine changed, so `zig build spec-engine` did not run, and no model changes.
+
+### The instruction counts
+
+`bench/count.zig` imports `cocuyo` and `wire` alone, and no counted case reads the build. No
+code under `src/` or `io/` changed: two files of `io/` changed in their header comments alone.
+So no count can move, and `bench/instructions.zon` did not change.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| SM1 | the build makes the session's module and registers it under no name, as before the ruling | §16 decision 38, as amended: the build registers the session | the control of the consumer check: "consumer-check BROKEN: the dependent package did not build". The nested build said "panic: unable to find module 'chapulin_quic'". `consumer-check` | CAUGHT |
+| SM2 | the session's `cocuyo_quic` is the tests' `io_quic`, and not the module that a consumer binds colibri into | the session reads the registered `cocuyo_quic` | as SM1. The nested build said "error: file exists in modules 'cocuyo_quic' and 'cocuyo_quic0'" | CAUGHT |
+| SM3 | the build binds no `chapulin_hooks` into the session's module | the module imports the registered `chapulin_hooks` | as SM1. The nested build said "error: no module named 'chapulin_hooks' available within module 'chapulin_quic'" | CAUGHT |
+| SM4 | the consumer fixture pins colibri v0.7.0, where `build.zig.zon` pins v0.8.0 | the package's pins are the pins of `build.zig.zon` | the comparison of the pins: "consumer-check: .../test/consumer/build.zig.zon pins colibri at colibri-0.7.0-Wo-AvnvDig..., where build.zig.zon pins it at colibri-0.8.0-Wo-AvtBgi...", `consumer-check` | CAUGHT |
+| SM5 | the consumer check compares the pins of colibri alone | as SM4, for rotor | the test of the pins: "attempt to use null value", `test-tools` | CAUGHT |
+| SM6 | a pin is read at the first mention of the package's name, in its entry or not | a pin is the hash of the package's own entry | the test of a pin's read: "expected null, found" the hash of another entry, `test-tools` | CAUGHT |
+| SM7 | a pin is read past the end of the package's entry | as SM6 | as SM6, at the entry with no hash | CAUGHT |
+
+Seven mutations, seven `CAUGHT`.

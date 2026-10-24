@@ -3,6 +3,9 @@
 //! colibri is a lazy dependency, so the build adds nothing until it is fetched, and neither the
 //! gate's library tests nor a consumer needs chapulin. DoH goes through colibri's channel since
 //! decision 33, and `build/doh.zig` builds its example.
+//!
+//! The session is `chapulin_quic`, a module the build registers (§16 decision 38, as amended). Its
+//! tests and the example use that module, with colibri bound into it here as a consumer binds it.
 const std = @import("std");
 const modules = @import("modules.zig");
 
@@ -18,7 +21,7 @@ pub fn add(
     lazy: modules.Lazy,
 ) void {
     const resolved = lazy.colibri orelse return;
-    const session = session_module(b, target, optimize, graph, resolved);
+    const session = bind(graph, resolved);
     const tests = b.addTest(.{ .name = "chapulin_quic", .root_module = session });
     const run_tests = &b.addRunArtifact(tests).step;
     b.step("test-chapulin-quic", "Run the DoQ session's tests, over colibri's tls").dependOn(run_tests);
@@ -37,7 +40,7 @@ pub fn add(
     module.addImport("cocuyo", graph.cocuyo);
     module.addImport("rotor", dependency.module("rotor"));
     module.addImport("io", engine);
-    module.addImport("cocuyo_quic", graph.io_quic);
+    module.addImport("cocuyo_quic", graph.cocuyo_quic);
     module.addImport("chapulin_quic", session);
     // The probe the word `cpu` states the CPU from (`examples/cpu_text.zig`).
     module.addImport("platform", platform);
@@ -49,25 +52,13 @@ pub fn add(
     example.dependOn(&run.step);
 }
 
-/// chapulin's QUIC session: `io/io_chapulin_quic.zig` over colibri's `tls`, whose module carries
-/// the object, and libc, which the object needs.
-fn session_module(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    graph: modules.Graph,
-    colibri: *std.Build.Dependency,
-) *std.Build.Module {
-    const module = b.createModule(.{
-        .root_source_file = b.path("io/io_chapulin_quic.zig"),
-        .target = target,
-        .optimize = optimize,
-        .link_libc = true,
-    });
-    module.addImport("cocuyo", graph.cocuyo);
-    module.addImport("quic", colibri.module("quic"));
-    module.addImport("tls", colibri.module("tls"));
-    module.addImport("cocuyo_quic", graph.io_quic);
-    module.addImport("chapulin_hooks", graph.chapulin_hooks);
-    return module;
+/// Binds colibri where a consumer that speaks DoQ binds it, as `test/consumer/build.zig` does: its
+/// `quic` into `cocuyo_quic`, and its `quic` and `tls` into `chapulin_quic`. Returns the session's
+/// module, which the build registers with the rest of its imports bound.
+fn bind(graph: modules.Graph, colibri: *std.Build.Dependency) *std.Build.Module {
+    const quic = colibri.module("quic");
+    graph.cocuyo_quic.addImport("quic", quic);
+    graph.chapulin_quic.addImport("quic", quic);
+    graph.chapulin_quic.addImport("tls", colibri.module("tls"));
+    return graph.chapulin_quic;
 }

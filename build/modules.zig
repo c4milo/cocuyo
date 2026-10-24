@@ -10,10 +10,10 @@
 const std = @import("std");
 const manifest = @import("../build.zig.zon");
 
-/// The module graph as a value. `cocuyo` and `cocuyo_rotor` are the ones a consumer imports and
-/// the ones this build registers by name; the rest are this build's own, named by
-/// `zig build test-<name>` through this struct rather than through the package (docs/design.md
-/// §20, §24).
+/// The module graph as a value. `cocuyo`, `cocuyo_rotor`, `chapulin_hooks`, `cocuyo_quic`,
+/// `chapulin_quic` and `cocuyo_doh` are the ones a consumer imports and the ones this build
+/// registers by name. The rest are this build's own, named by `zig build test-<name>` through this
+/// struct rather than through the package (docs/design.md §20, §24).
 pub const Graph = struct {
     cocuyo: *std.Build.Module,
     core: *std.Build.Module,
@@ -33,10 +33,18 @@ pub const Graph = struct {
     /// holds one rotor. Nothing in this build compiles it; `zig build consumer-check` does.
     cocuyo_rotor: *std.Build.Module,
     /// colibri's QUIC under the request interface, as a consumer imports it (docs/design.md §24):
-    /// its `quic` import is left for the consumer to bind, as `cocuyo_rotor`'s `rotor` is.
+    /// its `quic` import is left for the consumer to bind, as `cocuyo_rotor`'s `rotor` is. This
+    /// build binds it as a consumer does, for the DoQ example and the session's tests
+    /// (`build/doq.zig`).
     cocuyo_quic: *std.Build.Module,
     /// The same, for this build's tests, whose `quic` `build/quic.zig` binds to colibri's.
     io_quic: *std.Build.Module,
+    /// chapulin's QUIC session, the TLS a connection of `cocuyo_quic` names, as a consumer imports
+    /// it (docs/design.md §16 decision 38, as amended). Its `quic` and `tls` imports are left for
+    /// the consumer to bind, as `cocuyo_doh`'s `client` and `tls` are. Its `cocuyo_quic` is the
+    /// registered one, so the session and the connection read the module the consumer binds. This
+    /// build binds the two as a consumer does (`build/doq.zig`).
+    chapulin_quic: *std.Build.Module,
     /// The DNS half of DoH (docs/design.md §24): it imports `std` alone, and `cocuyo_doh` imports
     /// it, so a consumer gets it with that.
     doh: *std.Build.Module,
@@ -71,6 +79,7 @@ pub const roots = .{
     .io = "io/io.zig",
     .chapulin_hooks = "io/io_chapulin_hooks.zig",
     .io_quic = "io/io_quic.zig",
+    .chapulin_quic = "io/io_chapulin_quic.zig",
     .doh = "io/io_doh.zig",
     .io_doh_channel = "io/io_doh_channel.zig",
 };
@@ -80,7 +89,7 @@ pub const roots = .{
 // show a path left out: it depends on cocuyo by path, which reads the whole tree
 // (docs/mutations.md EX2).
 comptime {
-    for ([_][]const u8{ roots.cocuyo, roots.io, roots.chapulin_hooks, roots.io_quic, roots.io_doh_channel }) |root| {
+    for ([_][]const u8{ roots.cocuyo, roots.io, roots.chapulin_hooks, roots.io_quic, roots.chapulin_quic, roots.io_doh_channel }) |root| {
         if (!shipped(root)) @compileError("build.zig.zon's paths do not ship " ++ root);
     }
 }
@@ -92,7 +101,8 @@ fn shipped(comptime root: []const u8) bool {
     return false;
 }
 
-/// The graph, registered: a consumer names `cocuyo`, and `zig build test-<name>` names the rest.
+/// The graph, registered: a consumer names the six modules that `Graph` says it imports, and
+/// `zig build test-<name>` names the rest.
 pub fn add(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -126,10 +136,10 @@ fn build(
     optimize: std.builtin.OptimizeMode,
     register: bool,
 ) Graph {
-    // Only `cocuyo`, `cocuyo_rotor`, `cocuyo_quic`, `cocuyo_doh` and `chapulin_hooks` are
-    // registered, so they are the only names a dependent can import (docs/design.md §20, §24). The
-    // rest are created: this build holds the graph as a value, so `zig build test-<name>` still
-    // names each one without the name being part of the package.
+    // Only `cocuyo`, `cocuyo_rotor`, `cocuyo_quic`, `chapulin_quic`, `cocuyo_doh` and
+    // `chapulin_hooks` are registered, so they are the only names a dependent can import
+    // (docs/design.md §20, §24). The rest are created. This build holds the graph as a value, so
+    // `zig build test-<name>` still names each one, and the name is not part of the package.
     const graph: Graph = .{
         .cocuyo = module(b, target, optimize, "cocuyo", roots.cocuyo, register),
         .core = module(b, target, optimize, "core", roots.core, false),
@@ -143,6 +153,7 @@ fn build(
         .chapulin_hooks = module(b, target, optimize, "chapulin_hooks", roots.chapulin_hooks, register),
         .cocuyo_quic = module(b, target, optimize, "cocuyo_quic", roots.io_quic, register),
         .io_quic = module(b, target, optimize, "io_quic", roots.io_quic, false),
+        .chapulin_quic = module(b, target, optimize, "chapulin_quic", roots.chapulin_quic, register),
         .doh = module(b, target, optimize, "doh", roots.doh, false),
         .cocuyo_doh = module(b, target, optimize, "cocuyo_doh", roots.io_doh_channel, register),
         .io_doh_channel = module(b, target, optimize, "io_doh_channel", roots.io_doh_channel, false),
@@ -169,6 +180,12 @@ fn build(
     graph.cocuyo_rotor.addImport("cocuyo", graph.cocuyo);
     graph.cocuyo_quic.addImport("cocuyo", graph.cocuyo);
     graph.io_quic.addImport("cocuyo", graph.cocuyo);
+    // chapulin's object needs libc. The session reads the registered `cocuyo_quic`, which the
+    // consumer binds colibri's `quic` into, and not the tests' `io_quic`.
+    graph.chapulin_quic.link_libc = true;
+    graph.chapulin_quic.addImport("cocuyo", graph.cocuyo);
+    graph.chapulin_quic.addImport("cocuyo_quic", graph.cocuyo_quic);
+    graph.chapulin_quic.addImport("chapulin_hooks", graph.chapulin_hooks);
     for ([_]*std.Build.Module{ graph.cocuyo_doh, graph.io_doh_channel }) |doh_channel| {
         doh_channel.addImport("cocuyo", graph.cocuyo);
         doh_channel.addImport("doh", graph.doh);

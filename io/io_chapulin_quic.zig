@@ -5,8 +5,12 @@
 //! connection colibri's provider and suite.
 //!
 //! chapulin draws every random octet from the engine's seeded stream, which `start` hands colibri
-//! (colibri#71), and the image supplies chapulin's one remaining hook, `ch_assert_fail`, through
-//! the `chapulin_hooks` module it binds.
+//! (colibri#71). The image supplies one hook of chapulin, `ch_assert_fail`, from `chapulin_hooks`.
+//!
+//! The package registers this file as the module `chapulin_quic` (docs/design.md §16 decision 38,
+//! as amended). cocuyo's build binds its `cocuyo`, `cocuyo_quic` and `chapulin_hooks` to the
+//! modules it registers under those names. A consumer that speaks DoQ binds colibri's `quic` and
+//! `tls` into it, and colibri's `quic` into `cocuyo_quic`.
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");

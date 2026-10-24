@@ -6,7 +6,8 @@
 //! The type is generic over its TLS: a session that is colibri's TLS provider and packet suite at
 //! once, which `Options.Session` names. The option has no default, so a consumer that names no
 //! session does not compile (docs/design.md §16 decision 38). chapulin's QUIC session is the
-//! consumer's (`io_chapulin_quic.zig`). `plain`, `Plain` and `server` are for tests: they encrypt
+//! module `chapulin_quic` (`io_chapulin_quic.zig`), which the package registers beside this one
+//! (decision 38, as amended). `plain`, `Plain` and `server` are for tests: they encrypt
 //! nothing, authenticate nobody, and are never for a network. What colibri asks of the type that
 //! holds it is in the design: state read rather than events, a request's bytes kept until the
 //! server has them, cancelled streams drained, and the timer read after each call.

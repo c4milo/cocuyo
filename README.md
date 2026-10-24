@@ -251,10 +251,10 @@ failover and cache stay as they are over UDP; what changes is the connection a q
 - `cocuyo_quic` takes its TLS as a type, in `Options.Session`, and the option has no default: a
   consumer that names no session does not compile. A session names the QUIC version it started in,
   `original_version`, and the connection starts in it. The session to name is the one over chapulin,
-  `Session` of `io/io_chapulin_quic.zig`, as `examples/doq_rotor.zig` does. The package ships that
-  file and registers no module for it, so your build makes one, as `build/doq.zig` does. Its root is
-  `cocuyo.path("io/io_chapulin_quic.zig")`, it links libc, and it imports `cocuyo`, `cocuyo_quic`
-  and `chapulin_hooks`, which are cocuyo's modules, and `quic` and `tls`, which are colibri's.
+  `Session` of the module `chapulin_quic`, as `examples/doq_rotor.zig` does. Your build binds
+  colibri's `quic` and `tls` into `chapulin_quic`, and colibri's `quic` into `cocuyo_quic`.
+  [`test/consumer/build.zig`](test/consumer/build.zig) has the lines, and the gate builds that
+  package.
 - `cocuyo_quic` also exports `plain`, `Plain` and `server`, for tests: a session, the same
   session behind the option's interface, and a DoQ server over it. They encrypt nothing,
   authenticate nobody, and are never for a network.

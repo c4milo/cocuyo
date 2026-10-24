@@ -132,7 +132,10 @@ The architecture depends on every rule in this section.
   (design §24). One engine runs on each loop and one loop on each core, and nothing is shared
   between them. `io/io_quic.zig` and the files beside it are `cocuyo_quic`, colibri's QUIC under
   the engine's request interface: a module of its own, whose `quic` import a consumer that speaks
-  DoQ binds to colibri's, so `cocuyo_rotor` never imports colibri. `io/io_doh.zig` is `doh`, the
+  DoQ binds to colibri's, so `cocuyo_rotor` never imports colibri. `io/io_chapulin_quic.zig` is
+  `chapulin_quic`, the session over chapulin that a `cocuyo_quic` connection names, whose `quic`
+  and `tls` imports a consumer that speaks DoQ binds to colibri's (design §16 decision 38, as
+  amended). `io/io_doh.zig` is `doh`, the
   DNS half of DoH: the URI template, the reading of a response and their limits.
   `io/io_doh_channel.zig` and the files beside it are `cocuyo_doh`, colibri's `client.Channel`
   under the engine's DoH interface, whose `client` and `tls` imports a consumer that speaks DoH
@@ -163,7 +166,9 @@ The architecture depends on every rule in this section.
   dependency of `cocuyo_quic`, `cocuyo_doh`, the engine's tests and the DoT and DoQ sessions,
   approved by the owner on 2026-09-25 (design §16 decision 29), for the sessions on 2026-09-27
   (decision 32) and for `cocuyo_doh` on 2026-09-28 (decision 33): `build.zig.zon` pins it by hash as
-  a lazy dependency, only the root build requests it, and nothing under `src/` imports it. AdGuard's
+  a lazy dependency, only the root build requests it, and nothing under `src/` imports it.
+  `test/consumer/build.zig.zon` pins it at the same hash, so that `zig build consumer-check`
+  builds a consumer of `chapulin_quic` (design §17 question 65). AdGuard's
   dnsproxy is a ruled dependency of the interop check alone, approved by the owner on 2026-09-25
   (c4milo/cocuyo#16): the `interop` workflow fetches a pinned release and checks its SHA-256, and
   nothing builds, links or imports it. kcov is a ruled tool of the coverage job alone, approved by
@@ -213,7 +218,8 @@ The architecture depends on every rule in this section.
   `zig build test-examples` and `zig build test-tools` run one target's tests with nothing else in
   the graph, which is what a mutation is measured against. `zig build consumer-check` alone builds
   `test/consumer/`, the package that depends on cocuyo the way a consumer does, with `cocuyo_rotor`
-  over a rotor of its own, and requires the same package to fail when it reaches for a module the
+  over a rotor of its own and `chapulin_quic` over a colibri of its own, each pinned where
+  `build.zig.zon` pins it. It requires the same package to fail when it reaches for a module the
   surface does not export (design §20, §24). `zig build readme-check` alone builds every Zig block
   of README.md, each under the `<!-- readme-check: ... -->` marker that names its harness in
   `tools/readme_check.zig`, and runs the quick start. A new block brings its marker and harness.

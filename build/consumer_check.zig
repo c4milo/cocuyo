@@ -15,8 +15,9 @@ pub fn add(b: *std.Build, tool: *std.Build.Module) *std.Build.Step {
     run.addArg(b.graph.zig_exe);
     run.addDirectoryArg(b.path("test/consumer"));
     run.addArg(b.pathFromRoot(nested_cache));
-    // The dependent build reads the manifest and the surface, so re-run when either moves.
-    run.addFileInput(b.path("build.zig.zon"));
+    // The manifest whose pins of rotor and colibri the package's own must be.
+    run.addFileArg(b.path("build.zig.zon"));
+    // The dependent build reads the surface too, so re-run when it moves.
     run.addFileInput(b.path("build/modules.zig"));
     run.addFileInput(b.path("src/cocuyo.zig"));
     run.addFileInput(b.path("test/consumer/build.zig"));
