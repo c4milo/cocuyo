@@ -9,13 +9,18 @@
 //! colibri compares the object's build record with the headers it translated at each
 //! configuration. So an object built another way stops the program there, and does not lay its
 //! sessions out otherwise unnoticed.
+//!
+//! The session is `chapulin`, a module the build registers (§16 decision 38, as amended for §17
+//! question 64). Its tests and the example use that module, with colibri and rotor bound here as a
+//! consumer binds them.
 const std = @import("std");
 const modules = @import("modules.zig");
 
-/// `zig build test-chapulin`, the session's own tests, which need no network; and, where rotor and
-/// stdx resolved, `zig build example-dot-rotor`, lookups over DNS over TLS. The gate runs the tests
-/// and builds the example, so a colibri that breaks the session fails it. Nothing until colibri is
-/// fetched, which the build runner does the first time it sees it requested.
+/// `zig build test-chapulin`, the session's own tests, which need no network; and, where stdx
+/// resolved, `zig build example-dot-rotor`, lookups over DNS over TLS. The gate runs the tests and
+/// builds the example, so a colibri that breaks the session fails it. Nothing until colibri and
+/// rotor are fetched, which the build runner does the first time it sees them requested. The
+/// session's `io` is the registered engine, whose `rotor` the tests need bound too.
 pub fn add(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
@@ -25,36 +30,27 @@ pub fn add(
     lazy: modules.Lazy,
 ) void {
     const resolved = lazy.colibri orelse return;
-    const session = session_module(b, target, optimize, graph, resolved, graph.io);
+    const loop = lazy.rotor orelse return;
+    const session = bind(graph, resolved, loop);
     const tests = b.addTest(.{ .name = "chapulin", .root_module = session });
     const run = &b.addRunArtifact(tests).step;
     b.step("test-chapulin", "Run the DoT session's tests, over colibri's tls").dependOn(run);
     test_step.dependOn(run);
-    const loop = lazy.rotor orelse return;
     const platform = lazy.platform orelse return;
-    test_step.dependOn(add_example(b, target, optimize, graph, resolved, loop, platform));
+    test_step.dependOn(add_example(b, target, optimize, graph, loop, platform));
 }
 
-/// The engine over the real rotor with chapulin's session, built here privately, as the bench
-/// builds its own: the engine is not exported (docs/design.md §19 step 13). Returns the example's
-/// build, which the gate depends on.
+/// The engine over the real rotor with chapulin's session: the registered `cocuyo_rotor` and
+/// `chapulin`, which `bind` bound as a consumer binds them. Returns the example's build, which the
+/// gate depends on.
 fn add_example(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     graph: modules.Graph,
-    colibri: *std.Build.Dependency,
     rotor: *std.Build.Dependency,
     platform: *std.Build.Module,
 ) *std.Build.Step {
-    const engine = b.createModule(.{
-        .root_source_file = b.path(modules.roots.io),
-        .target = target,
-        .optimize = optimize,
-    });
-    engine.addImport("cocuyo", graph.cocuyo);
-    engine.addImport("rotor", rotor.module("rotor"));
-    const session = session_module(b, target, optimize, graph, colibri, engine);
     const module = b.createModule(.{
         .root_source_file = b.path("examples/dot_rotor.zig"),
         .target = target,
@@ -63,8 +59,8 @@ fn add_example(
     });
     module.addImport("cocuyo", graph.cocuyo);
     module.addImport("rotor", rotor.module("rotor"));
-    module.addImport("io", engine);
-    module.addImport("chapulin", session);
+    module.addImport("io", graph.cocuyo_rotor);
+    module.addImport("chapulin", graph.chapulin);
     // The probe the word `cpu` states the CPU from (`examples/cpu_text.zig`).
     module.addImport("platform", platform);
     const exe = b.addExecutable(.{ .name = "dot-rotor", .root_module = module });
@@ -75,29 +71,20 @@ fn add_example(
     return &exe.step;
 }
 
-/// chapulin's session: `io/io_chapulin.zig` over colibri's `tls`, whose module carries the object,
-/// and libc, which the object needs. It reads the engine's constants through `engine`, the engine
-/// module it is built for.
-pub fn session_module(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    graph: modules.Graph,
-    colibri: *std.Build.Dependency,
-    engine: *std.Build.Module,
-) *std.Build.Module {
-    const module = b.createModule(.{
-        .root_source_file = b.path("io/io_chapulin.zig"),
-        .target = target,
-        .optimize = optimize,
-        .link_libc = true,
-    });
-    module.addImport("cocuyo", graph.cocuyo);
-    module.addImport("io", engine);
-    module.addImport("chapulin_hooks", graph.chapulin_hooks);
-    // The module carries the objects: a second object of the same build would define every public
-    // name twice (§16 decision 32).
-    module.addImport("tls", colibri.module("tls"));
-    module.addImport("tls_provider", colibri.module("tls_provider"));
-    return module;
+/// Binds rotor and colibri where a consumer that speaks DoT binds them, as
+/// `test/consumer/build.zig` does: rotor's `rotor` into `cocuyo_rotor`, the session's `io`, and
+/// colibri's `tls` and `tls_provider` into `chapulin`. colibri's `tls` module carries the objects:
+/// a second object of the same build would define every public name twice (§16 decision 32).
+/// Returns the session's module, which the build registers with the rest of its imports bound.
+///
+/// This is the only place where the root build binds a `rotor` into `cocuyo_rotor`. `addImport`
+/// replaces a binding without a word, so a second binding would change the engine of the session
+/// and of the example. The first assertion stops a binding made before this one.
+fn bind(graph: modules.Graph, colibri: *std.Build.Dependency, rotor: *std.Build.Dependency) *std.Build.Module {
+    std.debug.assert(graph.cocuyo_rotor.import_table.get("rotor") == null);
+    graph.cocuyo_rotor.addImport("rotor", rotor.module("rotor"));
+    std.debug.assert(graph.cocuyo_rotor.import_table.get("rotor").? == rotor.module("rotor"));
+    graph.chapulin.addImport("tls", colibri.module("tls"));
+    graph.chapulin.addImport("tls_provider", colibri.module("tls_provider"));
+    return graph.chapulin;
 }

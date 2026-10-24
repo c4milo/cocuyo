@@ -37,7 +37,7 @@ const rotor_example: Example = .{
 
 /// Two engines on two threads, each on its own rotor loop (docs/design.md §24 step 6). It runs the
 /// engine, which is not a module of the library a consumer binds rotor into here, so it is built
-/// privately against rotor, as `build/dot.zig` builds it.
+/// privately against rotor, as `build/doq.zig` builds it.
 const threads_example: Example = .{
     .name = "threads-rotor",
     .root = "examples/threads_rotor.zig",

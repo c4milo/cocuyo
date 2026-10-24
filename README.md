@@ -248,6 +248,11 @@ failover and cache stay as they are over UDP; what changes is the connection a q
   `cocuyo_quic`, whose `quic` import a consumer that speaks DoQ binds to colibri's; and HTTPS
   through `cocuyo_doh`, whose `client` and `tls` imports a consumer that speaks DoH binds to
   colibri's.
+- The DoT session to name is `Session` of the module `chapulin`, in the `tls` option of
+  `cocuyo_rotor`'s `Resolver`, as `examples/dot_rotor.zig` does. Your build binds colibri's `tls`
+  and `tls_provider` into `chapulin`. The session's `io` is `cocuyo_rotor`, into which your build
+  binds its rotor. [`test/consumer/build.zig`](test/consumer/build.zig) has the lines, and the
+  gate builds that package.
 - `cocuyo_quic` takes its TLS as a type, in `Options.Session`, and the option has no default: a
   consumer that names no session does not compile. A session names the QUIC version it started in,
   `original_version`, and the connection starts in it. The session to name is the one over chapulin,

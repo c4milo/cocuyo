@@ -135,7 +135,10 @@ The architecture depends on every rule in this section.
   DoQ binds to colibri's, so `cocuyo_rotor` never imports colibri. `io/io_chapulin_quic.zig` is
   `chapulin_quic`, the session over chapulin that a `cocuyo_quic` connection names, whose `quic`
   and `tls` imports a consumer that speaks DoQ binds to colibri's (design §16 decision 38, as
-  amended). `io/io_doh.zig` is `doh`, the
+  amended). `io/io_chapulin.zig` is `chapulin`, the DoT session over chapulin that
+  `cocuyo_rotor`'s `Options.tls` names, whose `io` is `cocuyo_rotor` and whose `tls` and
+  `tls_provider` imports a consumer that speaks DoT binds to colibri's (design §16 decision 38,
+  as amended for §17 question 64). `io/io_doh.zig` is `doh`, the
   DNS half of DoH: the URI template, the reading of a response and their limits.
   `io/io_doh_channel.zig` and the files beside it are `cocuyo_doh`, colibri's `client.Channel`
   under the engine's DoH interface, whose `client` and `tls` imports a consumer that speaks DoH
@@ -168,7 +171,7 @@ The architecture depends on every rule in this section.
   (decision 32) and for `cocuyo_doh` on 2026-09-28 (decision 33): `build.zig.zon` pins it by hash as
   a lazy dependency, only the root build requests it, and nothing under `src/` imports it.
   `test/consumer/build.zig.zon` pins it at the same hash, so that `zig build consumer-check`
-  builds a consumer of `chapulin_quic` (design §17 question 65). AdGuard's
+  builds a consumer of `chapulin_quic` and of `chapulin` (design §17 question 65). AdGuard's
   dnsproxy is a ruled dependency of the interop check alone, approved by the owner on 2026-09-25
   (c4milo/cocuyo#16): the `interop` workflow fetches a pinned release and checks its SHA-256, and
   nothing builds, links or imports it. kcov is a ruled tool of the coverage job alone, approved by
@@ -218,11 +221,12 @@ The architecture depends on every rule in this section.
   `zig build test-examples` and `zig build test-tools` run one target's tests with nothing else in
   the graph, which is what a mutation is measured against. `zig build consumer-check` alone builds
   `test/consumer/`, the package that depends on cocuyo the way a consumer does, with `cocuyo_rotor`
-  over a rotor of its own and `chapulin_quic` over a colibri of its own, each pinned where
-  `build.zig.zon` pins it. It requires the same package to fail when it reaches for a module the
-  surface does not export (design §20, §24). `zig build readme-check` alone builds every Zig block
-  of README.md, each under the `<!-- readme-check: ... -->` marker that names its harness in
-  `tools/readme_check.zig`, and runs the quick start. A new block brings its marker and harness.
+  over a rotor of its own, and `chapulin_quic` and `chapulin` over a colibri of its own, each
+  pinned where `build.zig.zon` pins it. It requires the same package to fail when it reaches for
+  a module the surface does not export (design §20, §24). `zig build readme-check` alone builds
+  every Zig block of README.md, each under the `<!-- readme-check: ... -->` marker that names its
+  harness in `tools/readme_check.zig`, and runs the quick start. A new block brings its marker and
+  harness.
 - Fills: `zig build fill-check` compiles the library's hot paths, and the engine's over rotor,
   ReleaseSafe for x86-64 Linux and arm64 macOS, and requires their code to call `memset` or `bzero`
   exactly as often as `tools/fill_check/fill_check.zig` knows it does (c4milo/cocuyo#35): a new

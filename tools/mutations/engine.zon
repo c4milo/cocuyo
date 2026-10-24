@@ -3361,9 +3361,9 @@
     .{
         .section = "The CPU an example states",
         .id = "CX17",
-        .what = "the DoT example's engine, rooted in io/, imports stdx's platform",
+        .what = "the DoT example's engine, cocuyo_rotor, rooted in io/, imports stdx's platform",
         .edits = .{
-            .{ .file = "build/dot.zig", .old = "    engine.addImport(\"rotor\", rotor.module(\"rotor\"));\n", .new = "    engine.addImport(\"rotor\", rotor.module(\"rotor\"));\n    engine.addImport(\"platform\", platform);\n" },
+            .{ .file = "build/dot.zig", .old = "    module.addImport(\"io\", graph.cocuyo_rotor);\n", .new = "    module.addImport(\"io\", graph.cocuyo_rotor);\n    graph.cocuyo_rotor.addImport(\"platform\", platform);\n" },
         },
         .caught_by = .{ .step = "graph-check" },
     },
@@ -4261,5 +4261,59 @@
             .{ .file = "io/io_tcp_queue.zig", .old = "    if (tls.speaks(self)) tls.sent_through(self, at, head.end);\n", .new = "    _ = head;\n" },
         },
         .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The DoT session module",
+        .id = "SD1",
+        .what = "the build makes the DoT session's module and registers it under no name, as before the ruling",
+        .edits = .{
+            .{ .file = "build/modules.zig", .old = "\"chapulin\", roots.chapulin, register),", .new = "\"chapulin\", roots.chapulin, false)," },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "The DoT session module",
+        .id = "SD2",
+        .what = "the DoT session's io is the twin's engine, and not the cocuyo_rotor a consumer binds its rotor into",
+        .edits = .{
+            .{ .file = "build/modules.zig", .old = "    graph.chapulin.addImport(\"io\", graph.cocuyo_rotor);\n", .new = "    graph.chapulin.addImport(\"io\", graph.io);\n" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "The DoT session module",
+        .id = "SD3",
+        .what = "the build binds no io into the DoT session's module",
+        .edits = .{
+            .{ .file = "build/modules.zig", .old = "    graph.chapulin.addImport(\"io\", graph.cocuyo_rotor);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "The DoT session module",
+        .id = "SD4",
+        .what = "the build binds no chapulin_hooks into the DoT session's module",
+        .edits = .{
+            .{ .file = "build/modules.zig", .old = "    graph.chapulin.addImport(\"chapulin_hooks\", graph.chapulin_hooks);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "The DoT session module",
+        .id = "SD5",
+        .what = "the build binds the DoT session's cocuyo to a module of its own, and not the registered cocuyo",
+        .edits = .{
+            .{ .file = "build/modules.zig", .old = "    graph.chapulin.addImport(\"cocuyo\", graph.cocuyo);\n", .new = "    graph.chapulin.addImport(\"cocuyo\", module(b, target, optimize, \"cocuyo_dot\", roots.cocuyo, false));\n" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "The DoT session module",
+        .id = "SD6",
+        .what = "the root build binds a rotor into cocuyo_rotor before build/dot.zig binds its own",
+        .edits = .{
+            .{ .file = "build/dot.zig", .old = "    const session = bind(graph, resolved, loop);\n", .new = "    graph.cocuyo_rotor.addImport(\"rotor\", loop.module(\"rotor\"));\n    const session = bind(graph, resolved, loop);\n" },
+        },
+        .caught_by = .{ .step = "test-chapulin" },
     },
 }

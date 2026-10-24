@@ -3,11 +3,15 @@
 //! than assumed (docs/design.md §20). `zig build consumer-check` in the parent runs this twice:
 //! once as it stands, which must build, and once with `-Dreach-inside`, which must not.
 //!
-//! It builds three programs: `consumer`, which drives the table with no I/O; `embedded`, which
-//! runs `cocuyo_rotor`'s resolver on a rotor loop of its own, the rotor this package declares and
-//! binds into it (docs/design.md §24); and `doq`, which runs the same resolver over DoQ. `doq`
-//! names the session over chapulin, `chapulin_quic`, into which this package binds its colibri
-//! (§16 decision 38, as amended).
+//! It builds four programs:
+//!
+//! - `consumer` drives the table with no I/O.
+//! - `embedded` runs `cocuyo_rotor`'s resolver on a rotor loop of its own, the rotor this package
+//!   declares and binds into it (docs/design.md §24).
+//! - `doq` runs the same resolver over DoQ. It names the session over chapulin, `chapulin_quic`,
+//!   into which this package binds its colibri (§16 decision 38, as amended).
+//! - `dot` runs the same resolver over DoT. It names the DoT session over chapulin, `chapulin`,
+//!   into which this package binds its colibri (§16 decision 38, as amended for §17 question 64).
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
@@ -67,4 +71,24 @@ pub fn build(b: *std.Build) void {
     doq.root_module.addImport("cocuyo_quic", quic);
     doq.root_module.addImport("chapulin_quic", session);
     b.installArtifact(doq);
+
+    // The same colibri, bound where a consumer that speaks DoT binds it: its `tls` and
+    // `tls_provider` into the DoT session. The session's `io` is `cocuyo_rotor`, into which this
+    // package bound its rotor above.
+    const tls_session = cocuyo.module("chapulin");
+    tls_session.addImport("tls", colibri.module("tls"));
+    tls_session.addImport("tls_provider", colibri.module("tls_provider"));
+    const dot = b.addExecutable(.{
+        .name = "dot",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("dot.zig"),
+            .target = target,
+            .optimize = .Debug,
+        }),
+    });
+    dot.root_module.addImport("rotor", rotor);
+    dot.root_module.addImport("cocuyo", cocuyo.module("cocuyo"));
+    dot.root_module.addImport("cocuyo_rotor", resolver);
+    dot.root_module.addImport("chapulin", tls_session);
+    b.installArtifact(dot);
 }

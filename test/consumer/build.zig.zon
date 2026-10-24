@@ -12,8 +12,9 @@
             .hash = "rotor-0.4.0-YZkxRB4NEQD0HGJ9C9Ih29POJZbRpyOh5GUSvy_wjD2q",
         },
         // The consumer's own colibri, at the pin of cocuyo's `build.zig.zon`, bound into
-        // `cocuyo_quic` and `chapulin_quic` by build.zig. It is not lazy, as a consumer that
-        // speaks DoQ needs it, so the package fetches colibri, and chapulin and stdx under it.
+        // `cocuyo_quic`, `chapulin_quic` and `chapulin` by build.zig. It is not lazy, as a
+        // consumer that speaks DoQ or DoT needs it, so the package fetches colibri, and chapulin
+        // and stdx under it.
         .colibri = .{
             .url = "git+https://github.com/c4milo/colibri?ref=v0.8.0#7496cdc7323848cffe4774503103cd529701cb8f",
             .hash = "colibri-0.8.0-Wo-AvtBgiAT4kSDr1cu4LH3VfEM7FWSqBgPzmwq9JIa7",
@@ -26,5 +27,6 @@
         "inside.zig",
         "embed.zig",
         "doq.zig",
+        "dot.zig",
     },
 }

@@ -8529,3 +8529,110 @@ change.
 | AS3 | a sent head leaves its records in the records buffer | a sent head frees its records (§21, TLS rule 3) | 31 tests over TLS, at the assertion of `seal` that nothing sealed is left: "reached unreachable code", `test-io` | CAUGHT |
 
 Three mutations, three `CAUGHT`.
+
+## The DoT session module
+
+2026-10-24. The owner answered docs/design.md §17 question 64 on 2026-10-20: "yes, register it".
+The build registers the DoT session over chapulin as `chapulin`. Its `io` import is
+`cocuyo_rotor`. Its `tls` and `tls_provider` imports are left for the consumer to bind. §16
+decision 38, as amended for question 64, records the rule.
+
+### What changed
+
+- `build/modules.zig` registers `chapulin`, rooted at `io/io_chapulin.zig`. The module links
+  libc, and imports the registered `cocuyo`, `cocuyo_rotor` as `io`, and `chapulin_hooks`.
+- `build/dot.zig` binds colibri's `tls` and `tls_provider` into `chapulin`, and rotor's `rotor`
+  into `cocuyo_rotor`, as a consumer does. The DoT example and the session's tests use those two
+  modules. Before the change the file made a module of the session for each, and an engine of
+  its own for the example.
+- `test/consumer/` builds a fourth program, `dot`. The program names the session in the options
+  of `cocuyo_rotor`'s resolver, and runs the resolver over DoT on its own loop. It uses the
+  fixture's colibri and rotor, at the pins that the check compares already.
+- Design §16, §17, §21 and §24, the README and CLAUDE.md name the module, and say what a
+  consumer that speaks DoT binds. Design §20 names the modules that the build registers.
+- `build/dot.zig` is the only place where the root build binds a `rotor` into `cocuyo_rotor`.
+  `addImport` replaces a binding and says nothing. So `bind` asserts that `cocuyo_rotor` holds no
+  `rotor` before it binds its own, and that it holds that one after.
+
+### What the rows break
+
+- SD1 to SD5 break the module in `build/modules.zig`. In a dependent's build each one stops the
+  build of `dot`, so the control of the consumer check fails. The check does not print what the
+  nested build prints. So the tool reads the failure as the check's, as for SM1 to SM3.
+- SD1 takes the name away. SD2 binds the twin's engine as the session's `io`, so the program
+  holds `io/io.zig` in two modules. SD3 and SD4 take an import away. SD5 gives the session a
+  `cocuyo` of its own, which is not the module that the program imports.
+- SD2 to SD5 also stop compiles of the root build: the DoT example's, and the session tests'
+  for SD3 to SD5. The tool reads such a compile error as an edit that no longer applies. So
+  each row names the consumer check.
+- SD6 binds rotor's `rotor` into `cocuyo_rotor` before `bind` runs. The first assertion of `bind`
+  fails, and the build runner stops before it compiles anything. So `test-chapulin` fails, and the
+  tool reads no compile error.
+
+CX17 is written again. Its edit gave stdx's `platform` to the DoT example's own engine, which
+`build/dot.zig` no longer makes. It now gives `platform` to `cocuyo_rotor`, the example's engine
+since the change.
+
+Two edits have no row:
+
+- The module without libc. The argument of the session module for `chapulin_quic` holds here
+  too: the module of chapulin's C headers links libc, so each program still links it.
+- The DoT example and the session's tests over modules of their own again, as before the change.
+  The gate then builds the session as it did before, and each check passes. No check reads which
+  module the root build gives the example.
+
+### What ran
+
+- The disk had 49 GB free before the first run of the rows.
+- The first run of the six rows found that CX17, as first written again, did not compile: its
+  edit named `platform` in a function that does not hold it. CX17 now edits the function that
+  builds the example. SD1 to SD5 were each `CAUGHT` in that run, in 9 minutes and 25 seconds:
+
+```sh
+zig build mutations -- engine CX17 SD1 SD2 SD3 SD4 SD5
+```
+
+- This command then ran CX17 alone, in 1 minute and 19 seconds. It is `CAUGHT`:
+
+```sh
+zig build mutations -- engine CX17
+```
+
+- A review found that a second binding of `rotor` into `cocuyo_rotor` had no guard. `bind` got
+  its two assertions, and SD6 was added. The disk had 29 GB free. This command ran the seven
+  rows to the end, in 5 minutes and 18 seconds, and each one is `CAUGHT`:
+
+```sh
+zig build mutations -- engine CX17 SD1 SD2 SD3 SD4 SD5 SD6
+```
+
+- SD6 also ran by hand. `zig build test-chapulin` said "panic: reached unreachable code", at the
+  first assertion of `bind` in `build/dot.zig`.
+
+- Each run first ran each check once with nothing mutated: `zig build consumer-check` and
+  `zig build graph-check`. The last run ran `zig build test-chapulin` too.
+- `zig build test`: 1,191 tests pass of 1,191, in 140 steps. `zig build test-chapulin` has 14
+  tests pass of 14.
+- `zig build lint`, `consumer-check`, `readme-check`, `examples` and `test-chapulin` pass. The
+  gate builds the DoT example and runs the session's tests over the registered module.
+- No file of the engine changed, so `zig build spec-engine` did not run, and no model changes.
+
+### The instruction counts
+
+`bench/count.zig` imports `cocuyo` and `wire` alone, and no counted case reads the build. No
+file under `src/` or `io/` changed. So no count can move, and `bench/instructions.zon` did not
+change.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| SD1 | the build makes the DoT session's module and registers it under no name, as before the ruling | §16 decision 38, as amended for §17 question 64: the build registers the DoT session | the control of the consumer check: "consumer-check BROKEN: the dependent package did not build", `consumer-check` | CAUGHT |
+| SD2 | the DoT session's `io` is the twin's engine, and not the `cocuyo_rotor` that a consumer binds its rotor into | the session reads the limits of the registered `cocuyo_rotor` | as SD1 | CAUGHT |
+| SD3 | the build binds no `io` into the DoT session's module | as SD2 | as SD1 | CAUGHT |
+| SD4 | the build binds no `chapulin_hooks` into the DoT session's module | the module imports the registered `chapulin_hooks` | as SD1 | CAUGHT |
+| SD5 | the build binds the DoT session's `cocuyo` to a module of its own, and not the registered `cocuyo` | the module imports the registered `cocuyo` | as SD1 | CAUGHT |
+| SD6 | the root build binds a `rotor` into `cocuyo_rotor` before `build/dot.zig` binds its own | the root build binds one `rotor` into `cocuyo_rotor`, in `build/dot.zig` | the first assertion of `bind`: "panic: reached unreachable code", `test-chapulin` | CAUGHT |
+| CX17 | the DoT example's engine, `cocuyo_rotor`, rooted in `io/`, imports stdx's `platform` | no module rooted in `io/` reaches stdx but through colibri | the second part of the graph check, at io/io.zig, `graph-check` | CAUGHT |
+
+Seven mutations, seven `CAUGHT`.

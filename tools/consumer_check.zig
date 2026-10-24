@@ -5,7 +5,7 @@
 //! cocuyo's own build — the early return before the tools' dependency, the manifest's `paths` —
 //! is compiled by nothing else. `test/consumer/` is that dependent: it declares cocuyo by
 //! relative path, imports `cocuyo`, and builds a query through the table with the cache under it.
-//! It also builds the engine on a rotor of its own, and over DoQ with a colibri of its own.
+//! It also builds the engine on a rotor of its own, and over DoQ and DoT with a colibri of its own.
 //!
 //! The negative control is the same package with `-Dreach-inside`, which asks for `sim`. The build
 //! registers `sim` under no name, so that build must fail. As in `graph_check`, the positive run
