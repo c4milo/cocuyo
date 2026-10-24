@@ -3737,15 +3737,6 @@
         },
         .caught_by = .{ .step = "test-io" },
     },
-    .{
-        .section = "A cause with its server and its reason",
-        .id = "RS28",
-        .what = "a lookup ready to send on a connection that is gone gives the reason connect",
-        .edits = .{
-            .{ .file = "io/io_tcp_queue.zig", .old = "    const at = up_connection(self, index) orelse return self.resolver.on_tcp_failed(handle, .closed, now_ns);", .new = "    const at = up_connection(self, index) orelse return self.resolver.on_tcp_failed(handle, .connect, now_ns);" },
-        },
-        .caught_by = .{ .step = "test-io" },
-    },
 
     .{
         .section = "A cause with its server and its reason",
@@ -4243,5 +4234,32 @@
             .{ .file = "tools/consumer_check.zig", .old = "        const end = std.mem.indexOfScalarPos(u8, manifest, at, '}') orelse return null;\n", .new = "        const end = manifest.len;\n" },
         },
         .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "The assertions of question 66",
+        .id = "AS1",
+        .what = "a lookup hears that its connection is up while it still connects",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    if (self.connections[at].state == .up) self.resolver.on_tcp_connected(handle, now_ns);", .new = "    if (self.connections[at].state != .closed) self.resolver.on_tcp_connected(handle, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The assertions of question 66",
+        .id = "AS2",
+        .what = "a held send goes out for an attempt that is no longer the lookup's",
+        .edits = .{
+            .{ .file = "io/io_send.zig", .old = "    if (!is_current(self, index, held.owner)) return;\n    const bytes", .new = "    const bytes" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "The assertions of question 66",
+        .id = "AS3",
+        .what = "a sent head leaves its records in the records buffer",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "    if (tls.speaks(self)) tls.sent_through(self, at, head.end);\n", .new = "    _ = head;\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
     },
 }

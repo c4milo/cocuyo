@@ -292,19 +292,30 @@ pub fn make_records(self: anytype, at: u8, now_ns: u64) bool {
     return self.connections[at].state != .closed;
 }
 
-/// Seals the head's query as it goes (rule 2). False when the connection failed.
+/// Seals the head's query as it goes (rule 2). False when the connection failed: the session
+/// refused to seal.
+///
+/// The records buffer has room for what the session made, and an assertion holds it
+/// (docs/design.md §17 question 66):
+///
+/// - `pump` seals a query only when nothing is sealed and no send is in flight. Every record in
+///   the buffer belongs to an entry that is sealed, so the buffer holds none, and all of it is
+///   room.
+/// - The handshake's first records went into the same empty buffer, and `take_out` asked for the
+///   same room then. A connection whose session asks for more fails before it is up.
 pub fn seal(self: anytype, at: u8, slot: u16, now_ns: u64) bool {
     const connection = &self.connections[at];
-    assert(connection.queue.sealed == 0);
+    assert(connection.queue.sealed == 0 and !connection.sending);
+    // Nothing sealed is left in the buffer.
+    assert(connection.tls.out_head == connection.tls.out_tail);
     const query = self.send_buffers[slot][0..self.send_lengths[slot]];
     connection.tls.session.seal(query) catch {
         tcp.fail(self, at, .closed, now_ns);
         return false;
     };
-    const end = take_out(self, at) orelse {
-        tcp.fail(self, at, .closed, now_ns);
-        return false;
-    };
+    const end_or_null = take_out(self, at);
+    assert(end_or_null != null);
+    const end = end_or_null.?;
     assert(end > connection.tls.out_tail);
     connection.tls.out_tail = end;
     connection.queue.first_pointer().end = end;

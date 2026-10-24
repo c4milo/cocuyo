@@ -14,7 +14,7 @@ pub const Answer = struct { message: []const u8, age_seconds: u32 };
 
 /// How an exchange ended: its answer, or the reason its request failed, which the lookup keeps as
 /// its cause (docs/design.md §5, The cause of a failure; §16 decision 51).
-pub const Outcome = union(enum) { answer: Answer, failed: cocuyo.Reason };
+pub const Result = union(enum) { answer: Answer, failed: cocuyo.Reason };
 
 /// The GET's own field lines: a DNS message is what it accepts (RFC 8484 §4.1), and "identity" asks
 /// for no content coding (RFC 9110 §12.5.3, request rule 12).
@@ -90,7 +90,7 @@ pub fn make(slot: *Exchange, index: u16, template_path: []const u8, message: []c
 /// engine cannot read as DNS. Every other end has the reason of colibri's outcome, and of what the
 /// channel's connections did while the exchange was live (docs/design.md §5, The cause of a
 /// failure).
-pub fn outcome_of(slot: *const Exchange) Outcome {
+pub fn result_of(slot: *const Exchange) Result {
     const outcome = slot.response.outcome;
     // An exchange ends once, and colibri says how before it says that it ended.
     assert(outcome != .pending);

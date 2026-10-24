@@ -190,8 +190,8 @@ test "a query goes over HTTP/3 to colibri's server over QUIC, and the next chann
     const finished = (try pair.run(.finished)).finished;
     var answer = query;
     answer[flags_at] |= qr_bit;
-    try testing.expectEqualSlices(u8, &answer, finished.outcome.answer.message);
-    try testing.expectEqual(@as(u32, 5), finished.outcome.answer.age_seconds);
+    try testing.expectEqualSlices(u8, &answer, finished.result.answer.message);
+    try testing.expectEqual(@as(u32, 5), finished.result.answer.age_seconds);
     const first = pair.doh.connected().?;
     try testing.expectEqual(.h3, first.protocol);
     try testing.expect(!first.offered and !first.resumed);
@@ -208,7 +208,7 @@ test "a query goes over HTTP/3 to colibri's server over QUIC, and the next chann
     pair.offer = pair.ticket;
     try pair.open(.{ .tickets = true });
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
-    try testing.expect((try pair.run(.finished)).finished.outcome == .answer);
+    try testing.expect((try pair.run(.finished)).finished.result == .answer);
     const second = pair.doh.connected().?;
     try testing.expectEqual(.h3, second.protocol);
     try testing.expect(second.offered and second.resumed);
@@ -223,6 +223,6 @@ test "a name the certificate does not carry over QUIC ends the exchange as a han
     try pair.open(.{});
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
     const finished = (try pair.run(.finished)).finished;
-    try testing.expectEqual(Doh.Outcome{ .failed = .handshake }, finished.outcome);
+    try testing.expectEqual(Doh.Result{ .failed = .handshake }, finished.result);
     try testing.expectEqual(.refused, pair.doh.exchanges[0].response.outcome);
 }

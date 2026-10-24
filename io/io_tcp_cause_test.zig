@@ -10,7 +10,6 @@ const testing = std.testing;
 const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 const tcp = @import("io_tcp.zig");
-const queue_module = @import("io_tcp_queue.zig");
 
 const fixtures = @import("fixtures.zig");
 const sim_test = @import("io_sim_test.zig");
@@ -163,22 +162,6 @@ test "a query's send that the loop refuses on a connection that is up gives clos
         if (connected) break;
     }
     try testing.expect(connected);
-    try expect_all_failed(&rig, 0, .closed);
-    try rig.deinit();
-}
-
-test "a lookup ready to send on a connection that it is no longer on is told closed" {
-    // No drive leaves a lookup that heard its connection was up off that connection, so the slot
-    // is cleared by hand (the stream's rule 3). The lookup heard that it was up, so the reason is
-    // `closed` (docs/design.md §5, The cause of a failure).
-    var rig: OneServer = .{};
-    try rig.init(123, .{.{ .drop_per_256 = fixtures.always }}, .{ .servers = &.{}, .use_tcp = true, .attempts = 1 });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
-    const at = try until_up(&rig, 0);
-    try testing.expect(rig.engine.resolver.lookup_of(handle).is_on_stream());
-    rig.engine.tcp_connection[handle.index] = null;
-    rig.engine.connections[at].users -= 1;
-    queue_module.send(&rig.engine, handle.index, "query", rig.loop.now());
     try expect_all_failed(&rig, 0, .closed);
     try rig.deinit();
 }

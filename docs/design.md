@@ -831,7 +831,6 @@ The engine gives each reason for these failures:
 - `closed`:
   - a connection that was up and that the server closed or reset;
   - a send or a receive on it that failed, and a send that the loop refused;
-  - a lookup ready to send on a connection that is no longer up;
   - a message whose prefix says more than the connection assembles (the stream's rule 11);
   - over TLS, a record that the session refused once up, the peer's `close_notify`, and a query
     that the session could not seal;
@@ -855,6 +854,10 @@ reads two facts while the exchange is live. One is whether a connection of the c
 The other is whether a server took part in one: a TCP link that connected, or a QUIC datagram that
 came. An exchange can move to a second connection after its first one came up. It keeps the
 reason of a connection that came up (§16 decision 51).
+
+Two paths that no drive reaches give no cause. Each is an assertion since 2026-10-24: a lookup
+ready to send on a connection that is not up, and a query with no room in the records buffer
+(§17 question 66).
 
 So each error carries this cause:
 
@@ -3652,17 +3655,18 @@ step until `zig build test` passes.
     - An exchange that moved to a second connection after its first came up keeps the reason of a
       connection that came up. colibri moves it without an event, so the engine cannot see it.
     - The engine's reason at each of its failures is the list of §5, The cause of a failure.
-    - Two failure paths of the engine that no drive reaches stay checks, each with `closed`. §17
-      question 66 asks whether each becomes an assertion.
+    - Two failure paths of the engine that no drive reaches were checks, each with `closed`. §17
+      question 66 asked whether each becomes an assertion. Since 2026-10-24 each is one.
     - A consumer that owns its sockets passes the reason too. When it cannot tell what failed, it
       passes `connect` before `on_tcp_connected`, `closed` after it, and `closed` for a request.
       The consumer made the call `on_tcp_connected` itself, so it always knows which of the two
       applies.
     - The DoH channel of the engine tells the reason of an exchange that ends without an answer.
-      Only colibri and the channel know it, so `Finished.outcome` holds the answer or the reason.
-      `cocuyo_doh` is an exported module, so this changes its `Channel.Finished`, and `Outcome` is
+      Only colibri and the channel know it, so `Finished.result` holds the answer or the reason.
+      `cocuyo_doh` is an exported module, so this changes its `Channel.Finished`, and `Result` is
       new. The twin's `sim.Channel` changes the same way. The approval named the two calls and the
-      cause alone, so §17 question 67 asks the owner about this shape.
+      cause alone, so §17 question 67 asked the owner about this shape. The owner kept it on
+      2026-10-24, with the words `result` and `Result` in place of `outcome` and `Outcome`.
     - A lookup's `Canceled` end counts as its last failure when the consumer cancelled the walk
       and the end carries a cause. A `Canceled` end that the walk caused itself does not count, so
       a negative end keeps the negative TTL of the lookup that said it.
@@ -4481,7 +4485,17 @@ that no run reaches, and one change to an exported module that the approval did 
       The TLA+ model of the engine is read first, and it changes first if it holds either path.
 
     Recommended: the second, since each path is a programmer error if the reading holds. Until
-    the owner rules, as built.
+    the owner rules, as built. Answered on 2026-10-24: assertions. Built the same day:
+
+    - The engine model asserts that a lookup ready to send finds its connection up, where `Send`
+      puts the query on the stream. TLC held it over the five configurations of a stream that
+      `zig build tla` checks, with the state counts of before. The model had failed such a
+      lookup with `tcpFailed` before.
+    - `send` asserts that the lookup is on the stream and that its connection is up. The test of
+      row RS28 made the state by hand, and is gone with the row.
+    - `seal` asserts that nothing sealed is left in the records buffer, and that `take_out` found
+      room. A query that the session cannot seal still fails the connection with `closed`.
+    - The doc comment beside each assertion gives the reason that the state is unreachable.
 67. **The end of an exchange in the DoH interface.** The engine's DoH type tells the reason of an
     exchange that ends without an answer (decision 51). As built, `Finished` is `struct { index:
     u16, outcome: Outcome }`, and `Outcome` is `union(enum) { answer: Answer, failed: Reason }`.
@@ -4492,7 +4506,11 @@ that no run reaches, and one change to an exported module that the approval did 
     - `answer: ?Answer` as before, and `reason: Reason` beside it, read when `answer` is null. Two
       fields then hold one fact, and a reason beside an answer means nothing.
 
-    Recommended: as built. Until the owner rules, as built.
+    Recommended: as built. Until the owner rules, as built. Answered on 2026-10-24: as built, but
+    with the word `result` in place of `outcome`. Built the same day: `Finished` is `struct {
+    index: u16, result: Result }`, and `Result` is `union(enum) { answer: Answer, failed: Reason
+    }`, in `cocuyo_doh` and in the twin's `sim.Channel`. colibri's own `Response.outcome` keeps
+    its name, and so does the local name in `result_of` that reads it.
 
 ## 18. The cache
 
@@ -7734,7 +7752,8 @@ Rules 1, 2, 9 and 13 give way to these, for DoH alone:
     every request from a template it checked at `start`, so `invalid` is its own error. No
     assertion holds that, though this rule said so until 2026-10-21: such a request fails with
     `local`, since no server took part. Since then each failure carries its reason (§5, The cause
-    of a failure; §16 decision 51).
+    of a failure; §16 decision 51). The channel's `Finished.result` holds the answer or that
+    reason (§17 question 67).
 23. **A ticket for each transport.** Each server keeps the newest ticket of each transport, spent
     once, and dropped at its lifetime or 7 days after it came, as rule 10 has it.
 24. **An idle channel shuts down.** A channel with no request on it for `quic_idle_ns` shuts down.

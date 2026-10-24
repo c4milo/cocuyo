@@ -194,6 +194,8 @@ event, and the channel's rules below:
 - The sealed entries lead each queue, only its head among them a query, and something is sealed
   only while a send is in flight: records go out in the order they were sealed.
 - No query waits on a connection that is not up.
+- A lookup ready to send on a stream finds its connection up. The model asserts it where the
+  query goes out, and TLC stops at a walk that breaks it (docs/design.md §17 question 66).
 - No event leaves the session owing an answer to a flight, the handshake's end or a KeyUpdate.
 - A connection that opens resuming spends its server's ticket, so a ticket is used once.
 - A connection opened again after its resumed handshake failed handshakes in full.

@@ -33,7 +33,8 @@ pub const None = struct {
     pub const Alternative = struct {};
     pub const Link = enum(u1) { quic, tcp };
     pub const Answer = struct { message: []const u8, age_seconds: u32 };
-    pub const Finished = struct { index: u16, answer: ?Answer };
+    pub const Result = union(enum) { answer: Answer, failed: cocuyo.Reason };
+    pub const Finished = struct { index: u16, result: Result };
     pub const Open = struct { link: Link, endpoint: cocuyo.Endpoint };
     pub const Event = union(enum) { open: Open, close: Link, ticket: Link, finished: Finished, closed };
     pub const Input = union(enum) { none, datagram: []const u8, stream: []const u8 };
@@ -391,7 +392,7 @@ fn ended(self: anytype, server: u8, finished: anytype, now_ns: u64) void {
     // A request the engine cancelled tells nobody (request rule 6): the channel says no end of it.
     assert(request.live and request.exchange and request.server == server);
     if (request_module.current(self, index)) {
-        switch (finished.outcome) {
+        switch (finished.result) {
             .answer => |answer| _ = self.resolver.on_request_answer(request.handle, request.transaction, answer.message, answer.age_seconds, now_ns),
             // The channel says why the request failed (docs/design.md §5, The cause of a failure).
             .failed => |reason| self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns),

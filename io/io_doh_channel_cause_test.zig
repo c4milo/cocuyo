@@ -48,7 +48,7 @@ test "a name the certificate does not carry ends the exchange as a handshake" {
     defer pair.free();
     try testing.expect(pair.doh.request(0, &channel_test.query, pair.now_ns));
     const finished = (try pair.run(.finished)).finished;
-    try testing.expectEqual(Doh.Outcome{ .failed = .handshake }, finished.outcome);
+    try testing.expectEqual(Doh.Result{ .failed = .handshake }, finished.result);
     try testing.expectEqual(.refused, pair.doh.exchanges[0].response.outcome);
     try testing.expectEqual(@as(?Doh.Connected, null), pair.doh.connected());
 }
@@ -61,7 +61,7 @@ test "a pin that the chain does not hold ends the exchange as a handshake" {
     defer pair.free();
     try testing.expect(pair.doh.request(0, &channel_test.query, pair.now_ns));
     const finished = (try pair.run(.finished)).finished;
-    try testing.expectEqual(Doh.Outcome{ .failed = .handshake }, finished.outcome);
+    try testing.expectEqual(Doh.Result{ .failed = .handshake }, finished.result);
 }
 
 test "links whose sockets end before they connect end the exchange as a connect" {
@@ -71,7 +71,7 @@ test "links whose sockets end before they connect end the exchange as a connect"
     defer pair.free();
     try testing.expect(pair.doh.request(0, &channel_test.query, pair.now_ns));
     const finished = (try pair.run(.finished)).finished;
-    try testing.expectEqual(Doh.Outcome{ .failed = .connect }, finished.outcome);
+    try testing.expectEqual(Doh.Result{ .failed = .connect }, finished.result);
     try testing.expectEqual(.refused, pair.doh.exchanges[0].response.outcome);
 }
 
@@ -90,7 +90,7 @@ test "a request made while the TCP handshake runs ends as a handshake too" {
     try testing.expect(pair.doh.request(1, &channel_test.query, pair.now_ns));
     for ([_]u16{ 0, 1 }) |_| {
         const finished = (try pair.run(.finished)).finished;
-        try testing.expectEqual(Doh.Outcome{ .failed = .handshake }, finished.outcome);
+        try testing.expectEqual(Doh.Result{ .failed = .handshake }, finished.result);
     }
 }
 
@@ -101,13 +101,13 @@ test "a request after the connection that came up is over starts as if none came
     const pair = try create(&named, false);
     defer pair.free();
     try testing.expect(pair.doh.request(0, &channel_test.query, pair.now_ns));
-    try testing.expect((try pair.run(.finished)).finished.outcome == .answer);
+    try testing.expect((try pair.run(.finished)).finished.result == .answer);
     pair.doh.link_ended(.tcp);
     pair.refuses_links = true;
     try testing.expect(pair.doh.request(1, &channel_test.query, pair.now_ns));
     const finished = (try pair.run(.finished)).finished;
     try testing.expectEqual(@as(u16, 1), finished.index);
-    try testing.expectEqual(Doh.Outcome{ .failed = .connect }, finished.outcome);
+    try testing.expectEqual(Doh.Result{ .failed = .connect }, finished.result);
 }
 
 test "a request made while a connection is up is answered over it" {
@@ -117,11 +117,11 @@ test "a request made while a connection is up is answered over it" {
     const pair = try create(&named, false);
     defer pair.free();
     try testing.expect(pair.doh.request(0, &channel_test.query, pair.now_ns));
-    try testing.expect((try pair.run(.finished)).finished.outcome == .answer);
+    try testing.expect((try pair.run(.finished)).finished.result == .answer);
     try testing.expect(pair.doh.up != null);
     try testing.expect(pair.doh.request(1, &channel_test.query, pair.now_ns));
     try testing.expect(pair.doh.exchanges[0].up);
     const finished = (try pair.run(.finished)).finished;
     try testing.expectEqual(@as(u16, 1), finished.index);
-    try testing.expect(finished.outcome == .answer);
+    try testing.expect(finished.result == .answer);
 }

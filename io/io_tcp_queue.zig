@@ -28,12 +28,22 @@ pub const Queue = ring.Queue;
 /// One lookup's framed query onto its connection: the bytes carry the length prefix `poll`
 /// wrote (RFC 7766 §8, RFC 7858 §3.3), the slot's buffer holds them until the last of them has
 /// gone, and the query waits its turn.
+///
+/// The lookup's connection is up, and an assertion holds it (docs/design.md §17 question 66):
+///
+/// - A lookup asks for a send on a stream only after `on_tcp_connected`, which the engine calls
+///   only for a connection that is up.
+/// - Each end of a connection tells each lookup on it at once, and takes it off the connection
+///   (`tcp.abandon`). An idle close ends only a connection that has no users.
+/// - A send held for the buffer goes out only on the attempt that asked for it. A failed
+///   connection ends that attempt: the lookup moves to a new transaction, or it ends.
 pub fn send(self: anytype, index: usize, bytes: []const u8, now_ns: u64) void {
     if (comptime !@TypeOf(self.*).keeps_tcp) return;
-    const handle = self.handles[index];
-    // The lookup heard that its connection was up, so its reason is `closed` (docs/design.md §5,
-    // The cause of a failure).
-    const at = up_connection(self, index) orelse return self.resolver.on_tcp_failed(handle, .closed, now_ns);
+    // The lookup is on the stream that it heard was up.
+    assert(self.resolver.lookup_of(self.handles[index]).is_on_stream());
+    const at_or_null = up_connection(self, index);
+    assert(at_or_null != null);
+    const at = at_or_null.?;
     const connection = &self.connections[at];
     assert(bytes.len <= cocuyo.constants.query_bytes_max);
     @memcpy(self.send_buffers[index][0..bytes.len], bytes);

@@ -4,7 +4,7 @@
 \* drains, a receive or a replacement the moment refused asked for again at the next drive, and
 \* the sends of both transports, which lend the slot's buffer (docs/design.md §19 step 13, the
 \* stream's rules 6, 7 and 9 and the datagram's rules 1 to 5; §21, TLS rules 2 and 5).
-EXTENDS EngineTable
+EXTENDS EngineTable, TLC
 
 -------------------------------------------------------------------------------
 \* Receives.
@@ -171,13 +171,18 @@ SubmitDatagram(st, l) ==
                     !.socks[v].retiring = @ \/ (PerPort > 0 /\ sent >= PerPort)]
 
 \* The lookup's query goes out, or waits for the buffer (rule 6), on the lookup's own transport.
+\* A query on a stream goes out on a connection that is up. The lookup heard that it was up, and
+\* each end of a connection tells each lookup on it at once. A held send goes out only on the
+\* attempt that asked for it, and the failure of a connection ends that attempt. So a query on a
+\* connection that is not up is an error of the engine, which TLC reports (§17 question 66).
 Send(st, l) ==
     LET sl == st.slots[l] IN
     IF sl.busy THEN [st EXCEPT !.slots[l].held = TRUE, !.slots[l].heldCurrent = TRUE]
     ELSE IF sl.lookup = {} THEN st
     ELSE IF Get(sl.lookup).stage = "queryReady" THEN SubmitDatagram(st, l)
-    ELSE IF sl.conn # {} /\ st.conns[Get(sl.conn)].stage = "up"
+    ELSE IF Assert(sl.conn # {} /\ st.conns[Get(sl.conn)].stage = "up",
+                   "a lookup ready to send on a connection that is not up")
     THEN SubmitStream(st, l, Get(sl.conn))
-    ELSE TableEvent(st, l, "tcpFailed")
+    ELSE st
 
 ===============================================================================

@@ -207,7 +207,7 @@ fn finished(self: anytype, ended: client.Finished) ?@TypeOf(self.*).Event {
     assert(ended.request == &slot.request);
     assert(ended.response == &slot.response);
     slot.live = false;
-    return .{ .finished = .{ .index = slot.index, .outcome = exchange_module.outcome_of(slot) } };
+    return .{ .finished = .{ .index = slot.index, .result = exchange_module.result_of(slot) } };
 }
 
 pub fn link_of(transport: client.Transport) Link {

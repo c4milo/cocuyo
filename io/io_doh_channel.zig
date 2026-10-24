@@ -48,10 +48,10 @@ pub fn Channel(comptime options: Options) type {
         pub const Ticket = tls.Ticket;
         pub const Alternative = client.Alternative;
         pub const Answer = exchange_module.Answer;
-        pub const Outcome = exchange_module.Outcome;
+        pub const Result = exchange_module.Result;
         /// An exchange's end: its answer, or the reason its request failed (docs/design.md §16
         /// decision 51).
-        pub const Finished = struct { index: u16, outcome: Outcome };
+        pub const Finished = struct { index: u16, result: Result };
         pub const Open = struct { link: Link, endpoint: cocuyo.Endpoint };
         pub const Event = union(enum) { open: Open, close: Link, ticket: Link, finished: Finished, closed };
         pub const Input = union(enum) { none, datagram: []const u8, stream: []const u8 };

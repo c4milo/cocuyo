@@ -195,8 +195,8 @@ test "a query goes over HTTP/2 once QUIC's datagrams have gone nowhere for the f
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
     const finished = (try pair.run(.finished)).finished;
     try testing.expectEqual(@as(u16, 0), finished.index);
-    try testing.expectEqualSlices(u8, &expected_answer(), finished.outcome.answer.message);
-    try testing.expectEqual(@as(u32, 7), finished.outcome.answer.age_seconds);
+    try testing.expectEqualSlices(u8, &expected_answer(), finished.result.answer.message);
+    try testing.expectEqual(@as(u32, 7), finished.result.answer.age_seconds);
     // RFC 8484 §4.1: the GET carried the query in `dns`.
     try testing.expectEqualSlices(u8, &query, pair.server.query[0..pair.server.query_len]);
     try testing.expectEqual(server_module.http_2, pair.server.version.?);
@@ -260,7 +260,7 @@ test "a server that selects HTTP/1.1, or selects no protocol, answers over HTTP/
         try testing.expect(pair.doh.request(1, &query, pair.now_ns));
         const finished = (try pair.run(.finished)).finished;
         try testing.expectEqual(@as(u16, 1), finished.index);
-        try testing.expectEqualSlices(u8, &expected_answer(), finished.outcome.answer.message);
+        try testing.expectEqualSlices(u8, &expected_answer(), finished.result.answer.message);
         try testing.expectEqual(server_module.http_1_1, pair.server.version.?);
         try testing.expectEqual(.h11, pair.doh.connected().?.protocol);
     }
@@ -279,13 +279,13 @@ test "a response that is not a 2xx, not a DNS message, or coded fails its reques
         defer pair.free();
         try testing.expect(pair.doh.request(0, &query, pair.now_ns));
         const finished = (try pair.run(.finished)).finished;
-        try testing.expectEqual(Doh.Outcome{ .failed = .status }, finished.outcome);
+        try testing.expectEqual(Doh.Result{ .failed = .status }, finished.result);
     }
     // An identity coding is no coding (RFC 9110 §8.4.1).
     const pair = try Pair.create(.{ .content_encoding = "identity" });
     defer pair.free();
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
-    try testing.expect((try pair.run(.finished)).finished.outcome == .answer);
+    try testing.expect((try pair.run(.finished)).finished.result == .answer);
 }
 
 test "a status of 299, the last 2xx, is an answer, and 300 is none" {
@@ -295,7 +295,7 @@ test "a status of 299, the last 2xx, is an answer, and 300 is none" {
         defer pair.free();
         try testing.expect(pair.doh.request(0, &query, pair.now_ns));
         const finished = (try pair.run(.finished)).finished;
-        try testing.expectEqual(status == constants.status_success_last, finished.outcome == .answer);
+        try testing.expectEqual(status == constants.status_success_last, finished.result == .answer);
     }
 }
 
@@ -309,7 +309,7 @@ test "field values that fill the buffer to its last octet are read, and one octe
         defer pair.free();
         try testing.expect(pair.doh.request(0, &query, pair.now_ns));
         const finished = (try pair.run(.finished)).finished;
-        try testing.expectEqual(content_type.len == constants.values_bytes, finished.outcome == .answer);
+        try testing.expectEqual(content_type.len == constants.values_bytes, finished.result == .answer);
     }
 }
 
@@ -321,7 +321,7 @@ test "a 2xx response whose field values do not fit fails its request as too larg
     defer pair.free();
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
     const finished = (try pair.run(.finished)).finished;
-    try testing.expectEqual(Doh.Outcome{ .failed = .status }, finished.outcome);
+    try testing.expectEqual(Doh.Result{ .failed = .status }, finished.result);
     try testing.expectEqual(.too_large, pair.doh.exchanges[0].response.outcome);
 }
 
@@ -331,7 +331,7 @@ test "a stream the server resets after a 2xx head fails its request" {
     defer pair.free();
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
     const finished = (try pair.run(.finished)).finished;
-    try testing.expectEqual(Doh.Outcome{ .failed = .reset }, finished.outcome);
+    try testing.expectEqual(Doh.Result{ .failed = .reset }, finished.result);
     try testing.expectEqual(.reset, pair.doh.exchanges[0].response.outcome);
     try testing.expectEqual(@as(u16, 200), pair.doh.exchanges[0].response.status);
 }
@@ -376,7 +376,7 @@ test "a ticket the server gives is taken, and the next channel's TCP link resume
     pair.offer = pair.ticket;
     try pair.open(.{ .tickets = true });
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
-    try testing.expect((try pair.run(.finished)).finished.outcome == .answer);
+    try testing.expect((try pair.run(.finished)).finished.result == .answer);
     try testing.expect(pair.server.endpoint.tcp[0].tls_server.resumed());
     const connected = pair.doh.connected().?;
     try testing.expect(connected.offered and connected.resumed);
@@ -415,7 +415,7 @@ test "stream octets past what the type keeps end the TCP link, which the channel
     // colibri was told the link ended, so the exchange it carried ends as a failure of its
     // connection.
     const finished = (try pair.run(.finished)).finished;
-    try testing.expectEqual(Doh.Outcome{ .failed = .closed }, finished.outcome);
+    try testing.expectEqual(Doh.Result{ .failed = .closed }, finished.result);
 }
 
 test "a template whose GET would not fit is refused when the channel starts" {
@@ -457,9 +457,9 @@ test "a template whose GET path at its longest fills the path buffer starts, and
     var longest_query: [cocuyo.wire.constants.dns_variable_bytes_max / 4 * 3]u8 = @splat(0);
     @memcpy(longest_query[0..query.len], &query);
     try testing.expect(pair.doh.request(0, &longest_query, pair.now_ns));
-    const outcome = (try pair.run(.finished)).finished.outcome;
-    if (outcome != .answer) return error.TestUnexpectedResult;
-    const answer = outcome.answer;
+    const result = (try pair.run(.finished)).finished.result;
+    if (result != .answer) return error.TestUnexpectedResult;
+    const answer = result.answer;
     try testing.expectEqual(longest_query.len, answer.message.len);
     pair.doh.wipe();
     const over = .{ .authority = "dns.example:8443", .host = "dns.example", .port = port, .path = query_part ++ "p" ** (filler + 1) ++ "{&dns}" };
@@ -483,9 +483,9 @@ test "a template whose path starts with a slash and fills the path buffer starts
     var longest_query: [cocuyo.wire.constants.dns_variable_bytes_max / 4 * 3]u8 = @splat(0);
     @memcpy(longest_query[0..query.len], &query);
     try testing.expect(pair.doh.request(0, &longest_query, pair.now_ns));
-    const outcome = (try pair.run(.finished)).finished.outcome;
-    if (outcome != .answer) return error.TestUnexpectedResult;
-    const answer = outcome.answer;
+    const result = (try pair.run(.finished)).finished.result;
+    if (result != .answer) return error.TestUnexpectedResult;
+    const answer = result.answer;
     try testing.expectEqual(longest_query.len, answer.message.len);
     pair.doh.wipe();
     const over = .{ .authority = "dns.example:8443", .host = "dns.example", .port = port, .path = "/" ++ "p" ** (filler + 1) ++ "{?dns}" };

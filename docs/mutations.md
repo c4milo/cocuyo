@@ -8013,10 +8013,12 @@ The rows below show what each catches.
   is sealed. That path cannot come. A query is sealed when no send is in flight and nothing else
   is sealed. So the whole buffer is room, and the handshake already needed that much room. Since
   the connection is up there, the assertion of `abandon` holds any other reason in any case. Design
-  §17 question 66 asks whether the path becomes an assertion.
+  §17 question 66 asks whether the path becomes an assertion. It became one on 2026-10-24 (The
+  assertions of question 66, below).
 - `send` in `io_tcp_queue.zig` had two checks for a lookup ready to send on a connection that is
   not up, each with its reason. Neither can come from a drive. They are one check now, through
   `up_connection`, and the test of RS28 reaches it by hand. Design §17 question 66 asks about it.
+  Since 2026-10-24 the check is an assertion, and RS28 and its test are gone (below).
 - RS11 and RS12 did not compile at first: their edit left `reason` unused. Each now discards it,
   as RS63 and RS73 do.
 
@@ -8208,7 +8210,7 @@ they move. The DoH changes of the review are in `io/`, which no counted case run
 | RS25 | a receive that failed during the handshake gives the reason closed | a receive that failed while the handshake runs is `handshake` | two TLS tests of a reset, at the assertion of `abandon`: "reached unreachable code", `test-io` | CAUGHT |
 | RS26 | a failure of a connection that is up gives the reason it would give before | `reason_of` gives `closed` once up | six tests, at the assertion of `abandon`: "reached unreachable code", `test-io` | CAUGHT |
 | RS27 | a connection that cannot connect again gives the reason connect | a connection that cannot connect again is `local` | the TLS test of a refused socket after a declined ticket: "expected .local, found .connect", `test-io` | CAUGHT |
-| RS28 | a lookup ready to send on a connection that is gone gives the reason connect | a lookup ready to send on a connection it left is `closed` | the test of a lookup no longer on its connection, at the assertion of `on_tcp_failed`: "reached unreachable code", `test-io` | CAUGHT |
+| RS28 | a lookup ready to send on a connection that is gone gives the reason connect | a lookup ready to send on a connection it left is `closed` | the test of a lookup no longer on its connection, at the assertion of `on_tcp_failed`: "reached unreachable code", `test-io` | CAUGHT, and gone since 2026-10-24 (The assertions of question 66) |
 | RS29 | a send the loop refuses during the handshake gives the reason handshake | a send the loop refuses while the handshake runs is `local` | the TLS test of a refused send: "expected .local, found .handshake", `test-io` | CAUGHT |
 | RS30 | a query's send that moved nothing gives the reason local | a query's send that moved nothing is `closed` | two tests, at the assertion of `abandon`: "reached unreachable code", `test-io` | CAUGHT |
 | RS31 | a send of the session's records that moved nothing during the handshake gives the reason local | a records send that moved nothing while the handshake runs is `handshake` | the TLS test of a send that moved nothing: "expected .handshake, found .local", `test-io` | CAUGHT |
@@ -8449,3 +8451,81 @@ So no count can move, and `bench/instructions.zon` did not change.
 | SM7 | a pin is read past the end of the package's entry | as SM6 | as SM6, at the entry with no hash | CAUGHT |
 
 Seven mutations, seven `CAUGHT`.
+
+## The assertions of question 66
+
+2026-10-24. The owner answered docs/design.md §17 questions 66 and 67 on 2026-10-24. Question 66:
+"Assertions". Question 67: "as built, but change the wording, instead of outcome, use result".
+§16 decision 51, §5 and §24 rule 22 say what changed.
+
+### What changed
+
+- The engine model changed first. `Send` in `spec/tla/engine/EngineIo.tla` asserts that a lookup
+  ready to send on a stream finds its connection up. Before, the model failed such a lookup with
+  `tcpFailed`. `EngineIo` now extends TLC's module for its `Assert`.
+- `send` in `io/io_tcp_queue.zig` asserts that the lookup is on the stream, and that its
+  connection is up. Before, it failed the lookup with `closed`.
+- `seal` in `io/io_tls.zig` asserts that nothing sealed is left in the records buffer, and that
+  `take_out` found room. Before, no room failed the connection with `closed`. A query that the
+  session cannot seal still fails it with `closed`.
+- The doc comment beside each assertion gives the reason that its state is unreachable.
+- The test of RS28 is gone from `io/io_tcp_cause_test.zig`. It made the state by hand, and that
+  state is now a programmer error. RS28 is gone from `tools/mutations/engine.zon`, since the check
+  that it edited is gone. Its row in the table of 2026-10-21 says so.
+- `Finished.outcome` is `Finished.result`, and the type `Outcome` is `Result`, in `cocuyo_doh` and
+  in the twin's `sim.Channel`. `outcome_of` in `io/io_doh_channel_exchange.zig` is `result_of`.
+  The engine's `None` channel has the same shape now. colibri's `Response.outcome` keeps its name,
+  and so do the local names that read it. No row of `tools/mutations/*.zon` named the old words.
+
+### What the rows break
+
+A test cannot see an assertion taken away, as with Z10 and T11. So each row breaks code above an
+assertion, which then holds the state that the code no longer prevents:
+
+- AS1 tells a lookup that its connection is up while the connection still connects. The lookup
+  asks for a send at once, and the assertion of `send` stops it.
+- AS2 lets a held send go out for an attempt that is no longer the lookup's. The engine model
+  holds that rule, and the replay of walk 16 of the picked walks stops at a panic in `submit` of
+  `io/io_send.zig`, which calls `send`.
+- AS3 leaves a sent head's records in the records buffer. The next query to seal meets the
+  assertion that nothing sealed is left there.
+
+The assertion that `take_out` found room in `seal` has no row. Only the handshake bounds that
+room: `take_out` asks for the same room in the same empty buffer before the connection is up. An
+edit that never moves the buffer's records to its start makes the room shrink. By hand, that edit
+failed one test of `test-io`, the test of a session that asks for the whole buffer. It failed at
+the check of `make_records`, before any query was sealed, and no test met the assertion.
+
+### What ran
+
+- The disk had 49 GB free before the first run of the rows.
+- `zig build tla` ran the five configurations of a stream that it checks: three of TCP, one of
+  TLS and the truncated one. Each holds, with the state counts of before, in 23 minutes 17
+  seconds. The two TLS configurations marked `\* nightly:` did not run here.
+- This command ran the three rows, in 26 minutes 53 seconds. Each row is `CAUGHT`. For AS2 the
+  short walks missed, and TLC wrote the full run, whose walk 8006 caught it:
+
+```sh
+zig build mutations -- engine AS1 AS2 AS3
+```
+
+- AS1 and AS3 also ran by hand against `test-io`, and AS2 against `spec-engine`. Those runs give
+  the texts of the rows.
+- `zig build test`: 1,190 tests pass of 1,190, in 140 steps. `zig build lint` passes, and `zig
+  build examples` builds each example.
+
+### The instruction counts
+
+`bench/count.zig` imports `cocuyo` and `wire` alone. No file under `src/` that a counted case
+reads changed: `src/sim/sim_channel.zig` changed a name. So `bench/instructions.zon` did not
+change.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| AS1 | a lookup hears that its connection is up while it still connects | `on_tcp_connected` comes only for a connection that is up | the test of a name of 255 octets, at the assertion of `send`: "reached unreachable code", `test-io` | CAUGHT |
+| AS2 | a held send goes out for an attempt that is no longer the lookup's | a held send goes out only for its own attempt (the stream's rule 6) | walk 16 of the picked walks, at a panic in `submit`: "reached unreachable code", `spec-engine` | CAUGHT |
+| AS3 | a sent head leaves its records in the records buffer | a sent head frees its records (§21, TLS rule 3) | 31 tests over TLS, at the assertion of `seal` that nothing sealed is left: "reached unreachable code", `test-io` | CAUGHT |
+
+Three mutations, three `CAUGHT`.
