@@ -243,4 +243,18 @@ theorem request_never_stream (c : Config) (s : State) (e : Event) (hh : c.reques
     · exact ⟨keep, none⟩
     · exact ⟨by simp [NoStream, fail], none⟩
 
+/-! ## A deadline ends `tcpReady` -/
+
+/-- A lookup ready to send on a stream waits for its deadline too (docs/design.md §5; §16 decision
+52). The caller may deliver the deadline in `tcpReady`, and after it the lookup is not in
+`tcpReady`, whatever the configuration. So a send that never ends holds no lookup past it. -/
+theorem tcpReady_expires (c : Config) (s : State) (h : s.stage = .tcpReady) :
+    Event.expire ∈ enabled c s ∧ (step c s .expire).1.stage ≠ .tcpReady := by
+  refine ⟨by simp [enabled, h, waiting], ?_⟩
+  simp only [step, h, waiting, if_true]
+  rcases advanceServer_stage c s with hs | hs
+  · unfold fresh at hs
+    split at hs <;> simp [poll, hs]
+  · simp [poll, hs]
+
 end Spec.Lookup

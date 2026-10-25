@@ -193,6 +193,28 @@ ClosingBounded(before, e, st) ==
     e.kind \notin {"idle", "expire"} \/
     \A k \in 0..Conns - 1 : before.conns[k].stage # "closing" \/ st.conns[k].stage # "closing"
 
+\* The ticks an event moves the clock: to the soonest deadline, one tick, or none.
+Moved(before, e) == CASE e.kind = "expire" -> Soonest(before) [] e.kind = "idle" -> 1 [] OTHER -> 0
+
+\* A deadline bounds `tcpReady` (§5, §16 decision 52). A lookup in that stage has its deadline
+\* armed, or the clock reached it and the lookup is offered.
+ReadyArmed(st) ==
+    \A l \in 0..Slots - 1 :
+        LET sl == st.slots[l] IN
+        sl.lookup = {} \/ Get(sl.lookup).stage # "tcpReady" \/ sl.remaining > 0 \/ sl.expired
+
+\* After the clock reaches the deadline of a lookup in `tcpReady`, the drive moved it: it is not in
+\* `tcpReady` on the same try. So a send that never ends holds no lookup past its deadline.
+ReadyBounded(before, e, st) ==
+    \A l \in 0..Slots - 1 :
+        LET was == before.slots[l]
+            now == st.slots[l]
+        IN \/ e.kind \notin {"idle", "expire"}
+           \/ was.lookup = {} \/ Get(was.lookup).stage # "tcpReady"
+           \/ was.remaining > Moved(before, e)
+           \/ now.lookup = {} \/ Get(now.lookup).stage # "tcpReady"
+           \/ Attempt(Get(now.lookup)) # Attempt(Get(was.lookup))
+
 Checks(before, e, st) ==
     << <<"users counted", UsersCounted(st)>>, <<"attached right", AttachedRight(st)>>,
        <<"buffers lent", BuffersLent(st)>>, <<"one send a stream", OneSendAStream(st)>>,
@@ -222,7 +244,8 @@ Checks(before, e, st) ==
        <<"waits for no free slot", ~Drove(before, e) \/ WaitsForNone(st)>>,
        <<"told when up", ToldWhenUp(st)>>, <<"slot waited for", ~st.slotless>>,
        <<"records lent", RecordsLent(st)>>,
-       <<"closing bounded", ClosingBounded(before, e, st)>> >>
+       <<"closing bounded", ClosingBounded(before, e, st)>>,
+       <<"ready armed", ReadyArmed(st)>>, <<"ready bounded", ReadyBounded(before, e, st)>> >>
 
 Broken(before, e, st) ==
     LET checks == Checks(before, e, st) IN

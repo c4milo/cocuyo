@@ -36,6 +36,9 @@ would agree with the code by construction and prove nothing about it.
     connection, its handshake or its request failing, never ends in `timeout`, whatever it hears
     afterwards (design §16 decision 25). It is `Timeout`'s promise, that every try went
     unanswered, which nothing checked before the decision.
+  - `tcpReady_expires`: the caller may deliver the deadline in `tcpReady`, and after it the lookup
+    is not in `tcpReady` (design §5; §16 decision 52). So a query's send that never ends holds no
+    lookup past its deadline.
   - In `LookupProofs/Cause.lean`, `failure_cause`: a lookup that fails with `allServersFailed`
     holds a cause, and one that fails with `timeout` holds none, whatever the caller tells it
     (design §5, The cause of a failure; §16 decision 45). Since 2026-10-21 it proves too that the
@@ -54,7 +57,8 @@ would agree with the code by construction and prove nothing about it.
   must keep.
 - `tla/engine/Engine_*.cfg` are the configurations TLC walks breadth first, and
   `tla/engine/mutants/` breaks the model's TLS rules, the stream's rule 9, the request rules, the
-  channel's rules and the datagram's rules 4 and 6 with `tla/engine/EngineMutants.tla`.
+  channel's rules, the datagram's rules 4 and 6 and the deadline of `tcpReady` with
+  `tla/engine/EngineMutants.tla`.
 - `tla/engine/EngineTrace.tla` writes TLC's walks for the replay, one configuration of
   `tla/engine/trace/` for each of the replay's.
 
@@ -103,7 +107,7 @@ would agree with the code by construction and prove nothing about it.
 none, one, two or three servers, one to three passes and one to three names, over UDP, under
 `use_tcp`, over DoH, or over DoQ. It tries every enabled event in every state and writes one line
 per transition, with the model's answer and its whole state after it. A state reached a second
-time is written but not walked again, so each transition appears once, 19,921,682 of them in all,
+time is written but not walked again, so each transition appears once, 20,512,658 of them in all,
 183 deep at most. On 2026-10-08 a first BADCOOKIE over a stream became a retry on the stream with
 the fresh server cookie (docs/design.md §5, §19 step 10; c4milo/cocuyo#36), where before it
 advanced the server. The retry reaches states the walk did not reach before: the transcript held
@@ -127,6 +131,13 @@ but `connect` and `status` over DoQ. States that differ in a reason or a server 
 apart. So the transcript grew from 7,530,842 transitions to 19,921,682, 183 deep. The slice gained
 two servers and one pass over DoQ. There a cause can name a server that the lookup is not on at its
 end. The slice grew from 6,696 transitions to 13,694.
+
+On 2026-10-24 a deadline came to end `tcpReady` (docs/design.md §5; §16 decision 52). The model's
+`waiting` holds `tcpReady`, so `expire` is an event of that state, and it moves the lookup as in
+`connectingTcp`. A reply in `tcpReady` is still the unmatched reply alone: `listens` holds the
+stages where each reply comes, as `waiting` held them before. So the transcript gained one line for
+each state in `tcpReady`. It grew from 19,921,682 transitions to 20,512,658, 183 deep. The slice
+grew from 13,694 transitions to 13,838, and none of its lines changed.
 
 `tools/spec_replay/replay.zig` drives `Lookup` down the same tree. It builds each reply around the
 question the lookup is asking, and it compares the answer and the state after every event: the
@@ -215,6 +226,10 @@ event, and the channel's rules below:
 - A connection that fails while it closes fails none of the requests that wait on it.
 - After the clock moves, no TLS connection that closed before still closes: the idle close's wait
   bounds it (docs/design.md §16 decision 49).
+- A lookup in `tcpReady` has its deadline armed, or is offered with its deadline passed
+  (docs/design.md §16 decision 52).
+- After the clock reaches the deadline of a lookup in `tcpReady`, it is not in `tcpReady` on the
+  same try.
 
 Each configuration bounds the operations in flight, the failures a server and the queries a port
 (`OpsMax`, `FailuresMax` and `SentMax`), since nothing else bounds the graph. A stream's send may
@@ -387,7 +402,7 @@ Three choices make TLC count what the Lean walker counts:
   and checked, and has no successor, as in the Lean walker; TLC leaves a state that breaks a
   `CONSTRAINT` out, and the check on the event that reached it with it. So every configuration
   says `CHECK_DEADLOCK FALSE`.
-- Fifteen of the forty-three checks read the event or the state before it, which a TLC
+- Sixteen of the forty-five checks read the event or the state before it, which a TLC
   invariant cannot. So `broken` holds the names of the checks the last event broke, and `Clean`
   asks it be empty. In a model that keeps its rules it always is, so it splits no state.
 
@@ -730,6 +745,57 @@ instant at which a refused connection begins to close. The full run caught it fi
 where a handshake is refused after the clock moved. No pick caught CL13, so both walks are picks
 now, eighteen in all.
 
+On 2026-10-24 a deadline came to end `tcpReady` (docs/design.md §5; §16 decision 52). Until then a
+lookup whose query's send never ended stayed in that stage until the caller cancelled it. The model
+held the same gap: `Waiting` left out `tcpReady`, so no move of the clock reached that stage. The
+change came to the model first:
+
+- `Waiting` holds `tcpReady`. `WaitsOnServer` keeps the three stages that it held before. `LPoll`
+  answers `wait` in those alone, and `Settle` offers a lookup in `tcpReady` for its send.
+- `LookupEvent` arms the deadline at `tcpConnected`, as the code arms it at `on_tcp_connected`.
+- At the deadline the lookup moves on, and the drive takes it off its connection (the stream's
+  rule 3). A query that has started stays at the head of its queue. When the last lookup leaves,
+  `CloseIdle` closes the connection at the next move of the clock.
+- Two checks hold the rule. "ready armed": a lookup in `tcpReady` has its deadline armed, or is
+  offered with its deadline passed. "ready bounded": after the clock reaches its deadline, it is
+  not in `tcpReady` on the same try.
+- `mutants/RD1` puts back `Waiting` as it was. TLC finds "ready armed" broken at the third state of
+  its counterexample, where a lookup in `tcpReady` has no deadline.
+- `mutants/RD13` keeps `Waiting`, and arms the wait again at the deadline of a lookup in
+  `tcpReady`, which stays there. TLC finds "ready bounded" alone broken, at the fourth state of its
+  counterexample. For it, `Expire` and `Rearms` are definitions of their own in
+  `EngineTable.tla`. They hold what `LStep` and `LookupEvent` did before, so no count changed.
+
+TLC checked each configuration of a stream on 2026-10-24 on an Apple M1 Pro while other work ran:
+
+| Configuration | Before | Now |
+| --- | --- | --- |
+| `Engine_tcp_1_1_bound_4_1` | 20,098 | 21,071 |
+| `Engine_tcp_2_1_bound_4_1` | 690,360 | 704,681 |
+| `Engine_tcp_2_2_bound_4_1` | 3,466,275 | 3,583,539 |
+| `Engine_tls_1_2_bound_2_1` | 213,063 | 217,719 |
+| `Engine_truncated_1_1_bound_4_1` | 427,125 | 466,646 |
+
+TLC checked the two nightly configurations over TLS in `zig build tla`'s full run:
+
+| Configuration | Before | Now |
+| --- | --- | --- |
+| `Engine_tls_1_2_bound_3_1` | 5,747,714 | 6,661,256 |
+| `Engine_tls_2_2_bound_2_1` | 21,536,161 | 22,205,523 |
+
+The configurations of UDP alone, of DoQ and of DoH reach no `tcpReady`, and hold the states that
+they held before. The largest configuration CI checks on each push now holds 3,583,539 states.
+The largest it checks once a day holds 22,205,523, `Engine_tls_2_2_bound_2_1`.
+
+The trace writes a lookup in `tcpReady` among the lookups that wait, in `w[...]`. Of the 130 short
+walks, 23 changed: 22 over TCP and one of UDP with truncated answers. Ten of the eighteen picks
+changed. The picks were chosen again (docs/mutations.md, The deadline of a ready lookup).
+`zig build mutations -- engine` ran each of the 87 rows that the walks catch against the new full
+run. For each row that the short walks miss, the tool named the full run's first walk that catches
+it. Those seventeen walks are the picks now. Walks 8006, 8094, 12003, 16016, 16052, 16480 and
+16789 came in, and walks 8025, 8046, 8241, 12004, 12011, 16068, 16271 and 16478 left. Each of the
+20 rows that the picked walks catch is `CAUGHT` by the new picks.
+
 ### The walks TLC takes
 
 `tla/engine/EngineTrace.tla` runs the specification in TLC's simulation mode, which takes seeded
@@ -774,15 +840,15 @@ compares the walk's whole state after each.
 
 ## Running it
 
-- `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 13,694
+- `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 13,838
   transitions. It holds one server, one pass and one name, over UDP, over TCP, over DoH and over
   DoQ. It holds one server with two passes over DoH too, where a second cause replaces the first.
   It holds two servers with one pass over DoQ, where a cause names a server that the lookup left.
   It also
   replays two sets of engine walks TLC wrote. `tools/spec_replay/engine_gate.txt` holds ten walks
   of forty events in each of the thirteen engine configurations.
-  `tools/spec_replay/engine_picks.txt` holds eighteen walks of the full run, which `engine_picks` in
-  `build/spec.zig` names. Each is where the full run caught a mutation of the engine that the
+  `tools/spec_replay/engine_picks.txt` holds seventeen walks of the full run, which `engine_picks`
+  in `build/spec.zig` names. Each is where the full run caught a mutation of the engine that the
   short walks miss (docs/mutations.md). The gate also holds `tools/spec_replay/walk_gate.txt`, the
   forward walk with two candidates and both families and every reverse configuration. It needs
   neither Lean nor Java.

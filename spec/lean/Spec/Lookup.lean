@@ -227,7 +227,21 @@ def poll (c : Config) (s : State) : State × Out :=
   | .done => (s, .done)
   | .failed => (s, .failed s.err)
 
+/-- Whether a deadline bounds the stage, so that a poll at or past it moves the lookup on. Since
+2026-10-24 `tcpReady` waits for the deadline that `tcpConnected` arms, and the query's send does
+not stop it (docs/design.md §5; §16 decision 52). -/
 def waiting (s : Stage) : Bool :=
+  match s with
+  | .awaitingUdp | .connectingTcp | .tcpReady | .awaitingTcp => true
+  | _ => false
+
+/-- Whether the caller may deliver each kind of reply, and not the unmatched reply alone. `step`
+reads a reply only in `awaitingUdp` and `awaitingTcp`, and ignores it in each other stage.
+`listens` holds the three stages that `waiting` held until 2026-10-24. So the replies enabled in
+each stage stay as they were, and the transcript only grows. `connectingTcp` keeps every kind for
+that reason alone, since `step` ignores a reply there. In `tcpReady` no query went out whole, so
+only the unmatched reply comes. -/
+def listens (s : Stage) : Bool :=
   match s with
   | .awaitingUdp | .connectingTcp | .awaitingTcp => true
   | _ => false
@@ -291,11 +305,11 @@ def step (c : Config) (s : State) : Event → State × Out
   | .cancel => if ended s.stage then (s, .none) else (fail s .canceled, .none)
 
 /-- The events a caller may deliver to a `Lookup`, by the contract of §4: a poll at any time, a
-poll past the deadline while the lookup waits, `on_sent` and `on_send_failed` only for a send a
-poll handed out, `on_tcp_connected` while it connects, `on_tcp_failed` while it is on a stream,
-`on_request_failed` while it waits on a request, a datagram at any time, and a cancel until
-it ends. `Resolver.cancel` takes a cancel after the end
-as well, which `step` answers with nothing. -/
+poll past the deadline while a deadline bounds the lookup, `on_sent` and `on_send_failed` only for
+a send a poll handed out, `on_tcp_connected` while it connects, `on_tcp_failed` while it is on a
+stream, `on_request_failed` while it waits on a request, a datagram at any time, and a cancel
+until it ends. `Resolver.cancel` takes a cancel after the end as well, which `step` answers with
+nothing. -/
 def enabled (c : Config) (s : State) : List Event :=
   let replies := [Reply.unmatched, .answer, .cname, .nxdomain, .nodata, .servfail, .formerr,
                   .truncated, .badcookie].map Event.reply
@@ -306,7 +320,7 @@ def enabled (c : Config) (s : State) : List Event :=
     ++ (if onStream s.stage then (tcpReasons s.stage).map Event.tcpFailed else [])
     ++ (if c.request ∧ s.stage = .awaitingUdp then (requestReasons c).map Event.requestFailed
         else [])
-    ++ (if waiting s.stage then replies else [Event.reply .unmatched])
+    ++ (if listens s.stage then replies else [Event.reply .unmatched])
     ++ (if ended s.stage then [] else [Event.cancel])
 
 end Spec.Lookup

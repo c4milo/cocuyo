@@ -536,8 +536,9 @@ Eight states: `query_ready`, `awaiting_udp`, `tcp_needed`, `connecting_tcp`, `tc
 | `connecting_tcp` | `on_tcp_connected` | `tcp_ready` | re-arm the deadline |
 | `connecting_tcp` | `on_tcp_failed` with `connect`, `handshake` or `local` | `query_ready` or `failed` | keep the reason as the cause, advance the server, as SERVFAIL does |
 | `connecting_tcp` | deadline | `query_ready` or `failed` | advance the server |
-| `tcp_ready` | `poll` | `tcp_ready` | build with the length prefix, return `send_tcp` |
+| `tcp_ready` | `poll` before the deadline | `tcp_ready` | build with the length prefix, return `send_tcp` |
 | `tcp_ready` | `on_sent` | `awaiting_tcp` | arm the deadline |
+| `tcp_ready` | `poll` at or past the deadline | `query_ready` or `failed` | no sample, since no query went out whole, then advance the server, then the attempt (§16 decision 52) |
 | `tcp_ready`, `awaiting_tcp` | `on_tcp_failed` with `closed` | `query_ready` or `failed` | keep the reason as the cause, advance the server, as SERVFAIL does |
 | `awaiting_tcp` | `on_response` | as the UDP rows | TC=1 sends the lookup nowhere, so the message is read as if it were clear, and an answer it gives is marked `truncated` |
 | `awaiting_tcp` | `on_response` BADCOOKIE, the first from this server | `tcp_needed` | same server, a new transaction on the stream, the fresh cookie |
@@ -551,6 +552,12 @@ passes in `awaiting_udp` or `awaiting_tcp`, with a sample as long as the wait th
 response the lookup ignores, unmatched or malformed, takes none, and neither does a deadline that
 passes in `connecting_tcp`, since no query went out. Since 2026-10-20 a deadline that passes
 after a reply to the try marked its server takes none either (below).
+
+Since 2026-10-24 a deadline ends `tcp_ready` too (§16 decision 52). `on_tcp_connected` arms it,
+and the send of the query does not stop it. So a peer that stops reading holds a lookup until its
+deadline, and no longer until the caller cancels it. The deadline counts a failure of the server,
+as in `connecting_tcp`, and takes no sample: the query's send did not end, so no wait for an
+answer began. The lookup moves on, and leaves its connection (§19 step 13, the stream's rule 3).
 
 The row of a cut datagram is the one exception, since 2026-10-14. It accepts the datagram and
 takes no sample, and it tells the server's state nothing (§7, A datagram that the buffer cut). A
@@ -595,7 +602,8 @@ decision 40). A sum with a literal `2` is still a `u16`.
   request rule 3), so a request that opened a connection carries the handshake in its sample. A
   response the lookup ignores, an answer from the memory of §20, a send that failed, a connect
   that ran out, a connection or a handshake that failed, a request that failed and a lookup
-  cancelled give none. Since 2026-10-20 a try that runs out after a reply to it marked its
+  cancelled give none. Since 2026-10-24 a deadline in `tcp_ready` gives none either (decision
+  52). Since 2026-10-20 a try that runs out after a reply to it marked its
   server gives none too (below). A response is accepted only for the current transaction, and each
   transaction has an id of its own (§7), so no sample pairs a response with the send of a query
   sent again. A datagram that fails §7's checks is no sample, so it moves no server's wait
@@ -969,12 +977,14 @@ cause and `Timeout` has none (The cause of a failure, above). Since 2026-10-21 t
 position of its server in the order. A failed connection or request carries its reason (§16
 decision 51). The proof shows too that a cause names a server of the configuration. `zig build
 spec` builds the proofs, then walks every state the model reaches under 109 configurations and
-replays each of the 19.9 million transitions against `Lookup`. It compares the answer, the whole
-state and the cause after every event. `zig build test` replays a committed slice of 13,694 of
+replays each of the 20.5 million transitions against `Lookup`. It compares the answer, the whole
+state and the cause after every event. `zig build test` replays a committed slice of 13,838 of
 them without Lean.
 spec/README.md says what the model abstracts and why. Time is one of those things: a poll comes
 before the deadline or at it. So when a server's wait came to be measured, on 2026-10-09, no
-transition changed, and neither did the model.
+transition changed, and neither did the model. Since 2026-10-24 a poll at the deadline ends
+`tcp_ready` too, in the model first (§16 decision 52). Its proof `tcpReady_expires` shows that the
+deadline ends that state, at every lookup in it.
 
 Building the model and the replay found two defects in the code, fixed on 2026-09-23. A chain
 past `cname_hops_max` was ignored, so the lookup timed out instead of failing with
@@ -3776,6 +3786,119 @@ step until `zig build test` passes.
 
     §4, §5 (The cause of a failure), §9, §17 questions 53, 54, 66 and 67, §19 step 14, §21, §24.
 
+52. **A deadline ends `tcp_ready`.** Ruled by the owner on 2026-10-21, on §17 question 60: the
+    second way. Until the ruling a lookup in `tcp_ready` waited for the event of its query's send.
+    That state waited for no instant, so no deadline ended it (`is_waiting`). A peer that stops
+    reading and keeps its side open never ends the send. So the lookup stayed on its connection
+    until the caller cancelled it, and the idle close passed over the connection. Over TLS the
+    lookup also held the server's slot.
+
+    Now:
+
+    - `tcp_ready` waits for the deadline that `on_tcp_connected` arms, as `awaiting_tcp` waits for
+      the one that `on_sent` arms. `Lookup.is_waiting` holds `tcp_ready` (§5).
+    - A poll at or past the deadline moves the lookup to the next server, then to the next pass, or
+      fails it, as in `connecting_tcp`.
+    - The drive then takes the lookup off its connection (the stream's rule 3). When the last
+      lookup leaves, the connection is idle (rule 4). The idle close shuts it, and the shut cancels
+      the send (decision 49).
+
+    The sequence in the clear, with one server, one pass and the default options:
+
+    1. The connection comes up, and the lookup's deadline is 2 seconds away.
+    2. The peer stops reading. The query's send takes nothing, and does not end.
+    3. At the deadline the lookup fails with `Timeout`, and leaves its connection. The connection
+       is idle from that instant.
+    4. After `tcp_idle_ns`, 10 seconds, the first drive shuts the connection. The shut cancels the
+       send, and the lookup's send buffer comes back at the cancel's event.
+
+    Choices the ruling did not make, made here:
+
+    - The deadline counts a failure of the server. The server took the connection, and did not
+      read the query in the wait. Failover moves away from it, as from a connect that ran out
+      (§19 step 12).
+    - The deadline takes no sample. A sample starts at `on_sent` (decision 36), and the query's
+      send never ended. So the deadline in `tcp_ready` is as the deadline in `connecting_tcp`.
+    - The deadline keeps no cause, as no deadline keeps one. A lookup whose every try ran out so
+      ends in `Timeout` (§5, The cause of a failure).
+    - The send's buffer. The query has started, so it stays at the head of its connection's queue
+      until its send ends (rule 9). The lookup's send buffer stays lent until the send's final
+      event (rule 6). That event is the cancel's, after the shut. A query that waits in the queue
+      and has not started leaves the queue, and its buffer comes back at once.
+    - The lookup's next send. A connect needs no send buffer. A send that the lookup asks for
+      while its buffer is lent is held until the buffer comes back (rule 6). The buffer comes back
+      at the cancel's event, after the idle close, and no timer is armed for that close (decision
+      49). So:
+      - A try on a stream at the next server waits in `tcp_ready` with its query held. Its
+        deadline comes before the idle close, and ends it. That server then counts a failure that
+        it did not earn. With one pass the lookup ends in `Timeout`, though the server is up. Over
+        TLS each server has a slot of its own (TLS rule 6), so this comes with each second server.
+        In the clear it comes when a free slot is there. With none, the lookup closes the idle
+        connection to make room (rule 1), and that shut gives the buffer back at once.
+      - A try by datagram at the next server, after a TC=1 answer, waits in `query_ready`. No
+        deadline bounds that state, so the datagram waits for the first drive at or after
+        `tcp_idle_ns` from the instant the last lookup left the connection.
+      - A new lookup that takes the same table slot has the same buffer, and waits in the same
+        way.
+
+      §17 question 70 asks the owner about these waits. The twin test "a send never ends, and the
+      try at the next server waits for its buffer, as built" records the first.
+    - The connection's other lookups. Each keeps its own state and its own deadline. A lookup in
+      `awaiting_tcp` waits for its answer, as before. A lookup whose query waits in the queue
+      behind the send is in `tcp_ready`, and its deadline ends it in the same way. Its query
+      leaves the queue then, and its buffer comes back at once. A lookup that joins the
+      connection later waits in the queue too, and its deadline bounds it. Each lookup that joins
+      also puts off the idle close, since the connection is idle only while no lookup is on it.
+    - A later pass to the same server joins the same connection while it is up (rule 1). Its
+      query waits behind the send that never ends, and its deadline ends it too.
+    - Over TLS the connection is up, so the idle close first makes its `close_notify` (TLS rule
+      5). That record waits in the queue behind the send. The connection is closing, and the
+      idle close shuts it once it has closed for `tcp_idle_ns` (decision 49). So the slot frees at
+      the cancel's event, after the first drive at or after twice `tcp_idle_ns` from the instant
+      the last lookup left.
+    - The table offers a lookup in `tcp_ready` for its send, and holds its deadline in the bound.
+      `settle` does both for that state alone. The poll also puts the deadline in the bound. But
+      the bound is never later than the soonest deadline (§11), between an event and the next poll
+      too. A connection can come up while the bound is empty and the lookup waits on the ready
+      list. `wake_expired` offers it again at its deadline.
+    - A caller that drives `Lookup` or `Resolver` itself. The deadline can now pass while a
+      `send_tcp` is in flight. Then the lookup draws a new transaction, and the next send it asks
+      for is a new try. The caller gives `on_sent` and `on_send_failed` only to the try that asked
+      for the send, as the engine does (the stream's rule 7). No signature changes.
+
+    Rejected:
+
+    - As built: the lookup waits until its send ends, or until the caller cancels it. A peer that
+      stops reading holds it for ever, and over TLS holds the slot too.
+    - The third way of question 60: the engine fails a connection whose query's send has not ended
+      at that lookup's deadline. §5 does not change. But each lookup on the connection hears a
+      failure that it did not cause, and the drive must find each such send at each deadline.
+    - A deadline for the send alone, under a new named limit. It is one more number for a caller to
+      size, and the lookup's deadline bounds the same wait.
+    - A sample as long as the wait. No query went out whole, so the wait says nothing of the time
+      that the server takes to answer.
+    - No failure for the deadline. A server that does not read the query fails the lookup as one
+      that does not answer it does.
+    - The connection shut at the deadline, at once, when its last lookup leaves during a send. The
+      held send would then go sooner, and the next server would count no failure that it did not
+      earn. The ruling named the idle close, so question 70 asks.
+
+    The model. The Lean model of the lookup holds `tcpReady` in `waiting`, so the deadline is an
+    event of that state. The proof `tcpReady_expires` shows that the deadline is enabled in
+    `tcpReady`, and that the lookup leaves the state. A reply in `tcpReady` is still the unmatched
+    reply alone (spec/README.md). The TLA+ model of the engine holds `tcpReady` in `Waiting`.
+    `LookupEvent` arms the deadline at `tcpConnected`, and `Settle` offers a lookup in `tcpReady`
+    as before. Two checks hold the rule. "ready armed": a lookup in `tcpReady` has a deadline
+    armed. "ready bounded": after the clock reaches its deadline, it is not in `tcpReady` on the
+    same try. The mutant RD1 puts back the old `Waiting`, and TLC finds "ready armed" broken. The
+    mutant RD13 arms the wait again at the deadline and keeps the lookup in `tcpReady`. TLC finds
+    "ready bounded" broken, and "ready armed" holds.
+
+    No named limit changes, and no entry point changes. A `Lookup` keeps its size.
+
+    §5, §17 questions 60 and 70, §19 step 13 (the stream's rules 1, 3, 4, 6 and 9), §21 (TLS rule
+    5).
+
 ## 17. Questions for the owner
 
 ### Settled on 2026-09-21
@@ -4421,6 +4544,8 @@ decision, and outside question 55. Each needs a peer that stops reading and keep
 
     Recommended: the second. The deadline bounds each other state that waits on a server, and the
     connection then ends as decision 49 ends an idle one. Until the owner rules, as built.
+    Answered on 2026-10-21: the second way. Built on 2026-10-24: §5, §16 decision 52. The test of
+    the review now ends at the lookup's deadline, and the idle close shuts the connection.
 61. **A DoH link whose send never ends.** The send of a channel's TCP link keeps no handle, so
     neither the link's `shut` nor its `cancel_all` can cancel it (`io/io_channel_link.zig`). A link
     that closes waits for that send to end (§24, request rule 19). A new opening of the link sends
@@ -4557,6 +4682,49 @@ that no run reaches, and one change to an exported module that the approval did 
     index: u16, result: Result }`, and `Result` is `union(enum) { answer: Answer, failed: Reason
     }`, in `cocuyo_doh` and in the twin's `sim.Channel`. colibri's own `Response.outcome` keeps
     its name, and so does the local name in `result_of` that reads it.
+
+### Asked on 2026-10-24, for the deadline of a ready lookup
+
+70. **A send held behind a send that never ends.** Since decision 52 a deadline ends
+    `tcp_ready`. The query's send still holds the lookup's send buffer until the send's final
+    event (the stream's rule 6). That event is the cancel's, after a drive shuts the connection, at
+    or after `tcp_idle_ns` from the instant the last lookup left it. No timer is armed for that
+    drive (decision 49). Each send that the slot asks for in that time is held:
+
+    - A try on a stream at the next server. Its connection comes up, and its query is held. Its
+      deadline comes before the idle close. So that server counts a failure that it did not earn,
+      and with one pass the lookup ends in `Timeout`. The twin test "a send never ends, and the try
+      at the next server waits for its buffer, as built" shows this in the clear, with a slot for
+      each server. Over TLS each server always has a slot of its own (TLS rule 6). So each setup of
+      two or more servers over TLS has this wait. That is read from the code, and no test ran it.
+    - A try by datagram at the next server, after a TC=1 answer. It waits in `query_ready`, where
+      no deadline bounds it. A probe on the twin, which left the tree, showed two cases. With a
+      drive at the bound, the datagram went 10 seconds after the first deadline, and the answer
+      came then. With no other event, the clock ran 1,020 seconds past the deadline, and the
+      datagram was still held.
+    - A new lookup that takes the same table slot. It has the same buffer, and waits in the same
+      way.
+
+    The same drive also frees the slot over TLS. That comes at or after twice `tcp_idle_ns`, since
+    the connection first closes with `close_notify` (TLS rule 5, decision 49). In an engine that
+    has no other event, no drive comes, and the slot does not free. Each lookup that joins the
+    connection also puts off the idle close, since a connection is idle only while no lookup is on
+    it.
+
+    The ways:
+
+    - As built: each such send waits for a drive after the idle close's wait.
+    - The drive shuts a connection at once when its last lookup leaves while a query's send is in
+      flight. The cancel's event then gives the buffer back on the next loop step. The drive does
+      not wait for the idle close, and over TLS no `close_notify` goes, since the peer does not
+      read. Mutation RD15 builds this way, and the twin test above catches it.
+    - The lookup's next send goes out from the octets that the engine holds for it, while the
+      send buffer is lent. A slot then has two sends in flight, which the stream's rules 6 and 7
+      do not allow.
+
+    Recommended: the second. A connection whose send did not end for a whole wait has a peer that
+    does not read, and no other lookup gains from it. The next server then counts no failure that
+    it did not earn, and no held send waits for a drive. Until the owner rules, as built.
 
 ## 18. The cache
 
@@ -5518,7 +5686,10 @@ of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
    loop all the same.
 3. A lookup is on a connection only while it is on a stream to that connection's server. The
    drive takes it off before acting on its poll when the poll shows it anywhere else: its
-   deadline passed, its connection failed, it moved to the next name, it ended.
+   deadline passed, its connection failed, it moved to the next name, it ended. Since 2026-10-24
+   a deadline ends `tcp_ready` too (§5, §16 decision 52). So a lookup whose query's send never
+   ends leaves its connection at its deadline. A query that has started stays at the head of the
+   queue until its send ends (rule 9), and the idle close shuts the connection (rule 4).
 4. A connection's users are the lookups on it. When the last leaves, the connection is idle from
    that instant, and one idle for `tcp_idle_ns` is closed by the drive at an instant that late.
    Since 2026-10-20 a TLS connection that closes is idle from the instant it began to close. The
@@ -5687,7 +5858,7 @@ socket opens may fail for the length of one event. A stream's send may come back
 message, its rest then whole or failed: a second short send takes the same path as the first.
 
 - The Lean walker, `cocuyo-spec engine` until it retired on 2026-09-24, walked every state the model
-  reached in a configuration and checked ten invariants in each. TLC checks forty-three now, the
+  reached in a configuration and checked ten invariants in each. TLC checks forty-five now, the
   request rules' of §24 and the channel's among them (spec/README.md). A connection's users are the
   lookups on it. A lookup is only on a connection to its server. A buffer is lent to one send at
   most. A connection and a socket each have at most one current operation of each kind. A drive

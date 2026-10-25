@@ -8,7 +8,8 @@
 //! close shuts a connection once it has closed for `tcp_idle_ns`. A `reinit`, a `deinit` and a
 //! retry in full end a connection too. Each way cancels the send, and the slot frees at the
 //! cancel's event (docs/design.md §16 decision 49). Split from `io_tcp_test.zig` by the
-//! file-length rule. The rig is the one `io_sim_test.zig` builds.
+//! file-length rule. The rig is the one `io_sim_test.zig` builds. `io_tcp_ready_test.zig` reads
+//! the helpers of the tests over TLS.
 const std = @import("std");
 const testing = std.testing;
 const cocuyo = @import("cocuyo");
@@ -20,6 +21,12 @@ const sim_test = @import("io_sim_test.zig");
 const tls_test = @import("io_tls_test.zig");
 const Rig = sim_test.Rig;
 const question = sim_test.question;
+
+// The tests of a query's send that never ends, which read the helpers below. `io.zig` is at the
+// file-length limit, so this file names them.
+test {
+    _ = @import("io_tcp_ready_test.zig");
+}
 
 /// Every query over TCP, one pass over the two servers, and a wait shorter than the hung connect.
 const one_pass: cocuyo.Config = .{
@@ -43,7 +50,7 @@ fn until_waiting(rig: anytype) !void {
 }
 
 /// The error of a result, or null for an answer.
-fn failure_of(result: anytype) ?cocuyo.Error {
+pub fn failure_of(result: anytype) ?cocuyo.Error {
     return if (result.outcome == .failure) result.outcome.failure.err else null;
 }
 
@@ -189,13 +196,13 @@ const TlsEngine = io.Resolver(.{
     .tcp_connections = 1,
     .tls = rotor.tls.Session,
 });
-const TlsOneSlot = sim_test.RigOfServers(TlsEngine, 1);
+pub const TlsOneSlot = sim_test.RigOfServers(TlsEngine, 1);
 
 /// The state of a connection slot of `TlsOneSlot`.
-const State = @typeInfo(@FieldType(TlsEngine, "connections")).array.child.State;
+pub const State = @typeInfo(@FieldType(TlsEngine, "connections")).array.child.State;
 
 /// A TLS rig of one server that speaks as `script` says, under a wait long enough for any step.
-fn start_tls(rig: *TlsOneSlot, seed: u64, script: rotor.server.Script) !void {
+pub fn start_tls(rig: *TlsOneSlot, seed: u64, script: rotor.server.Script) !void {
     try tls_test.encrypt(rig);
     try rig.init(seed, .{script}, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     rig.use_test_contexts();
@@ -203,7 +210,7 @@ fn start_tls(rig: *TlsOneSlot, seed: u64, script: rotor.server.Script) !void {
 
 /// Moves the twin's clock to `at`, each event before it applied, and drives the engine there, as
 /// the next event of any kind would.
-fn drive_at(rig: anytype, at: u64) !void {
+pub fn drive_at(rig: anytype, at: u64) !void {
     for (0..fixtures.until_rounds_max) |_| {
         if (rig.loop.now() >= at) break;
         _ = try rig.step(at - rig.loop.now());
@@ -213,14 +220,14 @@ fn drive_at(rig: anytype, at: u64) !void {
 }
 
 /// The peer of the first slot's connection stops reading, and keeps its side open.
-fn stall_first(rig: anytype) void {
+pub fn stall_first(rig: anytype) void {
     rig.loop.network().stall(rig.engine.connections[0].descriptor.?);
 }
 
 /// The first slot's connection closes, and its last send is in flight. At the drive just before
 /// the idle close's wait has passed since `since`, it still closes. At the first drive after it,
 /// the slot frees at the cancel's event (docs/design.md §16 decision 49).
-fn expect_shut_after_wait(rig: anytype, since: u64) !void {
+pub fn expect_shut_after_wait(rig: anytype, since: u64) !void {
     const connection = &rig.engine.connections[0];
     try testing.expect(connection.state == .closing and connection.sending);
     try testing.expectEqual(@as(u16, 1), rig.engine.tcp_waiters);

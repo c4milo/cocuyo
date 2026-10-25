@@ -276,6 +276,28 @@ test "a try over TLS that ran out is a sample, and a connect that ran out is non
     try expect_samples(&harness, 1, 1, 2 * second);
 }
 
+test "a try over TLS whose send never ended runs out at its deadline, a failure and no sample" {
+    // The connection comes up, and the lookup hands out its query, whose send never ends. Since
+    // 2026-10-24 the deadline ends `tcp_ready` too (docs/design.md §5, §16 decision 52). The server
+    // counts a failure. No query went out whole, so no wait for an answer began: no sample.
+    const tls: core.Tls = .{ .name = try core.Name.from_text("dns.example.") };
+    const encrypted = [_]core.Server{
+        .{ .endpoint = servers[0].endpoint, .tls = tls },
+        .{ .endpoint = servers[1].endpoint, .tls = tls },
+    };
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &encrypted, .failover_retry_chance = 0 } };
+    try harness.start("example.com.", .a, seed);
+    try testing.expect(harness.poll() == .connect_tcp);
+    harness.now_ns += 80 * millisecond;
+    harness.lookup.on_tcp_connected(harness.now_ns);
+    try testing.expect(harness.poll() == .send_tcp);
+    harness.now_ns = harness.lookup.deadline_ns - 1;
+    try testing.expect(harness.poll() == .connect_tcp);
+    try testing.expectEqual(@as(u8, 1), harness.lookup.server_slot());
+    try testing.expectEqual(@as(u8, 1), harness.servers.failures(0));
+    try expect_samples(&harness, 0, 0, 0);
+}
+
 test "a DoH or DoQ request that ran out is a sample as long as its wait" {
     const https: core.Https = .{ .template = "https://dns.example/dns-query{?dns}" };
     const quic: core.Tls = .{ .name = try core.Name.from_text("dns.example.") };

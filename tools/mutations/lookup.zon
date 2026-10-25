@@ -3395,4 +3395,60 @@
         },
         .caught_by = .{ .step = "test-resolver" },
     },
+    .{
+        .section = "The deadline of a ready lookup",
+        .id = "RD2",
+        .what = "no deadline ends tcp_ready, as until 2026-10-24, and settle asserts nothing of it",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "            .awaiting_udp, .awaiting_tcp, .connecting_tcp, .tcp_ready => true,\n            .query_ready, .tcp_needed, .done, .failed => false,", .new = "            .awaiting_udp, .awaiting_tcp, .connecting_tcp => true,\n            .query_ready, .tcp_needed, .tcp_ready, .done, .failed => false," },
+            .{ .file = "src/resolver/table_ready.zig", .old = "    assert(!ready or slot.lookup.is_waiting());\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The deadline of a ready lookup",
+        .id = "RD3",
+        .what = "settle offers no lookup in tcp_ready for its send",
+        .edits = .{
+            .{ .file = "src/resolver/table_ready.zig", .old = "    if (ready or !slot.lookup.is_waiting()) offer(self, index);", .new = "    if (!slot.lookup.is_waiting()) offer(self, index);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The deadline of a ready lookup",
+        .id = "RD4",
+        .what = "a deadline in tcp_ready is a sample, as long as the wait from the connect's end",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "    if (self.state == .awaiting_udp or self.state == .awaiting_tcp) {\n        const waited_ns = self.deadline_ns - self.sent_at_ns;", .new = "    if (self.state == .awaiting_udp or self.state == .awaiting_tcp or self.state == .tcp_ready) {\n        if (self.state == .tcp_ready) self.sent_at_ns = self.deadline_ns - self.config.timeout_ns;\n        const waited_ns = self.deadline_ns - self.sent_at_ns;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The deadline of a ready lookup",
+        .id = "RD5",
+        .what = "a deadline in tcp_ready counts no failure of the server",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "    self.servers.record_failure(slot, now_ns);\n    self.next_server(now_ns);", .new = "    if (self.state != .tcp_ready) self.servers.record_failure(slot, now_ns);\n    self.next_server(now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The deadline of a ready lookup",
+        .id = "RD6",
+        .what = "as RD2, against the replay of the committed slice of the lookup's transcript",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "            .awaiting_udp, .awaiting_tcp, .connecting_tcp, .tcp_ready => true,\n            .query_ready, .tcp_needed, .done, .failed => false,", .new = "            .awaiting_udp, .awaiting_tcp, .connecting_tcp => true,\n            .query_ready, .tcp_needed, .tcp_ready, .done, .failed => false," },
+            .{ .file = "src/resolver/table_ready.zig", .old = "    assert(!ready or slot.lookup.is_waiting());\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "The deadline of a ready lookup",
+        .id = "RD14",
+        .what = "settle puts no deadline of a lookup in tcp_ready in the bound",
+        .edits = .{
+            .{ .file = "src/resolver/table_ready.zig", .old = "    if (slot.lookup.is_waiting()) note_deadline(self, slot.lookup.deadline_ns);\n    if (ready", .new = "    if (slot.lookup.is_waiting() and !ready) note_deadline(self, slot.lookup.deadline_ns);\n    if (ready" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
 }

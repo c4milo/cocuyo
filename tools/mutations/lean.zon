@@ -234,4 +234,40 @@
         },
         .caught_by = .{ .step = "spec-lean" },
     },
+    .{
+        .section = "The deadline of a ready lookup",
+        .id = "RD9",
+        .what = "the model's waiting leaves out tcpReady, as until 2026-10-24",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .awaitingUdp | .connectingTcp | .tcpReady | .awaitingTcp => true\n", .new = "  | .awaitingUdp | .connectingTcp | .awaitingTcp => true\n" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "The deadline of a ready lookup",
+        .id = "RD10",
+        .what = "the proof that a deadline ends tcpReady rests on sorry",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/LookupProofs.lean", .old = "  refine ⟨by simp [enabled, h, waiting], ?_⟩\n  simp only [step, h, waiting, if_true]\n  rcases advanceServer_stage c s with hs | hs\n  · unfold fresh at hs\n    split at hs <;> simp [poll, hs]\n  · simp [poll, hs]\n", .new = "  sorry\n" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "The deadline of a ready lookup",
+        .id = "RD11",
+        .what = "the model offers each reply in tcpReady, where only the unmatched reply comes",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    ++ (if listens s.stage then replies else [Event.reply .unmatched])", .new = "    ++ (if waiting s.stage then replies else [Event.reply .unmatched])" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "The deadline of a ready lookup",
+        .id = "RD12",
+        .what = "the model's deadline in tcpReady leaves the lookup in tcpReady",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .expire => if waiting s.stage then poll c (advanceServer c s) else poll c s", .new = "  | .expire => if waiting s.stage ∧ s.stage ≠ .tcpReady then poll c (advanceServer c s) else poll c s" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
 }

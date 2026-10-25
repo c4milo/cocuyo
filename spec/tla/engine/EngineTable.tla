@@ -68,9 +68,13 @@ MapBag(B, F(_)) == [y \in {F(x) : x \in DOMAIN B} |-> SumOver({x \in DOMAIN B : 
 
 Stream == UseTcp \/ Tls
 Fresh == IF Stream THEN "tcpNeeded" ELSE "queryReady"
-Waiting(stage) == stage \in {"awaitingUdp", "connectingTcp", "awaitingTcp"}
+\* The stages that wait on a server, for its answer or for its connection.
+WaitsOnServer(stage) == stage \in {"awaitingUdp", "connectingTcp", "awaitingTcp"}
 Ended(stage) == stage \in {"done", "failed"}
 OnStream(stage) == stage \in {"connectingTcp", "tcpReady", "awaitingTcp"}
+\* The stages a deadline bounds. Since 2026-10-24 `tcpReady` waits for the deadline that
+\* `tcpConnected` arms, and its query's send does not stop it (§5, §16 decision 52).
+Waiting(stage) == WaitsOnServer(stage) \/ stage = "tcpReady"
 
 LFail(lk, err) == [lk EXCEPT !.stage = "failed", !.err = err, !.offered = FALSE]
 
@@ -104,14 +108,17 @@ LPoll(lk) ==
             <<[lk EXCEPT !.offered = TRUE], IF Request THEN "sendRequest" ELSE "sendUdp">>
       [] lk.stage = "tcpNeeded" -> <<[lk EXCEPT !.stage = "connectingTcp"], "connectTcp">>
       [] lk.stage = "tcpReady" -> <<[lk EXCEPT !.offered = TRUE], "sendTcp">>
-      [] Waiting(lk.stage) -> <<lk, "wait">>
+      [] WaitsOnServer(lk.stage) -> <<lk, "wait">>
       [] lk.stage = "done" -> <<lk, "done">>
       [] lk.stage = "failed" -> <<lk, "failed">>
+
+\* The deadline passed: a lookup that waits moves to the next server (§5).
+Expire(lk) == IF Waiting(lk.stage) THEN LPoll(AdvanceServer(lk)) ELSE LPoll(lk)
 
 \* One event on a lookup, and what it answers.
 LStep(lk, ev, r) ==
     CASE ev = "poll" -> LPoll(lk)
-      [] ev = "expire" -> IF Waiting(lk.stage) THEN LPoll(AdvanceServer(lk)) ELSE LPoll(lk)
+      [] ev = "expire" -> Expire(lk)
       [] ev = "sent" ->
             IF lk.stage = "queryReady"
             THEN <<[lk EXCEPT !.stage = "awaitingUdp", !.offered = FALSE], "none">>
@@ -207,8 +214,9 @@ ServerOf(st, l) ==
 
 Offer(st, l) == IF Contains(st.ready, l) THEN st ELSE [st EXCEPT !.ready = Append(@, l)]
 
+\* A lookup in `tcpReady` is offered for its send, and its deadline stands beside it.
 Settle(st, l) ==
-    IF st.slots[l].lookup = {} \/ Waiting(Get(st.slots[l].lookup).stage) THEN st
+    IF st.slots[l].lookup = {} \/ WaitsOnServer(Get(st.slots[l].lookup).stage) THEN st
     ELSE Offer(st, l)
 
 Unwait(st, l) == [st EXCEPT !.slots[l].remaining = 0]
@@ -240,6 +248,12 @@ ForgetAttempt(st, l) ==
     [forgot EXCEPT !.ops = MapBag(@, LAMBDA op :
         IF IsSend(op.kind) /\ op.target = l THEN [op EXCEPT !.current = FALSE] ELSE op)]
 
+\* Whether the event arms the lookup's deadline: a connect asked for, a query sent, a connection up.
+Rearms(ev, out, after) ==
+    \/ out = "connectTcp"
+    \/ ev = "sent" /\ after.stage \in {"awaitingTcp", "awaitingUdp"}
+    \/ ev = "tcpConnected" /\ after.stage = "tcpReady"
+
 \* One event on one lookup, through the table: the servers learn what it says of them, its wait
 \* follows it, and its send is forgotten when it drew a new transaction or ended.
 LookupEvent(st, l, ev, r) ==
@@ -266,7 +280,7 @@ LookupEvent(st, l, ev, r) ==
                     ELSE RecordSuccess(st, v)
               [] OTHER -> st
         kept == [counted EXCEPT !.slots[l].lookup = {after}]
-        rearmed == out = "connectTcp" \/ (ev = "sent" /\ after.stage \in {"awaitingTcp", "awaitingUdp"})
+        rearmed == Rearms(ev, out, after)
         cleared == IF Waiting(after.stage) /\ ~rearmed THEN kept
                    ELSE [kept EXCEPT !.slots[l].expired = FALSE]
         timed == IF Waiting(after.stage) THEN (IF rearmed THEN Arm(cleared, l) ELSE cleared)

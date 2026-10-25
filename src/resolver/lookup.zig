@@ -319,11 +319,12 @@ pub const Lookup = struct {
     }
 
     /// Whether the lookup is waiting for an instant to arrive, which is what a table's timer is
-    /// armed for.
+    /// armed for. Since 2026-10-24 `tcp_ready` waits for the deadline that `on_tcp_connected`
+    /// arms, and the query's send does not stop it (docs/design.md §5; §16 decision 52).
     pub fn is_waiting(self: *const Lookup) bool {
         return switch (self.state) {
-            .awaiting_udp, .awaiting_tcp, .connecting_tcp => true,
-            .query_ready, .tcp_needed, .tcp_ready, .done, .failed => false,
+            .awaiting_udp, .awaiting_tcp, .connecting_tcp, .tcp_ready => true,
+            .query_ready, .tcp_needed, .done, .failed => false,
         };
     }
 

@@ -74,15 +74,16 @@ pub fn withdraw(self: *Resolver, index: u16) void {
 }
 
 /// What an event leaves behind: a lookup with something to do goes on the ready list, and a
-/// lookup that is waiting takes its deadline into the bound.
+/// lookup that is waiting takes its deadline into the bound. A lookup in `tcp_ready` does both: it
+/// has its query to send, and its deadline bounds that state (docs/design.md §5; §16 decision 52).
 pub fn settle(self: *Resolver, index: u16) void {
     const slot = &self.slots.items[index];
     assert(slot.occupied);
-    if (slot.lookup.is_waiting()) {
-        note_deadline(self, slot.lookup.deadline_ns);
-    } else {
-        offer(self, index);
-    }
+    const ready = slot.lookup.state == .tcp_ready;
+    // A lookup ready to send on a stream waits for its deadline too.
+    assert(!ready or slot.lookup.is_waiting());
+    if (slot.lookup.is_waiting()) note_deadline(self, slot.lookup.deadline_ns);
+    if (ready or !slot.lookup.is_waiting()) offer(self, index);
 }
 
 pub fn note_deadline(self: *Resolver, deadline_ns: u64) void {
@@ -196,6 +197,58 @@ test "a poll that asks for a connection puts its deadline in the bound" {
     try testing.expect(table.poll().?.action == .connect_tcp);
     try testing.expectEqual(@as(u8, 1), table.resolver.lookup_of(handle).server_index);
     table.resolver.release(handle);
+}
+
+test "a lookup ready to send on a stream is offered once, and its deadline moves it on" {
+    // Every query over TCP. The connection comes up after the connect was asked, so the deadline it
+    // arms is later than the connect's. The lookup is offered for its send once, and the send never
+    // ends. Since 2026-10-24 the deadline bounds `tcp_ready` too (docs/design.md §5, §16 decision
+    // 52). The poll at the connect's deadline finds the later one, and at that one the lookup asks
+    // the next server.
+    var table: Table = .{ .config = .{ .servers = &servers, .use_tcp = true } };
+    table.open();
+    const handle = try table.start("example.com.");
+    try testing.expect(table.poll().?.action == .connect_tcp);
+    const connect_deadline = table.resolver.lookup_of(handle).deadline_ns;
+    table.now_ns += 10;
+    table.resolver.on_tcp_connected(handle, table.now_ns);
+    try testing.expect(table.poll().?.action == .send_tcp);
+    try testing.expectEqual(@as(?Event, null), table.poll());
+    const deadline = table.resolver.lookup_of(handle).deadline_ns;
+    try testing.expect(deadline > connect_deadline);
+    table.now_ns = connect_deadline - 1;
+    try testing.expectEqual(@as(?Event, null), table.poll());
+    try testing.expectEqual(@as(?u64, deadline), table.resolver.next_deadline_ns());
+    table.now_ns = deadline - 1;
+    try testing.expect(table.poll().?.action == .connect_tcp);
+    try testing.expectEqual(@as(u8, 1), table.resolver.lookup_of(handle).server_index);
+    table.resolver.release(handle);
+}
+
+test "a connection up while the bound is empty puts the deadline of the ready lookup in it" {
+    // Every query over TCP. The first lookup asks for its connection. At its deadline a poll
+    // offers it again, behind a second lookup that the caller cancelled. That poll empties the
+    // bound and hands out the end of the second. The connection then comes up before the next
+    // poll. The bound is never later than the soonest deadline (§11), so the deadline that the
+    // connection arms is in it at once (docs/design.md §16 decision 52).
+    var table: Table = .{ .config = .{ .servers = &servers, .use_tcp = true } };
+    table.open();
+    const first = try table.start("example.com.");
+    try testing.expect(table.poll().?.action == .connect_tcp);
+    const connect_deadline = table.resolver.lookup_of(first).deadline_ns;
+    const second = try table.start("example.net.");
+    table.resolver.cancel(second);
+    table.now_ns = connect_deadline - 1;
+    const ended = table.poll().?;
+    try testing.expect(ended.handle.index == second.index and ended.action == .failed);
+    try testing.expectEqual(@as(?u64, null), table.resolver.next_deadline_ns());
+    table.resolver.on_tcp_connected(first, table.now_ns);
+    const deadline = table.resolver.lookup_of(first).deadline_ns;
+    try testing.expect(deadline > table.now_ns);
+    try testing.expectEqual(@as(?u64, deadline), table.resolver.next_deadline_ns());
+    try testing.expect(table.poll().?.action == .send_tcp);
+    table.resolver.release(first);
+    table.resolver.release(second);
 }
 
 test "the table reports one deadline for every lookup waiting" {

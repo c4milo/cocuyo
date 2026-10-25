@@ -79,7 +79,7 @@
         .id = "ET1",
         .what = "lookups hear the connection is up before the handshake",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "            receive_again(self, @intCast(at));\n            return tls_module.begin(self, @intCast(at), now_ns);", .new = "            receive_again(self, @intCast(at));\n            tls_module.begin(self, @intCast(at), now_ns);\n            return tell_all(self, @intCast(at), now_ns, true);" },
+            .{ .file = "io/io_tcp.zig", .old = "            receive_again(self, @intCast(at));\n            return tls_module.begin(self, @intCast(at), now_ns);", .new = "            receive_again(self, @intCast(at));\n            tls_module.begin(self, @intCast(at), now_ns);\n            return tell_all(self, @intCast(at), now_ns, null);" },
         },
         .caught_by = .short_walks,
     },
@@ -686,7 +686,7 @@
         .id = "CE10",
         .what = "a link's socket that ends fails every request on its channel itself",
         .edits = .{
-            .{ .file = "io/io_channel_link.zig", .old = "    shut(self, server, at);\n    self.doh.slots[server].channel.link_ended(@enumFromInt(at));\n", .new = "    shut(self, server, at);\n    for (self.requests[0..]) |*request| {\n        if (request.live and request.server == server) {\n            self.resolver.on_request_failed(request.handle, request.transaction, now_ns);\n            request.live = false;\n        }\n    }\n    self.doh.slots[server].channel.link_ended(@enumFromInt(at));\n" },
+            .{ .file = "io/io_channel_link.zig", .old = "    shut(self, server, at);\n    self.doh.slots[server].channel.link_ended(@enumFromInt(at));\n", .new = "    shut(self, server, at);\n    for (self.requests[0..]) |*request| {\n        if (request.live and request.server == server) {\n            self.resolver.on_request_failed(request.handle, request.transaction, .closed, now_ns);\n            request.live = false;\n        }\n    }\n    self.doh.slots[server].channel.link_ended(@enumFromInt(at));\n" },
         },
         .caught_by = .short_walks,
     },
@@ -4315,5 +4315,43 @@
             .{ .file = "build/dot.zig", .old = "    const session = bind(graph, resolved, loop);\n", .new = "    graph.cocuyo_rotor.addImport(\"rotor\", loop.module(\"rotor\"));\n    const session = bind(graph, resolved, loop);\n" },
         },
         .caught_by = .{ .step = "test-chapulin" },
+    },
+    .{
+        .section = "The deadline of a ready lookup",
+        .id = "RD7",
+        .what = "as RD2, against the engine's tests on the twin",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "            .awaiting_udp, .awaiting_tcp, .connecting_tcp, .tcp_ready => true,\n            .query_ready, .tcp_needed, .done, .failed => false,", .new = "            .awaiting_udp, .awaiting_tcp, .connecting_tcp => true,\n            .query_ready, .tcp_needed, .tcp_ready, .done, .failed => false," },
+            .{ .file = "src/resolver/table_ready.zig", .old = "    assert(!ready or slot.lookup.is_waiting());\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The deadline of a ready lookup",
+        .id = "RD8",
+        .what = "as RD2, against the walks",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "            .awaiting_udp, .awaiting_tcp, .connecting_tcp, .tcp_ready => true,\n            .query_ready, .tcp_needed, .done, .failed => false,", .new = "            .awaiting_udp, .awaiting_tcp, .connecting_tcp => true,\n            .query_ready, .tcp_needed, .tcp_ready, .done, .failed => false," },
+            .{ .file = "src/resolver/table_ready.zig", .old = "    assert(!ready or slot.lookup.is_waiting());\n", .new = "" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "The deadline of a ready lookup",
+        .id = "RD15",
+        .what = "the last lookup to leave a connection during a send shuts it at once, the second way of question 70",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    if (connection.users == 0) connection.idle_since_ns = now_ns;\n}", .new = "    if (connection.users == 0) connection.idle_since_ns = now_ns;\n    if (connection.users == 0 and connection.sending) shut(self, at);\n}" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The deadline of a ready lookup",
+        .id = "RD16",
+        .what = "a lookup that leaves keeps its query that has not started in the queue, its buffer lent",
+        .edits = .{
+            .{ .file = "io/io_tcp_queue.zig", .old = "    if (connection.queue.sealed > 0 and head.slot == slot) return;\n    connection.queue.remove(slot);\n    send_module.give_back(self, index);\n", .new = "    if (connection.queue.sealed > 0 and head.slot == slot) return;\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
     },
 }

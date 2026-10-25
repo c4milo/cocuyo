@@ -8636,3 +8636,219 @@ change.
 | CX17 | the DoT example's engine, `cocuyo_rotor`, rooted in `io/`, imports stdx's `platform` | no module rooted in `io/` reaches stdx but through colibri | the second part of the graph check, at io/io.zig, `graph-check` | CAUGHT |
 
 Seven mutations, seven `CAUGHT`.
+
+## The deadline of a ready lookup
+
+2026-10-24. The owner answered docs/design.md §17 question 60 on 2026-10-21: the second way. A
+lookup in `tcp_ready` waits for its deadline too, as one in `awaiting_tcp` does. At the deadline
+the lookup moves on, and leaves its connection (§19 step 13, the stream's rule 3). The idle close
+then shuts the connection, and the shut cancels the send (§16 decision 49). Until now a peer that
+stopped reading held the lookup until the caller cancelled it. Over TLS it held the slot too.
+
+Design §5, §16 decision 52, §17 questions 60 and 70 and §19 step 13 changed first. Decision 52
+records the rule, the choices that the ruling did not make, and the alternatives that it beats.
+Then the Lean model, then the TLA+ model, then the tests, then the code.
+
+### What changed
+
+- The Lean model's `waiting` holds `tcpReady`, so `expire` is an event of that state. `listens`
+  keeps the stages where each reply comes, as `waiting` held them before. The proof
+  `tcpReady_expires` shows that the deadline is enabled in `tcpReady`, and that the lookup leaves
+  the state. `Spec/Axioms.lean` pins its axioms. The committed slice grew from 13,694 transitions
+  to 13,838, and the transcript from 19,921,682 to 20,512,658 (spec/README.md).
+- The TLA+ model's `Waiting` holds `tcpReady`, and `WaitsOnServer` the three stages before.
+  `LookupEvent` arms the deadline at `tcpConnected`. The check "ready bounded" holds the rule, and
+  `mutants/RD1` puts back the old `Waiting`.
+- `Lookup.is_waiting` holds `tcp_ready`. `ran_out` counts a failure there and takes no sample.
+  `settle` offers a lookup in `tcp_ready` for its send, and takes its deadline into the bound.
+  `settle` asserts that a lookup in `tcp_ready` waits.
+- The engine in `io/` did not change. Its drive already takes a lookup off its connection when
+  the poll shows it elsewhere, and its idle close already cancels the send.
+- The short walks and the picked walks were written again, and the picks were chosen again.
+- Two rows of `tools/mutations/engine.zon` no longer compiled: ET1 and CE10. Their edits named
+  calls whose arguments decision 51 changed. ET1 now tells the lookups with `null`, and CE10
+  fails each request with the reason `closed`. Each breaks its rule as before.
+
+### The tests, before the code
+
+Five tests came before the code. Each is in the file of what it tests:
+
+- `src/resolver/table_ready.zig`, a lookup ready to send on a stream is offered once, and its
+  deadline moves it on.
+- `src/resolver/lookup_latency_test.zig`, a try over TLS whose send never ended runs out at its
+  deadline, a failure and no sample.
+- `io/io_tcp_ready_test.zig`, three tests on the twin. Each has the peer stop reading before the
+  query goes, with the twin's `Network.stall`. In the clear with two servers, the lookup moves on
+  at its deadline, and the next server answers. In the clear with one server, the lookup fails in
+  `Timeout` at its deadline, and the idle close cancels the send. Over TLS with two passes, each
+  pass ends at its deadline, and the slot frees once the idle close has shut the connection.
+
+`io.zig` is at the file-length limit, so `io_tcp_wait_test.zig` names the new file, whose tests
+read its helpers. With the new slice and the old code:
+
+- `zig build test-resolver` failed the two tests: "expected 2000000011, found null" at the bound,
+  and "TestUnexpectedResult" at the poll at the deadline, `lookup_latency_test.zig:295`.
+- `zig build test-io` failed the three tests: `error.NoResult` from the rig's `until_result` in
+  the clear twice, and "expected 1, found 0" for the pass over TLS.
+- `zig build test-tools` stopped at the replay of the new slice: "panic: reached unreachable
+  code", at the assertion in `replay.zig:261` that the lookup waits.
+
+After the fix each passes.
+
+### What ran
+
+- The disk had 50 GB free before the first run, and 41 GB before the first run of the rows.
+- `zig build tla` over the five configurations of a stream that it checks on each push, and over
+  each of the 41 mutants. Each configuration holds, with the counts in spec/README.md, and each
+  mutant is violated, as its header expects. RD1 is among them.
+- TLC by hand found "ready bounded" broken at the third state of RD1's counterexample, in its
+  first part. The review below split that check in two.
+- `zig build tla -- walks 1 10 41` wrote the short walks: 23 of 130 changed. `zig build tla --
+  walks 1 2000 201` wrote the full run with the eighteen picks before, in 24 minutes while other
+  work ran. Ten of the picks changed.
+- This command ran the 87 rows that the walks catch, RD8 among them, and RD7, in 65 minutes:
+
+```sh
+zig build mutations -- engine --walks <full run> E1 E2 ... AS2 RD8 RD7
+```
+
+- Each row was `CAUGHT` but eight. ET1 and CE10 did not compile. E3, ET4, ET5, ET10, ET11 and TB9
+  were missed by the picks, and the full run caught each first at walks 8094, 16480, 16052, 16480,
+  16480 and 16789.
+- The tool named the full run's first walk for each row that the short walks miss: 4, 8, 13, 2002,
+  4020, 4212, 8006, 8094, 12003, 16003, 16008, 16016, 16052, 16135, 16480, 16789 and 24001. These
+  seventeen walks are `engine_picks` in `build/spec.zig` now, and `engine_picks.txt` holds them.
+- This command then ran the 20 rows that the picks catch, and ET1 and CE10 as written again, in
+  32 minutes. Each is `CAUGHT`:
+
+```sh
+zig build mutations -- engine --walks <full run> CE12 CE15 CE14 CE19 RW10 RW13 AS2 E3 SQ6 CL11 \
+    ET17 ET18 ET5 CL13 ET10 ET11 ET4 TB9 OA29 OA33 ET1 CE10
+```
+
+- This command ran the RD rows of the lookup, and eleven carried rows whose edits are in the lines
+  that this change touched or beside them, in 3 minutes. Each is `CAUGHT`:
+
+```sh
+zig build mutations -- lookup S14 S16 S3 FR2 FR3 DT32 DT33 DT34 DT39 LC10 LS10 RD2 RD3 RD4 RD5 RD6
+```
+
+- `zig build mutations -- lean RD9 RD10 RD11 RD12`, in 3 minutes. Each is `CAUGHT`.
+- RD2 to RD5 and RD7 ran by hand too, and RD9 to RD12 in copies of `spec/lean/`. The texts in the
+  rows come from there.
+- `zig build test`: 1,196 tests pass of 1,196, in 140 steps. `zig build lint` passes, with each
+  function at a complexity of 15 or less. `zig build examples` builds each example.
+- `zig build spec` passes, in 41 minutes. The lookup's transcript replays its 20,512,658 events.
+  The full run agrees with the engine over 5,226,000 events in 26,000 walks.
+- `zig build tla` ran last and alone, in 2 hours 44 minutes. Each of the 15 configurations held,
+  and each of the 41 mutants was violated, as its header expects. The two nightly configurations
+  over TLS hold 6,661,256 and 22,205,523 states (spec/README.md).
+- A probe of §17 question 70 ran on the twin, and then left the tree. A lookup came to the stream
+  from a datagram with TC=1, and its send never ended. At its deadline it went back to UDP at the
+  second server, and its datagram was held for the send buffer. With a drive at the idle close's
+  bound, the datagram went 10 seconds after the deadline, and the answer came. With no other
+  event, the datagram was still held 1,020 seconds after the deadline.
+
+### The instruction counts
+
+`bench/count.zig` counts `round-trip` and `match-accept`, which reach the changed code.
+`round-trip` polls a lookup, and `poll` reads `is_waiting`, which now holds one state more.
+`match-accept` accepts an answer, and the table's `settle` reads the state, asserts, and calls
+`is_waiting` twice. So `match-accept` can move by a few instructions, and `round-trip` by one or
+two. The other cases do not reach the changed code. That is an estimate, not a measurement: the
+counts need valgrind, which runs on Linux alone. `bench/instructions.zon` did not change.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| RD1 | the model's `Waiting` leaves out `tcpReady`, as until 2026-10-24 | §5: a deadline ends `tcpReady` | TLC's check "ready armed" on `mutants/RD1`, at the third state of its counterexample, `zig build tla` | CAUGHT |
+| RD2 | no deadline ends `tcp_ready`, as until 2026-10-24, and `settle` asserts nothing of it | `is_waiting` holds `tcp_ready` | the test of the table: "expected 2000000011, found null"; the test of the latency: "TestUnexpectedResult" at the poll at the deadline, `test-resolver` | CAUGHT |
+| RD3 | `settle` offers no lookup in `tcp_ready` for its send | `settle` offers it, and takes its deadline into the bound | the test of the table: "panic: attempt to use null value", at the poll that asks for the send, `test-resolver` | CAUGHT |
+| RD4 | a deadline in `tcp_ready` is a sample, as long as the wait from the connect's end | the deadline takes no sample | the test of the latency: "expected 0, found 1", `test-resolver` | CAUGHT |
+| RD5 | a deadline in `tcp_ready` counts no failure of the server | the deadline counts a failure | the test of the latency: "expected 1, found 0", `test-resolver` | CAUGHT |
+| RD6 | as RD2, against the replay of the committed slice of the lookup's transcript | the code follows the model's `expire` in `tcpReady` | the replay of the slice and of the walks, `test-tools` | CAUGHT |
+| RD7 | as RD2, against the engine's tests on the twin | the engine moves a lookup on at its deadline, and the idle close cancels the send | the three tests of `io_tcp_ready_test.zig`: `error.NoResult` twice, and "expected 1, found 0", `test-io` | CAUGHT |
+| RD8 | as RD2, against the walks | the replay writes a lookup in `tcp_ready` among the lookups that wait | the short walks, at walk 42 | CAUGHT |
+| RD9 | the model's `waiting` leaves out `tcpReady`, as until 2026-10-24 | §5 in the model | the proof `tcpReady_expires`: "unsolved goals", `spec-lean` | CAUGHT |
+| RD10 | the proof that a deadline ends `tcpReady` rests on `sorry` | the axiom pins | the pin of `tcpReady_expires`: "depends on axioms: [propext, sorryAx]", `spec-lean` | CAUGHT |
+| RD11 | the model offers each reply in `tcpReady`, where only the unmatched reply comes | `listens` | the check of the committed slice: "is not the slice the model writes", `spec-lean` | CAUGHT |
+| RD12 | the model's deadline in `tcpReady` leaves the lookup in `tcpReady` | §5 in the model | the proof `tcpReady_expires`: "unsolved goals", `spec-lean` | CAUGHT |
+
+ET1 and CE10, as written again, are `CAUGHT` by the short walks, at walks 82 and 2. The carried
+rows and the rows that the walks catch are `CAUGHT` (What ran, above).
+
+The review below adds a row for the deadline that `settle` takes into the bound, RD14, and changes
+the check that catches RD1.
+
+### After the review
+
+A review of the change found one defect in the design and five gaps. The design changed first,
+then the TLA+ model, then the tests. The code did not change but for one assertion.
+
+- The design did not say what a held send costs. The lookup's send buffer stays lent to the send
+  that never ends. So a try on a stream at the next server has its query held, and its deadline
+  ends it. That server counts a failure that it did not earn. With one pass the lookup ends in
+  `Timeout`, though the server is up. Over TLS each server has a slot of its own, so each setup of
+  two or more servers has this wait. Decision 52 now says so, and §17 question 70 now asks the
+  owner about each held send: a try on a stream, a datagram, and a new lookup in the same slot.
+  The question also says that the TLS slot frees only at a drive, for which no timer is armed.
+- The check "ready bounded" was two checks in one, and RD1 broke only the first part. It is two
+  checks now: "ready armed" and "ready bounded". TLC checks forty-five. RD1 breaks "ready armed".
+  The new mutant RD13 keeps `Waiting`, and at the deadline arms the wait again and keeps the
+  lookup in `tcpReady`. It breaks "ready bounded" alone. For it, `Expire` and `Rearms` are
+  definitions of their own in `EngineTable.tla`. They hold what `LStep` and `LookupEvent` held.
+- `settle` takes the deadline of a lookup in `tcp_ready` into the bound, and no test broke without
+  it. A test shows it now. A connection can come up while the bound is empty and the lookup waits
+  on the ready list. The bound is never later than the soonest deadline (design §11), so the
+  deadline is in it at once.
+- No twin test showed that the connection's other lookups keep their own deadlines. One does now.
+- `ran_out` lost the assertion that the change added. `expired` implies it, so it could not fire.
+- Two prose lines were over 100 columns, and the doc comment of `listens` did not say why
+  `connectingTcp` keeps every reply. Each is fixed.
+
+### The tests of the review
+
+Each is in the file of what it tests:
+
+- `src/resolver/table_ready.zig`, a connection up while the bound is empty puts the deadline of
+  the ready lookup in it. With RD14, `zig build test-resolver` failed it: "expected 4000000001,
+  found null".
+- `io/io_tcp_ready_test.zig`, a send never ends, and the try at the next server waits for its
+  buffer, as built. It records what question 70 asks about, with a connection slot for each of two
+  servers. RD15 builds the second way of question 70, and `zig build test-io` failed the test:
+  "expected error.Timeout, found null".
+- `io/io_tcp_ready_test.zig`, the other lookups on a connection whose send never ends keep their
+  own deadlines. The first lookup gets its answer. The second's query has started, and stays at the
+  head of the queue. The third's query leaves the queue at its deadline, and its buffer comes back
+  at once. With RD16, `zig build test-io` failed the test: "TestUnexpectedResult" at
+  `io_tcp_ready_test.zig:122`, where the third's buffer must be back.
+
+### What ran after the review
+
+- TLC by hand found "ready armed" alone broken at the third state of RD1's counterexample, and
+  "ready bounded" alone broken at the fourth state of RD13's.
+- `zig build tla` over `mutants/RD13`, `mutants/RD1` and `Engine_tcp_1_1_bound_4_1`: both
+  mutants are violated, and the configuration holds 21,071 states, as before.
+- `zig build tla -- walks 1 10 41` wrote the short walks, and the full run wrote the picks. Both
+  are the octets that the tree holds, so the walks did not change. The engine's code did not
+  change either, so the 87 rows that the walks catch were not run again.
+- `zig build mutations -- lookup RD2 RD3 RD4 RD5 RD6 RD14` and the eleven carried rows of the
+  first run, in 2 minutes. Each is `CAUGHT`.
+- `zig build mutations -- engine RD7 RD8 RD15 RD16 ET1 CE10`, in 2 minutes. Each is `CAUGHT`.
+- `zig build mutations -- lean RD9 RD10 RD11 RD12`, in 1 minute. Each is `CAUGHT`.
+- `zig build test`: 1,199 tests pass of 1,199, in 140 steps. `zig build lint` and `zig build
+  examples` pass.
+- `zig build spec` passes, in 10 minutes, with the counts of the first run.
+- `zig build tla` then ran last and alone.
+
+### The rows of the review
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| RD13 | the model's deadline of a lookup in `tcpReady` arms the wait again, and keeps the lookup there | §5: a deadline ends `tcpReady` | TLC's check "ready bounded" alone on `mutants/RD13`, at the fourth state of its counterexample, `zig build tla` | CAUGHT |
+| RD14 | `settle` puts no deadline of a lookup in `tcp_ready` in the bound | the bound is never later than the soonest deadline | the test of the bound: "expected 4000000001, found null", `test-resolver` | CAUGHT |
+| RD15 | the last lookup to leave a connection during a send shuts it at once, the second way of question 70 | the idle close shuts the connection, as the ruling says | the test of the next server: "expected error.Timeout, found null", `test-io` | CAUGHT |
+| RD16 | a lookup that leaves keeps its query that has not started in the queue, its buffer lent | that query leaves the queue, and its buffer comes back | the test of the other lookups: "TestUnexpectedResult" at `io_tcp_ready_test.zig:122`, `test-io` | CAUGHT |
+
+Sixteen mutations, sixteen `CAUGHT`.

@@ -45,8 +45,10 @@ fn expired(self: *const Lookup, now_ns: u64) bool {
 /// the wait the try used, from the send to the deadline, a later pass's doubled wait included.
 /// No RFC states this: it is the owner's ruling of 2026-10-09 (docs/design.md §5, §17 question
 /// 26), so that a server whose latency rose past its wait has its wait rise with it. A connect
-/// that ran out sent no query, so it measured no wait for an answer and is no sample. Nor is a
-/// try that a reply to it marked, by the owner's ruling of 2026-10-17 (§16 decision 50).
+/// that ran out sent no query, so it measured no wait for an answer and is no sample. Neither is a
+/// deadline in `tcp_ready`, whose query's send did not end, by the owner's ruling of 2026-10-21
+/// (§16 decision 52). Nor is a try that a reply to it marked, by the owner's ruling of 2026-10-17
+/// (§16 decision 50).
 fn ran_out(self: *Lookup, now_ns: u64) void {
     assert(expired(self, now_ns));
     const slot = self.server_slot();

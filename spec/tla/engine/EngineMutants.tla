@@ -4,7 +4,8 @@
 \* stream's rule 9 as TQ1 breaks it, the request rules of §24 as RQ1 to RQ11 and RQ14 break them,
 \* the channel's rules as CH1 to CH10 do, and the datagram's rules 4 and 6 as OA34 does. TS11 to
 \* TS13 and TS18 break the stream's rule 12, and TB5 and TB8 break TLS rule 3 for a query's send.
-\* CL5 breaks TLS rule 5's bound on a connection that closes.
+\* CL5 breaks TLS rule 5's bound on a connection that closes. RD1 and RD13 break §5's deadline of
+\* `tcpReady` (§16 decision 52).
 \* A configuration in mutants/ puts one in place of the rule with TLC's `Rule <- Mutant`, and TLC
 \* must find the check that catches it.
 EXTENDS Engine
@@ -358,5 +359,22 @@ CloseIdlePassingFrom(st, k) ==
     IN CloseIdlePassingFrom(closed, k + 1)
 
 CloseIdlePassing(st) == CloseIdlePassingFrom(st, 0)
+
+\* RD1: no deadline bounds `tcpReady`, as until 2026-10-24. A lookup whose query's send never ends
+\* then stays in that stage for as long as the send.
+WaitingUnbounded(stage) == WaitsOnServer(stage)
+
+\* RD13: the deadline of a lookup in `tcpReady` arms the wait again, and leaves the lookup in that
+\* stage on the same try. Its deadline stays armed, so "ready armed" holds, and "ready bounded"
+\* alone catches it.
+ExpireKeepingReady(lk) ==
+    IF lk.stage = "tcpReady" THEN <<lk, "wait">>
+    ELSE IF Waiting(lk.stage) THEN LPoll(AdvanceServer(lk)) ELSE LPoll(lk)
+
+RearmsReady(ev, out, after) ==
+    \/ out = "connectTcp"
+    \/ ev = "sent" /\ after.stage \in {"awaitingTcp", "awaitingUdp"}
+    \/ ev = "tcpConnected" /\ after.stage = "tcpReady"
+    \/ ev = "expire" /\ after.stage = "tcpReady"
 
 ===============================================================================

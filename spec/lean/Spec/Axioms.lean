@@ -21,6 +21,9 @@ namespace Spec.Lookup
 /-- info: 'Spec.Lookup.cancel_before_end' depends on axioms: [propext] -/
 #guard_msgs in #print axioms cancel_before_end
 
+/-- info: 'Spec.Lookup.tcpReady_expires' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms tcpReady_expires
+
 /-- info: 'Spec.Lookup.useTcp_never_udp' depends on axioms: [propext] -/
 #guard_msgs in #print axioms useTcp_never_udp
 
