@@ -66,7 +66,8 @@ pub fn write(world: anytype, out: *[world_module.text_bytes_max]u8) []const u8 {
 }
 
 /// A connection: its stage, server and users, whether it went idle now and a head went short,
-/// its queue, and over TLS how many entries are sealed and whether this opening resumes (§21).
+/// its queue, ` X` when it is marked (§16 decision 54), and over TLS how many entries are sealed
+/// and whether this opening resumes (§21).
 fn connection_text(line: *Line, world: anytype, connection: anytype) void {
     line.print("{s} s{d} u{d}", .{ @tagName(connection.state), connection.server, connection.users });
     line.flag(connection.state != .closed and connection.idle_since_ns == world.now_ns, 'I');
@@ -78,6 +79,7 @@ fn connection_text(line: *Line, world: anytype, connection: anytype) void {
         if (entry.is_query()) line.print("{d}", .{entry.slot}) else line.print("r", .{});
     }
     line.print("]", .{});
+    if (connection.marked) line.print(" X", .{});
     if (!world.config.uses_tls()) return;
     line.print(" k{d}", .{connection.queue.sealed});
     line.flag(connection.tls.ticket != null, 'M');

@@ -9005,3 +9005,190 @@ What ran:
 
 The doc comments of `reads` and `connect` in `io/io_tcp.zig` stay short. They say what they said
 before, and the file stays at 500 lines.
+
+## A connection no lookup may join
+
+2026-10-25. The owner answered docs/design.md §17 questions 71 and 72 on 2026-10-25. Question 71:
+the third way. When a lookup leaves a connection while its query's send is in flight, and another
+lookup stays, no lookup joins that connection. The lookups on it end by their own deadlines, and
+the last leave ends it. A new lookup to that server opens a new connection, in a free slot, or
+waits for a slot. Question 72: as built. A refused record still sends its alert (RFC 9846 §6.2),
+and the code does not change for it.
+
+Design §16 decision 54 records the rule, the choices that the ruling did not make, and the
+alternatives that it beats. Decisions 46 and 53 point to it, and so do the stream's rules 1, 3 and
+12 and TLS rules 5 and 6. The design changed first, then the TLA+ model, then the tests, then the
+code.
+
+### What changed
+
+- The TLA+ model's connection holds `marked`. `MarkLeft` sets it in `Release`. `FindConn` passes
+  over a marked connection, and `Want` waits for its slot. `Leave` ends a marked connection at its
+  last leave. The checks "joins no marked", "left marked" and "marked held" hold the rule, and
+  `mutants/NJ1` to `mutants/NJ3` break it (spec/README.md).
+- `io/io_tcp_mark.zig` holds the code of the mark. `tcp.release` calls `leave` after the shut of
+  decision 53. `leave` marks the connection when the lookup that left has its query's send in
+  flight there, and a lookup stays. At the last leave of a marked connection, `close_now` shuts it
+  in the clear, and over TLS says `close_notify` (`io_tls.say_close_notify`).
+- `find` in `io/io_tcp.zig` passes over a marked connection. `want` waits for the slot of a marked
+  connection when no slot is free or pending (`holds_slot`).
+- The drive asserts the rule after its polls, in `assert_marks`. A marked connection is up with a
+  lookup on it, or it closes. And a connection that is up, whose head is a query whose send is in
+  flight, has that query's lookup on it, or it is marked.
+- `io_tls.close` keeps its assertion that the idle close's wait has passed. Its body moved to
+  `say_close_notify`, which the last leave of a marked connection calls with no wait.
+- The trace and the replay write ` X` after the queue of a marked connection
+  (`EngineTrace.tla`, `tools/spec_replay/engine_text.zig`).
+- The picked walks were written again, and the picks were chosen again.
+
+### The tests, before the code
+
+Each is in `io/io_tcp_mark_test.zig`, which `io/io_tcp_wait_test.zig` names:
+
+- In the clear with two slots, a lookup leaves during its query's send, and another stays. A new
+  lookup to the same server opens the second slot, and the server answers it there.
+- The same over TLS, where the server then has two connections (TLS rule 6).
+- In the clear with one slot, the new lookup waits for the marked connection's slot. The last
+  leave shuts the connection, and the drive's end admits the new lookup.
+- The same over TLS with one slot. The slot is pending until the cancel's event.
+- A cancel's leave during the lookup's query's send marks the connection, and the other lookup
+  stays for its answer. That send ends, and the last leave shuts the connection at once.
+- The same over TLS, where the last leave says `close_notify` at once.
+- A lookup that leaves while another lookup's query is in flight marks nothing, and a new lookup
+  joins the connection. This test holds a choice of decision 54. The old code marks nothing, so it
+  keeps that choice too. The test came after the first run, so that run has 213 tests.
+
+With the old code, `zig build test-io` passed 207 tests of 213, and failed six. The lines are
+those of the checks in the file as it is now:
+
+- the four tests of a new lookup: "expected null, found error.Timeout", at
+  `io_tcp_mark_test.zig:130` with two slots and at `io_tcp_mark_test.zig:154` with one, where
+  the new lookup must have its answer;
+- the two tests of the last leave: "TestUnexpectedResult", at `io_tcp_mark_test.zig:257` where
+  the connection must be closed, and at `io_tcp_mark_test.zig:268` where it must be closing.
+
+The first two forms of the tests did not test what they said. The twin's peer that stops reading
+never reads again, so a send to it never ends. So a test that wanted the send to end after the mark
+never saw it end. The cancel of a lookup during its own query's send now makes that mark. And the
+test of the wait for a slot required that the server count one failure, but the new lookup's answer
+clears that count. It now requires the answer on the slot.
+
+### What ran
+
+- The disk had 80 GB free before the first run, and 69 GB after the last.
+- `zig build tla` over the five configurations of a stream that CI checks on each push, and over
+  each mutant of a stream: NJ1 to NJ3, CL5, OA34, R4a, R4b, R8a to R8d, RD1, RD13, SH1, TB5, TB8,
+  TM1 to TM3, TQ1, TS11 to TS13 and TS18. Each configuration holds, with the counts in
+  spec/README.md, and each mutant is violated, in 28 minutes. TLC by hand, with one worker, found
+  "joins no marked" broken at the eighth state of NJ1's counterexample, "left marked" at the fifth
+  of NJ2's, and "marked held" at the eighth of NJ3's. TQ1 still breaks "queued for its lookup"
+  alone, and SH1 "held bounded" alone.
+- TLC over the nightly `Engine_tls_2_2_bound_2_1` by hand, with six workers, in 1 hour 42 minutes:
+  it holds, with 18,790,144 states. `Engine_tls_1_2_bound_3_1` has one lookup, so it reaches no
+  mark, and it did not run.
+- `zig build tla -- walks 1 10 41` wrote the short walks, and none of the 130 changed.
+- `zig build tla -- walks 1 2000 201` wrote the full run with the eighteen picks before, in 42
+  minutes. One pick changed, walk 12003, and 365 walks mark a connection.
+- `zig build mutations -- engine --walks <full run>` ran each of the 88 rows that the walks catch,
+  and NJ4 to NJ15, in 1 hour 11 minutes. Each of the 88 was `CAUGHT`, and so was each of NJ4 to NJ9
+  and NJ11. NJ10 did not compile: its first edit left `now_ns` unused. The short walks missed NJ12
+  to NJ15. The picks caught NJ13 at walk 12003, and the full run caught NJ12, NJ14 and NJ15 first
+  at walks 12338, 12392 and 12004.
+- These three walks came in, and the picks are twenty-one: `engine_picks` in `build/spec.zig` and
+  `engine_picks.txt`. Each picked walk is the full run's walk of that number.
+- With NJ10 fixed and NJ12 to NJ15 caught by the picked walks, this command ran 33 rows, in 22
+  minutes. Each is `CAUGHT`:
+
+```sh
+zig build mutations -- engine --walks <full run> NJ10 E3 E4 E5 ET3 ET4 ET5 ET6 ET8 ET10 ET11 \
+    ET14 ET17 ET18 SQ6 SQ10 RW6 RW10 RW13 CE12 CE14 CE15 CE19 OA29 OA33 TB9 CL11 CL13 AS2 NJ12 \
+    NJ13 NJ14 NJ15
+```
+
+- NJ4 to NJ11 ran by hand too, and the texts in the rows come from there.
+- `zig build test`: 1,209 tests pass of 1,209, in 140 steps. `zig build lint` passes, with each
+  function at a complexity of 15 or less. `zig build examples` builds each example.
+- `zig build spec-engine`, in 11 minutes. The committed short walks and the twenty-one picks are
+  the ones that TLC writes. The full run agrees with the engine over 5,226,000 events in 26,000
+  walks.
+- The Lean model of the lookup did not change, so `zig build spec` did not run.
+
+### After the review
+
+A review of the change on 2026-10-25 found nothing that it had to fix, and asked for six things.
+Each is done:
+
+- `io/io_tcp_wait.zig` said that over TLS a slot is free or pending. It now says free, pending or
+  marked, and names decision 54.
+- The model had no mutant of the wait for a marked slot, nor of the `close_notify` over TLS at the
+  last leave. `Leave` now ends a marked connection through `EndMarked`, and the check "marked
+  said" holds its TLS branch. `slotless` is now set when a lookup is told that its connection
+  failed while a marked connection holds a slot. NJ16 to NJ18 break the two rules.
+- The wait for a marked slot in the clear goes past the ruling, which named a free or pending slot.
+  §17 question 73 asks the owner, and decision 54 says so. Until the owner rules, as built.
+- No configuration that CI checks on each push reached a mark over TLS. `Engine_tls_2_1_bound_2_1`
+  does, with one server, two lookups and one connection. A row as NJ10 against the walks ran too,
+  and was `NOT CAUGHT`: the short walks, the picks and the full run all missed it. Two walks of the
+  full run mark a TLS connection, and neither reaches a last leave of it with its sends ended. No
+  walk can catch that row, so it is not kept. NJ10's test and NJ18 hold the rule.
+- Three places of prose changed: "delayed" in place of "put off", and no idiom.
+- `holds_slot` asserts that a marked connection is up with a lookup on it, or closes. And
+  `left_during_send` asserts that the release took the lookup off, with a lookup still on the
+  connection. NJ19 moves that release after the mark, and the assertion fails.
+
+With the two new assertions the rows NJ6 and NJ7 panic in `assert_marks` at new lines: 78 and 75.
+NJ11's edit discarded `index`, which the new assertion now reads, so its first run did not compile.
+Its edit now keeps `index`. NJ8 still fails by its two tests, and `holds_slot` does not see it.
+
+What ran after the review:
+
+- TLC by hand on the push configurations of a stream, with four workers: each holds the states it
+  held. `Engine_tls_2_1_bound_2_1` holds 142,068 states, in 24 seconds. TLC by hand, with one
+  worker: NJ16 breaks "slot waited for" at the fifth state of its counterexample, and NJ17 at the
+  eleventh. NJ18 breaks "marked said" at the eleventh. NJ1 to NJ3, TQ1 and SH1 each still break
+  their one check alone, at the states above.
+- `zig build tla -- walks 1 10 41` wrote the short walks, and they are the committed ones.
+- The rows NJ4 to NJ11 and NJ19 by hand, with `zig build test-io`, for the texts in the rows.
+- `zig build mutations -- engine --walks <full run>` over NJ4 to NJ15, NJ19 and each of the 88
+  rows that the walks catch, 101 rows in 62 minutes. Each is `CAUGHT`, and the picks are the same
+  twenty-one walks.
+- `zig build test`: 1,209 tests pass of 1,209, in 140 steps. `zig build lint` and `zig build
+  examples` pass. `zig build spec-engine` passes in 18 minutes: the committed walks are the ones
+  that TLC writes, and 5,226,000 events over 26,000 walks agree with the model.
+- Last and alone in the tree, the full `zig build tla`, in 1 hour 52 minutes. Each of the 16
+  configurations holds, `Engine_tls_2_2_bound_2_1` with 18,790,144 states as before. Each of the
+  49 mutants is violated, NJ16 to NJ18 among them.
+
+### The instruction counts
+
+`bench/count.zig` imports `cocuyo` and `wire` alone, and no counted case runs the engine. This
+change touches the engine in `io/` and no file of `src/`. So no count can move, and
+`bench/instructions.zon` did not change.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| NJ1 | the model's `FindConn` takes a marked connection, as each lookup did until 2026-10-25 | §16 decision 54: no lookup joins a marked connection | TLC's check "joins no marked" on `mutants/NJ1`, at the eighth state of its counterexample, `zig build tla` | CAUGHT |
+| NJ2 | the model's `MarkLeft` marks nothing | a leave during the lookup's own query's send, while another lookup stays, marks the connection | TLC's check "left marked" on `mutants/NJ2`, at the fifth state of its counterexample, `zig build tla` | CAUGHT |
+| NJ3 | the model's `Leave` leaves a marked connection up at its last leave | the last leave ends a marked connection at once | TLC's check "marked held" on `mutants/NJ3`, at the eighth state of its counterexample, `zig build tla` | CAUGHT |
+| NJ4 | `find` joins a marked connection | no lookup joins a marked connection | the four tests of a new lookup: "expected null, found error.Timeout" at `io_tcp_mark_test.zig:130` with two slots and at `io_tcp_mark_test.zig:154` with one, `test-io` | CAUGHT |
+| NJ5 | a leave during the lookup's own query's send, while another stays, marks nothing, and the drive's assertion goes | that leave marks the connection | six tests: the four of a new lookup, "expected null, found error.Timeout"; the two of the last leave, "TestUnexpectedResult" at `io_tcp_mark_test.zig:257` and `io_tcp_mark_test.zig:268`, `test-io` | CAUGHT |
+| NJ6 | as NJ5, and the drive's assertion stays | the drive asserts that a query's send in flight on a connection that is up has its lookup on it, or the connection is marked | seven tests: "panic: reached unreachable code" at `io_tcp_mark.zig:78`, in `assert_marks`, the test of a leave during another lookup's send among them, `test-io` | CAUGHT |
+| NJ7 | the last leave of a marked connection whose send ended leaves it up, and the drive's assertion stays | the drive asserts that a marked connection is up with a lookup on it, or it closes | the two tests of the last leave: "panic: reached unreachable code" at `io_tcp_mark.zig:75`, in `assert_marks`, `test-io` | CAUGHT |
+| NJ8 | as NJ7, and that assertion goes | the last leave ends a marked connection at once | the two tests of the last leave: "TestUnexpectedResult" at `io_tcp_mark_test.zig:257`, where the connection must be closed, and at `io_tcp_mark_test.zig:268`, where it must be closing, `test-io` | CAUGHT |
+| NJ9 | a lookup that can have no other slot does not wait for a marked connection's slot | that lookup waits for the slot (the stream's rule 12) | the two tests of the wait for a slot: "expected 1, found 2" at `io_tcp_mark_test.zig:151`, where the next result is the new lookup's failure, `test-io` | CAUGHT |
+| NJ10 | over TLS the last leave of a marked connection whose send ended shuts it, with no `close_notify` | over TLS the session says `close_notify` first (RFC 9846 §6.1) | the test over TLS of the last leave: "TestUnexpectedResult" at `io_tcp_mark_test.zig:268`, `test-io` | CAUGHT |
+| NJ11 | a leave during any query's send marks the connection, another lookup's among them | only a leave during the lookup's own query's send marks it | the test of a leave during another lookup's send: "expected 0, found 1" at `io_tcp_mark_test.zig:209`, `test-io` | CAUGHT |
+| NJ12 | as NJ4, against the walks | the replay writes a marked connection that no lookup joins | the picked walks, at walk 12338 of the full run | CAUGHT |
+| NJ13 | as NJ5, against the walks | the replay writes ` X` after a marked connection's queue | the picked walks, at walk 12003 of the full run | CAUGHT |
+| NJ14 | as NJ8, against the walks | the replay writes a marked connection closed at its last leave | the picked walks, at walk 12392 of the full run | CAUGHT |
+| NJ15 | as NJ9, against the walks | the replay writes a lookup that waits for a marked connection's slot | the picked walks, at walk 12004 of the full run | CAUGHT |
+| NJ16 | the model's `Want` tells a lookup in the clear that can have no other slot that its connection failed, though a marked connection holds a slot | §16 decision 54: that lookup waits for the marked slot (§17 question 73) | TLC's check "slot waited for" on `mutants/NJ16`, at the fifth state of its counterexample, `zig build tla` | CAUGHT |
+| NJ17 | as NJ16, over TLS, with one server, two lookups and one connection | over TLS that lookup waits for the marked slot (TLS rule 6) | TLC's check "slot waited for" on `mutants/NJ17`, at the eleventh state of its counterexample, `zig build tla` | CAUGHT |
+| NJ18 | the model's `EndMarked` shuts a marked connection over TLS at its last leave | over TLS that last leave says `close_notify` (RFC 9846 §6.1) | TLC's check "marked said" on `mutants/NJ18`, at the eleventh state of its counterexample, `zig build tla` | CAUGHT |
+| NJ19 | the release asks for the mark while the lookup is still on its connection | `left_during_send` asserts that the release took the lookup off | seventeen tests: "panic: reached unreachable code" at `io_tcp_mark.zig:36`, in `left_during_send`, `test-io` | CAUGHT |
+
+Each other row that the walks catch is `CAUGHT` (What ran, above).
+
+Nineteen mutations, nineteen `CAUGHT`.

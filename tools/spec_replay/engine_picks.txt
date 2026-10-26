@@ -1808,14 +1808,620 @@ config 2 1 tcp 0
 190 finish:R0*:exhausted tcp_ready 1/0/0/0 E-F- o[1,0] c0 u- B-- ; free - u- | up s0 u1I- q[0] | open s0-- ; open s0-- | R0* S0* L0* L1* | r[] q[] t- w[[0]] f[9,9] e[1] --
 191 starve tcp_ready 1/0/0/0 E-F- o[1,0] c0 u- B-- ; free - u- | up s0 u1I- q[0] | open s0-- ; open s0-- | R0* S0* L0* L1* | r[] q[] t- w[[0]] f[9,9] e[1] -Z
 192 start tcp_ready 1/0/0/0 E-F- o[1,0] c0 u- B-- ; tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- | up s0 u2I- q[0,1] | open s0-- ; open s0-- | R0* S0* L0* L1* | r[] q[] t- w[[0,1]] f[9,9] e[] --
-193 cancel:0 failed canceled - o[1,0] c- u- B-R ; tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- | up s0 u1I- q[0,1] | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[0] t- w[[1]] f[9,9] e[] --
-194 finish:R0*:exhausted failed canceled - o[1,0] c- u- B-R ; tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- | up s0 u1I- q[0,1] | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[0] t- w[[1]] f[9,9] e[] --
-195 finish:R0*:exhausted failed canceled - o[1,0] c- u- B-R ; tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- | up s0 u1I- q[0,1] | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[0] t- w[[1]] f[9,9] e[] --
-196 finish:S0x:ok failed canceled - o[1,0] c- u- --R ; tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- | up s0 u1I- q[1] | open s0-- ; open s0-- | R0* S1* L0* L1* | r[] q[0] t- w[[1]] f[9,9] e[] --
+193 cancel:0 failed canceled - o[1,0] c- u- B-R ; tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- | up s0 u1I- q[0,1] X | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[0] t- w[[1]] f[9,9] e[] --
+194 finish:R0*:exhausted failed canceled - o[1,0] c- u- B-R ; tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- | up s0 u1I- q[0,1] X | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[0] t- w[[1]] f[9,9] e[] --
+195 finish:R0*:exhausted failed canceled - o[1,0] c- u- B-R ; tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- | up s0 u1I- q[0,1] X | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[0] t- w[[1]] f[9,9] e[] --
+196 finish:S0x:ok failed canceled - o[1,0] c- u- --R ; tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- | up s0 u1I- q[1] X | open s0-- ; open s0-- | R0* S1* L0* L1* | r[] q[0] t- w[[1]] f[9,9] e[] --
 197 finish:S1*:failed failed canceled - o[1,0] c- u- --R ; connecting_tcp 1/0/0/0 E-F- o[0,1] c0 u- --- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* R0x L0* L1* | r[] q[0] t- w[[1]] f[10,9] e[] --
 198 finish:C0*:ok failed canceled - o[1,0] c- u- --R ; tcp_ready 1/0/0/0 E-F- o[0,1] c0 u- B-- | up s1 u1I- q[1] | open s0-- ; open s0-- | R0x R0* S1* L0* L1* | r[] q[0] t- w[[1]] f[10,9] e[] --
 199 starve failed canceled - o[1,0] c- u- --R ; tcp_ready 1/0/0/0 E-F- o[0,1] c0 u- B-- | up s1 u1I- q[1] | open s0-- ; open s0-- | R0x R0* S1* L0* L1* | r[] q[0] t- w[[1]] f[10,9] e[] -Z
 200 expire failed canceled - o[1,0] c- u- --R ; failed all_servers_failed - o[0,1] c- u- B-R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x R0x S1x L0* L1* | r[] q[0,1] t- w[] f[10,10] e[] --
+config 2 1 tcp 0
+0 init free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[0,0] e[0,1] --
+1 start connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; free - u- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[0]] f[0,0] e[1] --
+2 expire connecting_tcp 1/0/0/0 E--- o[0,1] cw u- --- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[] t- w[[0]] f[1,0] e[1] --
+3 cancel:0 failed canceled - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[0] t- w[] f[1,0] e[1] --
+4 finish:C0x:ok failed canceled - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t- w[] f[1,0] e[1] --
+5 finish:L1*:exhausted failed canceled - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t- w[] f[1,0] e[1] --
+6 finish:L1*:exhausted failed canceled - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t- w[] f[1,0] e[1] --
+7 starve failed canceled - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t- w[] f[1,0] e[1] -Z
+8 start failed canceled - o[0,1] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[2,1] e[] --
+9 finish:L1*:exhausted failed canceled - o[0,1] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[2,1] e[] --
+10 finish:L0*:exhausted failed canceled - o[0,1] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[2,1] e[] --
+11 take failed canceled - o[0,1] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[2,1] e[] --
+12 finish:L1*:exhausted failed canceled - o[0,1] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[2,1] e[] --
+13 take free - u- ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[2,1] e[0] --
+14 start connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- ; failed all_servers_failed - o[1,0] c- u- --R | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t1 w[[0]] f[2,1] e[] --
+15 finish:C0*:failed connecting_tcp 1/0/0/0 E-F- o[1,0] c0 u- --- ; failed all_servers_failed - o[1,0] c- u- --R | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t1 w[[0]] f[2,2] e[] --
+16 expire failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0] t1 w[] f[3,2] e[] --
+17 finish:L0*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0] t1 w[] f[3,2] e[] --
+18 finish:L0*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0] t1 w[] f[3,2] e[] --
+19 starve failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0] t1 w[] f[3,2] e[] -Z
+20 finish:C0*:ok failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | up s0 u0I- q[] | open s0-- ; open s0-- | R0* L0* L1* | r[] q[0] t1 w[] f[3,2] e[] --
+21 finish:L1*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | up s0 u0I- q[] | open s0-- ; open s0-- | R0* L0* L1* | r[] q[0] t1 w[] f[3,2] e[] --
+22 idle failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[0] t1 w[] f[3,2] e[] --
+23 jam failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[0] t1 w[] f[3,2] e[] J-
+24 starve failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[0] t1 w[] f[3,2] e[] JZ
+25 finish:R0x:failed failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[3,2] e[] --
+26 starve failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[3,2] e[] -Z
+27 finish:L1*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[3,2] e[] --
+28 starve failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[3,2] e[] -Z
+29 finish:L0*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[3,2] e[] --
+30 take failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[3,2] e[1] --
+31 starve failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[3,2] e[1] -Z
+32 finish:L1*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[3,2] e[1] --
+33 take free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[3,2] e[0,1] --
+34 finish:L0*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[3,2] e[0,1] --
+35 jam free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[3,2] e[0,1] J-
+36 starve free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[3,2] e[0,1] JZ
+37 finish:L0*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[] t- w[] f[3,2] e[0,1] --
+38 start connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- ; free - u- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[0]] f[3,2] e[1] --
+39 finish:L0*:exhausted connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- ; free - u- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[0]] f[3,2] e[1] --
+40 finish:L0*:exhausted connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- ; free - u- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[0]] f[3,2] e[1] --
+41 finish:C0*:ok tcp_ready 0/0/0/0 E--- o[1,0] c0 u- B-- ; free - u- | up s1 u1I- q[0] | open s0-- ; open s0-- | R0* S0* L0* L1* | r[] q[] t- w[[0]] f[3,2] e[1] --
+42 finish:S0*:short tcp_ready 0/0/0/0 E--- o[1,0] c0 u- B-- ; free - u- | up s1 u1IP q[0] | open s0-- ; open s0-- | R0* S0* L0* L1* | r[] q[] t- w[[0]] f[3,2] e[1] --
+43 finish:L1*:exhausted tcp_ready 0/0/0/0 E--- o[1,0] c0 u- B-- ; free - u- | up s1 u1IP q[0] | open s0-- ; open s0-- | R0* S0* L0* L1* | r[] q[] t- w[[0]] f[3,2] e[1] --
+44 cancel:0 failed canceled - o[1,0] c- u- B-R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S0x L0* L1* | r[] q[0] t- w[] f[3,2] e[1] --
+45 straggle:R0x failed canceled - o[1,0] c- u- B-R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S0x L0* L1* | r[] q[0] t- w[] f[3,2] e[1] --
+46 finish:L1*:exhausted failed canceled - o[1,0] c- u- B-R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S0x L0* L1* | r[] q[0] t- w[] f[3,2] e[1] --
+47 finish:R0x:ok failed canceled - o[1,0] c- u- B-R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | S0x L0* L1* | r[] q[0] t- w[] f[3,2] e[1] --
+48 finish:S0x:failed failed canceled - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t- w[] f[3,2] e[1] --
+49 finish:L0*:exhausted failed canceled - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t- w[] f[3,2] e[1] --
+50 take failed canceled - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[3,2] e[1] --
+51 jam failed canceled - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[3,2] e[1] J-
+52 finish:L1*:exhausted failed canceled - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[] t0 w[] f[3,2] e[1] --
+53 finish:L0*:exhausted failed canceled - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[3,2] e[1] --
+54 start failed canceled - o[1,0] c- u- --R ; connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t0 w[[1]] f[3,2] e[] --
+55 cancel:1 failed canceled - o[1,0] c- u- --R ; failed canceled - o[1,0] c- u- --R | connecting s1 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[1] t0 w[] f[3,2] e[] --
+56 starve failed canceled - o[1,0] c- u- --R ; failed canceled - o[1,0] c- u- --R | connecting s1 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[1] t0 w[] f[3,2] e[] -Z
+57 finish:L1*:exhausted failed canceled - o[1,0] c- u- --R ; failed canceled - o[1,0] c- u- --R | connecting s1 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[1] t0 w[] f[3,2] e[] --
+58 take free - u- ; failed canceled - o[1,0] c- u- --R | connecting s1 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t1 w[] f[3,2] e[0] --
+59 finish:C0*:failed free - u- ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[3,2] e[0] --
+60 start connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- ; failed canceled - o[1,0] c- u- --R | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t1 w[[0]] f[3,2] e[] --
+61 take connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- ; free - u- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[0]] f[3,2] e[1] --
+62 finish:C0*:ok tcp_ready 0/0/0/0 E--- o[1,0] c0 u- B-- ; free - u- | up s1 u1I- q[0] | open s0-- ; open s0-- | R0* S0* L0* L1* | r[] q[] t- w[[0]] f[3,2] e[1] --
+63 jam tcp_ready 0/0/0/0 E--- o[1,0] c0 u- B-- ; free - u- | up s1 u1I- q[0] | open s0-- ; open s0-- | R0* S0* L0* L1* | r[] q[] t- w[[0]] f[3,2] e[1] J-
+64 expire failed all_servers_failed - o[1,0] c- u- B-R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S0x L0* L1* | r[] q[0] t- w[] f[4,3] e[1] --
+65 starve failed all_servers_failed - o[1,0] c- u- B-R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S0x L0* L1* | r[] q[0] t- w[] f[4,3] e[1] -Z
+66 finish:S0x:failed failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[0] t- w[] f[4,3] e[1] --
+67 jam failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[0] t- w[] f[4,3] e[1] J-
+68 finish:R0x:ok failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t- w[] f[4,3] e[1] --
+69 jam failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t- w[] f[4,3] e[1] J-
+70 starve failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t- w[] f[4,3] e[1] JZ
+71 take failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[4,3] e[1] --
+72 take free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[4,3] e[0,1] --
+73 jam free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[4,3] e[0,1] J-
+74 finish:L1*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[] t- w[] f[4,3] e[0,1] --
+75 jam free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[] t- w[] f[4,3] e[0,1] J-
+76 start failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[0] t- w[] f[5,4] e[1] --
+77 start failed all_servers_failed - o[1,0] c- u- --R ; connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0] t- w[[1]] f[5,4] e[] --
+78 expire failed all_servers_failed - o[1,0] c- u- --R ; connecting_tcp 1/0/0/0 E--- o[1,0] cw u- --- | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[0] t- w[[1]] f[5,5] e[] --
+79 expire failed all_servers_failed - o[1,0] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[0,1] t- w[] f[6,5] e[] --
+80 jam failed all_servers_failed - o[1,0] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[0,1] t- w[] f[6,5] e[] J-
+81 starve failed all_servers_failed - o[1,0] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[0,1] t- w[] f[6,5] e[] JZ
+82 finish:C0x:failed failed all_servers_failed - o[1,0] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[6,5] e[] --
+83 finish:L0*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[6,5] e[] --
+84 finish:L1*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[6,5] e[] --
+85 starve failed all_servers_failed - o[1,0] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[6,5] e[] -Z
+86 finish:L1*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[6,5] e[] --
+87 jam failed all_servers_failed - o[1,0] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[6,5] e[] J-
+88 starve failed all_servers_failed - o[1,0] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[6,5] e[] JZ
+89 take failed all_servers_failed - o[1,0] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[6,5] e[] --
+90 jam failed all_servers_failed - o[1,0] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[6,5] e[] J-
+91 finish:L0*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[1] t0 w[] f[6,5] e[] --
+92 starve failed all_servers_failed - o[1,0] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[1] t0 w[] f[6,5] e[] -Z
+93 finish:L1*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[6,5] e[] --
+94 starve failed all_servers_failed - o[1,0] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[6,5] e[] -Z
+95 take free - u- ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[6,5] e[0] --
+96 starve free - u- ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[6,5] e[0] -Z
+97 finish:L0*:exhausted free - u- ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[6,5] e[0] --
+98 take free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[6,5] e[1,0] --
+99 jam free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[6,5] e[1,0] J-
+100 start free - u- ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t- w[] f[7,6] e[0] --
+101 starve free - u- ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t- w[] f[7,6] e[0] -Z
+102 start failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1,0] t- w[] f[8,7] e[] --
+103 finish:L1*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1,0] t- w[] f[8,7] e[] --
+104 take failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[8,7] e[] --
+105 finish:L0*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[8,7] e[] --
+106 starve failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[8,7] e[] -Z
+107 jam failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[8,7] e[] JZ
+108 take failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[8,7] e[1] --
+109 finish:L1*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[8,7] e[1] --
+110 take free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[8,7] e[0,1] --
+111 jam free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[8,7] e[0,1] J-
+112 start failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t- w[] f[9,8] e[1] --
+113 starve failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t- w[] f[9,8] e[1] -Z
+114 finish:L1*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t- w[] f[9,8] e[1] --
+115 jam failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t- w[] f[9,8] e[1] J-
+116 start failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[10,9] e[] --
+117 starve failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[10,9] e[] -Z
+118 jam failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[10,9] e[] JZ
+119 finish:L1*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[0,1] t- w[] f[10,9] e[] --
+120 take failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[1] t0 w[] f[10,9] e[] --
+121 starve failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[1] t0 w[] f[10,9] e[] -Z
+122 jam failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[1] t0 w[] f[10,9] e[] JZ
+123 finish:L0*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- |  | r[] q[1] t0 w[] f[10,9] e[] --
+124 jam failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- |  | r[] q[1] t0 w[] f[10,9] e[] J-
+125 take free - u- ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- |  | r[] q[] t1 w[] f[10,9] e[0] --
+126 starve free - u- ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- |  | r[] q[] t1 w[] f[10,9] e[0] -Z
+127 jam free - u- ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- |  | r[] q[] t1 w[] f[10,9] e[0] JZ
+128 take free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- |  | r[] q[] t- w[] f[10,9] e[1,0] --
+129 start free - u- ; connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[1]] f[10,9] e[0] --
+130 finish:C0*:ok free - u- ; tcp_ready 0/0/0/0 E--- o[1,0] c0 u- B-- | up s1 u1I- q[1] | open s0-- ; open s0-- | R0* S1* L0* L1* | r[] q[] t- w[[1]] f[10,9] e[0] --
+131 expire free - u- ; connecting_tcp 1/0/0/0 E--- o[1,0] c0 u- B-- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* R0x S1x L0* L1* | r[] q[] t- w[[1]] f[10,10] e[0] --
+132 start connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; connecting_tcp 1/0/0/0 E--- o[1,0] c0 u- B-- | connecting s0 u2-- q[] | open s0-- ; open s0-- | C0* R0x S1x L0* L1* | r[] q[] t- w[[0,1]] f[10,10] e[] --
+133 finish:L1*:exhausted connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; connecting_tcp 1/0/0/0 E--- o[1,0] c0 u- B-- | connecting s0 u2-- q[] | open s0-- ; open s0-- | C0* R0x S1x L0* L1* | r[] q[] t- w[[0,1]] f[10,10] e[] --
+134 finish:S1x:failed connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; connecting_tcp 1/0/0/0 E--- o[1,0] c0 u- --- | connecting s0 u2-- q[] | open s0-- ; open s0-- | C0* R0x L0* L1* | r[] q[] t- w[[0,1]] f[10,10] e[] --
+135 finish:L1*:exhausted connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; connecting_tcp 1/0/0/0 E--- o[1,0] c0 u- --- | connecting s0 u2-- q[] | open s0-- ; open s0-- | C0* R0x L0* L1* | r[] q[] t- w[[0,1]] f[10,10] e[] --
+136 finish:R0x:canceled connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; connecting_tcp 1/0/0/0 E--- o[1,0] c0 u- --- | connecting s0 u2-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[0,1]] f[10,10] e[] --
+137 finish:C0*:ok tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- ; tcp_ready 1/0/0/0 E--- o[1,0] c0 u- B-- | up s0 u2I- q[0,1] | open s0-- ; open s0-- | R0* S0* L0* L1* | r[] q[] t- w[[0,1]] f[10,10] e[] --
+138 expire connecting_tcp 1/0/0/0 E--- o[0,1] c0 u- B-- ; failed timeout - o[1,0] c- u- --R | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* R0x S0x L0* L1* | r[] q[1] t- w[[0]] f[12,10] e[] --
+139 expire failed timeout - o[0,1] c- u- B-R ; failed timeout - o[1,0] c- u- --R | connecting s1 u0I- q[] | open s0-- ; open s0-- | C0* R0x S0x L0* L1* | r[] q[1,0] t- w[] f[12,11] e[] --
+140 finish:S0x:failed failed timeout - o[0,1] c- u- --R ; failed timeout - o[1,0] c- u- --R | connecting s1 u0I- q[] | open s0-- ; open s0-- | C0* R0x L0* L1* | r[] q[1,0] t- w[] f[12,11] e[] --
+141 jam failed timeout - o[0,1] c- u- --R ; failed timeout - o[1,0] c- u- --R | connecting s1 u0I- q[] | open s0-- ; open s0-- | C0* R0x L0* L1* | r[] q[1,0] t- w[] f[12,11] e[] J-
+142 finish:C0*:ok failed timeout - o[0,1] c- u- --R ; failed timeout - o[1,0] c- u- --R | up s1 u0I- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[1,0] t- w[] f[12,11] e[] --
+143 starve failed timeout - o[0,1] c- u- --R ; failed timeout - o[1,0] c- u- --R | up s1 u0I- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[1,0] t- w[] f[12,11] e[] -Z
+144 straggle:R0x failed timeout - o[0,1] c- u- --R ; failed timeout - o[1,0] c- u- --R | up s1 u0I- q[] | open s0-- ; open s0-- | R0x R0* L0* L1* | r[] q[1,0] t- w[] f[12,11] e[] --
+145 finish:R0x:ok failed timeout - o[0,1] c- u- --R ; failed timeout - o[1,0] c- u- --R | up s1 u0I- q[] | open s0-- ; open s0-- | R0* L0* L1* | r[] q[1,0] t- w[] f[12,11] e[] --
+146 starve failed timeout - o[0,1] c- u- --R ; failed timeout - o[1,0] c- u- --R | up s1 u0I- q[] | open s0-- ; open s0-- | R0* L0* L1* | r[] q[1,0] t- w[] f[12,11] e[] -Z
+147 finish:R0*:exhausted failed timeout - o[0,1] c- u- --R ; failed timeout - o[1,0] c- u- --R | up s1 u0I- q[] | open s0-- ; open s0-- | R0* L0* L1* | r[] q[1,0] t- w[] f[12,11] e[] --
+148 idle failed timeout - o[0,1] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[1,0] t- w[] f[12,11] e[] --
+149 finish:R0x:canceled failed timeout - o[0,1] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1,0] t- w[] f[12,11] e[] --
+150 finish:L1*:exhausted failed timeout - o[0,1] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1,0] t- w[] f[12,11] e[] --
+151 finish:L0*:exhausted failed timeout - o[0,1] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1,0] t- w[] f[12,11] e[] --
+152 finish:L0*:exhausted failed timeout - o[0,1] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1,0] t- w[] f[12,11] e[] --
+153 take failed timeout - o[0,1] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[12,11] e[] --
+154 jam failed timeout - o[0,1] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[12,11] e[] J-
+155 starve failed timeout - o[0,1] c- u- --R ; failed timeout - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[12,11] e[] JZ
+156 take failed timeout - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[12,11] e[1] --
+157 finish:L1*:exhausted failed timeout - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[12,11] e[1] --
+158 finish:L0*:exhausted failed timeout - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[12,11] e[1] --
+159 finish:L1*:exhausted failed timeout - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[12,11] e[1] --
+160 starve failed timeout - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[12,11] e[1] -Z
+161 start failed timeout - o[0,1] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[13,12] e[] --
+162 finish:L0*:exhausted failed timeout - o[0,1] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[13,12] e[] --
+163 finish:L1*:exhausted failed timeout - o[0,1] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[13,12] e[] --
+164 finish:L1*:exhausted failed timeout - o[0,1] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[13,12] e[] --
+165 starve failed timeout - o[0,1] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[13,12] e[] -Z
+166 finish:L1*:exhausted failed timeout - o[0,1] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[13,12] e[] --
+167 starve failed timeout - o[0,1] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[13,12] e[] -Z
+168 finish:L1*:exhausted failed timeout - o[0,1] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[13,12] e[] --
+169 take free - u- ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[13,12] e[0] --
+170 finish:L0*:exhausted free - u- ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[13,12] e[0] --
+171 jam free - u- ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[13,12] e[0] J-
+172 starve free - u- ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[13,12] e[0] JZ
+173 finish:L0*:exhausted free - u- ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[] t1 w[] f[13,12] e[0] --
+174 take free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[] t- w[] f[13,12] e[1,0] --
+175 finish:L1*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[13,12] e[1,0] --
+176 finish:L0*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[13,12] e[1,0] --
+177 finish:L0*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[13,12] e[1,0] --
+178 start free - u- ; connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[1]] f[13,12] e[0] --
+179 expire free - u- ; connecting_tcp 1/0/0/0 E--- o[1,0] cw u- --- | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[] t- w[[1]] f[13,13] e[0] --
+180 finish:L1*:exhausted free - u- ; connecting_tcp 1/0/0/0 E--- o[1,0] cw u- --- | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[] t- w[[1]] f[13,13] e[0] --
+181 cancel:1 free - u- ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[1] t- w[] f[13,13] e[0] --
+182 finish:L0*:exhausted free - u- ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[1] t- w[] f[13,13] e[0] --
+183 jam free - u- ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[1] t- w[] f[13,13] e[0] J-
+184 finish:C0x:failed free - u- ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t- w[] f[13,13] e[0] --
+185 starve free - u- ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t- w[] f[13,13] e[0] -Z
+186 jam free - u- ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t- w[] f[13,13] e[0] JZ
+187 take free - u- ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[13,13] e[0] --
+188 take free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[13,13] e[1,0] --
+189 starve free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[13,13] e[1,0] -Z
+190 jam free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[13,13] e[1,0] JZ
+191 finish:L1*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[] t- w[] f[13,13] e[1,0] --
+192 finish:L0*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[13,13] e[1,0] --
+193 finish:L1*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[13,13] e[1,0] --
+194 finish:L1*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[13,13] e[1,0] --
+195 finish:L0*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[13,13] e[1,0] --
+196 jam free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[13,13] e[1,0] J-
+197 finish:L0*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[] t- w[] f[13,13] e[1,0] --
+198 start free - u- ; connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[1]] f[13,13] e[0] --
+199 finish:C0*:ok free - u- ; tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- | up s0 u1I- q[1] | open s0-- ; open s0-- | R0* S1* L0* L1* | r[] q[] t- w[[1]] f[13,13] e[0] --
+200 start tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- ; tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- | up s0 u2I- q[1,0] | open s0-- ; open s0-- | R0* S1* L0* L1* | r[] q[] t- w[[0,1]] f[13,13] e[] --
+config 2 1 tcp 0
+0 init free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[0,0] e[0,1] --
+1 starve free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[0,0] e[0,1] -Z
+2 finish:L0*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[0,0] e[0,1] --
+3 start connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; free - u- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[0]] f[0,0] e[1] --
+4 cancel:0 failed canceled - o[0,1] c- u- --R ; free - u- | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0] t- w[] f[0,0] e[1] --
+5 idle failed canceled - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[0] t- w[] f[0,0] e[1] --
+6 finish:L0*:exhausted failed canceled - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[0] t- w[] f[0,0] e[1] --
+7 start failed canceled - o[0,1] c- u- --R ; connecting_tcp 0/0/0/0 E--- o[0,1] cw u- --- | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[0] t- w[[1]] f[0,0] e[] --
+8 finish:C0x:ok failed canceled - o[0,1] c- u- --R ; connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0] t- w[[1]] f[0,0] e[] --
+9 cancel:1 failed canceled - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0,1] t- w[] f[0,0] e[] --
+10 jam failed canceled - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0,1] t- w[] f[0,0] e[] J-
+11 finish:L0*:exhausted failed canceled - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L1* | r[] q[0,1] t- w[] f[0,0] e[] --
+12 finish:L1*:exhausted failed canceled - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0,1] t- w[] f[0,0] e[] --
+13 finish:L0*:exhausted failed canceled - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0,1] t- w[] f[0,0] e[] --
+14 finish:L1*:exhausted failed canceled - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0,1] t- w[] f[0,0] e[] --
+15 starve failed canceled - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0,1] t- w[] f[0,0] e[] -Z
+16 finish:C0*:failed failed canceled - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[0,0] e[] --
+17 jam failed canceled - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[0,0] e[] J-
+18 finish:L1*:exhausted failed canceled - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[0,1] t- w[] f[0,0] e[] --
+19 starve failed canceled - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[0,1] t- w[] f[0,0] e[] -Z
+20 take failed canceled - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[1] t0 w[] f[0,0] e[] --
+21 take free - u- ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[] t1 w[] f[0,0] e[0] --
+22 take free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[] t- w[] f[0,0] e[1,0] --
+23 start free - u- ; connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[1]] f[0,0] e[0] --
+24 finish:C0*:ok free - u- ; tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- | up s0 u1I- q[1] | open s0-- ; open s0-- | R0* S1* L0* L1* | r[] q[] t- w[[1]] f[0,0] e[0] --
+25 finish:S1*:ok free - u- ; awaiting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- | up s0 u1I- q[] | open s0-- ; open s0-- | R0* L0* L1* | r[] q[] t- w[[1]] f[0,0] e[0] --
+26 expire free - u- ; connecting_tcp 1/0/0/0 E--- o[0,1] c0 u- --- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* R0x L0* L1* | r[] q[] t- w[[1]] f[1,0] e[0] --
+27 start connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- ; connecting_tcp 1/0/0/0 E--- o[0,1] c0 u- --- | connecting s1 u2-- q[] | open s0-- ; open s0-- | C0* R0x L0* L1* | r[] q[] t- w[[0,1]] f[1,0] e[] --
+28 finish:C0*:ok tcp_ready 0/0/0/0 E--- o[1,0] c0 u- B-- ; tcp_ready 1/0/0/0 E--- o[0,1] c0 u- B-- | up s1 u2I- q[0,1] | open s0-- ; open s0-- | R0x R0* S0* L0* L1* | r[] q[] t- w[[0,1]] f[1,0] e[] --
+29 finish:R0x:canceled tcp_ready 0/0/0/0 E--- o[1,0] c0 u- B-- ; tcp_ready 1/0/0/0 E--- o[0,1] c0 u- B-- | up s1 u2I- q[0,1] | open s0-- ; open s0-- | R0* S0* L0* L1* | r[] q[] t- w[[0,1]] f[1,0] e[] --
+30 cancel:0 failed canceled - o[1,0] c- u- B-R ; tcp_ready 1/0/0/0 E--- o[0,1] c0 u- B-- | up s1 u1I- q[0,1] X | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[0] t- w[[1]] f[1,0] e[] --
+31 starve failed canceled - o[1,0] c- u- B-R ; tcp_ready 1/0/0/0 E--- o[0,1] c0 u- B-- | up s1 u1I- q[0,1] X | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[0] t- w[[1]] f[1,0] e[] -Z
+32 take failed canceled - o[1,0] c- u- B-R ; tcp_ready 1/0/0/0 E--- o[0,1] c0 u- B-- | up s1 u1I- q[0,1] X | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[] t0 w[[1]] f[1,0] e[] --
+33 take free B u- ; tcp_ready 1/0/0/0 E--- o[0,1] c0 u- B-- | up s1 u1I- q[0,1] X | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[] t- w[[1]] f[1,0] e[0] --
+34 starve free B u- ; tcp_ready 1/0/0/0 E--- o[0,1] c0 u- B-- | up s1 u1I- q[0,1] X | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[] t- w[[1]] f[1,0] e[0] -Z
+35 finish:R0*:exhausted free B u- ; tcp_ready 1/0/0/0 E--- o[0,1] c0 u- B-- | up s1 u1I- q[0,1] X | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[] t- w[[1]] f[1,0] e[0] --
+36 start connecting_tcp 0/0/0/0 E--- o[1,0] cw u- B-- ; tcp_ready 1/0/0/0 E--- o[0,1] c0 u- B-- | up s1 u1I- q[0,1] X | open s0-- ; open s0-- | R0* S0x L0* L1* | r[] q[] t- w[[0,1]] f[1,0] e[] --
+37 finish:R0*:failed connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- B-- ; failed all_servers_failed - o[0,1] c- u- --R | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* S0x L0* L1* | r[] q[1] t- w[[0]] f[1,1] e[] --
+38 finish:S0x:short connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- ; failed all_servers_failed - o[0,1] c- u- --R | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[1] t- w[[0]] f[1,1] e[] --
+39 finish:L0*:exhausted connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- ; failed all_servers_failed - o[0,1] c- u- --R | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[1] t- w[[0]] f[1,1] e[] --
+40 take connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- ; failed all_servers_failed - o[0,1] c- u- --R | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t1 w[[0]] f[1,1] e[] --
+41 cancel:0 failed canceled - o[1,0] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | connecting s1 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0] t1 w[] f[1,1] e[] --
+42 take failed canceled - o[1,0] c- u- --R ; free - u- | connecting s1 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t0 w[] f[1,1] e[1] --
+43 idle failed canceled - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[] t0 w[] f[1,1] e[1] --
+44 start failed canceled - o[1,0] c- u- --R ; connecting_tcp 0/0/0/0 E--- o[0,1] cw u- --- | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[] t0 w[[1]] f[1,1] e[] --
+45 finish:C0x:canceled failed canceled - o[1,0] c- u- --R ; connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t0 w[[1]] f[1,1] e[] --
+46 finish:L0*:exhausted failed canceled - o[1,0] c- u- --R ; connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t0 w[[1]] f[1,1] e[] --
+47 finish:L1*:exhausted failed canceled - o[1,0] c- u- --R ; connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t0 w[[1]] f[1,1] e[] --
+48 finish:C0*:failed failed canceled - o[1,0] c- u- --R ; connecting_tcp 1/0/0/0 E-F- o[0,1] c0 u- --- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t0 w[[1]] f[2,1] e[] --
+49 starve failed canceled - o[1,0] c- u- --R ; connecting_tcp 1/0/0/0 E-F- o[0,1] c0 u- --- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t0 w[[1]] f[2,1] e[] -Z
+50 finish:L1*:exhausted failed canceled - o[1,0] c- u- --R ; connecting_tcp 1/0/0/0 E-F- o[0,1] c0 u- --- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t0 w[[1]] f[2,1] e[] --
+51 cancel:1 failed canceled - o[1,0] c- u- --R ; failed canceled - o[0,1] c- u- --R | connecting s1 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[1] t0 w[] f[2,1] e[] --
+52 finish:L1*:exhausted failed canceled - o[1,0] c- u- --R ; failed canceled - o[0,1] c- u- --R | connecting s1 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[1] t0 w[] f[2,1] e[] --
+53 idle failed canceled - o[1,0] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[1] t0 w[] f[2,1] e[] --
+54 finish:C0x:canceled failed canceled - o[1,0] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[2,1] e[] --
+55 take free - u- ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[2,1] e[0] --
+56 finish:L0*:exhausted free - u- ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[2,1] e[0] --
+57 finish:L0*:exhausted free - u- ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[2,1] e[0] --
+58 start connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- ; failed canceled - o[0,1] c- u- --R | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t1 w[[0]] f[2,1] e[] --
+59 cancel:0 failed canceled - o[1,0] c- u- --R ; failed canceled - o[0,1] c- u- --R | connecting s1 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0] t1 w[] f[2,1] e[] --
+60 jam failed canceled - o[1,0] c- u- --R ; failed canceled - o[0,1] c- u- --R | connecting s1 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0] t1 w[] f[2,1] e[] J-
+61 finish:C0*:ok failed canceled - o[1,0] c- u- --R ; failed canceled - o[0,1] c- u- --R | up s1 u0I- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[2,1] e[] --
+62 starve failed canceled - o[1,0] c- u- --R ; failed canceled - o[0,1] c- u- --R | up s1 u0I- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[2,1] e[] -Z
+63 finish:L0*:exhausted failed canceled - o[1,0] c- u- --R ; failed canceled - o[0,1] c- u- --R | up s1 u0I- q[] | open s0-- ; open s0-- | R0* L0* L1* | r[] q[0] t1 w[] f[2,1] e[] --
+64 starve failed canceled - o[1,0] c- u- --R ; failed canceled - o[0,1] c- u- --R | up s1 u0I- q[] | open s0-- ; open s0-- | R0* L0* L1* | r[] q[0] t1 w[] f[2,1] e[] -Z
+65 take failed canceled - o[1,0] c- u- --R ; free - u- | up s1 u0I- q[] | open s0-- ; open s0-- | R0* L0* L1* | r[] q[] t0 w[] f[2,1] e[1] --
+66 finish:L1*:exhausted failed canceled - o[1,0] c- u- --R ; free - u- | up s1 u0I- q[] | open s0-- ; open s0-- | R0* L0* L1* | r[] q[] t0 w[] f[2,1] e[1] --
+67 finish:L0*:exhausted failed canceled - o[1,0] c- u- --R ; free - u- | up s1 u0I- q[] | open s0-- ; open s0-- | R0* L0* L1* | r[] q[] t0 w[] f[2,1] e[1] --
+68 jam failed canceled - o[1,0] c- u- --R ; free - u- | up s1 u0I- q[] | open s0-- ; open s0-- | R0* L0* L1* | r[] q[] t0 w[] f[2,1] e[1] J-
+69 finish:L1*:exhausted failed canceled - o[1,0] c- u- --R ; free - u- | up s1 u0I- q[] | open s0-- ; open s0-- | R0* L0* | r[] q[] t0 w[] f[2,1] e[1] --
+70 starve failed canceled - o[1,0] c- u- --R ; free - u- | up s1 u0I- q[] | open s0-- ; open s0-- | R0* L0* | r[] q[] t0 w[] f[2,1] e[1] -Z
+71 finish:R0*:failed failed canceled - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[2,1] e[1] --
+72 start failed canceled - o[1,0] c- u- --R ; connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t0 w[[1]] f[2,1] e[] --
+73 finish:L0*:exhausted failed canceled - o[1,0] c- u- --R ; connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t0 w[[1]] f[2,1] e[] --
+74 expire failed canceled - o[1,0] c- u- --R ; connecting_tcp 1/0/0/0 E--- o[1,0] cw u- --- | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[] t0 w[[1]] f[2,2] e[] --
+75 starve failed canceled - o[1,0] c- u- --R ; connecting_tcp 1/0/0/0 E--- o[1,0] cw u- --- | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[] t0 w[[1]] f[2,2] e[] -Z
+76 finish:L0*:exhausted failed canceled - o[1,0] c- u- --R ; connecting_tcp 1/0/0/0 E--- o[1,0] cw u- --- | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[] t0 w[[1]] f[2,2] e[] --
+77 jam failed canceled - o[1,0] c- u- --R ; connecting_tcp 1/0/0/0 E--- o[1,0] cw u- --- | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[] t0 w[[1]] f[2,2] e[] J-
+78 finish:L1*:exhausted failed canceled - o[1,0] c- u- --R ; connecting_tcp 1/0/0/0 E--- o[1,0] cw u- --- | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* | r[] q[] t0 w[[1]] f[2,2] e[] --
+79 finish:C0x:failed failed canceled - o[1,0] c- u- --R ; connecting_tcp 1/0/0/0 E--- o[1,0] c0 u- --- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t0 w[[1]] f[2,2] e[] --
+80 take free - u- ; connecting_tcp 1/0/0/0 E--- o[1,0] c0 u- --- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[1]] f[2,2] e[0] --
+81 finish:L1*:exhausted free - u- ; connecting_tcp 1/0/0/0 E--- o[1,0] c0 u- --- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[1]] f[2,2] e[0] --
+82 finish:L1*:exhausted free - u- ; connecting_tcp 1/0/0/0 E--- o[1,0] c0 u- --- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[1]] f[2,2] e[0] --
+83 start connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; connecting_tcp 1/0/0/0 E--- o[1,0] c0 u- --- | connecting s0 u2-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[0,1]] f[2,2] e[] --
+84 starve connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; connecting_tcp 1/0/0/0 E--- o[1,0] c0 u- --- | connecting s0 u2-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[0,1]] f[2,2] e[] -Z
+85 jam connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; connecting_tcp 1/0/0/0 E--- o[1,0] c0 u- --- | connecting s0 u2-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[0,1]] f[2,2] e[] JZ
+86 cancel:1 connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; failed canceled - o[1,0] c- u- --R | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[1] t- w[[0]] f[2,2] e[] --
+87 starve connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; failed canceled - o[1,0] c- u- --R | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[1] t- w[[0]] f[2,2] e[] -Z
+88 finish:L0*:exhausted connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; failed canceled - o[1,0] c- u- --R | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[1] t- w[[0]] f[2,2] e[] --
+89 finish:C0*:ok tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- ; failed canceled - o[1,0] c- u- --R | up s0 u1I- q[0] | open s0-- ; open s0-- | R0* S0* L0* L1* | r[] q[1] t- w[[0]] f[2,2] e[] --
+90 take tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- ; failed canceled - o[1,0] c- u- --R | up s0 u1I- q[0] | open s0-- ; open s0-- | R0* S0* L0* L1* | r[] q[] t1 w[[0]] f[2,2] e[] --
+91 finish:L0*:exhausted tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- ; failed canceled - o[1,0] c- u- --R | up s0 u1I- q[0] | open s0-- ; open s0-- | R0* S0* L0* L1* | r[] q[] t1 w[[0]] f[2,2] e[] --
+92 starve tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- ; failed canceled - o[1,0] c- u- --R | up s0 u1I- q[0] | open s0-- ; open s0-- | R0* S0* L0* L1* | r[] q[] t1 w[[0]] f[2,2] e[] -Z
+93 expire failed all_servers_failed - o[0,1] c- u- B-R ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S0x L0* L1* | r[] q[0] t1 w[] f[3,3] e[] --
+94 finish:S0x:ok failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[0] t1 w[] f[3,3] e[] --
+95 finish:R0x:ok failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[3,3] e[] --
+96 finish:L0*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[3,3] e[] --
+97 take failed all_servers_failed - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[3,3] e[1] --
+98 finish:L1*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[3,3] e[1] --
+99 finish:L1*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[3,3] e[1] --
+100 take free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[3,3] e[0,1] --
+101 starve free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[3,3] e[0,1] -Z
+102 start failed all_servers_failed - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t- w[] f[4,4] e[1] --
+103 starve failed all_servers_failed - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t- w[] f[4,4] e[1] -Z
+104 jam failed all_servers_failed - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t- w[] f[4,4] e[1] JZ
+105 take failed all_servers_failed - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[4,4] e[1] --
+106 start failed all_servers_failed - o[0,1] c- u- --R ; connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t0 w[[1]] f[4,4] e[] --
+107 finish:C0*:failed failed all_servers_failed - o[0,1] c- u- --R ; connecting_tcp 1/0/0/0 E-F- o[0,1] c0 u- --- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t0 w[[1]] f[5,4] e[] --
+108 finish:C0*:ok failed all_servers_failed - o[0,1] c- u- --R ; tcp_ready 1/0/0/0 E-F- o[0,1] c0 u- B-- | up s1 u1I- q[1] | open s0-- ; open s0-- | R0* S1* L0* L1* | r[] q[] t0 w[[1]] f[5,4] e[] --
+109 finish:L1*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; tcp_ready 1/0/0/0 E-F- o[0,1] c0 u- B-- | up s1 u1I- q[1] | open s0-- ; open s0-- | R0* S1* L0* L1* | r[] q[] t0 w[[1]] f[5,4] e[] --
+110 cancel:1 failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- B-R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S1x L0* L1* | r[] q[1] t0 w[] f[5,4] e[] --
+111 starve failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- B-R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S1x L0* L1* | r[] q[1] t0 w[] f[5,4] e[] -Z
+112 finish:S1x:ok failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[1] t0 w[] f[5,4] e[] --
+113 starve failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[1] t0 w[] f[5,4] e[] -Z
+114 straggle:R0x failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[1] t0 w[] f[5,4] e[] --
+115 finish:R0x:failed failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[5,4] e[] --
+116 jam failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[5,4] e[] J-
+117 finish:L1*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[1] t0 w[] f[5,4] e[] --
+118 finish:L0*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[5,4] e[] --
+119 take free - u- ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[5,4] e[0] --
+120 starve free - u- ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[5,4] e[0] -Z
+121 finish:L0*:exhausted free - u- ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[5,4] e[0] --
+122 starve free - u- ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[5,4] e[0] -Z
+123 jam free - u- ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[5,4] e[0] JZ
+124 finish:L0*:exhausted free - u- ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[] t1 w[] f[5,4] e[0] --
+125 finish:L1*:exhausted free - u- ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[5,4] e[0] --
+126 finish:L0*:exhausted free - u- ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[5,4] e[0] --
+127 take free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[5,4] e[1,0] --
+128 start free - u- ; connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[1]] f[5,4] e[0] --
+129 finish:C0*:failed free - u- ; connecting_tcp 1/0/0/0 E-F- o[1,0] c0 u- --- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[1]] f[5,5] e[0] --
+130 finish:C0*:ok free - u- ; tcp_ready 1/0/0/0 E-F- o[1,0] c0 u- B-- | up s0 u1I- q[1] | open s0-- ; open s0-- | R0* S1* L0* L1* | r[] q[] t- w[[1]] f[5,5] e[0] --
+131 cancel:1 free - u- ; failed canceled - o[1,0] c- u- B-R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S1x L0* L1* | r[] q[1] t- w[] f[5,5] e[0] --
+132 jam free - u- ; failed canceled - o[1,0] c- u- B-R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S1x L0* L1* | r[] q[1] t- w[] f[5,5] e[0] J-
+133 finish:S1x:short free - u- ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[1] t- w[] f[5,5] e[0] --
+134 finish:R0x:ok free - u- ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t- w[] f[5,5] e[0] --
+135 finish:L1*:exhausted free - u- ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t- w[] f[5,5] e[0] --
+136 start connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; failed canceled - o[1,0] c- u- --R | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[1] t- w[[0]] f[5,5] e[] --
+137 finish:L0*:exhausted connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; failed canceled - o[1,0] c- u- --R | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[1] t- w[[0]] f[5,5] e[] --
+138 finish:C0*:failed connecting_tcp 1/0/0/0 E-F- o[0,1] c0 u- --- ; failed canceled - o[1,0] c- u- --R | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[1] t- w[[0]] f[6,5] e[] --
+139 cancel:0 failed canceled - o[0,1] c- u- --R ; failed canceled - o[1,0] c- u- --R | connecting s1 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[1,0] t- w[] f[6,5] e[] --
+140 finish:C0*:ok failed canceled - o[0,1] c- u- --R ; failed canceled - o[1,0] c- u- --R | up s1 u0I- q[] | open s0-- ; open s0-- | R0* L0* L1* | r[] q[1,0] t- w[] f[6,5] e[] --
+141 finish:R0*:exhausted failed canceled - o[0,1] c- u- --R ; failed canceled - o[1,0] c- u- --R | up s1 u0I- q[] | open s0-- ; open s0-- | R0* L0* L1* | r[] q[1,0] t- w[] f[6,5] e[] --
+142 jam failed canceled - o[0,1] c- u- --R ; failed canceled - o[1,0] c- u- --R | up s1 u0I- q[] | open s0-- ; open s0-- | R0* L0* L1* | r[] q[1,0] t- w[] f[6,5] e[] J-
+143 finish:L0*:exhausted failed canceled - o[0,1] c- u- --R ; failed canceled - o[1,0] c- u- --R | up s1 u0I- q[] | open s0-- ; open s0-- | R0* L1* | r[] q[1,0] t- w[] f[6,5] e[] --
+144 idle failed canceled - o[0,1] c- u- --R ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[1,0] t- w[] f[6,5] e[] --
+145 straggle:R0x failed canceled - o[0,1] c- u- --R ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[1,0] t- w[] f[6,5] e[] --
+146 finish:L1*:exhausted failed canceled - o[0,1] c- u- --R ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[1,0] t- w[] f[6,5] e[] --
+147 jam failed canceled - o[0,1] c- u- --R ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[1,0] t- w[] f[6,5] e[] J-
+148 finish:L0*:exhausted failed canceled - o[0,1] c- u- --R ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x L1* | r[] q[1,0] t- w[] f[6,5] e[] --
+149 finish:R0x:failed failed canceled - o[0,1] c- u- --R ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1,0] t- w[] f[6,5] e[] --
+150 starve failed canceled - o[0,1] c- u- --R ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1,0] t- w[] f[6,5] e[] -Z
+151 jam failed canceled - o[0,1] c- u- --R ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1,0] t- w[] f[6,5] e[] JZ
+152 take failed canceled - o[0,1] c- u- --R ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[6,5] e[] --
+153 take failed canceled - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[6,5] e[1] --
+154 starve failed canceled - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[6,5] e[1] -Z
+155 finish:L0*:exhausted failed canceled - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[6,5] e[1] --
+156 finish:L0*:exhausted failed canceled - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[6,5] e[1] --
+157 finish:L1*:exhausted failed canceled - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[6,5] e[1] --
+158 starve failed canceled - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[6,5] e[1] -Z
+159 start failed canceled - o[0,1] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[7,6] e[] --
+160 jam failed canceled - o[0,1] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[7,6] e[] J-
+161 finish:L0*:exhausted failed canceled - o[0,1] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[1] t0 w[] f[7,6] e[] --
+162 finish:L1*:exhausted failed canceled - o[0,1] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[7,6] e[] --
+163 take free - u- ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[7,6] e[0] --
+164 take free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[7,6] e[1,0] --
+165 finish:L1*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[7,6] e[1,0] --
+166 starve free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[7,6] e[1,0] -Z
+167 finish:L1*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[7,6] e[1,0] --
+168 start free - u- ; connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[1]] f[7,6] e[0] --
+169 finish:C0*:failed free - u- ; connecting_tcp 1/0/0/0 E-F- o[1,0] c0 u- --- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[1]] f[7,7] e[0] --
+170 finish:L1*:exhausted free - u- ; connecting_tcp 1/0/0/0 E-F- o[1,0] c0 u- --- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[1]] f[7,7] e[0] --
+171 finish:C0*:failed free - u- ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t- w[] f[8,7] e[0] --
+172 starve free - u- ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t- w[] f[8,7] e[0] -Z
+173 jam free - u- ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t- w[] f[8,7] e[0] JZ
+174 start failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1,0] t- w[] f[9,8] e[] --
+175 finish:L1*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1,0] t- w[] f[9,8] e[] --
+176 finish:L1*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1,0] t- w[] f[9,8] e[] --
+177 jam failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1,0] t- w[] f[9,8] e[] J-
+178 finish:L0*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[1,0] t- w[] f[9,8] e[] --
+179 take failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[0] t1 w[] f[9,8] e[] --
+180 finish:L1*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[9,8] e[] --
+181 starve failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[9,8] e[] -Z
+182 jam failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[9,8] e[] JZ
+183 finish:L0*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[0] t1 w[] f[9,8] e[] --
+184 finish:L1*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[9,8] e[] --
+185 finish:L0*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[9,8] e[] --
+186 starve failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[9,8] e[] -Z
+187 finish:L1*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[9,8] e[] --
+188 starve failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[9,8] e[] -Z
+189 finish:L1*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[9,8] e[] --
+190 finish:L1*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[9,8] e[] --
+191 jam failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[9,8] e[] J-
+192 take failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[9,8] e[1] --
+193 jam failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[9,8] e[1] J-
+194 start failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[10,9] e[] --
+195 finish:L1*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[10,9] e[] --
+196 finish:L0*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[10,9] e[] --
+197 jam failed all_servers_failed - o[1,0] c- u- --R ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[10,9] e[] J-
+198 take free - u- ; failed all_servers_failed - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[10,9] e[0] --
+199 take free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[10,9] e[1,0] --
+200 jam free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[10,9] e[1,0] J-
+config 2 1 tcp 0
+0 init free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[0,0] e[0,1] --
+1 starve free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[0,0] e[0,1] -Z
+2 jam free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[0,0] e[0,1] JZ
+3 finish:L0*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[] t- w[] f[0,0] e[0,1] --
+4 jam free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[] t- w[] f[0,0] e[0,1] J-
+5 starve free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[] t- w[] f[0,0] e[0,1] JZ
+6 start failed all_servers_failed - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[0] t- w[] f[1,1] e[1] --
+7 starve failed all_servers_failed - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[0] t- w[] f[1,1] e[1] -Z
+8 start failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[2,2] e[] --
+9 finish:L1*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[2,2] e[] --
+10 finish:L0*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[2,2] e[] --
+11 take failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[2,2] e[] --
+12 finish:L1*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[2,2] e[] --
+13 finish:L1*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[2,2] e[] --
+14 finish:L1*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[2,2] e[] --
+15 finish:L1*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[2,2] e[] --
+16 take free - u- ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[2,2] e[0] --
+17 finish:L1*:exhausted free - u- ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[2,2] e[0] --
+18 start connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; failed all_servers_failed - o[0,1] c- u- --R | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t1 w[[0]] f[2,2] e[] --
+19 cancel:0 failed canceled - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0] t1 w[] f[2,2] e[] --
+20 finish:L0*:exhausted failed canceled - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0] t1 w[] f[2,2] e[] --
+21 take failed canceled - o[0,1] c- u- --R ; free - u- | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t0 w[] f[2,2] e[1] --
+22 finish:C0*:ok failed canceled - o[0,1] c- u- --R ; free - u- | up s0 u0I- q[] | open s0-- ; open s0-- | R0* L0* L1* | r[] q[] t0 w[] f[2,2] e[1] --
+23 finish:R0*:failed failed canceled - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[2,2] e[1] --
+24 finish:L0*:exhausted failed canceled - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[2,2] e[1] --
+25 take free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[2,2] e[0,1] --
+26 finish:L0*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[2,2] e[0,1] --
+27 starve free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[2,2] e[0,1] -Z
+28 jam free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[2,2] e[0,1] JZ
+29 finish:L0*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[] t- w[] f[2,2] e[0,1] --
+30 finish:L1*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[2,2] e[0,1] --
+31 start connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; free - u- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[0]] f[2,2] e[1] --
+32 finish:L1*:exhausted connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; free - u- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[0]] f[2,2] e[1] --
+33 jam connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; free - u- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[0]] f[2,2] e[1] J-
+34 finish:C0*:failed failed all_servers_failed - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t- w[] f[3,3] e[1] --
+35 start failed all_servers_failed - o[0,1] c- u- --R ; connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0] t- w[[1]] f[3,3] e[] --
+36 cancel:1 failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0,1] t- w[] f[3,3] e[] --
+37 finish:L0*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0,1] t- w[] f[3,3] e[] --
+38 finish:L0*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0,1] t- w[] f[3,3] e[] --
+39 finish:C0*:failed failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[3,3] e[] --
+40 finish:L1*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[3,3] e[] --
+41 finish:L1*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[3,3] e[] --
+42 starve failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[3,3] e[] -Z
+43 finish:L1*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[3,3] e[] --
+44 finish:L1*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[3,3] e[] --
+45 jam failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[3,3] e[] J-
+46 starve failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0,1] t- w[] f[3,3] e[] JZ
+47 finish:L0*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[0,1] t- w[] f[3,3] e[] --
+48 jam failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[0,1] t- w[] f[3,3] e[] J-
+49 starve failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[0,1] t- w[] f[3,3] e[] JZ
+50 take failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[1] t0 w[] f[3,3] e[] --
+51 finish:L1*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[3,3] e[] --
+52 starve failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[3,3] e[] -Z
+53 take free - u- ; failed canceled - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[3,3] e[0] --
+54 take free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[3,3] e[1,0] --
+55 finish:L1*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[3,3] e[1,0] --
+56 finish:L1*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[3,3] e[1,0] --
+57 finish:L1*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[3,3] e[1,0] --
+58 jam free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[3,3] e[1,0] J-
+59 start free - u- ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t- w[] f[4,4] e[0] --
+60 finish:L0*:exhausted free - u- ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t- w[] f[4,4] e[0] --
+61 jam free - u- ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t- w[] f[4,4] e[0] J-
+62 start failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1,0] t- w[] f[5,5] e[] --
+63 finish:L1*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1,0] t- w[] f[5,5] e[] --
+64 take failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[5,5] e[] --
+65 take failed all_servers_failed - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[5,5] e[1] --
+66 jam failed all_servers_failed - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[5,5] e[1] J-
+67 starve failed all_servers_failed - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[5,5] e[1] JZ
+68 take free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[5,5] e[0,1] --
+69 finish:L1*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[5,5] e[0,1] --
+70 jam free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[5,5] e[0,1] J-
+71 starve free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[5,5] e[0,1] JZ
+72 finish:L1*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[] t- w[] f[5,5] e[0,1] --
+73 starve free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[] t- w[] f[5,5] e[0,1] -Z
+74 finish:L0*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[5,5] e[0,1] --
+75 starve free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[5,5] e[0,1] -Z
+76 finish:L1*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[5,5] e[0,1] --
+77 finish:L0*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[5,5] e[0,1] --
+78 finish:L1*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[5,5] e[0,1] --
+79 finish:L0*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[5,5] e[0,1] --
+80 starve free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[5,5] e[0,1] -Z
+81 finish:L0*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[5,5] e[0,1] --
+82 jam free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[5,5] e[0,1] J-
+83 starve free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[5,5] e[0,1] JZ
+84 finish:L0*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[] t- w[] f[5,5] e[0,1] --
+85 start connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; free - u- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[0]] f[5,5] e[1] --
+86 finish:L1*:exhausted connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; free - u- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[0]] f[5,5] e[1] --
+87 starve connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; free - u- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[0]] f[5,5] e[1] -Z
+88 cancel:0 failed canceled - o[0,1] c- u- --R ; free - u- | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0] t- w[] f[5,5] e[1] --
+89 finish:L0*:exhausted failed canceled - o[0,1] c- u- --R ; free - u- | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0] t- w[] f[5,5] e[1] --
+90 finish:C0*:failed failed canceled - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t- w[] f[5,5] e[1] --
+91 start failed canceled - o[0,1] c- u- --R ; connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0] t- w[[1]] f[5,5] e[] --
+92 expire failed canceled - o[0,1] c- u- --R ; connecting_tcp 1/0/0/0 E--- o[0,1] cw u- --- | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[0] t- w[[1]] f[6,5] e[] --
+93 take failed canceled - o[0,1] c- u- --R ; connecting_tcp 1/0/0/0 E--- o[0,1] cw u- --- | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[] t0 w[[1]] f[6,5] e[] --
+94 expire failed canceled - o[0,1] c- u- --R ; failed timeout - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[1] t0 w[] f[6,6] e[] --
+95 finish:C0x:canceled failed canceled - o[0,1] c- u- --R ; failed timeout - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[6,6] e[] --
+96 jam failed canceled - o[0,1] c- u- --R ; failed timeout - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[6,6] e[] J-
+97 starve failed canceled - o[0,1] c- u- --R ; failed timeout - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[6,6] e[] JZ
+98 finish:L0*:exhausted failed canceled - o[0,1] c- u- --R ; failed timeout - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[1] t0 w[] f[6,6] e[] --
+99 take free - u- ; failed timeout - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[] t1 w[] f[6,6] e[0] --
+100 take free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[] t- w[] f[6,6] e[1,0] --
+101 jam free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[] t- w[] f[6,6] e[1,0] J-
+102 finish:L1*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- |  | r[] q[] t- w[] f[6,6] e[1,0] --
+103 starve free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- |  | r[] q[] t- w[] f[6,6] e[1,0] -Z
+104 jam free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- |  | r[] q[] t- w[] f[6,6] e[1,0] JZ
+105 start free - u- ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- |  | r[] q[1] t- w[] f[7,7] e[0] --
+106 jam free - u- ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- |  | r[] q[1] t- w[] f[7,7] e[0] J-
+107 start failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- |  | r[] q[1,0] t- w[] f[8,8] e[] --
+108 jam failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- |  | r[] q[1,0] t- w[] f[8,8] e[] J-
+109 starve failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- |  | r[] q[1,0] t- w[] f[8,8] e[] JZ
+110 take failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- |  | r[] q[0] t1 w[] f[8,8] e[] --
+111 take failed all_servers_failed - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- |  | r[] q[] t0 w[] f[8,8] e[1] --
+112 start failed all_servers_failed - o[0,1] c- u- --R ; connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t0 w[[1]] f[8,8] e[] --
+113 finish:L0*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t0 w[[1]] f[8,8] e[] --
+114 finish:C0*:ok failed all_servers_failed - o[0,1] c- u- --R ; tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- | up s0 u1I- q[1] | open s0-- ; open s0-- | R0* S1* L0* L1* | r[] q[] t0 w[[1]] f[8,8] e[] --
+115 cancel:1 failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- B-R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S1x L0* L1* | r[] q[1] t0 w[] f[8,8] e[] --
+116 jam failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- B-R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S1x L0* L1* | r[] q[1] t0 w[] f[8,8] e[] J-
+117 starve failed all_servers_failed - o[0,1] c- u- --R ; failed canceled - o[0,1] c- u- B-R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S1x L0* L1* | r[] q[1] t0 w[] f[8,8] e[] JZ
+118 take free - u- ; failed canceled - o[0,1] c- u- B-R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S1x L0* L1* | r[] q[] t1 w[] f[8,8] e[0] --
+119 take free - u- ; free B u- | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S1x L0* L1* | r[] q[] t- w[] f[8,8] e[1,0] --
+120 starve free - u- ; free B u- | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S1x L0* L1* | r[] q[] t- w[] f[8,8] e[1,0] -Z
+121 straggle:R0x free - u- ; free B u- | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S1x L0* L1* | r[] q[] t- w[] f[8,8] e[1,0] --
+122 jam free - u- ; free B u- | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S1x L0* L1* | r[] q[] t- w[] f[8,8] e[1,0] J-
+123 starve free - u- ; free B u- | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S1x L0* L1* | r[] q[] t- w[] f[8,8] e[1,0] JZ
+124 start free - u- ; failed all_servers_failed - o[0,1] c- u- B-R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x S1x L0* L1* | r[] q[1] t- w[] f[9,9] e[0] --
+125 finish:S1x:ok free - u- ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[1] t- w[] f[9,9] e[0] --
+126 jam free - u- ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[1] t- w[] f[9,9] e[0] J-
+127 start failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[1,0] t- w[] f[10,10] e[] --
+128 finish:R0x:failed failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1,0] t- w[] f[10,10] e[] --
+129 take failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[10,10] e[] --
+130 starve failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[10,10] e[] -Z
+131 jam failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[10,10] e[] JZ
+132 finish:L1*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[0] t1 w[] f[10,10] e[] --
+133 jam failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[0] t1 w[] f[10,10] e[] J-
+134 starve failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[0] t1 w[] f[10,10] e[] JZ
+135 finish:L0*:exhausted failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- |  | r[] q[0] t1 w[] f[10,10] e[] --
+136 starve failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- |  | r[] q[0] t1 w[] f[10,10] e[] -Z
+137 take failed all_servers_failed - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- |  | r[] q[] t0 w[] f[10,10] e[1] --
+138 starve failed all_servers_failed - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- |  | r[] q[] t0 w[] f[10,10] e[1] -Z
+139 start failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[11,11] e[] --
+140 starve failed all_servers_failed - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[1] t0 w[] f[11,11] e[] -Z
+141 take free - u- ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[11,11] e[0] --
+142 finish:L1*:exhausted free - u- ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[11,11] e[0] --
+143 finish:L1*:exhausted free - u- ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[11,11] e[0] --
+144 finish:L1*:exhausted free - u- ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t1 w[] f[11,11] e[0] --
+145 start connecting_tcp 0/0/0/0 E--- o[0,1] c0 u- --- ; failed all_servers_failed - o[0,1] c- u- --R | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t1 w[[0]] f[11,11] e[] --
+146 finish:C0*:failed connecting_tcp 1/0/0/0 E-F- o[0,1] c0 u- --- ; failed all_servers_failed - o[0,1] c- u- --R | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t1 w[[0]] f[12,11] e[] --
+147 cancel:0 failed canceled - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | connecting s1 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0] t1 w[] f[12,11] e[] --
+148 finish:L1*:exhausted failed canceled - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | connecting s1 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0] t1 w[] f[12,11] e[] --
+149 jam failed canceled - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | connecting s1 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[0] t1 w[] f[12,11] e[] J-
+150 finish:C0*:ok failed canceled - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | up s1 u0I- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[12,11] e[] --
+151 idle failed canceled - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[12,11] e[] --
+152 starve failed canceled - o[0,1] c- u- --R ; failed all_servers_failed - o[0,1] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t1 w[] f[12,11] e[] -Z
+153 take failed canceled - o[0,1] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[12,11] e[1] --
+154 take free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[12,11] e[0,1] --
+155 jam free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[12,11] e[0,1] J-
+156 starve free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[12,11] e[0,1] JZ
+157 finish:L0*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L1* | r[] q[] t- w[] f[12,11] e[0,1] --
+158 finish:L1*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[12,11] e[0,1] --
+159 jam free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[12,11] e[0,1] J-
+160 finish:L1*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[] t- w[] f[12,11] e[0,1] --
+161 starve free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* | r[] q[] t- w[] f[12,11] e[0,1] -Z
+162 start failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t- w[] f[13,12] e[1] --
+163 jam failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[0] t- w[] f[13,12] e[1] J-
+164 take failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[13,12] e[1] --
+165 finish:L0*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t0 w[] f[13,12] e[1] --
+166 start failed all_servers_failed - o[1,0] c- u- --R ; connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t0 w[[1]] f[13,12] e[] --
+167 finish:L1*:exhausted failed all_servers_failed - o[1,0] c- u- --R ; connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t0 w[[1]] f[13,12] e[] --
+168 take free - u- ; connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[1]] f[13,12] e[0] --
+169 finish:L1*:exhausted free - u- ; connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[1]] f[13,12] e[0] --
+170 expire free - u- ; connecting_tcp 1/0/0/0 E--- o[1,0] cw u- --- | closed s0 u0-- q[] | open s0-- ; open s0-- | C0x L0* L1* | r[] q[] t- w[[1]] f[13,13] e[0] --
+171 finish:C0x:ok free - u- ; connecting_tcp 1/0/0/0 E--- o[1,0] c0 u- --- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[1]] f[13,13] e[0] --
+172 expire free - u- ; failed timeout - o[1,0] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[1] t- w[] f[14,13] e[0] --
+173 finish:L0*:exhausted free - u- ; failed timeout - o[1,0] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[1] t- w[] f[14,13] e[0] --
+174 take free - u- ; failed timeout - o[1,0] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t1 w[] f[14,13] e[0] --
+175 finish:L1*:exhausted free - u- ; failed timeout - o[1,0] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t1 w[] f[14,13] e[0] --
+176 finish:L0*:exhausted free - u- ; failed timeout - o[1,0] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t1 w[] f[14,13] e[0] --
+177 jam free - u- ; failed timeout - o[1,0] c- u- --R | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t1 w[] f[14,13] e[0] J-
+178 take free - u- ; free - u- | connecting s0 u0I- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[] f[14,13] e[1,0] --
+179 finish:C0*:failed free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[14,13] e[1,0] --
+180 starve free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[14,13] e[1,0] -Z
+181 finish:L0*:exhausted free - u- ; free - u- | closed s0 u0-- q[] | open s0-- ; open s0-- | L0* L1* | r[] q[] t- w[] f[14,13] e[1,0] --
+182 start free - u- ; connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[1]] f[14,13] e[0] --
+183 starve free - u- ; connecting_tcp 0/0/0/0 E--- o[1,0] c0 u- --- | connecting s1 u1-- q[] | open s0-- ; open s0-- | C0* L0* L1* | r[] q[] t- w[[1]] f[14,13] e[0] -Z
+184 finish:C0*:ok free - u- ; tcp_ready 0/0/0/0 E--- o[1,0] c0 u- B-- | up s1 u1I- q[1] | open s0-- ; open s0-- | R0* S1* L0* L1* | r[] q[] t- w[[1]] f[14,13] e[0] --
+185 expire free - u- ; connecting_tcp 1/0/0/0 E--- o[1,0] c0 u- B-- | connecting s0 u1-- q[] | open s0-- ; open s0-- | C0* R0x S1x L0* L1* | r[] q[] t- w[[1]] f[14,14] e[0] --
+186 finish:C0*:ok free - u- ; tcp_ready 1/0/0/0 E--- o[1,0] c0 u- BH- | up s0 u1I- q[] | open s0-- ; open s0-- | R0x R0* S1x L0* L1* | r[] q[] t- w[[1]] f[14,14] e[0] --
+187 start tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- ; tcp_ready 1/0/0/0 E--- o[1,0] c0 u- BH- | up s0 u2I- q[0] | open s0-- ; open s0-- | R0x R0* S0* S1x L0* L1* | r[] q[] t- w[[0,1]] f[14,14] e[] --
+188 jam tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- ; tcp_ready 1/0/0/0 E--- o[1,0] c0 u- BH- | up s0 u2I- q[0] | open s0-- ; open s0-- | R0x R0* S0* S1x L0* L1* | r[] q[] t- w[[0,1]] f[14,14] e[] J-
+189 finish:R0x:ok tcp_ready 0/0/0/0 E--- o[0,1] c0 u- B-- ; tcp_ready 1/0/0/0 E--- o[1,0] c0 u- BH- | up s0 u2I- q[0] | open s0-- ; open s0-- | R0* S0* S1x L0* L1* | r[] q[] t- w[[0,1]] f[14,14] e[] --
+190 cancel:0 failed canceled - o[0,1] c- u- B-R ; tcp_ready 1/0/0/0 E--- o[1,0] c0 u- BH- | up s0 u1I- q[0] X | open s0-- ; open s0-- | R0* S0x S1x L0* L1* | r[] q[0] t- w[[1]] f[14,14] e[] --
+191 finish:S0x:ok failed canceled - o[0,1] c- u- --R ; tcp_ready 1/0/0/0 E--- o[1,0] c0 u- BH- | up s0 u1I- q[] X | open s0-- ; open s0-- | R0* S1x L0* L1* | r[] q[0] t- w[[1]] f[14,14] e[] --
+192 finish:L0*:exhausted failed canceled - o[0,1] c- u- --R ; tcp_ready 1/0/0/0 E--- o[1,0] c0 u- BH- | up s0 u1I- q[] X | open s0-- ; open s0-- | R0* S1x L0* L1* | r[] q[0] t- w[[1]] f[14,14] e[] --
+193 finish:L0*:exhausted failed canceled - o[0,1] c- u- --R ; tcp_ready 1/0/0/0 E--- o[1,0] c0 u- BH- | up s0 u1I- q[] X | open s0-- ; open s0-- | R0* S1x L0* L1* | r[] q[0] t- w[[1]] f[14,14] e[] --
+194 finish:R0*:exhausted failed canceled - o[0,1] c- u- --R ; tcp_ready 1/0/0/0 E--- o[1,0] c0 u- BH- | up s0 u1I- q[] X | open s0-- ; open s0-- | R0* S1x L0* L1* | r[] q[0] t- w[[1]] f[14,14] e[] --
+195 finish:S1x:ok failed canceled - o[0,1] c- u- --R ; tcp_ready 1/0/0/0 E--- o[1,0] c0 u- B-- | up s0 u1I- q[1] X | open s0-- ; open s0-- | R0* S1* L0* L1* | r[] q[0] t- w[[1]] f[14,14] e[] --
+196 jam failed canceled - o[0,1] c- u- --R ; tcp_ready 1/0/0/0 E--- o[1,0] c0 u- B-- | up s0 u1I- q[1] X | open s0-- ; open s0-- | R0* S1* L0* L1* | r[] q[0] t- w[[1]] f[14,14] e[] J-
+197 finish:L0*:exhausted failed canceled - o[0,1] c- u- --R ; tcp_ready 1/0/0/0 E--- o[1,0] c0 u- B-- | up s0 u1I- q[1] X | open s0-- ; open s0-- | R0* S1* L1* | r[] q[0] t- w[[1]] f[14,14] e[] --
+198 jam failed canceled - o[0,1] c- u- --R ; tcp_ready 1/0/0/0 E--- o[1,0] c0 u- B-- | up s0 u1I- q[1] X | open s0-- ; open s0-- | R0* S1* L1* | r[] q[0] t- w[[1]] f[14,14] e[] J-
+199 finish:S1*:ok failed canceled - o[0,1] c- u- --R ; awaiting_tcp 1/0/0/0 E--- o[1,0] c0 u- --- | up s0 u1I- q[] X | open s0-- ; open s0-- | R0* L1* | r[] q[0] t- w[[1]] f[14,14] e[] --
+200 cancel:1 failed canceled - o[0,1] c- u- --R ; failed canceled - o[1,0] c- u- --R | closed s0 u0-- q[] | open s0-- ; open s0-- | R0x L0* L1* | r[] q[0,1] t- w[] f[14,14] e[] --
 config 1 2 tls 0
 0 init free - u- | closed s0 u0-- q[] k0- ; closed s0 u0-- q[] k0- |  |  | r[] q[] t- w[] f[0,0] e[0] -- tk[0,0]
 1 starve free - u- | closed s0 u0-- q[] k0- ; closed s0 u0-- q[] k0- |  |  | r[] q[] t- w[] f[0,0] e[0] -Z tk[0,0]

@@ -22,10 +22,11 @@ const tls_test = @import("io_tls_test.zig");
 const Rig = sim_test.Rig;
 const question = sim_test.question;
 
-// The tests of a query's send that never ends, which read the helpers below. `io.zig` is at the
-// file-length limit, so this file names them.
+// The tests of a query's send that never ends, and of a connection that no lookup may join, which
+// read the helpers below. `io.zig` is at the file-length limit, so this file names them.
 test {
     _ = @import("io_tcp_ready_test.zig");
+    _ = @import("io_tcp_mark_test.zig");
 }
 
 /// Every query over TCP, one pass over the two servers, and a wait shorter than the hung connect.

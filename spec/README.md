@@ -404,7 +404,7 @@ Three choices make TLC count what the Lean walker counts:
   and checked, and has no successor, as in the Lean walker; TLC leaves a state that breaks a
   `CONSTRAINT` out, and the check on the event that reached it with it. So every configuration
   says `CHECK_DEADLOCK FALSE`.
-- Sixteen of the forty-five checks read the event or the state before it, which a TLC
+- Sixteen of the forty-nine checks read the event or the state before it, which a TLC
   invariant cannot. So `broken` holds the names of the checks the last event broke, and `Clean`
   asks it be empty. In a model that keeps its rules it always is, so it splits no state.
 
@@ -844,6 +844,79 @@ walks are the picks now. Walks 8016, 8023, 16047 and 20016 came in, and walks 80
 left. Each of the 28 rows that the picked walks catch, or that they missed before, is `CAUGHT` by
 the new picks.
 
+On 2026-10-25 a connection that a lookup left during its query's send came to take no lookup
+(docs/design.md §16 decision 54). Until then each new lookup to that server joined it, and delayed
+its shut. The change came to the model first:
+
+- A connection holds `marked`. `MarkLeft` sets it in `Release` when the lookup that leaves has its
+  query's send in flight there, and a lookup stays. The mark stays until the connection ends.
+- `FindConn` passes over a marked connection. `Want` waits when no slot is free or pending, and a
+  marked connection that is up holds a slot (`Marked`).
+- `Leave` takes the place of `Release` in the drive. At the last leave of a marked connection with
+  no query's send in flight, it shuts the connection in the clear. Over TLS it seals the
+  `close_notify`, and the connection closes.
+- Three checks hold the rule. "joins no marked": no lookup joins a marked connection. "left
+  marked": a connection that is up with a lookup on it, whose head is a query whose send is in
+  flight, and whose lookup left it, is marked. "marked held": a marked connection is up with a
+  lookup on it, or it closes.
+- `mutants/NJ1` lets `FindConn` take a marked connection. TLC finds "joins no marked" broken at the
+  eighth state of its counterexample. `mutants/NJ2` marks nothing, and TLC finds "left marked"
+  broken at the fifth state. `mutants/NJ3` leaves a marked connection up at its last leave, and
+  TLC finds "marked held" broken at the eighth state.
+- `ReleaseKeepsQueued`, the operator of TQ1, marks as `Release` does. So TQ1 still breaks "queued
+  for its lookup" alone, at the fifth state, and SH1 still breaks "held bounded" alone, at the
+  fourth.
+
+TLC checked each configuration of a stream on 2026-10-25 on an Apple M1 Pro while other work ran:
+
+| Configuration | Before | Now |
+| --- | --- | --- |
+| `Engine_tcp_1_1_bound_4_1` | 15,018 | 15,018 |
+| `Engine_tcp_2_1_bound_4_1` | 543,240 | 593,915 |
+| `Engine_tcp_2_2_bound_4_1` | 2,936,207 | 2,910,103 |
+| `Engine_tls_1_2_bound_2_1` | 167,633 | 167,633 |
+| `Engine_truncated_1_1_bound_4_1` | 384,006 | 384,006 |
+| `Engine_tls_2_2_bound_2_1` | 17,278,895 | 18,790,144 |
+
+A mark needs two lookups on one connection. So each configuration with one lookup holds the states
+that it held before. `Engine_tls_1_2_bound_3_1` has one lookup too, and did not run. With one
+connection slot, a new lookup now waits for the slot of a marked connection. So
+`Engine_tcp_2_1_bound_4_1` holds more states. The largest configuration CI checks on each push now
+holds 2,910,103 states, `Engine_tcp_2_2_bound_4_1`. The largest it checks once a day holds
+18,790,144, `Engine_tls_2_2_bound_2_1`.
+
+The trace writes ` X` after the queue of a marked connection. So a walk where no connection is
+marked is written as before. None of the 130 short walks marks a connection, and none changed. Of
+the 26,000 walks of the full run, 365 mark one: 193 over TCP with one connection slot, 170 over TCP
+with two, and 2 over TLS. Of the eighteen picks, walk 12003 changed, and it marks a connection.
+`zig build mutations -- engine` ran each row that the walks catch, and the rows NJ4 to NJ15,
+against the new full run (docs/mutations.md, A connection no lookup may join). The short walks miss
+the four rows NJ12 to NJ15, and the picks caught NJ13 at walk 12003. For the other three the tool
+named the full run's first walk that catches each: walks 12004, 12338 and 12392. They came in, and
+the picks are twenty-one now. No walk left.
+
+A review of the change on 2026-10-25 added a check, a configuration and three mutants:
+
+- `Leave` ends a marked connection through `EndMarked`. Over TLS, with no send refused, the end
+  leaves the connection closing, with its `close_notify`. `unsaid` notes an end that does not. The
+  check "marked said" asks that, and TLC holds forty-nine checks now.
+- `Want` judges `slotless` by decision 54 too. A lookup told that its connection failed while a
+  marked connection holds a slot sets it, in the clear as over TLS.
+- `Engine_tls_2_1_bound_2_1` has one server, two lookups and one connection over TLS, at two
+  operations. CI checks it on each push, and it reaches a mark over TLS. Before it only the nightly
+  `Engine_tls_2_2_bound_2_1` did. TLC counts 142,068 states, in 24 seconds.
+- `mutants/NJ16` tells the lookup that its connection failed in place of the wait, in the clear.
+  TLC finds "slot waited for" broken at the fifth state of its counterexample. `mutants/NJ17` does
+  the same over TLS, and TLC finds it at the eleventh state. `mutants/NJ18` shuts a marked
+  connection over TLS at its last leave, and TLC finds "marked said" broken at the eleventh state.
+
+Each other configuration of a stream holds the states of the table above. NJ1 to NJ3, TQ1 and SH1
+each still break their one check alone. The trace does not write `unsaid`, and a model that keeps
+its rules never sets it. So no walk changed. Two walks of the full run mark a TLS connection, and
+neither reaches a last leave of it with its sends ended. So no walk catches the code's NJ10, the
+shut in place of that `close_notify`. The test of NJ10 and `Engine_tls_2_1_bound_2_1` hold that
+rule (docs/mutations.md, A connection no lookup may join).
+
 ### The walks TLC takes
 
 `tla/engine/EngineTrace.tla` runs the specification in TLC's simulation mode, which takes seeded
@@ -895,7 +968,7 @@ compares the walk's whole state after each.
   It also
   replays two sets of engine walks TLC wrote. `tools/spec_replay/engine_gate.txt` holds ten walks
   of forty events in each of the thirteen engine configurations.
-  `tools/spec_replay/engine_picks.txt` holds eighteen walks of the full run, which `engine_picks`
+  `tools/spec_replay/engine_picks.txt` holds twenty-one walks of the full run, which `engine_picks`
   in `build/spec.zig` names. Each is where the full run caught a mutation of the engine that the
   short walks miss (docs/mutations.md). The gate also holds `tools/spec_replay/walk_gate.txt`, the
   forward walk with two candidates and both families and every reverse configuration. It needs

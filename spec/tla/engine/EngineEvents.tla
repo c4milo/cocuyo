@@ -8,9 +8,30 @@ EXTENDS EngineChannel
 -------------------------------------------------------------------------------
 \* The drive.
 
+\* The last leave of marked connection k, with no query's send in flight. In the clear the drive
+\* shuts it. Over TLS it says close_notify and closes, as the idle close does, with no wait (§16
+\* decision 54; TLS rule 5).
+EndMarked(st, k) ==
+    IF Tls THEN MakeRecords([st EXCEPT !.conns[k].stage = "closing", !.conns[k].idleNow = TRUE], k)
+    ELSE Shut(st, k)
+
+\* The lookup leaves its connection (Release). The last leave of a marked connection ends it at
+\* once, since no lookup may join it. `unsaid` notes a mistake: over TLS, with no send refused, the
+\* end left the connection anything but closing, so the peer heard no close_notify.
+Leave(st, l) ==
+    LET released == Release(st, l) IN
+    IF st.slots[l].conn = {} THEN released
+    ELSE
+    LET k == Get(st.slots[l].conn)
+        c == released.conns[k]
+        ended == EndMarked(released, k)
+    IN IF ~c.marked \/ c.users # 0 \/ c.stage # "up" THEN released
+       ELSE [ended EXCEPT !.unsaid = @ \/ (Tls /\ ~released.jammed /\
+                                            ended.conns[k].stage # "closing")]
+
 Report(st, l) ==
     IF st.slots[l].reported THEN <<st, FALSE>>
-    ELSE <<[Release([st EXCEPT !.slots[l].reported = TRUE], l) EXCEPT !.results = Append(@, l)],
+    ELSE <<[Leave([st EXCEPT !.slots[l].reported = TRUE], l) EXCEPT !.results = Append(@, l)],
            TRUE>>
 
 \* What the drive does with one lookup's poll. The lookup no longer waits for a slot, and leaves
@@ -22,7 +43,7 @@ Act(st, l, out) ==
         placed == IF sl.conn # {} /\ sl.lookup # {} /\
                      ~(OnStream(Get(sl.lookup).stage) /\
                        st.conns[Get(sl.conn)].server = ServerOf(st, l))
-                  THEN Release(unwaited, l) ELSE unwaited
+                  THEN Leave(unwaited, l) ELSE unwaited
     IN CASE out = "connectTcp" -> <<Want(placed, l), TRUE>>
          [] out \in {"sendTcp", "sendUdp"} -> <<Send(placed, l), TRUE>>
          [] out = "sendRequest" ->

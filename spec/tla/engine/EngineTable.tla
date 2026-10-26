@@ -159,8 +159,9 @@ CServers == IF Channel THEN Servers ELSE 0
 NoSlot == [lookup |-> {}, order |-> <<>>, conn |-> {}, busy |-> FALSE, held |-> FALSE,
            heldCurrent |-> FALSE, reported |-> FALSE, expired |-> FALSE, remaining |-> 0,
            sentFrom |-> {}, waits |-> FALSE]
+\* `marked`: a lookup left the connection during its query's send, so none joins it (decision 54).
 NoConn == [stage |-> "closed", server |-> 0, users |-> 0, idleNow |-> FALSE, queue |-> <<>>,
-           sealed |-> 0, partSent |-> FALSE, owes |-> FALSE, resumed |-> FALSE]
+           sealed |-> 0, partSent |-> FALSE, owes |-> FALSE, resumed |-> FALSE, marked |-> FALSE]
 NoSock == [sent |-> 0, retiring |-> FALSE, draining |-> FALSE]
 \* A request connection: its stage, the requests waiting for it to be up, the ones on a stream,
 \* whether colibri owes a datagram, whether its slot's datagram buffer is lent to a send of any
@@ -188,8 +189,9 @@ IsSend(kind) == kind \in {"send", "sendTo"}
 
 \* A socket per server, each with its receive armed; none over TLS (§21, TLS rule 9). `slotless`
 \* says that the engine told a lookup its connection failed for want of a slot over TLS, or in the
-\* clear while a slot had no lookup on it. Both break the stream's rule 12. A model that keeps its
-\* rules never sets it, so it splits no state; the check "slot waited for" asks that.
+\* clear while a slot had no lookup or was marked. Both break the stream's rule 12. A model that
+\* keeps its rules never sets it, so it splits no state; the check "slot waited for" asks that. So
+\* it is with `joinedMarked` and "joins no marked", and `unsaid` and "marked said" (decision 54).
 InitState ==
     [slots |-> [l \in 0..Slots - 1 |-> NoSlot],
      conns |-> [k \in 0..Conns - 1 |-> NoConn],
@@ -199,8 +201,8 @@ InitState ==
      jammed |-> FALSE, starved |-> FALSE, tickets |-> [v \in 0..Servers - 1 |-> FALSE],
      rconns |-> [v \in 0..RServers - 1 |-> NoRConn], reqs |-> [l \in 0..Slots - 1 |-> {}],
      chans |-> [v \in 0..CServers - 1 |-> NoChan], links |-> [i \in 0..2 * CServers - 1 |-> NoLink],
-     asked |-> [i \in 0..2 * CServers - 1 |-> FALSE],
-     linkTickets |-> [i \in 0..2 * CServers - 1 |-> FALSE], slotless |-> FALSE]
+     asked |-> [i \in 0..2 * CServers - 1 |-> FALSE], slotless |-> FALSE, unsaid |-> FALSE,
+     linkTickets |-> [i \in 0..2 * CServers - 1 |-> FALSE], joinedMarked |-> FALSE]
 
 \* The configured server a slot's lookup is asking now.
 ServerOf(st, l) ==
@@ -358,8 +360,14 @@ QueryInFlight(st, k) ==
 \* That send holds a lookup's buffer, and the shut cancels it (§16 decision 53).
 LeaveShuts(st, k) == st.conns[k].users = 0 /\ QueryInFlight(st, k)
 
-\* The lookup leaves its connection, and a query of its that has not started goes with it. When no
-\* lookup stays while a query's send is in flight, the drive shuts the connection at once.
+\* The lookup in slot l left connection k, in `before`, during its own query's send, and a lookup
+\* stays: the drive marks k until k ends, and no lookup joins it again (§16 decision 54).
+MarkLeft(before, st, k, l) ==
+    IF st.conns[k].users > 0 /\ HeadIs(before.conns[k].queue, Query(l)) /\ Sending(before, l)
+    THEN [st EXCEPT !.conns[k].marked = TRUE] ELSE st
+
+\* The lookup leaves its connection, and its query that has not started goes too. When no lookup
+\* stays during a query's send, the drive shuts the connection. When one stays, MarkLeft decides.
 Release(st, l) ==
     IF st.slots[l].conn = {} THEN st
     ELSE
@@ -372,7 +380,8 @@ Release(st, l) ==
                                   !.conns[k].queue = IF waiting
                                                      THEN SelectSeq(@, LAMBDA e : e # Query(l))
                                                      ELSE @]
-    IN IF LeaveShuts(released, k) THEN Shut(released, k) ELSE released
+        marked == MarkLeft(left, released, k, l)
+    IN IF LeaveShuts(marked, k) THEN Shut(marked, k) ELSE marked
 
 \* Whether the loop still holds memory of slot k's, of whichever incarnation: its address, which a
 \* connect reads, or its records buffer, which a send over TLS reads (rule 10, TLS rule 3).
@@ -409,10 +418,10 @@ OpenConn(st, v) ==
                           [NoConn EXCEPT !.stage = "connecting", !.server = v, !.resumed = resumed]]
        IN <<{k}, [opened EXCEPT !.ops = Add(@, Op("connect", k))]>>
 
-\* The connection to server v a lookup may join: not one that is closing (TLS rule 5).
+\* The connection to server v a lookup may join: not closing (TLS rule 5), not marked (decision 54).
 FindConn(st, v) ==
     LET ks == {k \in 0..Conns - 1 : st.conns[k].stage \notin {"closed", "closing"} /\
-                                    st.conns[k].server = v}
+                                    ~st.conns[k].marked /\ st.conns[k].server = v}
     IN IF ks = {} THEN {} ELSE {Least(ks)}
 
 \* Whether connection slot k frees with no lookup leaving it (the stream's rule 12). Its connection
@@ -424,15 +433,19 @@ Frees(st, k) ==
 \* Whether a slot is pending, which a lookup that finds no free slot waits for (rule 12).
 Pending(st) == \E k \in 0..Conns - 1 : Frees(st, k)
 
-\* The lookup goes on connection k, and hears at once when it is up.
+\* Whether a marked connection that is up holds a slot, which frees at its last leave (decision 54).
+Marked(st) == \E k \in 0..Conns - 1 : st.conns[k].marked /\ st.conns[k].stage = "up"
+
+\* The lookup goes on connection k, and hears at once when it is up. `joinedMarked` notes a mistake.
 JoinConn(st, l, k) ==
     LET joined == IF st.slots[l].conn = {k} THEN st
-                  ELSE [st EXCEPT !.slots[l].conn = {k}, !.conns[k].users = @ + 1]
+                  ELSE [st EXCEPT !.slots[l].conn = {k}, !.conns[k].users = @ + 1,
+                                  !.joinedMarked = @ \/ st.conns[k].marked]
     IN IF joined.conns[k].stage = "up" THEN TableEvent(joined, l, "tcpConnected") ELSE joined
 
 \* The lookup asks for a stream to its server (rule 1). With no slot free, it waits while one is
-\* pending, which FreeConn may have made so in the clear, and is told its connection failed when
-\* none is (rule 12).
+\* pending, which FreeConn may have made so in the clear, or while a marked connection holds a slot
+\* (§16 decision 54). It is told its connection failed when neither is so (rule 12).
 Want(st, l) ==
     LET v == ServerOf(st, l)
         found == IF st.slots[l].conn # {} THEN <<st.slots[l].conn, st>>
@@ -442,11 +455,11 @@ Want(st, l) ==
         roomless == FreeConn(st)[1] = {}
         \* What `slotless` judges by, read from neither FreeConn nor Pending, so that a mutant of
         \* the engine's choice is judged by the rule. With no socket or submission refused, a
-        \* lookup told it failed has found each slot held by a lookup, and never over TLS.
+        \* lookup told it failed found each slot held by a lookup on no marked one, never over TLS.
         unheld == ~st.jammed /\ ~st.starved /\
-                  (Tls \/ \E k \in 0..Conns - 1 : st.conns[k].users = 0)
+                  (Tls \/ \E k \in 0..Conns - 1 : st.conns[k].users = 0 \/ st.conns[k].marked)
     IN IF found[1] # {} THEN JoinConn(now, l, Get(found[1]))
-       ELSE IF roomless /\ Pending(now) THEN [now EXCEPT !.slots[l].waits = TRUE]
+       ELSE IF roomless /\ (Pending(now) \/ Marked(now)) THEN [now EXCEPT !.slots[l].waits = TRUE]
        ELSE TableEvent(IF unheld THEN [now EXCEPT !.slotless = TRUE] ELSE now, l, "tcpFailed")
 
 \* The lookup in table slot l, which waits, joins its server's connection or opens one as Want

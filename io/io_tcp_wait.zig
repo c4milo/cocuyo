@@ -4,7 +4,7 @@
 //! closes a connection that no lookup is on while its connect is in flight. The drive's end admits
 //! each lookup that waits. Over TLS each server has at most one connection that a lookup may join.
 //! A TLS configuration has a slot for each server (§21, TLS rule 6). So over TLS a lookup always
-//! finds a slot that is free or pending.
+//! finds a slot that is free, pending or marked (§16 decision 54).
 //!
 //! Free functions over the engine, split out of `io_tcp.zig` by the file-length rule.
 const std = @import("std");

@@ -56,10 +56,13 @@ SlotToken(sl) ==
 
 EntryToken(e) == IF e.kind = "query" THEN ToString(e.slot) ELSE "r"
 
+\* A connection. ` X` follows its queue when it is marked (§16 decision 54), so a walk where no
+\* connection is marked is written as before.
 ConnToken(c) ==
     c.stage \o " s" \o ToString(c.server) \o " u" \o ToString(c.users) \o Flag(c.idleNow, "I") \o
     Flag(c.partSent, "P") \o " q[" \o Join([i \in 1..Len(c.queue) |-> EntryToken(c.queue[i])], ",") \o
-    "]" \o (IF Tls THEN " k" \o ToString(c.sealed) \o Flag(c.resumed, "M") ELSE "")
+    "]" \o (IF c.marked THEN " X" ELSE "") \o
+    (IF Tls THEN " k" \o ToString(c.sealed) \o Flag(c.resumed, "M") ELSE "")
 
 SockToken(sk) == "open s" \o ToString(sk.sent) \o Flag(sk.retiring, "R") \o Flag(sk.draining, "D")
 

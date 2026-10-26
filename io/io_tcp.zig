@@ -1,14 +1,11 @@
 //! The stream path of the engine (docs/design.md §19 step 13): the connections a lookup asks for
-//! when a UDP answer came back truncated (RFC 7766 §5), or when a server refuses its cookie.
-//!
-//! One connection serves one server and every lookup that needs it, their queries pipelined onto
-//! it and their answers matched back by the table's own demultiplexer (RFC 7766 §6.2.1.1). A
-//! stream carries no message boundaries, so each message is a two-octet length and that many
-//! octets after it (§8), and `io_tcp_frame.zig` holds the partial bytes until a whole one is
-//! there. A connection nobody is using is closed once `tcp_idle_ns` has passed, which §6.2.3 asks
-//! a client to keep short.
-//!
-//! Free functions over the engine, split out of `io.zig` so each is scored on its own.
+//! when a UDP answer came back truncated (RFC 7766 §5), or when a server refuses its cookie. A
+//! connection serves one server and each lookup that joins it, their queries pipelined onto it and
+//! their answers matched back by the table's own demultiplexer (RFC 7766 §6.2.1.1). Each message
+//! is a two-octet length and that many octets after it (§8), and `io_tcp_frame.zig` holds the
+//! partial bytes until a whole one is there. A connection nobody is using is closed once
+//! `tcp_idle_ns` has passed, which §6.2.3 asks a client to keep short. Free functions over the
+//! engine, split out of `io.zig` so each is scored on its own.
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
@@ -20,6 +17,7 @@ const tls_module = @import("io_tls.zig");
 const frame_module = @import("io_tcp_frame.zig");
 const reset = @import("io_reset.zig");
 const wait_module = @import("io_tcp_wait.zig");
+const mark_module = @import("io_tcp_mark.zig");
 
 pub const Error = error{SocketFailed};
 /// What asking for a connection can meet: a socket or a connect refused, or no free slot.
@@ -71,6 +69,8 @@ pub fn Connection(comptime message_bytes: u32, comptime lookups: u16, comptime T
         receiving: bool = false,
         /// How many lookups are on it. One with none is closed when it has been idle long enough.
         users: u16 = 0,
+        /// No lookup joins it, since one left during its query's send (`io_tcp_mark.zig`).
+        marked: bool = false,
         /// The instant from which the idle close's wait counts while no lookup is on it. Its
         /// connect's success sets it. So do its last lookup's leave and the start of its close (the
         /// stream's rule 4, §21's TLS rule 5).
@@ -129,19 +129,19 @@ pub const admit = wait_module.admit;
 
 // What a lookup asks for.
 
-/// The lookup at `index` needs a stream to its current server. It is put on that server's
-/// connection, which is opened if there is none; a connection that is already up is reported at
-/// once, and one still connecting reports when its event arrives. With no slot free, the lookup
-/// waits for a pending slot (the stream's rule 12). The drive's end admits it, or its deadline
-/// moves it on. In the clear the wait may last while each slot holds a lookup. A lookup that
-/// can have no slot, or whose socket or connect is refused, is told `local`, and fails over to the
-/// next server, as it is by an engine that keeps none (docs/design.md §5, The cause of a failure).
+/// The lookup at `index` needs a stream to its current server: it joins that server's connection,
+/// or opens one. One up is reported at once, and one still connecting at its event. With no slot
+/// free, it waits for a pending slot, or for a marked connection's (the stream's rule 12, §16
+/// decision 54). The drive's end admits it, or its deadline moves it on. A lookup that can have no
+/// slot, or whose socket or connect is refused, is told `local`, and fails over to the next
+/// server (docs/design.md §5, The cause of a failure).
 pub fn want(self: anytype, index: usize, now_ns: u64) void {
     const handle = self.handles[index];
     if (comptime !@TypeOf(self.*).keeps_tcp) return self.resolver.on_tcp_failed(handle, .local, now_ns);
     const server = self.resolver.lookup_of(handle).server_slot();
     const at = attach(self, index, server, now_ns) catch |err| {
         if (err == error.NoSlot and wait_module.pending(self)) return wait_module.wait(self, index);
+        if (err == error.NoSlot and mark_module.holds_slot(self)) return wait_module.wait(self, index);
         return self.resolver.on_tcp_failed(handle, .local, now_ns);
     };
     if (self.connections[at].state == .up) self.resolver.on_tcp_connected(handle, now_ns);
@@ -156,11 +156,11 @@ pub fn attach(self: anytype, index: usize, server: u8, now_ns: u64) OpenError!u8
     return at;
 }
 
-/// The connection to `server`, if one is open or opening: not one that is closing (§21, TLS
-/// rule 5).
+/// The connection to `server` that a lookup may join: open or opening, and neither closing (§21,
+/// TLS rule 5) nor marked (docs/design.md §16 decision 54).
 fn find(self: anytype, server: u8) ?u8 {
     for (self.connections[0..], 0..) |*connection, at| {
-        if (connection.state == .closed or connection.state == .closing) continue;
+        if (connection.state == .closed or connection.state == .closing or connection.marked) continue;
         if (connection.server == server) return @intCast(at);
     }
     return null;
@@ -239,8 +239,8 @@ pub fn follow(self: anytype, index: usize, now_ns: u64) void {
 }
 
 /// A lookup has ended or been freed: it is off its connection, with its query that waits there.
-/// When none stays while a query's send holds a lookup's buffer, the shut cancels that send at
-/// once: a peer that does not read never ends it (docs/design.md §16 decision 53).
+/// When none stays during a query's send, the shut cancels that send, which a peer that does not
+/// read never ends (docs/design.md §16 decision 53). `io_tcp_mark.leave` marks it (decision 54).
 pub fn release(self: anytype, index: usize, now_ns: u64) void {
     if (comptime !@TypeOf(self.*).keeps_tcp) return;
     const at = self.tcp_connection[index] orelse return;
@@ -251,6 +251,7 @@ pub fn release(self: anytype, index: usize, now_ns: u64) void {
     connection.users -= 1;
     if (connection.users == 0) connection.idle_since_ns = now_ns;
     if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut(self, at);
+    mark_module.leave(self, at, index, now_ns);
 }
 
 // What the loop says.
@@ -471,9 +472,8 @@ pub fn close_idle(self: anytype, now_ns: u64) void {
 }
 
 /// Ends each operation of every connection, its send among them, so the loop can be drained
-/// (rotor decision 5, rule 7). The sockets stay open until `close_all`: `close` runs it after the
-/// drain, and `reinit` at once. The send's fields stay as they are, for its event or for
-/// `close_all` to clear (docs/design.md §16 decision 49).
+/// (rotor decision 5, rule 7). The sockets stay open until `close_all`, after the drain or at a
+/// `reinit`. The send's fields stay for its event or for `close_all` (§16 decision 49).
 pub fn cancel_all(self: anytype) void {
     if (comptime !@TypeOf(self.*).keeps_tcp) return;
     for (self.connections[0..]) |*connection| {

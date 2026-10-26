@@ -6,7 +6,8 @@
 \* TS13 and TS18 break the stream's rule 12, and TB5 and TB8 break TLS rule 3 for a query's send.
 \* CL5 breaks TLS rule 5's bound on a connection that closes. RD1 and RD13 break §5's deadline of
 \* `tcpReady` (§16 decision 52). SH1 breaks the shut at the last leave during a query's send (§16
-\* decision 53).
+\* decision 53). NJ1 to NJ3 and NJ16 to NJ18 break the mark of a connection that no lookup joins
+\* (§16 decision 54).
 \* A configuration in mutants/ puts one in place of the rule with TLC's `Rule <- Mutant`, and TLC
 \* must find the check that catches it.
 EXTENDS Engine
@@ -98,7 +99,8 @@ ConnectAgainBorrowed(st, k) ==
 
 \* TQ1: a lookup that leaves keeps its waiting query queued, the stream's rule 9 as the code's SQ6
 \* broke it. On a plain stream a query waits only behind another lookup's, so one lookup never
-\* shows it. The leave still shuts as Release does (§16 decision 53), so TQ1 breaks rule 9 alone.
+\* shows it. The leave still shuts and marks as Release does (§16 decisions 53 and 54), so TQ1
+\* breaks rule 9 alone.
 ReleaseKeepsQueued(st, l) ==
     IF st.slots[l].conn = {} THEN st
     ELSE
@@ -106,7 +108,8 @@ ReleaseKeepsQueued(st, l) ==
         left == [st EXCEPT !.slots[l].conn = {}]
         users == Sub(left.conns[k].users, 1)
         released == [left EXCEPT !.conns[k].users = users, !.conns[k].idleNow = @ \/ users = 0]
-    IN IF LeaveShuts(released, k) THEN Shut(released, k) ELSE released
+        marked == MarkLeft(left, released, k, l)
+    IN IF LeaveShuts(marked, k) THEN Shut(marked, k) ELSE marked
 
 \* RQ1: a request its lookup left is never cancelled (request rule 6).
 CancelLeftNever(st) == st
@@ -383,5 +386,35 @@ RearmsReady(ev, out, after) ==
 \* 2026-10-25. The idle close shuts it at the next move of the clock, and the lookup's buffer stays
 \* lent until then (§16 decision 53).
 LeaveShutsNever(st, k) == FALSE
+
+\* NJ1: a lookup joins a marked connection, as each did until 2026-10-25 (§16 decision 54).
+FindConnJoiningMarked(st, v) ==
+    LET ks == {k \in 0..Conns - 1 : st.conns[k].stage \notin {"closed", "closing"} /\
+                                    st.conns[k].server = v}
+    IN IF ks = {} THEN {} ELSE {Least(ks)}
+
+\* NJ2: a lookup that leaves during its query's send, while another stays, marks nothing.
+MarkLeftNever(before, st, k, l) == st
+
+\* NJ3: the last leave of a marked connection whose sends ended leaves it up, for the idle close.
+LeaveKeepingMarked(st, l) == Release(st, l)
+
+\* NJ16: a lookup that can have no other slot is told its connection failed, though a marked
+\* connection holds a slot. In the clear it was so under decision 46 (§17 question 73).
+WantIgnoringMarked(st, l) ==
+    LET v == ServerOf(st, l)
+        found == IF st.slots[l].conn # {} THEN <<st.slots[l].conn, st>>
+                 ELSE IF FindConn(st, v) # {} THEN <<FindConn(st, v), st>>
+                 ELSE OpenConn(st, v)
+        now == found[2]
+        unheld == ~st.jammed /\ ~st.starved /\
+                  (Tls \/ \E k \in 0..Conns - 1 : st.conns[k].users = 0 \/ st.conns[k].marked)
+    IN IF found[1] # {} THEN JoinConn(now, l, Get(found[1]))
+       ELSE IF FreeConn(st)[1] = {} /\ Pending(now) THEN [now EXCEPT !.slots[l].waits = TRUE]
+       ELSE TableEvent(IF unheld THEN [now EXCEPT !.slotless = TRUE] ELSE now, l, "tcpFailed")
+
+\* NJ18: over TLS the last leave of a marked connection whose sends ended shuts it, and the peer
+\* hears no close_notify, as the code's NJ10 does.
+EndMarkedShut(st, k) == Shut(st, k)
 
 ===============================================================================

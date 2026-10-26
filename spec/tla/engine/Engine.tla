@@ -149,14 +149,15 @@ WaitsConnecting(st) ==
         ~sl.waits \/ (sl.lookup # {} /\ Get(sl.lookup).stage = "connectingTcp" /\ sl.conn = {})
 
 \* After a drive with nothing refused, a lookup waits only while no slot is free and its server
-\* has no connection that it may join. A slot is then pending, or in the clear each slot holds a
-\* lookup. Over TLS a slot is always pending then: each server has at most one connection that a
-\* lookup may join, and the configuration has a slot for each server (TLS rule 6).
+\* has no connection that it may join. A slot is then pending, a marked connection holds one, or in
+\* the clear each slot holds a lookup. Over TLS a slot is always pending or marked then: each server
+\* has at most one connection that a lookup may join, and the configuration has a slot for each
+\* server (TLS rule 6, §16 decision 54).
 WaitsForNone(st) ==
     \A l \in 0..Slots - 1 :
         ~st.slots[l].waits \/
         (FreeConn(st)[1] = {} /\ FindConn(st, ServerOf(st, l)) = {} /\
-         (Pending(st) \/ (~Tls /\ \A k \in 0..Conns - 1 : st.conns[k].users > 0)))
+         (Pending(st) \/ Marked(st) \/ (~Tls /\ \A k \in 0..Conns - 1 : st.conns[k].users > 0)))
 
 \* A lookup on a connection that is up has heard so: none waits for it in connectingTcp.
 ToldWhenUp(st) ==
@@ -222,6 +223,22 @@ HeldBounded(st) ==
     \A k \in 0..Conns - 1 :
         st.conns[k].stage # "up" \/ st.conns[k].users > 0 \/ ~QueryInFlight(st, k)
 
+\* A connection that is up with a lookup on it, whose head is a query whose send is in flight, and
+\* whose lookup has left it, is marked. That lookup left during its send while another stayed (§16
+\* decision 54). A connection with no lookup is "held bounded"'s: the drive shut it (decision 53).
+LeftMarked(st) ==
+    \A k \in 0..Conns - 1 :
+        LET c == st.conns[k] IN
+        c.stage # "up" \/ c.users = 0 \/ ~QueryInFlight(st, k) \/ c.marked \/
+        st.slots[Head(c.queue).slot].conn = {k}
+
+\* A marked connection is up with a lookup on it, or it closes: its last leave ended it at once
+\* (§16 decision 54).
+MarkedHeld(st) ==
+    \A k \in 0..Conns - 1 :
+        LET c == st.conns[k] IN
+        ~c.marked \/ (c.stage = "up" /\ c.users > 0) \/ c.stage = "closing"
+
 Checks(before, e, st) ==
     << <<"users counted", UsersCounted(st)>>, <<"attached right", AttachedRight(st)>>,
        <<"buffers lent", BuffersLent(st)>>, <<"one send a stream", OneSendAStream(st)>>,
@@ -253,7 +270,9 @@ Checks(before, e, st) ==
        <<"records lent", RecordsLent(st)>>,
        <<"closing bounded", ClosingBounded(before, e, st)>>,
        <<"ready armed", ReadyArmed(st)>>, <<"ready bounded", ReadyBounded(before, e, st)>>,
-       <<"held bounded", HeldBounded(st)>> >>
+       <<"held bounded", HeldBounded(st)>>, <<"joins no marked", ~st.joinedMarked>>,
+       <<"left marked", LeftMarked(st)>>, <<"marked held", MarkedHeld(st)>>,
+       <<"marked said", ~st.unsaid>> >>
 
 Broken(before, e, st) ==
     LET checks == Checks(before, e, st) IN

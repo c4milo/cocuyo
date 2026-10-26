@@ -389,6 +389,17 @@ pub fn close(self: anytype, at: u8, now_ns: u64) void {
     assert(connection.state == .up and connection.users == 0);
     // The connection had been idle for the wait already.
     assert(now_ns -| connection.idle_since_ns >= self.tcp_idle_ns);
+    say_close_notify(self, at, now_ns);
+}
+
+/// A connection that is up and that no lookup is on says `close_notify`, and closes once that has
+/// gone: at the idle close, and with no wait at the last leave of a marked connection (§16
+/// decision 54). The idle close's wait starts now, and bounds the close (decision 49).
+pub fn say_close_notify(self: anytype, at: u8, now_ns: u64) void {
+    const connection = &self.connections[at];
+    assert(connection.state == .up and connection.users == 0);
+    // No query's send is in flight: the leave during one shuts the connection (decision 53).
+    assert(!queue_module.query_in_flight(self, at));
     connection.state = .closing;
     connection.idle_since_ns = now_ns;
     connection.tls.session.close();

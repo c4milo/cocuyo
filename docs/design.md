@@ -3139,6 +3139,10 @@ step until `zig build test` passes.
     no wait is written as before. No named limit and no entry point change. The engine grows by
     an octet for each lookup and two more.
 
+    Amended on 2026-10-25 by decision 54. A lookup joins no marked connection. A lookup that finds
+    no slot in the ways above waits for the slot of a marked connection, which frees once the
+    lookups on it leave.
+
     §5 (The cause of a failure), §17 questions 54 and 55, §19 step 13 (the stream's rules 1, 4, 10
     and 12), §21 (TLS rule 6).
 47. **A query's send lends its connection's records buffer.** Ruled by the owner on 2026-10-18:
@@ -3946,7 +3950,8 @@ step until `zig build test` passes.
       at once (rule 9).
     - The last lookup only, as the ruling says. While another lookup stays on the connection, the
       drive does not shut it. That lookup waits for its send or its answer, and its deadline bounds
-      the wait. §17 question 71 asks about a send held in that time.
+      the wait. §17 question 71 asked about a send held in that time. Since decision 54 no lookup
+      joins that connection, and the last leave ends it.
     - Which leaves shut. Each way that the drive takes a lookup off its connection: its deadline, a
       move to the next server or the next name, its end, and a cancel by the caller (the stream's
       rule 3). A connection that fails, or whose record the session refuses, is not a leave. It
@@ -4011,6 +4016,118 @@ step until `zig build test` passes.
 
     §17 questions 70, 71 and 72, §19 step 13 (the stream's rules 3, 4, 6 and 9), §21 (TLS rules 3,
     4 and 5).
+
+54. **No lookup joins a connection that a lookup left during its query's send.** Ruled by the owner
+    on 2026-10-25, on §17 question 71: the third way. Decision 53 shuts a connection when its last
+    lookup leaves while a query's send is in flight. While another lookup stays, that send stays in
+    flight, and the lookup that left keeps its buffer lent. Until the ruling each new lookup to that
+    server joined the connection. So each new lookup delayed the shut, and the held send could wait
+    past its own deadline.
+
+    Now, when a lookup leaves a connection while its own query's send is in flight, and another
+    lookup stays, the drive marks the connection. No lookup joins a marked connection. The lookups
+    on it end by their answers or by their own deadlines. The last leave ends the connection at
+    once. A new lookup to that server opens a new connection, in a free slot, or it waits for a
+    slot (decision 46).
+
+    The sequence in the clear, with one server, two slots and one pass:
+
+    1. Lookup A's connection comes up. The peer stops reading, and A's query's send does not end.
+    2. Lookup B joins the connection later. Its query waits behind A's query in the queue.
+    3. At A's deadline A ends in `Timeout`, and leaves. B stays, and A's query's send is in flight.
+       So the drive marks the connection.
+    4. Lookup C asks the same server. It does not join the marked connection. It opens a new
+       connection in the second slot, and the server answers it there.
+    5. At B's deadline B ends in `Timeout`, and leaves. It is the last lookup, and A's send is in
+       flight. So the drive shuts the connection, and the cancel's event gives A's buffer back.
+
+    Until the ruling C joined the first connection. Its query waited behind A's send, and C ended in
+    `Timeout`.
+
+    Choices the ruling did not make, made here:
+
+    - The mark. It is a flag of the connection. The drive sets it at a leave when the lookup that
+      leaves has its query at the head of the queue, with that send in flight, and a lookup stays.
+      That is the leave of decision 53, with a lookup that stays. A leave while another lookup's
+      query is in flight sets no mark. The query of the lookup that leaves has not started. So it
+      leaves the queue, and its buffer comes back at once (the stream's rule 9).
+    - When the mark clears. Never: the connection ends with it. A send that ends after the mark
+      does not clear it. The drive cannot tell a peer that reads slowly from a peer that stops
+      (decision 53). A peer that stopped once can stop again.
+    - The last leave. It ends a marked connection at once, since no lookup may join it again. While
+      a query's send is in flight, the drive shuts it (decision 53). Otherwise it closes as the idle
+      close closes it, with no wait. In the clear the drive shuts it. Over TLS it makes its
+      `close_notify`, since the peer reads (RFC 9846 §6.1). Then it is closing, and the idle close's
+      wait bounds it (TLS rule 5, decision 49).
+    - A slot when every slot is taken. A lookup that finds no free slot waits while a slot is
+      pending, or in the clear closes a connect that no lookup is on, as decision 46 says. When
+      neither is so, and a marked connection holds a slot, the lookup waits for that slot too. The
+      lookups on the marked connection leave by their deadlines, and the last leave ends it. In the
+      clear its slot is then free at once. Over TLS it is pending until the cancel's event, or until
+      its `close_notify` has gone. The drive's end admits the lookup that waits, as before. Over
+      TLS the wait keeps TLS rule 6. The ruling did not name the wait in the clear, where decision
+      46 told the lookup `local`. §17 question 73 asks it, and until the owner rules, as built.
+    - Over TLS. Each server has at most one connection that a lookup may join, and a marked
+      connection is not one (TLS rule 6). So a server can have two connections: the marked one and
+      a new one. A TLS configuration has a slot for each server. Take a lookup whose server has no
+      connection that it may join, with no free slot and no pending slot. Then a marked connection
+      holds a slot, since each other slot holds the one connection of another server. So the lookup
+      waits, and over TLS no lookup is told that its connection failed for want of a slot.
+    - What the connection's lookups see. Nothing changes for them. Their queries wait in the queue,
+      their answers come as before, and their deadlines bound them. A failure of the connection
+      tells each of them, as before. A refusal over TLS sends its alert first (§17 question 72).
+    - The mark is the engine's own. No entry point and no named limit changes.
+
+    Rejected:
+
+    - As built: the shut waits for the last lookup to leave, and each new lookup can join. With a
+      steady flow of lookups to that server, the held send can wait past its own deadline.
+    - The second way of question 71: the drive shuts the connection at the leave, whatever lookups
+      stay. Each lookup on it then hears a failure that it did not cause, and the server counts it.
+    - A mark at each leave during each send, the session's records among them. That send holds no
+      lookup's buffer (decision 53).
+    - A mark that clears when the held send ends. The next stall then needs a new mark, and a
+      lookup that joined in that time waits behind it.
+    - A marked slot that is pending in the clear before a connect that no lookup is on is closed.
+      The marked slot frees at the last leave, up to a deadline later. A cancelled connect frees its
+      slot about one turn of the loop later.
+    - A marked connection closed to make room over TLS. Its lookups would hear a failure that they
+      did not cause, as in the second way.
+    - The last leave of a marked connection whose sends ended left for the idle close. No lookup may
+      join it, so it holds its slot for nobody. No timer is armed for that drive (decision 49).
+    - A shut at each last leave of a marked connection, over TLS too. A peer that read each query
+      then gets no `close_notify` (RFC 9846 §6.1).
+
+    The engine model in TLA+ holds the rule (spec/README.md). `Release` marks the connection when
+    the lookup that leaves has its query's send in flight there, and a lookup stays. `FindConn`
+    passes over a marked connection, and `Want` waits for its slot as above. `Leave` ends a marked
+    connection at its last leave, through `EndMarked`. Four checks hold the rule:
+
+    - "joins no marked": no lookup joins a marked connection;
+    - "left marked": a connection that is up, whose head is a query whose send is in flight, and
+      whose lookup has left it, is marked;
+    - "marked held": a marked connection is up with a lookup on it, or it closes;
+    - "marked said": over TLS the last leave of a marked connection leaves it closing, with its
+      `close_notify`, unless the loop refused the send.
+
+    "slot waited for" holds the wait. A lookup told that its connection failed, while a marked
+    connection holds a slot, breaks it.
+
+    The mutant NJ1 lets a lookup join a marked connection, and TLC finds "joins no marked" broken.
+    NJ2 sets no mark, and TLC finds "left marked" broken. NJ3 leaves a marked connection up at its
+    last leave, and TLC finds "marked held" broken. NJ16 and NJ17 tell the lookup that its
+    connection failed in place of the wait, in the clear and over TLS. TLC finds "slot waited for"
+    broken. NJ18 shuts a marked connection over TLS at its last leave, and TLC finds "marked said"
+    broken. `Engine_tls_2_1_bound_2_1`, which CI checks on each push, reaches a mark over TLS.
+
+    The code asserts the same rule. At each drive, after the polls, each marked connection is up
+    with a lookup on it, or it closes. And each connection that is up, whose head is a query whose
+    send is in flight and whose lookup has left it, is marked.
+
+    The checks are the tests of `io/` and the walks that the rows NJ1 and after break
+    (docs/mutations.md, A connection no lookup may join).
+
+    §17 questions 71 and 72, §19 step 13 (the stream's rules 1, 3 and 12), §21 (TLS rules 5 and 6).
 
 ## 17. Questions for the owner
 
@@ -4862,6 +4979,8 @@ Each needs a peer that stops reading during a query's send.
 
     Recommended: the third. No lookup hears a failure that it did not cause, and the wait is at
     most one deadline of the lookups on the connection. Until the owner rules, as built.
+    Answered on 2026-10-25: the third way. Built on 2026-10-25: §16 decision 54. A new lookup to
+    that server opens a new connection, in a free slot, or it waits for a slot.
 72. **A refused connection whose query's send is in flight.** Over TLS a record that the session
     refuses once the connection is up fails it (TLS rule 4). So does a prefix that says more than
     `tcp_message_bytes` (the stream's rule 11), with a `close_notify` in place of the alert (TLS
@@ -4877,6 +4996,28 @@ Each needs a peer that stops reading during a query's send.
 
     Recommended: as built. The peer sent a record just then, so it reads in the usual case. RFC
     9846 §6.2 asks for the alert, and that peer can read it. Until the owner rules, as built.
+    Answered on 2026-10-25: as built. A refused record still sends its alert (RFC 9846 §6.2), and
+    the code does not change.
+
+### Asked on 2026-10-25, for a connection no lookup may join
+
+73. **A wait for a marked connection's slot in the clear.** The ruling on question 71 says that a
+    new lookup opens a new connection in a free slot, or waits for a pending slot. Decision 54
+    also lets the lookup wait for the slot of a marked connection. Over TLS that wait keeps TLS rule
+    6: no lookup is told that its connection failed for want of a slot. In the clear decision 46
+    told such a lookup `local`, when no connect could be closed. The lookup then failed over to its
+    next server at once.
+
+    The ways:
+
+    1. As built: the lookup waits for the marked slot, in the clear as over TLS. The last leave of
+       the marked connection frees the slot, at most one deadline of its lookups later.
+    2. In the clear the lookup is told `local`, as decision 46 said, and fails over at once. Over
+       TLS it waits, as TLS rule 6 needs.
+
+    Recommended: as built. One rule holds for both transports, and the lookup keeps its server.
+    The second way reaches another server sooner, but a single server has no other. Until the owner
+    rules, as built.
 
 ## 18. The cache
 
@@ -5830,7 +5971,9 @@ of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
    to make room. When no slot can be had, the lookup waits for one that frees with no lookup
    leaving it (rule 12). In the clear, when none does, a connection with no lookups whose connect
    is in flight is closed. The lookup then waits for its slot (rules 10 and 12). Otherwise the
-   lookup is told its connection failed.
+   lookup is told its connection failed. Since 2026-10-25 a lookup joins no marked connection,
+   and a server can have a marked connection beside the one that a lookup joins. A lookup that
+   finds no slot in the ways above waits for the slot of a marked connection (§16 decision 54).
 2. Each opening of a slot is an incarnation, and every operation on the connection carries the
    incarnation in its `user_data`. An event for another incarnation belongs to a connection
    that is gone and changes nothing, whatever it holds: a cancelled connect can still end in
@@ -5842,7 +5985,9 @@ of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
    a deadline ends `tcp_ready` too (§5, §16 decision 52). So a lookup whose query's send never
    ends leaves its connection at its deadline. A query that has started stays at the head of the
    queue until its send ends (rule 9). Since 2026-10-25, when the last lookup leaves while that
-   send is in flight, the drive shuts the connection at once (§16 decision 53).
+   send is in flight, the drive shuts the connection at once (§16 decision 53). When a lookup
+   leaves while its own query's send is in flight, and another lookup stays, the drive marks the
+   connection. No lookup joins it again, and its last leave ends it at once (§16 decision 54).
 4. A connection's users are the lookups on it. When the last leaves, the connection is idle from
    that instant, and one idle for `tcp_idle_ns` is closed by the drive at an instant that late.
    Since 2026-10-20 a TLS connection that closes is idle from the instant it began to close. The
@@ -5928,6 +6073,12 @@ of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
     slot then holds a lookup. Over TLS no connection is closed to make room (TLS rule 6). Each
     server has at most one connection that a lookup may join, and a TLS configuration has a slot
     for each server. So over TLS a slot is always free or pending, and no lookup is told that.
+
+    Since 2026-10-25 a marked connection holds a slot that frees too (§16 decision 54). No lookup
+    joins it, and its lookups leave by their deadlines. Its last leave ends it, and its slot then
+    frees, or is pending. A lookup that can have no slot in the ways above waits for that slot,
+    and is told its connection failed only when no marked connection holds a slot. Over TLS a slot
+    is then always free, pending or marked, and still no lookup is told that.
 
     The lookup waits in `connecting_tcp`, on no connection, and its deadline still bounds the wait
     (§5). At the end of each drive, after the idle close, the drive admits each lookup that waits,
@@ -6015,7 +6166,7 @@ socket opens may fail for the length of one event. A stream's send may come back
 message, its rest then whole or failed: a second short send takes the same path as the first.
 
 - The Lean walker, `cocuyo-spec engine` until it retired on 2026-09-24, walked every state the model
-  reached in a configuration and checked ten invariants in each. TLC checks forty-five now, the
+  reached in a configuration and checked ten invariants in each. TLC checks forty-nine now, the
   request rules' of §24 and the channel's among them (spec/README.md). A connection's users are the
   lookups on it. A lookup is only on a connection to its server. A buffer is lent to one send at
   most. A connection and a socket each have at most one current operation of each kind. A drive
@@ -6852,13 +7003,16 @@ code is.
    `close_notify` either. The drive shuts the connection at once, and the slot frees at the
    cancel's event (the stream's rule 3, §16 decision 53). A send of the session's own records in
    flight does not shut it. That send holds no lookup's buffer, so the idle close ends the
-   connection as above.
+   connection as above. Since 2026-10-25 a marked connection makes its `close_notify` at its last
+   leave, with no wait, when no query's send is in flight (§16 decision 54).
 6. A TLS connection is never closed to make room for another. A TLS configuration needs a slot
    for each of its servers, and the engine asserts it has them. Each server has at most one
    connection that a lookup may join. Take a lookup whose server has no such connection, and that
    finds no free slot. A slot then frees with no lookup leaving it: a connection that closes, or a
    slot whose memory the loop holds. Since 2026-10-18 the lookup waits for it (the stream's rule
-   12).
+   12). Since 2026-10-25 a marked connection is not one that a lookup may join. So a server can
+   have a marked connection and one more. Then the slot of a marked connection frees once its
+   lookups leave, and the lookup waits for it (§16 decision 54).
 7. Records received go to the session whole. The connection reads each record's length from
    its five-octet header, and keeps a partial record until the rest arrives. A header that says
    more than RFC 9846 §5.2 allows fails the connection. The session's `recv` hands over whole

@@ -4412,4 +4412,126 @@
         },
         .caught_by = .{ .step = "test-io" },
     },
+    .{
+        .section = "A connection no lookup may join",
+        .id = "NJ4",
+        .what = "a lookup joins a marked connection, as each did until 2026-10-25",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        if (connection.state == .closed or connection.state == .closing or connection.marked) continue;\n", .new = "        if (connection.state == .closed or connection.state == .closing) continue;\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A connection no lookup may join",
+        .id = "NJ5",
+        .what = "a lookup that leaves during its query's send, while another stays, marks nothing, and the drive's assertion goes",
+        .edits = .{
+            .{ .file = "io/io_tcp_mark.zig", .old = "    if (left_during_send(self, at, index)) connection.marked = true;\n", .new = "    if (left_during_send(self, at, index) and false) connection.marked = true;\n" },
+            .{ .file = "io/io_drive.zig", .old = "    mark_module.assert_marks(self);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A connection no lookup may join",
+        .id = "NJ6",
+        .what = "a lookup that leaves during its query's send, while another stays, marks nothing, and the drive's assertion stays",
+        .edits = .{
+            .{ .file = "io/io_tcp_mark.zig", .old = "    if (left_during_send(self, at, index)) connection.marked = true;\n", .new = "    if (left_during_send(self, at, index) and false) connection.marked = true;\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A connection no lookup may join",
+        .id = "NJ7",
+        .what = "the last leave of a marked connection whose send ended leaves it up, and the drive's assertion stays",
+        .edits = .{
+            .{ .file = "io/io_tcp_mark.zig", .old = "        if (connection.marked) close_now(self, at, now_ns);\n", .new = "        if (connection.marked and false) close_now(self, at, now_ns);\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A connection no lookup may join",
+        .id = "NJ8",
+        .what = "the last leave of a marked connection whose send ended leaves it up, and the assertion of a marked connection goes",
+        .edits = .{
+            .{ .file = "io/io_tcp_mark.zig", .old = "        if (connection.marked) close_now(self, at, now_ns);\n", .new = "        if (connection.marked and false) close_now(self, at, now_ns);\n" },
+            .{ .file = "io/io_tcp_mark.zig", .old = "        if (connection.marked) assert((connection.state == .up and connection.users > 0) or connection.state == .closing);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A connection no lookup may join",
+        .id = "NJ9",
+        .what = "a lookup that can have no other slot does not wait for a marked connection's slot",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        if (err == error.NoSlot and mark_module.holds_slot(self)) return wait_module.wait(self, index);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A connection no lookup may join",
+        .id = "NJ10",
+        .what = "over TLS the last leave of a marked connection whose send ended shuts it, with no close_notify",
+        .edits = .{
+            .{ .file = "io/io_tcp_mark.zig", .old = "    if (tls_module.speaks(self)) return tls_module.say_close_notify(self, at, now_ns);\n", .new = "    _ = now_ns;\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A connection no lookup may join",
+        .id = "NJ11",
+        .what = "a leave during any query's send marks the connection, another lookup's among them",
+        .edits = .{
+            .{ .file = "io/io_tcp_mark.zig", .old = "    return self.connections[at].queue.first().?.slot == index;\n", .new = "    return self.connections[at].queue.count > 0;\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A connection no lookup may join",
+        .id = "NJ12",
+        .what = "as NJ4, against the walks",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        if (connection.state == .closed or connection.state == .closing or connection.marked) continue;\n", .new = "        if (connection.state == .closed or connection.state == .closing) continue;\n" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "A connection no lookup may join",
+        .id = "NJ13",
+        .what = "as NJ5, against the walks",
+        .edits = .{
+            .{ .file = "io/io_tcp_mark.zig", .old = "    if (left_during_send(self, at, index)) connection.marked = true;\n", .new = "    if (left_during_send(self, at, index) and false) connection.marked = true;\n" },
+            .{ .file = "io/io_drive.zig", .old = "    mark_module.assert_marks(self);\n", .new = "" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "A connection no lookup may join",
+        .id = "NJ14",
+        .what = "as NJ8, against the walks",
+        .edits = .{
+            .{ .file = "io/io_tcp_mark.zig", .old = "        if (connection.marked) close_now(self, at, now_ns);\n", .new = "        if (connection.marked and false) close_now(self, at, now_ns);\n" },
+            .{ .file = "io/io_tcp_mark.zig", .old = "        if (connection.marked) assert((connection.state == .up and connection.users > 0) or connection.state == .closing);\n", .new = "" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "A connection no lookup may join",
+        .id = "NJ15",
+        .what = "as NJ9, against the walks",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        if (err == error.NoSlot and mark_module.holds_slot(self)) return wait_module.wait(self, index);\n", .new = "" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "A connection no lookup may join",
+        .id = "NJ19",
+        .what = "the release asks for the mark while the lookup is still on its connection",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    self.tcp_connection[index] = null;\n    queue_module.drop(self, at, index);\n", .new = "    queue_module.drop(self, at, index);\n" },
+            .{ .file = "io/io_tcp.zig", .old = "    mark_module.leave(self, at, index, now_ns);\n}\n", .new = "    mark_module.leave(self, at, index, now_ns);\n    self.tcp_connection[index] = null;\n}\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
 }
