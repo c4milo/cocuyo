@@ -558,6 +558,8 @@ and the send of the query does not stop it. So a peer that stops reading holds a
 deadline, and no longer until the caller cancels it. The deadline counts a failure of the server,
 as in `connecting_tcp`, and takes no sample: the query's send did not end, so no wait for an
 answer began. The lookup moves on, and leaves its connection (§19 step 13, the stream's rule 3).
+When it was the last lookup on the connection, the engine then shuts the connection at once, and
+the shut cancels the send (§16 decision 53).
 
 The row of a cut datagram is the one exception, since 2026-10-14. It accepts the datagram and
 takes no sample, and it tells the server's state nothing (§7, A datagram that the buffer cut). A
@@ -3896,8 +3898,119 @@ step until `zig build test` passes.
 
     No named limit changes, and no entry point changes. A `Lookup` keeps its size.
 
+    Amended on 2026-10-25 by decision 53. When the last lookup leaves a connection while a query's
+    send is in flight, the drive shuts the connection at once. So the three held sends above go
+    out at the cancel's event, and the next server counts no failure that it did not earn. Over TLS
+    no `close_notify` goes then, and the slot frees at the cancel's event.
+
     §5, §17 questions 60 and 70, §19 step 13 (the stream's rules 1, 3, 4, 6 and 9), §21 (TLS rule
     5).
+
+53. **The last lookup to leave during a query's send shuts the connection at once.** Ruled by the
+    owner on 2026-10-25, on §17 question 70: the second way. Since decision 52 a deadline ends
+    `tcp_ready`, and the lookup leaves its connection. Until the ruling the query's send still held
+    the lookup's send buffer, until the idle close shut the connection. That came at or after
+    `tcp_idle_ns` from the leave, at a drive for which no timer is armed. Each send that the slot
+    asked for in that time was held (the stream's rule 6).
+
+    Now, when the last lookup leaves a connection while a query's send is in flight on it, the
+    drive shuts the connection at once. The shut cancels the send (decision 49). The cancel's event
+    gives the send buffer back, and a held send goes out at that event. Over TLS no `close_notify`
+    goes, since the peer does not read.
+
+    The sequence in the clear, with two servers, a slot for each and one pass:
+
+    1. The connection to the first server comes up. The peer stops reading, and the query's send
+       does not end.
+    2. At the deadline the lookup moves to the second server, and leaves its connection. No lookup
+       is on it, and the query's send is in flight. So the drive shuts it, and the shut cancels the
+       send.
+    3. In the clear the shut frees the first slot at once. The lookup opens it again, to the
+       second server, and the other slot stays closed.
+    4. On the next loop step the cancel's event gives the send buffer back.
+    5. The second connection comes up, and the lookup's query goes out at once. The server answers
+       it, and counts no failure.
+
+    Until the ruling the query of step 5 was held. The second deadline came first, and the second
+    server counted a failure. The lookup ended in `Timeout`.
+
+    Choices the ruling did not make, made here:
+
+    - What decides that a query's send is in flight. A connection carries one send at a time, the
+      send of its queue's head (the stream's rule 9). The rule holds when that head is a query and
+      its send is in flight. Over TLS the head can be the session's own records too: a flight, the
+      answer to a KeyUpdate, or a `close_notify`. That send reads the slot's records buffer, and no
+      lookup's send buffer. So it holds no lookup's send, and the leave does not shut the
+      connection. The idle close ends it as before (TLS rule 5, decision 49). A query behind that
+      send has not started. So it leaves the queue at its lookup's leave, and its buffer comes back
+      at once (rule 9).
+    - The last lookup only, as the ruling says. While another lookup stays on the connection, the
+      drive does not shut it. That lookup waits for its send or its answer, and its deadline bounds
+      the wait. §17 question 71 asks about a send held in that time.
+    - Which leaves shut. Each way that the drive takes a lookup off its connection: its deadline, a
+      move to the next server or the next name, its end, and a cancel by the caller (the stream's
+      rule 3). A connection that fails, or whose record the session refuses, is not a leave. It
+      tells each lookup on it, and takes each off. A failure shuts the connection at once already
+      (the stream's rule 5). A refusal keeps TLS rule 4: the sealed records go out first, and the
+      alert after them. §17 question 72 asks about the wait there.
+    - A send that would end a moment later. The drive cannot tell a peer that reads slowly from a
+      peer that does not read. So it shuts that connection too. The cancel and the send's end race,
+      and the event says either one (rotor decision 5, rule 2). Each way the buffer comes back, and
+      the event tells nobody, since the lookup moved on (the stream's rule 7). The connection is
+      gone, and the next lookup to that server opens a new one. Over TLS that is a new handshake.
+      The peer sees the stream end, after all of the query, a part of it, or none of it.
+    - The slot. In the clear a query's send reads its lookup's buffer, and no memory of the slot.
+      So the slot is free at once, and the same drive may open it again. Over TLS the send reads the
+      slot's records buffer. So the slot is pending until the cancel's event (TLS rule 3, the
+      stream's rule 12). Each server over TLS has a slot of its own (TLS rule 6). So the try at the
+      next server does not wait for that slot.
+    - No timer is armed. The cancel's event comes from the loop, on its next step on the twin. The
+      held send needs no drive and no timer: it goes out at that event.
+
+    The three held sends of question 70 now:
+
+    - A try on a stream at the next server. Its query goes out at the cancel's event, or at once
+      when its connection comes up after that event. The server counts no failure that it did not
+      earn.
+    - A try by datagram at the next server, after a TC=1 answer. Its datagram goes out at the
+      cancel's event, and no drive needs to come.
+    - A new lookup that takes the same table slot. Its first send goes out at the cancel's event in
+      the same way. The old connection to its server is gone, so a stream opens a new one.
+
+    Rejected:
+
+    - As built: each held send waits for the first drive at or after `tcp_idle_ns` from the leave.
+      Over TLS the slot frees after twice that wait. The try on a stream at the next server counts
+      a failure that the server did not earn, and a datagram can wait for ever.
+    - The third way of question 70. The lookup's next send goes out from octets that the engine
+      holds for it, while its buffer is lent. A slot then has two sends in flight, which the
+      stream's rules 6 and 7 do not allow.
+    - A shut at each leave during each send, the session's records among them. That send holds no
+      lookup's buffer. And the `close_notify` of TLS rule 5 still has a peer that may read it.
+    - A shut only at a leave at the deadline. A cancel by the caller and a move to the next name
+      leave the same send in flight, and it holds the same buffer.
+    - A timer at the idle close's bound, armed while a connection with no lookup has a query's send
+      in flight. The held send then waits for `tcp_idle_ns`, and the next server's deadline comes
+      first.
+
+    The engine model in TLA+ holds the rule (spec/README.md). `Release` shuts the connection when
+    its last lookup leaves while its head is a query whose send is in flight. The check "held
+    bounded" holds the rule: a query's send on a connection that is up has a lookup on that
+    connection. Otherwise the drive shut the connection, and the send's next event gives the buffer
+    back. The model holds no cancel (decision 49), so the check reads the shut, not the event. It
+    has no peer that stops reading either. The twin tests of `io/` show the event: the held send
+    goes out on the next loop step. The mutant SH1 puts back `Release` as it was, and TLC finds
+    that check broken.
+
+    The code asserts the same rule. At each drive, after the polls, no connection that is up and
+    that no lookup is on has a query's send in flight. A later path that takes the last lookup off
+    and does not shut fails that assertion.
+
+    No named limit and no entry point changes. The checks are the tests of `io/` that the rows SH1
+    and after break (docs/mutations.md, A send held behind a stalled one).
+
+    §17 questions 70, 71 and 72, §19 step 13 (the stream's rules 3, 4, 6 and 9), §21 (TLS rules 3,
+    4 and 5).
 
 ## 17. Questions for the owner
 
@@ -4725,6 +4838,45 @@ that no run reaches, and one change to an exported module that the approval did 
     Recommended: the second. A connection whose send did not end for a whole wait has a peer that
     does not read, and no other lookup gains from it. The next server then counts no failure that
     it did not earn, and no held send waits for a drive. Until the owner rules, as built.
+    Answered on 2026-10-25: the second way. Built on 2026-10-25: §16 decision 53. The twin test of
+    the next server now ends in its answer, and that server counts no failure.
+
+### Asked on 2026-10-25, for a send held behind a stalled one
+
+Decision 53 builds the answer to question 70. Two waits of the same kind stay outside the ruling.
+Each needs a peer that stops reading during a query's send.
+
+71. **A held send while another lookup stays on the connection.** Decision 53 shuts a connection
+    when its last lookup leaves during a query's send. While another lookup stays on it, the send
+    stays in flight. The lookup that left keeps its buffer lent, and its next send is held. Each
+    lookup on the connection has a deadline of its own. But each lookup that joins the connection
+    puts the shut off, since it stays until its own deadline. So with a steady flow of lookups to
+    that server, the held send can wait past its own deadline. That is read from the code, and no
+    test ran it. The ways:
+
+    - As built: the shut waits for the last lookup to leave.
+    - The drive shuts the connection at the leave of the lookup whose query's send is in flight,
+      whatever lookups stay. Each lookup on it hears that its connection failed, and moves on.
+    - After such a leave, no lookup joins the connection. The lookups on it end by their own
+      deadlines, and the last leave shuts it. A new lookup to that server opens a new connection.
+
+    Recommended: the third. No lookup hears a failure that it did not cause, and the wait is at
+    most one deadline of the lookups on the connection. Until the owner rules, as built.
+72. **A refused connection whose query's send is in flight.** Over TLS a record that the session
+    refuses once the connection is up fails it (TLS rule 4). So does a prefix that says more than
+    `tcp_message_bytes` (the stream's rule 11), with a `close_notify` in place of the alert (TLS
+    rule 5). The sealed records go out first, the query's send among them, and then the alert. The
+    lookups hear the failure at once, and move on. The lookup whose query's send is in flight keeps
+    its buffer lent until that send ends. With a peer that stops reading, that is the shut of
+    decision 49, at or after `tcp_idle_ns`. So the try of that lookup at the next server is held,
+    as in question 70. That is read from the code, and no test ran it. The ways:
+
+    - As built: the held send waits for the shut of decision 49.
+    - The rule of decision 53 here too. A refusal while a query's send is in flight shuts the
+      connection at once, and no alert goes.
+
+    Recommended: as built. The peer sent a record just then, so it reads in the usual case. RFC
+    9846 §6.2 asks for the alert, and that peer can read it. Until the owner rules, as built.
 
 ## 18. The cache
 
@@ -5689,11 +5841,14 @@ of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
    deadline passed, its connection failed, it moved to the next name, it ended. Since 2026-10-24
    a deadline ends `tcp_ready` too (§5, §16 decision 52). So a lookup whose query's send never
    ends leaves its connection at its deadline. A query that has started stays at the head of the
-   queue until its send ends (rule 9), and the idle close shuts the connection (rule 4).
+   queue until its send ends (rule 9). Since 2026-10-25, when the last lookup leaves while that
+   send is in flight, the drive shuts the connection at once (§16 decision 53).
 4. A connection's users are the lookups on it. When the last leaves, the connection is idle from
    that instant, and one idle for `tcp_idle_ns` is closed by the drive at an instant that late.
    Since 2026-10-20 a TLS connection that closes is idle from the instant it began to close. The
-   same wait bounds it (§21, TLS rule 5; §16 decision 49).
+   same wait bounds it (§21, TLS rule 5; §16 decision 49). Since 2026-10-25 a connection whose
+   last lookup leaves while the head's send is a query's has no wait: the drive shuts it then
+   (rule 3, §16 decision 53).
 5. When the connect succeeds, the receive is armed and every lookup on the connection that is
    still connecting is told. When the connect fails, the receive fails, or the peer closes,
    every lookup on the connection is told its connection failed and leaves it, and the
@@ -5702,7 +5857,9 @@ of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
    decision 5, rule 3). No send is submitted from that buffer before then. A send asked for
    while the buffer is lent is held, and submitted when the buffer comes back if the attempt
    that asked for it is still the lookup's; otherwise it is dropped, and the lookup's next poll
-   asks again.
+   asks again. Since 2026-10-25 a query's send on a connection that is up holds the buffer past
+   the next loop step only while a lookup is on that connection. At the last leave the drive shuts
+   the connection, and the cancel's event gives the buffer back (rule 3, §16 decision 53).
 7. A send's completion speaks for the attempt that made it: the lookup in the slot, on the
    transaction it had when the send was submitted. If the lookup has moved on, the completion
    returns the buffer and tells nobody.
@@ -6689,6 +6846,13 @@ code is.
    `tcp_idle_ns`, the drive shuts it. The shut cancels the send, and the slot frees at the
    cancel's event (rule 3). The peer then sees the stream end, after all of that record, a part of
    it, or none of it.
+
+   Since 2026-10-25 a connection that is up makes no `close_notify` when its last lookup leaves
+   while a query's send is in flight. The peer has not read that query, so it does not read a
+   `close_notify` either. The drive shuts the connection at once, and the slot frees at the
+   cancel's event (the stream's rule 3, §16 decision 53). A send of the session's own records in
+   flight does not shut it. That send holds no lookup's buffer, so the idle close ends the
+   connection as above.
 6. A TLS connection is never closed to make room for another. A TLS configuration needs a slot
    for each of its servers, and the engine asserts it has them. Each server has at most one
    connection that a lookup may join. Take a lookup whose server has no such connection, and that

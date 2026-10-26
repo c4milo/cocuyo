@@ -215,6 +215,13 @@ ReadyBounded(before, e, st) ==
            \/ now.lookup = {} \/ Get(now.lookup).stage # "tcpReady"
            \/ Attempt(Get(now.lookup)) # Attempt(Get(was.lookup))
 
+\* A query's send on a connection that is up has a lookup on that connection. When the last lookup
+\* leaves during that send, the drive shuts the connection, and the shut cancels the send. So the
+\* send's next event gives the buffer back, and a send held for it goes then (§16 decision 53).
+HeldBounded(st) ==
+    \A k \in 0..Conns - 1 :
+        st.conns[k].stage # "up" \/ st.conns[k].users > 0 \/ ~QueryInFlight(st, k)
+
 Checks(before, e, st) ==
     << <<"users counted", UsersCounted(st)>>, <<"attached right", AttachedRight(st)>>,
        <<"buffers lent", BuffersLent(st)>>, <<"one send a stream", OneSendAStream(st)>>,
@@ -245,7 +252,8 @@ Checks(before, e, st) ==
        <<"told when up", ToldWhenUp(st)>>, <<"slot waited for", ~st.slotless>>,
        <<"records lent", RecordsLent(st)>>,
        <<"closing bounded", ClosingBounded(before, e, st)>>,
-       <<"ready armed", ReadyArmed(st)>>, <<"ready bounded", ReadyBounded(before, e, st)>> >>
+       <<"ready armed", ReadyArmed(st)>>, <<"ready bounded", ReadyBounded(before, e, st)>>,
+       <<"held bounded", HeldBounded(st)>> >>
 
 Broken(before, e, st) ==
     LET checks == Checks(before, e, st) IN

@@ -8848,7 +8848,160 @@ Each is in the file of what it tests:
 | --- | --- | --- | --- | --- |
 | RD13 | the model's deadline of a lookup in `tcpReady` arms the wait again, and keeps the lookup there | §5: a deadline ends `tcpReady` | TLC's check "ready bounded" alone on `mutants/RD13`, at the fourth state of its counterexample, `zig build tla` | CAUGHT |
 | RD14 | `settle` puts no deadline of a lookup in `tcp_ready` in the bound | the bound is never later than the soonest deadline | the test of the bound: "expected 4000000001, found null", `test-resolver` | CAUGHT |
-| RD15 | the last lookup to leave a connection during a send shuts it at once, the second way of question 70 | the idle close shuts the connection, as the ruling says | the test of the next server: "expected error.Timeout, found null", `test-io` | CAUGHT |
+| RD15 | the last lookup to leave a connection during a query's send leaves it up for the idle close, as built until 2026-10-25 (written again on 2026-10-25: until then it built the second way of question 70) | the last leave during a query's send shuts the connection (§16 decision 53) | the test of the next server: "expected null, found error.Timeout", and six more tests, `test-io` (A send held behind a stalled one) | CAUGHT |
 | RD16 | a lookup that leaves keeps its query that has not started in the queue, its buffer lent | that query leaves the queue, and its buffer comes back | the test of the other lookups: "TestUnexpectedResult" at `io_tcp_ready_test.zig:122`, `test-io` | CAUGHT |
 
 Sixteen mutations, sixteen `CAUGHT`.
+
+## A send held behind a stalled one
+
+2026-10-25. The owner answered docs/design.md §17 question 70 on 2026-10-25: the second way. When
+the last lookup leaves a connection while a query's send is in flight, the drive shuts the
+connection at once. The shut cancels the send, and the cancel's event gives the send buffer back.
+The drive does not wait for the idle close. Over TLS no `close_notify` goes, since the peer does
+not read. Until now each send that the slot asked for in that wait was held.
+
+Design §16 decision 53 records the rule, the choices that the ruling did not make, and the
+alternatives that it beats. Decision 52 and the stream's rules 3, 4 and 6 point to it, and so does
+TLS rule 5. §17 questions 71 and 72 ask about two waits of the same kind that stay outside the
+ruling. The design changed first, then the TLA+ model, then the tests, then the code.
+
+### What changed
+
+- The TLA+ model's `QueryInFlight` says that a connection's head is a query whose send is in
+  flight. `Release` shuts the connection when `LeaveShuts` holds: no lookup stays, and a query's
+  send is in flight. The check "held bounded" holds the rule, and `mutants/SH1` puts back the old
+  `Release` (spec/README.md).
+- `queue_module.query_in_flight` in `io/io_tcp_queue.zig` says the same of a connection. It asserts
+  that such a connection is up, and that the query's buffer is lent. `release` in `io/io_tcp.zig`
+  shuts the connection when its last lookup leaves and that holds.
+- Over TLS a send of the session's own records holds no lookup's buffer. So a leave during that
+  send does not shut the connection, and the idle close ends it as before.
+- The short walks and the picked walks were written again, and the picks were chosen again.
+- RD15 built the second way of question 70 as a mutation. Its edit no longer applied. It now puts
+  back the old leave, which leaves the connection up for the idle close.
+
+### The tests, before the code
+
+Each is in the file of what it tests, `io/io_tcp_ready_test.zig` and `io/io_tcp_test.zig`:
+
+- A send never ends, and the try at the next server goes once the leave shuts the connection. This
+  is the test "a send never ends, and the try at the next server waits for its buffer, as built",
+  turned to the new rule. The next server answers, and counts no failure.
+- A send never ends after TC=1, and the datagram at the next server goes at the cancel's event.
+- A send never ends, and a new lookup in the same table slot sends at the cancel's event.
+- Over TLS a query's send never ends, and the leave shuts the connection with no `close_notify`.
+  The slot frees at the cancel's event, and the second server answers.
+- Three tests changed what they require. A lookup whose query's send never ends fails at its
+  deadline, and its leave shuts the connection. The other lookups on such a connection keep their
+  own deadlines, and the last leave shuts it. A cancel's leave cancels a send that never ends.
+- The test over TLS whose send of the session's records never ends now requires that the head is
+  those records. It still requires that the idle close ends the connection.
+
+With the old code, `zig build test-io` passed 201 tests of 207, and failed six:
+
+- the test of the next server: "expected null, found error.Timeout";
+- the test of the datagram after TC=1: `error.NoResult` from the rig's `until_result`;
+- the test of the new lookup in the same table slot: `error.NoResult`;
+- the test of the other lookups: "TestUnexpectedResult", where the connection must be closed;
+- the test of the deadline with one server: "TestUnexpectedResult", at the same check;
+- the test over TLS: "TestUnexpectedResult", where the slot must be closed and lent.
+
+The code then made two of the old tests fail, which the change had not turned yet. The test in the
+clear of the idle close found the buffer back before the idle close. It is now the test of a
+cancel's leave. The test of the next server found the second connection in the first slot, since
+in the clear the shut frees that slot at once. It now requires that. After that each test passes.
+
+### What ran
+
+- The disk had 35 GB free before the first run. It fell to 6.7 GB during the run of all the engine
+  rows, as the tree's cache grew, and then came back to 22 GB.
+- `zig build tla` over `mutants/SH1` and the five configurations of a stream that CI checks on each
+  push. Each configuration holds, with the counts in spec/README.md, and SH1 is violated. TLC by
+  hand found "held bounded" broken at the fourth state of SH1's counterexample. A lookup's query
+  goes out, and a cancel ends the lookup while that send is in flight.
+- `zig build tla` over each of the 43 mutants: each is violated, as its header expects.
+- `zig build tla -- walks 1 10 41` wrote the short walks: 11 of 130 changed, all over TCP.
+- `zig build tla -- walks 1 2000 201` wrote the full run with the seventeen picks before, in 22
+  minutes. Three of the picks changed: walks 8006, 8094 and 12003.
+- `zig build mutations -- engine --walks <full run>` ran each of the 483 rows of the engine, in 1
+  hour 49 minutes. Each was `CAUGHT` but three: E3, E4 and AS2 were missed by the picks. The full
+  run caught them first at walks 8016, 20016 and 8023.
+- The tool named the full run's first walk for each row that the short walks miss: 4, 8, 13, 2002,
+  4020, 4212, 8016, 8023, 12003, 16003, 16008, 16016, 16047, 16052, 16135, 16480, 20016 and 24001.
+  These eighteen walks are `engine_picks` in `build/spec.zig` now, and `engine_picks.txt` holds
+  them. Walks 8016, 8023, 16047 and 20016 came in, and walks 8006, 8094 and 16789 left.
+- This command then ran the 28 rows that the picks catch, or that they missed. Each is `CAUGHT`:
+
+```sh
+zig build mutations -- engine --walks <full run> E3 E4 E5 ET3 ET4 ET5 ET6 ET8 ET10 ET11 ET14 \
+    ET17 ET18 SQ6 SQ10 RW6 RW10 RW13 CE12 CE14 CE15 CE19 OA29 OA33 TB9 CL11 CL13 AS2
+```
+
+- RD15 and SH3 to SH6 ran by hand too, and the texts in the rows come from there.
+- `zig build test`: 1,202 tests pass of 1,202, in 140 steps. `zig build lint` passes, with each
+  function at a complexity of 15 or less. `zig build examples` builds each example.
+- `zig build spec-engine`, in 12 minutes. The committed short walks and the eighteen picks are the
+  ones that TLC writes. The full run agrees with the engine over 5,226,000 events in 26,000 walks.
+  The Lean model of the lookup did not change, so `zig build spec` did not run.
+- `zig build tla` ran last and alone, in 3 hours 47 minutes. Each of the 15 configurations held, and
+  each of the 43 mutants was violated, as its header expects.
+
+### The instruction counts
+
+`bench/count.zig` imports `cocuyo` and `wire` alone, and no counted case runs the engine. This
+change touches the engine in `io/` and no file of `src/`. So no count can move, and
+`bench/instructions.zon` did not change.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| SH1 | the model's `Release` leaves the connection up when the last lookup leaves during a query's send, as until 2026-10-25 | §16 decision 53: the last leave during a query's send shuts the connection | TLC's check "held bounded" on `mutants/SH1`, at the fourth state of its counterexample, `zig build tla` | CAUGHT |
+| SH2 | as RD15, against the walks | the replay writes the connection closed at the last leave | the short walks, at walk 42 | CAUGHT |
+| SH3 | the last lookup to leave during any send shuts the connection, a send of the session's records among them | a send of the session's records shuts no connection at a leave | the test over TLS of the session's records: "TestUnexpectedResult" at `io_tcp_ready_test.zig:265`, where the connection must still be up after the last leave, `test-io` | CAUGHT |
+| SH4 | a leave during a query's send shuts the connection while another lookup stays on it | only the last leave shuts it | the test of the other lookups: "panic: reached unreachable code", an assertion of the engine under `until_result` at `io_tcp_ready_test.zig:189`; a test of a lookup that leaves: "expected 1, found 0", `io_tcp_test.zig:92`, `test-io` | CAUGHT |
+| SH5 | only a lookup that moves on shuts the connection, and one that ends or is cancelled leaves it up | each way that the drive takes a lookup off its connection shuts it | four tests: `error.NoResult` for the new lookup in the same table slot, and "TestUnexpectedResult" for the other lookups, the deadline with one server and the cancel's leave, `test-io` | CAUGHT |
+| SH6 | over TLS the last leave during a query's send leaves the connection up for the idle close | over TLS the leave shuts it, with no `close_notify` | the test over TLS of a query's send: "TestUnexpectedResult" at `io_tcp_ready_test.zig:302`, `test-io` | CAUGHT |
+| SH7 | the last lookup to leave during a query's send leaves the connection up, and the drive's assertion stays | the drive asserts that no connection that is up and that no lookup is on has a query's send in flight | nine tests: "panic: reached unreachable code" at `io_tcp_queue.zig:255`, in `assert_none_held`, the test of the next server and the tests of a cancel's leave among them, `test-io` | CAUGHT |
+
+RD15 is written again in its own section, The deadline of a ready lookup. It puts back the old
+leave, and `zig build test-io` fails seven tests: the six above, and the test of a cancel's leave,
+"TestUnexpectedResult" at `io_tcp_test.zig:215`. The row there now reads so. Each other carried row
+is `CAUGHT` (What ran, above).
+
+Seven mutations, seven `CAUGHT`.
+
+### After the review
+
+A review of the change found two faults and some gaps. Each is fixed here, the model first:
+
+- The mutant TQ1 swaps `Release` for `ReleaseKeepsQueued`, a copy of the old `Release`. That copy
+  did not shut at the last leave, so TQ1 broke "held bounded" first, and no longer isolated the
+  stream's rule 9. `ReleaseKeepsQueued` now shuts as `Release` does. TLC by hand on TQ1 finds
+  "queued for its lookup" broken at the fifth state, as before decision 53. On SH1 it finds "held
+  bounded" broken at the fourth state.
+- Decision 53's sequence said that the lookup opens the second server's connection in the other
+  slot. The test shows that the shut frees the first slot, and the lookup opens it again. The step
+  now says so.
+- The test over TLS required that the first server heard no alert. That peer reads nothing, so
+  the check could not fail. The test now says that a `close_notify` would keep the connection
+  closing behind its send, so the closed state carries the claim. SH6 breaks that check.
+- The drive now asserts the model's rule after its polls, in `assert_none_held`
+  (`io/io_tcp_queue.zig`). SH7 removes the shut and keeps the assertion. RD15, SH2, SH5 and SH6
+  remove the assertion too, so the tests that they name catch them.
+- §17 question 72 cites the stream's rule 11 for a prefix that is too long, and TLS rule 5 for its
+  `close_notify`.
+
+What ran:
+
+- `zig build tla` over `mutants/TQ1` and `mutants/SH1`: each is violated, as its header expects.
+- `zig build mutations -- engine` over 105 rows: RD15, SH2 to SH7, every CL row, and every row
+  that the walks catch. TLC wrote the full run again. Each row is `CAUGHT`, and the picks stay the
+  same eighteen walks. CL15 drops the cancel of `cancel_all`, and `test-io` still catches it.
+- SH6 and SH7 ran by hand, and the texts in their rows come from there.
+- The disk had 16 GB free before the run, below the floor of 20 GB, and 11 GB after it. The
+  tree's cache holds most of the rest. Nothing failed for lack of space.
+
+The doc comments of `reads` and `connect` in `io/io_tcp.zig` stay short. They say what they said
+before, and the file stays at 500 lines.

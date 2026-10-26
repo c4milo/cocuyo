@@ -5,7 +5,8 @@
 \* the channel's rules as CH1 to CH10 do, and the datagram's rules 4 and 6 as OA34 does. TS11 to
 \* TS13 and TS18 break the stream's rule 12, and TB5 and TB8 break TLS rule 3 for a query's send.
 \* CL5 breaks TLS rule 5's bound on a connection that closes. RD1 and RD13 break §5's deadline of
-\* `tcpReady` (§16 decision 52).
+\* `tcpReady` (§16 decision 52). SH1 breaks the shut at the last leave during a query's send (§16
+\* decision 53).
 \* A configuration in mutants/ puts one in place of the rule with TLC's `Rule <- Mutant`, and TLC
 \* must find the check that catches it.
 EXTENDS Engine
@@ -97,14 +98,15 @@ ConnectAgainBorrowed(st, k) ==
 
 \* TQ1: a lookup that leaves keeps its waiting query queued, the stream's rule 9 as the code's SQ6
 \* broke it. On a plain stream a query waits only behind another lookup's, so one lookup never
-\* shows it.
+\* shows it. The leave still shuts as Release does (§16 decision 53), so TQ1 breaks rule 9 alone.
 ReleaseKeepsQueued(st, l) ==
     IF st.slots[l].conn = {} THEN st
     ELSE
     LET k == Get(st.slots[l].conn)
         left == [st EXCEPT !.slots[l].conn = {}]
         users == Sub(left.conns[k].users, 1)
-    IN [left EXCEPT !.conns[k].users = users, !.conns[k].idleNow = @ \/ users = 0]
+        released == [left EXCEPT !.conns[k].users = users, !.conns[k].idleNow = @ \/ users = 0]
+    IN IF LeaveShuts(released, k) THEN Shut(released, k) ELSE released
 
 \* RQ1: a request its lookup left is never cancelled (request rule 6).
 CancelLeftNever(st) == st
@@ -376,5 +378,10 @@ RearmsReady(ev, out, after) ==
     \/ ev = "sent" /\ after.stage \in {"awaitingTcp", "awaitingUdp"}
     \/ ev = "tcpConnected" /\ after.stage = "tcpReady"
     \/ ev = "expire" /\ after.stage = "tcpReady"
+
+\* SH1: the last lookup to leave during a query's send leaves the connection up, as until
+\* 2026-10-25. The idle close shuts it at the next move of the clock, and the lookup's buffer stays
+\* lent until then (§16 decision 53).
+LeaveShutsNever(st, k) == FALSE
 
 ===============================================================================

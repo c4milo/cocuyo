@@ -348,7 +348,18 @@ FreeBuffers(st, ls) ==
 \* Closes connection k: a query waiting in it and not being sent gives its buffer back.
 Shut(st, k) == [CancelOps(FreeBuffers(st, Queued(st, k)), k) EXCEPT !.conns[k] = NoConn]
 
-\* The lookup leaves its connection, and a query of its that has not started goes with it.
+\* Whether connection k's send in flight is a query's: its head is a query whose send is in flight
+\* (the stream's rule 9). Over TLS the head may be the session's own records, whose send reads the
+\* slot's records buffer and no lookup's buffer.
+QueryInFlight(st, k) ==
+    LET q == st.conns[k].queue IN q # <<>> /\ Head(q).kind = "query" /\ Sending(st, Head(q).slot)
+
+\* Whether a leave shuts connection k at once: no lookup is on it, and a query's send is in flight.
+\* That send holds a lookup's buffer, and the shut cancels it (§16 decision 53).
+LeaveShuts(st, k) == st.conns[k].users = 0 /\ QueryInFlight(st, k)
+
+\* The lookup leaves its connection, and a query of its that has not started goes with it. When no
+\* lookup stays while a query's send is in flight, the drive shuts the connection at once.
 Release(st, l) ==
     IF st.slots[l].conn = {} THEN st
     ELSE
@@ -357,9 +368,11 @@ Release(st, l) ==
         waiting == Contains(left.conns[k].queue, Query(l)) /\ ~Sending(left, l)
         freed == IF waiting THEN [left EXCEPT !.slots[l].busy = FALSE] ELSE left
         users == Sub(freed.conns[k].users, 1)
-    IN [freed EXCEPT !.conns[k].users = users, !.conns[k].idleNow = @ \/ users = 0,
-                     !.conns[k].queue = IF waiting THEN SelectSeq(@, LAMBDA e : e # Query(l))
-                                        ELSE @]
+        released == [freed EXCEPT !.conns[k].users = users, !.conns[k].idleNow = @ \/ users = 0,
+                                  !.conns[k].queue = IF waiting
+                                                     THEN SelectSeq(@, LAMBDA e : e # Query(l))
+                                                     ELSE @]
+    IN IF LeaveShuts(released, k) THEN Shut(released, k) ELSE released
 
 \* Whether the loop still holds memory of slot k's, of whichever incarnation: its address, which a
 \* connect reads, or its records buffer, which a send over TLS reads (rule 10, TLS rule 3).

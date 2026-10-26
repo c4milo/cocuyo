@@ -9,6 +9,7 @@ const udp = @import("io_udp.zig");
 const tcp = @import("io_tcp.zig");
 const results_module = @import("io_results.zig");
 const send_module = @import("io_send.zig");
+const queue_module = @import("io_tcp_queue.zig");
 const request_module = @import("io_request.zig");
 const request_connection = @import("io_request_connection.zig");
 const request_tend = @import("io_request_connection_tend.zig");
@@ -36,6 +37,7 @@ pub fn drive(self: anytype, now_ns: u64) void {
         const event = self.resolver.poll(now_ns, &self.scratch) orelse break;
         if (act(self, event, now_ns)) refused = 0 else refused += 1;
     }
+    queue_module.assert_none_held(self);
     if (channel_module.carries(self)) channel_module.cancel_left(self, now_ns) else request_module.cancel_left(self, now_ns);
     tcp.close_idle(self, now_ns);
     request_connection.close_idle(self, now_ns);

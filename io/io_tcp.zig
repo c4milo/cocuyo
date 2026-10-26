@@ -116,8 +116,7 @@ pub fn Connection(comptime message_bytes: u32, comptime lookups: u16, comptime T
     };
 }
 
-/// Whether a connection in `state` reads what its server sends: while it handshakes and once it
-/// is up (§21, TLS rule 1).
+/// Whether a connection in `state` reads what its server sends (§21, TLS rule 1).
 fn reads(state: anytype) bool {
     return state == .handshaking or state == .up;
 }
@@ -176,9 +175,8 @@ fn open(self: anytype, server: u8, now_ns: u64) OpenError!u8 {
     return at;
 }
 
-/// A socket for `server` in slot `at`, and its connect submitted: a new opening of the slot,
-/// keeping the lookups on it and how long it has been idle. A socket or a connect refused leaves
-/// the slot closed.
+/// A socket for `server` in slot `at`, and its connect submitted: a new opening of the slot that
+/// keeps its lookups and its idle instant. A socket or a connect refused leaves the slot closed.
 fn connect(self: anytype, at: u8, server: u8) Error!void {
     const connection = &self.connections[at];
     // Nothing the loop holds names this slot's memory (rule 10, and §21's TLS rule 3).
@@ -240,8 +238,9 @@ pub fn follow(self: anytype, index: usize, now_ns: u64) void {
     release(self, index, now_ns);
 }
 
-/// A lookup has ended or been freed: it is off its connection, which may now be idle, and a
-/// query of its still waiting there goes with it.
+/// A lookup has ended or been freed: it is off its connection, with its query that waits there.
+/// When none stays while a query's send holds a lookup's buffer, the shut cancels that send at
+/// once: a peer that does not read never ends it (docs/design.md §16 decision 53).
 pub fn release(self: anytype, index: usize, now_ns: u64) void {
     if (comptime !@TypeOf(self.*).keeps_tcp) return;
     const at = self.tcp_connection[index] orelse return;
@@ -251,6 +250,7 @@ pub fn release(self: anytype, index: usize, now_ns: u64) void {
     assert(connection.users >= 1);
     connection.users -= 1;
     if (connection.users == 0) connection.idle_since_ns = now_ns;
+    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut(self, at);
 }
 
 // What the loop says.

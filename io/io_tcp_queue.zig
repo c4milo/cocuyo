@@ -230,6 +230,32 @@ pub fn drop(self: anytype, at: u8, index: usize) void {
     send_module.give_back(self, index);
 }
 
+/// Whether the send in flight on the connection in slot `at` is a query's: its head is a query, and
+/// the head's send is in flight (the stream's rule 9). That send holds its lookup's buffer. Over
+/// TLS the head may be the session's own records, whose send holds no lookup's buffer
+/// (docs/design.md §16 decision 53).
+pub fn query_in_flight(self: anytype, at: u8) bool {
+    const connection = &self.connections[at];
+    if (!connection.sending) return false;
+    const head = connection.queue.first().?;
+    if (!head.is_query()) return false;
+    // A query goes out only on a connection that is up, and none is on one that closes (§21,
+    // TLS rule 5). The query's send lent its lookup's buffer (the stream's rule 6).
+    assert(connection.state == .up);
+    assert(self.send_in_flight[head.slot]);
+    return true;
+}
+
+/// Asserts the rule of docs/design.md §16 decision 53 over every connection: one that is up and
+/// that no lookup is on has no query's send in flight. The last leave during that send shut it.
+pub fn assert_none_held(self: anytype) void {
+    if (comptime !@TypeOf(self.*).keeps_tcp) return;
+    for (self.connections[0..], 0..) |*connection, at| {
+        if (connection.state != .up or connection.users != 0) continue;
+        assert(!query_in_flight(self, @intCast(at)));
+    }
+}
+
 /// The connection says a fatal alert before it closes: every query not yet sealed leaves the queue
 /// and gives its buffer back, since nothing more may be sent (RFC 9846 §6.2). What is sealed stays,
 /// and goes out ahead of the alert, in the order it was sealed (§21, TLS rules 2 and 4).

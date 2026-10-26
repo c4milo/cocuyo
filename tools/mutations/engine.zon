@@ -4339,9 +4339,10 @@
     .{
         .section = "The deadline of a ready lookup",
         .id = "RD15",
-        .what = "the last lookup to leave a connection during a send shuts it at once, the second way of question 70",
+        .what = "the last lookup to leave a connection during a query's send leaves it up for the idle close, as built until 2026-10-25",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "    if (connection.users == 0) connection.idle_since_ns = now_ns;\n}", .new = "    if (connection.users == 0) connection.idle_since_ns = now_ns;\n    if (connection.users == 0 and connection.sending) shut(self, at);\n}" },
+            .{ .file = "io/io_tcp.zig", .old = "    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut(self, at);\n", .new = "" },
+            .{ .file = "io/io_drive.zig", .old = "    queue_module.assert_none_held(self);\n", .new = "" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -4351,6 +4352,63 @@
         .what = "a lookup that leaves keeps its query that has not started in the queue, its buffer lent",
         .edits = .{
             .{ .file = "io/io_tcp_queue.zig", .old = "    if (connection.queue.sealed > 0 and head.slot == slot) return;\n    connection.queue.remove(slot);\n    send_module.give_back(self, index);\n", .new = "    if (connection.queue.sealed > 0 and head.slot == slot) return;\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A send held behind a stalled one",
+        .id = "SH2",
+        .what = "as RD15, against the walks",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut(self, at);\n", .new = "" },
+            .{ .file = "io/io_drive.zig", .old = "    queue_module.assert_none_held(self);\n", .new = "" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "A send held behind a stalled one",
+        .id = "SH3",
+        .what = "the last lookup to leave during any send shuts the connection, a send of the session's records among them",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut(self, at);", .new = "    if (connection.users == 0 and connection.sending) shut(self, at);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A send held behind a stalled one",
+        .id = "SH4",
+        .what = "a leave during a query's send shuts the connection while another lookup stays on it",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut(self, at);", .new = "    if (queue_module.query_in_flight(self, at)) shut(self, at);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A send held behind a stalled one",
+        .id = "SH5",
+        .what = "only a lookup that moves on shuts the connection; one that ends or is cancelled leaves it up",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut(self, at);", .new = "    if (connection.users == 0 and queue_module.query_in_flight(self, at) and !self.resolver.lookup_of(self.handles[index]).is_settled()) shut(self, at);" },
+            .{ .file = "io/io_drive.zig", .old = "    queue_module.assert_none_held(self);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A send held behind a stalled one",
+        .id = "SH6",
+        .what = "over TLS the last leave during a query's send leaves the connection up for the idle close",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut(self, at);", .new = "    if (connection.users == 0 and queue_module.query_in_flight(self, at) and !tls_module.speaks(self)) shut(self, at);" },
+            .{ .file = "io/io_drive.zig", .old = "    queue_module.assert_none_held(self);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A send held behind a stalled one",
+        .id = "SH7",
+        .what = "the last lookup to leave during a query's send leaves the connection up, and the drive's assertion stays",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut(self, at);\n", .new = "" },
         },
         .caught_by = .{ .step = "test-io" },
     },

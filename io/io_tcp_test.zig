@@ -180,7 +180,8 @@ test "a connection with a lookup on it is not closed for having been idle" {
 
 /// In the clear a query's send reads its lookup's own buffer (the stream's rule 6). The peer stops
 /// reading before the query goes, so the send takes nothing and never ends. The caller cancels
-/// the lookup, and the connection is idle with that send in flight (rule 9).
+/// the lookup, which leaves the connection with that send in flight (rule 9). No lookup stays,
+/// so the drive shuts the connection at once (docs/design.md §16 decision 53).
 fn stall_a_query(rig: *Rig, seed: u64) !cocuyo.Handle {
     try rig.init(seed, .{ .{}, .{} }, .{ .servers = &.{}, .use_tcp = true, .attempts = 1 });
     const first = try rig.engine.start(question("one.example."), rig.loop.now());
@@ -206,21 +207,18 @@ fn expect_buffer_at_cancel(rig: *Rig, first: cocuyo.Handle) !void {
     _ = rig.engine.take(rig.loop.now());
 }
 
-test "the idle close cancels a send that never ends, and its buffer comes back at the cancel" {
-    // The idle close shuts the connection, and the shut cancels the send (docs/design.md §16
-    // decision 49).
+test "a cancel's leave cancels a send that never ends, and its buffer comes back at the cancel" {
+    // The leave shuts the connection, and the shut cancels the send (docs/design.md §16 decisions
+    // 49 and 53). Until 2026-10-25 the idle close did, after `tcp_idle_ns`.
     var rig: Rig = .{};
     const first = try stall_a_query(&rig, 24);
-    _ = try rig.step(fixtures.tcp_idle_jump_ns);
-    _ = try rig.step(fixtures.tcp_idle_jump_ns);
-    rig.engine.drive(rig.loop.now());
     try expect_buffer_at_cancel(&rig, first);
     try rig.deinit();
 }
 
-test "a reinit cancels a send that never ends, and its buffer comes back at the cancel" {
-    // A reinit drops the connection before the idle close, and cancels the send too (docs/design.md
-    // §16 decision 49).
+test "a reinit after a cancel's leave keeps the send's buffer lent until the cancel's event" {
+    // The leave shut the connection already (docs/design.md §16 decision 53). A reinit then finds
+    // it closed. The send's buffer stays lent until the cancel's event, which speaks for nobody.
     var rig: Rig = .{};
     const first = try stall_a_query(&rig, 25);
     try rig.engine.reinit(&rig.config, rig.cache_memory.slices(), 26, rig.loop.now());

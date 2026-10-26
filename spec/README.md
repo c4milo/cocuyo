@@ -230,6 +230,8 @@ event, and the channel's rules below:
   (docs/design.md §16 decision 52).
 - After the clock reaches the deadline of a lookup in `tcpReady`, it is not in `tcpReady` on the
   same try.
+- A query's send on a connection that is up has a lookup on that connection. When the last lookup
+  leaves during that send, the drive shuts the connection (docs/design.md §16 decision 53).
 
 Each configuration bounds the operations in flight, the failures a server and the queries a port
 (`OpsMax`, `FailuresMax` and `SentMax`), since nothing else bounds the graph. A stream's send may
@@ -796,6 +798,52 @@ it. Those seventeen walks are the picks now. Walks 8006, 8094, 12003, 16016, 160
 16789 came in, and walks 8025, 8046, 8241, 12004, 12011, 16068, 16271 and 16478 left. Each of the
 20 rows that the picked walks catch is `CAUGHT` by the new picks.
 
+On 2026-10-25 the last lookup to leave a connection during a query's send came to shut it at once
+(docs/design.md §16 decision 53). Until then the idle close shut it, at the next move of the clock.
+The query's send held its lookup's buffer until then, and each later send of that slot was held.
+The change came to the model first:
+
+- `QueryInFlight` says that a connection's head is a query whose send is in flight. Over TLS the
+  head may be the session's own records, which hold no lookup's buffer.
+- `Release` shuts the connection when no lookup stays on it and `LeaveShuts` holds: a query's send
+  is in flight. The shut leaves that send to the loop, and its next event gives the buffer back.
+- The check "held bounded" holds the rule. A query's send on a connection that is up has a lookup
+  on that connection.
+- `mutants/SH1` puts back `Release` as it was, with `LeaveShuts` false. TLC finds "held bounded"
+  broken at the fourth state of its counterexample. A lookup's query goes out, and a cancel ends
+  the lookup while that send is in flight.
+
+TLC checked each configuration of a stream on 2026-10-25 on an Apple M1 Pro while other work ran:
+
+| Configuration | Before | Now |
+| --- | --- | --- |
+| `Engine_tcp_1_1_bound_4_1` | 21,071 | 15,018 |
+| `Engine_tcp_2_1_bound_4_1` | 704,681 | 543,240 |
+| `Engine_tcp_2_2_bound_4_1` | 3,583,539 | 2,936,207 |
+| `Engine_tls_1_2_bound_2_1` | 217,719 | 167,633 |
+| `Engine_truncated_1_1_bound_4_1` | 466,646 | 384,006 |
+
+TLC checked the two nightly configurations over TLS in `zig build tla`'s full run:
+
+| Configuration | Before | Now |
+| --- | --- | --- |
+| `Engine_tls_1_2_bound_3_1` | 6,661,256 | 4,629,420 |
+| `Engine_tls_2_2_bound_2_1` | 22,205,523 | 17,278,895 |
+
+A connection with no lookup no longer stays up beside a query's send, so TLC reaches fewer states.
+The configurations of UDP alone, of DoQ and of DoH reach no stream, and hold the states that they
+held before. The largest configuration CI checks on each push now holds 2,936,207 states,
+`Engine_tcp_2_2_bound_4_1`. The largest it checks once a day holds 17,278,895,
+`Engine_tls_2_2_bound_2_1`.
+
+Of the 130 short walks, 11 changed, all over TCP. Three of the seventeen picks changed: walks 8006,
+8094 and 12003. The picks were chosen again (docs/mutations.md, A send held behind a stalled one).
+`zig build mutations -- engine` ran each row of the engine against the new full run. For each row
+that the short walks miss, the tool named the full run's first walk that catches it. Those eighteen
+walks are the picks now. Walks 8016, 8023, 16047 and 20016 came in, and walks 8006, 8094 and 16789
+left. Each of the 28 rows that the picked walks catch, or that they missed before, is `CAUGHT` by
+the new picks.
+
 ### The walks TLC takes
 
 `tla/engine/EngineTrace.tla` runs the specification in TLC's simulation mode, which takes seeded
@@ -847,7 +895,7 @@ compares the walk's whole state after each.
   It also
   replays two sets of engine walks TLC wrote. `tools/spec_replay/engine_gate.txt` holds ten walks
   of forty events in each of the thirteen engine configurations.
-  `tools/spec_replay/engine_picks.txt` holds seventeen walks of the full run, which `engine_picks`
+  `tools/spec_replay/engine_picks.txt` holds eighteen walks of the full run, which `engine_picks`
   in `build/spec.zig` names. Each is where the full run caught a mutation of the engine that the
   short walks miss (docs/mutations.md). The gate also holds `tools/spec_replay/walk_gate.txt`, the
   forward walk with two candidates and both families and every reverse configuration. It needs
