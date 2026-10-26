@@ -3573,7 +3573,8 @@ step until `zig build test` passes.
     A resumed connection whose last send stalled could never connect again in the same way. Each of
     the two functions now cancels the send, and a test shows each path. The review also found two
     waits that no time bounds, older than this decision and outside question 55. §17 questions 60
-    and 61 ask about them.
+    and 61 ask about them. Decision 52 builds the answer to question 60, and decision 55 builds the
+    answer to question 61.
 
     §17 question 55, §19 step 13 (the stream's rules 4 and 12), §21 (TLS rules 3, 5 and 8).
 
@@ -4128,6 +4129,96 @@ step until `zig build test` passes.
     (docs/mutations.md, A connection no lookup may join).
 
     §17 questions 71 and 72, §19 step 13 (the stream's rules 1, 3 and 12), §21 (TLS rules 5 and 6).
+
+55. **A link that closes is shut after `quic_idle_ns`, and each end of a link cancels its send.**
+    Ruled by the owner on 2026-10-21, on §17 question 61: the second way, with
+    a test on the twin first. It is the rule of decision 49 for a channel's link. Until 2026-10-26
+    the send of a link kept no handle. So neither the link's `shut` nor its `cancel_all` could
+    cancel that send (`io/io_channel_link.zig`). A link that closed waited for that send to end
+    (§24, request rule 19). A new opening of the link sent nothing until that send ended.
+
+    The sequence over a channel's TCP link, with one server:
+
+    1. The TCP link runs. The peer stops reading, and keeps its side open.
+    2. The channel owes octets, and the link sends them. The send takes nothing, and does not end.
+    3. The channel closes the link. A send is in flight, so the link closes, and waits for that
+       send (request rule 19).
+    4. Until 2026-10-26 nothing ended that send, and the link stayed closing. A new opening of the
+       link connected, and its octets waited for the buffer of the old send. So a later request on
+       that link waited until its deadline. After `deinit` the loop could not drain.
+    5. Now the first drive after `quic_idle_ns` shuts the link, and the shut cancels the send. A
+       new opening that comes first shuts the old one, and cancels the send then. At the cancel's
+       event the buffer comes back, and the new opening sends.
+
+    Choices the ruling did not make, made here:
+
+    - The link keeps the handle of its send in `send_handle`, an optional `rotor.Handle` of 16
+      octets in `LinkState`. A link has one send in flight at most (request rules 8 and 15), so one
+      handle names it. The QUIC link keeps the handle of its datagram's send too.
+    - The link keeps the instant it began to close in `closing_since_ns`, a `u64` of 8 octets. No
+      field of the link is free at that instant. The channel's `idle_since_ns` does not serve: a
+      channel that holds exchanges can close one link.
+    - Each way that ends a link cancels its send, since each calls `shut`. These are the bound, a
+      failure, a close with nothing to send, and the end of a closing link's last send. A new
+      opening calls `shut` first too. `deinit` and `reinit` call `cancel_all`, which
+      cancels the send as well.
+    - `cancel_all` keeps the handle, as the connections' `cancel_all` does (decision 49). The
+      fields of the link stay for the send's event or for `close_all`.
+    - The buffer frees at the cancel's event, not at the shut. The loop may read the buffer until
+      the send's final event (rotor decision 5, rule 3). So a new opening sends nothing until then.
+      It connects in that time, and the cancel's event comes at the next turn of the loop.
+    - No timer is armed for the bound. The first drive at or after the bound shuts the link, as
+      decision 49 does for a connection. A lookup's deadline, a channel's instant, and the start
+      of each later lookup each run a drive. §17 question 75 asks about a link with none of them.
+    - The shut at the bound tells the channel nothing. The channel closed the link itself, and its
+      connection on that link writes and reads nothing more (request rule 19).
+    - The shut at the bound reads the channel. The cancelled send's event reads the channel no
+      more, since its opening has ended. But the channel may hold an end while that send is in
+      flight (request rule 17). So the read at the shut tells that end.
+    - The drive shuts such a link first, before its polls. So the polls of the same drive take
+      what the channel told, and the lookup hears it at once. An end that the channel told there
+      reaches its lookup before the polls find that lookup's deadline. §17 question 74 asks
+      about this order.
+
+    What the peer sees: the engine closes the socket of the link after the cancel. A part of the
+    last octets may wait in the kernel's send buffer, and the kernel may still try to send them.
+    The rest never goes. Those octets end the connection that the channel closed, such as a GOAWAY
+    or a `close_notify`. RFC 9846 §6.1 says that a peer that sees the transport close before a
+    `close_notify` cannot know that all the data reached it. The channel closed the link, so no
+    exchange of the engine's is lost.
+
+    Rejected:
+
+    - As built: a link that closes waits for its send for ever, and a new opening waits with it.
+    - A new named limit for a link that closes. The owner ruled for `quic_idle_ns`, as decision 49
+      ruled for `tcp_idle_ns`.
+    - The channel's `idle_since_ns` as the instant. A channel with exchanges can close one link, and
+      the instant of the channel then says nothing of the link.
+    - The buffer freed at the shut, before the cancel's event. A new opening would write its octets
+      into a buffer that the loop may still read.
+    - A shut at once when the channel closes a link with a send in flight. The channel closes a
+      link after its last octets, and a peer that reads takes them.
+    - A timer at the bound. It costs a submit and a cancel at each close of a link, whose last send
+      goes at once in the usual case.
+
+    The engine model in TLA+ holds the rule (spec/README.md). Each move of the clock first shuts
+    each link that closes, since a tick is the idle wait (`ShutLapsed`). Then it reads the link's
+    channel, and only then do the deadlines pass. The clock can move while a link closes.
+
+    The check "link closing bounded" holds the rule: after the clock moves, no link that closed
+    before it still closes. The mutant DL1 puts back the drive as it was, and TLC finds that check
+    broken. A first form of the model read no channel at the shut, and TLC found "channel held
+    while sending" broken.
+
+    The model holds no cancel, as decision 49 says. `ShutLink` leaves each operation of the link
+    to the loop, and each may end at each event. So the cancel's event is one that the model holds.
+    It holds no `deinit` and no `reinit`. No named limit and no entry point change. `LinkState` is
+    the engine's own type, and no consumer reads its fields.
+
+    The tests of `io/io_channel_link_test.zig` and the walks are the checks (docs/mutations.md, A
+    DoH link whose send never ends).
+
+    §17 question 61, §24 (request rules 8, 14, 15, 19 and 24), decision 49.
 
 ## 17. Questions for the owner
 
@@ -4792,6 +4883,12 @@ decision, and outside question 55. Each needs a peer that stops reading and keep
     Recommended: the second, with a test on the twin first. It is the same wait, and the same rule
     bounds it. Until the owner rules, as built.
 
+    Answered on 2026-10-21: the second way, with a test on the twin first. Built on 2026-10-26:
+    §16 decision 55, and request rules 19 and 24. The tests on the twin failed first. A link that
+    closed stayed closing for ever, and a new opening sent nothing. A later request to that server
+    was not sent before its deadline, and the loop did not drain. Questions 74 and 75 ask about
+    two choices of the build.
+
 ### Asked on 2026-10-20, for a try whose server was marked
 
 §16 decision 50 builds the answer to question 27: a try that a reply to it marked is no sample.
@@ -5018,6 +5115,41 @@ Each needs a peer that stops reading during a query's send.
     Recommended: as built. One rule holds for both transports, and the lookup keeps its server.
     The second way reaches another server sooner, but a single server has no other. Until the owner
     rules, as built.
+
+### Asked on 2026-10-26, for a DoH link's send
+
+§16 decision 55 builds the answer to question 61: `quic_idle_ns` bounds a link that closes, and
+each end of a link cancels its send. The ruling did not make two of the choices that decision 55
+makes.
+
+74. **The order of the shut at the bound and a lookup's deadline.** The drive shuts each link at
+    the bound first, before its polls (`shut_lapsed` in `io/io_drive.zig`). The shut reads the
+    channel, and the channel may tell an end that it held. So that end reaches its lookup, even
+    when the lookup's deadline came at the same instant. A connection's idle close runs after the
+    polls (`tcp.close_idle`). The ways:
+
+    - As built: the shut at the bound comes first. A lookup whose end the channel held takes that
+      end, not its deadline. The TLA+ model shuts the link before `Pass` too, and the walks agree.
+    - The shut at the bound after the polls, as the idle close of a connection. A lookup whose
+      deadline came at that instant fails at its deadline, and the end that the channel held comes
+      too late for it. The model, the walks and the picks change with it.
+
+    Recommended: as built. The channel held a real end, and the lookup gets it. A shut after the
+    polls loses that end for an instant of the clock. Until the owner rules, as built.
+75. **A link that closes with no drive to shut it.** No timer is armed for the bound. A drive
+    comes at a lookup's deadline, at a channel's instant, or at the start of a lookup. A channel
+    that closed has no instant (`next_deadline` in `io/io_channel.zig` passes over its slot). So a
+    link of a closed channel, with no lookup in the table, keeps its socket and its lent buffer.
+    It keeps them until the caller starts the next lookup, or calls `deinit` or `reinit`. The
+    ways:
+
+    - As built: the next drive shuts the link. Nothing is lost, and `deinit` cancels the send.
+    - The engine's timer counts the bound of each link that closes, as a channel's instant. The
+      drive at the bound then shuts the link with no lookup in the table.
+
+    Recommended: as built, as decision 49 ruled for a connection. The link holds one socket and
+    one buffer of its own server's slot, and no other server waits for them. Until the owner rules,
+    as built.
 
 ## 18. The cache
 
@@ -6166,7 +6298,7 @@ socket opens may fail for the length of one event. A stream's send may come back
 message, its rest then whole or failed: a second short send takes the same path as the first.
 
 - The Lean walker, `cocuyo-spec engine` until it retired on 2026-09-24, walked every state the model
-  reached in a configuration and checked ten invariants in each. TLC checks forty-nine now, the
+  reached in a configuration and checked ten invariants in each. TLC checks fifty now, the
   request rules' of §24 and the channel's among them (spec/README.md). A connection's users are the
   lookups on it. A lookup is only on a connection to its server. A buffer is lent to one send at
   most. A connection and a socket each have at most one current operation of each kind. A drive
@@ -8269,7 +8401,12 @@ Rules 1, 2, 9 and 13 give way to these, for DoH alone:
       since v0.8.0). Until then the type drew them, from the same stream.
     - `open` for TCP opens the link's stream socket and connects, as rule 14 has it. When the
       connect succeeds, the link starts the channel's TCP connection with the server's TCP ticket.
-    - `close` closes the link's socket once what it holds to send has gone.
+    - `close` closes the link's socket once what it holds to send has gone. A link that has
+      closed for `quic_idle_ns` is shut then, whatever it holds, and the channel is read (rules 17
+      and 24, §16 decision 55).
+    - A link keeps the handle of its send. Each end of a link cancels its send: the bound, a
+      failure, a close with nothing to send, a new opening, and `cancel_all`. The buffer comes back
+      at the cancel's event, and a new opening of the link sends nothing until then (rule 8).
     - A connect that fails or that the loop refuses, a receive that ends with no octets, and a
       socket the system refuses are told to the channel as the link's end, and the channel is
       read then (rule 17). The channel decides what that fails, and says so in each exchange's
@@ -8301,7 +8438,11 @@ Rules 1, 2, 9 and 13 give way to these, for DoH alone:
     It ends each connection as the protocol ends one, with H3_NO_ERROR or with a GOAWAY and a
     `close_notify`, says `close` for each link, then `closed`, and the slot is free. A request
     taken meanwhile waits, and opens a new channel once the old one has closed. The server keeps
-    the channel's HTTP/3 alternative for the next.
+    the channel's HTTP/3 alternative for the next. The same wait bounds a link that closes, as
+    `tcp_idle_ns` bounds a connection that closes.
+
+    The first drive at or after that wait from the instant the link began to close shuts it. The
+    shut cancels its send (rule 19, §16 decision 55).
 25. **The channel's instant.** The engine's one timer counts each channel's next instant (rule
     11). When it comes, the channel is told, then read.
 

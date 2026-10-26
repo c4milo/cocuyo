@@ -145,6 +145,18 @@ TellHeldC(st, v) ==
 \* Link i's socket ended: the channel is told, and read (rule 17).
 LinkEnded(st, i) == TellHeldC(LinkGone(st, i), LinkServer(i))
 
+RECURSIVE ShutLapsedFrom(_, _)
+ShutLapsedFrom(st, i) ==
+    IF i >= 2 * CServers THEN st
+    ELSE ShutLapsedFrom(IF st.links[i].state = "closing"
+                        THEN TellHeldC(ShutLink(st, i), LinkServer(i)) ELSE st, i + 1)
+
+\* A link that has closed for the idle wait is shut, and the shut cancels its send. A tick is that
+\* wait, so the first move of the clock after the link began to close shuts it. Its buffer stays
+\* lent until the send's next event, which reads the channel no more. So the engine reads the
+\* channel at the shut, which tells first what it held (rules 17, 19 and 24, §16 decision 55).
+ShutLapsed(st) == ShutLapsedFrom(st, 0)
+
 \* The drive takes slot l's request onto its server's channel whatever the channel's state, and
 \* tells the lookup it went out (request rule 3). A closed channel opens with it as its exchange, an
 \* open one takes it as an exchange at once, and one shutting down keeps it for the next (rules 18,
@@ -316,6 +328,13 @@ LinkTicketSpent(before, st) ==
         LET k == st.links[i] IN
         ~(k.state = "running" /\ k.resumed /\ before.links[i].state # "running") \/
         ~st.linkTickets[i]
+
+\* After the clock moves, no link that closed before it still closes. The drive shut it, and the
+\* shut cancelled its send (rule 24, §16 decision 55).
+LinkClosingBounded(before, e, st) ==
+    e.kind \notin {"idle", "expire"} \/
+    \A i \in 0..2 * CServers - 1 :
+        before.links[i].state # "closing" \/ st.links[i].state # "closing"
 
 \* A link's socket that ends fails no request itself: the channel decides what that fails, and says
 \* so at a read (rule 19). The end the channel held, and told first at the same read, is its own

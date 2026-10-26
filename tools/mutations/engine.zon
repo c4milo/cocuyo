@@ -4534,4 +4534,112 @@
         },
         .caught_by = .{ .step = "test-io" },
     },
+    .{
+        .section = "A DoH link whose send never ends",
+        .id = "DL2",
+        .what = "the shut of a link cancels no send, as until 2026-10-26",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "    if (state.receive) |handle| self.loop.cancel(handle);\n    if (state.send_handle) |handle| self.loop.cancel(handle);\n", .new = "    if (state.receive) |handle| self.loop.cancel(handle);\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A DoH link whose send never ends",
+        .id = "DL3",
+        .what = "cancel_all cancels no send of a link, as until 2026-10-26",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "            if (state.receive) |handle| self.loop.cancel(handle);\n            if (state.send_handle) |handle| self.loop.cancel(handle);\n", .new = "            if (state.receive) |handle| self.loop.cancel(handle);\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A DoH link whose send never ends",
+        .id = "DL4",
+        .what = "the drive shuts no link that closes, as until 2026-10-26",
+        .edits = .{
+            .{ .file = "io/io_drive.zig", .old = "    channel_link.shut_lapsed(self, now_ns);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A DoH link whose send never ends",
+        .id = "DL5",
+        .what = "the drive shuts a link that closes at once, with no wait",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "            if (now_ns -| state.closing_since_ns < self.doh.idle_ns) continue;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A DoH link whose send never ends",
+        .id = "DL6",
+        .what = "a link that closes keeps no instant of its own",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "        state.closing_since_ns = now_ns;\n", .new = "        _ = now_ns;\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A DoH link whose send never ends",
+        .id = "DL7",
+        .what = "a link's send keeps no handle",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "    state.send_handle = handles[0];\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A DoH link whose send never ends",
+        .id = "DL8",
+        .what = "a link's send that ended leaves its handle",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "    assert(state.send_handle != null);\n    state.send_handle = null;\n", .new = "    assert(state.send_handle != null);\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A DoH link whose send never ends",
+        .id = "DL9",
+        .what = "the shut at the bound reads no channel",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "            channel_module.hear(self, server, now_ns);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "A DoH link whose send never ends",
+        .id = "DL10",
+        .what = "as DL4, against the walks",
+        .edits = .{
+            .{ .file = "io/io_drive.zig", .old = "    channel_link.shut_lapsed(self, now_ns);\n", .new = "" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "A DoH link whose send never ends",
+        .id = "DL11",
+        .what = "as DL5, against the walks",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "            if (now_ns -| state.closing_since_ns < self.doh.idle_ns) continue;\n", .new = "" },
+        },
+        .caught_by = .short_walks,
+    },
+    .{
+        .section = "A DoH link whose send never ends",
+        .id = "DL12",
+        .what = "as DL9, against the walks",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "            channel_module.hear(self, server, now_ns);\n", .new = "" },
+        },
+        .caught_by = .picked_walks,
+    },
+    .{
+        .section = "A DoH link whose send never ends",
+        .id = "DL13",
+        .what = "a new opening shuts no earlier opening that closes",
+        .edits = .{
+            .{ .file = "io/io_channel_link.zig", .old = "    shut(self, server, at);\n    state.endpoint = endpoint;\n", .new = "    if (state.state == .down) shut(self, server, at);\n    state.endpoint = endpoint;\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
 }

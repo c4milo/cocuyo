@@ -7,7 +7,7 @@
 \* CL5 breaks TLS rule 5's bound on a connection that closes. RD1 and RD13 break §5's deadline of
 \* `tcpReady` (§16 decision 52). SH1 breaks the shut at the last leave during a query's send (§16
 \* decision 53). NJ1 to NJ3 and NJ16 to NJ18 break the mark of a connection that no lookup joins
-\* (§16 decision 54).
+\* (§16 decision 54). DL1 breaks the bound on a link that closes (§16 decision 55).
 \* A configuration in mutants/ puts one in place of the rule with TLC's `Rule <- Mutant`, and TLC
 \* must find the check that catches it.
 EXTENDS Engine
@@ -416,5 +416,9 @@ WantIgnoringMarked(st, l) ==
 \* NJ18: over TLS the last leave of a marked connection whose sends ended shuts it, and the peer
 \* hears no close_notify, as the code's NJ10 does.
 EndMarkedShut(st, k) == Shut(st, k)
+
+\* DL1: a move of the clock leaves a link that closes as it is, as until 2026-10-26. A link whose
+\* last send does not end then stays closing for ever (§16 decision 55).
+ShutLapsedNone(st) == st
 
 ===============================================================================

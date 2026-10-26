@@ -404,7 +404,7 @@ Three choices make TLC count what the Lean walker counts:
   and checked, and has no successor, as in the Lean walker; TLC leaves a state that breaks a
   `CONSTRAINT` out, and the check on the event that reached it with it. So every configuration
   says `CHECK_DEADLOCK FALSE`.
-- Sixteen of the forty-nine checks read the event or the state before it, which a TLC
+- Seventeen of the fifty checks read the event or the state before it, which a TLC
   invariant cannot. So `broken` holds the names of the checks the last event broke, and `Clean`
   asks it be empty. In a model that keeps its rules it always is, so it splits no state.
 
@@ -917,6 +917,57 @@ neither reaches a last leave of it with its sends ended. So no walk catches the 
 shut in place of that `close_notify`. The test of NJ10 and `Engine_tls_2_1_bound_2_1` hold that
 rule (docs/mutations.md, A connection no lookup may join).
 
+On 2026-10-26 the idle wait came to bound a channel's link that closes (docs/design.md §24,
+request rules 19 and 24; §16 decision 55). Until then a link that closed waited for its last send
+to end. A peer that stopped reading held that link closing for ever, and the model held the same
+gap. The change came to the model first:
+
+- `ShutLapsed` shuts each link that closes at each move of the clock. A tick is the idle wait, so
+  the first move of the clock after the link began to close shuts it. The shut leaves the send to
+  the loop, and the buffer stays lent until the send's next event.
+- That event reads the channel no more, since its opening has ended. So `ShutLapsed` reads the
+  channel at the shut, which tells first what it held. A first form read nothing there, and TLC
+  found "channel held while sending" broken at the sixth state of its counterexample.
+- `Moving` calls `ShutLapsed` at each move of the clock, before `Pass` moves the deadlines. The
+  code's drive shuts the link before its polls find a deadline. So an end that the channel told at
+  the shut reaches its lookup first. A form that shut the link in the drive, after `Pass`, put
+  the results in another order than the code. The replay of the full run found it at walk 2243.
+- The clock can move while a link closes: `idle` is enabled then, as it is while a connection
+  closes.
+- The check "link closing bounded" holds the rule. After the clock moves, no link that closed
+  before it still closes. TLC holds fifty checks now.
+- `mutants/DL1` puts back the drive as it was. TLC finds "link closing bounded" broken at the fifth
+  state of its counterexample. A link's send is in flight, the channel closes the link, and the
+  clock moves.
+
+The model holds no cancel, as before: each operation may end at each event already. Only the
+channel configurations change. TLC checked them on 2026-10-26 on an Apple M1 Pro while other work
+ran:
+
+| Configuration | Before | Now |
+| --- | --- | --- |
+| `Engine_channel_1_1_bound_3_1` | 1,672,552 | 1,800,872 |
+| `Engine_channel_1_2_bound_3_1` | 14,986,512 | 17,297,696 |
+
+The clock now moves while a link closes, so TLC reaches more states. TLC took 59 minutes over the
+nightly `Engine_channel_1_2_bound_3_1` with four workers. The form that shut the link after `Pass`
+held 17,986,988 states there. Each of the ten mutants CH1 to CH10 is still violated.
+
+The trace writes nothing new. A link that the drive shuts is written `down`, with its buffer lent
+until the send's event. A link that the channel closed with nothing to send is written the same.
+
+Of the 130 short walks, 5 changed, all over DoH: one with one lookup and four with two. Of the full
+run's 26,000 walks, 2,329 changed, all over DoH: 1,076 with one lookup and 1,253 with two. In 1,740
+of them the clock moves while a link closes, 2,277 times, and the drive shuts the link. Three of the
+twenty-one picks changed: walks 4, 13 and 2002. The replay of the full run agrees with the engine
+over 5,226,000 events.
+
+`zig build mutations -- engine` ran each row that the walks catch, and DL2 to DL12, against the
+new full run (docs/mutations.md). The short walks
+catch DL10 and DL11. They miss DL12, the shut at the bound that reads no channel, and the full run
+caught it first at walk 12. The full run now catches CE12 first at walk 3, where it caught it
+first at walk 4 before. So walks 3 and 12 came in, walk 4 left, and the picks are twenty-two now.
+
 ### The walks TLC takes
 
 `tla/engine/EngineTrace.tla` runs the specification in TLC's simulation mode, which takes seeded
@@ -968,7 +1019,7 @@ compares the walk's whole state after each.
   It also
   replays two sets of engine walks TLC wrote. `tools/spec_replay/engine_gate.txt` holds ten walks
   of forty events in each of the thirteen engine configurations.
-  `tools/spec_replay/engine_picks.txt` holds twenty-one walks of the full run, which `engine_picks`
+  `tools/spec_replay/engine_picks.txt` holds twenty-two walks of the full run, which `engine_picks`
   in `build/spec.zig` names. Each is where the full run caught a mutation of the engine that the
   short walks miss (docs/mutations.md). The gate also holds `tools/spec_replay/walk_gate.txt`, the
   forward walk with two candidates and both families and every reverse configuration. It needs

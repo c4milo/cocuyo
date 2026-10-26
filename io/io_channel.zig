@@ -87,17 +87,24 @@ pub const None = struct {
     pub fn wipe(_: *None) void {}
 };
 
-/// One of a channel's links, whichever socket it runs over: its state, its socket, its connect and
-/// its receive, where the channel asked it to go, and what it made that has not gone.
+/// One of a channel's links, whichever socket it runs over. It holds its state and its socket, and
+/// its connect, receive and send. It holds where the channel asked it to go, and what it made that
+/// has not gone.
 pub const LinkState = struct {
     /// A link waits, reopening, while a connect of an earlier opening still borrows its address
-    /// (request rule 14), and closes once what it holds has gone after the channel closed it.
+    /// (request rule 14). After the channel closed it, it closes until what it holds has gone, or
+    /// until it has closed for `quic_idle_ns` (request rules 19 and 24).
     pub const State = enum { down, connecting, reopening, running, closing };
 
     state: State = .down,
     descriptor: ?rotor.Descriptor = null,
     connect: ?rotor.Handle = null,
     receive: ?rotor.Handle = null,
+    /// The send of this opening in flight. Each end of the link cancels it, since a peer that stops
+    /// reading never ends it (docs/design.md §16 decision 55).
+    send_handle: ?rotor.Handle = null,
+    /// The instant the link began to close, from which `quic_idle_ns` bounds it (request rule 24).
+    closing_since_ns: u64 = 0,
     endpoint: cocuyo.Endpoint = undefined,
     /// The octets in the link's buffer that have not gone: a datagram the loop refused, or what a
     /// TCP send left, of which `sent` went (request rules 8 and 15).
@@ -367,7 +374,7 @@ pub fn hear(self: anytype, server: u8, now_ns: u64) void {
         const event = slot.channel.next(now_ns) orelse return;
         switch (event) {
             .open => |asked| link_module.open(self, server, asked.link, asked.endpoint, now_ns),
-            .close => |link| link_module.close(self, server, link),
+            .close => |link| link_module.close(self, server, link, now_ns),
             .ticket => |link| keep_ticket(self, server, link, now_ns),
             .finished => |finished| ended(self, server, finished, now_ns),
             .closed => closed(self, server, now_ns),

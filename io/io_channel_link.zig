@@ -7,7 +7,9 @@
 //! What the loop borrows from a link outlives the opening that lent it, as a request connection's
 //! does (`io_request_connection.zig`): the octets in flight, where a datagram goes, and where a
 //! connect goes. So a link opened again sends nothing until an earlier opening's send has ended,
-//! and connects nothing until an earlier opening's connect has.
+//! and connects nothing until an earlier opening's connect has. Each end of a link cancels its
+//! send, so that send ends at the next turn of the loop, whether its peer reads or not. And a link
+//! that has closed for `quic_idle_ns` is shut (docs/design.md §16 decision 55, rule 24).
 //!
 //! Free functions over the engine, split out of `io_channel.zig` so each is scored on its own.
 const std = @import("std");
@@ -143,14 +145,16 @@ fn spend(self: anytype, server: u8, at: u1, now_ns: u64) ?tls.Kept(@TypeOf(self.
 
 /// The channel closed a link: its connection writes and reads nothing more, and its socket closes
 /// once what the link holds to send has gone. One with nothing to send, and one that connects or
-/// waits to, closes at once.
-pub fn close(self: anytype, server: u8, link: anytype) void {
+/// waits to, closes at once. A link that closes keeps the instant it began to, since `quic_idle_ns`
+/// after it the drive shuts the link (rule 24, `shut_lapsed`).
+pub fn close(self: anytype, server: u8, link: anytype, now_ns: u64) void {
     const at: u1 = @intFromEnum(link);
     const state = &self.doh.slots[server].links[at];
     if (state.state == .running and (state.made > 0 or sending(self, server, at))) {
         if (state.receive) |handle| self.loop.cancel(handle);
         state.receive = null;
         state.state = .closing;
+        state.closing_since_ns = now_ns;
         return;
     }
     shut(self, server, at);
@@ -170,12 +174,17 @@ fn ended(self: anytype, server: u8, at: u1, now_ns: u64) void {
     channel_module.hear(self, server, now_ns);
 }
 
-/// Ends a link's opening: its connect and its receive cancelled, and its socket closed. A send or a
-/// connect in flight keeps what it borrows until its final event, which then speaks for nobody.
+/// Ends a link's opening: its connect, its receive and its send cancelled, and its socket closed.
+/// The cancel is what makes the loop let an operation go (rotor decision 5, rule 1). A send or a
+/// connect in flight keeps what it borrows until its final event, which then speaks for nobody
+/// (docs/design.md §16 decision 55).
 pub fn shut(self: anytype, server: u8, at: u1) void {
     const state = &self.doh.slots[server].links[at];
+    // A send of this opening is in flight exactly while the link talks and keeps its handle.
+    assert((state.send_handle != null) == (state.talks() and sending(self, server, at)));
     if (state.connect) |handle| self.loop.cancel(handle);
     if (state.receive) |handle| self.loop.cancel(handle);
+    if (state.send_handle) |handle| self.loop.cancel(handle);
     if (state.descriptor) |descriptor| rotor.sync.close_now(descriptor);
     state.* = .{ .incarnation = state.incarnation, .endpoint = state.endpoint };
 }
@@ -231,7 +240,11 @@ fn send(self: anytype, server: u8, at: u1, now_ns: u64) void {
         .send(user_data, state.descriptor.?, slot.bytes[state.sent..state.made])
     else
         datagram_to(self, server, at, user_data);
-    if (self.loop.submit(&.{operation}, &.{}) != 1) return;
+    var handles: [1]rotor.Handle = undefined;
+    if (self.loop.submit(&.{operation}, &handles) != 1) return;
+    // Each end of the link cancels the send by this handle (docs/design.md §16 decision 55).
+    assert(state.send_handle == null);
+    state.send_handle = handles[0];
     slot.lent = true;
     slot.incarnation = state.incarnation;
     if (!stream) state.made = 0;
@@ -267,7 +280,15 @@ pub fn on_send_event(self: anytype, index: usize, event: rotor.Event, now_ns: u6
     assert(slot.lent and slot.incarnation == link.incarnation);
     slot.lent = false;
     const state = &self.doh.slots[link.server].links[link.at];
-    if (!state.talks() or state.incarnation != link.incarnation) return;
+    if (!state.talks() or state.incarnation != link.incarnation) {
+        // The end of that opening cancelled the send, and its handle went with the opening. A newer
+        // opening has sent nothing, since the buffer was lent until now.
+        assert(state.send_handle == null);
+        return;
+    }
+    // The link kept the handle of the send that just ended.
+    assert(state.send_handle != null);
+    state.send_handle = null;
     const count = event.outcome() catch return ended(self, link.server, link.at, now_ns);
     if (link.at == @intFromEnum(tcp_link(self))) {
         assert(count <= state.made - state.sent);
@@ -325,16 +346,38 @@ fn take(self: anytype, server: u8, stream: bool, event: rotor.Event, now_ns: u64
     channel_module.hear(self, server, now_ns);
 }
 
+// The bound on a link that closes (rule 24).
+
+/// Shuts each link that has closed for the set's `idle_ns`. Its last send has not ended, since its
+/// peer stops reading, and the shut cancels it. That send's event reads the channel no more. So the
+/// channel is read here, and tells now what it held while the send was in flight (rule 17). The
+/// drive does this first, so its polls take what the channel told (docs/design.md §16 decision 55).
+pub fn shut_lapsed(self: anytype, now_ns: u64) void {
+    if (comptime !@TypeOf(self.*).Doh.enabled) return;
+    for (self.doh.slots[0..], 0..) |*slot, server_at| {
+        for (slot.links[0..], 0..) |*state, link_at| {
+            if (state.state != .closing) continue;
+            if (now_ns -| state.closing_since_ns < self.doh.idle_ns) continue;
+            const server: u8 = @intCast(server_at);
+            shut(self, server, @intCast(link_at));
+            channel_module.hear(self, server, now_ns);
+        }
+    }
+}
+
 // The engine going away.
 
-/// Ends every link's connect and receive, so the loop can be drained. The sockets stay open until
-/// `close_all`, which runs after the drain.
+/// Ends every link's connect, receive and send, so the loop can be drained (rotor decision 5, rule
+/// 7). A send to a peer that stops reading ends only at its cancel. The sockets stay open until
+/// `close_all`, which runs after the drain or at a `reinit`. The handle of a send stays for its
+/// event or for `close_all`, as a connection's does (docs/design.md §16 decisions 49 and 55).
 pub fn cancel_all(self: anytype) void {
     if (comptime !@TypeOf(self.*).Doh.enabled) return;
     for (self.doh.slots[0..]) |*slot| {
         for (slot.links[0..]) |*state| {
             if (state.connect) |handle| self.loop.cancel(handle);
             if (state.receive) |handle| self.loop.cancel(handle);
+            if (state.send_handle) |handle| self.loop.cancel(handle);
             state.connect = null;
             state.receive = null;
         }

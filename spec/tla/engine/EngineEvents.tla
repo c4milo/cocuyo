@@ -245,13 +245,18 @@ Cancel(st, l) ==
     IF st.slots[l].lookup # {} /\ ~Ended(Get(st.slots[l].lookup).stage)
     THEN TableEvent(st, l, "cancel") ELSE st
 
+\* When the clock moves, the links that close shut first, before any deadline passes. The code's
+\* drive shuts them before its polls find the deadlines (§16 decision 55). So an end that a channel
+\* told at the shut reaches its lookup before that lookup's deadline does.
+Moving(st) == ShutLapsed(Tick(st))
+
 \* One event and the drive that follows it.
 Happen(st, e) ==
     CASE e.kind = "start" -> Drive(Start(st), FALSE)
       [] e.kind = "take" -> TakeResult(st)
       [] e.kind = "cancel" -> Drive(Cancel(st, e.slot), FALSE)
-      [] e.kind = "expire" -> Drive(Pass(Tick(st), Soonest(st)), TRUE)
-      [] e.kind = "idle" -> Drive(Pass(Tick(st), 1), TRUE)
+      [] e.kind = "expire" -> Drive(Pass(Moving(st), Soonest(st)), TRUE)
+      [] e.kind = "idle" -> Drive(Pass(Moving(st), 1), TRUE)
       [] e.kind = "finish" -> Drive(Finish(st, e.op, e.outcome), FALSE)
       [] e.kind = "message" -> Drive(Message(st, e.slot, e.reply), FALSE)
       [] e.kind = "tls" -> Drive(TlsStep(st, e.op.target, e.step), FALSE)
@@ -371,6 +376,7 @@ Enabled(st) ==
     (IF \/ \E k \in 0..Conns - 1 : st.conns[k].stage # "closed" /\ st.conns[k].users = 0
         \/ \E v \in 0..RServers - 1 : st.rconns[v].stage \in {"handshaking", "up"} /\ RUsers(st, v) = 0
         \/ \E v \in 0..CServers - 1 : st.chans[v].stage = "open" /\ CUsers(st, v) = 0
+        \/ \E i \in 0..2 * CServers - 1 : st.links[i].state = "closing"
      THEN {Ev("idle")} ELSE {}) \cup
     RequestEvents(st) \cup ChannelEvents(st) \cup
     UNION {{[Ev("finish") EXCEPT !.op = op, !.outcome = o] : o \in Endings(st, op)} :

@@ -264,6 +264,7 @@ Checks(before, e, st) ==
        <<"channel held while sending", ChanHeldWhileSending(st)>>,
        <<"link ticket spent", LinkTicketSpent(before, st)>>,
        <<"link end fails none", LinkEndFailsNone(before, e, st)>>,
+       <<"link closing bounded", LinkClosingBounded(before, e, st)>>,
        <<"waits connecting", WaitsConnecting(st)>>,
        <<"waits for no free slot", ~Drove(before, e) \/ WaitsForNone(st)>>,
        <<"told when up", ToldWhenUp(st)>>, <<"slot waited for", ~st.slotless>>,

@@ -9192,3 +9192,142 @@ change touches the engine in `io/` and no file of `src/`. So no count can move, 
 Each other row that the walks catch is `CAUGHT` (What ran, above).
 
 Nineteen mutations, nineteen `CAUGHT`.
+
+## A DoH link whose send never ends
+
+2026-10-26. The owner answered docs/design.md §17 question 61 on 2026-10-21: the second way, with a
+test on the twin first. It is the rule of decision 49 for a channel's link. The link keeps the
+handle of its send, and each way that ends the link cancels that send. `quic_idle_ns` bounds a link
+that closes, as `tcp_idle_ns` bounds a connection that closes (§24, request rule 24).
+
+Design §16 decision 55 records the rule, the choices that the ruling did not make, and the
+alternatives that it beats. Request rules 19 and 24 point to it, and so does decision 49. The design
+changed first, then the TLA+ model, then the tests, then the code.
+
+### What changed
+
+- Each move of the clock in the TLA+ model first shuts each link that closes, before the deadlines
+  pass (`ShutLapsed`, in `Moving`). The shut reads the link's channel, since the cancelled send's
+  event reads it no more. The clock can move while a link closes. The check "link closing bounded"
+  holds the rule, and `mutants/DL1` puts back the drive as it was (spec/README.md).
+- `LinkState` in `io/io_channel.zig` holds `send_handle` and `closing_since_ns`. `send` in
+  `io/io_channel_link.zig` keeps the handle, and `on_send_event` drops it at the send's end.
+- `shut` cancels the send, and asserts that a link that talks keeps a handle exactly while a send of
+  its opening is in flight. Each end of a link calls `shut`. `cancel_all` cancels the send too.
+- `close` keeps the instant a link began to close. `shut_lapsed` shuts each link that has closed for
+  the set's `idle_ns`, then reads its channel. The drive calls it first.
+- The short walks and the picked walks were written again, and the picks were chosen again.
+
+### The tests, before the code
+
+Each is in `io/io_channel_link_test.zig`. A helper runs server 0's TCP link, and its first octets
+go. Then the peer stops reading, with `Network.stall` of the twin, and the link sends again. That
+send never ends.
+
+- A link that closes behind that send. The drive just before `quic_idle_ns` leaves it closing, and
+  the drive at the bound shuts it. The buffer comes back at the cancel's event.
+- A new opening of the link after it closes. Its octets go once the cancel gives the buffer back.
+- `deinit` with that send in flight, and then the drain of the loop.
+- A `reinit` with that send in flight. The TCP link of the server's next channel sends.
+
+With the old code, `zig build test-io` passed 214 tests of 218, and failed four. The lines are those
+of the checks in the file as it is now:
+
+- the test of the bound: "TestUnexpectedResult" at `io_channel_link_test.zig:272`, where the link
+  must be down at the bound;
+- the test of the new opening: `error.NotSent` from `until_sent`, called at
+  `io_channel_link_test.zig:307`;
+- the test of `deinit`: `error.Timeout` from the twin's `drain`, under the rig's `deinit` at
+  `io_channel_link_test.zig:338`;
+- the test of the `reinit`: `error.NotSent` from `until_sent`, called at
+  `io_channel_link_test.zig:350`.
+
+A fifth test came after the code, for the read at the shut. The channel holds an end while the
+send is in flight, and the shut at the bound tells it. The lookup has its answer in the same drive.
+With no bound (DL4) it fails with "TestUnexpectedResult" at `io_channel_link_test.zig:290`.
+
+A sixth test came with the review's fix-up, before any change of the code. A second lookup on
+server 0 starts after the stall. The channel closes the link and opens it again, and the new
+opening sends that lookup's octets. The answer comes before `quic_idle_ns` has passed. The old
+code kept no handle, so DL2 puts its shut back. With DL2 the test fails with `error.NotSent` from
+`until_sent`, called at `io_channel_link_test.zig:324`.
+
+### What ran
+
+- The disk had 48 GB free before the first run, and 42 GB after the last.
+- The first form of the model read no channel at the shut. TLC by hand on
+  `Engine_channel_1_1_bound_3_1` found "channel held while sending" broken at the sixth state of a
+  counterexample. The model now reads the channel there.
+- `zig build tla` over the two channel configurations, DL1 and CH1 to CH10. Each configuration
+  holds, with the counts in spec/README.md, and each mutant is violated. TLC by hand, with one
+  worker, found "link closing bounded" broken at the fifth state of DL1's counterexample.
+- `zig build tla -- walks 1 10 41` wrote the short walks: 5 of 130 changed, all over DoH.
+- `zig build tla -- walks 1 2000 201` wrote the full run with the twenty-one picks before, in 15
+  minutes. Three of the picks changed: walks 4, 13 and 2002.
+- `zig build mutations -- engine --walks <full run>` ran the 95 rows that the walks catch, and DL2
+  to DL12. With no mutation, the full run failed at walk 2243. That form shut the link in the
+  drive, after the deadlines passed, so the results came in another order than the code's. The
+  model now shuts the link before the deadlines pass (`Moving`), and TLC wrote the walks again.
+  The short walks and the picks changed as before, and so did 2,329 of the 26,000 walks.
+- The replay of the new full run agrees with the engine over 5,226,000 events.
+- `zig build mutations -- engine --walks <full run>` ran the 106 rows again, in 36 minutes. Each
+  was `CAUGHT` but DL12, which the short walks missed. The full run caught it first at walk 12.
+  The full run also caught CE12 first at walk 3, where it caught it first at walk 4 before.
+- Walks 3 and 12 came in, and walk 4 left. The picks are twenty-two: `engine_picks` in
+  `build/spec.zig` and `engine_picks.txt`. Each picked walk is the full run's walk of that number.
+- With DL12 marked for the picked walks, this command ran 26 rows, in 15 minutes. Each is `CAUGHT`:
+
+```sh
+zig build mutations -- engine --walks <full run> DL12 E3 E4 ET4 ET5 ET10 ET11 ET17 ET18 SQ6 \
+    RW10 RW13 CE12 CE14 CE15 CE19 OA29 OA33 TB9 CL11 CL13 AS2 NJ12 NJ13 NJ14 NJ15
+```
+
+- DL2 to DL9 ran by hand too, with `zig build test-io`, and the texts in the rows come from there.
+- TLC by hand on the nightly `Engine_channel_1_2_bound_3_1`, with four workers, in 59 minutes: it
+  holds, with 17,297,696 states.
+- `zig build test`: 1,214 tests pass of 1,214, in 140 steps. `zig build lint` passes, with each
+  function at a complexity of 15 or less. `zig build examples` builds each example, and `zig build
+  test-cocuyo_doh` passes 41 tests of 41.
+- `zig build spec-engine`, in 8 minutes. The committed short walks and the twenty-two picks are the
+  ones that TLC writes. The full run agrees with the engine over 5,226,000 events in 26,000 walks.
+  The Lean model of the lookup did not change, so `zig build spec` did not run.
+- Last and alone in the tree, the full `zig build tla`, in 2 hours. Each of the 16 configurations
+  holds, `Engine_channel_1_2_bound_3_1` with 17,297,696 states. Each of the 50 mutants is violated,
+  DL1 among them.
+- The review's fix-up added the sixth test and DL13, and changed no code but a doc comment. The
+  model and the walks did not change. `zig build mutations -- engine DL2 DL3 DL4 DL5 DL6 DL7 DL8
+  DL9 DL10 DL11 DL12 DL13` ran the twelve rows again. Each is `CAUGHT`, DL12 at walk 12 of the
+  full run. DL2, DL7, DL8 and DL13 ran by hand too, for the texts in their rows.
+- After the fix-up, `zig build test` passes 1,215 tests of 1,215, in 140 steps. `zig build lint`,
+  `zig build examples` and `zig build spec-engine` pass, and `zig build test-cocuyo_doh` passes 41
+  tests of 41.
+- Last and alone in the tree, the full `zig build tla` ran again, in 1 hour and 53 minutes. Each
+  of the 16 configurations holds, and each of the 50 mutants is violated.
+
+### The instruction counts
+
+`bench/count.zig` imports `cocuyo` and `wire` alone, and no counted case runs the engine. This
+change touches the engine in `io/` and no file of `src/`. So no count can move, and
+`bench/instructions.zon` did not change.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| DL1 | the model's move of the clock leaves a link that closes as it is, as until 2026-10-26 | §16 decision 55: the first move of the clock after a link began to close shuts it | TLC's check "link closing bounded" on `mutants/DL1`, at the fifth state of its counterexample, `zig build tla` | CAUGHT |
+| DL2 | the shut of a link cancels no send, as until 2026-10-26 | each end of a link cancels its send | four tests: "TestUnexpectedResult" at `io_channel_link_test.zig:275`, where the buffer must be back; `error.Timeout` from the drain at `io_channel_link_test.zig:294`; `error.NotSent` from `until_sent` at `io_channel_link_test.zig:307` and at `io_channel_link_test.zig:324`, `test-io` | CAUGHT |
+| DL3 | `cancel_all` cancels no send of a link, as until 2026-10-26 | `deinit` and `reinit` cancel the send | two tests: `error.Timeout` from the drain at `io_channel_link_test.zig:338`; `error.NotSent` from `until_sent` at `io_channel_link_test.zig:350`, `test-io` | CAUGHT |
+| DL4 | the drive shuts no link that closes, as until 2026-10-26 | `quic_idle_ns` bounds a link that closes (request rule 24) | two tests: "TestUnexpectedResult" at `io_channel_link_test.zig:272` and at `io_channel_link_test.zig:290`, where the link must be down at the bound, `test-io` | CAUGHT |
+| DL5 | the drive shuts a link that closes at once, with no wait | the link closes for the wait first, and its last octets may go | three tests: "TestUnexpectedResult" at `io_channel_link_test.zig:74` and at `io_channel_link_test.zig:267`, where the link must be closing; `error.NoResult` at `io_channel_link_test.zig:291`, `test-io` | CAUGHT |
+| DL6 | a link that closes keeps no instant of its own | the wait counts from the instant the link began to close | the test of the bound: "TestUnexpectedResult" at `io_channel_link_test.zig:270`, where the link must still be closing just before the bound, `test-io` | CAUGHT |
+| DL7 | a link's send keeps no handle | the link keeps the handle of its send | ten tests: "panic: reached unreachable code" at `assert(state.send_handle != null)` in `on_send_event`, `io_channel_link.zig:290` (line 289 of the mutated file, which has one line less above it), `test-io` | CAUGHT |
+| DL8 | a link's send that ended leaves its handle | the handle goes at the send's end | eight tests: "panic: reached unreachable code" at `io_channel_link.zig:184`, in `shut`, and at `io_channel_link.zig:246`, in `send`, `test-io` | CAUGHT |
+| DL9 | the shut at the bound reads no channel | the shut reads the channel, which tells the end it held (request rule 17) | the test of the read at the shut: `error.NoResult` at `io_channel_link_test.zig:291`, `test-io` | CAUGHT |
+| DL10 | as DL4, against the walks | the replay writes a link down after the clock moved | the short walks, at walk 6 | CAUGHT |
+| DL11 | as DL5, against the walks | the replay writes a link closing until the clock moves | the short walks, at walk 3 | CAUGHT |
+| DL12 | as DL9, against the walks | the replay writes the end told at the shut | the picked walks, at walk 12 of the full run | CAUGHT |
+| DL13 | a new opening shuts no earlier opening that closes | a new opening cancels the send of the opening before it | two tests: `error.NotSent` from `until_sent` at `io_channel_link_test.zig:307` and at `io_channel_link_test.zig:324`, `test-io` | CAUGHT |
+
+Each other row that the walks catch is `CAUGHT` (What ran, above).
+
+Thirteen mutations, thirteen `CAUGHT`.

@@ -17,12 +17,13 @@ const request_tend = @import("io_request_connection_tend.zig");
 const channel_module = @import("io_channel.zig");
 const channel_link = @import("io_channel_link.zig");
 
-/// Polls the table for what every lookup wants and does it, until nothing is left: a send out
-/// or held, a connection asked for, a request taken, an end handed to `results`. Then it cancels
-/// every request that its lookup left, and closes the idle connections. It admits each lookup
-/// that waits for a connection slot (docs/design.md §19 step 13, the stream's rule 12). Last, it
-/// tends the sockets and the connections, and moves the timer to the soonest deadline (§24,
-/// request rules 6, 9 and 11).
+/// Shuts first each link that has closed for `quic_idle_ns`, and reads its channel (§24, request
+/// rule 24). Then it polls the table for what every lookup wants and does it, until nothing is
+/// left: a send out or held, a connection asked for, a request taken, an end handed to `results`.
+/// Then it cancels every request that its lookup left, and closes the idle connections. It admits
+/// each lookup that waits for a connection slot (docs/design.md §19 step 13, the stream's rule 12).
+/// Last, it tends the sockets and the connections, and moves the timer to the soonest deadline
+/// (§24, request rules 6, 9 and 11).
 ///
 /// The table offers a lookup once for each thing it has to do (§11, §16 decision 20), so the
 /// drive ends when the ready list does. A lookup can be offered again inside one drive, when a
@@ -31,6 +32,7 @@ const channel_link = @import("io_channel_link.zig");
 /// whose end was reported already is the one the drive refuses, and a run of refusals as long as
 /// the table is deep ends it as well.
 pub fn drive(self: anytype, now_ns: u64) void {
+    channel_link.shut_lapsed(self, now_ns);
     var polls: usize = 0;
     var refused: usize = 0;
     const polls_max = self.slots.len * constants.drive_polls_per_lookup_max;

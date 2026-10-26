@@ -1,15 +1,20 @@
 //! A channel's links on the twin (docs/design.md §24, request rules 17, 19 and 23, and 14): a TCP
 //! link that connects first, one whose connect fails, a close that waits for the octets a link
 //! kept, a ticket kept for each transport, a receive the loop refused armed again, a link opened
-//! again while an earlier connect is in flight, and the channel read at a send's end.
+//! again while an earlier connect is in flight, and the channel read at a send's end. Last, a link
+//! whose peer stops reading: its send never ends, and each end of the link cancels it (§16
+//! decision 55).
 const std = @import("std");
 const testing = std.testing;
+const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 
 const fixtures = @import("fixtures.zig");
 const sim_test = @import("io_sim_test.zig");
 const channel_test = @import("io_channel_test.zig");
+const wait_test = @import("io_tcp_wait_test.zig");
 const question = sim_test.question;
+const drive_at = wait_test.drive_at;
 const Rig = channel_test.Rig;
 const start = channel_test.start;
 const tell = channel_test.tell;
@@ -212,5 +217,137 @@ test "a link's incarnation wraps at the last of its thirty-two bits, and each op
     rig.engine.cancel(handle, rig.loop.now());
     _ = try rig.until_result();
     _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
+// A link whose send never ends (docs/design.md §16 decision 55, request rules 19 and 24).
+
+/// Server 0's TCP link runs, and its first octets have gone. Then its peer stops reading, and keeps
+/// its side open. The channel owes octets again, and the link's send of them never ends.
+fn stall_tcp_link(rig: *Rig, seed: u64) !cocuyo.Handle {
+    try start(rig, seed, .{ .{}, .{} });
+    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const link = &rig.engine.doh.slots[0].links[1];
+    const send = &rig.engine.doh.sends[0][1];
+    try tell(rig, 0, .{ .open = .tcp });
+    try until_sent(rig);
+    rig.loop.network().stall(link.descriptor.?);
+    try tell(rig, 0, .{ .octets = .tcp });
+    try testing.expect(link.state == .running and send.lent);
+    return handle;
+}
+
+/// Steps until server 0's TCP link runs, and has sent each octet that its channel owes.
+fn until_sent(rig: *Rig) !void {
+    const link = &rig.engine.doh.slots[0].links[1];
+    for (0..fixtures.until_rounds_max) |_| {
+        const owes = channel_of(rig, 0).owes[1] or link.made > 0;
+        if (link.state == .running and !owes and !rig.engine.doh.sends[0][1].lent) return;
+        _ = try rig.step(fixtures.channel_read_ns);
+    }
+    return error.NotSent;
+}
+
+/// The lookup leaves, and its result is taken.
+fn end_lookup(rig: *Rig, handle: cocuyo.Handle) !void {
+    rig.engine.cancel(handle, rig.loop.now());
+    _ = try rig.until_result();
+    _ = rig.engine.take(rig.loop.now());
+}
+
+test "a link that closes behind a send that never ends is shut at quic_idle_ns, and the cancel frees its buffer" {
+    // Rules 19 and 24: the same wait bounds a link that closes. The drive just before the bound
+    // leaves the link closing, and the drive at the bound shuts it. The shut cancels the send, and
+    // the buffer comes back at the cancel's event.
+    var rig: Rig = .{};
+    const handle = try stall_tcp_link(&rig, 110);
+    const link = &rig.engine.doh.slots[0].links[1];
+    const send = &rig.engine.doh.sends[0][1];
+    try tell(&rig, 0, .{ .close = .tcp });
+    try testing.expect(link.state == .closing);
+    const bound_ns = rig.loop.now() + rig.engine.doh.idle_ns;
+    try drive_at(&rig, bound_ns - 1);
+    try testing.expect(link.state == .closing);
+    try drive_at(&rig, bound_ns);
+    try testing.expect(link.state == .down);
+    try testing.expect(send.lent);
+    _ = try rig.step(fixtures.channel_read_ns);
+    try testing.expect(!send.lent);
+    try end_lookup(&rig, handle);
+    try rig.deinit();
+}
+
+test "the bound reads the channel, which tells then the end it held while the send was in flight" {
+    // Rule 17: the cancelled send's event reads the channel no more, so the shut at the bound reads
+    // it. The end that the channel held then goes to the lookup at that drive.
+    var rig: Rig = .{};
+    const handle = try stall_tcp_link(&rig, 115);
+    try tell(&rig, 0, .{ .close = .tcp });
+    const bound_ns = rig.loop.now() + rig.engine.doh.idle_ns;
+    try tell(&rig, 0, .{ .hold = .{ .index = handle.index, .answer = true } });
+    try testing.expect(channel_of(&rig, 0).held != null);
+    try drive_at(&rig, bound_ns);
+    try testing.expect(rig.engine.doh.slots[0].links[1].state == .down);
+    const result = rig.engine.take(rig.loop.now()) orelse return error.NoResult;
+    try testing.expect(result.outcome == .answer);
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
+test "a new opening of a link whose earlier send never ends sends once the cancel frees the buffer" {
+    // Rule 19, request rule 8: the new opening shuts the old one, and the shut cancels its send.
+    // The new opening connects in that time, and its octets go at the cancel's event.
+    var rig: Rig = .{};
+    const handle = try stall_tcp_link(&rig, 111);
+    const link = &rig.engine.doh.slots[0].links[1];
+    const first = link.incarnation;
+    try tell(&rig, 0, .{ .close = .tcp });
+    try tell(&rig, 0, .{ .open = .tcp });
+    try testing.expect(link.incarnation != first);
+    try until_sent(&rig);
+    try end_lookup(&rig, handle);
+    try rig.deinit();
+}
+
+test "a later request to a server whose link's send never ends is sent and answered before the bound" {
+    // Rule 19, request rule 8: a later lookup on that server waits for no deadline. The new opening
+    // cancels the old send, its request goes out at the cancel's event, and the answer comes.
+    var rig: Rig = .{};
+    const first = try stall_tcp_link(&rig, 116);
+    const started_ns = rig.loop.now();
+    const later = try rig.engine.start(question("two.example."), started_ns);
+    rig.engine.drive(started_ns);
+    try testing.expect(channel_of(&rig, 0).holds(later.index));
+    try tell(&rig, 0, .{ .close = .tcp });
+    try tell(&rig, 0, .{ .open = .tcp });
+    try tell(&rig, 0, .{ .octets = .tcp });
+    try until_sent(&rig);
+    try tell(&rig, 0, .{ .finished = .{ .index = later.index, .answer = true } });
+    const result = try rig.until_result();
+    try testing.expect(result.handle.index == later.index and result.outcome == .answer);
+    try testing.expect(rig.loop.now() - started_ns < rig.engine.doh.idle_ns);
+    try end_lookup(&rig, first);
+    try rig.deinit();
+}
+
+test "deinit cancels a link's send that never ends, and the loop drains" {
+    // Rotor decision 5, rule 7: a loop drains once each operation has ended. A send to a peer that
+    // stops reading ends only at its cancel.
+    var rig: Rig = .{};
+    _ = try stall_tcp_link(&rig, 112);
+    try rig.deinit();
+}
+
+test "a reinit cancels a link's send that never ends, and the next channel's link sends at the cancel" {
+    // The buffer stays lent across the reinit until the cancel's event. Then the TCP link of the
+    // server's next channel sends.
+    var rig: Rig = .{};
+    const handle = try stall_tcp_link(&rig, 113);
+    try end_lookup(&rig, handle);
+    try rig.engine.reinit(&rig.config, rig.cache_memory.slices(), 114, rig.loop.now());
+    const second = try rig.engine.start(question("two.example."), rig.loop.now());
+    try tell(&rig, 0, .{ .open = .tcp });
+    try until_sent(&rig);
+    try end_lookup(&rig, second);
     try rig.deinit();
 }
