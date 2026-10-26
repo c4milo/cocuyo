@@ -5280,6 +5280,7 @@ changes. The ruling did not make four of the choices that decision 56 makes.
 
     Recommended: as built until the next release, 0.7.0, then the new paths alone. The tree reads
     the new paths already, so the aliases go with no other change. Until the owner rules, as built.
+    Answered on 2026-10-26: as recommended. The aliases go at 0.7.0.
 77. **The limits of the tests.** The place check reads no test file and no `fixtures.zig`. So 20
     bounds of the tests stay where they are, each with a type: `rounds_max` of
     `io/io_doh_channel_test.zig`, `events_max` of `io/fixtures.zig`, and others. The ways:
@@ -5289,7 +5290,7 @@ changes. The ruling did not make four of the choices that decision 56 makes.
     - Each test's bound moves into its module's limits file too. A limits file then holds bounds
       that no code of the library reads.
 
-    Recommended: as built. Until the owner rules, as built.
+    Recommended: as built. Until the owner rules, as built. Answered on 2026-10-26: as built.
 78. **The limits with no suffix.** The place check reads a limit by its name. 23 limits have a name
     with no `_max`, `_min` or `_limit`, such as `buffer_bytes`, `tcp_chunk_bytes` and
     `idle_timeout_ms`. Each moved, and docs/mutations.md names each one. But no check keeps such a
@@ -5300,7 +5301,8 @@ changes. The ruling did not make four of the choices that decision 56 makes.
       limit. 20 of the 23 are public, so the rename changes public names.
 
     Recommended: the rename, at the release that drops the aliases of question 76, so a consumer
-    changes its paths once. Until the owner rules, as built.
+    changes its paths once. Until the owner rules, as built. Answered on 2026-10-26: the rename, at
+    0.7.0, with the aliases of question 76.
 79. **The constants at the border of a class.** The test of decision 56 puts four constants in a
     constants file, but another reader can put each in a limits file:
 
@@ -5320,7 +5322,7 @@ changes. The ruling did not make four of the choices that decision 56 makes.
     - Each moves into its module's limits file, with an alias on the old path as question 76 says.
 
     Recommended: as built. None of the four is a bound that the code checks against input. Until
-    the owner rules, as built.
+    the owner rules, as built. Answered on 2026-10-26: as built.
 
 ## 18. The cache
 
