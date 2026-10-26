@@ -5136,6 +5136,7 @@ makes.
 
     Recommended: as built. The channel held a real end, and the lookup gets it. A shut after the
     polls loses that end for an instant of the clock. Until the owner rules, as built.
+    Answered on 2026-10-26: as built.
 75. **A link that closes with no drive to shut it.** No timer is armed for the bound. A drive
     comes at a lookup's deadline, at a channel's instant, or at the start of a lookup. A channel
     that closed has no instant (`next_deadline` in `io/io_channel.zig` passes over its slot). So a
@@ -5150,6 +5151,7 @@ makes.
     Recommended: as built, as decision 49 ruled for a connection. The link holds one socket and
     one buffer of its own server's slot, and no other server waits for them. Until the owner rules,
     as built.
+    Answered on 2026-10-26: as built.
 
 ## 18. The cache
 
