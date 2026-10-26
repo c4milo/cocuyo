@@ -15,6 +15,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const constants = @import("../constants.zig");
+const limits = @import("../limits.zig");
 const integer = @import("../integer.zig");
 const records = @import("fuzz_generate_records.zig");
 const Writer = records.Writer;
@@ -27,10 +28,7 @@ pub const message_bytes_max = core.constants.udp_payload_bytes_default;
 
 /// The largest message the long strategy builds: the longest there is (RFC 1035 §4.2.2), which a
 /// stream carries. Its offsets and sums reach values no message of 1232 octets reaches.
-pub const long_message_bytes_max = core.constants.message_bytes_max;
-
-/// The smallest message: shorter than a header, so the header check is exercised too.
-pub const message_bytes_min = 1;
+pub const long_message_bytes_max = core.limits.message_bytes_max;
 
 /// How the bytes of one message are chosen.
 pub const Strategy = enum {
@@ -132,8 +130,8 @@ pub fn generate(seed: u64, out: *Message) void {
     out.most_at = 0;
     @memset(out.bytes[0..message_bytes_max], 0);
     if (strategy == .long_message) return write_long_message(&generator, out);
-    out.len = message_bytes_min + generator.below(message_bytes_max - message_bytes_min);
-    assert(out.len >= message_bytes_min);
+    out.len = limits.fuzz_message_bytes_min + generator.below(message_bytes_max - limits.fuzz_message_bytes_min);
+    assert(out.len >= limits.fuzz_message_bytes_min);
     assert(out.len <= message_bytes_max);
     fill_noise(&generator, out);
     switch (strategy) {
@@ -152,7 +150,7 @@ pub fn generate(seed: u64, out: *Message) void {
 }
 
 fn fill_noise(generator: *Generator, out: *Message) void {
-    assert(out.len >= message_bytes_min);
+    assert(out.len >= limits.fuzz_message_bytes_min);
     for (out.bytes[0..out.len]) |*byte| byte.* = generator.byte();
 }
 
@@ -176,9 +174,9 @@ fn write_question(generator: *Generator, out: *Message) void {
     write_header(generator, out);
     var offset: usize = core.constants.header_bytes;
     var labels: usize = 0;
-    while (labels <= core.constants.labels_max) {
+    while (labels <= core.limits.labels_max) {
         if (offset >= out.len) return;
-        const length = generator.below(core.constants.label_bytes_max + 1);
+        const length = generator.below(core.limits.label_bytes_max + 1);
         if (length == 0) {
             out.bytes[offset] = 0;
             return;
@@ -196,8 +194,8 @@ fn write_question(generator: *Generator, out: *Message) void {
 /// to the question's name (§4.1.4), so the record walk measures the owner through the pointer.
 fn write_long_question(generator: *Generator, out: *Message) void {
     write_header(generator, out);
-    const lengths = core.constants.name_bytes_max - constants.fuzz_question_name_bytes_min + 1;
-    const name_bytes = constants.fuzz_question_name_bytes_min + generator.below(lengths);
+    const lengths = core.limits.name_bytes_max - limits.fuzz_question_name_bytes_min + 1;
+    const name_bytes = limits.fuzz_question_name_bytes_min + generator.below(lengths);
     const owner_bytes = owner_label_bytes(generator, name_bytes);
     const end = core.constants.header_bytes + name_bytes + core.constants.question_fixed_bytes;
     out.len = @max(out.len, end + owner_bytes + constants.pointer_bytes);
@@ -216,9 +214,9 @@ fn write_long_question(generator: *Generator, out: *Message) void {
 /// take two octets at least, so after a question of 254 octets or more the owner is longer than
 /// 255 octets.
 fn owner_label_bytes(generator: *Generator, name_bytes: usize) usize {
-    assert(name_bytes <= core.constants.name_bytes_max);
-    const whole = core.constants.name_bytes_max + @intFromBool(generator.coin());
-    return @max(whole - name_bytes, constants.label_wire_bytes_min);
+    assert(name_bytes <= core.limits.name_bytes_max);
+    const whole = core.limits.name_bytes_max + @intFromBool(generator.coin());
+    return @max(whole - name_bytes, limits.label_wire_bytes_min);
 }
 
 /// Labels of noise that take `area_bytes` octets, length octets included, of lengths the seed
@@ -226,14 +224,14 @@ fn owner_label_bytes(generator: *Generator, name_bytes: usize) usize {
 /// longer one leaves at least the octets a label takes.
 fn write_labels(generator: *Generator, writer: *Writer, area_bytes: usize) void {
     var rest = area_bytes;
-    for (0..core.constants.labels_max) |_| {
-        assert(rest >= constants.label_wire_bytes_min);
+    for (0..core.limits.labels_max) |_| {
+        assert(rest >= limits.label_wire_bytes_min);
         // The most octets this label may hold and still leave the next label its own.
-        const room = rest -| (1 + constants.label_wire_bytes_min);
-        const length = if (rest <= core.constants.label_bytes_max + 1)
+        const room = rest -| (1 + limits.label_wire_bytes_min);
+        const length = if (rest <= core.limits.label_bytes_max + 1)
             rest - 1
         else
-            1 + generator.below(@min(core.constants.label_bytes_max, room));
+            1 + generator.below(@min(core.limits.label_bytes_max, room));
         writer.octet(@intCast(length));
         writer.noise(generator, length);
         rest -= 1 + length;
@@ -271,26 +269,23 @@ fn write_pointer_maze(generator: *Generator, out: *Message) void {
 /// expect.
 fn truncate(generator: *Generator, out: *Message) void {
     write_question(generator, out);
-    out.len = message_bytes_min + generator.below(out.len);
-    assert(out.len >= message_bytes_min);
+    out.len = limits.fuzz_message_bytes_min + generator.below(out.len);
+    assert(out.len >= limits.fuzz_message_bytes_min);
 }
 
 /// The answer at the end of a long message: an A record, its owner a pointer, and its address.
-pub const long_tail_bytes = constants.pointer_bytes + core.constants.record_fixed_bytes + core.constants.address_v4_bytes;
+pub const long_tail_bytes: usize = constants.pointer_bytes + core.constants.record_fixed_bytes + core.constants.address_v4_bytes;
 
 /// Where a long message holds its name: the farthest offset a pointer's fourteen bits name.
 pub const long_name_at = constants.pointer_offset_mask;
-
-/// The shortest long message: the name at its offset, and the answer at the end after it.
-pub const long_message_bytes_min = long_name_at + records.question_name.len + long_tail_bytes;
 
 /// A response to `example.com` of up to 65535 octets, half of them the longest. Its first answer's
 /// rdata runs from after its fixed fields to the last answer, and holds the question's name at
 /// `long_name_at` among noise. The last answer ends the message, and its owner is a pointer to
 /// that name (RFC 1035 §4.1.4).
 fn write_long_message(generator: *Generator, out: *Message) void {
-    const lengths = long_message_bytes_max - long_message_bytes_min + 1;
-    out.len = if (generator.coin()) long_message_bytes_max else long_message_bytes_min + generator.below(lengths);
+    const lengths = long_message_bytes_max - limits.fuzz_long_message_bytes_min + 1;
+    out.len = if (generator.coin()) long_message_bytes_max else limits.fuzz_long_message_bytes_min + generator.below(lengths);
     fill_noise_by_words(generator, out);
     var writer: Writer = .{ .bytes = out.bytes[0..out.len] };
     writer.short(@truncate(generator.next()));
@@ -378,7 +373,7 @@ test "every message stays inside the bounds the generator promises" {
     while (seed < 256) : (seed += 1) {
         generate(seed, &message);
         const long = message.strategy == .long_message;
-        try testing.expect(message.len >= if (long) long_message_bytes_min else message_bytes_min);
+        try testing.expect(message.len >= if (long) limits.fuzz_long_message_bytes_min else limits.fuzz_message_bytes_min);
         try testing.expect(message.len <= if (long) long_message_bytes_max else message_bytes_max);
     }
 }

@@ -55,7 +55,7 @@ pub const Slots = struct {
 
     pub fn init(items: []Slot) Slots {
         assert(items.len >= 1);
-        assert(items.len <= core.constants.lookup_slots_max);
+        assert(items.len <= core.limits.lookup_slots_max);
         for (items, 0..) |*slot, index| {
             slot.* = .{
                 .next_free = if (index + 1 == items.len) slot_none else @intCast(index + 1),

@@ -102,13 +102,13 @@ test "a failure that is not a negative answer carries a TTL of zero" {
 // (docs/design.md §5, c4milo/cocuyo#38).
 
 /// A negative kept briefly: under the SOA fixture's MINIMUM and the A record's TTL.
-const short_ttl_seconds = 5;
+const short_ttl_seconds: u32 = 5;
 /// The negative TTL `fixtures.record_soa` carries: its MINIMUM, under its own TTL of 300.
-const soa_ttl_seconds = 60;
+const soa_ttl_seconds: u32 = 60;
 /// The TTL of `fixtures.record_a`.
-const answer_ttl_seconds = 300;
+const answer_ttl_seconds: u32 = 300;
 /// The TTL of the alias in `fixtures.name_error_cname_soa`, under the SOA's MINIMUM.
-const alias_ttl_seconds = 20;
+const alias_ttl_seconds: u32 = 20;
 
 /// `fixtures.record_soa` with a TTL of `short_ttl_seconds`, which caps the negative TTL it
 /// carries there (RFC 2308 §5).

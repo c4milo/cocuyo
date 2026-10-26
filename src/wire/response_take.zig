@@ -24,11 +24,11 @@ pub fn take(
     assert(out.kind == kind);
     switch (kind.storage()) {
         .names => {
-            if (out.count == core.constants.ptr_names_max) return refuse(out);
+            if (out.count == core.limits.ptr_names_max) return refuse(out);
             try record.rdata_name(message, &out.items.names[out.count]);
         },
         .addresses => {
-            if (out.count == core.constants.addresses_max) return refuse(out);
+            if (out.count == core.limits.addresses_max) return refuse(out);
             out.items.addresses[out.count] = try record.address();
         },
         .rdata => return take_rdata(message, record, out),
@@ -42,11 +42,11 @@ pub fn take(
 /// Copies the record into the buffer, names decompressed, and keeps a reference to it. The
 /// record's own type is kept, because an ANY question collects records of every type.
 fn take_rdata(message: []const u8, record: *const record_codec.Record, out: *Answers) Error!bool {
-    if (out.count == core.constants.records_kept_max) return refuse(out);
+    if (out.count == core.limits.records_kept_max) return refuse(out);
     const records = &out.items.records;
     const written = try record_copy.copy_out(message, record, records.bytes[records.used..]) orelse
         return refuse(out);
-    assert(records.used + written <= core.constants.rdata_bytes_max);
+    assert(records.used + written <= core.limits.rdata_bytes_max);
     records.refs[out.count] = .{
         .kind_code = record.kind_code,
         .ttl_seconds = record.ttl_seconds,
@@ -161,7 +161,7 @@ test "a CNAME answers a CNAME question and an ANY question, and is followed for 
 test "a record past the count kept, or past the buffer, sets truncated and keeps the rest" {
     var collected: Answers = undefined;
     try testing.expectEqual(Outcome.answered, try collect_from(&fixtures.answer_txt_thirty_three, .txt, &collected));
-    try testing.expectEqual(@as(u8, core.constants.records_kept_max), collected.count);
+    try testing.expectEqual(@as(u8, core.limits.records_kept_max), collected.count);
     try testing.expect(collected.truncated);
 
     try testing.expectEqual(Outcome.answered, try collect_from(&fixtures.answer_txt_two_big, .txt, &collected));
@@ -216,7 +216,7 @@ test "a PTR answer keeps its one name, and a second PTR record sets truncated" {
     const message = answer_of(&buffer, .ptr, &.{ "\x05first\x07example\x00", "\x06second\x07example\x00" });
     var collected: Answers = undefined;
     try testing.expectEqual(Outcome.answered, try collect_from(message, .ptr, &collected));
-    try testing.expectEqual(@as(u8, core.constants.ptr_names_max), collected.count);
+    try testing.expectEqual(@as(u8, core.limits.ptr_names_max), collected.count);
     try testing.expect(collected.truncated);
     try testing.expect(collected.names()[0].equal(&try Name.from_text("first.example")));
     // One PTR record alone fills the list, and is not truncated.
@@ -228,14 +228,14 @@ test "records that fill the rdata buffer to its last octet are kept, and one oct
     // Two TXT records of 1024 octets each fill `rdata_bytes_max`, 2048, and a third of one octet,
     // an empty string, does not fit (RFC 1035 §3.3.14).
     const string = [_]u8{std.math.maxInt(u8)} ++ [_]u8{'x'} ** std.math.maxInt(u8);
-    const half = string ** (core.constants.rdata_bytes_max / 2 / string.len);
+    const half = string ** (core.limits.rdata_bytes_max / 2 / string.len);
     var buffer: [core.constants.udp_payload_bytes_default * 2]u8 = undefined;
     var collected: Answers = undefined;
     const full = answer_of(&buffer, .txt, &.{ &half, &half });
     try testing.expectEqual(Outcome.answered, try collect_from(full, .txt, &collected));
     try testing.expectEqual(@as(u8, 2), collected.count);
     try testing.expect(!collected.truncated);
-    try testing.expectEqual(core.constants.rdata_bytes_max, collected.records().used);
+    try testing.expectEqual(core.limits.rdata_bytes_max, collected.records().used);
     const over = answer_of(&buffer, .txt, &.{ &half, &half, &.{0} });
     try testing.expectEqual(Outcome.answered, try collect_from(over, .txt, &collected));
     try testing.expectEqual(@as(u8, 2), collected.count);

@@ -27,7 +27,7 @@ const svcb_key_alpn = 1;
 const svcb_key_port = 3;
 const svcb_params_max = 16;
 const alpn_ids_max = 16;
-const name_text_bytes_max = cocuyo.constants.name_text_bytes_max;
+const name_text_bytes_max = cocuyo.limits.name_text_bytes_max;
 
 /// A question from `name` or `name/TYPE`.
 pub fn question_of(text: []const u8) !cocuyo.Question {

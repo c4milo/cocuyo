@@ -5,6 +5,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 const Error = core.Error;
 const constants = @import("../constants.zig");
+const limits = @import("../limits.zig");
 
 pub const Caa = struct {
     flags: u8,
@@ -15,7 +16,7 @@ pub const Caa = struct {
         if (rdata.len < constants.caa_fixed_bytes) return Error.MalformedMessage;
         const tag_length: usize = rdata[constants.caa_tag_length_offset];
         // "The tag length MUST be at least 1" (RFC 8659 §4.1).
-        if (tag_length < constants.caa_tag_bytes_min) return Error.MalformedMessage;
+        if (tag_length < limits.caa_tag_bytes_min) return Error.MalformedMessage;
         const tag_start = constants.caa_fixed_bytes;
         if (tag_start + tag_length > rdata.len) return Error.MalformedMessage;
         const tag = rdata[tag_start..][0..tag_length];
@@ -23,7 +24,7 @@ pub const Caa = struct {
         for (tag) |byte| {
             if (!std.ascii.isAlphanumeric(byte)) return Error.MalformedMessage;
         }
-        assert(tag.len >= constants.caa_tag_bytes_min);
+        assert(tag.len >= limits.caa_tag_bytes_min);
         return .{ .flags = rdata[0], .tag = tag, .value = rdata[tag_start + tag_length ..] };
     }
 

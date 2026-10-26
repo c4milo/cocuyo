@@ -8,6 +8,7 @@ const cocuyo = @import("cocuyo");
 const client = @import("client");
 const tls = @import("tls");
 const constants = @import("io_doh_channel_constants.zig");
+const limits = @import("io_doh_channel_limits.zig");
 const exchange_module = @import("io_doh_channel_exchange.zig");
 const read_module = @import("io_doh_channel_read.zig");
 
@@ -52,12 +53,12 @@ const versions: client.Versions = .{ .h11 = true, .h2 = true, .h3 = true };
 /// whole record. So the type's buffer holds a whole record and a chunk, and not
 /// `stream_input_len_min`. Each start asserts it, so a test that starts a channel reads it.
 fn assert_sizes() void {
-    const record_body_bytes_max = constants.record_bytes_max - constants.record_header_bytes;
+    const record_body_bytes_max = limits.record_bytes_max - constants.record_header_bytes;
     const room_least = client.constants.stream_input_len_min - 1 + record_body_bytes_max;
     assert(client.constants.plaintext_in_len >= room_least);
-    assert(constants.stream_bytes >= constants.record_bytes_max + constants.engine_chunk_bytes);
+    assert(limits.stream_bytes >= limits.record_bytes_max + limits.engine_chunk_bytes);
     // `send_stream` always writes a record it owes into an output this long.
-    assert(constants.output_bytes_max >= client.constants.stream_output_len_min);
+    assert(limits.output_bytes_max >= client.constants.stream_output_len_min);
 }
 
 /// Makes a server's channel, with nothing opened (rule 18). Its TLS names the server as its `Tls`
@@ -130,7 +131,7 @@ pub fn wipe(self: anytype) void {
 /// How chapulin checks the server, as the DoT and DoQ sessions tell it: a name against the
 /// context's anchors, and pins as they are. A server known by pins alone gets no anchors and no
 /// clock, and a named server with no anchors is judged by its pins alone, its name sent.
-fn trust_of(server: *const cocuyo.Tls, anchors: []const tls.Anchor, hostname: *[cocuyo.constants.name_text_bytes_max]u8) tls.Trust {
+fn trust_of(server: *const cocuyo.Tls, anchors: []const tls.Anchor, hostname: *[cocuyo.limits.name_text_bytes_max]u8) tls.Trust {
     // A strict client knows a server by a name, by pins, or by both (RFC 8310 §5).
     assert(server.valid());
     const pins: []const tls.Pin = server.pins;
@@ -161,9 +162,9 @@ test "the context carries no default, so each of its fields is named where one i
 /// Where a ClientHello's cipher_suites start in its handshake message (RFC 9846 §4, §4.2.2): after
 /// the message's type and length, the legacy_version, the random, and the legacy_session_id's
 /// length octet and its body. Over TCP a record's header comes first (RFC 9846 §5.1).
-const message_header_bytes = 4;
-const legacy_version_bytes = 2;
-const random_bytes = 32;
+const message_header_bytes: usize = 4;
+const legacy_version_bytes: usize = 2;
+const random_bytes: usize = 32;
 /// TLS_AES_128_GCM_SHA256 {0x13,0x01}, TLS_AES_256_GCM_SHA384 {0x13,0x02} and
 /// TLS_CHACHA20_POLY1305_SHA256 {0x13,0x03} (RFC 9846 Appendix B.4).
 const aes_128_gcm_sha256: u16 = 0x1301;
@@ -187,8 +188,6 @@ const cpu_aes_not_known: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit 
 /// max_idle_timeout, of 30,000 milliseconds (RFC 9000 §18.2), which chapulin carries and does not
 /// read: its ID, its length, and its value as a two-octet varint.
 const transport_parameters = "\x01\x02\x75\x30";
-/// Room for a ClientHello at its longest: a post-quantum key share, a ticket and a cookie.
-const hello_bytes_max = 4096;
 
 /// Requires that `suites`, a ClientHello's cipher_suites, offer `expected` in its order, and
 /// nothing else.
@@ -232,7 +231,7 @@ fn expect_quic_suites(cpu: tls.Cpu, expected: []const u16) !void {
     try session.start(&pair.doh.channel.quic_tls, pair.context.stream.random(), rig.identity_seconds, null);
     defer session.close();
     try session.provider().set_transport_params(transport_parameters);
-    var hello: [hello_bytes_max]u8 = undefined;
+    var hello: [limits.hello_bytes_max]u8 = undefined;
     const hello_len = try session.provider().write_handshake(.initial, &hello);
     try expect_suites(expected, suites_of(hello[0..hello_len]));
 }

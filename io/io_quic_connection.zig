@@ -6,6 +6,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
 const constants = @import("io_quic_constants.zig");
+const limits = @import("io_quic_limits.zig");
 
 /// Where a connection is: not started, handshaking, up, failed and not yet told, or told.
 pub const Stage = enum { idle, handshaking, up, failed, done };
@@ -31,7 +32,7 @@ pub fn start(self: anytype, context: anytype) error{Failed}!void {
         .receive = self.pool.storage(),
     });
     self.send_scratch = .{};
-    var body: [constants.params_bytes_max]u8 = undefined;
+    var body: [limits.params_bytes_max]u8 = undefined;
     var writer = quic.core.Writer.init(&body);
     quic.transport_parameters.write(&writer, &self.connection.local_parameters, .client) catch return fail(self);
     self.session.provider().set_transport_params(writer.written()) catch return fail(self);
@@ -46,10 +47,10 @@ pub fn start(self: anytype, context: anytype) error{Failed}!void {
 /// §4.4).
 fn parameters(receive_bytes: usize) quic.transport_parameters.Parameters {
     var local = quic.transport_parameters.Parameters.initial();
-    local.max_idle_timeout_ms = constants.idle_timeout_ms;
-    local.max_udp_payload_size = constants.datagram_receive_bytes;
+    local.max_idle_timeout_ms = limits.idle_timeout_ms;
+    local.max_udp_payload_size = limits.datagram_receive_bytes;
     local.initial_max_data = receive_bytes;
-    local.initial_max_stream_data_bidi_local = @min(constants.answer_bytes_max, receive_bytes);
+    local.initial_max_stream_data_bidi_local = @min(limits.answer_bytes_max, receive_bytes);
     return local;
 }
 

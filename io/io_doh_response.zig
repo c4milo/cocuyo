@@ -3,6 +3,7 @@
 //! DNS message in no content coding. colibri hands
 //! each field's value over as its octets, which hold no CTL and no whitespace at either end.
 const std = @import("std");
+const limits = @import("io_doh_limits.zig");
 const assert = std.debug.assert;
 
 /// What a DoH response says of its content, which the engine reads (docs/design.md §24, DoH over
@@ -20,13 +21,11 @@ pub fn age_seconds(value: ?[]const u8) u32 {
     for (member) |octet| if (!std.ascii.isDigit(octet)) return 0;
     // "If a cache receives a delta-seconds value greater than the greatest integer it can
     // represent, ... the cache MUST consider the value to be 2147483648 (2^31)" (§1.2.2).
-    const seconds = std.fmt.parseInt(u64, member, decimal) catch return age_seconds_max;
-    return @intCast(@min(seconds, age_seconds_max));
+    const seconds = std.fmt.parseInt(u64, member, decimal) catch return limits.age_seconds_max;
+    return @intCast(@min(seconds, limits.age_seconds_max));
 }
 
-/// RFC 9111 §1.2.2's 2^31, "infinity (over 68 years)".
-pub const age_seconds_max: u32 = 2147483648;
-const decimal = 10;
+const decimal: u8 = 10;
 
 /// Whether the content is `application/dns-message` (RFC 8484 §6), from the value of the response's
 /// first `Content-Type` line, or null for none.
@@ -88,9 +87,9 @@ test "an Age is its first member's seconds, and 0 when there is none or it is no
 
 test "an Age past 2^31 is 2^31" {
     try testing.expectEqual(@as(u32, 2147483647), age_seconds("2147483647"));
-    try testing.expectEqual(age_seconds_max, age_seconds("2147483648"));
-    try testing.expectEqual(age_seconds_max, age_seconds("4294967296"));
-    try testing.expectEqual(age_seconds_max, age_seconds("99999999999999999999999"));
+    try testing.expectEqual(limits.age_seconds_max, age_seconds("2147483648"));
+    try testing.expectEqual(limits.age_seconds_max, age_seconds("4294967296"));
+    try testing.expectEqual(limits.age_seconds_max, age_seconds("99999999999999999999999"));
 }
 
 test "the content is a DNS message by its media type, in any case and with any parameter" {

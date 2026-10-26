@@ -1,19 +1,8 @@
-//! The limits the cache holds (docs/design.md §18).
+//! The constants of the cache that are no limit: the place of the hash's fields, a unit and a
+//! default (docs/design.md §18). The limits the cache holds are in `limits.zig` (§16 decision 56).
 const std = @import("std");
+const limits = @import("limits.zig");
 const core = @import("core");
-
-/// The most slots one cache may hold. A slot is named by a `u16` in the insertion-order chain and
-/// in the key index, with room left for the sentinels, and nobody has asked for more.
-pub const slots_max: usize = 16384;
-
-/// The key index holds at least this many entries per slot, so a bounded probe stays short.
-pub const keys_per_slot_min: usize = 2;
-
-/// The longest chain a `get` walks before calling it a miss and a `put` before refusing. A peer
-/// that chooses the names a process resolves cannot choose where they land, because the hash is
-/// keyed by the caller's seed; this bound is what makes a run of collisions cost a miss and never
-/// a walk.
-pub const probe_max: usize = 16;
 
 /// The TTL cap when the caller sets none: an hour, which is c-ares's default (§18), so a consumer
 /// replacing it sees the same ceiling. RFC 8767 §4 asks for a cap and recommends seven days at
@@ -30,17 +19,19 @@ pub const hash_kind_shift: u6 = 48;
 /// (CLAUDE.md non-negotiable 4).
 pub const ns_per_s: u64 = 1_000_000_000;
 
-/// The most steps one eviction sweep takes: one pass over every slot clears every visited bit,
-/// and the next pass must then find an unvisited one.
-pub fn sweep_steps_max(slot_count: usize) usize {
-    return slot_count * 2;
+comptime {
+    if (limits.slots_max * limits.keys_per_slot_min > 1 << 16) @compileError("the key index cannot be indexed by a u16");
+    if (limits.slots_max >= 0xfffe) @compileError("a slot index would collide with a sentinel");
+    if (limits.probe_max < 2) @compileError("a probe of one entry is a hash lookup with no chain");
 }
 
-comptime {
-    if (slots_max * keys_per_slot_min > 1 << 16) @compileError("the key index cannot be indexed by a u16");
-    if (slots_max >= 0xfffe) @compileError("a slot index would collide with a sentinel");
-    if (probe_max < 2) @compileError("a probe of one entry is a hash lookup with no chain");
-}
+// The paths a consumer reached these limits by before they moved into the limits file. Each
+// is an alias, and no limit of its own. They stay until the owner rules on them (docs/design.md
+// §16 decision 56, §17 question 76).
+pub const slots_max = limits.slots_max;
+pub const keys_per_slot_min = limits.keys_per_slot_min;
+pub const probe_max = limits.probe_max;
+pub const sweep_steps_max = limits.sweep_steps_max;
 
 // A constant with no type is a `comptime_int`, which takes the type of a narrow runtime value it
 // meets in a sum. The lint rule reads the shape of each value, and this reads the type, so an

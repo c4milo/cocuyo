@@ -1,15 +1,13 @@
-//! The limits this module holds: the shape of a `resolv.conf` rather than anything the protocol
-//! fixes.
+//! The constants of the parsers that are no limit: the keywords and the options of a `resolv.conf`
+//! and of a hosts file, a unit, and the default nameserver. The limits the parsers hold are in
+//! `limits.zig` (docs/design.md §16 decision 56).
 //!
 //! `resolv.conf` has no RFC. Its keywords and its options are what the platform manual pages
 //! document — `resolv.conf(5)` on Linux and on macOS — so this module cites a manual page where
 //! the rest of cocuyo cites an RFC, and says so (CLAUDE.md non-negotiable 8).
 const std = @import("std");
+const limits = @import("limits.zig");
 const core = @import("core");
-
-/// The most lines the parser reads from one file. A `resolv.conf` is a handful of lines; the bound
-/// is what keeps a file the parser did not write from deciding how long it runs.
-pub const lines_max: usize = 256;
 
 /// The nameserver a `resolv.conf` with no `nameserver` line means: the local one. Every platform
 /// stub does this, and a `Config` with no server at all would be a configuration no lookup could
@@ -27,13 +25,7 @@ pub const keyword_options = "options";
 pub const token_separators = " \t\r";
 pub const comment_starts = "#;";
 
-/// The most option tokens one `options` line is read for. A line holds a handful; the bound is
-/// what keeps a file the parser did not write from deciding how long it runs.
-pub const options_max: usize = 16;
-
-/// The hosts file (`hosts(5)`): the most lines read from one, and the character that starts a
-/// comment. What the table holds is bounded in `core`, where the table lives.
-pub const hosts_lines_max: usize = 4096;
+/// The hosts file (`hosts(5)`): the character that starts a comment.
 pub const hosts_comment_start: u8 = '#';
 
 /// The `use-vc` option of `resolv.conf(5)`: every query over TCP.
@@ -43,31 +35,26 @@ pub const option_use_vc = "use-vc";
 /// because nothing under `src/` may name `std.time` (CLAUDE.md non-negotiable 4).
 pub const ns_per_s: u64 = 1_000_000_000;
 
-/// The most `ndots:` reads: `resolv.conf(5)` caps it at 15, and a larger value reads as 15.
-pub const ndots_limit: usize = 15;
-
-/// The most `timeout:` reads, in seconds: `resolv.conf(5)` caps it at 30. That is also the most
-/// `Config.timeout_ns_max` may be, so the parser can raise the cap to any timeout it reads.
-pub const timeout_seconds_limit: u64 = 30;
-
 comptime {
-    if (timeout_seconds_limit * ns_per_s > core.constants.timeout_ns_max) {
+    if (limits.timeout_seconds_limit * ns_per_s > core.limits.timeout_ns_max) {
         @compileError("a timeout the parser reads would not fit under any cap");
     }
 }
 
-/// The text fuzz target (`fuzz/fuzz.zig`, docs/design.md §13). The longest text it builds, which
-/// holds the longest file it writes several times over; the most servers, search names and hosts
-/// lines it writes whole, below every limit the parsers keep so that each must come back; the most
-/// labels in a name, and the longest label it writes but for one of full length; and the most
-/// comment or blank lines it puts between two lines that count.
-pub const fuzz_text_bytes_max: usize = 2048;
-pub const fuzz_entries_max: usize = 4;
-pub const fuzz_labels_max: usize = 4;
-pub const fuzz_label_bytes_max: usize = 12;
-pub const fuzz_filler_lines_max: usize = 2;
-/// The longest noise the target writes: longer than any address, name or pin it reads.
-pub const fuzz_noise_bytes_max: usize = 96;
+// The paths a consumer reached these limits by before they moved into the limits file. Each
+// is an alias, and no limit of its own. They stay until the owner rules on them (docs/design.md
+// §16 decision 56, §17 question 76).
+pub const lines_max = limits.lines_max;
+pub const options_max = limits.options_max;
+pub const hosts_lines_max = limits.hosts_lines_max;
+pub const ndots_limit = limits.ndots_limit;
+pub const timeout_seconds_limit = limits.timeout_seconds_limit;
+pub const fuzz_text_bytes_max = limits.fuzz_text_bytes_max;
+pub const fuzz_entries_max = limits.fuzz_entries_max;
+pub const fuzz_labels_max = limits.fuzz_labels_max;
+pub const fuzz_label_bytes_max = limits.fuzz_label_bytes_max;
+pub const fuzz_filler_lines_max = limits.fuzz_filler_lines_max;
+pub const fuzz_noise_bytes_max = limits.fuzz_noise_bytes_max;
 
 // A constant with no type is a `comptime_int`, which takes the type of a narrow runtime value it
 // meets in a sum. The lint rule reads the shape of each value, and this reads the type, so an

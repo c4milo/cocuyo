@@ -5,6 +5,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 
 pub const Descriptor = i32;
 pub const LoopId = u16;
@@ -23,8 +24,8 @@ pub const Address = extern struct {
     bytes: [ipv6_bytes]u8,
 
     pub const Family = enum(u8) { ipv4 = 4, ipv6 = 6 };
-    pub const ipv4_bytes = 4;
-    pub const ipv6_bytes = 16;
+    pub const ipv4_bytes: usize = 4;
+    pub const ipv6_bytes: usize = 16;
 
     pub fn ipv4(octets: [ipv4_bytes]u8, port: u16) Address {
         var address: Address = .{ .family = .ipv4, .port = port, .bytes = @splat(0) };
@@ -237,7 +238,7 @@ pub const Event = extern struct {
     };
 
     pub fn success(user_data: u64, count: u32) Event {
-        assert(count <= constants.transfer_bytes_max);
+        assert(count <= limits.transfer_bytes_max);
         return .{ .user_data = user_data, .result = @intCast(count), .flags = .{} };
     }
 
@@ -308,10 +309,10 @@ pub const Handle = packed struct(u64) {
 // Datagrams: the metadata beside a payload, and the group buffer's layout.
 
 pub const Ecn = enum(u8) { not_ect = 0, ect1 = 1, ect0 = 2, ce = 3 };
-pub const metadata_bytes = 64;
-const addresses = 2;
-const described_bytes = @sizeOf(u16) + @sizeOf(Ecn) + @sizeOf(u8);
-const reserved_bytes = metadata_bytes - addresses * @sizeOf(Address) - described_bytes;
+pub const metadata_bytes: usize = 64;
+const addresses: usize = 2;
+const described_bytes: usize = @sizeOf(u16) + @sizeOf(Ecn) + @sizeOf(u8);
+const reserved_bytes: usize = metadata_bytes - addresses * @sizeOf(Address) - described_bytes;
 
 pub const Received = extern struct {
     peer: Address,
@@ -354,7 +355,7 @@ pub const GroupOptions = struct {
 pub fn prefix_bytes(options: GroupOptions) u32 {
     assert(options.name_reserve >= @sizeOf(Address));
     const prefix = constants.prefix_head_bytes + options.name_reserve + options.control_reserve;
-    assert(prefix < constants.transfer_bytes_max);
+    assert(prefix < limits.transfer_bytes_max);
     return @intCast(prefix);
 }
 

@@ -4,6 +4,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 
 /// base64url, the alphabet of RFC 4648 §5, with no `=`: "Padding characters for base64url MUST
 /// NOT be included" (RFC 8484 §6).
@@ -11,11 +12,11 @@ const encoder = std.base64.url_safe_no_pad.Encoder;
 
 /// Writes the `dns` variable of `message`, a query as `poll` built it, into `out` (RFC 8484 §4.1,
 /// §6), and returns what it wrote. A POST sends `message` itself instead. `out` holds
-/// `constants.dns_variable_bytes_max` octets, which any query cocuyo builds fits.
+/// `limits.dns_variable_bytes_max` octets, which any query cocuyo builds fits.
 pub fn dns_variable(message: []const u8, out: []u8) []const u8 {
     assert(message.len >= core.constants.header_bytes);
-    assert(message.len <= core.constants.query_bytes_max - core.constants.tcp_prefix_bytes);
-    assert(out.len >= constants.dns_variable_bytes_max);
+    assert(message.len <= core.limits.query_bytes_max - core.constants.tcp_prefix_bytes);
+    assert(out.len >= limits.dns_variable_bytes_max);
     const written = encoder.encode(out, message);
     assert(written.len == encoder.calcSize(message.len));
     return written;
@@ -26,7 +27,7 @@ pub fn dns_variable(message: []const u8, out: []u8) []const u8 {
 const testing = std.testing;
 const query = @import("query.zig");
 
-const Variable = [constants.dns_variable_bytes_max]u8;
+const Variable = [limits.dns_variable_bytes_max]u8;
 
 test "the dns variable is base64url without padding, as RFC 4648 §10 gives each length" {
     // RFC 4648 §10's vectors are shorter than a header, so they go through the encoder alone; the
@@ -54,7 +55,7 @@ test "RFC 8484 §4.1.1's query for www.example.com is its dns variable, and ID 0
         .kind = .a,
         .payload_bytes = null,
     };
-    var message: [core.constants.query_bytes_max]u8 = undefined;
+    var message: [core.limits.query_bytes_max]u8 = undefined;
     const written = query.write(&www, &message);
     try testing.expectEqualSlices(u8, &expected, message[0..written]);
     var out: Variable = undefined;
@@ -72,7 +73,7 @@ test "RFC 8484 §4.1.1's query that tells base64url from base64 has the dash, an
         .kind = .a,
         .payload_bytes = null,
     };
-    var message: [core.constants.query_bytes_max]u8 = undefined;
+    var message: [core.limits.query_bytes_max]u8 = undefined;
     const written = query.write(&asked, &message);
     try testing.expectEqual(@as(usize, 94), written);
     var out: Variable = undefined;
@@ -80,11 +81,11 @@ test "RFC 8484 §4.1.1's query that tells base64url from base64 has the dash, an
 }
 
 test "the longest query cocuyo builds fits the longest dns variable" {
-    try testing.expectEqual(@as(usize, 512), constants.dns_variable_bytes_max);
-    var message: [core.constants.query_bytes_max - core.constants.tcp_prefix_bytes]u8 = @splat(0xff);
+    try testing.expectEqual(@as(usize, 512), limits.dns_variable_bytes_max);
+    var message: [core.limits.query_bytes_max - core.constants.tcp_prefix_bytes]u8 = @splat(0xff);
     var out: Variable = undefined;
     const variable = dns_variable(&message, &out);
-    try testing.expectEqual(constants.dns_variable_bytes_max, variable.len);
+    try testing.expectEqual(limits.dns_variable_bytes_max, variable.len);
     // Every octet 0xff is every sextet 63, which base64url spells `_` and base64 `/`.
     for (variable) |character| try testing.expectEqual(@as(u8, '_'), character);
 }

@@ -20,6 +20,7 @@ const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 pub const constants = @import("constants.zig");
+pub const limits = @import("limits.zig");
 const udp = @import("io_udp.zig");
 const tcp = @import("io_tcp.zig");
 const results_module = @import("io_results.zig");
@@ -49,7 +50,7 @@ pub const Options = struct {
     tcp_connections: u16 = constants.tcp_connections_default,
     tcp_group_buffers: u16 = constants.tcp_group_buffers_default,
     /// The longest message one connection can assemble (RFC 7766 §8).
-    tcp_message_bytes: u32 = constants.tcp_message_bytes_max,
+    tcp_message_bytes: u32 = limits.tcp_message_bytes_max,
     /// The TLS session type of docs/design.md §21, the session interface: chapulin's when the
     /// build links it, the twin's in its tests, and `tls.None`, which refuses a TLS configuration.
     tls: type = tls.None,
@@ -66,7 +67,7 @@ pub const Options = struct {
 };
 
 /// What `init` and `reinit` return. `UdpPayloadTooLarge` refuses a `Config.udp_payload_bytes` above
-/// `constants.udp_payload_bytes_max`. The call then changes nothing (docs/design.md §19 step 13,
+/// `limits.udp_payload_bytes_max`. The call then changes nothing (docs/design.md §19 step 13,
 /// the datagram's rule 7; §24, What `init` and `reinit` return).
 pub const InitError = error{ SocketFailed, ReceiveFailed, UdpPayloadTooLarge };
 
@@ -82,16 +83,16 @@ fn with_quic(comptime options: Options, comptime count: usize) usize {
 /// other count does not compile, and the error names the bound (docs/design.md §19 step 13, §17
 /// question 43).
 fn check_lookups(comptime options: Options) void {
-    if (options.lookups > 0 and options.lookups <= cocuyo.constants.lookup_slots_max) return;
+    if (options.lookups > 0 and options.lookups <= cocuyo.limits.lookup_slots_max) return;
     @compileError(std.fmt.comptimePrint(
         "an engine holds 1 to {d} lookups, lookup_slots_max, and these Options name {d}",
-        .{ cocuyo.constants.lookup_slots_max, options.lookups },
+        .{ cocuyo.limits.lookup_slots_max, options.lookups },
     ));
 }
 
 /// A request slot holds a DoQ message at its longest, prefix and all (request rule 3).
 fn check_transports(comptime options: Options) void {
-    assert(!options.quic.enabled or options.quic.request_bytes_max >= cocuyo.constants.query_bytes_max);
+    assert(!options.quic.enabled or options.quic.request_bytes_max >= cocuyo.limits.query_bytes_max);
 }
 
 /// `count`, for an engine with a request transport or a channel type, and none without: such an
@@ -108,14 +109,14 @@ fn with_doh(comptime options: Options, comptime count: usize) usize {
 /// The longest request a slot holds: what the QUIC transport asks, and a DNS message over a
 /// channel, whose GET the channel builds (rule 21).
 fn request_bytes_of(comptime options: Options) usize {
-    const channel_bytes = if (options.doh.enabled) cocuyo.constants.query_bytes_max else 0;
+    const channel_bytes = if (options.doh.enabled) cocuyo.limits.query_bytes_max else 0;
     return @max(options.quic.request_bytes_max, channel_bytes);
 }
 
 pub fn Resolver(comptime options: Options) type {
     comptime check_lookups(options);
-    const quic_servers = with_quic(options, cocuyo.constants.servers_max);
-    const doh_servers = with_doh(options, cocuyo.constants.servers_max);
+    const quic_servers = with_quic(options, cocuyo.limits.servers_max);
+    const doh_servers = with_doh(options, cocuyo.limits.servers_max);
     const request_lookups = with_requests(options, options.lookups);
     const request_bytes_max = request_bytes_of(options);
     // The stream of a DoQ answer holds the message and its prefix (RFC 9250 §4.2).
@@ -145,14 +146,14 @@ pub fn Resolver(comptime options: Options) type {
         send_owner: [options.lookups]?send_module.Owner,
         /// A send asked for while the buffer was lent, and its octets, until the buffer is back.
         held: [options.lookups]?send_module.Held,
-        held_buffers: [options.lookups][cocuyo.constants.query_bytes_max]u8,
+        held_buffers: [options.lookups][cocuyo.limits.query_bytes_max]u8,
         /// The socket each slot's last datagram left from, which a draining socket stays open
         /// for while the answer is owed (the datagram's rule 4). It outlives the lookup, since a
         /// send in flight from a freed slot still needs its socket.
         sent_from: [options.lookups]?udp.SentFrom,
         /// Whether the slot's end was handed to `results` already.
         reported: [options.lookups]bool,
-        send_buffers: [options.lookups][cocuyo.constants.query_bytes_max]u8,
+        send_buffers: [options.lookups][cocuyo.limits.query_bytes_max]u8,
         /// How long the query in each slot's buffer is, for a stream's send that went short.
         send_lengths: [options.lookups]u16,
         outbounds: [options.lookups]rotor.datagram.Outbound,
@@ -168,7 +169,7 @@ pub fn Resolver(comptime options: Options) type {
         tcp_group: tcp.Group(options.tcp_group_buffers),
         /// The newest ticket each server's sessions were given, kept for its next connection
         /// (docs/design.md §21, TLS rule 8).
-        tls_tickets: [cocuyo.constants.servers_max]?tls.Kept(options.tls),
+        tls_tickets: [cocuyo.limits.servers_max]?tls.Kept(options.tls),
         /// What every TLS session starts from, or null until `use_tls` names it: the engine has
         /// no context of its own (§16 decision 39). `io_context.zig` is what reads it.
         tls_context: ?options.tls.Context,
@@ -191,13 +192,13 @@ pub fn Resolver(comptime options: Options) type {
         /// current timer's fire (rotor decision 5, rule 2: a cancel answers through the
         /// target's own final event, which arrives after the new timer is armed).
         timer_generation: u32,
-        scratch: [cocuyo.constants.query_bytes_max]u8,
+        scratch: [cocuyo.limits.query_bytes_max]u8,
         closing: bool,
 
         /// The key table the lookups' slots need: the load factor the table asks, at a power of
         /// two. The cache's key index is sized by its caller, with `cocuyo.cache.keys_for`.
         fn table_keys_for(lookups: usize) usize {
-            return std.math.ceilPowerOfTwoAssert(usize, lookups * cocuyo.resolver.constants.keys_per_slot_min);
+            return std.math.ceilPowerOfTwoAssert(usize, lookups * cocuyo.resolver.limits.keys_per_slot_min);
         }
 
         /// The high bits of every `user_data` this engine submits.
@@ -221,11 +222,11 @@ pub fn Resolver(comptime options: Options) type {
         /// per server, a connect and a receive per connection, a receive and a send per QUIC
         /// connection, one timer, and slack. Its type is written, so the `usize` limits in the
         /// sum do not change it from `u32` (docs/design.md §16 decision 40).
-        pub const loop_operations: u32 = @as(u32, options.lookups) + cocuyo.constants.servers_max +
-            constants.loop_operations_per_connection * @as(u32, options.tcp_connections) +
-            constants.loop_operations_per_quic_connection * @as(u32, quic_servers) +
-            constants.loop_operations_per_channel * @as(u32, doh_servers) +
-            constants.loop_operations_slack;
+        pub const loop_operations: u32 = @as(u32, options.lookups) + cocuyo.limits.servers_max +
+            limits.loop_operations_per_connection * @as(u32, options.tcp_connections) +
+            limits.loop_operations_per_quic_connection * @as(u32, quic_servers) +
+            limits.loop_operations_per_channel * @as(u32, doh_servers) +
+            limits.loop_operations_slack;
 
         /// Starts the engine on the caller's loop. `cache_memory` is the memory of its cache,
         /// the slots and the key index as `cocuyo.Cache.init` takes them, or null for an engine
@@ -238,7 +239,7 @@ pub fn Resolver(comptime options: Options) type {
         /// takes. The engine starts with no context for DoT, DoQ or DoH, whatever its memory
         /// held: a consumer that speaks one calls `use_tls`, `use_quic` or `use_doh` next, before
         /// its first lookup (§24, the context a session starts from, rule 4). A
-        /// `config.udp_payload_bytes` above `constants.udp_payload_bytes_max` is refused before
+        /// `config.udp_payload_bytes` above `limits.udp_payload_bytes_max` is refused before
         /// anything is written (§19 step 13, the datagram's rule 7).
         pub fn init(
             self: *Self,
@@ -348,15 +349,14 @@ pub fn Resolver(comptime options: Options) type {
 
         /// Names what every TLS session starts from (docs/design.md §21, and §24, the context a
         /// session starts from): for chapulin's session the anchors, the wall clock, and a stream
-        /// keyed by 32 octets of the caller's CSPRNG. The call is required, after `init` and
-        /// before any lookup reaches a TLS server. The engine has no context of its own, and a
-        /// `start` against a TLS configuration whose context was never set stops the program at
-        /// an assertion (§16 decision 39). The engine checks that a context was set, and cannot
-        /// check the seed or the clock in it. `reinit` keeps the context, and `init` forgets it.
-        /// A context handed again, after an `init` or to pin the clock again, is built from a
-        /// new draw of 32 octets: built from the octets of one before, it starts its stream
-        /// where that one started. The twin's context holds nothing, and a test names it all
-        /// the same.
+        /// keyed by 32 octets of the caller's CSPRNG. The call is required, after `init` and before
+        /// any lookup reaches a TLS server. The engine has no context of its own, and a `start`
+        /// against a TLS configuration whose context was never set stops the program at an
+        /// assertion (§16 decision 39). The engine checks that a context was set, and cannot check
+        /// the seed or the clock in it. `reinit` keeps the context, and `init` forgets it. A
+        /// context handed again, after an `init` or to pin the clock again, is built from a new
+        /// draw of 32 octets: built from the octets of one before, it starts its stream where that
+        /// one started. The twin's context holds nothing, and a test names it all the same.
         pub fn use_tls(self: *Self, context: options.tls.Context) void {
             self.tls_context = context;
         }

@@ -4,6 +4,7 @@
 //! RFC 6570 says how it expands, with `dns` the one variable defined (RFC 8484 §4.1), and RFC 3986
 //! what the URI it expands to is made of.
 const std = @import("std");
+const limits = @import("io_doh_limits.zig");
 const assert = std.debug.assert;
 
 /// Where an expansion is written, and whether it has run out of room. The expansion has the whole
@@ -56,7 +57,7 @@ pub fn expand(path: []const u8, dns: []const u8, out: []u8) ?[]const u8 {
 }
 
 /// What `expression_at` and `literal_at` return for a template the transport refuses.
-const refused = std.math.maxInt(usize);
+const refused: usize = std.math.maxInt(usize);
 
 /// Copies the literal character at `at`, and returns where the next one starts. A literal a URI
 /// allows is copied, and one it does not is pct-encoded (RFC 6570 §3.1). A fragment is not part of
@@ -79,8 +80,8 @@ fn literal_at(path: []const u8, at: usize, out: *Out) usize {
     return literal_unicode_at(path, at, out);
 }
 
-const pct_encoded_bytes = 3;
-const ascii_end = 0x80;
+const pct_encoded_bytes: usize = 3;
+const ascii_end: u8 = 0x80;
 
 /// The ASCII of `literals` (RFC 6570 §2.1): "any Unicode character except: CTL, SP, DQUOTE, "'",
 /// "%" (aside from pct-encoded), "<", ">", "\", "^", "`", "{", "|", "}"". Each of these a URI
@@ -115,24 +116,23 @@ fn is_ucschar_or_iprivate(point: u21) bool {
             within(point, bmp_third, bmp_third_last);
     }
     if (point >= plane_fourteen and point < plane_fourteen_first) return false;
-    return point & plane_offset_mask <= plane_offset_max;
+    return point & plane_offset_mask <= limits.template_plane_offset_max;
 }
 
 fn within(point: u21, first: u21, last: u21) bool {
     return point >= first and point <= last;
 }
 
-const plane_one = 0x10000;
-const bmp_first = 0xA0;
-const bmp_first_last = 0xD7FF;
-const bmp_second = 0xE000;
-const bmp_second_last = 0xFDCF;
-const bmp_third = 0xFDF0;
-const bmp_third_last = 0xFFEF;
-const plane_fourteen = 0xE0000;
-const plane_fourteen_first = 0xE1000;
-const plane_offset_mask = 0xFFFF;
-const plane_offset_max = 0xFFFD;
+const plane_one: u21 = 0x10000;
+const bmp_first: u21 = 0xA0;
+const bmp_first_last: u21 = 0xD7FF;
+const bmp_second: u21 = 0xE000;
+const bmp_second_last: u21 = 0xFDCF;
+const bmp_third: u21 = 0xFDF0;
+const bmp_third_last: u21 = 0xFFEF;
+const plane_fourteen: u21 = 0xE0000;
+const plane_fourteen_first: u21 = 0xE1000;
+const plane_offset_mask: u21 = 0xFFFF;
 
 /// How an operator expands (RFC 6570 Appendix A's table): what goes first, what goes between two
 /// defined variables, and whether a variable goes as `name=value`.
@@ -236,12 +236,10 @@ fn is_pct_encoded(triplet: *const [pct_encoded_bytes]u8) bool {
 
 /// `max-length = %x31-39 0*3DIGIT`, a positive integer below 10,000 (RFC 6570 §2.4.1).
 fn is_max_length(text: []const u8) bool {
-    if (text.len == 0 or text.len > max_length_digits_max or text[0] == '0') return false;
+    if (text.len == 0 or text.len > limits.template_max_length_digits_max or text[0] == '0') return false;
     for (text) |octet| if (!std.ascii.isDigit(octet)) return false;
     return true;
 }
-
-const max_length_digits_max = 4;
 
 // Tests.
 
@@ -257,7 +255,7 @@ fn expect_refused(path: []const u8) !void {
     try testing.expectEqual(@as(?[]const u8, null), expand(path, "AAAB", &out));
 }
 
-const expanded_bytes_test = 256;
+const expanded_bytes_test: usize = 256;
 
 test "RFC 8484's example expands to the path it shows" {
     // RFC 8484 §4.1.1: "https://dnsserver.example.net/dns-query{?dns}", and the GET for

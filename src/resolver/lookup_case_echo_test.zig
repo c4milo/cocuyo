@@ -28,15 +28,15 @@ const short_names = [_][]const u8{ "a.", "a1.b.", "x-y.2.z." };
 /// from the first and up to `case_draws_max`: draw k reads the low bits of the k-th word.
 fn small_draws(case_seed: u64, mask: u64) usize {
     var word = case_seed;
-    for (0..wire.constants.case_draws_max) |draws| {
+    for (0..wire.limits.case_draws_max) |draws| {
         word = core.mix.next(word);
         if (word & mask != mask) return draws;
     }
-    return wire.constants.case_draws_max;
+    return wire.limits.case_draws_max;
 }
 
 /// The case seeds searched: three letters stay small at every draw with chance 2^-12.
-const case_seeds_max = 65536;
+const case_seeds_max: usize = 65536;
 
 /// The first case seed whose draws leave small, `draws` times in a row from the first, the
 /// letters `mask` gives a bit: the name goes out from the draw after those, or, when every draw
@@ -70,7 +70,7 @@ fn expect_matched_as_sent(text: []const u8, case_seed: u64) !void {
     for (sent_name(&harness), held, 0..) |octet, held_octet, at| {
         // A capital made small, unless that leaves the whole name in lowercase.
         if (octet == held_octet) continue;
-        var echo: [core.constants.name_bytes_max]u8 = undefined;
+        var echo: [core.limits.name_bytes_max]u8 = undefined;
         @memcpy(echo[0..held.len], sent_name(&harness));
         echo[at] = held_octet;
         if (std.mem.eql(u8, echo[0..held.len], held)) continue;
@@ -88,7 +88,7 @@ test "a name sent from a later draw, or the fallback, is matched as sent, for on
     // `mix_case` built: from the second, third or fourth draw, or with its first letter a capital.
     for (short_names, 1..) |text, letters| {
         const mask = (@as(u64, 1) << @intCast(letters)) - 1;
-        for (1..wire.constants.case_draws_max + 1) |draws| {
+        for (1..wire.limits.case_draws_max + 1) |draws| {
             try expect_matched_as_sent(text, seed_drawing_small(mask, draws));
         }
     }
@@ -109,7 +109,7 @@ test "the name as it went out, with another type or another class, is ignored" {
 
 /// The whole words of the seed's stream the longest name's letters use up before the last one
 /// they draw from: 250 letters, 64 to a word.
-const words_before_last = 3;
+const words_before_last: usize = 3;
 
 test "a name of 255 octets is held to the case of every letter, read in place" {
     // Its type and class lie past octet 255 of the message, and the compare reads them before

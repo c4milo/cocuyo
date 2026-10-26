@@ -11,6 +11,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 
 /// The samples one window holds: how many, their sum, and the instant of the first of them.
 pub const Window = struct {
@@ -22,7 +23,7 @@ pub const Window = struct {
 };
 
 /// The window that holds every sample since the table was built: the last, which has no span.
-const since_built = constants.latency_windows - 1;
+const since_built: usize = constants.latency_windows - 1;
 
 pub const Latency = struct {
     /// Shortest span first, as `constants.latency_window_spans_ns` lists them.
@@ -32,7 +33,7 @@ pub const Latency = struct {
     /// passed starts again with it. A sample longer than the longest wait a configuration may set
     /// counts as that wait, which bounds what one sample adds to a sum.
     pub fn record(self: *Latency, sample_ns: u64, now_ns: u64) void {
-        const sample = @min(sample_ns, core.constants.timeout_ns_max);
+        const sample = @min(sample_ns, core.limits.timeout_ns_max);
         for (&self.windows, constants.latency_window_spans_ns) |*window, span_ns| {
             if (window.count > 0 and passed(window, span_ns, now_ns)) window.* = .{};
             if (window.count == 0) window.start_ns = now_ns;
@@ -52,9 +53,9 @@ pub const Latency = struct {
     /// has not passed at `now_ns`; null while fewer samples than that came since the table was
     /// built. The window since then has no span, so it is read when no shorter one qualifies.
     pub fn average_ns(self: *const Latency, now_ns: u64) ?u64 {
-        if (self.samples() < constants.latency_samples_min) return null;
+        if (self.samples() < limits.latency_samples_min) return null;
         for (self.windows[0..since_built], constants.latency_window_spans_ns[0..since_built]) |*window, span_ns| {
-            if (window.count < constants.latency_samples_min) continue;
+            if (window.count < limits.latency_samples_min) continue;
             if (passed(window, span_ns, now_ns)) continue;
             return average(window);
         }
@@ -70,9 +71,9 @@ fn passed(window: *const Window, span_ns: ?u64, now_ns: u64) bool {
 }
 
 fn average(window: *const Window) u64 {
-    assert(window.count >= constants.latency_samples_min);
+    assert(window.count >= limits.latency_samples_min);
     const mean = window.sum_ns / window.count;
-    assert(mean <= core.constants.timeout_ns_max);
+    assert(mean <= core.limits.timeout_ns_max);
     return mean;
 }
 
@@ -81,7 +82,7 @@ fn average(window: *const Window) u64 {
 /// million samples, so half of them is still a window of many. The count is halved up and the sum
 /// down, so the average never rises past the longest sample.
 fn add(window: *Window, sample_ns: u64) void {
-    assert(sample_ns <= core.constants.timeout_ns_max);
+    assert(sample_ns <= core.limits.timeout_ns_max);
     if (window.sum_ns > std.math.maxInt(u64) - sample_ns) {
         assert(window.count > 1);
         window.count -= window.count >> 1;
@@ -97,8 +98,8 @@ fn add(window: *Window, sample_ns: u64) void {
 const testing = std.testing;
 
 /// A millisecond and a second, in nanoseconds, for the tests.
-const millisecond = 1_000_000;
-const second = 1_000_000_000;
+const millisecond: u64 = 1_000_000;
+const second: u64 = 1_000_000_000;
 
 test "fewer than three samples give no average, and the third gives one" {
     var latency: Latency = .{};
@@ -146,12 +147,12 @@ test "a sample longer than the longest wait counts as that wait" {
     var latency: Latency = .{};
     const hour = constants.latency_window_hour_ns;
     for (0..3) |index| latency.record(hour, hour + index * second);
-    try testing.expectEqual(@as(?u64, core.constants.timeout_ns_max), latency.average_ns(hour + 3 * second));
+    try testing.expectEqual(@as(?u64, core.limits.timeout_ns_max), latency.average_ns(hour + 3 * second));
 }
 
 test "a sum that would pass 2^64 is halved first, and the average stays at or under the samples" {
     var latency: Latency = .{};
-    const longest = core.constants.timeout_ns_max;
+    const longest = core.limits.timeout_ns_max;
     // As many samples of the longest wait as a sum can hold, and one more would pass 2^64.
     const many = std.math.maxInt(u64) / longest;
     for (&latency.windows) |*window| window.* = .{ .start_ns = 0, .count = many, .sum_ns = many * longest };

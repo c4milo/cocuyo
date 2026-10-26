@@ -46,7 +46,7 @@ pub fn decode(message: []const u8, offset: usize, out: *Name) Error!usize {
     out.* = Name.empty;
     const end = try walk_name(message, offset, out);
     assert(out.len >= 1);
-    assert(out.len <= core.constants.name_bytes_max);
+    assert(out.len <= core.limits.name_bytes_max);
     return end;
 }
 
@@ -63,25 +63,25 @@ pub fn skip(message: []const u8, offset: usize) Error!usize {
     var measure: Measure = .{};
     const end = try walk_name(message, offset, &measure);
     assert(measure.len >= 1);
-    assert(measure.len <= core.constants.name_bytes_max);
+    assert(measure.len <= core.limits.name_bytes_max);
     return end;
 }
 
 /// The walk `decode` and `skip` share. `out` takes each label and then the root: a `Name` copies
 /// them, and a `Measure` counts their octets.
 fn walk_name(message: []const u8, offset: usize, out: anytype) Error!usize {
-    assert(message.len <= core.constants.message_bytes_max);
+    assert(message.len <= core.limits.message_bytes_max);
     assert(offset <= message.len);
     var walk: Walk = .{ .message = message, .cursor = offset };
     // Every step either takes a label or follows a pointer, and both are bounded, so the walk
     // ends whatever the message says.
-    while (walk.labels <= core.constants.labels_max) {
+    while (walk.labels <= core.limits.labels_max) {
         if (try walk.step(out)) |end| {
-            assert(walk.hops <= core.constants.compression_hops_max);
+            assert(walk.hops <= core.limits.compression_hops_max);
             return end;
         }
     }
-    assert(walk.labels > core.constants.labels_max);
+    assert(walk.labels > core.limits.labels_max);
     return Error.MalformedName;
 }
 
@@ -93,17 +93,17 @@ const Measure = struct {
 
     fn append_label(self: *Measure, label: []const u8) Error!void {
         assert(label.len >= 1);
-        assert(label.len <= core.constants.label_bytes_max);
+        assert(label.len <= core.limits.label_bytes_max);
         // The label, its length octet and a root after them: "label octets and label length
         // octets" count (RFC 1035 §3.1), in a name of "255 octets or less" (§2.3.4).
-        if (self.len + 1 + label.len + 1 > core.constants.name_bytes_max) return Error.NameTooLong;
+        if (self.len + 1 + label.len + 1 > core.limits.name_bytes_max) return Error.NameTooLong;
         self.len += 1 + label.len;
-        assert(self.len < core.constants.name_bytes_max);
+        assert(self.len < core.limits.name_bytes_max);
     }
 
     /// The root. Each label left room for it, so this is an assertion and not a check.
     fn terminate(self: *Measure) Error!void {
-        assert(self.len < core.constants.name_bytes_max);
+        assert(self.len < core.limits.name_bytes_max);
         self.len += 1;
     }
 };
@@ -142,7 +142,7 @@ const Walk = struct {
 
     /// Follows one compression pointer, which must point strictly backwards.
     fn follow(self: *Walk) Error!?usize {
-        if (self.hops == core.constants.compression_hops_max) return Error.BadCompressionPointer;
+        if (self.hops == core.limits.compression_hops_max) return Error.BadCompressionPointer;
         const target = try read_pointer(self.message, self.cursor);
         // Strictly backwards, at "a prior occurance of the same name" (RFC 1035 §4.1.4). This
         // refuses a pointer at itself or ahead of itself. The hop bound ends a loop through labels.
@@ -150,13 +150,13 @@ const Walk = struct {
         if (self.end == null) self.end = self.cursor + constants.pointer_bytes;
         self.cursor = target;
         self.hops += 1;
-        assert(self.hops <= core.constants.compression_hops_max);
+        assert(self.hops <= core.limits.compression_hops_max);
         return null;
     }
 
     /// Takes one label, or ends the name when the length octet is the root.
     fn take(self: *Walk, length: u8, out: anytype) Error!?usize {
-        assert(length <= core.constants.label_bytes_max);
+        assert(length <= core.limits.label_bytes_max);
         if (length == 0) {
             try out.terminate();
             return self.end orelse self.cursor + 1;
@@ -186,7 +186,7 @@ fn read_pointer(message: []const u8, cursor: usize) Error!usize {
 /// The octets of the label whose length octet is at `cursor`, once they are inside the message.
 fn label_at(message: []const u8, cursor: usize, length: u8) Error![]const u8 {
     // The kind bits are `00` here, so the length cannot exceed the label limit.
-    assert(length <= core.constants.label_bytes_max);
+    assert(length <= core.limits.label_bytes_max);
     assert(length != 0);
     const start = cursor + 1;
     if (start + length > message.len) return Error.MalformedMessage;
@@ -233,7 +233,7 @@ test "a pointer that does not point strictly backwards is refused" {
 test "a chain of pointers longer than the hop bound is refused, by decode and by skip" {
     // Each pointer points at the one before it, so every hop is strictly backwards and legal; only
     // the hop bound stops the chain. Seventeen pointers: one more than compression_hops_max.
-    const hops = core.constants.compression_hops_max + 1;
+    const hops = core.limits.compression_hops_max + 1;
     var message: [core.constants.header_bytes + hops * constants.pointer_bytes]u8 = @splat(0);
     var index: usize = 0;
     while (index < hops) : (index += 1) {
@@ -250,7 +250,7 @@ test "a chain of pointers longer than the hop bound is refused, by decode and by
 test "a name may chase as many pointers as the hop bound allows, and skip chases them too" {
     // Real servers point at a name that itself ends in a pointer: an MX exchange at the tail of the
     // one before it, which ends at the question. So the bound's own count of hops must decode.
-    const hops = core.constants.compression_hops_max;
+    const hops = core.limits.compression_hops_max;
     const first = core.constants.header_bytes + name_example.len;
     var message: [first + hops * constants.pointer_bytes]u8 = @splat(0);
     @memcpy(message[core.constants.header_bytes..first], name_example);
@@ -307,7 +307,7 @@ test "skip refuses a reserved kind and a truncated name" {
 
 test "encode writes the wire bytes and nothing else" {
     const name = try Name.from_text("example.com");
-    var out: [core.constants.name_bytes_max]u8 = @splat(0xff);
+    var out: [core.limits.name_bytes_max]u8 = @splat(0xff);
     try testing.expectEqual(@as(usize, 13), encode(&name, &out));
     try testing.expectEqualStrings("\x07example\x03com\x00", out[0..13]);
 }
@@ -321,11 +321,11 @@ test "skip refuses a name longer than 255 octets, as decode does" {
     // "names 255 octets or less" (RFC 1035 §2.3.4), "label octets and label length octets"
     // counted (§3.1).
     const header = [_]u8{0} ** core.constants.header_bytes;
-    const three_longest = label_of(core.constants.label_bytes_max) ** 3;
+    const three_longest = label_of(core.limits.label_bytes_max) ** 3;
     var name: Name = Name.empty;
     // Three labels of 63, one of 61, and the root: 255 octets.
     const longest = header ++ three_longest ++ label_of(61) ++ [_]u8{0};
-    try testing.expectEqual(header.len + core.constants.name_bytes_max, longest.len);
+    try testing.expectEqual(header.len + core.limits.name_bytes_max, longest.len);
     try testing.expectEqual(longest.len, try decode(&longest, header.len, &name));
     try testing.expectEqual(longest.len, try skip(&longest, header.len));
     // One of 62 in place of 61: 256 octets.
@@ -333,7 +333,7 @@ test "skip refuses a name longer than 255 octets, as decode does" {
     try testing.expectError(Error.NameTooLong, decode(&one_past, header.len, &name));
     try testing.expectError(Error.NameTooLong, skip(&one_past, header.len));
     // The most labels the walk counts, each of 63, and the root: 8,193 octets.
-    const most = header ++ label_of(core.constants.label_bytes_max) ** core.constants.labels_max ++ [_]u8{0};
+    const most = header ++ label_of(core.limits.label_bytes_max) ** core.limits.labels_max ++ [_]u8{0};
     try testing.expectError(Error.NameTooLong, decode(&most, header.len, &name));
     try testing.expectError(Error.NameTooLong, skip(&most, header.len));
 }
@@ -342,7 +342,7 @@ test "skip refuses labels that leave a pointer no room for the root its name end
     // A root at offset 12 for the pointer to reach: the shortest name a pointer can end in.
     const before = [_]u8{0} ** (core.constants.header_bytes + 1);
     const pointer = [_]u8{ constants.label_kind_pointer, @intCast(core.constants.header_bytes) };
-    const three_longest = label_of(core.constants.label_bytes_max) ** 3;
+    const three_longest = label_of(core.limits.label_bytes_max) ** 3;
     var name: Name = Name.empty;
     // 254 octets of labels, and the root the pointer reaches: 255 octets.
     const longest = before ++ three_longest ++ label_of(61) ++ pointer;
@@ -397,7 +397,7 @@ test "skip measures a name through its pointer, and refuses one past 255 octets,
     // "label octets and label length octets" count (RFC 1035 §3.1), those a pointer reaches too
     // (§4.1.4), and a name is "255 octets or less" (§2.3.4).
     // A name of 251 octets at offset 12: three labels of 63, one of 57, and the root.
-    const long_target = label_of(core.constants.label_bytes_max) ** 3 ++ label_of(57) ++ [_]u8{0};
+    const long_target = label_of(core.limits.label_bytes_max) ** 3 ++ label_of(57) ++ [_]u8{0};
     const owner_at = header_zeros.len + long_target.len;
     const to_target = comptime pointer_of(core.constants.header_bytes);
     // A label of 3 and the pointer: 255 octets whole. The name ends after the pointer.
@@ -411,7 +411,7 @@ test "skip measures a name through its pointer, and refuses one past 255 octets,
 test "skip counts the octets of every hop, and ends the name at its first pointer" {
     // A name of 251 octets at offset 12, and a name between: a label of 1 and a pointer to the
     // first, 253 octets whole.
-    const long_target = label_of(core.constants.label_bytes_max) ** 3 ++ label_of(57) ++ [_]u8{0};
+    const long_target = label_of(core.limits.label_bytes_max) ** 3 ++ label_of(57) ++ [_]u8{0};
     const between_at = header_zeros.len + long_target.len;
     const between = label_of(1) ++ comptime pointer_of(core.constants.header_bytes);
     const to_between = comptime pointer_of(between_at);
@@ -441,7 +441,7 @@ test "skip ends a loop back through a label at the hop bound, as decode does" {
 
 test "skip ends a loop back through a label of 63 at 255 octets, as decode does" {
     // The length of the name ends this loop in its fourth round, before the hop bound.
-    const loop = header_zeros ++ label_of(core.constants.label_bytes_max) ++ to_first_name;
+    const loop = header_zeros ++ label_of(core.limits.label_bytes_max) ++ to_first_name;
     try expect_both(Error.NameTooLong, &loop, header_zeros.len);
 }
 

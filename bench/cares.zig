@@ -169,7 +169,7 @@ test "c-ares writes the same query bytes cocuyo does" {
     // written from RFC 1035 and RFC 6891 independently, agreeing octet for octet, is the check on
     // cocuyo's query builder that no fixture of cocuyo's own can be.
     cases.setup_queries();
-    var ours: [cocuyo.constants.query_bytes_max]u8 = undefined;
+    var ours: [cocuyo.limits.query_bytes_max]u8 = undefined;
     const ours_len = wire.query.write(&.{
         .id = fixtures.id,
         .name = try cocuyo.Name.from_text(query_name),
@@ -189,7 +189,7 @@ test "c-ares reads the same records from the corpus that cocuyo does" {
     try testing.expectEqual(@as(usize, 1), parse_cares(&cares_message_one));
     try testing.expectEqual(@as(usize, 1), parse_cares(&cares_message_cname));
     // Seventeen A records are in the message. cocuyo keeps sixteen and says so; c-ares keeps all.
-    try testing.expectEqual(@as(usize, cocuyo.constants.addresses_max + 1), parse_cares(&cares_message_seventeen));
+    try testing.expectEqual(@as(usize, cocuyo.limits.addresses_max + 1), parse_cares(&cares_message_seventeen));
 }
 
 test {

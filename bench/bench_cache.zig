@@ -18,7 +18,7 @@ const Question = cocuyo.Question;
 const doNotOptimizeAway = std.mem.doNotOptimizeAway;
 
 const slot_count = 1024;
-const key_count = slot_count * cache.constants.keys_per_slot_min;
+const key_count = slot_count * cache.limits.keys_per_slot_min;
 
 /// The seed the datagram-match rows use, so the two tables are keyed alike.
 const seed = 0x5eed_5eed;

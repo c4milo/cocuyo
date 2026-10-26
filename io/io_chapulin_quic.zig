@@ -75,7 +75,7 @@ pub const Session = struct {
     client: tls.quic.Client = undefined,
     /// What the session starts from, which chapulin reads through pointers into it.
     config: tls.quic.ClientConfig = undefined,
-    hostname: [cocuyo.constants.name_text_bytes_max]u8 = undefined,
+    hostname: [cocuyo.limits.name_text_bytes_max]u8 = undefined,
     alpn: [1][]const u8 = undefined,
     /// The ticket this session resumes with: a copy, which `wipe` zeroes.
     resuming: Ticket = undefined,
@@ -118,7 +118,7 @@ pub const Session = struct {
     /// §6.3's "SPKI + IP", gets no anchors and no clock: chapulin then takes the leaf key a pin
     /// names, and reads nothing else of the chain (its decision 65). A named server with no anchors
     /// is judged by its pins alone, its name sent and judged against nothing.
-    pub fn trust(server: *const cocuyo.Tls, context: *const Context, hostname: *[cocuyo.constants.name_text_bytes_max]u8) tls.Trust {
+    pub fn trust(server: *const cocuyo.Tls, context: *const Context, hostname: *[cocuyo.limits.name_text_bytes_max]u8) tls.Trust {
         const pins: []const tls.Pin = server.pins;
         const name = server.name orelse return .{ .pins = .{ .pins = pins } };
         var length = name.write_text(hostname);

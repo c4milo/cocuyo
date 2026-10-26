@@ -45,7 +45,7 @@ pub fn send(self: anytype, index: usize, bytes: []const u8, now_ns: u64) void {
     assert(at_or_null != null);
     const at = at_or_null.?;
     const connection = &self.connections[at];
-    assert(bytes.len <= cocuyo.constants.query_bytes_max);
+    assert(bytes.len <= cocuyo.limits.query_bytes_max);
     @memcpy(self.send_buffers[index][0..bytes.len], bytes);
     self.send_lengths[index] = @intCast(bytes.len);
     send_module.lend(self, index);

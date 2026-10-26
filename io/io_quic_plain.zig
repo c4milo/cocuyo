@@ -16,6 +16,7 @@
 //! level's keys are there from the message that brings them, and a packet is sealed by appending
 //! sixteen octets, the tag every QUIC cipher suite adds (RFC 9001 §5.3), which check nothing.
 const std = @import("std");
+const limits = @import("io_quic_limits.zig");
 const assert = std.debug.assert;
 const quic = @import("quic");
 const tls = quic.tls_provider;
@@ -30,13 +31,8 @@ const levels = quic.core.levels_count;
 const Message = enum(u8) { client_hello = 1, server_hello = 2, encrypted_extensions = 8, finished = 20 };
 
 /// A message's framing: its type, then its length in three octets (RFC 9846 §4).
-const length_bytes = 3;
-const frame_bytes = 1 + length_bytes;
-/// The longest transport parameters either side sends, and the longest ALPN token it keeps.
-const params_bytes_max = 256;
-const alpn_bytes_max = 16;
-/// What one level holds of messages, both ways: a hello at its longest, with room over.
-const level_bytes_max = 512;
+const length_bytes: usize = 3;
+const frame_bytes: usize = 1 + length_bytes;
 /// The protocol a server scripted to select another names, which is not DoQ's.
 pub const other_protocol = "h2";
 
@@ -46,18 +42,18 @@ pub const Session = struct {
     role: Role,
     /// Whether a server selects another protocol than the one offered, for a test.
     other: bool = false,
-    params: [params_bytes_max]u8 = undefined,
+    params: [limits.plain_params_bytes_max]u8 = undefined,
     params_len: usize = 0,
-    peer_params: [params_bytes_max]u8 = undefined,
+    peer_params: [limits.plain_params_bytes_max]u8 = undefined,
     peer_params_len: ?usize = null,
-    offered: [alpn_bytes_max]u8 = undefined,
+    offered: [limits.plain_alpn_bytes_max]u8 = undefined,
     offered_len: usize = 0,
-    selected: [alpn_bytes_max]u8 = undefined,
+    selected: [limits.plain_alpn_bytes_max]u8 = undefined,
     selected_len: ?usize = null,
     /// What each level owes the peer, and what it has read and not yet framed whole.
-    owed: [levels][level_bytes_max]u8 = undefined,
+    owed: [levels][limits.plain_level_bytes_max]u8 = undefined,
     owed_len: [levels]usize = @splat(0),
-    heard: [levels][level_bytes_max]u8 = undefined,
+    heard: [levels][limits.plain_level_bytes_max]u8 = undefined,
     heard_len: [levels]usize = @splat(0),
     started: bool = false,
     complete: bool = false,
@@ -67,7 +63,7 @@ pub const Session = struct {
 
     /// A client offers `alpn`; a server selects what it is offered, or `other_protocol`.
     pub fn init(role: Role, alpn: []const u8, other: bool) Session {
-        assert(alpn.len <= alpn_bytes_max);
+        assert(alpn.len <= limits.plain_alpn_bytes_max);
         var session: Session = .{ .role = role, .other = other };
         @memcpy(session.offered[0..alpn.len], alpn);
         session.offered_len = alpn.len;
@@ -187,7 +183,7 @@ pub const Session = struct {
         if (body.len < 1 + alpn_len) return session.fail(.decode_error);
         const alpn = body[1..][0..alpn_len];
         const params = body[1 + alpn.len ..];
-        if (alpn.len > alpn_bytes_max or params.len > params_bytes_max) return session.fail(.decode_error);
+        if (alpn.len > limits.plain_alpn_bytes_max or params.len > limits.plain_params_bytes_max) return session.fail(.decode_error);
         @memcpy(session.selected[0..alpn.len], alpn);
         session.selected_len = alpn.len;
         @memcpy(session.peer_params[0..params.len], params);
@@ -212,7 +208,7 @@ fn set_transport_params(context: *anyopaque, body: []const u8) tls.quic_provider
     const session = Session.of(context);
     // RFC 9001 §4.1.3: QUIC provides them before starting the handshake.
     if (session.started) return error.HandshakeStarted;
-    if (body.len > params_bytes_max) return error.TlsFailed;
+    if (body.len > limits.plain_params_bytes_max) return error.TlsFailed;
     @memcpy(session.params[0..body.len], body);
     session.params_len = body.len;
     session.started = true;
@@ -235,7 +231,7 @@ fn provide_handshake(context: *anyopaque, level: Level, data: []const u8) tls.qu
     @memcpy(heard[len.*..][0..data.len], data);
     len.* += data.len;
     var messages: usize = 0;
-    while (messages < level_bytes_max / frame_bytes and len.* >= frame_bytes) : (messages += 1) {
+    while (messages < limits.plain_level_bytes_max / frame_bytes and len.* >= frame_bytes) : (messages += 1) {
         // `usize`, not the `u24` the length is read as: with the frame's four octets a length of
         // 2^24 - 4 or more passes twenty-four bits.
         const body_len: usize = std.mem.readInt(u24, heard[1..][0..length_bytes], .big);
@@ -466,13 +462,13 @@ test "a client refuses a second Finished, and owes one of its own" {
 
 test "a server refuses a second ClientHello, and its flight at its longest fits a level" {
     var session = Session.init(.server, "doq", false);
-    const params: [params_bytes_max]u8 = @splat(0);
+    const params: [limits.plain_params_bytes_max]u8 = @splat(0);
     try session.provider().set_transport_params(&params);
     // A hello at its longest: an ALPN token and transport parameters, each the most a side keeps.
-    var hello: [frame_bytes + 1 + alpn_bytes_max + params_bytes_max]u8 = @splat('a');
+    var hello: [frame_bytes + 1 + limits.plain_alpn_bytes_max + limits.plain_params_bytes_max]u8 = @splat('a');
     hello[0] = @intFromEnum(Message.client_hello);
     std.mem.writeInt(u24, hello[1..][0..length_bytes], hello.len - frame_bytes, .big);
-    hello[frame_bytes] = alpn_bytes_max;
+    hello[frame_bytes] = limits.plain_alpn_bytes_max;
     try session.provider().provide_handshake(.initial, &hello);
     // EncryptedExtensions as long as the hello, and a Finished.
     const owed = session.owed_len;

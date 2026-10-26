@@ -9331,3 +9331,664 @@ change touches the engine in `io/` and no file of `src/`. So no count can move, 
 Each other row that the walks catch is `CAUGHT` (What ran, above).
 
 Thirteen mutations, thirteen `CAUGHT`.
+
+## Every limit in a limits file
+
+Written on 2026-10-26, with §16 decision 56. The owner answered design §17 question 37 on
+2026-10-17: every limit moves into a `limits.zig` of its module, the limits of each `constants.zig`
+too. Each `constants.zig` keeps the protocol sizes and the defaults. Each constant that is not a
+limit gets a type where it is.
+
+### What changed
+
+- Ten limits files: `limits.zig` in each module of `src/` and in `io/`, and `io_quic_limits.zig`,
+  `io_doh_limits.zig` and `io_doh_channel_limits.zig` beside the constants files of those three
+  modules. Each limit kept its doc comment as it was.
+- Each module root exports `limits`. Each public `constants.zig` keeps an alias of each limit that
+  left it (design §17 question 76). The code of the tree reads the new paths.
+- The lint rule `typed-constants` reads each Zig file of `src/` and `io/`, and the place of each
+  limit by its name. `magic-numbers` exempts `limits.zig`. The canary tree holds two new limits.
+- The lint rule `unbounded-loop` takes a chain through `limits` for a named limit.
+- 287 integer constants of other files got a type where they are.
+- No value changed, and no named limit changed.
+
+### The inventory
+
+Each constant of each constants file, by its class (design §16 decision 56):
+
+- `limit`: a bound that the code holds or checks. It moved into the limits file.
+- `protocol`: a size or a value that an RFC, or the format of a peer, fixes as it is.
+- `default`: a value that a caller can change, or that a caller declares.
+- `other`: a unit, a base, a mask, a shift, a code, an address of the twin, or a parameter of an
+  estimate. It is no limit.
+
+A row says why for each borderline constant. A limit whose number an RFC fixes is one. So are a
+limit with no suffix, an alias, and a constant that looks like a limit and is none.
+
+#### `src/core/constants.zig`
+
+38 limits, 33 protocol sizes or values, 10 defaults, 12 other constants, of 93. The limits are in
+`src/core/limits.zig` now.
+
+| Constant | Class | Why, for a borderline one |
+| --- | --- | --- |
+| `header_bytes` | protocol |  |
+| `question_fixed_bytes` | protocol |  |
+| `record_fixed_bytes` | protocol |  |
+| `message_bytes_max` | limit | RFC 7766 §8 fixes it, and every length is checked against it |
+| `tcp_prefix_bytes` | protocol |  |
+| `udp_payload_bytes_default` | default |  |
+| `udp_payload_bytes_min` | limit | RFC 6891 §6.2.3 fixes it, and a configuration is checked against it |
+| `query_bytes_max` | limit |  |
+| `padding_block_bytes` | protocol |  |
+| `opt_option_header_bytes` | protocol |  |
+| `opt_record_bytes` | protocol |  |
+| `opt_record_bytes_max` | limit |  |
+| `cookie_option_bytes_max` | limit |  |
+| `cookie_client_bytes` | protocol |  |
+| `cookie_server_bytes_min` | limit | RFC 7873 §4 fixes the range, and a server cookie is checked against it |
+| `cookie_server_bytes_max` | limit | RFC 7873 §4 fixes the range, and a server cookie is checked against it |
+| `name_bytes_max` | limit | RFC 1035 §2.3.4 fixes it, and every name is checked against it |
+| `label_bytes_max` | limit | RFC 1035 §2.3.4 fixes it, and every label is checked against it |
+| `labels_max` | limit |  |
+| `name_text_bytes_max` | limit |  |
+| `compression_hops_max` | limit |  |
+| `cname_hops_max` | limit |  |
+| `records_max` | limit |  |
+| `addresses_max` | limit |  |
+| `address_lookup_addresses_max` | limit |  |
+| `ptr_names_max` | limit |  |
+| `records_kept_max` | limit |  |
+| `rdata_bytes_max` | limit |  |
+| `servers_max` | limit |  |
+| `lookup_sources_max` | limit |  |
+| `hosts_entries_max` | limit |  |
+| `hosts_names_per_entry_max` | limit |  |
+| `hosts_names_bytes_max` | limit |  |
+| `failover_retry_chance_default` | default |  |
+| `failover_retry_delay_ns_default` | default |  |
+| `search_max` | limit |  |
+| `candidates_max` | limit |  |
+| `attempts_default` | default |  |
+| `attempts_max` | limit |  |
+| `ndots_default` | default |  |
+| `timeout_ns_default` | default |  |
+| `timeout_ns_max_default` | default |  |
+| `timeout_ns_max` | limit |  |
+| `timeout_ns_min` | limit |  |
+| `cache_ttl_seconds_max_default` | default |  |
+| `cache_ttl_seconds_max` | limit |  |
+| `port_ephemeral_min` | limit | RFC 6335 §6 fixes the range, and the source-port hint is held in it |
+| `port_ephemeral_max` | limit | RFC 6335 §6 fixes the range, and the source-port hint is held in it |
+| `port_dns_default` | default |  |
+| `port_dns_tls_default` | default |  |
+| `spki_pin_bytes` | protocol |  |
+| `spki_pins_max` | limit |  |
+| `address_v4_bytes` | protocol |  |
+| `address_v6_bytes` | protocol |  |
+| `v4_mapped_prefix` | protocol |  |
+| `address_v4_octets` | protocol |  |
+| `address_v4_octet_digits_max` | limit | the text format fixes it, and the parser checks a token against it |
+| `address_v6_groups` | protocol |  |
+| `address_v6_group_digits_max` | limit | RFC 4291 §2.2 fixes it, and the parser checks a group against it |
+| `address_v6_group_bytes` | protocol |  |
+| `groups_per_quad` | protocol |  |
+| `double_colon_bytes` | protocol |  |
+| `decimal_base` | other |  |
+| `hex_digit_bits` | other |  |
+| `hex_alpha_value` | other |  |
+| `octet_bits` | other |  |
+| `lookup_slots_max` | limit |  |
+| `ascii_case_bit` | other |  |
+| `word_low_bits` | other |  |
+| `word_high_bits` | other |  |
+| `word_bias_at_a` | other |  |
+| `word_bias_past_z` | other |  |
+| `word_high_to_case_shift` | other |  |
+| `class_internet` | protocol |  |
+| `type_code_none` | protocol |  |
+| `type_code_query_meta_first` | protocol |  |
+| `type_code_query_meta_last` | protocol |  |
+| `scope_link_local` | protocol |  |
+| `scope_site_local` | protocol |  |
+| `scope_global` | protocol |  |
+| `v6_link_local_prefix` | protocol |  |
+| `v6_site_local_prefix` | protocol |  |
+| `v6_ten_bit_mask` | protocol |  |
+| `v6_multicast_first_octet` | protocol |  |
+| `v6_multicast_scope_mask` | protocol |  |
+| `v4_link_local_prefix` | protocol |  |
+| `v4_loopback_first_octet` | protocol |  |
+| `common_prefix_bits_v6_max` | limit | RFC 6724 §2.2 fixes it, and the count stops at it |
+| `common_prefix_bits_v4_max` | limit | RFC 6724 §2.2 fixes it, and the count stops at it |
+| `PolicyRow` | other |  |
+| `address_policy_rows` | protocol |  |
+| `address_policy_table` | protocol |  |
+| `bits_per_octet` | other |  |
+
+#### `src/wire/constants.zig`
+
+15 limits, 78 protocol sizes or values, 4 other constants, of 97. The limits are in
+`src/wire/limits.zig` now.
+
+| Constant | Class | Why, for a borderline one |
+| --- | --- | --- |
+| `u16_bytes` | protocol |  |
+| `u32_bytes` | protocol |  |
+| `octet_bits` | other |  |
+| `header_id_offset` | protocol |  |
+| `header_flags_offset` | protocol |  |
+| `header_qdcount_offset` | protocol |  |
+| `header_ancount_offset` | protocol |  |
+| `header_nscount_offset` | protocol |  |
+| `header_arcount_offset` | protocol |  |
+| `record_kind_offset` | protocol |  |
+| `record_class_offset` | protocol |  |
+| `record_ttl_offset` | protocol |  |
+| `record_rdlength_offset` | protocol |  |
+| `soa_fixed_bytes` | protocol |  |
+| `soa_minimum_offset` | protocol |  |
+| `soa_refresh_offset` | protocol |  |
+| `soa_retry_offset` | protocol |  |
+| `soa_expire_offset` | protocol |  |
+| `mx_fixed_bytes` | protocol |  |
+| `srv_fixed_bytes` | protocol |  |
+| `srv_weight_offset` | protocol |  |
+| `srv_port_offset` | protocol |  |
+| `naptr_fixed_bytes` | protocol |  |
+| `naptr_preference_offset` | protocol |  |
+| `sig_fixed_bytes` | protocol |  |
+| `sig_algorithm_offset` | protocol |  |
+| `sig_labels_offset` | protocol |  |
+| `sig_original_ttl_offset` | protocol |  |
+| `sig_expiration_offset` | protocol |  |
+| `sig_inception_offset` | protocol |  |
+| `sig_key_tag_offset` | protocol |  |
+| `svcb_fixed_bytes` | protocol |  |
+| `svcb_param_fixed_bytes` | protocol |  |
+| `svcb_param_length_offset` | protocol |  |
+| `svcb_key_mandatory` | protocol |  |
+| `svcb_key_alpn` | protocol |  |
+| `svcb_key_no_default_alpn` | protocol |  |
+| `svcb_key_port` | protocol |  |
+| `svcb_key_ipv4hint` | protocol |  |
+| `svcb_key_ech` | protocol |  |
+| `svcb_key_ipv6hint` | protocol |  |
+| `tlsa_fixed_bytes` | protocol |  |
+| `tlsa_selector_offset` | protocol |  |
+| `tlsa_matching_type_offset` | protocol |  |
+| `uri_fixed_bytes` | protocol |  |
+| `uri_weight_offset` | protocol |  |
+| `caa_fixed_bytes` | protocol |  |
+| `caa_tag_length_offset` | protocol |  |
+| `caa_tag_bytes_min` | limit | RFC 8659 §4.1 fixes it, and a tag is checked against it |
+| `caa_flag_critical` | protocol |  |
+| `character_string_bytes_max` | limit | RFC 1035 §3.3 fixes it, and the codec checks a string against it |
+| `fuzz_labels_max` | limit |  |
+| `fuzz_label_bytes_max` | limit |  |
+| `fuzz_string_bytes_max` | limit |  |
+| `fuzz_strings_max` | limit |  |
+| `fuzz_opaque_bytes_max` | limit |  |
+| `fuzz_hints_max` | limit |  |
+| `fuzz_svcb_key_generic` | other |  |
+| `fuzz_question_name_bytes_min` | limit |  |
+| `fuzz_long_answers` | other | a shape of the messages the generator writes, and no bound |
+| `label_wire_bytes_min` | limit | RFC 1035 §3.1 fixes it, and the generator holds each label to it |
+| `opt_option_fixed_bytes` | protocol |  |
+| `opt_option_length_offset` | protocol |  |
+| `nsid_option_code` | protocol |  |
+| `client_subnet_option_code` | protocol |  |
+| `padding_option_code` | protocol |  |
+| `extended_error_option_code` | protocol |  |
+| `client_subnet_fixed_bytes` | protocol |  |
+| `client_subnet_source_offset` | protocol |  |
+| `client_subnet_scope_offset` | protocol |  |
+| `client_subnet_family_ipv4` | protocol |  |
+| `client_subnet_family_ipv6` | protocol |  |
+| `extended_error_fixed_bytes` | protocol |  |
+| `bits_per_octet` | other |  |
+| `cookie_option_code` | protocol |  |
+| `cookie_option_short_bytes` | protocol |  |
+| `cookie_option_long_bytes_min` | limit | RFC 7873 §4 fixes it, and an option is checked against it |
+| `cookie_option_long_bytes_max` | limit | RFC 7873 §4 fixes it, and an option is checked against it |
+| `extended_rcode_low_bits` | protocol |  |
+| `layout_segments_max` | limit |  |
+| `case_draws_max` | limit |  |
+| `flag_response` | protocol |  |
+| `opcode_mask` | protocol |  |
+| `opcode_shift` | protocol |  |
+| `opcode_query` | protocol |  |
+| `flag_authoritative` | protocol |  |
+| `flag_truncated` | protocol |  |
+| `flag_recursion_desired` | protocol |  |
+| `flag_recursion_available` | protocol |  |
+| `rcode_mask` | protocol |  |
+| `Rcode` | protocol |  |
+| `label_kind_mask` | protocol |  |
+| `label_kind_label` | protocol |  |
+| `label_kind_pointer` | protocol |  |
+| `pointer_offset_mask` | protocol |  |
+| `pointer_bytes` | protocol |  |
+| `dns_variable_bytes_max` | limit |  |
+
+#### `src/resolver/constants.zig`
+
+3 limits, 1 protocol size or value, 7 other constants, of 11. The limits are in
+`src/resolver/limits.zig` now.
+
+| Constant | Class | Why, for a borderline one |
+| --- | --- | --- |
+| `keys_per_slot_min` | limit |  |
+| `transactions_per_server_max` | limit |  |
+| `cookie_silence_ns` | protocol | a period that RFC 9018 §3 gives, and no bound that the code checks |
+| `latency_wait_multiplier` | other | a parameter of the measured wait, and no bound |
+| `latency_samples_min` | limit |  |
+| `latency_window_minute_ns` | other |  |
+| `latency_window_quarter_hour_ns` | other |  |
+| `latency_window_hour_ns` | other |  |
+| `latency_window_day_ns` | other |  |
+| `latency_window_spans_ns` | other |  |
+| `latency_windows` | other |  |
+
+#### `src/config/constants.zig`
+
+11 limits, 8 protocol sizes or values, 1 default, 1 other constant, of 21. The limits are in
+`src/config/limits.zig` now.
+
+| Constant | Class | Why, for a borderline one |
+| --- | --- | --- |
+| `lines_max` | limit |  |
+| `nameserver_default` | default |  |
+| `keyword_nameserver` | protocol |  |
+| `keyword_search` | protocol |  |
+| `keyword_domain` | protocol |  |
+| `keyword_options` | protocol |  |
+| `token_separators` | protocol |  |
+| `comment_starts` | protocol |  |
+| `options_max` | limit |  |
+| `hosts_lines_max` | limit |  |
+| `hosts_comment_start` | protocol |  |
+| `option_use_vc` | protocol |  |
+| `ns_per_s` | other |  |
+| `ndots_limit` | limit |  |
+| `timeout_seconds_limit` | limit |  |
+| `fuzz_text_bytes_max` | limit |  |
+| `fuzz_entries_max` | limit |  |
+| `fuzz_labels_max` | limit |  |
+| `fuzz_label_bytes_max` | limit |  |
+| `fuzz_filler_lines_max` | limit |  |
+| `fuzz_noise_bytes_max` | limit |  |
+
+#### `src/cache/constants.zig`
+
+4 limits, 1 default, 3 other constants, of 8. The limits are in `src/cache/limits.zig` now.
+
+| Constant | Class | Why, for a borderline one |
+| --- | --- | --- |
+| `slots_max` | limit |  |
+| `keys_per_slot_min` | limit |  |
+| `probe_max` | limit |  |
+| `ttl_seconds_max_default` | default |  |
+| `hash_absolute_shift` | other |  |
+| `hash_kind_shift` | other |  |
+| `ns_per_s` | other |  |
+| `sweep_steps_max` | limit | a function, which gives the bound of one sweep |
+
+#### `src/sim/constants.zig`
+
+27 limits, 19 protocol sizes or values, 3 defaults, 18 other constants, of 67. The limits are in
+`src/sim/limits.zig` now.
+
+| Constant | Class | Why, for a borderline one |
+| --- | --- | --- |
+| `operations_max` | limit |  |
+| `events_pending_max` | limit |  |
+| `sockets_max` | limit |  |
+| `servers_max` | limit |  |
+| `datagrams_pending_max` | limit |  |
+| `datagram_bytes_max` | limit | an alias of `udp_payload_bytes_default`, the bound of the twin |
+| `connections_max` | limit |  |
+| `stream_bytes_max` | limit |  |
+| `buffer_groups_max` | limit |  |
+| `buffers_per_group_max` | limit |  |
+| `socket_buffer_bytes_cap` | limit | no suffix: a bound that the twin holds |
+| `socket_buffer_bytes_refuse_above` | limit | no suffix: a bound that the twin holds |
+| `buffer_ring_alignment` | protocol | rotor's shape, which the twin keeps |
+| `buffer_ring_entry_bytes` | protocol |  |
+| `memory_alignment` | protocol | rotor's shape, which the twin keeps |
+| `prefix_head_bytes` | protocol |  |
+| `name_reserve_default` | default |  |
+| `control_reserve_default` | default |  |
+| `wait_ns_max` | limit |  |
+| `batch_max` | limit |  |
+| `drain_rounds_max` | limit |  |
+| `generation_first` | other |  |
+| `transfer_bytes_max` | limit |  |
+| `server_prefix` | other |  |
+| `server_octet_first` | other |  |
+| `server_port` | other |  |
+| `server_tcp_port` | other |  |
+| `client_address` | other |  |
+| `client_port_first` | other |  |
+| `answer_v6_prefix` | other |  |
+| `answer_ttl_seconds` | default | the TTL of a scripted answer when the script names none |
+| `server_cookie_bytes` | protocol |  |
+| `stream_chunk_bytes_min` | limit |  |
+| `ns_per_s` | other |  |
+| `dice_drop_shift` | other |  |
+| `dice_servfail_shift` | other |  |
+| `dice_nxdomain_shift` | other |  |
+| `dice_truncate_shift` | other |  |
+| `dice_delay_shift` | other |  |
+| `server_tls_port` | other |  |
+| `server_https_port` | other |  |
+| `tls_record_header_bytes` | protocol |  |
+| `tls_content_alert` | protocol |  |
+| `tls_content_handshake` | protocol |  |
+| `tls_content_application` | protocol |  |
+| `tls_legacy_version` | protocol |  |
+| `tls_record_version_at` | protocol |  |
+| `tls_record_length_at` | protocol |  |
+| `tls_close_notify` | protocol |  |
+| `tls_alert_fatal` | protocol |  |
+| `tls_alert_handshake_failure` | protocol |  |
+| `tls_payload_bytes_max` | limit |  |
+| `tls_out_bytes_max` | limit |  |
+| `server_quic_port` | other |  |
+| `quic_datagram_bytes_max` | limit | an alias, the bound of the twin |
+| `quic_item_header_bytes` | protocol |  |
+| `quic_item_stream_at` | protocol |  |
+| `quic_item_length_at` | protocol |  |
+| `quic_items_per_datagram_max` | limit |  |
+| `quic_pending_bytes_max` | limit |  |
+| `quic_pending_reserve_bytes` | limit | no suffix: a size of a buffer that the twin chooses |
+| `quic_stream_step` | protocol |  |
+| `quic_alpn_bytes_max` | limit |  |
+| `quic_alpn_other` | other |  |
+| `channel_exchanges_max` | limit |  |
+| `channel_steps_max` | limit |  |
+| `channel_output_bytes_max` | limit |  |
+
+#### `io/constants.zig`
+
+22 limits, 4 protocol sizes or values, 9 defaults, 14 other constants, of 49. The limits are in
+`io/limits.zig` now.
+
+| Constant | Class | Why, for a borderline one |
+| --- | --- | --- |
+| `lookups_default` | default |  |
+| `cache_slots_default` | default | a count that a caller declares, and no bound that the engine checks |
+| `tag_default` | default |  |
+| `tag_shift` | other |  |
+| `kind_shift` | other |  |
+| `index_mask` | other |  |
+| `group_buffers_default` | default |  |
+| `buffer_bytes` | limit | no suffix: a size of a buffer that cocuyo chooses |
+| `group_id` | other |  |
+| `group_options` | other |  |
+| `udp_payload_bytes_max` | limit |  |
+| `loop_operations_slack` | limit | no suffix: a count of the slots that the loop holds |
+| `tcp_connections_default` | default |  |
+| `tcp_message_bytes_max` | limit | an alias of `message_bytes_max`, the bound of one connection |
+| `tcp_group_id` | other |  |
+| `storage_alignment_max` | limit |  |
+| `tcp_chunk_bytes` | limit | no suffix: a size of a buffer that cocuyo chooses |
+| `tcp_group_buffers_default` | default |  |
+| `tcp_idle_ns_default` | default |  |
+| `receive_generation_shift` | other |  |
+| `receive_index_mask` | other |  |
+| `tcp_incarnation_shift` | other |  |
+| `tcp_slot_mask` | other |  |
+| `drive_polls_per_lookup_max` | limit |  |
+| `loop_operations_per_connection` | limit | no suffix: a count of the slots that the loop holds |
+| `tcp_frame_room_bytes` | limit | no suffix: a size of a buffer that cocuyo chooses |
+| `tls_frame_room_bytes` | limit | no suffix: a size of a buffer that cocuyo chooses |
+| `tcp_messages_per_frame_max` | limit |  |
+| `tls_record_header_bytes` | protocol |  |
+| `tls_record_length_at` | protocol |  |
+| `tls_record_body_bytes_max` | limit | RFC 9846 §5.2 fixes it, and a record is checked against it |
+| `tls_record_in_bytes` | limit | no suffix: a size of a buffer that cocuyo chooses |
+| `tls_record_overhead_bytes` | protocol |  |
+| `tls_records_out_bytes` | limit | no suffix: a size of a buffer that cocuyo chooses |
+| `tls_records_entries_max` | limit |  |
+| `tls_records_per_buffer_max` | limit |  |
+| `tls_ticket_age_ns_max` | limit |  |
+| `loop_operations_per_quic_connection` | limit | no suffix: a count of the slots that the loop holds |
+| `loop_operations_per_channel` | limit | no suffix: a count of the slots that the loop holds |
+| `channel_events_max` | limit |  |
+| `quic_incarnation_shift` | other |  |
+| `quic_server_mask` | other |  |
+| `quic_idle_ns_default` | default |  |
+| `quic_idle_margin_ns` | limit | no suffix: a bound in time that a connection holds, which no caller sets |
+| `quic_connection_events_max` | limit |  |
+| `quic_alpn_doq` | protocol |  |
+| `port_https_default` | default |  |
+| `ns_per_second` | other |  |
+| `ns_per_millisecond` | other |  |
+
+#### `io/io_doh_channel_constants.zig`
+
+11 limits, 5 protocol sizes or values, 2 other constants, of 18. The limits are in
+`io/io_doh_channel_limits.zig` now.
+
+| Constant | Class | Why, for a borderline one |
+| --- | --- | --- |
+| `record_header_bytes` | protocol |  |
+| `record_plaintext_bytes_max` | limit | RFC 9846 §5.2 fixes it, and it sizes a buffer the channel holds |
+| `record_expansion_bytes_max` | limit | RFC 9846 §5.2 fixes it, and it sizes a buffer the channel holds |
+| `record_bytes_max` | limit | RFC 9846 §5.2 fixes it, and it sizes a buffer the channel holds |
+| `engine_chunk_bytes` | limit | no suffix: a copy of a size of a buffer that cocuyo chooses |
+| `stream_bytes` | limit | no suffix: a size of a buffer that cocuyo chooses |
+| `datagram_bytes` | limit | no suffix: a size of a buffer that cocuyo chooses |
+| `values_bytes` | limit | no suffix: a size of a buffer that cocuyo chooses |
+| `unheard_per_next_max` | limit |  |
+| `next_passes_max` | limit |  |
+| `output_bytes_max` | limit | an alias of `record_bytes_max`, the bound of one output |
+| `receive_bytes` | limit | no suffix: a size of a pool that cocuyo chooses |
+| `fallback_delay_ms` | protocol | a delay that RFC 8305 §5 recommends, and no bound |
+| `fallback_delay_ns` | protocol | a delay that RFC 8305 §5 recommends, and no bound |
+| `status_success_first` | protocol |  |
+| `status_success_last` | protocol |  |
+| `ns_per_second` | other |  |
+| `ns_per_millisecond` | other |  |
+
+#### `io/io_doh_constants.zig`
+
+1 limit, 1 default, of 2. The limits are in `io/io_doh_limits.zig` now.
+
+| Constant | Class | Why, for a borderline one |
+| --- | --- | --- |
+| `doh_request_bytes_max` | limit |  |
+| `answers_default` | default |  |
+
+#### `io/io_quic_constants.zig`
+
+7 limits, 4 protocol sizes or values, 1 default, 3 other constants, of 15. The limits are in
+`io/io_quic_limits.zig` now.
+
+| Constant | Class | Why, for a borderline one |
+| --- | --- | --- |
+| `idle_timeout_ms` | limit | no suffix: a bound in time that a connection holds, which no caller sets |
+| `connection_id_bytes` | protocol | the least that RFC 9000 §7.2 allows, which cocuyo sends as it is |
+| `datagram_receive_bytes` | limit | no suffix: a size of a buffer that cocuyo chooses |
+| `answer_bytes_max` | limit |  |
+| `pool_block_bytes` | protocol | colibri's block, a size of a peer's format |
+| `receive_bytes_default` | default |  |
+| `params_bytes_max` | limit |  |
+| `doq_no_error` | protocol |  |
+| `doq_request_cancelled` | protocol |  |
+| `server_receive_blocks` | limit | no suffix: a count of the blocks that the test server holds |
+| `server_receive_bytes` | limit | no suffix: a size of a pool that the test server holds |
+| `server_answer_bytes_max` | limit |  |
+| `server_id_octet` | other |  |
+| `ns_per_second` | other |  |
+| `ns_per_millisecond` | other |  |
+
+### The constants outside the constants files
+
+On 2026-10-26 the typed-constants rule read each Zig file of `src/` and `io/`. It reported 287
+integer constants with no type, test files included. Question 37 counted about 210 of them, test
+files apart. The rule also read 32 limits outside a limits file by their names. Each moved into its
+module's limits file, under a name that says its place. Each other constant got the type of what it
+names, by the rule of design §16 decision 40.
+
+A test file and a `fixtures.zig` keep their bounds where they are, each with a type. `rounds_max` of
+a test is the test's own (design §17 question 77). A member of a type keeps its place too:
+`output_bytes_max` of `io/io_channel.zig` is part of the transport interface, and got a `usize`.
+
+| File | Limits moved | Typed in place |
+| --- | --- | --- |
+| `io/fixtures.zig` |  | `lookups` usize, `group_buffers` usize, `servers` usize, `many_lookups` usize, `rounds_max` usize, `until_rounds_max` usize, `events_max` usize, `wait_ns` u64, `lossy_timeout_ns` u64, `lossy_step_ns` u64, `name_text_bytes` usize, `trace_code_shift` u6, `always` usize, `tcp_idle_jump_ns` u64, `stream_delay_ns` u64, `stream_timeout_ns` u64, `short_send_bytes` usize, `idle_connect_ns` u64, `short_idle_ns` u64, `slow_connect_ns` u64, `slow_connect_timeout_ns` u64, `slow_answer_ns` u64, `hung_connect_ns` u64, `tcp_slots_pair` usize, `slow_step_ns` u64, `half_step_ns` u64, `socket_bytes_granted` usize, `socket_bytes_capped` usize, `socket_bytes_refused` usize, `socket_send_bytes_short` usize, `tiny_message_bytes` usize, `longest_name_seed` u64, `message_bytes_unsummed` usize, `queued_lookups` usize, `tcp_group_buffers_small` usize, `small_lookups` usize, `small_group_buffers` usize, `quic_timer_ns` u64, `channel_read_ns` u64, `quic_servers_per_side` usize, `quic_pump_max` usize, `quic_datagrams_lost` usize, `quic_cancelled_streams` usize, `doh_answers` usize, `cache_two_slots` usize, `cache_least_slots` usize, `cache_least_keys` usize, `long_ttl_seconds` u32, `hour_seconds` u32, `cap_under_seconds` u32, `cap_over_seconds` u32, `cap_before_seconds` u32, `cap_after_seconds` u32, `memory_mark` u8 |
+| `io/io_channel.zig` |  | `output_bytes_max` usize |
+| `io/io_chapulin_quic_resume_test.zig` |  | `streams` usize, `cookie_octet` u8, `ticket_octet` u8, `server_seed_octet` u8, `session_seed_octet` u8, `ids_seed_octet` u8, `round_ns` u64, `rounds_max` usize, `version_at` usize |
+| `io/io_chapulin_quic_test.zig` |  | `test_seconds` u64, `test_ns` u64, `client_hello` u8, `hello_bytes_max` usize, `pin_octet` u8, `message_header_bytes` usize, `legacy_version_bytes` usize, `random_bytes` usize |
+| `io/io_chapulin_test.zig` |  | `content_handshake` u8, `content_alert` u8, `alert_fatal` u8, `test_seconds` u64, `test_seed_octet` u8, `pin_octet` u8, `message_header_bytes` usize, `legacy_version_bytes` usize, `random_bytes` usize |
+| `io/io_doh_channel_cause_test.zig` |  | `pin_octet` u8 |
+| `io/io_doh_channel_engine_test.zig` |  | `lookups` usize, `group_buffers` usize, `servers` usize, `client_port` u16, `timeout_s` u64, `timeout_ns` u64, `events_max` usize, `rounds_max` usize, `wait_s` u64, `wait_ns` u64, `connections_per_side` usize, `sends_per_hear_max` usize |
+| `io/io_doh_channel_exchange.zig` |  | `content_type_at` usize, `content_encoding_at` usize, `age_at` usize |
+| `io/io_doh_channel_quic_test.zig` |  | `round_ns` u64, `rounds_max` usize, `said_max` usize, `flags_at` usize, `qr_bit` u8, `seed_octet` u8, `client_port` u16, `port` u16 |
+| `io/io_doh_channel_read_test.zig` |  | `requests` usize, `events_per_read_max` usize, `full_record_bytes` usize, `short_plaintext_bytes` usize, `longer_short_plaintext_bytes` usize, `short_record_bytes` usize, `short_answer_bytes` usize, `long_answer_bytes` usize, `longest_answer_bytes` usize, `filler` u8, `burst_bytes` usize, `stray_datagram_bytes` usize, `head_bytes_long` usize, `first_record_plaintext_bytes` usize, `raw_answer_bytes` usize, `trailer_answer_bytes` usize, `trailer_bytes` usize, `trailer_waiting_bytes` usize |
+| `io/io_doh_channel_server.zig` | `response_fields_max` to `server_response_fields_max` of `io/io_doh_channel_limits.zig`; `length_digits_max` to `server_length_digits_max` of `io/io_doh_channel_limits.zig`; `heard_bytes_max` to `server_heard_bytes_max` of `io/io_doh_channel_limits.zig`; `events_per_input_max` to `server_events_per_input_max` of `io/io_doh_channel_limits.zig`; `owed_max` to `server_owed_max` of `io/io_doh_channel_limits.zig` | `cookie_octet` u8, `ticket_octet` u8, `stream_octet` u8 |
+| `io/io_doh_channel_server_quic.zig` | `connections_max` to `server_connections_max` of `io/io_doh_channel_limits.zig`; `responses_max` to `server_responses_max` of `io/io_doh_channel_limits.zig` | `stream_octet` u8 |
+| `io/io_doh_channel_server_raw.zig` | `response_bytes_max` to `server_response_bytes_max` of `io/io_doh_channel_limits.zig`; `request_bytes_max` to `server_request_bytes_max` of `io/io_doh_channel_limits.zig` | `cookie_octet` u8, `stream_octet` u8 |
+| `io/io_doh_channel_start.zig` | `hello_bytes_max` to `io/io_doh_channel_limits.zig` | `message_header_bytes` usize, `legacy_version_bytes` usize, `random_bytes` usize |
+| `io/io_doh_channel_test.zig` |  | `test_answers` usize, `round_ns` u64, `rounds_max` usize, `said_max` usize, `flags_at` usize, `qr_bit` u8, `port` u16, `seed_octet` u8 |
+| `io/io_doh_response.zig` | `age_seconds_max` to `io/io_doh_limits.zig` | `decimal` u8 |
+| `io/io_doh_template.zig` | `plane_offset_max` to `template_plane_offset_max` of `io/io_doh_limits.zig`; `max_length_digits_max` to `template_max_length_digits_max` of `io/io_doh_limits.zig` | `refused` usize, `pct_encoded_bytes` usize, `ascii_end` u8, `plane_one` u21, `bmp_first` u21, `bmp_first_last` u21, `bmp_second` u21, `bmp_second_last` u21, `bmp_third` u21, `bmp_third_last` u21, `plane_fourteen` u21, `plane_fourteen_first` u21, `plane_offset_mask` u21, `expanded_bytes_test` usize |
+| `io/io_quic.zig` |  | `test_streams` usize, `round_ns` u64, `rounds_max` usize, `version_at` usize |
+| `io/io_quic_plain.zig` | `params_bytes_max` to `plain_params_bytes_max` of `io/io_quic_limits.zig`; `alpn_bytes_max` to `plain_alpn_bytes_max` of `io/io_quic_limits.zig`; `level_bytes_max` to `plain_level_bytes_max` of `io/io_quic_limits.zig` | `length_bytes` usize, `frame_bytes` usize |
+| `io/io_request.zig` |  | `output_bytes_max` usize, `request_bytes_max` usize |
+| `io/io_request_template.zig` | `dec_octet_digits_max` to `template_octet_digits_max` of `io/limits.zig` | `ipv4_parts` usize, `decimal` u8, `fuzz_seeds` usize, `fuzz_text_bytes` usize |
+| `io/io_tcp.zig` |  | `frame_bytes` usize |
+| `io/io_threads_test.zig` |  | `threads` usize |
+| `io/io_tls.zig` |  | `out_bytes_max` usize |
+| `src/cache/cache.zig` |  | `slot_count` usize |
+| `src/cache/cache_keys.zig` |  | `key_count` usize |
+| `src/cache/cache_kinds_test.zig` |  | `slot_count` usize |
+| `src/cache/cache_probe_test.zig` |  | `slot_count` usize, `names_tried_max` usize |
+| `src/cache/cache_ttl_test.zig` |  | `slot_count` usize |
+| `src/cocuyo.zig` |  | `cache_slot_count` usize, `cache_key_count` usize, `remembered_ttl_seconds` u32, `capped_ttl_seconds` u32, `spent_seconds` u32 |
+| `src/config/fuzz/fuzz.zig` | `seed_count` to `fuzz_seed_count` of `src/config/limits.zig` |  |
+| `src/config/fuzz/fuzz_generate.zig` | `hex_digits_max` to `fuzz_hex_digits_max` of `src/config/limits.zig` | `noise_any_byte_one_in` usize, `v6_groups` usize, `v6_groups_before_quad` usize, `octet_digits_room` usize, `long_label_one_in` usize |
+| `src/config/fuzz/fuzz_generate_files.zig` | `blanks_max` to `fuzz_blanks_max` of `src/config/limits.zig` | `option_value_room` u16 |
+| `src/config/resolv_conf_options.zig` |  | `decimal_base` u8 |
+| `src/core/fixtures.zig` |  | `ordering_examples` usize |
+| `src/core/mix.zig` |  | `increment` u64, `multiplier_first` u64, `multiplier_second` u64, `shift_first` u6, `shift_second` u6, `shift_final` u6, `word_bits` usize |
+| `src/core/name.zig` |  | `root_label` u8, `word_bytes` usize |
+| `src/core/name_reverse.zig` | `decimal_digits_max` to `reverse_octet_digits_max` of `src/core/limits.zig` | `decimal_base` u8, `nibble_bits` u3, `nibble_mask` u8 |
+| `src/core/name_text.zig` | `printable_min` to `text_printable_min` of `src/core/limits.zig`; `printable_max` to `text_printable_max` of `src/core/limits.zig` | `separator` u8, `escape` u8, `escape_digits` usize, `escape_pair_bytes` usize, `escape_base` u8 |
+| `src/resolver/entropy.zig` |  | `port_span` u16 |
+| `src/resolver/fixtures.zig` |  | `port_other` u16, `seed` u64, `cached_ttl_seconds` u32, `address_polls_max` usize, `address_timeout_jump_ns` u64, `address_search_entries` usize, `address_slots_per_walk` usize, `private_type` u16, `slot_count` usize, `key_count` usize |
+| `src/resolver/lookup_case_echo_test.zig` |  | `case_seeds_max` usize, `words_before_last` usize |
+| `src/resolver/lookup_case_test.zig` |  | `all_small_seed` u64, `example_letters_mask` u64, `full_labels` usize, `last_label_framing` usize, `last_label_bytes` usize, `millisecond_ns` u64, `second_ns` u64 |
+| `src/resolver/lookup_cookie.zig` |  | `rcode_unknown` u16 |
+| `src/resolver/lookup_failover_test.zig` |  | `rcode_unknown` u16, `millisecond` u64 |
+| `src/resolver/lookup_latency_test.zig` |  | `millisecond` u64, `second` u64, `slowed_ns` u64, `never_ns` u64 |
+| `src/resolver/lookup_negative_test.zig` |  | `short_ttl_seconds` u32, `soa_ttl_seconds` u32, `answer_ttl_seconds` u32, `alias_ttl_seconds` u32 |
+| `src/resolver/lookup_policy.zig` |  | `millisecond` u64 |
+| `src/resolver/lookup_recall.zig` |  | `mx_count` usize |
+| `src/resolver/servers_latency.zig` |  | `since_built` usize, `millisecond` u64, `second` u64 |
+| `src/resolver/table_keys.zig` |  | `key_count` usize |
+| `src/sim/fixtures.zig` |  | `operations` usize, `group_id` u16, `group_buffers` usize, `buffer_bytes` usize, `receive_tag` u64, `send_tag` u64, `timer_tag` u64, `connect_tag` u64, `filler_tag` u64, `stall_wait_ns` u64, `query_id` u16, `stream_query_id` u16, `trace_sends` usize, `trace_wait_ns` u64, `trace_delay_ns_min` u64, `trace_delay_ns_max` u64, `trace_drop_per_256` usize, `server_query_id` u16, `client_cookie_fill` u8, `echo_deadline_ns` u64, `echo_delay_ns` u64 |
+| `src/sim/sim_loop_perform.zig` | `frames_per_send_max` to `src/sim/limits.zig` |  |
+| `src/sim/sim_network.zig` | `socket_buffer_bytes_max` to `src/sim/limits.zig` |  |
+| `src/sim/sim_quic_stream.zig` | `frame_bytes_max` to `quic_frame_bytes_max` of `src/sim/limits.zig` |  |
+| `src/sim/sim_types.zig` |  | `ipv4_bytes` usize, `ipv6_bytes` usize, `metadata_bytes` usize, `addresses` usize, `described_bytes` usize, `reserved_bytes` usize |
+| `src/wire/edns.zig` |  | `version_supported` u8, `flag_dnssec_ok` u16, `extended_rcode_shift` u5, `version_shift` u5, `flags_mask` u32, `extended_rcode_mask` u32 |
+| `src/wire/fixtures.zig` |  | `id` u16, `answer_offset` usize, `padding_bytes` usize, `extended_error_code` u16 |
+| `src/wire/fuzz/fuzz.zig` | `seed_count` to `fuzz_seed_count` of `src/wire/limits.zig` |  |
+| `src/wire/fuzz/fuzz_check.zig` | `decode_offsets_max` to `fuzz_decode_offsets_max` of `src/wire/limits.zig`; `question_message_bytes_max` to `fuzz_question_message_bytes_max` of `src/wire/limits.zig` |  |
+| `src/wire/fuzz/fuzz_generate.zig` | `message_bytes_min` to `fuzz_message_bytes_min` of `src/wire/limits.zig`; `long_message_bytes_min` to `fuzz_long_message_bytes_min` of `src/wire/limits.zig` | `long_tail_bytes` usize |
+| `src/wire/fuzz/fuzz_generate_records.zig` |  | `letters` usize |
+| `src/wire/name_case.zig` | `boundary_label_bytes_max` to `case_boundary_label_bytes_max` of `src/wire/limits.zig` |  |
+| `src/wire/question.zig` |  | `case_seed_none` u64, `long_message_bytes` usize, `last_letter_from_end` usize |
+| `src/wire/record.zig` |  | `answer_a_rdlength_at` usize |
+| `src/wire/response_answers.zig` |  | `ttl_none` u32 |
+
+### The rows rewritten for the move
+
+A row of `tools/mutations/` edits a text that must occur once in its file. The move changed the text
+of 106 rows: a limit's path in a use site, a limit's file, or a type on a constant. Each row got the
+same change as the tree, so it breaks the same check as before.
+
+- `lookup.zon`, 64 rows: TT2, DT14, DT15, DT18, DT21, DT22, QO5, QO20, QO21, NW10, NW11, CZ1 to CZ5,
+  CZ7, CZ8, CZ29, CZ30, TY1 to TY10, TY15, TY20 to TY26, TY29 to TY31, SB19 to SB23, LM1, LM2, LM6
+  to LM13, LM17, LM18, LM22, LM23, LM27, LM64, LM65 and NS2.
+- `engine.zon`, 42 rows: E6, ET12, ET13, QO10, TY32, TY35, SB1 to SB3, SB7 to SB12, SB16 to SB18,
+  SB24, LM31, LM39 to LM44, LM47, LM50 to LM52, LM60, LM61, LM67, LM68, PL3 to PL7, DS1, CB14 and
+  CB15.
+- `address.zon` and `lean.zon`: no row changed.
+
+The rows of the typed-constants rule edit `typed_constants_shape.zig` where the shape of a value
+moved there. Three rows read the scope that changed, and got a new edit of the new code. TY15 now
+narrows the rule to the constants files. TY25 and TY26 now break the test that takes a piece of a
+split limits file for a limits file. Each still breaks one test of `zig build test-tools`.
+
+### What ran
+
+- `zig build mutations -- lookup` over the 64 rewritten rows and the 14 new rows ran each to its
+  end. 77 were `CAUGHT` at the first run. LF3 did not compile, since its first edit left a local
+  that nothing read. Its edit now makes the check false, and `zig build mutations -- lookup LF3` ran
+  it again: `CAUGHT`.
+- `zig build mutations -- engine` over the 42 rewritten rows ran each to its end. Each is
+  `CAUGHT`. E6 is caught by the short walks, at walk 21, so no full run of TLC was needed. The
+  other 41 are caught by their build steps.
+- No row of `address.zon` or `lean.zon` changed, so neither set ran. No model file changed, so
+  TLC and the Lean proofs did not run.
+- Before the mutations, `zig build test` passed over the moved tree.
+
+### The instruction counts
+
+`bench/count.zig` counts the codec, the table and the cache. This change moves names and adds types,
+and changes no value and no code path. Each constant that got a type in a counted path meets a value
+of that type there. `root_label` meets an octet of a name, a shift of `mix.zig` a `u64`, and a mask
+of `edns.zig` a TTL of 32 bits. So no count can move, and `bench/instructions.zon` did not change.
+`zig build instructions` needs valgrind, which this Mac does not have, so CI's Linux job reads the
+counts.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| LF1 | the rule takes no name for a limit's | a name that ends in `_max`, `_min` or `_limit` names a limit | the test of a limit in a constants file and in another file, `zig build test-tools` | CAUGHT |
+| LF2 | the rule takes `_min` for no ending of a limit's name | a least is a limit | the test of a limit in a constants file: `port_ephemeral_min` goes unreported, `zig build test-tools` | CAUGHT |
+| LF3 | the rule takes an alias for a limit of its own | an alias keeps a public path, and is no limit | the test of an alias in a constants file, `zig build test-tools` | CAUGHT |
+| LF4 | the rule reads the place of the limits in a limits file | a limits file is where a limit belongs | the test of a limit in a limits file, `zig build test-tools` | CAUGHT |
+| LF5 | the rule reads the place of the limits in a test file | a test's bound is the test's own (design §17 question 77) | the test of a test file and the fixtures, `zig build test-tools` | CAUGHT |
+| LF6 | the rule reads the place of the limits in the fixtures | the fixtures keep their numbers | the test of a test file and the fixtures, `zig build test-tools` | CAUGHT |
+| LF7 | the rule reads the place of no limit | the place check runs over each file that is no limits file | the test of a limit in a constants file and in another file, `zig build test-tools` | CAUGHT |
+| LF8 | magic-numbers reads the limits files | a limit's number is named in its limits file | the test of the files the rule exempts, `zig build test-tools` | CAUGHT |
+| LF9 | the canary holds no limit in a constants file | the lint reports a limit in a constants file | the canary run, which looks for `const canary_bytes_max is a limit`, `zig build lint` | CAUGHT |
+| LF10 | the canary holds no limit outside a limits file | the lint reports a limit in another file | the canary run, which looks for `const canary_slots_max is a limit`, `zig build lint` | CAUGHT |
+| LF11 | `records_max` is named in `src/core/constants.zig` again | no limit lives in a constants file | the lint over the tree, `zig build lint` | CAUGHT |
+| LF12 | `sim_loop_perform.zig` names a `frames_per_send_max` of its own | no limit lives outside a limits file | the lint over the tree, `zig build lint` | CAUGHT |
+| LF13 | `shift_first` of `mix.zig` loses its type | each integer constant outside the constants files has a type | the lint over the tree, `zig build lint` | CAUGHT |
+| LF14 | `records_max` is a call that gives a `comptime_int`, which the lint rule does not read | each limits file holds the test of the types | the test of `src/core/limits.zig`, which names `records_max`, `zig build test-core` | CAUGHT |
+| LF15 | unbounded-loop takes the segment `constants` for a limit again | a chain through `limits` names a limit, and a chain through `constants` does not | the test of a loop bounded by `limits.tcp_chunk_bytes` and the test of a loop bounded by `constants.header_bytes`, `zig build test-tools` | CAUGHT |
+| LF16 | unbounded-loop takes no segment for a limit, only the suffix `_max` | a limit with no suffix bounds a loop | the test of a loop bounded by `limits.tcp_chunk_bytes`, `zig build test-tools` | CAUGHT |
+| LF17 | unbounded-loop sends the author to a constants file for a limit | the finding names `limits.zig` as the place of the bound | the test of a loop bounded by `constants.header_bytes`, `zig build test-tools` | CAUGHT |
+| LF18 | typed-constants takes a stem that holds `limits` inside a word for a limits file | a limits file has the word `limits` between the underscores of its stem | the test of the pieces of a split limits file, which refuses `io_delimits.zig`, `zig build test-tools` | CAUGHT |
+
+Each rewritten row of `lookup.zon` and `engine.zon` is `CAUGHT` (What ran, above).
+
+Eighteen mutations, eighteen `CAUGHT`.
+
+### After the review
+
+A review of the change found five things. The fixes:
+
+- The rule `unbounded-loop` took a chain through `constants` for a limit, and its finding named
+  `constants.zig`. It takes a chain through `limits` now, and its finding names `limits.zig`. Two
+  new tests pin it. The tree passes the rule as before.
+- A doc comment of a group that the move split was in both files. Each copy now describes only the
+  constants of its own file. This holds for eleven groups in seven pairs of files.
+- The typed-constants rule took any stem that holds `limits` for a limits file, `io_delimits.zig`
+  too. It takes a stem with the word `limits` between its underscores now.
+- `zig build consumer-check` builds one old path of each root again:
+  `cocuyo.constants.query_bytes_max` and `cocuyo_rotor.constants.buffer_bytes`.
+- The four constants at the border of a class go to the owner as design §17 question 79. The gaps
+  of the place check stay as design §16 decision 56 states them, under questions 77 and 78.
+
+TY25 edited the old test of a limits file's name, so it got a new edit: the rule takes a stem that
+ends in `limits` alone. `zig build mutations -- lookup LF15 LF16 LF17 LF18 TY25` ran each to its
+end, and each is `CAUGHT` by `zig build test-tools`.

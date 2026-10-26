@@ -1045,5 +1045,5 @@ compares the walk's whole state after each.
   `tools/mutations/engine.zon` says, and names the full run's first walk that catches each
   mutation the short walks miss.
 
-The `8` is `cname_hops_max` of `src/core/constants.zig`. The transcript records it, and the replay
+The `8` is `cname_hops_max` of `src/core/limits.zig`. The transcript records it, and the replay
 refuses a transcript written for another.

@@ -16,9 +16,9 @@
 //! forbids under `src/` already, so dropping it loses no coverage.
 //!
 //! `std.time` is flagged whole, its unit constants included: `std.time.ns_per_s` reads no clock,
-//! but a duration cocuyo uses is a named limit in a module's `constants.zig` (non-negotiable 5),
-//! and that file spells the duration out as a literal with the arithmetic in its doc comment. The
-//! magic-numbers rule exempts `constants.zig` for exactly that reason.
+//! but a duration cocuyo uses is named in a module's `limits.zig` or `constants.zig`
+//! (non-negotiable 5), and that file spells the duration out as a literal with the arithmetic in
+//! its doc comment. The magic-numbers rule exempts both files for exactly that reason.
 //!
 //! What the rule cannot see: a clock reached through a parameter, `now_ns`. That is the shape
 //! cocuyo wants, and the rule cannot tell it from any other caller-supplied integer. It reads what

@@ -88,7 +88,7 @@ fn slot_of(slots: anytype, stream_id: u64) ?*std.meta.Elem(@TypeOf(slots)) {
 /// A new stream carrying `bytes`, then FIN (RFC 9250 §4.2). Null when every slot is taken, or the
 /// server's stream credit or colibri's table has no room for one yet.
 fn open_stream(slots: anytype, connection: *quic.Connection, bytes: []const u8) error{Failed}!?u64 {
-    assert(bytes.len <= cocuyo.constants.query_bytes_max);
+    assert(bytes.len <= cocuyo.limits.query_bytes_max);
     const slot = for (slots) |*slot| {
         if (!slot.live) break slot;
     } else return null;

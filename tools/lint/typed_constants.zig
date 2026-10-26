@@ -1,19 +1,16 @@
-//! typed-constants: every integer constant of a constants file carries a type (docs/design.md §16
-//! decision 40). An integer constant with no type is a `comptime_int`. When it meets a runtime
+//! typed-constants: every integer constant of `src/` and `io/` carries a type, and every limit
+//! lives in a limits file (docs/design.md §16 decisions 40 and 56).
+//!
+//! The type. An integer constant with no type is a `comptime_int`. When it meets a runtime
 //! integer, the sum takes the runtime integer's type. So `header_bytes + name.len` was a sum in
 //! the octet that holds a name's length, and it overflowed from a name of 244 octets
 //! (docs/mutations.md, Sums at the most their operands reach). A constant of type `usize` makes
 //! that sum a `usize`.
 //!
-//! The rule reads each constants file of `src/` and `io/`: a Zig file whose name holds
-//! `constants`, or a Zig file under a directory named `constants`. So it reads the pieces that
-//! CLAUDE.md's split rule makes of a constants file: `constants_<piece>.zig`, and
-//! `constants/<piece>.zig` once four pieces move into a directory.
-//!
-//! The rule reads each `const` that is a member of a container: the file's top level, or a
-//! `struct`, `union`, `enum` or `opaque` in it. It reports such a `const` when its type is
-//! `comptime_int`. It also reports it when it has no type and its value is integer-shaped. These
-//! values are integer-shaped:
+//! The rule reads each Zig file of `src/` and `io/`. It reads each `const` that is a member of a
+//! container: the file's top level, or a `struct`, `union`, `enum` or `opaque` in it. It reports
+//! such a `const` when its type is `comptime_int`. It also reports it when it has no type and its
+//! value is integer-shaped (`typed_constants_shape.zig`). These values are integer-shaped:
 //!
 //! - an integer literal or a character literal;
 //! - an arithmetic, bitwise or shift operator, whatever its operands are;
@@ -28,12 +25,24 @@
 //! The rule does not report an identifier or a field access. That is an alias, and it has the type
 //! of what it names. It does not report another call, which has its return type, or `@as` of
 //! another type. It does not read an `orelse`, a `catch` or an index into a tuple. It does not read
-//! the constants of a function body or of a `comptime` block. The test in each constants file reads
-//! the types of its public constants, and it catches what this rule cannot see: an alias of a
-//! constant with no type, or a call that gives a `comptime_int` (docs/design.md §16 decision 40).
+//! the constants of a function body or of a `comptime` block. The test in each constants file and
+//! limits file reads the types of its public constants, and it catches what this rule cannot see:
+//! an alias of a constant with no type, or a call that gives a `comptime_int`.
 //!
 //! The rule cannot see a sum of two narrow runtime values with no constant in it. The type of the
 //! sum is the type of its operands, and no constant is there to widen it.
+//!
+//! The place. A limit is a bound the code holds or checks. Its name ends in `_max`, `_min` or
+//! `_limit`, and it lives in a limits file: a Zig file whose stem has the word `limits` between
+//! its underscores, or a Zig file under a directory named `limits`. So the rule reports a `const` at the top level of any other
+//! file of `src/` and `io/` when its name ends in one of those suffixes and its value is no alias.
+//! A constants file is such a file: it holds the protocol sizes and the defaults alone. An alias
+//! of a limit is no limit of its own, and it keeps a public path to one.
+//!
+//! The place has three bounds. The rule reads a limit by its name alone, so a limit whose name has
+//! no such suffix passes; docs/mutations.md lists each one by hand. It reads no test file, whose
+//! stem ends in `_test` or holds `_test_`, and no `fixtures.zig`: their bounds are a test's own. It
+//! reads the top level of a file alone: a member of a type is that type's interface.
 //!
 //! The rule is cocuyo's own, and the only rule here that is not pepegrillo's.
 const std = @import("std");
@@ -43,6 +52,7 @@ const pepegrillo = @import("pepegrillo");
 const lint = pepegrillo.lint;
 const ast = lint.ast;
 const report = lint.report;
+const shape = @import("typed_constants_shape.zig");
 
 pub const Config = struct {
     /// The rule name findings are reported under and `--rule` selects.
@@ -51,22 +61,57 @@ pub const Config = struct {
     scope: lint.Scope,
 };
 
-/// The configuration: the Zig files of the library and of the engine, of which `reads_file` takes
-/// the constants files. `bench/` and `tools/` are outside it, since neither is linked into the
-/// library.
+/// The configuration: the Zig files of the library and of the engine. `bench/` and `tools/` are
+/// outside it, since neither is linked into the library.
 pub const config: Config = .{
     .scope = .{ .extensions = &.{".zig"}, .include_directories = &.{ "src", "io" } },
 };
 
-/// The part of a name that makes a file a constants file, or a directory a directory of them.
-const constants_name = "constants";
+/// The part of a name that makes a file a limits file, or a directory a directory of them.
+const limits_name = "limits";
 
-/// Whether the rule reads `path`: a file of the scope whose name holds `constants`, or a file of
-/// the scope under a directory named `constants`.
+/// The endings of a limit's name: a most, a least and a limit.
+const limit_suffixes = [_][]const u8{ "_max", "_min", "_limit" };
+
+/// The stem segment of a test file, and the basename of a module's fixtures.
+const test_segment = "_test";
+const fixtures_basename = "fixtures.zig";
+
+/// Whether the rule reads `path`: a Zig file of the scope.
 fn reads_file(scope: *const lint.Scope, path: []const u8) bool {
-    if (!scope.applies(path)) return false;
-    if (std.mem.indexOf(u8, lint.paths.basename(path), constants_name) != null) return true;
-    return lint.paths.is_under(path, constants_name);
+    return scope.applies(path);
+}
+
+/// Whether `path` is a limits file: a file whose stem has the word `limits` between its
+/// underscores, or a file under a directory named `limits`. So the pieces of a split limits file
+/// are limits files too, and a stem such as `delimits` is not.
+fn is_limits_file(path: []const u8) bool {
+    const basename = lint.paths.basename(path);
+    const stem = basename[0 .. std.mem.lastIndexOfScalar(u8, basename, '.') orelse basename.len];
+    var words = std.mem.splitScalar(u8, stem, '_');
+    while (words.next()) |word| {
+        if (std.mem.eql(u8, word, limits_name)) return true;
+    }
+    return lint.paths.is_under(path, limits_name);
+}
+
+/// Whether the rule reads the place of the limits of `path`: no limits file, no test file and no
+/// fixtures file.
+fn places_limits(path: []const u8) bool {
+    if (is_limits_file(path)) return false;
+    const basename = lint.paths.basename(path);
+    if (std.mem.eql(u8, basename, fixtures_basename)) return false;
+    const stem = basename[0 .. std.mem.lastIndexOfScalar(u8, basename, '.') orelse basename.len];
+    if (std.mem.endsWith(u8, stem, test_segment)) return false;
+    return std.mem.indexOf(u8, stem, test_segment ++ "_") == null;
+}
+
+/// Whether a name ends in one of `limit_suffixes`.
+fn is_limit_name(constant: []const u8) bool {
+    for (limit_suffixes) |suffix| {
+        if (std.mem.endsWith(u8, constant, suffix)) return true;
+    }
+    return false;
 }
 
 const Rule = TypedConstants(config);
@@ -90,6 +135,7 @@ fn TypedConstants(comptime rule_config: Config) type {
                 .name = settings.name,
             };
             visitor.check_members(tree.rootDecls());
+            if (places_limits(file.path)) visitor.check_places(tree.rootDecls());
             if (visitor.failure) |failure| return failure;
         }
     };
@@ -126,7 +172,24 @@ const Visitor = struct {
 
     fn check_declaration(self: *Visitor, declaration: Ast.full.VarDecl) void {
         if (self.tree.tokenTag(declaration.ast.mut_token) != .keyword_const) return;
-        if (!has_no_type(self.tree, declaration)) return;
+        if (!shape.has_no_type(self.tree, declaration)) return;
+        self.report_constant(declaration, "const {s} is an integer with no type: write the type of what it names");
+    }
+
+    /// Each limit at the top level of a file that is no limits file: a `const` whose name ends in
+    /// one of `limit_suffixes` and whose value is no alias.
+    fn check_places(self: *Visitor, members: []const Node.Index) void {
+        for (members) |member| {
+            const declaration = self.tree.fullVarDecl(member) orelse continue;
+            if (self.tree.tokenTag(declaration.ast.mut_token) != .keyword_const) continue;
+            if (!is_limit_name(self.tree.tokenSlice(declaration.ast.mut_token + 1))) continue;
+            const value = declaration.ast.init_node.unwrap() orelse continue;
+            if (is_alias(self.tree, value)) continue;
+            self.report_constant(declaration, "const {s} is a limit: name it in its module's limits.zig");
+        }
+    }
+
+    fn report_constant(self: *Visitor, declaration: Ast.full.VarDecl, comptime format: []const u8) void {
         const name_token = declaration.ast.mut_token + 1;
         const location = ast.token_location(self.tree, name_token);
         self.findings.add(
@@ -134,7 +197,7 @@ const Visitor = struct {
             self.path,
             location.line,
             location.column,
-            "const {s} is an integer with no type: write the type of what it names",
+            format,
             .{self.tree.tokenSlice(name_token)},
         ) catch |failure| {
             self.failure = failure;
@@ -142,125 +205,13 @@ const Visitor = struct {
     }
 };
 
-/// Whether a `const` is a `comptime_int`: its type is written as `comptime_int`, or no type is
-/// written and its value is integer-shaped.
-fn has_no_type(tree: *const Ast, declaration: Ast.full.VarDecl) bool {
-    if (declaration.ast.type_node.unwrap()) |written| return names_comptime_int(tree, written);
-    const value = declaration.ast.init_node.unwrap() orelse return false;
-    return integer_shaped(tree, value, 0);
-}
-
-/// Whether `node` is the identifier `comptime_int`.
-fn names_comptime_int(tree: *const Ast, node: Node.Index) bool {
-    if (tree.nodeTag(node) != .identifier) return false;
-    return std.mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(node)), "comptime_int");
-}
-
-/// The builtins that give a `comptime_int` when their operands are comptime integers.
-const comptime_int_builtins = [_][]const u8{
-    "@sizeOf", "@bitSizeOf", "@alignOf",  "@offsetOf", "@bitOffsetOf",
-    "@min",    "@max",       "@divExact", "@divFloor", "@divTrunc",
-    "@mod",    "@rem",       "@shlExact", "@shrExact", "@abs",
-};
-
-/// The functions of `std.math` that give a `comptime_int`.
-const comptime_int_functions = [_][]const u8{ "maxInt", "minInt" };
-
-/// Whether `node` is a value the compiler holds as a `comptime_int`, by its shape alone.
-fn integer_shaped(tree: *const Ast, node: Node.Index, depth: u32) bool {
-    if (depth > ast.max_tree_depth) return false;
-    return switch (tree.nodeTag(node)) {
-        .number_literal => is_integer_literal(tree, node),
-        .char_literal => true,
-        .negation, .negation_wrap, .bit_not => integer_shaped(tree, tree.nodeData(node).node, depth + 1),
-        .grouped_expression => integer_shaped(tree, tree.nodeData(node).node_and_token[0], depth + 1),
-        .add, .sub, .mul, .div, .mod, .shl, .shr, .bit_and, .bit_or, .bit_xor => true,
-        .add_wrap, .sub_wrap, .mul_wrap, .add_sat, .sub_sat, .mul_sat, .shl_sat => true,
-        .builtin_call_two, .builtin_call_two_comma, .builtin_call, .builtin_call_comma => builtin_shaped(tree, node),
-        .call_one, .call_one_comma, .call, .call_comma => calls_comptime_int(tree, node),
-        .@"if", .if_simple => if_shaped(tree, node, depth),
-        .@"switch", .switch_comma => switch_shaped(tree, node, depth),
-        .block, .block_semicolon, .block_two, .block_two_semicolon => block_shaped(tree, node, depth),
+/// Whether a value is an alias: an identifier or a field access, which names a constant that is
+/// declared elsewhere.
+fn is_alias(tree: *const Ast, value: Node.Index) bool {
+    return switch (tree.nodeTag(value)) {
+        .identifier, .field_access => true,
         else => false,
     };
-}
-
-fn is_integer_literal(tree: *const Ast, node: Node.Index) bool {
-    const literal = tree.tokenSlice(tree.nodeMainToken(node));
-    return switch (std.zig.number_literal.parseNumberLiteral(literal)) {
-        .int, .big_int => true,
-        .float, .failure => false,
-    };
-}
-
-/// Whether a builtin gives a `comptime_int`: one of `comptime_int_builtins`, or `@as` whose type
-/// is `comptime_int`.
-fn builtin_shaped(tree: *const Ast, node: Node.Index) bool {
-    const builtin = tree.tokenSlice(tree.nodeMainToken(node));
-    if (is_any(builtin, &comptime_int_builtins)) return true;
-    if (!std.mem.eql(u8, builtin, "@as")) return false;
-    var buffer: [2]Node.Index = undefined;
-    const parameters = tree.builtinCallParams(&buffer, node).?;
-    return parameters.len != 0 and names_comptime_int(tree, parameters[0]);
-}
-
-/// Whether a prong of a `switch` is integer-shaped: then the `switch` is a `comptime_int` too.
-fn switch_shaped(tree: *const Ast, node: Node.Index, depth: u32) bool {
-    const full = tree.fullSwitch(node).?;
-    for (full.ast.cases) |case| {
-        const prong = tree.fullSwitchCase(case).?;
-        if (integer_shaped(tree, prong.ast.target_expr, depth + 1)) return true;
-    }
-    return false;
-}
-
-/// Whether a `break` in a block gives an integer-shaped value: then a labeled block is a
-/// `comptime_int` too. It reads each `break` in the block, whatever its label.
-fn block_shaped(tree: *const Ast, node: Node.Index, depth: u32) bool {
-    var finder: BreakFinder = .{ .tree = tree, .depth = depth };
-    ast.for_each_child(tree, node, &finder);
-    return finder.found;
-}
-
-/// The walk of a block that looks for a `break` with an integer-shaped value.
-const BreakFinder = struct {
-    tree: *const Ast,
-    depth: u32,
-    found: bool = false,
-
-    pub fn child(self: *BreakFinder, node: Node.Index) void {
-        if (self.found or self.depth > ast.max_tree_depth) return;
-        if (self.tree.nodeTag(node) == .@"break") {
-            const value = self.tree.nodeData(node).opt_token_and_opt_node[1].unwrap() orelse return;
-            self.found = integer_shaped(self.tree, value, self.depth + 1);
-            return;
-        }
-        self.depth += 1;
-        defer self.depth -= 1;
-        ast.for_each_child(self.tree, node, self);
-    }
-};
-
-/// Whether either branch of an `if` is integer-shaped: then the `if` is a `comptime_int` too.
-fn if_shaped(tree: *const Ast, node: Node.Index, depth: u32) bool {
-    const full = tree.fullIf(node).?;
-    if (integer_shaped(tree, full.ast.then_expr, depth + 1)) return true;
-    const otherwise = full.ast.else_expr.unwrap() orelse return false;
-    return integer_shaped(tree, otherwise, depth + 1);
-}
-
-/// Whether a call names `maxInt` or `minInt` last: `std.math.maxInt(u16)` or `math.minInt(i8)`.
-fn calls_comptime_int(tree: *const Ast, node: Node.Index) bool {
-    var buffer: [1]Node.Index = undefined;
-    const call = tree.fullCall(&buffer, node).?;
-    return is_any(tree.tokenSlice(tree.lastToken(call.ast.fn_expr)), &comptime_int_functions);
-}
-
-fn is_any(text: []const u8, names: []const []const u8) bool {
-    for (names) |candidate| {
-        if (std.mem.eql(u8, text, candidate)) return true;
-    }
-    return false;
 }
 
 // Tests. Each fixture pins one shape from the header.
@@ -372,27 +323,86 @@ test "typed-constants passes a typed constant, an alias, a call and every value 
     , &.{});
 }
 
+fn place(comptime constant: []const u8) []const u8 {
+    return "const " ++ constant ++ " is a limit: name it in its module's limits.zig";
+}
+
+test "typed-constants reports a limit in a constants file and in any file that is no limits file" {
+    try expect_findings("src/core/constants.zig",
+        \\pub const header_bytes: usize = 12;
+        \\pub const records_max: usize = 64;
+        \\pub const port_ephemeral_min: u16 = 49152;
+        \\pub const ndots_limit: usize = 15;
+        \\pub const candidates_max: usize = search_max + 1;
+        \\pub const timeout_ns_max_default: u64 = 5_000_000_000;
+        \\
+    , &.{ place("records_max"), place("port_ephemeral_min"), place("ndots_limit"), place("candidates_max") });
+    try expect_findings("io/io_quic_plain.zig",
+        \\const level_bytes_max: usize = 512;
+        \\
+    , &.{place("level_bytes_max")});
+}
+
+test "typed-constants passes a limit in a limits file, an alias of one, and a member of a type" {
+    try expect_findings("src/core/limits.zig",
+        \\pub const records_max: usize = 64;
+        \\
+    , &.{});
+    try expect_findings("io/io_quic_limits.zig",
+        \\pub const params_bytes_max: usize = 256;
+        \\
+    , &.{});
+    try expect_findings("src/core/constants.zig",
+        \\pub const records_max = limits.records_max;
+        \\pub const servers_max = core.limits.servers_max;
+        \\pub fn sweep_steps_max(slot_count: usize) usize {
+        \\    const steps_max: usize = 2;
+        \\    return slot_count * steps_max;
+        \\}
+        \\pub const Transport = struct {
+        \\    pub const output_bytes_max: usize = 0;
+        \\};
+        \\
+    , &.{});
+}
+
+test "typed-constants reads the place of no limit in a test file or in the fixtures" {
+    const source =
+        \\const rounds_max: usize = 64;
+        \\
+    ;
+    try expect_findings("io/io_quic_test.zig", source, &.{});
+    try expect_findings("io/io_tcp_test_rig.zig", source, &.{});
+    try expect_findings("src/wire/fixtures.zig", source, &.{});
+    try expect_findings("io/io_tested.zig", source, &.{place("rounds_max")});
+    try expect_findings("src/wire/fixtures_extra.zig", source, &.{place("rounds_max")});
+}
+
 fn reads(path: []const u8) bool {
     return reads_file(&config.scope, path);
 }
 
-test "typed-constants reads the constants files of src/ and io/, and nothing else" {
+test "typed-constants reads every Zig file of src/ and io/, and nothing else" {
     try testing.expect(reads("src/core/constants.zig"));
-    try testing.expect(reads("src/sim/constants.zig"));
-    try testing.expect(reads("io/constants.zig"));
+    try testing.expect(reads("src/core/limits.zig"));
     try testing.expect(reads("io/io_quic_constants.zig"));
-    try testing.expect(reads("io/io_doh_channel_constants.zig"));
-    try testing.expect(!reads("src/core/name.zig"));
-    try testing.expect(!reads("io/io_quic_plain.zig"));
+    try testing.expect(reads("io/io_quic_limits.zig"));
+    try testing.expect(reads("src/core/name.zig"));
+    try testing.expect(reads("io/io_quic_plain.zig"));
+    try testing.expect(reads("io/io_quic_test.zig"));
     try testing.expect(!reads("bench/end_to_end/constants.zig"));
     try testing.expect(!reads("tools/constants.zig"));
     try testing.expect(!reads("src/core/constants.md"));
 }
 
-test "typed-constants reads the pieces that the split rule makes of a constants file" {
-    try testing.expect(reads("src/core/constants_address.zig"));
-    try testing.expect(reads("src/core/constants/address.zig"));
-    try testing.expect(reads("io/io_doh_channel/constants.zig"));
-    try testing.expect(!reads("src/core/constant.zig"));
-    try testing.expect(!reads("bench/end_to_end/constants/limits.zig"));
+test "typed-constants takes the pieces of a split limits file for limits files, and no other" {
+    try testing.expect(is_limits_file("src/core/limits.zig"));
+    try testing.expect(is_limits_file("src/core/limits_address.zig"));
+    try testing.expect(is_limits_file("io/io_doh_channel_limits.zig"));
+    try testing.expect(is_limits_file("io/io_quic_limits_server.zig"));
+    try testing.expect(is_limits_file("src/core/limits/address.zig"));
+    try testing.expect(!is_limits_file("src/core/constants.zig"));
+    try testing.expect(!is_limits_file("src/core/limit.zig"));
+    try testing.expect(!is_limits_file("io/io_delimits.zig"));
+    try testing.expect(!is_limits_file("src/core/sublimits_check.zig"));
 }

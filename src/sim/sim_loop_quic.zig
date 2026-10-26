@@ -9,6 +9,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 const wire = @import("wire");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const types = @import("sim_types.zig");
 const network_module = @import("sim_network.zig");
 const server = @import("sim_server.zig");
@@ -72,7 +73,7 @@ fn hear_items(loop: *Loop, reply: Reply, script: *const server.Script, bytes: []
     const entry = reply.entry;
     var at: usize = 0;
     var items: usize = 0;
-    while (items < constants.quic_items_per_datagram_max and at < bytes.len) : (items += 1) {
+    while (items < limits.quic_items_per_datagram_max and at < bytes.len) : (items += 1) {
         const read = quic.read_item(bytes[at..]) orelse return;
         at += read.len;
         switch (entry.peer.hear(&script.quic, read.item)) {
@@ -114,7 +115,7 @@ fn answer_request(loop: *Loop, reply: Reply, script: *const server.Script, strea
     const prefix = core.constants.tcp_prefix_bytes;
     // A request carries one message after its prefix (RFC 9250 §4.2); the twin answers no other.
     if (bytes.len < prefix or wire.message_len(bytes[0..prefix]) != bytes.len - prefix) return;
-    var message: [constants.quic_datagram_bytes_max]u8 = undefined;
+    var message: [limits.quic_datagram_bytes_max]u8 = undefined;
     const room = message[prefix .. message.len - constants.quic_item_header_bytes];
     const from = quic_address(entry.server);
     const answered = server.respond(script, &from, bytes[prefix..], true, perform.draw(loop), room) orelse return;
@@ -145,8 +146,8 @@ fn malform(script: *const server.Script, message: []u8) void {
 fn queue(reply: Reply, due_ns: u64) ?Out {
     if (reply.connection) |connection| {
         const prefix = quic_stream.prefix_bytes;
-        if (connection.inbound.len - connection.inbound_len < quic_stream.frame_bytes_max) return null;
-        const room = connection.inbound[connection.inbound_len + prefix ..][0..constants.quic_datagram_bytes_max];
+        if (connection.inbound.len - connection.inbound_len < limits.quic_frame_bytes_max) return null;
+        const room = connection.inbound[connection.inbound_len + prefix ..][0..limits.quic_datagram_bytes_max];
         return .{ .bytes = room, .pending = null, .connection = connection, .due_ns = due_ns };
     }
     const pending = network().queue_datagram() orelse return null;
@@ -154,8 +155,8 @@ fn queue(reply: Reply, due_ns: u64) ?Out {
     pending.from = quic_address(reply.entry.server);
     pending.due_ns = due_ns;
     pending.len = 0;
-    assert(pending.bytes.len >= constants.quic_datagram_bytes_max);
-    return .{ .bytes = pending.bytes[0..constants.quic_datagram_bytes_max], .pending = pending, .connection = null, .due_ns = due_ns };
+    assert(pending.bytes.len >= limits.quic_datagram_bytes_max);
+    return .{ .bytes = pending.bytes[0..limits.quic_datagram_bytes_max], .pending = pending, .connection = null, .due_ns = due_ns };
 }
 
 /// `len` octets of items were written into `out`: the datagram holds them, or the frame is

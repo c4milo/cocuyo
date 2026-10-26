@@ -28,6 +28,7 @@ pub const files_block = false;
 pub const supported = true;
 
 pub const constants = @import("constants.zig");
+pub const limits = @import("limits.zig");
 pub const datagram = struct {
     pub const Outbound = types.Outbound;
     pub const Received = types.Received;
@@ -53,6 +54,7 @@ pub const server = @import("sim_server.zig");
 pub const Network = network.Network;
 
 test {
+    _ = limits;
     _ = types;
     _ = loop_module;
     _ = network;

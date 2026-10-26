@@ -50,10 +50,10 @@ pub const servers_three = [_]Server{
 
 /// A port that is not 53, for the check that a reply from the right host on the wrong port is not
 /// a reply (RFC 5452 §4.5).
-pub const port_other = 5353;
+pub const port_other: u16 = 5353;
 
 /// The seed the tests start their lookups with.
-pub const seed = 0x5eed_5eed;
+pub const seed: u64 = 0x5eed_5eed;
 
 /// An A record owned by whatever the question named: 192.0.2.1, TTL 300. The owner is the
 /// compression pointer every real server sends (RFC 1035 §4.1.4). This record and the six others
@@ -167,7 +167,7 @@ pub const server_cookie_fresh = [_]u8{0xf0} ++ [_]u8{0xff} ** 15;
 const cookie_client_wrong = [_]u8{ 0xba, 0xdc, 0x00, 0xc1, 0xe0, 0x00, 0x00, 0x01 };
 
 /// The life a remembered answer has left: enough to spare that nothing expires while a test runs.
-pub const cached_ttl_seconds = 300;
+pub const cached_ttl_seconds: u32 = 300;
 
 /// Answers as a memory above the table hands them back: one A record, for the address `text`
 /// (docs/design.md §20).
@@ -182,13 +182,13 @@ pub const answer_aaaa: Reply = .{ .records = &record_aaaa, .ancount = 1 };
 
 /// The most polls an address lookup's test drives before it gives up, and the jump that makes a
 /// lookup time out on the fake server, which never answers on its own.
-pub const address_polls_max = 64;
-pub const address_timeout_jump_ns = 60 * 1_000_000_000;
+pub const address_polls_max: usize = 64;
+pub const address_timeout_jump_ns: u64 = 60 * 1_000_000_000;
 
 /// The search list the address lookup's rig configures, and the slots a walk may hold at most:
 /// one per family (docs/design.md §19 step 14).
-pub const address_search_entries = 2;
-pub const address_slots_per_walk = 2;
+pub const address_search_entries: usize = 2;
+pub const address_slots_per_walk: usize = 2;
 
 /// The A record with the client cookie echoed and a server cookie learned.
 pub const answer_a_cookie: Reply = .{ .records = &record_a, .ancount = 1, .cookie = .echo, .server_cookie = &server_cookie };
@@ -217,7 +217,7 @@ pub const answer_mx: Reply = .{ .records = &record_mx, .ancount = 1 };
 /// A private-use type (RFC 6895 §3.1), which cocuyo will never name, and a record of it owned by
 /// the question, TTL 300, whose rdata begins with what would be a compression pointer in a type
 /// cocuyo reads.
-pub const private_type = 0xFF00;
+pub const private_type: u16 = 0xFF00;
 pub const private_rdata = [_]u8{ 0xc0, 0x0c, 0x01, 0x02 };
 pub const answer_private: Reply = .{ .records = &([_]u8{ 0xc0, 0x0c, 0xff, 0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x04 } ++ private_rdata), .ancount = 1 };
 
@@ -278,8 +278,8 @@ pub const server_failure: Reply = .{ .rcode = .server_failure };
 pub const format_error: Reply = .{ .rcode = .format_error };
 
 /// How many slots and keys the table tests use.
-pub const slot_count = 4;
-pub const key_count = 16;
+pub const slot_count: usize = 4;
+pub const key_count: usize = 16;
 
 /// A lookup, the buffers a caller provides, and the fake server that answers it.
 ///
@@ -293,7 +293,7 @@ pub const Harness = struct {
     /// learned, which is how the state shared across lookups is tested.
     servers_ready: bool = false,
     lookup: Lookup = undefined,
-    query: [core.constants.query_bytes_max]u8 = @splat(0),
+    query: [core.limits.query_bytes_max]u8 = @splat(0),
     query_bytes: usize = 0,
     /// Where the message starts inside `query`: zero over UDP, and past the length prefix over
     /// TCP (RFC 7766 §8).
@@ -435,7 +435,7 @@ pub const Table = struct {
     slots: [slot_count]Slot = @splat(.{}),
     keys: [key_count]MatchKey = @splat(.{}),
     resolver: Resolver = undefined,
-    out: [core.constants.query_bytes_max]u8 = @splat(0),
+    out: [core.limits.query_bytes_max]u8 = @splat(0),
     reply: [core.constants.udp_payload_bytes_default]u8 = @splat(0),
     now_ns: u64 = 0,
 

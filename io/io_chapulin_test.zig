@@ -12,15 +12,15 @@ const testing = std.testing;
 
 /// A handshake record's content type, and an alert's, and an alert's fatal level (RFC 9846 §5.1,
 /// §6).
-const content_handshake = 22;
-const content_alert = 21;
-const alert_fatal = 2;
+const content_handshake: u8 = 22;
+const content_alert: u8 = 21;
+const alert_fatal: u8 = 2;
 
 /// The wall clock the tests' contexts are made at.
-const test_seconds = 1_700_000_000;
+const test_seconds: u64 = 1_700_000_000;
 
 /// The octet a test's stream is seeded with when the test does not read what the stream gives.
-const test_seed_octet = 7;
+const test_seed_octet: u8 = 7;
 
 /// What a test states of the CPU when it names nothing: no answer of the probe, and no timing
 /// mode. A consumer that cannot state its thread's mode passes it (docs/design.md §16 decision 48).
@@ -48,7 +48,7 @@ fn test_context_with(cpu: Session.Cpu, anchors: []const tls.Anchor, seed_octet: 
 }
 
 /// The octets of the pin the tests' servers are known by, which no key hashes to.
-const pin_octet = 0xab;
+const pin_octet: u8 = 0xab;
 
 /// A session, which is too large for a test's stack, started as the engine starts one.
 fn started(server: *const cocuyo.Tls, context: *Session.Context) !*Session {
@@ -122,9 +122,9 @@ test "the hello is drawn from the context's stream: the same seed makes the same
 
 /// Where a ClientHello's cipher_suites start (RFC 9846 §4, §4.2.2): after the message's type and
 /// length, the legacy_version, the random, and the legacy_session_id's length octet and its body.
-const message_header_bytes = 4;
-const legacy_version_bytes = 2;
-const random_bytes = 32;
+const message_header_bytes: usize = 4;
+const legacy_version_bytes: usize = 2;
+const random_bytes: usize = 32;
 /// TLS_AES_128_GCM_SHA256 {0x13,0x01}, TLS_AES_256_GCM_SHA384 {0x13,0x02} and
 /// TLS_CHACHA20_POLY1305_SHA256 {0x13,0x03} (RFC 9846 Appendix B.4).
 const aes_128_gcm_sha256: u16 = 0x1301;
@@ -210,7 +210,7 @@ test "a server known by pins alone gets no anchors, though the context carries t
     // which chapulin would refuse with no name to check a chain against.
     const context = test_context(&anchors_test, test_seed_octet);
     const pins = [_]cocuyo.Pin{@splat(pin_octet)};
-    var hostname: [cocuyo.constants.name_text_bytes_max]u8 = undefined;
+    var hostname: [cocuyo.limits.name_text_bytes_max]u8 = undefined;
     const trust = Session.trust(&.{ .pins = &pins }, &context, &hostname);
     try testing.expect(trust == .pins);
     try testing.expectEqual(pins.len, trust.pins.pins.len);
@@ -219,7 +219,7 @@ test "a server known by pins alone gets no anchors, though the context carries t
 
 test "a named server is checked against the anchors and its name, on the context's clock" {
     const context = test_context(&anchors_test, test_seed_octet);
-    var hostname: [cocuyo.constants.name_text_bytes_max]u8 = undefined;
+    var hostname: [cocuyo.limits.name_text_bytes_max]u8 = undefined;
     const trust = Session.trust(&.{ .name = try cocuyo.Name.from_text("dns.example.") }, &context, &hostname);
     try testing.expect(trust == .web_pki);
     try testing.expectEqual(anchors_test.len, trust.web_pki.anchors.len);
@@ -231,7 +231,7 @@ test "a named server is checked against the anchors and its name, on the context
 test "a named server with no anchors to check is judged by its pins, and its name still sent" {
     const context = test_context(&.{}, test_seed_octet);
     const pins = [_]cocuyo.Pin{@splat(pin_octet)};
-    var hostname: [cocuyo.constants.name_text_bytes_max]u8 = undefined;
+    var hostname: [cocuyo.limits.name_text_bytes_max]u8 = undefined;
     const trust = Session.trust(&.{ .name = try cocuyo.Name.from_text("dns.example."), .pins = &pins }, &context, &hostname);
     try testing.expect(trust == .pins);
     try testing.expectEqual(pins.len, trust.pins.pins.len);
@@ -273,8 +273,8 @@ test "chapulin starts a session for a server of four pins, the most a configurat
     // `spki_pins_max` is chapulin's own bound as well (docs/design.md §21). A server of four pins
     // starts. Five pins, which no valid configuration names, are refused at the start.
     var context = test_context(&.{}, test_seed_octet);
-    const pins: [cocuyo.constants.spki_pins_max + 1]cocuyo.Pin = @splat(@splat(pin_octet));
-    const most = try started(&.{ .pins = pins[0..cocuyo.constants.spki_pins_max] }, &context);
+    const pins: [cocuyo.limits.spki_pins_max + 1]cocuyo.Pin = @splat(@splat(pin_octet));
+    const most = try started(&.{ .pins = pins[0..cocuyo.limits.spki_pins_max] }, &context);
     finish(most);
     try testing.expectError(Session.Error.Failed, started(&.{ .pins = &pins }, &context));
 }

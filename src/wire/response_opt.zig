@@ -66,7 +66,7 @@ test "an OPT owned by a name is malformed" {
 }
 
 /// A label of 63 octets, the longest, after its length octet.
-const label_longest = [_]u8{core.constants.label_bytes_max} ++ [_]u8{'a'} ** core.constants.label_bytes_max;
+const label_longest = [_]u8{core.limits.label_bytes_max} ++ [_]u8{'a'} ** core.limits.label_bytes_max;
 
 /// `fixtures.answer_a_with_opt` with `labels` put before the A record's owner. That owner was a
 /// pointer to the question's name, 13 octets, so it is now `labels` and those 13.

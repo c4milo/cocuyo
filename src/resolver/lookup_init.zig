@@ -11,8 +11,8 @@ const Servers = @import("servers.zig").Servers;
 const entropy_module = @import("entropy.zig");
 
 /// The order before the first poll computes one: the configured order.
-const identity_order: [core.constants.servers_max]u8 = blk: {
-    var order: [core.constants.servers_max]u8 = undefined;
+const identity_order: [core.limits.servers_max]u8 = blk: {
+    var order: [core.limits.servers_max]u8 = undefined;
     for (&order, 0..) |*slot, index| slot.* = @intCast(index);
     break :blk order;
 };

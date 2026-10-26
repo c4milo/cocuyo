@@ -13,17 +13,17 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 /// The golden-ratio increment: 2^64 divided by the golden ratio, rounded to an odd integer.
-const increment = 0x9e3779b97f4a7c15;
+const increment: u64 = 0x9e3779b97f4a7c15;
 
 /// SplitMix64's two multipliers and three shifts.
-const multiplier_first = 0xbf58476d1ce4e5b9;
-const multiplier_second = 0x94d049bb133111eb;
-const shift_first = 30;
-const shift_second = 27;
-const shift_final = 31;
+const multiplier_first: u64 = 0xbf58476d1ce4e5b9;
+const multiplier_second: u64 = 0x94d049bb133111eb;
+const shift_first: u6 = 30;
+const shift_second: u6 = 27;
+const shift_final: u6 = 31;
 
 /// The bits one word holds, which is how many one-bit decisions a word can answer.
-pub const word_bits = @bitSizeOf(u64);
+pub const word_bits: usize = @bitSizeOf(u64);
 
 /// The next word after `word`. Wrapping arithmetic throughout: the mix is defined modulo 2^64.
 pub fn next(word: u64) u64 {

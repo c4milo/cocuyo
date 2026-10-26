@@ -45,9 +45,11 @@ The architecture depends on every rule in this section.
    from a generator seeded by the caller's `u64`, which must come from a CSPRNG and never from the
    clock. `tools/lint/determinism.zig` enforces that nothing in `src/` reads a clock or a global
    random source.
-5. **Every limit is named** in a `constants.zig` with a doc comment saying why that number, and
-   never written at the use site. Every loop and every queue is bounded.
-   `tools/lint/magic_numbers.zig` and `tools/lint/unbounded_loop.zig` enforce it.
+5. **Every limit is named** in its module's `limits.zig` with a doc comment saying why that
+   number, and never written at the use site. A limit is a bound the code holds or checks. The
+   module's `constants.zig` holds the protocol sizes and the defaults, and every other constant has
+   a type where it is. Every loop and every queue is bounded. `tools/lint/magic_numbers.zig`,
+   `tools/lint/typed_constants.zig` and `tools/lint/unbounded_loop.zig` enforce it.
 6. **A bound is a check and an assertion both.** They are different claims: the check says the
    input was hostile and returns an error, the assertion says the code that already rejected the
    hostile input did its job. Every length is checked against the end of the message before the
@@ -144,7 +146,9 @@ The architecture depends on every rule in this section.
   under the engine's DoH interface, whose `client` and `tls` imports a consumer that speaks DoH
   binds to colibri's (design §16 decision 33). Its tests run colibri's server under the TLS
   identity in `io/testdata/`, a test's own, valid from 2026 to 2126.
-- Each module owns its `constants.zig`. A limit two modules share lives in `src/core/constants.zig`.
+- Each module owns its `limits.zig` and its `constants.zig`. A limit two modules share lives in
+  `src/core/limits.zig`, and a protocol size or a default two modules share in
+  `src/core/constants.zig`.
 - `examples/` holds worked examples, `bench/` the microbenchmarks, `docs/` the design set, and
   `tools/` developer tooling that is never linked into the library. `test/` holds fixtures that
   are whole packages of their own rather than files of this one: `test/consumer/` depends on

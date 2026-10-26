@@ -30,14 +30,23 @@ const canary_rules = [_][]const u8{
     "typed-constants",
 };
 
+/// The findings the canary must see beside each rule's name, where one rule checks two things: the
+/// typed-constants rule reports a limit in a constants file and a limit in any other file that is
+/// no limits file (docs/design.md §16 decision 56).
+const canary_messages = [_][]const u8{
+    "const canary_bytes_max is a limit",
+    "const canary_slots_max is a limit",
+};
+
 /// The most lines a hand-written file may hold (tools/lint/file_length.zig).
 const file_length_max_lines = 500;
 
-/// One violation of each Zig rule under `src/` but typed-constants, which reads constants files
-/// alone, then enough comment lines to pass the file-length limit.
+/// One violation of each Zig rule under `src/`, a limit outside a limits file among them, then
+/// enough comment lines to pass the file-length limit.
 const canary_source =
     \\const std = @import("std");
     \\const other = @import("/canary/other.zig");
+    \\const canary_slots_max: usize = 4;
     \\var shared: u32 = 0;
     \\pub fn canary(allocator: std.mem.Allocator) !void {
     \\    _ = allocator;
@@ -63,10 +72,11 @@ const canary_source =
     \\
 ++ "//\n" ** file_length_max_lines;
 
-/// A constants file whose one integer constant has no type, which the typed-constants rule
-/// refuses. The magic-numbers rule reads no file of this name.
+/// A constants file with an integer constant that has no type and a limit, each of which the
+/// typed-constants rule refuses. The magic-numbers rule reads no file of this name.
 const canary_constants =
     \\pub const canary_bytes = 4;
+    \\pub const canary_bytes_max: usize = 4;
     \\
 ;
 
@@ -116,6 +126,7 @@ pub fn add(b: *std.Build, options: Options) *std.Build.Step {
     for (canary_rules) |rule| {
         canary_run.addCheck(.{ .expect_stdout_match = b.fmt("[{s}]", .{rule}) });
     }
+    for (canary_messages) |message| canary_run.addCheck(.{ .expect_stdout_match = message });
     canary_run.step.dependOn(&tree_run.step);
 
     // Neither the score nor the rules can see a directory they were never handed, so the tracked

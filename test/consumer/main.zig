@@ -7,6 +7,12 @@
 const std = @import("std");
 const cocuyo = @import("cocuyo");
 
+// The path a consumer reached this limit by before it moved into a limits file (docs/design.md §16
+// decision 56). It stays an alias until the owner rules (§17 question 76), so this check builds it.
+comptime {
+    std.debug.assert(cocuyo.constants.query_bytes_max == cocuyo.limits.query_bytes_max);
+}
+
 /// Small on purpose: this proves the package, not the library.
 const lookups = 2;
 const keys_per_lookup = 4;
@@ -29,7 +35,7 @@ pub fn main() !void {
     table.remember_with(cocuyo.remembered_by(&store));
 
     _ = try table.start(try cocuyo.Question.from_text("example.com.", .a));
-    var query: [cocuyo.constants.query_bytes_max]u8 = undefined;
+    var query: [cocuyo.limits.query_bytes_max]u8 = undefined;
     const event = table.poll(now_ns, &query) orelse return error.NothingToDo;
     if (event.action != .send_udp) return error.NotAQuery;
     std.debug.print(

@@ -11,7 +11,7 @@ const core = @import("core");
 const Answers = @import("response.zig").Answers;
 
 /// The transaction id every fixture here carries.
-pub const id = 0x1234;
+pub const id: u16 = 0x1234;
 
 /// A query header as a server would see it: id 0x1234, recursion desired, one question, and no
 /// other section.
@@ -154,7 +154,7 @@ pub const answer_name_error = [_]u8{ 0x12, 0x34, 0x81, 0x83, 0x00, 0x01, 0x00, 0
 pub const answer_no_data = answer_header(0) ++ question_a;
 
 /// Where the answer section starts in every fixture above: the header and one question.
-pub const answer_offset = core.constants.header_bytes + question_a.len;
+pub const answer_offset: usize = core.constants.header_bytes + question_a.len;
 
 /// A CNAME whose rdlength counts one octet more than the name it holds. The name decodes fine and
 /// stops one octet short of the rdata's end, which leaves an octet a reader would have to guess
@@ -173,8 +173,8 @@ pub const answer_cname_short_rdata = answer_header(1) ++ question_a ++ owner_poi
 
 /// One more A record than a lookup has room for: `addresses_max` is 16, so seventeen records for
 /// one name is what sets `truncated`.
-pub const answer_a_seventeen = answer_header(core.constants.addresses_max + 1) ++ question_a ++
-    (record_a ** (core.constants.addresses_max + 1));
+pub const answer_a_seventeen = answer_header(core.limits.addresses_max + 1) ++ question_a ++
+    (record_a ** (core.limits.addresses_max + 1));
 
 /// An A record whose rdlength counts one octet more than the message holds. The fixture for a
 /// bound that is loose by exactly one, which an rdlength of 400 cannot catch.
@@ -266,7 +266,7 @@ const question_long = [_]u8{63} ++ [_]u8{'a'} ** 63 ++ [_]u8{63} ++ [_]u8{'b'} *
 pub const answer_a_long_name = answer_header(1) ++ question_long ++ record_a;
 
 comptime {
-    if (question_long.len != core.constants.name_bytes_max + core.constants.question_fixed_bytes) {
+    if (question_long.len != core.limits.name_bytes_max + core.constants.question_fixed_bytes) {
         @compileError("the long question is not a maximal name");
     }
     // The SOA's rdlength octets say 33, and the rdata is 33: a fixture whose length field lied
@@ -456,7 +456,7 @@ pub const nsid_text = "ns1.example".*;
 pub const opt_nsid = [_]u8{ 0x00, 0x03, 0x00, nsid_text.len } ++ nsid_text;
 
 /// Padding of a few octets (RFC 7830 §3), and the same option twice, which the RFC refuses.
-pub const padding_bytes = 4;
+pub const padding_bytes: usize = 4;
 pub const opt_padding = [_]u8{ 0x00, 0x0c, 0x00, padding_bytes, 0, 0, 0, 0 };
 pub const opt_padding_twice = opt_padding ++ opt_padding;
 
@@ -473,7 +473,7 @@ pub const opt_client_subnet_long_address = [_]u8{ 0x00, 0x08, 0x00, 0x08, 0x00, 
 pub const opt_client_subnet_stray_bit = [_]u8{ 0x00, 0x08, 0x00, 0x07, 0x00, 0x01, 20, 20, 192, 0, 2 };
 
 /// An extended error with text, one without, and one too short to hold its code (RFC 8914 §2).
-pub const extended_error_code = 22;
+pub const extended_error_code: u16 = 22;
 pub const extended_error_text = "no reachable authority";
 pub const opt_extended_error = [_]u8{ 0x00, 0x0f, 0x00, extended_error_text.len + 2, 0x00, extended_error_code } ++ extended_error_text.*;
 pub const opt_extended_error_bare = [_]u8{ 0x00, 0x0f, 0x00, 0x02, 0x00, extended_error_code };

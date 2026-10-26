@@ -12,6 +12,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 
 const header_bytes = constants.quic_item_header_bytes;
 
@@ -69,8 +70,8 @@ const peer_module = @import("sim_quic_peer.zig");
 /// The client: a connection with the functions the engine asks of one (docs/design.md §24).
 pub const Connection = struct {
     pub const enabled = true;
-    pub const output_bytes_max = constants.quic_datagram_bytes_max;
-    pub const request_bytes_max = core.constants.query_bytes_max;
+    pub const output_bytes_max = limits.quic_datagram_bytes_max;
+    pub const request_bytes_max = core.limits.query_bytes_max;
     pub const Error = error{Failed};
     /// What the engine hands every connection it starts: nothing, for the twin.
     pub const Context = struct {};
@@ -86,7 +87,7 @@ pub const Connection = struct {
 
     state: State = .idle,
     /// The items it has to send, oldest first, and whether it owes the server a datagram.
-    pending: [constants.quic_pending_bytes_max]u8 = undefined,
+    pending: [limits.quic_pending_bytes_max]u8 = undefined,
     pending_len: usize = 0,
     owes: bool = false,
     /// The datagram last received, and how far `next` has read it.
@@ -140,7 +141,7 @@ pub const Connection = struct {
         // A closing connection reads nothing more (docs/design.md §24, request rule 9).
         if (self.state == .closing) return null;
         var items: usize = 0;
-        while (items < constants.quic_items_per_datagram_max) : (items += 1) {
+        while (items < limits.quic_items_per_datagram_max) : (items += 1) {
             if (self.inbound_at >= self.inbound_len) break;
             const read = read_item(self.inbound[self.inbound_at..self.inbound_len]) orelse {
                 self.inbound_at = self.inbound_len;
@@ -194,7 +195,7 @@ pub const Connection = struct {
         assert(len <= bytes.len);
         if (self.refuses_requests) return self.fail();
         const room = self.pending.len - self.pending_len;
-        if (room < header_bytes + len + constants.quic_pending_reserve_bytes) return null;
+        if (room < header_bytes + len + limits.quic_pending_reserve_bytes) return null;
         const stream = self.next_stream;
         self.next_stream += constants.quic_stream_step;
         self.add(.{ .kind = .request, .stream = @intCast(stream), .bytes = bytes[0..len] });
@@ -214,7 +215,7 @@ pub const Connection = struct {
         if (self.pending_len == 0) self.add(.{ .kind = .ack });
         var len: usize = 0;
         var items: usize = 0;
-        while (items < constants.quic_items_per_datagram_max and len < self.pending_len) : (items += 1) {
+        while (items < limits.quic_items_per_datagram_max and len < self.pending_len) : (items += 1) {
             const read = read_item(self.pending[len..self.pending_len]).?;
             if (len + read.len > out.len) break;
             len += read.len;

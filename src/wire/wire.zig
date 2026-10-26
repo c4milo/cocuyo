@@ -5,6 +5,7 @@
 //! Every file here is named for what it reads or writes, without the module's own name repeated:
 //! the directory already says `wire`.
 pub const constants = @import("constants.zig");
+pub const limits = @import("limits.zig");
 pub const integer = @import("integer.zig");
 pub const header = @import("header.zig");
 pub const name = @import("name.zig");
@@ -40,6 +41,7 @@ pub const Outcome = response.Outcome;
 
 test {
     _ = constants;
+    _ = limits;
     _ = integer;
     _ = header;
     _ = name;

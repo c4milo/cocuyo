@@ -14,24 +14,25 @@ const client = @import("client");
 const rig = @import("io_doh_channel_test.zig");
 const raw_module = @import("io_doh_channel_server_raw.zig");
 const constants = rig.constants;
+const limits = rig.limits;
 
 /// The requests a test has in flight: one for each of the pair's answer buffers.
-const requests = 2;
+const requests: usize = 2;
 /// The most that one read takes, as the engine's `hear` takes it. That is an end for each request,
-/// and `channel_events_max` of the channel's own (`io/constants.zig`).
-const events_per_read_max = requests + io.constants.channel_events_max;
+/// and `channel_events_max` of the channel's own (`io/limits.zig`).
+const events_per_read_max: usize = requests + io.limits.channel_events_max;
 
 /// The room for a record of 2^14 octets of plaintext and nothing after it (RFC 9846 §5.2).
-const full_record_bytes = constants.record_plaintext_bytes_max + io.constants.tls_record_overhead_bytes;
+const full_record_bytes: usize = limits.record_plaintext_bytes_max + io.constants.tls_record_overhead_bytes;
 /// The plaintext of a short record after two full ones, in each of two lists, and the room for it.
-const short_plaintext_bytes = 1_000;
-const longer_short_plaintext_bytes = 1_500;
+const short_plaintext_bytes: usize = 1_000;
+const longer_short_plaintext_bytes: usize = 1_500;
 const short_after_full_bytes = [_]usize{
     short_plaintext_bytes + io.constants.tls_record_overhead_bytes,
     longer_short_plaintext_bytes + io.constants.tls_record_overhead_bytes,
 };
 /// The room for a record of 78 octets of plaintext. About twenty such records fill one chunk.
-const short_record_bytes = 100;
+const short_record_bytes: usize = 100;
 
 /// The room that the server writes into, call after call, in each run. Each record is at most as
 /// long as its room. A run takes one list, and starts it again at its end:
@@ -44,9 +45,9 @@ const short_record_bytes = 100;
 ///   the second. It does not fit beside the second in colibri's room, so it opens in a second
 ///   pass of the read.
 const patterns = [_][]const usize{
-    &.{constants.output_bytes_max},
-    &.{constants.engine_chunk_bytes + 1},
-    &.{constants.engine_chunk_bytes - 1},
+    &.{limits.output_bytes_max},
+    &.{limits.engine_chunk_bytes + 1},
+    &.{limits.engine_chunk_bytes - 1},
     &.{short_record_bytes},
     &.{ full_record_bytes, full_record_bytes, short_after_full_bytes[0] },
     &.{ full_record_bytes, full_record_bytes, short_after_full_bytes[1] },
@@ -55,18 +56,18 @@ const patterns = [_][]const usize{
 /// Each answer's length: one that one record holds, one that crosses records, and one past two
 /// DATA frames at their longest (RFC 9113 §4.2). In the last, a frame with no END_STREAM can end
 /// in a full record, and the next frame cannot end there (RFC 9113 §6.1).
-const short_answer_bytes = 2_000;
-const long_answer_bytes = 20_000;
-const longest_answer_bytes = 40_000;
+const short_answer_bytes: usize = 2_000;
+const long_answer_bytes: usize = 20_000;
+const longest_answer_bytes: usize = 40_000;
 const answer_lengths = [_]usize{ short_answer_bytes, long_answer_bytes, longest_answer_bytes };
 /// What the server serves, and so selects: HTTP/2, then HTTP/1.1 (RFC 7301 §3.2).
 const protocols = [_]rig.Versions{ .{ .h11 = false }, .{ .h2 = false } };
 /// The octet the answer is filled with after the query. Test-only.
-const filler = 0x41;
+const filler: u8 = 0x41;
 
 /// The most that the server writes in one round: a DNS message at its longest for each request.
 /// That is more than the answers and their heads.
-const burst_bytes = requests * cocuyo.constants.message_bytes_max;
+const burst_bytes: usize = requests * cocuyo.limits.message_bytes_max;
 
 /// What the test saw over its runs:
 ///
@@ -121,7 +122,7 @@ const Delivery = struct { pattern: []const usize, stray: bool = false };
 
 /// A datagram of zeros for the QUIC link, whose attempt has no handshake: colibri takes it whole
 /// and says nothing of it. Test-only.
-const stray_datagram_bytes = 64;
+const stray_datagram_bytes: usize = 64;
 const stray_datagram: [stray_datagram_bytes]u8 = @splat(0);
 
 /// One chunk to the type, after a stray datagram when `stray` says so, then a read. Every whole
@@ -156,8 +157,8 @@ fn carry(pair: *rig.Pair, answer_length: *usize, delivery: Delivery, burst: []u8
     }
     pair.carried = pair.carried or up > 0 or down > 0;
     var at: usize = 0;
-    while (at < down) : (at += constants.engine_chunk_bytes) {
-        try deliver(pair, burst[at..@min(down, at + constants.engine_chunk_bytes)], delivery.stray, tally);
+    while (at < down) : (at += limits.engine_chunk_bytes) {
+        try deliver(pair, burst[at..@min(down, at + limits.engine_chunk_bytes)], delivery.stray, tally);
     }
 }
 
@@ -217,8 +218,8 @@ test "whole records back to back leave the buffer with the read after each chunk
     // With the chunk, that partial record passed a record at its longest. So the chunk used the
     // room that decision 41 gives it.
     try testing.expect(tally.back_to_back > 0);
-    try testing.expect(tally.most > constants.record_bytes_max);
-    try testing.expect(tally.most <= constants.stream_bytes);
+    try testing.expect(tally.most > limits.record_bytes_max);
+    try testing.expect(tally.most <= limits.stream_bytes);
 }
 
 test "a read hands colibri the stream's whole records after a datagram that it took and said nothing of" {
@@ -245,20 +246,20 @@ comptime {
 }
 /// A head longer than colibri v0.6.0's room held beside a full record, 16,632 octets
 /// (docs/design.md §17 question 52).
-const head_bytes_long = 20_000;
+const head_bytes_long: usize = 20_000;
 /// The plaintext of the first record in the probe of 2026-10-17 (docs/mutations.md, The DoH
 /// channel's stream buffer).
-const first_record_plaintext_bytes = 1_000;
+const first_record_plaintext_bytes: usize = 1_000;
 /// The answer's length, so that the record after the head's long partial part is full.
-const raw_answer_bytes = 20_000;
+const raw_answer_bytes: usize = 20_000;
 
 /// A head's length, and the plaintext lengths of its records, the last again until the end.
 const Case = struct { head_bytes: usize, lengths: []const usize };
 const cases = [_]Case{
     // The probe's shape: after the second record, 17,384 octets of the head wait.
-    .{ .head_bytes = head_bytes_long, .lengths = &.{ first_record_plaintext_bytes, constants.record_plaintext_bytes_max } },
+    .{ .head_bytes = head_bytes_long, .lengths = &.{ first_record_plaintext_bytes, limits.record_plaintext_bytes_max } },
     // The longest head: 32,767 octets of it wait before the full record that ends it.
-    .{ .head_bytes = head_bytes_longest, .lengths = &.{ constants.record_plaintext_bytes_max - 1, constants.record_plaintext_bytes_max } },
+    .{ .head_bytes = head_bytes_longest, .lengths = &.{ limits.record_plaintext_bytes_max - 1, limits.record_plaintext_bytes_max } },
 };
 
 /// The start of each head: a 200, the media type, and a field whose value has whitespace before
@@ -299,8 +300,8 @@ fn carry_raw(pair: *rig.Pair, raw: *raw_module.RawServer, response: RawResponse,
     const down = raw.send(burst);
     pair.carried = pair.carried or up > 0 or down > 0;
     var at: usize = 0;
-    while (at < down) : (at += constants.engine_chunk_bytes) {
-        try deliver(pair, burst[at..@min(down, at + constants.engine_chunk_bytes)], false, tally);
+    while (at < down) : (at += limits.engine_chunk_bytes) {
+        try deliver(pair, burst[at..@min(down, at + limits.engine_chunk_bytes)], false, tally);
     }
 }
 
@@ -343,16 +344,16 @@ test "a head longer than colibri v0.6.0 held beside a record arrives whole over 
         try testing.expectEqual(.h11, pair.doh.connected().?.protocol);
     }
     // A long partial record waited before a chunk, as the records of the head came.
-    try testing.expect(tally.most > constants.record_bytes_max);
+    try testing.expect(tally.most > limits.record_bytes_max);
 }
 
 /// The answers of the trailer test, and its trailer section with the empty line that ends it.
 /// colibri v0.8.0 reads a trailer section of up to 24,576 octets (`h11.constants.trailer_len_max`).
-const trailer_answer_bytes = 10_000;
-const trailer_bytes = 24_000;
+const trailer_answer_bytes: usize = 10_000;
+const trailer_bytes: usize = 24_000;
 /// The octets of the trailer section that wait before the full record after them: more than the
 /// 16,632 that colibri v0.6.0 held beside a full record (docs/design.md §17 question 52).
-const trailer_waiting_bytes = 17_000;
+const trailer_waiting_bytes: usize = 17_000;
 
 /// The first response: a chunked body of one chunk, then a trailer section that whitespace before
 /// a value fills (RFC 9110 §5.5, §6.5). The second response has a head of a usual length.
@@ -397,7 +398,7 @@ test "a trailer section longer than colibri v0.6.0 held beside a record arrives 
     // wait. The second response, pipelined behind it, fills the full record that comes next.
     const burst = try testing.allocator.alloc(u8, burst_bytes);
     defer testing.allocator.free(burst);
-    const plaintext = try testing.allocator.alloc(u8, raw_module.response_bytes_max);
+    const plaintext = try testing.allocator.alloc(u8, limits.server_response_bytes_max);
     defer testing.allocator.free(plaintext);
     const raw = try testing.allocator.create(raw_module.RawServer);
     defer testing.allocator.destroy(raw);
@@ -406,13 +407,13 @@ test "a trailer section longer than colibri v0.6.0 held beside a record arrives 
     defer pair.free();
     try raw.init(rig.identity_seconds, requests);
     const responses = two_responses(plaintext);
-    const record_after_bytes = responses.trailer_at + trailer_waiting_bytes + constants.record_plaintext_bytes_max;
+    const record_after_bytes = responses.trailer_at + trailer_waiting_bytes + limits.record_plaintext_bytes_max;
     try testing.expect(record_after_bytes <= responses.octets.len);
-    const lengths = [_]usize{ responses.trailer_at + trailer_waiting_bytes - constants.record_plaintext_bytes_max, constants.record_plaintext_bytes_max };
+    const lengths = [_]usize{ responses.trailer_at + trailer_waiting_bytes - limits.record_plaintext_bytes_max, limits.record_plaintext_bytes_max };
     for (0..requests) |index| try testing.expect(pair.doh.request(@intCast(index), &rig.query, pair.now_ns));
     try exchange_raw(pair, raw, .{ .head = responses.octets, .content = "", .lengths = &lengths }, requests, burst, &tally);
     try expect_answers(pair, trailer_answer_bytes);
     try testing.expectEqual(@as(usize, requests), pair.count(.finished));
     try testing.expectEqual(.h11, pair.doh.connected().?.protocol);
-    try testing.expect(tally.most > constants.record_bytes_max);
+    try testing.expect(tally.most > limits.record_bytes_max);
 }

@@ -6,6 +6,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 const wire = @import("wire");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const types = @import("sim_types.zig");
 const buffers = @import("sim_buffers.zig");
 const network_module = @import("sim_network.zig");
@@ -17,9 +18,6 @@ const Pending = @import("sim_loop.zig").Pending;
 const Operation = types.Operation;
 const Event = types.Event;
 const Network = network_module.Network;
-
-/// The most frames one stream send is cut into: a send holds at most this many whole queries.
-const frames_per_send_max = 16;
 
 fn network() *Network {
     return &network_module.network;
@@ -159,7 +157,7 @@ fn send_stream(loop: *Loop, slot: u32, send: *const Operation.Send) void {
     @memcpy(connection.partial[connection.partial_len..][0..bytes.len], bytes);
     connection.partial_len += bytes.len;
     var frames: usize = 0;
-    while (frames < frames_per_send_max) : (frames += 1) {
+    while (frames < limits.frames_per_send_max) : (frames += 1) {
         const answered = if (connection.tls != null)
             answer_record(loop, connection)
         else if (connection.request)
@@ -180,8 +178,8 @@ fn answer_frame(loop: *Loop, connection: *network_module.Connection) bool {
     const query = connection.partial[prefix..][0..frame_len];
     const script = &network().scripts[connection.server];
     const room = connection.inbound.len - connection.inbound_len;
-    if (room >= prefix + constants.datagram_bytes_max) {
-        const out = connection.inbound[connection.inbound_len + prefix ..][0..constants.datagram_bytes_max];
+    if (room >= prefix + limits.datagram_bytes_max) {
+        const out = connection.inbound[connection.inbound_len + prefix ..][0..limits.datagram_bytes_max];
         if (server.respond(script, &connection.peer, query, true, draw(loop), out)) |answer| {
             wire.header.write_message_len(connection.inbound[connection.inbound_len..][0..prefix], @intCast(answer.len));
             connection.inbound_len += prefix + answer.len;
@@ -226,7 +224,7 @@ fn answer_sealed(loop: *Loop, connection: *network_module.Connection, script: *c
     // `usize`, not the `u16` the prefix reads as: with its own two octets it passes 65535.
     const message_len: usize = wire.message_len(data[0..prefix]);
     if (data.len != prefix + message_len) return;
-    var frame: [constants.tls_payload_bytes_max]u8 = undefined;
+    var frame: [limits.tls_payload_bytes_max]u8 = undefined;
     const answer = server.respond(script, &connection.peer, data[prefix..], true, draw(loop), frame[prefix..]) orelse return;
     wire.header.write_message_len(frame[0..prefix], @intCast(answer.len));
     const room = connection.inbound.len - connection.inbound_len;
@@ -319,7 +317,7 @@ fn materialize_streams(loop: *Loop) void {
     for (&network().connections) |*connection| {
         const receiver = stream_ready(loop, connection) orelse continue;
         var chunks: usize = 0;
-        while (chunks < constants.buffers_per_group_max and connection.inbound_len > 0) : (chunks += 1) {
+        while (chunks < limits.buffers_per_group_max and connection.inbound_len > 0) : (chunks += 1) {
             if (!deliver_chunk(loop, connection, receiver)) {
                 // No buffer for bytes that are ready: the multishot ends the way rotor's does,
                 // and the bytes wait for the next receive.
@@ -349,7 +347,7 @@ fn deliver_chunk(loop: *Loop, connection: *network_module.Connection, receiver: 
     const buffer_id = loop.groups[receiver.group].take() orelse return false;
     const buffer = loop.provided_buffer(receiver.group, buffer_id);
     const most = @min(connection.inbound_len, buffer.len);
-    const chunk: usize = constants.stream_chunk_bytes_min + draw(loop) % (most - constants.stream_chunk_bytes_min + 1);
+    const chunk: usize = limits.stream_chunk_bytes_min + draw(loop) % (most - limits.stream_chunk_bytes_min + 1);
     @memcpy(buffer[0..chunk], connection.inbound[0..chunk]);
     std.mem.copyForwards(u8, connection.inbound[0 .. connection.inbound_len - chunk], connection.inbound[chunk..connection.inbound_len]);
     connection.inbound_len -= chunk;

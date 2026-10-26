@@ -522,7 +522,7 @@
         .id = "TT2",
         .what = "an empty collection's smallest TTL is zero",
         .edits = .{
-            .{ .file = "src/wire/response_answers.zig", .old = "pub const ttl_none = std.math.maxInt(u32);", .new = "pub const ttl_none = 0;" },
+            .{ .file = "src/wire/response_answers.zig", .old = "pub const ttl_none: u32 = std.math.maxInt(u32);", .new = "pub const ttl_none: usize = 0;" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -1286,7 +1286,7 @@
         .id = "DT14",
         .what = "a window with one sample is read",
         .edits = .{
-            .{ .file = "src/resolver/servers_latency.zig", .old = "            if (window.count < constants.latency_samples_min) continue;", .new = "            if (window.count < 1) continue;" },
+            .{ .file = "src/resolver/servers_latency.zig", .old = "            if (window.count < limits.latency_samples_min) continue;", .new = "            if (window.count < 1) continue;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1295,7 +1295,7 @@
         .id = "DT15",
         .what = "a server with one sample has its wait read from samples",
         .edits = .{
-            .{ .file = "src/resolver/servers_latency.zig", .old = "        if (self.samples() < constants.latency_samples_min) return null;", .new = "        if (self.samples() < 1) return null;" },
+            .{ .file = "src/resolver/servers_latency.zig", .old = "        if (self.samples() < limits.latency_samples_min) return null;", .new = "        if (self.samples() < 1) return null;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1322,7 +1322,7 @@
         .id = "DT18",
         .what = "a sample longer than the longest wait is kept whole",
         .edits = .{
-            .{ .file = "src/resolver/servers_latency.zig", .old = "        const sample = @min(sample_ns, core.constants.timeout_ns_max);", .new = "        const sample = sample_ns;" },
+            .{ .file = "src/resolver/servers_latency.zig", .old = "        const sample = @min(sample_ns, core.limits.timeout_ns_max);", .new = "        const sample = sample_ns;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1349,7 +1349,7 @@
         .id = "DT21",
         .what = "the wait has no floor",
         .edits = .{
-            .{ .file = "src/resolver/lookup_policy.zig", .old = "    const clamped = @min(@max(base, core.constants.timeout_ns_min), config.timeout_ns_max);", .new = "    const clamped = @min(base, config.timeout_ns_max);" },
+            .{ .file = "src/resolver/lookup_policy.zig", .old = "    const clamped = @min(@max(base, core.limits.timeout_ns_min), config.timeout_ns_max);", .new = "    const clamped = @min(base, config.timeout_ns_max);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1358,7 +1358,7 @@
         .id = "DT22",
         .what = "the floor wins over a cap below it",
         .edits = .{
-            .{ .file = "src/resolver/lookup_policy.zig", .old = "    const clamped = @min(@max(base, core.constants.timeout_ns_min), config.timeout_ns_max);", .new = "    const clamped = @max(@min(base, config.timeout_ns_max), core.constants.timeout_ns_min);" },
+            .{ .file = "src/resolver/lookup_policy.zig", .old = "    const clamped = @min(@max(base, core.limits.timeout_ns_min), config.timeout_ns_max);", .new = "    const clamped = @max(@min(base, config.timeout_ns_max), core.limits.timeout_ns_min);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1766,7 +1766,7 @@
         .id = "QO5",
         .what = "the fuzz generator's long names stop at 241 octets",
         .edits = .{
-            .{ .file = "src/wire/fuzz/fuzz_generate.zig", .old = "    const lengths = core.constants.name_bytes_max - constants.fuzz_question_name_bytes_min + 1;", .new = "    const lengths = core.constants.name_bytes_max - constants.fuzz_question_name_bytes_min + 1 - 14;" },
+            .{ .file = "src/wire/fuzz/fuzz_generate.zig", .old = "    const lengths = core.limits.name_bytes_max - limits.fuzz_question_name_bytes_min + 1;", .new = "    const lengths = core.limits.name_bytes_max - limits.fuzz_question_name_bytes_min + 1 - 14;" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -1802,7 +1802,7 @@
         .id = "QO20",
         .what = "a COOKIE option as long as the longest server cookie makes it is refused",
         .edits = .{
-            .{ .file = "src/wire/edns.zig", .old = "len <= constants.cookie_option_long_bytes_max;", .new = "len < constants.cookie_option_long_bytes_max;" },
+            .{ .file = "src/wire/edns.zig", .old = "len <= limits.cookie_option_long_bytes_max;", .new = "len < limits.cookie_option_long_bytes_max;" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -1811,7 +1811,7 @@
         .id = "QO21",
         .what = "a COOKIE option as long as the longest server cookie makes it is refused, under a lookup",
         .edits = .{
-            .{ .file = "src/wire/edns.zig", .old = "len <= constants.cookie_option_long_bytes_max;", .new = "len < constants.cookie_option_long_bytes_max;" },
+            .{ .file = "src/wire/edns.zig", .old = "len <= limits.cookie_option_long_bytes_max;", .new = "len < limits.cookie_option_long_bytes_max;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1919,7 +1919,7 @@
         .id = "NW10",
         .what = "the reference ignores the lengths",
         .edits = .{
-            .{ .file = "src/core/name.zig", .old = "    if (a.len != b.len) return false;\n    assert(a.len <= constants.name_bytes_max);\n    for (a, b) |mine, theirs| {", .new = "    if (false and a.len != b.len) return false;\n    assert(a.len <= constants.name_bytes_max);\n    for (a, b) |mine, theirs| {" },
+            .{ .file = "src/core/name.zig", .old = "    if (a.len != b.len) return false;\n    assert(a.len <= limits.name_bytes_max);\n    for (a, b) |mine, theirs| {", .new = "    if (false and a.len != b.len) return false;\n    assert(a.len <= limits.name_bytes_max);\n    for (a, b) |mine, theirs| {" },
         },
         .caught_by = .{ .step = "test-core" },
     },
@@ -1928,7 +1928,7 @@
         .id = "NW11",
         .what = "the word compare ignores the lengths",
         .edits = .{
-            .{ .file = "src/core/name.zig", .old = "    if (a.len != b.len) return false;\n    assert(a.len <= constants.name_bytes_max);\n    if (a.len < word_bytes) return octets_equal(a, b);", .new = "    if (false and a.len != b.len) return false;\n    assert(a.len <= constants.name_bytes_max);\n    if (a.len < word_bytes) return octets_equal(a, b);" },
+            .{ .file = "src/core/name.zig", .old = "    if (a.len != b.len) return false;\n    assert(a.len <= limits.name_bytes_max);\n    if (a.len < word_bytes) return octets_equal(a, b);", .new = "    if (false and a.len != b.len) return false;\n    assert(a.len <= limits.name_bytes_max);\n    if (a.len < word_bytes) return octets_equal(a, b);" },
         },
         .caught_by = .{ .step = "test-core" },
     },
@@ -2100,7 +2100,7 @@
         .id = "CZ1",
         .what = "slot_count_valid takes a cache of no slots",
         .edits = .{
-            .{ .file = "src/cache/cache_storage.zig", .old = "    return slot_count >= 1 and slot_count <= constants.slots_max;", .new = "    return slot_count <= constants.slots_max;" },
+            .{ .file = "src/cache/cache_storage.zig", .old = "    return slot_count >= 1 and slot_count <= limits.slots_max;", .new = "    return slot_count <= limits.slots_max;" },
         },
         .caught_by = .{ .step = "test-cache" },
     },
@@ -2109,7 +2109,7 @@
         .id = "CZ2",
         .what = "slot_count_valid takes one slot more than the most",
         .edits = .{
-            .{ .file = "src/cache/cache_storage.zig", .old = "    return slot_count >= 1 and slot_count <= constants.slots_max;", .new = "    return slot_count >= 1 and slot_count <= constants.slots_max + 1;" },
+            .{ .file = "src/cache/cache_storage.zig", .old = "    return slot_count >= 1 and slot_count <= limits.slots_max;", .new = "    return slot_count >= 1 and slot_count <= limits.slots_max + 1;" },
         },
         .caught_by = .{ .step = "test-cache" },
     },
@@ -2118,8 +2118,8 @@
         .id = "CZ3",
         .what = "keys_for gives one key a slot, and its own assertion asks no more",
         .edits = .{
-            .{ .file = "src/cache/cache_storage.zig", .old = "    const key_count = std.math.ceilPowerOfTwoAssert(usize, slot_count * constants.keys_per_slot_min);", .new = "    const key_count = std.math.ceilPowerOfTwoAssert(usize, slot_count);" },
-            .{ .file = "src/cache/cache_storage.zig", .old = "    assert(key_count >= slot_count * constants.keys_per_slot_min);", .new = "    assert(key_count >= slot_count);" },
+            .{ .file = "src/cache/cache_storage.zig", .old = "    const key_count = std.math.ceilPowerOfTwoAssert(usize, slot_count * limits.keys_per_slot_min);", .new = "    const key_count = std.math.ceilPowerOfTwoAssert(usize, slot_count);" },
+            .{ .file = "src/cache/cache_storage.zig", .old = "    assert(key_count >= slot_count * limits.keys_per_slot_min);", .new = "    assert(key_count >= slot_count);" },
         },
         .caught_by = .{ .step = "test-cache" },
     },
@@ -2128,7 +2128,7 @@
         .id = "CZ4",
         .what = "keys_for does not round up to a power of two",
         .edits = .{
-            .{ .file = "src/cache/cache_storage.zig", .old = "    const key_count = std.math.ceilPowerOfTwoAssert(usize, slot_count * constants.keys_per_slot_min);", .new = "    const key_count = slot_count * constants.keys_per_slot_min;" },
+            .{ .file = "src/cache/cache_storage.zig", .old = "    const key_count = std.math.ceilPowerOfTwoAssert(usize, slot_count * limits.keys_per_slot_min);", .new = "    const key_count = slot_count * limits.keys_per_slot_min;" },
         },
         .caught_by = .{ .step = "test-cache" },
     },
@@ -2137,7 +2137,7 @@
         .id = "CZ5",
         .what = "keys_for gives twice the least key index",
         .edits = .{
-            .{ .file = "src/cache/cache_storage.zig", .old = "    const key_count = std.math.ceilPowerOfTwoAssert(usize, slot_count * constants.keys_per_slot_min);", .new = "    const key_count = 2 * std.math.ceilPowerOfTwoAssert(usize, slot_count * constants.keys_per_slot_min);" },
+            .{ .file = "src/cache/cache_storage.zig", .old = "    const key_count = std.math.ceilPowerOfTwoAssert(usize, slot_count * limits.keys_per_slot_min);", .new = "    const key_count = 2 * std.math.ceilPowerOfTwoAssert(usize, slot_count * limits.keys_per_slot_min);" },
         },
         .caught_by = .{ .step = "test-cache" },
     },
@@ -2155,7 +2155,7 @@
         .id = "CZ7",
         .what = "Slices.valid takes a key index of fewer than two entries a slot",
         .edits = .{
-            .{ .file = "src/cache/cache_storage.zig", .old = "        if (self.keys.len < self.slots.len * constants.keys_per_slot_min) return false;", .new = "        if (self.keys.len == 0) return false;" },
+            .{ .file = "src/cache/cache_storage.zig", .old = "        if (self.keys.len < self.slots.len * limits.keys_per_slot_min) return false;", .new = "        if (self.keys.len == 0) return false;" },
         },
         .caught_by = .{ .step = "test-cache" },
     },
@@ -2164,7 +2164,7 @@
         .id = "CZ8",
         .what = "Slices.valid refuses the least key index",
         .edits = .{
-            .{ .file = "src/cache/cache_storage.zig", .old = "        if (self.keys.len < self.slots.len * constants.keys_per_slot_min) return false;", .new = "        if (self.keys.len <= self.slots.len * constants.keys_per_slot_min) return false;" },
+            .{ .file = "src/cache/cache_storage.zig", .old = "        if (self.keys.len < self.slots.len * limits.keys_per_slot_min) return false;", .new = "        if (self.keys.len <= self.slots.len * limits.keys_per_slot_min) return false;" },
         },
         .caught_by = .{ .step = "test-cache" },
     },
@@ -2254,7 +2254,7 @@
         .id = "CZ29",
         .what = "a cache takes a cap of zero",
         .edits = .{
-            .{ .file = "src/cache/cache.zig", .old = "    return ttl_seconds_max >= 1 and ttl_seconds_max <= core.constants.cache_ttl_seconds_max;", .new = "    return ttl_seconds_max <= core.constants.cache_ttl_seconds_max;" },
+            .{ .file = "src/cache/cache.zig", .old = "    return ttl_seconds_max >= 1 and ttl_seconds_max <= core.limits.cache_ttl_seconds_max;", .new = "    return ttl_seconds_max <= core.limits.cache_ttl_seconds_max;" },
         },
         .caught_by = .{ .step = "test-cache" },
     },
@@ -2263,7 +2263,7 @@
         .id = "CZ30",
         .what = "a cache takes a cap past seven days",
         .edits = .{
-            .{ .file = "src/cache/cache.zig", .old = "    return ttl_seconds_max >= 1 and ttl_seconds_max <= core.constants.cache_ttl_seconds_max;", .new = "    return ttl_seconds_max >= 1;" },
+            .{ .file = "src/cache/cache.zig", .old = "    return ttl_seconds_max >= 1 and ttl_seconds_max <= core.limits.cache_ttl_seconds_max;", .new = "    return ttl_seconds_max >= 1;" },
         },
         .caught_by = .{ .step = "test-cache" },
     },
@@ -2272,7 +2272,7 @@
         .id = "TY1",
         .what = "the rule takes an integer literal for no integer",
         .edits = .{
-            .{ .file = "tools/lint/typed_constants.zig", .old = "        .number_literal => is_integer_literal(tree, node),", .new = "        .number_literal => false," },
+            .{ .file = "tools/lint/typed_constants_shape.zig", .old = "        .number_literal => is_integer_literal(tree, node),", .new = "        .number_literal => false," },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -2281,7 +2281,7 @@
         .id = "TY2",
         .what = "the rule takes a character literal for no integer",
         .edits = .{
-            .{ .file = "tools/lint/typed_constants.zig", .old = "        .char_literal => true,", .new = "        .char_literal => false," },
+            .{ .file = "tools/lint/typed_constants_shape.zig", .old = "        .char_literal => true,", .new = "        .char_literal => false," },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -2290,7 +2290,7 @@
         .id = "TY3",
         .what = "the rule reads no negation",
         .edits = .{
-            .{ .file = "tools/lint/typed_constants.zig", .old = "        .negation, .negation_wrap, .bit_not => integer_shaped(tree, tree.nodeData(node).node, depth + 1),", .new = "        .negation, .negation_wrap, .bit_not => false," },
+            .{ .file = "tools/lint/typed_constants_shape.zig", .old = "        .negation, .negation_wrap, .bit_not => integer_shaped(tree, tree.nodeData(node).node, depth + 1),", .new = "        .negation, .negation_wrap, .bit_not => false," },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -2299,7 +2299,7 @@
         .id = "TY4",
         .what = "the rule reads nothing inside parentheses",
         .edits = .{
-            .{ .file = "tools/lint/typed_constants.zig", .old = "        .grouped_expression => integer_shaped(tree, tree.nodeData(node).node_and_token[0], depth + 1),", .new = "        .grouped_expression => false," },
+            .{ .file = "tools/lint/typed_constants_shape.zig", .old = "        .grouped_expression => integer_shaped(tree, tree.nodeData(node).node_and_token[0], depth + 1),", .new = "        .grouped_expression => false," },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -2308,7 +2308,7 @@
         .id = "TY5",
         .what = "the rule reads no arithmetic, bitwise or shift operator",
         .edits = .{
-            .{ .file = "tools/lint/typed_constants.zig", .old = "        .add, .sub, .mul, .div, .mod, .shl, .shr, .bit_and, .bit_or, .bit_xor => true,", .new = "        .add, .sub, .mul, .div, .mod, .shl, .shr, .bit_and, .bit_or, .bit_xor => false," },
+            .{ .file = "tools/lint/typed_constants_shape.zig", .old = "        .add, .sub, .mul, .div, .mod, .shl, .shr, .bit_and, .bit_or, .bit_xor => true,", .new = "        .add, .sub, .mul, .div, .mod, .shl, .shr, .bit_and, .bit_or, .bit_xor => false," },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -2317,7 +2317,7 @@
         .id = "TY6",
         .what = "the rule reads no wrapping or saturating operator",
         .edits = .{
-            .{ .file = "tools/lint/typed_constants.zig", .old = "        .add_wrap, .sub_wrap, .mul_wrap, .add_sat, .sub_sat, .mul_sat, .shl_sat => true,", .new = "        .add_wrap, .sub_wrap, .mul_wrap, .add_sat, .sub_sat, .mul_sat, .shl_sat => false," },
+            .{ .file = "tools/lint/typed_constants_shape.zig", .old = "        .add_wrap, .sub_wrap, .mul_wrap, .add_sat, .sub_sat, .mul_sat, .shl_sat => true,", .new = "        .add_wrap, .sub_wrap, .mul_wrap, .add_sat, .sub_sat, .mul_sat, .shl_sat => false," },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -2326,7 +2326,7 @@
         .id = "TY7",
         .what = "the rule reads no builtin",
         .edits = .{
-            .{ .file = "tools/lint/typed_constants.zig", .old = "        .builtin_call_two, .builtin_call_two_comma, .builtin_call, .builtin_call_comma => builtin_shaped(tree, node),", .new = "        .builtin_call_two, .builtin_call_two_comma, .builtin_call, .builtin_call_comma => false," },
+            .{ .file = "tools/lint/typed_constants_shape.zig", .old = "        .builtin_call_two, .builtin_call_two_comma, .builtin_call, .builtin_call_comma => builtin_shaped(tree, node),", .new = "        .builtin_call_two, .builtin_call_two_comma, .builtin_call, .builtin_call_comma => false," },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -2335,7 +2335,7 @@
         .id = "TY8",
         .what = "the rule reads no `maxInt`",
         .edits = .{
-            .{ .file = "tools/lint/typed_constants.zig", .old = "const comptime_int_functions = [_][]const u8{ \"maxInt\", \"minInt\" };", .new = "const comptime_int_functions = [_][]const u8{\"minInt\"};" },
+            .{ .file = "tools/lint/typed_constants_shape.zig", .old = "const comptime_int_functions = [_][]const u8{ \"maxInt\", \"minInt\" };", .new = "const comptime_int_functions = [_][]const u8{\"minInt\"};" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -2344,7 +2344,7 @@
         .id = "TY9",
         .what = "the rule reads no `if`",
         .edits = .{
-            .{ .file = "tools/lint/typed_constants.zig", .old = "        .@\"if\", .if_simple => if_shaped(tree, node, depth),\n", .new = "" },
+            .{ .file = "tools/lint/typed_constants_shape.zig", .old = "        .@\"if\", .if_simple => if_shaped(tree, node, depth),\n", .new = "" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -2353,7 +2353,7 @@
         .id = "TY10",
         .what = "the rule reports a constant whose type is written",
         .edits = .{
-            .{ .file = "tools/lint/typed_constants.zig", .old = "    if (declaration.ast.type_node.unwrap()) |written| return names_comptime_int(tree, written);\n", .new = "" },
+            .{ .file = "tools/lint/typed_constants_shape.zig", .old = "    if (declaration.ast.type_node.unwrap()) |written| return names_comptime_int(tree, written);\n", .new = "" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -2396,9 +2396,9 @@
     .{
         .section = "A type on every integer constant",
         .id = "TY15",
-        .what = "the rule reads every Zig file, and not the constants files alone",
+        .what = "the rule reads the constants files alone, and not every Zig file",
         .edits = .{
-            .{ .file = "tools/lint/typed_constants.zig", .old = "    return lint.paths.is_under(path, constants_name);", .new = "    return true;" },
+            .{ .file = "tools/lint/typed_constants.zig", .old = "    return scope.applies(path);", .new = "    return scope.applies(path) and std.mem.indexOf(u8, path, \"constants\") != null;" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -2443,7 +2443,7 @@
         .id = "TY20",
         .what = "the rule takes a written `comptime_int` for a type",
         .edits = .{
-            .{ .file = "tools/lint/typed_constants.zig", .old = "    if (declaration.ast.type_node.unwrap()) |written| return names_comptime_int(tree, written);\n", .new = "    if (declaration.ast.type_node.unwrap()) |_| return false;\n" },
+            .{ .file = "tools/lint/typed_constants_shape.zig", .old = "    if (declaration.ast.type_node.unwrap()) |written| return names_comptime_int(tree, written);\n", .new = "    if (declaration.ast.type_node.unwrap()) |_| return false;\n" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -2452,7 +2452,7 @@
         .id = "TY21",
         .what = "the rule reads the value of `@as`, and not its type",
         .edits = .{
-            .{ .file = "tools/lint/typed_constants.zig", .old = "    return parameters.len != 0 and names_comptime_int(tree, parameters[0]);", .new = "    return parameters.len != 0 and names_comptime_int(tree, parameters[1]);" },
+            .{ .file = "tools/lint/typed_constants_shape.zig", .old = "    return parameters.len != 0 and names_comptime_int(tree, parameters[0]);", .new = "    return parameters.len != 0 and names_comptime_int(tree, parameters[1]);" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -2461,7 +2461,7 @@
         .id = "TY22",
         .what = "the rule reads no `@abs`",
         .edits = .{
-            .{ .file = "tools/lint/typed_constants.zig", .old = "    \"@mod\",    \"@rem\",       \"@shlExact\", \"@shrExact\", \"@abs\",", .new = "    \"@mod\",    \"@rem\",       \"@shlExact\", \"@shrExact\"," },
+            .{ .file = "tools/lint/typed_constants_shape.zig", .old = "    \"@mod\",    \"@rem\",       \"@shlExact\", \"@shrExact\", \"@abs\",", .new = "    \"@mod\",    \"@rem\",       \"@shlExact\", \"@shrExact\"," },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -2470,7 +2470,7 @@
         .id = "TY23",
         .what = "the rule reads no `switch`",
         .edits = .{
-            .{ .file = "tools/lint/typed_constants.zig", .old = "        .@\"switch\", .switch_comma => switch_shaped(tree, node, depth),\n", .new = "" },
+            .{ .file = "tools/lint/typed_constants_shape.zig", .old = "        .@\"switch\", .switch_comma => switch_shaped(tree, node, depth),\n", .new = "" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -2479,25 +2479,25 @@
         .id = "TY24",
         .what = "the rule reads no labeled block",
         .edits = .{
-            .{ .file = "tools/lint/typed_constants.zig", .old = "        .block, .block_semicolon, .block_two, .block_two_semicolon => block_shaped(tree, node, depth),\n", .new = "" },
+            .{ .file = "tools/lint/typed_constants_shape.zig", .old = "        .block, .block_semicolon, .block_two, .block_two_semicolon => block_shaped(tree, node, depth),\n", .new = "" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
     .{
         .section = "A type on every integer constant",
         .id = "TY25",
-        .what = "the rule reads no piece split from a constants file",
+        .what = "the rule takes no piece split from a limits file for a limits file",
         .edits = .{
-            .{ .file = "tools/lint/typed_constants.zig", .old = "    if (std.mem.indexOf(u8, lint.paths.basename(path), constants_name) != null) return true;", .new = "    if (std.mem.endsWith(u8, path, \"constants.zig\")) return true;" },
+            .{ .file = "tools/lint/typed_constants.zig", .old = "        if (std.mem.eql(u8, word, limits_name)) return true;", .new = "        if (std.mem.eql(u8, word, limits_name) and words.peek() == null) return true;" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
     .{
         .section = "A type on every integer constant",
         .id = "TY26",
-        .what = "the rule reads no file under a directory named `constants`",
+        .what = "the rule takes no file under a directory named `limits` for a limits file",
         .edits = .{
-            .{ .file = "tools/lint/typed_constants.zig", .old = "    return lint.paths.is_under(path, constants_name);", .new = "    return false;" },
+            .{ .file = "tools/lint/typed_constants.zig", .old = "    return lint.paths.is_under(path, limits_name);", .new = "    return false;" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -2524,7 +2524,7 @@
         .id = "TY29",
         .what = "the state machine's transactions for a server lose their type",
         .edits = .{
-            .{ .file = "src/resolver/constants.zig", .old = "pub const transactions_per_server_max: usize = 3;", .new = "pub const transactions_per_server_max = 3;" },
+            .{ .file = "src/resolver/limits.zig", .old = "pub const transactions_per_server_max: usize = 3;", .new = "pub const transactions_per_server_max = 3;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -2533,7 +2533,7 @@
         .id = "TY30",
         .what = "the parser's line bound loses its type",
         .edits = .{
-            .{ .file = "src/config/constants.zig", .old = "pub const lines_max: usize = 256;", .new = "pub const lines_max = 256;" },
+            .{ .file = "src/config/limits.zig", .old = "pub const lines_max: usize = 256;", .new = "pub const lines_max = 256;" },
         },
         .caught_by = .{ .step = "test-config" },
     },
@@ -2542,7 +2542,7 @@
         .id = "TY31",
         .what = "the cache's slot bound loses its type",
         .edits = .{
-            .{ .file = "src/cache/constants.zig", .old = "pub const slots_max: usize = 16384;", .new = "pub const slots_max = 16384;" },
+            .{ .file = "src/cache/limits.zig", .old = "pub const slots_max: usize = 16384;", .new = "pub const slots_max = 16384;" },
         },
         .caught_by = .{ .step = "test-cache" },
     },
@@ -2551,7 +2551,7 @@
         .id = "SB19",
         .what = "the record walk's skip counts labels and not octets",
         .edits = .{
-            .{ .file = "src/wire/name.zig", .old = "        if (self.len + 1 + label.len + 1 > core.constants.name_bytes_max) return Error.NameTooLong;", .new = "        if (false and self.len + 1 + label.len + 1 > core.constants.name_bytes_max) return Error.NameTooLong;" },
+            .{ .file = "src/wire/name.zig", .old = "        if (self.len + 1 + label.len + 1 > core.limits.name_bytes_max) return Error.NameTooLong;", .new = "        if (false and self.len + 1 + label.len + 1 > core.limits.name_bytes_max) return Error.NameTooLong;" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -2560,7 +2560,7 @@
         .id = "SB20",
         .what = "the record walk's skip counts no root after the labels",
         .edits = .{
-            .{ .file = "src/wire/name.zig", .old = "        if (self.len + 1 + label.len + 1 > core.constants.name_bytes_max) return Error.NameTooLong;", .new = "        if (self.len + 1 + label.len > core.constants.name_bytes_max) return Error.NameTooLong;" },
+            .{ .file = "src/wire/name.zig", .old = "        if (self.len + 1 + label.len + 1 > core.limits.name_bytes_max) return Error.NameTooLong;", .new = "        if (self.len + 1 + label.len > core.limits.name_bytes_max) return Error.NameTooLong;" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -2569,7 +2569,7 @@
         .id = "SB21",
         .what = "the record walk's skip refuses a name of 255 octets",
         .edits = .{
-            .{ .file = "src/wire/name.zig", .old = "        if (self.len + 1 + label.len + 1 > core.constants.name_bytes_max) return Error.NameTooLong;", .new = "        if (self.len + 1 + label.len + 1 >= core.constants.name_bytes_max) return Error.NameTooLong;" },
+            .{ .file = "src/wire/name.zig", .old = "        if (self.len + 1 + label.len + 1 > core.limits.name_bytes_max) return Error.NameTooLong;", .new = "        if (self.len + 1 + label.len + 1 >= core.limits.name_bytes_max) return Error.NameTooLong;" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -2578,7 +2578,7 @@
         .id = "SB22",
         .what = "ndots: is clamped at the cap of timeout:",
         .edits = .{
-            .{ .file = "src/config/resolv_conf_options.zig", .old = "number(text, constants.ndots_limit)", .new = "number(text, constants.timeout_seconds_limit)" },
+            .{ .file = "src/config/resolv_conf_options.zig", .old = "number(text, limits.ndots_limit)", .new = "number(text, limits.timeout_seconds_limit)" },
         },
         .caught_by = .{ .step = "test-config" },
     },
@@ -2587,7 +2587,7 @@
         .id = "SB23",
         .what = "the cap of ndots: loses its type in the constants file",
         .edits = .{
-            .{ .file = "src/config/constants.zig", .old = "pub const ndots_limit: usize = 15;", .new = "pub const ndots_limit = 15;" },
+            .{ .file = "src/config/limits.zig", .old = "pub const ndots_limit: usize = 15;", .new = "pub const ndots_limit = 15;" },
         },
         .caught_by = .{ .step = "test-config" },
     },
@@ -2596,7 +2596,7 @@
         .id = "LM1",
         .what = "check 1 is gone, so a message of 65536 octets reaches the codec",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (message.len > core.constants.message_bytes_max) return null;", .new = "    if (false and message.len > core.constants.message_bytes_max) return null;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (message.len > core.limits.message_bytes_max) return null;", .new = "    if (false and message.len > core.limits.message_bytes_max) return null;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -2605,7 +2605,7 @@
         .id = "LM2",
         .what = "check 1 ignores a message of 65535 octets",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (message.len > core.constants.message_bytes_max) return null;", .new = "    if (message.len >= core.constants.message_bytes_max) return null;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (message.len > core.limits.message_bytes_max) return null;", .new = "    if (message.len >= core.limits.message_bytes_max) return null;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -2641,8 +2641,8 @@
         .id = "LM6",
         .what = "the text buffer of a name is 1003 octets, one short of the longest text, and the comptime check is gone",
         .edits = .{
-            .{ .file = "src/core/constants.zig", .old = "pub const name_text_bytes_max: usize = 1020;", .new = "pub const name_text_bytes_max: usize = 1003;" },
-            .{ .file = "src/core/constants.zig", .old = "    if (name_text_bytes_max != name_bytes_max * 4) @compileError(\"the escape bound is wrong\");\n", .new = "" },
+            .{ .file = "src/core/limits.zig", .old = "pub const name_text_bytes_max: usize = 1020;", .new = "pub const name_text_bytes_max: usize = 1003;" },
+            .{ .file = "src/core/constants.zig", .old = "    if (limits.name_text_bytes_max != limits.name_bytes_max * 4) @compileError(\"the escape bound is wrong\");\n", .new = "" },
         },
         .caught_by = .{ .step = "test-core" },
     },
@@ -2651,7 +2651,7 @@
         .id = "LM7",
         .what = "the hosts file is read one line past its bound",
         .edits = .{
-            .{ .file = "src/config/hosts.zig", .old = "    while (read < constants.hosts_lines_max) : (read += 1) {", .new = "    while (read <= constants.hosts_lines_max) : (read += 1) {" },
+            .{ .file = "src/config/hosts.zig", .old = "    while (read < limits.hosts_lines_max) : (read += 1) {", .new = "    while (read <= limits.hosts_lines_max) : (read += 1) {" },
         },
         .caught_by = .{ .step = "test-config" },
     },
@@ -2660,7 +2660,7 @@
         .id = "LM8",
         .what = "the hosts file is read one line short of its bound",
         .edits = .{
-            .{ .file = "src/config/hosts.zig", .old = "    while (read < constants.hosts_lines_max) : (read += 1) {", .new = "    while (read + 1 < constants.hosts_lines_max) : (read += 1) {" },
+            .{ .file = "src/config/hosts.zig", .old = "    while (read < limits.hosts_lines_max) : (read += 1) {", .new = "    while (read + 1 < limits.hosts_lines_max) : (read += 1) {" },
         },
         .caught_by = .{ .step = "test-config" },
     },
@@ -2669,7 +2669,7 @@
         .id = "LM9",
         .what = "an options line is read one token past its bound",
         .edits = .{
-            .{ .file = "src/config/resolv_conf.zig", .old = "    while (read < constants.options_max) : (read += 1) {", .new = "    while (read <= constants.options_max) : (read += 1) {" },
+            .{ .file = "src/config/resolv_conf.zig", .old = "    while (read < limits.options_max) : (read += 1) {", .new = "    while (read <= limits.options_max) : (read += 1) {" },
         },
         .caught_by = .{ .step = "test-config" },
     },
@@ -2678,7 +2678,7 @@
         .id = "LM10",
         .what = "an options line is read one token short of its bound",
         .edits = .{
-            .{ .file = "src/config/resolv_conf.zig", .old = "    while (read < constants.options_max) : (read += 1) {", .new = "    while (read + 1 < constants.options_max) : (read += 1) {" },
+            .{ .file = "src/config/resolv_conf.zig", .old = "    while (read < limits.options_max) : (read += 1) {", .new = "    while (read + 1 < limits.options_max) : (read += 1) {" },
         },
         .caught_by = .{ .step = "test-config" },
     },
@@ -2687,7 +2687,7 @@
         .id = "LM11",
         .what = "resolv.conf is read one line short of its bound",
         .edits = .{
-            .{ .file = "src/config/resolv_conf.zig", .old = "    while (read < constants.lines_max) : (read += 1) {", .new = "    while (read + 1 < constants.lines_max) : (read += 1) {" },
+            .{ .file = "src/config/resolv_conf.zig", .old = "    while (read < limits.lines_max) : (read += 1) {", .new = "    while (read + 1 < limits.lines_max) : (read += 1) {" },
         },
         .caught_by = .{ .step = "test-config" },
     },
@@ -2696,7 +2696,7 @@
         .id = "LM12",
         .what = "resolv.conf is read one line past its bound",
         .edits = .{
-            .{ .file = "src/config/resolv_conf.zig", .old = "    while (read < constants.lines_max) : (read += 1) {", .new = "    while (read <= constants.lines_max) : (read += 1) {" },
+            .{ .file = "src/config/resolv_conf.zig", .old = "    while (read < limits.lines_max) : (read += 1) {", .new = "    while (read <= limits.lines_max) : (read += 1) {" },
         },
         .caught_by = .{ .step = "test-config" },
     },
@@ -2705,7 +2705,7 @@
         .id = "LM13",
         .what = "a PTR answer keeps a name past the one its list holds",
         .edits = .{
-            .{ .file = "src/wire/response_take.zig", .old = "            if (out.count == core.constants.ptr_names_max) return refuse(out);", .new = "            if (false and out.count == core.constants.ptr_names_max) return refuse(out);" },
+            .{ .file = "src/wire/response_take.zig", .old = "            if (out.count == core.limits.ptr_names_max) return refuse(out);", .new = "            if (false and out.count == core.limits.ptr_names_max) return refuse(out);" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -2741,7 +2741,7 @@
         .id = "LM17",
         .what = "a COOKIE option of 16 octets is refused",
         .edits = .{
-            .{ .file = "src/wire/edns.zig", .old = "        const long = len >= constants.cookie_option_long_bytes_min and len <= constants.cookie_option_long_bytes_max;", .new = "        const long = len > constants.cookie_option_long_bytes_min and len <= constants.cookie_option_long_bytes_max;" },
+            .{ .file = "src/wire/edns.zig", .old = "        const long = len >= limits.cookie_option_long_bytes_min and len <= limits.cookie_option_long_bytes_max;", .new = "        const long = len > limits.cookie_option_long_bytes_min and len <= limits.cookie_option_long_bytes_max;" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -2750,7 +2750,7 @@
         .id = "LM18",
         .what = "a COOKIE option of 16 octets is refused, under a lookup",
         .edits = .{
-            .{ .file = "src/wire/edns.zig", .old = "        const long = len >= constants.cookie_option_long_bytes_min and len <= constants.cookie_option_long_bytes_max;", .new = "        const long = len > constants.cookie_option_long_bytes_min and len <= constants.cookie_option_long_bytes_max;" },
+            .{ .file = "src/wire/edns.zig", .old = "        const long = len >= limits.cookie_option_long_bytes_min and len <= limits.cookie_option_long_bytes_max;", .new = "        const long = len > limits.cookie_option_long_bytes_min and len <= limits.cookie_option_long_bytes_max;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -2788,7 +2788,7 @@
         .id = "LM22",
         .what = "the port span of the lookup leaves out its last port",
         .edits = .{
-            .{ .file = "src/resolver/entropy.zig", .old = "const port_span = core.constants.port_ephemeral_max - core.constants.port_ephemeral_min + 1;", .new = "const port_span = core.constants.port_ephemeral_max - core.constants.port_ephemeral_min;" },
+            .{ .file = "src/resolver/entropy.zig", .old = "const port_span: u16 = core.limits.port_ephemeral_max - core.limits.port_ephemeral_min + 1;", .new = "const port_span: u16 = core.limits.port_ephemeral_max - core.limits.port_ephemeral_min;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -2797,7 +2797,7 @@
         .id = "LM23",
         .what = "an octet of a dotted quad is summed whatever its digits",
         .edits = .{
-            .{ .file = "src/core/address_text.zig", .old = "    if (text.len == 0 or text.len > constants.address_v4_octet_digits_max) return null;", .new = "    if (text.len == 0) return null;" },
+            .{ .file = "src/core/address_text.zig", .old = "    if (text.len == 0 or text.len > limits.address_v4_octet_digits_max) return null;", .new = "    if (text.len == 0) return null;" },
         },
         .caught_by = .{ .step = "test-core" },
     },
@@ -2833,7 +2833,7 @@
         .id = "LM27",
         .what = "a long message is one octet short of the longest, at most",
         .edits = .{
-            .{ .file = "src/wire/fuzz/fuzz_generate.zig", .old = "    out.len = if (generator.coin()) long_message_bytes_max else long_message_bytes_min + generator.below(lengths);", .new = "    out.len = if (generator.coin()) long_message_bytes_max - 1 else long_message_bytes_min + generator.below(lengths);" },
+            .{ .file = "src/wire/fuzz/fuzz_generate.zig", .old = "    out.len = if (generator.coin()) long_message_bytes_max else limits.fuzz_long_message_bytes_min + generator.below(lengths);", .new = "    out.len = if (generator.coin()) long_message_bytes_max - 1 else limits.fuzz_long_message_bytes_min + generator.below(lengths);" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -2869,7 +2869,7 @@
         .id = "LM64",
         .what = "a COOKIE option one octet past the longest is never written",
         .edits = .{
-            .{ .file = "src/wire/fuzz/fuzz_generate_records.zig", .old = "    constants.cookie_option_long_bytes_max + 1,", .new = "    constants.cookie_option_long_bytes_max," },
+            .{ .file = "src/wire/fuzz/fuzz_generate_records.zig", .old = "    limits.cookie_option_long_bytes_max + 1,", .new = "    limits.cookie_option_long_bytes_max," },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -2878,7 +2878,7 @@
         .id = "LM65",
         .what = "a COOKIE option of 41 octets is read as the long form",
         .edits = .{
-            .{ .file = "src/wire/edns.zig", .old = "        const long = len >= constants.cookie_option_long_bytes_min and len <= constants.cookie_option_long_bytes_max;", .new = "        const long = len >= constants.cookie_option_long_bytes_min and len <= constants.cookie_option_long_bytes_max + 1;" },
+            .{ .file = "src/wire/edns.zig", .old = "        const long = len >= limits.cookie_option_long_bytes_min and len <= limits.cookie_option_long_bytes_max;", .new = "        const long = len >= limits.cookie_option_long_bytes_min and len <= limits.cookie_option_long_bytes_max + 1;" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -2914,7 +2914,7 @@
         .id = "NS2",
         .what = "the walk of decode and skip allows a seventeenth hop",
         .edits = .{
-            .{ .file = "src/wire/name.zig", .old = "        if (self.hops == core.constants.compression_hops_max) return Error.BadCompressionPointer;", .new = "        if (self.hops == core.constants.compression_hops_max + 1) return Error.BadCompressionPointer;" },
+            .{ .file = "src/wire/name.zig", .old = "        if (self.hops == core.limits.compression_hops_max) return Error.BadCompressionPointer;", .new = "        if (self.hops == core.limits.compression_hops_max + 1) return Error.BadCompressionPointer;" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -3450,5 +3450,167 @@
             .{ .file = "src/resolver/table_ready.zig", .old = "    if (slot.lookup.is_waiting()) note_deadline(self, slot.lookup.deadline_ns);\n    if (ready", .new = "    if (slot.lookup.is_waiting() and !ready) note_deadline(self, slot.lookup.deadline_ns);\n    if (ready" },
         },
         .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Every limit in a limits file",
+        .id = "LF1",
+        .what = "the rule takes no name for a limit's",
+        .edits = .{
+            .{ .file = "tools/lint/typed_constants.zig", .old = "        if (std.mem.endsWith(u8, constant, suffix)) return true;", .new = "        if (false and std.mem.endsWith(u8, constant, suffix)) return true;" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Every limit in a limits file",
+        .id = "LF2",
+        .what = "the rule takes `_min` for no ending of a limit's name",
+        .edits = .{
+            .{ .file = "tools/lint/typed_constants.zig", .old = "const limit_suffixes = [_][]const u8{ \"_max\", \"_min\", \"_limit\" };", .new = "const limit_suffixes = [_][]const u8{ \"_max\", \"_limit\" };" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Every limit in a limits file",
+        .id = "LF3",
+        .what = "the rule takes an alias for a limit of its own",
+        .edits = .{
+            .{ .file = "tools/lint/typed_constants.zig", .old = "            if (is_alias(self.tree, value)) continue;", .new = "            if (false and is_alias(self.tree, value)) continue;" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Every limit in a limits file",
+        .id = "LF4",
+        .what = "the rule reads the place of the limits in a limits file",
+        .edits = .{
+            .{ .file = "tools/lint/typed_constants.zig", .old = "    if (is_limits_file(path)) return false;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Every limit in a limits file",
+        .id = "LF5",
+        .what = "the rule reads the place of the limits in a test file",
+        .edits = .{
+            .{ .file = "tools/lint/typed_constants.zig", .old = "    if (std.mem.endsWith(u8, stem, test_segment)) return false;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Every limit in a limits file",
+        .id = "LF6",
+        .what = "the rule reads the place of the limits in the fixtures",
+        .edits = .{
+            .{ .file = "tools/lint/typed_constants.zig", .old = "    if (std.mem.eql(u8, basename, fixtures_basename)) return false;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Every limit in a limits file",
+        .id = "LF7",
+        .what = "the rule reads the place of no limit",
+        .edits = .{
+            .{ .file = "tools/lint/typed_constants.zig", .old = "            if (places_limits(file.path)) visitor.check_places(tree.rootDecls());", .new = "            if (false and places_limits(file.path)) visitor.check_places(tree.rootDecls());" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Every limit in a limits file",
+        .id = "LF8",
+        .what = "magic-numbers reads the limits files",
+        .edits = .{
+            .{ .file = "tools/lint/magic_numbers.zig", .old = ".exclude_basenames = &.{ \"limits.zig\", \"constants.zig\", \"fixtures.zig\" },", .new = ".exclude_basenames = &.{ \"constants.zig\", \"fixtures.zig\" }," },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Every limit in a limits file",
+        .id = "LF9",
+        .what = "the canary holds no limit in a constants file",
+        .edits = .{
+            .{ .file = "build/lint.zig", .old = "    \\\\pub const canary_bytes_max: usize = 4;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "lint" },
+    },
+    .{
+        .section = "Every limit in a limits file",
+        .id = "LF10",
+        .what = "the canary holds no limit outside a limits file",
+        .edits = .{
+            .{ .file = "build/lint.zig", .old = "    \\\\const canary_slots_max: usize = 4;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "lint" },
+    },
+    .{
+        .section = "Every limit in a limits file",
+        .id = "LF11",
+        .what = "a limit is named in a constants file again",
+        .edits = .{
+            .{ .file = "src/core/constants.zig", .old = "pub const records_max = limits.records_max;", .new = "pub const records_max: usize = 64;" },
+        },
+        .caught_by = .{ .step = "lint" },
+    },
+    .{
+        .section = "Every limit in a limits file",
+        .id = "LF12",
+        .what = "a limit is named outside a limits file",
+        .edits = .{
+            .{ .file = "src/sim/sim_loop_perform.zig", .old = "const limits = @import(\"limits.zig\");\n", .new = "const limits = @import(\"limits.zig\");\nconst frames_per_send_max: usize = 16;\n" },
+        },
+        .caught_by = .{ .step = "lint" },
+    },
+    .{
+        .section = "Every limit in a limits file",
+        .id = "LF13",
+        .what = "a constant outside the constants files loses its type",
+        .edits = .{
+            .{ .file = "src/core/mix.zig", .old = "const shift_first: u6 = 30;", .new = "const shift_first = 30;" },
+        },
+        .caught_by = .{ .step = "lint" },
+    },
+    .{
+        .section = "Every limit in a limits file",
+        .id = "LF14",
+        .what = "a limit is a call that gives a `comptime_int`, which the lint rule does not read",
+        .edits = .{
+            .{ .file = "src/core/limits.zig", .old = "pub const records_max: usize = 64;", .new = "pub const records_max = std.math.log2(1 << 64);" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "Every limit in a limits file",
+        .id = "LF15",
+        .what = "unbounded-loop takes the segment `constants` for a limit again",
+        .edits = .{
+            .{ .file = "tools/lint/unbounded_loop.zig", .old = ".bound = .{ .segments = &.{\"limits\"},", .new = ".bound = .{ .segments = &.{\"constants\"}," },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Every limit in a limits file",
+        .id = "LF16",
+        .what = "unbounded-loop takes no segment for a limit, only the suffix `_max`",
+        .edits = .{
+            .{ .file = "tools/lint/unbounded_loop.zig", .old = ".bound = .{ .segments = &.{\"limits\"},", .new = ".bound = .{ .segments = &.{}," },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Every limit in a limits file",
+        .id = "LF17",
+        .what = "unbounded-loop sends the author to a constants file for a limit",
+        .edits = .{
+            .{ .file = "tools/lint/unbounded_loop.zig", .old = "\" bound it with a limits.zig value (non-negotiable 5)\",", .new = "\" bound it with a constants.zig value (non-negotiable 5)\"," },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Every limit in a limits file",
+        .id = "LF18",
+        .what = "the rule takes a stem that holds `limits` inside a word for a limits file",
+        .edits = .{
+            .{ .file = "tools/lint/typed_constants.zig", .old = "        if (std.mem.eql(u8, word, limits_name)) return true;", .new = "        if (std.mem.indexOf(u8, word, limits_name) != null) return true;" },
+        },
+        .caught_by = .{ .step = "test-tools" },
     },
 }

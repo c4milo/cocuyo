@@ -12,6 +12,7 @@ const tls = @import("tls");
 const doh = @import("doh");
 const identity = @import("io_doh_channel_identity.zig");
 const constants = @import("io_doh_channel_constants.zig");
+const limits = @import("io_doh_channel_limits.zig");
 
 /// What makes an answer of a query, into `out`, or null to refuse it.
 pub const Answerer = struct {
@@ -38,14 +39,11 @@ pub const Script = struct {
 
 /// Keys a server needs: RFC 9846 §4.3.2's cookie key, and the one its tickets are sealed under,
 /// each of one octet repeated, and the octet its stream is seeded with. Test-only values.
-const cookie_octet = 0x5c;
-const ticket_octet = 0x7e;
-const stream_octet = 0x33;
+const cookie_octet: u8 = 0x5c;
+const ticket_octet: u8 = 0x7e;
+const stream_octet: u8 = 0x33;
 const cookie_key: [tls.constants.server_key_len]u8 = @splat(cookie_octet);
 const ticket_key: [tls.constants.server_key_len]u8 = @splat(ticket_octet);
-/// A response's field lines at most: its media type, its length, a content coding and an `Age`.
-const response_fields_max = 4;
-const length_digits_max = 20;
 
 /// The server's TLS identity, the test's, with no protocol named: the endpoint names those its
 /// versions allow (colibri's decision 119).
@@ -61,7 +59,7 @@ pub fn identity_values(tickets: bool) tls.Server {
 
 /// A field's value a request carried, kept for a test to read.
 pub const Heard = struct {
-    value: [heard_bytes_max]u8 = undefined,
+    value: [limits.server_heard_bytes_max]u8 = undefined,
     len: usize = 0,
 
     fn keep(heard: *Heard, field: ?server.Field) void {
@@ -74,7 +72,6 @@ pub const Heard = struct {
         return heard.value[0..heard.len];
     }
 };
-const heard_bytes_max = 64;
 
 /// The versions a request comes in, as RFC 9110 §2.5 numbers them, which a test reads: 1.1 for
 /// HTTP/1.1, and 2.0 for HTTP/2.
@@ -85,10 +82,6 @@ pub const http_2: server.Version = .{ .major = http_2_major, .minor = 0 };
 /// An endpoint of one TCP connection, the one a test's channel opens.
 const Endpoint = server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
 
-/// The events the server reads for one input at most: each takes octets of the input, or reports
-/// one of a request's events or the connection's.
-const events_per_input_max = constants.stream_bytes + 1;
-
 pub const Server = struct {
     script: Script = .{},
     config: server.Config = undefined,
@@ -97,15 +90,15 @@ pub const Server = struct {
     connection: server.ConnectionHandle = undefined,
     stream: std.Random.ChaCha = std.Random.ChaCha.init(@splat(stream_octet)),
     /// The records the client sent and the server has not read.
-    input: [constants.stream_bytes]u8 = undefined,
+    input: [limits.stream_bytes]u8 = undefined,
     input_len: usize = 0,
-    owed: [owed_max]Owed = @splat(.{}),
+    owed: [limits.server_owed_max]Owed = @splat(.{}),
     /// What it heard, which a test reads: the queries it answered, the requests it holds, the last
     /// query it read, the version of its request, and what its `accept` and `accept-encoding` asked
     /// for. A program reads a request's version from the request (colibri's decision 121).
     answered: usize = 0,
     held: usize = 0,
-    query: [cocuyo.constants.message_bytes_max]u8 = undefined,
+    query: [cocuyo.limits.message_bytes_max]u8 = undefined,
     query_len: usize = 0,
     version: ?server.Version = null,
     accept: Heard = .{},
@@ -140,7 +133,7 @@ pub const Server = struct {
     /// Hands the endpoint the octets it holds, or none, until it takes nothing and says nothing.
     /// An event's slices point into the octets, so they leave once the event is read.
     fn read(self: *Server, answerer: Answerer, now_ns: u64) void {
-        for (0..events_per_input_max) |_| {
+        for (0..limits.server_events_per_input_max) |_| {
             const input: server.Input = if (self.input_len == 0) .none else .{ .stream = .{ .connection = self.connection, .octets = self.input[0..self.input_len] } };
             const received = self.endpoint.receive(input, now_ns);
             if (received.event) |event| self.take(event, answerer);
@@ -195,15 +188,11 @@ pub const Server = struct {
     }
 };
 
-/// The answers that a server holds at once while their content goes out: one for each request
-/// that a test has in flight.
-const owed_max = 2;
-
 /// An answer whose head has gone, and the content that it still owes.
 const Owed = struct {
     live: bool = false,
     id: server.Id = undefined,
-    content: [cocuyo.constants.message_bytes_max]u8 = undefined,
+    content: [cocuyo.limits.message_bytes_max]u8 = undefined,
     len: usize = 0,
     written: usize = 0,
 };
@@ -287,8 +276,8 @@ pub fn respond(endpoint: anytype, id: server.Id, script: Script, content: []cons
 /// Writes the head the script says for content `content_len` octets long, or a reset once the
 /// head has gone. Whether the content goes next.
 fn respond_head(endpoint: anytype, id: server.Id, script: Script, content_len: usize) bool {
-    var digits: [length_digits_max]u8 = undefined;
-    var fields: [response_fields_max]server.Field = undefined;
+    var digits: [limits.server_length_digits_max]u8 = undefined;
+    var fields: [limits.server_response_fields_max]server.Field = undefined;
     var count: usize = 0;
     fields[count] = .{ .name = "content-type", .value = script.content_type };
     count += 1;

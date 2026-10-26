@@ -313,7 +313,7 @@ test "one read of a connection takes an end for each request and 16 of its own, 
     try testing.expect((try rig.until_result()).outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
     const transport = &rig.engine.quic.connections[0].transport;
-    const per_read = rig.engine.requests.len + io.constants.quic_connection_events_max;
+    const per_read = rig.engine.requests.len + io.limits.quic_connection_events_max;
     transport.flood = per_read + 1;
     request_events.expire_due(&rig.engine, rig.loop.now());
     try testing.expectEqual(per_read, transport.said);

@@ -8,6 +8,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const Address = @import("address.zig").Address;
 const Endpoint = @import("address.zig").Endpoint;
 const Name = @import("name.zig").Name;
@@ -35,7 +36,7 @@ pub const Tls = struct {
     /// Whether the server can be authenticated at all: a strict client connects only to a
     /// server it can authenticate (RFC 8310 §5), by a name, by pins, or by both.
     pub fn valid(self: *const Tls) bool {
-        return (self.name != null or self.pins.len >= 1) and self.pins.len <= constants.spki_pins_max;
+        return (self.name != null or self.pins.len >= 1) and self.pins.len <= limits.spki_pins_max;
     }
 };
 
@@ -102,7 +103,7 @@ pub const Source = enum { file, dns };
 pub const default_lookups = [_]Source{ .file, .dns };
 
 pub const Config = struct {
-    /// The servers to ask, in the order they are asked. At most `constants.servers_max`; none
+    /// The servers to ask, in the order they are asked. At most `limits.servers_max`; none
     /// when a `resolv.conf` named none and the caller asked for no default, in which case every
     /// lookup fails at once with `NoServers`.
     servers: []const Server,
@@ -114,14 +115,14 @@ pub const Config = struct {
     attempts: u8 = constants.attempts_default,
     /// The wait for a server until it has 3 samples of its latency; from then on its wait is
     /// five times its measured average (docs/design.md §5). Either is clamped to at least
-    /// `constants.timeout_ns_min` and at most `timeout_ns_max`, and doubles per pass. 2 seconds
+    /// `limits.timeout_ns_min` and at most `timeout_ns_max`, and doubles per pass. 2 seconds
     /// by default, c-ares's `ARES_OPT_TIMEOUTMS`. It may be no more than `timeout_ns_max`, whose
     /// default is 5 seconds, so a configuration that sets it higher raises `timeout_ns_max` as
     /// far; before 2026-10-09 the default cap was 30 seconds and this needed no such care.
     timeout_ns: u64 = constants.timeout_ns_default,
     /// The UDP payload size cocuyo advertises in OPT, which is also the smallest receive buffer
     /// the caller may use. The engine receives into buffers of its own. Its `init` and `reinit`
-    /// refuse a size above what one of them holds, `cocuyo_rotor.constants.udp_payload_bytes_max`
+    /// refuse a size above what one of them holds, `cocuyo_rotor.limits.udp_payload_bytes_max`
     /// (docs/design.md §19 step 13, the datagram's rule 7).
     udp_payload_bytes: u16 = constants.udp_payload_bytes_default,
     /// Whether to randomise the case of the qname (DNS-0x20) and require it back unchanged. On by
@@ -137,7 +138,7 @@ pub const Config = struct {
     rotate: bool = false,
     /// The cap on every wait, measured or doubled per pass: c-ares's `maxtimeout`. 5 seconds by
     /// default, and at most the constant of the same name, 30. At least `timeout_ns`, which
-    /// `assert_valid` requires. A cap below `constants.timeout_ns_min` wins over that floor
+    /// `assert_valid` requires. A cap below `limits.timeout_ns_min` wins over that floor
     /// (docs/design.md §5).
     timeout_ns_max: u64 = constants.timeout_ns_max_default,
     /// Every query over TCP: `use-vc` in a `resolv.conf`, `ARES_FLAG_USEVC` in c-ares.
@@ -182,7 +183,7 @@ pub const Config = struct {
     /// the cache it builds, at `init` and at each `reinit`, and no lookup reads it; a caller
     /// that builds a `Cache` of its own hands `Cache.init` this or a cap of its own. At least
     /// 1: an engine is given no cache by handing it no memory, never by a cap of zero. At most
-    /// `constants.cache_ttl_seconds_max`, seven days, the cap RFC 8767 §4 recommends. No line
+    /// `limits.cache_ttl_seconds_max`, seven days, the cap RFC 8767 §4 recommends. No line
     /// of a `resolv.conf` sets it (docs/design.md §16 decision 37, §19 step 13).
     cache_ttl_seconds_max: u32 = constants.cache_ttl_seconds_max_default,
 
@@ -190,23 +191,23 @@ pub const Config = struct {
     /// broken one is a programmer error and asserts rather than returning (CLAUDE.md
     /// non-negotiable 3).
     pub fn assert_valid(self: *const Config) void {
-        assert(self.servers.len <= constants.servers_max);
-        assert(self.search.len <= constants.search_max);
+        assert(self.servers.len <= limits.servers_max);
+        assert(self.search.len <= limits.search_max);
         assert(self.attempts >= 1);
-        assert(self.attempts <= constants.attempts_max);
+        assert(self.attempts <= limits.attempts_max);
         assert(self.timeout_ns >= 1);
         assert(self.timeout_ns <= self.timeout_ns_max);
-        assert(self.timeout_ns_max <= constants.timeout_ns_max);
-        assert(self.udp_payload_bytes >= constants.udp_payload_bytes_min);
-        assert(self.udp_payload_bytes <= constants.message_bytes_max);
-        assert(self.lookups.len <= constants.lookup_sources_max);
+        assert(self.timeout_ns_max <= limits.timeout_ns_max);
+        assert(self.udp_payload_bytes >= limits.udp_payload_bytes_min);
+        assert(self.udp_payload_bytes <= limits.message_bytes_max);
+        assert(self.lookups.len <= limits.lookup_sources_max);
         // A cap of zero would lower every TTL to zero, and a record with a TTL of zero "should
         // not be cached" (RFC 1035 §3.2.1, as `Cache.put` cites it): handing an engine no memory
         // is what turns its cache off (docs/design.md §19 step 13).
         assert(self.cache_ttl_seconds_max >= 1);
         // "Values SHOULD be capped on the order of days to weeks, with a recommended cap of
         // 604,800 seconds (7 days)" (RFC 8767 §4): no configuration caps later than that.
-        assert(self.cache_ttl_seconds_max <= constants.cache_ttl_seconds_max);
+        assert(self.cache_ttl_seconds_max <= limits.cache_ttl_seconds_max);
         assert(servers_agree(self.servers));
         // Every query on a stream means TCP, and a DoH or DoQ server takes each query as an
         // request of its own (docs/design.md §22, §23).
@@ -309,8 +310,8 @@ test "the cache's TTL cap is c-ares's hour by default, and a cap of a second to 
     try testing.expectEqual(@as(u32, 3600), config.cache_ttl_seconds_max);
     // The least cap keeps an answer a second, and the most keeps one seven days, "a recommended
     // cap of 604,800 seconds (7 days)" (RFC 8767 §4).
-    try testing.expectEqual(@as(u32, 604_800), constants.cache_ttl_seconds_max);
-    for ([_]u32{ 1, 300, constants.cache_ttl_seconds_max }) |cap| {
+    try testing.expectEqual(@as(u32, 604_800), limits.cache_ttl_seconds_max);
+    for ([_]u32{ 1, 300, limits.cache_ttl_seconds_max }) |cap| {
         const capped: Config = .{ .servers = &servers, .cache_ttl_seconds_max = cap };
         capped.assert_valid();
         try testing.expectEqual(cap, capped.cache_ttl_seconds_max);
@@ -319,10 +320,10 @@ test "the cache's TTL cap is c-ares's hour by default, and a cap of a second to 
 
 test "a search list at the limit is valid" {
     const servers = [_]Server{.{ .endpoint = .{ .address = Address.from_v4(.{ 127, 0, 0, 1 }) } }};
-    const search: [constants.search_max]Name = @splat(Name.root);
+    const search: [limits.search_max]Name = @splat(Name.root);
     const config: Config = .{ .servers = &servers, .search = &search };
     config.assert_valid();
-    try testing.expectEqual(@as(usize, constants.search_max), config.search.len);
+    try testing.expectEqual(@as(usize, limits.search_max), config.search.len);
 }
 
 test "a TCP port of its own replaces the UDP port for a connection, and zero keeps it" {
@@ -359,10 +360,10 @@ test "servers speak TLS all together or not at all, and TLS sends every query on
 
 test "a TLS server is known by its name, its pins, or both, and by no more pins than the bound" {
     const name = try Name.from_text("dns.example.");
-    const pins: [constants.spki_pins_max + 1]Pin = @splat(@splat(0xab));
+    const pins: [limits.spki_pins_max + 1]Pin = @splat(@splat(0xab));
     const by_name: Tls = .{ .name = name };
     const by_pins: Tls = .{ .pins = pins[0..1] };
-    const by_both: Tls = .{ .name = name, .pins = pins[0..constants.spki_pins_max] };
+    const by_both: Tls = .{ .name = name, .pins = pins[0..limits.spki_pins_max] };
     try testing.expect(by_name.valid() and by_pins.valid() and by_both.valid());
     const by_nothing: Tls = .{};
     const too_many: Tls = .{ .name = name, .pins = &pins };

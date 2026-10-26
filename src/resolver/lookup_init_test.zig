@@ -31,7 +31,7 @@ test "a lookup starts ready to send its first query" {
 
 test "the name on the wire is cased and the name held is not" {
     // The case is chosen when the query is built, since its server may have lost 0x20 (§7).
-    var out: [core.constants.query_bytes_max]u8 = @splat(0);
+    var out: [core.limits.query_bytes_max]u8 = @splat(0);
     const config: Config = .{ .servers = &one_server };
     var servers_config = Servers.init(&config, 1);
     var lookup = Lookup.init(&config, &servers_config, try Question.from_text("example.com", .a), 1);
@@ -60,7 +60,7 @@ test "rotation starts somewhere in the list, and a lookup without it starts at t
     while (seed < 64) : (seed += 1) {
         const lookup = Lookup.init(&rotating, &servers_rotating, try Question.from_text("example.com.", .a), seed);
         var polled = lookup;
-        var out: [core.constants.query_bytes_max]u8 = @splat(0);
+        var out: [core.limits.query_bytes_max]u8 = @splat(0);
         _ = polled.poll(0, &out);
         seen[polled.server_slot()] = true;
         const fixed = Lookup.init(&plain, &servers_plain, try Question.from_text("example.com.", .a), seed);

@@ -1,5 +1,5 @@
 //! `Name`: a domain name in uncompressed wire form, the root label included. A name is a sequence
-//! of length-prefixed labels ending in a zero octet, at most `constants.name_bytes_max` octets
+//! of length-prefixed labels ending in a zero octet, at most `limits.name_bytes_max` octets
 //! all told (RFC 1035 §2.3.4, §3.1).
 //!
 //! Wire form is what cocuyo stores, for two reasons. A parsed name never points into the datagram
@@ -11,21 +11,22 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const Error = @import("errors.zig").Error;
 const name_text = @import("name_text.zig");
 
 /// The zero octet that ends every name: the root label (RFC 1035 §3.1).
-const root_label = 0;
+const root_label: u8 = 0;
 
 comptime {
     // Case folding a whole name byte for byte is sound only while no length octet can be an ASCII
     // letter, which holds because a label is at most 63 octets and 'A' is 65.
-    if (constants.label_bytes_max >= 'A') @compileError("a length octet could fold like a letter");
+    if (limits.label_bytes_max >= 'A') @compileError("a length octet could fold like a letter");
 }
 
 /// An `extern struct`, because the answers' union holds it (docs/design.md §16 decision 34).
 pub const Name = extern struct {
-    bytes: [constants.name_bytes_max]u8,
+    bytes: [limits.name_bytes_max]u8,
     len: u8,
 
     /// The root, `.`: one zero octet. Zeroed rather than undefined, because nothing cocuyo does
@@ -39,7 +40,7 @@ pub const Name = extern struct {
     /// The wire bytes of a terminated name, which is what a query carries and what a comparison
     /// reads.
     pub fn wire(self: *const Name) []const u8 {
-        assert(self.len <= constants.name_bytes_max);
+        assert(self.len <= limits.name_bytes_max);
         return self.bytes[0..self.len];
     }
 
@@ -53,43 +54,43 @@ pub const Name = extern struct {
     /// sent, which may be anything a length octet can describe.
     pub fn append_label(self: *Name, label: []const u8) Error!void {
         if (label.len == 0) return Error.MalformedName;
-        if (label.len > constants.label_bytes_max) return Error.LabelTooLong;
+        if (label.len > limits.label_bytes_max) return Error.LabelTooLong;
         const length: usize = self.len;
         // The root octet is counted here: a label that fits only by leaving no room to terminate
         // the name does not fit.
-        if (length + 1 + label.len + 1 > constants.name_bytes_max) return Error.NameTooLong;
-        assert(length + 1 + label.len < constants.name_bytes_max);
+        if (length + 1 + label.len + 1 > limits.name_bytes_max) return Error.NameTooLong;
+        assert(length + 1 + label.len < limits.name_bytes_max);
         self.bytes[self.len] = @intCast(label.len);
         @memcpy(self.bytes[self.len + 1 ..][0..label.len], label);
         self.len += @intCast(1 + label.len);
-        assert(self.len < constants.name_bytes_max);
+        assert(self.len < limits.name_bytes_max);
     }
 
     /// Ends the name with the root octet. A name is only a name once this has been called.
     pub fn terminate(self: *Name) Error!void {
         const length: usize = self.len;
-        if (length + 1 > constants.name_bytes_max) return Error.NameTooLong;
-        assert(length < constants.name_bytes_max);
+        if (length + 1 > limits.name_bytes_max) return Error.NameTooLong;
+        assert(length < limits.name_bytes_max);
         self.bytes[self.len] = root_label;
         self.len += 1;
         assert(self.bytes[self.len - 1] == root_label);
     }
 
-    /// The number of labels, the root not counted. Bounded by `constants.labels_max`, so a name
+    /// The number of labels, the root not counted. Bounded by `limits.labels_max`, so a name
     /// whose length octets disagree with its length cannot spin here.
     pub fn label_count(self: *const Name) u8 {
         assert(self.len >= 1);
         var offset: usize = 0;
         var labels: u8 = 0;
-        while (labels <= constants.labels_max) {
+        while (labels <= limits.labels_max) {
             if (offset >= self.len) break;
             const length = self.bytes[offset];
             if (length == root_label) break;
-            assert(length <= constants.label_bytes_max);
+            assert(length <= limits.label_bytes_max);
             offset += 1 + length;
             labels += 1;
         }
-        assert(labels <= constants.labels_max);
+        assert(labels <= limits.labels_max);
         return labels;
     }
 
@@ -97,7 +98,7 @@ pub const Name = extern struct {
     /// This is what `ndots` counts (docs/design.md §5).
     pub fn dot_count(self: *const Name) u8 {
         const labels = self.label_count();
-        assert(labels <= constants.labels_max);
+        assert(labels <= limits.labels_max);
         return if (labels == 0) 0 else labels - 1;
     }
 
@@ -123,16 +124,16 @@ pub const Name = extern struct {
         assert(self.len >= 1);
         var offset: usize = 0;
         var labels: usize = 0;
-        while (labels <= constants.labels_max) {
+        while (labels <= limits.labels_max) {
             if (offset >= self.len) break;
             const length = self.bytes[offset];
             if (length == root_label) break;
-            assert(length <= constants.label_bytes_max);
+            assert(length <= limits.label_bytes_max);
             for (self.bytes[offset + 1 ..][0..length]) |*byte| byte.* = fold(byte.*);
             offset += 1 + length;
             labels += 1;
         }
-        assert(labels <= constants.labels_max);
+        assert(labels <= limits.labels_max);
     }
 
     /// `fold` over the eight octets of a word at once, so a hash can fold a name without copying
@@ -160,7 +161,7 @@ pub const Name = extern struct {
         if (suffix.is_root()) return self.*;
         const labels: usize = self.len - 1;
         const suffix_len: usize = suffix.len;
-        if (labels + suffix_len > constants.name_bytes_max) return Error.NameTooLong;
+        if (labels + suffix_len > limits.name_bytes_max) return Error.NameTooLong;
         var joined: Name = .{ .bytes = @splat(0), .len = 0 };
         @memcpy(joined.bytes[0..labels], self.bytes[0..labels]);
         @memcpy(joined.bytes[labels..][0..suffix_len], suffix.bytes[0..suffix_len]);
@@ -170,10 +171,10 @@ pub const Name = extern struct {
     }
 
     /// Presentation form, written into the caller's buffer, which must hold
-    /// `constants.name_text_bytes_max`. Returns the bytes written.
+    /// `limits.name_text_bytes_max`. Returns the bytes written.
     pub fn write_text(self: *const Name, out: []u8) usize {
         assert(self.len >= 1);
-        assert(out.len >= constants.name_text_bytes_max);
+        assert(out.len >= limits.name_text_bytes_max);
         return name_text.write(self.wire(), out);
     }
 
@@ -190,7 +191,7 @@ pub const Name = extern struct {
         var labels: u8 = 0;
         var iterator = std.mem.splitScalar(u8, body, name_text.separator);
         while (iterator.next()) |label| {
-            if (labels == constants.labels_max) return Error.NameTooLong;
+            if (labels == limits.labels_max) return Error.NameTooLong;
             labels += 1;
             try name_text.validate_label(label);
             try name.append_label(label);
@@ -210,7 +211,7 @@ fn fold(byte: u8) u8 {
 }
 
 /// The octets `Name.fold_word` folds at once.
-const word_bytes = @sizeOf(u64);
+const word_bytes: usize = @sizeOf(u64);
 
 /// Two names in wire form, compared with the case of their ASCII letters folded (RFC 1035
 /// §2.3.3, clarified by RFC 4343 §3). Every byte folds, length octets included, which is sound
@@ -224,7 +225,7 @@ const word_bytes = @sizeOf(u64);
 /// name shorter than a word goes to `octets_equal`, the reference the tests hold this one to.
 pub fn wire_equal(a: []const u8, b: []const u8) bool {
     if (a.len != b.len) return false;
-    assert(a.len <= constants.name_bytes_max);
+    assert(a.len <= limits.name_bytes_max);
     if (a.len < word_bytes) return octets_equal(a, b);
     const last = a.len - word_bytes;
     var offset: usize = 0;
@@ -253,7 +254,7 @@ fn words_equal(a: *const [word_bytes]u8, b: *const [word_bytes]u8) bool {
 /// shorter than a word.
 pub fn octets_equal(a: []const u8, b: []const u8) bool {
     if (a.len != b.len) return false;
-    assert(a.len <= constants.name_bytes_max);
+    assert(a.len <= limits.name_bytes_max);
     for (a, b) |mine, theirs| {
         // The same rule, one octet at a time (RFC 1035 §2.3.3, as clarified by RFC 4343 §3).
         if (fold(mine) != fold(theirs)) return false;
@@ -367,13 +368,13 @@ fn expect_one_change(a: []const u8, b: []u8, position: usize, replacement: u8) !
 
 test "the word compare and the octet compare see every one-octet change at every length" {
     // Two runs of the edge octets, the second with every letter in the other case.
-    var a: [constants.name_bytes_max]u8 = undefined;
-    var b: [constants.name_bytes_max]u8 = undefined;
+    var a: [limits.name_bytes_max]u8 = undefined;
+    var b: [limits.name_bytes_max]u8 = undefined;
     for (&a, &b, 0..) |*mine, *theirs, index| {
         mine.* = edge_octets[index % edge_octets.len];
         theirs.* = if (std.ascii.isAlphabetic(mine.*)) mine.* ^ constants.ascii_case_bit else mine.*;
     }
-    for (0..constants.name_bytes_max + 1) |length| {
+    for (0..limits.name_bytes_max + 1) |length| {
         try testing.expect(wire_equal(a[0..length], b[0..length]));
         try testing.expect(octets_equal(a[0..length], b[0..length]));
         for (0..length) |position| {
@@ -414,7 +415,7 @@ test "concat builds a search candidate and refuses one too long" {
 }
 
 test "write_text round-trips a name the caller could have spelled" {
-    var out: [constants.name_text_bytes_max]u8 = undefined;
+    var out: [limits.name_text_bytes_max]u8 = undefined;
     const name = try Name.from_text("www.example.com");
     const text = out[0..name.write_text(&out)];
     try testing.expectEqualStrings("www.example.com.", text);
@@ -434,7 +435,7 @@ test "append_label and terminate keep the length invariant" {
 test "a name at the limit refuses one more label and one more octet" {
     // Three labels of 63 and one of 61 is exactly 255 octets, the root included.
     var name = try Name.from_text("a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63 ++ "." ++ "d" ** 61);
-    try testing.expectEqual(@as(u8, constants.name_bytes_max), name.len);
+    try testing.expectEqual(@as(u8, limits.name_bytes_max), name.len);
     try testing.expectError(Error.NameTooLong, name.append_label("e"));
     try testing.expectError(Error.NameTooLong, name.terminate());
 
@@ -472,7 +473,7 @@ test "concat accepts a candidate of exactly the limit" {
     try testing.expectEqual(@as(u8, 193), prefix.len);
     try testing.expectEqual(@as(u8, 63), suffix.len);
     const joined = try prefix.concat(&suffix);
-    try testing.expectEqual(@as(u8, constants.name_bytes_max), joined.len);
+    try testing.expectEqual(@as(u8, limits.name_bytes_max), joined.len);
     try testing.expectEqual(@as(u8, 4), joined.label_count());
 }
 

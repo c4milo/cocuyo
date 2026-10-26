@@ -24,8 +24,8 @@ const only = fixtures.servers_one[0].endpoint;
 /// A case seed whose first draw leaves every letter of `example.com` small: the ten low bits of
 /// the word after it are set. `wire.name.mix_case` draws such a name again, so it goes out with a
 /// capital all the same.
-const all_small_seed = 2277;
-const example_letters_mask = 0x3ff;
+const all_small_seed: u64 = 2277;
+const example_letters_mask: u64 = 0x3ff;
 
 /// The CNAME of `fixtures.record_cname`, its target spelled `HOST.EXAMPLE.NET` as a server could
 /// pass it on.
@@ -133,12 +133,12 @@ fn respond_altered(harness: *fixtures.Harness, offset: usize, octet: u8) Verdict
 }
 
 /// A name of 255 octets, the longest (RFC 1035 §2.3.4): labels of 63 letters, then one of the rest.
-const full_labels = 3;
-const full_label_text = "x" ** core.constants.label_bytes_max ++ ".";
+const full_labels: usize = 3;
+const full_label_text = "x" ** core.limits.label_bytes_max ++ ".";
 /// The octets of the name that neither the full labels nor the last one's letters take: the
 /// last label's length octet, and the root's.
-const last_label_framing = 2;
-const last_label_bytes = core.constants.name_bytes_max - full_labels * full_label_text.len - last_label_framing;
+const last_label_framing: usize = 2;
+const last_label_bytes: usize = core.limits.name_bytes_max - full_labels * full_label_text.len - last_label_framing;
 pub const longest_text = full_label_text ** full_labels ++ "x" ** last_label_bytes ++ ".";
 
 test "a name of 255 octets is asked and answered, mixed, in lowercase and as held" {
@@ -146,7 +146,7 @@ test "a name of 255 octets is asked and answered, mixed, in lowercase and as hel
     // in the `u8` a name's length is held in, overflowed: a panic on its own server's answer.
     var harness: fixtures.Harness = .{ .config = .{ .servers = &fixtures.servers_one } };
     try harness.start(longest_text, .a, seed);
-    try testing.expectEqual(@as(usize, core.constants.name_bytes_max), harness.lookup.current.len);
+    try testing.expectEqual(@as(usize, core.limits.name_bytes_max), harness.lookup.current.len);
     _ = harness.send();
     try testing.expect(harness.lookup.flags.query_mixed and sent_mixed(&harness));
     // The echo in lowercase marks its server, and the echo as sent is taken.
@@ -253,7 +253,7 @@ test "a late echo of a lookup's own earlier query marks nothing, though the retr
     const late_bytes = harness.build(fixtures.answer_a).len;
     @memcpy(late[0..late_bytes], harness.reply_buffer[0..late_bytes]);
     const first_id = harness.lookup.transaction.id;
-    var first_name: [core.constants.name_bytes_max]u8 = undefined;
+    var first_name: [core.limits.name_bytes_max]u8 = undefined;
     @memcpy(first_name[0..harness.lookup.current.len], sent_name(&harness));
     // The wait runs out, and the retry to the same server draws the id the first query carried.
     harness.now_ns = harness.lookup.deadline_ns - 1;
@@ -362,8 +362,8 @@ test "a chain name a server spelled with capitals is folded, though the query we
 }
 
 /// A millisecond and a second, in nanoseconds.
-const millisecond_ns = 1_000_000;
-const second_ns = 1_000_000_000;
+const millisecond_ns: u64 = 1_000_000;
+const second_ns: u64 = 1_000_000_000;
 
 /// Requires server `slot` to hold `count` samples since the table was built, and its minute's
 /// window to sum to `sum_ns`. That window holds each sample of a test this short.
@@ -395,7 +395,7 @@ test "a try that its reply marked is no sample, so its server waits the configur
     }
     // Three samples of 10 ms, and none of 2 seconds: five times their average is under the floor.
     _ = harness.send();
-    try testing.expectEqual(core.constants.timeout_ns_min, harness.lookup.deadline_ns - harness.now_ns);
+    try testing.expectEqual(core.limits.timeout_ns_min, harness.lookup.deadline_ns - harness.now_ns);
     try expect_samples(&harness, 0, 3, 3 * 10 * millisecond_ns);
 }
 

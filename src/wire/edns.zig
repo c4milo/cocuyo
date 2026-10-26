@@ -14,39 +14,40 @@ const assert = std.debug.assert;
 const core = @import("core");
 const Error = core.Error;
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const integer = @import("integer.zig");
 const rdata_opt = @import("rdata/rdata_opt.zig");
 
 /// The only EDNS version cocuyo implements (RFC 6891 §6.1.3).
-pub const version_supported = 0;
+pub const version_supported: u8 = 0;
 
 /// The DO bit of the flags field, which cocuyo never sets (RFC 6891 §6.1.4).
-pub const flag_dnssec_ok = 0x8000;
+pub const flag_dnssec_ok: u16 = 0x8000;
 
 /// Where the extended rcode's high octet sits inside the TTL field.
-pub const extended_rcode_shift = 24;
+pub const extended_rcode_shift: u5 = 24;
 
 /// Where the version sits inside the TTL field.
-pub const version_shift = 16;
+pub const version_shift: u5 = 16;
 
 /// The low sixteen bits of the TTL field are the flags.
-pub const flags_mask = 0xffff;
+pub const flags_mask: u32 = 0xffff;
 
 /// The high four bits an OPT record adds to the header's four (RFC 6891 §6.1.3).
-pub const extended_rcode_mask = 0xff;
+pub const extended_rcode_mask: u32 = 0xff;
 
 /// The DNS cookies of one server as a query carries them (RFC 7873 §4): the client cookie
 /// always, and the server cookie once it has been learned.
 pub const Cookie = struct {
     client: [core.constants.cookie_client_bytes]u8,
-    server: [core.constants.cookie_server_bytes_max]u8,
+    server: [core.limits.cookie_server_bytes_max]u8,
     /// Zero until a server cookie is learned; 8 to 32 after.
     server_len: u8,
 
     /// The COOKIE option's octets: its code and length, then the cookies.
     pub fn option_bytes(self: *const Cookie) usize {
-        assert(self.server_len == 0 or self.server_len >= core.constants.cookie_server_bytes_min);
-        assert(self.server_len <= core.constants.cookie_server_bytes_max);
+        assert(self.server_len == 0 or self.server_len >= core.limits.cookie_server_bytes_min);
+        assert(self.server_len <= core.limits.cookie_server_bytes_max);
         return constants.opt_option_fixed_bytes + core.constants.cookie_client_bytes + self.server_len;
     }
 };
@@ -60,7 +61,7 @@ pub fn record_bytes(cookie: ?*const Cookie) usize {
 /// `padding` octets after it, or with none.
 pub fn record_bytes_padded(cookie: ?*const Cookie, padding: ?usize) usize {
     const option: usize = if (cookie) |c| c.option_bytes() else 0;
-    assert(option <= core.constants.cookie_option_bytes_max);
+    assert(option <= core.limits.cookie_option_bytes_max);
     const padded: usize = if (padding) |bytes| core.constants.opt_option_header_bytes + bytes else 0;
     assert(padded < core.constants.opt_option_header_bytes + core.constants.padding_block_bytes);
     return core.constants.opt_record_bytes + option + padded;
@@ -75,8 +76,8 @@ pub fn write(payload_bytes: u16, cookie: ?*const Cookie, out: []u8) usize {
 /// `write`, and a Padding option of `padding` zero octets after the cookie when it is given
 /// (RFC 7830 §3).
 pub fn write_padded(payload_bytes: u16, cookie: ?*const Cookie, padding: ?usize, out: []u8) usize {
-    assert(payload_bytes >= core.constants.udp_payload_bytes_min);
-    assert(out.len >= core.constants.opt_record_bytes_max);
+    assert(payload_bytes >= core.limits.udp_payload_bytes_min);
+    assert(out.len >= core.limits.opt_record_bytes_max);
     assert(out.len >= record_bytes_padded(cookie, padding));
     var offset: usize = 0;
     out[offset] = 0; // the root owner name, one octet (RFC 6891 §6.1.2)
@@ -138,7 +139,7 @@ pub fn find_cookie(rdata: []const u8) Error!?CookieView {
     while (try options.next()) |option| {
         if (option.code != constants.cookie_option_code) continue;
         const len = option.data.len;
-        const long = len >= constants.cookie_option_long_bytes_min and len <= constants.cookie_option_long_bytes_max;
+        const long = len >= limits.cookie_option_long_bytes_min and len <= limits.cookie_option_long_bytes_max;
         if (len != constants.cookie_option_short_bytes and !long) return Error.MalformedMessage;
         assert(len >= core.constants.cookie_client_bytes);
         return .{
@@ -182,7 +183,7 @@ pub fn parse(class: u16, ttl: u32) Error!Opt {
 const testing = std.testing;
 
 test "the OPT record cocuyo writes is eleven octets with no flags" {
-    var out: [core.constants.opt_record_bytes_max]u8 = @splat(0xff);
+    var out: [core.limits.opt_record_bytes_max]u8 = @splat(0xff);
     const written = write(core.constants.udp_payload_bytes_default, null, &out);
     try testing.expectEqual(core.constants.opt_record_bytes, written);
     try testing.expectEqualSlices(u8, &.{
@@ -207,7 +208,7 @@ test "a version cocuyo does not implement is refused" {
 }
 
 test "the record cocuyo writes parses back as version 0 with no flags" {
-    var out: [core.constants.opt_record_bytes_max]u8 = @splat(0);
+    var out: [core.limits.opt_record_bytes_max]u8 = @splat(0);
     _ = write(core.constants.udp_payload_bytes_default, null, &out);
     const class = integer.read_u16(&out, 3);
     const ttl = integer.read_u32(&out, 5);
@@ -228,7 +229,7 @@ fn cookie_with(server_len: u8) Cookie {
 }
 
 test "a client cookie alone is the short option, and a learned server cookie makes it the long one" {
-    var out: [core.constants.opt_record_bytes_max]u8 = @splat(0xff);
+    var out: [core.limits.opt_record_bytes_max]u8 = @splat(0xff);
     const short = cookie_with(0);
     const written = write(core.constants.udp_payload_bytes_default, &short, &out);
     try testing.expectEqual(core.constants.opt_record_bytes + 4 + 8, written);
@@ -245,12 +246,12 @@ test "a client cookie alone is the short option, and a learned server cookie mak
 }
 
 test "the largest cookie fills the largest OPT record" {
-    var out: [core.constants.opt_record_bytes_max]u8 = @splat(0);
-    const largest = cookie_with(core.constants.cookie_server_bytes_max);
-    try testing.expectEqual(core.constants.opt_record_bytes_max, write(core.constants.udp_payload_bytes_default, &largest, &out));
+    var out: [core.limits.opt_record_bytes_max]u8 = @splat(0);
+    const largest = cookie_with(core.limits.cookie_server_bytes_max);
+    try testing.expectEqual(core.limits.opt_record_bytes_max, write(core.constants.udp_payload_bytes_default, &largest, &out));
     // And it reads back whole: a server cookie runs to 32 octets (RFC 7873 §4).
     const view = (try find_cookie(out[core.constants.opt_record_bytes..])).?;
-    try testing.expectEqual(@as(usize, core.constants.cookie_server_bytes_max), view.server.len);
+    try testing.expectEqual(@as(usize, core.limits.cookie_server_bytes_max), view.server.len);
     try testing.expectEqualSlices(u8, largest.server[0..largest.server_len], view.server);
 }
 
@@ -274,11 +275,11 @@ test "a COOKIE option of a length neither form allows is malformed" {
 test "a server cookie of 8 octets, the shortest, makes the long option of 16, and reads back" {
     // With a server cookie "the length is variable -- from 16 to 40 bytes" (RFC 7873 §4): a client
     // cookie of 8, and a server cookie of 8 to 32.
-    var out: [core.constants.opt_record_bytes_max]u8 = @splat(0);
-    const shortest = cookie_with(core.constants.cookie_server_bytes_min);
+    var out: [core.limits.opt_record_bytes_max]u8 = @splat(0);
+    const shortest = cookie_with(core.limits.cookie_server_bytes_min);
     const written = write(core.constants.udp_payload_bytes_default, &shortest, &out);
     const rdata = out[core.constants.opt_record_bytes..written];
-    try testing.expectEqual(constants.cookie_option_long_bytes_min, integer.read_u16(rdata, constants.opt_option_length_offset));
+    try testing.expectEqual(limits.cookie_option_long_bytes_min, integer.read_u16(rdata, constants.opt_option_length_offset));
     const view = (try find_cookie(rdata)).?;
     try testing.expectEqualSlices(u8, &fixtures.cookie_client, view.client);
     try testing.expectEqualSlices(u8, shortest.server[0..shortest.server_len], view.server);

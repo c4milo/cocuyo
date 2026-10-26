@@ -11,6 +11,7 @@ const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const udp = @import("io_udp.zig");
 const queue_module = @import("io_tcp_queue.zig");
 const tls_module = @import("io_tls.zig");
@@ -38,14 +39,13 @@ pub fn Connection(comptime message_bytes: u32, comptime lookups: u16, comptime T
         /// The longest message the connection assembles. A prefix that says more fails it.
         pub const message_bytes_max: usize = message_bytes;
         /// What the frame holds past its partial message: what one take adds. That is a chunk in
-        /// the clear, and a record's body over TLS (docs/design.md §19 step 13, the stream's rule
-        /// 11).
-        const room_bytes = if (Tls.enabled) constants.tls_frame_room_bytes else constants.tcp_frame_room_bytes;
-        pub const frame_bytes = cocuyo.constants.tcp_prefix_bytes + message_bytes + room_bytes;
+        /// the clear, and a record's body over TLS (§19 step 13, the stream's rule 11).
+        const room_bytes = if (Tls.enabled) limits.tls_frame_room_bytes else limits.tcp_frame_room_bytes;
+        pub const frame_bytes: usize = cocuyo.constants.tcp_prefix_bytes + message_bytes + room_bytes;
 
         comptime {
             // The loop over the frame ends at the last whole message, never at its bound.
-            assert(frame_bytes / cocuyo.constants.tcp_prefix_bytes <= constants.tcp_messages_per_frame_max);
+            assert(frame_bytes / cocuyo.constants.tcp_prefix_bytes <= limits.tcp_messages_per_frame_max);
         }
 
         state: State = .closed,
@@ -81,7 +81,7 @@ pub fn Connection(comptime message_bytes: u32, comptime lookups: u16, comptime T
         incarnation: u32 = 0,
         /// What waits to go out, oldest first, and how much of the head has gone. The head's
         /// send is in flight while `sending` (`io_tcp_queue.zig`).
-        queue: queue_module.Queue(lookups + constants.tls_records_entries_max) = .{},
+        queue: queue_module.Queue(lookups + limits.tls_records_entries_max) = .{},
         sent_bytes: u16 = 0,
         sending: bool = false,
         /// The head's send in flight: a connection carries one at a time (the stream's rule 9). A

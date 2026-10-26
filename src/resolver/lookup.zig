@@ -161,7 +161,7 @@ pub const Lookup = struct {
     cname_hops: u8,
     /// The configured servers in the order this lookup asks them: sorted by their failures,
     /// rotated among the equals, a retry promoted to the front (§19 step 12, `lookup_order.zig`).
-    order: [core.constants.servers_max]u8,
+    order: [core.limits.servers_max]u8,
     transaction: entropy_module.Transaction,
     deadline_ns: u64,
     /// When the current transaction's query went out: what a response accepted for it measures
@@ -437,7 +437,7 @@ pub const Lookup = struct {
     /// walk is over.
     pub fn take_candidate(self: *Lookup, index: u8) void {
         var at = index;
-        while (at <= core.constants.candidates_max) {
+        while (at <= core.limits.candidates_max) {
             switch (policy.candidate(self.config, &self.question, at)) {
                 .name => |name| {
                     self.candidate_index = at;
@@ -457,7 +457,7 @@ pub const Lookup = struct {
                 },
             }
         }
-        assert(at > core.constants.candidates_max);
+        assert(at > core.limits.candidates_max);
         self.fail(core.Error.NameTooLong);
     }
 

@@ -90,7 +90,7 @@ fn first_record(message: []const u8) !record_codec.Record {
 
 test "an MX with a compressed exchange is copied with the name written out" {
     const record = try first_record(&fixtures.answer_mx);
-    var out: [core.constants.rdata_bytes_max]u8 = undefined;
+    var out: [core.limits.rdata_bytes_max]u8 = undefined;
     const written = (try copy_out(&fixtures.answer_mx, &record, &out)).?;
     try testing.expectEqualSlices(u8, &rdata.fixtures.mx, out[0..written]);
 }
@@ -105,7 +105,7 @@ test "a record that does not fit is not an error, it is nothing written" {
 
 test "a name whose encoding runs past its record, or a record with octets after its name, is malformed" {
     const past = try first_record(&fixtures.answer_mx_name_past_record);
-    var out: [core.constants.rdata_bytes_max]u8 = undefined;
+    var out: [core.limits.rdata_bytes_max]u8 = undefined;
     try testing.expectError(Error.MalformedMessage, copy_out(&fixtures.answer_mx_name_past_record, &past, &out));
     const trailing = try first_record(&fixtures.answer_mx_trailing_octet);
     try testing.expectError(Error.MalformedMessage, copy_out(&fixtures.answer_mx_trailing_octet, &trailing, &out));

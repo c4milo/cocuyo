@@ -22,7 +22,7 @@ const Rig = sim_test.RigOf(Resolver);
 /// The names each thread resolves: the same on both, so a shared cache would answer one thread
 /// with what the other's servers said.
 const names = [_][]const u8{ "a.example.", "b.example.", "c.example.", "d.example." };
-const threads = 2;
+const threads: usize = 2;
 
 /// One thread's run: its rig, its seed and its servers' TTL, and what it took.
 const Run = struct {

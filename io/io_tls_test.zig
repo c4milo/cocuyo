@@ -161,7 +161,7 @@ test "a length prefix of 65535 in a record's plaintext is waited for, and the co
     const connection = &rig.engine.connections[0];
     try testing.expect(connection.state == .up and connection.used == 0);
     var prefix: [cocuyo.constants.tcp_prefix_bytes]u8 = undefined;
-    std.mem.writeInt(u16, &prefix, cocuyo.constants.message_bytes_max, .big);
+    std.mem.writeInt(u16, &prefix, cocuyo.limits.message_bytes_max, .big);
     var record: [rotor.constants.tls_record_header_bytes + prefix.len]u8 = undefined;
     const len = rotor.tls.write_record(rotor.constants.tls_content_application, &prefix, &record);
     try testing.expect(rig.loop.network().write_stream(connection.descriptor.?, record[0..len], rig.loop.now()));
@@ -199,7 +199,7 @@ fn record_of_zeros(out: []u8, content: u8, body: usize) usize {
 /// Gives `stream` to the connection in the first slot as the loop gives a stream: in chunks of
 /// `tcp_chunk_bytes`. It stops when the connection reads nothing more.
 fn take_in_chunks(rig: anytype, stream: []const u8) void {
-    const chunk_bytes = io.constants.tcp_chunk_bytes;
+    const chunk_bytes = io.limits.tcp_chunk_bytes;
     var chunks = std.mem.window(u8, stream, chunk_bytes, chunk_bytes);
     while (chunks.next()) |chunk| {
         const state = rig.engine.connections[0].state;
@@ -210,7 +210,7 @@ fn take_in_chunks(rig: anytype, stream: []const u8) void {
 
 /// Two records back to back, of the types `contents` names and of the bodies `bodies` gives.
 const BackToBack = struct {
-    octets: [fixtures.records_back_to_back * (io.constants.tls_record_header_bytes + io.constants.tls_record_body_bytes_max)]u8 = undefined,
+    octets: [fixtures.records_back_to_back * (io.constants.tls_record_header_bytes + io.limits.tls_record_body_bytes_max)]u8 = undefined,
     len: usize = 0,
 
     fn init(self: *BackToBack, contents: [fixtures.records_back_to_back]u8, bodies: [fixtures.records_back_to_back]usize) []const u8 {
@@ -224,7 +224,7 @@ test "a chunk that ends a record and starts the next keeps the connection up" {
     // back to back, and the ninth chunk ends the first and starts the second. The first body is
     // the longest TLS allows, or a full record of AES-GCM (RFC 9846 §5.2).
     const application = rotor.constants.tls_content_application;
-    for ([_]usize{ io.constants.tls_record_body_bytes_max, fixtures.full_record_body_bytes }) |body| {
+    for ([_]usize{ io.limits.tls_record_body_bytes_max, fixtures.full_record_body_bytes }) |body| {
         var rig: Rig = .{};
         try up(&rig, 52);
         var stream: BackToBack = .{};
@@ -244,7 +244,7 @@ test "a record the session refuses leaves the rest of its chunk unread, and room
     // rest of the chunk that ended the record leaves the buffer with it.
     var rig: Rig = .{};
     try up(&rig, 53);
-    const body = io.constants.tls_record_body_bytes_max;
+    const body = io.limits.tls_record_body_bytes_max;
     var stream: BackToBack = .{};
     take_in_chunks(&rig, stream.init(.{ rotor.constants.tls_content_handshake, rotor.constants.tls_content_application }, .{ body, body }));
     const connection = &rig.engine.connections[0];
@@ -260,9 +260,9 @@ test "a record opens into the frame after a partial message at its longest" {
     try up(&rig, 54);
     const connection = &rig.engine.connections[0];
     const prefix = cocuyo.constants.tcp_prefix_bytes;
-    const partial = prefix + cocuyo.constants.message_bytes_max - 1;
+    const partial = prefix + cocuyo.limits.message_bytes_max - 1;
     @memset(connection.frame[0..partial], 0);
-    std.mem.writeInt(u16, connection.frame[0..prefix], cocuyo.constants.message_bytes_max, .big);
+    std.mem.writeInt(u16, connection.frame[0..prefix], cocuyo.limits.message_bytes_max, .big);
     connection.used = partial;
     // The record's body: the message's last octet, then a message of zeros with its prefix.
     const body = fixtures.record_plaintext_bytes_max;
@@ -321,7 +321,7 @@ test "every whole record one chunk carries goes to the session with it, the last
     try start(&rig, 55, .{ .{ .drop_per_256 = fixtures.always }, .{ .down = true } });
     const handle = try rig.engine.start(question("example.com."), rig.loop.now());
     try sim_test.until_sent(&rig);
-    var answer: [rotor.constants.tls_payload_bytes_max]u8 = undefined;
+    var answer: [rotor.limits.tls_payload_bytes_max]u8 = undefined;
     const answer_bytes = try sim_test.framed_answer(&rig.engine, handle, &answer);
     // Each record before the answer's record holds a header of zeros. Such a header is a query,
     // and no lookup takes a query (docs/design.md §7, check 4).
@@ -329,8 +329,8 @@ test "every whole record one chunk carries goes to the session with it, the last
     var message: [cocuyo.constants.tcp_prefix_bytes + header]u8 = @splat(0);
     cocuyo.wire.header.write_message_len(&message, @intCast(header));
     const record_bytes = rotor.constants.tls_record_header_bytes;
-    const others = (io.constants.tcp_chunk_bytes - record_bytes - answer_bytes) / (record_bytes + message.len);
-    var chunk: [io.constants.tcp_chunk_bytes]u8 = undefined;
+    const others = (io.limits.tcp_chunk_bytes - record_bytes - answer_bytes) / (record_bytes + message.len);
+    var chunk: [io.limits.tcp_chunk_bytes]u8 = undefined;
     var used: usize = 0;
     for (0..others) |_| used += rotor.tls.write_record(rotor.constants.tls_content_application, &message, chunk[used..]);
     used += rotor.tls.write_record(rotor.constants.tls_content_application, answer[0..answer_bytes], chunk[used..]);
@@ -355,7 +355,7 @@ test "a buffer of records that are their header alone goes to the session whole"
     try up(&rig, 57);
     const state = &rig.engine.connections[0].tls;
     const empty = rotor.tls.write_record(rotor.constants.tls_content_application, &.{}, &state.record_in);
-    try testing.expectEqual(io.constants.tls_records_per_buffer_max, state.record_in.len / empty);
+    try testing.expectEqual(io.limits.tls_records_per_buffer_max, state.record_in.len / empty);
     var at: usize = empty;
     while (at + empty <= state.record_in.len) : (at += empty) @memcpy(state.record_in[at..][0..empty], state.record_in[0..empty]);
     state.record_in_used = at;
@@ -390,7 +390,7 @@ test "a ticket seven days old is not spent: the opening handshakes in full" {
     var rig: Rig = .{};
     try start(&rig, 46, .{ .{}, .{} });
     // "Clients MUST NOT use tickets for longer than 7 days after issuance" (RFC 9846 §4.7.1).
-    const week_ns = io.constants.tls_ticket_age_ns_max;
+    const week_ns = io.limits.tls_ticket_age_ns_max;
     rig.engine.tls_tickets[0] = .{ .ticket = .{}, .since_ns = 0 };
     io.tls.spend(&rig.engine, 0, 0, week_ns);
     try testing.expect(rig.engine.connections[0].tls.ticket == null);

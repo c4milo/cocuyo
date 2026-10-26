@@ -11,6 +11,7 @@ const std = @import("std");
 const core = @import("core");
 const Kind = core.Kind;
 const constants = @import("../constants.zig");
+const limits = @import("../limits.zig");
 
 pub const Segment = union(enum) {
     /// This many octets, copied as they are.
@@ -65,7 +66,7 @@ pub fn has_name(layout: []const Segment) bool {
 comptime {
     const all = [_][]const Segment{ &name_only, &mx, &soa, &srv, &naptr, &sig, &svcb, &opaque_rest };
     for (all) |layout| {
-        if (layout.len > constants.layout_segments_max) @compileError("a layout is longer than the bound");
+        if (layout.len > limits.layout_segments_max) @compileError("a layout is longer than the bound");
         for (layout, 0..) |segment, index| {
             switch (segment) {
                 .rest => if (index != layout.len - 1) @compileError("rest must be the last segment"),

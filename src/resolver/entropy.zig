@@ -36,7 +36,7 @@ pub const Transaction = struct {
 };
 
 /// How many ports the Dynamic range holds.
-const port_span = core.constants.port_ephemeral_max - core.constants.port_ephemeral_min + 1;
+const port_span: u16 = core.limits.port_ephemeral_max - core.limits.port_ephemeral_min + 1;
 
 pub const Entropy = struct {
     word: u64,
@@ -60,8 +60,8 @@ pub const Entropy = struct {
             .case_seed = self.next(),
             .cookie_seed = self.next(),
         };
-        assert(transaction_values.port_hint >= core.constants.port_ephemeral_min);
-        assert(transaction_values.port_hint <= core.constants.port_ephemeral_max);
+        assert(transaction_values.port_hint >= core.limits.port_ephemeral_min);
+        assert(transaction_values.port_hint <= core.limits.port_ephemeral_max);
         return transaction_values;
     }
 
@@ -69,13 +69,13 @@ pub const Entropy = struct {
     /// running many lookups against one list would otherwise aim all of them at the first server.
     pub fn server_start(self: *Entropy, server_count: usize) u8 {
         assert(server_count >= 1);
-        assert(server_count <= core.constants.servers_max);
+        assert(server_count <= core.limits.servers_max);
         return @intCast(self.next() % server_count);
     }
 };
 
 fn port_from(word: u64) u16 {
-    return @intCast(core.constants.port_ephemeral_min + word % port_span);
+    return @intCast(core.limits.port_ephemeral_min + word % port_span);
 }
 
 // Tests.
@@ -107,8 +107,8 @@ test "every port hint lands in the Dynamic range" {
     var draws: usize = 0;
     while (draws < 1024) : (draws += 1) {
         const port = entropy.transaction().port_hint;
-        try testing.expect(port >= core.constants.port_ephemeral_min);
-        try testing.expect(port <= core.constants.port_ephemeral_max);
+        try testing.expect(port >= core.limits.port_ephemeral_min);
+        try testing.expect(port <= core.limits.port_ephemeral_max);
     }
 }
 
@@ -120,7 +120,7 @@ test "the port hints spread over the range rather than clustering" {
     var entropy = Entropy.init(7);
     var draws: usize = 0;
     while (draws < 1024) : (draws += 1) {
-        const offset: usize = entropy.transaction().port_hint - core.constants.port_ephemeral_min;
+        const offset: usize = entropy.transaction().port_hint - core.limits.port_ephemeral_min;
         seen[offset * bucket_count / port_span] = true;
     }
     for (seen) |reached| try testing.expect(reached);
@@ -128,9 +128,9 @@ test "the port hints spread over the range rather than clustering" {
 
 test "the two ends of the Dynamic range are drawn, and the span wraps after the last" {
     // 49152 to 65535, both ends included (RFC 6335 §6).
-    try testing.expectEqual(core.constants.port_ephemeral_min, port_from(0));
-    try testing.expectEqual(core.constants.port_ephemeral_max, port_from(port_span - 1));
-    try testing.expectEqual(core.constants.port_ephemeral_min, port_from(port_span));
+    try testing.expectEqual(core.limits.port_ephemeral_min, port_from(0));
+    try testing.expectEqual(core.limits.port_ephemeral_max, port_from(port_span - 1));
+    try testing.expectEqual(core.limits.port_ephemeral_min, port_from(port_span));
 }
 
 test "rotation picks a server inside the list" {

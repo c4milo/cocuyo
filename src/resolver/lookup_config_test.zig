@@ -142,7 +142,7 @@ test "the timeout cap is the configuration's, not the constant's" {
     const wait = policy.wait_ns(&capped, null);
     try testing.expectEqual(@as(u64, 4_000_000_000), policy.deadline_ns(&capped, wait, 0, 0));
     try testing.expectEqual(@as(u64, 5_000_000_000), policy.deadline_ns(&capped, wait, 1, 0));
-    const open: Config = .{ .servers = &servers, .timeout_ns = 4_000_000_000, .timeout_ns_max = core.constants.timeout_ns_max };
+    const open: Config = .{ .servers = &servers, .timeout_ns = 4_000_000_000, .timeout_ns_max = core.limits.timeout_ns_max };
     try testing.expectEqual(@as(u64, 8_000_000_000), policy.deadline_ns(&open, wait, 1, 0));
 }
 
@@ -155,7 +155,7 @@ test "a configuration with no server fails every lookup at once" {
 
 test "a query advertises the payload size configured, at the least and at the most it may be" {
     // 512 and 65535 octets (RFC 6891 §6.2.3; the class of the OPT record is sixteen bits).
-    for ([_]u16{ core.constants.udp_payload_bytes_min, core.constants.message_bytes_max }) |payload| {
+    for ([_]u16{ core.limits.udp_payload_bytes_min, core.limits.message_bytes_max }) |payload| {
         var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .udp_payload_bytes = payload } };
         try harness.start("example.com.", .a, seed);
         _ = harness.send();

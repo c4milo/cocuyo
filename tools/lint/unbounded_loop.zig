@@ -7,8 +7,9 @@
 //! `remaining`, `count` and the rest of `length_reader_names` — against an integer literal while
 //! the loop names no limit.
 //!
-//! A limit is a chain holding the segment `constants`, or one whose last segment ends in `_max`:
-//! `compression_hops_max`, `constants.records_max`.
+//! A limit is a chain holding the segment `limits`, or one whose last segment ends in `_max`:
+//! `compression_hops_max`, `limits.buffer_bytes`. A constants file holds no limit (design §16
+//! decision 56), so a chain through `constants` names no limit unless its name ends in `_max`.
 //!
 //! The rule is pepegrillo's `unbounded_loop`. This file holds cocuyo's configuration of it and the
 //! fixtures that pin that configuration.
@@ -32,13 +33,13 @@ pub const config: unbounded_loop.Config = .{
     .scope = .{ .extensions = &.{lint.paths.zig_extension}, .include_directories = &.{ "src", "io" } },
     .forever = .unless_bounded_break,
     .length_read = true,
-    .bound = .{ .segments = &.{"constants"}, .last_segment_suffixes = &.{"_max"} },
+    .bound = .{ .segments = &.{"limits"}, .last_segment_suffixes = &.{"_max"} },
     .length_reader_names = &length_reader_names,
     .messages = .{
         .forever_without_break = "while (true) has no break; nothing ends the loop" ++
             " (non-negotiable 5)",
         .forever_without_bound = "while (true) breaks on no named limit;" ++
-            " bound it with a constants.zig value (non-negotiable 5)",
+            " bound it with a limits.zig value (non-negotiable 5)",
         .length_read = "the condition reads {[read]s} against a literal" ++
             " and the loop names no limit (non-negotiable 5)",
     },
@@ -78,15 +79,48 @@ test "unbounded-loop passes a hop loop bounded by a named limit" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     try harness.expect_messages(try findings_of(arena_state.allocator(), "src/wire/wire_name.zig",
-        \\const constants = @import("constants.zig");
+        \\const limits = @import("limits.zig");
         \\pub fn decode(message: []const u8) void {
         \\    var hops: u32 = 0;
         \\    while (true) {
-        \\        if (hops == constants.compression_hops_max) break;
+        \\        if (hops == limits.compression_hops_max) break;
         \\        hops += 1;
         \\        _ = message;
         \\    }
         \\}
         \\
     ), &.{});
+}
+
+test "unbounded-loop passes a loop bounded by a limit with no suffix" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    try harness.expect_messages(try findings_of(arena_state.allocator(), "io/io_tcp_frame.zig",
+        \\const limits = @import("limits.zig");
+        \\pub fn fill(taken: usize) void {
+        \\    var bytes: usize = taken;
+        \\    while (true) {
+        \\        if (bytes >= limits.tcp_chunk_bytes) break;
+        \\        bytes += 1;
+        \\    }
+        \\}
+        \\
+    ), &.{});
+}
+
+test "unbounded-loop flags a loop bounded by a protocol size of a constants file" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    try harness.expect_messages(try findings_of(arena_state.allocator(), "src/wire/wire_name.zig",
+        \\const constants = @import("constants.zig");
+        \\pub fn decode(offset: usize) void {
+        \\    var at: usize = offset;
+        \\    while (true) {
+        \\        if (at >= constants.header_bytes) break;
+        \\        at += 1;
+        \\    }
+        \\}
+        \\
+    ), &.{"while (true) breaks on no named limit; bound it with a limits.zig value" ++
+        " (non-negotiable 5)"});
 }

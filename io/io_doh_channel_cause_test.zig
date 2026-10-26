@@ -20,7 +20,7 @@ const Pair = channel_test.Pair;
 const Doh = channel_test.Doh;
 
 /// A pin no key of the test's identity hashes to. Test-only.
-const pin_octet = 0x11;
+const pin_octet: u8 = 0x11;
 
 /// A pair whose channel knows the server by `known`, and whose links end at once when `refused`.
 fn create(known: *const cocuyo.Tls, refused: bool) !*Pair {

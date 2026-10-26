@@ -87,22 +87,22 @@ test "the next candidate starts over at the first server, the first pass and wit
 test "a lookup over the most servers, passes and candidates sends every try, and ends at the last" {
     // 8 servers by 5 passes by 7 candidates under the longest wait, so every counter of the walk
     // reaches the most it holds: 40 tries a candidate, the last of each answered NXDOMAIN.
-    var eight: [core.constants.servers_max]core.Server = undefined;
+    var eight: [core.limits.servers_max]core.Server = undefined;
     for (&eight, 1..) |*server, last| {
         server.* = .{ .endpoint = .{ .address = core.Address.from_v4(.{ 192, 0, 2, @intCast(last) }) } };
     }
-    var search: [core.constants.search_max]Name = undefined;
+    var search: [core.limits.search_max]Name = undefined;
     for (&search, 0..) |*name, index| name.* = try Name.from_text(&.{ 's', @intCast('0' + index), '.', 'e', 'x' });
     var harness: fixtures.Harness = .{ .config = .{
         .servers = &eight,
         .search = &search,
-        .attempts = core.constants.attempts_max,
-        .timeout_ns = core.constants.timeout_ns_max,
-        .timeout_ns_max = core.constants.timeout_ns_max,
+        .attempts = core.limits.attempts_max,
+        .timeout_ns = core.limits.timeout_ns_max,
+        .timeout_ns_max = core.limits.timeout_ns_max,
     } };
     try harness.start("host", .a, fixtures.seed);
-    const tries = eight.len * core.constants.attempts_max;
-    for (0..core.constants.candidates_max) |_| {
+    const tries = eight.len * core.limits.attempts_max;
+    for (0..core.limits.candidates_max) |_| {
         for (1..tries) |_| {
             _ = harness.send();
             harness.now_ns = harness.lookup.deadline_ns - 1;
@@ -113,5 +113,5 @@ test "a lookup over the most servers, passes and candidates sends every try, and
     }
     try testing.expectEqual(core.Error.NameNotFound, harness.poll().failed.err);
     // One transaction a try, numbered from zero.
-    try testing.expectEqual(tries * core.constants.candidates_max - 1, harness.lookup.transaction.number);
+    try testing.expectEqual(tries * core.limits.candidates_max - 1, harness.lookup.transaction.number);
 }

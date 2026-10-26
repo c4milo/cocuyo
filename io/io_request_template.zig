@@ -7,6 +7,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 
 /// A template split at the end of its authority.
 pub const Template = struct {
@@ -77,19 +78,18 @@ fn is_ipv4(host: []const u8) bool {
     return count == ipv4_parts;
 }
 
-const ipv4_parts = 4;
+const ipv4_parts: usize = 4;
 
 /// `dec-octet`: 0 to 255, in decimal, with no leading zero (RFC 3986 §3.2.2).
 fn is_dec_octet(part: []const u8) bool {
-    if (part.len == 0 or part.len > dec_octet_digits_max) return false;
+    if (part.len == 0 or part.len > limits.template_octet_digits_max) return false;
     for (part) |octet| if (!std.ascii.isDigit(octet)) return false;
     if (part.len > 1 and part[0] == '0') return false;
     const value = std.fmt.parseInt(u16, part, decimal) catch return false;
     return value <= std.math.maxInt(u8);
 }
 
-const dec_octet_digits_max = 3;
-const decimal = 10;
+const decimal: u8 = 10;
 
 /// `unreserved = ALPHA / DIGIT / "-" / "." / "_" / "~"` (RFC 3986 §2.3).
 fn is_unreserved(octet: u8) bool {
@@ -157,8 +157,8 @@ test "a host that is not an IPv4address by RFC 3986's grammar is a registered na
 // the grammar refuses, it must be refused. With one byte changed, `split` may take it or refuse
 // it, and what it takes must still be a whole of its parts.
 
-const fuzz_seeds = 4096;
-const fuzz_text_bytes = 128;
+const fuzz_seeds: usize = 4096;
+const fuzz_text_bytes: usize = 128;
 const fuzz_scheme = "https://";
 const fuzz_hosts = [_][]const u8{ "dns.example", "a-b.c_d.example", "x", "resolver.example.net", "01.2.3.4", "256.1.1.1" };
 const fuzz_paths = [_][]const u8{ "/dns-query{?dns}", "{?dns}", "/q?dns={dns}", "", "#frag", "/" };

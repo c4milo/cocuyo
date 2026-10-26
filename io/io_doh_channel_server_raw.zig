@@ -13,23 +13,18 @@ const assert = std.debug.assert;
 const server = @import("server");
 const tls = @import("tls");
 const constants = @import("io_doh_channel_constants.zig");
+const limits = @import("io_doh_channel_limits.zig");
 const identity = @import("io_doh_channel_identity.zig");
 
 /// The protocol the server selects (RFC 7301 §3.2): HTTP/1.1 alone.
 const alpn = [_][]const u8{"http/1.1"};
 /// RFC 9846 §4.3.2's cookie key, of one octet repeated, and the octet the server's stream is
 /// seeded with. Test-only values.
-const cookie_octet = 0x5e;
-const stream_octet = 0x35;
+const cookie_octet: u8 = 0x5e;
+const stream_octet: u8 = 0x35;
 const cookie_key: [tls.constants.server_key_len]u8 = @splat(cookie_octet);
 /// The end of a request's head over HTTP/1.1: an empty line after the field lines.
 const head_end = "\r\n\r\n";
-
-/// The most a response holds: colibri's longest head and a DNS message at its longest, each sealed
-/// in records with their overhead.
-pub const response_bytes_max = 131_072;
-/// The request's plaintext the server keeps until the end of its head.
-const request_bytes_max = 4096;
 
 /// The calls on the records once the handshake has completed.
 const Provider = @typeInfo(@TypeOf(tls.record.Server.provider)).@"fn".return_type.?;
@@ -40,15 +35,15 @@ pub const RawServer = struct {
     stream: std.Random.ChaCha = std.Random.ChaCha.init(@splat(stream_octet)),
     records: ?Provider = null,
     /// The records the client sent and the server has not read.
-    input: [constants.stream_bytes]u8 = undefined,
+    input: [limits.stream_bytes]u8 = undefined,
     input_len: usize = 0,
     /// The request's plaintext up to the end of its head.
-    request: [request_bytes_max]u8 = undefined,
+    request: [limits.server_request_bytes_max]u8 = undefined,
     request_len: usize = 0,
     /// The response's plaintext, its head then its content, before the server seals it.
-    response: [response_bytes_max]u8 = undefined,
+    response: [limits.server_response_bytes_max]u8 = undefined,
     /// The octets the server owes the client: the handshake's flight, then the response's records.
-    owed: [response_bytes_max]u8 = undefined,
+    owed: [limits.server_response_bytes_max]u8 = undefined,
     owed_len: usize = 0,
     /// The heads of requests the server waits for before it answers, which `init` takes. Then
     /// that many heads arrived whole, and the server answered them.

@@ -20,21 +20,21 @@ const Event = Doh.Event;
 const Tag = std.meta.Tag(Event);
 
 /// A millisecond a round, and rounds enough for a handshake and an exchange and a close.
-const round_ns = 1_000_000;
-const rounds_max = 2_000;
-const said_max = 64;
+const round_ns: u64 = 1_000_000;
+const rounds_max: usize = 2_000;
+const said_max: usize = 64;
 /// The octet of a DNS header that holds the QR bit, and the bit (RFC 1035 §4.1.1).
-const flags_at = 2;
-const qr_bit = 0x80;
+const flags_at: usize = 2;
+const qr_bit: u8 = 0x80;
 /// The octet the context's stream is seeded with. Test-only.
-const seed_octet = 9;
+const seed_octet: u8 = 9;
 /// The client's port, as the server sees the datagrams come from it. Test-only.
-const client_port = 50_000;
+const client_port: u16 = 50_000;
 
 /// QUIC version 2's Version field, 0x6b3343cf, as colibri's suite names it (its decision 108).
 const quic_version_2: u32 = 0x6b33_43cf;
 
-const port = 8443;
+const port: u16 = 8443;
 const endpoint: cocuyo.Endpoint = .{ .address = cocuyo.Address.from_text("192.0.2.1").?, .port = port };
 const client_address = cocuyo.Address.from_text("192.0.2.9").?;
 const template = .{ .authority = "dns.example:8443", .host = "dns.example", .port = port, .path = "/dns-query{?dns}" };

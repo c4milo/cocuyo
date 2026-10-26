@@ -7,6 +7,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const types = @import("sim_types.zig");
 const buffers = @import("sim_buffers.zig");
 const network_module = @import("sim_network.zig");
@@ -73,14 +74,14 @@ pub const Loop = struct {
     };
 
     operations: u32,
-    slots: [constants.operations_max]Slot,
+    slots: [limits.operations_max]Slot,
     live: u32,
     next_generation: u32,
-    pending: [constants.events_pending_max]Pending,
+    pending: [limits.events_pending_max]Pending,
     pending_count: u32,
     sequence: u32,
     now_ns: u64,
-    groups: [constants.buffer_groups_max]buffers.Group,
+    groups: [limits.buffer_groups_max]buffers.Group,
     group_options: types.GroupOptions,
     /// The draws the network makes: delays, drops, chunk sizes. Seeded by `seed`.
     word: u64,
@@ -103,7 +104,7 @@ pub const Loop = struct {
 
     pub fn init(loop: *Loop, memory: []align(constants.memory_alignment) u8, options: Options) InitError!void {
         assert(options.operations >= 1);
-        assert(options.operations <= constants.operations_max);
+        assert(options.operations <= limits.operations_max);
         assert(memory.len >= memory_bytes(options));
         loop.* = .{
             .operations = options.operations,
@@ -194,7 +195,7 @@ pub const Loop = struct {
     /// (rotor decision 5, rule 1).
     pub fn queue(loop: *Loop, slot: u32, event: Event, due_ns: u64, final: bool) void {
         assert(loop.slots[slot].live);
-        assert(loop.pending_count < constants.events_pending_max);
+        assert(loop.pending_count < limits.events_pending_max);
         loop.pending[loop.pending_count] = .{
             .due_ns = due_ns,
             .sequence = loop.sequence,
@@ -260,8 +261,8 @@ pub const Loop = struct {
     pub fn tick(loop: *Loop, events: []Event, wait_ns: u64) TickError!u32 {
         // What rotor checks on a tick's entry, on every backend since 0.4.0: room for one event
         // and for no more than a batch, and a wait no longer than `wait_ns_max`. Each halts there.
-        assert(events.len >= 1 and events.len <= constants.batch_max);
-        assert(wait_ns <= constants.wait_ns_max);
+        assert(events.len >= 1 and events.len <= limits.batch_max);
+        assert(wait_ns <= limits.wait_ns_max);
         perform.materialize(loop);
         if (loop.next_due() == null or loop.next_due().? > loop.now_ns) {
             const horizon = loop.now_ns + wait_ns;
@@ -319,9 +320,9 @@ pub const Loop = struct {
     /// operation nobody ended: a multishot receive left running.
     pub fn drain(loop: *Loop, scratch: []Event) DrainError!void {
         var rounds: u32 = 0;
-        while (rounds < constants.drain_rounds_max) : (rounds += 1) {
+        while (rounds < limits.drain_rounds_max) : (rounds += 1) {
             if (loop.live == 0) return;
-            _ = try loop.tick(scratch, constants.wait_ns_max);
+            _ = try loop.tick(scratch, limits.wait_ns_max);
         }
         if (loop.live != 0) return error.Timeout;
     }
@@ -348,18 +349,18 @@ pub const Loop = struct {
         count: u16,
         buffer_bytes: u32,
     ) buffers.ProvideError!void {
-        assert(group_id < constants.buffer_groups_max);
+        assert(group_id < limits.buffer_groups_max);
         assert(memory.len >= buffers.group_bytes(count, buffer_bytes));
         loop.groups[group_id] = buffers.Group.init(memory, count, buffer_bytes);
     }
 
     pub fn provided_buffer(loop: *const Loop, group_id: u16, buffer_id: u16) []u8 {
-        assert(group_id < constants.buffer_groups_max);
+        assert(group_id < limits.buffer_groups_max);
         return loop.groups[group_id].bytes_of(buffer_id);
     }
 
     pub fn give_back_buffer(loop: *Loop, group_id: u16, buffer_id: u16) void {
-        assert(group_id < constants.buffer_groups_max);
+        assert(group_id < limits.buffer_groups_max);
         loop.groups[group_id].give_back(buffer_id);
     }
 

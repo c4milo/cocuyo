@@ -11,6 +11,7 @@ const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
 const quic = @import("quic");
 const constants = @import("io_quic_constants.zig");
+const limits = @import("io_quic_limits.zig");
 const plain = @import("io_quic_plain.zig");
 
 pub const StreamId = quic.stream.StreamId;
@@ -28,9 +29,9 @@ pub const Answerer = struct {
 const Request = struct {
     live: bool = false,
     id: StreamId = .{ .value = 0 },
-    query: [cocuyo.constants.query_bytes_max]u8 = undefined,
+    query: [cocuyo.limits.query_bytes_max]u8 = undefined,
     query_len: usize = 0,
-    answer: [constants.server_answer_bytes_max]u8 = undefined,
+    answer: [limits.server_answer_bytes_max]u8 = undefined,
     answer_len: usize = 0,
     answered: bool = false,
 };
@@ -49,10 +50,10 @@ pub fn Server(comptime streams: u16) type {
 
         connection: quic.Connection = undefined,
         session: plain.Session = undefined,
-        pool: quic.stream.stream_incoming.Pool(constants.server_receive_bytes) = undefined,
+        pool: quic.stream.stream_incoming.Pool(limits.server_receive_bytes) = undefined,
         send_scratch: quic.connection_send.DefaultScratch = undefined,
         scratch: quic.connection_datagram.Scratch = undefined,
-        inbound: [constants.datagram_receive_bytes]u8 = undefined,
+        inbound: [limits.datagram_receive_bytes]u8 = undefined,
         source: [constants.connection_id_bytes]u8 = @splat(constants.server_id_octet),
         original: [connection_id_bytes_max]u8 = undefined,
         original_len: usize = 0,
@@ -156,7 +157,7 @@ fn start(self: anytype, bytes: []const u8, now_ns: u64, local: quic.transport_pa
         .receive = self.pool.storage(),
     });
     self.send_scratch = .{};
-    var body: [constants.params_bytes_max]u8 = undefined;
+    var body: [limits.params_bytes_max]u8 = undefined;
     var writer = quic.core.Writer.init(&body);
     quic.transport_parameters.write(&writer, &self.connection.local_parameters, .server) catch return false;
     self.session.provider().set_transport_params(writer.written()) catch return false;
@@ -180,10 +181,10 @@ fn is_new(self: anytype, bytes: []const u8) bool {
 /// timeout (RFC 9000 §18.2).
 pub fn parameters(streams: u16) quic.transport_parameters.Parameters {
     var local = quic.transport_parameters.Parameters.initial();
-    local.max_idle_timeout_ms = constants.idle_timeout_ms;
-    local.max_udp_payload_size = constants.datagram_receive_bytes;
-    local.initial_max_data = constants.server_receive_bytes;
-    local.initial_max_stream_data_bidi_remote = cocuyo.constants.query_bytes_max;
+    local.max_idle_timeout_ms = limits.idle_timeout_ms;
+    local.max_udp_payload_size = limits.datagram_receive_bytes;
+    local.initial_max_data = limits.server_receive_bytes;
+    local.initial_max_stream_data_bidi_remote = cocuyo.limits.query_bytes_max;
     local.initial_max_streams_bidi = streams;
     return local;
 }

@@ -16,10 +16,11 @@ const testing = std.testing;
 const Session = session_module.Session;
 const Version = quic.crypto.suite.Version;
 const constants = cocuyo_quic.constants;
+const limits = cocuyo_quic.limits;
 
 /// The client: one stream, which the test never opens.
 const Client = cocuyo_quic.Connection(.{ .Session = Session, .streams = 1 });
-const streams = 1;
+const streams: usize = 1;
 
 /// The test identity, as `cocuyo_doh`'s tests read it (`io_doh_channel_identity.zig`, which is
 /// another module's file): the leaf for `dns.example`, its key, and the CA a client trusts.
@@ -37,33 +38,33 @@ const unix_seconds: u64 = 1_780_272_000;
 /// RFC 9846 §4.3.2's cookie key and the key the server seals its tickets under, each of one octet
 /// repeated, and the octets of the three streams: the server's, the client's session, and the
 /// client's connection IDs. Test-only values.
-const cookie_octet = 0x5d;
-const ticket_octet = 0x7f;
+const cookie_octet: u8 = 0x5d;
+const ticket_octet: u8 = 0x7f;
 const cookie_key: [tls.constants.server_key_len]u8 = @splat(cookie_octet);
 const ticket_key: [tls.constants.server_key_len]u8 = @splat(ticket_octet);
-const server_seed_octet = 0x36;
-const session_seed_octet = 0x09;
-const ids_seed_octet = 0x0a;
+const server_seed_octet: u8 = 0x36;
+const session_seed_octet: u8 = 0x09;
+const ids_seed_octet: u8 = 0x0a;
 
 /// The protocol the server selects (RFC 9250 §4.1).
 const alpn = [_][]const u8{"doq"};
 /// The longest connection ID a long header names (RFC 9000 §17.2).
 const id_bytes_max = quic.crypto.constants.connection_id_len_max;
 /// A millisecond a round, and rounds enough for a handshake and its ticket.
-const round_ns = 1_000_000;
-const rounds_max = 64;
+const round_ns: u64 = 1_000_000;
+const rounds_max: usize = 64;
 /// Where a long header carries its Version field: after its first octet (RFC 9000 §17.2).
-const version_at = 1;
+const version_at: usize = 1;
 
 /// A server of one connection over chapulin's QUIC session, which answers nothing on a stream.
 const Server = struct {
     config: tls.quic.ServerConfig = undefined,
     session: tls.quic.Server = undefined,
     connection: quic.Connection = undefined,
-    pool: quic.stream.stream_incoming.Pool(constants.server_receive_bytes) = undefined,
+    pool: quic.stream.stream_incoming.Pool(limits.server_receive_bytes) = undefined,
     send_scratch: quic.connection_send.DefaultScratch = undefined,
     scratch: quic.connection_datagram.Scratch = undefined,
-    inbound: [constants.datagram_receive_bytes]u8 = undefined,
+    inbound: [limits.datagram_receive_bytes]u8 = undefined,
     source: [constants.connection_id_bytes]u8 = @splat(constants.server_id_octet),
     original: [id_bytes_max]u8 = undefined,
     original_len: usize = 0,
@@ -123,7 +124,7 @@ const Server = struct {
         server.send_scratch = .{};
         server.session.start(&server.config, server.stream.random(), unix_seconds, long.version);
         server.session.set_version_chooser(quic.connection_version.chooser(&server.connection));
-        var body: [constants.params_bytes_max]u8 = undefined;
+        var body: [limits.params_bytes_max]u8 = undefined;
         var writer = quic.core.Writer.init(&body);
         try quic.transport_parameters.write(&writer, &server.connection.local_parameters, .server);
         try server.session.provider().set_transport_params(writer.written());
@@ -186,7 +187,7 @@ fn exchange(client: *Client, server: *Server, now_ns: *u64) !void {
 
 /// What the client said after a handshake: that it is up on `doq`, and the ticket it was given.
 fn ticket_after_up(client: *Client) !Session.Ticket {
-    var out: [constants.answer_bytes_max]u8 = undefined;
+    var out: [limits.answer_bytes_max]u8 = undefined;
     try testing.expectEqualStrings("doq", client.next(&out).?.up);
     return client.next(&out).?.ticket;
 }
@@ -224,7 +225,7 @@ test "a session that resumes with a ticket of QUIC version 2 starts its connecti
     try testing.expectEqual(@intFromEnum(Version.v2), std.mem.readInt(u32, datagram[version_at..][0..@sizeOf(u32)], .big));
     try server.receive(datagram[0..first], now_ns);
     try exchange(&side.client, server, &now_ns);
-    var out: [constants.answer_bytes_max]u8 = undefined;
+    var out: [limits.answer_bytes_max]u8 = undefined;
     try testing.expectEqualStrings("doq", side.client.next(&out).?.up);
     try testing.expect(side.client.session.resumed());
     try testing.expect(server.session.resumed());

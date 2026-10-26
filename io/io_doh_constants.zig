@@ -1,12 +1,6 @@
-//! The limits of DoH that `cocuyo_doh` reads (docs/design.md §24, New limits).
+//! The defaults of DoH that `cocuyo_doh` reads (docs/design.md §24, New limits). Its limits are in
+//! `io_doh_limits.zig` (§16 decision 56).
 const std = @import("std");
-
-/// A DoH GET's `:path`, which an exchange holds in a buffer of this size (docs/design.md §24, New
-/// limits). The bound is on the path alone, by the owner's ruling of 2026-10-14 (§17 question 41).
-/// A channel's `start` expands its template with a `dns` value at its longest, 512 octets, and
-/// refuses a template whose path then passes this bound. A test sends that GET over HTTP/2, with
-/// an authority of 259 octets: a name of 253 octets and a port. colibri's server answers it.
-pub const doh_request_bytes_max: usize = 1536;
 
 /// A DoH connection's answer buffers when the consumer names none: one for each response in
 /// flight, each holding an answer at its longest (docs/design.md §24, New limits). Chosen,

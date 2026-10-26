@@ -27,7 +27,7 @@ pub const iterations = 200_000;
 /// The table sizes the datagram match is measured at, to show the probe does not grow with them.
 const table_small = 1;
 const table_medium = 64;
-const table_large = cocuyo.constants.lookup_slots_max;
+const table_large = cocuyo.limits.lookup_slots_max;
 
 /// The keys the largest table needs: at least two per slot, a power of two.
 const keys_large = table_large * 2;
@@ -74,13 +74,13 @@ fn noop() void {}
 
 var query: wire.Query = undefined;
 var query_max: wire.Query = undefined;
-var query_out: [cocuyo.constants.query_bytes_max]u8 = undefined;
+var query_out: [cocuyo.limits.query_bytes_max]u8 = undefined;
 
 pub fn setup_queries() void {
     query = .{ .id = fixtures.id, .name = Name.from_text("example.com") catch unreachable, .kind = .a };
     const long = "a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63 ++ "." ++ "d" ** 61;
     query_max = .{ .id = fixtures.id, .name = Name.from_text(long) catch unreachable, .kind = .a, .tcp = true };
-    assert(query_max.name.len == cocuyo.constants.name_bytes_max);
+    assert(query_max.name.len == cocuyo.limits.name_bytes_max);
 }
 
 pub fn run_query_build() void {
@@ -163,7 +163,7 @@ var reply_wrong: [cocuyo.constants.udp_payload_bytes_default]u8 = undefined;
 var reply_wrong_len: usize = 0;
 var reply_stray: [cocuyo.constants.udp_payload_bytes_default]u8 = undefined;
 var reply_stray_len: usize = 0;
-var send_out: [cocuyo.constants.query_bytes_max]u8 = undefined;
+var send_out: [cocuyo.limits.query_bytes_max]u8 = undefined;
 var other_name: Name = undefined;
 var now_ns: u64 = 1;
 
@@ -314,7 +314,7 @@ var round_question: cocuyo.Question = undefined;
 var lookup: Lookup = undefined;
 var round_reply: [cocuyo.constants.udp_payload_bytes_default]u8 = undefined;
 var round_reply_len: usize = 0;
-var round_out: [cocuyo.constants.query_bytes_max]u8 = undefined;
+var round_out: [cocuyo.limits.query_bytes_max]u8 = undefined;
 var round_servers: cocuyo.Servers = undefined;
 
 /// `init` from the same seed draws the same transaction every time, so one reply built at setup
@@ -460,7 +460,7 @@ test "every parse case collects what its message holds" {
 
     setup_messages();
     run_parse_sixteen();
-    try testing.expectEqual(@as(u8, cocuyo.constants.addresses_max), answers.count);
+    try testing.expectEqual(@as(u8, cocuyo.limits.addresses_max), answers.count);
     try testing.expect(answers.truncated);
     try testing.expect(chain.equal(&question_name));
 }

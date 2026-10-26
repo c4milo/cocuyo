@@ -10,6 +10,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 
 const header_bytes = constants.tls_record_header_bytes;
 
@@ -31,7 +32,7 @@ pub const Step = enum(u8) {
 
 /// Writes one record into `out` and returns its octets.
 pub fn write_record(content: u8, payload: []const u8, out: []u8) usize {
-    assert(payload.len <= constants.tls_payload_bytes_max);
+    assert(payload.len <= limits.tls_payload_bytes_max);
     assert(out.len >= header_bytes + payload.len);
     out[0] = content;
     std.mem.writeInt(u16, out[constants.tls_record_version_at..][0..@sizeOf(u16)], constants.tls_legacy_version, .big);
@@ -64,7 +65,7 @@ pub fn record_len(bytes: []const u8) ?usize {
 pub const Session = struct {
     pub const enabled = true;
     /// The most one call makes before the engine takes it out.
-    pub const out_bytes_max = constants.tls_out_bytes_max;
+    pub const out_bytes_max = limits.tls_out_bytes_max;
     pub const Error = error{Failed};
     /// What the engine hands every session it starts: nothing, for the twin.
     pub const Context = struct {};
@@ -76,7 +77,7 @@ pub const Session = struct {
     const State = enum { idle, handshaking, up, dead };
 
     state: State = .idle,
-    out: [constants.tls_out_bytes_max]u8 = undefined,
+    out: [limits.tls_out_bytes_max]u8 = undefined,
     out_len: usize = 0,
     ticket: ?Ticket = null,
 
@@ -258,7 +259,7 @@ pub const Peer = struct {
 const testing = std.testing;
 
 fn take_step(session: *Session) !Step {
-    var out: [constants.tls_out_bytes_max]u8 = undefined;
+    var out: [limits.tls_out_bytes_max]u8 = undefined;
     const made = session.take_out(&out);
     return step_of(out[0..made]) orelse error.NotAStep;
 }
@@ -271,7 +272,7 @@ test "a hello, a flight and the handshake's end, with a ticket after it" {
     var session: Session = .{};
     try session.start(.{ .ticket = @as(?Session.Ticket, null) });
     try testing.expectEqual(Step.hello, try take_step(&session));
-    var record: [constants.tls_out_bytes_max]u8 = undefined;
+    var record: [limits.tls_out_bytes_max]u8 = undefined;
     try testing.expectEqual(Session.Handshake.going, try session.handshake(step_record(.flight, &record)));
     try testing.expectEqual(Step.flight_answer, try take_step(&session));
     try testing.expectEqual(Session.Handshake.done, try session.handshake(step_record(.done, &record)));
@@ -295,12 +296,12 @@ test "a record refused once up fails the session and stages its fatal alert" {
     var session: Session = .{};
     try session.start(.{ .ticket = @as(?Session.Ticket, null) });
     try testing.expectEqual(Step.hello, try take_step(&session));
-    var record: [constants.tls_out_bytes_max]u8 = undefined;
+    var record: [limits.tls_out_bytes_max]u8 = undefined;
     try testing.expectEqual(Session.Handshake.done, try session.handshake(step_record(.done, &record)));
     try testing.expectEqual(Step.finished, try take_step(&session));
     // A step no server sends once up, which the session refuses (RFC 9846 §6.2).
     try testing.expectError(Session.Error.Failed, session.open(step_record(.refused, &record), &.{}));
-    var out: [constants.tls_out_bytes_max]u8 = undefined;
+    var out: [limits.tls_out_bytes_max]u8 = undefined;
     const made = session.take_out(&out);
     try testing.expectEqual(@as(u8, constants.tls_content_alert), out[0]);
     try testing.expectEqualSlices(u8, &constants.tls_alert_handshake_failure, out[header_bytes..made]);
@@ -310,10 +311,10 @@ test "a refused handshake fails and stages its fatal alert, and a resumed hello 
     var session: Session = .{};
     try session.start(.{ .ticket = @as(?Session.Ticket, .{}) });
     try testing.expectEqual(Step.hello_resumed, try take_step(&session));
-    var record: [constants.tls_out_bytes_max]u8 = undefined;
+    var record: [limits.tls_out_bytes_max]u8 = undefined;
     try testing.expectError(Session.Error.Failed, session.handshake(step_record(.refused, &record)));
     // The alert goes out as a record of its own (RFC 9846 §6.2), and a server hears it as one.
-    var out: [constants.tls_out_bytes_max]u8 = undefined;
+    var out: [limits.tls_out_bytes_max]u8 = undefined;
     const made = session.take_out(&out);
     try testing.expectEqual(@as(u8, constants.tls_content_alert), out[0]);
     try testing.expectEqualSlices(u8, &constants.tls_alert_handshake_failure, out[header_bytes..made]);
@@ -324,12 +325,12 @@ test "a refused handshake fails and stages its fatal alert, and a resumed hello 
 test "a sealed query opens on the other side as its plaintext, and a server walks its script" {
     var session: Session = .{};
     try session.start(.{ .ticket = @as(?Session.Ticket, null) });
-    var out: [constants.tls_out_bytes_max]u8 = undefined;
+    var out: [limits.tls_out_bytes_max]u8 = undefined;
     var peer: Peer = .{};
     const behaviour: Behaviour = .{ .flights = 1, .tickets = true };
     const hello = out[0..session.take_out(&out)];
     try testing.expectEqual(Step.flight, peer.hear(&behaviour, hello).steps.first);
-    var record: [constants.tls_out_bytes_max]u8 = undefined;
+    var record: [limits.tls_out_bytes_max]u8 = undefined;
     _ = try session.handshake(step_record(.flight, &record));
     const heard = peer.hear(&behaviour, out[0..session.take_out(&out)]);
     try testing.expectEqual(Step.done, heard.steps.first);

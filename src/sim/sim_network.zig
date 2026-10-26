@@ -7,6 +7,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const types = @import("sim_types.zig");
 const server = @import("sim_server.zig");
 const tls_module = @import("sim_tls.zig");
@@ -40,7 +41,7 @@ pub const PendingDatagram = struct {
     from: Address = Address.ipv4(constants.client_address, 0),
     due_ns: u64 = 0,
     len: u16 = 0,
-    bytes: [constants.datagram_bytes_max]u8 = undefined,
+    bytes: [limits.datagram_bytes_max]u8 = undefined,
 };
 
 /// A stream connection to a scripted server: what the client sent and has not finished a
@@ -50,9 +51,9 @@ pub const Connection = struct {
     socket: Descriptor = 0,
     server: u8 = 0,
     peer: Address = Address.ipv4(constants.client_address, 0),
-    partial: [core.constants.tcp_prefix_bytes + constants.datagram_bytes_max]u8 = undefined,
+    partial: [core.constants.tcp_prefix_bytes + limits.datagram_bytes_max]u8 = undefined,
     partial_len: usize = 0,
-    inbound: [constants.stream_bytes_max]u8 = undefined,
+    inbound: [limits.stream_bytes_max]u8 = undefined,
     inbound_len: usize = 0,
     /// When the bytes queued may be read: the last reply's delay.
     available_at_ns: u64 = 0,
@@ -100,22 +101,22 @@ pub const StreamResponder = struct {
 };
 
 pub const Network = struct {
-    sockets: [constants.sockets_max]Socket = @splat(.{}),
+    sockets: [limits.sockets_max]Socket = @splat(.{}),
     next_port: u16 = constants.client_port_first,
-    scripts: [constants.servers_max]server.Script = @splat(.{}),
+    scripts: [limits.servers_max]server.Script = @splat(.{}),
     server_count: u8 = 0,
-    datagrams: [constants.datagrams_pending_max]PendingDatagram = @splat(.{}),
-    connections: [constants.connections_max]Connection = @splat(.{}),
-    quic_peers: [constants.connections_max]QuicPeer = @splat(.{}),
+    datagrams: [limits.datagrams_pending_max]PendingDatagram = @splat(.{}),
+    connections: [limits.connections_max]Connection = @splat(.{}),
+    quic_peers: [limits.connections_max]QuicPeer = @splat(.{}),
     /// A responder on each scripted server's QUIC port, or null for the twin's QUIC.
-    responders: [constants.servers_max]?Responder = @splat(null),
+    responders: [limits.servers_max]?Responder = @splat(null),
     /// A responder on each scripted server's HTTPS port, or null for the twin's QUIC over TCP.
-    stream_responders: [constants.servers_max]?StreamResponder = @splat(null),
+    stream_responders: [limits.servers_max]?StreamResponder = @splat(null),
     /// Whether every socket open fails, as it does when a process has no descriptor left: set
     /// by a caller driving the twin in manual mode (tools/spec_replay/).
     refuse_open: bool = false,
     /// The fatal alerts each scripted server heard from a client over TLS, which a test reads.
-    alerts_heard: [constants.servers_max]u32 = @splat(0),
+    alerts_heard: [limits.servers_max]u32 = @splat(0),
 
     pub fn reset(self: *Network) void {
         self.* = .{};
@@ -123,7 +124,7 @@ pub const Network = struct {
 
     /// The address of scripted server `index`: the documentation range, one octet a server.
     pub fn server_address(index: u8) Address {
-        assert(index < constants.servers_max);
+        assert(index < limits.servers_max);
         return Address.ipv4(constants.server_prefix ++ [_]u8{constants.server_octet_first + index}, constants.server_port);
     }
 
@@ -188,7 +189,7 @@ pub const Network = struct {
 
     pub fn socket(self: *Network, descriptor: Descriptor) *Socket {
         assert(descriptor >= 0);
-        assert(descriptor < constants.sockets_max);
+        assert(descriptor < limits.sockets_max);
         const entry = &self.sockets[@intCast(descriptor)];
         assert(entry.open);
         return entry;
@@ -259,7 +260,7 @@ pub const Network = struct {
     }
 
     pub fn connection(self: *Network, index: u8) *Connection {
-        assert(index < constants.connections_max);
+        assert(index < limits.connections_max);
         assert(self.connections[index].open);
         return &self.connections[index];
     }
@@ -322,9 +323,6 @@ pub fn local_address(descriptor: Descriptor) AddressError!Address {
 /// Which of a socket's two kernel buffers `set_buffer_bytes` sizes.
 pub const SocketBuffer = enum { receive, send };
 
-/// The largest `bytes` the call carries, as rotor's is: not a size any kernel grants.
-pub const socket_buffer_bytes_max: u32 = std.math.maxInt(i32);
-
 pub const BufferError = OptionError || error{SizeRefused};
 
 /// Asks for `bytes` of buffer and answers what was set, which is rarely the request: this grants
@@ -332,10 +330,10 @@ pub const BufferError = OptionError || error{SizeRefused};
 /// rotor measured on macOS. The size is remembered so a test can read it back.
 pub fn set_buffer_bytes(descriptor: Descriptor, which: SocketBuffer, bytes: u32) BufferError!u32 {
     assert(bytes >= 1);
-    assert(bytes <= socket_buffer_bytes_max);
+    assert(bytes <= limits.socket_buffer_bytes_max);
     const entry = network.socket(descriptor);
-    if (bytes > constants.socket_buffer_bytes_refuse_above) return error.SizeRefused;
-    const granted = @min(bytes, constants.socket_buffer_bytes_cap);
+    if (bytes > limits.socket_buffer_bytes_refuse_above) return error.SizeRefused;
+    const granted = @min(bytes, limits.socket_buffer_bytes_cap);
     switch (which) {
         .receive => entry.receive_buffer_bytes = granted,
         .send => entry.send_buffer_bytes = granted,
@@ -400,24 +398,24 @@ test "the scripted servers sit at the documentation range, in order" {
 
 test "the twin opens 64 sockets, and refuses the 65th" {
     network.reset();
-    for (0..constants.sockets_max) |_| _ = try open_socket(.ipv4);
+    for (0..limits.sockets_max) |_| _ = try open_socket(.ipv4);
     try testing.expectError(error.DescriptorLimit, open_socket(.ipv4));
 }
 
 test "the twin holds 256 datagrams on their way, and drops the 257th" {
     network.reset();
-    for (0..constants.datagrams_pending_max) |_| try testing.expect(network.reply(0, 0, "x", 0));
+    for (0..limits.datagrams_pending_max) |_| try testing.expect(network.reply(0, 0, "x", 0));
     try testing.expect(!network.reply(0, 0, "x", 0));
 }
 
 test "the twin holds 16 connections and 16 QUIC peers, and refuses the 17th of each" {
     network.reset();
-    for (0..constants.connections_max) |index| {
+    for (0..limits.connections_max) |index| {
         try testing.expect(network.open_connection(@intCast(index), 0, .plain) != null);
         try testing.expect(network.quic_peer(@intCast(index), 0) != null);
     }
-    try testing.expectEqual(@as(?u8, null), network.open_connection(constants.connections_max, 0, .plain));
-    try testing.expectEqual(@as(?*QuicPeer, null), network.quic_peer(constants.connections_max, 0));
+    try testing.expectEqual(@as(?u8, null), network.open_connection(limits.connections_max, 0, .plain));
+    try testing.expectEqual(@as(?*QuicPeer, null), network.quic_peer(limits.connections_max, 0));
 }
 
 test "a stream holds 16384 octets the client has not read, and refuses one more" {
@@ -425,7 +423,7 @@ test "a stream holds 16384 octets the client has not read, and refuses one more"
     const descriptor = try open_socket(.ipv4);
     defer close_now(descriptor);
     network.socket(descriptor).connection = network.open_connection(descriptor, 0, .plain);
-    const octets: [constants.stream_bytes_max]u8 = @splat(0);
+    const octets: [limits.stream_bytes_max]u8 = @splat(0);
     try testing.expect(network.write_stream(descriptor, &octets, 0));
     try testing.expect(!network.write_stream(descriptor, octets[0..1], 0));
 }

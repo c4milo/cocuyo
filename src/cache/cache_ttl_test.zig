@@ -13,7 +13,7 @@ const ask = fixtures.question;
 const second = fixtures.second;
 
 /// Enough slots that no test here fills the table: the hand is cache_sweep.zig's to drive.
-const slot_count = 4;
+const slot_count: usize = 4;
 
 test "a hit reports what is left of the TTL, and an expired entry is a miss that keeps its slot" {
     var fixture: fixtures.Fixture(slot_count) = .{};
@@ -66,10 +66,10 @@ test "a cache takes a cap of a second to seven days, and refuses none and a seco
     try testing.expect(cache.ttl_seconds_max_valid(604_800));
     try testing.expect(!cache.ttl_seconds_max_valid(604_801));
     // "a recommended cap of 604,800 seconds (7 days)" (RFC 8767 §4).
-    try testing.expectEqual(@as(u32, 604_800), core.constants.cache_ttl_seconds_max);
+    try testing.expectEqual(@as(u32, 604_800), core.limits.cache_ttl_seconds_max);
     // A table built with the longest cap keeps a TTL of thirty days for the seven.
     var fixture: fixtures.Fixture(slot_count) = .{};
-    var table = cache_init_capped(&fixture, core.constants.cache_ttl_seconds_max);
+    var table = cache_init_capped(&fixture, core.limits.cache_ttl_seconds_max);
     const month = fixtures.answers_v4(1, 2_592_000);
     table.put(&ask("a.example"), &month, null, 0);
     try testing.expectEqual(@as(u32, 604_800), table.get(&ask("a.example"), 0).?.ttl_seconds);
@@ -151,13 +151,13 @@ test "a negative answer put over an answered one resets the slot's answers where
 test "a TTL of 0xFFFFFFFF, the largest, is kept for the longest cap and expires at it" {
     // RFC 8767 §4 reads all 32 bits of a TTL. The cap of seven days is what the entry keeps.
     var fixture: fixtures.Fixture(slot_count) = .{};
-    var table = cache_init_capped(&fixture, core.constants.cache_ttl_seconds_max);
+    var table = cache_init_capped(&fixture, core.limits.cache_ttl_seconds_max);
     const largest = fixtures.answers_v4(1, std.math.maxInt(u32));
     table.put(&ask("a.example"), &largest, null, 0);
     const hit = table.get(&ask("a.example"), 0).?;
-    try testing.expectEqual(@as(u32, core.constants.cache_ttl_seconds_max), hit.ttl_seconds);
-    try testing.expectEqual(@as(u32, core.constants.cache_ttl_seconds_max), hit.answers.ttl_seconds);
-    const expiry_ns = @as(u64, core.constants.cache_ttl_seconds_max) * second;
+    try testing.expectEqual(@as(u32, core.limits.cache_ttl_seconds_max), hit.ttl_seconds);
+    try testing.expectEqual(@as(u32, core.limits.cache_ttl_seconds_max), hit.answers.ttl_seconds);
+    const expiry_ns = @as(u64, core.limits.cache_ttl_seconds_max) * second;
     try testing.expectEqual(@as(u32, 0), table.get(&ask("a.example"), expiry_ns - 1).?.ttl_seconds);
     try testing.expect(table.get(&ask("a.example"), expiry_ns) == null);
 }

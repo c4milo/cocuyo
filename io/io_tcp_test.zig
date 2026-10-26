@@ -372,7 +372,7 @@ test "a new opening in the slot of a connection that failed mid-send writes none
     const connection = &rig.engine.connections[0];
     try testing.expect(connection.sending and connection.queue.first().?.slot == first.index);
     const length = rig.engine.send_lengths[first.index];
-    var lent: [cocuyo.constants.query_bytes_max]u8 = undefined;
+    var lent: [cocuyo.limits.query_bytes_max]u8 = undefined;
     @memcpy(lent[0..length], rig.engine.send_buffers[first.index][0..length]);
     const receive = tcp.user_data_of(&rig.engine, .tcp_receive, 0);
     _ = rig.engine.apply(rotor.Event.failure(receive, .connection_reset), rig.loop.now());

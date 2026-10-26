@@ -80,7 +80,7 @@ fn check_name(text: *const Text) ?[]const u8 {
 
 /// An accepted name, written out as text, reads back as itself.
 fn round_trip(name: *const core.Name) ?[]const u8 {
-    var buffer: [core.constants.name_text_bytes_max]u8 = undefined;
+    var buffer: [core.limits.name_text_bytes_max]u8 = undefined;
     const written = name.write_text(&buffer);
     const again = core.Name.from_text(buffer[0..written]) catch return "a name written out reads back";
     if (!std.mem.eql(u8, again.wire(), name.wire())) return "a name written out reads back as itself";
@@ -156,7 +156,7 @@ fn is_wire_name(bytes: []const u8) bool {
         if (at >= bytes.len) return false;
         const length = bytes[at];
         if (length == 0) return at + 1 == bytes.len;
-        if (length > core.constants.label_bytes_max) return false;
+        if (length > core.limits.label_bytes_max) return false;
         at += 1 + length;
     }
     return false;

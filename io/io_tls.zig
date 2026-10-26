@@ -11,6 +11,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const tcp = @import("io_tcp.zig");
 const frame_module = @import("io_tcp_frame.zig");
 const queue_module = @import("io_tcp_queue.zig");
@@ -22,7 +23,7 @@ const context_module = @import("io_context.zig");
 /// none of its functions is ever called.
 pub const None = struct {
     pub const enabled = false;
-    pub const out_bytes_max = 0;
+    pub const out_bytes_max: usize = 0;
     pub const Error = error{Failed};
     pub const Context = struct {};
     pub const Ticket = struct {};
@@ -59,8 +60,8 @@ pub const None = struct {
 /// One connection's TLS: its session, the record it is reading, and the records sealed and not
 /// yet gone. With `None` the buffers hold nothing.
 pub fn State(comptime Session: type) type {
-    const in_bytes = if (Session.enabled) constants.tls_record_in_bytes else 0;
-    const out_bytes = if (Session.enabled) constants.tls_records_out_bytes else 0;
+    const in_bytes = if (Session.enabled) limits.tls_record_in_bytes else 0;
+    const out_bytes = if (Session.enabled) limits.tls_records_out_bytes else 0;
     return struct {
         session: Session = .{},
         /// The ticket this opening resumes with, spent from its server's, and when it came
@@ -113,7 +114,7 @@ pub fn spend(self: anytype, at: u8, server: u8, now_ns: u64) void {
 /// is a TLS ticket, and lapses the same way (docs/design.md §24, request rule 10).
 pub fn fresh(comptime Session: type, kept: *const Kept(Session), now_ns: u64) bool {
     const age_ns = now_ns -| kept.since_ns;
-    const lifetime_ns = @min(Session.lifetime_ns(&kept.ticket), constants.tls_ticket_age_ns_max);
+    const lifetime_ns = @min(Session.lifetime_ns(&kept.ticket), limits.tls_ticket_age_ns_max);
     return age_ns < lifetime_ns;
 }
 
@@ -144,13 +145,13 @@ pub fn take(self: anytype, at: u8, bytes: []const u8, now_ns: u64) void {
     const state = &connection.tls;
     // The buffer holds a partial record at most, and room for a chunk past it. Every whole record
     // left with the chunk that made it whole, and `record_len` refused a longer record.
-    assert(bytes.len <= constants.tcp_chunk_bytes);
+    assert(bytes.len <= limits.tcp_chunk_bytes);
     assert(state.record_in_used + bytes.len <= state.record_in.len);
     @memcpy(state.record_in[state.record_in_used..][0..bytes.len], bytes);
     state.record_in_used += bytes.len;
     var start: usize = 0;
     var records: usize = 0;
-    while (records < constants.tls_records_per_buffer_max) : (records += 1) {
+    while (records < limits.tls_records_per_buffer_max) : (records += 1) {
         const whole = record_len(state.record_in[start..state.record_in_used]) catch return tcp.fail(self, at, tcp.reason_of(self, at, .handshake), now_ns);
         if (whole == 0) break;
         // A connection that failed, or opens again, keeps nothing of this opening's (rule 8). One
@@ -172,7 +173,7 @@ fn record_len(bytes: []const u8) error{Overflow}!usize {
     if (bytes.len < header) return 0;
     const body = std.mem.readInt(u16, bytes[constants.tls_record_length_at..][0..@sizeOf(u16)], .big);
     // "The length MUST NOT exceed 2^14 + 256 bytes" (RFC 9846 §5.2).
-    if (body > constants.tls_record_body_bytes_max) return error.Overflow;
+    if (body > limits.tls_record_body_bytes_max) return error.Overflow;
     if (bytes.len < header + body) return 0;
     return header + body;
 }
@@ -416,7 +417,7 @@ pub fn reset(connection: anytype) void {
 
 comptime {
     // A sealed entry's end fits the queue's u16.
-    assert(constants.tls_records_out_bytes <= std.math.maxInt(u16));
+    assert(limits.tls_records_out_bytes <= std.math.maxInt(u16));
 }
 
 // Tests.
@@ -431,8 +432,8 @@ test "a record is whole once its body has come, and one longer than TLS allows n
     try testing.expectEqual(@as(usize, header + 3), try record_len(&bytes));
     // "The length MUST NOT exceed 2^14 + 256 bytes" (RFC 9846 §5.2): one octet over is refused
     // at the header, before its body could fill the buffer.
-    std.mem.writeInt(u16, bytes[constants.tls_record_length_at..][0..@sizeOf(u16)], constants.tls_record_body_bytes_max + 1, .big);
+    std.mem.writeInt(u16, bytes[constants.tls_record_length_at..][0..@sizeOf(u16)], limits.tls_record_body_bytes_max + 1, .big);
     try testing.expectError(error.Overflow, record_len(bytes[0..header]));
-    std.mem.writeInt(u16, bytes[constants.tls_record_length_at..][0..@sizeOf(u16)], constants.tls_record_body_bytes_max, .big);
+    std.mem.writeInt(u16, bytes[constants.tls_record_length_at..][0..@sizeOf(u16)], limits.tls_record_body_bytes_max, .big);
     try testing.expectEqual(@as(usize, 0), try record_len(bytes[0..header]));
 }

@@ -16,6 +16,7 @@ const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
 // The engine's constants, through the engine's module: a file belongs to one module.
 const constants = @import("io").constants;
+const limits = @import("io").limits;
 const hooks = @import("chapulin_hooks");
 const tls = @import("tls");
 const tls_provider = @import("tls_provider");
@@ -28,10 +29,10 @@ comptime {
 }
 
 comptime {
-    if (constants.tls_records_out_bytes < Session.out_bytes_max + cocuyo.constants.query_bytes_max + constants.tls_record_overhead_bytes) {
+    if (limits.tls_records_out_bytes < Session.out_bytes_max + cocuyo.limits.query_bytes_max + constants.tls_record_overhead_bytes) {
         @compileError("a connection's records cannot hold what the session stages beside a query sealed at its longest");
     }
-    if (Session.out_bytes_max < cocuyo.constants.query_bytes_max + constants.tls_record_overhead_bytes) {
+    if (Session.out_bytes_max < cocuyo.limits.query_bytes_max + constants.tls_record_overhead_bytes) {
         @compileError("the session's staged octets cannot hold a query sealed at its longest");
     }
     if (Session.out_bytes_max < tls.record.alert_record_len) {
@@ -98,7 +99,7 @@ pub const Session = struct {
     config: tls.record.ClientConfig = undefined,
     /// colibri's calls on the records once the handshake has completed.
     records: tls_provider.Provider = undefined,
-    hostname: [cocuyo.constants.name_text_bytes_max]u8 = undefined,
+    hostname: [cocuyo.limits.name_text_bytes_max]u8 = undefined,
     /// The ticket this session resumes with: a copy, which `wipe` zeroes.
     resuming: Ticket = undefined,
     staged: [out_bytes_max]u8 = undefined,
@@ -142,7 +143,7 @@ pub const Session = struct {
     /// check a chain against (its webpki_cfg.c), which would fail such a server at every start. A
     /// named server with no anchors is judged by its pins alone, its name sent and judged against
     /// nothing.
-    pub fn trust(server: *const cocuyo.Tls, context: *const Context, hostname: *[cocuyo.constants.name_text_bytes_max]u8) tls.Trust {
+    pub fn trust(server: *const cocuyo.Tls, context: *const Context, hostname: *[cocuyo.limits.name_text_bytes_max]u8) tls.Trust {
         const pins: []const tls.Pin = server.pins;
         const name = server.name orelse return .{ .pins = .{ .pins = pins } };
         var length = name.write_text(hostname);
@@ -202,7 +203,7 @@ pub const Session = struct {
     /// Seals a query whole into the staged octets, or fails: a query sealed in part could not go.
     pub fn seal(self: *Session, plaintext: []const u8) Error!void {
         assert(self.live);
-        assert(plaintext.len <= cocuyo.constants.query_bytes_max);
+        assert(plaintext.len <= cocuyo.limits.query_bytes_max);
         const sealed = self.records.vtable.encrypt_record(self.records.context, plaintext, self.staged[self.staged_len..]) catch return self.fail();
         if (sealed.consumed != plaintext.len) return self.fail();
         self.staged_len += sealed.written;

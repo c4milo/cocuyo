@@ -6,6 +6,7 @@ const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
 const client = @import("client");
 const constants = @import("io_doh_channel_constants.zig");
+const limits = @import("io_doh_channel_limits.zig");
 const exchange_module = @import("io_doh_channel_exchange.zig");
 
 /// A channel's two links: QUIC over a datagram socket, TCP over a stream socket.
@@ -64,7 +65,7 @@ pub fn receive(self: anytype, input: anytype) void {
 /// changes nothing the engine does, the version a connection speaks, is read past (rule 20).
 pub fn next(self: anytype, now_ns: u64) ?@TypeOf(self.*).Event {
     if (self.stream_overrun) return overrun(self);
-    for (0..constants.next_passes_max) |_| {
+    for (0..limits.next_passes_max) |_| {
         const received = self.channel.receive(pending(self), now_ns);
         take(self, received.consumed);
         if (received.event) |said| {

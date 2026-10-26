@@ -29,7 +29,7 @@ pub fn section_bytes(name: *const Name) usize {
     // A maximal name is 255 octets and the fixed part is four more, so the sum does not fit the
     // octet the length is held in.
     const length: usize = name.len;
-    assert(length <= core.constants.name_bytes_max);
+    assert(length <= core.limits.name_bytes_max);
     return length + core.constants.question_fixed_bytes;
 }
 
@@ -77,7 +77,7 @@ pub fn matches_lowercase(message: []const u8, name: *const Name, kind: Kind) boo
 const Case = enum { exact, lowercase, mixed };
 
 /// The seed a compare that mixes no case is passed, and never reads.
-const case_seed_none = 0;
+const case_seed_none: u64 = 0;
 
 fn section_matches(
     message: []const u8,
@@ -124,7 +124,7 @@ fn is_lowercase_of(echoed: []const u8, asked: []const u8) bool {
 
 comptime {
     // Folding a length octet as a letter would let one label length pass for another.
-    assert(core.constants.label_bytes_max < 'A');
+    assert(core.limits.label_bytes_max < 'A');
 }
 
 /// The question section of `message`, for a reader that does not already know what was asked: the
@@ -160,7 +160,7 @@ const query_message = @import("fixtures.zig").query_a;
 
 test "a question section writes the name, the type and class IN" {
     const name = try Name.from_text("example.com");
-    var out: [core.constants.query_bytes_max]u8 = @splat(0);
+    var out: [core.limits.query_bytes_max]u8 = @splat(0);
     const written = write(&name, .a, &out);
     try testing.expectEqual(section_bytes(&name), written);
     try testing.expectEqualStrings("\x07example\x03com\x00\x00\x01\x00\x01", out[0..written]);
@@ -263,10 +263,10 @@ test "the lowercase compare reads the same against the name as held, mixed and f
 
 /// A name of `length` octets in wire form, of letters: labels of 63 octets, then one of the rest.
 fn long_name(length: usize) !Name {
-    const letters: [core.constants.label_bytes_max]u8 = @splat('x');
+    const letters: [core.limits.label_bytes_max]u8 = @splat('x');
     var name: Name = Name.empty;
     var rest = length - 1; // the root's octet
-    for (0..core.constants.labels_max) |_| {
+    for (0..core.limits.labels_max) |_| {
         if (rest == 0) break;
         // `usize`: `@min` with 63 gives a `u6`, which its length octet's 1 overflows.
         const label: usize = @min(rest - 1, letters.len);
@@ -285,14 +285,14 @@ fn question_message(name: *const Name, out: *[long_message_bytes]u8) []const u8 
 }
 
 /// The octets a question of the longest name occupies, with the header before it.
-const long_message_bytes = core.constants.header_bytes + core.constants.name_bytes_max +
+const long_message_bytes: usize = core.constants.header_bytes + core.limits.name_bytes_max +
     core.constants.question_fixed_bytes;
 
 test "a question of a name of 242 octets or more matches itself, its class past octet 255" {
     // Its class lies past octet 255 of the message, and from 244 octets its type too, where offsets
     // summed in the `u8` a name's length is held in overflowed; 241 is the longest that did not.
     const entropy = 0x0123456789abcdef;
-    for ([_]usize{ 241, 242, 243, 244, core.constants.name_bytes_max }) |length| {
+    for ([_]usize{ 241, 242, 243, 244, core.limits.name_bytes_max }) |length| {
         const held = try long_name(length);
         try testing.expectEqual(length, @as(usize, held.len));
         var cased = held;
@@ -317,7 +317,7 @@ test "a question of a name of 242 octets or more matches itself, its class past 
 test "a question of the most labels a name holds is written, read back and matched" {
     // 127 labels of one letter are 254 octets, and the root's makes 255 (RFC 1035 §2.3.4).
     const most = try Name.from_text("a." ** 126 ++ "a");
-    try testing.expectEqual(@as(usize, core.constants.name_bytes_max), most.len);
+    try testing.expectEqual(@as(usize, core.limits.name_bytes_max), most.len);
     var buffer: [long_message_bytes]u8 = undefined;
     const message = question_message(&most, &buffer);
     var read: Name = Name.empty;
@@ -356,21 +356,21 @@ fn expect_mixed_in_place(held: *const Name, entropy: u64) !void {
 }
 
 /// Where a name's last letter lies before its end: the root's octet follows it.
-const last_letter_from_end = 2;
+const last_letter_from_end: usize = 2;
 
 test "matches_mixed takes a question of a name of 241 octets or more, read in place" {
     // The type and the class are read before the name, past octet 255 of the message from names
     // of 244 and 242 octets on (the long-name test above). These names hold 236 to 250 letters,
     // so the compare draws their cases from four words.
     const entropy = 0x0123456789abcdef;
-    for ([_]usize{ 241, 242, 243, 244, core.constants.name_bytes_max }) |length| {
+    for ([_]usize{ 241, 242, 243, 244, core.limits.name_bytes_max }) |length| {
         const held = try long_name(length);
         try testing.expectEqual(length, @as(usize, held.len));
         try expect_mixed_in_place(&held, entropy);
     }
     // The most labels a name holds: a length octet between every two of its 127 letters.
     const most = try Name.from_text("a." ** 126 ++ "a");
-    try testing.expectEqual(@as(usize, core.constants.name_bytes_max), most.len);
+    try testing.expectEqual(@as(usize, core.limits.name_bytes_max), most.len);
     try expect_mixed_in_place(&most, entropy);
 }
 

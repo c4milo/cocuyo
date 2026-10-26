@@ -25,7 +25,7 @@ pub const ServerState = struct {
     cookie_client: [core.constants.cookie_client_bytes]u8,
     /// The server cookie it last answered with, `cookie_server_len` octets of it; zero until
     /// one is learned (RFC 7873 §5.3).
-    cookie_server: [core.constants.cookie_server_bytes_max]u8,
+    cookie_server: [core.limits.cookie_server_bytes_max]u8,
     cookie_server_len: u8,
     /// Until this instant a query to this server carries no COOKIE option: it answered a client
     /// cookie without one and has given no server cookie (RFC 9018 §3). Zero when it has not.
@@ -58,7 +58,7 @@ pub const CookieForm = enum(u8) {
 };
 
 pub const Servers = struct {
-    states: [core.constants.servers_max]ServerState,
+    states: [core.limits.servers_max]ServerState,
     count: u8,
     /// The caller's seed, mixed into every fresh client cookie with the transaction's own draw:
     /// a table built anew with a new seed draws its cookies from a new secret too.
@@ -81,7 +81,7 @@ pub const Servers = struct {
                 .latency = .{},
             };
         }
-        assert(servers.count <= core.constants.servers_max);
+        assert(servers.count <= core.limits.servers_max);
         return servers;
     }
 
@@ -107,7 +107,7 @@ pub const Servers = struct {
     /// cookie that drew it, and the server cookie (RFC 7873 §5.1, RFC 9018 §3).
     pub fn cookie(self: *const Servers, index: usize) wire.Cookie {
         const entry = self.state(index);
-        assert(entry.cookie_server_len >= core.constants.cookie_server_bytes_min);
+        assert(entry.cookie_server_len >= core.limits.cookie_server_bytes_min);
         return .{
             .client = entry.cookie_client,
             .server = entry.cookie_server,
@@ -200,8 +200,8 @@ pub const Servers = struct {
         server_cookie: []const u8,
     ) void {
         assert(index < self.count);
-        assert(server_cookie.len >= core.constants.cookie_server_bytes_min);
-        assert(server_cookie.len <= core.constants.cookie_server_bytes_max);
+        assert(server_cookie.len >= core.limits.cookie_server_bytes_min);
+        assert(server_cookie.len <= core.limits.cookie_server_bytes_max);
         const entry = &self.states[index];
         entry.cookie_client = client.*;
         @memcpy(entry.cookie_server[0..server_cookie.len], server_cookie);

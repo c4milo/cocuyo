@@ -6,6 +6,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 const Error = core.Error;
 const constants = @import("../constants.zig");
+const limits = @import("../limits.zig");
 
 pub const Read = struct { bytes: []const u8, end: usize };
 
@@ -14,7 +15,7 @@ pub fn read(rdata: []const u8, offset: usize) Error!Read {
     assert(offset <= rdata.len);
     if (offset >= rdata.len) return Error.MalformedMessage;
     const length: usize = rdata[offset];
-    assert(length <= constants.character_string_bytes_max);
+    assert(length <= limits.character_string_bytes_max);
     const start = offset + 1;
     if (start + length > rdata.len) return Error.MalformedMessage;
     return .{ .bytes = rdata[start..][0..length], .end = start + length };
@@ -104,7 +105,7 @@ test "RFC 1035 §6.4.1's HINFO reads back as its CPU and its OS" {
 test "a string of 255 octets, the longest its length octet says, reads back, and one octet short is malformed" {
     // A string "can be up to 256 characters in length (including the length octet)" (RFC 1035
     // §3.3), so a length octet of 255 is the longest.
-    const longest = constants.character_string_bytes_max;
+    const longest = limits.character_string_bytes_max;
     const rdata = [_]u8{longest} ++ [_]u8{'x'} ** longest;
     var strings = try Txt.strings(&rdata);
     try testing.expectEqual(longest, (try strings.next()).?.len);

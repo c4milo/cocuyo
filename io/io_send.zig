@@ -45,7 +45,7 @@ pub fn ask(self: anytype, index: usize, asked: Asked, now_ns: u64) void {
         .udp => |datagram| datagram.bytes,
         .tcp => |stream| stream,
     };
-    assert(bytes.len <= cocuyo.constants.query_bytes_max);
+    assert(bytes.len <= cocuyo.limits.query_bytes_max);
     @memcpy(self.held_buffers[index][0..bytes.len], bytes);
     self.held[index] = .{
         .owner = owner_of(self, index),
@@ -65,7 +65,7 @@ fn submit(self: anytype, index: usize, asked: Asked, now_ns: u64) void {
 
 /// Queues a datagram to the lookup's server from its server's socket.
 fn send_datagram(self: anytype, index: usize, server: cocuyo.Endpoint, bytes: []const u8, now_ns: u64) void {
-    assert(bytes.len <= cocuyo.constants.query_bytes_max);
+    assert(bytes.len <= cocuyo.limits.query_bytes_max);
     const slot = self.resolver.lookup_of(self.handles[index]).server_slot();
     @memcpy(self.send_buffers[index][0..bytes.len], bytes);
     self.outbounds[index] = udp.outbound_to(server);

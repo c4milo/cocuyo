@@ -10,6 +10,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 
 /// The slot an entry of the session's own records names: no table slot is this large.
 pub const records: u16 = std.math.maxInt(u16);
@@ -84,7 +85,7 @@ pub fn Queue(comptime capacity: u16) type {
         fn ring_index(head: u16, position: u16) u16 {
             assert(head < capacity);
             assert(position < capacity);
-            assert(capacity <= cocuyo.constants.lookup_slots_max + constants.tls_records_entries_max);
+            assert(capacity <= cocuyo.limits.lookup_slots_max + limits.tls_records_entries_max);
             return (head + position) % capacity;
         }
 

@@ -19,6 +19,7 @@ pub const table_slots = @import("table_slots.zig");
 pub const address_lookup = @import("address_lookup.zig");
 pub const name_lookup = @import("name_lookup.zig");
 pub const constants = @import("constants.zig");
+pub const limits = @import("limits.zig");
 
 pub const Lookup = lookup.Lookup;
 pub const Action = lookup.Action;
@@ -63,6 +64,7 @@ test {
     _ = @import("table_cancel_test.zig");
     _ = @import("table_request_test.zig");
     _ = constants;
+    _ = limits;
     _ = @import("lookup_poll.zig");
     _ = @import("lookup_recall.zig");
     _ = @import("lookup_response.zig");

@@ -9,6 +9,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const cache = @import("cache.zig");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const none = cache.none;
 
 /// Frees one slot of a full cache. From where the hand stopped, or the oldest entry, toward the
@@ -19,7 +20,7 @@ pub fn evict_one(self: *cache.Cache, now_ns: u64) void {
     assert(self.free == none);
     assert(self.order.len == self.slots.len);
     var index = if (self.hand == none) self.order.oldest else self.hand;
-    const bound = constants.sweep_steps_max(self.slots.len);
+    const bound = limits.sweep_steps_max(self.slots.len);
     var steps: usize = 0;
     while (steps < bound) : (steps += 1) {
         const slot = &self.slots[index];

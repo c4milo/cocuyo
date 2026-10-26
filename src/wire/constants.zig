@@ -1,8 +1,9 @@
 //! Every number the wire format fixes: the offsets of the header fields, the flag bits, the
 //! response codes, and the two bits that tell a label from a compression pointer. Each is named
 //! here and never written at the use site (CLAUDE.md non-negotiable 5), with the RFC section that
-//! fixes it.
+//! fixes it. The limits the codec holds are in `limits.zig` (docs/design.md §16 decision 56).
 const std = @import("std");
+const limits = @import("limits.zig");
 
 /// Two octets, the width of every count and every integer in the header (RFC 1035 §4.1.1).
 pub const u16_bytes: usize = @sizeOf(u16);
@@ -83,44 +84,19 @@ pub const tlsa_matching_type_offset: usize = 2;
 pub const uri_fixed_bytes: usize = 4;
 pub const uri_weight_offset: usize = 2;
 
-/// CAA: flags and a tag length, one octet each, then the tag, at least one octet, then the
-/// value (RFC 8659 §4.1).
+/// CAA: flags and a tag length, one octet each, then the tag, then the value (RFC 8659 §4.1).
 pub const caa_fixed_bytes: usize = 2;
 pub const caa_tag_length_offset: usize = 1;
-pub const caa_tag_bytes_min: usize = 1;
 /// The issuer-critical flag, bit 0 in RFC 1035's numbering, which is the high bit (RFC 8659 §4.1).
 pub const caa_flag_critical: u8 = 0x80;
 
-/// A `<character-string>`: one length octet, then at most that many octets (RFC 1035 §3.3).
-pub const character_string_bytes_max: usize = 255;
-
-/// The shape of a record the fuzz generator writes whole (`fuzz/fuzz_generate_records.zig`,
-/// docs/design.md §19, step 9's gate): names of up to three labels of up to twelve letters,
-/// character-strings of up to twenty octets and up to four of them in a TXT or an ALPN list,
-/// opaque fields of up to thirty-two octets, and up to three addresses in an SVCB hint. A record
-/// of every type then fits a message several times over. Chosen, not measured.
-pub const fuzz_labels_max: usize = 3;
-pub const fuzz_label_bytes_max: usize = 12;
-pub const fuzz_string_bytes_max: usize = 20;
-pub const fuzz_strings_max: usize = 4;
-pub const fuzz_opaque_bytes_max: usize = 32;
-pub const fuzz_hints_max: usize = 3;
 /// An SVCB key with no format of its own, which a client keeps as it is: RFC 9460 Appendix D's
 /// `key667`.
 pub const fuzz_svcb_key_generic: u16 = 667;
-/// The shortest name of the long questions the fuzz generator writes (`fuzz/fuzz_generate.zig`):
-/// 64 lengths, from here to the longest name, 255 octets. They hold the fourteen whose question's
-/// class lies past octet 255 of the message, from 242 octets on, and fifty shorter. The gate's
-/// 4096 seeds over ten strategies give each length about six seeds, by arithmetic, and a test of
-/// `fuzz/fuzz.zig` pins that each is reached. Chosen, not measured.
-pub const fuzz_question_name_bytes_min: usize = 192;
 /// The answers a long message of the fuzz generator holds (`fuzz/fuzz_generate.zig`): one whose
 /// rdata runs past the name at the farthest offset a pointer names, and one at the end of the
 /// message owned by a pointer to that name.
 pub const fuzz_long_answers: u16 = 2;
-/// The fewest octets a label other than the root takes in a name: its length octet and one octet
-/// (RFC 1035 §3.1). A long question's labels never leave fewer for the next.
-pub const label_wire_bytes_min: usize = 2;
 
 /// An OPT option: a 16-bit code and a 16-bit length, then the data (RFC 6891 §6.1.2).
 pub const opt_option_fixed_bytes: usize = 4;
@@ -151,27 +127,12 @@ pub const extended_error_fixed_bytes: usize = 2;
 /// The bits of an octet, for the prefix arithmetic of RFC 7871 §6.
 pub const bits_per_octet: usize = 8;
 
-/// The COOKIE option's code (RFC 7873 §4), and the two lengths the option may have: a client
-/// cookie alone, or a client cookie and a server cookie of 8 to 32 octets.
+/// The COOKIE option's code (RFC 7873 §4), and its length when it holds a client cookie alone.
 pub const cookie_option_code: u16 = 10;
 pub const cookie_option_short_bytes: usize = 8;
-pub const cookie_option_long_bytes_min: usize = 16;
-pub const cookie_option_long_bytes_max: usize = 40;
 
 /// The rcode's high eight bits sit above the header's four (RFC 6891 §6.1.3).
 pub const extended_rcode_low_bits: u4 = 4;
-
-/// The most segments a record layout has: NAPTR's fixed part, three strings and a name
-/// (`rdata/rdata_layout.zig`).
-pub const layout_segments_max: usize = 5;
-
-/// The draws DNS-0x20 takes for one name. A draw that leaves every letter small is drawn again,
-/// so that a mixed name carries a capital, and after this many the first letter is made one
-/// (`name.mix_case`, docs/design.md §7). One draw leaves a name of L letters all small with chance
-/// 2^-L, so the first letter is forced with chance 2^-4L: 1 in 16 for one letter, whose only case
-/// with a capital that is, 1 in 256 for two, and 1 in 4096 or less from three on. Chosen, not
-/// measured.
-pub const case_draws_max: usize = 4;
 
 /// QR: set in a response (RFC 1035 §4.1.1).
 pub const flag_response: u16 = 0x8000;
@@ -237,13 +198,6 @@ pub const pointer_offset_mask: u16 = 0x3fff;
 /// A pointer is two octets (RFC 1035 §4.1.4).
 pub const pointer_bytes: usize = 2;
 
-/// The longest `dns` variable a DoH GET carries (RFC 8484 §6): the largest query without the TCP
-/// length prefix, 384 octets, in base64url without padding, four characters for three octets,
-/// which is 512 (docs/design.md §22).
-pub const dns_variable_bytes_max = std.base64.url_safe_no_pad.Encoder.calcSize(
-    @import("core").constants.query_bytes_max - @import("core").constants.tcp_prefix_bytes,
-);
-
 comptime {
     const core = @import("core");
     // The header's fields must tile the header exactly, or a parser would read past one of them.
@@ -261,6 +215,25 @@ comptime {
         @compileError("the record fields do not tile the fixed part");
     }
 }
+
+// The paths a consumer reached these limits by before they moved into the limits file. Each
+// is an alias, and no limit of its own. They stay until the owner rules on them (docs/design.md
+// §16 decision 56, §17 question 76).
+pub const caa_tag_bytes_min = limits.caa_tag_bytes_min;
+pub const character_string_bytes_max = limits.character_string_bytes_max;
+pub const fuzz_labels_max = limits.fuzz_labels_max;
+pub const fuzz_label_bytes_max = limits.fuzz_label_bytes_max;
+pub const fuzz_string_bytes_max = limits.fuzz_string_bytes_max;
+pub const fuzz_strings_max = limits.fuzz_strings_max;
+pub const fuzz_opaque_bytes_max = limits.fuzz_opaque_bytes_max;
+pub const fuzz_hints_max = limits.fuzz_hints_max;
+pub const fuzz_question_name_bytes_min = limits.fuzz_question_name_bytes_min;
+pub const label_wire_bytes_min = limits.label_wire_bytes_min;
+pub const cookie_option_long_bytes_min = limits.cookie_option_long_bytes_min;
+pub const cookie_option_long_bytes_max = limits.cookie_option_long_bytes_max;
+pub const layout_segments_max = limits.layout_segments_max;
+pub const case_draws_max = limits.case_draws_max;
+pub const dns_variable_bytes_max = limits.dns_variable_bytes_max;
 
 // A constant with no type is a `comptime_int`, which takes the type of a narrow runtime value it
 // meets in a sum. The lint rule reads the shape of each value, and this reads the type, so an

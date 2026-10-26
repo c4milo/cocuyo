@@ -202,7 +202,7 @@ test "the responder answers a query cocuyo builds with one A record for the name
     defer responder.stop();
     const socket = try udp.open(0);
     defer udp.close(socket);
-    var query: [cocuyo.constants.query_bytes_max]u8 = undefined;
+    var query: [cocuyo.limits.query_bytes_max]u8 = undefined;
     const len = wire.query.write(&.{ .id = 0x1234, .name = try cocuyo.Name.from_text("h1.example."), .kind = .a }, &query);
     const to = udp.loopback(responder.port);
     try udp.send(socket, query[0..len], &to);
@@ -221,7 +221,7 @@ test "the responder answers from a process of its own, so the kernel's counts he
     defer responder.stop();
     const socket = try udp.open(0);
     defer udp.close(socket);
-    var query: [cocuyo.constants.query_bytes_max]u8 = undefined;
+    var query: [cocuyo.limits.query_bytes_max]u8 = undefined;
     const len = wire.query.write(&.{ .id = 0x1234, .name = try cocuyo.Name.from_text("h1.example."), .kind = .a }, &query);
     const to = udp.loopback(responder.port);
     var reply: [constants.datagram_bytes_max]u8 = undefined;

@@ -101,7 +101,7 @@ test "any other answer the lookup accepts resets the count" {
 }
 
 /// An rcode no code of `wire.Rcode` names.
-const rcode_unknown = 6;
+const rcode_unknown: u16 = 6;
 
 test "a response the lookup ignores leaves its server's failure count" {
     comptime std.debug.assert(wire.Rcode.from_bits(rcode_unknown) == null);
@@ -211,7 +211,7 @@ test "a server that answered FORMERR loses EDNS0 for itself, and the next server
 }
 
 /// A millisecond, in nanoseconds.
-const millisecond = 1_000_000;
+const millisecond: u64 = 1_000_000;
 
 /// One lookup that asks the first server, which is down, waits out its try, and is answered by
 /// the second. Returns the wait the try at the first server armed.

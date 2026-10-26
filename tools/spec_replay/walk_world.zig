@@ -20,7 +20,7 @@ const Pending = resolver.address_lookup.Pending;
 
 /// The slots the largest table the transcript names has.
 pub const slots_max = 3;
-const keys_count = std.math.ceilPowerOfTwoAssert(usize, slots_max * resolver.constants.keys_per_slot_min);
+const keys_count = std.math.ceilPowerOfTwoAssert(usize, slots_max * resolver.limits.keys_per_slot_min);
 
 /// The seed of the table; the model abstracts its entropy away.
 const seed = 0xadd7_e55e;
@@ -64,7 +64,7 @@ pub const World = struct {
     family: ?core.Family = null,
     slot_count: usize = 0,
     live: Live = undefined,
-    out: [core.constants.query_bytes_max]u8 = undefined,
+    out: [core.limits.query_bytes_max]u8 = undefined,
     reply: [core.constants.udp_payload_bytes_default]u8 = undefined,
 
     /// Sets the section up: the sources in order, whether the hosts table holds the name, and

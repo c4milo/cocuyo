@@ -8,6 +8,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 
 /// What one option token asked for, or null when it asked for nothing cocuyo knows.
 pub const Option = union(enum) {
@@ -19,32 +20,32 @@ pub const Option = union(enum) {
     use_tcp,
 };
 
-/// The keywords, each with the limit its value is clamped to: `constants.ndots_limit`,
-/// `constants.timeout_seconds_limit` and cocuyo's own `attempts_max`, which is the manual pages' 5.
+/// The keywords, each with the limit its value is clamped to: `limits.ndots_limit`,
+/// `limits.timeout_seconds_limit` and cocuyo's own `attempts_max`, which is the manual pages' 5.
 const ndots_keyword = "ndots:";
 const timeout_keyword = "timeout:";
 const attempts_keyword = "attempts:";
 const rotate_keyword = "rotate";
 
 /// The base an option's value is written in.
-const decimal_base = 10;
+const decimal_base: u8 = 10;
 
 pub fn parse(token: []const u8) ?Option {
     if (std.mem.eql(u8, token, rotate_keyword)) return .rotate;
     if (std.mem.eql(u8, token, constants.option_use_vc)) return .use_tcp;
     if (value_of(token, ndots_keyword)) |text| {
-        const ndots = number(text, constants.ndots_limit) orelse return null;
+        const ndots = number(text, limits.ndots_limit) orelse return null;
         return .{ .ndots = @intCast(ndots) };
     }
     if (value_of(token, timeout_keyword)) |text| {
-        const seconds = number(text, constants.timeout_seconds_limit) orelse return null;
+        const seconds = number(text, limits.timeout_seconds_limit) orelse return null;
         // A timeout of zero would make every query time out before it was sent, so it reads as
         // the smallest wait there is rather than as no wait.
         const clamped = @max(seconds, 1);
         return .{ .timeout_ns = clamped * constants.ns_per_s };
     }
     if (value_of(token, attempts_keyword)) |text| {
-        const attempts = number(text, core.constants.attempts_max) orelse return null;
+        const attempts = number(text, core.limits.attempts_max) orelse return null;
         return .{ .attempts = @intCast(@max(attempts, 1)) };
     }
     return null;
@@ -96,11 +97,11 @@ test "a value that is not a number is skipped" {
 }
 
 test "a value over the limit is clamped, not refused" {
-    try testing.expectEqual(Option{ .ndots = constants.ndots_limit }, parse("ndots:99").?);
-    try testing.expectEqual(Option{ .ndots = constants.ndots_limit }, parse("ndots:999999999999999999999").?);
-    try testing.expectEqual(Option{ .attempts = core.constants.attempts_max }, parse("attempts:9").?);
+    try testing.expectEqual(Option{ .ndots = limits.ndots_limit }, parse("ndots:99").?);
+    try testing.expectEqual(Option{ .ndots = limits.ndots_limit }, parse("ndots:999999999999999999999").?);
+    try testing.expectEqual(Option{ .attempts = core.limits.attempts_max }, parse("attempts:9").?);
     try testing.expectEqual(
-        Option{ .timeout_ns = constants.timeout_seconds_limit * constants.ns_per_s },
+        Option{ .timeout_ns = limits.timeout_seconds_limit * constants.ns_per_s },
         parse("timeout:600").?,
     );
 }

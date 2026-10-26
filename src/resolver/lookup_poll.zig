@@ -19,7 +19,7 @@ const cookies = @import("lookup_cookie.zig");
 
 pub fn poll(self: *Lookup, now_ns: u64, out: []u8) Action {
     self.see(now_ns);
-    assert(out.len >= core.constants.query_bytes_max);
+    assert(out.len >= core.limits.query_bytes_max);
     // The first poll is the first instant a lookup has, and the server order needs one.
     if (!self.flags.ordered and !self.is_settled()) lookup_order.order_servers(self, now_ns);
     if (expired(self, now_ns)) ran_out(self, now_ns);
@@ -72,7 +72,7 @@ fn ran_out(self: *Lookup, now_ns: u64) void {
 fn send_udp(self: *Lookup, now_ns: u64, out: []u8) Action {
     assert(self.state == .query_ready);
     const message_bytes = build(self, false, now_ns, out);
-    assert(message_bytes.len <= core.constants.query_bytes_max);
+    assert(message_bytes.len <= core.limits.query_bytes_max);
     return .{ .send_udp = .{
         .server = self.server(),
         .local_port_hint = self.transaction.port_hint,
@@ -87,7 +87,7 @@ fn send_request(self: *Lookup, now_ns: u64, out: []u8) Action {
     assert(self.state == .query_ready);
     const prefixed = self.config.uses_quic();
     const message_bytes = build(self, prefixed, now_ns, out);
-    assert(prefixed or message_bytes.len <= core.constants.query_bytes_max - core.constants.tcp_prefix_bytes);
+    assert(prefixed or message_bytes.len <= core.limits.query_bytes_max - core.constants.tcp_prefix_bytes);
     return .{ .send_request = .{
         .server_index = self.server_slot(),
         .message_bytes = message_bytes,
@@ -161,7 +161,7 @@ const Servers = @import("servers.zig").Servers;
 const servers = fixtures.servers_two;
 
 /// A buffer of the size every caller must provide.
-const Buffer = [core.constants.query_bytes_max]u8;
+const Buffer = [core.limits.query_bytes_max]u8;
 
 /// The per-server state of the lookup under test. One at a time is enough here.
 threadlocal var test_servers: Servers = undefined;
@@ -177,7 +177,7 @@ test "the first poll asks for a UDP send to the first server" {
     var out: Buffer = @splat(0);
     const action = lookup.poll(0, &out);
     try testing.expectEqual(servers[0].endpoint.address.octets, action.send_udp.server.address.octets);
-    try testing.expect(action.send_udp.local_port_hint >= core.constants.port_ephemeral_min);
+    try testing.expect(action.send_udp.local_port_hint >= core.limits.port_ephemeral_min);
     const header = try wire.header.parse(action.send_udp.message_bytes);
     try testing.expectEqual(lookup.transaction.id, header.id);
     try testing.expect(header.recursion_desired());

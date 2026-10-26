@@ -9,7 +9,7 @@ const wire = @import("wire");
 const fixtures = @import("fixtures.zig");
 
 /// Enough slots that no test here fills the table.
-const slot_count = 4;
+const slot_count: usize = 4;
 
 test "a PTR answer comes back from the cache with its name" {
     var fixture: fixtures.Fixture(slot_count) = .{};

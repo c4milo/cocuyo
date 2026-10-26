@@ -8,6 +8,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 
 /// No slot: the end of the chain, the end of the free list, and a hand that has nowhere to be.
 pub const none: u16 = 0xffff;
@@ -112,5 +113,5 @@ test "unlinking the oldest, the newest and a middle entry leaves the order intac
 }
 
 test "the bound on the chain's length is the slot count, below the sentinel" {
-    try testing.expect(constants.slots_max < none);
+    try testing.expect(limits.slots_max < none);
 }

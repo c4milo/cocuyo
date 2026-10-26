@@ -6,18 +6,19 @@ const testing = std.testing;
 const core = @import("core");
 const cache = @import("cache.zig");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const fixtures = @import("fixtures.zig");
 
 /// One slot more than the probe bound: after the bound's worth of colliding names and one
 /// refusal, exactly one slot is free, so a refusal that kept its slot would leave the table one
 /// short of full and the next put would trip the sweep's own assertion.
-const slot_count = constants.probe_max + 1;
+const slot_count: usize = limits.probe_max + 1;
 
 /// The most names tried while looking for ones that share a start index. The fixture rounds the
 /// key index up to 64 entries, so one name in 64 lands on any given index and this is several
 /// times what finding `probe_max + 1` of them needs; the seed is fixed, so the search is the same
 /// every run.
-const names_tried_max = 8192;
+const names_tried_max: usize = 8192;
 
 test "a chain longer than the probe bound is a refusal on put and the slot goes back" {
     var fixture: fixtures.Fixture(slot_count) = .{};
@@ -27,7 +28,7 @@ test "a chain longer than the probe bound is a refusal on put and the slot goes 
     var found: usize = 0;
     var tried: usize = 0;
     var last: core.Question = undefined;
-    while (tried < names_tried_max and found <= constants.probe_max) : (tried += 1) {
+    while (tried < names_tried_max and found <= limits.probe_max) : (tried += 1) {
         const text = try std.fmt.bufPrint(&buffer, "n{d}.example", .{tried});
         const asked = fixtures.question(text);
         const hash = table.hash_of(&asked);
@@ -36,9 +37,9 @@ test "a chain longer than the probe bound is a refusal on put and the slot goes 
         last = asked;
         table.put(&asked, &answers, null, 0);
     }
-    try testing.expectEqual(constants.probe_max + 1, found);
+    try testing.expectEqual(limits.probe_max + 1, found);
     // The first sixteen went in; the seventeenth was refused and misses.
-    try testing.expectEqual(@as(usize, constants.probe_max), table.len());
+    try testing.expectEqual(@as(usize, limits.probe_max), table.len());
     try testing.expect(table.get(&last, 0) == null);
     // The refused put released its slot: another name, off that chain, fills the table.
     const elsewhere = fixtures.question("elsewhere.example");

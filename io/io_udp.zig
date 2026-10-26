@@ -7,6 +7,7 @@ const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const Kind = @import("io.zig").Kind;
 
 pub const Socket = struct {
@@ -36,10 +37,10 @@ pub const SentFrom = struct { server: u8, epoch: u32 };
 
 pub const Sockets = struct {
     /// The socket every query to a server leaves from.
-    items: [cocuyo.constants.servers_max]Socket,
+    items: [cocuyo.limits.servers_max]Socket,
     /// The socket a server's last port drains on, keeping its receive for the answers to the
     /// queries that left from it; closed when there is none (the datagram's rule 4).
-    draining: [cocuyo.constants.servers_max]Socket,
+    draining: [cocuyo.limits.servers_max]Socket,
     count: u8,
     /// Where the next port comes from: the seed's stream, so a run is a run.
     word: u64 = 0,
@@ -233,8 +234,8 @@ fn user_data(tag: u16, kind: Kind, index: usize) u64 {
 
 /// A port in the Dynamic range from one word of the seed (RFC 6335 §6).
 fn port_from(word: u64) u16 {
-    const span = cocuyo.constants.port_ephemeral_max - cocuyo.constants.port_ephemeral_min + 1;
-    return @intCast(cocuyo.constants.port_ephemeral_min + word % span);
+    const span = cocuyo.limits.port_ephemeral_max - cocuyo.limits.port_ephemeral_min + 1;
+    return @intCast(cocuyo.limits.port_ephemeral_min + word % span);
 }
 
 fn rotor_family(family: cocuyo.Family) rotor.Address.Family {
@@ -248,11 +249,11 @@ fn rotor_family(family: cocuyo.Family) rotor.Address.Family {
 pub fn Group(comptime buffers: u16) type {
     return struct {
         const Self = @This();
-        /// The options that `constants.udp_payload_bytes_max` is read under. So the room it names
+        /// The options that `limits.udp_payload_bytes_max` is read under. So the room it names
         /// is the room of these buffers (docs/design.md §19 step 13, the datagram's rule 7).
         const group = constants.group_options;
 
-        const needed = rotor.buffers.group_bytes(buffers, constants.buffer_bytes);
+        const needed = rotor.buffers.group_bytes(buffers, limits.buffer_bytes);
         const alignment = rotor.buffers.group_alignment;
 
         /// One alignment more than the group needs, and no alignment claimed for it: the window
@@ -280,13 +281,13 @@ pub fn Group(comptime buffers: u16) type {
         comptime {
             // The claim this struct must never make again, pinned: nothing here is aligned beyond
             // what a page guarantees, so the optimizer has no false premise to fold.
-            assert(@alignOf(Self) <= constants.storage_alignment_max);
+            assert(@alignOf(Self) <= limits.storage_alignment_max);
         }
 
         pub fn provide(self: *Self, loop: *rotor.Loop) error{ReceiveFailed}!void {
             const memory = ring(self);
             assert(@intFromPtr(memory.ptr) % alignment == 0);
-            loop.provide_datagram_buffers(constants.group_id, memory, buffers, constants.buffer_bytes, group) catch
+            loop.provide_datagram_buffers(constants.group_id, memory, buffers, limits.buffer_bytes, group) catch
                 return error.ReceiveFailed;
         }
     };
@@ -349,17 +350,17 @@ const testing = std.testing;
 
 test "the two ends of the Dynamic range are drawn, and the span wraps after the last" {
     // 49152 to 65535, both ends included (RFC 6335 §6).
-    const ports: u64 = @as(u64, cocuyo.constants.port_ephemeral_max) - cocuyo.constants.port_ephemeral_min + 1;
-    try testing.expectEqual(cocuyo.constants.port_ephemeral_min, port_from(0));
-    try testing.expectEqual(cocuyo.constants.port_ephemeral_max, port_from(ports - 1));
-    try testing.expectEqual(cocuyo.constants.port_ephemeral_min, port_from(ports));
+    const ports: u64 = @as(u64, cocuyo.limits.port_ephemeral_max) - cocuyo.limits.port_ephemeral_min + 1;
+    try testing.expectEqual(cocuyo.limits.port_ephemeral_min, port_from(0));
+    try testing.expectEqual(cocuyo.limits.port_ephemeral_max, port_from(ports - 1));
+    try testing.expectEqual(cocuyo.limits.port_ephemeral_min, port_from(ports));
 }
 
 test "a port from a word is in the Dynamic range, and an endpoint round-trips through rotor's address" {
     var word: u64 = 0;
     while (word < 64) : (word += 1) {
         const port = port_from(cocuyo.core.mix.next(word));
-        try testing.expect(port >= cocuyo.constants.port_ephemeral_min);
+        try testing.expect(port >= cocuyo.limits.port_ephemeral_min);
     }
     const endpoint: cocuyo.Endpoint = .{ .address = cocuyo.Address.from_v4(.{ 192, 0, 2, 53 }), .port = 53 };
     try testing.expect(endpoint_of(address_of(endpoint)).equal(&endpoint));

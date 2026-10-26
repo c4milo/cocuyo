@@ -13,6 +13,7 @@
 //! pass before every commit needs to be; a guided fuzzer is a good thing to add beside it, not
 //! instead of it, once the Zig cocuyo pins can build one.
 const std = @import("std");
+const limits = @import("../limits.zig");
 const generate_module = @import("fuzz_generate.zig");
 const check_module = @import("fuzz_check.zig");
 
@@ -22,10 +23,9 @@ pub const generate = generate_module.generate;
 pub const strategy_of = generate_module.strategy_of;
 pub const check = check_module.check;
 
-/// How many seeds `zig build test` runs. Every seed builds a message of up to 1232 octets, or up to
-/// 65535 under the long strategy, and runs six checks over it. This is the largest count that
-/// keeps the gate inside a second or two.
-pub const seed_count = 4096;
+/// How many seeds `zig build test` runs: an alias of the limit in `limits.zig`, kept as the path
+/// a consumer reached it by (docs/design.md §17 question 76).
+pub const seed_count = limits.fuzz_seed_count;
 
 /// Runs one seed. Returns the promise that broke, or null when the message held up.
 pub fn run(seed: u64, out: *Message) ?[]const u8 {
@@ -58,7 +58,7 @@ pub fn gate(first: u64, count: u64) ?Failure {
 const testing = std.testing;
 
 test "the fuzz gate holds over every seed it runs" {
-    if (gate(0, seed_count)) |failure| {
+    if (gate(0, limits.fuzz_seed_count)) |failure| {
         std.debug.print(
             "fuzz: seed 0x{x} broke a promise: {s}\n  reproduce with: zig build fuzz -- --seed 0x{x}\n",
             .{ failure.seed, failure.what, failure.seed },
@@ -84,10 +84,10 @@ test "a seed that built a message reaching the parsers is checked, not merely re
 test "a long question of every name length from the shortest long one to 255 octets is written" {
     // Its class lies past octet 255 of the message from a name of 242 octets on, and its type from
     // 244, where check 5's offsets overflowed once (docs/mutations.md, QO1): the seeds reach each.
-    const shortest = @import("../constants.zig").fuzz_question_name_bytes_min;
-    var seen: [core.constants.name_bytes_max - shortest + 1]bool = @splat(false);
+    const shortest = @import("../limits.zig").fuzz_question_name_bytes_min;
+    var seen: [core.limits.name_bytes_max - shortest + 1]bool = @splat(false);
     var message: Message = .{};
-    for (0..seed_count) |seed| {
+    for (0..limits.fuzz_seed_count) |seed| {
         if (strategy_of(seed) != .long_question) continue;
         generate(seed, &message);
         var name: core.Name = core.Name.empty;
@@ -103,12 +103,12 @@ test "a long question's answer is owned through a pointer to it, at 255 octets w
     // octets or less" (§2.3.4). The record walk's skip measures the owner through its pointer.
     var reached: [2]bool = @splat(false);
     var message: Message = .{};
-    for (0..seed_count) |seed| {
+    for (0..limits.fuzz_seed_count) |seed| {
         if (strategy_of(seed) != .long_question) continue;
         generate(seed, &message);
         const whole = try long_owner_whole(message.slice());
-        if (whole == core.constants.name_bytes_max) reached[0] = true;
-        if (whole == core.constants.name_bytes_max + 1) reached[1] = true;
+        if (whole == core.limits.name_bytes_max) reached[0] = true;
+        if (whole == core.limits.name_bytes_max + 1) reached[1] = true;
     }
     for (reached) |was| try testing.expect(was);
 }
@@ -120,7 +120,7 @@ fn long_owner_whole(bytes: []const u8) !usize {
     var name: core.Name = core.Name.empty;
     const question = try question_codec.parse(bytes, &name);
     var pointer_at = question.end;
-    for (0..core.constants.labels_max) |_| {
+    for (0..core.limits.labels_max) |_| {
         if (bytes[pointer_at] & constants.label_kind_mask == constants.label_kind_pointer) break;
         pointer_at += 1 + bytes[pointer_at];
     }
@@ -128,7 +128,7 @@ fn long_owner_whole(bytes: []const u8) !usize {
     try testing.expectEqual(pointer, integer.read_u16(bytes, pointer_at));
     const whole = pointer_at - question.end + name.len;
     var owner: core.Name = core.Name.empty;
-    if (whole > core.constants.name_bytes_max) {
+    if (whole > core.limits.name_bytes_max) {
         try testing.expectError(error.NameTooLong, name_codec.skip(bytes, question.end));
         try testing.expectError(error.NameTooLong, name_codec.decode(bytes, question.end, &owner));
     } else {
@@ -157,7 +157,7 @@ test "a pointer maze aims its pointers anywhere in the message, past offset 255 
     var message: Message = .{};
     var mazes: usize = 0;
     var far: usize = 0;
-    for (0..seed_count) |seed| {
+    for (0..limits.fuzz_seed_count) |seed| {
         if (strategy_of(seed) != .pointer_maze) continue;
         generate(seed, &message);
         const farthest = farthest_target(&message);
@@ -175,11 +175,11 @@ test "a long message of 65535 octets is written, and its last answer is owned th
     const constants = @import("../constants.zig");
     var message: Message = .{};
     var longest: usize = 0;
-    for (0..seed_count) |seed| {
+    for (0..limits.fuzz_seed_count) |seed| {
         if (strategy_of(seed) != .long_message) continue;
         generate(seed, &message);
         const bytes = message.slice();
-        if (bytes.len == core.constants.message_bytes_max) longest += 1;
+        if (bytes.len == core.limits.message_bytes_max) longest += 1;
         var name: core.Name = core.Name.empty;
         const question = try question_codec.parse(bytes, &name);
         var walk = record_codec.Iterator.init(bytes, question.end, constants.fuzz_long_answers);
@@ -271,7 +271,7 @@ const Met = struct {
         }
         try testing.expectEqual(opt.rdata.len, options.offset);
         const found = edns.find_cookie(opt.rdata);
-        if (length > core.constants.cookie_client_bytes + core.constants.cookie_server_bytes_max) {
+        if (length > core.constants.cookie_client_bytes + core.limits.cookie_server_bytes_max) {
             try testing.expectError(error.MalformedMessage, found);
         } else {
             try testing.expectEqual(length - core.constants.cookie_client_bytes, (try found).?.server.len);
@@ -313,7 +313,7 @@ fn option_refused(bytes: []const u8) bool {
 }
 
 /// The answer's rdata as the copy writes it out, its names decompressed (RFC 3597 §4).
-fn copied(bytes: []const u8, out: *[core.constants.rdata_bytes_max]u8) ?[]const u8 {
+fn copied(bytes: []const u8, out: *[core.limits.rdata_bytes_max]u8) ?[]const u8 {
     const record = (first_answer(bytes) catch return null) orelse return null;
     const written = (record_copy.copy_out(bytes, &record, out) catch return null) orelse return null;
     return out[0..written];
@@ -321,7 +321,7 @@ fn copied(bytes: []const u8, out: *[core.constants.rdata_bytes_max]u8) ?[]const 
 
 /// The SVCB reads, and its parameter walk refuses the parameter whose length runs past it.
 fn param_refused(bytes: []const u8) bool {
-    var out: [core.constants.rdata_bytes_max]u8 = undefined;
+    var out: [core.limits.rdata_bytes_max]u8 = undefined;
     const stored = copied(bytes, &out) orelse return false;
     const svcb = rdata.Svcb.parse(stored) catch return false;
     var params = svcb.params();
@@ -331,7 +331,7 @@ fn param_refused(bytes: []const u8) bool {
 
 /// Whether the reader of a one-octet length reads the field at 255, or the label at 63, whole.
 fn read_at_most(most: Most, bytes: []const u8, at: usize) bool {
-    var out: [core.constants.rdata_bytes_max]u8 = undefined;
+    var out: [core.limits.rdata_bytes_max]u8 = undefined;
     return switch (most) {
         .string_length => txt_reads_longest(copied(bytes, &out) orelse return false),
         .tag_length => caa_reads_longest(copied(bytes, &out) orelse return false),
@@ -379,7 +379,7 @@ test "every length field at its most reaches the reader it shares, within the ga
     // label, and each COOKIE length, each met by its reader as a lookup would meet it.
     var met: Met = .{};
     var message: Message = .{};
-    for (0..seed_count) |seed| {
+    for (0..limits.fuzz_seed_count) |seed| {
         if (strategy_of(seed) != .lengths_at_most) continue;
         generate(seed, &message);
         try met.note(&message);

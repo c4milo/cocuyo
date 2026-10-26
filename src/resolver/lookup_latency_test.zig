@@ -18,8 +18,8 @@ const servers = fixtures.servers_two;
 const seed = fixtures.seed;
 
 /// A millisecond and a second, in nanoseconds.
-const millisecond = 1_000_000;
-const second = 1_000_000_000;
+const millisecond: u64 = 1_000_000;
+const second: u64 = 1_000_000_000;
 
 /// Starts a lookup on `harness`, sends its query over UDP, answers it `latency_ns` later from the
 /// first server, and returns the wait the send armed.
@@ -58,7 +58,7 @@ test "a measured server's wait doubles per pass, up to the cap" {
     var harness: fixtures.Harness = .{ .config = .{
         .servers = &fixtures.servers_one,
         .attempts = 3,
-        .timeout_ns_max = core.constants.timeout_ns_max,
+        .timeout_ns_max = core.limits.timeout_ns_max,
     } };
     for (0..3) |_| _ = try answered_after(&harness, 300 * millisecond);
     try harness.start("example.com.", .a, seed);
@@ -74,7 +74,7 @@ test "a measured server's wait doubles per pass, up to the cap" {
     // it would wait 8.4 seconds doubled twice, 33.6, past the 30-second cap.
     harness.now_ns = harness.lookup.deadline_ns - 1;
     _ = harness.send();
-    try testing.expectEqual(core.constants.timeout_ns_max, harness.lookup.deadline_ns - harness.now_ns);
+    try testing.expectEqual(core.limits.timeout_ns_max, harness.lookup.deadline_ns - harness.now_ns);
 }
 
 test "a response the lookup ignores takes no sample, matched or not" {
@@ -336,9 +336,9 @@ test "a connection that failed and a lookup cancelled take no sample" {
 }
 
 /// A server that has slowed past the floor's wait: it answers each query 600 ms after it went.
-const slowed_ns = 600_000_000;
+const slowed_ns: u64 = 600_000_000;
 /// A server that never answers.
-const never_ns = std.math.maxInt(u64);
+const never_ns: u64 = std.math.maxInt(u64);
 
 /// How one lookup of `run_lookup` went.
 const Run = struct {

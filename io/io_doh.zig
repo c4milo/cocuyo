@@ -6,6 +6,7 @@
 pub const template = @import("io_doh_template.zig");
 pub const response = @import("io_doh_response.zig");
 pub const constants = @import("io_doh_constants.zig");
+pub const limits = @import("io_doh_limits.zig");
 /// A query read back out of a GET's path, which the test servers do (`io_doh_query.zig`).
 pub const query = @import("io_doh_query.zig");
 
@@ -13,5 +14,6 @@ test {
     _ = template;
     _ = response;
     _ = constants;
+    _ = limits;
     _ = query;
 }

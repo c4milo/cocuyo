@@ -17,6 +17,7 @@ const tls = @import("tls");
 const doh = @import("doh");
 const hooks = @import("chapulin_hooks");
 pub const constants = @import("io_doh_channel_constants.zig");
+pub const limits = @import("io_doh_channel_limits.zig");
 const exchange_module = @import("io_doh_channel_exchange.zig");
 const start_module = @import("io_doh_channel_start.zig");
 const read_module = @import("io_doh_channel_read.zig");
@@ -42,7 +43,7 @@ pub fn Channel(comptime options: Options) type {
 
         pub const enabled = true;
         pub const Link = read_module.Link;
-        pub const output_bytes_max = constants.output_bytes_max;
+        pub const output_bytes_max = limits.output_bytes_max;
         pub const Error = error{Failed};
         pub const Context = start_module.Context;
         pub const Ticket = tls.Ticket;
@@ -60,11 +61,11 @@ pub fn Channel(comptime options: Options) type {
         pub const Connected = struct { protocol: client.Protocol, resumed: bool, offered: bool };
 
         channel: client.Channel = undefined,
-        pool: client.ReceivePool(constants.receive_bytes) = undefined,
+        pool: client.ReceivePool(limits.receive_bytes) = undefined,
         /// What the channel starts from, which colibri reads through a pointer into it. The channel
         /// builds the TLS configuration of each transport from it, in its own storage.
         channel_config: client.Config = undefined,
-        hostname: [cocuyo.constants.name_text_bytes_max]u8 = undefined,
+        hostname: [cocuyo.limits.name_text_bytes_max]u8 = undefined,
         addresses: [1]client.Address = undefined,
         context: *Context = undefined,
         /// The template's path, which each request's GET expands; the engine's configuration holds it.
@@ -72,10 +73,10 @@ pub fn Channel(comptime options: Options) type {
         exchanges: [options.answers]exchange_module.Exchange = @splat(.{}),
         /// What a link read and the channel has not taken: one datagram, from where the QUIC link
         /// went, and the stream's octets. A stream that ran past its buffer owes the TCP link's close.
-        inbound: [constants.datagram_bytes]u8 = undefined,
+        inbound: [limits.datagram_bytes]u8 = undefined,
         inbound_len: usize = 0,
         quic_to: client.Address = .{},
-        stream: [constants.stream_bytes]u8 = undefined,
+        stream: [limits.stream_bytes]u8 = undefined,
         stream_len: usize = 0,
         stream_overrun: bool = false,
         /// The ticket each link's connection resumes with: a copy, which `wipe` and the link's end zero.
@@ -149,6 +150,7 @@ pub fn Channel(comptime options: Options) type {
 
 test {
     _ = constants;
+    _ = limits;
     _ = exchange_module;
     _ = start_module;
     _ = read_module;

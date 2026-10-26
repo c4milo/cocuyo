@@ -44,7 +44,7 @@ const cpu_text = @import("cpu_text.zig");
 
 const Resolver = io.Resolver(.{
     .lookups = at_once_max + 1,
-    .tcp_connections = cocuyo.constants.servers_max,
+    .tcp_connections = cocuyo.limits.servers_max,
     .tls = chapulin.Session,
 });
 
@@ -83,7 +83,7 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(2);
     }
     const at = try server_text.place_of(arguments[1]);
-    var pins: [cocuyo.constants.spki_pins_max]cocuyo.Pin = undefined;
+    var pins: [cocuyo.limits.spki_pins_max]cocuyo.Pin = undefined;
     var tls = try known_by(arguments[2], &pins);
     if (at.port) |port| tls.port = port;
     const servers = [_]cocuyo.Server{.{ .endpoint = .{ .address = at.address }, .tls = tls }};
@@ -219,7 +219,7 @@ fn report(name: []const u8, result: Resolver.Result) !void {
 /// How a server is known, from its argument: by its name, or by its key alone, RFC 8310 §6.3's
 /// "SPKI + IP", as `pin-sha256:<base64>[,<base64>...]`, each pin the base64 of the SHA-256 of a
 /// SubjectPublicKeyInfo (RFC 7858 §4.2), which chapulin matches against the leaf's key.
-fn known_by(text: []const u8, pins: *[cocuyo.constants.spki_pins_max]cocuyo.Pin) !cocuyo.Tls {
+fn known_by(text: []const u8, pins: *[cocuyo.limits.spki_pins_max]cocuyo.Pin) !cocuyo.Tls {
     const prefix = "pin-sha256:";
     if (!std.mem.startsWith(u8, text, prefix)) return .{ .name = try cocuyo.Name.from_text(text) };
     var each = std.mem.splitScalar(u8, text[prefix.len..], ',');

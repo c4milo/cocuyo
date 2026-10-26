@@ -1,11 +1,13 @@
-//! Every limit cocuyo holds, each with the reason it is that number (CLAUDE.md non-negotiable 5).
-//! A limit is named here and never written at the use site, so a change to one reads as a diff
-//! that changes a constant. docs/design.md §12 is the same table in prose.
+//! Every protocol size, protocol value and default cocuyo names, each with the reason it is that
+//! number (CLAUDE.md non-negotiable 5). A number is named here and never written at the use site,
+//! so a change to one reads as a diff that changes a constant. The limits are in `limits.zig`
+//! (docs/design.md §16 decision 56), and docs/design.md §12 is the same table in prose.
 //!
 //! Durations are spelled out in nanoseconds rather than built from `std.time.ns_per_s`, because
 //! nothing under `src/` may name a clock (non-negotiable 4) and `std.time` is flagged whole. The
 //! arithmetic is in each doc comment.
 const std = @import("std");
+const limits = @import("limits.zig");
 
 /// The DNS header: id, flags, and four section counts, two octets each (RFC 1035 §4.1.1).
 pub const header_bytes: usize = 12;
@@ -17,24 +19,12 @@ pub const question_fixed_bytes: usize = 4;
 /// A record's fixed part after the owner name: type, class, TTL and rdlength (RFC 1035 §4.1.3).
 pub const record_fixed_bytes: usize = 10;
 
-/// The largest message that can be framed: the TCP length prefix is two octets (RFC 7766 §8).
-pub const message_bytes_max: usize = 65535;
-
 /// The TCP length prefix itself, which precedes every message on a stream (RFC 7766 §8).
 pub const tcp_prefix_bytes: usize = 2;
 
 /// The UDP payload size cocuyo advertises in OPT by default. 1232 is the widely recommended value
 /// that keeps a response inside the smallest IPv6 MTU without fragmenting; recalled, not measured.
 pub const udp_payload_bytes_default: usize = 1232;
-
-/// The smallest payload size a requestor may advertise: 512 is the pre-EDNS0 limit every server
-/// already honours (RFC 6891 §6.2.3).
-pub const udp_payload_bytes_min: usize = 512;
-
-/// The largest query cocuyo builds: the header, a maximal qname, qtype and qclass, an OPT record
-/// carrying the largest COOKIE option and a Padding option, padded to a whole block, and the TCP
-/// length prefix. 12 + 255 + 4 + 55 + 4 is 330, padded to 384, and 2 more (docs/design.md §21).
-pub const query_bytes_max: usize = 386;
 
 /// A query to a TLS server is padded to a multiple of this many octets: "Clients SHOULD pad
 /// queries to the closest multiple of 128 octets" (RFC 8467 §4.1).
@@ -47,82 +37,8 @@ pub const opt_option_header_bytes: usize = 4;
 /// 1 + 2 + 2 + 4 + 2 (RFC 6891 §6.1.2).
 pub const opt_record_bytes: usize = 11;
 
-/// The OPT record with a COOKIE at its longest (RFC 7873 §4), before any padding: the fixed
-/// part, the option's code and length, a client cookie and a 32-octet server cookie.
-pub const opt_record_bytes_max: usize = opt_record_bytes + cookie_option_bytes_max;
-
-/// A COOKIE option at its longest: a 4-octet option header, then 8 + 32 octets of cookie.
-pub const cookie_option_bytes_max: usize = opt_option_header_bytes + cookie_client_bytes + cookie_server_bytes_max;
-
-/// The client cookie is fixed at eight octets; the server's is eight to thirty-two
-/// (RFC 7873 §4).
+/// The client cookie is fixed at eight octets (RFC 7873 §4).
 pub const cookie_client_bytes: usize = 8;
-pub const cookie_server_bytes_min: usize = 8;
-pub const cookie_server_bytes_max: usize = 32;
-
-/// A name in wire form, counting every length octet and the root (RFC 1035 §2.3.4).
-pub const name_bytes_max: usize = 255;
-
-/// One label (RFC 1035 §2.3.4).
-pub const label_bytes_max: usize = 63;
-
-/// The most labels a name can hold: a name is 255 octets and a label costs at least two of them,
-/// one length octet and one byte.
-pub const labels_max: usize = 128;
-
-/// A name in presentation form, which escapes: four bytes per wire byte at worst, `\255`.
-pub const name_text_bytes_max: usize = 1020;
-
-/// The most compression pointers one name may chase. A legal encoder needs none, every hop must
-/// point strictly backwards, and 16 is slack over any real one (RFC 1035 §4.1.4).
-pub const compression_hops_max: usize = 16;
-
-/// The most CNAMEs one lookup may follow, across messages as well as inside one. Matches the chain
-/// length BIND allows; recalled, not measured.
-pub const cname_hops_max: usize = 8;
-
-/// The most records one message walk reads, whatever the count fields claim. A count is never a
-/// reason to read (non-negotiable 6).
-pub const records_max: usize = 64;
-
-/// The most addresses one lookup keeps. A larger round-robin name sets `Answer.truncated`;
-/// docs/design.md §17.4 records that this number is not measured.
-pub const addresses_max: usize = 16;
-
-/// The most addresses one `AddressLookup` keeps: both families' `addresses_max`, bounded the way
-/// one answer is, with `truncated` past it (docs/design.md §19 step 14). It is also the most the
-/// ordering of step 15 sorts.
-pub const address_lookup_addresses_max: usize = 2 * addresses_max;
-
-/// The most names a reverse lookup keeps. One, because that is what a PTR lookup returns in
-/// practice, and `Answer.truncated` says when more existed (docs/design.md §17.2).
-pub const ptr_names_max: usize = 1;
-
-/// The most records of one type a lookup keeps in its rdata buffer, for every type that is not an
-/// address or a PTR name: half `records_max`, which is what one answer section holds of one type
-/// in practice, with `truncated` set past it (docs/design.md §19 step 9).
-pub const records_kept_max: usize = 32;
-
-/// The rdata buffer of one lookup: one UDP payload of `udp_payload_bytes_default` with room for
-/// the names written out in full on the way in, each of which can grow from a two-octet pointer
-/// to `name_bytes_max`. A TCP answer that does not fit sets `truncated` (docs/design.md §19).
-pub const rdata_bytes_max: usize = 2048;
-
-/// The most servers a configuration may name. glibc's MAXNS is 3; 8 leaves room and still bounds
-/// every loop over the list.
-pub const servers_max: usize = 8;
-
-/// The sources a name is looked up in, the hosts file and DNS, so an order names each at most
-/// once (docs/design.md §19 step 11).
-pub const lookup_sources_max: usize = 2;
-
-/// The hosts table (`hosts.zig`): the most entries kept, the most names on one line (the
-/// official name and its aliases), and the octets of wire names one storage holds, a `u16`
-/// offset each. More lines than a machine that is not a blocklist has; past them, dropped and
-/// said so (docs/design.md §19 step 11).
-pub const hosts_entries_max: usize = 1024;
-pub const hosts_names_per_entry_max: usize = 8;
-pub const hosts_names_bytes_max: usize = 65536;
 
 /// Server failover (docs/design.md §19 step 12): a server that failed to answer is asked last,
 /// and asked first again one query in `failover_retry_chance_default` once
@@ -131,18 +47,8 @@ pub const hosts_names_bytes_max: usize = 65536;
 pub const failover_retry_chance_default: usize = 10;
 pub const failover_retry_delay_ns_default: u64 = 5_000_000_000;
 
-/// The most search-list entries a configuration may name. glibc's MAXDNSRCH; recalled, not
-/// measured.
-pub const search_max: usize = 6;
-
-/// The most candidates one lookup tries: every search entry, plus the name as it was asked.
-pub const candidates_max: usize = search_max + 1;
-
 /// The default number of passes over the server list (`resolv.conf` attempts).
 pub const attempts_default: usize = 2;
-
-/// The most passes a configuration may ask for, which bounds the retry loop.
-pub const attempts_max: usize = 5;
 
 /// The default dot count that decides whether the name or the search list is tried first
 /// (`resolv.conf` ndots).
@@ -159,34 +65,12 @@ pub const timeout_ns_default: u64 = 2_000_000_000;
 /// (docs/design.md §5). 5 * 1_000_000_000.
 pub const timeout_ns_max_default: u64 = 5_000_000_000;
 
-/// The most a configuration's cap on the wait may be: 30 seconds, which is `resolv.conf(5)`'s
-/// cap on `timeout:` too, so any wait a file asks for fits under it. It was the default cap
-/// until 2026-10-09. 30 * 1_000_000_000.
-pub const timeout_ns_max: u64 = 30_000_000_000;
-
-/// The floor under every wait, measured or configured: 250 milliseconds, c-ares's, read from its
-/// features page, not measured. The page gives it as roughly a round trip to the far side of the
-/// world, which leaves an upstream server time to recurse. A configuration's cap below it wins,
-/// since the cap is the caller's (docs/design.md §5). 250 * 1_000_000.
-pub const timeout_ns_min: u64 = 250_000_000;
-
 /// The default cap on every TTL a cache keeps, `Config.cache_ttl_seconds_max`: an hour, which is
 /// c-ares's default (docs/design.md §18), so a consumer replacing it sees the same ceiling.
 /// "Values SHOULD be capped on the order of days to weeks, with a recommended cap of 604,800
 /// seconds (7 days)" (RFC 8767 §4), so an hour is inside it. Here because `Config` and the cache
 /// both read it (§16 decision 37). 60 * 60.
 pub const cache_ttl_seconds_max_default: u32 = 3600;
-
-/// The most `Config.cache_ttl_seconds_max` may be, and the longest cap a cache takes: seven days.
-/// "Values SHOULD be capped on the order of days to weeks, with a recommended cap of 604,800
-/// seconds (7 days)" (RFC 8767 §4), so no configuration keeps an answer longer than the cap the
-/// RFC recommends. The owner's ruling of 2026-10-11 (docs/design.md §16 decision 37).
-/// 7 * 24 * 60 * 60.
-pub const cache_ttl_seconds_max: u32 = 604_800;
-
-/// The IANA Dynamic port range, which the source-port hint is drawn from (RFC 6335 §6).
-pub const port_ephemeral_min: u16 = 49152;
-pub const port_ephemeral_max: u16 = 65535;
 
 /// The port a DNS server listens on (RFC 1035 §4.2.1).
 pub const port_dns_default: u16 = 53;
@@ -197,10 +81,6 @@ pub const port_dns_tls_default: u16 = 853;
 
 /// An SPKI pin is the SHA-256 of a DER SubjectPublicKeyInfo (RFC 7858 §4.2).
 pub const spki_pin_bytes: usize = 32;
-
-/// The pins one TLS server may carry: a primary pin and the backup RFC 7858 §4.2 asks to deploy
-/// with it, each with room to rotate. It is also chapulin's own bound (docs/design.md §21).
-pub const spki_pins_max: usize = 4;
 
 /// An IPv4 address, in octets: the "32 bit Internet address" an A record carries
 /// (RFC 1035 §3.4.1).
@@ -214,15 +94,12 @@ pub const address_v6_bytes: usize = 16;
 /// (its §3.2).
 pub const v4_mapped_prefix = [_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff };
 
-/// An address in text (`address_text.zig`): the dotted quad's octet count (RFC 1035 §3.4.1) and
-/// the decimal digits one octet may hold.
+/// An address in text (`address_text.zig`): the dotted quad's octet count (RFC 1035 §3.4.1).
 pub const address_v4_octets = address_v4_bytes;
-pub const address_v4_octet_digits_max: usize = 3;
 
-/// The groups an IPv6 address holds in text (RFC 4291 §2.2 form 1), the hexadecimal digits one
-/// group may hold, and the octets one group covers.
+/// The groups an IPv6 address holds in text (RFC 4291 §2.2 form 1), and the octets one group
+/// covers.
 pub const address_v6_groups: usize = 8;
-pub const address_v6_group_digits_max: usize = 4;
 pub const address_v6_group_bytes: usize = 2;
 
 /// The groups a trailing dotted quad fills (RFC 4291 §2.2 form 3), and the `::` of a compressed
@@ -244,9 +121,6 @@ comptime {
         @compileError("the IPv6 groups do not cover the address");
     }
 }
-
-/// The most lookup slots one resolver table may hold, which bounds a handle's index.
-pub const lookup_slots_max: usize = 1024;
 
 /// The bit that tells an ASCII letter's cases apart. A case-insensitive comparison clears it
 /// (RFC 4343) and DNS-0x20 sets it at random (docs/design.md §7), which is the same bit twice.
@@ -289,12 +163,6 @@ pub const v6_multicast_scope_mask: u8 = 0x0f;
 pub const v4_link_local_prefix = [_]u8{ 169, 254 };
 pub const v4_loopback_first_octet: u8 = 127;
 
-/// The most bits `CommonPrefixLen` counts (RFC 6724 §2.2): up to the source's prefix, which for
-/// IPv6 stops before the interface identifier of RFC 4291 §2.5.1, 64 bits, and for IPv4 is the
-/// whole address.
-pub const common_prefix_bits_v6_max: usize = 64;
-pub const common_prefix_bits_v4_max: usize = 32;
-
 /// One row of RFC 6724 §2.1's default policy table: a prefix written in full, its length in
 /// bits, and the precedence and label a longest-prefix match hands back.
 pub const PolicyRow = struct { prefix: [address_v6_bytes]u8, bits: u8, precedence: u8, label: u8 };
@@ -320,20 +188,62 @@ pub const bits_per_octet: usize = 8;
 comptime {
     // The query bound must hold every part it is the sum of, or a maximal query would not fit the
     // buffer the caller is asked to provide.
-    const unpadded = header_bytes + name_bytes_max + question_fixed_bytes + opt_record_bytes_max +
+    const unpadded = header_bytes + limits.name_bytes_max + question_fixed_bytes + limits.opt_record_bytes_max +
         opt_option_header_bytes;
     const blocks = (unpadded + padding_block_bytes - 1) / padding_block_bytes;
     const parts = blocks * padding_block_bytes + tcp_prefix_bytes;
-    if (query_bytes_max != parts) @compileError("query_bytes_max is not the sum of its parts");
-    if (name_text_bytes_max != name_bytes_max * 4) @compileError("the escape bound is wrong");
-    if (udp_payload_bytes_default < udp_payload_bytes_min) @compileError("payload below the floor");
+    if (limits.query_bytes_max != parts) @compileError("query_bytes_max is not the sum of its parts");
+    if (limits.name_text_bytes_max != limits.name_bytes_max * 4) @compileError("the escape bound is wrong");
+    if (udp_payload_bytes_default < limits.udp_payload_bytes_min) @compileError("payload below the floor");
     if (timeout_ns_default > timeout_ns_max_default) @compileError("the default timeout exceeds the cap");
-    if (timeout_ns_max_default > timeout_ns_max) @compileError("the default cap exceeds the most");
-    if (timeout_ns_min > timeout_ns_default) @compileError("the floor is above the default wait");
+    if (timeout_ns_max_default > limits.timeout_ns_max) @compileError("the default cap exceeds the most");
+    if (limits.timeout_ns_min > timeout_ns_default) @compileError("the floor is above the default wait");
     if (cache_ttl_seconds_max_default < 1) @compileError("the default TTL cap caches nothing");
-    if (cache_ttl_seconds_max_default > cache_ttl_seconds_max) @compileError("the default TTL cap exceeds the most");
-    if (port_ephemeral_min >= port_ephemeral_max) @compileError("the port range is empty");
+    if (cache_ttl_seconds_max_default > limits.cache_ttl_seconds_max) @compileError("the default TTL cap exceeds the most");
+    if (limits.port_ephemeral_min >= limits.port_ephemeral_max) @compileError("the port range is empty");
 }
+
+// The paths a consumer reached these limits by before they moved into the limits file. Each
+// is an alias, and no limit of its own. They stay until the owner rules on them (docs/design.md
+// §16 decision 56, §17 question 76).
+pub const message_bytes_max = limits.message_bytes_max;
+pub const udp_payload_bytes_min = limits.udp_payload_bytes_min;
+pub const query_bytes_max = limits.query_bytes_max;
+pub const opt_record_bytes_max = limits.opt_record_bytes_max;
+pub const cookie_option_bytes_max = limits.cookie_option_bytes_max;
+pub const cookie_server_bytes_min = limits.cookie_server_bytes_min;
+pub const cookie_server_bytes_max = limits.cookie_server_bytes_max;
+pub const name_bytes_max = limits.name_bytes_max;
+pub const label_bytes_max = limits.label_bytes_max;
+pub const labels_max = limits.labels_max;
+pub const name_text_bytes_max = limits.name_text_bytes_max;
+pub const compression_hops_max = limits.compression_hops_max;
+pub const cname_hops_max = limits.cname_hops_max;
+pub const records_max = limits.records_max;
+pub const addresses_max = limits.addresses_max;
+pub const address_lookup_addresses_max = limits.address_lookup_addresses_max;
+pub const ptr_names_max = limits.ptr_names_max;
+pub const records_kept_max = limits.records_kept_max;
+pub const rdata_bytes_max = limits.rdata_bytes_max;
+pub const servers_max = limits.servers_max;
+pub const lookup_sources_max = limits.lookup_sources_max;
+pub const hosts_entries_max = limits.hosts_entries_max;
+pub const hosts_names_per_entry_max = limits.hosts_names_per_entry_max;
+pub const hosts_names_bytes_max = limits.hosts_names_bytes_max;
+pub const search_max = limits.search_max;
+pub const candidates_max = limits.candidates_max;
+pub const attempts_max = limits.attempts_max;
+pub const timeout_ns_max = limits.timeout_ns_max;
+pub const timeout_ns_min = limits.timeout_ns_min;
+pub const cache_ttl_seconds_max = limits.cache_ttl_seconds_max;
+pub const port_ephemeral_min = limits.port_ephemeral_min;
+pub const port_ephemeral_max = limits.port_ephemeral_max;
+pub const spki_pins_max = limits.spki_pins_max;
+pub const address_v4_octet_digits_max = limits.address_v4_octet_digits_max;
+pub const address_v6_group_digits_max = limits.address_v6_group_digits_max;
+pub const lookup_slots_max = limits.lookup_slots_max;
+pub const common_prefix_bits_v6_max = limits.common_prefix_bits_v6_max;
+pub const common_prefix_bits_v4_max = limits.common_prefix_bits_v4_max;
 
 // A constant with no type is a `comptime_int`, which takes the type of a narrow runtime value it
 // meets in a sum. The lint rule reads the shape of each value, and this reads the type, so an

@@ -15,6 +15,7 @@
 //! A check returns the name of the promise that broke rather than panicking, so the caller can
 //! print the seed that produced it.
 const std = @import("std");
+const limits = @import("../limits.zig");
 const core = @import("core");
 const Name = core.Name;
 const header_codec = @import("../header.zig");
@@ -26,10 +27,6 @@ const record_copy = @import("../record_copy.zig");
 const response_opt = @import("../response_opt.zig");
 const edns = @import("../edns.zig");
 const rdata = @import("../rdata/rdata.zig");
-
-/// How many offsets of one message the name decoder is aimed at. Every offset would be thorough
-/// and slow; thirty-two spread across the message reaches every structure the generator builds.
-const decode_offsets_max = 32;
 
 /// The question the response walk is run against, the same for every message: what matters is the
 /// walk's behaviour on hostile bytes, not which name it was asked about.
@@ -53,15 +50,15 @@ fn header_check(message: []const u8) ?[]const u8 {
     // The rcode either names a code or does not; either way it must not crash, and the four bits
     // must be four bits.
     _ = header.rcode() catch {};
-    if (header.rcode_bits() > core.constants.records_max) return "the rcode bits exceeded four bits";
+    if (header.rcode_bits() > core.limits.records_max) return "the rcode bits exceeded four bits";
     return null;
 }
 
 fn name_sweep(message: []const u8) ?[]const u8 {
-    const step = @max(1, message.len / decode_offsets_max);
+    const step = @max(1, message.len / limits.fuzz_decode_offsets_max);
     var offset: usize = 0;
     var swept: usize = 0;
-    while (swept <= decode_offsets_max and offset < message.len) : (offset += step) {
+    while (swept <= limits.fuzz_decode_offsets_max and offset < message.len) : (offset += step) {
         swept += 1;
         if (name_at(message, offset)) |failure| return failure;
     }
@@ -75,7 +72,7 @@ fn name_at(message: []const u8, offset: usize) ?[]const u8 {
     // (docs/design.md §8, Record walking).
     if (!agree(decoded, name_codec.skip(message, offset))) return "skip and decode disagreed on a name";
     const end = decoded catch return null;
-    if (first.len < 1 or first.len > core.constants.name_bytes_max) return "a decoded name has an impossible length";
+    if (first.len < 1 or first.len > core.limits.name_bytes_max) return "a decoded name has an impossible length";
     if (first.bytes[first.len - 1] != 0) return "a decoded name does not end in the root";
     if (end > message.len) return "a name ended past the end of the message";
     if (end <= offset) return "a name ended at or before where it started";
@@ -101,7 +98,7 @@ fn question_check(message: []const u8) ?[]const u8 {
     const parsed = question_codec.parse(message, &name) catch return null;
     if (parsed.end > message.len) return "a question ended past the end of the message";
     if (parsed.end <= core.constants.header_bytes) return "a question ended inside the header";
-    if (name.len < 1 or name.len > core.constants.name_bytes_max) return "a question name has an impossible length";
+    if (name.len < 1 or name.len > core.limits.name_bytes_max) return "a question name has an impossible length";
     // The question that parsed must match itself, case and all: that is the response check of §7
     // run against the message's own bytes.
     // A type cocuyo does not name is a question it never asks, so there is nothing to match.
@@ -120,7 +117,7 @@ fn question_check(message: []const u8) ?[]const u8 {
 /// (docs/design.md §7, A server that changes the case).
 fn lowercase_echo_check(question: []const u8, name: *const Name, kind: core.Kind) ?[]const u8 {
     const header = core.constants.header_bytes;
-    var echo: [header + core.constants.name_bytes_max + core.constants.question_fixed_bytes]u8 = undefined;
+    var echo: [header + core.limits.name_bytes_max + core.constants.question_fixed_bytes]u8 = undefined;
     // The name matched octet for octet, so no pointer shortened it in the message.
     if (question.len != header + question_codec.section_bytes(name)) {
         return "a question that matched does not end where its name says";
@@ -132,10 +129,6 @@ fn lowercase_echo_check(question: []const u8, name: *const Name, kind: core.Kind
     }
     return null;
 }
-
-/// The octets a question of the longest name occupies, with the header before it.
-const question_message_bytes_max = core.constants.header_bytes + core.constants.name_bytes_max +
-    core.constants.question_fixed_bytes;
 
 /// Check 5 for a query that mixed the case, read in place, against the name it would build: with
 /// the question parsed as the name held and a seed the header gives, `matches_mixed` says what
@@ -150,7 +143,7 @@ fn mixed_check(message: []const u8, name: *const Name, kind: core.Kind) ?[]const
     if (in_place != question_codec.matches(message, &cased, kind)) {
         return "check 5 read in place disagreed with the name it builds";
     }
-    var sent: [question_message_bytes_max]u8 = undefined;
+    var sent: [limits.fuzz_question_message_bytes_max]u8 = undefined;
     @memcpy(sent[0..core.constants.header_bytes], message[0..core.constants.header_bytes]);
     const written = question_codec.write(&cased, kind, sent[core.constants.header_bytes..]);
     const query = sent[0 .. core.constants.header_bytes + written];
@@ -167,7 +160,7 @@ fn record_sweep(message: []const u8) ?[]const u8 {
     var walk = record_codec.Iterator.init(message, parsed.end, header.ancount);
     var previous = parsed.end;
     while (walk.next() catch return null) |record| {
-        if (walk.walked > core.constants.records_max) return "the walk read more records than the bound";
+        if (walk.walked > core.limits.records_max) return "the walk read more records than the bound";
         if (walked_check(message, &record, previous)) |failure| return failure;
         previous = record.end;
     }
@@ -200,7 +193,7 @@ fn opt_check(message: []const u8) ?[]const u8 {
     }
     const cookie = (edns.find_cookie(opt.rdata) catch return null) orelse return null;
     const server = cookie.server.len;
-    if (server != 0 and (server < core.constants.cookie_server_bytes_min or server > core.constants.cookie_server_bytes_max)) {
+    if (server != 0 and (server < core.limits.cookie_server_bytes_min or server > core.limits.cookie_server_bytes_max)) {
         return "a server cookie has a length neither form of the option allows";
     }
     return null;
@@ -220,7 +213,7 @@ fn rdata_check(message: []const u8, record: *const record_codec.Record) ?[]const
     if (!record.is_kind(.cname) and !record.is_kind(.ptr)) return null;
     var target: Name = Name.empty;
     record.rdata_name(message, &target) catch return null;
-    if (target.len < 1 or target.len > core.constants.name_bytes_max) return "an rdata name has an impossible length";
+    if (target.len < 1 or target.len > core.limits.name_bytes_max) return "an rdata name has an impossible length";
     return null;
 }
 
@@ -229,7 +222,7 @@ fn rdata_check(message: []const u8, record: *const record_codec.Record) ?[]const
 /// has no `rest` must read back through its view, because the two walk the same segments. The
 /// copy takes a `rest` as it is, so a view may refuse it, as long as it refuses within the rdata.
 fn copy_check(message: []const u8, record: *const record_codec.Record) ?[]const u8 {
-    var out: [core.constants.rdata_bytes_max]u8 = undefined;
+    var out: [core.limits.rdata_bytes_max]u8 = undefined;
     const written = (record_copy.copy_out(message, record, &out) catch return null) orelse return null;
     if (written > out.len) return "the copy wrote past its buffer";
     const kind = core.Kind.from_code(record.kind_code) orelse return null;
@@ -299,7 +292,7 @@ pub fn check_whole(message: []const u8) ?[]const u8 {
         _ = record.address() catch return "a whole address did not read";
         return null;
     }
-    var out: [core.constants.rdata_bytes_max]u8 = undefined;
+    var out: [core.limits.rdata_bytes_max]u8 = undefined;
     const copied = record_copy.copy_out(message, &record, &out) catch return "the copy refused a whole record";
     const written = copied orelse return "a whole record did not fit the copy";
     const read = reads_back(kind, out[0..written]) orelse return null;
@@ -318,9 +311,9 @@ fn records_check(message: []const u8, kind: core.Kind) ?[]const u8 {
     var chain = Name.from_text(question_text) catch unreachable;
     var collected: response_codec.Answers = undefined;
     const outcome = response_codec.collect(message, &chain, kind, 0, &collected) catch return null;
-    if (collected.count > core.constants.records_kept_max) return "more records were kept than there is room for";
+    if (collected.count > core.limits.records_kept_max) return "more records were kept than there is room for";
     if ((outcome == .answered) != (collected.count > 0)) return "an answer and a count disagree";
-    if (collected.records().used > core.constants.rdata_bytes_max) return "the rdata buffer overflowed";
+    if (collected.records().used > core.limits.rdata_bytes_max) return "the rdata buffer overflowed";
     var index: usize = 0;
     while (index < collected.count) : (index += 1) {
         if (kept_check(&collected, index, kind)) |failure| return failure;
@@ -344,7 +337,7 @@ fn response_check(message: []const u8) ?[]const u8 {
     var chain = Name.from_text(question_text) catch unreachable;
     var collected: response_codec.Answers = response_codec.Answers.init(.a);
     const outcome = response_codec.collect(message, &chain, .a, 0, &collected) catch return null;
-    if (collected.count > core.constants.addresses_max) return "more addresses were collected than there is room for";
+    if (collected.count > core.limits.addresses_max) return "more addresses were collected than there is room for";
     if (outcome == .answered and collected.count == 0) return "an answer was reported with nothing collected";
     if (outcome != .answered and collected.count != 0) return "records were collected without an answer";
     if (chain.len < 1) return "the chain name is not a name";

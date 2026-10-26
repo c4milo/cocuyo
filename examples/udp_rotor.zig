@@ -113,7 +113,7 @@ const Driver = struct {
     sending: bool = false,
 
     fn run(self: *Driver, lookup: *cocuyo.Lookup, name: []const u8) !void {
-        var query: [cocuyo.constants.query_bytes_max]u8 = undefined;
+        var query: [cocuyo.limits.query_bytes_max]u8 = undefined;
         var events: [events_max]rotor.Event = undefined;
         while (true) {
             const wait_ns = switch (lookup.poll(self.clock.read(), &query)) {
@@ -253,7 +253,7 @@ fn endpoint_of(address: rotor.Address) cocuyo.Endpoint {
 }
 
 fn report(name: []const u8, answer: cocuyo.Answer) void {
-    var text: [cocuyo.constants.name_text_bytes_max]u8 = undefined;
+    var text: [cocuyo.limits.name_text_bytes_max]u8 = undefined;
     if (answer.canonical_name) |canonical| {
         std.debug.print("{s} is {s}\n", .{ name, text[0..canonical.write_text(&text)] });
     }

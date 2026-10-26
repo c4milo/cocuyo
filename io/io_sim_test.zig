@@ -203,7 +203,7 @@ test "a lookup of a name of 255 octets is answered through the loop, over UDP an
         var rig: Rig = .{};
         try rig.init(fixtures.longest_name_seed + case, .{ script, .{ .down = true } }, .{ .servers = &.{} });
         const text_question = question(fixtures.longest_name_text);
-        try testing.expectEqual(@as(usize, cocuyo.constants.name_bytes_max), text_question.name.len);
+        try testing.expectEqual(@as(usize, cocuyo.limits.name_bytes_max), text_question.name.len);
         _ = try rig.engine.start(text_question, rig.loop.now());
         const result = try rig.until_result();
         try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);

@@ -30,7 +30,7 @@ pub fn begin(self: *AddressLookup) error{NoSlot}!void {
 /// Tries the sources from `source_index` on, and ends the walk with nothing when they run out.
 fn next_source(self: *AddressLookup) error{NoSlot}!void {
     const sources = self.resolver.config.lookups;
-    assert(sources.len <= core.constants.lookup_sources_max);
+    assert(sources.len <= core.limits.lookup_sources_max);
     for (sources[self.source_index..]) |source| {
         self.source_index += 1;
         const found = switch (source) {
@@ -46,7 +46,7 @@ fn next_source(self: *AddressLookup) error{NoSlot}!void {
 /// widens that to both, the way it does on the wire.
 fn consult_file(self: *AddressLookup) bool {
     const hosts = self.hosts orelse return false;
-    var found: [core.constants.address_lookup_addresses_max]Address = undefined;
+    var found: [core.limits.address_lookup_addresses_max]Address = undefined;
     const count = hosts.find(&self.question.name, if (mapping(self)) null else self.family, &found);
     if (count == 0) return false;
     for (found[0..count]) |address| keep(self, address);
@@ -72,7 +72,7 @@ fn start_dns(self: *AddressLookup) error{NoSlot}!bool {
 /// Starts the lookups of the candidate at `candidate_index`, or of the next one that can be
 /// encoded; false when the candidates are exhausted.
 fn start_candidate(self: *AddressLookup) error{NoSlot}!bool {
-    while (self.candidate_index <= core.constants.candidates_max) : (self.candidate_index += 1) {
+    while (self.candidate_index <= core.limits.candidates_max) : (self.candidate_index += 1) {
         switch (policy.candidate(self.resolver.config, &self.question, self.candidate_index)) {
             .name => |name| {
                 try start_pair(self, &name);
@@ -283,7 +283,7 @@ fn keep(self: *AddressLookup, address: Address) void {
 /// applied: under `v4_mapped`, an IPv4 address comes mapped, and only when no IPv6 came or `all`
 /// asks for both.
 fn select_families(self: *AddressLookup) void {
-    var found: [core.constants.address_lookup_addresses_max]Address = undefined;
+    var found: [core.limits.address_lookup_addresses_max]Address = undefined;
     const count = self.address_count;
     @memcpy(found[0..count], self.addresses[0..count]);
     self.address_count = 0;
@@ -321,8 +321,8 @@ const lookup_test = @import("address_lookup_test.zig");
 /// One more A record than a lookup keeps, each with an address of its own.
 const records_past_bound = records: {
     const one = fixtures.record_a;
-    var bytes: [(core.constants.addresses_max + 1) * one.len]u8 = undefined;
-    for (0..core.constants.addresses_max + 1) |index| {
+    var bytes: [(core.limits.addresses_max + 1) * one.len]u8 = undefined;
+    for (0..core.limits.addresses_max + 1) |index| {
         bytes[index * one.len ..][0..one.len].* = one;
         bytes[(index + 1) * one.len - 1] = index + 1;
     }
@@ -337,10 +337,10 @@ test "a lookup that kept part of its answer makes the walk's answer say so too" 
     try rig.open();
     try rig.start(null, "many.example.", .ipv4, .{});
     try rig.drive();
-    try rig.reply(rig.lookup.a.handle, .{ .records = &records_past_bound, .ancount = core.constants.addresses_max + 1 });
+    try rig.reply(rig.lookup.a.handle, .{ .records = &records_past_bound, .ancount = core.limits.addresses_max + 1 });
     try rig.drive();
     const info = rig.lookup.outcome().?.answered;
-    try testing.expectEqual(@as(usize, core.constants.addresses_max), info.addresses.len);
+    try testing.expectEqual(@as(usize, core.limits.addresses_max), info.addresses.len);
     try testing.expect(info.truncated);
 }
 

@@ -22,6 +22,7 @@ const Endpoint = core.Endpoint;
 const Server = core.Server;
 const Name = core.Name;
 pub const constants = @import("constants.zig");
+pub const limits = @import("limits.zig");
 pub const options = @import("resolv_conf_options.zig");
 pub const hosts = @import("hosts.zig");
 pub const spki_pin = @import("spki_pin.zig");
@@ -31,10 +32,10 @@ pub const fuzz = @import("fuzz/fuzz.zig");
 /// The memory a parse fills. The `Config` it returns holds slices into this, so it must outlive
 /// every lookup that reads it. cocuyo allocates nothing.
 pub const Storage = struct {
-    servers: [core.constants.servers_max]Server = @splat(.{ .endpoint = .{
+    servers: [core.limits.servers_max]Server = @splat(.{ .endpoint = .{
         .address = .{ .family = .ipv4, .octets = @splat(0) },
     } }),
-    search: [core.constants.search_max]Name = @splat(Name.root),
+    search: [core.limits.search_max]Name = @splat(Name.root),
 };
 
 /// What a parse may be told beyond the bytes.
@@ -56,11 +57,11 @@ pub fn parse_with(bytes: []const u8, storage: *Storage, parse_options: ParseOpti
     var builder: Builder = .{ .storage = storage };
     var lines = std.mem.splitScalar(u8, bytes, '\n');
     var read: usize = 0;
-    while (read < constants.lines_max) : (read += 1) {
+    while (read < limits.lines_max) : (read += 1) {
         const line = lines.next() orelse break;
         builder.line(line);
     }
-    assert(read <= constants.lines_max);
+    assert(read <= limits.lines_max);
     return builder.finish(parse_options);
 }
 
@@ -78,7 +79,7 @@ pub fn apply_options(text: []const u8, config: *Config) void {
 pub fn apply_search(text: []const u8, storage: *Storage, config: *Config) void {
     var tokens = std.mem.tokenizeAny(u8, text, constants.token_separators);
     config.search = read_search(&tokens, storage);
-    assert(config.search.len <= core.constants.search_max);
+    assert(config.search.len <= core.limits.search_max);
 }
 
 const Tokens = std.mem.TokenIterator(u8, .any);
@@ -87,12 +88,12 @@ const Tokens = std.mem.TokenIterator(u8, .any);
 /// cocuyo does not know is skipped, and so is every token past `options_max`.
 fn read_options(tokens: *Tokens, config: *Config) void {
     var read: usize = 0;
-    while (read < constants.options_max) : (read += 1) {
+    while (read < limits.options_max) : (read += 1) {
         const token = tokens.next() orelse break;
         const option = options.parse(token) orelse continue;
         apply_option(option, config);
     }
-    assert(read <= constants.options_max);
+    assert(read <= limits.options_max);
 }
 
 fn apply_option(option: options.Option, config: *Config) void {
@@ -117,14 +118,14 @@ fn apply_option(option: options.Option, config: *Config) void {
 fn read_search(tokens: *Tokens, storage: *Storage) []const Name {
     var count: usize = 0;
     var read: usize = 0;
-    while (read <= core.constants.search_max) : (read += 1) {
+    while (read <= core.limits.search_max) : (read += 1) {
         const text = tokens.next() orelse break;
-        if (count == core.constants.search_max) break;
+        if (count == core.limits.search_max) break;
         const name = Name.from_text(text) catch continue;
         storage.search[count] = name;
         count += 1;
     }
-    assert(count <= core.constants.search_max);
+    assert(count <= core.limits.search_max);
     return storage.search[0..count];
 }
 
@@ -156,11 +157,11 @@ const Builder = struct {
     /// dropped.
     fn nameserver(self: *Builder, tokens: *Tokens) void {
         const text = tokens.next() orelse return;
-        if (self.server_count == core.constants.servers_max) return;
+        if (self.server_count == core.limits.servers_max) return;
         const address = Address.from_text(text) orelse return;
         self.storage.servers[self.server_count] = .{ .endpoint = .{ .address = address } };
         self.server_count += 1;
-        assert(self.server_count <= core.constants.servers_max);
+        assert(self.server_count <= core.limits.servers_max);
     }
 
     /// `domain NAME`: a search list of one. The last `search` or `domain` line in a file wins.
@@ -326,7 +327,7 @@ test "a timeout longer than the cap raises it, and a shorter one leaves it" {
     try testing.expectEqual(core.constants.timeout_ns_max_default, short.timeout_ns_max);
     // The longest a file may ask for fits under the most a cap may be.
     const longest = parse_text("options timeout:600\n", &storage);
-    try testing.expectEqual(core.constants.timeout_ns_max, longest.timeout_ns_max);
+    try testing.expectEqual(core.limits.timeout_ns_max, longest.timeout_ns_max);
     // RES_OPTIONS raises the cap the same way, and never lowers it.
     var config = parse_text("nameserver 192.0.2.53\n", &storage);
     apply_options("timeout:20", &config);
@@ -360,21 +361,21 @@ test "a file with carriage returns parses" {
 test "more servers than the limit are dropped, and the configuration says so" {
     var storage: Storage = .{};
     const line = "nameserver 192.0.2.1\n";
-    const text = line ** (core.constants.servers_max + 3);
+    const text = line ** (core.limits.servers_max + 3);
     const config = parse_text(text, &storage);
-    try testing.expectEqual(@as(usize, core.constants.servers_max), config.servers.len);
+    try testing.expectEqual(@as(usize, core.limits.servers_max), config.servers.len);
 }
 
 test "more search entries than the limit are dropped" {
     var storage: Storage = .{};
     const config = parse_text("search a.example b.example c.example d.example e.example" ++
         " f.example g.example h.example\n", &storage);
-    try testing.expectEqual(@as(usize, core.constants.search_max), config.search.len);
+    try testing.expectEqual(@as(usize, core.limits.search_max), config.search.len);
 }
 
 test "a file longer than the line bound stops there" {
     var storage: Storage = .{};
-    const filler = "# comment\n" ** (constants.lines_max + 10);
+    const filler = "# comment\n" ** (limits.lines_max + 10);
     const config = parse_text(filler ++ "nameserver 192.0.2.53\n", &storage);
     // The nameserver line is past the bound, so the default stands.
     try testing.expectEqualSlices(u8, &.{ 127, 0, 0, 1 }, config.servers[0].endpoint.address.slice());
@@ -383,7 +384,7 @@ test "a file longer than the line bound stops there" {
 test "the line at the bound is read, and the line after it is not" {
     // `lines_max` lines are read. Here the last of them names one server and the next line another.
     var storage: Storage = .{};
-    const text = "#\n" ** (constants.lines_max - 1) ++ "nameserver 192.0.2.53\nnameserver 192.0.2.54\n";
+    const text = "#\n" ** (limits.lines_max - 1) ++ "nameserver 192.0.2.53\nnameserver 192.0.2.54\n";
     const config = parse_text(text, &storage);
     try testing.expectEqual(@as(usize, 1), config.servers.len);
     try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 53 }, config.servers[0].endpoint.address.slice());
@@ -391,7 +392,7 @@ test "the line at the bound is read, and the line after it is not" {
 
 test "the option at the bound is read, and the option after it is not, on a line and in RES_OPTIONS" {
     // `options_max` tokens are read: here the last of them is `ndots:3`, and `attempts:4` the next.
-    const tokens = " x" ** (constants.options_max - 1) ++ " ndots:3 attempts:4";
+    const tokens = " x" ** (limits.options_max - 1) ++ " ndots:3 attempts:4";
     var storage: Storage = .{};
     const config = parse_text("options" ++ tokens ++ "\n", &storage);
     try testing.expectEqual(@as(u8, 3), config.ndots);
@@ -422,6 +423,7 @@ test "a malformed search entry is skipped and the rest are kept" {
 }
 
 test {
+    _ = limits;
     _ = hosts;
     _ = spki_pin;
     _ = fuzz;

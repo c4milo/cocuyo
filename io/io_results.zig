@@ -28,7 +28,7 @@ pub fn Queue(comptime capacity: u16) type {
             // The head and the count are each below the capacity, the engine's `lookups`, which
             // `init` holds to `lookup_slots_max`. So their sum is at most 2046, in sixteen bits.
             assert(self.head < capacity);
-            assert(capacity <= cocuyo.constants.lookup_slots_max);
+            assert(capacity <= cocuyo.limits.lookup_slots_max);
             const at = (self.head + self.count) % capacity;
             self.items[at] = result;
             self.count += 1;

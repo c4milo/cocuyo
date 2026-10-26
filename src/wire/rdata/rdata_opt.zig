@@ -66,7 +66,7 @@ test "an option length of 0xFFFF or 0xFFFE is malformed in a short rdata, and it
 
 test "an option that fills the longest rdata is read whole" {
     // An rdlength holds 65535 at most (RFC 1035 §4.1.3), and one option fills it.
-    var rdata: [core.constants.message_bytes_max]u8 = @splat(0);
+    var rdata: [core.limits.message_bytes_max]u8 = @splat(0);
     const data_bytes = rdata.len - constants.opt_option_fixed_bytes;
     integer.write_u16(&rdata, constants.opt_option_length_offset, @intCast(data_bytes));
     var options: Options = .{ .rdata = &rdata };

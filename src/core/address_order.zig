@@ -7,6 +7,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const address_module = @import("address.zig");
 const Address = address_module.Address;
 const Family = address_module.Family;
@@ -35,12 +36,12 @@ pub const Preference = enum { first, second, neither };
 /// leaves ties in the order given, which is rule 10. The sort is stable and bounded by
 /// `address_lookup_addresses_max`, so it allocates nothing.
 pub fn order(addresses: []Address, routes: ?[]const Route) void {
-    assert(addresses.len <= constants.address_lookup_addresses_max);
+    assert(addresses.len <= limits.address_lookup_addresses_max);
     if (routes) |given| assert(given.len == addresses.len);
-    var indexes: [constants.address_lookup_addresses_max]u8 = undefined;
+    var indexes: [limits.address_lookup_addresses_max]u8 = undefined;
     for (addresses, 0..) |_, index| indexes[index] = @intCast(index);
     sort_indexes(addresses, routes, indexes[0..addresses.len]);
-    var sorted: [constants.address_lookup_addresses_max]Address = undefined;
+    var sorted: [limits.address_lookup_addresses_max]Address = undefined;
     for (indexes[0..addresses.len], 0..) |from, to| sorted[to] = addresses[from];
     @memcpy(addresses, sorted[0..addresses.len]);
 }
@@ -231,7 +232,7 @@ pub fn common_prefix_len(source: Address, destination: Address) u8 {
     if (is_v4(source) != is_v4(destination)) return 0;
     const a = mapped_form(source);
     const b = mapped_form(destination);
-    const cap: u8 = if (is_v4(source)) constants.common_prefix_bits_v4_max else constants.common_prefix_bits_v6_max;
+    const cap: u8 = if (is_v4(source)) limits.common_prefix_bits_v4_max else limits.common_prefix_bits_v6_max;
     const from: usize = if (is_v4(source)) constants.v4_mapped_prefix.len else 0;
     var bits: u8 = 0;
     for (a[from..], b[from..]) |mine, theirs| {

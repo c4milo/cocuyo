@@ -11,6 +11,7 @@ const core = @import("core");
 const Address = core.Address;
 const Name = core.Name;
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 
 pub const Hosts = core.hosts.Hosts;
 pub const Storage = core.hosts.Storage;
@@ -25,11 +26,11 @@ pub fn parse(bytes: []const u8, storage: *Storage) Hosts {
     var builder: Builder = .{ .storage = storage };
     var lines = std.mem.splitScalar(u8, bytes, '\n');
     var read: usize = 0;
-    while (read < constants.hosts_lines_max) : (read += 1) {
+    while (read < limits.hosts_lines_max) : (read += 1) {
         const line = lines.next() orelse break;
         builder.line(line);
     }
-    assert(builder.entry_count <= core.constants.hosts_entries_max);
+    assert(builder.entry_count <= core.limits.hosts_entries_max);
     return .{
         .entries = storage.entries[0..builder.entry_count],
         .names = storage.names[0..builder.names_used],
@@ -46,13 +47,13 @@ const Builder = struct {
         const end = std.mem.indexOfScalar(u8, text, constants.hosts_comment_start) orelse text.len;
         var tokens = std.mem.tokenizeAny(u8, text[0..end], constants.token_separators);
         const address_token = tokens.next() orelse return;
-        if (self.entry_count == core.constants.hosts_entries_max) return;
+        if (self.entry_count == core.limits.hosts_entries_max) return;
         const address = Address.from_text(address_token) orelse return;
         var entry: Entry = .{ .address = address, .names = undefined, .name_count = 0 };
         var read: usize = 0;
-        while (read <= core.constants.hosts_names_per_entry_max) : (read += 1) {
+        while (read <= core.limits.hosts_names_per_entry_max) : (read += 1) {
             const token = tokens.next() orelse break;
-            if (entry.name_count == core.constants.hosts_names_per_entry_max) break;
+            if (entry.name_count == core.limits.hosts_names_per_entry_max) break;
             const ref = self.intern(token) orelse continue;
             entry.names[entry.name_count] = ref;
             entry.name_count += 1;
@@ -61,18 +62,18 @@ const Builder = struct {
         if (entry.name_count == 0) return;
         self.storage.entries[self.entry_count] = entry;
         self.entry_count += 1;
-        assert(self.entry_count <= core.constants.hosts_entries_max);
+        assert(self.entry_count <= core.limits.hosts_entries_max);
     }
 
     /// Writes `text` into the arena as a wire name; null when it is not a name, or when the
     /// arena is full.
     fn intern(self: *Builder, text: []const u8) ?NameRef {
         const name = Name.from_text(text) catch return null;
-        if (self.names_used + name.len > core.constants.hosts_names_bytes_max) return null;
+        if (self.names_used + name.len > core.limits.hosts_names_bytes_max) return null;
         const offset = self.names_used;
         @memcpy(self.storage.names[offset..][0..name.len], name.wire());
         self.names_used += name.len;
-        assert(self.names_used <= core.constants.hosts_names_bytes_max);
+        assert(self.names_used <= core.limits.hosts_names_bytes_max);
         return .{ .offset = @intCast(offset), .len = name.len };
     }
 };
@@ -125,19 +126,19 @@ test "names past the limit on one line, and entries past the limit, are dropped"
     var storage: Storage = .{};
     const many_names = "192.0.2.1 n0 n1 n2 n3 n4 n5 n6 n7 n8 n9\n";
     const hosts = parse_text(many_names, &storage);
-    try testing.expectEqual(@as(u8, core.constants.hosts_names_per_entry_max), hosts.entries[0].name_count);
+    try testing.expectEqual(@as(u8, core.limits.hosts_names_per_entry_max), hosts.entries[0].name_count);
     var out: [1]Address = undefined;
     try testing.expectEqual(@as(usize, 0), hosts.find(&try Name.from_text("n9"), null, &out));
 
     const line = "192.0.2.2 host\n";
-    const too_many = line ** (core.constants.hosts_entries_max + 3);
+    const too_many = line ** (core.limits.hosts_entries_max + 3);
     const bounded = parse_text(too_many, &storage);
-    try testing.expectEqual(@as(usize, core.constants.hosts_entries_max), bounded.entries.len);
+    try testing.expectEqual(@as(usize, core.limits.hosts_entries_max), bounded.entries.len);
 }
 
 test "a name that does not fit the arena is dropped, and the line with it when it was the only one" {
     var storage: Storage = .{};
-    var builder: Builder = .{ .storage = &storage, .names_used = core.constants.hosts_names_bytes_max - 3 };
+    var builder: Builder = .{ .storage = &storage, .names_used = core.limits.hosts_names_bytes_max - 3 };
     try testing.expectEqual(@as(?NameRef, null), builder.intern("abcd"));
     builder.line("192.0.2.3 abcd");
     try testing.expectEqual(@as(usize, 0), builder.entry_count);
@@ -148,7 +149,7 @@ test "a name that does not fit the arena is dropped, and the line with it when i
 test "the line at the bound is read, and the line after it is not" {
     // `hosts_lines_max` lines are read. Here the last of them names one host and the next line
     // another.
-    const text = "#\n" ** (constants.hosts_lines_max - 1) ++ "192.0.2.1 at.limit\n192.0.2.2 past.limit\n";
+    const text = "#\n" ** (limits.hosts_lines_max - 1) ++ "192.0.2.1 at.limit\n192.0.2.2 past.limit\n";
     var storage: Storage = .{};
     const hosts = parse_text(text, &storage);
     try testing.expectEqual(@as(usize, 1), hosts.entries.len);

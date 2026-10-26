@@ -19,7 +19,7 @@ const u16_bytes = cocuyo.wire.constants.u16_bytes;
 
 /// The octets of a datagram that fill a buffer of the group after rotor's prefix.
 fn room(rig: anytype) usize {
-    return rotor.datagram.payload_capacity(io.constants.buffer_bytes, rig.loop.group_options);
+    return rotor.datagram.payload_capacity(io.limits.buffer_bytes, rig.loop.group_options);
 }
 
 /// The scripted server's answer to the query of `handle`'s lookup, written into `out`. A Padding
@@ -88,7 +88,7 @@ test "a datagram that fills a buffer of the group to its last octet is read whol
     const handle = try waiting(&rig, 31);
     // 2,048 octets, less rotor's prefix: the room a datagram has.
     try testing.expectEqual(@as(usize, 1856), room(&rig));
-    var out: [io.constants.buffer_bytes]u8 = undefined;
+    var out: [io.limits.buffer_bytes]u8 = undefined;
     const answer = try padded_answer(&rig, handle, room(&rig), &out);
     const free = rig.loop.groups[io.constants.group_id].free_count;
     try deliver(&rig, 0, answer);
@@ -110,7 +110,7 @@ test "a datagram one octet longer than the room is taken as truncated, and its l
     const handle = try waiting(&rig, 32);
     // The UDP query went to a server that was down. It answers from now on, over TCP too.
     rig.loop.network().scripts[0] = .{};
-    var out: [io.constants.buffer_bytes]u8 = undefined;
+    var out: [io.limits.buffer_bytes]u8 = undefined;
     const answer = try padded_answer(&rig, handle, room(&rig) + 1, &out);
     const free = rig.loop.groups[io.constants.group_id].free_count;
     try deliver(&rig, 0, answer);
@@ -135,7 +135,7 @@ test "a cut datagram that fails a check of section 7 is ignored, and its lookup 
     // that fails a check is, and no connection opens (docs/design.md §7).
     var rig: Rig = .{};
     const handle = try waiting(&rig, 33);
-    var out: [io.constants.buffer_bytes]u8 = undefined;
+    var out: [io.limits.buffer_bytes]u8 = undefined;
     const answer = try padded_answer(&rig, handle, room(&rig) + 1, &out);
     const free = rig.loop.groups[io.constants.group_id].free_count;
     try deliver(&rig, 1, answer);
@@ -156,7 +156,7 @@ test "a cut datagram on a draining socket moves its lookup to TCP, and the drive
     var rig: Rig = .{};
     const handle = try waiting_under(&rig, 36, .{ .servers = &.{}, .udp_queries_per_port = 1 });
     try testing.expect(rig.engine.sockets.draining[0].open);
-    var out: [io.constants.buffer_bytes]u8 = undefined;
+    var out: [io.limits.buffer_bytes]u8 = undefined;
     const answer = try padded_answer(&rig, handle, room(&rig) + 1, &out);
     try deliver_to(&rig, 0, rig.engine.sockets.draining[0].armed_generation, answer);
     try testing.expectEqual(cocuyo.resolver.State.connecting_tcp, rig.engine.resolver.lookup_of(handle).state);
@@ -181,7 +181,7 @@ test "on an engine of no TCP connection a cut datagram moves its lookup to the n
     const handle = try waiting(&rig, 34);
     // The second server answers from now on.
     rig.loop.network().scripts[1] = .{};
-    var out: [io.constants.buffer_bytes]u8 = undefined;
+    var out: [io.limits.buffer_bytes]u8 = undefined;
     const answer = try padded_answer(&rig, handle, room(&rig) + 1, &out);
     try deliver(&rig, 0, answer);
     try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(0));
@@ -199,7 +199,7 @@ test "under ignore_truncation a cut datagram is ignored, and its lookup waits on
     // message to read (docs/design.md §7, A datagram that the buffer cut, rule 1).
     var rig: Rig = .{};
     const handle = try waiting_under(&rig, 35, .{ .servers = &.{}, .ignore_truncation = true });
-    var out: [io.constants.buffer_bytes]u8 = undefined;
+    var out: [io.limits.buffer_bytes]u8 = undefined;
     const answer = try padded_answer(&rig, handle, room(&rig) + 1, &out);
     try deliver(&rig, 0, answer);
     try testing.expectEqual(cocuyo.resolver.State.awaiting_udp, rig.engine.resolver.lookup_of(handle).state);

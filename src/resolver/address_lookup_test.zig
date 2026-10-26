@@ -348,7 +348,7 @@ test "a numeric host is answered at once, mapped or refused by family, and numer
 test "a table that fills the room is an answer marked truncated, since more may exist" {
     var fixture: HostsFixture = .{};
     var octet: u8 = 0;
-    while (octet < core.constants.address_lookup_addresses_max + 1) : (octet += 1) {
+    while (octet < core.limits.address_lookup_addresses_max + 1) : (octet += 1) {
         try fixture.add(Address.from_v4(.{ 10, 0, 0, octet }), &.{"many"});
     }
     const hosts = fixture.table();
@@ -356,7 +356,7 @@ test "a table that fills the room is an answer marked truncated, since more may 
     try rig.open();
     try rig.start(&hosts, "many", null, .{});
     const info = rig.lookup.outcome().?.answered;
-    try testing.expectEqual(@as(usize, core.constants.address_lookup_addresses_max), info.addresses.len);
+    try testing.expectEqual(@as(usize, core.limits.address_lookup_addresses_max), info.addresses.len);
     try testing.expect(info.truncated);
 }
 

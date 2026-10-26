@@ -14,8 +14,9 @@ Five rules hold the architecture up, and a change that breaks one does not land:
 - **The library allocates nothing.** The caller hands cocuyo its memory at init.
 - **Assertions stay on in production.** They are for programmer error. A malformed response is the
   expected case and returns an error value.
-- **Every limit is named** in a `constants.zig`, with a comment saying why that number, and every
-  loop and queue is bounded. A length is checked against the end of the message before the bytes
+- **Every limit is named** in its module's `limits.zig`, with a comment saying why that number,
+  and every loop and queue is bounded. A protocol size or a default is named in its module's
+  `constants.zig`. A length is checked against the end of the message before the bytes
   are read.
 - **Every RFC rule is cited** by RFC and section on the line that checks it. The RFCs are read
   from [`docs/rfcs/`](docs/rfcs), never from a summary, and never from another implementation's
@@ -28,7 +29,7 @@ A change lands with what proves it:
 | A new check | A test that fails when the check is broken on purpose, and the mutation, with `CAUGHT`, in [`docs/mutations.md`](docs/mutations.md) and in the commit body |
 | A change to a transition of the lookup (design §5), or to the engine's rules (§19 steps 13 and 14) | The design first, then the Lean or TLA+ model under [`spec/`](spec), then the code, in that order, with the replays agreeing |
 | A new record type or field | Its RFC section at the code, its RFC example where the RFC gives one, and the fuzz generator writing it |
-| A new limit | Its name and its reason in a `constants.zig` |
+| A new limit | Its name and its reason in its module's `limits.zig` |
 | Any change | `zig build test` green |
 
 A `NOT CAUGHT` mutation means a test is missing: write the test.

@@ -8,6 +8,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 const wire = @import("wire");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const types = @import("sim_types.zig");
 const Address = types.Address;
 const Name = core.Name;
@@ -147,8 +148,8 @@ fn write_opt(script: *const Script, address: *const Address, opt: *const wire.Re
 }
 
 /// A server's cookie: its address, repeated, which the tests can predict.
-pub fn server_cookie(address: *const Address) [core.constants.cookie_server_bytes_max]u8 {
-    var cookie: [core.constants.cookie_server_bytes_max]u8 = @splat(0);
+pub fn server_cookie(address: *const Address) [core.limits.cookie_server_bytes_max]u8 {
+    var cookie: [core.limits.cookie_server_bytes_max]u8 = @splat(0);
     for (cookie[0..constants.server_cookie_bytes], 0..) |*byte, index| {
         byte.* = address.bytes[index % Address.ipv4_bytes] ^ @as(u8, @truncate(address.port));
     }
@@ -208,9 +209,9 @@ fn query_bytes(out: []u8, kind: core.Kind, with_cookie: bool) []const u8 {
 }
 
 test "an A question is answered with one address owned by the name, the same on every seed" {
-    var query_out: [core.constants.query_bytes_max]u8 = undefined;
+    var query_out: [core.limits.query_bytes_max]u8 = undefined;
     const query = query_bytes(&query_out, .a, false);
-    var reply: [constants.datagram_bytes_max]u8 = undefined;
+    var reply: [limits.datagram_bytes_max]u8 = undefined;
     const script: Script = .{};
     const first = respond(&script, &server_address, query, false, 1, &reply).?;
     var chain = try Name.from_text("example.com");
@@ -224,9 +225,9 @@ test "an A question is answered with one address owned by the name, the same on 
 }
 
 test "a server that is down, or a drop, answers nothing" {
-    var query_out: [core.constants.query_bytes_max]u8 = undefined;
+    var query_out: [core.limits.query_bytes_max]u8 = undefined;
     const query = query_bytes(&query_out, .a, false);
-    var reply: [constants.datagram_bytes_max]u8 = undefined;
+    var reply: [limits.datagram_bytes_max]u8 = undefined;
     const down: Script = .{ .down = true };
     try testing.expectEqual(@as(?Answer, null), respond(&down, &server_address, query, false, 1, &reply));
     const drops: Script = .{ .drop_per_256 = 255 };
@@ -239,9 +240,9 @@ test "a server that is down, or a drop, answers nothing" {
 }
 
 test "truncation sets TC over UDP and never over TCP, and the rcodes come as scripted" {
-    var query_out: [core.constants.query_bytes_max]u8 = undefined;
+    var query_out: [core.limits.query_bytes_max]u8 = undefined;
     const query = query_bytes(&query_out, .a, false);
-    var reply: [constants.datagram_bytes_max]u8 = undefined;
+    var reply: [limits.datagram_bytes_max]u8 = undefined;
     const truncating: Script = .{ .truncate_per_256 = 255 };
     const udp = respond(&truncating, &server_address, query, false, 1, &reply).?;
     try testing.expect((try wire.header.parse(reply[0..udp.len])).truncated());
@@ -256,9 +257,9 @@ test "truncation sets TC over UDP and never over TCP, and the rcodes come as scr
 }
 
 test "a cookie is echoed with the server's own, and a server without cookies sends a bare OPT" {
-    var query_out: [core.constants.query_bytes_max]u8 = undefined;
+    var query_out: [core.limits.query_bytes_max]u8 = undefined;
     const query = query_bytes(&query_out, .a, true);
-    var reply: [constants.datagram_bytes_max]u8 = undefined;
+    var reply: [limits.datagram_bytes_max]u8 = undefined;
     const script: Script = .{};
     const answer = respond(&script, &server_address, query, false, 1, &reply).?;
     const name = try Name.from_text("example.com");
@@ -273,9 +274,9 @@ test "a cookie is echoed with the server's own, and a server without cookies sen
 }
 
 test "a question of a type the server does not hold is NODATA" {
-    var query_out: [core.constants.query_bytes_max]u8 = undefined;
+    var query_out: [core.limits.query_bytes_max]u8 = undefined;
     const query = query_bytes(&query_out, .mx, false);
-    var reply: [constants.datagram_bytes_max]u8 = undefined;
+    var reply: [limits.datagram_bytes_max]u8 = undefined;
     const script: Script = .{};
     const answer = respond(&script, &server_address, query, false, 1, &reply).?;
     try testing.expectEqual(@as(u16, 0), (try wire.header.parse(reply[0..answer.len])).ancount);

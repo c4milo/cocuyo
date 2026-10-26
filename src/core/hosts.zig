@@ -9,6 +9,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const address_module = @import("address.zig");
 const Address = address_module.Address;
 const Family = address_module.Family;
@@ -22,13 +23,13 @@ pub const NameRef = struct { offset: u16, len: u8 };
 pub const Entry = struct {
     address: Address,
     /// The official name first, then the aliases, in the line's order.
-    names: [constants.hosts_names_per_entry_max]NameRef,
+    names: [limits.hosts_names_per_entry_max]NameRef,
     name_count: u8,
 };
 
 pub const Storage = struct {
-    entries: [constants.hosts_entries_max]Entry = undefined,
-    names: [constants.hosts_names_bytes_max]u8 = undefined,
+    entries: [limits.hosts_entries_max]Entry = undefined,
+    names: [limits.hosts_names_bytes_max]u8 = undefined,
 };
 
 pub const Hosts = struct {

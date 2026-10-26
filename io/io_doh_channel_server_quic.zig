@@ -7,28 +7,25 @@ const std = @import("std");
 const cocuyo = @import("cocuyo");
 const server = @import("server");
 const constants = @import("io_doh_channel_constants.zig");
+const limits = @import("io_doh_channel_limits.zig");
 const tcp_server = @import("io_doh_channel_server.zig");
 
-/// The connections the server holds at once: a test's channel, and the one after it.
-const connections_max = 2;
-/// The responses in flight at once, each with its content until it is done.
-const responses_max = 4;
 /// The octet its stream is seeded with. Test-only.
-const stream_octet = 0x34;
+const stream_octet: u8 = 0x34;
 /// The events the server reads after one datagram at most. Each is an event of a request or of a
 /// connection, and a datagram carries finitely many.
-const events_per_input_max = constants.datagram_bytes;
+const events_per_input_max = limits.datagram_bytes;
 
 /// An endpoint of QUIC connections alone. Each connection holds the server's unread octets in a
 /// pool of the channel's size.
-const Endpoint = server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = connections_max, .receive_pool_len = constants.receive_bytes });
+const Endpoint = server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = limits.server_connections_max, .receive_pool_len = limits.receive_bytes });
 
 /// A response whose content QUIC still reads: the request it answers, whose id names its
 /// connection too.
 const Response = struct {
     live: bool = false,
     id: server.Id = undefined,
-    content: [cocuyo.constants.message_bytes_max]u8 = undefined,
+    content: [cocuyo.limits.message_bytes_max]u8 = undefined,
 };
 
 pub const QuicServer = struct {
@@ -37,12 +34,12 @@ pub const QuicServer = struct {
     endpoint: Endpoint = undefined,
     stream: std.Random.ChaCha = std.Random.ChaCha.init(@splat(stream_octet)),
     /// The datagram being read: the suite opens it in place.
-    inbound: [constants.datagram_bytes]u8 = undefined,
-    responses: [responses_max]Response = @splat(.{}),
+    inbound: [limits.datagram_bytes]u8 = undefined,
+    responses: [limits.server_responses_max]Response = @splat(.{}),
     /// What it heard, which a test reads, as the TCP server keeps it.
     answered: usize = 0,
     held: usize = 0,
-    query: [cocuyo.constants.message_bytes_max]u8 = undefined,
+    query: [cocuyo.limits.message_bytes_max]u8 = undefined,
     query_len: usize = 0,
     accept: tcp_server.Heard = .{},
     accept_encoding: tcp_server.Heard = .{},

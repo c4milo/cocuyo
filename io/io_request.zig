@@ -21,8 +21,8 @@ const connection_module = @import("io_request_connection.zig");
 /// configuration, so none of its functions is ever called.
 pub const None = struct {
     pub const enabled = false;
-    pub const output_bytes_max = 0;
-    pub const request_bytes_max = 0;
+    pub const output_bytes_max: usize = 0;
+    pub const request_bytes_max: usize = 0;
     pub const Error = error{Failed};
     pub const Context = struct {};
     pub const Ticket = struct {};
@@ -191,5 +191,5 @@ pub fn forget_all(self: anytype) void {
 comptime {
     // A connection's server shares its `user_data` with its incarnation, as a TCP connection's
     // slot does (`io_request_connection.zig`).
-    assert(cocuyo.constants.servers_max <= constants.quic_server_mask + 1);
+    assert(cocuyo.limits.servers_max <= constants.quic_server_mask + 1);
 }

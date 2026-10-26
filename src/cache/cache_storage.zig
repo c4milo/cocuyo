@@ -10,23 +10,24 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const cache = @import("cache.zig");
 const Slot = cache.Slot;
 const Key = @import("cache_keys.zig").Key;
 
-/// Whether a cache takes `slot_count` slots: 1 to `constants.slots_max`. A count read at run
+/// Whether a cache takes `slot_count` slots: 1 to `limits.slots_max`. A count read at run
 /// time is input, so its reader asks this and refuses a bad one itself. `Cache.init` asserts
 /// the same bound, which says the caller did.
 pub fn slot_count_valid(slot_count: usize) bool {
-    return slot_count >= 1 and slot_count <= constants.slots_max;
+    return slot_count >= 1 and slot_count <= limits.slots_max;
 }
 
 /// The least key index `slot_count` slots take: `keys_per_slot_min` entries a slot, rounded up
 /// to a power of two, which the index's mask needs. A longer power of two is taken too.
 pub fn keys_for(slot_count: usize) usize {
     assert(slot_count_valid(slot_count));
-    const key_count = std.math.ceilPowerOfTwoAssert(usize, slot_count * constants.keys_per_slot_min);
-    assert(key_count >= slot_count * constants.keys_per_slot_min);
+    const key_count = std.math.ceilPowerOfTwoAssert(usize, slot_count * limits.keys_per_slot_min);
+    assert(key_count >= slot_count * limits.keys_per_slot_min);
     return key_count;
 }
 
@@ -43,7 +44,7 @@ pub const Slices = struct {
         if (!slot_count_valid(self.slots.len)) return false;
         // Enough entries first: one slot or more takes an index of some, and the power-of-two
         // test is asked of no empty one.
-        if (self.keys.len < self.slots.len * constants.keys_per_slot_min) return false;
+        if (self.keys.len < self.slots.len * limits.keys_per_slot_min) return false;
         return std.math.isPowerOfTwo(self.keys.len);
     }
 };
@@ -56,7 +57,7 @@ pub fn Storage(comptime slot_count: usize) type {
     if (!slot_count_valid(slot_count)) {
         @compileError(std.fmt.comptimePrint(
             "a cache takes 1 to {d} slots, and this Storage names {d}",
-            .{ constants.slots_max, slot_count },
+            .{ limits.slots_max, slot_count },
         ));
     }
     return struct {
@@ -84,9 +85,9 @@ test "the least key index is a power of two with two entries a slot" {
         const key_count = keys_for(case[0]);
         try testing.expectEqual(case[1], key_count);
         try testing.expect(std.math.isPowerOfTwo(key_count));
-        try testing.expect(key_count >= constants.keys_per_slot_min * case[0]);
+        try testing.expect(key_count >= limits.keys_per_slot_min * case[0]);
         // And the least: half of it would hold fewer than two entries a slot.
-        try testing.expect(key_count / 2 < constants.keys_per_slot_min * case[0]);
+        try testing.expect(key_count / 2 < limits.keys_per_slot_min * case[0]);
     }
 }
 
@@ -96,7 +97,7 @@ test "a cache takes one slot to the most a slot index names, and refuses none an
     try testing.expect(slot_count_valid(1024));
     try testing.expect(slot_count_valid(16384));
     try testing.expect(!slot_count_valid(16385));
-    try testing.expectEqual(@as(usize, 16384), constants.slots_max);
+    try testing.expectEqual(@as(usize, 16384), limits.slots_max);
 }
 
 test "slices are valid at the least key index and at a longer one, and at no other shape" {
@@ -122,11 +123,11 @@ test "slices of the most slots are valid, and of one slot more are not, whatever
     var key: [1]Key = undefined;
     const slots: [*]Slot = &slot;
     const keys: [*]Key = &key;
-    const most: usize = constants.slots_max;
+    const most: usize = limits.slots_max;
     try testing.expect((Slices{ .slots = slots[0..most], .keys = keys[0..keys_for(most)] }).valid());
     // One slot more, under an index that is a power of two and long enough for it.
-    const longer = constants.keys_per_slot_min * keys_for(most);
-    try testing.expect(std.math.isPowerOfTwo(longer) and longer >= constants.keys_per_slot_min * (most + 1));
+    const longer = limits.keys_per_slot_min * keys_for(most);
+    try testing.expect(std.math.isPowerOfTwo(longer) and longer >= limits.keys_per_slot_min * (most + 1));
     try testing.expect(!(Slices{ .slots = slots[0 .. most + 1], .keys = keys[0..longer] }).valid());
 }
 

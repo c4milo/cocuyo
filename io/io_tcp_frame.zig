@@ -8,6 +8,7 @@ const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const tcp = @import("io_tcp.zig");
 const tls_module = @import("io_tls.zig");
 
@@ -24,7 +25,7 @@ pub fn take_chunk(self: anytype, at: u8, event: rotor.Event, count: u32, now_ns:
     }
     // The frame holds a partial message at most, and room for a chunk past it (rule 11). `deliver`
     // handed over every whole message, and failed a prefix that says more than `message_bytes`.
-    assert(chunk.len <= constants.tcp_chunk_bytes);
+    assert(chunk.len <= limits.tcp_chunk_bytes);
     assert(connection.used + chunk.len <= connection.frame.len);
     @memcpy(connection.frame[connection.used..][0..chunk.len], chunk);
     connection.used += chunk.len;
@@ -41,7 +42,7 @@ pub fn deliver(self: anytype, at: u8, now_ns: u64) bool {
     const prefix = cocuyo.constants.tcp_prefix_bytes;
     var start: usize = 0;
     var delivered: usize = 0;
-    while (delivered < constants.tcp_messages_per_frame_max) : (delivered += 1) {
+    while (delivered < limits.tcp_messages_per_frame_max) : (delivered += 1) {
         // That message can never be whole, and the stream cannot be read past it: the connection
         // is no good to anybody.
         if (too_long(connection, start)) {

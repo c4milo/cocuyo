@@ -21,6 +21,7 @@ const Config = core.Config;
 const Endpoint = core.Endpoint;
 const Question = core.Question;
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const entropy_module = @import("entropy.zig");
 const servers_module = @import("servers.zig");
 const keys_module = @import("table_keys.zig");
@@ -70,7 +71,7 @@ pub const Resolver = struct {
     /// probe relies on the mask, and the load factor keeps the probe short.
     pub fn init(slots: []Slot, keys: []MatchKey, config: *const Config, seed: u64) Resolver {
         config.assert_valid();
-        assert(keys.len >= slots.len * constants.keys_per_slot_min);
+        assert(keys.len >= slots.len * limits.keys_per_slot_min);
         assert(std.math.isPowerOfTwo(keys.len));
         for (keys) |*key| key.* = .{};
         return .{
@@ -114,7 +115,7 @@ pub const Resolver = struct {
     /// cost independent of the lookups in flight (docs/design.md §11 and §16 decision 20), and
     /// it is why a caller must act on what it is given rather than poll again to be reminded.
     pub fn poll(self: *Resolver, now_ns: u64, out: []u8) ?Event {
-        assert(out.len >= core.constants.query_bytes_max);
+        assert(out.len >= core.limits.query_bytes_max);
         ready_module.wake_expired(self, now_ns);
         var taken: usize = 0;
         while (taken < self.slots.items.len) : (taken += 1) {

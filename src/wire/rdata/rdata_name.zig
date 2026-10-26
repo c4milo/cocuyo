@@ -19,7 +19,7 @@ pub fn read(rdata: []const u8, offset: usize, out: *Name) Error!usize {
     out.* = Name.empty;
     var cursor = offset;
     var labels: usize = 0;
-    while (labels <= core.constants.labels_max) : (labels += 1) {
+    while (labels <= core.limits.labels_max) : (labels += 1) {
         if (cursor >= rdata.len) return Error.MalformedMessage;
         const length: usize = rdata[cursor];
         // A pointer, or one of the two reserved label kinds (RFC 1035 §4.1.4).
@@ -34,7 +34,7 @@ pub fn read(rdata: []const u8, offset: usize, out: *Name) Error!usize {
         try out.append_label(rdata[cursor..][0..length]);
         cursor += length;
     }
-    assert(labels > core.constants.labels_max);
+    assert(labels > core.limits.labels_max);
     return Error.MalformedName;
 }
 

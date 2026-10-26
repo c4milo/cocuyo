@@ -14,6 +14,7 @@ const Name = core.Name;
 const Kind = core.Kind;
 const Question = core.Question;
 pub const constants = @import("constants.zig");
+pub const limits = @import("limits.zig");
 const cache_keys = @import("cache_keys.zig");
 const cache_chain = @import("cache_chain.zig");
 const cache_sweep = @import("cache_sweep.zig");
@@ -34,7 +35,7 @@ pub const slot_count_valid = cache_storage.slot_count_valid;
 /// recommended cap of 604,800 seconds (7 days)" (RFC 8767 §4). A cap read at run time is input,
 /// so its reader asks this and refuses a bad one itself; `Cache.init` asserts the same bound.
 pub fn ttl_seconds_max_valid(ttl_seconds_max: u32) bool {
-    return ttl_seconds_max >= 1 and ttl_seconds_max <= core.constants.cache_ttl_seconds_max;
+    return ttl_seconds_max >= 1 and ttl_seconds_max <= core.limits.cache_ttl_seconds_max;
 }
 
 /// What an entry remembers: records, or one of the two negative answers RFC 2308 caches.
@@ -112,9 +113,9 @@ pub const Cache = struct {
     /// `ttl_seconds_max` caps every TTL put, the way c-ares's `qcache_max_ttl` does, and is a
     /// cap `ttl_seconds_max_valid` takes.
     pub fn init(slots: []Slot, keys: []Key, seed: u64, ttl_seconds_max: u32) Cache {
-        assert(slots.len >= 1 and slots.len <= constants.slots_max);
+        assert(slots.len >= 1 and slots.len <= limits.slots_max);
         assert(std.math.isPowerOfTwo(keys.len));
-        assert(keys.len >= slots.len * constants.keys_per_slot_min);
+        assert(keys.len >= slots.len * limits.keys_per_slot_min);
         assert(ttl_seconds_max_valid(ttl_seconds_max));
         var self: Cache = .{
             .slots = slots,
@@ -313,7 +314,7 @@ pub const Cache = struct {
         var tail: [@sizeOf(u64)]u8 = @splat(0);
         @memcpy(tail[0 .. bytes.len - offset], bytes[offset..]);
         word = core.mix.next(word ^ Name.fold_word(std.mem.readInt(u64, &tail, .little)));
-        assert(offset <= core.constants.name_bytes_max);
+        assert(offset <= core.limits.name_bytes_max);
         return @truncate(word);
     }
 
@@ -347,7 +348,7 @@ const ask = fixtures.question;
 const second = fixtures.second;
 
 /// Enough slots that no test here fills the table: the hand is cache_sweep.zig's to drive.
-const slot_count = 4;
+const slot_count: usize = 4;
 
 test "the size of a slot is pinned" {
     // Measured, not derived: Zig orders the fields (docs/design.md §18). 2984 since the slot
@@ -478,6 +479,7 @@ test "the hash is keyed: two seeds land one name in two places" {
 }
 
 test {
+    _ = limits;
     _ = cache_storage;
     _ = @import("cache_kinds_test.zig");
     _ = @import("cache_probe_test.zig");

@@ -41,8 +41,8 @@ pub const Answers = struct {
     /// union changes its member only by being assigned whole, and a safe build fills every octet
     /// of an assignment to `undefined` with 0xAA (decision 34).
     pub const Items = extern union {
-        addresses: [core.constants.addresses_max]Address,
-        names: [core.constants.ptr_names_max]Name,
+        addresses: [core.limits.addresses_max]Address,
+        names: [core.limits.ptr_names_max]Name,
         records: Records,
     };
 
@@ -109,7 +109,7 @@ pub const Answers = struct {
             .names => @memcpy(dst.items.names[0..src.count], src.names()),
             .rdata => {
                 const from = src.records();
-                assert(from.used <= core.constants.rdata_bytes_max);
+                assert(from.used <= core.limits.rdata_bytes_max);
                 const to = &dst.items.records;
                 @memcpy(to.refs[0..src.count], from.refs[0..src.count]);
                 @memcpy(to.bytes[0..from.used], from.bytes[0..from.used]);
@@ -121,21 +121,21 @@ pub const Answers = struct {
     /// The addresses collected for an A or AAAA question.
     pub fn addresses(self: *const Answers) []const Address {
         assert(self.kind.storage() == .addresses);
-        assert(self.count <= core.constants.addresses_max);
+        assert(self.count <= core.limits.addresses_max);
         return self.items.addresses[0..self.count];
     }
 
     /// The names collected for a PTR question.
     pub fn names(self: *const Answers) []const Name {
         assert(self.kind.storage() == .names);
-        assert(self.count <= core.constants.ptr_names_max);
+        assert(self.count <= core.limits.ptr_names_max);
         return self.items.names[0..self.count];
     }
 
     /// The records kept for a question of any other type, `count` of them.
     pub fn records(self: *const Answers) *const Records {
         assert(self.kind.storage() == .rdata);
-        assert(self.count <= core.constants.records_kept_max);
+        assert(self.count <= core.limits.records_kept_max);
         return &self.items.records;
     }
 };
@@ -143,8 +143,8 @@ pub const Answers = struct {
 /// The records of one type that are neither addresses nor PTR names: a reference each into a
 /// buffer holding its rdata with every name written out in full (docs/design.md §19 step 9).
 pub const Records = extern struct {
-    refs: [core.constants.records_kept_max]Ref,
-    bytes: [core.constants.rdata_bytes_max]u8,
+    refs: [core.limits.records_kept_max]Ref,
+    bytes: [core.limits.rdata_bytes_max]u8,
     /// Octets of `bytes` in use.
     used: u16,
 
@@ -158,7 +158,7 @@ pub const Records = extern struct {
 
     /// The record at `index`, which the owning `Answers.count` bounds.
     pub fn at(self: *const Records, index: usize) Kept {
-        assert(index < core.constants.records_kept_max);
+        assert(index < core.limits.records_kept_max);
         const ref = self.refs[index];
         assert(ref.offset + ref.len <= self.used);
         return .{
@@ -175,7 +175,7 @@ pub const Kept = struct { kind_code: u16, ttl_seconds: u32, rdata: []const u8 };
 
 /// The smallest TTL of no record at all: the largest a TTL, "a 32-bit unsigned integer" (RFC 8767
 /// §4), can be, so the first record noted is the smallest so far whatever it is.
-pub const ttl_none = std.math.maxInt(u32);
+pub const ttl_none: u32 = std.math.maxInt(u32);
 
 const testing = std.testing;
 

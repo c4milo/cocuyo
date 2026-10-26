@@ -9,6 +9,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const Error = @import("errors.zig").Error;
 const Address = @import("address.zig").Address;
 const Name = @import("name.zig").Name;
@@ -23,16 +24,13 @@ const v6_suffix = [_][]const u8{ "ip6", "arpa" };
 const hex_digits = "0123456789abcdef";
 
 /// The base an octet is written in for an IPv4 reverse name.
-const decimal_base = 10;
-
-/// The most digits one octet needs in decimal: 255.
-const decimal_digits_max = 3;
+const decimal_base: u8 = 10;
 
 /// The bits a nibble holds, which is how an octet splits into two labels.
-const nibble_bits = 4;
+const nibble_bits: u3 = 4;
 
 /// The low nibble of an octet.
-const nibble_mask = 0x0f;
+const nibble_mask: u8 = 0x0f;
 
 pub fn from_address(address: *const Address) Error!Name {
     var name: Name = Name.empty;
@@ -57,7 +55,7 @@ fn append_v4(name: *Name, octets: []const u8) Error!void {
     var index = octets.len;
     while (index > 0) {
         index -= 1;
-        var digits: [decimal_digits_max]u8 = @splat(0);
+        var digits: [limits.reverse_octet_digits_max]u8 = @splat(0);
         try name.append_label(write_decimal(octets[index], &digits));
     }
     assert(index == 0);
@@ -77,19 +75,19 @@ fn append_v6(name: *Name, octets: []const u8) Error!void {
 }
 
 /// One octet in decimal, with no leading zero, written into `digits`.
-fn write_decimal(octet: u8, digits: *[decimal_digits_max]u8) []const u8 {
-    assert(digits.len == decimal_digits_max);
+fn write_decimal(octet: u8, digits: *[limits.reverse_octet_digits_max]u8) []const u8 {
+    assert(digits.len == limits.reverse_octet_digits_max);
     var value = octet;
     var written: usize = 0;
-    while (written < decimal_digits_max) {
-        digits[decimal_digits_max - 1 - written] = '0' + (value % decimal_base);
+    while (written < limits.reverse_octet_digits_max) {
+        digits[limits.reverse_octet_digits_max - 1 - written] = '0' + (value % decimal_base);
         written += 1;
         value /= decimal_base;
         if (value == 0) break;
     }
     assert(value == 0);
     assert(written >= 1);
-    return digits[decimal_digits_max - written ..];
+    return digits[limits.reverse_octet_digits_max - written ..];
 }
 
 // Tests.
@@ -98,7 +96,7 @@ const testing = std.testing;
 
 fn text_of(name: *const Name) ![]const u8 {
     const out = struct {
-        threadlocal var buffer: [constants.name_text_bytes_max]u8 = undefined;
+        threadlocal var buffer: [limits.name_text_bytes_max]u8 = undefined;
     };
     return out.buffer[0..name.write_text(&out.buffer)];
 }

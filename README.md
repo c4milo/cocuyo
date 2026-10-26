@@ -86,7 +86,7 @@ stands for your own UDP socket, and `clock` for a monotonic clock in nanoseconds
 ```zig
 var servers = cocuyo.Servers.init(&config, seed);
 var lookup = cocuyo.Lookup.init(&config, &servers, try cocuyo.Question.from_text(name, .a), seed);
-var query: [cocuyo.constants.query_bytes_max]u8 = undefined;
+var query: [cocuyo.limits.query_bytes_max]u8 = undefined;
 
 while (true) {
     switch (lookup.poll(clock.read(), &query)) {
@@ -324,7 +324,7 @@ var table = cocuyo.Resolver.init(&slots, &keys, &config, seed);
 table.remember_with(cocuyo.remembered_by(&store)); // optional: the cache under every lookup
 
 _ = try table.start(try cocuyo.Question.from_text("example.com.", .a));
-var query: [cocuyo.constants.query_bytes_max]u8 = undefined;
+var query: [cocuyo.limits.query_bytes_max]u8 = undefined;
 const event = table.poll(now_ns, &query).?; // event.action is .send_udp: the bytes, and where
 ```
 
@@ -362,7 +362,7 @@ time is one a cache takes. cocuyo never reads the cap from a `resolv.conf`, whic
 it.
 
 The engine receives each datagram into a buffer that holds 1,856 octets of it,
-`dns.constants.udp_payload_bytes_max`. So `init` and `reinit` refuse a `Config.udp_payload_bytes`
+`dns.limits.udp_payload_bytes_max`. So `init` and `reinit` refuse a `Config.udp_payload_bytes`
 above it with `error.UdpPayloadTooLarge`, as RFC 6891 §6.2.3 asks. Such a call changes nothing. A
 refused `reinit` keeps the memory it held, so do not free that memory on this error. The memory you
 handed it is yours again. The default, 1,232, fits.

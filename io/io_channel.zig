@@ -16,6 +16,7 @@ const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const tls = @import("io_tls.zig");
 const request_module = @import("io_request.zig");
 const request_template = @import("io_request_template.zig");
@@ -26,7 +27,7 @@ const context_module = @import("io_context.zig");
 /// configuration, so none of its functions is ever called.
 pub const None = struct {
     pub const enabled = false;
-    pub const output_bytes_max = 0;
+    pub const output_bytes_max: usize = 0;
     pub const Error = error{Failed};
     pub const Context = struct {};
     pub const Ticket = struct {};
@@ -367,7 +368,7 @@ pub fn close_idle(self: anytype, now_ns: u64) void {
 /// and `channel_events_max` of the channel's own: what a flood leaves is read next time.
 pub fn hear(self: anytype, server: u8, now_ns: u64) void {
     if (comptime !@TypeOf(self.*).Doh.enabled) unreachable;
-    const events_max = self.requests.len + constants.channel_events_max;
+    const events_max = self.requests.len + limits.channel_events_max;
     for (0..events_max) |_| {
         const slot = &self.doh.slots[server];
         if (slot.state == .closed) return;

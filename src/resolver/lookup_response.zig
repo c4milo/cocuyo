@@ -68,7 +68,7 @@ fn accepted_header(self: *Lookup, message: []const u8, from: Endpoint) ?Accepted
 
 /// 1. A message too short to hold a header, or longer than a message can be.
 pub fn header_of(message: []const u8) ?wire.Header {
-    if (message.len > core.constants.message_bytes_max) return null;
+    if (message.len > core.limits.message_bytes_max) return null;
     return wire.header.parse(message) catch null;
 }
 
@@ -482,12 +482,12 @@ test "a message of 65535 octets is read, and one of 65536 is ignored at check 1"
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
-    var message: [core.constants.message_bytes_max + 1]u8 = @splat(0);
+    var message: [core.limits.message_bytes_max + 1]u8 = @splat(0);
     const reply = harness.build(fixtures.answer_a);
     @memcpy(message[0..reply.len], reply);
     try testing.expectEqual(Verdict.ignored, harness.lookup.on_response(&message, servers[0].endpoint, harness.now_ns));
     try testing.expect(harness.poll() == .wait);
-    const longest = message[0..core.constants.message_bytes_max];
+    const longest = message[0..core.limits.message_bytes_max];
     try testing.expectEqual(Verdict.accepted, harness.lookup.on_response(longest, servers[0].endpoint, harness.now_ns));
     try testing.expect(harness.poll() == .done);
 }

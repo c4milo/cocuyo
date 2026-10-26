@@ -57,7 +57,7 @@ fn resolve(io: std.Io, name: []const u8, config: *const cocuyo.Config, seed: u64
     var servers = cocuyo.Servers.init(config, seed);
     var lookup = cocuyo.Lookup.init(config, &servers, try cocuyo.Question.from_text(name, .a), seed);
     const clock: Clock = .init(io);
-    var query: [cocuyo.constants.query_bytes_max]u8 = undefined;
+    var query: [cocuyo.limits.query_bytes_max]u8 = undefined;
     var reply: [cocuyo.constants.udp_payload_bytes_default]u8 = undefined;
     var socket: ?net.Socket = null;
     defer if (socket) |open_socket| open_socket.close(io);
@@ -178,7 +178,7 @@ fn endpoint_of(address: net.IpAddress) cocuyo.Endpoint {
 }
 
 fn report(name: []const u8, answer: cocuyo.Answer) void {
-    var text: [cocuyo.constants.name_text_bytes_max]u8 = undefined;
+    var text: [cocuyo.limits.name_text_bytes_max]u8 = undefined;
     if (answer.canonical_name) |canonical| {
         std.debug.print("{s} is {s}\n", .{ name, text[0..canonical.write_text(&text)] });
     }

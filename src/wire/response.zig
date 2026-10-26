@@ -60,7 +60,7 @@ pub fn collect(
     out.hops_used = hops_before;
 
     var hops: u8 = hops_before;
-    while (hops <= core.constants.cname_hops_max) {
+    while (hops <= core.limits.cname_hops_max) {
         const pass = try one_pass(message, start.header.ancount, kind, out, start.answer_offset, chain);
         if (pass.collected) return .answered;
         // Nothing for this name. If the chain moved to get here, the lookup asks again for
@@ -72,7 +72,7 @@ pub fn collect(
         hops += 1;
         out.hops_used = hops;
     }
-    assert(hops > core.constants.cname_hops_max);
+    assert(hops > core.limits.cname_hops_max);
     return Error.ChainTooLong;
 }
 
@@ -106,7 +106,7 @@ pub fn negative_ttl_seconds(message: []const u8, question: *const Name) Error!u3
 /// The sum is taken in a usize: a maximal name overflows the octet its length is held in.
 pub fn section_start(question: *const Name) usize {
     const name_len: usize = question.len;
-    assert(name_len <= core.constants.name_bytes_max);
+    assert(name_len <= core.limits.name_bytes_max);
     return core.constants.header_bytes + name_len + core.constants.question_fixed_bytes;
 }
 
@@ -274,7 +274,7 @@ test "a chain already at the hop bound is refused rather than followed" {
         &fixtures.answer_cname_only,
         &test_chain,
         .a,
-        core.constants.cname_hops_max,
+        core.limits.cname_hops_max,
         &collected,
     ));
 }
@@ -302,7 +302,7 @@ test "more records than there is room for are truncated, not dropped silently" {
     var collected: Answers = undefined;
     const outcome = try collect_from(&fixtures.answer_a_seventeen, .a, &collected);
     try testing.expectEqual(Outcome.answered, outcome);
-    try testing.expectEqual(@as(u8, core.constants.addresses_max), collected.count);
+    try testing.expectEqual(@as(u8, core.limits.addresses_max), collected.count);
     try testing.expect(collected.truncated);
     try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 1 }, collected.addresses()[15].slice());
 }
@@ -338,7 +338,7 @@ test "a negative answer's TTL is the SOA minimum, and zero with no SOA, which is
 test "a response echoing a maximal name parses, and its offsets do not overflow an octet" {
     var collected: Answers = undefined;
     test_chain = try Name.from_text("a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63 ++ "." ++ "d" ** 61);
-    try testing.expectEqual(core.constants.name_bytes_max, test_chain.len);
+    try testing.expectEqual(core.limits.name_bytes_max, test_chain.len);
     const outcome = try collect(&fixtures.answer_a_long_name, &test_chain, .a, 0, &collected);
     try testing.expectEqual(Outcome.answered, outcome);
     try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 1 }, collected.addresses()[0].slice());
@@ -346,7 +346,7 @@ test "a response echoing a maximal name parses, and its offsets do not overflow 
 }
 
 /// A label of 63 octets, the longest, after its length octet.
-const label_longest = [_]u8{core.constants.label_bytes_max} ++ [_]u8{'a'} ** core.constants.label_bytes_max;
+const label_longest = [_]u8{core.limits.label_bytes_max} ++ [_]u8{'a'} ** core.limits.label_bytes_max;
 
 /// `fixtures.answer_aaaa` and then `fixtures.record_a`, with `labels` put before the AAAA's owner.
 /// That owner was a pointer to the question's name, 13 octets, so it is now `labels` and those 13.

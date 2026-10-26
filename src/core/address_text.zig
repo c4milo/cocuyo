@@ -12,6 +12,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const address_module = @import("address.zig");
 const Address = address_module.Address;
 const Family = address_module.Family;
@@ -44,7 +45,7 @@ pub fn parse_v4(text: []const u8) ?Address {
 }
 
 fn parse_octet(text: []const u8) ?u8 {
-    if (text.len == 0 or text.len > constants.address_v4_octet_digits_max) return null;
+    if (text.len == 0 or text.len > limits.address_v4_octet_digits_max) return null;
     // A leading zero is how an octet is read as octal elsewhere, so it is refused rather than
     // guessed at: `010` is ten here and eight in some resolvers.
     if (text.len > 1 and text[0] == '0') return null;
@@ -120,7 +121,7 @@ fn fill_quad(text: []const u8, out: []u16, written: u8) ?u8 {
 }
 
 fn parse_group(text: []const u8) ?u16 {
-    if (text.len == 0 or text.len > constants.address_v6_group_digits_max) return null;
+    if (text.len == 0 or text.len > limits.address_v6_group_digits_max) return null;
     var value: u16 = 0;
     for (text) |byte| {
         const digit = hex_digit(byte) orelse return null;

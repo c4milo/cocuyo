@@ -81,7 +81,7 @@ test "a socket binds to the local address the caller named" {
     const bound = rig.loop.network().socket(descriptor).local;
     try testing.expectEqualSlices(u8, &fixtures.local_octets, bound.bytes[0..fixtures.local_octets.len]);
     // The port is still the seed's, which is the entropy of RFC 5452 §9.2.
-    try testing.expect(bound.port >= cocuyo.constants.port_ephemeral_min);
+    try testing.expect(bound.port >= cocuyo.limits.port_ephemeral_min);
     try rig.deinit();
 }
 
@@ -249,7 +249,7 @@ test "init takes a payload at the room of a datagram buffer, and refuses one oct
     // "The requestor SHOULD place a value in this field that it can actually receive" (RFC 6891
     // §6.2.3). The engine receives into a buffer of its datagram group (docs/design.md §19 step
     // 13, the datagram's rule 7).
-    const room = io.constants.udp_payload_bytes_max;
+    const room = io.limits.udp_payload_bytes_max;
     var refused: Rig = .{};
     @memset(std.mem.asBytes(&refused.engine), fixtures.memory_mark);
     const past: cocuyo.Config = .{ .servers = &.{}, .udp_payload_bytes = @intCast(room + 1) };
@@ -263,7 +263,7 @@ test "init takes a payload at the room of a datagram buffer, and refuses one oct
     var rig: Rig = .{};
     try rig.init(52, .{ .{}, .{} }, .{ .servers = &.{}, .udp_payload_bytes = @intCast(room) });
     // The room is what a buffer of the loop's group holds, under the options the engine gave it.
-    const holds = rotor.datagram.payload_capacity(io.constants.buffer_bytes, rig.loop.group_options);
+    const holds = rotor.datagram.payload_capacity(io.limits.buffer_bytes, rig.loop.group_options);
     try testing.expectEqual(room, holds);
     const handle = try rig.engine.start(question("example.com."), rig.loop.now());
     try testing.expectEqual(@as(u16, @intCast(room)), try advertised(&rig.engine, handle));
@@ -284,7 +284,7 @@ test "reinit refuses a payload one octet past the room, and the engine keeps wha
     const stream = stream_of(&rig.engine);
     try testing.expect(stream.up and stream.receiving);
     const sockets_open = open_sockets(&rig.loop);
-    const past = advertising(&rig, io.constants.udp_payload_bytes_max + 1);
+    const past = advertising(&rig, io.limits.udp_payload_bytes_max + 1);
     var other: cocuyo.cache.Storage(fixtures.cache_least_slots) = undefined;
     @memset(std.mem.asBytes(&other), fixtures.memory_mark);
     const refused = rig.engine.reinit(&past, other.slices(), 54, rig.loop.now());
@@ -305,11 +305,11 @@ test "reinit refuses a payload one octet past the room, and the engine keeps wha
     _ = rig.engine.take(rig.loop.now());
 
     // At the room the reinit takes the configuration, and its queries advertise the room.
-    const at = advertising(&rig, io.constants.udp_payload_bytes_max);
+    const at = advertising(&rig, io.limits.udp_payload_bytes_max);
     try rig.engine.reinit(&at, rig.cache_memory.slices(), 55, rig.loop.now());
     try testing.expectEqual(@as(*const cocuyo.Config, &at), rig.engine.config);
     const handle = try rig.engine.start(question("example.com."), rig.loop.now());
-    try testing.expectEqual(@as(u16, @intCast(io.constants.udp_payload_bytes_max)), try advertised(&rig.engine, handle));
+    try testing.expectEqual(@as(u16, @intCast(io.limits.udp_payload_bytes_max)), try advertised(&rig.engine, handle));
     try testing.expect((try rig.until_result()).outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
@@ -341,7 +341,7 @@ fn expect_reinit_waits(tls: bool, seed: u64) !void {
     const connection = &rig.engine.connections[0];
     try failing_test.until_query_in_flight(&rig);
     const lent = io.tls.pending(&rig.engine, 0, connection.queue.first().?.end);
-    var sealed: [io.constants.tls_records_out_bytes]u8 = undefined;
+    var sealed: [io.limits.tls_records_out_bytes]u8 = undefined;
     @memcpy(sealed[0..lent.len], lent);
     rig.engine.cancel_all(rig.loop.now());
     const cancelled = rig.engine.take(rig.loop.now()) orelse return error.NoResult;

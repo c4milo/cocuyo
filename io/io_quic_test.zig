@@ -93,7 +93,7 @@ fn entry_of(side: *Side, socket: rotor.Descriptor) ?*Side.Entry {
 /// Sends what the server owes, each datagram after the scripted server's delay, and loses their
 /// ACK frames when `lose_acks` says so.
 fn pump(side: *Side, entry: *Side.Entry, now_ns: u64, lose_acks: bool) void {
-    var datagram: [cocuyo_quic.constants.datagram_receive_bytes]u8 = undefined;
+    var datagram: [cocuyo_quic.limits.datagram_receive_bytes]u8 = undefined;
     var sent: usize = 0;
     while (sent < fixtures.quic_pump_max) : (sent += 1) {
         const len = entry.server.send(&datagram, now_ns);

@@ -15,6 +15,7 @@ const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const udp = @import("io_udp.zig");
 const tls = @import("io_tls.zig");
 const request_module = @import("io_request.zig");
@@ -127,7 +128,7 @@ pub fn place(self: anytype, index: usize, now_ns: u64) void {
 /// SHOULD check whether the idle time is sufficiently lower than the idle timer" (RFC 9250 §4.4).
 fn near_idle(self: anytype, server: u8, now_ns: u64) bool {
     const connection = &self.quic.connections[server];
-    return connection.transport.idle_left_ns(now_ns) < constants.quic_idle_margin_ns;
+    return connection.transport.idle_left_ns(now_ns) < limits.quic_idle_margin_ns;
 }
 
 pub fn enqueue(connection: anytype, index: u16) void {

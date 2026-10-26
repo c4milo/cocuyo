@@ -91,7 +91,7 @@ test "a BADCOOKIE over the TCP a truncated answer led to is retried on the strea
 
 test "a server cookie of 32 octets, the longest, is learned and goes out in the next query" {
     // The option is then 4, 8 and 32 octets (RFC 7873 §4): the most its length sums to.
-    const longest: [core.constants.cookie_server_bytes_max]u8 = @splat(0x5c);
+    const longest: [core.limits.cookie_server_bytes_max]u8 = @splat(0x5c);
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
@@ -109,7 +109,7 @@ test "a server cookie of 32 octets, the longest, is learned and goes out in the 
 
 test "a server cookie of 8 octets, the shortest, is learned and goes out in the next query" {
     // The option is then 16 octets, the shortest long form (RFC 7873 §4).
-    const shortest: [core.constants.cookie_server_bytes_min]u8 = @splat(0x5c);
+    const shortest: [core.limits.cookie_server_bytes_min]u8 = @splat(0x5c);
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();

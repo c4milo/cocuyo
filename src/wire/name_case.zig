@@ -16,6 +16,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 const Name = core.Name;
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 
 /// Sets the case of every ASCII letter in `name` from `entropy`, one bit per letter: DNS-0x20
 /// (RFC 5452 §9.2 recommends more entropy than the id alone, and this is where a stub finds it).
@@ -36,12 +37,12 @@ pub fn mix_case(name: *Name, entropy: u64) void {
     assert(name.len >= 1);
     var word = entropy;
     var draws: usize = 0;
-    while (draws < constants.case_draws_max) : (draws += 1) {
+    while (draws < limits.case_draws_max) : (draws += 1) {
         const drawn = draw_case(name, word);
         if (drawn.stands()) return;
         word = drawn.word;
     }
-    assert(draws == constants.case_draws_max);
+    assert(draws == limits.case_draws_max);
     capitalize_first(name);
 }
 
@@ -93,7 +94,7 @@ fn read_first_draw(echoed: []const u8, name: *const Name, entropy: u64) Reading 
 comptime {
     // `read_first_draw` reads a length octet as a byte that is not a letter: a label is at most 63
     // octets and 'A' is 65.
-    assert(core.constants.label_bytes_max < 'A');
+    assert(core.limits.label_bytes_max < 'A');
 }
 
 /// `is_mix_of` the long way: the name `mix_case` makes, compared byte for byte. Out of line, so
@@ -146,17 +147,17 @@ fn draw_case(name: *Name, entropy: u64) Draw {
     var drawn: Draw = .init(entropy);
     var offset: usize = 0;
     var labels: usize = 0;
-    while (labels <= core.constants.labels_max) : (labels += 1) {
+    while (labels <= core.limits.labels_max) : (labels += 1) {
         if (offset >= name.len) break;
         const length = name.bytes[offset];
         if (length == 0) break;
-        assert(length <= core.constants.label_bytes_max);
+        assert(length <= core.limits.label_bytes_max);
         for (name.bytes[offset + 1 ..][0..length]) |*byte| {
             if (is_letter(byte.*)) byte.* = drawn.case(byte.*);
         }
         offset += 1 + length;
     }
-    assert(labels <= core.constants.labels_max);
+    assert(labels <= core.limits.labels_max);
     return drawn;
 }
 
@@ -164,7 +165,7 @@ fn draw_case(name: *Name, entropy: u64) Draw {
 fn capitalize_first(name: *Name) void {
     var offset: usize = 0;
     var labels: usize = 0;
-    while (labels <= core.constants.labels_max) : (labels += 1) {
+    while (labels <= core.limits.labels_max) : (labels += 1) {
         if (offset >= name.len) break;
         const length = name.bytes[offset];
         if (length == 0) break;
@@ -253,7 +254,7 @@ test "every letter of every label can take either case, whichever position it si
     // other test in this file. A position that never changes over many seeds is that bug.
     const case_seed_count = 64;
     const original = try Name.from_text("ab.cd");
-    var seen_upper: [core.constants.name_bytes_max]bool = @splat(false);
+    var seen_upper: [core.limits.name_bytes_max]bool = @splat(false);
     var seed: u64 = 0;
     while (seed < case_seed_count) : (seed += 1) {
         var name = original;
@@ -307,11 +308,11 @@ test "a name of one letter always comes out a capital, by the fallback when ever
         // Each draw reads the low bit of the next word, and every draw small falls back.
         var word = seed;
         var small: u64 = 0;
-        for (0..constants.case_draws_max) |_| {
+        for (0..limits.case_draws_max) |_| {
             word = core.mix.next(word);
             small += word & 1;
         }
-        fallen_back += @intFromBool(small == constants.case_draws_max);
+        fallen_back += @intFromBool(small == limits.case_draws_max);
     }
     try testing.expect(fallen_back > 0);
 }
@@ -389,7 +390,7 @@ test "is_mix_of takes the name a later draw or the fallback made, for one, two a
             redrawn += 1;
         }
         try testing.expect(redrawn > 0);
-        try testing.expect(draws_small(later.fallback_seed, mask, constants.case_draws_max));
+        try testing.expect(draws_small(later.fallback_seed, mask, limits.case_draws_max));
         try expect_later_draw(&name, later.fallback_seed);
         var first_capital = name;
         first_capital.fold_case();
@@ -469,12 +470,9 @@ fn expect_every_echo(name: *const Name, entropy: u64) !void {
     }
 }
 
-/// The longest label of boundary octets the test spells.
-const boundary_label_bytes_max = 2;
-
 /// A name of one label, the `length` octets of `boundary_octets` that `code` spells.
 fn boundary_name(code: usize, length: usize) !Name {
-    var label: [boundary_label_bytes_max]u8 = undefined;
+    var label: [limits.case_boundary_label_bytes_max]u8 = undefined;
     var rest = code;
     for (label[0..length]) |*octet| {
         octet.* = boundary_octets[rest % boundary_octets.len];
@@ -490,7 +488,7 @@ test "is_mix_of agrees with the built name on every echo of every short label of
     // The method's first-difference proof (docs/performance.md) over one- and two-octet labels,
     // sixteen seeds each: every path of the compare, the later draws and the fallback among them.
     const seed_count = 16;
-    for (1..boundary_label_bytes_max + 1) |length| {
+    for (1..limits.case_boundary_label_bytes_max + 1) |length| {
         for (0..std.math.pow(usize, boundary_octets.len, length)) |code| {
             const name = try boundary_name(code, length);
             for (0..seed_count) |seed| try expect_every_echo(&name, core.mix.next(seed));

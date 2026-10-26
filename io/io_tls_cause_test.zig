@@ -10,6 +10,7 @@ const rotor = @import("rotor");
 const io = @import("io.zig");
 const tcp = @import("io_tcp.zig");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 
 const fixtures = @import("fixtures.zig");
 const sim_test = @import("io_sim_test.zig");
@@ -59,7 +60,7 @@ test "a record longer than TLS allows while the handshake runs gives the handsha
     var rig: OneServer = .{};
     try until_handshaking(&rig, 131, .{});
     var header: [constants.tls_record_header_bytes]u8 = .{ 22, 3, 3, 0, 0 };
-    std.mem.writeInt(u16, header[constants.tls_record_length_at..][0..@sizeOf(u16)], constants.tls_record_body_bytes_max + 1, .big);
+    std.mem.writeInt(u16, header[constants.tls_record_length_at..][0..@sizeOf(u16)], limits.tls_record_body_bytes_max + 1, .big);
     io.tls.take(&rig.engine, 0, &header, rig.loop.now());
     try expect_all_failed(&rig, .handshake);
     try rig.deinit();

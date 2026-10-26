@@ -30,7 +30,7 @@ pub const Candidate = union(enum) {
 /// least `ndots` dots is tried as it was written first, and a name with fewer is tried against the
 /// search list first. An absolute name has one candidate, itself.
 pub fn candidate(config: *const Config, question: *const Question, index: u8) Candidate {
-    assert(index <= core.constants.candidates_max);
+    assert(index <= core.limits.candidates_max);
     if (question.absolute) return if (index == 0) .{ .name = question.name } else .exhausted;
     const search_count: u8 = @intCast(config.search.len);
     const name_first = question.name.dot_count() >= config.ndots;
@@ -46,7 +46,7 @@ pub fn candidate(config: *const Config, question: *const Question, index: u8) Ca
 pub fn candidate_count(config: *const Config, question: *const Question) u8 {
     if (question.absolute) return 1;
     const count: u8 = @intCast(config.search.len + 1);
-    assert(count <= core.constants.candidates_max);
+    assert(count <= core.limits.candidates_max);
     return count;
 }
 
@@ -60,7 +60,7 @@ pub fn wait_ns(config: *const Config, average_ns: ?u64) u64 {
     const base = if (average_ns) |average| average *| constants.latency_wait_multiplier else config.timeout_ns;
     // The floor departs from RFC 1035 §4.2.1's "minimum retransmission interval should be 2-5
     // seconds": it is c-ares's 250 ms, as the owner ruled on 2026-10-09 (docs/design.md §5).
-    const clamped = @min(@max(base, core.constants.timeout_ns_min), config.timeout_ns_max);
+    const clamped = @min(@max(base, core.limits.timeout_ns_min), config.timeout_ns_max);
     assert(clamped >= 1);
     assert(clamped <= config.timeout_ns_max);
     return clamped;
@@ -70,7 +70,7 @@ pub fn wait_ns(config: *const Config, average_ns: ?u64) u64 {
 /// and is capped, so a configuration with a long timeout and several attempts cannot make one
 /// lookup wait for minutes on its last pass.
 pub fn deadline_ns(config: *const Config, wait: u64, round: u8, now_ns: u64) u64 {
-    assert(round < core.constants.attempts_max);
+    assert(round < core.limits.attempts_max);
     assert(wait >= 1 and wait <= config.timeout_ns_max);
     const doubled = wait << @intCast(round);
     const waited = @min(doubled, config.timeout_ns_max);
@@ -188,7 +188,7 @@ test "an empty search list leaves the name as the only candidate" {
 }
 
 /// Milliseconds, in nanoseconds, for the tests of the wait.
-const millisecond = 1_000_000;
+const millisecond: u64 = 1_000_000;
 
 test "a server not measured yet waits the configured wait, clamped to the floor and the cap" {
     const config = config_with(&.{}, 1);
@@ -198,7 +198,7 @@ test "a server not measured yet waits the configured wait, clamped to the floor 
     try testing.expectEqual(@as(u64, 250 * millisecond), wait_ns(&short, null));
     var long = config;
     long.timeout_ns = 20_000 * millisecond;
-    long.timeout_ns_max = core.constants.timeout_ns_max;
+    long.timeout_ns_max = core.limits.timeout_ns_max;
     try testing.expectEqual(@as(u64, 20_000 * millisecond), wait_ns(&long, null));
 }
 

@@ -13,7 +13,7 @@ const fixtures = @import("fixtures.zig");
 const sim_test = @import("io_sim_test.zig");
 const question = sim_test.question;
 
-const servers_max = cocuyo.constants.servers_max;
+const servers_max = cocuyo.limits.servers_max;
 const last: u8 = servers_max - 1;
 
 /// Every server down but the last.
@@ -93,7 +93,7 @@ test "one drive takes a lookup through every try at eight servers when the loop 
     const answering: [servers_max]rotor.server.Script = @splat(.{});
     try rig.init(114, answering, .{
         .servers = &.{},
-        .attempts = cocuyo.constants.attempts_max,
+        .attempts = cocuyo.limits.attempts_max,
         .use_tcp = true,
         .rotate = true,
         .failover_retry_chance = 0,

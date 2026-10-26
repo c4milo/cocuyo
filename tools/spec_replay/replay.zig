@@ -135,7 +135,7 @@ pub const Replay = struct {
     /// The cut datagrams checked, one at each line whose reply stands for one (`replay_cut.zig`).
     cuts: usize = 0,
     mismatch: ?Mismatch = null,
-    query: [core.constants.query_bytes_max]u8 = undefined,
+    query: [core.limits.query_bytes_max]u8 = undefined,
     reply: [core.constants.udp_payload_bytes_default]u8 = undefined,
 
     /// Replays one line of the transcript.
@@ -164,13 +164,13 @@ pub const Replay = struct {
     /// The model's walk counts CNAME hops against the limit it was given; this build's is fixed.
     fn check_hops(self: *Replay, fields: *std.mem.TokenIterator(u8, .scalar)) Error!void {
         const hops = std.fmt.parseInt(u8, fields.next() orelse "", 10) catch return error.Malformed;
-        if (hops != core.constants.cname_hops_max) return error.WrongHops;
+        if (hops != core.limits.cname_hops_max) return error.WrongHops;
         self.hops_checked = true;
     }
 
     fn configure(self: *Replay, text: []const u8, fields: *std.mem.TokenIterator(u8, .scalar)) Error!void {
         const server_count = try count(fields.next(), 0, fixtures.servers.len);
-        const attempts = try count(fields.next(), 1, core.constants.attempts_max);
+        const attempts = try count(fields.next(), 1, core.limits.attempts_max);
         const candidates = try count(fields.next(), 1, search_all.len + 1);
         const transport = parse(Transport, fields.next()) orelse return error.Malformed;
         if (fields.next() != null) return error.Malformed;

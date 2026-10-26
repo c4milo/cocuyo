@@ -71,7 +71,7 @@ fn answered_stream(rig: *Rig, seed: u64) !rotor.Descriptor {
 test "a length prefix of 65534 or 65535 is waited for, and the connection stays up" {
     // The prefix's two octets and a message that long pass 65535 (RFC 1035 §4.2.2). Summed in
     // the `u16` the prefix reads as, they overflowed: a panic on two octets any server can write.
-    for ([_]u16{ fixtures.message_bytes_unsummed, fixtures.message_bytes_unsummed + 1, cocuyo.constants.message_bytes_max }) |length| {
+    for ([_]u16{ fixtures.message_bytes_unsummed, fixtures.message_bytes_unsummed + 1, cocuyo.limits.message_bytes_max }) |length| {
         var rig: Rig = .{};
         const socket = try answered_stream(&rig, 23);
         var prefix: [cocuyo.constants.tcp_prefix_bytes]u8 = undefined;
@@ -93,10 +93,10 @@ test "a frame holds the longest message a prefix can say and a chunk after it, a
     _ = try answered_stream(&rig, 24);
     const connection = &rig.engine.connections[0];
     const prefix = cocuyo.constants.tcp_prefix_bytes;
-    const longest = prefix + cocuyo.constants.message_bytes_max;
-    try testing.expectEqual(longest + io.constants.tcp_chunk_bytes, connection.frame.len);
+    const longest = prefix + cocuyo.limits.message_bytes_max;
+    try testing.expectEqual(longest + io.limits.tcp_chunk_bytes, connection.frame.len);
     @memset(&connection.frame, 0);
-    std.mem.writeInt(u16, connection.frame[0..prefix], cocuyo.constants.message_bytes_max, .big);
+    std.mem.writeInt(u16, connection.frame[0..prefix], cocuyo.limits.message_bytes_max, .big);
     connection.used = connection.frame.len;
     try testing.expect(frame.deliver(&rig.engine, 0, rig.loop.now()));
     try testing.expectEqual(@as(usize, 0), connection.used);
@@ -176,7 +176,7 @@ test "every whole message one chunk carries is handed over with it, the last one
     try rig.init(27, .{ .{ .drop_per_256 = fixtures.always }, .{ .down = true } }, .{ .servers = &.{}, .use_tcp = true, .attempts = 1 });
     const handle = try rig.engine.start(question("example.com."), rig.loop.now());
     try sim_test.until_sent(&rig);
-    var answer: [io.constants.tcp_chunk_bytes]u8 = undefined;
+    var answer: [io.limits.tcp_chunk_bytes]u8 = undefined;
     const answer_bytes = try sim_test.framed_answer(&rig.engine, handle, &answer);
     // The frame holds the chunk as `take_chunk` keeps it. Each message before the answer is a
     // header of zeros. Such a header is a query, and no lookup takes a query (docs/design.md §7,
@@ -184,7 +184,7 @@ test "every whole message one chunk carries is handed over with it, the last one
     const connection = &rig.engine.connections[0];
     const header = cocuyo.constants.header_bytes;
     const framed = cocuyo.constants.tcp_prefix_bytes + header;
-    const others = (io.constants.tcp_chunk_bytes - answer_bytes) / framed;
+    const others = (io.limits.tcp_chunk_bytes - answer_bytes) / framed;
     @memset(connection.frame[0 .. others * framed], 0);
     for (0..others) |other| cocuyo.wire.header.write_message_len(connection.frame[other * framed ..], @intCast(header));
     @memcpy(connection.frame[others * framed ..][0..answer_bytes], answer[0..answer_bytes]);
@@ -209,7 +209,7 @@ test "a frame over TLS of messages that are their prefix alone is handed over wh
     var rig: tls_test.Rig = .{};
     try tls_test.up(&rig, 56);
     const connection = &rig.engine.connections[0];
-    try testing.expectEqual(io.constants.tcp_messages_per_frame_max, connection.frame.len / cocuyo.constants.tcp_prefix_bytes);
+    try testing.expectEqual(io.limits.tcp_messages_per_frame_max, connection.frame.len / cocuyo.constants.tcp_prefix_bytes);
     @memset(&connection.frame, 0);
     connection.used = connection.frame.len;
     try testing.expect(frame.deliver(&rig.engine, 0, rig.loop.now()));

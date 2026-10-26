@@ -219,7 +219,7 @@ fn slot(line: *Line, world: anytype, index: usize) void {
     const lookup = &table_slot.lookup;
     var text: [lookup_text.state_bytes_max]u8 = undefined;
     line.print("{s} o", .{lookup_text.state_text(lookup, &text)});
-    var order: [cocuyo.constants.servers_max]usize = undefined;
+    var order: [cocuyo.limits.servers_max]usize = undefined;
     const ordered: usize = if (lookup.flags.ordered) world.config.servers.len else 0;
     for (order[0..ordered], 0..) |*position, at| position.* = lookup.order[at];
     line.list(order[0..ordered]);

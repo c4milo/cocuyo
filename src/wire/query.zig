@@ -48,7 +48,7 @@ pub fn query_bytes(query: *const Query) usize {
     var total: usize = core.constants.header_bytes + question_codec.section_bytes(&query.name);
     if (query.payload_bytes != null) total += edns.record_bytes_padded(cookie_of(query), padding_bytes(query));
     if (query.tcp) total += core.constants.tcp_prefix_bytes;
-    assert(total <= core.constants.query_bytes_max);
+    assert(total <= core.limits.query_bytes_max);
     return total;
 }
 
@@ -68,11 +68,11 @@ fn padding_bytes(query: *const Query) ?usize {
 }
 
 /// Writes `query` into `out` and returns the octets written. `out` must hold
-/// `constants.query_bytes_max`, which is the largest query there is, so one buffer fits every
+/// `limits.query_bytes_max`, which is the largest query there is, so one buffer fits every
 /// query a caller will ever send.
 pub fn write(query: *const Query, out: []u8) usize {
     assert(query.kind.queryable());
-    assert(out.len >= core.constants.query_bytes_max);
+    assert(out.len >= core.limits.query_bytes_max);
     const total = query_bytes(query);
     const body = if (query.tcp) out[core.constants.tcp_prefix_bytes..] else out;
 
@@ -114,7 +114,7 @@ fn query_for(text: []const u8) !Query {
 
 test "a query is a header, a question and an OPT record" {
     var query = try query_for("example.com");
-    var out: [core.constants.query_bytes_max]u8 = @splat(0);
+    var out: [core.limits.query_bytes_max]u8 = @splat(0);
     const written = write(&query, &out);
     try testing.expectEqual(query_bytes(&query), written);
     const expected = [_]u8{
@@ -131,8 +131,8 @@ test "a query is a header, a question and an OPT record" {
 
 test "the same query written twice is byte-identical" {
     const query = try query_for("example.com");
-    var first: [core.constants.query_bytes_max]u8 = @splat(0);
-    var second: [core.constants.query_bytes_max]u8 = @splat(0xff);
+    var first: [core.limits.query_bytes_max]u8 = @splat(0);
+    var second: [core.limits.query_bytes_max]u8 = @splat(0xff);
     const written = write(&query, &first);
     try testing.expectEqual(written, write(&query, &second));
     try testing.expectEqualSlices(u8, first[0..written], second[0..written]);
@@ -141,7 +141,7 @@ test "the same query written twice is byte-identical" {
 test "EDNS0 off drops the OPT record and the additional count" {
     var query = try query_for("example.com");
     query.payload_bytes = null;
-    var out: [core.constants.query_bytes_max]u8 = @splat(0);
+    var out: [core.limits.query_bytes_max]u8 = @splat(0);
     const written = write(&query, &out);
     try testing.expectEqual(
         core.constants.header_bytes + 13 + core.constants.question_fixed_bytes,
@@ -155,7 +155,7 @@ test "EDNS0 off drops the OPT record and the additional count" {
 test "a TCP query carries the length prefix, which counts the message after it" {
     var query = try query_for("example.com");
     query.tcp = true;
-    var out: [core.constants.query_bytes_max]u8 = @splat(0);
+    var out: [core.limits.query_bytes_max]u8 = @splat(0);
     const written = write(&query, &out);
     const length = header_codec.message_len(&out);
     try testing.expectEqual(written - core.constants.tcp_prefix_bytes, length);
@@ -172,12 +172,12 @@ test "the largest query there is fits the buffer the caller provides" {
     query.cookie = .{
         .client = fixtures.cookie_client,
         .server = @splat(0xcc),
-        .server_len = core.constants.cookie_server_bytes_max,
+        .server_len = core.limits.cookie_server_bytes_max,
     };
-    try testing.expectEqual(core.constants.name_bytes_max, query.name.len);
-    try testing.expectEqual(core.constants.query_bytes_max, query_bytes(&query));
-    var out: [core.constants.query_bytes_max]u8 = @splat(0);
-    try testing.expectEqual(core.constants.query_bytes_max, write(&query, &out));
+    try testing.expectEqual(core.limits.name_bytes_max, query.name.len);
+    try testing.expectEqual(core.limits.query_bytes_max, query_bytes(&query));
+    var out: [core.limits.query_bytes_max]u8 = @splat(0);
+    try testing.expectEqual(core.limits.query_bytes_max, write(&query, &out));
 }
 
 test "a padded query is a whole number of blocks, its padding zero, and an unpadded one has none" {
@@ -187,7 +187,7 @@ test "a padded query is a whole number of blocks, its padding zero, and an unpad
         var query = try query_for(text);
         query.tcp = true;
         query.padded = true;
-        var out: [core.constants.query_bytes_max]u8 = @splat(0xff);
+        var out: [core.limits.query_bytes_max]u8 = @splat(0xff);
         const written = write(&query, &out);
         const message = out[core.constants.tcp_prefix_bytes..written];
         try testing.expectEqual(@as(usize, 0), message.len % core.constants.padding_block_bytes);
@@ -204,7 +204,7 @@ test "a padded query without EDNS carries no OPT record and no padding" {
     var query = try query_for("example.com");
     query.padded = true;
     query.payload_bytes = null;
-    var out: [core.constants.query_bytes_max]u8 = @splat(0);
+    var out: [core.limits.query_bytes_max]u8 = @splat(0);
     const written = write(&query, &out);
     try testing.expectEqual(core.constants.header_bytes + 13 + core.constants.question_fixed_bytes, written);
     try testing.expectEqual(@as(u16, 0), (try header_codec.parse(out[0..written])).arcount);
@@ -212,7 +212,7 @@ test "a padded query without EDNS carries no OPT record and no padding" {
 
 test "the question a query wrote is the question that matches it back" {
     const query = try query_for("example.com");
-    var out: [core.constants.query_bytes_max]u8 = @splat(0);
+    var out: [core.limits.query_bytes_max]u8 = @splat(0);
     const written = write(&query, &out);
     try testing.expect(question_codec.matches(out[0..written], &query.name, query.kind));
 }
@@ -220,7 +220,7 @@ test "the question a query wrote is the question that matches it back" {
 test "a query with a cookie carries it in the OPT record, and one without EDNS carries none" {
     var query = try query_for("example.com");
     query.cookie = .{ .client = fixtures.cookie_client, .server = @splat(0), .server_len = 0 };
-    var out: [core.constants.query_bytes_max]u8 = @splat(0);
+    var out: [core.limits.query_bytes_max]u8 = @splat(0);
     const written = write(&query, &out);
     const plain_bytes = core.constants.header_bytes + "\x07example\x03com\x00\x00\x01\x00\x01".len + core.constants.opt_record_bytes;
     try testing.expectEqual(plain_bytes + fixtures.opt_cookie_short_rdata.len, written);
@@ -232,7 +232,7 @@ test "a query with a cookie carries it in the OPT record, and one without EDNS c
 
 test "the RD bit is set unless the caller clears it" {
     var query = try query_for("example.com");
-    var out: [core.constants.query_bytes_max]u8 = @splat(0);
+    var out: [core.limits.query_bytes_max]u8 = @splat(0);
     _ = write(&query, &out);
     try testing.expect((try header_codec.parse(&out)).flags & constants.flag_recursion_desired != 0);
     query.recursion_desired = false;

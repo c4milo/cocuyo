@@ -8,6 +8,7 @@ const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const request_module = @import("io_request.zig");
 const connection_module = @import("io_request_connection.zig");
 
@@ -97,7 +98,7 @@ pub fn expire_due(self: anytype, now_ns: u64) void {
 /// nothing more or the connection fails. One answer or reset for each stream at most, and
 /// `quic_connection_events_max` of the connection's own: what a flood leaves is read next time.
 fn hear(self: anytype, server: u8, now_ns: u64) void {
-    const events_max = self.requests.len + constants.quic_connection_events_max;
+    const events_max = self.requests.len + limits.quic_connection_events_max;
     var events: usize = 0;
     while (events < events_max) : (events += 1) {
         const connection = &self.quic.connections[server];

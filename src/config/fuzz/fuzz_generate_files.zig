@@ -7,6 +7,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const constants = @import("../constants.zig");
+const limits = @import("../limits.zig");
 const generate = @import("fuzz_generate.zig");
 const Generator = generate.Generator;
 const Text = generate.Text;
@@ -15,7 +16,7 @@ const Text = generate.Text;
 /// an options line now and then, and records the servers and the search list it must give. With
 /// `bad_line`, one nameserver line among them carries an address the grammar refuses.
 pub fn write_resolv_conf(generator: *Generator, out: *Text, bad_line: bool) void {
-    const servers = generator.below(constants.fuzz_entries_max + 1);
+    const servers = generator.below(limits.fuzz_entries_max + 1);
     const bad_at = if (bad_line) generator.below(servers + 1) else null;
     for (0..servers + 1) |index| {
         write_filler(generator, out);
@@ -35,7 +36,7 @@ pub fn write_resolv_conf(generator: *Generator, out: *Text, bad_line: bool) void
 /// `search` and one name or more: the last such line is the list (`resolv.conf(5)`).
 fn write_search(generator: *Generator, out: *Text) void {
     out.put(constants.keyword_search);
-    for (0..1 + generator.below(constants.fuzz_entries_max)) |_| {
+    for (0..1 + generator.below(limits.fuzz_entries_max)) |_| {
         write_blanks(generator, out);
         out.expected.add_name(generate.write_name(generator, out, .host));
     }
@@ -56,7 +57,7 @@ fn write_options(generator: *Generator, out: *Text) void {
 
 const option_names = [_][]const u8{ "ndots:", "timeout:", "attempts:", "rotate", constants.option_use_vc, "inet6", "edns0" };
 /// Values up to past every bound an option keeps, so a clamp is reached as well as the range.
-const option_value_room = std.math.maxInt(u16);
+const option_value_room: u16 = std.math.maxInt(u16);
 
 fn write_bad_nameserver(generator: *Generator, out: *Text) void {
     out.put(constants.keyword_nameserver);
@@ -70,7 +71,7 @@ fn write_bad_nameserver(generator: *Generator, out: *Text) void {
 /// their first label, so the check can find each one. With `bad_line`, one more line carries an
 /// address the grammar refuses.
 pub fn write_hosts(generator: *Generator, out: *Text, bad_line: bool) void {
-    const entries = 1 + generator.below(constants.fuzz_entries_max);
+    const entries = 1 + generator.below(limits.fuzz_entries_max);
     const bad_at = if (bad_line) generator.below(entries + 1) else null;
     for (0..entries + 1) |index| {
         write_filler(generator, out);
@@ -107,7 +108,7 @@ fn write_bad_host(generator: *Generator, out: *Text) void {
 
 /// Comment lines, blank lines and a line of an unknown keyword, none of which counts.
 fn write_filler(generator: *Generator, out: *Text) void {
-    for (0..generator.below(constants.fuzz_filler_lines_max + 1)) |_| {
+    for (0..generator.below(limits.fuzz_filler_lines_max + 1)) |_| {
         out.put(filler_lines[generator.below(filler_lines.len)]);
         write_line_end(generator, out);
     }
@@ -116,14 +117,12 @@ fn write_filler(generator: *Generator, out: *Text) void {
 const filler_lines = [_][]const u8{ "# a comment", "; another", "", " \t", "sortlist 192.0.2.0" };
 
 fn write_blanks(generator: *Generator, out: *Text) void {
-    for (0..1 + generator.below(blanks_max)) |_| out.put(if (generator.coin()) " " else "\t");
+    for (0..1 + generator.below(limits.fuzz_blanks_max)) |_| out.put(if (generator.coin()) " " else "\t");
 }
 
 fn write_blanks_maybe(generator: *Generator, out: *Text) void {
     if (generator.coin()) write_blanks(generator, out);
 }
-
-const blanks_max = 3;
 
 fn write_line_end(generator: *Generator, out: *Text) void {
     out.put(if (generator.coin()) "\n" else "\r\n");

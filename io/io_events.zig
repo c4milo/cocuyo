@@ -62,7 +62,7 @@ fn on_receive_event(self: anytype, index: usize, event: rotor.Event, now_ns: u64
         if (event.flags.buffer) self.loop.give_back_buffer(constants.group_id, event.flags.buffer_id);
         return;
     };
-    assert(found.server < cocuyo.constants.servers_max);
+    assert(found.server < cocuyo.limits.servers_max);
     if (event.flags.buffer) deliver(self, event, now_ns);
     // A multishot that ended is armed again on the same socket, current or draining, unless the
     // engine is closing; one the loop refuses is asked for again at the next drive.

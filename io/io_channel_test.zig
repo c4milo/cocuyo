@@ -349,7 +349,7 @@ test "one read of a channel takes an end for each request and 16 of its own, and
     rig.use_test_contexts();
     const handle = try rig.engine.start(question("example.com."), rig.loop.now());
     const channel = &rig.engine.doh.slots[0].channel;
-    const per_read = rig.engine.requests.len + io.constants.channel_events_max;
+    const per_read = rig.engine.requests.len + io.limits.channel_events_max;
     channel.flood = per_read + 1;
     io.channel.hear(&rig.engine, 0, rig.loop.now());
     try testing.expectEqual(per_read, channel.said);

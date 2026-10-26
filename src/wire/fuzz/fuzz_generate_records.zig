@@ -7,6 +7,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const constants = @import("../constants.zig");
+const limits = @import("../limits.zig");
 const integer = @import("../integer.zig");
 const generate_module = @import("fuzz_generate.zig");
 const Generator = generate_module.Generator;
@@ -26,7 +27,7 @@ pub const question_name = "\x07example\x03com\x00";
 
 /// The letters a generated label or CAA tag is made of: a tag takes "only ASCII letters and
 /// digits" (RFC 8659 §4.1), and a label takes these as well.
-const letters = 'z' - 'a' + 1;
+const letters: usize = 'z' - 'a' + 1;
 
 /// Octets written one after another into a message.
 pub const Writer = struct {
@@ -115,11 +116,11 @@ fn write_rdata(generator: *Generator, writer: *Writer, kind: core.Kind) void {
             writer.noise(generator, if (kind == .mx) constants.mx_fixed_bytes else constants.srv_fixed_bytes);
             write_name(generator, writer);
         },
-        .txt => for (0..1 + generator.below(constants.fuzz_strings_max)) |_| write_string(generator, writer, 0),
+        .txt => for (0..1 + generator.below(limits.fuzz_strings_max)) |_| write_string(generator, writer, 0),
         .sig => {
             writer.noise(generator, constants.sig_fixed_bytes);
             write_name(generator, writer);
-            writer.noise(generator, generator.below(constants.fuzz_opaque_bytes_max + 1));
+            writer.noise(generator, generator.below(limits.fuzz_opaque_bytes_max + 1));
         },
         .naptr => {
             // Flags, services and regexp, then the replacement (RFC 3403 §4.1).
@@ -129,9 +130,9 @@ fn write_rdata(generator: *Generator, writer: *Writer, kind: core.Kind) void {
             write_string(generator, writer, 0);
             write_name(generator, writer);
         },
-        .tlsa => writer.noise(generator, constants.tlsa_fixed_bytes + generator.below(constants.fuzz_opaque_bytes_max + 1)),
+        .tlsa => writer.noise(generator, constants.tlsa_fixed_bytes + generator.below(limits.fuzz_opaque_bytes_max + 1)),
         // "The length of the Target field MUST be greater than zero" (RFC 7553 §4.5).
-        .uri => writer.noise(generator, constants.uri_fixed_bytes + 1 + generator.below(constants.fuzz_opaque_bytes_max)),
+        .uri => writer.noise(generator, constants.uri_fixed_bytes + 1 + generator.below(limits.fuzz_opaque_bytes_max)),
         .caa => write_caa(generator, writer),
         .svcb, .https => write_svcb(generator, writer),
         // The generator writes only the types the codec reads.
@@ -144,8 +145,8 @@ fn write_rdata(generator: *Generator, writer: *Writer, kind: core.Kind) void {
 /// docs/design.md §16 decision 16).
 fn write_name(generator: *Generator, writer: *Writer) void {
     if (generator.coin()) return writer.short(pointer_to(core.constants.header_bytes));
-    for (0..1 + generator.below(constants.fuzz_labels_max)) |_| {
-        const length = 1 + generator.below(constants.fuzz_label_bytes_max);
+    for (0..1 + generator.below(limits.fuzz_labels_max)) |_| {
+        const length = 1 + generator.below(limits.fuzz_label_bytes_max);
         writer.octet(@intCast(length));
         write_letters(generator, writer, length);
     }
@@ -158,7 +159,7 @@ fn write_letters(generator: *Generator, writer: *Writer, count: usize) void {
 
 /// A `<character-string>` of `least` to `fuzz_string_bytes_max` octets (RFC 1035 §3.3).
 fn write_string(generator: *Generator, writer: *Writer, least: usize) void {
-    const length = least + generator.below(constants.fuzz_string_bytes_max + 1 - least);
+    const length = least + generator.below(limits.fuzz_string_bytes_max + 1 - least);
     writer.octet(@intCast(length));
     writer.noise(generator, length);
 }
@@ -166,10 +167,10 @@ fn write_string(generator: *Generator, writer: *Writer, least: usize) void {
 /// Flags, a tag of letters, at least one (RFC 8659 §4.1), and a value.
 fn write_caa(generator: *Generator, writer: *Writer) void {
     writer.octet(generator.byte());
-    const tag_length = constants.caa_tag_bytes_min + generator.below(constants.fuzz_label_bytes_max);
+    const tag_length = limits.caa_tag_bytes_min + generator.below(limits.fuzz_label_bytes_max);
     writer.octet(@intCast(tag_length));
     write_letters(generator, writer, tag_length);
-    writer.noise(generator, generator.below(constants.fuzz_opaque_bytes_max + 1));
+    writer.noise(generator, generator.below(limits.fuzz_opaque_bytes_max + 1));
 }
 
 /// The keys an SVCB is written with, in the strictly increasing order RFC 9460 §2.2 asks for.
@@ -214,12 +215,12 @@ fn write_value(generator: *Generator, writer: *Writer, key: u16, chosen: []const
             if (on) writer.short(named);
         },
         // "at least one alpn-id", each "a sequence of 1-255 octets" (§7.1).
-        constants.svcb_key_alpn => for (0..1 + generator.below(constants.fuzz_strings_max)) |_| write_string(generator, writer, 1),
+        constants.svcb_key_alpn => for (0..1 + generator.below(limits.fuzz_strings_max)) |_| write_string(generator, writer, 1),
         constants.svcb_key_no_default_alpn => {},
         constants.svcb_key_port => writer.noise(generator, constants.u16_bytes),
-        constants.svcb_key_ipv4hint => writer.noise(generator, core.constants.address_v4_bytes * (1 + generator.below(constants.fuzz_hints_max))),
-        constants.svcb_key_ipv6hint => writer.noise(generator, core.constants.address_v6_bytes * (1 + generator.below(constants.fuzz_hints_max))),
-        else => writer.noise(generator, generator.below(constants.fuzz_opaque_bytes_max + 1)),
+        constants.svcb_key_ipv4hint => writer.noise(generator, core.constants.address_v4_bytes * (1 + generator.below(limits.fuzz_hints_max))),
+        constants.svcb_key_ipv6hint => writer.noise(generator, core.constants.address_v6_bytes * (1 + generator.below(limits.fuzz_hints_max))),
+        else => writer.noise(generator, generator.below(limits.fuzz_opaque_bytes_max + 1)),
     }
 }
 
@@ -258,15 +259,15 @@ pub const wide_most: u16 = std.math.maxInt(u16);
 
 /// The largest a one-octet length holds, and the longest label (RFC 1035 §2.3.4).
 pub const narrow_most: u8 = std.math.maxInt(u8);
-pub const label_most: u8 = core.constants.label_bytes_max;
+pub const label_most: u8 = core.limits.label_bytes_max;
 
 /// The lengths a COOKIE option is written with: the client cookie alone, the shortest and the
 /// longest long form, and one octet past the longest (RFC 7873 §4).
 pub const cookie_lengths = [_]usize{
     constants.cookie_option_short_bytes,
-    constants.cookie_option_long_bytes_min,
-    constants.cookie_option_long_bytes_max,
-    constants.cookie_option_long_bytes_max + 1,
+    limits.cookie_option_long_bytes_min,
+    limits.cookie_option_long_bytes_max,
+    limits.cookie_option_long_bytes_max + 1,
 };
 
 /// The types a record of the lengths strategy is written in, for each field.
@@ -337,7 +338,7 @@ fn write_record_head(generator: *Generator, writer: *Writer, kind: core.Kind) vo
 fn write_wide_most(generator: *Generator, writer: *Writer) usize {
     const at = writer.at;
     writer.short(wide_most - @intFromBool(generator.coin()));
-    writer.noise(generator, generator.below(constants.fuzz_opaque_bytes_max + 1));
+    writer.noise(generator, generator.below(limits.fuzz_opaque_bytes_max + 1));
     return at;
 }
 
@@ -368,7 +369,7 @@ fn write_cookie_most(generator: *Generator, writer: *Writer) usize {
     write_opt_head(writer);
     const length_at = writer.length_later();
     if (generator.coin()) {
-        const padding = generator.below(constants.fuzz_opaque_bytes_max + 1);
+        const padding = generator.below(limits.fuzz_opaque_bytes_max + 1);
         writer.short(constants.padding_option_code);
         writer.short(@intCast(padding));
         for (0..padding) |_| writer.octet(0);
@@ -401,7 +402,7 @@ fn write_rdata_most(generator: *Generator, writer: *Writer, most: Most) usize {
             const at = writer.at;
             writer.octet(narrow_most);
             write_letters(generator, writer, narrow_most);
-            writer.noise(generator, generator.below(constants.fuzz_opaque_bytes_max + 1));
+            writer.noise(generator, generator.below(limits.fuzz_opaque_bytes_max + 1));
             return at;
         },
         .alpn_length => return write_alpn_most(generator, writer),
@@ -434,7 +435,7 @@ fn write_alpn_most(generator: *Generator, writer: *Writer) usize {
 /// 255 a name holds (RFC 1035 §2.3.4).
 fn write_labels_most(generator: *Generator, writer: *Writer) usize {
     const at = writer.at;
-    for (0..1 + generator.below(constants.fuzz_labels_max)) |_| {
+    for (0..1 + generator.below(limits.fuzz_labels_max)) |_| {
         writer.octet(label_most);
         write_letters(generator, writer, label_most);
     }
@@ -447,7 +448,7 @@ fn write_labels_most(generator: *Generator, writer: *Writer) usize {
 const testing = std.testing;
 
 test "every type is written, whole and with an octet changed, within the gate's seeds" {
-    const seeds = @import("fuzz.zig").seed_count;
+    const seeds = @import("../limits.zig").fuzz_seed_count;
     var whole: [record_kinds.len]bool = @splat(false);
     var changed: [record_kinds.len]bool = @splat(false);
     var message: Message = .{};

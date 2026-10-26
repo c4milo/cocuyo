@@ -5,6 +5,7 @@ const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const udp = @import("io_udp.zig");
 const tcp = @import("io_tcp.zig");
 const results_module = @import("io_results.zig");
@@ -35,7 +36,7 @@ pub fn drive(self: anytype, now_ns: u64) void {
     channel_link.shut_lapsed(self, now_ns);
     var polls: usize = 0;
     var refused: usize = 0;
-    const polls_max = self.slots.len * constants.drive_polls_per_lookup_max;
+    const polls_max = self.slots.len * limits.drive_polls_per_lookup_max;
     while (polls < polls_max and refused <= self.resolver.in_flight()) : (polls += 1) {
         const event = self.resolver.poll(now_ns, &self.scratch) orelse break;
         if (act(self, event, now_ns)) refused = 0 else refused += 1;

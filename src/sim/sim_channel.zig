@@ -14,6 +14,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 const resolver = @import("resolver");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const network_module = @import("sim_network.zig");
 const server = @import("sim_server.zig");
 const quic = @import("sim_quic.zig");
@@ -43,7 +44,7 @@ pub const Channel = struct {
     pub const Link = enum(u1) { quic, tcp };
     const links = @typeInfo(Link).@"enum".fields.len;
     /// The most one call of `datagram` or `output` writes.
-    pub const output_bytes_max = constants.channel_output_bytes_max;
+    pub const output_bytes_max = limits.channel_output_bytes_max;
     pub const Error = error{Failed};
     /// What the engine hands every channel it starts: nothing, for the twin.
     pub const Context = struct {};
@@ -58,14 +59,14 @@ pub const Channel = struct {
     pub const Event = union(enum) { open: Open, close: Link, ticket: Link, finished: Finished, closed };
     pub const Input = union(enum) { none, datagram: []const u8, stream: []const u8 };
 
-    const Exchange = struct { live: bool = false, index: u16 = 0, len: u16 = 0, query: [core.constants.query_bytes_max]u8 = undefined };
+    const Exchange = struct { live: bool = false, index: u16 = 0, len: u16 = 0, query: [core.limits.query_bytes_max]u8 = undefined };
 
     /// The server's index, and where its links go: its address, on the template's port.
     server: u8 = 0,
     endpoint: core.Endpoint = undefined,
-    exchanges: [constants.channel_exchanges_max]Exchange = @splat(.{}),
+    exchanges: [limits.channel_exchanges_max]Exchange = @splat(.{}),
     /// The steps queued, oldest first, and the instant the first was queued, when it is due.
-    script: [constants.channel_steps_max]Step = undefined,
+    script: [limits.channel_steps_max]Step = undefined,
     script_len: usize = 0,
     due_ns: u64 = 0,
     /// An end a `hold` kept, told at the read after the one that brought it, and whether that read
@@ -86,9 +87,9 @@ pub const Channel = struct {
     ticket_ages_ns: [links]u64 = @splat(0),
     ended_links: [links]u32 = @splat(0),
     shut: bool = false,
-    answer: [constants.datagram_bytes_max]u8 = undefined,
+    answer: [limits.datagram_bytes_max]u8 = undefined,
     /// For a test: the exchanges the channel takes at once.
-    limit: usize = constants.channel_exchanges_max,
+    limit: usize = limits.channel_exchanges_max,
 
     /// Makes a server's channel, with nothing opened (rule 18). What a test queued before it opened,
     /// the room it gave it, and what it reads of the links stay: a link the last channel closed
@@ -117,7 +118,7 @@ pub const Channel = struct {
     /// the request waits (rule 21).
     pub fn request(self: *Channel, index: u16, message: []const u8, now_ns: u64) bool {
         _ = now_ns;
-        assert(message.len <= core.constants.query_bytes_max);
+        assert(message.len <= core.limits.query_bytes_max);
         assert(self.exchange_of(index) == null);
         var held: usize = 0;
         for (&self.exchanges) |*exchange| held += @intFromBool(exchange.live);
@@ -163,7 +164,7 @@ pub const Channel = struct {
                 if (self.ended(held)) |event| return event;
             }
         }
-        for (0..constants.channel_steps_max) |_| {
+        for (0..limits.channel_steps_max) |_| {
             const step = self.pop() orelse break;
             if (self.said(step)) |event| return event;
         }

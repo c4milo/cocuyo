@@ -24,7 +24,7 @@ pub const Error = error{
     /// SERVFAIL, REFUSED or NOTIMP, FORMERR without EDNS0 or BADCOOKIE over a stream, or refused
     /// the lookup, a connection, a handshake or a request failing (docs/design.md §5).
     AllServersFailed,
-    /// The CNAME chain was longer than `constants.cname_hops_max`.
+    /// The CNAME chain was longer than `limits.cname_hops_max`.
     ChainTooLong,
     /// The message is shorter than the part being read, or its counts disagree with its sections.
     MalformedMessage,
@@ -32,9 +32,9 @@ pub const Error = error{
     MalformedName,
     /// A compression pointer does not point strictly backwards, or the hop bound was reached.
     BadCompressionPointer,
-    /// A name would exceed `constants.name_bytes_max` in wire form.
+    /// A name would exceed `limits.name_bytes_max` in wire form.
     NameTooLong,
-    /// A label would exceed `constants.label_bytes_max`.
+    /// A label would exceed `limits.label_bytes_max`.
     LabelTooLong,
     /// The record's rdata runs past the end of the message.
     TruncatedMessage,

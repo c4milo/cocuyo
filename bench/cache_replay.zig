@@ -11,9 +11,9 @@ const recording_module = @import("trace_recording.zig");
 const Outcome = recording_module.Outcome;
 const Recording = recording_module.Recording;
 
-/// The largest cache a replay makes: `cache.constants.slots_max`, the most the library allows.
-pub const slots_max = cache_module.constants.slots_max;
-const keys_max = std.math.ceilPowerOfTwoAssert(usize, slots_max * cache_module.constants.keys_per_slot_min);
+/// The largest cache a replay makes: `cache.limits.slots_max`, the most the library allows.
+pub const slots_max = cache_module.limits.slots_max;
+const keys_max = std.math.ceilPowerOfTwoAssert(usize, slots_max * cache_module.limits.keys_per_slot_min);
 
 const name_prefix = "n";
 const name_suffix = ".example.";
@@ -46,7 +46,7 @@ const answer_address = cocuyo.Address.from_v4(.{ 192, 0, 2, 1 });
 /// Replays `recording` through a cache of `slot_count` slots, its hash keyed by `seed`.
 pub fn replay(comptime digits: usize, recording: *const Recording, slot_count: usize, seed: u64) Outcome {
     std.debug.assert(slot_count >= 1 and slot_count <= slots_max);
-    const key_count = std.math.ceilPowerOfTwoAssert(usize, slot_count * cache_module.constants.keys_per_slot_min);
+    const key_count = std.math.ceilPowerOfTwoAssert(usize, slot_count * cache_module.limits.keys_per_slot_min);
     // `init` empties the slots it is handed, so a replay starts from an empty table.
     var store = cache_module.Cache.init(slots[0..slot_count], keys[0..key_count], seed, cache_module.constants.ttl_seconds_max_default);
     var outcome: Outcome = .{};

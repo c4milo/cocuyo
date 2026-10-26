@@ -27,7 +27,7 @@ const Rig = struct {
     loop: Loop = undefined,
     memory: [0]u8 align(constants.memory_alignment) = undefined,
     group_memory: [sim.buffers.group_bytes(group_buffers, buffer_bytes)]u8 align(sim.buffers.group_alignment) = undefined,
-    query: [core.constants.query_bytes_max]u8 = undefined,
+    query: [core.limits.query_bytes_max]u8 = undefined,
     query_len: usize = 0,
     outbound: sim.datagram.Outbound = undefined,
 
@@ -230,7 +230,7 @@ test "a query over a stream is answered in framed chunks the seed sizes" {
     var events: [4]Event = undefined;
     try testing.expectEqual(@as(u32, 1), try rig.collect(&events, 1000));
     try testing.expectEqual(@as(u32, 0), try events[0].outcome());
-    var framed: [core.constants.query_bytes_max]u8 = undefined;
+    var framed: [core.limits.query_bytes_max]u8 = undefined;
     var query: wire.Query = .{ .id = fixtures.stream_query_id, .name = try core.Name.from_text("example.com"), .kind = .a, .tcp = true };
     const framed_len = wire.query.write(&query, &framed);
     var handles: [1]sim.Handle = undefined;
@@ -276,7 +276,7 @@ test "a send to a peer that stopped reading takes nothing, and ends only at its 
     var events: [4]Event = undefined;
     try testing.expectEqual(@as(u32, 1), try rig.collect(&events, 1000));
     rig.loop.network().stall(socket);
-    var framed: [core.constants.query_bytes_max]u8 = undefined;
+    var framed: [core.limits.query_bytes_max]u8 = undefined;
     var query: wire.Query = .{ .id = fixtures.stream_query_id, .name = try core.Name.from_text("example.com"), .kind = .a, .tcp = true };
     const framed_len = wire.query.write(&query, &framed);
     const send: Operation = .{ .user_data = send_tag, .kind = .{ .send = .{ .socket = socket, .buffer = .{ .bytes = framed[0..framed_len] } } } };
@@ -312,7 +312,7 @@ test "a TLS server answers nothing to a record that is a length prefix of 65534 
     var hello: [constants.tls_record_header_bytes + 1]u8 = undefined;
     var record: [constants.tls_record_header_bytes + core.constants.tcp_prefix_bytes]u8 = undefined;
     var prefix: [core.constants.tcp_prefix_bytes]u8 = undefined;
-    wire.header.write_message_len(&prefix, core.constants.message_bytes_max - 1);
+    wire.header.write_message_len(&prefix, core.limits.message_bytes_max - 1);
     const hello_len = sim.tls.write_step(.hello, &hello);
     const record_len = sim.tls.write_record(constants.tls_content_application, &prefix, &record);
     const connection = rig.loop.network().connection(rig.loop.network().socket(socket).connection.?);

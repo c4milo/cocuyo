@@ -17,8 +17,8 @@ const server_module = @import("io_doh_channel_server.zig");
 const quic_server = @import("io_doh_channel_server_quic.zig");
 const colibri_server = @import("server");
 
-const lookups = 4;
-const group_buffers = 16;
+const lookups: usize = 4;
+const group_buffers: usize = 16;
 const Resolver = io.Resolver(.{
     .lookups = lookups,
     .group_buffers = group_buffers,
@@ -28,23 +28,23 @@ const Resolver = io.Resolver(.{
 
 /// The twin's first two scripted servers, each known by a template with no port, so the channel's
 /// connections go to 443 (RFC 9110 §4.2.2).
-const servers = 2;
+const servers: usize = 2;
 const template = "https://dns.example/dns-query{?dns}";
 /// A template on the twin's QUIC port, where a QUIC responder listens (`sim.Network.responders`).
 const quic_template = "https://dns.example:853/dns-query{?dns}";
 /// The port the QUIC server sees each datagram come from. Test-only.
-const client_port = 50_000;
+const client_port: u16 = 50_000;
 /// A lookup's deadline, long past the fallback delay and a handshake after it.
-const timeout_s = 25;
-const timeout_ns = timeout_s * std.time.ns_per_s;
+const timeout_s: u64 = 25;
+const timeout_ns: u64 = timeout_s * std.time.ns_per_s;
 /// The events one tick delivers at most, the waits a lookup takes at most, and a wait's length.
-const events_max = 32;
-const rounds_max = 512;
-const wait_s = 60;
-const wait_ns = wait_s * std.time.ns_per_s;
+const events_max: usize = 32;
+const rounds_max: usize = 512;
+const wait_s: u64 = 60;
+const wait_ns: u64 = wait_s * std.time.ns_per_s;
 /// The connections a scripted server takes over a test, and the records it sends for one read.
-const connections_per_side = 2;
-const sends_per_hear_max = 64;
+const connections_per_side: usize = 2;
+const sends_per_hear_max: usize = 64;
 
 /// A scripted server's HTTPS port as colibri's server over TLS: a server for each connection, by
 /// the client's socket, answering as the scripted server would, after its delay.
@@ -74,7 +74,7 @@ const Side = struct {
         const entry = side.entry_of(socket, now_ns) orelse return;
         const answerer: server_module.Answerer = .{ .context = side, .answer = answer };
         entry.server.receive(bytes, answerer, now_ns);
-        var out: [cocuyo_doh.constants.output_bytes_max]u8 = undefined;
+        var out: [cocuyo_doh.limits.output_bytes_max]u8 = undefined;
         for (0..sends_per_hear_max) |_| {
             const len = entry.server.send(&out, answerer, now_ns);
             if (len == 0) return;
@@ -141,7 +141,7 @@ const QuicSide = struct {
     /// Sends what the server owes, each datagram after the scripted server's delay.
     fn pump(side: *QuicSide, now_ns: u64) void {
         const socket = side.socket orelse return;
-        var out: [cocuyo_doh.constants.datagram_bytes]u8 = undefined;
+        var out: [cocuyo_doh.limits.datagram_bytes]u8 = undefined;
         for (0..sends_per_hear_max) |_| {
             const octets = side.server.send(&out, now_ns) orelse return;
             const delay_ns = side.network.scripts[side.index].delay_ns_min;
@@ -303,10 +303,10 @@ test "a lookup through colibri's channel is answered over HTTP/3 by colibri's se
 test "the sizes cocuyo_doh copies are the engine's and cocuyo_quic's" {
     // cocuyo_doh imports neither module, so each size it shares with one is a copy. This test
     // holds each copy to the size it copies (docs/design.md §24, New limits).
-    const own = cocuyo_doh.constants;
-    try testing.expectEqual(io.constants.tcp_chunk_bytes, own.engine_chunk_bytes);
-    try testing.expectEqual(io.constants.buffer_bytes, own.datagram_bytes);
+    const own = cocuyo_doh.limits;
+    try testing.expectEqual(io.limits.tcp_chunk_bytes, own.engine_chunk_bytes);
+    try testing.expectEqual(io.limits.buffer_bytes, own.datagram_bytes);
     try testing.expectEqual(cocuyo_quic.constants.receive_bytes_default, own.receive_bytes);
     // A record at its longest and one chunk after it, as a TLS connection of the engine keeps.
-    try testing.expectEqual(io.constants.tls_record_in_bytes, own.stream_bytes);
+    try testing.expectEqual(io.limits.tls_record_in_bytes, own.stream_bytes);
 }

@@ -109,7 +109,7 @@ pub const Iterator = struct {
 
     pub fn next(self: *Iterator) Error!?Record {
         if (self.walked == self.promised) return null;
-        if (self.walked == core.constants.records_max) {
+        if (self.walked == core.limits.records_max) {
             self.truncated = true;
             return null;
         }
@@ -174,7 +174,7 @@ test "a TTL is read in all 32 bits, the high one as positive" {
 }
 
 /// Where the rdlength of `fixtures.answer_a`'s record sits, after its two-octet owner pointer.
-const answer_a_rdlength_at = fixtures.answer_offset + constants.pointer_bytes + constants.record_rdlength_offset;
+const answer_a_rdlength_at: usize = fixtures.answer_offset + constants.pointer_bytes + constants.record_rdlength_offset;
 
 test "an rdlength of 0xFFFF or 0xFFFE runs past the message, and the sum with its offset does not wrap" {
     // The two largest values of the field (RFC 1035 §4.1.3). The rdata starts at octet 41, so
@@ -190,7 +190,7 @@ test "an rdlength of 0xFFFF or 0xFFFE runs past the message, and the sum with it
 test "a record whose rdata ends at the last octet of a message of 65535 is read" {
     // The longest message there is (RFC 1035 §4.2.2) and one record in it, whose rdata fills the
     // rest: 65494 octets after the question and a pointer owner.
-    var message: [core.constants.message_bytes_max]u8 = @splat(0);
+    var message: [core.limits.message_bytes_max]u8 = @splat(0);
     @memcpy(message[0..fixtures.answer_a.len], &fixtures.answer_a);
     const rdata_start = answer_a_rdlength_at + constants.u16_bytes;
     integer.write_u16(&message, answer_a_rdlength_at, @intCast(message.len - rdata_start));
@@ -266,23 +266,23 @@ test "a walk stops at records_max and says it was truncated" {
     // reads what is there and the bound is what stops it: a promise of records_max + 1 with a
     // message that ends is malformed, which is the other test. Here the bound is reached first.
     var walk = Iterator.init(&fixtures.answer_a_twice, fixtures.answer_offset, 2);
-    walk.walked = core.constants.records_max;
-    walk.promised = core.constants.records_max + 1;
+    walk.walked = core.limits.records_max;
+    walk.promised = core.limits.records_max + 1;
     try testing.expectEqual(@as(?Record, null), try walk.next());
     try testing.expect(walk.truncated);
 }
 
 test "a walk over more records than records_max reads that many of them, and says so" {
     // One record more than the bound, each one real: the bound stops the walk, not the message.
-    const more = core.constants.records_max + 1;
-    const message = fixtures.answer_a ++ fixtures.record_a ** core.constants.records_max;
+    const more = core.limits.records_max + 1;
+    const message = fixtures.answer_a ++ fixtures.record_a ** core.limits.records_max;
     var walk = Iterator.init(&message, fixtures.answer_offset, more);
     var read: usize = 0;
     for (0..more) |_| {
         if (try walk.next() == null) break;
         read += 1;
     }
-    try testing.expectEqual(@as(usize, core.constants.records_max), read);
+    try testing.expectEqual(@as(usize, core.limits.records_max), read);
     try testing.expect(walk.truncated);
     try testing.expectEqual(@as(?Record, null), try walk.next());
 }
@@ -337,7 +337,7 @@ test "an SOA whose fixed fields do not fill its rdata exactly is malformed, eith
 }
 
 /// A label of 63 octets, the longest, after its length octet.
-const label_longest = [_]u8{core.constants.label_bytes_max} ++ [_]u8{'a'} ** core.constants.label_bytes_max;
+const label_longest = [_]u8{core.limits.label_bytes_max} ++ [_]u8{'a'} ** core.limits.label_bytes_max;
 
 /// `fixtures.answer_name_error_soa` with `labels` put before the SOA's MNAME, and the rdlength made
 /// to hold them. The MNAME was `ns` and then a pointer to the question's name: 16 octets whole.

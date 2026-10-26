@@ -12,15 +12,16 @@ const lookup_module = @import("lookup.zig");
 const Lookup = lookup_module.Lookup;
 const Verdict = lookup_module.Verdict;
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const response_module = @import("lookup_response.zig");
 const failure_module = @import("lookup_failure.zig");
 
 comptime {
     // A transaction's number wraps at 65536, further than a lookup goes: for each candidate, CNAME
     // hop, pass and server it draws `transactions_per_server_max` at most, 7560 at the limits.
-    const limits = core.constants;
-    const most = limits.candidates_max * (limits.cname_hops_max + 1) * limits.attempts_max *
-        limits.servers_max * constants.transactions_per_server_max;
+    const shared = core.limits;
+    const most = shared.candidates_max * (shared.cname_hops_max + 1) * shared.attempts_max *
+        shared.servers_max * limits.transactions_per_server_max;
     assert(most <= std.math.maxInt(u16));
 }
 

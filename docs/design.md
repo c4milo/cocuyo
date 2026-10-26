@@ -135,19 +135,21 @@ in `io/` reaches a module of stdx other than through a module of colibri.
 
 ```text
 src/cocuyo.zig                 the public surface, re-exports only
-src/core/     core.zig constants.zig address.zig name.zig name_text.zig config.zig errors.zig
-              address_text.zig hosts.zig address_order.zig (§19 steps 14 and 15)
+src/core/     core.zig constants.zig limits.zig address.zig name.zig name_text.zig config.zig
+              errors.zig address_text.zig hosts.zig address_order.zig (§19 steps 14 and 15)
 src/wire/     wire.zig wire_header.zig wire_name.zig wire_question.zig wire_record.zig
-              wire_query.zig wire_response.zig wire_edns.zig wire_fuzz.zig
+              wire_query.zig wire_response.zig wire_edns.zig wire_fuzz.zig constants.zig
+              limits.zig
 src/resolver/ resolver.zig lookup.zig lookup_poll.zig lookup_response.zig lookup_policy.zig
-              entropy.zig constants.zig address_lookup.zig (§19 step 14)
-src/config/   resolv_conf.zig resolv_conf_options.zig constants.zig
+              entropy.zig constants.zig limits.zig address_lookup.zig (§19 step 14)
+src/config/   resolv_conf.zig resolv_conf_options.zig constants.zig limits.zig
 src/cache/    cache.zig cache_keys.zig cache_chain.zig cache_sweep.zig cache_storage.zig
-              constants.zig
+              constants.zig limits.zig
 src/sim/      sim.zig sim_types.zig sim_loop.zig sim_loop_perform.zig sim_network.zig
-              sim_server.zig sim_buffers.zig constants.zig fixtures.zig sim_scenarios_test.zig
+              sim_server.zig sim_buffers.zig constants.zig limits.zig fixtures.zig
+              sim_scenarios_test.zig
 io/           io.zig io_drive.zig io_events.zig io_udp.zig io_results.zig constants.zig
-              fixtures.zig io_sim_test.zig
+              limits.zig fixtures.zig io_sim_test.zig
 examples/udp_blocking.zig examples/udp_rotor.zig
 bench/
 docs/design.md docs/decisions.md docs/mutations.md
@@ -1823,11 +1825,12 @@ lookup.
 
 ## 12. Named limits
 
-Each limit lives in a `constants.zig` with a doc comment saying why that number, and is never
-written at the use site. Shared limits live in `src/core/constants.zig`. Each integer constant
-carries the type of what it names. The typed-constants rule of `zig build lint` and a test in
-each constants file hold it. A length, an offset or a count is a `usize`, so its sum with a
-narrow value is a `usize` too (§16 decision 40).
+Each limit lives in its module's `limits.zig` with a doc comment saying why that number, and is
+never written at the use site. Shared limits live in `src/core/limits.zig`. The protocol sizes
+and the defaults live in `constants.zig` the same way (§16 decision 56). The table holds all
+three. Each integer constant carries the type of what it names. The typed-constants rule of
+`zig build lint` and a test in each constants file and limits file hold it. A length, an offset
+or a count is a `usize`, so its sum with a narrow value is a `usize` too (§16 decision 40).
 
 | Constant | Value | Why |
 | --- | --- | --- |
@@ -1847,7 +1850,7 @@ narrow value is a `usize` too (§16 decision 40).
 | `cookie_client_bytes` | 8 | RFC 7873 §4 |
 | `cookie_server_bytes_max` | 32 | RFC 7873 §4; a server cookie is 8 to 32 octets, 16 under RFC 9018 |
 | `cookie_silence_ns` | 5 min | RFC 9018 §3's example of how long a server without cookies is sent none; `src/resolver/constants.zig` |
-| `case_draws_max` | 4 | the draws of one name's case before its first letter is made a capital (§7): two letters fall back once in 256 names; chosen, not measured; `src/wire/constants.zig` |
+| `case_draws_max` | 4 | the draws of one name's case before its first letter is made a capital (§7): two letters fall back once in 256 names; chosen, not measured; `src/wire/limits.zig` |
 | `opt_record_bytes_max` | 55 | the OPT record with the largest COOKIE option, before any padding |
 | `padding_block_bytes` | 128 | RFC 8467 §4.1: a query to a TLS server is a whole number of these |
 | `records_kept_max` | 32 | the records of one type a lookup keeps for every other type (§19 step 9); `truncated` past it |
@@ -1864,14 +1867,14 @@ narrow value is a `usize` too (§16 decision 40).
 | `attempts_default` | 2 | the `resolv.conf` default |
 | `attempts_max` | 5 | bounds the retry loop |
 | `ndots_default` | 1 | the `resolv.conf` default |
-| `ndots_limit` | 15 | `resolv.conf(5)`'s cap on `ndots:`, which reads a larger value as 15; in `src/config/constants.zig` since 2026-10-13, and in the parser's own file before |
-| `timeout_seconds_limit` | 30 | `resolv.conf(5)`'s cap on `timeout:`, in seconds, and `timeout_ns_max` in seconds, so the parser can raise the cap to any timeout it reads; in `src/config/constants.zig` since 2026-10-13 |
+| `ndots_limit` | 15 | `resolv.conf(5)`'s cap on `ndots:`, which reads a larger value as 15; in `src/config/limits.zig` since 2026-10-26, in `src/config/constants.zig` from 2026-10-13, and in the parser's own file before |
+| `timeout_seconds_limit` | 30 | `resolv.conf(5)`'s cap on `timeout:`, in seconds, and `timeout_ns_max` in seconds, so the parser can raise the cap to any timeout it reads; in `src/config/limits.zig` since 2026-10-26, and in `src/config/constants.zig` from 2026-10-13 |
 | `timeout_ns_default` | 2 s | a server's wait until it has 3 samples (§5): c-ares's `ARES_OPT_TIMEOUTMS` default, read from its features page, not measured; 5 s, the `resolv.conf` default, until 2026-10-09 |
 | `timeout_ns_max_default` | 5 s | the default cap on every wait, measured or doubled: c-ares's, read from its features page, not measured |
 | `timeout_ns_max` | 30 s | the most a configuration's cap may be, and `resolv.conf(5)`'s cap on `timeout:`; the default cap until 2026-10-09 |
 | `timeout_ns_min` | 250 ms | the floor under every wait, which a lower cap overrides: c-ares's, read from its features page, not measured |
 | `latency_wait_multiplier` | 5 | a measured wait is the average latency times this: c-ares's, read from its features page, not measured; `src/resolver/constants.zig` |
-| `latency_samples_min` | 3 | the samples a server needs, and a window needs, before a wait is read from them: c-ares's, read from its features page, not measured; `src/resolver/constants.zig` |
+| `latency_samples_min` | 3 | the samples a server needs, and a window needs, before a wait is read from them: c-ares's, read from its features page, not measured; `src/resolver/limits.zig` |
 | `latency_window_minute_ns`, `_quarter_hour_ns`, `_hour_ns`, `_day_ns` | 1 min, 15 min, 1 h, 1 day | the spans of four of the five windows of samples, the fifth being since the table was built: c-ares's, read from its features page, not measured; `src/resolver/constants.zig` |
 | `port_ephemeral_min`, `_max` | 49152, 65535 | the IANA ephemeral range |
 | `lookup_slots_max` | 1024 | bounds a `Handle` index and the key table |
@@ -2727,7 +2730,7 @@ step until `zig build test` passes.
     - The bound of the engine's read of a channel. This cause cannot happen with colibri v0.6.0,
       nor with v0.8.0. A sound channel says less than the bound at each read: an end for each
       request at most, and a few events of its own. The bound gives it `channel_events_max`, 16,
-      of those (`io/constants.zig`).
+      of those (`io/limits.zig`).
     - Records that colibri keeps for want of room. colibri opens a record only into room for its
       body. Its connection has room for a partial HTTP/2 frame and one record more. In v0.6.0 a
       pass that opened a record could find no room for the next one. That pass took octets, so
@@ -2922,7 +2925,7 @@ step until `zig build test` passes.
 
     Choices the ruling did not make, made here:
 
-    - The limit follows from the buffer. `udp_payload_bytes_max` in `io/constants.zig` is what
+    - The limit follows from the buffer. `udp_payload_bytes_max` in `io/limits.zig` is what
       rotor's `payload_capacity` gives for `buffer_bytes` under `group_options`. The datagram
       group gets the same options when the engine provides it. So a change of the buffer, of the
       options or of rotor's prefix changes the limit too. A comptime check in `io/constants.zig`
@@ -4219,6 +4222,112 @@ step until `zig build test` passes.
     DoH link whose send never ends).
 
     §17 question 61, §24 (request rules 8, 14, 15, 19 and 24), decision 49.
+56. **Every limit lives in a `limits.zig` of its module, and every other integer constant has a type
+    where it is.** Ruled by the owner on 2026-10-17, on §17 question 37: "every limit moves into a
+    `limits.zig` of its module, the limits of each `constants.zig` too. Each `constants.zig` keeps
+    the protocol sizes and the defaults. Each constant that is not a limit gets a type where it is.
+    CLAUDE.md's non-negotiable 5 and the lint rules change with it." Built on 2026-10-26.
+
+    The classification test. Each constant of a constants file, and each integer constant of the
+    other files of `src/` and `io/`, takes the first class that fits:
+
+    1. A limit by its name. A name that ends in `_max`, `_min` or `_limit` names a limit. This holds
+       also when an RFC fixes the number, as for `name_bytes_max`, since the code checks a value
+       against it.
+    2. A default: a value that a caller can change, or that a caller declares. Its name ends in
+       `_default` in most cases. It stays in `constants.zig`.
+    3. A protocol size or value: a number that an RFC or the format of a peer fixes. The code reads
+       or writes it as it is. `header_bytes`, 12, is one (RFC 1035 §4.1.1). It stays in
+       `constants.zig`.
+    4. A limit with no such suffix: a bound that the code holds or checks. A count of slots and the
+       size of a buffer that cocuyo chooses are limits. `buffer_bytes` of the engine is one.
+    5. Any other constant: a unit, a base, a mask, a shift, a code or a parameter of an estimate. It
+       is no limit. In a constants file it stays there, and in another file it stays where it is.
+
+    A limit moves into the limits file beside its constants file, with its doc comment as it was.
+    The modules of `src/` each have a `limits.zig`, and so does the engine in `io/`. The three
+    modules of `io/` with a constants file of their own have a limits file of their own:
+    `io_quic_limits.zig`, `io_doh_limits.zig` and `io_doh_channel_limits.zig`. A limit two modules
+    share lives in `src/core/limits.zig`. A comptime check of a constants file stays there, and
+    reads the limits through `limits.`.
+
+    What moved, and what got a type:
+
+    - 139 constants of the ten constants files are limits, and moved. 23 of them have no suffix, and
+      the inventory names each one (docs/mutations.md, Every limit in a limits file).
+    - 32 limits of other files moved, from 20 files. Each got a name in its limits file that says
+      its place. `printable_min` of `name_text.zig` is `text_printable_min`. The bounds of the DoH
+      test servers start with `server_`. A limit with no doc comment got one.
+    - 287 integer constants of other files got a type where they are. The rule of decision 40 chose
+      each type. 142 are a `usize`, 57 a `u64`, 37 a `u8`, 17 a `u16` and 17 a `u32`. 10 are a
+      `u21`, 4 a `u6`, 2 a `u5` and 1 a `u3`. A code point of a DoH template is a `u21`, as `within`
+      reads one.
+    - No value changed, and no named limit changed. The tree compiled with each type at the first
+      try. A constant that meets a narrow runtime value now widens the sum, as decision 40 says.
+      `zig build fill-check` finds the same fills.
+
+    The public paths. A consumer reached a limit as `cocuyo.constants.query_bytes_max`, and as
+    `cocuyo_rotor.constants.udp_payload_bytes_max`. No path is lost:
+
+    - Each module root exports `limits` beside `constants`: `cocuyo.limits`, `cocuyo.wire.limits`,
+      `cocuyo.cache.limits`, `cocuyo_rotor.limits`, `cocuyo_quic.limits`, `cocuyo_doh.limits` and
+      the others. These names are new.
+    - Each public `constants.zig` keeps an alias of each limit that left it, in a block at its end.
+      An alias is no limit of its own, and the lint rule passes it. `name_text.printable_min`,
+      `printable_max` and the two `fuzz.seed_count` keep an alias too.
+    - The tree reads the new paths: the library, the examples, the benchmarks, the tools and the
+      README. §17 question 76 asks whether the aliases stay.
+    - `zig build consumer-check` builds one old path from outside the package, for each of the two
+      roots: `cocuyo.constants.query_bytes_max` and `cocuyo_rotor.constants.buffer_bytes`. Each
+      must equal its new path.
+    - The twin keeps an alias of each limit whose name rotor's own `constants` has: `wait_ns_max`,
+      `operations_max`, `batch_max` and four more. The engine's tests read `rotor.constants`, which
+      is the twin there, and rotor's own surface elsewhere.
+
+    The checks:
+
+    - The lint rule `typed-constants` reads each Zig file of `src/` and `io/`, and not the constants
+      files alone. It reports each container's `const` with no type, as before.
+    - The rule also reads the place of each limit. It reads each `const` at the top level of a file
+      that is no limits file. It reports one whose name ends in `_max`, `_min` or `_limit` and whose
+      value is no alias. A constants file is such a file. A limits file is a Zig file whose stem
+      has the word `limits` between its underscores, or a file under a directory named `limits`.
+      So a piece of a split one counts, and `io_delimits.zig` does not.
+    - The rule reads the place of no limit in a test file or in a `fixtures.zig`. A test's bound is
+      the test's own choice (§17 question 77). It reads the top level alone: a member of a type,
+      such as `output_bytes_max` of a transport, is part of that type's interface.
+    - The rule `unbounded-loop` takes a chain through `limits` for a named limit, and not a chain
+      through `constants`: a constants file holds no limit. A name that ends in `_max` is a limit
+      on either chain. So `limits.tcp_chunk_bytes` bounds a loop, and `constants.header_bytes`
+      does not. The rule's finding names `limits.zig` as the place of the bound.
+    - The rule `magic-numbers` exempts `limits.zig` by its basename, as it exempts `constants.zig`.
+      It takes a literal that a `const` names wherever the `const` is, so the place is the
+      typed-constants rule's check.
+    - The canary tree of `zig build lint` holds a limit in a constants file and a limit in another
+      file. The lint must report each one by its name.
+    - Each limits file has the test of decision 40 that reads the types of its public constants.
+
+    What the checks do not catch:
+
+    - A limit with no suffix in a constants file or in another file. The rule reads names, and a
+      count of slots has no name it can read (§17 question 78).
+    - A limit in a test file, in a `fixtures.zig`, or inside a type.
+    - A limit in `bench/`, `tools/` or `examples/`. Nothing of them is linked into the library.
+
+    Rejected:
+
+    - The first way of question 37: limits and protocol sizes stay mixed in each constants file, and
+      the lint rule reads each file. A reader then cannot tell a bound that cocuyo chose from a size
+      that an RFC fixed.
+    - A rename of each limit with no suffix, so that the rule reads every limit. It changes public
+      names, which needs the owner (CLAUDE.md, Ask before). §17 question 78 asks it.
+    - The limits files with no aliases. The public API then loses each old path, which needs the
+      owner too.
+    - A rule of its own for the place. CLAUDE.md names the rules of the lint, and the ruling changes
+      its non-negotiable 5 alone. The two checks read the same files with one walk.
+    - A list of the limits in the rule. A list goes stale at the next limit, and a name does not.
+
+    §12, §16 decision 40, §17 questions 37, 76, 77, 78 and 79.
 
 ## 17. Questions for the owner
 
@@ -4459,7 +4568,7 @@ about.
     rest of the question stays open. Answered on 2026-10-17: every limit moves into a `limits.zig`
     of its module, the limits of each `constants.zig` too. Each `constants.zig` keeps the protocol
     sizes and the defaults. Each constant that is not a limit gets a type where it is. CLAUDE.md's
-    non-negotiable 5 and the lint rules change with it.
+    non-negotiable 5 and the lint rules change with it. Built on 2026-10-26 (§16 decision 56).
 
 ### Asked on 2026-10-13, for the stream's buffers
 
@@ -5152,6 +5261,66 @@ makes.
     one buffer of its own server's slot, and no other server waits for them. Until the owner rules,
     as built.
     Answered on 2026-10-26: as built.
+
+### Asked on 2026-10-26, for the limits files
+
+§16 decision 56 builds the answer to question 37. CLAUDE.md asks the owner before the public API
+changes. The ruling did not make four of the choices that decision 56 makes.
+
+76. **The public paths of the limits.** Each public namespace has a `limits` now, beside its
+    `constants`. These are `cocuyo.limits`, `cocuyo_rotor.limits`, `cocuyo_quic.limits` and
+    `cocuyo_doh.limits`, and one for each module of `src/`. These names are new. Each public
+    `constants.zig` keeps an alias of each limit that left it, so `cocuyo.constants.query_bytes_max`
+    still compiles. The ways:
+
+    - As built: both paths. Each old path stays, and a consumer moves to the new one at its own
+      time. One limit then has two names, and a reader can take the alias for a limit.
+    - The new paths alone. Each old path goes, and a consumer's build stops at each one. The public
+      API loses names.
+
+    Recommended: as built until the next release, 0.7.0, then the new paths alone. The tree reads
+    the new paths already, so the aliases go with no other change. Until the owner rules, as built.
+77. **The limits of the tests.** The place check reads no test file and no `fixtures.zig`. So 20
+    bounds of the tests stay where they are, each with a type: `rounds_max` of
+    `io/io_doh_channel_test.zig`, `events_max` of `io/fixtures.zig`, and others. The ways:
+
+    - As built: a test's bound stays in the test. The test chose it, and no code of the library
+      reads it.
+    - Each test's bound moves into its module's limits file too. A limits file then holds bounds
+      that no code of the library reads.
+
+    Recommended: as built. Until the owner rules, as built.
+78. **The limits with no suffix.** The place check reads a limit by its name. 23 limits have a name
+    with no `_max`, `_min` or `_limit`, such as `buffer_bytes`, `tcp_chunk_bytes` and
+    `idle_timeout_ms`. Each moved, and docs/mutations.md names each one. But no check keeps such a
+    limit in its limits file. The ways:
+
+    - As built: the names stay, and the inventory holds them.
+    - A rename of each one with a suffix, such as `buffer_bytes_max`. The check then holds every
+      limit. 20 of the 23 are public, so the rename changes public names.
+
+    Recommended: the rename, at the release that drops the aliases of question 76, so a consumer
+    changes its paths once. Until the owner rules, as built.
+79. **The constants at the border of a class.** The test of decision 56 puts four constants in a
+    constants file, but another reader can put each in a limits file:
+
+    - `cookie_silence_ns` of `src/resolver/constants.zig`: five minutes, the example period of
+      RFC 9018 §3. The code holds it as a wait, not as a bound on input. Class: other.
+    - `fallback_delay_ms` of `io/io_doh_channel_constants.zig`: 250 ms, taken from RFC 8305 §5.
+      It is a delay, not a bound. Class: other.
+    - `connection_id_bytes` of `io/io_quic_constants.zig`: RFC 9000 §7.2 sets a floor of eight
+      octets, and cocuyo uses the floor. Class: protocol size. Rule 4 of the test can take it as a
+      size that cocuyo chose.
+    - `padding_block_bytes` of `src/core/constants.zig`: the block of 128 octets that RFC 8467
+      §4.1 recommends. Class: protocol size.
+
+    The ways:
+
+    - As built: the four stay in their constants files.
+    - Each moves into its module's limits file, with an alias on the old path as question 76 says.
+
+    Recommended: as built. None of the four is a bound that the code checks against input. Until
+    the owner rules, as built.
 
 ## 18. The cache
 
@@ -8633,7 +8802,7 @@ it can reach, and `examples/threads_rotor.zig` gives each of its two engines one
 the call:
 
 - `UdpPayloadTooLarge`: the configuration's `udp_payload_bytes` passes
-  `constants.udp_payload_bytes_max`, 1,856 octets (§16 decision 44). The call changes nothing. A
+  `limits.udp_payload_bytes_max`, 1,856 octets (§16 decision 44). The call changes nothing. A
   refused `init` leaves no engine. A refused `reinit` leaves the engine as it was, with the
   memory that it held. The memory of the call is the consumer's again.
 - `SocketFailed`: a socket of a server did not open.
@@ -8642,7 +8811,7 @@ the call:
 After `SocketFailed` or `ReceiveFailed`, a failed `init` leaves no engine. A failed `reinit`
 holds the new configuration and the new memory (§19 step 13, the cache's memory, rule 5). A
 consumer that reads the size of a payload at run time compares it with
-`constants.udp_payload_bytes_max` before it calls `init`.
+`limits.udp_payload_bytes_max` before it calls `init`.
 
 ### The session a connection names, written on 2026-10-11
 

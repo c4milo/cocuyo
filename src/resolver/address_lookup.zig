@@ -96,7 +96,7 @@ pub const AddressLookup = struct {
     /// How the walk ended, or null while it runs.
     ended: ?End,
     // The answer being built.
-    addresses: [core.constants.address_lookup_addresses_max]Address,
+    addresses: [core.limits.address_lookup_addresses_max]Address,
     address_count: u8,
     canonical: Name,
     has_canonical: bool,

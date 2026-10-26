@@ -76,7 +76,7 @@ test "a chain one hop past the bound across messages fails the lookup" {
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try harness.start("example.com.", .a, seed);
     var hops: u8 = 0;
-    while (hops < core.constants.cname_hops_max) : (hops += 1) {
+    while (hops < core.limits.cname_hops_max) : (hops += 1) {
         _ = harness.send();
         try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.cname_fresh, servers[0].endpoint));
         try testing.expectEqual(hops + 1, harness.lookup.cname_hops);

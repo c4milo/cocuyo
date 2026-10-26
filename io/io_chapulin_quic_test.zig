@@ -15,8 +15,8 @@ const testing = std.testing;
 const Context = struct { session: Session.Context };
 
 /// The wall clock the tests' contexts are made at, and the `now_ns` it is pinned to.
-const test_seconds = 1;
-const test_ns = 1;
+const test_seconds: u64 = 1;
+const test_ns: u64 = 1;
 
 /// What a test states of the CPU when it names nothing: no answer of the probe, and no timing
 /// mode. A consumer that cannot state its thread's mode passes it (docs/design.md §16 decision 48).
@@ -53,13 +53,13 @@ fn test_context_at(anchors: []const tls.Anchor, seed_octet: u8, unix_seconds: u6
 const transport_parameters = "\x01\x02\x75\x30";
 
 /// The handshake type of a ClientHello (RFC 9846 §4), the first octet of the Initial CRYPTO data.
-const client_hello = 1;
+const client_hello: u8 = 1;
 
 /// Room for a ClientHello at its longest: a post-quantum key share, a ticket and a cookie.
-const hello_bytes_max = 4096;
+const hello_bytes_max: usize = 4096;
 
 /// The octets of the pin the tests' servers are known by, which no key hashes to.
-const pin_octet = 0xab;
+const pin_octet: u8 = 0xab;
 
 /// QUIC version 1's Version field (RFC 9000 §15). colibri offers a ticket only to a connection of
 /// the QUIC version that issued it, so a test's ticket names the version a session starts on.
@@ -107,7 +107,7 @@ test "a server known by pins alone is judged by its key, though the context has 
     // named servers, are not this one's (RFC 8310 §6.3's "SPKI + IP").
     const context = test_context(&anchors_test, 0);
     const pins = [_]cocuyo.Pin{@splat(0)};
-    var hostname: [cocuyo.constants.name_text_bytes_max]u8 = undefined;
+    var hostname: [cocuyo.limits.name_text_bytes_max]u8 = undefined;
     const trust = Session.trust(&.{ .pins = &pins }, &context, &hostname);
     try testing.expect(trust == .pins);
     try testing.expectEqual(pins.len, trust.pins.pins.len);
@@ -119,7 +119,7 @@ test "a server known by a name and pins is checked by both" {
     // against the pins.
     const context = test_context(&anchors_test, 0);
     const pins = [_]cocuyo.Pin{@splat(0)};
-    var hostname: [cocuyo.constants.name_text_bytes_max]u8 = undefined;
+    var hostname: [cocuyo.limits.name_text_bytes_max]u8 = undefined;
     const trust = Session.trust(&.{ .name = try cocuyo.Name.from_text("dns.example."), .pins = &pins }, &context, &hostname);
     try testing.expect(trust == .web_pki);
     try testing.expectEqual(anchors_test.len, trust.web_pki.anchors.len);
@@ -131,7 +131,7 @@ test "a server known by a name and pins is checked by both" {
 test "a named server with no anchors to check it is judged by its pins, its name still sent" {
     const context = test_context(&.{}, 0);
     const pins = [_]cocuyo.Pin{@splat(0)};
-    var hostname: [cocuyo.constants.name_text_bytes_max]u8 = undefined;
+    var hostname: [cocuyo.limits.name_text_bytes_max]u8 = undefined;
     const trust = Session.trust(&.{ .name = try cocuyo.Name.from_text("dns.example."), .pins = &pins }, &context, &hostname);
     try testing.expect(trust == .pins);
     try testing.expectEqual(pins.len, trust.pins.pins.len);
@@ -156,7 +156,7 @@ test "chapulin starts a QUIC session for a server of four pins, the most a confi
     // `spki_pins_max` is chapulin's own bound as well (docs/design.md §21), in QUIC as over TCP.
     // Five pins are no valid configuration's, and the session asserts so before chapulin sees them.
     var context: Context = .{ .session = test_context(&.{}, 0) };
-    const pins: [cocuyo.constants.spki_pins_max]cocuyo.Pin = @splat(@splat(pin_octet));
+    const pins: [cocuyo.limits.spki_pins_max]cocuyo.Pin = @splat(@splat(pin_octet));
     finish(try started(&.{ .pins = &pins }, &context, null));
 }
 
@@ -194,9 +194,9 @@ test "chapulin starts at the transport parameters, and draws its hello from the 
 
 /// Where a ClientHello's cipher_suites start (RFC 9846 §4, §4.2.2): after the message's type and
 /// length, the legacy_version, the random, and the legacy_session_id's length octet and its body.
-const message_header_bytes = 4;
-const legacy_version_bytes = 2;
-const random_bytes = 32;
+const message_header_bytes: usize = 4;
+const legacy_version_bytes: usize = 2;
+const random_bytes: usize = 32;
 /// TLS_AES_128_GCM_SHA256 {0x13,0x01}, TLS_AES_256_GCM_SHA384 {0x13,0x02} and
 /// TLS_CHACHA20_POLY1305_SHA256 {0x13,0x03} (RFC 9846 Appendix B.4).
 const aes_128_gcm_sha256: u16 = 0x1301;

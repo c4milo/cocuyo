@@ -237,12 +237,12 @@ test "a cut datagram of 65535 octets is taken, and one of 65536 is ignored at ch
     // No kernel cuts a datagram to more than a message can be, but check 1 holds for each caller.
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     try sent(&harness);
-    var message: [core.constants.message_bytes_max + 1]u8 = @splat(0);
+    var message: [core.limits.message_bytes_max + 1]u8 = @splat(0);
     const reply = harness.build(fixtures.answer_a);
     @memcpy(message[0..reply.len], reply);
     try testing.expectEqual(Verdict.ignored, hand(&harness, &message, servers[0].endpoint));
     try testing.expectEqual(State.awaiting_udp, harness.lookup.state);
-    try testing.expectEqual(Verdict.accepted, hand(&harness, message[0..core.constants.message_bytes_max], servers[0].endpoint));
+    try testing.expectEqual(Verdict.accepted, hand(&harness, message[0..core.limits.message_bytes_max], servers[0].endpoint));
     try testing.expectEqual(State.tcp_needed, harness.lookup.state);
 }
 

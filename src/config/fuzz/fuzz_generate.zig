@@ -17,6 +17,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const constants = @import("../constants.zig");
+const limits = @import("../limits.zig");
 const files = @import("fuzz_generate_files.zig");
 
 pub const Target = enum {
@@ -41,9 +42,9 @@ pub const Shape = enum {
 /// What a text written whole, or a file with one bad line, must read back as. A file of no server
 /// expects the local one, which is what the parser gives it.
 pub const Expected = struct {
-    addresses: [constants.fuzz_entries_max]core.Address = undefined,
+    addresses: [limits.fuzz_entries_max]core.Address = undefined,
     address_count: usize = 0,
-    names: [constants.fuzz_entries_max]core.Name = undefined,
+    names: [limits.fuzz_entries_max]core.Name = undefined,
     name_count: usize = 0,
     pin: core.Pin = undefined,
 
@@ -61,7 +62,7 @@ pub const Expected = struct {
 };
 
 pub const Text = struct {
-    bytes: [constants.fuzz_text_bytes_max]u8 = undefined,
+    bytes: [limits.fuzz_text_bytes_max]u8 = undefined,
     len: usize = 0,
     target: Target = .address,
     shape: Shape = .noise,
@@ -168,7 +169,7 @@ fn change_one(generator: *Generator, out: *Text) void {
 /// Printable text and blanks mostly, which reaches past a parser's first check, and any byte at
 /// all now and then.
 fn write_noise(generator: *Generator, out: *Text) void {
-    const length = generator.below(constants.fuzz_noise_bytes_max + 1);
+    const length = generator.below(limits.fuzz_noise_bytes_max + 1);
     for (0..length) |_| {
         const byte = generator.byte();
         out.put_byte(if (generator.below(noise_any_byte_one_in) == 0) byte else noise_bytes[byte % noise_bytes.len]);
@@ -177,15 +178,14 @@ fn write_noise(generator: *Generator, out: *Text) void {
 
 /// What noise is mostly made of: the characters every one of these grammars reads.
 const noise_bytes = "0123456789abcdefABCDEF.:[]%/ \t\r\n#;=+-_xyz";
-const noise_any_byte_one_in = 8;
+const noise_any_byte_one_in: usize = 8;
 
 // Addresses.
 
 const v4_octets = core.constants.address_v4_bytes;
-const v6_groups = core.constants.address_v6_bytes / @sizeOf(u16);
+const v6_groups: usize = core.constants.address_v6_bytes / @sizeOf(u16);
 /// The groups before a trailing dotted quad, which fills the last two (RFC 4291 §2.2 form 3).
-const v6_groups_before_quad = v6_groups - v4_octets / @sizeOf(u16);
-const hex_digits_max = 4;
+const v6_groups_before_quad: usize = v6_groups - v4_octets / @sizeOf(u16);
 
 /// Writes an address, IPv4 or IPv6, in one of the forms the grammar takes, and returns it.
 pub fn write_address(generator: *Generator, out: *Text) core.Address {
@@ -267,13 +267,13 @@ fn write_groups(generator: *Generator, out: *Text, groups: []const u16, gap: ?Ga
 
 /// A group in hexadecimal, in either case, padded with zeros to a width of its own.
 fn write_group(generator: *Generator, out: *Text, value: u16) void {
-    var digits: [hex_digits_max]u8 = undefined;
+    var digits: [limits.fuzz_hex_digits_max]u8 = undefined;
     const upper = generator.coin();
     const text = if (upper)
         std.fmt.bufPrint(&digits, "{X}", .{value}) catch unreachable
     else
         std.fmt.bufPrint(&digits, "{x}", .{value}) catch unreachable;
-    for (0..generator.below(hex_digits_max - text.len + 1)) |_| out.put("0");
+    for (0..generator.below(limits.fuzz_hex_digits_max - text.len + 1)) |_| out.put("0");
     out.put(text);
 }
 
@@ -305,7 +305,7 @@ pub fn write_address_near_miss(generator: *Generator, out: *Text) void {
         .group_too_long => {
             write_full_groups(generator, out, v6_groups - 1);
             out.put(":1");
-            for (0..hex_digits_max) |_| out.put("0");
+            for (0..limits.fuzz_hex_digits_max) |_| out.put("0");
         },
         .two_gaps => out.put("1::2::3"),
         .gap_in_full => {
@@ -346,7 +346,7 @@ fn write_v4_miss(generator: *Generator, out: *Text, miss: AddressMiss) void {
 }
 
 /// How far past 255 a three-digit octet reaches, and a digit or two after a leading zero.
-const octet_digits_room = 744;
+const octet_digits_room: usize = 744;
 
 fn write_full_groups(generator: *Generator, out: *Text, count: usize) void {
     for (0..count) |index| {
@@ -381,13 +381,13 @@ pub const Alphabet = enum { printable, host };
 /// built label by label and not by `Name.from_text`, which is what the check holds it against.
 pub fn write_name(generator: *Generator, out: *Text, alphabet: Alphabet) core.Name {
     var name: core.Name = .empty;
-    const labels = 1 + generator.below(constants.fuzz_labels_max);
+    const labels = 1 + generator.below(limits.fuzz_labels_max);
     for (0..labels) |index| {
         if (index > 0) out.put(".");
         const start = out.len;
         // One label of full length now and then, and only the first, so the name stays in bounds.
         const long = index == 0 and generator.below(long_label_one_in) == 0;
-        const length = if (long) core.constants.label_bytes_max else 1 + generator.below(constants.fuzz_label_bytes_max);
+        const length = if (long) core.limits.label_bytes_max else 1 + generator.below(limits.fuzz_label_bytes_max);
         for (0..length) |_| out.put_byte(label_byte(generator, alphabet));
         name.append_label(out.bytes[start..out.len]) catch unreachable;
     }
@@ -396,7 +396,7 @@ pub fn write_name(generator: *Generator, out: *Text, alphabet: Alphabet) core.Na
     return name;
 }
 
-const long_label_one_in = 8;
+const long_label_one_in: usize = 8;
 const host_bytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-";
 
 /// A byte a label may hold: printable ASCII but the separator and the escape (name_text.zig).
@@ -420,10 +420,10 @@ fn write_name_near_miss(generator: *Generator, out: *Text) void {
             out.put(".");
             _ = write_name(generator, out, .host);
         },
-        .label_too_long => for (0..core.constants.label_bytes_max + 1) |_| out.put("a"),
-        .name_too_long => for (0..core.constants.name_bytes_max / core.constants.label_bytes_max + 1) |index| {
+        .label_too_long => for (0..core.limits.label_bytes_max + 1) |_| out.put("a"),
+        .name_too_long => for (0..core.limits.name_bytes_max / core.limits.label_bytes_max + 1) |index| {
             if (index > 0) out.put(".");
-            for (0..core.constants.label_bytes_max) |_| out.put("b");
+            for (0..core.limits.label_bytes_max) |_| out.put("b");
         },
         .bad_byte => {
             out.put("a");

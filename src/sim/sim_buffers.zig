@@ -5,6 +5,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const types = @import("sim_types.zig");
 
 pub const ProvideError = error{ SystemResources, Unexpected };
@@ -31,7 +32,7 @@ pub const Group = struct {
     buffer_bytes: u32,
     count: u16,
     /// Which buffers are free: a bit per buffer, set when free.
-    free: [constants.buffers_per_group_max]bool,
+    free: [limits.buffers_per_group_max]bool,
     free_count: u16,
 
     pub const none: Group = .{
@@ -47,7 +48,7 @@ pub const Group = struct {
     pub fn init(memory: []u8, count: u16, buffer_bytes: u32) Group {
         assert(buffer_bytes >= 1);
         assert(count >= 1);
-        assert(count <= constants.buffers_per_group_max);
+        assert(count <= limits.buffers_per_group_max);
         assert(memory.len >= group_bytes(count, buffer_bytes));
         var group: Group = .{
             .buffers = memory[ring_bytes(count)..][0 .. @as(usize, count) * buffer_bytes],
@@ -117,7 +118,7 @@ pub fn read_delivery(buffer: []u8, payload_bytes: u32, options: types.GroupOptio
     const prefix = types.prefix_bytes(options);
     // The prefix is below `transfer_bytes_max`, 2^30, and the payload is at most that. So the sum
     // fits the thirty-two bits.
-    assert(payload_bytes <= constants.transfer_bytes_max);
+    assert(payload_bytes <= limits.transfer_bytes_max);
     assert(buffer.len >= prefix + payload_bytes);
     const received: *const types.Received = @ptrCast(@alignCast(buffer[constants.prefix_head_bytes..][0..types.metadata_bytes]));
     return .{ .from = received.*, .bytes = buffer[prefix..][0..payload_bytes] };

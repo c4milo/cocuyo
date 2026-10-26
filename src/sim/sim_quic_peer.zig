@@ -1,6 +1,7 @@
 //! The server's side of the twin's QUIC (`sim_quic.zig`): how a scripted server behaves, and what
 //! it makes of each item a connection's client sends. Split from `sim_quic.zig`.
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const quic = @import("sim_quic.zig");
 
 const Kind = quic.Kind;
@@ -28,7 +29,7 @@ pub const Behaviour = struct {
 pub const Peer = struct {
     flights_left: u8 = 0,
     up: bool = false,
-    offered: [constants.quic_alpn_bytes_max]u8 = undefined,
+    offered: [limits.quic_alpn_bytes_max]u8 = undefined,
     offered_len: u8 = 0,
     /// What it heard, which a test reads: the hellos that resumed, the cancels, and the close.
     resumed: u16 = 0,

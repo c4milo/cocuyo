@@ -13,11 +13,13 @@ const cocuyo_doh = @import("io_doh_channel.zig");
 const identity = @import("io_doh_channel_identity.zig");
 const server_module = @import("io_doh_channel_server.zig");
 pub const constants = cocuyo_doh.constants;
+pub const limits = cocuyo_doh.limits;
 const doh_constants = @import("doh").constants;
+const doh_limits = @import("doh").limits;
 const tls = @import("tls");
 
 /// Two answer buffers: a test's second request fits beside its first, and a third waits.
-const test_answers = 2;
+const test_answers: usize = 2;
 pub const Doh = cocuyo_doh.Channel(.{ .answers = test_answers });
 pub const Event = Doh.Event;
 pub const Answerer = server_module.Answerer;
@@ -27,23 +29,23 @@ pub const identity_seconds = identity.unix_seconds;
 const Tag = std.meta.Tag(Event);
 
 /// A millisecond a round, and rounds enough for the fallback delay and a handshake after it.
-pub const round_ns = 1_000_000;
-pub const rounds_max = 1_000;
-const said_max = 64;
+pub const round_ns: u64 = 1_000_000;
+pub const rounds_max: usize = 1_000;
+const said_max: usize = 64;
 /// The octet of a DNS header that holds the QR bit, and the bit (RFC 1035 §4.1.1).
-pub const flags_at = 2;
-pub const qr_bit = 0x80;
+pub const flags_at: usize = 2;
+pub const qr_bit: u8 = 0x80;
 
 /// The server's address, and its template as the engine splits it, on a port of its own, so a link
 /// that went to HTTPS's 443 anyway shows.
-const port = 8443;
+const port: u16 = 8443;
 pub const endpoint: cocuyo.Endpoint = .{ .address = cocuyo.Address.from_text("192.0.2.1").?, .port = port };
 pub const template = .{ .authority = "dns.example:8443", .host = "dns.example", .port = port, .path = "/dns-query{?dns}" };
 /// A query of a header alone, ID 0, as DoH asks (RFC 8484 §4.1), recursion desired: the server
 /// echoes it, so it need not ask anything.
 pub const query = [_]u8{ 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 /// The octet the context's stream is seeded with. Test-only.
-const seed_octet = 7;
+const seed_octet: u8 = 7;
 
 /// Answers a query with the query itself, the QR bit set.
 fn echo(context: *anyopaque, asked: []const u8, out: []u8) ?usize {
@@ -166,8 +168,8 @@ pub const Pair = struct {
         const down = pair.server.send(&pair.wire, answerer, pair.now_ns);
         pair.carried = pair.carried or up > 0 or down > 0;
         var at: usize = 0;
-        while (at < down) : (at += constants.engine_chunk_bytes) {
-            const end = @min(down, at + constants.engine_chunk_bytes);
+        while (at < down) : (at += limits.engine_chunk_bytes) {
+            const end = @min(down, at + limits.engine_chunk_bytes);
             pair.doh.receive(.{ .stream = pair.wire[at..end] }, pair.now_ns);
             if (try pair.hear(until)) |event| return event;
         }
@@ -229,7 +231,7 @@ test "a datagram longer than the type keeps is dropped, and one the channel has 
     // As the network may drop a datagram, so may the type (docs/design.md §24, the interface).
     const pair = try Pair.create(.{});
     defer pair.free();
-    var long: [constants.datagram_bytes + 1]u8 = @splat(1);
+    var long: [limits.datagram_bytes + 1]u8 = @splat(1);
     pair.doh.receive(.{ .datagram = &long }, pair.now_ns);
     try testing.expectEqual(@as(usize, 0), pair.doh.inbound_len);
     pair.doh.receive(.{ .datagram = "first" }, pair.now_ns);
@@ -242,10 +244,10 @@ test "a datagram of exactly what the type keeps is kept, and stream octets of ex
     // test above and the overrun test below.
     const pair = try Pair.create(.{});
     defer pair.free();
-    const datagram: [constants.datagram_bytes]u8 = @splat(1);
+    const datagram: [limits.datagram_bytes]u8 = @splat(1);
     pair.doh.receive(.{ .datagram = &datagram }, pair.now_ns);
     try testing.expectEqual(datagram.len, pair.doh.inbound_len);
-    const stream: [constants.stream_bytes]u8 = @splat(0);
+    const stream: [limits.stream_bytes]u8 = @splat(0);
     pair.doh.receive(.{ .stream = &stream }, pair.now_ns);
     try testing.expectEqual(stream.len, pair.doh.stream_len);
     try testing.expect(!pair.doh.stream_overrun);
@@ -303,20 +305,20 @@ test "field values that fill the buffer to its last octet are read, and one octe
     // The server sends one field the type wants, `content-type`, so its value alone fills the
     // buffer (doh_values_bytes, rule 22).
     const media = "application/dns-message; x=";
-    const filled = media ++ "y" ** (constants.values_bytes - media.len);
+    const filled = media ++ "y" ** (limits.values_bytes - media.len);
     for ([_][]const u8{ filled, filled ++ "y" }) |content_type| {
         const pair = try Pair.create(.{ .content_type = content_type });
         defer pair.free();
         try testing.expect(pair.doh.request(0, &query, pair.now_ns));
         const finished = (try pair.run(.finished)).finished;
-        try testing.expectEqual(content_type.len == constants.values_bytes, finished.result == .answer);
+        try testing.expectEqual(content_type.len == limits.values_bytes, finished.result == .answer);
     }
 }
 
 test "a 2xx response whose field values do not fit fails its request as too large" {
     // doh_values_bytes: the values the type wants are copied into its buffer, and a response whose
     // values do not fit ends as too large, which is no answer (rule 22).
-    const long_type = "application/dns-message; x=" ++ "y" ** constants.values_bytes;
+    const long_type = "application/dns-message; x=" ++ "y" ** limits.values_bytes;
     const pair = try Pair.create(.{ .content_type = long_type });
     defer pair.free();
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
@@ -409,7 +411,7 @@ test "stream octets past what the type keeps end the TCP link, which the channel
         pair.now_ns += round_ns;
     }
     try testing.expectEqual(@as(usize, 1), pair.server.held);
-    var junk: [constants.stream_bytes + 1]u8 = @splat(0);
+    var junk: [limits.stream_bytes + 1]u8 = @splat(0);
     pair.doh.receive(.{ .stream = &junk }, pair.now_ns);
     try testing.expectEqual(Event{ .close = .tcp }, pair.doh.next(pair.now_ns).?);
     // colibri was told the link ended, so the exchange it carried ends as a failure of its
@@ -444,7 +446,7 @@ test "a template whose GET path at its longest fills the path buffer starts, and
     // 512 octets carries, 384 octets in base64url (RFC 4648 §5).
     const query_part = "?x=";
     const value_part = "&dns=";
-    const filler = doh_constants.doh_request_bytes_max - 1 - query_part.len - value_part.len - cocuyo.wire.constants.dns_variable_bytes_max;
+    const filler = doh_limits.doh_request_bytes_max - 1 - query_part.len - value_part.len - cocuyo.wire.limits.dns_variable_bytes_max;
     const longest = query_part ++ "p" ** filler ++ "{&dns}";
     const host = ("h" ** 63 ++ ".") ** 3 ++ "h" ** 61;
     const pair = try testing.allocator.create(Pair);
@@ -454,7 +456,7 @@ test "a template whose GET path at its longest fills the path buffer starts, and
     const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(identity.server_name) };
     const fits_slot = .{ .authority = host ++ ":8443", .host = host, .port = port, .path = longest };
     try pair.doh.start(.{ .server = 0, .endpoint = pair.endpoint, .tls = &named, .https = fits_slot, .alternative = null, .context = &pair.context, .now_ns = pair.now_ns });
-    var longest_query: [cocuyo.wire.constants.dns_variable_bytes_max / 4 * 3]u8 = @splat(0);
+    var longest_query: [cocuyo.wire.limits.dns_variable_bytes_max / 4 * 3]u8 = @splat(0);
     @memcpy(longest_query[0..query.len], &query);
     try testing.expect(pair.doh.request(0, &longest_query, pair.now_ns));
     const result = (try pair.run(.finished)).finished.result;
@@ -470,7 +472,7 @@ test "a template whose path starts with a slash and fills the path buffer starts
     // The slash is the template's own, so the expansion has the whole buffer: a slash, the
     // filler, `?dns=` and a value of 512 octets make 1536 (docs/design.md §24, §17 question 42).
     const value_part = "?dns=";
-    const filler = doh_constants.doh_request_bytes_max - 1 - value_part.len - cocuyo.wire.constants.dns_variable_bytes_max;
+    const filler = doh_limits.doh_request_bytes_max - 1 - value_part.len - cocuyo.wire.limits.dns_variable_bytes_max;
     const pair = try testing.allocator.create(Pair);
     defer testing.allocator.destroy(pair);
     pair.* = .{ .endpoint = endpoint };
@@ -480,7 +482,7 @@ test "a template whose path starts with a slash and fills the path buffer starts
     try pair.doh.start(.{ .server = 0, .endpoint = pair.endpoint, .tls = &named, .https = fills, .alternative = null, .context = &pair.context, .now_ns = pair.now_ns });
     // The longest query a `dns` value of 512 octets carries goes out on that path, and colibri's
     // server answers it.
-    var longest_query: [cocuyo.wire.constants.dns_variable_bytes_max / 4 * 3]u8 = @splat(0);
+    var longest_query: [cocuyo.wire.limits.dns_variable_bytes_max / 4 * 3]u8 = @splat(0);
     @memcpy(longest_query[0..query.len], &query);
     try testing.expect(pair.doh.request(0, &longest_query, pair.now_ns));
     const result = (try pair.run(.finished)).finished.result;

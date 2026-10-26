@@ -7,6 +7,8 @@
 const std = @import("std");
 
 pub const constants = @import("constants.zig");
+
+pub const limits = @import("limits.zig");
 pub const mix = @import("mix.zig");
 pub const Error = @import("errors.zig").Error;
 
@@ -36,6 +38,7 @@ pub const Source = @import("config.zig").Source;
 
 test {
     _ = constants;
+    _ = limits;
     _ = mix;
     _ = address;
     _ = address_text;
@@ -50,10 +53,10 @@ test {
 
 test "the limits hold the relations the design states" {
     // docs/design.md §12. A limit changed without its neighbour fails here rather than in a parser.
-    try std.testing.expect(constants.name_bytes_max < constants.message_bytes_max);
-    try std.testing.expect(constants.label_bytes_max < constants.name_bytes_max);
-    try std.testing.expect(constants.query_bytes_max < constants.udp_payload_bytes_min);
-    try std.testing.expect(constants.ptr_names_max <= constants.addresses_max);
+    try std.testing.expect(limits.name_bytes_max < limits.message_bytes_max);
+    try std.testing.expect(limits.label_bytes_max < limits.name_bytes_max);
+    try std.testing.expect(limits.query_bytes_max < limits.udp_payload_bytes_min);
+    try std.testing.expect(limits.ptr_names_max <= limits.addresses_max);
 }
 
 test "the size of every stored type is pinned" {

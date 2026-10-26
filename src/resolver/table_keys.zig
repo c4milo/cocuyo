@@ -101,7 +101,7 @@ pub const Candidates = struct {
 
 const testing = std.testing;
 
-const key_count = 8;
+const key_count: usize = 8;
 
 fn empty_keys() [key_count]MatchKey {
     return @splat(.{});

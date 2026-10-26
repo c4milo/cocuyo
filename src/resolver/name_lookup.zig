@@ -120,7 +120,7 @@ pub const NameLookup = struct {
 /// Tries the sources from `source_index` on, and ends the walk with nothing when they run out.
 fn next_source(self: *NameLookup) NameLookup.InitError!void {
     const sources = self.resolver.config.lookups;
-    assert(sources.len <= core.constants.lookup_sources_max);
+    assert(sources.len <= core.limits.lookup_sources_max);
     for (sources[self.source_index..]) |source| {
         self.source_index += 1;
         const found = switch (source) {

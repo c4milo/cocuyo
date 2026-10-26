@@ -14,7 +14,7 @@ const Lookup = @import("lookup.zig").Lookup;
 pub fn order_servers(self: *Lookup, now_ns: u64) void {
     assert(!self.flags.ordered);
     const count = self.config.server_count();
-    assert(count <= core.constants.servers_max);
+    assert(count <= core.limits.servers_max);
     for (self.order[0..count], 0..) |*slot, index| slot.* = @intCast(index);
     sort_by_failures(self, count);
     if (self.config.rotate) rotate_front_group(self, count);
@@ -80,9 +80,9 @@ const fixtures = @import("fixtures.zig");
 
 const three = fixtures.servers_three;
 
-fn ordered(config: *const Config, servers: *Servers, seed: u64, now_ns: u64) [core.constants.servers_max]u8 {
+fn ordered(config: *const Config, servers: *Servers, seed: u64, now_ns: u64) [core.limits.servers_max]u8 {
     var lookup = Lookup.init(config, servers, Question.from_text("example.com.", .a) catch unreachable, seed);
-    var out: [core.constants.query_bytes_max]u8 = @splat(0);
+    var out: [core.limits.query_bytes_max]u8 = @splat(0);
     _ = lookup.poll(now_ns, &out);
     return lookup.order;
 }

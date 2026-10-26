@@ -18,6 +18,7 @@ const quic = @import("quic");
 const streams_module = @import("io_quic_streams.zig");
 const connection_module = @import("io_quic_connection.zig");
 pub const constants = @import("io_quic_constants.zig");
+pub const limits = @import("io_quic_limits.zig");
 /// A TLS session for tests (`io_quic_plain.zig`). It encrypts nothing and authenticates nobody: a
 /// packet goes as it is, and any peer that sends its made-up messages completes its handshake. It
 /// is never for a network.
@@ -84,14 +85,14 @@ pub fn Connection(comptime options: Options) type {
         const Self = @This();
         const Session = options.Session;
         /// A request's slot holds a DoQ query and its prefix.
-        pub const Streams = streams_module.Streams(options.streams, cocuyo.constants.query_bytes_max);
+        pub const Streams = streams_module.Streams(options.streams, cocuyo.limits.query_bytes_max);
 
         pub const enabled = true;
         /// A datagram at a time, over UDP (docs/design.md §24, the request interface).
         pub const socket = .datagram;
         /// colibri never makes a datagram longer than this (RFC 9000 §14.1's smallest).
         pub const output_bytes_max = quic.constants.datagram_len_min;
-        pub const request_bytes_max = cocuyo.constants.query_bytes_max;
+        pub const request_bytes_max = cocuyo.limits.query_bytes_max;
         pub const Error = error{Failed};
         /// What every connection starts from (docs/design.md §24, the context a session starts
         /// from): the session's context, and the stream its connection IDs are drawn from, which
@@ -117,7 +118,7 @@ pub fn Connection(comptime options: Options) type {
         send_scratch: quic.connection_send.DefaultScratch = undefined,
         scratch: quic.connection_datagram.Scratch = undefined,
         /// The datagram being read: colibri opens packets in place.
-        inbound: [constants.datagram_receive_bytes]u8 = undefined,
+        inbound: [limits.datagram_receive_bytes]u8 = undefined,
         destination: [constants.connection_id_bytes]u8 = undefined,
         source: [constants.connection_id_bytes]u8 = undefined,
         streams: Streams = .{},
@@ -172,9 +173,9 @@ const testing = std.testing;
 const Pair = struct {
     const Client = Connection(.{ .Session = Plain, .streams = test_streams });
     const Server = server.Server(test_streams);
-    const test_streams = 4;
-    const round_ns = 1_000_000;
-    const rounds_max = 64;
+    const test_streams: usize = 4;
+    const round_ns: u64 = 1_000_000;
+    const rounds_max: usize = 64;
 
     client: Client = .{},
     server: Server = .{},
@@ -234,7 +235,7 @@ test "a client over colibri handshakes on doq, and a query on a stream is answer
     var echo: Echo = .{};
     try pair.start();
     try pair.exchange(echo.answerer());
-    var out: [constants.answer_bytes_max]u8 = undefined;
+    var out: [limits.answer_bytes_max]u8 = undefined;
     try testing.expectEqualStrings("doq", pair.client.next(&out).?.up);
     var query = [_]u8{ 0, 4, 0, 0, 1, 2 };
     const stream = (try pair.client.request(&query, query.len)).?;
@@ -252,7 +253,7 @@ test "a server that selects another protocol is heard, and a stream it resets is
     var echo: Echo = .{ .decline = true };
     try pair.start();
     try pair.exchange(echo.answerer());
-    var out: [constants.answer_bytes_max]u8 = undefined;
+    var out: [limits.answer_bytes_max]u8 = undefined;
     try testing.expectEqualStrings(plain.other_protocol, pair.client.next(&out).?.up);
     var query = [_]u8{ 0, 4, 0, 0, 1, 2 };
     const stream = (try pair.client.request(&query, query.len)).?;
@@ -268,7 +269,7 @@ test "a cancelled stream keeps its slot until its answer is read, which ends its
     var echo: Echo = .{};
     try pair.start();
     try pair.exchange(echo.answerer());
-    var out: [constants.answer_bytes_max]u8 = undefined;
+    var out: [limits.answer_bytes_max]u8 = undefined;
     try testing.expectEqualStrings("doq", pair.client.next(&out).?.up);
     var query = [_]u8{ 0, 4, 0, 0, 1, 2 };
     const stream = (try pair.client.request(&query, query.len)).?;
@@ -327,7 +328,7 @@ fn PlainIn(comptime version: quic.crypto.suite.Version) type {
 }
 
 /// Where a long header carries its Version field: after its first octet (RFC 9000 §17.2).
-const version_at = 1;
+const version_at: usize = 1;
 
 /// The Version field of the first datagram a client over `Session` sends.
 fn first_version(comptime Session: type) !u32 {
@@ -372,6 +373,7 @@ test "the options carry no session of their own, so a consumer that names none d
 }
 
 test {
+    _ = limits;
     _ = streams_module;
     _ = connection_module;
     _ = plain;

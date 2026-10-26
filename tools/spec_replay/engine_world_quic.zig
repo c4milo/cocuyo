@@ -25,7 +25,7 @@ pub fn step(self: anytype, op: []const u8, parts: *std.mem.SplitIterator(u8, .sc
     const name = parts.next() orelse return error.Malformed;
     const slot = try world_module.number(parts.next());
     const reply = std.meta.stringToEnum(fixtures.Reply, parts.next() orelse "");
-    var datagram: [rotor.constants.quic_datagram_bytes_max]u8 = undefined;
+    var datagram: [rotor.limits.quic_datagram_bytes_max]u8 = undefined;
     const len = try item(self, server, name, slot, reply, &datagram);
     const buffer_id = self.loop.groups[io.constants.group_id].take() orelse return error.NoBuffer;
     const buffer = self.loop.provided_buffer(io.constants.group_id, buffer_id);

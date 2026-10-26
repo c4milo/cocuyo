@@ -64,7 +64,7 @@ const testing = std.testing;
 const fixtures = @import("fixtures.zig");
 
 /// Two records with TTLs of their own, so an answer that aged one and not the other would show.
-const mx_count = 2;
+const mx_count: usize = 2;
 
 /// Two MX records with TTLs of their own, as a lookup that went out collects them, and the
 /// answers' TTL the smaller of the two.
