@@ -4484,7 +4484,7 @@ step until `zig build test` passes.
 
     The cost. The lookup holds the counts in four octets, two bits for each of `servers_max`
     positions and each transport. Zig pads the lookup to eight octets more, from 3,072 to 3,080,
-    and a slot from 3,088 to 3,096 (§9). §17 question 83 asks whether that stays.
+    and a slot from 3,088 to 3,096 (§9). §17 question 83 asked whether that stays, and the owner ruled: as built.
 
     The model and the checks. §5 changed first, then the Lean model, then the code. The model's
     state holds the counts. `advanceServer` passes over a spent server, and a retry the bound
@@ -4494,8 +4494,8 @@ step until `zig build test` passes.
     full walk takes two servers over UDP with one name alone. It takes three servers over two
     passes alone, with one name and no UDP. One server reaches each rule, and two servers reach a
     server passed over in a pass and at the start of the next. The walk holds 38,759,600
-    transitions under 84 configurations, from 21,444,698 under 109. §17 question 84 asks whether
-    the 25 that it drops stay out. Each new check is a check and an assertion: `Sends.add` asserts
+    transitions under 84 configurations, from 21,444,698 under 109. §17 question 84 asked whether
+    the 25 that it drops stay out, and the owner ruled: as built. Each new check is a check and an assertion: `Sends.add` asserts
     the count is under the bound.
 
     Rejected:
@@ -4509,7 +4509,8 @@ step until `zig build test` passes.
       which is one lookup's. A count across lookups would need the time that §3.2's cache of
       failures holds, and that is c4milo/cocuyo#51.
     - Counts by the server's address rather than by its position. A configuration that names one
-      address twice then shares one count. §17 question 82 asks it.
+      address twice then shares one count. §17 question 82 asked it, and the owner
+      ruled: as built.
 
     §5, §9, §10, §12, §19 step 12, §17 questions 82 and 83.
 
@@ -5559,7 +5560,7 @@ about.
 
     Recommended: as built. A check at each count costs a walk over the servers on the hot path,
     and a configuration that drops a duplicate changes what a caller configured. Until the owner
-    rules, as built.
+    rules, as built. Answered on 2026-10-27: as built.
 83. **Eight octets more for each lookup.** The counts take four octets, and Zig pads the lookup
     from 3,072 octets to 3,080, and a slot from 3,088 to 3,096 (§9). The ways:
 
@@ -5569,7 +5570,7 @@ about.
       then holds two things.
 
     Recommended: as built. A field that holds one thing is easier to read and to check, and 8 KiB
-    for 1,024 lookups is small. Until the owner rules, as built.
+    for 1,024 lookups is small. Until the owner rules, as built. Answered on 2026-10-27: as built.
 84. **The configurations the full walk drops.** The counts made some walks too large, so
     `configsAll` in `spec/lean/Main.lean` walks 84 of its 109 configurations. A smaller walk is a
     weaker check. The 25 that it drops:
@@ -5593,7 +5594,7 @@ about.
 
     Recommended: as built. One server reaches each rule of the bound, and two servers reach a
     server passed over in a pass and at the start of the next. So the 84 walk each rule of the
-    bound. Until the owner rules, as built.
+    bound. Until the owner rules, as built. Answered on 2026-10-27: as built.
 
 ## 18. The cache
 

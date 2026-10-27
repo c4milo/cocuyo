@@ -167,8 +167,8 @@ over two or three passes the walk now takes:
 - two servers, each name count over TCP, DoH and DoQ, and one name over UDP;
 - three servers over two passes, with one name, over TCP, DoH and DoQ.
 
-This is a known gap until the owner rules on design §17 question 84. The walk drops these 25
-configurations:
+This is a known gap, which the owner kept on 2026-10-27 (design §17 question 84). The walk drops
+these 25 configurations:
 
 - two servers over two or three passes, with two or three names, over UDP: 4;
 - three servers over two passes, with two or three names, over each transport: 8;
