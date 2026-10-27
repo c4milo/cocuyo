@@ -167,6 +167,14 @@ over two or three passes the walk now takes:
 - two servers, each name count over TCP, DoH and DoQ, and one name over UDP;
 - three servers over two passes, with one name, over TCP, DoH and DoQ.
 
+This is a known gap until the owner rules on design §17 question 84. The walk drops these 25
+configurations:
+
+- two servers over two or three passes, with two or three names, over UDP: 4;
+- three servers over two passes, with two or three names, over each transport: 8;
+- three servers over two passes, with one name, over UDP: 1;
+- three servers over three passes, with each name count, over each transport: 12.
+
 One pass is walked for each configuration as before, since one pass never reaches the bound. One
 server reaches each rule of the bound: a retry the bound forbids after FORMERR and after BADCOOKIE,
 TC=1 when the stream is spent, and a server passed over. Two servers reach a server passed over in

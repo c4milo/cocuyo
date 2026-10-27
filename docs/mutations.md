@@ -10190,6 +10190,8 @@ In `src/resolver/lookup_bound_test.zig`:
   after it.
 - FORMERR, BADCOOKIE over UDP and BADCOOKIE on a stream at the bound each end `AllServersFailed`
   with their rcode as the cause.
+- A second BADCOOKIE over UDP moves to a stream when the datagrams are spent, and ends
+  `AllServersFailed` when the stream is spent.
 - TC=1 and a cut datagram when the stream is spent end `Timeout`, with no cause.
 - The next search candidate and a CNAME's target each get three queries of their own.
 - A send that failed is no query.
@@ -10203,7 +10205,9 @@ In `src/resolver/lookup_bound_test.zig`:
 - `zig build mutations -- lookup RB1` to `RB11`, then the rewritten rows of the lookup set:
   S4, S5, S6, S9, S12 and S15, G1, FR1, FR5, FR6, FR7, FR12, CO16 to CO21 and
   CO30. Each is `CAUGHT`. RB11 did not compile at its first edit, and got `_ = self;`.
-- `zig build mutations -- engine OA16 OA17 OA18 OA19 OA29 OA32`: each is `CAUGHT`. OA29 is caught by the full run at walk 24001 and by the picked walks at walk 22, and OA32 by `zig build test-tools` at walk 123.
+- `zig build mutations -- engine OA16 OA17 OA18 OA19 OA29 OA32`: each is `CAUGHT`.
+  The full run catches OA29 at walk 24001 and the picked walks catch it at walk 22.
+  `zig build test-tools` catches OA32 at walk 123.
 - `zig build mutations -- lean RB12 RB13 RB14 M1 M2 CO24`: each is `CAUGHT` by `zig build spec-lean`.
 - `zig build test` passed after the mutations.
 
@@ -10232,6 +10236,32 @@ which zeroes the counts. So its count can move by a few instructions a round.
 | RB12 | the model does not pass over a server with no query left | `advanceServer` | `zig build spec-lean`: the proofs and the replay | CAUGHT |
 | RB13 | the model's retry ignores the bound | `retry` | `zig build spec-lean`: the proofs and the replay | CAUGHT |
 | RB14 | the model does not count a query sent over UDP | `sent` | `zig build spec-lean`: the proofs and the replay | CAUGHT |
+| RB15 | the retry over TCP after a second BADCOOKIE over UDP reads the datagram count | `cookie_retry` names the stream after the second BADCOOKIE | the second BADCOOKIE test with the datagrams spent, `test-resolver` | CAUGHT |
+| RB16 | the move to TCP after a second BADCOOKIE over UDP ignores the bound | `bad_cookie_fails` reads the stream count | the second BADCOOKIE test with the stream spent, `test-resolver` | CAUGHT |
+
+Sixteen mutations, sixteen `CAUGHT`. The 28 rewritten rows are `CAUGHT` too.
+
+### After the review
+
+A review of the change found five things. Each was checked against the code, and each was real.
+The fixes:
+
+- The comment of `lookup_bound.zig` said that a retry the bound forbids records no failure. It
+  does: FORMERR and BADCOOKIE fail the server with their rcode, and TC=1 records its sample. The
+  comment now says so.
+- No test reached the retry over TCP after a second BADCOOKIE over UDP. Two tests now do. In the
+  first, the datagrams are spent and the retry goes on the stream. In the second, the stream is
+  spent and the lookup ends `AllServersFailed` with BADCOOKIE as the cause. RB15 and RB16 break
+  each. Each test passed against the code, and each mutant failed only its own test. RB16 fails
+  in the test's last check, since the lookup asks for a stream.
+- The full walk drops 25 configurations, which weakens a check. Design §17 question 84 asks the
+  owner, and spec/README.md lists the 25 as a known gap.
+- The known gap of design said the default 2 is inside the rule. It could send four.
+- Five sentences were too long or passive. Each is split or active now.
+
+`zig build mutations -- lookup RB15 RB16` ran each to its end, and each is `CAUGHT` by
+`zig build test-resolver`. The Lean model and the code of the lookup did not change, so the spec
+and the other sets did not run again.
 
 Fourteen mutations, fourteen `CAUGHT`. The 28 rewritten rows are `CAUGHT` too.
 
@@ -10247,6 +10277,6 @@ together:
   call, which macOS refuses past 2^31 - 1 octets. So `cocuyo-spec all 8` now writes the file
   that the build names.
 
-The mutations ran again on the merged tree: YX1 to YX7 and YX10, RB1 to RB11 by `zig build
-mutations -- lookup`, and YX8, YX9 and RB12 to RB14 by `zig build mutations -- lean`. All 24 are
-`CAUGHT`.
+The mutations ran again on the merged tree: YX1 to YX7 and YX10, RB1 to RB11, RB15 and RB16 by `zig
+build mutations -- lookup`, and YX8, YX9 and RB12 to RB14 by `zig build mutations -- lean`. All 26
+are `CAUGHT`.

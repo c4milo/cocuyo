@@ -556,8 +556,8 @@ transport more than twice (i.e., three queries in total)" (RFC 9520 §3.1). The 
 - The lookup counts the queries that it sent for the current name, for each position in its order
   and for each transport. The transports are the datagram, over UDP or as a DoH or DoQ request,
   and the stream, over TCP or TLS. A query counts at `on_sent`. A send that failed does not count.
-- To advance the server is to move to the next position whose server has a query left over the
-  transport the lookup starts on: the stream under `use_tcp` or TLS, the datagram otherwise. The
+- To advance the server is to move to the next position with a query left. The transport is the
+  one the lookup starts on: the stream under `use_tcp` or TLS, and the datagram otherwise. The
   walk passes over each other position, and the next pass and the end come as before. So when no
   server is left, the lookup ends as the last pass ends.
 - A retry on the same server goes only when that server has a query left over the retry's
@@ -4478,8 +4478,9 @@ step until `zig build test` passes.
     the counts follow the positions of that order. A server that failover promoted to the front,
     one query in `failover_retry_chance`, takes its three queries as any other does. The counts
     belong to one lookup and one name, and `Servers` keeps none of them. So a server that one
-    lookup passed over is asked by the next lookup in the order that failover gives it. A pass over
-    a server counts no failure, so the bound does not move a server later in that order.
+    lookup passed over gets queries again: the next lookup asks it in the order that failover gives
+    it. A pass over a server counts no failure, so the bound does not move a server later in that
+    order.
 
     The cost. The lookup holds the counts in four octets, two bits for each of `servers_max`
     positions and each transport. Zig pads the lookup to eight octets more, from 3,072 to 3,080,
@@ -4489,12 +4490,13 @@ step until `zig build test` passes.
     state holds the counts. `advanceServer` passes over a spent server, and a retry the bound
     forbids moves on through `retry`. Its proof `sends_bounded` shows that no count passes three,
     whatever events come. The counts split states that differ in them alone, over UDP most, where
-    the walks of two servers over several passes grew 25 to 45 times. So over several passes the
-    full walk takes one name alone over UDP with two servers, and three servers over two passes,
-    one name and no UDP alone. One server reaches each rule, and two servers reach a server passed
-    over in a pass and at the start of the next. The walk
-    holds 38,759,600 transitions under 84 configurations, from 21,444,698 under 109. Each new check
-    is a check and an assertion: `Sends.add` asserts the count is under the bound.
+    the walks of two servers over several passes grew 25 to 45 times. So over several passes, the
+    full walk takes two servers over UDP with one name alone. It takes three servers over two
+    passes alone, with one name and no UDP. One server reaches each rule, and two servers reach a
+    server passed over in a pass and at the start of the next. The walk holds 38,759,600
+    transitions under 84 configurations, from 21,444,698 under 109. §17 question 84 asks whether
+    the 25 that it drops stay out. Each new check is a check and an assertion: `Sends.add` asserts
+    the count is under the bound.
 
     Rejected:
 
@@ -5542,7 +5544,8 @@ changes. The ruling did not make four of the choices that decision 56 makes.
 ### Asked on 2026-10-27, for the bound on the queries to one server
 
 §16 decision 58 builds the owner's ruling on c4milo/cocuyo#50. The ruling did not make two of its
-choices.
+choices, questions 82 and 83. The change also made the full walk smaller, which question 84 asks
+about.
 
 82. **One address named twice.** RFC 9520 §3.1 bounds the queries to "a server address". The
     lookup counts by the position of a server in its order. A configuration that names one address
@@ -5567,6 +5570,30 @@ choices.
 
     Recommended: as built. A field that holds one thing is easier to read and to check, and 8 KiB
     for 1,024 lookups is small. Until the owner rules, as built.
+84. **The configurations the full walk drops.** The counts made some walks too large, so
+    `configsAll` in `spec/lean/Main.lean` walks 84 of its 109 configurations. A smaller walk is a
+    weaker check. The 25 that it drops:
+
+    - two servers over two or three passes, with two or three names, over UDP: 4;
+    - three servers over two passes, with two or three names, over each transport: 8;
+    - three servers over two passes, with one name, over UDP: 1;
+    - three servers over three passes, with each name count, over each transport: 12.
+
+    The cost was measured for one of them alone. Two servers, three passes and three names over
+    UDP grew from 843,711 transitions to 35,067,338. The others were not measured. A walk of three
+    servers is probably larger than a walk of two. The ways:
+
+    - As built: the walk drops the 25, and spec/README.md lists them as a known gap.
+    - A tighter key: more of the counts that the lookup does not read again stay out of what makes
+      a state new. That makes the key harder to show correct, and it may not save enough.
+    - A nightly job that walks all 109, as the `tla-nightly` workflow checks every TLA+
+      configuration. Its cost is a CI job of some hours, an estimate from the one measured walk.
+    - Walk all 109 in `zig build spec`. By the same estimate, each run then takes hours, not 21
+      minutes.
+
+    Recommended: as built. One server reaches each rule of the bound, and two servers reach a
+    server passed over in a pass and at the start of the next. So the 84 walk each rule of the
+    bound. Until the owner rules, as built.
 
 ## 18. The cache
 
@@ -10138,7 +10165,7 @@ for each (question 25). They are c4milo/cocuyo#48 to c4milo/cocuyo#52, in the or
 - `attempts_max` is 5, which lets a configuration send one server five queries over one
   transport. "A resolver MUST NOT retry a given query to a server address over a given DNS
   transport more than twice (i.e., three queries in total)" (RFC 9520 §3.1). The default, 2,
-  is inside it. Fixed on 2026-10-27: a lookup counts the queries to each server, and
+  could send four when FORMERR and BADCOOKIE each add a retry. Fixed on 2026-10-27: a lookup counts the queries to each server, and
   `attempts_max` stays 5 (§16 decision 58).
 - cocuyo caches no failure that is not a negative answer, and `docs/rfcs/README.md` says RFC
   9520 does not apply. "Resolvers MUST implement a cache for resolution failures" (RFC 9520

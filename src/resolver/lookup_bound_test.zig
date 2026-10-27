@@ -229,3 +229,36 @@ test "a send that failed is no query, and the server keeps the three it has" {
     for (0..limits.queries_per_transport_max - 1) |_| try testing.expect(send_and_run_out(&harness) == .send_udp);
     try expect_failure(send_and_run_out(&harness), core.Error.Timeout, null);
 }
+
+test "a second BADCOOKIE over UDP when the datagrams are spent goes on a stream, and keeps no cause" {
+    // The retry after the second BADCOOKIE goes over TCP (RFC 7873 §5.3), so the bound reads the
+    // stream's count, not the spent datagram's (RFC 9520 §3.1).
+    var harness: Harness = .{ .config = .{ .servers = &one_server } };
+    try harness.start("example.com.", .a, seed);
+    try testing.expect(send_and_run_out(&harness) == .send_udp);
+    try ask(&harness, fixtures.bad_cookie_fresh);
+    try ask(&harness, fixtures.bad_cookie_fresh);
+    try testing.expect(harness.lookup.cause.what == .none);
+    try send_on_stream(&harness);
+    try expect_failure(run_out(&harness), core.Error.Timeout, null);
+}
+
+test "a second BADCOOKIE over UDP when the stream is spent fails the server with its rcode" {
+    // Two passes of TC=1, then BADCOOKIE on the stream and its retry there (RFC 7873 §5.3), spend
+    // the stream. FORMERR on the third then sends the retry without EDNS0 over UDP (RFC 6891
+    // §6.2.2), and BADCOOKIE to it wants a stream that has no query left (RFC 9520 §3.1).
+    var harness: Harness = .{ .config = .{ .servers = &one_server } };
+    try harness.start("example.com.", .a, seed);
+    try ask(&harness, truncated_cookie);
+    try send_on_stream(&harness);
+    try testing.expect(run_out(&harness) == .send_udp);
+    try ask(&harness, truncated_cookie);
+    try send_on_stream(&harness);
+    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.bad_cookie_fresh, harness.lookup.server()));
+    try send_on_stream(&harness);
+    try testing.expectEqual(Verdict.accepted, harness.respond(format_error_cookie, harness.lookup.server()));
+    try testing.expect(harness.lookup.flags.cookie_retried and !harness.lookup.flags.edns_enabled);
+    try ask(&harness, .{ .rcode = .bad_cookie });
+    const cause: Cause = .{ .server_index = 0, .what = .{ .rcode = .bad_cookie } };
+    try expect_failure(harness.poll(), core.Error.AllServersFailed, cause);
+}

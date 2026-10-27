@@ -3786,4 +3786,22 @@
         },
         .caught_by = .{ .step = "test-resolver" },
     },
+    .{
+        .section = "Three queries of a name to a server over a transport",
+        .id = "RB15",
+        .what = "the retry over TCP after a second BADCOOKIE over UDP reads the datagram count",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response_cookie.zig", .old = "    return if (self.flags.cookie_retried) .stream else bound.fresh(self);", .new = "    return if (self.flags.cookie_retried) bound.fresh(self) else bound.fresh(self);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Three queries of a name to a server over a transport",
+        .id = "RB16",
+        .what = "the move to TCP after a second BADCOOKIE over UDP ignores the bound",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response_cookie.zig", .old = "    return bound.spent(self, transport);", .new = "    return !(self.flags.cookie_retried and !response.over_stream(self)) and bound.spent(self, transport);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
 }

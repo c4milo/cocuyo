@@ -9,7 +9,10 @@
 //! each transport. A send that failed did not reach the server, so it does not count. A new name,
 //! the next search candidate or a CNAME's target, starts each count again at zero. A server with
 //! no query left is passed over, and a retry that the bound forbids moves the lookup to the next
-//! server. Neither records a failure or a sample of the server: the lookup sent it nothing.
+//! server. A pass over a server records no failure and no sample of it: the lookup sent it
+//! nothing. A FORMERR or a BADCOOKIE whose retry the bound forbids fails the server with its rcode
+//! (docs/design.md §5, §19 step 12). TC=1 at the bound records the sample of its reply, and keeps
+//! no cause.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
