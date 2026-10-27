@@ -415,3 +415,34 @@ test "a buffer is taken when its datagram is due and not before, and a group run
     try testing.expectEqual(@as(u32, 0), rig.loop.in_flight());
     rig.loop.deinit();
 }
+
+test "a multishot ends on the delivery the network sets, and the next datagram waits for a receive" {
+    // rotor's io_uring backend can end a multishot with a success that carries a datagram, so a
+    // caller reads the bytes of an event that says no more (Network.multishot_deliveries_max).
+    var rig: Rig = .{};
+    try rig.init(4, .{ .delay_ns_min = 1000, .delay_ns_max = 1000 });
+    rig.loop.network().multishot_deliveries_max = 2;
+    const socket = try sim.sync.open_datagram(.ipv4, null, .{});
+    defer sim.sync.close_now(socket);
+    _ = rig.loop.submit(&.{receive_from(socket)}, &.{});
+    var sends: usize = 0;
+    while (sends < 3) : (sends += 1) _ = rig.loop.submit(&.{send_to(&rig, socket)}, &.{});
+    var events: [group_buffers + 2]Event = undefined;
+    // The sends' ends come at once, and the datagrams at the delay.
+    try testing.expectEqual(@as(u32, 3), try rig.collect(&events, 0));
+    const count = try rig.collect(&events, 10_000);
+    try testing.expectEqual(@as(u32, 2), count);
+    try testing.expect(events[0].flags.buffer and !events[0].is_final());
+    try testing.expect(events[1].flags.buffer and events[1].is_final());
+    try testing.expect((try events[1].outcome()) > 0);
+    try testing.expectEqual(@as(u32, 0), rig.loop.in_flight());
+    for (events[0..count]) |event| rig.loop.give_back_buffer(group_id, event.flags.buffer_id);
+    // The third datagram is held until a receive is armed again, and that receive takes it.
+    _ = rig.loop.submit(&.{receive_from(socket)}, &.{});
+    try testing.expectEqual(@as(u32, 1), try rig.collect(&events, 0));
+    try testing.expect(events[0].flags.buffer and !events[0].is_final());
+    rig.loop.give_back_buffer(group_id, events[0].flags.buffer_id);
+    rig.loop.cancel_all();
+    try rig.loop.drain(&events);
+    rig.loop.deinit();
+}

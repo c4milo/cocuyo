@@ -6427,6 +6427,9 @@ the attempt that made it, and the drive goes on until nothing is left.
 1. One socket per server, each with one multishot receive into the datagram group. A socket that
    is open always has a receive armed, or gets one at the next drive: a receive that ends is
    armed again, and one the loop refuses is asked for again at the next drive, not forgotten.
+   Written on 2026-10-27: a receive can end on the event that carries a datagram, as rotor's
+   io_uring backend ends one. The engine reads that datagram first, then arms the receive again.
+   The same holds for a QUIC connection's receive and for a DoH link's.
 2. Each arming of a receive is a generation, carried in its `user_data`. An event of another
    generation belongs to a receive that is gone and changes nothing, whatever it holds: a
    cancelled multishot receive can still deliver datagrams before its final event (rotor

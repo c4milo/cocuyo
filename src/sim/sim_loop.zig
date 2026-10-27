@@ -209,11 +209,12 @@ pub const Loop = struct {
     }
 
     /// Queues a delivery into a group buffer for a receiving operation: one event of a
-    /// multishot, or the final event of a single-shot receive.
-    pub fn queue_delivery(loop: *Loop, receiver: network_module.Receiver, buffer_id: u16, len: u32, due_ns: u64) void {
+    /// multishot, or the final event of its receive when `last` says so.
+    pub fn queue_delivery(loop: *Loop, receiver: network_module.Receiver, buffer_id: u16, len: u32, due_ns: u64, last: bool) void {
+        assert(last or receiver.multishot);
         var event = Event.success(receiver.user_data, len);
-        event.flags = .{ .buffer = true, .more = receiver.multishot, .buffer_id = buffer_id };
-        loop.queue(receiver.slot, event, due_ns, !receiver.multishot);
+        event.flags = .{ .buffer = true, .more = !last, .buffer_id = buffer_id };
+        loop.queue(receiver.slot, event, due_ns, last);
         loop.pending[loop.pending_count - 1].group = receiver.group;
     }
 

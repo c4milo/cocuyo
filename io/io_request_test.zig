@@ -214,6 +214,24 @@ test "a receive that runs out of buffers is armed again, and fails nothing" {
     try rig.deinit();
 }
 
+test "a receive that ends on a datagram has the datagram read, and is armed at the next drive" {
+    // rotor's io_uring backend can end a multishot with the event that carries a datagram. Here
+    // each receive ends on its first, so the handshake and every answer come on final events.
+    var rig: Rig = .{};
+    try start(&rig, 68, .{ .{}, .{} });
+    rig.loop.network().multishot_deliveries_max = 1;
+    const names = [_][]const u8{ "a.example.", "b.example.", "c.example." };
+    for (names) |name| _ = try rig.engine.start(question(name), rig.loop.now());
+    for (names) |_| {
+        const result = try rig.until_result();
+        try testing.expect(result.outcome == .answer);
+    }
+    try testing.expect(rig.engine.quic.connections[0].state == .up);
+    try testing.expectEqual(@as(u8, 0), rig.engine.resolver.servers.failures(0));
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
 test "a QUIC connection's incarnation wraps at the last of its thirty-two bits, and each opening answers" {
     // The incarnation tells the events of the current opening from those of the openings before
     // it, as the stream's rule 2 has it for a TCP connection (docs/design.md §19 step 13). An

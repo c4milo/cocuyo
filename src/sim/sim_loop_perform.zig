@@ -94,6 +94,17 @@ fn register(loop: *Loop, slot: u32, user_data: u64, socket: types.Descriptor, gr
     const entry = network().socket(socket);
     assert(entry.receiver == null);
     entry.receiver = .{ .slot = slot, .user_data = user_data, .group = group, .multishot = multishot };
+    entry.deliveries = 0;
+}
+
+/// Whether the next delivery to `entry` is the last its receive makes: a single shot's only one,
+/// or the one a multishot ends on (`Network.multishot_deliveries_max`).
+fn last_delivery(entry: *const network_module.Socket, receiver: network_module.Receiver) bool {
+    if (!receiver.multishot) return true;
+    const most = network().multishot_deliveries_max orelse return false;
+    assert(most >= 1);
+    assert(entry.deliveries < most);
+    return entry.deliveries + 1 == most;
 }
 
 fn connect_stream(loop: *Loop, slot: u32, connect: *const Operation.Connect) void {
@@ -308,7 +319,10 @@ fn materialize_datagrams(loop: *Loop) void {
         };
         const buffer = loop.provided_buffer(receiver.group, buffer_id);
         const len = buffers.write_delivery(buffer, loop.group_options, &pending.from, pending.bytes[0..pending.len]);
-        loop.queue_delivery(receiver, buffer_id, len, pending.due_ns);
+        const last = last_delivery(entry, receiver);
+        loop.queue_delivery(receiver, buffer_id, len, pending.due_ns, last);
+        entry.deliveries += 1;
+        if (last) entry.receiver = null;
         pending.live = false;
     }
 }
@@ -316,17 +330,20 @@ fn materialize_datagrams(loop: *Loop) void {
 fn materialize_streams(loop: *Loop) void {
     for (&network().connections) |*connection| {
         const receiver = stream_ready(loop, connection) orelse continue;
+        const entry = &network().sockets[@intCast(connection.socket)];
         var chunks: usize = 0;
         while (chunks < limits.buffers_per_group_max and connection.inbound_len > 0) : (chunks += 1) {
-            if (!deliver_chunk(loop, connection, receiver)) {
+            const last = last_delivery(entry, receiver);
+            if (!deliver_chunk(loop, connection, receiver, last)) {
                 // No buffer for bytes that are ready: the multishot ends the way rotor's does,
                 // and the bytes wait for the next receive.
-                network().sockets[@intCast(connection.socket)].receiver = null;
+                entry.receiver = null;
                 loop.queue(receiver.slot, Event.failure(receiver.user_data, .buffers_exhausted), loop.now_ns, true);
                 break;
             }
-            if (!receiver.multishot) {
-                network().sockets[@intCast(connection.socket)].receiver = null;
+            entry.deliveries += 1;
+            if (last) {
+                entry.receiver = null;
                 break;
             }
         }
@@ -342,8 +359,9 @@ fn stream_ready(loop: *const Loop, connection: *const network_module.Connection)
     return entry.receiver;
 }
 
-/// One chunk of the stream, sized by the seed, into a free buffer of the receiver's group.
-fn deliver_chunk(loop: *Loop, connection: *network_module.Connection, receiver: network_module.Receiver) bool {
+/// One chunk of the stream, sized by the seed, into a free buffer of the receiver's group: the
+/// receive's final event when `last` says so.
+fn deliver_chunk(loop: *Loop, connection: *network_module.Connection, receiver: network_module.Receiver, last: bool) bool {
     const buffer_id = loop.groups[receiver.group].take() orelse return false;
     const buffer = loop.provided_buffer(receiver.group, buffer_id);
     const most = @min(connection.inbound_len, buffer.len);
@@ -351,7 +369,7 @@ fn deliver_chunk(loop: *Loop, connection: *network_module.Connection, receiver: 
     @memcpy(buffer[0..chunk], connection.inbound[0..chunk]);
     std.mem.copyForwards(u8, connection.inbound[0 .. connection.inbound_len - chunk], connection.inbound[chunk..connection.inbound_len]);
     connection.inbound_len -= chunk;
-    loop.queue_delivery(receiver, buffer_id, @intCast(chunk), loop.now_ns);
+    loop.queue_delivery(receiver, buffer_id, @intCast(chunk), loop.now_ns, last);
     return true;
 }
 

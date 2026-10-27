@@ -9992,3 +9992,59 @@ A review of the change found five things. The fixes:
 TY25 edited the old test of a limits file's name, so it got a new edit: the rule takes a stem that
 ends in `limits` alone. `zig build mutations -- lookup LF15 LF16 LF17 LF18 TY25` ran each to its
 end, and each is `CAUGHT` by `zig build test-tools`.
+
+## A receive that ends on a datagram
+
+2026-10-27. rotor's maintainers said that its io_uring backend can end a multishot receive with a
+success that carries a datagram, after 32 datagrams. cocuyo did not measure the 32. The engine's
+three receive paths read the bytes of such an event, then arm the receive again. Before this
+change no test drove that end, because each multishot of the twin ended only with an error.
+
+### What changed
+
+- The twin's network has `multishot_deliveries_max`, null by default. When a test sets it, a
+  multishot ends on that delivery: its event carries the bytes and says no more. A socket counts
+  the deliveries of its receive, and the count starts again at each new receive.
+- Datagram rule 1 of design §19 step 13 says that a receive can end this way. The code of the
+  engine did not change, and neither did the TLA+ model.
+
+### The tests
+
+The engine's tests set the bound to 1, so each receive ends on its first delivery. The twin's own
+test sets it to 2.
+
+- The twin: two deliveries, the second final with its bytes, and a third datagram that waits for
+  the next receive (`src/sim/sim_scenarios_test.zig`).
+- Plain UDP: four lookups, each answered, and the socket's receive armed again for each
+  (`io/io_sim_datagram_test.zig`).
+- DoQ: the handshake and three lookups, each answered (`io/io_request_test.zig`).
+- DoH over colibri's channel: two lookups over HTTP/2 and two over HTTP/3, each answered
+  (`io/io_doh_channel_engine_test.zig`).
+
+### What ran
+
+- The disk had 38 GB free before the first run.
+- Each mutation ran by hand against the targets in its row, and the texts in the rows come from
+  there. Each new test passed before the mutations, and `zig build test` passed after them.
+
+### The instruction counts
+
+`bench/count.zig` imports `cocuyo` and `wire` alone, and no counted case runs the twin or the
+engine. So no count can move, and `bench/instructions.zon` did not change.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| MF1 | the UDP path gives back the buffer of a final event, and reads no datagram from it | datagram rule 1: the engine reads the datagram of the event that ends a receive | the test of plain UDP: "TestUnexpectedResult" at `io_sim_datagram_test.zig:225`, where each lookup must have an answer, `test-io` | CAUGHT |
+| MF2 | the DoQ path gives back the buffer of a final event, and hands its datagram to no transport | the same, for a QUIC connection's receive | the test of DoQ: "TestUnexpectedResult" at `io_request_test.zig:227`, `test-io` | CAUGHT |
+| MF3 | the DoQ path fails the connection at a receive that ends with a success | only an error other than `BuffersExhausted` fails the connection | the test of DoQ: "TestUnexpectedResult" at `io_request_test.zig:227`, `test-io` | CAUGHT |
+| MF4 | the DoH path reads no octets from a final event | the same, for a DoH link's receive | the test of DoH: "TestUnexpectedResult" at `io_doh_channel_engine_test.zig:311`, `test-cocuyo_doh` | CAUGHT |
+| MF5 | the DoH path ends the link at a receive that ends with a success | only an error other than `BuffersExhausted` ends the link | the test of DoH: "TestUnexpectedResult" at `io_doh_channel_engine_test.zig:311`, `test-cocuyo_doh` | CAUGHT |
+| MF6 | the twin ends no multishot on a delivery, whatever the bound says | the twin ends a multishot on the delivery that the bound sets | the twin's test: "expected 2, found 3" at `sim_scenarios_test.zig:434`, `test-sim`; the test of plain UDP at `io_sim_datagram_test.zig:227`, where the receive must be armed again for each answer, `test-io` | CAUGHT |
+| MF7 | the twin's last datagram delivery leaves the receive on its socket | a receive that ended takes no more datagrams | the twin's test: "panic: reached unreachable code" at `assert(entry.deliveries < most)`, `sim_loop_perform.zig:106`, `test-sim` | CAUGHT |
+
+MF6 does not fail `test-cocuyo_doh`, since the DoH test still passes when each multishot runs on.
+`test-sim` and `test-io` catch it.
+
+Seven mutations, seven `CAUGHT`.

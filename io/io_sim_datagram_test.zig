@@ -2,7 +2,8 @@
 //! §19 step 13, the datagram's rules 3 and 6). That room is `buffer_bytes`, 2,048 octets, less
 //! rotor's prefix of 192 octets: 1,856 octets. The twin carries 1,232 octets at most, so each test
 //! writes the completion of a receive itself, into a buffer of the group, as the kernel writes one.
-//! Split from `io_sim_test.zig` by the file-length rule.
+//! Last, a receive that ends on the event that carries a datagram (rule 1). Split from
+//! `io_sim_test.zig` by the file-length rule.
 const std = @import("std");
 const testing = std.testing;
 const cocuyo = @import("cocuyo");
@@ -206,6 +207,25 @@ test "under ignore_truncation a cut datagram is ignored, and its lookup waits on
     try testing.expect(rig.engine.connections[0].state == .closed);
     rig.engine.cancel(handle, rig.loop.now());
     try testing.expectEqual(cocuyo.Error.Canceled, (try rig.until_result()).outcome.failure.err);
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
+test "a receive that ends on a datagram has the datagram read, and is armed again" {
+    // rotor's io_uring backend can end a multishot with the event that carries a datagram. Here
+    // each receive ends on its first, so every answer comes on a final event (rules 1 and 3).
+    var rig: Rig = .{};
+    try rig.init(37, .{ .{}, .{} }, .{ .servers = &.{}, .failover_retry_chance = 0 });
+    rig.loop.network().multishot_deliveries_max = 1;
+    const names = [_][]const u8{ "a.example.", "b.example.", "c.example.", "d.example." };
+    for (names) |name| _ = try rig.engine.start(question(name), rig.loop.now());
+    const armed = rig.engine.sockets.items[0].armed_generation;
+    for (names) |_| {
+        const result = try rig.until_result();
+        try testing.expect(result.outcome == .answer);
+    }
+    try testing.expect(rig.engine.sockets.items[0].armed_generation >= armed + names.len);
+    try testing.expectEqual(@as(u8, 0), rig.engine.resolver.servers.failures(0));
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
 }

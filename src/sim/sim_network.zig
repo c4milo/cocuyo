@@ -29,6 +29,8 @@ pub const Socket = struct {
     /// A stream socket's connection once connected.
     connection: ?u8 = null,
     receiver: ?Receiver = null,
+    /// The deliveries the receiver made, which `Network.multishot_deliveries_max` bounds.
+    deliveries: u32 = 0,
     /// What the kernel gave each of its buffers, or zero for whatever it starts with.
     receive_buffer_bytes: u32 = 0,
     send_buffer_bytes: u32 = 0,
@@ -115,6 +117,10 @@ pub const Network = struct {
     /// Whether every socket open fails, as it does when a process has no descriptor left: set
     /// by a caller driving the twin in manual mode (tools/spec_replay/).
     refuse_open: bool = false,
+    /// The delivery a multishot receive ends on, or null for none: its last event carries the
+    /// bytes and says no more. rotor's io_uring backend can end one this way, after 32 datagrams,
+    /// as rotor's maintainers said and cocuyo did not measure. A test sets it to drive that end.
+    multishot_deliveries_max: ?u32 = null,
     /// The fatal alerts each scripted server heard from a client over TLS, which a test reads.
     alerts_heard: [limits.servers_max]u32 = @splat(0),
 

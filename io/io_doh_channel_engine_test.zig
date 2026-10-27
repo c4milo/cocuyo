@@ -300,6 +300,22 @@ test "a lookup through colibri's channel is answered over HTTP/3 by colibri's se
     try world.destroy();
 }
 
+test "receives that end on the events that carry their octets are read, over HTTP/2 and HTTP/3" {
+    // rotor's io_uring backend can end a multishot with the event that carries octets. Here each
+    // receive of a link ends on its first, and the link arms it again at the next drive.
+    for ([_]bool{ false, true }, 0..) |quic, index| {
+        const world = try World.create_over(145 + index, .{}, quic);
+        world.loop.network().multishot_deliveries_max = 1;
+        for ([_][]const u8{ "a.example.", "b.example." }) |name| {
+            const result = try world.resolve(name);
+            try testing.expect(result.outcome == .answer);
+        }
+        const link: Resolver.Doh.Link = if (quic) .quic else .tcp;
+        try testing.expect(world.engine.doh.slots[0].links[@intFromEnum(link)].state == .running);
+        try world.destroy();
+    }
+}
+
 test "the sizes cocuyo_doh copies are the engine's and cocuyo_quic's" {
     // cocuyo_doh imports neither module, so each size it shares with one is a copy. This test
     // holds each copy to the size it copies (docs/design.md §24, New limits).
