@@ -11,7 +11,8 @@ namespace Spec.Lookup
 
 def replyToken : Reply → String
   | .unmatched => "unmatched" | .answer => "answer" | .cname => "cname"
-  | .nxdomain => "nxdomain" | .nodata => "nodata" | .servfail => "servfail"
+  | .nxdomain => "nxdomain" | .nodata => "nodata" | .yxdomain => "yxdomain"
+  | .servfail => "servfail"
   | .formerr => "formerr" | .truncated => "truncated" | .badcookie => "badcookie"
 
 def reasonToken : Reason → String
@@ -27,7 +28,7 @@ def eventToken : Event → String
 def errToken : Err → String
   | .nameNotFound => "name_not_found" | .noData => "no_data" | .timeout => "timeout"
   | .allServersFailed => "all_servers_failed" | .chainTooLong => "chain_too_long"
-  | .canceled => "canceled" | .noServers => "no_servers"
+  | .canceled => "canceled" | .noServers => "no_servers" | .nameTooLong => "name_too_long"
 
 def whatToken : What → String
   | .servfail => "servfail" | .formerr => "formerr" | .badcookie => "badcookie"

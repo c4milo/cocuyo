@@ -3613,4 +3613,67 @@
         },
         .caught_by = .{ .step = "test-tools" },
     },
+    .{
+        .section = "YXDOMAIN ends the lookup",
+        .id = "YX1",
+        .what = "rcode 6 is no code cocuyo knows, so YXDOMAIN is ignored",
+        .edits = .{
+            .{ .file = "src/wire/constants.zig", .old = "    yxdomain = 6,", .new = "    yxdomain = 7," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "YXDOMAIN ends the lookup",
+        .id = "YX2",
+        .what = "YXDOMAIN moves to the next server, as a server failure does",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_policy.zig", .old = "        .yxdomain => .name_too_long, // A DNAME made the name too long (RFC 6672 §2.2).", .new = "        .yxdomain => .next_server, // A DNAME made the name too long (RFC 6672 §2.2)." },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "YXDOMAIN ends the lookup",
+        .id = "YX3",
+        .what = "YXDOMAIN moves to the next candidate, as NXDOMAIN does",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_policy.zig", .old = "        .yxdomain => .name_too_long, // A DNAME made the name too long (RFC 6672 §2.2).", .new = "        .yxdomain => .next_candidate, // A DNAME made the name too long (RFC 6672 §2.2)." },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "YXDOMAIN ends the lookup",
+        .id = "YX4",
+        .what = "YXDOMAIN ends the lookup with NameNotFound",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_policy.zig", .old = "        .yxdomain => core.Error.NameTooLong,", .new = "        .yxdomain => core.Error.NameNotFound," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "YXDOMAIN ends the lookup",
+        .id = "YX5",
+        .what = "YXDOMAIN counts as a failure of its server",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    return action == .next_server or (action == .retry_with_cookie and bad_cookie_fails(self));", .new = "    return action == .next_server or action == .name_too_long or (action == .retry_with_cookie and bad_cookie_fails(self));" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "YXDOMAIN ends the lookup",
+        .id = "YX6",
+        .what = "the memory keeps NameTooLong as a name that does not exist",
+        .edits = .{
+            .{ .file = "src/resolver/table_memory.zig", .old = "        Error.NameNotFound => .name_not_found,", .new = "        Error.NameNotFound, Error.NameTooLong => .name_not_found," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "YXDOMAIN ends the lookup",
+        .id = "YX7",
+        .what = "the replay builds the model's YXDOMAIN as NXDOMAIN",
+        .edits = .{
+            .{ .file = "tools/spec_replay/fixtures.zig", .old = "        .yxdomain => .{ .rcode = .yxdomain },", .new = "        .yxdomain => .{ .rcode = .name_error }," },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
 }

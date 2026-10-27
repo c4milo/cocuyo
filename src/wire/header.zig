@@ -151,6 +151,12 @@ test "every flag and the rcode read from the bits the RFC fixes" {
     try testing.expectEqual(constants.Rcode.name_error, try header.rcode());
 }
 
+test "rcode 6 is YXDOMAIN, which a DNAME substitution gives (RFC 6672 §2.2, RFC 6895 §2.3)" {
+    var bytes = query_bytes;
+    bytes[constants.header_flags_offset + 1] = 0x06;
+    try testing.expectEqual(constants.Rcode.yxdomain, try (try parse(&bytes)).rcode());
+}
+
 test "an rcode cocuyo does not know is malformed, not a guess" {
     var bytes = query_bytes;
     bytes[constants.header_flags_offset + 1] = 0x0f;

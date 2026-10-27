@@ -72,8 +72,8 @@ would agree with the code by construction and prove nothing about it.
   decision 50). The deadline after it moves the lookup as each deadline does, so the model did not
   change for that either.
 - The message. A reply is what §7's checks and §5's rcode policy make of it: unmatched, an answer,
-  a CNAME to a new name, NXDOMAIN, NODATA, a server failure, FORMERR, TC=1 with nothing else, or
-  BADCOOKIE. Since 2026-10-14 a datagram that the buffer cut can move a lookup. When the lookup
+  a CNAME to a new name, NXDOMAIN, NODATA, YXDOMAIN, a server failure, FORMERR, TC=1 with nothing
+  else, or BADCOOKIE. Since 2026-10-14 a datagram that the buffer cut can move a lookup. When the lookup
   waits over UDP and the datagram passes the checks of a cut datagram, the lookup moves as TC=1
   moves it (docs/design.md §7, A datagram that the buffer cut). So the model's TC=1 stands for it
   there, and its unmatched reply everywhere else. No transition changed, and only the comment of
@@ -107,7 +107,7 @@ would agree with the code by construction and prove nothing about it.
 none, one, two or three servers, one to three passes and one to three names, over UDP, under
 `use_tcp`, over DoH, or over DoQ. It tries every enabled event in every state and writes one line
 per transition, with the model's answer and its whole state after it. A state reached a second
-time is written but not walked again, so each transition appears once, 20,512,658 of them in all,
+time is written but not walked again, so each transition appears once, 21,444,698 of them in all,
 183 deep at most. On 2026-10-08 a first BADCOOKIE over a stream became a retry on the stream with
 the fresh server cookie (docs/design.md §5, §19 step 10; c4milo/cocuyo#36), where before it
 advanced the server. The retry reaches states the walk did not reach before: the transcript held
@@ -138,6 +138,11 @@ On 2026-10-24 a deadline came to end `tcpReady` (docs/design.md §5; §16 decisi
 stages where each reply comes, as `waiting` held them before. So the transcript gained one line for
 each state in `tcpReady`. It grew from 19,921,682 transitions to 20,512,658, 183 deep. The slice
 grew from 13,694 transitions to 13,838, and none of its lines changed.
+
+On 2026-10-27 YXDOMAIN came to end a lookup with `NameTooLong` (docs/design.md §16 decision 57).
+The model has the reply `yxdomain` and the error `nameTooLong`, and each state that waits takes
+the new reply. The transcript grew from 20,512,658 transitions to 21,444,698, 183 deep. The slice
+grew from 13,838 transitions to 14,426, and none of its lines changed.
 
 `tools/spec_replay/replay.zig` drives `Lookup` down the same tree. It builds each reply around the
 question the lookup is asking, and it compares the answer and the state after every event: the
@@ -1012,7 +1017,7 @@ compares the walk's whole state after each.
 
 ## Running it
 
-- `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 13,838
+- `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 14,426
   transitions. It holds one server, one pass and one name, over UDP, over TCP, over DoH and over
   DoQ. It holds one server with two passes over DoH too, where a second cause replaces the first.
   It holds two servers with one pass over DoQ, where a cause names a server that the lookup left.

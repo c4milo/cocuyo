@@ -270,4 +270,22 @@
         },
         .caught_by = .{ .step = "spec-lean" },
     },
+    .{
+        .section = "YXDOMAIN ends the lookup",
+        .id = "YX8",
+        .what = "the model moves to the next candidate at YXDOMAIN",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .yxdomain => (fail s .nameTooLong, .accepted)", .new = "  | .yxdomain => (nextCandidate c s false, .accepted)" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "YXDOMAIN ends the lookup",
+        .id = "YX9",
+        .what = "the model moves to the next server at YXDOMAIN, as a server failure",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .yxdomain => (fail s .nameTooLong, .accepted)", .new = "  | .yxdomain => (advanceServer c (keep s .servfail), .accepted)" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
 }

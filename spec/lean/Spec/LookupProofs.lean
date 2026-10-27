@@ -88,6 +88,7 @@ theorem onReply_noUdp (c : Config) (s : State) (stream : Bool) (r : Reply) (h : 
     · exact ⟨by simp [NoUdp, fresh, h], by simp⟩
   | nxdomain => exact ⟨hnxt s false, by simp [onReply]⟩
   | nodata => exact ⟨hnxt s true, by simp [onReply]⟩
+  | yxdomain => exact ⟨by simp [onReply, NoUdp, fail], by simp [onReply]⟩
   | servfail => exact ⟨hadv _, by simp [onReply]⟩
   | formerr =>
     simp only [onReply]
@@ -185,6 +186,7 @@ theorem onReply_noStream (c : Config) (s : State) (r : Reply) (hh : c.request = 
     · exact ⟨by simp [NoStream, fresh, h], by simp [NotPlain]⟩
   | nxdomain => exact ⟨hnxt s false, by simp [onReply, NotPlain]⟩
   | nodata => exact ⟨hnxt s true, by simp [onReply, NotPlain]⟩
+  | yxdomain => exact ⟨by simp [onReply, NoStream, fail], by simp [onReply, NotPlain]⟩
   | servfail => exact ⟨hadv _, by simp [onReply, NotPlain]⟩
   | formerr =>
     simp only [onReply]

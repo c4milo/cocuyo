@@ -10048,3 +10048,78 @@ MF6 does not fail `test-cocuyo_doh`, since the DoH test still passes when each m
 `test-sim` and `test-io` catch it.
 
 Seven mutations, seven `CAUGHT`.
+
+## YXDOMAIN ends the lookup
+
+2026-10-27, for c4milo/cocuyo#49. `wire.Rcode` had no member for 6, so the lookup ignored a
+YXDOMAIN response. It waited until its deadline and asked the next server. A server answers
+YXDOMAIN when a DNAME substitution makes the name too long (RFC 6672 §2.2), and each server gives
+the same answer. The owner ruled that the lookup ends at once with `NameTooLong` (design §16
+decision 57).
+
+### What changed
+
+- `wire.Rcode` has `yxdomain`, 6 (RFC 6895 §2.3).
+- `lookup_policy.rcode_action` gives `name_too_long` for it, and `error_of` gives `NameTooLong`.
+  The lookup fails at once. It asks no other server and no other candidate.
+- The response counts its server up and takes a sample, as NXDOMAIN does. It keeps no cause.
+- Design §5 has a row for YXDOMAIN, and the search list policy says the walk ends.
+- The Lean model of `Lookup` has the reply `yxdomain` and the error `nameTooLong`. Each proof has
+  a case for the reply. The replay builds the reply and spells the error.
+- Two tests used rcode 6 as a code that cocuyo does not know. They use 15 now, which RFC 6895 §2.3
+  lists as unassigned.
+- `AddressLookup`, `NameLookup`, the table's memory and the TLA+ engine model did not change.
+
+### The tests
+
+- `src/resolver/lookup_yxdomain_test.zig`, new:
+  - YXDOMAIN ends the lookup with `NameTooLong`, with no cause and a negative TTL of zero, on the
+    first server.
+  - YXDOMAIN ends the search walk on its first candidate.
+  - YXDOMAIN counts its server up, and keeps the SERVFAIL cause of the server before it.
+  - Over TCP, and with `check_response` off, YXDOMAIN ends the lookup the same way.
+  - In `AddressLookup`, YXDOMAIN on one family leaves the other, whose answer stands with
+    `partial` set to `NameTooLong`. YXDOMAIN on both families ends the walk with `NameTooLong`.
+- Each of the five failed against the old code: "expected .accepted, found .ignored".
+- `lookup_policy.zig`: YXDOMAIN gives `name_too_long` for each value of EDNS0 and
+  `check_response`.
+- `wire/header.zig`: rcode 6 reads as `yxdomain`.
+- `table_memory.zig`: the memory keeps no `NameTooLong`.
+- The committed slice of the model's transcript, `tools/spec_replay/lookup_gate.txt`, grew from
+  13,838 transitions to 14,426. No line of it changed.
+
+### What ran
+
+- The disk had 59 GB free before `zig build spec`, and 53 GB before the last mutation run.
+- `zig build spec` passed in 14 minutes. The lookup's transcript replays its 21,444,698 events
+  over 109 configurations, TLC's 26,000 engine walks replay, and the walks' 66,565 events replay.
+- `zig build mutations -- lookup YX1 YX2 YX3 YX4 YX5 YX6 YX7` ran each to its end. Each is
+  `CAUGHT`. Each ran again by hand against the targets in its row, and the texts in the rows come
+  from there.
+- `zig build mutations -- lean YX8 YX9` ran each to its end. Each is `CAUGHT`. By hand, `lake
+  build` failed at the proofs of `LookupProofs.lean` for each, so the proofs catch them first.
+- The TLA+ engine model did not change, so `zig build tla` did not run.
+- `zig build test` passed before the commit.
+
+### The instruction counts
+
+`bench/count.zig` counts the codec, the table and the cache. `Rcode.from_bits` compares the code
+with each member in order. NOERROR matches the first member, so a counted answer takes no more
+instructions. `bench/instructions.zon` did not change. `zig build instructions` needs valgrind,
+which this Mac does not have, so CI's Linux job reads the counts.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| YX1 | `yxdomain` is 7, so rcode 6 is no code cocuyo knows | YXDOMAIN is read, and not ignored | the test of the first server: "expected .accepted, found .ignored" at `lookup_yxdomain_test.zig`, `test-resolver`; the test of rcode 6 in `header.zig`, `test-wire` | CAUGHT |
+| YX2 | YXDOMAIN moves to the next server | no failover at YXDOMAIN | the test of the policy: "expected .name_too_long, found .next_server", and the test of the first server, which panics at a `send_udp`, `test-resolver` | CAUGHT |
+| YX3 | YXDOMAIN moves to the next candidate | the search walk ends at YXDOMAIN | the test of the policy, and the test of the first server: "expected error.NameTooLong, found error.NameNotFound", `test-resolver` | CAUGHT |
+| YX4 | YXDOMAIN ends the lookup with `NameNotFound` | the error is `NameTooLong` | the test of the policy and the test of the first server: "expected error.NameTooLong, found error.NameNotFound", `test-resolver` | CAUGHT |
+| YX5 | YXDOMAIN counts as a failure of its server | the server is up, and the lookup keeps no cause | the test of the first server: "expected null" for the cause; the test of the server count: "expected 0, found 2", `test-resolver` | CAUGHT |
+| YX6 | the memory keeps `NameTooLong` as `NameNotFound` | the memory keeps the two negatives of RFC 2308 alone | the test of `negative_of` in `table_memory.zig`: "expected null, found .name_not_found", `test-resolver` | CAUGHT |
+| YX7 | the replay builds the model's YXDOMAIN as NXDOMAIN | the replay hands the lookup the reply the model names | the replay of the committed slice: "Mismatch at line 92", `test-tools` | CAUGHT |
+| YX8 | the model moves to the next candidate at YXDOMAIN | the model ends the lookup at YXDOMAIN | the proofs: `LookupProofs.lean` stops with unsolved goals, `spec-lean` | CAUGHT |
+| YX9 | the model moves to the next server at YXDOMAIN, as at a server failure | the same | the proofs: `LookupProofs.lean:91` and `:189` stop with unsolved goals, `spec-lean` | CAUGHT |
+
+Nine mutations, nine `CAUGHT`.

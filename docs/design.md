@@ -529,6 +529,7 @@ Eight states: `query_ready`, `awaiting_udp`, `tcp_needed`, `connecting_tcp`, `tc
 | `awaiting_udp` | `on_response` with a CNAME and no answer | `query_ready` | new transaction, hop count up |
 | `awaiting_udp` | `on_response` with an answer | `done` | copy the records out |
 | `awaiting_udp` | `on_response` NXDOMAIN or NODATA | `query_ready` or `failed` | keep the smaller negative TTL, advance the search candidate |
+| `awaiting_udp` | `on_response` YXDOMAIN | `failed` | `NameTooLong`, with no next server and no next candidate (§16 decision 57) |
 | `awaiting_udp` | `on_response` SERVFAIL, REFUSED, NOTIMP | `query_ready` or `failed` | keep the rcode as the cause, advance the server |
 | `awaiting_udp` | `on_response` FORMERR and EDNS0 was on | `query_ready` | same server, EDNS0 off |
 | `awaiting_udp` | `on_response` FORMERR and EDNS0 was off | `query_ready` or `failed` | keep the rcode as the cause, advance the server, as SERVFAIL does |
@@ -921,6 +922,8 @@ an answer does not reach the walk.
   (§19 step 14).
 - SERVFAIL, REFUSED or NOTIMP moves to the next server, not to the next candidate. When every
   server has failed the lookup fails with `AllServersFailed`, and the walk stops there.
+- YXDOMAIN ends the walk with `NameTooLong`, and the next candidate is not tried (§16 decision
+  57). A DNAME substitution made the candidate longer than a name can be (RFC 6672 §2.2).
 
 Measured on 2026-09-22 by `tools/search_order/run.sh`. A recorder that writes down every question
 it is asked, and answers NXDOMAIN unless a case says otherwise, sits in front of four resolvers
@@ -981,8 +984,8 @@ cause and `Timeout` has none (The cause of a failure, above). Since 2026-10-21 t
 position of its server in the order. A failed connection or request carries its reason (§16
 decision 51). The proof shows too that a cause names a server of the configuration. `zig build
 spec` builds the proofs, then walks every state the model reaches under 109 configurations and
-replays each of the 20.5 million transitions against `Lookup`. It compares the answer, the whole
-state and the cause after every event. `zig build test` replays a committed slice of 13,838 of
+replays each of the 21.4 million transitions against `Lookup`. It compares the answer, the whole
+state and the cause after every event. `zig build test` replays a committed slice of 14,426 of
 them without Lean.
 spec/README.md says what the model abstracts and why. Time is one of those things: a poll comes
 before the deadline or at it. So when a server's wait came to be measured, on 2026-10-09, no
@@ -4328,6 +4331,63 @@ step until `zig build test` passes.
     - A list of the limits in the rule. A list goes stale at the next limit, and a name does not.
 
     §12, §16 decision 40, §17 questions 37, 76, 77, 78 and 79.
+
+57. **YXDOMAIN ends the lookup with `NameTooLong`.** Ruled by the owner on 2026-10-27, on
+    c4milo/cocuyo#49: the lookup ends at once with the error `NameTooLong`, with no failover and no
+    new member of `Error` or `Failure`. Built on 2026-10-27.
+
+    Until the ruling `wire.Rcode` had no member for 6. `Rcode.from_bits` returned null, and the
+    lookup ignored the response. It waited until its deadline and asked the next server. A server
+    answers YXDOMAIN when a DNAME substitution makes the name longer than 255 octets (RFC 6672
+    §2.2). Each server gives the same answer, so the wait and the failover gained nothing.
+
+    Now:
+
+    - `wire.Rcode` has `yxdomain`, 6 (RFC 6895 §2.3).
+    - `lookup_policy.rcode_action` gives `name_too_long` for it, whatever `check_response` and
+      EDNS0 say. The lookup fails at once with `NameTooLong` (§5).
+    - The response comes from a server that works. It takes a sample of the server's latency and
+      counts the server up, as NXDOMAIN does. It keeps no cause. A cause from an earlier server
+      stays, as the table of The cause of a failure says for `NameTooLong`.
+    - The lookup reads no section past the question. It does not require the DNAME record that RFC
+      6672 §2.2 puts in the answer section, as it does not require the SOA of an NXDOMAIN.
+
+    Choices the ruling did not make, made here:
+
+    - The search walk ends, and does not try the next candidate as NXDOMAIN does. YXDOMAIN says
+      that the name exists, since a DNAME owns an ancestor of it (RFC 6672 §2.2). So the walk found
+      the name that the caller meant, as an answer does, and a later candidate names another host.
+      The ruling says "at once" too.
+    - The cache keeps nothing. RFC 2308 §5 gives a TTL to NXDOMAIN and NODATA alone, and its §7 says
+      that no RFC covers the cache of other negative responses. The memory of §20 keeps an answer,
+      `NameNotFound` and `NoData` alone. `Failure.negative_ttl_seconds` is zero for `NameTooLong`.
+      So the next lookup of the name asks a server again, which is correct when the DNAME changes.
+    - `AddressLookup` keeps its rules (§19 step 14). `NameTooLong` from one family is a failure that
+      is not `NameNotFound` and not `NoData`. So rule 4 does not cancel the other family. By rule
+      5 an answer from the other family ends the walk answered, with `partial` set to
+      `NameTooLong`. Two `NameTooLong` ends end the walk with `NameTooLong`. A DNAME substitution
+      reads the QTYPE only when it is DNAME (RFC 6672 §2.2), so in most cases both families get
+      YXDOMAIN. The two queries go at once, so the second end comes at about the same time.
+      `NameLookup` ends with `NameTooLong` by its rule for any other failure. The Lean model of the
+      walks does not change.
+    - The transition is a row of `awaiting_udp` in §5's table, after NXDOMAIN and NODATA.
+      `awaiting_tcp` reads it as the UDP rows, and so does a lookup over DoH or DoQ. The Lean model
+      of `Lookup` has the reply `yxdomain` and the error `nameTooLong`. The TLA+ engine model does
+      not change. Its NXDOMAIN already ends a lookup of one candidate, and the engine treats each
+      end of a lookup the same way.
+
+    Rejected:
+
+    - A new member of `Error` or of `Failure`, such as `NameExists`. The ruling refused it. Each
+      consumer that switches over `Error` must change for it.
+    - A failover, as for a server failure. Each server applies the same DNAME, so each gives the
+      same answer. The failover sends a query to each server on each pass, then ends with
+      `AllServersFailed`, which hides the reason.
+    - The next candidate, as for NXDOMAIN. That reads a name that exists as a name that does not.
+    - A rule 4 for `NameTooLong` in `AddressLookup`, which cancels the other family. It changes the
+      model of the walks for a rare case, and gains little time.
+
+    §5, §19 step 14, §25, docs/mutations.md (YXDOMAIN ends the lookup).
 
 59. **A name that compact denial says does not exist ends as `NoData`.** Written on 2026-10-27. The
     owner ruled on c4milo/cocuyo#52: keep `NoData`, record the reason here, and close the issue.
@@ -9920,6 +9980,8 @@ for each (question 25). They are c4milo/cocuyo#48 to c4milo/cocuyo#52, in the or
 - RCODE 6, YXDOMAIN, is not in `wire.Rcode`, so a response that carries it is ignored and the
   lookup waits out its deadline. A server answers it when a DNAME's substitution makes a name
   too long (RFC 6672 §2.2).
+  Since 2026-10-27 `wire.Rcode` has `yxdomain`, and the lookup ends at once with `NameTooLong`
+  (§16 decision 57).
 - `attempts_max` is 5, which lets a configuration send one server five queries over one
   transport. "A resolver MUST NOT retry a given query to a server address over a given DNS
   transport more than twice (i.e., three queries in total)" (RFC 9520 §3.1). The default, 2,

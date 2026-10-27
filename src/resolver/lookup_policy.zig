@@ -86,6 +86,9 @@ pub const RcodeAction = enum {
     next_candidate,
     /// This server cannot answer: try the next server.
     next_server,
+    /// The name is too long: end the lookup, since each server gives the same answer
+    /// (docs/design.md §16 decision 57).
+    name_too_long,
     /// This server does not understand EDNS0: ask it again without the OPT record
     /// (RFC 6891 §6.2.2).
     retry_without_edns,
@@ -101,6 +104,7 @@ pub fn rcode_action(rcode: wire.Rcode, edns_enabled: bool, check_response: bool)
     return switch (rcode) {
         .no_error => .collect,
         .name_error => .next_candidate,
+        .yxdomain => .name_too_long, // A DNAME made the name too long (RFC 6672 §2.2).
         .format_error => if (edns_enabled) .retry_without_edns else .next_server,
         // BADVERS: cocuyo speaks version 0 alone, so there is no lower version to fall back to
         // (RFC 6891 §6.1.3).
@@ -117,6 +121,7 @@ pub fn error_of(rcode: wire.Rcode) core.Error {
         .not_implemented, .bad_vers => core.Error.NotImplemented,
         .format_error => core.Error.FormatError,
         .name_error => core.Error.NameNotFound,
+        .yxdomain => core.Error.NameTooLong,
         .no_error, .bad_cookie => unreachable,
     };
 }
@@ -242,4 +247,13 @@ test "every response code maps to one decision" {
     try testing.expectEqual(RcodeAction.next_candidate, rcode_action(.name_error, true, false));
     try testing.expectEqual(core.Error.ServerFailure, error_of(.server_failure));
     try testing.expectEqual(core.Error.NotImplemented, error_of(.bad_vers));
+}
+
+test "YXDOMAIN ends the lookup, whatever EDNS0 and check_response say" {
+    for ([_]bool{ false, true }) |edns_enabled| {
+        for ([_]bool{ false, true }) |check_response| {
+            try testing.expectEqual(RcodeAction.name_too_long, rcode_action(.yxdomain, edns_enabled, check_response));
+        }
+    }
+    try testing.expectEqual(core.Error.NameTooLong, error_of(.yxdomain));
 }

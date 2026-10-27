@@ -292,7 +292,7 @@ test "a server cookie learned through the silence ends it" {
 
 /// An rcode no code of `wire.Rcode` names: a response that carries it is ignored
 /// (docs/design.md §19 step 12).
-const rcode_unknown: u16 = 6;
+const rcode_unknown: u16 = 15;
 
 /// Hands the lookup `reply`, a NOERROR one, with its rcode replaced by one cocuyo does not know.
 fn respond_unknown(harness: *fixtures.Harness, reply: fixtures.Reply) !Verdict {

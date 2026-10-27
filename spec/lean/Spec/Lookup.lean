@@ -17,6 +17,8 @@ inductive Stage where
 /-- How a lookup fails. -/
 inductive Err where
   | nameNotFound | noData | timeout | allServersFailed | chainTooLong | canceled | noServers
+  /-- A name longer than a name can be. A server says so with YXDOMAIN (§16 decision 57). -/
+  | nameTooLong
   deriving DecidableEq, Repr, Inhabited, Hashable
 
 /-- Why a transport failed the lookup: the reason the caller passes with `on_tcp_failed` and
@@ -67,6 +69,8 @@ inductive Reply where
   | cname
   | nxdomain
   | nodata
+  /-- YXDOMAIN: a DNAME substitution made the name too long (RFC 6672 §2.2). -/
+  | yxdomain
   /-- SERVFAIL, REFUSED or NOTIMP. -/
   | servfail
   | formerr
@@ -199,6 +203,9 @@ def onReply (c : Config) (s : State) (stream : Bool) : Reply → State × Out
     else ({ s with hops := s.hops + 1, stage := fresh c }, .accepted)
   | .nxdomain => (nextCandidate c s false, .accepted)
   | .nodata => (nextCandidate c s true, .accepted)
+  -- Each server applies the same DNAME, so the lookup ends: no next server and no next candidate
+  -- (§16 decision 57).
+  | .yxdomain => (fail s .nameTooLong, .accepted)
   | .servfail => (advanceServer c (keep s .servfail), .accepted)
   -- FORMERR to a query without EDNS0 is the server failing, as SERVFAIL is.
   | .formerr =>
@@ -311,8 +318,8 @@ stream, `on_request_failed` while it waits on a request, a datagram at any time,
 until it ends. `Resolver.cancel` takes a cancel after the end as well, which `step` answers with
 nothing. -/
 def enabled (c : Config) (s : State) : List Event :=
-  let replies := [Reply.unmatched, .answer, .cname, .nxdomain, .nodata, .servfail, .formerr,
-                  .truncated, .badcookie].map Event.reply
+  let replies := [Reply.unmatched, .answer, .cname, .nxdomain, .nodata, .yxdomain, .servfail,
+                  .formerr, .truncated, .badcookie].map Event.reply
   [Event.poll]
     ++ (if waiting s.stage then [Event.expire] else [])
     ++ (if s.offered then [Event.sent, .sendFailed] else [])

@@ -45,6 +45,8 @@ pub const Reply = enum {
     cname,
     nxdomain,
     nodata,
+    /// YXDOMAIN, which a DNAME substitution that made the name too long gives (RFC 6672 §2.2).
+    yxdomain,
     servfail,
     formerr,
     truncated,
@@ -102,6 +104,7 @@ fn shape_of(reply: Reply, kind: core.Kind) Shape {
         .cname => .{ .records = &record_cname, .ancount = 1 },
         .nxdomain => .{ .rcode = .name_error },
         .nodata => .{},
+        .yxdomain => .{ .rcode = .yxdomain },
         .servfail => .{ .rcode = .server_failure },
         .formerr => .{ .rcode = .format_error },
         .truncated => .{ .truncated = true },

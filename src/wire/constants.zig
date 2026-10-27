@@ -169,6 +169,8 @@ pub const Rcode = enum(u8) {
     name_error = 3,
     not_implemented = 4,
     refused = 5,
+    /// A DNAME substitution made the name longer than a name can be (RFC 6672 §2.2).
+    yxdomain = 6,
     /// The responder does not implement the EDNS version asked (RFC 6891 §6.1.3).
     bad_vers = 16,
     /// The server cookie was missing or wrong (RFC 7873 §8, the IANA entry).

@@ -151,8 +151,9 @@ pub fn apply(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64
             self.restart(now_ns);
         },
         .retry_with_cookie => on_bad_cookie(self, now_ns),
-        // The caller asked for the server's answer whatever it is (§19 step 11).
-        .fail => self.fail(policy.error_of(rcode)),
+        // The caller asked for the server's answer whatever it is (§19 step 11). YXDOMAIN is the
+        // same answer from each server (§16 decision 57).
+        .fail, .name_too_long => self.fail(policy.error_of(rcode)),
     }
     return .accepted;
 }

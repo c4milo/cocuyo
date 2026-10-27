@@ -31,6 +31,7 @@ pub const Out = enum {
     failed_chain_too_long,
     failed_canceled,
     failed_no_servers,
+    failed_name_too_long,
     /// A failure the model has no name for, which is a disagreement whatever the model said.
     failed_other,
     accepted,
@@ -119,6 +120,7 @@ fn failed_out(err: core.Error) Out {
         error.ChainTooLong => .failed_chain_too_long,
         error.Canceled => .failed_canceled,
         error.NoServers => .failed_no_servers,
+        error.NameTooLong => .failed_name_too_long,
         else => .failed_other,
     };
 }

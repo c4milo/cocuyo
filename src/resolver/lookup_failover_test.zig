@@ -101,7 +101,7 @@ test "any other answer the lookup accepts resets the count" {
 }
 
 /// An rcode no code of `wire.Rcode` names.
-const rcode_unknown: u16 = 6;
+const rcode_unknown: u16 = 15;
 
 test "a response the lookup ignores leaves its server's failure count" {
     comptime std.debug.assert(wire.Rcode.from_bits(rcode_unknown) == null);

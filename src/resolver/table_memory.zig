@@ -131,6 +131,8 @@ test "only the two negatives of RFC 2308 are remembered, and each maps back" {
     try testing.expectEqual(@as(?Negative, null), negative_of(Error.Timeout));
     try testing.expectEqual(@as(?Negative, null), negative_of(Error.ServerFailure));
     try testing.expectEqual(@as(?Negative, null), negative_of(Error.Canceled));
+    // YXDOMAIN ends a lookup with this, and no RFC gives it a TTL (docs/design.md §16 decision 57).
+    try testing.expectEqual(@as(?Negative, null), negative_of(Error.NameTooLong));
     try testing.expectEqual(@as(?Negative, null), negative_of(Error.MalformedMessage));
     try testing.expectEqual(Error.NameNotFound, error_of(.name_not_found));
     try testing.expectEqual(Error.NoData, error_of(.no_data));

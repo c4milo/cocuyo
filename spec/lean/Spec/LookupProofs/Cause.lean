@@ -61,6 +61,7 @@ theorem onReply_fits (c : Config) (s : State) (stream : Bool) (r : Reply) (h : C
     · exact running _ (fresh_ne_failed c)
   | nxdomain => exact nextCandidate_fits c s false
   | nodata => exact nextCandidate_fits c s true
+  | yxdomain => exact fail_fits s .nameTooLong (by simp) (by simp)
   | servfail => exact advanceServer_fits c _
   | formerr =>
     simp only [onReply]
@@ -188,6 +189,7 @@ theorem onReply_server (c : Config) (s : State) (stream : Bool) (r : Reply) (h :
     · exact same _ rfl rfl
   | nxdomain => exact nextCandidate_server c s false h hs
   | nodata => exact nextCandidate_server c s true h hs
+  | yxdomain => exact ends _
   | servfail => exact hadv _
   | formerr =>
     simp only [onReply]

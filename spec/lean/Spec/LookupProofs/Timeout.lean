@@ -72,6 +72,7 @@ theorem marked_onReply (c : Config) (s : State) (stream : Bool) (r : Reply) (m :
     · exact ⟨h, fun hf => absurd hf (fresh_ne_failed c)⟩
   | nxdomain => exact marked_nextCandidate c s false h
   | nodata => exact marked_nextCandidate c s true h
+  | yxdomain => exact ⟨h, fun _ => by simp [onReply, fail]⟩
   | servfail => exact hadv _ (keep_isSome _ _)
   | formerr =>
     simp only [onReply]

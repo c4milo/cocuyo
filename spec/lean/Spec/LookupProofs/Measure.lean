@@ -123,6 +123,7 @@ theorem onReply_le (c : Config) (s : State) (stream : Bool) (r : Reply) (g : s.r
     · simp [measure, LexLe]; omega
   | nxdomain => exact nextCandidate_le c s false
   | nodata => exact nextCandidate_le c s true
+  | yxdomain => exact lexLe_of_phase c s _ rfl rfl rfl rfl (phase_ended_le s .nameTooLong)
   | servfail => exact lexLt_le _ _ (advanceServer_lt c _ g)
   | formerr =>
     simp only [onReply]
@@ -262,6 +263,7 @@ theorem onReply_good (c : Config) (s : State) (stream : Bool) (r : Reply) (hc : 
       exact Or.inr ⟨h1, h2, h3, by show s.hops + 1 ≤ c.hopsMax; omega⟩
   | nxdomain => exact nextCandidate_good c s false hc
   | nodata => exact nextCandidate_good c s true hc
+  | yxdomain => left; simp [onReply, fail, ended]
   | servfail => exact advanceServer_good c _ hc h2 h4 h3
   | formerr =>
     simp only [onReply]
