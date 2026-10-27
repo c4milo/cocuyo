@@ -4070,7 +4070,7 @@ step until `zig build test` passes.
       clear its slot is then free at once. Over TLS it is pending until the cancel's event, or until
       its `close_notify` has gone. The drive's end admits the lookup that waits, as before. Over
       TLS the wait keeps TLS rule 6. The ruling did not name the wait in the clear, where decision
-      46 told the lookup `local`. §17 question 73 asks it, and until the owner rules, as built.
+      46 told the lookup `local`. §17 question 73 asked it, and the owner ruled: as built.
     - Over TLS. Each server has at most one connection that a lookup may join, and a marked
       connection is not one (TLS rule 6). So a server can have two connections: the marked one and
       a new one. A TLS configuration has a slot for each server. Take a lookup whose server has no
@@ -5223,7 +5223,7 @@ Each needs a peer that stops reading during a query's send.
 
     Recommended: as built. One rule holds for both transports, and the lookup keeps its server.
     The second way reaches another server sooner, but a single server has no other. Until the owner
-    rules, as built.
+    rules, as built. Answered on 2026-10-27: as built.
 
 ### Asked on 2026-10-26, for a DoH link's send
 
