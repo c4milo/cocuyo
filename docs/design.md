@@ -4329,6 +4329,39 @@ step until `zig build test` passes.
 
     §12, §16 decision 40, §17 questions 37, 76, 77, 78 and 79.
 
+59. **A name that compact denial says does not exist ends as `NoData`.** Written on 2026-10-27. The
+    owner ruled on c4milo/cocuyo#52: keep `NoData`, record the reason here, and close the issue.
+
+    Under compact denial of existence (RFC 9824), a server answers a name that does not exist with
+    NOERROR and no data. An NSEC record at the name tells the truth: its type bitmap holds NXNAME
+    (128). A stub can read that record only if the record comes back to it, and it does not:
+
+    - cocuyo never sets the DO bit. A server must not return DNSSEC records to a query with DO
+      clear (RFC 3225 §3).
+    - A recursive server sets DO on its own queries, and removes the authenticating DNSSEC
+      records from its answer to a query with DO clear (RFC 4035 §3.2.1). The NSEC goes with them.
+    - RFC 9824 §5 lets a resolver change NOERROR to NXDOMAIN for a querier that did not set DO.
+      That change is the recursive server's to make, since it sees the NSEC and the stub does not.
+
+    So a lookup of such a name ends `NoData`, and the cache keeps a NODATA entry with the SOA's
+    TTL (§18). `AddressLookup` does not cancel the other family, as its rule 4 does for
+    `NameNotFound` (§19 step 14). A recursive server that applies RFC 9824 §5 gives NXDOMAIN, and
+    the lookup then ends `NameNotFound`, as for any server.
+
+    Rejected:
+
+    - cocuyo reads an NSEC whose bitmap holds NXNAME as a name error, without validation. Only a
+      server that breaks RFC 3225 §3 would return that record, so the code would never run against
+      a server that keeps the RFCs.
+    - cocuyo sets DO, then reads NXNAME. This reverses the rule that cocuyo never sets DO
+      (`flag_dnssec_ok`, `src/wire/edns.zig`). Answers grow by their RRSIG records, which the
+      codec must skip, and more of them come truncated, which moves lookups to TCP. DNSSEC stays
+      out of scope (§17 question 16).
+    - cocuyo also sends the CO flag of RFC 9824 §5.1. That flag applies to a query with DO set,
+      and cocuyo never sets DO.
+
+    §18, §19 step 14, §17 question 16.
+
 ## 17. Questions for the owner
 
 ### Settled on 2026-09-21
