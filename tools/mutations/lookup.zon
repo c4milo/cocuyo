@@ -3676,4 +3676,13 @@
         },
         .caught_by = .{ .step = "test-tools" },
     },
+    .{
+        .section = "YXDOMAIN ends the lookup",
+        .id = "YX10",
+        .what = "a failure that is not negative decides before NameNotFound in AddressLookup",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    if (said_not_found(&self.a) or said_not_found(&self.aaaa)) return next_candidate(self);\n    if (hard_failure(self)) |failure| return end_failed_with(self, failure);\n", .new = "    if (hard_failure(self)) |failure| return end_failed_with(self, failure);\n    if (said_not_found(&self.a) or said_not_found(&self.aaaa)) return next_candidate(self);\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
 }

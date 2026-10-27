@@ -10121,5 +10121,26 @@ which this Mac does not have, so CI's Linux job reads the counts.
 | YX7 | the replay builds the model's YXDOMAIN as NXDOMAIN | the replay hands the lookup the reply the model names | the replay of the committed slice: "Mismatch at line 92", `test-tools` | CAUGHT |
 | YX8 | the model moves to the next candidate at YXDOMAIN | the model ends the lookup at YXDOMAIN | the proofs: `LookupProofs.lean` stops with unsolved goals, `spec-lean` | CAUGHT |
 | YX9 | the model moves to the next server at YXDOMAIN, as at a server failure | the same | the proofs: `LookupProofs.lean:91` and `:189` stop with unsolved goals, `spec-lean` | CAUGHT |
+| YX10 | in `AddressLookup`, a failure that is not negative decides before `NameNotFound` | an NXDOMAIN from the other family moves the walk to the next candidate | the new test of the two families: "expected null, found .{ .failed = .{ .err = error.NameTooLong, ... } }" at `lookup_yxdomain_test.zig`, and five tests of `address_lookup_test.zig` and `address_lookup_walk.zig`, `test-resolver` | CAUGHT |
 
-Nine mutations, nine `CAUGHT`.
+Ten mutations, ten `CAUGHT`.
+
+### After the review
+
+A review of the change found three things. The fixes:
+
+- Decision 57 said that YXDOMAIN ends the search walk. In `AddressLookup`, a YXDOMAIN on one
+  family and an NXDOMAIN on the other move on to the next candidate, by rule 5 of design §19 step
+  14. The code and the model of the walks keep that order. Decision 57 records it now, with the
+  reason: rule 4 makes the order necessary, and rule 3 requires it. The search list policy of
+  design §5 names one `Lookup`'s walk. A new test in `lookup_yxdomain_test.zig` pins the order. It
+  passed against the code as it was, since it pins the order that the code had. YX10 breaks it.
+- Decision 57 cited RFC 6672 §2.2 for "the name exists", which that section does not state. The
+  reason now says what §2.2 states: the server found a DNAME at an ancestor of the candidate.
+- Decision 57 said "Two `NameTooLong` ends end the walk". It says "When both families end with
+  `NameTooLong`, the walk ends with `NameTooLong`" now.
+
+The disk had 51 GB free before the mutation run. `zig build mutations -- lookup YX10` ran it to
+its end, and it is `CAUGHT` by `zig build test-resolver`. Then it ran again by hand, and the text in
+its row comes from there. The Lean model and the TLA+ model did not change, so `zig build spec` and
+`zig build tla` did not run. No counted path changed, so `bench/instructions.zon` did not change.

@@ -922,8 +922,10 @@ an answer does not reach the walk.
   (§19 step 14).
 - SERVFAIL, REFUSED or NOTIMP moves to the next server, not to the next candidate. When every
   server has failed the lookup fails with `AllServersFailed`, and the walk stops there.
-- YXDOMAIN ends the walk with `NameTooLong`, and the next candidate is not tried (§16 decision
-  57). A DNAME substitution made the candidate longer than a name can be (RFC 6672 §2.2).
+- YXDOMAIN ends one `Lookup`'s walk with `NameTooLong`, and the next candidate is not tried (§16
+  decision 57). A DNAME substitution made the candidate longer than a name can be (RFC 6672
+  §2.2). In `AddressLookup`, an NXDOMAIN from the other family moves on to the next candidate
+  (§19 step 14, rule 5).
 
 Measured on 2026-09-22 by `tools/search_order/run.sh`. A recorder that writes down every question
 it is asked, and answers NXDOMAIN unless a case says otherwise, sits in front of four resolvers
@@ -4354,10 +4356,11 @@ step until `zig build test` passes.
 
     Choices the ruling did not make, made here:
 
-    - The search walk ends, and does not try the next candidate as NXDOMAIN does. YXDOMAIN says
-      that the name exists, since a DNAME owns an ancestor of it (RFC 6672 §2.2). So the walk found
-      the name that the caller meant, as an answer does, and a later candidate names another host.
-      The ruling says "at once" too.
+    - The search walk of one `Lookup` ends, and does not try the next candidate as NXDOMAIN does.
+      The server found a DNAME at an ancestor of the candidate, in a zone it serves, and replaced
+      the suffix of the candidate (RFC 6672 §2.2). So the walk reached a zone that holds the
+      candidate, as an answer does, and a later candidate names another host. The ruling says "at
+      once" too.
     - The cache keeps nothing. RFC 2308 §5 gives a TTL to NXDOMAIN and NODATA alone, and its §7 says
       that no RFC covers the cache of other negative responses. The memory of §20 keeps an answer,
       `NameNotFound` and `NoData` alone. `Failure.negative_ttl_seconds` is zero for `NameTooLong`.
@@ -4365,11 +4368,17 @@ step until `zig build test` passes.
     - `AddressLookup` keeps its rules (§19 step 14). `NameTooLong` from one family is a failure that
       is not `NameNotFound` and not `NoData`. So rule 4 does not cancel the other family. By rule
       5 an answer from the other family ends the walk answered, with `partial` set to
-      `NameTooLong`. Two `NameTooLong` ends end the walk with `NameTooLong`. A DNAME substitution
-      reads the QTYPE only when it is DNAME (RFC 6672 §2.2), so in most cases both families get
-      YXDOMAIN. The two queries go at once, so the second end comes at about the same time.
-      `NameLookup` ends with `NameTooLong` by its rule for any other failure. The Lean model of the
-      walks does not change.
+      `NameTooLong`. When both families end with `NameTooLong`, the walk ends with `NameTooLong`.
+      A DNAME substitution reads the QTYPE only when it is DNAME (RFC 6672 §2.2), so in most
+      cases both families get YXDOMAIN. The two queries go at once, so the second end comes at
+      about the same time. `NameLookup` ends with `NameTooLong` by its rule for any other failure.
+      The Lean model of the walks does not change.
+    - In `AddressLookup`, an NXDOMAIN from the other family wins, and the walk tries the next
+      candidate. Rule 5 reads `NameNotFound` before any other failure. Rule 4 makes that order
+      necessary: an NXDOMAIN that comes first cancels the other family, so its YXDOMAIN never
+      arrives. With this order the walk moves on whichever end comes first, as rule 3 requires.
+      So the end of one `Lookup`'s walk at YXDOMAIN does not reach the walk of `AddressLookup`
+      here.
     - The transition is a row of `awaiting_udp` in §5's table, after NXDOMAIN and NODATA.
       `awaiting_tcp` reads it as the UDP rows, and so does a lookup over DoH or DoQ. The Lean model
       of `Lookup` has the reply `yxdomain` and the error `nameTooLong`. The TLA+ engine model does

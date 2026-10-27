@@ -12,6 +12,7 @@ const lookup_module = @import("lookup.zig");
 const Verdict = lookup_module.Verdict;
 const Cause = lookup_module.Cause;
 const fixtures = @import("fixtures.zig");
+const address_lookup = @import("address_lookup.zig");
 const Rig = @import("address_lookup_test.zig").Rig;
 const Handle = @import("table.zig").Handle;
 
@@ -123,4 +124,19 @@ test "YXDOMAIN on one family leaves the other, whose answer stands, and on both 
     try rig.drive();
     try testing.expectEqual(core.Error.NameTooLong, rig.lookup.outcome().?.failed.err);
     try testing.expectEqual(@as(usize, 0), rig.table.resolver.in_flight());
+}
+
+test "YXDOMAIN on one family and NXDOMAIN on the other move the walk to the next candidate" {
+    var rig: Rig = .{ .table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } } };
+    try rig.open();
+    try rig.start(null, "host", null, .{});
+    try rig.drive();
+    try reply_yxdomain(&rig, rig.lookup.a.handle);
+    try rig.drive();
+    // Rule 5 reads `NameNotFound` before any other failure, so the walk does not end here.
+    try rig.reply(rig.lookup.aaaa.handle, fixtures.name_error);
+    try rig.drive();
+    try testing.expectEqual(@as(?address_lookup.AddressOutcome, null), rig.lookup.outcome());
+    const next = rig.table.resolver.lookup_of(rig.lookup.a.handle orelse return error.NotInFlight);
+    try testing.expect(next.question.name.equal(&try Name.from_text("host.b.example")));
 }
