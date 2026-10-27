@@ -26,12 +26,18 @@ open Spec.Lookup
 /-- What makes two states the same for the walk. An ended state answers the same to everything
 whatever its counters say (`ended_absorbing`), so its stage and its error are all of it. Its cause
 is not part of it either: each line below an ended state repeats the cause, which the line that
-reached the state checked already. -/
-def key (s : State) : State :=
+reached the state checked already. On the last pass the lookup does not ask a server before the
+current one again for the name, so the counts of those servers are not part of it either
+(docs/design.md §16 decision 58). -/
+def key (c : Config) (s : State) : State :=
   if ended s.stage then
     { s with server := 0, round := 0, candidate := 0, hops := 0, edns := true, hadNoData := false,
-             cause := none, cookieRetried := false, offered := false }
-  else s
+             cause := none, cookieRetried := false, offered := false, datagrams := [],
+             streams := [] }
+  else if s.round + 1 < c.attempts then s
+  else
+    let behind (l : List Nat) := l.mapIdx fun p n => if p < s.server then 0 else n
+    { s with datagrams := behind s.datagrams, streams := behind s.streams }
 
 /-- Writes the events tried from `s`, and walks each state not seen before. Returns the lines
 written and the deepest line. -/
@@ -44,8 +50,8 @@ partial def walk (out : IO.FS.Stream) (c : Config) (seen : IO.Ref (Std.HashSet S
     out.putStrLn s!"{depth + 1} {eventToken e} {outToken o} {lineToken t}"
     lines := lines + 1
     deepest := max deepest (depth + 1)
-    unless (← seen.get).contains (key t) do
-      seen.modify (·.insert (key t))
+    unless (← seen.get).contains (key c t) do
+      seen.modify (·.insert (key c t))
       let (more, deeper) ← walk out c seen t (depth + 1)
       lines := lines + more
       deepest := max deepest deeper
@@ -53,7 +59,12 @@ partial def walk (out : IO.FS.Stream) (c : Config) (seen : IO.Ref (Std.HashSet S
 
 /-- The configurations `all` walks: none, one, two or three servers; one to three attempts and
 search candidates; every query over UDP, over TCP, over DoH or over DoQ (docs/design.md §22,
-§23). -/
+§23). Since 2026-10-27 a state holds the queries each server got (§16 decision 58), so two states
+that differ in a count alone are walked apart. Several servers over several passes multiply the
+counts, over UDP most, where TC=1 adds a stream to each datagram. So two servers over several
+passes walk one name over UDP, and three servers over several passes walk one name over a stream
+or a request alone. One server reaches each rule of the bound, and two servers reach a server
+passed over in the middle of a pass and at the start of the next. -/
 def configsAll (hops : Nat) : List Config := Id.run do
   let mut all := [{ servers := 0, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false }]
   let transports := [(false, false, false), (true, false, false), (false, true, false), (false, true, true)]
@@ -61,7 +72,13 @@ def configsAll (hops : Nat) : List Config := Id.run do
     for attempts in [1, 2, 3] do
       for candidates in [1, 2, 3] do
         for (useTcp, request, quic) in transports do
-          all := all ++ [{ servers, attempts, candidates, hopsMax := hops, useTcp, request, quic }]
+          let udp := !useTcp && !request
+          let walked :=
+            servers = 1 || attempts = 1 ||
+              (servers = 2 && (!udp || candidates = 1)) ||
+              (servers = 3 && attempts = 2 && !udp && candidates = 1)
+          if walked then
+            all := all ++ [{ servers, attempts, candidates, hopsMax := hops, useTcp, request, quic }]
   return all
 
 /-- The configurations `gate` walks: the slice `zig build test` replays without Lean. One
@@ -91,7 +108,7 @@ def transcript (out : IO.FS.Stream) (hops : Nat) (configs : List Config) : IO (N
     out.putStrLn s!"config {c.servers} {c.attempts} {c.candidates} {transportToken c}"
     let s := init c
     out.putStrLn s!"0 init none {lineToken s}"
-    let seen ← IO.mkRef (({} : Std.HashSet State).insert (key s))
+    let seen ← IO.mkRef (({} : Std.HashSet State).insert (key c s))
     let (lines, depth) ← walk out c seen s 0
     total := total + lines
     deepest := max deepest depth
@@ -104,21 +121,31 @@ def same (path : String) (write : IO.FS.Stream → IO Unit) : IO Bool := do
   return (← IO.FS.readBinFile path) == (← buffer.get).data
 
 def usage : String :=
-  "usage: cocuyo-spec all <cname_hops_max>\n" ++
-  "       cocuyo-spec gate <cname_hops_max>\n" ++
+  "usage: cocuyo-spec all <cname_hops_max> [<out>]\n" ++
+  "       cocuyo-spec gate <cname_hops_max> [<out>]\n" ++
   "       cocuyo-spec walks | walks-gate\n" ++
   "       cocuyo-spec check <cname_hops_max> <lookup gate> <walks gate>"
 
+/-- Writes the transcript of `mode` to `out`, and says how large it is. -/
+def write (mode hops : String) (out : IO.FS.Stream) : IO UInt32 := do
+  let configs ← match mode with
+    | "all" => pure (configsAll hops.toNat!)
+    | "gate" => pure (configsGate hops.toNat!)
+    | _ => do IO.eprintln usage; return 2
+  let (total, deepest) ← transcript out hops.toNat! configs
+  IO.eprintln s!"{total} events, {deepest} deep"
+  return 0
+
 def main (args : List String) : IO UInt32 := do
   match args with
-  | [mode, hops] =>
-    let configs ← match mode with
-      | "all" => pure (configsAll hops.toNat!)
-      | "gate" => pure (configsGate hops.toNat!)
-      | _ => do IO.eprintln usage; return 2
-    let (total, deepest) ← transcript (← IO.getStdout) hops.toNat! configs
-    IO.eprintln s!"{total} events, {deepest} deep"
-    return 0
+  | [mode, hops] => write mode hops (← IO.getStdout)
+  -- The build names a file: the full transcript is more than one write to a pipe's capture may
+  -- carry (2,198,581,460 octets on 2026-10-27, past macOS's 2^31 - 1 for one `write`).
+  | [mode, hops, path] =>
+    IO.FS.withFile path .write fun handle => do
+      let code ← write mode hops (IO.FS.Stream.ofHandle handle)
+      handle.flush
+      return code
   | ["walks"] =>
     let total ← Spec.Walks.transcript (← IO.getStdout) Spec.Walks.forwardAll
     IO.eprintln s!"{total} events"

@@ -13,6 +13,16 @@ pub const keys_per_slot_min: usize = 2;
 /// bounds a transaction's `number` (docs/design.md §22).
 pub const transactions_per_server_max: usize = 3;
 
+/// The most queries one lookup sends one server over one transport for one name: a query and two
+/// retries. "A resolver MUST NOT retry a given query to a server address over a given DNS
+/// transport more than twice (i.e., three queries in total)" (RFC 9520 §3.1). The transports are
+/// the datagram or the request over DoH or DoQ, and the stream, TCP or TLS. Every query counts:
+/// the first of each pass, the retry without EDNS0 after FORMERR, the retry after BADCOOKIE and the
+/// query again after a reply the checks of §7 ignored. A new name, a search candidate or a CNAME's
+/// target, is another query. `Config.attempts` can ask for more passes, and a server with no query
+/// left is passed over (docs/design.md §5, §16 decision 58).
+pub const queries_per_transport_max: usize = 3;
+
 /// The samples a server needs since its table was built before its wait comes from them, and the
 /// samples a window needs before the wait reads it: 3, c-ares's, read from its features page, not
 /// measured. Until then the server waits `Config.timeout_ns` (docs/design.md §5).

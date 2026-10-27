@@ -104,7 +104,9 @@ pub const search_max: usize = 6;
 /// The most candidates one lookup tries: every search entry, plus the name as it was asked.
 pub const candidates_max: usize = search_max + 1;
 
-/// The most passes a configuration may ask for, which bounds the retry loop.
+/// The most passes a configuration may ask for, which bounds the retry loop. A lookup still sends
+/// one server three queries of a name over one transport at most, whatever the passes say
+/// (RFC 9520 §3.1; `resolver.limits.queries_per_transport_max`, docs/design.md §16 decision 58).
 pub const attempts_max: usize = 5;
 
 /// The most a configuration's cap on the wait may be: 30 seconds, which is `resolv.conf(5)`'s

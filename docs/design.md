@@ -524,17 +524,17 @@ Eight states: `query_ready`, `awaiting_udp`, `tcp_needed`, `connecting_tcp`, `tc
 | `awaiting_udp` | `poll` before the deadline | unchanged | return `wait` |
 | `awaiting_udp` | `poll` at or past it | `query_ready` or `failed` | a sample as long as the wait, unless a reply to the try marked its server (§7), then advance the server, then the attempt |
 | `awaiting_udp` | `on_response` unmatched | unchanged | return `ignored`, the wait stands |
-| `awaiting_udp` | `on_response` with TC=1 | `tcp_needed` | keep the same server |
-| `awaiting_udp` | `on_datagram_cut` that passes the checks of a cut datagram (§7) | `tcp_needed` | keep the same server, and take no sample |
+| `awaiting_udp` | `on_response` with TC=1 | `tcp_needed`, or `query_ready` or `failed` | keep the same server; when it has no query left on a stream, advance the server and keep no cause |
+| `awaiting_udp` | `on_datagram_cut` that passes the checks of a cut datagram (§7) | `tcp_needed`, or `query_ready` or `failed` | keep the same server, and take no sample; when it has no query left on a stream, advance the server and keep no cause |
 | `awaiting_udp` | `on_response` with a CNAME and no answer | `query_ready` | new transaction, hop count up |
 | `awaiting_udp` | `on_response` with an answer | `done` | copy the records out |
 | `awaiting_udp` | `on_response` NXDOMAIN or NODATA | `query_ready` or `failed` | keep the smaller negative TTL, advance the search candidate |
 | `awaiting_udp` | `on_response` YXDOMAIN | `failed` | `NameTooLong`, with no next server and no next candidate (§16 decision 57) |
 | `awaiting_udp` | `on_response` SERVFAIL, REFUSED, NOTIMP | `query_ready` or `failed` | keep the rcode as the cause, advance the server |
-| `awaiting_udp` | `on_response` FORMERR and EDNS0 was on | `query_ready` | same server, EDNS0 off |
+| `awaiting_udp` | `on_response` FORMERR and EDNS0 was on | `query_ready` or `failed` | same server, EDNS0 off; when it has no query left over the transport the lookup starts on, keep the rcode as the cause and advance the server |
 | `awaiting_udp` | `on_response` FORMERR and EDNS0 was off | `query_ready` or `failed` | keep the rcode as the cause, advance the server, as SERVFAIL does |
-| `awaiting_udp` | `on_response` BADCOOKIE, the first from this server | `query_ready` | same server, the fresh cookie |
-| `awaiting_udp` | `on_response` BADCOOKIE again | `tcp_needed` | same server, over TCP |
+| `awaiting_udp` | `on_response` BADCOOKIE, the first from this server | `query_ready` or `failed` | same server, the fresh cookie; when it has no query left over UDP, keep the rcode as the cause and advance the server |
+| `awaiting_udp` | `on_response` BADCOOKIE again | `tcp_needed`, or `query_ready` or `failed` | same server, over TCP; when it has no query left on a stream, keep the rcode as the cause and advance the server |
 | `tcp_needed` | `poll` | `connecting_tcp` | return `connect_tcp`, arm the deadline |
 | `connecting_tcp` | `on_tcp_connected` | `tcp_ready` | re-arm the deadline |
 | `connecting_tcp` | `on_tcp_failed` with `connect`, `handshake` or `local` | `query_ready` or `failed` | keep the reason as the cause, advance the server, as SERVFAIL does |
@@ -544,10 +544,27 @@ Eight states: `query_ready`, `awaiting_udp`, `tcp_needed`, `connecting_tcp`, `tc
 | `tcp_ready` | `poll` at or past the deadline | `query_ready` or `failed` | no sample, since no query went out whole, then advance the server, then the attempt (§16 decision 52) |
 | `tcp_ready`, `awaiting_tcp` | `on_tcp_failed` with `closed` | `query_ready` or `failed` | keep the reason as the cause, advance the server, as SERVFAIL does |
 | `awaiting_tcp` | `on_response` | as the UDP rows | TC=1 sends the lookup nowhere, so the message is read as if it were clear, and an answer it gives is marked `truncated` |
-| `awaiting_tcp` | `on_response` BADCOOKIE, the first from this server | `tcp_needed` | same server, a new transaction on the stream, the fresh cookie |
+| `awaiting_tcp` | `on_response` BADCOOKIE, the first from this server | `tcp_needed`, or `query_ready` or `failed` | same server, a new transaction on the stream, the fresh cookie; when it has no query left on a stream, keep the rcode as the cause and advance the server |
 | `awaiting_tcp` | `on_response` BADCOOKIE again | `query_ready` or `failed` | keep the rcode as the cause, advance the server, as SERVFAIL does |
 | `awaiting_tcp` | `poll` at or past the deadline | `query_ready` or `failed` | a sample as long as the wait, unless a reply to the try marked its server (§7), then advance the server, then the attempt |
 | `done`, `failed` | any | unchanged | `poll` returns the same value; `on_response` is `ignored` |
+
+Since 2026-10-27 no server gets more than three queries of one name over one transport (§16
+decision 58). "A resolver MUST NOT retry a given query to a server address over a given DNS
+transport more than twice (i.e., three queries in total)" (RFC 9520 §3.1). The rules:
+
+- The lookup counts the queries that it sent for the current name, for each position in its order
+  and for each transport. The transports are the datagram, over UDP or as a DoH or DoQ request,
+  and the stream, over TCP or TLS. A query counts at `on_sent`. A send that failed does not count.
+- To advance the server is to move to the next position whose server has a query left over the
+  transport the lookup starts on: the stream under `use_tcp` or TLS, the datagram otherwise. The
+  walk passes over each other position, and the next pass and the end come as before. So when no
+  server is left, the lookup ends as the last pass ends.
+- A retry on the same server goes only when that server has a query left over the retry's
+  transport. Each retry row of the table says what the lookup does when it has none.
+- A new name, the next search candidate or a CNAME's target, is another query. Its counts start
+  at zero. The pass and the order do not change.
+- To pass over a server records no failure and no sample of it. The lookup sent it nothing.
 
 Every row that accepts a response first takes a sample of its server's latency, which the next
 deadline armed for that server reads (retry and timeout policy, below). So does a deadline that
@@ -747,7 +764,9 @@ decision 40). A sum with a literal `2` is still a `u16`.
   by hand that sets `timeout_ns` above 5 seconds was valid before 2026-10-09, when the default
   cap was 30. It must now raise `timeout_ns_max` as far, or it trips that assertion when a table
   is built. `resolv.conf` and `RES_OPTIONS` raise the cap themselves (§10).
-- On expiry: `server_index += 1`. On wrap: `server_index = 0`, `round += 1`. When
+- On expiry: `server_index += 1`. On wrap: `server_index = 0`, `round += 1`. A position whose
+  server has had its three queries of the name over the transport the lookup starts on is passed
+  over the same way (RFC 9520 §3.1, §16 decision 58). When
   `round == config.attempts` the lookup fails with `Timeout`, or with `AllServersFailed` if any
   server answered SERVFAIL, REFUSED or NOTIMP, FORMERR without EDNS0, BADCOOKIE over TCP after
   its retry, or BADCOOKIE over DoH or DoQ, or refused the lookup: a connection or a handshake
@@ -763,6 +782,13 @@ decision 40). A sum with a literal `2` is still a `u16`.
 - `rotate` starts the first try at a server the seed picks among those with the fewest failures
   (§19 step 12), instead of the first of them, so a process with many lookups does not aim all
   of them at one server.
+- `Config.attempts` counts passes, and since 2026-10-27 it no longer bounds the queries to one
+  server alone (§16 decision 58). Each pass sends a server a query, and FORMERR and BADCOOKIE each
+  add a retry inside a pass. So before, `attempts:5` sent one server five queries of one name over
+  one transport, and the default 2 could send it four: the query and two retries in one pass, and
+  one query in the next. The bound `queries_per_transport_max`, 3, now holds RFC 9520 §3.1 for
+  any `attempts`, and `attempts_max` stays 5. A move to TCP after TC=1 is another transport, and
+  RFC 9520 §3.1 lets it go.
 
 ### The cause of a failure
 
@@ -777,6 +803,7 @@ lookup holds `cause`, `none` until a server fails it, and `Failure.cause` report
 | `on_response` SERVFAIL, REFUSED, NOTIMP or BADVERS, `check_response` on | `.{ .rcode = ... }`, that code |
 | `on_response` FORMERR, EDNS0 off | `.{ .rcode = .format_error }` |
 | `on_response` BADCOOKIE that advances the server: over a stream after its retry, or over DoH or DoQ | `.{ .rcode = .bad_cookie }` |
+| `on_response` FORMERR with EDNS0 on, or BADCOOKIE, whose retry the bound of RFC 9520 §3.1 forbids (§16 decision 58) | `.{ .rcode = ... }`, that code |
 | `on_tcp_failed` | `.{ .reason = ... }`, the reason of the call |
 | `on_request_failed` for the current transaction | `.{ .reason = ... }`, the reason of the call |
 
@@ -786,8 +813,9 @@ lookup holds `cause`, `none` until a server fails it, and `Failure.cause` report
   the next pass, the next candidate or a CNAME hop.
 - `Failure.server_index` names the server that the lookup was on at its end. After the last pass
   that is the first server of the order, so it does not name the server of the cause.
-- FORMERR with EDNS0 on, a first BADCOOKIE, TC=1, a deadline that passes, a failed send and a
-  cancel keep no cause.
+- FORMERR with EDNS0 on and a first BADCOOKIE keep no cause while the bound lets the retry go.
+  TC=1, a deadline that passes, a failed send and a cancel keep no cause. A TC=1 whose stream the
+  bound forbids keeps none either: the server answered, and it failed nothing.
 - A server error that `check_response` off takes as the answer keeps no cause either. It is the
   answer, in `err`, and the server's state counts it as an answer.
 
@@ -984,11 +1012,15 @@ well-founded order, so no sequence of answers makes a lookup retry forever. Sinc
 model holds the cause of a failure in place of a flag, and proves that `AllServersFailed` has a
 cause and `Timeout` has none (The cause of a failure, above). Since 2026-10-21 the cause names the
 position of its server in the order. A failed connection or request carries its reason (§16
-decision 51). The proof shows too that a cause names a server of the configuration. `zig build
-spec` builds the proofs, then walks every state the model reaches under 109 configurations and
-replays each of the 21.4 million transitions against `Lookup`. It compares the answer, the whole
-state and the cause after every event. `zig build test` replays a committed slice of 14,426 of
-them without Lean.
+decision 51). The proof shows too that a cause names a server of the configuration. Since
+2026-10-27 the model counts the queries each server got for the current name over each
+transport, and passes over a server with no query left (§16 decision 58). Its proof
+`sends_bounded` shows that no count passes three, whatever the caller tells the lookup. `zig build
+spec` builds the proofs, then walks every state the model reaches under 84 configurations and
+replays each of the 38.8 million transitions against `Lookup`. It compares the answer, the whole
+state and the cause after every event. The counts are not printed, so the replay checks them
+through the moves they cause. `zig build test` replays a committed slice of 32,386 of them
+without Lean.
 spec/README.md says what the model abstracts and why. Time is one of those things: a poll comes
 before the deadline or at it. So when a server's wait came to be measured, on 2026-10-09, no
 transition changed, and neither did the model. Since 2026-10-24 a poll at the deadline ends
@@ -1395,11 +1427,11 @@ up as a diff rather than as a surprise. The pins that exist are in `src/core/cor
 
 | Part of `Lookup` | Bytes | Note |
 | --- | --- | --- |
-| the scalars | 111 | state, flags, four indices, the server order, the transaction with its client cookie's draw, three instants, the generator, the failure and its cause with its server in three octets (§5), the negative TTL, the chain's TTL, the config pointer, the servers pointer, and the COOKIE option the last query carried with its client cookie (§19 step 10) |
+| the scalars | 115 | state, flags, four indices, the server order, the queries sent to each server of it (§16 decision 58), the transaction with its client cookie's draw, three instants, the generator, the failure and its cause with its server in three octets (§5), the negative TTL, the chain's TTL, the config pointer, the servers pointer, and the COOKIE option the last query carried with its client cookie (§19 step 10) |
 | `question` | 260 | the name as asked, its type, and whether it was absolute |
 | `current` | 256 | the current candidate, or where the CNAME chain has reached |
 | `answers` | 2448 | an extern union: `[addresses_max]Address` is 272, `[ptr_names_max]Name` is 256, and the records of §19 step 9 are 2436 — 32 references of 12 and a buffer of `rdata_bytes_max` — plus the question's type (decision 34), the count, the TTL, the hop count and two flags |
-| total | 3072, measured | pinned by a test in `src/resolver/lookup_init_test.zig`; the cause's server of 2026-10-21 took no octet more, since the lookup keeps the cause in three octets, where a `?Cause` takes four (§16 decision 51); the cause of a failure on 2026-10-17 took three octets of the padding (§5); 3064 until the instant of the send, which a latency sample is measured from, on 2026-10-09 (§5), and 3048 until the cookies of 2026-10-08 (§19 step 10) |
+| total | 3080, measured | pinned by a test in `src/resolver/lookup_init_test.zig`; 3072 until the counts of RFC 9520 §3.1 on 2026-10-27, whose four octets took eight with the padding (§16 decision 58, §17 question 83); the cause's server of 2026-10-21 took no octet more, since the lookup keeps the cause in three octets, where a `?Cause` takes four (§16 decision 51); the cause of a failure on 2026-10-17 took three octets of the padding (§5); 3064 until the instant of the send, which a latency sample is measured from, on 2026-10-09 (§5), and 3048 until the cookies of 2026-10-08 (§19 step 10) |
 
 The total is larger than the parts because Zig chooses a struct's field order and pads accordingly.
 It also means a declaration order cannot be relied on for locality: the measurement that pinned
@@ -1411,13 +1443,13 @@ The caller-provided buffer §19 keeps as the fallback is what would take it back
 
 | Caller allocation | Size | For |
 | --- | --- | --- |
-| `[N]Resolver.Slot` | 3088 bytes each, measured | one per concurrent lookup: a lookup plus the table's own octets, the ready list's two links and its flag among them (§11) |
+| `[N]Resolver.Slot` | 3096 bytes each, measured, 3088 until 2026-10-27 | one per concurrent lookup: a lookup plus the table's own octets, the ready list's two links and its flag among them (§11) |
 | `[2N]MatchKey` | 4 bytes each | the id-to-slot table, power-of-two length |
 | send buffer | `query_bytes_max`, 386 | shared by the whole table |
 | receive buffer | `config.udp_payload_bytes`, 1232 by default | the caller's, per socket |
 | `[M]AddressLookup` | 1184 bytes each, measured | one per `getaddrinfo`-shaped lookup in flight: the name, the canonical name, 32 addresses, two handles, the failure of each lookup and the walk's scalars, beside the two slots it takes; pinned by a test in `src/resolver/address_lookup_test.zig`; 1152 until the cause of a failure on 2026-10-17 (§16 decision 45) |
 
-So 1024 concurrent lookups cost 3088 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
+So 1024 concurrent lookups cost 3096 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
 ever, by anybody. `Resolver` itself holds the `Servers` table, 1488 octets, measured and pinned
 by a test in `src/resolver/servers.zig`: 184 for each of `servers_max` servers, 120 of them the
 five windows of latency samples of §5, which 2026-10-09 added. The flag of the same day that marks
@@ -1463,6 +1495,10 @@ with one entry, and the last of the two wins. An unrecognised line, a malformed 
 know is skipped, not an error — that is what every stub resolver does, and a config file with one
 bad line must not stop a program from resolving. Counts above `servers_max` or `search_max` are
 truncated, and the returned `Config` says so through the slice lengths.
+
+`attempts:N` sets the passes, a value over 5 read as 5 and zero as 1. Since 2026-10-27 a value of
+4 or 5 sends no server more than three queries of one name over one transport. The lookup holds
+that bound whatever the file says (§5, §16 decision 58).
 
 `timeout:N` sets `timeout_ns` to N seconds, a value over 30 read as 30 and zero as 1. The wait
 must fit under `timeout_ns_max` (§5), whose default is 5 s, so a longer `timeout:` raises the cap
@@ -1870,7 +1906,8 @@ or a count is a `usize`, so its sum with a narrow value is a `usize` too (§16 d
 | `servers_max` | 8 | glibc's MAXNS is 3; 8 leaves room and still bounds the loop |
 | `search_max` | 6 | glibc's MAXDNSRCH; recalled, not measured |
 | `attempts_default` | 2 | the `resolv.conf` default |
-| `attempts_max` | 5 | bounds the retry loop |
+| `attempts_max` | 5 | bounds the retry loop; the passes past the third find each server with no query left (§16 decision 58) |
+| `queries_per_transport_max` | 3 | the queries one lookup sends one server for one name over one transport: "A resolver MUST NOT retry a given query to a server address over a given DNS transport more than twice" (RFC 9520 §3.1); `src/resolver/limits.zig`, since 2026-10-27 (§16 decision 58) |
 | `ndots_default` | 1 | the `resolv.conf` default |
 | `ndots_limit` | 15 | `resolv.conf(5)`'s cap on `ndots:`, which reads a larger value as 15; in `src/config/limits.zig` since 2026-10-26, in `src/config/constants.zig` from 2026-10-13, and in the parser's own file before |
 | `timeout_seconds_limit` | 30 | `resolv.conf(5)`'s cap on `timeout:`, in seconds, and `timeout_ns_max` in seconds, so the parser can raise the cap to any timeout it reads; in `src/config/limits.zig` since 2026-10-26, and in `src/config/constants.zig` from 2026-10-13 |
@@ -4398,6 +4435,82 @@ step until `zig build test` passes.
 
     §5, §19 step 14, §25, docs/mutations.md (YXDOMAIN ends the lookup).
 
+58. **A lookup sends one server at most three queries of a name over one transport.** Ruled by the
+    owner on 2026-10-27, on c4milo/cocuyo#50: keep `attempts_max` as it is, and add a check that no
+    server address gets more than three queries of one lookup over one transport, whatever
+    `Config.attempts` says. The bound is a new named limit, `queries_per_transport_max` in
+    `src/resolver/limits.zig`, which the owner approved. "A resolver MUST NOT retry a given query
+    to a server address over a given DNS transport more than twice (i.e., three queries in total)"
+    (RFC 9520 §3.1). A `resolv.conf` with `options attempts:4` or more stays accepted, since the
+    bound now holds the rule.
+
+    What counts as one query. Each query the lookup sends counts at `on_sent`, against the
+    position of its server in the order and against its transport:
+
+    - The first query of each pass counts.
+    - The retry without EDNS0 after FORMERR counts. RFC 6891 §6.2.2 asks for it, but it asks the
+      same server the same question, so it is a retry of the given query.
+    - The retry after BADCOOKIE counts, over UDP and on a stream (RFC 7873 §5.3).
+    - The query again after a reply that the checks of §7 ignored counts. A reply in another case
+      is one such reply (§7, A server that changes the case): the try runs out, and the next pass
+      asks again.
+    - A query to the next search candidate is another query, not a retry: its name is another.
+      So is a query to a CNAME's target. Each new name starts its counts at zero.
+    - A send that failed does not count: no query reached the server.
+    - The transports are two: the datagram, over UDP or as a DoH or DoQ request, and the stream,
+      over TCP or TLS. A move to TCP after TC=1 is another transport, so it does not count against
+      UDP. "A resolver MAY retry a given query over a different DNS transport to the same server"
+      (RFC 9520 §3.1).
+
+    What the lookup does at the bound:
+
+    - A server with no query left over the transport the lookup starts on is passed over. The walk
+      goes on to the next server, and to the next pass. When no server is left, the lookup ends as
+      today's last pass ends: `Timeout`, or `AllServersFailed` when it holds a cause.
+    - A retry that the bound forbids moves the lookup to the next server. FORMERR and BADCOOKIE
+      keep their rcode as the cause, as a server failure does, since the server failed the
+      query and no retry is left. TC=1 keeps no cause: the server answered, and only the stream is
+      spent.
+    - To pass over a server records no failure and no sample of it in `Servers`. The lookup sent it
+      nothing, so it learned nothing of its health or its latency.
+
+    How it meets failover (§19 step 12). The order is the lookup's, computed at its first poll, and
+    the counts follow the positions of that order. A server that failover promoted to the front,
+    one query in `failover_retry_chance`, takes its three queries as any other does. The counts
+    belong to one lookup and one name, and `Servers` keeps none of them. So a server that one
+    lookup passed over is asked by the next lookup in the order that failover gives it. A pass over
+    a server counts no failure, so the bound does not move a server later in that order.
+
+    The cost. The lookup holds the counts in four octets, two bits for each of `servers_max`
+    positions and each transport. Zig pads the lookup to eight octets more, from 3,072 to 3,080,
+    and a slot from 3,088 to 3,096 (§9). §17 question 83 asks whether that stays.
+
+    The model and the checks. §5 changed first, then the Lean model, then the code. The model's
+    state holds the counts. `advanceServer` passes over a spent server, and a retry the bound
+    forbids moves on through `retry`. Its proof `sends_bounded` shows that no count passes three,
+    whatever events come. The counts split states that differ in them alone, over UDP most, where
+    the walks of two servers over several passes grew 25 to 45 times. So over several passes the
+    full walk takes one name alone over UDP with two servers, and three servers over two passes,
+    one name and no UDP alone. One server reaches each rule, and two servers reach a server passed
+    over in a pass and at the start of the next. The walk
+    holds 38,759,600 transitions under 84 configurations, from 21,444,698 under 109. Each new check
+    is a check and an assertion: `Sends.add` asserts the count is under the bound.
+
+    Rejected:
+
+    - `attempts_max` lowered to 3. It holds RFC 9520 §3.1 for the passes alone, and not for the
+      retries inside a pass: the default 2 could still send four queries. It also refuses a
+      `resolv.conf` that glibc and c-ares take, and changes a named limit.
+    - Leaving it. A configuration of 5 passes sends one server five queries, against a MUST of RFC
+      9520 §3.1.
+    - Counts in `Servers`, across lookups. RFC 9520 §3.1 bounds the retries of "a given query",
+      which is one lookup's. A count across lookups would need the time that §3.2's cache of
+      failures holds, and that is c4milo/cocuyo#51.
+    - Counts by the server's address rather than by its position. A configuration that names one
+      address twice then shares one count. §17 question 82 asks it.
+
+    §5, §9, §10, §12, §19 step 12, §17 questions 82 and 83.
+
 59. **A name that compact denial says does not exist ends as `NoData`.** Written on 2026-10-27. The
     owner ruled on c4milo/cocuyo#52: keep `NoData`, record the reason here, and close the issue.
 
@@ -5426,6 +5539,35 @@ changes. The ruling did not make four of the choices that decision 56 makes.
     Recommended: as built. None of the four is a bound that the code checks against input. Until
     the owner rules, as built. Answered on 2026-10-26: as built.
 
+### Asked on 2026-10-27, for the bound on the queries to one server
+
+§16 decision 58 builds the owner's ruling on c4milo/cocuyo#50. The ruling did not make two of its
+choices.
+
+82. **One address named twice.** RFC 9520 §3.1 bounds the queries to "a server address". The
+    lookup counts by the position of a server in its order. A configuration that names one address
+    twice, with one port or two, then sends that address up to three queries for each entry. The
+    ways:
+
+    - As built: one count for each configured server. A configuration with a duplicate is the
+      caller's choice, and `resolv.conf` with two equal `nameserver` lines is rare.
+    - One count for each address: the lookup compares each server's address with the others' at
+      each count, or the configuration drops a duplicate when it is built.
+
+    Recommended: as built. A check at each count costs a walk over the servers on the hot path,
+    and a configuration that drops a duplicate changes what a caller configured. Until the owner
+    rules, as built.
+83. **Eight octets more for each lookup.** The counts take four octets, and Zig pads the lookup
+    from 3,072 octets to 3,080, and a slot from 3,088 to 3,096 (§9). The ways:
+
+    - As built: a field of four octets, `Lookup.sends`.
+    - The counts in the spare bits of `Lookup.order`. Each entry of the order is a server's index,
+      under 8, so five bits of each octet are free. The lookup stays at 3,072 octets, but one field
+      then holds two things.
+
+    Recommended: as built. A field that holds one thing is easier to read and to check, and 8 KiB
+    for 1,024 lookups is small. Until the owner rules, as built.
+
 ## 18. The cache
 
 A cache above `Resolver.start`, in a module of its own that imports `core` and `wire` and never
@@ -6320,6 +6462,8 @@ raises its server's count and sets the instant, as a timeout does. These answers
 - FORMERR from a server asked without EDNS0.
 - BADCOOKIE over a stream once the server has had its retry, and BADCOOKIE over DoH or DoQ
   (step 10). The retry itself marks no failure: it has the fresh server cookie left to try.
+- Since 2026-10-27, FORMERR with EDNS0 on and BADCOOKIE whose retry the bound of RFC 9520 §3.1
+  forbids (§16 decision 58).
 
 Any other answer the lookup accepts resets the count. With `check_response` off, the server's
 error is the caller's answer (step 11): it marks no server failure, and it resets the count too.
@@ -9994,7 +10138,8 @@ for each (question 25). They are c4milo/cocuyo#48 to c4milo/cocuyo#52, in the or
 - `attempts_max` is 5, which lets a configuration send one server five queries over one
   transport. "A resolver MUST NOT retry a given query to a server address over a given DNS
   transport more than twice (i.e., three queries in total)" (RFC 9520 §3.1). The default, 2,
-  is inside it.
+  is inside it. Fixed on 2026-10-27: a lookup counts the queries to each server, and
+  `attempts_max` stays 5 (§16 decision 58).
 - cocuyo caches no failure that is not a negative answer, and `docs/rfcs/README.md` says RFC
   9520 does not apply. "Resolvers MUST implement a cache for resolution failures" (RFC 9520
   §3.2), and §2's own example of a resolver with several servers to choose from is a stub.

@@ -24,6 +24,8 @@ const Verdict = lookup_module.Verdict;
 const Cause = lookup_module.Cause;
 const policy = @import("lookup_policy.zig");
 const cookies = @import("lookup_cookie.zig");
+const bound = @import("lookup_bound.zig");
+const cookie_response = @import("lookup_response_cookie.zig");
 const casing = @import("lookup_response_case.zig");
 const failure_module = @import("lookup_failure.zig");
 
@@ -124,7 +126,7 @@ pub fn apply(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64
     // the answer it gives.
     if (header.truncated() and !over_stream(self) and !self.config.ignore_truncation) {
         heard(self, accepted.cookie, null, now_ns);
-        self.state = .tcp_needed;
+        bound.to_stream(self, now_ns);
         return .accepted;
     }
     const bits = (@as(u16, accepted.extended_rcode_high) << wire.constants.extended_rcode_low_bits) |
@@ -145,45 +147,20 @@ pub fn apply(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64
             self.next_candidate(now_ns);
         },
         .next_server => self.next_server(now_ns),
-        .retry_without_edns => {
+        .retry_without_edns => if (bound.spent(self, bound.fresh(self))) {
+            // The server has had its queries for the name: no retry (RFC 9520 §3.1).
+            self.next_server(now_ns);
+        } else {
             // The same server, asked again without the OPT record (RFC 6891 §6.2.2).
             self.flags.edns_enabled = false;
             self.restart(now_ns);
         },
-        .retry_with_cookie => on_bad_cookie(self, now_ns),
+        .retry_with_cookie => cookie_response.on_bad_cookie(self, now_ns),
         // The caller asked for the server's answer whatever it is (§19 step 11). YXDOMAIN is the
         // same answer from each server (§16 decision 57).
         .fail, .name_too_long => self.fail(policy.error_of(rcode)),
     }
     return .accepted;
-}
-
-/// BADCOOKIE (RFC 7873 §5.3): once more with the server cookie just learned, on the transport the
-/// lookup is on, which is the server's one retry. Again over UDP, then over TCP; again over a
-/// stream, the server will not answer at all (docs/design.md §5, §19 step 10).
-fn on_bad_cookie(self: *Lookup, now_ns: u64) void {
-    if (bad_cookie_fails(self)) {
-        self.next_server(now_ns);
-    } else if (over_stream(self)) {
-        // "The client SHOULD retry the request using the new Server Cookie from the response"
-        // (RFC 7873 §5.3): a new transaction, on the stream.
-        self.flags.cookie_retried = true;
-        self.restart(now_ns);
-        self.state = .tcp_needed;
-    } else if (self.flags.cookie_retried) {
-        self.state = .tcp_needed;
-    } else {
-        self.flags.cookie_retried = true;
-        self.restart(now_ns);
-    }
-    assert(self.state != .awaiting_udp and self.state != .awaiting_tcp);
-}
-
-/// Whether BADCOOKIE fails the lookup over: over a stream once the server has had its retry, and
-/// over DoH or DoQ, where the query carried no cookie, so there is no fresh one to retry with.
-fn bad_cookie_fails(self: *const Lookup) bool {
-    assert(!self.is_settled());
-    return over_stream(self) and (self.flags.cookie_retried or self.config.sends_requests());
 }
 
 /// What an answer the lookup takes says of the server that sent it (docs/design.md §19 step 12).
@@ -222,12 +199,20 @@ fn cause_of(self: *const Lookup, action: policy.RcodeAction, rcode: wire.Rcode) 
 /// (RFC 7873 §5.3).
 fn fails_server(self: *const Lookup, action: policy.RcodeAction) bool {
     assert(action != .collect);
-    return action == .next_server or (action == .retry_with_cookie and bad_cookie_fails(self));
+    return switch (action) {
+        .next_server => true,
+        .retry_with_cookie => cookie_response.bad_cookie_fails(self),
+        // A FORMERR whose retry the bound forbids is the server failing, as one without EDNS0 is
+        // (RFC 9520 §3.1).
+        .retry_without_edns => bound.spent(self, bound.fresh(self)),
+        // YXDOMAIN is the same answer from each server, so it fails no server (§16 decision 57).
+        .collect, .next_candidate, .fail, .name_too_long => false,
+    };
 }
 
 /// Whether the answer is read as one over a stream: it came over TCP, or over DoH or DoQ, where
 /// there is nowhere else to ask (docs/design.md §22, §23).
-fn over_stream(self: *const Lookup) bool {
+pub fn over_stream(self: *const Lookup) bool {
     return self.state == .awaiting_tcp or self.config.sends_requests();
 }
 
@@ -329,7 +314,9 @@ fn collect(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64) 
             self.flags.aliased = true;
             self.cname_hops = self.answers.hops_used;
             // The server just answered, so it is the healthy one: ask it about where the chain
-            // went, with a new transaction.
+            // went, with a new transaction. The target is another name, so another query, and no
+            // retry of the last (RFC 9520 §3.1).
+            self.sends = .{};
             self.restart(now_ns);
         },
         .no_data => {

@@ -70,6 +70,7 @@ test {
     _ = @import("lookup_response.zig");
     _ = @import("lookup_response_case.zig");
     _ = @import("lookup_response_cut.zig");
+    _ = @import("lookup_response_cookie.zig");
     _ = @import("fixtures.zig");
     _ = @import("lookup_records_test.zig");
     _ = @import("lookup_cookie.zig");
@@ -88,6 +89,8 @@ test {
     _ = @import("lookup_failover_test.zig");
     _ = @import("lookup_latency_test.zig");
     _ = @import("lookup_walk_test.zig");
+    _ = @import("lookup_bound.zig");
+    _ = @import("lookup_bound_test.zig");
     _ = address_lookup;
     _ = @import("address_lookup_walk.zig");
     _ = @import("address_lookup_test.zig");

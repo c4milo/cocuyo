@@ -20,6 +20,7 @@ const Verdict = lookup_module.Verdict;
 const response = @import("lookup_response.zig");
 const casing = @import("lookup_response_case.zig");
 const cookies = @import("lookup_cookie.zig");
+const bound = @import("lookup_bound.zig");
 
 pub fn on_datagram_cut(self: *Lookup, message: []const u8, from: Endpoint, now_ns: u64) Verdict {
     self.see(now_ns);
@@ -28,8 +29,9 @@ pub fn on_datagram_cut(self: *Lookup, message: []const u8, from: Endpoint, now_n
     assert(self.state == .awaiting_udp);
     // The same server, over TCP. RFC 7766 §5 lets a stub ask over TCP "depending on local
     // operational reasons", and a buffer too short for the answer is one. No sample, no success
-    // and no cookie: check 6 did not read a whole message.
-    self.state = .tcp_needed;
+    // and no cookie: check 6 did not read a whole message. A server with no query left on a
+    // stream is passed over (RFC 9520 §3.1).
+    bound.to_stream(self, now_ns);
     return .accepted;
 }
 

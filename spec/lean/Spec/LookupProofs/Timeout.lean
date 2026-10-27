@@ -30,12 +30,13 @@ theorem fresh_ne_failed (c : Config) : fresh c ≠ .failed := by
 
 theorem marked_advanceServer (c : Config) (s : State) (h : s.cause.isSome = true) :
     Marked (advanceServer c s) := by
-  unfold advanceServer
-  split
+  revert h
+  fun_induction advanceServer c s <;> intro h
+  · rename_i ih; exact ih h
   · exact ⟨h, fun hf => absurd hf (fresh_ne_failed c)⟩
-  · split
-    · exact ⟨h, fun hf => absurd hf (fresh_ne_failed c)⟩
-    · simp [Marked, fail, h]
+  · rename_i ih; exact ih h
+  · exact ⟨h, fun hf => absurd hf (fresh_ne_failed c)⟩
+  · simp [Marked, fail, h]
 
 theorem marked_nextCandidate (c : Config) (s : State) (b : Bool) (h : s.cause.isSome = true) :
     Marked (nextCandidate c s b) := by
@@ -57,13 +58,21 @@ theorem marked_onReply (c : Config) (s : State) (stream : Bool) (r : Reply) (m :
   obtain ⟨h, _⟩ := m
   have hadv : ∀ t : State, t.cause.isSome = true → Marked (advanceServer c t) :=
     marked_advanceServer c
+  -- A retry keeps the cause, or moves on with it or with the cause the reply gave.
+  have hretry : ∀ (t : State) (b : Bool) (w : Option What), t.cause = s.cause →
+      t.stage ≠ .failed → Marked (retry c s t b w) := by
+    intro t b w hc hn
+    refine retry_of c s t b w Marked ⟨hc ▸ h, fun hf => absurd hf hn⟩ (fun u hu => hadv u ?_)
+    rcases hu with rfl | ⟨k, rfl⟩
+    · exact h
+    · exact keep_isSome _ _
   cases r with
   | unmatched => exact ⟨h, fun hf => absurd hf hs⟩
   | truncated =>
     simp only [onReply]
     split
     · exact marked_nextCandidate c s true h
-    · exact ⟨h, fun hf => absurd hf (by simp)⟩
+    · exact hretry _ _ _ rfl (by simp)
   | answer => exact ⟨h, fun hf => absurd hf (by simp [onReply])⟩
   | cname =>
     simp only [onReply]
@@ -77,17 +86,17 @@ theorem marked_onReply (c : Config) (s : State) (stream : Bool) (r : Reply) (m :
   | formerr =>
     simp only [onReply]
     split
-    · exact ⟨h, fun hf => absurd hf (fresh_ne_failed c)⟩
+    · exact hretry _ _ _ rfl (fresh_ne_failed c)
     · exact hadv _ (keep_isSome _ _)
   | badcookie =>
     simp only [onReply]
     split
     · split
       · exact hadv _ (keep_isSome _ _)
-      · exact ⟨h, fun hf => absurd hf (by simp)⟩
+      · exact hretry _ _ _ rfl (by simp)
     · split
-      · exact ⟨h, fun hf => absurd hf (by simp)⟩
-      · exact ⟨h, fun hf => absurd hf (fresh_ne_failed c)⟩
+      · exact hretry _ _ _ rfl (by simp)
+      · exact hretry _ _ _ rfl (fresh_ne_failed c)
 
 /-- A marked lookup stays marked, whatever the caller tells it. -/
 theorem marked_step (c : Config) (s : State) (e : Event) (m : Marked s) :

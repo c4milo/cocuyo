@@ -2267,7 +2267,7 @@
         .id = "OA16",
         .what = "a cut datagram is a latency sample of its server",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response_cut.zig", .old = "    self.state = .tcp_needed;\n    return .accepted;", .new = "    self.servers.record_latency(self.server_slot(), now_ns - self.sent_at_ns, now_ns);\n    self.state = .tcp_needed;\n    return .accepted;" },
+            .{ .file = "src/resolver/lookup_response_cut.zig", .old = "    bound.to_stream(self, now_ns);\n    return .accepted;", .new = "    self.servers.record_latency(self.server_slot(), now_ns - self.sent_at_ns, now_ns);\n    bound.to_stream(self, now_ns);\n    return .accepted;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -2276,7 +2276,7 @@
         .id = "OA17",
         .what = "a cut datagram counts as its server's success",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response_cut.zig", .old = "    self.state = .tcp_needed;\n    return .accepted;", .new = "    self.servers.record_success(self.server_slot());\n    self.state = .tcp_needed;\n    return .accepted;" },
+            .{ .file = "src/resolver/lookup_response_cut.zig", .old = "    bound.to_stream(self, now_ns);\n    return .accepted;", .new = "    self.servers.record_success(self.server_slot());\n    bound.to_stream(self, now_ns);\n    return .accepted;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -2285,7 +2285,7 @@
         .id = "OA18",
         .what = "a cut datagram with no cookie starts its server's silence",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response_cut.zig", .old = "    self.state = .tcp_needed;\n    return .accepted;", .new = "    @import(\"lookup_cookie.zig\").silence_if_missing(self, null, now_ns);\n    self.state = .tcp_needed;\n    return .accepted;" },
+            .{ .file = "src/resolver/lookup_response_cut.zig", .old = "    bound.to_stream(self, now_ns);\n    return .accepted;", .new = "    @import(\"lookup_cookie.zig\").silence_if_missing(self, null, now_ns);\n    bound.to_stream(self, now_ns);\n    return .accepted;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -2294,7 +2294,7 @@
         .id = "OA19",
         .what = "a cut datagram moves its lookup to the next server",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response_cut.zig", .old = "    self.state = .tcp_needed;\n    return .accepted;", .new = "    self.next_server(now_ns);\n    return .accepted;" },
+            .{ .file = "src/resolver/lookup_response_cut.zig", .old = "    bound.to_stream(self, now_ns);\n    return .accepted;", .new = "    self.next_server(now_ns);\n    return .accepted;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -2384,7 +2384,7 @@
         .id = "OA29",
         .what = "a cut datagram counts as its server's success, against the walks",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response_cut.zig", .old = "    self.state = .tcp_needed;\n    return .accepted;", .new = "    self.servers.record_success(self.server_slot());\n    self.state = .tcp_needed;\n    return .accepted;" },
+            .{ .file = "src/resolver/lookup_response_cut.zig", .old = "    bound.to_stream(self, now_ns);\n    return .accepted;", .new = "    self.servers.record_success(self.server_slot());\n    bound.to_stream(self, now_ns);\n    return .accepted;" },
         },
         .caught_by = .picked_walks,
     },
@@ -2411,7 +2411,7 @@
         .id = "OA32",
         .what = "a cut datagram moves its lookup to the next server, against the replays",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response_cut.zig", .old = "    self.state = .tcp_needed;\n    return .accepted;", .new = "    self.next_server(now_ns);\n    return .accepted;" },
+            .{ .file = "src/resolver/lookup_response_cut.zig", .old = "    bound.to_stream(self, now_ns);\n    return .accepted;", .new = "    self.next_server(now_ns);\n    return .accepted;" },
         },
         .caught_by = .{ .step = "test-tools" },
     },

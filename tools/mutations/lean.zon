@@ -7,7 +7,7 @@
         .id = "M1",
         .what = "the model keeps EDNS0 off at the next server",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    { s with server := s.server + 1, stage := fresh c, edns := true, cookieRetried := false,\n", .new = "    { s with server := s.server + 1, stage := fresh c, cookieRetried := false,\n" },
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    let t := { s with server := s.server + 1, stage := fresh c, edns := true,\n", .new = "    let t := { s with server := s.server + 1, stage := fresh c,\n" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -16,7 +16,7 @@
         .id = "M2",
         .what = "the model ignores TC=1 over a stream",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    if stream then (nextCandidate c s true, .accepted)\n    else ({ s with stage := .tcpNeeded }, .accepted)", .new = "    if stream then (s, .ignored)\n    else ({ s with stage := .tcpNeeded }, .accepted)" },
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    if stream then (nextCandidate c s true, .accepted)\n    else (retry c s { s with stage := .tcpNeeded } true none, .accepted)", .new = "    if stream then (s, .ignored)\n    else (retry c s { s with stage := .tcpNeeded } true none, .accepted)" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -100,7 +100,7 @@
         .id = "CO24",
         .what = "the model's retry over a stream does not spend the server's retry",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "      else ({ s with cookieRetried := true, stage := .tcpNeeded }, .accepted)", .new = "      else ({ s with stage := .tcpNeeded }, .accepted)" },
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "      else (retry c s { s with cookieRetried := true, stage := .tcpNeeded } true (some .badcookie),", .new = "      else (retry c s { s with stage := .tcpNeeded } true (some .badcookie)," },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -267,6 +267,33 @@
         .what = "the model's deadline in tcpReady leaves the lookup in tcpReady",
         .edits = .{
             .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .expire => if waiting s.stage then poll c (advanceServer c s) else poll c s", .new = "  | .expire => if waiting s.stage ∧ s.stage ≠ .tcpReady then poll c (advanceServer c s) else poll c s" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "Three queries of a name to a server over a transport",
+        .id = "RB12",
+        .what = "the model does not pass over a server with no query left",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    if spent t c.useTcp then advanceServer c t else t\n  else if _h2", .new = "    t\n  else if _h2" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "Three queries of a name to a server over a transport",
+        .id = "RB13",
+        .what = "the model's retry ignores the bound",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  if spent s stream then advanceServer c (match w with | some w => keep s w | none => s) else t", .new = "  t" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "Three queries of a name to a server over a transport",
+        .id = "RB14",
+        .what = "the model does not count a query sent over UDP",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "      ({ s with stage := .awaitingUdp, offered := false, datagrams := bump s.datagrams s.server },", .new = "      ({ s with stage := .awaitingUdp, offered := false }," },
         },
         .caught_by = .{ .step = "spec-lean" },
     },

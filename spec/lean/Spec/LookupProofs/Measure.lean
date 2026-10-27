@@ -70,14 +70,27 @@ theorem lexLe_of_phase (c : Config) (s t : State) (h1 : t.candidate = s.candidat
   simp only [measure, LexLe]
   omega
 
+theorem lexLt_trans (a b d : Nat × Nat × Nat × Nat × Nat) (h1 : LexLt a b) (h2 : LexLt b d) :
+    LexLt a d := by
+  obtain ⟨a1, a2, a3, a4, a5⟩ := a
+  obtain ⟨b1, b2, b3, b4, b5⟩ := b
+  obtain ⟨d1, d2, d3, d4, d5⟩ := d
+  simp only [LexLt] at h1 h2 ⊢
+  omega
+
+/-- The next server lowers the measure, and so does each server it passes over (RFC 9520 §3.1). -/
 theorem advanceServer_lt (c : Config) (s : State) (h : s.round < c.attempts) :
     LexLt (measure c (advanceServer c s)) (measure c s) := by
-  unfold advanceServer
-  split
-  · simp [measure, LexLt]; omega
-  · split
-    · simp [measure, LexLt]; omega
-    · simp [measure, LexLt, fail]; omega
+  revert h
+  fun_induction advanceServer c s <;> intro h
+  · rename_i ih
+    exact lexLt_trans _ _ _ (ih h) (by simp +zetaDelta [measure, LexLt]; omega)
+  · simp +zetaDelta [measure, LexLt]; omega
+  · rename_i ih
+    exact lexLt_trans _ _ _ (ih (by simp +zetaDelta; omega))
+      (by simp +zetaDelta [measure, LexLt]; omega)
+  · simp +zetaDelta [measure, LexLt]; omega
+  · simp [measure, LexLt, fail]; omega
 
 theorem nextCandidate_le (c : Config) (s : State) (b : Bool) :
     LexLe (measure c (nextCandidate c s b)) (measure c s) := by
@@ -108,12 +121,21 @@ theorem poll_le (c : Config) (s : State) : LexLe (measure c (poll c s).1) (measu
 theorem onReply_le (c : Config) (s : State) (stream : Bool) (r : Reply) (g : s.round < c.attempts)
     (_hh : s.hops ≤ c.hopsMax) (hst : stream = false → s.stage = .awaitingUdp) :
     LexLe (measure c (onReply c s stream r).1) (measure c s) := by
+  -- A retry that the bound forbids moves on as the next server does (RFC 9520 §3.1).
+  have hretry : ∀ (t : State) (b : Bool) (w : Option What),
+      LexLe (measure c t) (measure c s) → LexLe (measure c (retry c s t b w)) (measure c s) := by
+    intro t b w ht
+    refine retry_of c s t b w (fun x => LexLe (measure c x) (measure c s)) ht (fun u hu => ?_)
+    rcases hu with rfl | ⟨k, rfl⟩
+    · exact lexLt_le _ _ (advanceServer_lt c _ g)
+    · exact lexLt_le _ _ (advanceServer_lt c _ g)
   cases r with
   | unmatched => exact lexLe_refl _
   | truncated =>
     cases stream
     · have hs := hst rfl
-      simp [onReply, measure, LexLe, phase, stagePhase, hs]
+      simp only [onReply]
+      exact hretry _ _ _ (by simp [measure, LexLe, phase, stagePhase, hs])
     · exact nextCandidate_le c s true
   | answer => exact lexLe_of_phase c s _ rfl rfl rfl rfl (phase_done_le s)
   | cname =>
@@ -129,6 +151,7 @@ theorem onReply_le (c : Config) (s : State) (stream : Bool) (r : Reply) (g : s.r
     simp only [onReply]
     split
     · rename_i he
+      refine hretry _ _ _ ?_
       simp only [measure, LexLe, phase, he, fresh]
       cases s.cookieRetried <;> cases c.useTcp <;> cases s.stage <;> simp [stagePhase]
     · exact lexLt_le _ _ (advanceServer_lt c _ g)
@@ -141,14 +164,16 @@ theorem onReply_le (c : Config) (s : State) (stream : Bool) (r : Reply) (g : s.r
         rename_i hr
         have hk : s.cookieRetried = false := by
           cases hc : s.cookieRetried <;> simp_all
+        refine hretry _ _ _ ?_
         simp only [measure, LexLe, phase, hk]
         cases s.edns <;> cases s.stage <;> simp [stagePhase]
     · rename_i hstream
       have hs := hst (by simpa using hstream)
       split
       · rename_i hr
-        simp [measure, LexLe, phase, stagePhase, hs, hr]
+        exact hretry _ _ _ (by simp [measure, LexLe, phase, stagePhase, hs, hr])
       · rename_i hr
+        refine hretry _ _ _ ?_
         simp only [measure, LexLe, phase, hs, hr, fresh]
         cases s.edns <;> cases c.useTcp <;> simp [stagePhase]
 
@@ -222,13 +247,14 @@ theorem lexLt_wf : WellFounded LexLt := by
 
 theorem advanceServer_good (c : Config) (s : State) (hc : Sane c) (hr : s.round < c.attempts)
     (hh : s.hops ≤ c.hopsMax) (hk : s.candidate < c.candidates) : Good c (advanceServer c s) := by
-  obtain ⟨hs1, ha1, _⟩ := hc
-  unfold advanceServer Good
-  split
-  · right; simp; omega
-  · split
-    · right; simp; omega
-    · left; simp [fail, ended]
+  obtain ⟨hs1, _, _⟩ := hc
+  unfold Good
+  cases hn : ended (advanceServer c s).stage
+  · have h1 := advanceServer_inside c s hs1 hn
+    have h2 := advanceServer_round c s hr hn
+    obtain ⟨h3, h4, _, _⟩ := advanceServer_counts c s
+    right; exact ⟨h1, h2, h3 ▸ hk, h4 ▸ hh⟩
+  · left; rfl
 
 theorem nextCandidate_good (c : Config) (s : State) (b : Bool) (hc : Sane c) :
     Good c (nextCandidate c s b) := by
@@ -248,11 +274,21 @@ theorem onReply_good (c : Config) (s : State) (stream : Bool) (r : Reply) (hc : 
     (h1 : s.server < c.servers) (h2 : s.round < c.attempts) (h3 : s.candidate < c.candidates)
     (h4 : s.hops ≤ c.hopsMax) : Good c (onReply c s stream r).1 := by
   have gs : Good c s := Or.inr ⟨h1, h2, h3, h4⟩
+  -- A retry keeps every counter, or moves on as the next server does (RFC 9520 §3.1).
+  have hretry : ∀ (t : State) (b : Bool) (w : Option What), t.server = s.server →
+      t.round = s.round → t.candidate = s.candidate → t.hops = s.hops →
+      Good c (retry c s t b w) := by
+    intro t b w e1 e2 e3 e4
+    refine retry_of c s t b w (Good c) (Or.inr ⟨e1 ▸ h1, e2 ▸ h2, e3 ▸ h3, e4 ▸ h4⟩)
+      (fun u hu => ?_)
+    rcases hu with rfl | ⟨k, rfl⟩
+    · exact advanceServer_good c _ hc h2 h4 h3
+    · exact advanceServer_good c _ hc h2 h4 h3
   cases r with
   | unmatched => exact gs
   | truncated =>
     cases stream
-    · exact Or.inr ⟨h1, h2, h3, h4⟩
+    · exact hretry _ _ _ rfl rfl rfl rfl
     · exact nextCandidate_good c s true hc
   | answer => left; simp [onReply, ended]
   | cname =>
@@ -268,17 +304,17 @@ theorem onReply_good (c : Config) (s : State) (stream : Bool) (r : Reply) (hc : 
   | formerr =>
     simp only [onReply]
     split
-    · exact Or.inr ⟨h1, h2, h3, h4⟩
+    · exact hretry _ _ _ rfl rfl rfl rfl
     · exact advanceServer_good c _ hc h2 h4 h3
   | badcookie =>
     simp only [onReply]
     split
     · split
       · exact advanceServer_good c _ hc h2 h4 h3
-      · exact Or.inr ⟨h1, h2, h3, h4⟩
+      · exact hretry _ _ _ rfl rfl rfl rfl
     · split
-      · exact Or.inr ⟨h1, h2, h3, h4⟩
-      · exact Or.inr ⟨h1, h2, h3, h4⟩
+      · exact hretry _ _ _ rfl rfl rfl rfl
+      · exact hretry _ _ _ rfl rfl rfl rfl
 
 theorem init_good (c : Config) (hc : Sane c) : Good c (init c) := by
   obtain ⟨hs1, ha1, hc1⟩ := hc

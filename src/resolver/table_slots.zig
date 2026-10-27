@@ -169,7 +169,7 @@ test "a handle names the slot it was taken from" {
 test "the size of a slot is pinned" {
     // docs/design.md §9: a caller sizing a table needs this number, and it is a lookup plus the
     // few octets the table keeps beside it.
-    try testing.expectEqual(@as(usize, 3088), @sizeOf(Slot));
+    try testing.expectEqual(@as(usize, 3096), @sizeOf(Slot));
     try testing.expectEqual(@as(usize, 4), @sizeOf(Handle));
 }
 

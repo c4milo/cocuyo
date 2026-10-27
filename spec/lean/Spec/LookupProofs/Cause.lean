@@ -17,13 +17,13 @@ def CauseFits (s : State) : Prop :=
     (s.err = .allServersFailed → s.cause.isSome = true) ∧ (s.err = .timeout → s.cause = none)
 
 theorem advanceServer_fits (c : Config) (s : State) : CauseFits (advanceServer c s) := by
-  unfold advanceServer CauseFits
-  split
+  fun_induction advanceServer c s
+  · rename_i ih; exact ih
   · intro hf; exact absurd hf (fresh_ne_failed c)
-  · split
-    · intro hf; exact absurd hf (fresh_ne_failed c)
-    · intro _
-      cases s.cause <;> simp [fail]
+  · rename_i ih; exact ih
+  · intro hf; exact absurd hf (fresh_ne_failed c)
+  · simp only [CauseFits, fail]
+    split <;> simp_all
 
 theorem nextCandidate_fits (c : Config) (s : State) (b : Bool) :
     CauseFits (nextCandidate c s b) := by
@@ -46,13 +46,16 @@ theorem poll_fits (c : Config) (s : State) (h : CauseFits s) : CauseFits (poll c
 theorem onReply_fits (c : Config) (s : State) (stream : Bool) (r : Reply) (h : CauseFits s) :
     CauseFits (onReply c s stream r).1 := by
   have running : ∀ t : State, t.stage ≠ .failed → CauseFits t := fun t ht hf => absurd hf ht
+  have hretry : ∀ (t : State) (b : Bool) (w : Option What), t.stage ≠ .failed →
+      CauseFits (retry c s t b w) :=
+    fun t b w hn => retry_of c s t b w CauseFits (running t hn) (fun u _ => advanceServer_fits c u)
   cases r with
   | unmatched => exact h
   | truncated =>
     simp only [onReply]
     split
     · exact nextCandidate_fits c s true
-    · exact running _ (by simp)
+    · exact hretry _ _ _ (by simp)
   | answer => exact running _ (by simp [onReply])
   | cname =>
     simp only [onReply]
@@ -66,17 +69,17 @@ theorem onReply_fits (c : Config) (s : State) (stream : Bool) (r : Reply) (h : C
   | formerr =>
     simp only [onReply]
     split
-    · exact running _ (fresh_ne_failed c)
+    · exact hretry _ _ _ (fresh_ne_failed c)
     · exact advanceServer_fits c _
   | badcookie =>
     simp only [onReply]
     split
     · split
       · exact advanceServer_fits c _
-      · exact running _ (by simp)
+      · exact hretry _ _ _ (by simp)
     · split
-      · exact running _ (by simp)
-      · exact running _ (fresh_ne_failed c)
+      · exact hretry _ _ _ (by simp)
+      · exact hretry _ _ _ (fresh_ne_failed c)
 
 /-- No event breaks what a failure says of its cause. -/
 theorem step_fits (c : Config) (s : State) (e : Event) (h : CauseFits s) :
@@ -142,13 +145,9 @@ theorem keep_server (c : Config) (s : State) (w : What) (h : ServerFits c s)
 
 theorem advanceServer_server (c : Config) (s : State) (h : ServerFits c s)
     (hs : s.server < c.servers) : ServerFits c (advanceServer c s) := by
-  obtain ⟨_, hk⟩ := h
-  unfold advanceServer
-  split
-  · exact ⟨fun _ => by assumption, hk⟩
-  · split
-    · exact ⟨fun _ => by simp; omega, hk⟩
-    · exact ⟨fun hf => by simp [fail, ended] at hf, hk⟩
+  refine ⟨advanceServer_inside c s (by omega), fun k hk => h.2 k ?_⟩
+  rw [← advanceServer_cause c s]
+  exact hk
 
 theorem nextCandidate_server (c : Config) (s : State) (b : Bool) (h : ServerFits c s)
     (hs : s.server < c.servers) : ServerFits c (nextCandidate c s b) := by
@@ -174,13 +173,21 @@ theorem onReply_server (c : Config) (s : State) (stream : Bool) (r : Reply) (h :
     fun e => ⟨fun hf => by simp [fail, ended] at hf, h.2⟩
   have hadv : ∀ w : What, ServerFits c (advanceServer c (keep s w)) :=
     fun w => advanceServer_server c _ (keep_server c s w h hs) hs
+  -- A retry asks the same server again, or moves on as the next server does.
+  have hretry : ∀ (t : State) (b : Bool) (w : Option What), t.server = s.server →
+      t.cause = s.cause → ServerFits c (retry c s t b w) := by
+    intro t b w h1 h2
+    refine retry_of c s t b w (ServerFits c) (same t h1 h2) (fun u hu => ?_)
+    rcases hu with rfl | ⟨k, rfl⟩
+    · exact advanceServer_server c _ h hs
+    · exact hadv k
   cases r with
   | unmatched => exact h
   | truncated =>
     simp only [onReply]
     split
     · exact nextCandidate_server c s true h hs
-    · exact same _ rfl rfl
+    · exact hretry _ _ _ rfl rfl
   | answer => exact same _ rfl rfl
   | cname =>
     simp only [onReply]
@@ -194,17 +201,17 @@ theorem onReply_server (c : Config) (s : State) (stream : Bool) (r : Reply) (h :
   | formerr =>
     simp only [onReply]
     split
-    · exact same _ rfl rfl
+    · exact hretry _ _ _ rfl rfl
     · exact hadv _
   | badcookie =>
     simp only [onReply]
     split
     · split
       · exact hadv _
-      · exact same _ rfl rfl
+      · exact hretry _ _ _ rfl rfl
     · split
-      · exact same _ rfl rfl
-      · exact same _ rfl rfl
+      · exact hretry _ _ _ rfl rfl
+      · exact hretry _ _ _ rfl rfl
 
 /-- No event moves a cause, or the lookup's position, outside the configuration. -/
 theorem step_server (c : Config) (s : State) (e : Event) (h : ServerFits c s) :

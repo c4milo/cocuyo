@@ -10144,3 +10144,109 @@ The disk had 51 GB free before the mutation run. `zig build mutations -- lookup 
 its end, and it is `CAUGHT` by `zig build test-resolver`. Then it ran again by hand, and the text in
 its row comes from there. The Lean model and the TLA+ model did not change, so `zig build spec` and
 `zig build tla` did not run. No counted path changed, so `bench/instructions.zon` did not change.
+
+## Three queries of a name to a server over a transport
+
+2026-10-27, c4milo/cocuyo#50. "A resolver MUST NOT retry a given query to a server address over a
+given DNS transport more than twice (i.e., three queries in total)" (RFC 9520 §3.1).
+`Config.attempts` counts passes, and FORMERR and BADCOOKIE each add a retry inside a pass. So
+`attempts:5` sent one server five queries of one name over one transport, and the default 2 could
+send it four. The owner ruled to keep `attempts_max` at 5 and to bound the queries (design §16
+decision 58).
+
+### What changed
+
+- Design §5 first. The lookup counts the queries it sent for the current name, for each position
+  in its order and each transport, the datagram and the stream. A query counts at `on_sent`. To
+  advance the server passes over a server with no query left over the transport the lookup starts
+  on. A retry that the bound forbids moves the lookup on: FORMERR and BADCOOKIE keep their rcode
+  as the cause, and TC=1 keeps none. A new name, a search candidate or a CNAME's target, starts
+  the counts at zero.
+- Then the Lean model. `State` holds the counts, `advanceServer` passes over a spent server, and
+  `retry` holds each retry. The new proof `sends_bounded` (`LookupProofs/Bound.lean`) shows that
+  no count passes three. The proofs about `advanceServer` now go by its induction, and seven axiom
+  pins gained `Quot.sound`, which its well-founded recursion uses.
+- Then the code. The limit `queries_per_transport_max`, 3, is in `src/resolver/limits.zig`.
+  `src/resolver/lookup_bound.zig` holds the counts, four octets, and the walk over the servers.
+  The BADCOOKIE path moved to `lookup_response_cookie.zig` by the file-length rule. Each check
+  cites RFC 9520 §3.1, and `Sends.add` asserts that no count passes the bound. The lookup grew
+  from 3,072 octets to 3,080, and a slot from 3,088 to 3,096 (design §9, §17 question 83).
+- The full walk dropped 25 of its 109 configurations, whose counts grew them 25 to 45 times
+  (spec/README.md). It holds 38,759,600 transitions, and the slice 32,386. The TLA+ engine model
+  did not change: its lookups make one pass, with no FORMERR and no BADCOOKIE, so the bound never
+  binds there.
+- The test of the most servers, passes and candidates sends 24 tries a candidate, not 40.
+- 28 rows of `lookup.zon`, `lean.zon` and `engine.zon` named code that moved, and got new edits
+  with the same intent: 19 of the lookup set, 3 of the Lean set and 6 of the engine set.
+
+### The tests
+
+In `src/resolver/lookup_bound_test.zig`:
+
+- One server under five passes gets three queries, then `Timeout`. So does one under `use_tcp`.
+- Under the default two passes, BADCOOKIE and FORMERR in the first pass spend the server, and the
+  second pass passes over it.
+- Two servers over three passes: the first, spent in the first pass, is passed over in each pass
+  after it.
+- FORMERR, BADCOOKIE over UDP and BADCOOKIE on a stream at the bound each end `AllServersFailed`
+  with their rcode as the cause.
+- TC=1 and a cut datagram when the stream is spent end `Timeout`, with no cause.
+- The next search candidate and a CNAME's target each get three queries of their own.
+- A send that failed is no query.
+
+### What ran
+
+- The disk had 50 GB free before the first run, and at least 22 before each later run.
+- `zig build spec` passed: the proofs, 37,076,013 events over 84 configurations and 4,470,688 cut
+  datagrams, the engine's 5,226,000 events over 26,000 walks, and the walks' 66,565 events. It
+  took 21 minutes on this Mac.
+- `zig build mutations -- lookup RB1` to `RB11`, then the rewritten rows of the lookup set:
+  S4, S5, S6, S9, S12 and S15, G1, FR1, FR5, FR6, FR7, FR12, CO16 to CO21 and
+  CO30. Each is `CAUGHT`. RB11 did not compile at its first edit, and got `_ = self;`.
+- `zig build mutations -- engine OA16 OA17 OA18 OA19 OA29 OA32`: each is `CAUGHT`. OA29 is caught by the full run at walk 24001 and by the picked walks at walk 22, and OA32 by `zig build test-tools` at walk 123.
+- `zig build mutations -- lean RB12 RB13 RB14 M1 M2 CO24`: each is `CAUGHT` by `zig build spec-lean`.
+- `zig build test` passed after the mutations.
+
+### The instruction counts
+
+`round-trip` of `bench/count.zig` runs `on_sent`, which now counts the query, and `init_in_place`,
+which zeroes the counts. So its count can move by a few instructions a round.
+`zig build instructions` needs valgrind, which this Mac does not have, so CI's Linux job reads it.
+`bench/instructions.zon` did not change.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| RB1 | a query sent is not counted | the count at `on_sent` | five queries to one server under five passes, `test-resolver` | CAUGHT |
+| RB2 | a server with no query left is not passed over, and the assertions under the check are gone | the walk over the servers passes over a spent server | the tests of the bound, with no assertion to stop them, `test-resolver` | CAUGHT |
+| RB3 | the bound lets a fourth query go | `spent` compares the count with `queries_per_transport_max` | the assertion of `Sends.add`, and the tests of the bound, `test-resolver` | CAUGHT |
+| RB4 | the retry without EDNS0 ignores the bound | FORMERR at the bound advances the server | the FORMERR test, `test-resolver` | CAUGHT |
+| RB5 | a FORMERR whose retry the bound forbids keeps no cause | that FORMERR is the server failing | the FORMERR test: `Timeout` in place of `AllServersFailed`, `test-resolver` | CAUGHT |
+| RB6 | the retry after BADCOOKIE ignores the bound | BADCOOKIE at the bound advances the server | the BADCOOKIE tests over UDP and on a stream, `test-resolver` | CAUGHT |
+| RB7 | TC=1 and a cut datagram ignore the bound on a stream | `to_stream` | the TC=1 and cut datagram tests, `test-resolver` | CAUGHT |
+| RB8 | the next search candidate keeps the counts of the last | a new name starts at zero | the candidate test, `test-resolver` | CAUGHT |
+| RB9 | a CNAME's target keeps the counts of the name | a new name starts at zero | the CNAME test, `test-resolver` | CAUGHT |
+| RB10 | a send that failed is counted | only a query sent counts | the failed send test, `test-resolver` | CAUGHT |
+| RB11 | the next server reads the datagram count under `use_tcp` | `fresh` names the stream when every query goes on one | the `use_tcp` test, `test-resolver` | CAUGHT |
+| RB12 | the model does not pass over a server with no query left | `advanceServer` | `zig build spec-lean`: the proofs and the replay | CAUGHT |
+| RB13 | the model's retry ignores the bound | `retry` | `zig build spec-lean`: the proofs and the replay | CAUGHT |
+| RB14 | the model does not count a query sent over UDP | `sent` | `zig build spec-lean`: the proofs and the replay | CAUGHT |
+
+Fourteen mutations, fourteen `CAUGHT`. The 28 rewritten rows are `CAUGHT` too.
+
+### After the merge with YXDOMAIN
+
+This change landed after the YXDOMAIN change above, so the two models and the two codes came
+together:
+
+- `Bound.lean` has the case `yxdomain`, which ends the lookup, as the case `cname` that fails it.
+- `fails_server` reads `name_too_long` as no failure of the server. YX5 now mutates that arm.
+- The full walk holds 38,759,600 transitions, 186 deep, and the slice 32,386.
+- The transcript is 2,198,581,460 octets. The build's capture of a stdout writes it with one
+  call, which macOS refuses past 2^31 - 1 octets. So `cocuyo-spec all 8` now writes the file
+  that the build names.
+
+The mutations ran again on the merged tree: YX1 to YX7 and YX10, RB1 to RB11 by `zig build
+mutations -- lookup`, and YX8, YX9 and RB12 to RB14 by `zig build mutations -- lean`. All 24 are
+`CAUGHT`.

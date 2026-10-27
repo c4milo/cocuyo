@@ -92,10 +92,12 @@ pub fn add(
     check.step.dependOn(&proofs.step);
     check.addFileArg(b.path(gate_transcript));
     check.addFileArg(b.path(walk_gate_transcript));
+    // The model writes the file itself: the build's capture of a stdout writes it with one call,
+    // which macOS refuses past 2^31 - 1 octets, and the full transcript is larger.
     const transcript = lake(b, &.{ "exe", "cocuyo-spec", "all", cname_hops_max });
     transcript.step.dependOn(&check.step);
     const replay = b.addRunArtifact(exe);
-    replay.addFileArg(transcript.captureStdOut(.{}));
+    replay.addFileArg(transcript.addOutputFileArg("lookup_transcript.txt"));
     const walk_transcript = lake(b, &.{ "exe", "cocuyo-spec", "walks" });
     walk_transcript.step.dependOn(&transcript.step);
     const walk_replay = b.addRunArtifact(walk_exe);

@@ -48,10 +48,44 @@ theorem init_noUdp (c : Config) (h : c.useTcp = true) : NoUdp (init c) := by
 /-- After either advance a lookup stands where it stands before any query, or has failed. -/
 theorem advanceServer_stage (c : Config) (s : State) :
     (advanceServer c s).stage = fresh c ∨ (advanceServer c s).stage = .failed := by
-  unfold advanceServer fail
+  fun_induction advanceServer c s <;> simp_all +zetaDelta [fail]
+
+/-- The next server keeps the cause, the name, the hops and the queries each server got. -/
+theorem advanceServer_cause (c : Config) (s : State) : (advanceServer c s).cause = s.cause := by
+  fun_induction advanceServer c s <;> simp_all +zetaDelta [fail]
+
+theorem advanceServer_counts (c : Config) (s : State) :
+    (advanceServer c s).candidate = s.candidate ∧ (advanceServer c s).hops = s.hops ∧
+      (advanceServer c s).datagrams = s.datagrams ∧ (advanceServer c s).streams = s.streams := by
+  fun_induction advanceServer c s <;> simp_all +zetaDelta [fail]
+
+/-- A lookup that the next server leaves running is on a server of the configuration. -/
+theorem advanceServer_inside (c : Config) (s : State) (hs : 0 < c.servers) :
+    ended (advanceServer c s).stage = false → (advanceServer c s).server < c.servers := by
+  fun_induction advanceServer c s <;> simp_all +zetaDelta [fail, ended]
+
+/-- A lookup that the next server leaves running is on a pass of the configuration. -/
+theorem advanceServer_round (c : Config) (s : State) (hr : s.round < c.attempts) :
+    ended (advanceServer c s).stage = false → (advanceServer c s).round < c.attempts := by
+  revert hr
+  fun_induction advanceServer c s <;> intro hr
+  · rename_i ih; exact ih hr
+  · intro _; simpa using hr
+  · rename_i ih; exact ih (by simp +zetaDelta; omega)
+  · intro _; simp +zetaDelta; omega
+  · simp [fail, ended]
+
+/-- A retry is the state it names, or the next server after the current one, with the cause the
+reply gave when it gave one (RFC 9520 §3.1). So a property of both holds of the retry. -/
+theorem retry_of (c : Config) (s t : State) (b : Bool) (w : Option What) (P : State → Prop)
+    (ht : P t) (ha : ∀ u : State, (u = s ∨ ∃ k, u = keep s k) → P (advanceServer c u)) :
+    P (retry c s t b w) := by
+  unfold retry
   split
-  · simp
-  · split <;> simp
+  · cases w with
+    | none => exact ha s (Or.inl rfl)
+    | some k => exact ha _ (Or.inr ⟨k, rfl⟩)
+  · exact ht
 
 theorem nextCandidate_stage (c : Config) (s : State) (b : Bool) :
     (nextCandidate c s b).stage = fresh c ∨ (nextCandidate c s b).stage = .failed := by
@@ -78,7 +112,7 @@ theorem onReply_noUdp (c : Config) (s : State) (stream : Bool) (r : Reply) (h : 
   | unmatched => exact ⟨inv, by simp [onReply]⟩
   | truncated =>
     cases stream
-    · exact ⟨by simp [onReply, NoUdp], by simp [onReply]⟩
+    · exact ⟨retry_of c s _ _ _ NoUdp (by simp [NoUdp]) (fun u _ => hadv u), by simp [onReply]⟩
     · exact ⟨hnxt s true, by simp [onReply]⟩
   | answer => exact ⟨by simp [onReply, NoUdp], by simp [onReply]⟩
   | cname =>
@@ -93,17 +127,17 @@ theorem onReply_noUdp (c : Config) (s : State) (stream : Bool) (r : Reply) (h : 
   | formerr =>
     simp only [onReply]
     split
-    · exact ⟨by simp [NoUdp, fresh, h], by simp⟩
+    · exact ⟨retry_of c s _ _ _ NoUdp (by simp [NoUdp, fresh, h]) (fun u _ => hadv u), by simp⟩
     · exact ⟨hadv _, by simp⟩
   | badcookie =>
     simp only [onReply]
     split
     · split
       · exact ⟨hadv _, by simp⟩
-      · exact ⟨by simp [NoUdp], by simp⟩
+      · exact ⟨retry_of c s _ _ _ NoUdp (by simp [NoUdp]) (fun u _ => hadv u), by simp⟩
     · split
-      · exact ⟨by simp [NoUdp], by simp⟩
-      · exact ⟨by simp [NoUdp, fresh, h], by simp⟩
+      · exact ⟨retry_of c s _ _ _ NoUdp (by simp [NoUdp]) (fun u _ => hadv u), by simp⟩
+      · exact ⟨retry_of c s _ _ _ NoUdp (by simp [NoUdp, fresh, h]) (fun u _ => hadv u), by simp⟩
 
 /-- Under `use_tcp` (§19 step 11), a lookup never asks for a datagram to be sent, whatever the
 caller tells it: every state it reaches is one of the stream states or an end. -/
@@ -191,7 +225,8 @@ theorem onReply_noStream (c : Config) (s : State) (r : Reply) (hh : c.request = 
   | formerr =>
     simp only [onReply]
     split
-    · exact ⟨by simp [NoStream, fresh, h], by simp [NotPlain]⟩
+    · exact ⟨retry_of c s _ _ _ NoStream (by simp [NoStream, fresh, h]) (fun u _ => hadv u),
+        by simp [NotPlain]⟩
     · exact ⟨hadv _, by simp [NotPlain]⟩
   -- No cookie went out, so there is none to retry with: the server has failed.
   | badcookie =>

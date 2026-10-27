@@ -35,6 +35,7 @@ const response_module = @import("lookup_response.zig");
 const cut_module = @import("lookup_response_cut.zig");
 const request_module = @import("lookup_request.zig");
 const failure_module = @import("lookup_failure.zig");
+const bound = @import("lookup_bound.zig");
 
 pub const State = enum {
     /// A query is ready to be sent to the current server over UDP, or over DoH or DoQ as one
@@ -162,6 +163,9 @@ pub const Lookup = struct {
     /// The configured servers in the order this lookup asks them: sorted by their failures,
     /// rotated among the equals, a retry promoted to the front (§19 step 12, `lookup_order.zig`).
     order: [core.limits.servers_max]u8,
+    /// The queries sent for the current name to each position in `order`, over each transport,
+    /// which RFC 9520 §3.1 bounds (docs/design.md §5; §16 decision 58).
+    sends: bound.Sends,
     transaction: entropy_module.Transaction,
     deadline_ns: u64,
     /// When the current transaction's query went out: what a response accepted for it measures
@@ -241,6 +245,7 @@ pub const Lookup = struct {
     pub fn on_sent(self: *Lookup, now_ns: u64) void {
         self.see(now_ns);
         assert(self.state == .query_ready or self.state == .tcp_ready);
+        bound.count_sent(self);
         self.state = switch (self.state) {
             .query_ready => .awaiting_udp,
             .tcp_ready => .awaiting_tcp,
@@ -385,26 +390,10 @@ pub const Lookup = struct {
         self.now_ns_seen = now_ns;
     }
 
-    /// Moves to the next server, then to the next pass, then gives up.
+    /// Moves to the next server with a query left, then to the next pass, then gives up
+    /// (`lookup_bound.zig`).
     pub fn next_server(self: *Lookup, now_ns: u64) void {
-        assert(!self.is_settled());
-        self.flags.cookie_retried = false;
-        self.flags.edns_enabled = true;
-        self.server_index += 1;
-        if (self.server_index == self.config.server_count()) {
-            self.server_index = 0;
-            self.round += 1;
-        }
-        if (self.round == self.config.attempts) {
-            // A server that failed the lookup left a cause; silence leaves none (§16 decision 25).
-            self.fail(if (self.cause.what != .none)
-                core.Error.AllServersFailed
-            else
-                core.Error.Timeout);
-            return;
-        }
-        assert(self.round < self.config.attempts);
-        self.restart(now_ns);
+        bound.next_server(self, now_ns);
     }
 
     /// Moves to the next candidate of the search walk, then gives up.
@@ -414,6 +403,8 @@ pub const Lookup = struct {
         self.flags.edns_enabled = true;
         self.server_index = 0;
         self.round = 0;
+        // Another name, so another query, and no retry of the last (RFC 9520 §3.1).
+        self.sends = .{};
         self.cname_hops = 0;
         self.flags.aliased = false;
         self.take_candidate(self.candidate_index + 1);

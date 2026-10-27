@@ -149,6 +149,12 @@ structure State where
   /-- A send was handed out by a poll and the caller has not yet said how it went. -/
   offered : Bool
   err : Err
+  /-- The queries sent for the current name to the server at each position in the order: over
+  UDP or as a DoH or DoQ request, and over a stream. A send counts at `sent`. A new name, the next
+  candidate or a CNAME's target, starts each count again at zero (docs/design.md §5, retry
+  policy; §16 decision 58). -/
+  datagrams : List Nat
+  streams : List Nat
   deriving DecidableEq, Repr, Hashable
 
 /-- Where a lookup stands before each query: every query over TCP when the configuration says so
@@ -157,10 +163,30 @@ def fresh (c : Config) : Stage := if c.useTcp then .tcpNeeded else .queryReady
 
 def fail (s : State) (e : Err) : State := { s with stage := .failed, err := e, offered := false }
 
+/-- The most queries a lookup sends one server over one transport for one name: a query and two
+retries. "A resolver MUST NOT retry a given query to a server address over a given DNS transport
+more than twice" (RFC 9520 §3.1; docs/design.md §16 decision 58). -/
+def queriesMax : Nat := 3
+
+/-- No query sent yet to any server, for a new name. -/
+def unsent (c : Config) : List Nat := List.replicate c.servers 0
+
+/-- The queries sent for the current name to the server at position `p`, over a stream or not. -/
+def sentTo (s : State) (stream : Bool) (p : Nat) : Nat :=
+  (if stream then s.streams else s.datagrams).getD p 0
+
+/-- Whether the current server has had its queries for the current name over a stream or not, so
+that the lookup may not ask it again over that transport (RFC 9520 §3.1). -/
+def spent (s : State) (stream : Bool) : Bool := decide (queriesMax ≤ sentTo s stream s.server)
+
+/-- One more query sent to the server at position `p`. -/
+def bump (l : List Nat) (p : Nat) : List Nat := l.set p (l.getD p 0 + 1)
+
 def init (c : Config) : State :=
   let s : State := { stage := fresh c, server := 0, round := 0, candidate := 0, hops := 0,
                      edns := true, hadNoData := false, cause := none,
-                     cookieRetried := false, offered := false, err := .timeout }
+                     cookieRetried := false, offered := false, err := .timeout,
+                     datagrams := unsent c, streams := unsent c }
   if c.servers = 0 then fail s .noServers else s
 
 /-- The current server failed the lookup with `w`: the cause, `w` and that server, replaces the one
@@ -168,16 +194,31 @@ the lookup held, and nothing else changes (§5, The cause of a failure). -/
 def keep (s : State) (w : What) : State := { s with cause := some { server := s.server, what := w } }
 
 /-- The next server, then the next pass, then failure (§5, retry policy). EDNS0 is back on: that a
-server does not speak it is a fact about that server (RFC 6891 §6.2.2). -/
+server does not speak it is a fact about that server (RFC 6891 §6.2.2). A server that has had its
+queries for the name over the transport the lookup starts on is passed over, and the walk goes on
+to the next (RFC 9520 §3.1; §16 decision 58). -/
 def advanceServer (c : Config) (s : State) : State :=
-  if s.server + 1 < c.servers then
-    { s with server := s.server + 1, stage := fresh c, edns := true, cookieRetried := false,
-             offered := false }
-  else if s.round + 1 < c.attempts then
-    { s with server := 0, round := s.round + 1, stage := fresh c, edns := true,
-             cookieRetried := false, offered := false }
+  if _h : s.server + 1 < c.servers then
+    let t := { s with server := s.server + 1, stage := fresh c, edns := true,
+                      cookieRetried := false, offered := false }
+    if spent t c.useTcp then advanceServer c t else t
+  else if _h2 : s.round + 1 < c.attempts then
+    let t := { s with server := 0, round := s.round + 1, stage := fresh c, edns := true,
+                      cookieRetried := false, offered := false }
+    if spent t c.useTcp then advanceServer c t else t
   else
     fail { s with round := s.round + 1 } (if s.cause.isSome then .allServersFailed else .timeout)
+termination_by (c.attempts - s.round, c.servers - s.server)
+decreasing_by
+  · exact Prod.Lex.right _ (by omega)
+  · exact Prod.Lex.left _ _ (by omega)
+
+/-- The same server asked again, `t`, over a stream or not: a retry of the query (§5's table).
+When that server has had its queries for the name over that transport, the lookup does not ask it
+again. It keeps `w`, the reply that asked for the retry, as the cause when that reply has one, and
+moves to the next server (RFC 9520 §3.1; §16 decision 58). -/
+def retry (c : Config) (s t : State) (stream : Bool) (w : Option What) : State :=
+  if spent s stream then advanceServer c (match w with | some w => keep s w | none => s) else t
 
 /-- The next search candidate, which starts the walk over the servers again, then failure
 (§5, search list policy). -/
@@ -185,7 +226,8 @@ def nextCandidate (c : Config) (s : State) (noData : Bool) : State :=
   let t := { s with hadNoData := s.hadNoData || noData }
   if t.candidate + 1 < c.candidates then
     { t with candidate := t.candidate + 1, server := 0, round := 0, hops := 0, stage := fresh c,
-             edns := true, cookieRetried := false, offered := false }
+             edns := true, cookieRetried := false, offered := false, datagrams := unsent c,
+             streams := unsent c }
   else
     fail t (if t.hadNoData then .noData else .nameNotFound)
 
@@ -196,11 +238,12 @@ def onReply (c : Config) (s : State) (stream : Bool) : Reply → State × Out
   -- read as if it were clear: NOERROR with no records, which is NODATA.
   | .truncated =>
     if stream then (nextCandidate c s true, .accepted)
-    else ({ s with stage := .tcpNeeded }, .accepted)
+    else (retry c s { s with stage := .tcpNeeded } true none, .accepted)
   | .answer => ({ s with stage := .done }, .accepted)
   | .cname =>
     if s.hops + 1 > c.hopsMax then (fail s .chainTooLong, .accepted)
-    else ({ s with hops := s.hops + 1, stage := fresh c }, .accepted)
+    else ({ s with hops := s.hops + 1, stage := fresh c, datagrams := unsent c,
+                   streams := unsent c }, .accepted)
   | .nxdomain => (nextCandidate c s false, .accepted)
   | .nodata => (nextCandidate c s true, .accepted)
   -- Each server applies the same DNAME, so the lookup ends: no next server and no next candidate
@@ -209,7 +252,8 @@ def onReply (c : Config) (s : State) (stream : Bool) : Reply → State × Out
   | .servfail => (advanceServer c (keep s .servfail), .accepted)
   -- FORMERR to a query without EDNS0 is the server failing, as SERVFAIL is.
   | .formerr =>
-    if s.edns then ({ s with edns := false, stage := fresh c }, .accepted)
+    if s.edns then (retry c s { s with edns := false, stage := fresh c } c.useTcp (some .formerr),
+                    .accepted)
     else (advanceServer c (keep s .formerr), .accepted)
   -- Once more with the cookie just learned (RFC 7873 §5.3), over the transport the lookup is on:
   -- the server's one retry, whichever transport takes it. Again over UDP, then over TCP; again
@@ -218,9 +262,13 @@ def onReply (c : Config) (s : State) (stream : Bool) : Reply → State × Out
   | .badcookie =>
     if stream then
       if c.request || s.cookieRetried then (advanceServer c (keep s .badcookie), .accepted)
-      else ({ s with cookieRetried := true, stage := .tcpNeeded }, .accepted)
-    else if s.cookieRetried then ({ s with stage := .tcpNeeded }, .accepted)
-    else ({ s with cookieRetried := true, stage := fresh c }, .accepted)
+      else (retry c s { s with cookieRetried := true, stage := .tcpNeeded } true (some .badcookie),
+            .accepted)
+    else if s.cookieRetried then
+      (retry c s { s with stage := .tcpNeeded } true (some .badcookie), .accepted)
+    else
+      (retry c s { s with cookieRetried := true, stage := fresh c } c.useTcp (some .badcookie),
+        .accepted)
 
 /-- A poll: the action the lookup wants now. A query over DoH or DoQ is ready as a datagram is,
 one request a transaction, and goes as an HTTP request or a QUIC stream (docs/design.md §22,
@@ -282,8 +330,12 @@ def step (c : Config) (s : State) : Event → State × Out
   | .expire => if waiting s.stage then poll c (advanceServer c s) else poll c s
   | .sent =>
     match s.stage with
-    | .queryReady => ({ s with stage := .awaitingUdp, offered := false }, .none)
-    | .tcpReady => ({ s with stage := .awaitingTcp, offered := false }, .none)
+    | .queryReady =>
+      ({ s with stage := .awaitingUdp, offered := false, datagrams := bump s.datagrams s.server },
+        .none)
+    | .tcpReady =>
+      ({ s with stage := .awaitingTcp, offered := false, streams := bump s.streams s.server },
+        .none)
     | _ => (s, .none)
   | .sendFailed =>
     match s.stage with

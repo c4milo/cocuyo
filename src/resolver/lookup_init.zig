@@ -68,6 +68,8 @@ pub fn init_in_place(
         },
         .server_index = 0,
         .order = identity_order,
+        // No query is sent yet.
+        .sends = .{},
         .round = 0,
         .candidate_index = 0,
         .cname_hops = 0,

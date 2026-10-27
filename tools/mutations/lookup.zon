@@ -108,7 +108,7 @@
         .id = "S12",
         .what = "a chain re-query keeps its transaction",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "            // went, with a new transaction.\n            self.restart(now_ns);", .new = "            // went, with a new transaction.\n            self.state = if (self.config.streams_only()) .tcp_needed else .query_ready;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            self.sends = .{};\n            self.restart(now_ns);", .new = "            self.sends = .{};\n            self.state = if (self.config.streams_only()) .tcp_needed else .query_ready;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -135,7 +135,7 @@
         .id = "S15",
         .what = "the server index does not wrap",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "            self.server_index = 0;\n            self.round += 1;", .new = "            self.round += 1;" },
+            .{ .file = "src/resolver/lookup_bound.zig", .old = "            self.server_index = 0;\n            self.round += 1;", .new = "            self.round += 1;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -180,7 +180,7 @@
         .id = "S4",
         .what = "the next server keeps the cookie retry",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        self.flags.cookie_retried = false;\n        self.flags.edns_enabled = true;\n        self.server_index += 1;", .new = "        self.flags.edns_enabled = true;\n        self.server_index += 1;" },
+            .{ .file = "src/resolver/lookup_bound.zig", .old = "    self.flags.cookie_retried = false;\n    self.flags.edns_enabled = true;\n    const positions_max", .new = "    self.flags.edns_enabled = true;\n    const positions_max" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -189,7 +189,7 @@
         .id = "S5",
         .what = "the next name keeps the pass",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        self.server_index = 0;\n        self.round = 0;\n        self.cname_hops = 0;", .new = "        self.server_index = 0;\n        self.cname_hops = 0;" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.round = 0;\n        // Another name, so another query", .new = "        // Another name, so another query" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -198,7 +198,7 @@
         .id = "S6",
         .what = "EDNS0 stays off at the next server",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        self.flags.edns_enabled = true;\n        self.server_index += 1;", .new = "        self.server_index += 1;" },
+            .{ .file = "src/resolver/lookup_bound.zig", .old = "    self.flags.edns_enabled = true;\n    const positions_max", .new = "    const positions_max" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -225,7 +225,7 @@
         .id = "S9",
         .what = "a second BADCOOKIE is retried again",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    } else if (self.flags.cookie_retried) {", .new = "    } else if (false and self.flags.cookie_retried) {" },
+            .{ .file = "src/resolver/lookup_response_cookie.zig", .old = "    } else if (self.flags.cookie_retried) {", .new = "    } else if (false and self.flags.cookie_retried) {" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -234,7 +234,7 @@
         .id = "G1",
         .what = "the committed slice edited by hand",
         .edits = .{
-            .{ .file = "tools/spec_replay/lookup_gate.txt", .old = "\n30 reply_truncated accepted tcp_needed 0/0/0/8 ---- -\n", .new = "\n30 reply_truncated ignored tcp_needed 0/0/0/8 ---- -\n" },
+            .{ .file = "tools/spec_replay/lookup_gate.txt", .old = "\n35 reply_truncated accepted tcp_needed 0/0/0/8 ---- -\n", .new = "\n35 reply_truncated ignored tcp_needed 0/0/0/8 ---- -\n" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -776,7 +776,7 @@
         .id = "FR1",
         .what = "SERVFAIL, REFUSED, NOTIMP and BADVERS count as no failure at all: the count resets, and the lookup's failure goes unmarked",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    return action == .next_server or (action == .retry_with_cookie and bad_cookie_fails(self));", .new = "    return action == .retry_with_cookie and bad_cookie_fails(self);" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        .next_server => true,", .new = "        .next_server => false," },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -812,7 +812,7 @@
         .id = "FR5",
         .what = "BADCOOKIE over a stream that fails the lookup over resets the count",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    return action == .next_server or (action == .retry_with_cookie and bad_cookie_fails(self));", .new = "    _ = self;\n    return action == .next_server;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        .retry_with_cookie => cookie_response.bad_cookie_fails(self),", .new = "        .retry_with_cookie => false," },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -821,7 +821,7 @@
         .id = "FR6",
         .what = "BADCOOKIE over UDP, which has TCP left to try, counts against the server",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    return action == .next_server or (action == .retry_with_cookie and bad_cookie_fails(self));", .new = "    _ = self;\n    return action == .next_server or action == .retry_with_cookie;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        .retry_with_cookie => cookie_response.bad_cookie_fails(self),", .new = "        .retry_with_cookie => true," },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -830,7 +830,7 @@
         .id = "FR7",
         .what = "FORMERR from a server asked with EDNS0, which has EDNS0 left to drop, counts against it",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    return action == .next_server or (action == .retry_with_cookie and bad_cookie_fails(self));", .new = "    return action == .next_server or action == .retry_without_edns or (action == .retry_with_cookie and bad_cookie_fails(self));" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        .retry_without_edns => bound.spent(self, bound.fresh(self)),", .new = "        .retry_without_edns => true," },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -875,7 +875,7 @@
         .id = "FR12",
         .what = "a truncated answer over UDP leaves the count as it stood",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "        heard(self, accepted.cookie, null, now_ns);\n        self.state = .tcp_needed;", .new = "        self.state = .tcp_needed;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        heard(self, accepted.cookie, null, now_ns);\n        bound.to_stream(self, now_ns);", .new = "        bound.to_stream(self, now_ns);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1019,7 +1019,7 @@
         .id = "CO16",
         .what = "a first BADCOOKIE over a stream advances the server, as before #36",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    return over_stream(self) and (self.flags.cookie_retried or self.config.sends_requests());", .new = "    return over_stream(self);" },
+            .{ .file = "src/resolver/lookup_response_cookie.zig", .old = "        return if (self.flags.cookie_retried or self.config.sends_requests()) null else .stream;", .new = "        return null;" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -1028,7 +1028,7 @@
         .id = "CO17",
         .what = "the retry of a BADCOOKIE over the TCP truncation led to goes back to UDP",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "        self.restart(now_ns);\n        self.state = .tcp_needed;\n", .new = "        self.restart(now_ns);\n" },
+            .{ .file = "src/resolver/lookup_response_cookie.zig", .old = "        self.restart(now_ns);\n        self.state = .tcp_needed;\n", .new = "        self.restart(now_ns);\n" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -1037,7 +1037,7 @@
         .id = "CO18",
         .what = "the retry over a stream does not spend the server's retry",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "        // (RFC 7873 §5.3): a new transaction, on the stream.\n        self.flags.cookie_retried = true;\n", .new = "        // (RFC 7873 §5.3): a new transaction, on the stream.\n" },
+            .{ .file = "src/resolver/lookup_response_cookie.zig", .old = "        // (RFC 7873 §5.3): a new transaction, on the stream.\n        self.flags.cookie_retried = true;\n", .new = "        // (RFC 7873 §5.3): a new transaction, on the stream.\n" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -1046,7 +1046,7 @@
         .id = "CO19",
         .what = "the retry over a stream keeps its transaction",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "        self.flags.cookie_retried = true;\n        self.restart(now_ns);\n        self.state = .tcp_needed;", .new = "        self.flags.cookie_retried = true;\n        self.state = .tcp_needed;" },
+            .{ .file = "src/resolver/lookup_response_cookie.zig", .old = "        self.flags.cookie_retried = true;\n        self.restart(now_ns);\n        self.state = .tcp_needed;", .new = "        self.flags.cookie_retried = true;\n        self.state = .tcp_needed;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1055,7 +1055,7 @@
         .id = "CO20",
         .what = "BADCOOKIE over DoH or DoQ, where no cookie went, is retried",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    return over_stream(self) and (self.flags.cookie_retried or self.config.sends_requests());", .new = "    return over_stream(self) and self.flags.cookie_retried;" },
+            .{ .file = "src/resolver/lookup_response_cookie.zig", .old = "        return if (self.flags.cookie_retried or self.config.sends_requests()) null else .stream;", .new = "        return if (self.flags.cookie_retried) null else .stream;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1064,7 +1064,7 @@
         .id = "CO21",
         .what = "the retry over a stream counts against the server",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    return action == .next_server or (action == .retry_with_cookie and bad_cookie_fails(self));", .new = "    return action == .next_server or (action == .retry_with_cookie and over_stream(self));" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        .retry_with_cookie => cookie_response.bad_cookie_fails(self),", .new = "        .retry_with_cookie => over_stream(self)," },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1120,7 +1120,7 @@
         .what = "a response ignored for a malformed answer section teaches no server cookie: the cookie of an answer to collect waits for its answer section",
         .edits = .{
             .{ .file = "src/resolver/lookup_response.zig", .old = "    cookies.learn(self, accepted.cookie);\n    // Truncation over UDP", .new = "    // Truncation over UDP" },
-            .{ .file = "src/resolver/lookup_response.zig", .old = "        heard(self, accepted.cookie, null, now_ns);\n        self.state = .tcp_needed;", .new = "        cookies.learn(self, accepted.cookie);\n        heard(self, accepted.cookie, null, now_ns);\n        self.state = .tcp_needed;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        heard(self, accepted.cookie, null, now_ns);\n        bound.to_stream(self, now_ns);", .new = "        cookies.learn(self, accepted.cookie);\n        heard(self, accepted.cookie, null, now_ns);\n        bound.to_stream(self, now_ns);" },
             .{ .file = "src/resolver/lookup_response.zig", .old = "    const rcode = wire.Rcode.from_bits(bits) orelse return .ignored;", .new = "    const rcode = wire.Rcode.from_bits(bits) orelse {\n        cookies.learn(self, accepted.cookie);\n        return .ignored;\n    };" },
             .{ .file = "src/resolver/lookup_response.zig", .old = "    heard(self, accepted.cookie, cause_of(self, action, rcode), now_ns);", .new = "    cookies.learn(self, accepted.cookie);\n    heard(self, accepted.cookie, cause_of(self, action, rcode), now_ns);" },
             .{ .file = "src/resolver/lookup_response.zig", .old = "            heard(self, accepted.cookie, null, now_ns);\n            self.fail(core.Error.ChainTooLong);", .new = "            cookies.learn(self, accepted.cookie);\n            heard(self, accepted.cookie, null, now_ns);\n            self.fail(core.Error.ChainTooLong);" },
@@ -3614,6 +3614,107 @@
         .caught_by = .{ .step = "test-tools" },
     },
     .{
+        .section = "Three queries of a name to a server over a transport",
+        .id = "RB1",
+        .what = "a query sent is not counted",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_bound.zig", .old = "    self.sends.add(self.server_index, transport);", .new = "    _ = transport;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Three queries of a name to a server over a transport",
+        .id = "RB2",
+        .what = "a server with no query left is not passed over, and no assertion stands behind the check",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_bound.zig", .old = "        if (!spent(self, fresh(self))) break;\n    } else unreachable;\n    assert(self.round < self.config.attempts);\n    assert(!spent(self, fresh(self)));", .new = "        break;\n    } else unreachable;\n    assert(self.round < self.config.attempts);" },
+            .{ .file = "src/resolver/lookup_bound.zig", .old = "        assert(before < limits.queries_per_transport_max);\n        self.bits += @as(Bits, 1) << shift(position, transport);\n        assert(self.count(position, transport) == before + 1);", .new = "        _ = before;\n        self.bits +%= @as(Bits, 1) << shift(position, transport);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Three queries of a name to a server over a transport",
+        .id = "RB3",
+        .what = "the bound lets a fourth query go",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_bound.zig", .old = "    return self.sends.count(self.server_index, transport) >= limits.queries_per_transport_max;", .new = "    return self.sends.count(self.server_index, transport) > limits.queries_per_transport_max;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Three queries of a name to a server over a transport",
+        .id = "RB4",
+        .what = "the retry without EDNS0 ignores the bound",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        .retry_without_edns => if (bound.spent(self, bound.fresh(self))) {", .new = "        .retry_without_edns => if (false) {" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        .retry_without_edns => bound.spent(self, bound.fresh(self)),", .new = "        .retry_without_edns => false," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Three queries of a name to a server over a transport",
+        .id = "RB5",
+        .what = "a FORMERR whose retry the bound forbids keeps no cause",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        .retry_without_edns => bound.spent(self, bound.fresh(self)),", .new = "        .retry_without_edns => false," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Three queries of a name to a server over a transport",
+        .id = "RB6",
+        .what = "the retry after BADCOOKIE ignores the bound",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response_cookie.zig", .old = "    return bound.spent(self, transport);", .new = "    _ = transport;\n    return false;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Three queries of a name to a server over a transport",
+        .id = "RB7",
+        .what = "TC=1 and a cut datagram ignore the bound on a stream",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_bound.zig", .old = "    if (spent(self, .stream)) {", .new = "    if (false) {" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Three queries of a name to a server over a transport",
+        .id = "RB8",
+        .what = "the next search candidate keeps the counts of the last",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        // Another name, so another query, and no retry of the last (RFC 9520 §3.1).\n        self.sends = .{};\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Three queries of a name to a server over a transport",
+        .id = "RB9",
+        .what = "a CNAME's target keeps the counts of the name",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            self.sends = .{};\n            self.restart(now_ns);", .new = "            self.restart(now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Three queries of a name to a server over a transport",
+        .id = "RB10",
+        .what = "a send that failed is counted",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        assert(self.state == .query_ready or self.state == .tcp_ready);\n        self.servers.record_failure(self.server_slot(), now_ns);", .new = "        assert(self.state == .query_ready or self.state == .tcp_ready);\n        bound.count_sent(self);\n        self.servers.record_failure(self.server_slot(), now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Three queries of a name to a server over a transport",
+        .id = "RB11",
+        .what = "the next server reads the datagram count under use_tcp",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_bound.zig", .old = "    return if (self.config.streams_only()) .stream else .datagram;", .new = "    _ = self;\n    return .datagram;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
         .section = "YXDOMAIN ends the lookup",
         .id = "YX1",
         .what = "rcode 6 is no code cocuyo knows, so YXDOMAIN is ignored",
@@ -3654,7 +3755,7 @@
         .id = "YX5",
         .what = "YXDOMAIN counts as a failure of its server",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    return action == .next_server or (action == .retry_with_cookie and bad_cookie_fails(self));", .new = "    return action == .next_server or action == .name_too_long or (action == .retry_with_cookie and bad_cookie_fails(self));" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        .collect, .next_candidate, .fail, .name_too_long => false,\n", .new = "        .name_too_long => true,\n        .collect, .next_candidate, .fail => false,\n" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },

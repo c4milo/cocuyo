@@ -11,6 +11,7 @@ const Lookup = lookup_module.Lookup;
 const State = lookup_module.State;
 const Servers = @import("servers.zig").Servers;
 const fixtures = @import("fixtures.zig");
+const resolver_limits = @import("limits.zig");
 
 const one_server = fixtures.servers_one;
 const three_servers = fixtures.servers_three;
@@ -85,8 +86,10 @@ test "the next candidate starts over at the first server, the first pass and wit
 }
 
 test "a lookup over the most servers, passes and candidates sends every try, and ends at the last" {
-    // 8 servers by 5 passes by 7 candidates under the longest wait, so every counter of the walk
-    // reaches the most it holds: 40 tries a candidate, the last of each answered NXDOMAIN.
+    // 8 servers by 5 passes by 7 candidates under the longest wait. Each server takes 3 queries
+    // of a name, so 24 tries a candidate, the last of each answered NXDOMAIN (RFC 9520 §3.1;
+    // docs/design.md §16 decision 58). Every counter of the walk but the pass reaches the most
+    // it holds.
     var eight: [core.limits.servers_max]core.Server = undefined;
     for (&eight, 1..) |*server, last| {
         server.* = .{ .endpoint = .{ .address = core.Address.from_v4(.{ 192, 0, 2, @intCast(last) }) } };
@@ -101,7 +104,7 @@ test "a lookup over the most servers, passes and candidates sends every try, and
         .timeout_ns_max = core.limits.timeout_ns_max,
     } };
     try harness.start("host", .a, fixtures.seed);
-    const tries = eight.len * core.limits.attempts_max;
+    const tries = eight.len * resolver_limits.queries_per_transport_max;
     for (0..core.limits.candidates_max) |_| {
         for (1..tries) |_| {
             _ = harness.send();

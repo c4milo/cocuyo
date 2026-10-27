@@ -20,7 +20,7 @@ would agree with the code by construction and prove nothing about it.
 
 - `lean/Spec/Lookup.lean` is the model: the eight states, the events a caller delivers, what each
   answers, and `enabled`, the events the contract of §4 lets a caller deliver in each state.
-- `lean/Spec/LookupProofs.lean` and the three modules under `lean/Spec/LookupProofs/` hold the
+- `lean/Spec/LookupProofs.lean` and the four modules under `lean/Spec/LookupProofs/` hold the
   proofs:
   - `ended_absorbing`: a lookup that is done or has failed is changed by nothing.
   - `cancel_after_end` and `cancel_before_end`: a cancel leaves an end standing, and ends
@@ -45,6 +45,9 @@ would agree with the code by construction and prove nothing about it.
     cause names a server of the configuration (§16 decision 51). Its lemma `keep_server` reads no
     more of `keep` than the bound of that server, so an edit of `keep` meets the check of the
     slice, and not a proof that stops.
+  - In `LookupProofs/Bound.lean`, `sends_bounded`: no server gets more than three queries of one
+    name over one transport, whatever the caller tells the lookup and whatever `Config.attempts`
+    says (RFC 9520 §3.1; docs/design.md §16 decision 58).
 - `lean/Spec/Axioms.lean` pins the axioms each theorem rests on. A proof left unfinished rests on
   `sorryAx`, which changes a pinned line and fails the build.
 - `lean/Spec/Address.lean` is the model of both walks, and `lean/Spec/AddressWalk.lean` walks it and
@@ -96,6 +99,13 @@ would agree with the code by construction and prove nothing about it.
   search walk put on what a lookup ends with (docs/design.md §5). They change no transition.
 - What a poll handed out and the caller has not answered yet. The model keeps it to know when
   `on_sent` may come, and the replay does not compare it, because the lookup does not keep it.
+- The counts of the queries each server got for the current name over each transport (docs/design.md
+  §16 decision 58). The model holds them, since they decide when the lookup passes over a server,
+  and the replay does not compare them, since the transcript does not print them. A count that
+  drifts in the code shows at the move it changes: a server that the model passes over and the
+  code asks again, or the reverse. The walk takes two states that differ in a count alone apart,
+  but a count of a server that the lookup does not ask again for the name is no part of what makes
+  a state new to the walk (`key` in `lean/Main.lean`).
 - A DoH or DoQ transaction's number. The model delivers an answer or a failed request to the current
   transaction, and an unmatched reply is one for another. DoH and DoQ move alike, so the model's
   `quic` names which servers the replay asks and no transition reads it. That a late answer names a
@@ -103,12 +113,13 @@ would agree with the code by construction and prove nothing about it.
 
 ## The replay
 
-`cocuyo-spec all 8` walks every state the model reaches from `init` under 109 configurations:
+`cocuyo-spec all 8` walks every state the model reaches from `init` under 84 configurations:
 none, one, two or three servers, one to three passes and one to three names, over UDP, under
-`use_tcp`, over DoH, or over DoQ. It tries every enabled event in every state and writes one line
-per transition, with the model's answer and its whole state after it. A state reached a second
-time is written but not walked again, so each transition appears once, 21,444,698 of them in all,
-183 deep at most. On 2026-10-08 a first BADCOOKIE over a stream became a retry on the stream with
+`use_tcp`, over DoH, or over DoQ, less the 25 that the counts of 2026-10-27 made too large (below).
+It tries every enabled event in every state and writes one line per transition, with the model's
+answer and its whole state after it. A state reached a second time is written but not walked
+again, so each transition appears once, 38,759,600 of them in all, 186 deep at most.
+On 2026-10-08 a first BADCOOKIE over a stream became a retry on the stream with
 the fresh server cookie (docs/design.md §5, §19 step 10; c4milo/cocuyo#36), where before it
 advanced the server. The retry reaches states the walk did not reach before: the transcript held
 2,237,654 transitions, 168 deep, and the slice below 3,694.
@@ -143,6 +154,29 @@ On 2026-10-27 YXDOMAIN came to end a lookup with `NameTooLong` (docs/design.md �
 The model has the reply `yxdomain` and the error `nameTooLong`, and each state that waits takes
 the new reply. The transcript grew from 20,512,658 transitions to 21,444,698, 183 deep. The slice
 grew from 13,838 transitions to 14,426, and none of its lines changed.
+
+On 2026-10-27 the model came to count the queries that each server got for the current name over
+each transport, and to pass over a server with no query left (docs/design.md §16 decision 58). The
+counts split states that differ in them alone. Over UDP each datagram can bring a stream after it,
+so the walks of two servers over two or three passes and one to three names grew 25 to 45 times:
+two servers, three passes and three names over UDP grew from 843,711 transitions to 35,067,338,
+measured before the reply `yxdomain` joined the model. So
+over two or three passes the walk now takes:
+
+- one server, each name count and each transport, as before;
+- two servers, each name count over TCP, DoH and DoQ, and one name over UDP;
+- three servers over two passes, with one name, over TCP, DoH and DoQ.
+
+One pass is walked for each configuration as before, since one pass never reaches the bound. One
+server reaches each rule of the bound: a retry the bound forbids after FORMERR and after BADCOOKIE,
+TC=1 when the stream is spent, and a server passed over. Two servers reach a server passed over in
+the middle of a pass and at the start of the next. A count of a server that the lookup does not
+ask again for the name is no part of what makes a state new: on the last pass, the servers before
+the current one. Without that, two servers over two passes and one name over UDP took 3,946,434
+transitions, and with it 2,178,282. The transcript grew from 21,444,698 transitions, 183 deep, to
+38,759,600, 186 deep. The slice grew from 14,426 transitions to 32,386. Its one server over two
+passes over DoH reaches the bound: after a FORMERR in the first pass and its retry, the query of
+the second pass is the server's third, and a FORMERR to it finds no retry left.
 
 `tools/spec_replay/replay.zig` drives `Lookup` down the same tree. It builds each reply around the
 question the lookup is asking, and it compares the answer and the state after every event: the
@@ -1017,7 +1051,7 @@ compares the walk's whole state after each.
 
 ## Running it
 
-- `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 14,426
+- `zig build test` replays `tools/spec_replay/lookup_gate.txt`, a committed slice of 32,386
   transitions. It holds one server, one pass and one name, over UDP, over TCP, over DoH and over
   DoQ. It holds one server with two passes over DoH too, where a second cause replaces the first.
   It holds two servers with one pass over DoQ, where a cause names a server that the lookup left.
@@ -1040,6 +1074,9 @@ compares the walk's whole state after each.
   replay took 44 while other work ran. `zig build
   spec-lean` is the Lean half alone, which needs no Java, and `zig build spec-engine` the engine's
   part alone, which needs no Lean.
+- `cocuyo-spec all 8 <file>` and `cocuyo-spec gate 8 <file>` write the transcript to the file
+  and not to stdout. `zig build spec` names a file: since 2026-10-27 the full transcript is more
+  than 2^31 - 1 octets, which macOS refuses in the one `write` of the build's capture.
 - After a change to a model, `lake exe cocuyo-spec gate 8 > ../../tools/spec_replay/lookup_gate.txt`
   and `lake exe cocuyo-spec walks-gate > ../../tools/spec_replay/walk_gate.txt` in `lean/` write
   the Lean slices again. From the repository's root, `zig build tla -- walks 1 10 41 >

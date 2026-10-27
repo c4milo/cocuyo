@@ -1,6 +1,7 @@
 //! The tests of BADCOOKIE (RFC 7873 §5.3; docs/design.md §5, §19 step 10), through the fake
-//! server: `on_bad_cookie` in `lookup_response.zig`, split from it by the file-length rule. The
-//! other cookie tests are in `lookup_cookie.zig`, whose helpers these read.
+//! server: `on_bad_cookie` in `lookup_response_cookie.zig`. Split from `lookup_response.zig` by
+//! the file-length rule. The other cookie tests are in `lookup_cookie.zig`, whose helpers these
+//! read.
 const std = @import("std");
 const testing = std.testing;
 const core = @import("core");
