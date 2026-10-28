@@ -401,7 +401,7 @@ rules exist and are tested. It does not show cocuyo is free of such bugs.
 Where cocuyo is weaker:
 
 - **Age and deployment.** 0.1.0 was tagged on 2026-09-22, 0.2.0 and 0.3.0 on 2026-09-26, 0.4.0
-  on 2026-09-27, 0.5.0 on 2026-10-01, and 0.6.0 on 2026-10-11
+  on 2026-09-27, 0.5.0 on 2026-10-01, 0.6.0 on 2026-10-11, and 0.7.0 on 2026-10-28
   ([releases](https://github.com/c4milo/cocuyo/releases)). A minor version may change the API until
   1.0 ([README](../README.md)). It has no record of use in production. c-ares, Unbound, glibc and
   musl have release histories of years, linked above.
