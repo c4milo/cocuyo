@@ -5739,11 +5739,11 @@ RFC 9846 §5.2 caps the length at 2^14 + 256 octets: "An endpoint that receives 
 exceeds this length MUST terminate the connection with a "record_overflow" alert". The owner
 ruled on 2026-10-27 for a session call that stages an alert with a description the engine names.
 The ruling said to stop before the code if colibri cannot write such an alert. It cannot, so
-nothing of the ruling is built.
+this change builds no part of the ruling.
 
 88. **A session call for an alert that the engine names.** The DoT session drives colibri's
     `tls.record.Client` at the commit that `build.zig.zon` pins (v0.8.0, `7496cdc`). These facts
-    were read in that source and in chapulin's at the commit colibri pins (`e6e3c1e`):
+    come from that source, and from chapulin's source at the commit colibri pins (`e6e3c1e`):
 
     - colibri's record provider (`tls_provider.VTable`) has no member that writes an alert. It has
       `send_close_notify` alone. `tls.record.Client` has no such call either.
@@ -5765,8 +5765,8 @@ nothing of the ruling is built.
       changes to other repositories, and the owner must approve each and a new colibri pin.
     - The header to the session. The engine hands the five octets of the header to the session's
       `handshake` or `open`, and the session refuses it with chapulin's own alert. This needs no
-      new call. But once up the alert is `decode_error`, which RFC 9846 §5.2 does not allow,
-      until chapulin changes `ch_read`.
+      new call. But once the connection is up, the alert is `decode_error`, which RFC 9846 §5.2
+      does not allow, until chapulin changes `ch_read`.
     - `close_notify` in its place, through `close` as `quit` does. RFC 9846 §6.1 makes
       `close_notify` a closure alert, not the fatal alert that §5.2 asks for.
     - Leave it. The connection closes at once, with no alert, as today.
@@ -5775,8 +5775,8 @@ nothing of the ruling is built.
     TLS records, so no record length exists to check.
 
     Recommended: the chapulin call and the colibri call, then the ruling as written. The other ways
-    send a wrong alert or none. Until the owner rules, nothing is built, and the connection closes
-    with no alert as today.
+    send a wrong alert or none. Until the owner rules, cocuyo builds none of it, and the connection
+    closes with no alert as today.
 
 ## 18. The cache
 
