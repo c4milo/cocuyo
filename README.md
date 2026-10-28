@@ -139,8 +139,9 @@ A reason that does not fit its call is a programmer error. An assertion stops it
 stay on in production. When you cannot tell what failed, pass `connect` before `on_tcp_connected`,
 `closed` after it, and `closed` for a request (docs/design.md §5, The cause of a failure).
 
-The cause is null when no server failed the lookup. So `AllServersFailed` always has a cause, and
-`Timeout`, where every try went unanswered, never has one. Another error can carry a cause too: a
+The cause is null when no server failed the lookup. So `AllServersFailed` has a cause when the
+lookup sent a query, and `Timeout`, where every try went unanswered, never has one. A failure that
+the cache recalls sent no query, so it has no cause (docs/design.md §16 decision 61). Another error can carry a cause too: a
 name that does not exist after one server answered SERVFAIL. The examples print it after the
 error, as `example.com: AllServersFailed (handshake from server 0)`.
 
