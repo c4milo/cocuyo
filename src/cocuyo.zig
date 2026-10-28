@@ -7,8 +7,8 @@
 //!
 //! It holds one piece of logic, and only because this is the one file that can: `remembered_by`
 //! turns a `Cache` into the `Memory` the table asks, and `resolver` cannot reach `cache` (§3).
-//! What may be remembered at all — RFC 2308 §5's two negatives and nothing else — is written
-//! there once rather than in every consumer (§20).
+//! What may be remembered at all — RFC 2308 §5's two negatives and the resolution failures of
+//! RFC 9520 §2 — is written there once rather than in every consumer (§20, §16 decision 61).
 pub const core = @import("core");
 pub const wire = @import("wire");
 pub const resolver = @import("resolver");
@@ -67,8 +67,9 @@ pub const Remembered = resolver.Remembered;
 /// A `Memory` filled in from a `Cache`: what a consumer hands `Resolver.remember_with` to put
 /// the cache under every lookup the table starts, composed ones included (docs/design.md §20).
 ///
-/// This is the one place that says what may be remembered at all: an answer, and the two
-/// negatives of RFC 2308 §5 with the TTL the SOA gave. `resolver` cannot reach `cache` (§3), and
+/// This is the one place that says what may be remembered at all: an answer, the two
+/// negatives of RFC 2308 §5 with the TTL the SOA gave, and a resolution failure of RFC 9520 §2,
+/// which the cache keeps for a time of its own. `resolver` cannot reach `cache` (§3), and
 /// this file can reach both, so the rule lives here rather than in every consumer.
 pub fn remembered_by(store: *Cache) Memory {
     return .{ .context = store, .recall = recall_from_cache, .remember = remember_in_cache };
@@ -85,9 +86,9 @@ fn recall_from_cache(context: *anyopaque, question: *const Question, now_ns: u64
         } },
         .name_not_found => .{ .negative = .{ .outcome = .name_not_found, .ttl_seconds = hit.ttl_seconds } },
         .no_data => .{ .negative = .{ .outcome = .no_data, .ttl_seconds = hit.ttl_seconds } },
-        // `Remembered` cannot carry a resolution failure, so the table asks the servers again
-        // (docs/design.md §16 decision 60, §17 question 85).
-        .failed => null,
+        // A resolution failure: the table ends the lookup with it and sends no query
+        // (RFC 9520 §3.2; docs/design.md §16 decision 61).
+        .failed => .{ .failed = hit.failure.? },
     };
 }
 
@@ -104,17 +105,65 @@ fn remember_in_cache(
             .name_not_found => .name_not_found,
             .no_data => .no_data,
         }, negative.ttl_seconds, now_ns),
+        .failed => |err| {
+            // The table writes the failures that the cache keeps, and no other (§16 decision 61).
+            assert(cache.resolution_failure(err));
+            store.put_failure(question, err, now_ns);
+        },
     }
 }
 
-test "a failure the cache holds is no recall: the table cannot carry it" {
+test "a failure the cache holds comes back as failed, with its error" {
     var rig: CacheRig = .{};
     rig.open();
     const question = try Question.from_text("down.example", .a);
     rig.store.put_failure(&question, Error.AllServersFailed, 0);
-    try testing.expectEqual(Error.AllServersFailed, rig.store.get(&question, 0).?.failure.?);
     const memory = remembered_by(&rig.store);
-    try testing.expectEqual(@as(?Remembered, null), memory.recall(memory.context, &question, 0));
+    try testing.expectEqual(Error.AllServersFailed, memory.recall(memory.context, &question, 0).?.failed);
+}
+
+test "a failure written through the memory is kept for the cache's minimum, and then expires" {
+    var rig: CacheRig = .{};
+    rig.open();
+    const memory = remembered_by(&rig.store);
+    const question = try Question.from_text("down.example", .a);
+    memory.remember(memory.context, &question, .{ .failed = Error.Timeout }, 0);
+    const hit = rig.store.get(&question, 0).?;
+    try testing.expectEqual(cache.Outcome.failed, hit.outcome);
+    try testing.expectEqual(Error.Timeout, hit.failure.?);
+    try testing.expectEqual(rig.store.failure_seconds_min, hit.ttl_seconds);
+    const past = @as(u64, rig.store.failure_seconds_min) * cache.constants.ns_per_s;
+    try testing.expectEqual(@as(?Remembered, null), memory.recall(memory.context, &question, past));
+}
+
+test "the table writes as failed exactly the errors the cache keeps" {
+    // `resolver` cannot read `cache` (docs/design.md §3), so each holds the list of resolution
+    // failures (RFC 9520 §2). This file reads both, and holds them equal (§16 decision 61).
+    inline for (@typeInfo(Error).error_set.?) |member| {
+        const err = @field(Error, member.name);
+        try testing.expectEqual(cache.resolution_failure(err), resolver.table_memory.resolution_failure(err));
+    }
+}
+
+test "a failure in the cache ends a table's lookup at its first poll, and nothing is sent" {
+    // "the resolver MUST NOT send any corresponding outgoing queries until after the cache
+    // entries expire" (RFC 9520 §3.2).
+    var rig: CacheRig = .{};
+    rig.open();
+    const question = try Question.from_text("down.example.", .a);
+    rig.store.put_failure(&question, Error.AllServersFailed, 0);
+    var slots: [1]Slot = @splat(.{});
+    var keys: [resolver.limits.keys_per_slot_min]MatchKey = @splat(.{});
+    const servers = [_]Server{.{ .endpoint = .{ .address = Address.from_v4(.{ 192, 0, 2, 53 }) } }};
+    const config: Config = .{ .servers = &servers, .search = &.{} };
+    var table = Resolver.init(&slots, &keys, &config, 0);
+    table.remember_with(remembered_by(&rig.store));
+    _ = try table.start(question);
+    var out: [limits.query_bytes_max]u8 = @splat(0);
+    const failure = table.poll(0, &out).?.action.failed;
+    try testing.expectEqual(Error.AllServersFailed, failure.err);
+    try testing.expectEqual(@as(?Cause, null), failure.cause);
+    try testing.expectEqual(@as(u8, 0), failure.attempts_made);
 }
 
 /// The length a TCP length prefix describes (RFC 7766 §8). A caller reads two octets, calls this,
@@ -135,6 +184,7 @@ test {
 // are in one place.
 
 const std = @import("std");
+const assert = std.debug.assert;
 const testing = std.testing;
 
 const cache_slot_count: usize = 8;

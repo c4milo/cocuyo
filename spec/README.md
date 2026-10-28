@@ -426,7 +426,9 @@ wins, so every wait the engine arms is the model's, whatever samples the tries t
 So no walk runs servers that wait different times, where a lookup sent later can run out sooner.
 The model holds no cache. Since 2026-10-11 the engine has one only when its caller hands it the
 memory (docs/design.md §19 step 13), and the replay hands its engine two slots, the size it had
-as an option before. Each start of a walk asks a new name, so the cache answers none.
+as an option before. Each start of a walk asks a new name, so the cache answers none. Since
+2026-10-28 the cache keeps a resolution failure too (docs/design.md §16 decision 61), but a new
+name has no entry of any kind, so no walk changes.
 The table's bound on the soonest deadline takes any deadline a lookup arms, and a test in
 `src/resolver/table_ready.zig` arms a later send with an earlier deadline, but no walk does.
 

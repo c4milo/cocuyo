@@ -353,4 +353,22 @@
         },
         .caught_by = .{ .step = "test-resolver" },
     },
+    .{
+        .section = "The table recalls a resolution failure",
+        .id = "MR8",
+        .what = "a recalled `AllServersFailed` must have a cause in `AddressLookup`",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "failure.cause != null or failure.attempts_made == 0);", .new = "failure.cause != null);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table recalls a resolution failure",
+        .id = "MR9",
+        .what = "a recalled `AllServersFailed` must have a cause in `NameLookup`",
+        .edits = .{
+            .{ .file = "src/resolver/name_lookup.zig", .old = "failure.cause != null or failure.attempts_made == 0);", .new = "failure.cause != null);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
 }

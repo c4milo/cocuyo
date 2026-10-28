@@ -911,15 +911,17 @@ So each error carries this cause:
 
 | `Failure.err` | `Failure.cause` |
 | --- | --- |
-| `Timeout` | null: every try went unanswered |
-| `AllServersFailed` | the last server failure, never null |
+| `Timeout` | null: every try went unanswered, or the memory of §20 recalled the failure |
+| `AllServersFailed` | the last server failure; null when the memory of §20 recalled the failure (§17 question 89) |
 | `NameNotFound`, `NoData` | the last server failure, or null; null when the memory of §20 recalled the negative |
 | `ServerFailure`, `Refused`, `NotImplemented`, with `check_response` off | a server failure before the answer, or null |
 | `ChainTooLong`, `NameTooLong`, `Canceled` | the last server failure, or null |
 | `NoServers` | null |
 
 A `NameNotFound` can carry the SERVFAIL of a server before the one that answered NXDOMAIN. The
-memory of §20 keeps no cause, and a negative that it recalls asked no server.
+memory of §20 keeps no cause, and a negative or a failure that it recalls asked no server. Since
+2026-10-28 it recalls a resolution failure too (§16 decision 61). Such a failure has
+`attempts_made` of zero, and a lookup that goes out ends `AllServersFailed` with `Config.attempts`.
 
 `AddressLookup` and `NameLookup` hand on the `Failure` of the lookup whose end they report, its
 cause with it. A negative end reports the walk's error on the fields of the last lookup that
@@ -4635,11 +4637,12 @@ step until `zig build test` passes.
     MUST NOT send any corresponding outgoing queries until after the cache entries expire"
     (RFC 9520 §3.2).
 
-    The engine in `io/` does not use failure entries yet. It reaches its cache through the
-    table's `Memory` (§20), and `Remembered` carries RFC 2308's two negatives alone. That
-    interface is in `src/resolver`, which the ruling keeps as it is. `remembered_by` recalls a
-    failure entry as a miss, since `Remembered` cannot carry it. §17 question 85 asked the owner,
-    who ruled on 2026-10-28 for a variant `failed` of `Remembered`, in a change of its own.
+    The engine in `io/` did not use failure entries at first. It reaches its cache through the
+    table's `Memory` (§20), and `Remembered` carried RFC 2308's two negatives alone. That
+    interface is in `src/resolver`, which the ruling kept as it was. `remembered_by` recalled a
+    failure entry as a miss, since `Remembered` could not carry it. §17 question 85 asked the
+    owner, who ruled on 2026-10-28 for a variant `failed` of `Remembered`, in a change of its own.
+    Decision 63 builds it.
 
     Rejected:
 
@@ -4659,6 +4662,52 @@ step until `zig build test` passes.
       cache.
 
     §17 question 85, §18, §20.
+
+61. **The table recalls a resolution failure through its memory.** Ruled by the owner on
+    2026-10-28, on §17 question 85, the second way. Before it, an engine with a cache sent every
+    try again for a name whose servers all failed. RFC 9520 §3.2 says that "the resolver MUST
+    NOT send any corresponding outgoing queries until after the cache entries expire".
+
+    What changed:
+
+    - `Remembered` has a third variant, `failed`, which carries the error alone. A consumer that
+      switches over `Remembered` adds the arm.
+    - `remember_end` writes each resolution failure as `failed`. The errors are those that
+      `cache.resolution_failure` counts (decision 60).
+    - `recall_into` ends the lookup with the recalled error at its first poll. No query is built,
+      and the poll returns `.failed`. The lookup does not write the failure back.
+    - `remembered_by` maps `failed` to `Cache.put_failure` and a failed hit to `failed`. The
+      cache sets the time of the entry and its backoff, as decision 60 says.
+    - The engine does not change. It hands the table `remembered_by` already, so it gets the
+      failure cache at once.
+
+    Where the rule lives: `resolver` cannot read `cache` (§3), so `table_memory.zig` holds its own
+    list, `resolution_failure`, beside `negative_of`. `src/cocuyo.zig` reads both modules. A test
+    there requires the two lists to agree on each error of `core.Error`, and `remembered_by`
+    asserts that each failure it gets is one the cache keeps.
+
+    What a recalled failure carries: the error, `negative_ttl_seconds` of zero, `attempts_made` of
+    zero and no cause. The memory keeps no cause, as for a recalled negative (§5, The cause of a
+    failure). So a recalled `AllServersFailed` has no cause, which §5 did not allow before. §17
+    question 89 asks the owner about that, and this change builds its recommendation.
+
+    The models: the Lean model of §5 has no memory, and the replay never gives `Lookup` one. The
+    TLA+ engine model holds no cache, and each walk of the replay asks a new name, so no walk
+    reaches a failure entry. Neither model changes.
+
+    Rejected:
+
+    - The list of resolution failures in `core`, read by `cache` and `resolver`. It adds a public
+      name to `core`, which the ruling does not cover. The test in `src/cocuyo.zig` keeps the two
+      lists equal.
+    - `remember_end` writes every failure but the two negatives, and the memory chooses. Each
+      consumer's memory then holds the rule, which §20 rejected ("Leave the policy in each
+      consumer").
+    - `failed` with a TTL. The cache sets the time, and `Failure` has no field for a failure's
+      time: `negative_ttl_seconds` is zero for every failure but the two negatives.
+    - The first and the third ways of question 85, which the ruling did not take.
+
+    §17 questions 85 and 89, §18, §20.
 
 ## 17. Questions for the owner
 
@@ -5732,7 +5781,8 @@ gets no failure entry. Question 85 asks about that.
     Recommended: the second way, in a change of its own. The rule then lives in `remembered_by`
     with the other rules of what may be remembered, and every consumer of the table gets it. Until
     the owner rules, as built, since the ruling keeps `src/resolver` as it is. Answered on
-    2026-10-28: the second way, `Remembered.failed`, in a change of its own.
+    2026-10-28: the second way, `Remembered.failed`, in a change of its own. Built on 2026-10-28
+    (§16 decision 61).
 
 ### Asked on 2026-10-27, for the alert of a record that is too long
 
@@ -5780,6 +5830,31 @@ this change builds no part of the ruling.
     send a wrong alert or none. Until the owner rules, cocuyo builds none of it, and the connection
     closes with no alert as today. Answered on 2026-10-28: the chapulin call and the colibri call.
     cocuyo builds the ruling after a colibri release that carries them.
+
+### Asked on 2026-10-28, for the cause of a recalled failure
+
+§16 decision 61 builds the ruling on question 85. The memory keeps no cause, so a recalled
+failure has none. §5 says that `AllServersFailed` always has a cause. `Lookup`, `AddressLookup`
+and `NameLookup` assert it, and the doc comment of `Failure.cause` says it. The ruling does not
+say which of the two gives way.
+
+89. **The cause of a recalled `AllServersFailed`.** The ways:
+
+    - The rule gets an exception. A recalled failure has no cause and `attempts_made` of zero. A
+      lookup that goes out ends `AllServersFailed` only after its last pass, so its
+      `attempts_made` is `Config.attempts`, which is 1 at least. The three assertions accept
+      `AllServersFailed` with no cause when `attempts_made` is zero. No type changes.
+    - `Failure` gets a field `recalled`, and the assertions read it. This changes a public type
+      that the ruling does not name.
+    - The cache keeps the cause, and `failed` carries it. The slot grows. The cause names a server
+      by its position in the configuration, which `reinit` can change. And no server failed the
+      recalled lookup, so the cause would say what is not true.
+    - The memory recalls `AllServersFailed` as `Timeout`. The lookup then ends with an error that
+      it did not have.
+
+    Recommended: the exception. It changes no type, and `attempts_made` tells the two cases
+    apart. A recalled negative already has no cause. Until the owner rules, cocuyo builds the
+    recommendation.
 
 ## 18. The cache
 
@@ -5928,7 +6003,9 @@ pub fn keys_for(slot_count: usize) usize;
 - `put_failure` keeps a resolution failure (RFC 9520 §3.2): the first for `failure_seconds_min`,
   and each later one after the entry expired for twice the time before, up to 300 s. A hit on it
   is `Outcome.failed`, with the error, and the caller sends no query until it expires. An answer
-  for the name ends the backoff. §16 decision 60 says which errors count, and why.
+  for the name ends the backoff. §16 decision 60 says which errors count, and why. Since
+  2026-10-28 the table's memory puts and recalls a failure too, so a table with
+  `remembered_by` sends no query for the name while the entry lives (§16 decision 61).
 - `flush` empties the table, which is what a caller does when its servers change.
 - Nothing here reads a clock or a random source; `now_ns` and the seed come in as they do
   everywhere else, so a cache replays from its inputs.
@@ -5942,7 +6019,8 @@ that minimum, or zero when there is no SOA; and a `Lookup` that ends in `NameNot
 carries it in `Failure.negative_ttl_seconds`, so the caller can `put_negative` without reading a
 message it never saw. A failure that is not a negative answer — a timeout, every server failing —
 carries zero, and `put_negative` keeps no zero. Since 2026-10-27 the caller hands such a failure
-to `put_failure` instead, which keeps it for a time of its own (§16 decision 60).
+to `put_failure` instead, which keeps it for a time of its own (§16 decision 60). Since 2026-10-28
+the table's memory does that for the caller (§16 decision 61).
 
 A lookup of a relative name walks the search list, and the cache keeps the walk's end under the
 name as asked. Each candidate's negative bounds that end, as §5's search list policy has it: a
@@ -7158,7 +7236,9 @@ pub const Result = struct {
 - **The cache.** `start` and `address_info` ask it first; a hit is a result on the next `take`,
   and a lookup that ends puts its answer, or its negative answer with the TTL of §18. Since
   2026-10-11 that holds for an engine handed memory for a cache, and an engine handed none asks
-  its servers every time (The cache's memory, below).
+  its servers every time (The cache's memory, below). Since 2026-10-28 a lookup that ends in a
+  resolution failure puts it too, and a hit on it ends the lookup with its error (§16 decision
+  63).
 - **Threads.** One engine per loop, and one loop per thread (rotor decision 4). Work from other
   threads arrives through rotor's `post`, which is the consumer's to arrange.
 - **The deterministic twin first.** rotor's decision 10 has a backend be a module carrying its
@@ -7520,6 +7600,7 @@ pub const Remembered = union(enum) {
         canonical_name: ?*const Name, // the end of the CNAME chain, or null (§17 question 13)
     },
     negative: struct { outcome: Negative, ttl_seconds: u32 },
+    failed: Error, // a resolution failure of RFC 9520 §2, since 2026-10-28 (§16 decision 61)
 };
 
 pub const Memory = struct {
@@ -7532,7 +7613,7 @@ pub const Memory = struct {
 **A hit is a lookup that is already over.** A lookup's first `poll` asks `recall` before it
 builds anything. On a hit the answers are copied into the slot the lookup already holds and it is
 put in its end state, so that same poll returns `.done` — or `.failed` with `NameNotFound` or
-`NoData` — and no query is ever built. The asking is at the first poll rather than at `start`
+`NoData`, or since 2026-10-28 with a resolution failure — and no query is ever built. The asking is at the first poll rather than at `start`
 because `poll` is where the clock comes in, and an expiry needs one (CLAUDE.md non-negotiable 4):
 `start` keeps its signature, and nothing above the table learns a new shape. `poll`,
 `AddressLookup` and `NameLookup` work unchanged, and every question they ask goes through the
@@ -7547,7 +7628,10 @@ seeded from the cache never writes back what it was handed.
 a `Failure` to what may be kept: `NameNotFound` and `NoData` with the TTL the SOA gave
 (RFC 2308 §5), and nothing else — not a timeout, not a refusal, not a malformed answer. The
 memory keeps no cause, so a negative that it recalls has none (§5, The cause of a failure).
-`io/` then drops its own copy of that policy and passes a `Memory` like any other caller.
+`io/` then drops its own copy of that policy and passes a `Memory` like any other caller. Since
+2026-10-28 the memory keeps a resolution failure too, for a time that the cache sets
+(RFC 9520 §3.2). A cancel, a lookup with no server and a name too long are still not kept (§16
+decisions 60 and 61).
 
 **A table without a cache, since 2026-10-11.** The engine built its table and its cache in one
 function, so that no path built one without the other. One path does now, by the caller's
@@ -7625,6 +7709,9 @@ and nothing else, and `Started` goes away.
 - A hit answers without a query: start the same question twice, and the second lookup's first
   `poll` is `.done` with the send count unchanged.
 - A cached negative comes back as the failure it was, with its TTL, and an expired one does not.
+- A resolution failure is written as `failed`, and one that the memory holds ends the lookup at
+  its first poll with its error, and nothing is sent. An engine whose servers all fail a name
+  sends nothing for it until the entry expires, and sends again after (since 2026-10-28).
 - `AddressLookup` asks one question when the cache holds the other family, and none when it
   holds both.
 - An end is remembered once, however many times it is polled.
@@ -10370,7 +10457,8 @@ for each (question 25). They are c4milo/cocuyo#48 to c4milo/cocuyo#52, in the or
   9520 does not apply. "Resolvers MUST implement a cache for resolution failures" (RFC 9520
   §3.2), and §2's own example of a resolver with several servers to choose from is a stub.
   Fixed on 2026-10-27 in the cache module: `Cache.put_failure` keeps a resolution failure with a
-  backoff to five minutes (§16 decision 60). The engine does not use it yet (§17 question 85).
+  backoff to five minutes (§16 decision 60). Since 2026-10-28 the engine uses it through the
+  table's memory (§16 decision 61).
 - Under compact denial a name that does not exist can come back as NOERROR with no data, DO
   set or not (RFC 9824 §5). A lookup that does not validate then ends `NoData` where the name
   does not exist, and `AddressLookup` does not cancel the other family, as its rule 4 would.

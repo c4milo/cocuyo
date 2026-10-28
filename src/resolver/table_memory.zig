@@ -44,6 +44,10 @@ pub const Remembered = union(enum) {
         canonical_name: ?*const core.Name,
     },
     negative: struct { outcome: Negative, ttl_seconds: u32 },
+    /// A resolution failure, one that `resolution_failure` counts: no server gave a useful
+    /// response (RFC 9520 §2). The memory sets its time, and a recall ends the lookup with it
+    /// (docs/design.md §16 decision 61).
+    failed: Error,
 };
 
 /// A cache above the table. `context` is the caller's and the table hands it back untouched.
@@ -75,13 +79,15 @@ pub fn recall_into(memory: ?Memory, slot: *Slot, now_ns: u64) void {
             answered.canonical_name,
         ),
         .negative => |negative| recall_module.failure(&slot.lookup, error_of(negative.outcome), negative.ttl_seconds),
+        .failed => |err| recall_module.failed(&slot.lookup, err),
     }
     assert(slot.lookup.is_settled());
     slot.remembered = true;
 }
 
-/// Writes a lookup's end back, once. An action that is not an end is not one, and a failure that
-/// is neither of RFC 2308's two negatives is not remembered at all.
+/// Writes a lookup's end back, once. An action that is not an end is not one. A failure is
+/// remembered when it is one of RFC 2308's two negatives or a resolution failure of RFC 9520 §2,
+/// and not at all otherwise.
 pub fn remember_end(memory: ?Memory, slot: *Slot, action: Action, now_ns: u64) void {
     switch (action) {
         .done, .failed => {},
@@ -96,13 +102,37 @@ pub fn remember_end(memory: ?Memory, slot: *Slot, action: Action, now_ns: u64) v
             .ttl_seconds = slot.lookup.answers.ttl_seconds,
             .canonical_name = if (slot.lookup.flags.aliased) &slot.lookup.current else null,
         } },
-        .failed => |failure| .{ .negative = .{
-            .outcome = negative_of(failure.err) orelse return,
-            .ttl_seconds = failure.negative_ttl_seconds,
-        } },
+        .failed => |failure| failure_end(&failure) orelse return,
         else => unreachable,
     };
     source.remember(source.context, &slot.lookup.question, end, now_ns);
+}
+
+/// What a failed lookup's end is remembered as, or null when it is not remembered.
+fn failure_end(failure: *const lookup_module.Failure) ?Remembered {
+    if (negative_of(failure.err)) |outcome| {
+        return .{ .negative = .{ .outcome = outcome, .ttl_seconds = failure.negative_ttl_seconds } };
+    }
+    // "Resolvers MUST implement a cache for resolution failures" (RFC 9520 §3.2).
+    if (resolution_failure(failure.err)) return .{ .failed = failure.err };
+    return null;
+}
+
+/// Whether a lookup that ended in `err` ended in a resolution failure: no server gave a useful
+/// response (RFC 9520 §2). It is `cache.resolution_failure`, which this module cannot read
+/// (docs/design.md §3). A test in `src/cocuyo.zig` holds the two equal (§16 decision 61).
+pub fn resolution_failure(err: Error) bool {
+    return switch (err) {
+        // A time-out, and a server that failed (RFC 9520 §2.1, §2.2, §2.3, §2.7).
+        Error.Timeout, Error.AllServersFailed => true,
+        // The server errors that `check_response` off takes as the end (RFC 9520 §2.1, §2.2).
+        Error.ServerFailure, Error.Refused, Error.NotImplemented, Error.FormatError => true,
+        // The chain bound is how a lookup sees an alias loop (RFC 9520 §2.5).
+        Error.ChainTooLong => true,
+        // No RFC states a rule here: these are no resolution failure by cocuyo's choice
+        // (docs/design.md §16 decision 60). The two negatives are useful responses.
+        else => false,
+    };
 }
 
 fn error_of(outcome: Negative) Error {
@@ -147,13 +177,14 @@ const Table = fixtures.Table;
 const ready_module = @import("table_ready.zig");
 
 /// A memory that hands back whatever a test put in it and counts what it was asked and told.
-const Stub = struct {
+/// The walks' tests use it too. Test-only.
+pub const Stub = struct {
     held: ?Remembered = null,
     recalls: u32 = 0,
     writes: u32 = 0,
     written: ?Remembered = null,
 
-    fn memory(self: *Stub) Memory {
+    pub fn memory(self: *Stub) Memory {
         return .{ .context = self, .recall = recall, .remember = remember };
     }
 
@@ -353,7 +384,7 @@ test "an end is written back once, however many polls produce it" {
     rig.resolver.release(handle);
 }
 
-test "a failure that is not one of RFC 2308's two negatives is not written back" {
+test "a cancel is no resolution failure, and is not written back" {
     var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
     rig.open();
     var stub: Stub = .{};
@@ -364,6 +395,74 @@ test "a failure that is not one of RFC 2308's two negatives is not written back"
     const event = rig.poll().?;
     try testing.expect(event.action == .failed);
     try testing.expectEqual(Error.Canceled, event.action.failed.err);
+    try testing.expectEqual(@as(u32, 0), stub.writes);
+    rig.resolver.release(handle);
+}
+
+test "the resolution failures of RFC 9520 §2 are written as failed, and nothing else" {
+    const written = [_]Error{
+        Error.Timeout,      Error.AllServersFailed, Error.ServerFailure,
+        Error.Refused,      Error.NotImplemented,   Error.FormatError,
+        Error.ChainTooLong,
+    };
+    for (written) |err| try testing.expect(resolution_failure(err));
+    const kept_out = [_]Error{
+        Error.NameNotFound, Error.NoData,    Error.NameTooLong,
+        Error.Canceled,     Error.NoServers, Error.MalformedMessage,
+    };
+    for (kept_out) |err| try testing.expect(!resolution_failure(err));
+}
+
+/// Drives one lookup to `AllServersFailed`: its one server answers SERVFAIL on every pass.
+fn failed_once(rig: *Table) !lookup_module.Failure {
+    const handle = try rig.start("example.com.");
+    var passes: usize = 0;
+    while (passes < rig.config.attempts) : (passes += 1) {
+        const sent = rig.poll().?;
+        try testing.expect(sent.action == .send_udp);
+        rig.resolver.on_sent(sent.handle, rig.now_ns);
+        const lookup = rig.resolver.lookup_of(handle);
+        const message = rig.build(lookup, fixtures.server_failure);
+        rig.now_ns += 1;
+        try testing.expectEqual(lookup_module.Verdict.accepted, rig.resolver.on_datagram(message, lookup.server(), rig.now_ns));
+    }
+    const end = rig.poll().?;
+    try testing.expect(end.action == .failed);
+    rig.resolver.release(handle);
+    return end.action.failed;
+}
+
+test "a lookup whose servers all fail is written back as failed, with its error" {
+    var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
+    rig.open();
+    var stub: Stub = .{};
+    rig.resolver.remember_with(stub.memory());
+    const failure = try failed_once(&rig);
+    try testing.expectEqual(Error.AllServersFailed, failure.err);
+    try testing.expectEqual(@as(u32, 1), stub.writes);
+    try testing.expectEqual(Error.AllServersFailed, stub.written.?.failed);
+}
+
+test "a failure the memory holds ends the lookup at its first poll, and nothing is sent" {
+    // "the resolver MUST NOT send any corresponding outgoing queries until after the cache
+    // entries expire" (RFC 9520 §3.2).
+    var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
+    rig.open();
+    var stub: Stub = .{ .held = .{ .failed = Error.AllServersFailed } };
+    rig.resolver.remember_with(stub.memory());
+
+    const handle = try rig.start("example.com.");
+    const event = rig.poll().?;
+    try testing.expectEqual(@as(u32, 1), stub.recalls);
+    try testing.expect(event.action == .failed);
+    const failure = event.action.failed;
+    try testing.expectEqual(Error.AllServersFailed, failure.err);
+    // The memory keeps no cause, and no pass was made (docs/design.md §17 question 89).
+    try testing.expectEqual(@as(?lookup_module.Cause, null), failure.cause);
+    try testing.expectEqual(@as(u8, 0), failure.attempts_made);
+    try testing.expectEqual(@as(u32, 0), failure.negative_ttl_seconds);
+    try testing.expectEqual(@as(u64, 0), rig.resolver.servers.samples(0));
+    // Read back from the memory, so it is not written to it again.
     try testing.expectEqual(@as(u32, 0), stub.writes);
     rig.resolver.release(handle);
 }

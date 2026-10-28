@@ -10385,3 +10385,72 @@ back. The disk had 35 GB free.
 | FE21 | the cache's most is 301 s | `failure_seconds_max` names `core`'s limit | the test of the valid minimums, `test-cache` | CAUGHT |
 
 Seven mutations, seven `CAUGHT`.
+
+## The table recalls a resolution failure
+
+2026-10-28, c4milo/cocuyo#51. The engine reaches its cache through the table's `Memory` (design
+§20). `Remembered` carried an answer and RFC 2308's two negatives, so `remembered_by` recalled a
+failure entry as a miss. An engine with a cache then sent every try again for a name whose
+servers all failed. RFC 9520 §3.2 says it "MUST NOT". The owner ruled for a variant `failed` of
+`Remembered` (design §16 decision 61, §17 question 85).
+
+The prefix RF was in use already, by the rows of "A refusal is a failure", so these rows use MR.
+
+### What changed
+
+- Design first: §16 decision 61, §17 questions 85 and 89, §5's table of causes, §18, §19 step 13,
+  §20 and the list of what reading the RFCs found. `docs/rfcs/README.md` and `spec/README.md`
+  say it too.
+- `Remembered` has a third variant, `failed`, with the error. `remember_end` writes each
+  resolution failure, which `table_memory.resolution_failure` counts, and `recall_into` ends the
+  lookup with the recalled error through `lookup_recall.failed`.
+- `remembered_by` puts a `failed` end with `Cache.put_failure`, and recalls a failure entry as
+  `failed`. It asserts that the table writes only what the cache keeps.
+- A recalled failure has no cause and `attempts_made` of zero. The three assertions that
+  `AllServersFailed` has a cause accept that case, as §17 question 89 recommends. A new assertion
+  says that a lookup that went out ends `AllServersFailed` or `Timeout` after its last pass.
+- The engine does not change. The Lean model and the TLA+ model hold no memory, so neither
+  changed, and `zig build test` replays the committed slices as before.
+
+### The tests
+
+Each new test failed first: the tests that name `failed` or `resolution_failure` did not compile
+against the old code, and the engine's test is the one MR12 and MR13 break.
+
+- `src/resolver/table_memory.zig`: the list of resolution failures; a lookup whose servers all
+  fail is written back as `failed`; a failure the memory holds ends the lookup at its first poll,
+  with no cause, no pass and no query. The cancel test now says that a cancel is no resolution
+  failure.
+- `src/resolver/address_lookup_walk.zig` and `src/resolver/name_lookup.zig`: a recalled failure
+  ends each walk with its error and no cause.
+- `src/cocuyo.zig`: a failure entry comes back as `failed`; a `failed` end is kept for the
+  minimum and then expires; the table's list and the cache's agree on each error; a table over
+  a real cache ends a lookup at its first poll. The test that pinned the old miss is gone.
+- `io/io_lifecycle_cache_test.zig`: on the twin, both servers answer SERVFAIL. The second lookup
+  of the name sends nothing and ends `AllServersFailed`. After the time, the third lookup sends
+  again.
+
+A script in the scratchpad applied each edit, ran the target the row names, and put the file
+back. The disk had 26 GB free.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| MR1 | a resolution failure is not written back | `failure_end`, RFC 9520 §3.2 | the written-back test, `test-resolver` | CAUGHT |
+| MR2 | `Canceled` is written as a resolution failure | `resolution_failure` | the cancel test, `test-resolver` | CAUGHT |
+| MR3 | `ChainTooLong` is not written as a resolution failure | `resolution_failure`, RFC 9520 §2.5 | the list test, `test-resolver` | CAUGHT |
+| MR4 | a recalled failure does not end the lookup | `recall_into`, RFC 9520 §3.2 | the recall test, `test-resolver` | CAUGHT |
+| MR5 | `remembered_by` recalls a failure entry as a miss | `recall_from_cache` | the recall test of `cocuyo.zig`, `test-cocuyo` | CAUGHT |
+| MR6 | `remembered_by` does not keep a `failed` end | `remember_in_cache` | the minimum test of `cocuyo.zig`, `test-cocuyo` | CAUGHT |
+| MR7 | a recalled `AllServersFailed` must have a cause in `Lookup` | `failure_of`, question 89 | the recall test, by the assertion, `test-resolver` | CAUGHT |
+| MR8 | a recalled `AllServersFailed` must have a cause in `AddressLookup` | `end_failed_with`, question 89 | the walk's recall test, by the assertion, `test-resolver` | CAUGHT |
+| MR9 | a recalled `AllServersFailed` must have a cause in `NameLookup` | `end_failed_with`, question 89 | the reverse walk's recall test, by the assertion, `test-resolver` | CAUGHT |
+| MR10 | a recalled `AllServersFailed` ends as `Timeout` | `lookup_recall.failed` | the recall test, `test-resolver` | CAUGHT |
+| MR11 | a recalled failure must have made every pass | `failure_of`, the last pass | the recall test, by the assertion, `test-resolver` | CAUGHT |
+| MR12 | the engine recalls a failure entry as a miss | `recall_from_cache`, RFC 9520 §3.2 | the engine's failure test, `test-io` | CAUGHT |
+| MR13 | the engine writes no resolution failure | `failure_end`, RFC 9520 §3.2 | the engine's failure test, `test-io` | CAUGHT |
+| MR14 | `NameTooLong` is written as a resolution failure | `resolution_failure`, decision 60 | the test that the two lists agree, `test-cocuyo` | CAUGHT |
+
+Fourteen mutations, fourteen `CAUGHT`. MR10 did not compile at its first edit, which discarded
+a parameter that it still read. It ran again with an edit that compiles.

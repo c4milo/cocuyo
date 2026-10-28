@@ -88,7 +88,8 @@ updates worth knowing about, none of which version one implements:
   resolution failures. cocuyo's cache remembers what a server said and nothing it could infer, so
   RFC 6604 and RFC 8020 do not apply. RFC 9520 applies: its §2 names a stub with several servers
   as a resolver it covers. Since 2026-10-27 `Cache.put_failure` keeps a resolution failure for 1 s
-  to 5 minutes, with a backoff (design §16 decision 60).
+  to 5 minutes, with a backoff (design §16 decision 60). Since 2026-10-28 the table recalls the
+  entry through its memory, and sends no query for the name while it lives (decision 61).
 - RFC 3849 is updated by RFC 9637, which adds a second documentation prefix, `3fff::/20`. The
   fixtures use the first.
 - RFC 3986 is updated by RFC 7320 and RFC 8820, which obsoletes it. Both are guidance for

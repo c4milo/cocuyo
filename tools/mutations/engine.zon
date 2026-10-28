@@ -4642,4 +4642,22 @@
         },
         .caught_by = .{ .step = "test-io" },
     },
+    .{
+        .section = "The table recalls a resolution failure",
+        .id = "MR12",
+        .what = "the engine recalls a failure entry as a miss",
+        .edits = .{
+            .{ .file = "src/cocuyo.zig", .old = "        .failed => .{ .failed = hit.failure.? },", .new = "        .failed => null," },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The table recalls a resolution failure",
+        .id = "MR13",
+        .what = "the engine writes no resolution failure",
+        .edits = .{
+            .{ .file = "src/resolver/table_memory.zig", .old = "    if (resolution_failure(failure.err)) return .{ .failed = failure.err };\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
 }

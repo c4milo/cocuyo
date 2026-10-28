@@ -57,6 +57,17 @@ pub fn failure(lookup: *Lookup, err: core.Error, ttl_seconds: u32) void {
     lookup.fail(err);
 }
 
+/// Ends `lookup` with a resolution failure the memory remembered (RFC 9520 §3.2). The memory
+/// keeps no cause, and no pass was made, so the failure has neither (docs/design.md §16
+/// decision 61, §17 question 89).
+pub fn failed(lookup: *Lookup, err: core.Error) void {
+    assert(before_first_query(lookup));
+    assert(err != core.Error.NameNotFound and err != core.Error.NoData);
+    assert(lookup.round == 0);
+    assert(lookup.cause.what == .none);
+    lookup.fail(err);
+}
+
 // Tests. The table's tests drive these through a memory; these pin what a recalled answer's
 // TTLs are (c4milo/cocuyo#39).
 

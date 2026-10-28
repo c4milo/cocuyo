@@ -194,3 +194,7 @@ pub const one_chunk_seed: u64 = 36;
 /// A wait short enough that seven servers that are down cost the twin's clock little, one try
 /// each (`io_sim_servers_test.zig`).
 pub const down_server_timeout_ns: u64 = 1_000_000_000;
+
+/// A jump past the least time a cache keeps a resolution failure, 1 s (RFC 9520 §3.2), so the
+/// entry has expired after it.
+pub const failure_expiry_jump_ns: u64 = 2 * 1_000_000_000;

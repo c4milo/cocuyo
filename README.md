@@ -69,7 +69,7 @@ exactly what the rest of the machine sees.
 | Encryption | In the engine: DNS over TLS (RFC 7858, strict as RFC 8310 asks), DNS over QUIC (RFC 9250) and DNS over HTTPS (RFC 8484) on HTTP/3, HTTP/2 or HTTP/1.1, a server known by its name, by SPKI pins, or by both |
 | Robustness | Retries with each server's wait set from its measured latency and doubled per pass, rotation, and server failover that tracks failures per server |
 | Configuration | `resolv.conf`, `RES_OPTIONS` and `LOCALDOMAIN`, and the hosts file, parsed from bytes you read |
-| Cache | Optional, over memory you hand in, sized when you compile or from a number you read at run time, with a TTL cap you set, SIEVE eviction and RFC 2308 negative caching |
+| Cache | Optional, over memory you hand in, sized when you compile or from a number you read at run time, with a TTL cap you set, SIEVE eviction, RFC 2308 negative caching, and a cache of resolution failures (RFC 9520) |
 | Security | DNS cookies (RFC 7873), DNS-0x20 case randomisation, a source-port hint, and strict response matching |
 
 The search-list walk has been checked on the wire against glibc 2.39, musl 1.2.5 and c-ares 1.34.8.

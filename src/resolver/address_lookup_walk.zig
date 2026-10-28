@@ -247,7 +247,8 @@ pub fn end_failed(self: *AddressLookup, err: core.Error) void {
 /// The walk ends with `failure`, a lookup's own, or one an end of the walk built.
 fn end_failed_with(self: *AddressLookup, failure: Failure) void {
     // `AllServersFailed` rests on a server that failed a lookup (docs/design.md §5).
-    assert(failure.err != core.Error.AllServersFailed or failure.cause != null);
+    // A failure that the memory recalled has no cause, and made no pass (§17 question 89).
+    assert(failure.err != core.Error.AllServersFailed or failure.cause != null or failure.attempts_made == 0);
     self.ended = .{ .failed = failure };
 }
 
@@ -317,6 +318,7 @@ fn set_canonical(self: *AddressLookup, name: *const Name) void {
 const testing = std.testing;
 const fixtures = @import("fixtures.zig");
 const lookup_test = @import("address_lookup_test.zig");
+const table_memory = @import("table_memory.zig");
 
 /// One more A record than a lookup keeps, each with an address of its own.
 const records_past_bound = records: {
@@ -421,4 +423,19 @@ test "the walk's own cancel keeps no failure, so a negative end is on the lookup
     // The A lookup's own fields: the first server, and no cause.
     try testing.expectEqual(@as(u8, 0), failure.server_index);
     try testing.expectEqual(@as(?lookup_module.Cause, null), failure.cause);
+}
+
+test "a failure the memory recalls ends the walk with that error, and no cause" {
+    // The memory keeps no cause, so a recalled `AllServersFailed` has none, and no pass was made
+    // (docs/design.md §16 decision 61, §17 question 89).
+    var rig: lookup_test.Rig = .{ .table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } } };
+    try rig.open();
+    var stub: table_memory.Stub = .{ .held = .{ .failed = core.Error.AllServersFailed } };
+    rig.table.resolver.remember_with(stub.memory());
+    try rig.start(null, "host.example.", null, .{});
+    try rig.drive();
+    const failure = rig.lookup.outcome().?.failed;
+    try testing.expectEqual(core.Error.AllServersFailed, failure.err);
+    try testing.expectEqual(@as(?lookup_module.Cause, null), failure.cause);
+    try testing.expectEqual(@as(u8, 0), failure.attempts_made);
 }

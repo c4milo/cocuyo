@@ -187,7 +187,8 @@ fn end_failed(self: *NameLookup, err: core.Error) void {
 
 fn end_failed_with(self: *NameLookup, failure: Failure) void {
     // `AllServersFailed` rests on a server that failed the lookup (docs/design.md §5).
-    assert(failure.err != core.Error.AllServersFailed or failure.cause != null);
+    // A failure that the memory recalled has no cause, and made no pass (§17 question 89).
+    assert(failure.err != core.Error.AllServersFailed or failure.cause != null or failure.attempts_made == 0);
     self.ended = .{ .failed = failure };
 }
 
@@ -454,4 +455,18 @@ test "an end that is another lookup's is refused and left for its owner" {
     first.cancel();
     try drive(&rig, &first);
     try testing.expectEqual(@as(usize, 0), rig.resolver.in_flight());
+}
+
+test "a failure the memory recalls ends the reverse walk with that error, and no cause" {
+    // The memory keeps no cause (docs/design.md §16 decision 61, §17 question 89).
+    var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
+    rig.open();
+    var stub: @import("table_memory.zig").Stub = .{ .held = .{ .failed = core.Error.AllServersFailed } };
+    rig.resolver.remember_with(stub.memory());
+    var lookup = try NameLookup.init(&rig.resolver, null, &Address.from_v4(.{ 192, 0, 2, 1 }));
+    try drive(&rig, &lookup);
+    const failure = lookup.outcome().?.failed;
+    try testing.expectEqual(core.Error.AllServersFailed, failure.err);
+    try testing.expectEqual(@as(?Cause, null), failure.cause);
+    try testing.expectEqual(@as(u8, 0), failure.attempts_made);
 }

@@ -20,6 +20,12 @@ const long_lived = [fixtures.servers]rotor.server.Script{
     .{ .ttl_seconds = fixtures.long_ttl_seconds },
 };
 
+/// Servers that answer SERVFAIL to every query, so that every lookup ends `AllServersFailed`.
+const failing = [fixtures.servers]rotor.server.Script{
+    .{ .servfail_per_256 = fixtures.always },
+    .{ .servfail_per_256 = fixtures.always },
+};
+
 /// What one lookup did: whether a query went out for it, and the TTL its answer reported.
 const Asked = struct { sent: bool, ttl_seconds: u32 };
 
@@ -248,5 +254,50 @@ test "the cache takes the failure minimum of the configuration, at init and at r
     replacement.cache_failure_seconds_min = cocuyo.limits.cache_failure_seconds_max;
     try rig.engine.reinit(&replacement, rig.cache_memory.slices(), 48, rig.loop.now());
     try testing.expectEqual(cocuyo.limits.cache_failure_seconds_max, rig.engine.cache.?.failure_seconds_min);
+    try rig.deinit();
+}
+
+/// What one failed lookup did: whether a query went out for it, and the error it ended with.
+const Failed = struct { sent: bool, err: cocuyo.Error };
+
+/// Asks `name` and takes its failure, as `ask` takes an answer.
+fn ask_failed(rig: *Rig, name: []const u8) !Failed {
+    const handle = try rig.engine.start(question(name), rig.loop.now());
+    const sent = rig.engine.send_in_flight[handle.index];
+    const result = if (sent) try rig.until_result() else rig.engine.take(rig.loop.now()) orelse return error.NoResult;
+    try testing.expectEqual(handle, result.handle);
+    const err = result.outcome.failure.err;
+    _ = rig.engine.take(rig.loop.now());
+    return .{ .sent = sent, .err = err };
+}
+
+/// Turns the loop until `jump_ns` has passed on its clock.
+fn wait_for(rig: *Rig, jump_ns: u64) !void {
+    const until_ns = rig.loop.now() + jump_ns;
+    var rounds: usize = 0;
+    while (rig.loop.now() < until_ns and rounds < fixtures.until_rounds_max) : (rounds += 1) {
+        _ = try rig.step(until_ns - rig.loop.now());
+    }
+    try testing.expect(rig.loop.now() >= until_ns);
+}
+
+test "a name whose servers all failed is not asked again until the failure expires" {
+    // "the resolver MUST NOT send any corresponding outgoing queries until after the cache
+    // entries expire" (RFC 9520 §3.2; docs/design.md §16 decision 61).
+    var rig: Rig = .{};
+    const least = cocuyo.limits.cache_failure_seconds_least;
+    try rig.init(52, failing, .{ .servers = &.{}, .cache_failure_seconds_min = least });
+    const first = try ask_failed(&rig, "down.example.");
+    try testing.expect(first.sent);
+    try testing.expectEqual(cocuyo.Error.AllServersFailed, first.err);
+    // Within the time: nothing is sent, and the lookup ends with the error the cache holds.
+    const recalled = try ask_failed(&rig, "down.example.");
+    try testing.expect(!recalled.sent);
+    try testing.expectEqual(cocuyo.Error.AllServersFailed, recalled.err);
+    // After the time, the name goes to its servers again.
+    try wait_for(&rig, fixtures.failure_expiry_jump_ns);
+    const again = try ask_failed(&rig, "down.example.");
+    try testing.expect(again.sent);
+    try testing.expectEqual(cocuyo.Error.AllServersFailed, again.err);
     try rig.deinit();
 }

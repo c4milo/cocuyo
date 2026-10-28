@@ -26,9 +26,10 @@ pub const Failure = struct {
     /// Zero for every other failure, and zero is never cached (docs/design.md §18).
     negative_ttl_seconds: u32,
     /// The cause of the last server failure the lookup met, or null when no server failed it.
-    /// `AllServersFailed` always has one, and `Timeout` never does. Any other error has the last
-    /// one, or null: a `NameNotFound` can carry the SERVFAIL of a server before the one that
-    /// answered NXDOMAIN. A negative that the memory of docs/design.md §20 recalls has none.
+    /// `AllServersFailed` has one, unless the memory of docs/design.md §20 recalled it, and then
+    /// `attempts_made` is zero (§17 question 89). `Timeout` never has one. Any other error has
+    /// the last one, or null: a `NameNotFound` can carry the SERVFAIL of a server before the one
+    /// that answered NXDOMAIN. A negative that the memory of docs/design.md §20 recalls has none.
     /// `AddressLookup` and `NameLookup` hand on the cause of the lookup whose end they report
     /// (docs/design.md §5, The cause of a failure).
     cause: ?Cause,
@@ -153,8 +154,11 @@ pub fn keep(self: *Lookup, what: Cause.What) void {
 pub fn failure_of(self: *const Lookup) Failure {
     assert(self.state == .failed);
     // `AllServersFailed` rests on a server that failed the lookup, and `Timeout` on none. A cause
-    // names a server of the configuration.
-    assert(self.failure != core.Error.AllServersFailed or self.cause.what != .none);
+    // names a server of the configuration. A failure that the memory recalled made no pass and
+    // has no cause (docs/design.md §17 question 89); one that went out ends after its last pass.
+    const passes_end = self.failure == core.Error.AllServersFailed or self.failure == core.Error.Timeout;
+    assert(!passes_end or self.round == 0 or self.round == self.config.attempts);
+    assert(self.failure != core.Error.AllServersFailed or self.cause.what != .none or self.round == 0);
     assert(self.failure != core.Error.Timeout or self.cause.what == .none);
     assert(self.cause.server_index < self.config.servers.len or self.cause.what == .none);
     const negative = self.failure == core.Error.NameNotFound or self.failure == core.Error.NoData;

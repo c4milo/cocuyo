@@ -3804,4 +3804,94 @@
         },
         .caught_by = .{ .step = "test-resolver" },
     },
+    .{
+        .section = "The table recalls a resolution failure",
+        .id = "MR1",
+        .what = "a resolution failure is not written back",
+        .edits = .{
+            .{ .file = "src/resolver/table_memory.zig", .old = "    if (resolution_failure(failure.err)) return .{ .failed = failure.err };\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table recalls a resolution failure",
+        .id = "MR2",
+        .what = "`Canceled` is written as a resolution failure",
+        .edits = .{
+            .{ .file = "src/resolver/table_memory.zig", .old = "        Error.ChainTooLong => true,\n", .new = "        Error.ChainTooLong, Error.Canceled => true,\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table recalls a resolution failure",
+        .id = "MR3",
+        .what = "`ChainTooLong` is not written as a resolution failure",
+        .edits = .{
+            .{ .file = "src/resolver/table_memory.zig", .old = "        Error.ChainTooLong => true,\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table recalls a resolution failure",
+        .id = "MR4",
+        .what = "a recalled failure does not end the lookup",
+        .edits = .{
+            .{ .file = "src/resolver/table_memory.zig", .old = "        .failed => |err| recall_module.failed(&slot.lookup, err),\n", .new = "        .failed => return,\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table recalls a resolution failure",
+        .id = "MR5",
+        .what = "`remembered_by` recalls a failure entry as a miss",
+        .edits = .{
+            .{ .file = "src/cocuyo.zig", .old = "        .failed => .{ .failed = hit.failure.? },", .new = "        .failed => null," },
+        },
+        .caught_by = .{ .step = "test-cocuyo" },
+    },
+    .{
+        .section = "The table recalls a resolution failure",
+        .id = "MR6",
+        .what = "`remembered_by` does not keep a `failed` end",
+        .edits = .{
+            .{ .file = "src/cocuyo.zig", .old = "            store.put_failure(question, err, now_ns);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cocuyo" },
+    },
+    .{
+        .section = "The table recalls a resolution failure",
+        .id = "MR7",
+        .what = "a recalled `AllServersFailed` must have a cause in `Lookup`",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_failure.zig", .old = "self.cause.what != .none or self.round == 0);", .new = "self.cause.what != .none);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table recalls a resolution failure",
+        .id = "MR10",
+        .what = "a recalled `AllServersFailed` ends as `Timeout`",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_recall.zig", .old = "    lookup.fail(err);\n}\n\n// Tests.", .new = "    lookup.fail(if (err == core.Error.AllServersFailed) core.Error.Timeout else err);\n}\n\n// Tests." },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table recalls a resolution failure",
+        .id = "MR11",
+        .what = "a recalled failure must have made every pass",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_failure.zig", .old = "    assert(!passes_end or self.round == 0 or self.round == self.config.attempts);", .new = "    assert(!passes_end or self.round == self.config.attempts);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table recalls a resolution failure",
+        .id = "MR14",
+        .what = "`NameTooLong` is written as a resolution failure",
+        .edits = .{
+            .{ .file = "src/resolver/table_memory.zig", .old = "        Error.ChainTooLong => true,\n", .new = "        Error.ChainTooLong, Error.NameTooLong => true,\n" },
+        },
+        .caught_by = .{ .step = "test-cocuyo" },
+    },
 }
