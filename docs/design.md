@@ -4689,7 +4689,7 @@ step until `zig build test` passes.
     What a recalled failure carries: the error, `negative_ttl_seconds` of zero, `attempts_made` of
     zero and no cause. The memory keeps no cause, as for a recalled negative (§5, The cause of a
     failure). So a recalled `AllServersFailed` has no cause, which §5 did not allow before. §17
-    question 89 asks the owner about that, and this change builds its recommendation.
+    question 89 asked the owner about that, and the owner ruled on 2026-10-28: as built.
 
     The models: the Lean model of §5 has no memory, and the replay never gives `Lookup` one. The
     TLA+ engine model holds no cache, and each walk of the replay asks a new name, so no walk
@@ -5829,7 +5829,8 @@ this change builds no part of the ruling.
     Recommended: the chapulin call and the colibri call, then the ruling as written. The other ways
     send a wrong alert or none. Until the owner rules, cocuyo builds none of it, and the connection
     closes with no alert as today. Answered on 2026-10-28: the chapulin call and the colibri call.
-    cocuyo builds the ruling after a colibri release that carries them.
+    cocuyo builds the ruling after a colibri release that carries them: c4milo/chapulin#207,
+    c4milo/chapulin#208 and c4milo/colibri#114.
 
 ### Asked on 2026-10-28, for the cause of a recalled failure
 
@@ -5854,7 +5855,7 @@ say which of the two gives way.
 
     Recommended: the exception. It changes no type, and `attempts_made` tells the two cases
     apart. A recalled negative already has no cause. Until the owner rules, cocuyo builds the
-    recommendation.
+    recommendation. Answered on 2026-10-28: as built.
 
 ## 18. The cache
 
