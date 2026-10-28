@@ -249,6 +249,7 @@ pub const Config = struct {
     socket_send_bytes: u32 = 0,              // the same for the send buffer
     udp_queries_per_port: u32 = 0,           // queries one source port carries (udp_max_queries); 0 keeps it
     cache_ttl_seconds_max: u32 = 3600,       // the cap on every TTL the engine's cache keeps (qcache_max_ttl)
+    cache_failure_seconds_min: u32 = 5,      // the first time a cache keeps a resolution failure (RFC 9520 §3.2)
 };
 ```
 
@@ -257,6 +258,12 @@ socket sizes, the engine reads it and a lookup never does: the engine hands it t
 builds, at `init` and at each `reinit` (§19 step 13). A caller that builds a `Cache` of its own
 hands `Cache.init` this field, or a cap of its own (§18). `assert_valid` requires at least 1 and
 at most seven days, `cache_ttl_seconds_max`, the cap RFC 8767 §4 recommends (decision 37).
+
+`cache_failure_seconds_min` joined on 2026-10-27 (§16 decision 60). It is the first time a cache
+keeps a resolution failure of a name. The engine hands it to the cache it builds, as it hands
+the cap. A caller that builds a `Cache` of its own sets `Cache.failure_seconds_min` from it after
+`init`. `assert_valid` requires 1 s to 300 s, `cache_failure_seconds_least` and
+`cache_failure_seconds_max` (RFC 9520 §3.2).
 
 ### One lookup
 
@@ -1511,6 +1518,7 @@ default, an hour. macOS's `resolver(5)`, read on 2026-10-11, names no option for
 Linux's `resolv.conf(5)` names none as recalled. c-ares takes its cap from the options a program
 fills in, and `ares_init_options(3)` names no line of `resolv.conf` for it (§19 step 13). A
 consumer that keeps the cap in a configuration file of its own sets the field after the parse.
+No line sets `Config.cache_failure_seconds_min` either, for the same reasons (§16 decision 60).
 
 `parse` cannot fail. It returns the default `Config` for empty input, which is the localhost
 nameserver, matching the historical behaviour of the platform stubs.
@@ -1922,6 +1930,9 @@ or a count is a `usize`, so its sum with a narrow value is a `usize` too (§16 d
 | `lookup_slots_max` | 1024 | bounds a `Handle` index and the key table |
 | `cache_ttl_seconds_max_default` | 3600 s | the default of `Config.cache_ttl_seconds_max`, the cap on every TTL a cache keeps: c-ares's default (§18), and inside the seven days RFC 8767 §4 recommends; in `core` since 2026-10-11, because `Config` and the cache both read it, and `cache.constants.ttl_seconds_max_default` is the same constant by its older name |
 | `cache_ttl_seconds_max` | 604800 s | the most `Config.cache_ttl_seconds_max` may be, and the most `Cache.init` takes: seven days, "a recommended cap of 604,800 seconds (7 days)" (RFC 8767 §4); the owner's ruling of 2026-10-11 (§16 decision 37) |
+| `cache_failure_seconds_min_default` | 5 s | the default of `Config.cache_failure_seconds_min`, the first time a cache keeps a resolution failure: the example of RFC 9520 §3.2; `cache.constants.failure_seconds_min_default` is the same constant (§16 decision 60) |
+| `cache_failure_seconds_least` | 1 s | the least `Config.cache_failure_seconds_min` may be: "at least 1 second" (RFC 9520 §3.2); `cache.limits.failure_seconds_least` is the same limit (§16 decision 60) |
+| `cache_failure_seconds_max` | 300 s | the most `Config.cache_failure_seconds_min` may be, and where the backoff stops: "not longer than 5 minutes" (RFC 9520 §3.2); `cache.limits.failure_seconds_max` is the same limit (§16 decision 60) |
 
 ## 13. Tests, mutation and fuzzing
 
@@ -4565,9 +4576,9 @@ step until `zig build test` passes.
       names. The answer holds no data of the type asked for, so no server gave a useful response.
     - Not `NameNotFound` or `NoData`. They are useful responses, which `put_negative` keeps for the
       SOA's TTL (RFC 9520 §2, RFC 2308 §5).
-    - Not `NameTooLong`. A lookup ends with it at YXDOMAIN, a statement about the name from the
-      server, so the response is useful (RFC 9520 §2). No RFC gives it a time (decision 57). A
-      name too long to ask ends before any query, and a cache entry saves nothing there.
+    - Not `NameTooLong`, by cocuyo's choice: RFC 9520 §2 does not name YXDOMAIN. A lookup ends
+      with it at YXDOMAIN, and a server that says YXDOMAIN answered. No RFC gives it a time
+      (decision 57). A name too long to ask ends before any query, and an entry saves nothing.
     - Not `Canceled`. The caller ended the lookup, and no server failed.
     - Not `NoServers`. No server was asked. The configuration is the cause, and an entry would
       hide a configuration that the caller then corrects.
@@ -4579,7 +4590,8 @@ step until `zig build test` passes.
     - The first failure of a name is kept for `Cache.failure_seconds_min`: 5 s by default
       (`constants.failure_seconds_min_default`), and 1 s to 300 s (`limits.failure_seconds_least`
       and `limits.failure_seconds_max`). RFC 9520 §3.2 asks for at least 1 s, at most 5 minutes,
-      and a minimum that the operator can set.
+      and a minimum that the operator can set. The operator sets it in
+      `Config.cache_failure_seconds_min`.
     - Each later failure of the same name after the entry expired doubles the time, up to 300 s
       (RFC 9520 §3.2, the exponential backoff). A failure while the entry is live changes nothing:
       a lookup that started before the entry ends after it, and only a failure after the expiry
@@ -4587,9 +4599,15 @@ step until `zig build test` passes.
     - The cache's TTL cap, `ttl_seconds_max`, also caps a failure, as it caps every entry. A cap
       under the minimum keeps a failure for the cap, which is 1 s at least.
 
-    The cache takes no options struct, and `Cache.init` keeps its signature (decision 37). So the
-    minimum is a field of `Cache` with its default, which a caller sets after `init`, and
-    `failure_seconds_min_valid` says what a caller must refuse. `put_failure` asserts it.
+    Where the minimum is set: the cache takes no options struct, and `Cache.init` keeps its
+    signature (decision 37). `Config` already carries the cache's cap, `cache_ttl_seconds_max`,
+    so it carries the minimum too, as `cache_failure_seconds_min`, and `assert_valid` holds it to
+    1 s to 300 s. The engine copies it to `Cache.failure_seconds_min` at `init` and at each
+    `reinit`. A caller with a cache of its own copies it after `Cache.init`.
+    `failure_seconds_min_valid` says what a reader of a configuration file must refuse, and
+    `put_failure` asserts it. The bounds and the default are in `core`, since `Config` and the
+    cache both read them. `cache.limits` and `cache.constants` name them again, as the cap's
+    default is named (decision 37).
 
     The slot keeps the failure as a four-bit `Failure` and its count in four more bits, one octet
     in padding the slot had, so a slot stays 2,984 octets. The count stops at 9, from 1 s.
@@ -4627,6 +4645,9 @@ step until `zig build test` passes.
     - A server time-out in `Servers`, by address, which RFC 9520 §3.2 offers as an example. It
       changes `src/resolver`, which the ruling keeps as it is, and it keeps a server out of every
       name, not one name out of every server.
+    - The minimum as a field of `Cache` alone, which a caller sets after `init`. The operator
+      could not set it through `Config`, where the cap already is, and RFC 9520 §3.2 asks that
+      the operator can set it.
     - A separate table or a quota for failure entries. It is one more piece of memory and one more
       field to size, and the shared table is bounded already.
     - An entry that keeps its count after the hand takes it. The count needs a slot, and a slot
@@ -5797,7 +5818,7 @@ pub const Cache = struct {
     pub fn get(self: *Cache, question: *const Question, now_ns: u64) ?Hit;
     pub fn put(self: *Cache, question: *const Question, answers: *const wire.Answers, now_ns: u64) void;
     pub fn put_negative(self: *Cache, question: *const Question, outcome: Outcome, ttl_seconds: u32, now_ns: u64) void;
-    // Since 2026-10-27 (§16 decision 60): 5 s by default, 1 s to 300 s.
+    // Since 2026-10-27 (§16 decision 60): 5 s by default, 1 s to 300 s, from Config.cache_failure_seconds_min.
     failure_seconds_min: u32 = constants.failure_seconds_min_default,
     pub fn put_failure(self: *Cache, question: *const Question, err: Error, now_ns: u64) void;
     pub fn flush(self: *Cache) void;
@@ -6253,6 +6274,9 @@ writes every slot and every key, so `undefined` is enough.
 | `cache_ttl_seconds_max_default` | 3600 | c-ares's default cap, so a consumer replacing it sees the same ceiling; since 2026-10-11 `core`'s constant of that name, which is also the default of `Config.cache_ttl_seconds_max` (§12) |
 | `cache_ttl_seconds_max` | 604800 | the most a cap may be: seven days, the cap RFC 8767 §4 recommends; `core`'s constant, since `Config` and the cache both hold a cap to it (2026-10-11) |
 | `cache_sweep_steps_max` | twice the slots | one pass clears every bit, the next must find one |
+| `cache_failure_seconds_min_default` | 5 | the first time a resolution failure is kept, the example of RFC 9520 §3.2, and the default of `Config.cache_failure_seconds_min`; `core`'s constant (§16 decision 60) |
+| `cache_failure_seconds_least` | 1 | RFC 9520 §3.2: at least 1 second; `core`'s limit, since `Config` and the cache both hold the minimum to it (§16 decision 60) |
+| `cache_failure_seconds_max` | 300 | RFC 9520 §3.2: not longer than 5 minutes, and where the backoff stops; `core`'s limit (§16 decision 60) |
 
 ### Checks
 

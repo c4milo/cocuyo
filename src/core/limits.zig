@@ -127,6 +127,17 @@ pub const timeout_ns_min: u64 = 250_000_000;
 /// 7 * 24 * 60 * 60.
 pub const cache_ttl_seconds_max: u32 = 604_800;
 
+/// The least `Config.cache_failure_seconds_min` may be, and the least time a cache keeps a
+/// resolution failure: "Resolvers MUST cache resolution failures for at least 1 second" (RFC 9520
+/// §3.2). Here because `Config` and the cache both hold the minimum to it (docs/design.md §16
+/// decision 60).
+pub const cache_failure_seconds_least: u32 = 1;
+
+/// The most `Config.cache_failure_seconds_min` may be, and the longest time a cache keeps a
+/// resolution failure, where the backoff stops: "resolution failures MUST NOT be cached for
+/// longer than 5 minutes" (RFC 9520 §3.2, docs/design.md §16 decision 60). 5 * 60.
+pub const cache_failure_seconds_max: u32 = 300;
+
 /// The IANA Dynamic port range, which the source-port hint is drawn from (RFC 6335 §6).
 pub const port_ephemeral_min: u16 = 49152;
 pub const port_ephemeral_max: u16 = 65535;

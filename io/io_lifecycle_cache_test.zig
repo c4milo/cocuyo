@@ -239,3 +239,14 @@ test "reinit takes the cap of the configuration it is handed" {
     try testing.expectEqual(@as(u32, fixtures.cap_after_seconds), hit.ttl_seconds);
     try rig.deinit();
 }
+
+test "the cache takes the failure minimum of the configuration, at init and at reinit" {
+    var rig: Rig = .{};
+    try rig.init(47, up, .{ .servers = &.{}, .cache_failure_seconds_min = cocuyo.limits.cache_failure_seconds_least });
+    try testing.expectEqual(cocuyo.limits.cache_failure_seconds_least, rig.engine.cache.?.failure_seconds_min);
+    var replacement = rig.config;
+    replacement.cache_failure_seconds_min = cocuyo.limits.cache_failure_seconds_max;
+    try rig.engine.reinit(&replacement, rig.cache_memory.slices(), 48, rig.loop.now());
+    try testing.expectEqual(cocuyo.limits.cache_failure_seconds_max, rig.engine.cache.?.failure_seconds_min);
+    try rig.deinit();
+}

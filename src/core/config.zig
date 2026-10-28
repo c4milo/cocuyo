@@ -186,6 +186,12 @@ pub const Config = struct {
     /// `limits.cache_ttl_seconds_max`, seven days, the cap RFC 8767 §4 recommends. No line
     /// of a `resolv.conf` sets it (docs/design.md §16 decision 37, §19 step 13).
     cache_ttl_seconds_max: u32 = constants.cache_ttl_seconds_max_default,
+    /// The first time a cache keeps a resolution failure of a name, in seconds: 5 s by default,
+    /// and 1 s to 300 s, as RFC 9520 §3.2 asks. Each later failure after the entry expired
+    /// doubles the time, to 300 s. The engine hands it to the cache it builds, at `init` and at
+    /// each `reinit`; a caller that builds a `Cache` of its own sets `Cache.failure_seconds_min`
+    /// from it. No line of a `resolv.conf` sets it (docs/design.md §16 decision 60).
+    cache_failure_seconds_min: u32 = constants.cache_failure_seconds_min_default,
 
     /// Every rule a configuration must satisfy. A configuration is the caller's to build, so a
     /// broken one is a programmer error and asserts rather than returning (CLAUDE.md
@@ -208,6 +214,9 @@ pub const Config = struct {
         // "Values SHOULD be capped on the order of days to weeks, with a recommended cap of
         // 604,800 seconds (7 days)" (RFC 8767 §4): no configuration caps later than that.
         assert(self.cache_ttl_seconds_max <= limits.cache_ttl_seconds_max);
+        // "at least 1 second", and "not longer than 5 minutes" (RFC 9520 §3.2).
+        assert(self.cache_failure_seconds_min >= limits.cache_failure_seconds_least);
+        assert(self.cache_failure_seconds_min <= limits.cache_failure_seconds_max);
         assert(servers_agree(self.servers));
         // Every query on a stream means TCP, and a DoH or DoQ server takes each query as an
         // request of its own (docs/design.md §22, §23).
@@ -315,6 +324,20 @@ test "the cache's TTL cap is c-ares's hour by default, and a cap of a second to 
         const capped: Config = .{ .servers = &servers, .cache_ttl_seconds_max = cap };
         capped.assert_valid();
         try testing.expectEqual(cap, capped.cache_ttl_seconds_max);
+    }
+}
+
+test "the first time a failure is kept is 5 s by default, and a time of 1 s to 300 s is valid" {
+    const servers = [_]Server{.{ .endpoint = .{ .address = Address.from_v4(.{ 127, 0, 0, 1 }) } }};
+    const config: Config = .{ .servers = &servers };
+    try testing.expectEqual(@as(u32, 5), config.cache_failure_seconds_min);
+    // "at least 1 second", and "not longer than 5 minutes" (RFC 9520 §3.2).
+    try testing.expectEqual(@as(u32, 1), limits.cache_failure_seconds_least);
+    try testing.expectEqual(@as(u32, 300), limits.cache_failure_seconds_max);
+    for ([_]u32{ limits.cache_failure_seconds_least, 30, limits.cache_failure_seconds_max }) |seconds| {
+        const kept: Config = .{ .servers = &servers, .cache_failure_seconds_min = seconds };
+        kept.assert_valid();
+        try testing.expectEqual(seconds, kept.cache_failure_seconds_min);
     }
 }
 

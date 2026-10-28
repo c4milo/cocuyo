@@ -1,5 +1,6 @@
 //! The limits the cache holds (docs/design.md §16 decision 56, §18).
 const std = @import("std");
+const core = @import("core");
 
 /// The most slots one cache may hold. A slot is named by a `u16` in the insertion-order chain and
 /// in the key index, with room left for the sentinels, and nobody has asked for more.
@@ -16,13 +17,13 @@ pub const probe_max: usize = 16;
 
 /// The least time `Cache.failure_seconds_min` may keep a resolution failure: "Resolvers MUST
 /// cache resolution failures for at least 1 second" (RFC 9520 §3.2, docs/design.md §16
-/// decision 60).
-pub const failure_seconds_least: u32 = 1;
+/// decision 60). It is `core`'s limit, since `Config.cache_failure_seconds_min` is held to it too.
+pub const failure_seconds_least = core.limits.cache_failure_seconds_least;
 
 /// The longest time the cache keeps a resolution failure, which the backoff stops at, and the
 /// most `Cache.failure_seconds_min` may be: "resolution failures MUST NOT be cached for longer
-/// than 5 minutes" (RFC 9520 §3.2, docs/design.md §16 decision 60).
-pub const failure_seconds_max: u32 = 300;
+/// than 5 minutes" (RFC 9520 §3.2, docs/design.md §16 decision 60). It is `core`'s limit.
+pub const failure_seconds_max = core.limits.cache_failure_seconds_max;
 
 /// The most steps one eviction sweep takes: one pass over every slot clears every visited bit,
 /// and the next pass must then find an unvisited one.

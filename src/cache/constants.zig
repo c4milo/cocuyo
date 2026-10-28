@@ -12,8 +12,9 @@ pub const ttl_seconds_max_default = core.constants.cache_ttl_seconds_max_default
 
 /// The time the first resolution failure of a name is kept when the caller sets none:
 /// `Cache.failure_seconds_min`. RFC 9520 §3.2 gives 5 seconds as its example of the initial time,
-/// inside its bounds of 1 second and 5 minutes (docs/design.md §16 decision 60).
-pub const failure_seconds_min_default: u32 = 5;
+/// inside its bounds of 1 second and 5 minutes. It is `core`'s constant, since
+/// `Config.cache_failure_seconds_min` defaults to the same number (docs/design.md §16 decision 60).
+pub const failure_seconds_min_default = core.constants.cache_failure_seconds_min_default;
 
 /// Where the type and the flag sit in the word the hash starts from: the flag's one bit at 40,
 /// the type's sixteen at 48, so the two never overlap whatever the seed.

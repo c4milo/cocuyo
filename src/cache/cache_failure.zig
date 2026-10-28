@@ -47,7 +47,9 @@ pub fn failure_of(err: Error) ?Failure {
         Error.FormatError => .format_error,
         // The chain bound is how a lookup sees an alias loop (RFC 9520 §2.5).
         Error.ChainTooLong => .chain_too_long,
-        // YXDOMAIN says a thing of the name, so the response is useful (RFC 9520 §2).
+        // No RFC states a rule here: these are no resolution failure by cocuyo's choice
+        // (docs/design.md §16 decision 60). A server that says YXDOMAIN (`NameTooLong`) answered.
+        // `Canceled` and `NoServers` asked no server. A codec error moves the lookup on.
         else => null,
     };
 }
@@ -276,7 +278,7 @@ test "an answer or a negative for the name ends the backoff, kept or not" {
     }
 }
 
-test "a refused answer leaves an answer of another name in place" {
+test "a refused answer leaves a live answer of the name in place" {
     var fixture: fixtures.Fixture(slot_count) = .{};
     var table = fixture.init();
     const answers = fixtures.answers_v4(1, 300);

@@ -10350,3 +10350,38 @@ In `src/cocuyo.zig`, a failure entry is no recall through `Memory`.
 | FE14 | `remembered_by` recalls a failure as NXDOMAIN | a failure is no recall | the recall test, `test-cocuyo` | CAUGHT |
 
 Fourteen mutations, fourteen `CAUGHT`.
+
+### After the review
+
+A review of the change found four things. Each was checked against the code, and each was real.
+The fixes:
+
+- The ruling asked for a field of `Config`, and `Config` already carries the cache's cap. The
+  minimum was a field of `Cache` alone, so the operator could not set it through `Config`.
+  `Config.cache_failure_seconds_min` now holds it, and `assert_valid` holds it to 1 s to 300 s.
+  The engine copies it to its cache at `init` and at `reinit`. The bounds and the default moved
+  to `core`, since two modules read them, and the cache names them again. Design §12, §16
+  decision 60 and §18 say so.
+- The comment on the last arm of `failure_of` cited RFC 9520 §2 for YXDOMAIN, which §2 does not
+  name. It now says that no RFC states a rule there, and points to decision 60. Decision 60 now
+  calls the `NameTooLong` choice cocuyo's.
+- The Limits table of §18 now lists the two limits and the default.
+- The refused answer test is now "a refused answer leaves a live answer of the name in place".
+
+New tests: the default and the bounds of the field in `src/core/config.zig`, and the engine's
+copy in `io/io_lifecycle_cache_test.zig`. Each failed to compile against the old code.
+
+A script in the scratchpad applied each edit, ran the target the row names, and put the file
+back. The disk had 35 GB free.
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| FE15 | the default minimum is 6 s | `cache_failure_seconds_min_default` | the default test of `config.zig`, `test-core` | CAUGHT |
+| FE16 | the least minimum is 2 s | `cache_failure_seconds_least`, RFC 9520 §3.2 | the default test of `config.zig`, `test-core` | CAUGHT |
+| FE17 | the most is 600 s | `cache_failure_seconds_max`, RFC 9520 §3.2 | the default test of `config.zig`, `test-core` | CAUGHT |
+| FE18 | the engine does not copy the minimum | `reset_tables` | the minimum test of the engine, `test-io` | CAUGHT |
+| FE19 | `assert_valid` refuses 1 s | `assert_valid`, at least 1 s | the default test of `config.zig`, `test-core` | CAUGHT |
+| FE20 | `assert_valid` refuses 300 s | `assert_valid`, at most 5 minutes | the default test of `config.zig`, `test-core` | CAUGHT |
+| FE21 | the cache's most is 301 s | `failure_seconds_max` names `core`'s limit | the test of the valid minimums, `test-cache` | CAUGHT |
+
+Seven mutations, seven `CAUGHT`.

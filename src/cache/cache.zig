@@ -114,7 +114,8 @@ pub const Cache = struct {
     seed: u64,
     ttl_seconds_max: u32,
     /// The time the first resolution failure of a name is kept: one `failure_seconds_min_valid`
-    /// takes, 5 s unless the caller sets it after `init` (RFC 9520 §3.2, §16 decision 60).
+    /// takes, 5 s unless the caller sets it after `init`, from `Config.cache_failure_seconds_min`
+    /// (RFC 9520 §3.2, §16 decision 60).
     failure_seconds_min: u32 = constants.failure_seconds_min_default,
     order: cache_chain.Chain(Slot) = .{},
     /// Where the hand stopped, or `none` for the oldest entry.

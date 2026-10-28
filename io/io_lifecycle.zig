@@ -50,7 +50,8 @@ pub fn check_payload(config: *const cocuyo.Config) error{UdpPayloadTooLarge}!voi
 
 /// A new table over the engine's slots, and under it a new cache over `cache_memory`, which is
 /// what `init` starts with and what `reinit` starts again with. The cache is keyed by `seed`
-/// and capped at the configuration's `cache_ttl_seconds_max`, and it starts empty, since
+/// and capped at the configuration's `cache_ttl_seconds_max`, it keeps a first failure for the
+/// configuration's `cache_failure_seconds_min` (§16 decision 60), and it starts empty, since
 /// `Cache.init` writes every slot and key. Handed no memory, the table gets no `Memory`: the
 /// engine has no cache, and every lookup goes to its servers (docs/design.md §19 step 13, the
 /// cache's memory; §20). A send the old table made keeps its buffer until its final event, which
@@ -62,6 +63,7 @@ pub fn reset_tables(self: anytype, config: *const cocuyo.Config, cache_memory: ?
     self.cache = null;
     if (cache_memory) |memory| {
         self.cache = cocuyo.Cache.init(memory.slots, memory.keys, seed, config.cache_ttl_seconds_max);
+        self.cache.?.failure_seconds_min = config.cache_failure_seconds_min;
         self.resolver.remember_with(cocuyo.remembered_by(&self.cache.?));
     }
     send_module.forget_all(self);

@@ -72,6 +72,12 @@ pub const timeout_ns_max_default: u64 = 5_000_000_000;
 /// both read it (§16 decision 37). 60 * 60.
 pub const cache_ttl_seconds_max_default: u32 = 3600;
 
+/// The default of `Config.cache_failure_seconds_min`, the first time a cache keeps a resolution
+/// failure of a name: 5 seconds, the example RFC 9520 §3.2 gives of the initial time, inside its
+/// bounds of 1 second and 5 minutes. Here because `Config` and the cache both read it
+/// (docs/design.md §16 decision 60).
+pub const cache_failure_seconds_min_default: u32 = 5;
+
 /// The port a DNS server listens on (RFC 1035 §4.2.1).
 pub const port_dns_default: u16 = 53;
 
@@ -200,6 +206,8 @@ comptime {
     if (limits.timeout_ns_min > timeout_ns_default) @compileError("the floor is above the default wait");
     if (cache_ttl_seconds_max_default < 1) @compileError("the default TTL cap caches nothing");
     if (cache_ttl_seconds_max_default > limits.cache_ttl_seconds_max) @compileError("the default TTL cap exceeds the most");
+    if (cache_failure_seconds_min_default < limits.cache_failure_seconds_least) @compileError("the default failure time is under RFC 9520's least");
+    if (cache_failure_seconds_min_default > limits.cache_failure_seconds_max) @compileError("the default failure time is over RFC 9520's most");
     if (limits.port_ephemeral_min >= limits.port_ephemeral_max) @compileError("the port range is empty");
 }
 
