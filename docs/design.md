@@ -4638,7 +4638,8 @@ step until `zig build test` passes.
     The engine in `io/` does not use failure entries yet. It reaches its cache through the
     table's `Memory` (§20), and `Remembered` carries RFC 2308's two negatives alone. That
     interface is in `src/resolver`, which the ruling keeps as it is. `remembered_by` recalls a
-    failure entry as a miss, since `Remembered` cannot carry it. §17 question 85 asks the owner.
+    failure entry as a miss, since `Remembered` cannot carry it. §17 question 85 asked the owner,
+    who ruled on 2026-10-28 for a variant `failed` of `Remembered`, in a change of its own.
 
     Rejected:
 
@@ -5730,7 +5731,8 @@ gets no failure entry. Question 85 asks about that.
 
     Recommended: the second way, in a change of its own. The rule then lives in `remembered_by`
     with the other rules of what may be remembered, and every consumer of the table gets it. Until
-    the owner rules, as built, since the ruling keeps `src/resolver` as it is.
+    the owner rules, as built, since the ruling keeps `src/resolver` as it is. Answered on
+    2026-10-28: the second way, `Remembered.failed`, in a change of its own.
 
 ### Asked on 2026-10-27, for the alert of a record that is too long
 
@@ -5776,7 +5778,8 @@ this change builds no part of the ruling.
 
     Recommended: the chapulin call and the colibri call, then the ruling as written. The other ways
     send a wrong alert or none. Until the owner rules, cocuyo builds none of it, and the connection
-    closes with no alert as today.
+    closes with no alert as today. Answered on 2026-10-28: the chapulin call and the colibri call.
+    cocuyo builds the ruling after a colibri release that carries them.
 
 ## 18. The cache
 
