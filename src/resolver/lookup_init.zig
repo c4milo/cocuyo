@@ -17,18 +17,29 @@ const identity_order: [core.limits.servers_max]u8 = blk: {
     break :blk order;
 };
 
-/// Every field of `Lookup` but its answers. `init_in_place` builds one of these whole, so the
-/// compiler refuses a field left out, and copies it into the lookup field by field, so that the
-/// answers' storage, which nothing reads before `collect` writes it, is not written: assigning the
-/// whole lookup would write it, since a safe build fills whatever is `undefined` with 0xAA
-/// (docs/design.md §16 decision 34).
+/// The fields of `Lookup` that `Head` leaves out. The answers' storage is not written: nothing
+/// reads it before `collect` writes it, and assigning the whole lookup would write it, since a
+/// safe build fills whatever is `undefined` with 0xAA (docs/design.md §16 decision 34). The
+/// question and the current name are written once each, straight into the lookup. Through `Head`
+/// each name was copied twice more (c4milo/cocuyo#41).
+const outside_head = [_][]const u8{ "answers", "question", "current" };
+
+fn in_head(comptime name: []const u8) bool {
+    for (outside_head) |outside| {
+        if (std.mem.eql(u8, name, outside)) return false;
+    }
+    return true;
+}
+
+/// Every field of `Lookup` but those of `outside_head`. `init_in_place` builds one of these whole,
+/// so the compiler refuses a field left out, and copies it into the lookup field by field.
 const Head = head: {
     const fields = @typeInfo(Lookup).@"struct".fields;
-    var names: [fields.len - 1][]const u8 = undefined;
-    var types: [fields.len - 1]type = undefined;
+    var names: [fields.len - outside_head.len][]const u8 = undefined;
+    var types: [fields.len - outside_head.len]type = undefined;
     var at: usize = 0;
     for (fields) |field| {
-        if (std.mem.eql(u8, field.name, "answers")) continue;
+        if (!in_head(field.name)) continue;
         names[at] = field.name;
         types[at] = field.type;
         at += 1;
@@ -90,18 +101,21 @@ pub fn init_in_place(
         // No query is built yet, so none carries a cookie.
         .cookie_form = .none,
         .cookie_client = @splat(0),
-        .question = question,
-        .current = question.name,
     };
     inline for (@typeInfo(Head).@"struct".fields) |field| @field(self, field.name) = @field(head, field.name);
+    self.question = question;
     self.answers.reset(question.kind);
     // A configuration with no server is one a `resolv.conf` with none gave, read without
     // the default: every lookup on it fails at once (§19 step 11).
     if (config.server_count() == 0) {
+        self.current = self.question.name;
         self.fail(core.Error.NoServers);
         return;
     }
+    // The first candidate taken writes the current name. The name as asked is a candidate at an
+    // index below `candidates_max`, so the walk takes one, and `current` is always written.
     self.take_candidate(self.candidate_index);
-    if (self.state == .query_ready and config.streams_only()) self.state = .tcp_needed;
-    assert(self.state == .query_ready or self.state == .tcp_needed or self.state == .failed);
+    assert(self.state == .query_ready);
+    if (config.streams_only()) self.state = .tcp_needed;
+    assert(self.state == .query_ready or self.state == .tcp_needed);
 }

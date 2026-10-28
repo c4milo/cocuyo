@@ -97,6 +97,20 @@ test "a lookup started in its slot leaves the answers' storage as the last looku
     try testing.expectEqual(State.query_ready, lookup.state);
 }
 
+test "a lookup started in a used slot holds the name asked, with servers and with none" {
+    // `init_in_place` writes the current name outside the head it builds (c4milo/cocuyo#41). A
+    // slot that held another name must hold the name asked after it, on each path.
+    const question = try Question.from_text("www.example.com.", .a);
+    const configs = [_]Config{ .{ .servers = &one_server }, .{ .servers = &.{} } };
+    for (&configs) |*config| {
+        var servers_config = Servers.init(config, 1);
+        var lookup: Lookup = undefined;
+        lookup.current = try Name.from_text("left.by.the.last.lookup");
+        lookup.init_in_place(config, &servers_config, question, 1);
+        try testing.expectEqualSlices(u8, question.name.wire(), lookup.current.wire());
+    }
+}
+
 test "the size of a lookup slot is pinned" {
     // docs/design.md §9 budgets the memory a caller provides, and a caller sizing a table needs
     // this number. It is measured, not computed: Zig chooses the field order, so a field added

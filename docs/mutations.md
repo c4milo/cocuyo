@@ -10385,3 +10385,85 @@ back. The disk had 35 GB free.
 | FE21 | the cache's most is 301 s | `failure_seconds_max` names `core`'s limit | the test of the valid minimums, `test-cache` | CAUGHT |
 
 Seven mutations, seven `CAUGHT`.
+
+## The names a lookup copies
+
+2026-10-28, c4milo/cocuyo#41. The round trip of `bench/count.zig` copied a whole `Name` or
+`Question`, 256 to 260 octets, about 14 times a round. The owner ruled on 2026-10-27: write a
+name where it is used, instead of a return or an assignment by value. `Name`'s value contract
+(design §4) and the public API stay as they are. Each change was measured alone, by the method of
+pepegrillo's `docs/performance/` and its appendix, `docs/performance.md`.
+
+### What changed
+
+- `init_in_place` built every field of the lookup in a local `Head`, and copied it into the slot.
+  So the question went to the local and then to the slot, and the name went from the question to
+  the local and then to the slot. Four copies of a name or a question at each start.
+- Now `Head` leaves out `question` and `current`. `init_in_place` copies the question once,
+  straight into the slot. The first candidate that `take_candidate` takes writes `current`, as it
+  did before over the copy. One copy is left, the question's.
+- The name as asked is a candidate at an index below `candidates_max`, so the walk at the start
+  always takes one. A new assertion says so after `take_candidate`. The path with no server takes
+  no candidate, and it writes the name as asked into `current` itself.
+- The listing of the x86-64 program shows the change: `init_in_place` has two calls to `memcpy`
+  where it had four, and one of them is on the path with no server.
+
+### What was dropped
+
+Two other changes were built, tested and measured alone, and neither passed the admission rule:
+
+- The query build wrote the name into the query from `cased_name`, which copied `current` to a
+  local and the local to the query. A helper set the case in the query's own copy, one copy in
+  place of two. In two paired jobs against the base, the round trip read 242.3 and 242.1 ns before
+  and 241.4 and 242.0 after: ratios 0.996 and 0.999, inside the 2% floor.
+- `take_candidate` took a `Candidate` by value from `policy.candidate` and copied its name into
+  `current`. A function that said where the name comes from let it copy the name once, straight
+  into `current`. In two paired jobs on top of the change that stays, the round trip read 224.1
+  and 227.5 ns before and 222.5 and 226.0 after: ratios 0.993 both times, inside the floor.
+
+Each removes one copy of 256 octets. The issue recalls about 91 instructions for each, under 2% of
+the round trip, and the judge agrees. The copies of `collect` and of `on_response` were not
+changed: each guards the lookup against a reply that the walk then refuses.
+
+### The tests
+
+In `src/resolver/lookup_init_test.zig`, a lookup starts in a slot whose `current` holds another
+name, once with a server and once with none. Each time `current` must hold the name asked after.
+It passed against the old code, as it must, since the behaviour does not change. NC1 shows it
+fails when the path with no server does not write the name.
+
+### What ran
+
+- The judge, `bench/bench.zig` built ReleaseSafe for the host with `zig build-exe` and the module
+  graph of `build/bench.zig`, Zig 0.16.0, on the Apple M1 Pro with 32 GiB under macOS 26.6.2 that
+  design §11 names. Each paired job ran the base and the change alternately, five runs each, and
+  took the median of the five medians with its spread. The two jobs that admit the change ran on
+  2026-10-28 from 05:43 to 05:48 EDT, with a load average of 4.6 to 5.8. Two other worktrees ran
+  builds on the same machine, so the machine was not quiet (docs/performance.md).
+- The round trip, base against the change: 245.8 ns (spread 1.0%) and 227.5 ns (0.7%), a ratio
+  of 0.925, then 241.9 ns (2.1%) and 224.0 ns (1.8%), a ratio of 0.926. It won past its noise in
+  both jobs, and no case lost past its noise in either. The name decode, whose code did not change,
+  won in the first job: a move of placement, not of the change.
+- Four earlier jobs of the same pair ran under a load average of 6 to 32, with spreads up to
+  292%. Their medians gave ratios of 0.915, 0.930, 0.922 and 0.925, and the spreads kept three of
+  them from a verdict.
+- `zig build test-resolver`, then `zig build mutations -- lookup NC1 NC2`: both `CAUGHT`.
+- `zig build fill-check` passed on the change, with no change to the list of known fills.
+- `zig build test` passed.
+
+### The instruction counts
+
+`zig build instructions` needs valgrind on Linux. The local Docker image with valgrind 3.22.0
+could not run: the Docker daemon on this Mac did not answer during the work. So the counts were
+not measured here, and `bench/instructions.zon` did not change. The round trip's count is to
+fall by about three copies, which is past the 2% threshold. CI's Linux job prints the new counts,
+and the owner writes them after.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| NC1 | a lookup with no server leaves the slot's last name in `current` | the path with no server writes the name asked | the used-slot test, `test-resolver` | CAUGHT |
+| NC2 | the walk at the start takes no candidate, and `current` is never written | the assertion that the walk at the start takes one | the assertion, in every test that starts a lookup, `test-resolver` | CAUGHT |
+
+Two mutations, two `CAUGHT`.

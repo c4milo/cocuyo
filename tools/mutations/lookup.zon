@@ -3804,4 +3804,22 @@
         },
         .caught_by = .{ .step = "test-resolver" },
     },
+    .{
+        .section = "The names a lookup copies",
+        .id = "NC1",
+        .what = "a lookup with no server leaves the slot's last name in current",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_init.zig", .old = "        self.current = self.question.name;\n        self.fail(core.Error.NoServers);", .new = "        self.fail(core.Error.NoServers);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The names a lookup copies",
+        .id = "NC2",
+        .what = "the walk at init takes no candidate, and current is never written",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_init.zig", .old = "    self.take_candidate(self.candidate_index);\n    assert(self.state == .query_ready);", .new = "    self.take_candidate(core.limits.candidates_max);\n    assert(self.state == .query_ready);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
 }
