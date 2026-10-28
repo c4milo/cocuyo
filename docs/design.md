@@ -1627,11 +1627,13 @@ What the table says, against the estimates:
   decides a retry — and every read of the current server going through the order.
 - Until 2026-10-28 `init_in_place` copied the question twice and its name twice, 260 and 256
   octets each time (c4milo/cocuyo#41). It now copies the question once, straight into the lookup,
-  and the first candidate it takes writes the name. In two paired
-  jobs of five alternated runs on the M1 Pro, the round trip read 245.8 and 241.9 ns before and
-  227.5 and 224.0 after, 7.5% less. Two other copies were removed and measured alone, and each
-  moved the round trip less than the 2% floor, so neither is in (docs/mutations.md, The names a
-  lookup copies).
+  and the first candidate it takes writes the name. On 2026-10-28, on the M1 Pro, two paired jobs
+  ran `bench/bench.zig` as `zig build-exe` builds it ReleaseSafe with the module graph of
+  `build/bench.zig`, five alternated runs of the base and the change in each job. The round trip
+  read 245.8 and 241.9 ns before and 227.5 and 224.0 after, 7.5% less. That is under the layout
+  noise of a fifth, and no second CPU model measured it, so the change waits for its instruction
+  count. Two other removals of a copy each moved the round trip less than the 2% floor, so
+  neither is in. docs/mutations.md, The names a lookup copies, has the commands.
 - The rdata buffer of §19 step 9 costs what is written, not what is held. With `collect` building
   a whole `Answers` per response, one A record parsed in 79 ns, a lookup started in 302 and a cache
   put in place took 60; with `reset` and `assign` touching only the storage a kind uses, and

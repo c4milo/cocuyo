@@ -10390,9 +10390,9 @@ Seven mutations, seven `CAUGHT`.
 
 2026-10-28, c4milo/cocuyo#41. The round trip of `bench/count.zig` copied a whole `Name` or
 `Question`, 256 to 260 octets, about 14 times a round. The owner ruled on 2026-10-27: write a
-name where it is used, instead of a return or an assignment by value. `Name`'s value contract
-(design §4) and the public API stay as they are. Each change was measured alone, by the method of
-pepegrillo's `docs/performance/` and its appendix, `docs/performance.md`.
+name where the code uses it, instead of a return or an assignment by value. `Name`'s value contract
+(design §4) and the public API stay as they are. The judge measured each change alone, by the
+method of pepegrillo's `docs/performance/` and its appendix, `docs/performance.md`.
 
 ### What changed
 
@@ -10401,16 +10401,19 @@ pepegrillo's `docs/performance/` and its appendix, `docs/performance.md`.
   the local and then to the slot. Four copies of a name or a question at each start.
 - Now `Head` leaves out `question` and `current`. `init_in_place` copies the question once,
   straight into the slot. The first candidate that `take_candidate` takes writes `current`, as it
-  did before over the copy. One copy is left, the question's.
+  did before over the copy.
+- Two copies are gone. The question goes into the slot with one copy. `take_candidate` still
+  copies the name twice, as before (see The changes left out).
 - The name as asked is a candidate at an index below `candidates_max`, so the walk at the start
   always takes one. A new assertion says so after `take_candidate`. The path with no server takes
   no candidate, and it writes the name as asked into `current` itself.
-- The listing of the x86-64 program shows the change: `init_in_place` has two calls to `memcpy`
-  where it had four, and one of them is on the path with no server.
+- The disassembly of the x86-64 program shows the change: `init_in_place` has two calls to
+  `memcpy` where it had four, and one of them is on the path with no server.
 
-### What was dropped
+### The changes left out
 
-Two other changes were built, tested and measured alone, and neither passed the admission rule:
+The judge measured two other changes alone. Each passed the tests, and the admission rule admits
+neither:
 
 - The query build wrote the name into the query from `cased_name`, which copied `current` to a
   local and the local to the query. A helper set the case in the query's own copy, one copy in
@@ -10422,8 +10425,8 @@ Two other changes were built, tested and measured alone, and neither passed the 
   and 227.5 ns before and 222.5 and 226.0 after: ratios 0.993 both times, inside the floor.
 
 Each removes one copy of 256 octets. The issue recalls about 91 instructions for each, under 2% of
-the round trip, and the judge agrees. The copies of `collect` and of `on_response` were not
-changed: each guards the lookup against a reply that the walk then refuses.
+the round trip, and the judge agrees. This change leaves the copies of `collect` and of
+`on_response` as they are: each guards the lookup against a reply that the walk then refuses.
 
 ### The tests
 
@@ -10434,12 +10437,29 @@ fails when the path with no server does not write the name.
 
 ### What ran
 
-- The judge, `bench/bench.zig` built ReleaseSafe for the host with `zig build-exe` and the module
-  graph of `build/bench.zig`, Zig 0.16.0, on the Apple M1 Pro with 32 GiB under macOS 26.6.2 that
-  design §11 names. Each paired job ran the base and the change alternately, five runs each, and
-  took the median of the five medians with its spread. The two jobs that admit the change ran on
-  2026-10-28 from 05:43 to 05:48 EDT, with a load average of 4.6 to 5.8. Two other worktrees ran
-  builds on the same machine, so the machine was not quiet (docs/performance.md).
+- The judge is `bench/bench.zig`, built ReleaseSafe for the host with the module graph of
+  `build/bench.zig`, Zig 0.16.0. The machine is the Apple M1 Pro with 32 GiB under macOS 26.6.2
+  that design §11 names. This command built each program, once in a tree at the base and once in
+  a tree at the change:
+
+  ```bash
+  zig build-exe -OReleaseSafe -femit-bin=<out>/bench \
+    --dep cocuyo --dep wire -Mroot=bench/bench.zig \
+    --dep core --dep wire --dep resolver --dep config --dep cache -Mcocuyo=src/cocuyo.zig \
+    -Mcore=src/core/core.zig \
+    --dep core -Mwire=src/wire/wire.zig \
+    --dep core --dep wire -Mresolver=src/resolver/resolver.zig \
+    --dep core -Mconfig=src/config/resolv_conf.zig \
+    --dep core --dep wire -Mcache=src/cache/cache.zig
+  ```
+
+- A paired job is a script outside the tree. It runs the base program and the change program in
+  turn, five times each. For each case it takes the median of the five medians, and the spread:
+  the slowest median less the fastest, over the median of the five. The noise is the larger of
+  the two spreads and the 2% floor.
+- The two jobs that the verdict reads ran on 2026-10-28 from 05:43 to 05:48 EDT, with a load
+  average of 4.6 to 5.8. Two other worktrees ran builds on the same machine, so the machine was not
+  quiet (docs/performance.md).
 - The round trip, base against the change: 245.8 ns (spread 1.0%) and 227.5 ns (0.7%), a ratio
   of 0.925, then 241.9 ns (2.1%) and 224.0 ns (1.8%), a ratio of 0.926. It won past its noise in
   both jobs, and no case lost past its noise in either. The name decode, whose code did not change,
@@ -10454,10 +10474,10 @@ fails when the path with no server does not write the name.
 ### The instruction counts
 
 `zig build instructions` needs valgrind on Linux. The local Docker image with valgrind 3.22.0
-could not run: the Docker daemon on this Mac did not answer during the work. So the counts were
-not measured here, and `bench/instructions.zon` did not change. The round trip's count is to
-fall by about three copies, which is past the 2% threshold. CI's Linux job prints the new counts,
-and the owner writes them after.
+could not run: the Docker daemon on this Mac did not answer during the work. So no count of this
+change exists yet, and `bench/instructions.zon` did not change. The round trip's count is to fall
+by about three copies, which is past the 2% threshold. CI's Linux job prints the new counts, and
+the owner writes them after.
 
 ### The rows
 
@@ -10467,3 +10487,29 @@ and the owner writes them after.
 | NC2 | the walk at the start takes no candidate, and `current` is never written | the assertion that the walk at the start takes one | the assertion, in every test that starts a lookup, `test-resolver` | CAUGHT |
 
 Two mutations, two `CAUGHT`.
+
+### After the review
+
+A review of the change found four things. Each one is real when read against the code and the
+method. The first one has two fixes, so the list has five items:
+
+- The win is 7.5%, less than the layout noise of a fifth that `docs/performance.md` records. The
+  rule says that such a win must hold on a second CPU model too. The work had no second CPU model:
+  Docker on this Mac runs on the same M1 Pro, and its daemon still did not answer. So the
+  admission rule does not admit the change yet. It waits for the instruction count of CI's
+  Linux job, and the owner admits it or drops it on that count.
+- The placement check ran. The command above, with `-target`, built the bench at the base and at
+  the change, for `aarch64-macos` and for `x86_64-linux`. A script compared every function of
+  `objdump -d` across the two builds. It masked each address, each comment, each page that `adrp`
+  names and each `__anon` suffix. On `aarch64-macos`, 562 functions are the same, and only
+  `init_in_place` differs: 267 instructions before and 218 after.
+  On `x86_64-linux`, 495 functions are the same, and only `init_in_place` differs: 237
+  instructions before and 214 after, and two calls to `memcpy` where it had four. So the move of
+  the round trip comes from `init_in_place` or from the placement of the code after it, and not
+  from other code.
+- Design §11 now names the command and the paired jobs beside its numbers.
+- One sentence said that the question's copy was the only one left. `take_candidate` still copies
+  the name twice. The sentence now says so.
+- Several sentences were passive, and one used an -ing form as a noun. Each is active now.
+
+No fix adds or changes a check, so no mutation ran again, and the section has no new row.
