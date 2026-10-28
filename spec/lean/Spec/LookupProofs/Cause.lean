@@ -7,7 +7,9 @@ import Spec.LookupProofs.Timeout
 §5, The cause of a failure; §16 decision 45). So a lookup that fails with `allServersFailed` holds
 a cause, and a lookup that fails with `timeout` holds none. A cause names the server that gave it
 (§16 decision 51), and that server is one of the configuration's. `init` gives all three, and no
-event breaks them, so each state that a lookup reaches has them.
+event breaks them, so each state that a lookup reaches has them. The model holds no memory: a
+failure that the memory of §20 recalls has no cause and sends no query (§16 decision 61, §17
+question 89), so these theorems cover a lookup that went out.
 -/
 namespace Spec.Lookup
 

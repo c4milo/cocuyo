@@ -10450,7 +10450,22 @@ back. The disk had 26 GB free.
 | MR11 | a recalled failure must have made every pass | `failure_of`, the last pass | the recall test, by the assertion, `test-resolver` | CAUGHT |
 | MR12 | the engine recalls a failure entry as a miss | `recall_from_cache`, RFC 9520 §3.2 | the engine's failure test, `test-io` | CAUGHT |
 | MR13 | the engine writes no resolution failure | `failure_end`, RFC 9520 §3.2 | the engine's failure test, `test-io` | CAUGHT |
-| MR14 | `NameTooLong` is written as a resolution failure | `resolution_failure`, decision 60 | the test that the two lists agree, `test-cocuyo` | CAUGHT |
+| MR14 | `NameTooLong` is written as a resolution failure | `resolution_failure`, decision 60 | the test that the two lists agree, `test-cocuyo`; the list test of `table_memory.zig` too, `test-resolver` | CAUGHT |
+| MR15 | the cache's list drops `ChainTooLong`, and the resolver's keeps it | the two lists agree | the test that the two lists agree: "expected false, found true" at `src/cocuyo.zig:144`, `test-cocuyo` | CAUGHT |
 
 Fourteen mutations, fourteen `CAUGHT`. MR10 did not compile at its first edit, which discarded
 a parameter that it still read. It ran again with an edit that compiles.
+
+### After the review
+
+An independent review found no bug. It found these, and each is fixed:
+
+- Two references named decision 63. The decision is 61.
+- The Lean theorem `failure_cause` says that each `allServersFailed` holds a cause. The model has
+  no memory, so the theorem covers a lookup that went out. spec/README.md and `Cause.lean` now
+  say so.
+- `failure_expiry_jump_ns` wrote 2 s as a literal. It now reads the least time of the limit.
+- MR14 fails `test-resolver` too, so it did not show that the test of the two lists is needed.
+  MR15 changes the cache's list alone, and only that test catches it.
+
+MR15 ran by hand against `zig build test-cocuyo`: `CAUGHT`.

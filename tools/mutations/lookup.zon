@@ -3894,4 +3894,13 @@
         },
         .caught_by = .{ .step = "test-cocuyo" },
     },
+    .{
+        .section = "The table recalls a resolution failure",
+        .id = "MR15",
+        .what = "the cache's list drops `ChainTooLong`, and the resolver's keeps it",
+        .edits = .{
+            .{ .file = "src/cache/cache_failure.zig", .old = "        Error.ChainTooLong => .chain_too_long,\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cocuyo" },
+    },
 }

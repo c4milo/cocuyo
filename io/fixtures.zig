@@ -16,6 +16,8 @@ pub const rounds_max: usize = 4096;
 pub const until_rounds_max: usize = 512;
 
 const rotor = @import("rotor");
+const cocuyo = @import("cocuyo");
+const constants = @import("constants.zig");
 
 /// How many events one tick of the rig may hand back.
 pub const events_max: usize = 32;
@@ -197,4 +199,4 @@ pub const down_server_timeout_ns: u64 = 1_000_000_000;
 
 /// A jump past the least time a cache keeps a resolution failure, 1 s (RFC 9520 §3.2), so the
 /// entry has expired after it.
-pub const failure_expiry_jump_ns: u64 = 2 * 1_000_000_000;
+pub const failure_expiry_jump_ns: u64 = (cocuyo.limits.cache_failure_seconds_least + 1) * constants.ns_per_second;

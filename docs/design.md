@@ -4642,7 +4642,7 @@ step until `zig build test` passes.
     interface is in `src/resolver`, which the ruling kept as it was. `remembered_by` recalled a
     failure entry as a miss, since `Remembered` could not carry it. §17 question 85 asked the
     owner, who ruled on 2026-10-28 for a variant `failed` of `Remembered`, in a change of its own.
-    Decision 63 builds it.
+    Decision 61 builds it.
 
     Rejected:
 
@@ -7238,7 +7238,7 @@ pub const Result = struct {
   2026-10-11 that holds for an engine handed memory for a cache, and an engine handed none asks
   its servers every time (The cache's memory, below). Since 2026-10-28 a lookup that ends in a
   resolution failure puts it too, and a hit on it ends the lookup with its error (§16 decision
-  63).
+  61).
 - **Threads.** One engine per loop, and one loop per thread (rotor decision 4). Work from other
   threads arrives through rotor's `post`, which is the consumer's to arrange.
 - **The deterministic twin first.** rotor's decision 10 has a backend be a module carrying its
@@ -7613,8 +7613,8 @@ pub const Memory = struct {
 **A hit is a lookup that is already over.** A lookup's first `poll` asks `recall` before it
 builds anything. On a hit the answers are copied into the slot the lookup already holds and it is
 put in its end state, so that same poll returns `.done` — or `.failed` with `NameNotFound` or
-`NoData`, or since 2026-10-28 with a resolution failure — and no query is ever built. The asking is at the first poll rather than at `start`
-because `poll` is where the clock comes in, and an expiry needs one (CLAUDE.md non-negotiable 4):
+`NoData`, or since 2026-10-28 with a resolution failure — and no query is ever built. The asking
+is at the first poll rather than at `start` because `poll` is where the clock comes in, and an expiry needs one (CLAUDE.md non-negotiable 4):
 `start` keeps its signature, and nothing above the table learns a new shape. `poll`,
 `AddressLookup` and `NameLookup` work unchanged, and every question they ask goes through the
 cache, because they all start through the table.

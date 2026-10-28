@@ -42,7 +42,9 @@ would agree with the code by construction and prove nothing about it.
   - In `LookupProofs/Cause.lean`, `failure_cause`: a lookup that fails with `allServersFailed`
     holds a cause, and one that fails with `timeout` holds none, whatever the caller tells it
     (design §5, The cause of a failure; §16 decision 45). Since 2026-10-21 it proves too that the
-    cause names a server of the configuration (§16 decision 51). Its lemma `keep_server` reads no
+    cause names a server of the configuration (§16 decision 51). The theorem covers a lookup that
+    went out. A failure that the memory of design §20 recalls has no cause and `attempts_made` 0
+    (design §16 decision 61, §17 question 89), and the model holds no memory. Its lemma `keep_server` reads no
     more of `keep` than the bound of that server, so an edit of `keep` meets the check of the
     slice, and not a proof that stops.
   - In `LookupProofs/Bound.lean`, `sends_bounded`: no server gets more than three queries of one
