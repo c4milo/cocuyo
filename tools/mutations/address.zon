@@ -7,7 +7,7 @@
         .id = "A1",
         .what = "the families walk the search list on their own",
         .edits = .{
-            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    if (asks_aaaa(self)) {\n        self.aaaa = start_one(self, name, .aaaa) catch |err| {", .new = "    if (asks_aaaa(self)) {\n        const own: Name = switch (policy.candidate(self.resolver.config, &self.question, @min(self.candidate_index + 1, core.constants.candidates_max))) {\n            .name => |next| next,\n            .skip, .exhausted => name.*,\n        };\n        self.aaaa = start_one(self, &own, .aaaa) catch |err| {" },
+            .{ .file = "src/resolver/address_lookup_walk.zig", .old = "    if (asks_aaaa(self)) {\n        self.aaaa = start_one(self, name, .aaaa) catch |err| {", .new = "    if (asks_aaaa(self)) {\n        const own: Name = switch (policy.candidate(self.resolver.config, &self.question, @min(self.candidate_index + 1, core.limits.candidates_max))) {\n            .name => |next| next,\n            .skip, .exhausted => name.*,\n        };\n        self.aaaa = start_one(self, &own, .aaaa) catch |err| {" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },

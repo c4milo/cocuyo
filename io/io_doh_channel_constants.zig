@@ -22,21 +22,6 @@ pub const status_success_last: u16 = 299;
 pub const ns_per_second: u64 = 1_000_000_000;
 pub const ns_per_millisecond: u64 = 1_000_000;
 
-// The paths a consumer reached these limits by before they moved into the limits file. Each
-// is an alias, and no limit of its own. They stay until the owner rules on them (docs/design.md
-// §16 decision 56, §17 question 76).
-pub const record_plaintext_bytes_max = limits.record_plaintext_bytes_max;
-pub const record_expansion_bytes_max = limits.record_expansion_bytes_max;
-pub const record_bytes_max = limits.record_bytes_max;
-pub const engine_chunk_bytes = limits.engine_chunk_bytes;
-pub const stream_bytes = limits.stream_bytes;
-pub const datagram_bytes = limits.datagram_bytes;
-pub const values_bytes = limits.values_bytes;
-pub const unheard_per_next_max = limits.unheard_per_next_max;
-pub const next_passes_max = limits.next_passes_max;
-pub const output_bytes_max = limits.output_bytes_max;
-pub const receive_bytes = limits.receive_bytes;
-
 // A constant with no type is a `comptime_int`, which takes the type of a narrow runtime value it
 // meets in a sum. The lint rule reads the shape of each value, and this reads the type, so an
 // alias or a call that gives a `comptime_int` is caught here (docs/design.md §16 decision 40).

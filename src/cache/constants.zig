@@ -33,14 +33,6 @@ comptime {
     if (limits.probe_max < 2) @compileError("a probe of one entry is a hash lookup with no chain");
 }
 
-// The paths a consumer reached these limits by before they moved into the limits file. Each
-// is an alias, and no limit of its own. They stay until the owner rules on them (docs/design.md
-// §16 decision 56, §17 question 76).
-pub const slots_max = limits.slots_max;
-pub const keys_per_slot_min = limits.keys_per_slot_min;
-pub const probe_max = limits.probe_max;
-pub const sweep_steps_max = limits.sweep_steps_max;
-
 // A constant with no type is a `comptime_int`, which takes the type of a narrow runtime value it
 // meets in a sum. The lint rule reads the shape of each value, and this reads the type, so an
 // alias or a call that gives a `comptime_int` is caught here (docs/design.md §16 decision 40).

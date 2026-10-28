@@ -211,48 +211,6 @@ comptime {
     if (limits.port_ephemeral_min >= limits.port_ephemeral_max) @compileError("the port range is empty");
 }
 
-// The paths a consumer reached these limits by before they moved into the limits file. Each
-// is an alias, and no limit of its own. They stay until the owner rules on them (docs/design.md
-// §16 decision 56, §17 question 76).
-pub const message_bytes_max = limits.message_bytes_max;
-pub const udp_payload_bytes_min = limits.udp_payload_bytes_min;
-pub const query_bytes_max = limits.query_bytes_max;
-pub const opt_record_bytes_max = limits.opt_record_bytes_max;
-pub const cookie_option_bytes_max = limits.cookie_option_bytes_max;
-pub const cookie_server_bytes_min = limits.cookie_server_bytes_min;
-pub const cookie_server_bytes_max = limits.cookie_server_bytes_max;
-pub const name_bytes_max = limits.name_bytes_max;
-pub const label_bytes_max = limits.label_bytes_max;
-pub const labels_max = limits.labels_max;
-pub const name_text_bytes_max = limits.name_text_bytes_max;
-pub const compression_hops_max = limits.compression_hops_max;
-pub const cname_hops_max = limits.cname_hops_max;
-pub const records_max = limits.records_max;
-pub const addresses_max = limits.addresses_max;
-pub const address_lookup_addresses_max = limits.address_lookup_addresses_max;
-pub const ptr_names_max = limits.ptr_names_max;
-pub const records_kept_max = limits.records_kept_max;
-pub const rdata_bytes_max = limits.rdata_bytes_max;
-pub const servers_max = limits.servers_max;
-pub const lookup_sources_max = limits.lookup_sources_max;
-pub const hosts_entries_max = limits.hosts_entries_max;
-pub const hosts_names_per_entry_max = limits.hosts_names_per_entry_max;
-pub const hosts_names_bytes_max = limits.hosts_names_bytes_max;
-pub const search_max = limits.search_max;
-pub const candidates_max = limits.candidates_max;
-pub const attempts_max = limits.attempts_max;
-pub const timeout_ns_max = limits.timeout_ns_max;
-pub const timeout_ns_min = limits.timeout_ns_min;
-pub const cache_ttl_seconds_max = limits.cache_ttl_seconds_max;
-pub const port_ephemeral_min = limits.port_ephemeral_min;
-pub const port_ephemeral_max = limits.port_ephemeral_max;
-pub const spki_pins_max = limits.spki_pins_max;
-pub const address_v4_octet_digits_max = limits.address_v4_octet_digits_max;
-pub const address_v6_group_digits_max = limits.address_v6_group_digits_max;
-pub const lookup_slots_max = limits.lookup_slots_max;
-pub const common_prefix_bits_v6_max = limits.common_prefix_bits_v6_max;
-pub const common_prefix_bits_v4_max = limits.common_prefix_bits_v4_max;
-
 // A constant with no type is a `comptime_int`, which takes the type of a narrow runtime value it
 // meets in a sum. The lint rule reads the shape of each value, and this reads the type, so an
 // alias or a call that gives a `comptime_int` is caught here (docs/design.md §16 decision 40).

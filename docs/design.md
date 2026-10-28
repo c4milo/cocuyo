@@ -4281,7 +4281,9 @@ step until `zig build test` passes.
     where it is.** Ruled by the owner on 2026-10-17, on §17 question 37: "every limit moves into a
     `limits.zig` of its module, the limits of each `constants.zig` too. Each `constants.zig` keeps
     the protocol sizes and the defaults. Each constant that is not a limit gets a type where it is.
-    CLAUDE.md's non-negotiable 5 and the lint rules change with it." Built on 2026-10-26.
+    CLAUDE.md's non-negotiable 5 and the lint rules change with it." Built on 2026-10-26. Amended
+    on 2026-10-28 for the 0.7.0 release: the aliases are gone (§17 question 76). "At 0.7.0" below
+    says what changed.
 
     The classification test. Each constant of a constants file, and each integer constant of the
     other files of `src/` and `io/`, takes the first class that fits:
@@ -4322,19 +4324,19 @@ step until `zig build test` passes.
       `zig build fill-check` finds the same fills.
 
     The public paths. A consumer reached a limit as `cocuyo.constants.query_bytes_max`, and as
-    `cocuyo_rotor.constants.udp_payload_bytes_max`. No path is lost:
+    `cocuyo_rotor.constants.udp_payload_bytes_max`. Until 0.7.0, no path was lost:
 
     - Each module root exports `limits` beside `constants`: `cocuyo.limits`, `cocuyo.wire.limits`,
       `cocuyo.cache.limits`, `cocuyo_rotor.limits`, `cocuyo_quic.limits`, `cocuyo_doh.limits` and
       the others. These names are new.
-    - Each public `constants.zig` keeps an alias of each limit that left it, in a block at its end.
+    - Each public `constants.zig` kept an alias of each limit that left it, in a block at its end.
       An alias is no limit of its own, and the lint rule passes it. `name_text.printable_min`,
-      `printable_max` and the two `fuzz.seed_count` keep an alias too.
+      `printable_max` and the two `fuzz.seed_count` kept an alias too.
     - The tree reads the new paths: the library, the examples, the benchmarks, the tools and the
-      README. §17 question 76 asks whether the aliases stay.
-    - `zig build consumer-check` builds one old path from outside the package, for each of the two
+      README. §17 question 76 asked whether the aliases stay. The owner ruled that they go at 0.7.0.
+    - `zig build consumer-check` built one old path from outside the package, for each of the two
       roots: `cocuyo.constants.query_bytes_max` and `cocuyo_rotor.constants.buffer_bytes`. Each
-      must equal its new path.
+      had to equal its new path. Since 0.7.0 the package reads the new paths alone.
     - The twin keeps an alias of each limit whose name rotor's own `constants` has: `wait_ns_max`,
       `operations_max`, `batch_max` and four more. The engine's tests read `rotor.constants`, which
       is the twin there, and rotor's own surface elsewhere.
@@ -4377,10 +4379,28 @@ step until `zig build test` passes.
     - A rename of each limit with no suffix, so that the rule reads every limit. It changes public
       names, which needs the owner (CLAUDE.md, Ask before). §17 question 78 asks it.
     - The limits files with no aliases. The public API then loses each old path, which needs the
-      owner too.
+      owner too. The owner ruled it for 0.7.0 (§17 question 76).
     - A rule of its own for the place. CLAUDE.md names the rules of the lint, and the ruling changes
       its non-negotiable 5 alone. The two checks read the same files with one walk.
     - A list of the limits in the rule. A list goes stale at the next limit, and a name does not.
+
+    At 0.7.0. The owner ruled on 2026-10-26 that the aliases go at the 0.7.0 release (§17 question
+    76), and on 2026-10-28 to do it now (c4milo/cocuyo#54):
+
+    - Each public `constants.zig` lost its block of aliases: 111 names in eight files. These are
+      `cocuyo.constants` (38), `cocuyo.wire.constants` (15), `cocuyo.resolver.constants` (3),
+      `cocuyo.resolv_conf.constants` (11), `cocuyo.cache.constants` (4), `cocuyo_rotor.constants`
+      (22), `cocuyo_doh.constants` (11) and `cocuyo_quic.constants` (7). `cocuyo.core.constants`
+      is `cocuyo.constants`.
+    - `cocuyo.core.name_text.printable_min` and `printable_max` are gone, and so are
+      `cocuyo.wire.fuzz.seed_count` and `cocuyo.resolv_conf.fuzz.seed_count`.
+    - A consumer reads each of them at `limits` of the same module. No value changed.
+    - The twin keeps its aliases of rotor's own `constants` names. The engine's tests read
+      `rotor.constants.wait_ns_max`, and the twin is `rotor` there. The twin is no public module.
+    - The cache keeps `failure_seconds_least` and `failure_seconds_max` in its `limits.zig`, and
+      `failure_seconds_min_default` in its `constants.zig`. Each is the cache's own name for a
+      value of `core`, as `ttl_seconds_max_default` is (decision 60, decision 37). None is a path
+      that a move left behind, and each is in the file of its class. So they stay.
 
     §12, §16 decision 40, §17 questions 37, 76, 77, 78 and 79.
 
@@ -5660,7 +5680,8 @@ changes. The ruling did not make four of the choices that decision 56 makes.
 
     Recommended: as built until the next release, 0.7.0, then the new paths alone. The tree reads
     the new paths already, so the aliases go with no other change. Until the owner rules, as built.
-    Answered on 2026-10-26: as recommended. The aliases go at 0.7.0.
+    Answered on 2026-10-26: as recommended. The aliases go at 0.7.0. Built on 2026-10-28: §16
+    decision 56, At 0.7.0.
 77. **The limits of the tests.** The place check reads no test file and no `fixtures.zig`. So 20
     bounds of the tests stay where they are, each with a type: `rounds_max` of
     `io/io_doh_channel_test.zig`, `events_max` of `io/fixtures.zig`, and others. The ways:

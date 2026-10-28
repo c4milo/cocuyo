@@ -6,9 +6,9 @@
 //! The caller is trusted and its files are not proof against a stray byte (SECURITY.md): a file
 //! with a malformed line must still configure a resolver, and nothing in it may trip an assertion.
 //!
-//! The gate is a test, so `zig build test` runs it over `seed_count` seeds and prints nothing
-//! unless a seed fails. `zig build fuzz -- --text --seed <hex>` runs one seed and prints the text
-//! it built, which is how a failure is reproduced: the seed is the whole input.
+//! The gate is a test, so `zig build test` runs it over `limits.fuzz_seed_count` seeds and prints
+//! nothing unless a seed fails. `zig build fuzz -- --text --seed <hex>` runs one seed and prints
+//! the text it built, which is how a failure is reproduced: the seed is the whole input.
 const std = @import("std");
 const limits = @import("../limits.zig");
 const generate_module = @import("fuzz_generate.zig");
@@ -20,10 +20,6 @@ pub const Shape = generate_module.Shape;
 pub const Scratch = check_module.Scratch;
 pub const generate = generate_module.generate;
 pub const check = check_module.check;
-
-/// How many seeds `zig build test` runs: an alias of the limit in `limits.zig`, kept as the path
-/// a consumer reached it by (docs/design.md §17 question 76).
-pub const seed_count = limits.fuzz_seed_count;
 
 /// Runs one seed. Returns the promise that broke, or null when the text held up.
 pub fn run(seed: u64, out: *Text, scratch: *Scratch) ?[]const u8 {

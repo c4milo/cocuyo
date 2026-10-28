@@ -2577,7 +2577,7 @@
         .id = "DS2",
         .what = "the stream check counts against a record at its longest, and not the buffer",
         .edits = .{
-            .{ .file = "io/io_doh_channel_read.zig", .old = "            if (self.stream_len + bytes.len > self.stream.len) {\n", .new = "            if (self.stream_len + bytes.len > constants.record_bytes_max) {\n" },
+            .{ .file = "io/io_doh_channel_read.zig", .old = "            if (self.stream_len + bytes.len > self.stream.len) {\n", .new = "            if (self.stream_len + bytes.len > limits.record_bytes_max) {\n" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -2586,7 +2586,7 @@
         .id = "DS3",
         .what = "colibri is handed one chunk of the stream at most",
         .edits = .{
-            .{ .file = "io/io_doh_channel_read.zig", .old = "    if (self.stream_len > 0) return .{ .stream = self.stream[0..self.stream_len] };\n", .new = "    if (self.stream_len > 0) return .{ .stream = self.stream[0..@min(self.stream_len, constants.engine_chunk_bytes)] };\n" },
+            .{ .file = "io/io_doh_channel_read.zig", .old = "    if (self.stream_len > 0) return .{ .stream = self.stream[0..self.stream_len] };\n", .new = "    if (self.stream_len > 0) return .{ .stream = self.stream[0..@min(self.stream_len, limits.engine_chunk_bytes)] };\n" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },

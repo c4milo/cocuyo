@@ -52,13 +52,6 @@ comptime {
     if (latency_window_spans_ns[latency_windows - 1] != null) @compileError("no window keeps every sample");
 }
 
-// The paths a consumer reached these limits by before they moved into the limits file. Each
-// is an alias, and no limit of its own. They stay until the owner rules on them (docs/design.md
-// §16 decision 56, §17 question 76).
-pub const keys_per_slot_min = limits.keys_per_slot_min;
-pub const transactions_per_server_max = limits.transactions_per_server_max;
-pub const latency_samples_min = limits.latency_samples_min;
-
 // A constant with no type is a `comptime_int`, which takes the type of a narrow runtime value it
 // meets in a sum. The lint rule reads the shape of each value, and this reads the type, so an
 // alias or a call that gives a `comptime_int` is caught here (docs/design.md §16 decision 40).

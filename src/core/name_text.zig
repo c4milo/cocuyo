@@ -18,11 +18,6 @@ pub const separator: u8 = '.';
 /// The escape character of presentation form. Refused on input in version one.
 pub const escape: u8 = '\\';
 
-/// The printable ASCII range a label may hold on input: aliases of the limits in `limits.zig`, kept
-/// as the paths a consumer reached them by (docs/design.md §17 question 76).
-pub const printable_min = limits.text_printable_min;
-pub const printable_max = limits.text_printable_max;
-
 /// The digits a `\DDD` escape writes, which is why a text buffer is four times the wire length.
 pub const escape_digits: usize = 3;
 

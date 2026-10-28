@@ -1412,7 +1412,7 @@
         .id = "DT28",
         .what = "the default cap is the most a cap may be, 30 seconds, as before 2026-10-09",
         .edits = .{
-            .{ .file = "src/core/config.zig", .old = "    timeout_ns_max: u64 = constants.timeout_ns_max_default,", .new = "    timeout_ns_max: u64 = constants.timeout_ns_max," },
+            .{ .file = "src/core/config.zig", .old = "    timeout_ns_max: u64 = constants.timeout_ns_max_default,", .new = "    timeout_ns_max: u64 = limits.timeout_ns_max," },
         },
         .caught_by = .{ .step = "test-core" },
     },
@@ -3546,7 +3546,7 @@
         .id = "LF11",
         .what = "a limit is named in a constants file again",
         .edits = .{
-            .{ .file = "src/core/constants.zig", .old = "pub const records_max = limits.records_max;", .new = "pub const records_max: usize = 64;" },
+            .{ .file = "src/core/constants.zig", .old = "// A constant with no type is a `comptime_int`", .new = "pub const records_max: usize = 64;\n\n// A constant with no type is a `comptime_int`" },
         },
         .caught_by = .{ .step = "lint" },
     },

@@ -10,12 +10,6 @@ const rotor = @import("rotor");
 const cocuyo = @import("cocuyo");
 const dns = @import("cocuyo_rotor");
 
-// The path a consumer reached this limit by before it moved into a limits file (docs/design.md §16
-// decision 56). It stays an alias until the owner rules (§17 question 76), so this check builds it.
-comptime {
-    std.debug.assert(dns.constants.buffer_bytes == dns.limits.buffer_bytes);
-}
-
 const Resolver = dns.Resolver(.{ .lookups = 2 });
 /// The slots of the resolver's cache: small on purpose, as the table is.
 const cache_slots = 2;

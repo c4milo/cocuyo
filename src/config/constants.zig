@@ -41,21 +41,6 @@ comptime {
     }
 }
 
-// The paths a consumer reached these limits by before they moved into the limits file. Each
-// is an alias, and no limit of its own. They stay until the owner rules on them (docs/design.md
-// §16 decision 56, §17 question 76).
-pub const lines_max = limits.lines_max;
-pub const options_max = limits.options_max;
-pub const hosts_lines_max = limits.hosts_lines_max;
-pub const ndots_limit = limits.ndots_limit;
-pub const timeout_seconds_limit = limits.timeout_seconds_limit;
-pub const fuzz_text_bytes_max = limits.fuzz_text_bytes_max;
-pub const fuzz_entries_max = limits.fuzz_entries_max;
-pub const fuzz_labels_max = limits.fuzz_labels_max;
-pub const fuzz_label_bytes_max = limits.fuzz_label_bytes_max;
-pub const fuzz_filler_lines_max = limits.fuzz_filler_lines_max;
-pub const fuzz_noise_bytes_max = limits.fuzz_noise_bytes_max;
-
 // A constant with no type is a `comptime_int`, which takes the type of a narrow runtime value it
 // meets in a sum. The lint rule reads the shape of each value, and this reads the type, so an
 // alias or a call that gives a `comptime_int` is caught here (docs/design.md §16 decision 40).

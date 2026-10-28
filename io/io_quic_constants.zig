@@ -27,17 +27,6 @@ pub const server_id_octet: u8 = 0x5e;
 pub const ns_per_second: u64 = 1_000_000_000;
 pub const ns_per_millisecond: u64 = 1_000_000;
 
-// The paths a consumer reached these limits by before they moved into the limits file. Each
-// is an alias, and no limit of its own. They stay until the owner rules on them (docs/design.md
-// §16 decision 56, §17 question 76).
-pub const idle_timeout_ms = limits.idle_timeout_ms;
-pub const datagram_receive_bytes = limits.datagram_receive_bytes;
-pub const answer_bytes_max = limits.answer_bytes_max;
-pub const params_bytes_max = limits.params_bytes_max;
-pub const server_receive_blocks = limits.server_receive_blocks;
-pub const server_receive_bytes = limits.server_receive_bytes;
-pub const server_answer_bytes_max = limits.server_answer_bytes_max;
-
 // A constant with no type is a `comptime_int`, which takes the type of a narrow runtime value it
 // meets in a sum. The lint rule reads the shape of each value, and this reads the type, so an
 // alias or a call that gives a `comptime_int` is caught here (docs/design.md §16 decision 40).

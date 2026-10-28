@@ -1,9 +1,9 @@
 //! The fuzz target for the codec: one seed in, one message built by fuzz_generate.zig, every
 //! parser run over it by fuzz_check.zig.
 //!
-//! The gate below is a test, so `zig build test` runs it over `seed_count` seeds and prints
-//! nothing unless a seed fails. `zig build fuzz -- --seed <hex>` runs one seed and prints what it
-//! built, which is how a failure is reproduced: the seed is the whole input.
+//! The gate below is a test, so `zig build test` runs it over `limits.fuzz_seed_count` seeds and
+//! prints nothing unless a seed fails. `zig build fuzz -- --seed <hex>` runs one seed and prints
+//! what it built, which is how a failure is reproduced: the seed is the whole input.
 //!
 //! Zig 0.16 has a coverage-guided fuzzer of its own behind `zig build test --fuzz`, which needs a
 //! build with instrumentation. It is not wired here: in Zig 0.16.0 the test runner itself does not
@@ -22,10 +22,6 @@ pub const Strategy = generate_module.Strategy;
 pub const generate = generate_module.generate;
 pub const strategy_of = generate_module.strategy_of;
 pub const check = check_module.check;
-
-/// How many seeds `zig build test` runs: an alias of the limit in `limits.zig`, kept as the path
-/// a consumer reached it by (docs/design.md §17 question 76).
-pub const seed_count = limits.fuzz_seed_count;
 
 /// Runs one seed. Returns the promise that broke, or null when the message held up.
 pub fn run(seed: u64, out: *Message) ?[]const u8 {

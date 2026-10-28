@@ -122,32 +122,6 @@ comptime {
     }
 }
 
-// The paths a consumer reached these limits by before they moved into the limits file. Each
-// is an alias, and no limit of its own. They stay until the owner rules on them (docs/design.md
-// §16 decision 56, §17 question 76).
-pub const buffer_bytes = limits.buffer_bytes;
-pub const udp_payload_bytes_max = limits.udp_payload_bytes_max;
-pub const loop_operations_slack = limits.loop_operations_slack;
-pub const tcp_message_bytes_max = limits.tcp_message_bytes_max;
-pub const storage_alignment_max = limits.storage_alignment_max;
-pub const tcp_chunk_bytes = limits.tcp_chunk_bytes;
-pub const drive_polls_per_lookup_max = limits.drive_polls_per_lookup_max;
-pub const loop_operations_per_connection = limits.loop_operations_per_connection;
-pub const tcp_frame_room_bytes = limits.tcp_frame_room_bytes;
-pub const tls_frame_room_bytes = limits.tls_frame_room_bytes;
-pub const tcp_messages_per_frame_max = limits.tcp_messages_per_frame_max;
-pub const tls_record_body_bytes_max = limits.tls_record_body_bytes_max;
-pub const tls_record_in_bytes = limits.tls_record_in_bytes;
-pub const tls_records_out_bytes = limits.tls_records_out_bytes;
-pub const tls_records_entries_max = limits.tls_records_entries_max;
-pub const tls_records_per_buffer_max = limits.tls_records_per_buffer_max;
-pub const tls_ticket_age_ns_max = limits.tls_ticket_age_ns_max;
-pub const loop_operations_per_quic_connection = limits.loop_operations_per_quic_connection;
-pub const loop_operations_per_channel = limits.loop_operations_per_channel;
-pub const channel_events_max = limits.channel_events_max;
-pub const quic_idle_margin_ns = limits.quic_idle_margin_ns;
-pub const quic_connection_events_max = limits.quic_connection_events_max;
-
 // A constant with no type is a `comptime_int`, which takes the type of a narrow runtime value it
 // meets in a sum. The lint rule reads the shape of each value, and this reads the type, so an
 // alias or a call that gives a `comptime_int` is caught here (docs/design.md §16 decision 40).
