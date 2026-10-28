@@ -86,8 +86,9 @@ updates worth knowing about, none of which version one implements:
 - RFC 2308 is updated by the DNSSEC set (RFC 4033 to 4035), RFC 6604 on the RCODE of a chain,
   RFC 8020, which lets a cache infer NXDOMAIN for every name under one, and RFC 9520, which caches
   resolution failures. cocuyo's cache remembers what a server said and nothing it could infer, so
-  none of the three applies; a failure that is not a negative answer carries a TTL of zero and is
-  not cached.
+  RFC 6604 and RFC 8020 do not apply. RFC 9520 applies: its §2 names a stub with several servers
+  as a resolver it covers. Since 2026-10-27 `Cache.put_failure` keeps a resolution failure for 1 s
+  to 5 minutes, with a backoff (design §16 decision 60).
 - RFC 3849 is updated by RFC 9637, which adds a second documentation prefix, `3fff::/20`. The
   fixtures use the first.
 - RFC 3986 is updated by RFC 7320 and RFC 8820, which obsoletes it. Both are guidance for

@@ -13,11 +13,15 @@ const wire = @import("wire");
 const Name = core.Name;
 const Kind = core.Kind;
 const Question = core.Question;
+const Error = core.Error;
 pub const constants = @import("constants.zig");
 pub const limits = @import("limits.zig");
 const cache_keys = @import("cache_keys.zig");
 const cache_chain = @import("cache_chain.zig");
 const cache_sweep = @import("cache_sweep.zig");
+const cache_failure = @import("cache_failure.zig");
+pub const resolution_failure = cache_failure.resolution_failure;
+pub const failure_seconds_min_valid = cache_failure.failure_seconds_min_valid;
 
 pub const Key = cache_keys.Key;
 pub const Links = cache_chain.Links;
@@ -38,8 +42,9 @@ pub fn ttl_seconds_max_valid(ttl_seconds_max: u32) bool {
     return ttl_seconds_max >= 1 and ttl_seconds_max <= core.limits.cache_ttl_seconds_max;
 }
 
-/// What an entry remembers: records, or one of the two negative answers RFC 2308 caches.
-pub const Outcome = enum { answered, name_not_found, no_data };
+/// What an entry remembers: records, one of the two negative answers RFC 2308 caches, or a
+/// resolution failure (RFC 9520 §3.2, docs/design.md §16 decision 60).
+pub const Outcome = enum { answered, name_not_found, no_data, failed };
 
 /// One entry. The name is stored folded: it is the key, and what a hit hands back.
 pub const Slot = struct {
@@ -54,6 +59,9 @@ pub const Slot = struct {
     links: Links,
     kind: Kind,
     outcome: Outcome,
+    /// The error of a `failed` entry, and how often its time was doubled (§16 decision 60): one
+    /// octet, which fits in padding the slot had.
+    kept: cache_failure.Kept,
     absolute: bool,
     aliased: bool,
     visited: bool,
@@ -68,6 +76,7 @@ pub const Slot = struct {
         .links = .{},
         .kind = .a,
         .outcome = .answered,
+        .kept = .{},
         .absolute = false,
         .aliased = false,
         .visited = false,
@@ -88,6 +97,8 @@ pub const Hit = struct {
     canonical_name: ?*const Name,
     /// What is left, not what was put: the expiry less `now_ns`, rounded down to a second.
     ttl_seconds: u32,
+    /// The error the caller ends its lookup with, on a `failed` entry alone, and sends no query.
+    failure: ?Error,
 };
 
 /// Keeps the chain's end with the answers, or says there was none. The name is copied only
@@ -102,6 +113,9 @@ pub const Cache = struct {
     keys: []Key,
     seed: u64,
     ttl_seconds_max: u32,
+    /// The time the first resolution failure of a name is kept: one `failure_seconds_min_valid`
+    /// takes, 5 s unless the caller sets it after `init` (RFC 9520 §3.2, §16 decision 60).
+    failure_seconds_min: u32 = constants.failure_seconds_min_default,
     order: cache_chain.Chain(Slot) = .{},
     /// Where the hand stopped, or `none` for the oldest entry.
     hand: u16 = none,
@@ -164,6 +178,7 @@ pub const Cache = struct {
             .name = &slot.name,
             .canonical_name = if (slot.aliased) &slot.canonical else null,
             .ttl_seconds = self.remaining(slot.expires_ns, now_ns),
+            .failure = if (slot.outcome == .failed) cache_failure.error_of(slot.kept.failure) else null,
         };
     }
 
@@ -181,8 +196,8 @@ pub const Cache = struct {
         assert(question.kind.queryable());
         // A possibly partial set is not cached (RFC 1035 §7.4), and a zero TTL "should not be
         // cached" (RFC 1035 §3.2.1).
-        if (answers.truncated or answers.ttl_seconds == 0) return;
-        self.insert(question, .answered, answers, canonical, answers.ttl_seconds, now_ns);
+        if (answers.truncated or answers.ttl_seconds == 0) return self.forget_failure(question);
+        _ = self.insert(question, .answered, answers, canonical, answers.ttl_seconds, now_ns);
     }
 
     /// Remembers that `question` has no answer, for the SOA minimum a `Failure` carries
@@ -194,12 +209,41 @@ pub const Cache = struct {
         ttl_seconds: u32,
         now_ns: u64,
     ) void {
-        assert(outcome != .answered);
-        if (ttl_seconds == 0) return;
+        assert(outcome != .answered and outcome != .failed);
+        if (ttl_seconds == 0) return self.forget_failure(question);
         // No records: the slot's answers are reset where they are, rather than filled in a local
         // and copied, as a safe build fills a local left `undefined` (docs/design.md §16
         // decision 34).
-        self.insert(question, outcome, null, null, ttl_seconds, now_ns);
+        _ = self.insert(question, outcome, null, null, ttl_seconds, now_ns);
+    }
+
+    /// Remembers that `question` ended in `err`, when `resolution_failure` says it is one
+    /// (RFC 9520 §3.2). The time is `failure_seconds_min` for the first, and doubles at each
+    /// failure after the entry expired, to `limits.failure_seconds_max`. A failure while the entry
+    /// lives, or over a live answer or negative, changes nothing (§16 decision 60).
+    pub fn put_failure(self: *Cache, question: *const Question, err: Error, now_ns: u64) void {
+        assert(question.kind.queryable());
+        assert(failure_seconds_min_valid(self.failure_seconds_min));
+        const failure = cache_failure.failure_of(err) orelse return;
+        var doublings: u4 = 0;
+        if (self.find(question, self.hash_of(question))) |index| {
+            const held = &self.slots[index];
+            // "MUST NOT send any corresponding outgoing queries until after the cache entries
+            // expire" (RFC 9520 §3.2): a lookup that ends while the entry lives was no new try.
+            if (now_ns < held.expires_ns) return;
+            // Only a failure after a failure doubles; an answer ended the backoff (RFC 9520 §3.2).
+            if (held.outcome == .failed) doublings = cache_failure.next_doublings(self.failure_seconds_min, held.kept.doublings);
+        }
+        const seconds = cache_failure.seconds_for(self.failure_seconds_min, doublings);
+        const slot = self.insert(question, .failed, null, null, seconds, now_ns) orelse return;
+        slot.kept = .{ .failure = failure, .doublings = doublings };
+    }
+
+    /// An answer the cache refuses still ends a name's backoff (RFC 9520 §3.2): its failure
+    /// entry goes, and the next failure starts at `failure_seconds_min` (§16 decision 60).
+    fn forget_failure(self: *Cache, question: *const Question) void {
+        const index = self.find(question, self.hash_of(question)) orelse return;
+        if (self.slots[index].outcome == .failed) self.evict(index);
     }
 
     fn insert(
@@ -210,7 +254,7 @@ pub const Cache = struct {
         canonical: ?*const Name,
         ttl_seconds: u32,
         now_ns: u64,
-    ) void {
+    ) ?*Slot {
         // "Values SHOULD be capped on the order of days to weeks" (RFC 8767 §4); an hour by default.
         const ttl = @min(ttl_seconds, self.ttl_seconds_max);
         assert(ttl >= 1);
@@ -224,14 +268,14 @@ pub const Cache = struct {
             slot.outcome = outcome;
             slot.expires_ns = expires_ns;
             slot.visited = true;
-            return;
+            return slot;
         }
         if (self.free == none) cache_sweep.evict_one(self, now_ns);
         const index = self.acquire();
         cache_keys.insert(self.keys, hash, index) catch {
             // A chain past the probe bound: refused, and the slot goes back.
             self.release(index);
-            return;
+            return null;
         };
         // Field by field, not as one literal: a literal would write the whole slot, and the
         // answers' storage is copied only as far as it is used.
@@ -250,6 +294,7 @@ pub const Cache = struct {
         slot.name.fold_case();
         self.order.link_newest(self.slots, index);
         assert(self.order.len <= self.slots.len);
+        return slot;
     }
 
     /// What a put keeps: the answers it was given, copied as far as they are used, or none for a
@@ -356,36 +401,6 @@ test "the size of a slot is pinned" {
     try testing.expectEqual(@as(usize, 2984), @sizeOf(Slot));
 }
 
-test "a hit reports the chain's end it was put with, and none when there was none" {
-    var fixture: fixtures.Fixture(slot_count) = .{};
-    var table = fixture.init();
-    const answers = fixtures.answers_v4(1, 300);
-    const target = try Name.from_text("edge.cdn.example");
-
-    table.put(&ask("www.example"), &answers, &target, 0);
-    table.put(&ask("plain.example"), &answers, null, 0);
-
-    const aliased = table.get(&ask("www.example"), 0).?;
-    try testing.expect(aliased.canonical_name.?.equal(&target));
-    const plain = table.get(&ask("plain.example"), 0).?;
-    try testing.expectEqual(@as(?*const Name, null), plain.canonical_name);
-}
-
-test "a put in place replaces the chain's end with the new one, or with none" {
-    var fixture: fixtures.Fixture(slot_count) = .{};
-    var table = fixture.init();
-    const answers = fixtures.answers_v4(1, 300);
-    const earlier = try Name.from_text("one.cdn.example");
-    const later = try Name.from_text("two.cdn.example");
-
-    table.put(&ask("www.example"), &answers, &earlier, 0);
-    table.put(&ask("www.example"), &answers, &later, 0);
-    try testing.expect(table.get(&ask("www.example"), 0).?.canonical_name.?.equal(&later));
-    // The same name answered later with no chain: what a hit says must follow the answer.
-    table.put(&ask("www.example"), &answers, null, 0);
-    try testing.expectEqual(@as(?*const Name, null), table.get(&ask("www.example"), 0).?.canonical_name);
-}
-
 test "a put is a hit whatever the case, and a miss for another type, name or absoluteness" {
     var fixture: fixtures.Fixture(slot_count) = .{};
     var table = fixture.init();
@@ -463,24 +478,11 @@ test "flush empties the table, and a put after it works" {
     try testing.expect(table.get(&ask("a.example"), 0) != null);
 }
 
-test "the hash is keyed: two seeds land one name in two places" {
-    var fixture: fixtures.Fixture(slot_count) = .{};
-    const one = Cache.init(&fixture.slots, &fixture.keys, 1, constants.ttl_seconds_max_default);
-    const two = Cache.init(&fixture.slots, &fixture.keys, 2, constants.ttl_seconds_max_default);
-    const asked = ask("example.com");
-    try testing.expect(one.hash_of(&asked) != two.hash_of(&asked));
-    try testing.expectEqual(one.hash_of(&asked), one.hash_of(&ask("EXAMPLE.COM")));
-    try testing.expect(one.hash_of(&asked) != one.hash_of(&ask("example.org")));
-    const aaaa = try Question.from_text("example.com", .aaaa);
-    try testing.expect(one.hash_of(&asked) != one.hash_of(&aaaa));
-    var absolute = asked;
-    absolute.absolute = true;
-    try testing.expect(one.hash_of(&asked) != one.hash_of(&absolute));
-}
-
 test {
     _ = limits;
     _ = cache_storage;
+    _ = @import("cache_canonical_test.zig");
+    _ = @import("cache_failure.zig");
     _ = @import("cache_kinds_test.zig");
     _ = @import("cache_probe_test.zig");
     _ = @import("cache_ttl_test.zig");

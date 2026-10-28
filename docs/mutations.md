@@ -10280,3 +10280,73 @@ together:
 The mutations ran again on the merged tree: YX1 to YX7 and YX10, RB1 to RB11, RB15 and RB16 by `zig
 build mutations -- lookup`, and YX8, YX9 and RB12 to RB14 by `zig build mutations -- lean`. All 26
 are `CAUGHT`.
+
+## A cache of resolution failures
+
+2026-10-27, c4milo/cocuyo#51. "Resolvers MUST implement a cache for resolution failures" (RFC
+9520 §3.2). The cache kept answers and RFC 2308's negatives alone, so each lookup of a name whose
+servers all failed sent every try again. The owner ruled that the cache module keeps a failure
+entry, with a backoff from 5 s to 300 s (design §16 decision 60).
+
+The prefix FL was in use already, by the rows of the file-length rule, so these rows use FE.
+
+### What changed
+
+- Design first: §16 decision 60, §17 question 85, and §18. `docs/rfcs/README.md` now says that
+  RFC 9520 applies, by its §2.
+- `src/cache/cache_failure.zig` holds which errors are resolution failures, the four-bit
+  `Failure` and its count in one octet, and the backoff. `Cache.put_failure` keeps an entry, and
+  `get` hands back `Outcome.failed` with the error in `Hit.failure`.
+- The limits `failure_seconds_least`, 1, and `failure_seconds_max`, 300, are in
+  `src/cache/limits.zig`. The default, 5, is in `constants.zig`, and `Cache.failure_seconds_min`
+  holds the caller's minimum.
+- An answer, kept or refused, ends the backoff. A refused put evicts a failure entry.
+- `remembered_by` recalls a failure entry as a miss, since `Remembered` cannot carry it.
+- The slot stays 2,984 octets. Two tests moved out of `cache.zig` by the file-length rule.
+- The Lean and TLA+ models do not hold the cache, so neither changed. No mutation set of
+  `tools/mutations/` covers the cache.
+
+### The tests
+
+In `src/cache/cache_failure.zig`:
+
+- The errors that are resolution failures, the ones that are not, and the map back.
+- The valid minimums, 1 s to 300 s, and the default 5 s.
+- A hit says the error and the minimum, and the caller's minimum is the first time.
+- The backoff doubles from 5 s to 300 s and stays there.
+- A failure while the entry lives changes nothing, and it does not replace a live answer or
+  negative.
+- Each of five ends for the name ends the backoff: an answer, an answer of TTL 0, a truncated
+  answer, a negative, and a negative of TTL 0. A refused answer leaves a live answer in place.
+- The TTL cap caps a failure, and the hand evicts an expired failure entry with its count.
+
+In `src/cocuyo.zig`, a failure entry is no recall through `Memory`.
+
+### What ran
+
+- The disk had 37 GB free before the runs.
+- A script in the scratchpad applied each edit, ran `zig build test-cache` (FE14:
+  `zig build test-cocuyo`), and put the file back. FE12 did not compile at its first edit, which
+  imported `constants` twice, and ran again without the import.
+- `zig build test` passed before and after the mutations.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| FE1 | `Canceled` is a resolution failure | `failure_of` | the test of the errors, and the test that keeps no other error, `test-cache` | CAUGHT |
+| FE2 | `ChainTooLong` is no resolution failure | `failure_of`, RFC 9520 §2.5 | the test of the errors, `test-cache` | CAUGHT |
+| FE3 | a minimum of 0 s is valid | `failure_seconds_min_valid`, at least 1 s | the test of the valid minimums, `test-cache` | CAUGHT |
+| FE4 | a minimum over 300 s is valid | `failure_seconds_min_valid`, at most 5 minutes | the test of the valid minimums, `test-cache` | CAUGHT |
+| FE5 | the backoff has no top | `seconds_for` stops at 300 s | the backoff test, `test-cache` | CAUGHT |
+| FE6 | the count never grows | `next_doublings` | the backoff, live and end tests, `test-cache` | CAUGHT |
+| FE7 | a failure while the entry lives renews it | `put_failure` returns on a live entry | the live test and the live answer test, `test-cache` | CAUGHT |
+| FE8 | the count is read from an entry that is no failure | an answer ends the backoff | the live answer test and the end test, `test-cache` | CAUGHT |
+| FE9 | a refused put keeps the failure entry | `forget_failure` | the end test, `test-cache` | CAUGHT |
+| FE10 | a refused put evicts any entry | `forget_failure` reads the outcome | the refused answer test, `test-cache` | CAUGHT |
+| FE11 | a hit says no error | `get` sets `Hit.failure` | the hit test and the live test, `test-cache` | CAUGHT |
+| FE12 | the first time is the default, not the caller's minimum | `seconds_for` reads `seconds_min` | the minimum test and the backoff bound test, `test-cache` | CAUGHT |
+| FE13 | every error is kept | `put_failure` reads `failure_of` | the test that keeps no other error, `test-cache` | CAUGHT |
+| FE14 | `remembered_by` recalls a failure as NXDOMAIN | a failure is no recall | the recall test, `test-cocuyo` | CAUGHT |
+
+Fourteen mutations, fourteen `CAUGHT`.

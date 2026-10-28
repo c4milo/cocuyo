@@ -4547,6 +4547,97 @@ step until `zig build test` passes.
 
     §18, §19 step 14, §17 question 16.
 
+60. **The cache keeps a resolution failure, with a backoff to five minutes.** Ruled by the owner on
+    2026-10-27 for c4milo/cocuyo#51. "Resolvers MUST implement a cache for resolution failures"
+    (RFC 9520 §3.2), and RFC 9520 §2 names a stub with several servers as a resolver it covers.
+    The cache module keeps the entry, under the key of its other entries, in a slot of the table
+    the caller sizes (decision 37). `src/resolver` does not change, and a consumer without the
+    cache gets no failure cache. The rest of this entry is the record that RFC 9520 §3.2 asks for:
+    "Developers should document their implementation choices".
+
+    What the cache keeps, `Cache.put_failure`:
+
+    - The errors that are resolution failures, `cache.resolution_failure`: `Timeout`,
+      `AllServersFailed`, and the server errors that `check_response` off takes as the end,
+      `ServerFailure`, `Refused`, `NotImplemented` and `FormatError`. In each, no server gave a
+      useful response (RFC 9520 §2, §2.1, §2.2, §2.3, §2.7).
+    - `ChainTooLong` too. The chain bound is how a lookup sees an alias loop, which RFC 9520 §2.5
+      names. The answer holds no data of the type asked for, so no server gave a useful response.
+    - Not `NameNotFound` or `NoData`. They are useful responses, which `put_negative` keeps for the
+      SOA's TTL (RFC 9520 §2, RFC 2308 §5).
+    - Not `NameTooLong`. A lookup ends with it at YXDOMAIN, a statement about the name from the
+      server, so the response is useful (RFC 9520 §2). No RFC gives it a time (decision 57). A
+      name too long to ask ends before any query, and a cache entry saves nothing there.
+    - Not `Canceled`. The caller ended the lookup, and no server failed.
+    - Not `NoServers`. No server was asked. The configuration is the cause, and an entry would
+      hide a configuration that the caller then corrects.
+    - Not a codec error. A malformed response moves the lookup to the next server, so the end is
+      `Timeout` or `AllServersFailed`.
+
+    The time of an entry:
+
+    - The first failure of a name is kept for `Cache.failure_seconds_min`: 5 s by default
+      (`constants.failure_seconds_min_default`), and 1 s to 300 s (`limits.failure_seconds_least`
+      and `limits.failure_seconds_max`). RFC 9520 §3.2 asks for at least 1 s, at most 5 minutes,
+      and a minimum that the operator can set.
+    - Each later failure of the same name after the entry expired doubles the time, up to 300 s
+      (RFC 9520 §3.2, the exponential backoff). A failure while the entry is live changes nothing:
+      a lookup that started before the entry ends after it, and only a failure after the expiry
+      is a new try.
+    - The cache's TTL cap, `ttl_seconds_max`, also caps a failure, as it caps every entry. A cap
+      under the minimum keeps a failure for the cap, which is 1 s at least.
+
+    The cache takes no options struct, and `Cache.init` keeps its signature (decision 37). So the
+    minimum is a field of `Cache` with its default, which a caller sets after `init`, and
+    `failure_seconds_min_valid` says what a caller must refuse. `put_failure` asserts it.
+
+    The slot keeps the failure as a four-bit `Failure` and its count in four more bits, one octet
+    in padding the slot had, so a slot stays 2,984 octets. The count stops at 9, from 1 s.
+
+    How the backoff is remembered: an expired failure entry stays in its slot, with its count of
+    doublings, as an expired answer stays (§17 question 14). The next failure renews it in place
+    and doubles its time. An answer or a negative answer for the name replaces the entry and so
+    ends the backoff. A put that the cache refuses, a TTL of zero or a truncated answer, is still
+    an answer: it evicts the failure entry, and the next failure starts at the minimum again. A
+    failure does not replace a live answer or a live negative, since each is a useful response.
+
+    Eviction: SIEVE treats a failure entry as any other entry (§18). A hit sets its visited bit.
+    The hand evicts it on sight once it expired, and its count goes with it. So a name whose
+    failure entry the hand took starts at the minimum again. That is the cost of the bound.
+
+    Resource exhaustion: "resolvers SHOULD implement measures to mitigate resource exhaustion
+    attacks on the failed resolution cache" (RFC 9520 §3.2). The table is bounded already. A
+    failure entry takes one slot of the caller's count, the probe is bounded by `probe_max`, a
+    `get` or a `put_failure` does a bounded amount of work, and the hash is keyed by the caller's
+    seed. A peer that makes many names fail can push answers out of the table, as a peer that
+    makes many names resolve can.
+
+    A hit: `get` returns `Outcome.failed`, with the error in `Hit.failure` and the time left in
+    `ttl_seconds`. The caller ends its lookup with that error, and sends no query: "the resolver
+    MUST NOT send any corresponding outgoing queries until after the cache entries expire"
+    (RFC 9520 §3.2).
+
+    The engine in `io/` does not use failure entries yet. It reaches its cache through the
+    table's `Memory` (§20), and `Remembered` carries RFC 2308's two negatives alone. That
+    interface is in `src/resolver`, which the ruling keeps as it is. `remembered_by` recalls a
+    failure entry as a miss, since `Remembered` cannot carry it. §17 question 85 asks the owner.
+
+    Rejected:
+
+    - A server time-out in `Servers`, by address, which RFC 9520 §3.2 offers as an example. It
+      changes `src/resolver`, which the ruling keeps as it is, and it keeps a server out of every
+      name, not one name out of every server.
+    - A separate table or a quota for failure entries. It is one more piece of memory and one more
+      field to size, and the shared table is bounded already.
+    - An entry that keeps its count after the hand takes it. The count needs a slot, and a slot
+      kept after it expired is a slot that a live answer cannot use.
+    - A linear backoff, which RFC 9520 §3.2 also allows. Doubling from 5 s reaches the 5-minute bound at
+      the seventh failure, so a name that stays down costs few queries.
+    - Out of scope, by the ruling: a failure cache in `src/resolver` for a consumer without the
+      cache.
+
+    §17 question 85, §18, §20.
+
 ## 17. Questions for the owner
 
 ### Settled on 2026-09-21
@@ -5596,6 +5687,30 @@ about.
     server passed over in a pass and at the start of the next. So the 84 walk each rule of the
     bound. Until the owner rules, as built. Answered on 2026-10-27: as built.
 
+### Asked on 2026-10-27, for the failure cache of the engine
+
+§16 decision 60 builds the owner's ruling on c4milo/cocuyo#51 in the cache module. The ruling
+keeps `src/resolver` as it is, so the engine's cache, which the table reaches through `Memory`,
+gets no failure entry. Question 85 asks about that.
+
+85. **The engine and the failure cache.** The engine puts and reads its cache through the table's
+    `Memory` (§20). `Remembered` carries an answer and RFC 2308's two negatives, and
+    `remember_end` writes no other failure. So an engine with a cache sends every try again for
+    a name whose servers all fail, and RFC 9520 §3.2 says it "MUST NOT". The ways:
+
+    - As built: the engine gets no failure cache. `remembered_by` recalls a failure entry as a
+      miss.
+    - A third variant of `Remembered`, `failed`, with the error. `remember_end` writes each
+      resolution failure, and `recall_into` ends the lookup with the recalled error. This changes
+      `src/resolver` and the public `Remembered`, and the Lean model of §5 if the recall is in it.
+    - The engine asks the cache itself before `Resolver.start`, and puts each failed end. The
+      table stays as it is, but the engine then reads the cache in two places, and a hit must
+      become a result that `take` hands back with no lookup. The TLA+ engine model changes.
+
+    Recommended: the second way, in a change of its own. The rule then lives in `remembered_by`
+    with the other rules of what may be remembered, and every consumer of the table gets it. Until
+    the owner rules, as built, since the ruling keeps `src/resolver` as it is.
+
 ## 18. The cache
 
 A cache above `Resolver.start`, in a module of its own that imports `core` and `wire` and never
@@ -5651,7 +5766,7 @@ The shape `Resolver` already has: a caller-sized array of slots, an open-address
 the policy's own few words.
 
 ```zig
-pub const Outcome = enum { answered, name_not_found, no_data };
+pub const Outcome = enum { answered, name_not_found, no_data, failed }; // failed: §16 decision 60
 
 pub const Slot = struct {
     name: Name,             // folded: the key, and what a hit hands back
@@ -5661,6 +5776,7 @@ pub const Slot = struct {
     links: Links,           // older and newer: the insertion-order chain, oldest to newest
     kind: Kind,
     outcome: Outcome,
+    kept: Kept,             // a failed entry's error and count of doublings, one octet (§16 decision 60)
     absolute: bool,         // part of the key: the search list makes `foo` and `foo.` two questions
     visited: bool,
     occupied: bool,
@@ -5673,6 +5789,7 @@ pub const Hit = struct {
     answers: *const wire.Answers, // valid until the next call on the cache
     name: *const Name,
     ttl_seconds: u32,             // what is left, not what was put
+    failure: ?Error,              // the error, on a failed entry alone
 };
 
 pub const Cache = struct {
@@ -5680,6 +5797,9 @@ pub const Cache = struct {
     pub fn get(self: *Cache, question: *const Question, now_ns: u64) ?Hit;
     pub fn put(self: *Cache, question: *const Question, answers: *const wire.Answers, now_ns: u64) void;
     pub fn put_negative(self: *Cache, question: *const Question, outcome: Outcome, ttl_seconds: u32, now_ns: u64) void;
+    // Since 2026-10-27 (§16 decision 60): 5 s by default, 1 s to 300 s.
+    failure_seconds_min: u32 = constants.failure_seconds_min_default,
+    pub fn put_failure(self: *Cache, question: *const Question, err: Error, now_ns: u64) void;
     pub fn flush(self: *Cache) void;
     pub fn len(self: *const Cache) usize;
 };
@@ -5735,6 +5855,10 @@ pub fn keys_for(slot_count: usize) usize;
   newest; an expired entry is evicted on sight; a visited entry has its bit cleared and stays; the
   first unvisited entry is evicted. The walk is bounded by twice the slot count, which is one
   pass that clears every bit and a second that must then find one, and that bound is asserted.
+- `put_failure` keeps a resolution failure (RFC 9520 §3.2): the first for `failure_seconds_min`,
+  and each later one after the entry expired for twice the time before, up to 300 s. A hit on it
+  is `Outcome.failed`, with the error, and the caller sends no query until it expires. An answer
+  for the name ends the backoff. §16 decision 60 says which errors count, and why.
 - `flush` empties the table, which is what a caller does when its servers change.
 - Nothing here reads a clock or a random source; `now_ns` and the seed come in as they do
   everywhere else, so a cache replays from its inputs.
@@ -5747,7 +5871,8 @@ reads the first SOA of the authority section, bounds-checked like everything els
 that minimum, or zero when there is no SOA; and a `Lookup` that ends in `NameNotFound` or `NoData`
 carries it in `Failure.negative_ttl_seconds`, so the caller can `put_negative` without reading a
 message it never saw. A failure that is not a negative answer — a timeout, every server failing —
-carries zero, and zero is not cached.
+carries zero, and `put_negative` keeps no zero. Since 2026-10-27 the caller hands such a failure
+to `put_failure` instead, which keeps it for a time of its own (§16 decision 60).
 
 A lookup of a relative name walks the search list, and the cache keeps the walk's end under the
 name as asked. Each candidate's negative bounds that end, as §5's search list policy has it: a
@@ -10171,6 +10296,8 @@ for each (question 25). They are c4milo/cocuyo#48 to c4milo/cocuyo#52, in the or
 - cocuyo caches no failure that is not a negative answer, and `docs/rfcs/README.md` says RFC
   9520 does not apply. "Resolvers MUST implement a cache for resolution failures" (RFC 9520
   §3.2), and §2's own example of a resolver with several servers to choose from is a stub.
+  Fixed on 2026-10-27 in the cache module: `Cache.put_failure` keeps a resolution failure with a
+  backoff to five minutes (§16 decision 60). The engine does not use it yet (§17 question 85).
 - Under compact denial a name that does not exist can come back as NOERROR with no data, DO
   set or not (RFC 9824 §5). A lookup that does not validate then ends `NoData` where the name
   does not exist, and `AddressLookup` does not cancel the other family, as its rule 4 would.

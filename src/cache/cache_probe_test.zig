@@ -63,3 +63,19 @@ test "find checks the type and the flag the hash already mixed, because a hash i
     const aaaa = try core.Question.from_text("example.com", .aaaa);
     try testing.expect(table.find(&aaaa, hash) == null);
 }
+
+// Moved from `cache.zig` to keep it under 500 lines.
+test "the hash is keyed: two seeds land one name in two places" {
+    var fixture: fixtures.Fixture(slot_count) = .{};
+    const one = cache.Cache.init(&fixture.slots, &fixture.keys, 1, constants.ttl_seconds_max_default);
+    const two = cache.Cache.init(&fixture.slots, &fixture.keys, 2, constants.ttl_seconds_max_default);
+    const asked = fixtures.question("example.com");
+    try testing.expect(one.hash_of(&asked) != two.hash_of(&asked));
+    try testing.expectEqual(one.hash_of(&asked), one.hash_of(&fixtures.question("EXAMPLE.COM")));
+    try testing.expect(one.hash_of(&asked) != one.hash_of(&fixtures.question("example.org")));
+    const aaaa = try core.Question.from_text("example.com", .aaaa);
+    try testing.expect(one.hash_of(&asked) != one.hash_of(&aaaa));
+    var absolute = asked;
+    absolute.absolute = true;
+    try testing.expect(one.hash_of(&asked) != one.hash_of(&absolute));
+}

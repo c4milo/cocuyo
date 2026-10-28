@@ -10,6 +10,11 @@ const core = @import("core");
 /// `Config.cache_ttl_seconds_max` defaults to the same number (docs/design.md §16 decision 37).
 pub const ttl_seconds_max_default = core.constants.cache_ttl_seconds_max_default;
 
+/// The time the first resolution failure of a name is kept when the caller sets none:
+/// `Cache.failure_seconds_min`. RFC 9520 §3.2 gives 5 seconds as its example of the initial time,
+/// inside its bounds of 1 second and 5 minutes (docs/design.md §16 decision 60).
+pub const failure_seconds_min_default: u32 = 5;
+
 /// Where the type and the flag sit in the word the hash starts from: the flag's one bit at 40,
 /// the type's sixteen at 48, so the two never overlap whatever the seed.
 pub const hash_absolute_shift: u6 = 40;
@@ -22,6 +27,8 @@ pub const ns_per_s: u64 = 1_000_000_000;
 comptime {
     if (limits.slots_max * limits.keys_per_slot_min > 1 << 16) @compileError("the key index cannot be indexed by a u16");
     if (limits.slots_max >= 0xfffe) @compileError("a slot index would collide with a sentinel");
+    if (failure_seconds_min_default < limits.failure_seconds_least) @compileError("the default failure time is under RFC 9520's least");
+    if (failure_seconds_min_default > limits.failure_seconds_max) @compileError("the default failure time is over RFC 9520's most");
     if (limits.probe_max < 2) @compileError("a probe of one entry is a hash lookup with no chain");
 }
 

@@ -85,6 +85,9 @@ fn recall_from_cache(context: *anyopaque, question: *const Question, now_ns: u64
         } },
         .name_not_found => .{ .negative = .{ .outcome = .name_not_found, .ttl_seconds = hit.ttl_seconds } },
         .no_data => .{ .negative = .{ .outcome = .no_data, .ttl_seconds = hit.ttl_seconds } },
+        // `Remembered` cannot carry a resolution failure, so the table asks the servers again
+        // (docs/design.md §16 decision 60, §17 question 85).
+        .failed => null,
     };
 }
 
@@ -102,6 +105,16 @@ fn remember_in_cache(
             .no_data => .no_data,
         }, negative.ttl_seconds, now_ns),
     }
+}
+
+test "a failure the cache holds is no recall: the table cannot carry it" {
+    var rig: CacheRig = .{};
+    rig.open();
+    const question = try Question.from_text("down.example", .a);
+    rig.store.put_failure(&question, Error.AllServersFailed, 0);
+    try testing.expectEqual(Error.AllServersFailed, rig.store.get(&question, 0).?.failure.?);
+    const memory = remembered_by(&rig.store);
+    try testing.expectEqual(@as(?Remembered, null), memory.recall(memory.context, &question, 0));
 }
 
 /// The length a TCP length prefix describes (RFC 7766 §8). A caller reads two octets, calls this,
