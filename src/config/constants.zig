@@ -35,6 +35,11 @@ pub const option_use_vc = "use-vc";
 /// because nothing under `src/` may name `std.time` (CLAUDE.md non-negotiable 4).
 pub const ns_per_s: u64 = 1_000_000_000;
 
+/// How many seeds `zig build test` runs, a default: `zig build fuzz-gate` runs another count when
+/// told (docs/design.md §17 question 90). A text is at most a couple of kilobytes and one parser
+/// reads it twice, so this is the codec's count, and keeps the gate inside a second or two.
+pub const fuzz_seeds_default: usize = 4096;
+
 comptime {
     if (limits.timeout_seconds_limit * ns_per_s > core.limits.timeout_ns_max) {
         @compileError("a timeout the parser reads would not fit under any cap");

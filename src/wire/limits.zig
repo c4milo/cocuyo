@@ -63,11 +63,6 @@ pub const dns_variable_bytes_max = std.base64.url_safe_no_pad.Encoder.calcSize(
 /// The longest label of boundary octets the test of `name_case.zig` spells.
 pub const case_boundary_label_bytes_max: usize = 2;
 
-/// How many seeds `zig build test` runs. Every seed builds a message of up to 1232 octets, or up to
-/// 65535 under the long strategy, and runs six checks over it. This is the largest count that
-/// keeps the gate inside a second or two.
-pub const fuzz_seed_count: usize = 4096;
-
 /// The smallest message the fuzz generator writes (`fuzz/fuzz_generate.zig`): shorter than a
 /// header, so the header check is exercised too.
 pub const fuzz_message_bytes_min: usize = 1;

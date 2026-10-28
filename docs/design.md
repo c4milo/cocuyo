@@ -890,7 +890,7 @@ The engine gives each reason for these failures:
   - a response whose content is not a DNS message, or has a coding;
   - a response that colibri refused as malformed;
   - a response that colibri refused as too large. Its content passed 65,535 octets, the largest
-    DNS message (RFC 8484 §6), or a field that the engine reads passed `doh_values_bytes`.
+    DNS message (RFC 8484 §6), or a field that the engine reads passed `doh_values_bytes_max`.
 - `reset`:
   - a stream that the server reset (RFC 9250 §4.3.2, RFC 9113 §6.4);
   - over DoH, an exchange that colibri ends as refused after a connection came up. The server
@@ -2778,8 +2778,8 @@ step until `zig build test` passes.
     `tcp_message_bytes` fails the connection when it arrives. Over TLS the peer is still there, so
     the session says `close_notify` first (§21, TLS rule 5).
 
-    Checked on 2026-10-17 at the DoH channel's buffer, `doh_stream_bytes` (c4milo/cocuyo#44). The
-    issue said that whole records could stay there when the next chunk comes. Then they and the
+    Checked on 2026-10-17 at the DoH channel's buffer, `doh_stream_bytes_max` (c4milo/cocuyo#44).
+    The issue said that whole records could stay there when the next chunk comes. Then they and the
     chunk count against one room. It named two causes:
 
     - The bound of the engine's read of a channel. This cause cannot happen with colibri v0.6.0,
@@ -3755,7 +3755,7 @@ step until `zig build test` passes.
       not 2xx (RFC 8484 §4.2.1), or content of another type or coding. It is also a response that
       colibri refused as malformed or too large. In each the server answered with HTTP that the
       engine cannot read as a DNS message. A response is too large when its content passes 65,535
-      octets, the largest DNS message (RFC 8484 §6), or a field value passes `doh_values_bytes`.
+      octets, the largest DNS message (RFC 8484 §6), or a field value passes `doh_values_bytes_max`.
     - Over DoQ an answer longer than the engine's buffer is `closed`, not `status`. It breaks the
       stream's framing, so the engine fails the whole connection (§24, request rule 5). Over DoH
       colibri ends that exchange alone, and the connection stays up.
@@ -4398,7 +4398,8 @@ step until `zig build test` passes.
       is `cocuyo.constants`.
     - `cocuyo.core.name_text.printable_min` and `printable_max` are gone, and so are
       `cocuyo.wire.fuzz.seed_count` and `cocuyo.resolv_conf.fuzz.seed_count`.
-    - A consumer reads each of them at `limits` of the same module. No value changed.
+    - A consumer reads each of them at `limits` of the same module, except the two seed counts.
+      Each of these is `fuzz_seeds_default` of `constants` since §17 question 90. No value changed.
     - The twin keeps its aliases of rotor's own `constants` names. The engine's tests read
       `rotor.constants.wait_ns_max`, and the twin is `rotor` there. The twin is no public module.
     - The cache keeps `failure_seconds_least` and `failure_seconds_max` in its `limits.zig`, and
@@ -4422,16 +4423,20 @@ step until `zig build test` passes.
     The rule `typed-constants` then reads every limit by its name:
 
     - It reports a `const` at the top level of a limits file whose name ends in none of `_max`,
-      `_min`, `_limit` and `_least`. An alias is no exception there, and an import is. So a new
-      limit with no suffix fails the lint in its limits file, and with a suffix it fails the lint
-      in any other file.
+      `_min`, `_limit` and `_least`. An alias is no exception there. An import is: a bare
+      `@import(...)`, or a chain of fields after it whose names have no `_`, such as
+      `@import("cocuyo").core`. A field with a `_` names a constant of the other file, so it must
+      have a limit's name too. So a new limit with no suffix fails the lint in its limits file, and
+      with a suffix it fails the lint in any other file.
     - `_least` is a limit's suffix on both checks. `cache_failure_seconds_least` of `core` and the
       cache's `failure_seconds_least` are the least time of RFC 9520 §3.2, beside
       `Config.cache_failure_seconds_min`, which is no limit (decision 60). No other name ends in
-      `_least` at the top level of a file.
-    - The check of a limits file passes a name that ends in `_count`. The two `fuzz_seed_count` are
-      the count of seeds a fuzz gate runs, and their names are public. The place check does not read
-      `_count`, because the count of a test ends in it too. §17 question 90 asks the owner.
+      `_least` at the top level of a file. The owner accepted `_least` as a limit's suffix on
+      2026-10-28.
+    - The two `fuzz_seed_count` were the count of seeds that a fuzz gate runs. Each is a default,
+      not a bound, and the owner ruled on 2026-10-28 that each is `fuzz_seeds_default` of its
+      module's `constants.zig` (§17 question 90). So the check of a limits file passes no other
+      ending.
     - The canary's limits file holds `canary_chunk_bytes`, which the lint must report.
 
     §12, §16 decision 40, §17 questions 37, 76, 77, 78, 79 and 90.
@@ -5163,7 +5168,7 @@ still ends the TCP link of a DoH channel.
 
     - When more than 16,632 octets of a head wait, no room is left for a record of 2^14 octets of
       plaintext. colibri then opens no more records, and the head never becomes whole.
-    - The next chunks pass `doh_stream_bytes` and end the link (request rule 7). If no chunk
+    - The next chunks pass `doh_stream_bytes_max` and end the link (request rule 7). If no chunk
       comes, the request waits for its deadline. Either way its lookup fails over.
     - No size of the type's buffer helps, because colibri never takes the record.
 
@@ -5928,7 +5933,8 @@ count of seeds that `zig build test` runs, and `zig build fuzz-gate` runs anothe
       that can change it. This changes a public path again.
 
     Recommended: the move, at the next release that changes public names. Until the owner rules,
-    as built.
+    as built. Answered on 2026-10-28: the move, now, with the names of 0.7.0. The rule then passes
+    no name that ends in `_count`. Built on 2026-10-28: §16 decision 56, At 0.7.0.
 
 ## 18. The cache
 
@@ -9159,7 +9165,7 @@ colibri's `tls`, over chapulin (decision 32).
 - **Its size.** 987,216 octets, of which the QUIC connection is 700,472 and the TCP one 285,928.
   The caller places the QUIC connection's receive pool beside it, as `cocuyo_quic` does, since
   colibri `1fb8b33`, which the owner asked for on 2026-09-28: 377,504 octets for
-  `quic_receive_bytes`, 66,560 octets of capacity. A server's channel and pool are
+  `quic_receive_bytes_default`, 66,560 octets of capacity. A server's channel and pool are
   1,364,720 octets, and eight servers' are 10.9 MB. Every window the channel advertises follows
   the pool's capacity (RFC 9000 §4.1).
 
@@ -9674,23 +9680,23 @@ lookup over each transport.
 | `quic_idle_ns_default` | 10 s | how long a connection with no request is kept, TCP's `tcp_idle_ns_default`; RFC 9250 §5.5.2 names no value, and this one is chosen, not measured |
 | `quic_idle_margin_ns_min` | 1 s | how near the negotiated idle timeout a connection stops taking requests: a query and its answer take less, chosen, not measured |
 | `quic_connection_events_max` | 16 | beside one answer or reset for each of the engine's `lookups`, the `next` calls one datagram or one expiry is read with, which bounds the loop: the handshake's end, a close and tickets, chosen, not measured. What a flood leaves unread is read with the next datagram |
-| `quic_receive_bytes` | 66,560 | colibri's receive pool for a connection: a DoQ answer at its longest, 65,537 octets with its prefix, rounded up to the pool's 1,024-octet blocks. The engine reads a stream once all of it has arrived, so a stream's window holds one whole; colibri's default of 1 MiB is far past it |
-| `quic_idle_timeout_ms` | 30,000 | the idle timeout a connection advertises (RFC 9000 §18.2); the server's may be shorter, and the smaller holds (RFC 9250 §4.4); chosen, not measured |
+| `quic_receive_bytes_default` | 66,560 | colibri's receive pool for a connection: a DoQ answer at its longest, 65,537 octets with its prefix, rounded up to the pool's 1,024-octet blocks. The engine reads a stream once all of it has arrived, so a stream's window holds one whole; colibri's default of 1 MiB is far past it |
+| `quic_idle_timeout_ms_max` | 30,000 | the idle timeout a connection advertises (RFC 9000 §18.2); the server's may be shorter, and the smaller holds (RFC 9250 §4.4); chosen, not measured |
 | `quic_connection_id_bytes` | 8 | the destination connection ID a client's first Initial carries: RFC 9000 §7.2 asks for 8 octets at least |
 | `doh_request_bytes_max` | 1,536 | the `:path` of a DoH GET, which an exchange holds in a buffer of this size: `start` refuses a template whose path, with a `dns` value of 512 octets, passes it (§17 question 41). A test sends that GET with the longest authority, 259 octets, over HTTP/2, and its server answers; HTTP/3 was not tried at that length |
 | `answers_default` | 4 | a DoH connection's answer buffers when the consumer names none, 262 KB of them; chosen, not measured |
 | `doh_channels_max` | `servers_max` | one channel for each DoH server (decision 33) |
 | `channel_events_max` | 16 | beside an end for each request, what one read of a channel takes at most: its links' opens and closes, its tickets and its close, which bounds the loop over it; chosen, not measured, as `quic_connection_events_max` is. What a flood leaves unread is read at the next read |
 | `doh_fallback_delay_ns` | 250 ms | how long a channel gives QUIC's handshake before TCP opens beside it: the Connection Attempt Delay RFC 8305 §5 recommends, which that RFC sets between attempts at two addresses, not two versions of HTTP; taken from it, not measured |
-| `doh_stream_bytes` | 18,693 | the octets of the stream a channel keeps until colibri takes them: a record at its longest, 16,645 octets with its header (RFC 9846 §5.2), and one of the engine's chunks, 2,048. It is the engine's `tls_record_in_bytes_max` since 2026-10-13 (§21, TLS rule 7) |
-| `doh_datagram_bytes` | 2,048 | the datagram a channel keeps until colibri takes it: the engine's datagram buffer, which holds any datagram the engine reads |
-| `doh_values_bytes` | 256 | where a response's `content-type`, `content-encoding` and `age` are copied; a response whose values do not fit fails its request as too large; chosen, not measured |
+| `doh_stream_bytes_max` | 18,693 | the octets of the stream a channel keeps until colibri takes them: a record at its longest, 16,645 octets with its header (RFC 9846 §5.2), and one of the engine's chunks, 2,048. It is the engine's `tls_record_in_bytes_max` since 2026-10-13 (§21, TLS rule 7) |
+| `doh_datagram_bytes_max` | 2,048 | the datagram a channel keeps until colibri takes it: the engine's datagram buffer, which holds any datagram the engine reads |
+| `doh_values_bytes_max` | 256 | where a response's `content-type`, `content-encoding` and `age` are copied; a response whose values do not fit fails its request as too large; chosen, not measured |
 
 `cocuyo_doh` imports neither the engine nor `cocuyo_quic`. So four of its sizes copy theirs:
-`engine_chunk_bytes_max` is the engine's `tcp_chunk_bytes_max`, `doh_datagram_bytes` its
-`buffer_bytes_max`, `doh_stream_bytes` its `tls_record_in_bytes_max`, and the channel's receive pool
-`cocuyo_quic`'s `receive_bytes_default`. Since 2026-10-13 a test of `cocuyo_doh` imports both, and
-holds each copy to the size it copies.
+`engine_chunk_bytes_max` is the engine's `tcp_chunk_bytes_max`, `doh_datagram_bytes_max` its
+`buffer_bytes_max`, `doh_stream_bytes_max` its `tls_record_in_bytes_max`, and the channel's receive
+pool `cocuyo_quic`'s `receive_bytes_default`. Since 2026-10-13 a test of `cocuyo_doh` imports both,
+and holds each copy to the size it copies.
 
 ### Order and checks
 

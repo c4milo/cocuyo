@@ -448,7 +448,7 @@ fn write_labels_most(generator: *Generator, writer: *Writer) usize {
 const testing = std.testing;
 
 test "every type is written, whole and with an octet changed, within the gate's seeds" {
-    const seeds = @import("../limits.zig").fuzz_seed_count;
+    const seeds = constants.fuzz_seeds_default;
     var whole: [record_kinds.len]bool = @splat(false);
     var changed: [record_kinds.len]bool = @splat(false);
     var message: Message = .{};

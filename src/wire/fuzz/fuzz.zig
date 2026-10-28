@@ -1,9 +1,9 @@
 //! The fuzz target for the codec: one seed in, one message built by fuzz_generate.zig, every
 //! parser run over it by fuzz_check.zig.
 //!
-//! The gate below is a test, so `zig build test` runs it over `limits.fuzz_seed_count` seeds and
-//! prints nothing unless a seed fails. `zig build fuzz -- --seed <hex>` runs one seed and prints
-//! what it built, which is how a failure is reproduced: the seed is the whole input.
+//! The gate below is a test, so `zig build test` runs it over `constants.fuzz_seeds_default` seeds
+//! and prints nothing unless a seed fails. `zig build fuzz -- --seed <hex>` runs one seed and
+//! prints what it built, which is how a failure is reproduced: the seed is the whole input.
 //!
 //! Zig 0.16 has a coverage-guided fuzzer of its own behind `zig build test --fuzz`, which needs a
 //! build with instrumentation. It is not wired here: in Zig 0.16.0 the test runner itself does not
@@ -13,7 +13,7 @@
 //! pass before every commit needs to be; a guided fuzzer is a good thing to add beside it, not
 //! instead of it, once the Zig cocuyo pins can build one.
 const std = @import("std");
-const limits = @import("../limits.zig");
+const constants = @import("../constants.zig");
 const generate_module = @import("fuzz_generate.zig");
 const check_module = @import("fuzz_check.zig");
 
@@ -54,7 +54,7 @@ pub fn gate(first: u64, count: u64) ?Failure {
 const testing = std.testing;
 
 test "the fuzz gate holds over every seed it runs" {
-    if (gate(0, limits.fuzz_seed_count)) |failure| {
+    if (gate(0, constants.fuzz_seeds_default)) |failure| {
         std.debug.print(
             "fuzz: seed 0x{x} broke a promise: {s}\n  reproduce with: zig build fuzz -- --seed 0x{x}\n",
             .{ failure.seed, failure.what, failure.seed },
@@ -83,7 +83,7 @@ test "a long question of every name length from the shortest long one to 255 oct
     const shortest = @import("../limits.zig").fuzz_question_name_bytes_min;
     var seen: [core.limits.name_bytes_max - shortest + 1]bool = @splat(false);
     var message: Message = .{};
-    for (0..limits.fuzz_seed_count) |seed| {
+    for (0..constants.fuzz_seeds_default) |seed| {
         if (strategy_of(seed) != .long_question) continue;
         generate(seed, &message);
         var name: core.Name = core.Name.empty;
@@ -99,7 +99,7 @@ test "a long question's answer is owned through a pointer to it, at 255 octets w
     // octets or less" (§2.3.4). The record walk's skip measures the owner through its pointer.
     var reached: [2]bool = @splat(false);
     var message: Message = .{};
-    for (0..limits.fuzz_seed_count) |seed| {
+    for (0..constants.fuzz_seeds_default) |seed| {
         if (strategy_of(seed) != .long_question) continue;
         generate(seed, &message);
         const whole = try long_owner_whole(message.slice());
@@ -112,7 +112,6 @@ test "a long question's answer is owned through a pointer to it, at 255 octets w
 /// The length of a long question's owner: labels, then a pointer to the question's name. `skip`
 /// and `decode` end it after its pointer at 255 octets or fewer, and refuse it past 255.
 fn long_owner_whole(bytes: []const u8) !usize {
-    const constants = @import("../constants.zig");
     var name: core.Name = core.Name.empty;
     const question = try question_codec.parse(bytes, &name);
     var pointer_at = question.end;
@@ -137,7 +136,6 @@ fn long_owner_whole(bytes: []const u8) !usize {
 
 /// The farthest offset a pointer of a maze aims at: every two octets after the header are one.
 fn farthest_target(message: *const Message) usize {
-    const constants = @import("../constants.zig");
     const bytes = message.slice();
     var farthest: usize = 0;
     var offset: usize = core.constants.header_bytes;
@@ -153,7 +151,7 @@ test "a pointer maze aims its pointers anywhere in the message, past offset 255 
     var message: Message = .{};
     var mazes: usize = 0;
     var far: usize = 0;
-    for (0..limits.fuzz_seed_count) |seed| {
+    for (0..constants.fuzz_seeds_default) |seed| {
         if (strategy_of(seed) != .pointer_maze) continue;
         generate(seed, &message);
         const farthest = farthest_target(&message);
@@ -168,10 +166,9 @@ test "a pointer maze aims its pointers anywhere in the message, past offset 255 
 test "a long message of 65535 octets is written, and its last answer is owned through the farthest pointer" {
     // The longest message there is (RFC 1035 §4.2.2), and a pointer to offset 16383, the farthest
     // its fourteen bits name (§4.1.4): the gate's seeds reach both, and the walk reads both.
-    const constants = @import("../constants.zig");
     var message: Message = .{};
     var longest: usize = 0;
-    for (0..limits.fuzz_seed_count) |seed| {
+    for (0..constants.fuzz_seeds_default) |seed| {
         if (strategy_of(seed) != .long_message) continue;
         generate(seed, &message);
         const bytes = message.slice();
@@ -375,7 +372,7 @@ test "every length field at its most reaches the reader it shares, within the ga
     // label, and each COOKIE length, each met by its reader as a lookup would meet it.
     var met: Met = .{};
     var message: Message = .{};
-    for (0..limits.fuzz_seed_count) |seed| {
+    for (0..constants.fuzz_seeds_default) |seed| {
         if (strategy_of(seed) != .lengths_at_most) continue;
         generate(seed, &message);
         try met.note(&message);

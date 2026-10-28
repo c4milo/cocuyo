@@ -240,8 +240,8 @@ test "a datagram longer than the type keeps is dropped, and one the channel has 
 }
 
 test "a datagram of exactly what the type keeps is kept, and stream octets of exactly what it keeps are kept" {
-    // doh_datagram_bytes and doh_stream_bytes, each at its value: one octet more of either is the
-    // test above and the overrun test below.
+    // doh_datagram_bytes_max and doh_stream_bytes_max, each at its value: one octet more of either
+    // is the test above and the overrun test below.
     const pair = try Pair.create(.{});
     defer pair.free();
     const datagram: [limits.datagram_bytes_max]u8 = @splat(1);
@@ -303,7 +303,7 @@ test "a status of 299, the last 2xx, is an answer, and 300 is none" {
 
 test "field values that fill the buffer to its last octet are read, and one octet more is too large" {
     // The server sends one field the type wants, `content-type`, so its value alone fills the
-    // buffer (doh_values_bytes, rule 22).
+    // buffer (doh_values_bytes_max, rule 22).
     const media = "application/dns-message; x=";
     const filled = media ++ "y" ** (limits.values_bytes_max - media.len);
     for ([_][]const u8{ filled, filled ++ "y" }) |content_type| {
@@ -316,8 +316,8 @@ test "field values that fill the buffer to its last octet are read, and one octe
 }
 
 test "a 2xx response whose field values do not fit fails its request as too large" {
-    // doh_values_bytes: the values the type wants are copied into its buffer, and a response whose
-    // values do not fit ends as too large, which is no answer (rule 22).
+    // doh_values_bytes_max: the values the type wants are copied into its buffer, and a response
+    // whose values do not fit ends as too large, which is no answer (rule 22).
     const long_type = "application/dns-message; x=" ++ "y" ** limits.values_bytes_max;
     const pair = try Pair.create(.{ .content_type = long_type });
     defer pair.free();

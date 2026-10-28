@@ -30,10 +30,10 @@ pub const stream_bytes_max: usize = 16384;
 pub const buffer_groups_max: usize = 4;
 pub const buffers_per_group_max: usize = 256;
 
-/// What a socket's kernel buffers may be sized to here, which is the shape rotor measured on
-/// macOS: what is asked for up to the cap, `socket_buffer_bytes_granted_max`, the cap above it, and
-/// a refusal of a request above `socket_buffer_bytes_asked_max`, because that kernel refuses rather
-/// than caps once a socket is already large.
+/// What a socket's kernel buffers may be sized to here. This is the shape rotor measured on macOS.
+/// A request up to `socket_buffer_bytes_granted_max` gets what it asks for, and a larger one gets
+/// that cap. A request above `socket_buffer_bytes_asked_max` is refused, because that kernel
+/// refuses rather than caps once a socket is already large.
 pub const socket_buffer_bytes_granted_max: usize = 1 << 20;
 pub const socket_buffer_bytes_asked_max: usize = 1 << 28;
 

@@ -31,9 +31,11 @@ const canary_rules = [_][]const u8{
 };
 
 /// The findings the canary must see beside each rule's name, where one rule checks more than one
-/// thing: the typed-constants rule reports a limit in a constants file, a limit in any other file
-/// that is no limits file, and a constant of a limits file with no limit's name (docs/design.md
-/// §16 decision 56).
+/// thing. The typed-constants rule reports three things (docs/design.md §16 decision 56):
+///
+/// - a limit in a constants file;
+/// - a limit in any other file that is no limits file;
+/// - a constant of a limits file with no limit's name.
 const canary_messages = [_][]const u8{
     "const canary_bytes_max is a limit",
     "const canary_slots_max is a limit",

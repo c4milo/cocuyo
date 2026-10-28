@@ -36,10 +36,6 @@ pub const fuzz_filler_lines_max: usize = 2;
 /// The longest noise the target writes: longer than any address, name or pin it reads.
 pub const fuzz_noise_bytes_max: usize = 96;
 
-/// How many seeds `zig build test` runs. A text is at most a couple of kilobytes and one parser
-/// reads it twice, so this is the codec's count, and keeps the gate inside a second or two.
-pub const fuzz_seed_count: usize = 4096;
-
 /// The most hexadecimal digits the text fuzz target writes in one IPv6 group
 /// (`fuzz/fuzz_generate.zig`): the four RFC 4291 §2.2 allows.
 pub const fuzz_hex_digits_max: usize = 4;

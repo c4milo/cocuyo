@@ -200,6 +200,12 @@ pub const pointer_offset_mask: u16 = 0x3fff;
 /// A pointer is two octets (RFC 1035 §4.1.4).
 pub const pointer_bytes: usize = 2;
 
+/// How many seeds `zig build test` runs, a default: `zig build fuzz-gate` runs another count when
+/// told (docs/design.md §17 question 90). Every seed builds a message of up to 1232 octets, or up
+/// to 65535 under the long strategy, and runs six checks over it. This is the largest count that
+/// keeps the gate inside a second or two.
+pub const fuzz_seeds_default: usize = 4096;
+
 comptime {
     const core = @import("core");
     // The header's fields must tile the header exactly, or a parser would read past one of them.

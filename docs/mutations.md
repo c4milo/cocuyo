@@ -5044,7 +5044,7 @@ edit, so each of the three edits the new text.
 | TY8 | the rule reads no `maxInt` | `maxInt` gives a `comptime_int` | the literal fixture, `test-tools` | CAUGHT |
 | TY9 | the rule reads no `if` | an `if` of literals has no type | the literal fixture, `test-tools` | CAUGHT |
 | TY10 | the rule reports a constant whose type is written | a typed constant passes | the passing fixture, `test-tools` | CAUGHT |
-| TY11 | the rule takes an alias for an integer | an alias has the type of what it names | the passing fixture, `test-tools` | CAUGHT |
+| TY11 | the rule takes an alias for an integer | an alias has the type of what it names | the passing fixture, `test-tools` | CAUGHT (see the note under "Every limit with its suffix", After the review) |
 | TY12 | the rule reads the constants of a function and of a block | the rule reads a container's members | the container fixture, `test-tools` | CAUGHT |
 | TY13 | the rule reads no member of a container inside the file | the rule reads a container's members | the container fixture, `test-tools` | CAUGHT |
 | TY14 | the rule's scope leaves `io/` out | the engine's constants carry a type | the scope test and the container fixture, `test-tools` | CAUGHT |
@@ -10528,11 +10528,41 @@ cache's own names for values of `core`, as `ttl_seconds_max_default` is. No move
 | LN2 | the rule takes `_least` for no ending of a limit's name | a least of RFC 9520 is a limit | the test of a limit in a constants file: `failure_seconds_least` goes unreported, `zig build test-tools` | CAUGHT |
 | LN3 | the name check passes an alias | an alias in a limits file has a limit's name too | the test of a limits file with no limit's name, `zig build test-tools` | CAUGHT |
 | LN4 | the name check takes a field of an import for a constant | an import is no constant of a limits file | the test of a limits file with no limit's name: `core` is reported, `zig build test-tools` | CAUGHT |
-| LN5 | the name check takes `_count` for no ending | the count of a fuzz gate stays as it is (design §17 question 90) | the test of a limits file with no limit's name: `fuzz_seed_count` is reported, `zig build test-tools` | CAUGHT |
+| LN5 | the name check passes a name that ends in `_count` again | a seed count is a default, not a limit (design §17 question 90) | the test of a limits file with no limit's name: `fuzz_seed_count` goes unreported, `zig build test-tools` | CAUGHT |
 | LN6 | the canary holds no limits file with a name that is no limit's | the lint reports a constant of a limits file with no limit's suffix | the canary run, which looks for `const canary_chunk_bytes is in a limits file`, `zig build lint` | CAUGHT |
 | LN7 | a renamed limit gets its old name back, beside the new one | no limit has a name with no suffix | the lint over the tree, `zig build lint` | CAUGHT |
+| LN8 | the name check takes any field of an import for an import | a field with a `_` names a constant of the other file | the test of a limits file with no limit's name: `borrowed_bytes` goes unreported, `zig build test-tools` | CAUGHT |
+| LN9 | a seed count of a fuzz gate goes back into a limits file | a limits file holds no default | the lint over the tree, `zig build lint` | CAUGHT |
 
 LN4 did not compile at its first edit, which removed the loop and left `node` with no mutation. It
 ran again with an edit that compiles.
 
-Seven mutations, seven `CAUGHT`.
+Nine mutations, nine `CAUGHT`. LN5, LN8 and LN9 are as the review below left them.
+
+### After the review
+
+The owner ruled on 2026-10-28, and an independent review found these. The fixes:
+
+- Design §17 question 90: each `fuzz_seed_count` is `fuzz_seeds_default` of its module's
+  `constants.zig`. A seed count is a default, not a bound. The name check then passes no name that
+  ends in `_count`. LN5 now puts that ending back, and LN9 puts the count back into
+  `src/wire/limits.zig`.
+- The owner accepted `_least` as a limit's suffix (design §16 decision 56).
+- `is_import` took any field of an import for an import, so
+  `@import("../core/limits.zig").chunk_bytes` passed. It takes a chain of fields now only when
+  no name in it has a `_`, as a module's name has none. LN4 and LN8 break the walk and the test
+  of the names. Each of the two holes has a line in the test of the name check.
+- TY11 put a second `.identifier, .field_access` prong into `is_alias` from 92c6aef on. That is a
+  duplicate prong, so a compile error caught TY11, and no test did. TY11 now edits
+  `integer_shaped` of `tools/lint/typed_constants_shape.zig`, where its `.old` occurs once. The
+  passing fixture then fails: `CAUGHT` by `zig build test-tools`.
+- The design and the comments of `io/` named the limits of `cocuyo_doh` and `cocuyo_quic` by
+  labels with no suffix, where they describe the present. Each label has its suffix now.
+  `quic_receive_bytes` is `quic_receive_bytes_default`, since it is `cocuyo_quic`'s default.
+- Three long doc comments are split: the socket buffers of the twin, the canary's messages and
+  the list of a limit's suffixes.
+- DS2, DS3, DT28 and A1 moved into the commit that drops the aliases, so each commit's set
+  compiles there. Each ran `CAUGHT` at that commit too.
+
+`zig build mutations -- lookup TY11 LN1 LN2 LN3 LN4 LN5 LN6 LN7 LN8 LN9` ran each to its end, and
+each is `CAUGHT`.

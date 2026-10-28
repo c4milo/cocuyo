@@ -6,11 +6,11 @@
 //! The caller is trusted and its files are not proof against a stray byte (SECURITY.md): a file
 //! with a malformed line must still configure a resolver, and nothing in it may trip an assertion.
 //!
-//! The gate is a test, so `zig build test` runs it over `limits.fuzz_seed_count` seeds and prints
-//! nothing unless a seed fails. `zig build fuzz -- --text --seed <hex>` runs one seed and prints
-//! the text it built, which is how a failure is reproduced: the seed is the whole input.
+//! The gate is a test, so `zig build test` runs it over `constants.fuzz_seeds_default` seeds and
+//! prints nothing unless a seed fails. `zig build fuzz -- --text --seed <hex>` runs one seed and
+//! prints the text it built, which is how a failure is reproduced: the seed is the whole input.
 const std = @import("std");
-const limits = @import("../limits.zig");
+const constants = @import("../constants.zig");
 const generate_module = @import("fuzz_generate.zig");
 const check_module = @import("fuzz_check.zig");
 
@@ -45,7 +45,7 @@ pub fn gate(first: u64, count: u64) ?Failure {
 const testing = std.testing;
 
 test "the text fuzz gate holds over every seed it runs" {
-    if (gate(0, limits.fuzz_seed_count)) |failure| {
+    if (gate(0, constants.fuzz_seeds_default)) |failure| {
         std.debug.print(
             "text fuzz: seed 0x{x} broke a promise: {s}\n  reproduce with: zig build fuzz -- --text --seed 0x{x}\n",
             .{ failure.seed, failure.what, failure.seed },
@@ -58,7 +58,7 @@ test "the gate reaches every parser in every shape" {
     // A gate that only ever built noise would pass while checking nothing a parser reads whole.
     var reached: [Target.count][Shape.count]usize = @splat(@splat(0));
     var text: Text = .{};
-    for (0..limits.fuzz_seed_count) |seed| {
+    for (0..constants.fuzz_seeds_default) |seed| {
         generate(seed, &text);
         reached[@intFromEnum(text.target)][@intFromEnum(text.shape)] += 1;
     }

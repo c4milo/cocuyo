@@ -15,16 +15,18 @@ pub const record_bytes_max: usize = constants.record_header_bytes + record_plain
 /// `io/limits.zig`, which this module cannot import.
 pub const engine_chunk_bytes_max: usize = 2048;
 
-/// The octets of the stream a channel keeps until colibri takes them, `doh_stream_bytes`: a record
-/// at its longest, which colibri takes only whole, and one chunk after it.
+/// The octets of the stream a channel keeps until colibri takes them, `doh_stream_bytes_max`: a
+/// record at its longest, which colibri takes only whole, and one chunk after it.
 pub const stream_bytes_max: usize = record_bytes_max + engine_chunk_bytes_max;
 
-/// The datagram a channel keeps until colibri takes it, `doh_datagram_bytes`: the engine's datagram
-/// buffer, `buffer_bytes_max` in `io/limits.zig`, which holds any datagram the engine reads.
+/// The datagram a channel keeps until colibri takes it, `doh_datagram_bytes_max`: the engine's
+/// datagram buffer, `buffer_bytes_max` in `io/limits.zig`, which holds any datagram the engine
+/// reads.
 pub const datagram_bytes_max: usize = 2048;
 
-/// Where a response's `content-type`, `content-encoding` and `age` are copied, `doh_values_bytes`.
-/// A response whose values do not fit fails its request as too large. Chosen, not measured.
+/// Where a response's `content-type`, `content-encoding` and `age` are copied,
+/// `doh_values_bytes_max`. A response whose values do not fit fails its request as too large.
+/// Chosen, not measured.
 pub const values_bytes_max: usize = 256;
 
 /// The passes `next` takes at most: each takes octets of what the links read or says something, and

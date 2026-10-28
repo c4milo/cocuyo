@@ -41,9 +41,9 @@
 //!
 //! The name. The rule reads a limit by its name, so a limit with no suffix can live in any file.
 //! So the rule also reports a `const` at the top level of a limits file when its name has none of
-//! those suffixes, alias or not (docs/design.md §17 question 78). It passes an import. It passes a
-//! name that ends in `_count`, the count of seeds that a fuzz gate runs (§17 question 90). The
-//! place check does not read `_count`, because the count of a test ends in it too.
+//! those suffixes, alias or not (docs/design.md §17 question 78). It passes an import: a bare
+//! `@import`, or a chain of fields after one whose names have no `_`, as a module's name has none.
+//! A field with a `_` names a constant of the other file, and the rule reads it.
 //!
 //! The place has three bounds. A limit with no suffix outside a limits file passes. The rule reads
 //! no test file, whose stem ends in `_test` or holds `_test_`, and no `fixtures.zig`: their bounds
@@ -76,12 +76,14 @@ pub const config: Config = .{
 /// The part of a name that makes a file a limits file, or a directory a directory of them.
 const limits_name = "limits";
 
-/// The endings of a limit's name: a most, a least, a limit, and a least that an RFC states as "at
-/// least" beside a `_min` of `Config` with another meaning (docs/design.md §16 decision 60).
+/// The endings of a limit's name: a most, a least and a limit. `_least` is a least too. It names
+/// what an RFC states as "at least", beside a `_min` of `Config` with another meaning
+/// (docs/design.md §16 decisions 56 and 60).
 const limit_suffixes = [_][]const u8{ "_max", "_min", "_limit", "_least" };
 
-/// The ending of a count in a limits file that is no bound with a suffix: the seeds of a fuzz gate.
-const count_suffix = "_count";
+/// The separator of the words of a name. A module's name has none, as `core` and `limits` have
+/// none. A constant's name of more than one word has one.
+const word_separator: u8 = '_';
 
 /// The builtin that names another file. A `const` that holds one is no constant of its file.
 const import_builtin = "@import";
@@ -203,14 +205,14 @@ const Visitor = struct {
         }
     }
 
-    /// Each `const` at the top level of a limits file whose name is no limit's: none of
-    /// `limit_suffixes` and no `count_suffix`. An import is no constant of the file.
+    /// Each `const` at the top level of a limits file whose name ends in none of `limit_suffixes`.
+    /// An import is no constant of the file.
     fn check_names(self: *Visitor, members: []const Node.Index) void {
         for (members) |member| {
             const declaration = self.tree.fullVarDecl(member) orelse continue;
             if (self.tree.tokenTag(declaration.ast.mut_token) != .keyword_const) continue;
             const constant = self.tree.tokenSlice(declaration.ast.mut_token + 1);
-            if (is_limit_name(constant) or std.mem.endsWith(u8, constant, count_suffix)) continue;
+            if (is_limit_name(constant)) continue;
             const value = declaration.ast.init_node.unwrap() orelse continue;
             if (is_import(self.tree, value)) continue;
             self.report_constant(declaration, "const {s} is in a limits file: end its name in _max, _min, _limit or _least");
@@ -242,10 +244,15 @@ fn is_alias(tree: *const Ast, value: Node.Index) bool {
     };
 }
 
-/// Whether a value is an import, or a field of one, such as `core` of the `cocuyo` module.
+/// Whether a value is an import: a bare `@import`, or a chain of fields after one whose names have
+/// no `_`, such as `@import("cocuyo").core`. A field with a `_` names a constant of the other file.
 fn is_import(tree: *const Ast, value: Node.Index) bool {
     var node = value;
-    while (tree.nodeTag(node) == .field_access) node = tree.nodeData(node).node_and_token[0];
+    while (tree.nodeTag(node) == .field_access) {
+        const field = tree.nodeData(node).node_and_token;
+        if (std.mem.indexOfScalar(u8, tree.tokenSlice(field[1]), word_separator) != null) return false;
+        node = field[0];
+    }
     const builtin = switch (tree.nodeTag(node)) {
         .builtin_call_two, .builtin_call_two_comma => tree.tokenSlice(tree.nodeMainToken(node)),
         else => return false,
@@ -419,18 +426,23 @@ test "typed-constants reports a constant of a limits file with no limit's name" 
         \\const std = @import("std");
         \\const core = @import("cocuyo").core;
         \\const constants = @import("io_doh_channel_constants.zig");
+        \\const nested = @import("cocuyo").core.limits;
         \\pub const chunk_bytes: usize = 2048;
         \\pub const window_bytes = chunk_bytes;
         \\pub const room = core.limits.message_bytes_max;
         \\pub const chunk_bytes_max: usize = 2048;
         \\pub const failure_seconds_least = core.limits.cache_failure_seconds_least;
         \\pub const fuzz_seed_count: usize = 4096;
+        \\pub const borrowed_bytes = @import("../core/limits.zig").chunk_bytes;
         \\pub fn sweep_steps_max(slot_count: usize) usize {
         \\    const steps: usize = 2;
         \\    return slot_count * steps;
         \\}
         \\
-    , &.{ unnamed("chunk_bytes"), unnamed("window_bytes"), unnamed("room") });
+    , &.{
+        unnamed("chunk_bytes"),     unnamed("window_bytes"),   unnamed("room"),
+        unnamed("fuzz_seed_count"), unnamed("borrowed_bytes"),
+    });
     try expect_findings("src/core/constants.zig",
         \\pub const chunk_bytes: usize = 2048;
         \\
