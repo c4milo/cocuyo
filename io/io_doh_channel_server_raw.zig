@@ -35,7 +35,7 @@ pub const RawServer = struct {
     stream: std.Random.ChaCha = std.Random.ChaCha.init(@splat(stream_octet)),
     records: ?Provider = null,
     /// The records the client sent and the server has not read.
-    input: [limits.stream_bytes]u8 = undefined,
+    input: [limits.stream_bytes_max]u8 = undefined,
     input_len: usize = 0,
     /// The request's plaintext up to the end of its head.
     request: [limits.server_request_bytes_max]u8 = undefined,

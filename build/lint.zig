@@ -30,12 +30,14 @@ const canary_rules = [_][]const u8{
     "typed-constants",
 };
 
-/// The findings the canary must see beside each rule's name, where one rule checks two things: the
-/// typed-constants rule reports a limit in a constants file and a limit in any other file that is
-/// no limits file (docs/design.md §16 decision 56).
+/// The findings the canary must see beside each rule's name, where one rule checks more than one
+/// thing: the typed-constants rule reports a limit in a constants file, a limit in any other file
+/// that is no limits file, and a constant of a limits file with no limit's name (docs/design.md
+/// §16 decision 56).
 const canary_messages = [_][]const u8{
     "const canary_bytes_max is a limit",
     "const canary_slots_max is a limit",
+    "const canary_chunk_bytes is in a limits file",
 };
 
 /// The most lines a hand-written file may hold (tools/lint/file_length.zig).
@@ -77,6 +79,13 @@ const canary_source =
 const canary_constants =
     \\pub const canary_bytes = 4;
     \\pub const canary_bytes_max: usize = 4;
+    \\
+;
+
+/// A limits file with a constant whose name has no limit's suffix, which the typed-constants rule
+/// refuses.
+const canary_limits =
+    \\pub const canary_chunk_bytes: usize = 4;
     \\
 ;
 
@@ -152,6 +161,7 @@ fn add_canary_tree(b: *std.Build) std.Build.LazyPath {
     const tree = b.addWriteFiles();
     _ = tree.add("src/resolver/canary.zig", canary_source);
     _ = tree.add("src/resolver/constants.zig", canary_constants);
+    _ = tree.add("src/resolver/limits.zig", canary_limits);
     _ = tree.add("docs/canary.md", canary_markdown);
     return tree.getDirectory();
 }

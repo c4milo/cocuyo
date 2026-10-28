@@ -388,8 +388,8 @@ fn message(self: anytype, op: []const u8, slot: usize, reply: fixtures.Reply) Er
     const loop_slot = try operation(self, op);
     const user_data = self.loop.slots[loop_slot].user_data;
     const lookup = self.engine.resolver.lookup_of(self.engine.handles[slot]);
-    var body_buffer: [io.limits.buffer_bytes]u8 = undefined;
-    const room = rotor.datagram.payload_capacity(io.limits.buffer_bytes, self.loop.group_options);
+    var body_buffer: [io.limits.buffer_bytes_max]u8 = undefined;
+    const room = rotor.datagram.payload_capacity(io.limits.buffer_bytes_max, self.loop.group_options);
     const body = if (reply == .cut) fixtures.build_cut(lookup, room, &body_buffer) else fixtures.build(lookup, reply, &body_buffer);
     const kind = kind_of(user_data) orelse return error.Malformed;
     // Only a datagram comes cut, and it comes with the kernel's mark (the datagram's rule 6).

@@ -263,7 +263,7 @@ test "init takes a payload at the room of a datagram buffer, and refuses one oct
     var rig: Rig = .{};
     try rig.init(52, .{ .{}, .{} }, .{ .servers = &.{}, .udp_payload_bytes = @intCast(room) });
     // The room is what a buffer of the loop's group holds, under the options the engine gave it.
-    const holds = rotor.datagram.payload_capacity(io.limits.buffer_bytes, rig.loop.group_options);
+    const holds = rotor.datagram.payload_capacity(io.limits.buffer_bytes_max, rig.loop.group_options);
     try testing.expectEqual(room, holds);
     const handle = try rig.engine.start(question("example.com."), rig.loop.now());
     try testing.expectEqual(@as(u16, @intCast(room)), try advertised(&rig.engine, handle));
@@ -341,7 +341,7 @@ fn expect_reinit_waits(tls: bool, seed: u64) !void {
     const connection = &rig.engine.connections[0];
     try failing_test.until_query_in_flight(&rig);
     const lent = io.tls.pending(&rig.engine, 0, connection.queue.first().?.end);
-    var sealed: [io.limits.tls_records_out_bytes]u8 = undefined;
+    var sealed: [io.limits.tls_records_out_bytes_max]u8 = undefined;
     @memcpy(sealed[0..lent.len], lent);
     rig.engine.cancel_all(rig.loop.now());
     const cancelled = rig.engine.take(rig.loop.now()) orelse return error.NoResult;

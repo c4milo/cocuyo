@@ -31,10 +31,11 @@ pub const buffer_groups_max: usize = 4;
 pub const buffers_per_group_max: usize = 256;
 
 /// What a socket's kernel buffers may be sized to here, which is the shape rotor measured on
-/// macOS: what is asked for up to the cap, the cap above it, and a refusal above the second
-/// bound, because that kernel refuses rather than caps once a socket is already large.
-pub const socket_buffer_bytes_cap: usize = 1 << 20;
-pub const socket_buffer_bytes_refuse_above: usize = 1 << 28;
+/// macOS: what is asked for up to the cap, `socket_buffer_bytes_granted_max`, the cap above it, and
+/// a refusal of a request above `socket_buffer_bytes_asked_max`, because that kernel refuses rather
+/// than caps once a socket is already large.
+pub const socket_buffer_bytes_granted_max: usize = 1 << 20;
+pub const socket_buffer_bytes_asked_max: usize = 1 << 28;
 
 /// The longest one `tick` may wait: rotor's `wait_ns_max`, ten seconds, kept so a tick valid here
 /// is valid there. A caller that waits longer ticks again, as a caller of rotor must.
@@ -71,7 +72,7 @@ pub const quic_items_per_datagram_max: usize = quic_datagram_bytes_max / constan
 /// What a client connection keeps to send, and how much of it a request may not take: room for
 /// every short item it still owes, a cancel for each of the engine's streams among them.
 pub const quic_pending_bytes_max: usize = 16384;
-pub const quic_pending_reserve_bytes: usize = 2048;
+pub const quic_pending_reserve_bytes_min: usize = 2048;
 
 /// The longest ALPN token a scripted server keeps from a client's hello (RFC 7301 §6).
 pub const quic_alpn_bytes_max: usize = 16;

@@ -47,8 +47,8 @@ pub fn start(self: anytype, context: anytype) error{Failed}!void {
 /// §4.4).
 fn parameters(receive_bytes: usize) quic.transport_parameters.Parameters {
     var local = quic.transport_parameters.Parameters.initial();
-    local.max_idle_timeout_ms = limits.idle_timeout_ms;
-    local.max_udp_payload_size = limits.datagram_receive_bytes;
+    local.max_idle_timeout_ms = limits.idle_timeout_ms_max;
+    local.max_udp_payload_size = limits.datagram_receive_bytes_max;
     local.initial_max_data = receive_bytes;
     local.initial_max_stream_data_bidi_local = @min(limits.answer_bytes_max, receive_bytes);
     return local;

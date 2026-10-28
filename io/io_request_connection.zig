@@ -123,12 +123,12 @@ pub fn place(self: anytype, index: usize, now_ns: u64) void {
     enqueue(connection, @intCast(index));
 }
 
-/// Whether an idle connection that is up has less than `quic_idle_margin_ns` left before the idle
-/// timeout it negotiated. "When a client prepares to send a new DNS query to the server, it
+/// Whether an idle connection that is up has less than `quic_idle_margin_ns_min` left before the
+/// idle timeout it negotiated. "When a client prepares to send a new DNS query to the server, it
 /// SHOULD check whether the idle time is sufficiently lower than the idle timer" (RFC 9250 §4.4).
 fn near_idle(self: anytype, server: u8, now_ns: u64) bool {
     const connection = &self.quic.connections[server];
-    return connection.transport.idle_left_ns(now_ns) < limits.quic_idle_margin_ns;
+    return connection.transport.idle_left_ns(now_ns) < limits.quic_idle_margin_ns_min;
 }
 
 pub fn enqueue(connection: anytype, index: u16) void {

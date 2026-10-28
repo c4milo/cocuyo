@@ -32,17 +32,23 @@
 //! The rule cannot see a sum of two narrow runtime values with no constant in it. The type of the
 //! sum is the type of its operands, and no constant is there to widen it.
 //!
-//! The place. A limit is a bound the code holds or checks. Its name ends in `_max`, `_min` or
-//! `_limit`, and it lives in a limits file: a Zig file whose stem has the word `limits` between
-//! its underscores, or a Zig file under a directory named `limits`. So the rule reports a `const` at the top level of any other
-//! file of `src/` and `io/` when its name ends in one of those suffixes and its value is no alias.
-//! A constants file is such a file: it holds the protocol sizes and the defaults alone. An alias
-//! of a limit is no limit of its own, and it keeps a public path to one.
+//! The place. A limit is a bound the code holds or checks. Its name ends in `_max`, `_min`,
+//! `_limit` or `_least`, and it lives in a limits file: a Zig file whose stem has the word `limits`
+//! between its underscores, or a Zig file under a directory named `limits`. So the rule reports a
+//! `const` at the top level of any other file of `src/` and `io/` when its name ends in one of
+//! those suffixes and its value is no alias. A constants file is such a file: it holds the protocol
+//! sizes and the defaults alone. An alias of a limit is no limit of its own.
 //!
-//! The place has three bounds. The rule reads a limit by its name alone, so a limit whose name has
-//! no such suffix passes; docs/mutations.md lists each one by hand. It reads no test file, whose
-//! stem ends in `_test` or holds `_test_`, and no `fixtures.zig`: their bounds are a test's own. It
-//! reads the top level of a file alone: a member of a type is that type's interface.
+//! The name. The rule reads a limit by its name, so a limit with no suffix can live in any file.
+//! So the rule also reports a `const` at the top level of a limits file when its name has none of
+//! those suffixes, alias or not (docs/design.md §17 question 78). It passes an import. It passes a
+//! name that ends in `_count`, the count of seeds that a fuzz gate runs (§17 question 90). The
+//! place check does not read `_count`, because the count of a test ends in it too.
+//!
+//! The place has three bounds. A limit with no suffix outside a limits file passes. The rule reads
+//! no test file, whose stem ends in `_test` or holds `_test_`, and no `fixtures.zig`: their bounds
+//! are a test's own. It reads the top level of a file alone: a member of a type is that type's
+//! interface.
 //!
 //! The rule is cocuyo's own, and the only rule here that is not pepegrillo's.
 const std = @import("std");
@@ -70,8 +76,15 @@ pub const config: Config = .{
 /// The part of a name that makes a file a limits file, or a directory a directory of them.
 const limits_name = "limits";
 
-/// The endings of a limit's name: a most, a least and a limit.
-const limit_suffixes = [_][]const u8{ "_max", "_min", "_limit" };
+/// The endings of a limit's name: a most, a least, a limit, and a least that an RFC states as "at
+/// least" beside a `_min` of `Config` with another meaning (docs/design.md §16 decision 60).
+const limit_suffixes = [_][]const u8{ "_max", "_min", "_limit", "_least" };
+
+/// The ending of a count in a limits file that is no bound with a suffix: the seeds of a fuzz gate.
+const count_suffix = "_count";
+
+/// The builtin that names another file. A `const` that holds one is no constant of its file.
+const import_builtin = "@import";
 
 /// The stem segment of a test file, and the basename of a module's fixtures.
 const test_segment = "_test";
@@ -136,6 +149,7 @@ fn TypedConstants(comptime rule_config: Config) type {
             };
             visitor.check_members(tree.rootDecls());
             if (places_limits(file.path)) visitor.check_places(tree.rootDecls());
+            if (is_limits_file(file.path)) visitor.check_names(tree.rootDecls());
             if (visitor.failure) |failure| return failure;
         }
     };
@@ -189,6 +203,20 @@ const Visitor = struct {
         }
     }
 
+    /// Each `const` at the top level of a limits file whose name is no limit's: none of
+    /// `limit_suffixes` and no `count_suffix`. An import is no constant of the file.
+    fn check_names(self: *Visitor, members: []const Node.Index) void {
+        for (members) |member| {
+            const declaration = self.tree.fullVarDecl(member) orelse continue;
+            if (self.tree.tokenTag(declaration.ast.mut_token) != .keyword_const) continue;
+            const constant = self.tree.tokenSlice(declaration.ast.mut_token + 1);
+            if (is_limit_name(constant) or std.mem.endsWith(u8, constant, count_suffix)) continue;
+            const value = declaration.ast.init_node.unwrap() orelse continue;
+            if (is_import(self.tree, value)) continue;
+            self.report_constant(declaration, "const {s} is in a limits file: end its name in _max, _min, _limit or _least");
+        }
+    }
+
     fn report_constant(self: *Visitor, declaration: Ast.full.VarDecl, comptime format: []const u8) void {
         const name_token = declaration.ast.mut_token + 1;
         const location = ast.token_location(self.tree, name_token);
@@ -212,6 +240,17 @@ fn is_alias(tree: *const Ast, value: Node.Index) bool {
         .identifier, .field_access => true,
         else => false,
     };
+}
+
+/// Whether a value is an import, or a field of one, such as `core` of the `cocuyo` module.
+fn is_import(tree: *const Ast, value: Node.Index) bool {
+    var node = value;
+    while (tree.nodeTag(node) == .field_access) node = tree.nodeData(node).node_and_token[0];
+    const builtin = switch (tree.nodeTag(node)) {
+        .builtin_call_two, .builtin_call_two_comma => tree.tokenSlice(tree.nodeMainToken(node)),
+        else => return false,
+    };
+    return std.mem.eql(u8, builtin, import_builtin);
 }
 
 // Tests. Each fixture pins one shape from the header.
@@ -335,8 +374,13 @@ test "typed-constants reports a limit in a constants file and in any file that i
         \\pub const ndots_limit: usize = 15;
         \\pub const candidates_max: usize = search_max + 1;
         \\pub const timeout_ns_max_default: u64 = 5_000_000_000;
+        \\pub const failure_seconds_least: u32 = 1;
+        \\pub const seed_count: usize = 4096;
         \\
-    , &.{ place("records_max"), place("port_ephemeral_min"), place("ndots_limit"), place("candidates_max") });
+    , &.{
+        place("records_max"),    place("port_ephemeral_min"),    place("ndots_limit"),
+        place("candidates_max"), place("failure_seconds_least"),
+    });
     try expect_findings("io/io_quic_plain.zig",
         \\const level_bytes_max: usize = 512;
         \\
@@ -362,6 +406,33 @@ test "typed-constants passes a limit in a limits file, an alias of one, and a me
         \\pub const Transport = struct {
         \\    pub const output_bytes_max: usize = 0;
         \\};
+        \\
+    , &.{});
+}
+
+fn unnamed(comptime constant: []const u8) []const u8 {
+    return "const " ++ constant ++ " is in a limits file: end its name in _max, _min, _limit or _least";
+}
+
+test "typed-constants reports a constant of a limits file with no limit's name" {
+    try expect_findings("io/io_doh_channel_limits.zig",
+        \\const std = @import("std");
+        \\const core = @import("cocuyo").core;
+        \\const constants = @import("io_doh_channel_constants.zig");
+        \\pub const chunk_bytes: usize = 2048;
+        \\pub const window_bytes = chunk_bytes;
+        \\pub const room = core.limits.message_bytes_max;
+        \\pub const chunk_bytes_max: usize = 2048;
+        \\pub const failure_seconds_least = core.limits.cache_failure_seconds_least;
+        \\pub const fuzz_seed_count: usize = 4096;
+        \\pub fn sweep_steps_max(slot_count: usize) usize {
+        \\    const steps: usize = 2;
+        \\    return slot_count * steps;
+        \\}
+        \\
+    , &.{ unnamed("chunk_bytes"), unnamed("window_bytes"), unnamed("room") });
+    try expect_findings("src/core/constants.zig",
+        \\pub const chunk_bytes: usize = 2048;
         \\
     , &.{});
 }

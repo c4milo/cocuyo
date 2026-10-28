@@ -60,8 +60,8 @@ pub const None = struct {
 /// One connection's TLS: its session, the record it is reading, and the records sealed and not
 /// yet gone. With `None` the buffers hold nothing.
 pub fn State(comptime Session: type) type {
-    const in_bytes = if (Session.enabled) limits.tls_record_in_bytes else 0;
-    const out_bytes = if (Session.enabled) limits.tls_records_out_bytes else 0;
+    const in_bytes = if (Session.enabled) limits.tls_record_in_bytes_max else 0;
+    const out_bytes = if (Session.enabled) limits.tls_records_out_bytes_max else 0;
     return struct {
         session: Session = .{},
         /// The ticket this opening resumes with, spent from its server's, and when it came
@@ -145,7 +145,7 @@ pub fn take(self: anytype, at: u8, bytes: []const u8, now_ns: u64) void {
     const state = &connection.tls;
     // The buffer holds a partial record at most, and room for a chunk past it. Every whole record
     // left with the chunk that made it whole, and `record_len` refused a longer record.
-    assert(bytes.len <= limits.tcp_chunk_bytes);
+    assert(bytes.len <= limits.tcp_chunk_bytes_max);
     assert(state.record_in_used + bytes.len <= state.record_in.len);
     @memcpy(state.record_in[state.record_in_used..][0..bytes.len], bytes);
     state.record_in_used += bytes.len;
@@ -417,7 +417,7 @@ pub fn reset(connection: anytype) void {
 
 comptime {
     // A sealed entry's end fits the queue's u16.
-    assert(limits.tls_records_out_bytes <= std.math.maxInt(u16));
+    assert(limits.tls_records_out_bytes_max <= std.math.maxInt(u16));
 }
 
 // Tests.

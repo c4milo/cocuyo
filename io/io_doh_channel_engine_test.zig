@@ -141,7 +141,7 @@ const QuicSide = struct {
     /// Sends what the server owes, each datagram after the scripted server's delay.
     fn pump(side: *QuicSide, now_ns: u64) void {
         const socket = side.socket orelse return;
-        var out: [cocuyo_doh.limits.datagram_bytes]u8 = undefined;
+        var out: [cocuyo_doh.limits.datagram_bytes_max]u8 = undefined;
         for (0..sends_per_hear_max) |_| {
             const octets = side.server.send(&out, now_ns) orelse return;
             const delay_ns = side.network.scripts[side.index].delay_ns_min;
@@ -320,9 +320,9 @@ test "the sizes cocuyo_doh copies are the engine's and cocuyo_quic's" {
     // cocuyo_doh imports neither module, so each size it shares with one is a copy. This test
     // holds each copy to the size it copies (docs/design.md §24, New limits).
     const own = cocuyo_doh.limits;
-    try testing.expectEqual(io.limits.tcp_chunk_bytes, own.engine_chunk_bytes);
-    try testing.expectEqual(io.limits.buffer_bytes, own.datagram_bytes);
-    try testing.expectEqual(cocuyo_quic.constants.receive_bytes_default, own.receive_bytes);
+    try testing.expectEqual(io.limits.tcp_chunk_bytes_max, own.engine_chunk_bytes_max);
+    try testing.expectEqual(io.limits.buffer_bytes_max, own.datagram_bytes_max);
+    try testing.expectEqual(cocuyo_quic.constants.receive_bytes_default, own.receive_bytes_max);
     // A record at its longest and one chunk after it, as a TLS connection of the engine keeps.
-    try testing.expectEqual(io.limits.tls_record_in_bytes, own.stream_bytes);
+    try testing.expectEqual(io.limits.tls_record_in_bytes_max, own.stream_bytes_max);
 }

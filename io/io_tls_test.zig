@@ -197,9 +197,9 @@ fn record_of_zeros(out: []u8, content: u8, body: usize) usize {
 }
 
 /// Gives `stream` to the connection in the first slot as the loop gives a stream: in chunks of
-/// `tcp_chunk_bytes`. It stops when the connection reads nothing more.
+/// `tcp_chunk_bytes_max`. It stops when the connection reads nothing more.
 fn take_in_chunks(rig: anytype, stream: []const u8) void {
-    const chunk_bytes = io.limits.tcp_chunk_bytes;
+    const chunk_bytes = io.limits.tcp_chunk_bytes_max;
     var chunks = std.mem.window(u8, stream, chunk_bytes, chunk_bytes);
     while (chunks.next()) |chunk| {
         const state = rig.engine.connections[0].state;
@@ -329,8 +329,8 @@ test "every whole record one chunk carries goes to the session with it, the last
     var message: [cocuyo.constants.tcp_prefix_bytes + header]u8 = @splat(0);
     cocuyo.wire.header.write_message_len(&message, @intCast(header));
     const record_bytes = rotor.constants.tls_record_header_bytes;
-    const others = (io.limits.tcp_chunk_bytes - record_bytes - answer_bytes) / (record_bytes + message.len);
-    var chunk: [io.limits.tcp_chunk_bytes]u8 = undefined;
+    const others = (io.limits.tcp_chunk_bytes_max - record_bytes - answer_bytes) / (record_bytes + message.len);
+    var chunk: [io.limits.tcp_chunk_bytes_max]u8 = undefined;
     var used: usize = 0;
     for (0..others) |_| used += rotor.tls.write_record(rotor.constants.tls_content_application, &message, chunk[used..]);
     used += rotor.tls.write_record(rotor.constants.tls_content_application, answer[0..answer_bytes], chunk[used..]);

@@ -40,7 +40,7 @@ pub fn Connection(comptime message_bytes: u32, comptime lookups: u16, comptime T
         pub const message_bytes_max: usize = message_bytes;
         /// What the frame holds past its partial message: what one take adds. That is a chunk in
         /// the clear, and a record's body over TLS (§19 step 13, the stream's rule 11).
-        const room_bytes = if (Tls.enabled) limits.tls_frame_room_bytes else limits.tcp_frame_room_bytes;
+        const room_bytes = if (Tls.enabled) limits.tls_frame_room_bytes_max else limits.tcp_frame_room_bytes_max;
         pub const frame_bytes: usize = cocuyo.constants.tcp_prefix_bytes + message_bytes + room_bytes;
 
         comptime {

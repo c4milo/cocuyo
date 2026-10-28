@@ -10,6 +10,12 @@ const rotor = @import("rotor");
 const cocuyo = @import("cocuyo");
 const dns = @import("cocuyo_rotor");
 
+// A consumer reads each limit at `limits`, under a name with its suffix (docs/design.md §16
+// decision 56, §17 question 78). This check builds a renamed one from outside the package.
+comptime {
+    std.debug.assert(dns.limits.buffer_bytes_max > dns.limits.udp_payload_bytes_max);
+}
+
 const Resolver = dns.Resolver(.{ .lookups = 2 });
 /// The slots of the resolver's cache: small on purpose, as the table is.
 const cache_slots = 2;

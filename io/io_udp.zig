@@ -253,7 +253,7 @@ pub fn Group(comptime buffers: u16) type {
         /// is the room of these buffers (docs/design.md §19 step 13, the datagram's rule 7).
         const group = constants.group_options;
 
-        const needed = rotor.buffers.group_bytes(buffers, limits.buffer_bytes);
+        const needed = rotor.buffers.group_bytes(buffers, limits.buffer_bytes_max);
         const alignment = rotor.buffers.group_alignment;
 
         /// One alignment more than the group needs, and no alignment claimed for it: the window
@@ -287,7 +287,7 @@ pub fn Group(comptime buffers: u16) type {
         pub fn provide(self: *Self, loop: *rotor.Loop) error{ReceiveFailed}!void {
             const memory = ring(self);
             assert(@intFromPtr(memory.ptr) % alignment == 0);
-            loop.provide_datagram_buffers(constants.group_id, memory, buffers, limits.buffer_bytes, group) catch
+            loop.provide_datagram_buffers(constants.group_id, memory, buffers, limits.buffer_bytes_max, group) catch
                 return error.ReceiveFailed;
         }
     };

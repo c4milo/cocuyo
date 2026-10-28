@@ -25,7 +25,7 @@ pub fn take_chunk(self: anytype, at: u8, event: rotor.Event, count: u32, now_ns:
     }
     // The frame holds a partial message at most, and room for a chunk past it (rule 11). `deliver`
     // handed over every whole message, and failed a prefix that says more than `message_bytes`.
-    assert(chunk.len <= limits.tcp_chunk_bytes);
+    assert(chunk.len <= limits.tcp_chunk_bytes_max);
     assert(connection.used + chunk.len <= connection.frame.len);
     @memcpy(connection.frame[connection.used..][0..chunk.len], chunk);
     connection.used += chunk.len;

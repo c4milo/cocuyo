@@ -14,11 +14,11 @@ const tcp_server = @import("io_doh_channel_server.zig");
 const stream_octet: u8 = 0x34;
 /// The events the server reads after one datagram at most. Each is an event of a request or of a
 /// connection, and a datagram carries finitely many.
-const events_per_input_max = limits.datagram_bytes;
+const events_per_input_max = limits.datagram_bytes_max;
 
 /// An endpoint of QUIC connections alone. Each connection holds the server's unread octets in a
 /// pool of the channel's size.
-const Endpoint = server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = limits.server_connections_max, .receive_pool_len = limits.receive_bytes });
+const Endpoint = server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = limits.server_connections_max, .receive_pool_len = limits.receive_bytes_max });
 
 /// A response whose content QUIC still reads: the request it answers, whose id names its
 /// connection too.
@@ -34,7 +34,7 @@ pub const QuicServer = struct {
     endpoint: Endpoint = undefined,
     stream: std.Random.ChaCha = std.Random.ChaCha.init(@splat(stream_octet)),
     /// The datagram being read: the suite opens it in place.
-    inbound: [limits.datagram_bytes]u8 = undefined,
+    inbound: [limits.datagram_bytes_max]u8 = undefined,
     responses: [limits.server_responses_max]Response = @splat(.{}),
     /// What it heard, which a test reads, as the TCP server keeps it.
     answered: usize = 0,

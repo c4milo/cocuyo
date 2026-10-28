@@ -47,7 +47,7 @@ pub const Exchange = struct {
     response: client.Response = undefined,
     path: [doh.limits.doh_request_bytes_max]u8 = undefined,
     wanted: [wanted_names.len]client.Wanted = undefined,
-    values: [limits.values_bytes]u8 = undefined,
+    values: [limits.values_bytes_max]u8 = undefined,
     answer: [cocuyo.limits.message_bytes_max]u8 = undefined,
 };
 

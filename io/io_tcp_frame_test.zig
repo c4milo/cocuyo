@@ -94,7 +94,7 @@ test "a frame holds the longest message a prefix can say and a chunk after it, a
     const connection = &rig.engine.connections[0];
     const prefix = cocuyo.constants.tcp_prefix_bytes;
     const longest = prefix + cocuyo.limits.message_bytes_max;
-    try testing.expectEqual(longest + io.limits.tcp_chunk_bytes, connection.frame.len);
+    try testing.expectEqual(longest + io.limits.tcp_chunk_bytes_max, connection.frame.len);
     @memset(&connection.frame, 0);
     std.mem.writeInt(u16, connection.frame[0..prefix], cocuyo.limits.message_bytes_max, .big);
     connection.used = connection.frame.len;
@@ -176,7 +176,7 @@ test "every whole message one chunk carries is handed over with it, the last one
     try rig.init(27, .{ .{ .drop_per_256 = fixtures.always }, .{ .down = true } }, .{ .servers = &.{}, .use_tcp = true, .attempts = 1 });
     const handle = try rig.engine.start(question("example.com."), rig.loop.now());
     try sim_test.until_sent(&rig);
-    var answer: [io.limits.tcp_chunk_bytes]u8 = undefined;
+    var answer: [io.limits.tcp_chunk_bytes_max]u8 = undefined;
     const answer_bytes = try sim_test.framed_answer(&rig.engine, handle, &answer);
     // The frame holds the chunk as `take_chunk` keeps it. Each message before the answer is a
     // header of zeros. Such a header is a query, and no lookup takes a query (docs/design.md §7,
@@ -184,7 +184,7 @@ test "every whole message one chunk carries is handed over with it, the last one
     const connection = &rig.engine.connections[0];
     const header = cocuyo.constants.header_bytes;
     const framed = cocuyo.constants.tcp_prefix_bytes + header;
-    const others = (io.limits.tcp_chunk_bytes - answer_bytes) / framed;
+    const others = (io.limits.tcp_chunk_bytes_max - answer_bytes) / framed;
     @memset(connection.frame[0 .. others * framed], 0);
     for (0..others) |other| cocuyo.wire.header.write_message_len(connection.frame[other * framed ..], @intCast(header));
     @memcpy(connection.frame[others * framed ..][0..answer_bytes], answer[0..answer_bytes]);

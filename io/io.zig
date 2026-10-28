@@ -223,10 +223,10 @@ pub fn Resolver(comptime options: Options) type {
         /// connection, one timer, and slack. Its type is written, so the `usize` limits in the
         /// sum do not change it from `u32` (docs/design.md §16 decision 40).
         pub const loop_operations: u32 = @as(u32, options.lookups) + cocuyo.limits.servers_max +
-            limits.loop_operations_per_connection * @as(u32, options.tcp_connections) +
-            limits.loop_operations_per_quic_connection * @as(u32, quic_servers) +
-            limits.loop_operations_per_channel * @as(u32, doh_servers) +
-            limits.loop_operations_slack;
+            limits.loop_operations_per_connection_max * @as(u32, options.tcp_connections) +
+            limits.loop_operations_per_quic_connection_max * @as(u32, quic_servers) +
+            limits.loop_operations_per_channel_max * @as(u32, doh_servers) +
+            limits.loop_operations_slack_max;
 
         /// Starts the engine on the caller's loop. `cache_memory` is the memory of its cache,
         /// the slots and the key index as `cocuyo.Cache.init` takes them, or null for an engine

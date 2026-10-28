@@ -7,9 +7,10 @@
 //! `remaining`, `count` and the rest of `length_reader_names` — against an integer literal while
 //! the loop names no limit.
 //!
-//! A limit is a chain holding the segment `limits`, or one whose last segment ends in `_max`:
-//! `compression_hops_max`, `limits.buffer_bytes`. A constants file holds no limit (design §16
-//! decision 56), so a chain through `constants` names no limit unless its name ends in `_max`.
+//! A limit is a chain holding the segment `limits`, such as `limits.buffer_bytes_max`, or one whose
+//! last segment ends in `_max`, such as `compression_hops_max`. A constants file holds no limit
+//! (design §16 decision 56), so a chain through `constants` names no limit unless its name ends in
+//! `_max`.
 //!
 //! The rule is pepegrillo's `unbounded_loop`. This file holds cocuyo's configuration of it and the
 //! fixtures that pin that configuration.
@@ -100,7 +101,7 @@ test "unbounded-loop passes a loop bounded by a limit with no suffix" {
         \\pub fn fill(taken: usize) void {
         \\    var bytes: usize = taken;
         \\    while (true) {
-        \\        if (bytes >= limits.tcp_chunk_bytes) break;
+        \\        if (bytes >= limits.chunk_bytes) break;
         \\        bytes += 1;
         \\    }
         \\}

@@ -29,7 +29,7 @@ comptime {
 }
 
 comptime {
-    if (limits.tls_records_out_bytes < Session.out_bytes_max + cocuyo.limits.query_bytes_max + constants.tls_record_overhead_bytes) {
+    if (limits.tls_records_out_bytes_max < Session.out_bytes_max + cocuyo.limits.query_bytes_max + constants.tls_record_overhead_bytes) {
         @compileError("a connection's records cannot hold what the session stages beside a query sealed at its longest");
     }
     if (Session.out_bytes_max < cocuyo.limits.query_bytes_max + constants.tls_record_overhead_bytes) {

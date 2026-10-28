@@ -245,7 +245,7 @@ test "a second pass waits for a closed slot whose query's records the loop still
     const connection = &rig.engine.connections[0];
     try until_query_in_flight(&rig);
     const lent = io.tls.pending(&rig.engine, 0, connection.queue.first().?.end);
-    var sealed: [io.limits.tls_records_out_bytes]u8 = undefined;
+    var sealed: [io.limits.tls_records_out_bytes_max]u8 = undefined;
     @memcpy(sealed[0..lent.len], lent);
     reset_first(&rig);
     // The loop holds the send's event back, as a slow send's end comes late.
@@ -347,7 +347,7 @@ test "a second pass opens the other slot while a query's send reads the first on
     const second = &rig.engine.connections[1];
     try until_query_in_flight(&rig);
     const lent = io.tls.pending(&rig.engine, 0, first.queue.first().?.end);
-    var sealed: [io.limits.tls_records_out_bytes]u8 = undefined;
+    var sealed: [io.limits.tls_records_out_bytes_max]u8 = undefined;
     @memcpy(sealed[0..lent.len], lent);
     reset_first(&rig);
     const send = @TypeOf(rig.engine).user_data(.tcp_send, handle.index);
@@ -395,10 +395,10 @@ test "the records buffer takes a session that asks for all of it, and a session 
     // room only when the room holds the most the session asks for (§21, TLS rule 3). Each opening
     // asks for room for its hello first. So a session that asks for more than the buffer fails
     // each connection before it sends an octet.
-    const whole = try lookup_with_room(io.limits.tls_records_out_bytes, 59);
+    const whole = try lookup_with_room(io.limits.tls_records_out_bytes_max, 59);
     try testing.expectEqual(@as(?cocuyo.Error, null), whole.failure);
     try testing.expectEqual(@as(u8, 0), whole.failures);
-    const over = try lookup_with_room(io.limits.tls_records_out_bytes + 1, 60);
+    const over = try lookup_with_room(io.limits.tls_records_out_bytes_max + 1, 60);
     // Each pass over the servers fails both at once, and the first server is charged each time.
     try testing.expectEqual(@as(?cocuyo.Error, cocuyo.Error.AllServersFailed), over.failure);
     // No server took part: the room is the engine's (docs/design.md §5, The cause of a failure).

@@ -61,7 +61,7 @@ pub fn Channel(comptime options: Options) type {
         pub const Connected = struct { protocol: client.Protocol, resumed: bool, offered: bool };
 
         channel: client.Channel = undefined,
-        pool: client.ReceivePool(limits.receive_bytes) = undefined,
+        pool: client.ReceivePool(limits.receive_bytes_max) = undefined,
         /// What the channel starts from, which colibri reads through a pointer into it. The channel
         /// builds the TLS configuration of each transport from it, in its own storage.
         channel_config: client.Config = undefined,
@@ -73,10 +73,10 @@ pub fn Channel(comptime options: Options) type {
         exchanges: [options.answers]exchange_module.Exchange = @splat(.{}),
         /// What a link read and the channel has not taken: one datagram, from where the QUIC link
         /// went, and the stream's octets. A stream that ran past its buffer owes the TCP link's close.
-        inbound: [limits.datagram_bytes]u8 = undefined,
+        inbound: [limits.datagram_bytes_max]u8 = undefined,
         inbound_len: usize = 0,
         quic_to: client.Address = .{},
-        stream: [limits.stream_bytes]u8 = undefined,
+        stream: [limits.stream_bytes_max]u8 = undefined,
         stream_len: usize = 0,
         stream_overrun: bool = false,
         /// The ticket each link's connection resumes with: a copy, which `wipe` and the link's end zero.

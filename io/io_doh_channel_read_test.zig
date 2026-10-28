@@ -46,8 +46,8 @@ const short_record_bytes: usize = 100;
 ///   pass of the read.
 const patterns = [_][]const usize{
     &.{limits.output_bytes_max},
-    &.{limits.engine_chunk_bytes + 1},
-    &.{limits.engine_chunk_bytes - 1},
+    &.{limits.engine_chunk_bytes_max + 1},
+    &.{limits.engine_chunk_bytes_max - 1},
     &.{short_record_bytes},
     &.{ full_record_bytes, full_record_bytes, short_after_full_bytes[0] },
     &.{ full_record_bytes, full_record_bytes, short_after_full_bytes[1] },
@@ -157,8 +157,8 @@ fn carry(pair: *rig.Pair, answer_length: *usize, delivery: Delivery, burst: []u8
     }
     pair.carried = pair.carried or up > 0 or down > 0;
     var at: usize = 0;
-    while (at < down) : (at += limits.engine_chunk_bytes) {
-        try deliver(pair, burst[at..@min(down, at + limits.engine_chunk_bytes)], delivery.stray, tally);
+    while (at < down) : (at += limits.engine_chunk_bytes_max) {
+        try deliver(pair, burst[at..@min(down, at + limits.engine_chunk_bytes_max)], delivery.stray, tally);
     }
 }
 
@@ -219,7 +219,7 @@ test "whole records back to back leave the buffer with the read after each chunk
     // room that decision 41 gives it.
     try testing.expect(tally.back_to_back > 0);
     try testing.expect(tally.most > limits.record_bytes_max);
-    try testing.expect(tally.most <= limits.stream_bytes);
+    try testing.expect(tally.most <= limits.stream_bytes_max);
 }
 
 test "a read hands colibri the stream's whole records after a datagram that it took and said nothing of" {
@@ -300,8 +300,8 @@ fn carry_raw(pair: *rig.Pair, raw: *raw_module.RawServer, response: RawResponse,
     const down = raw.send(burst);
     pair.carried = pair.carried or up > 0 or down > 0;
     var at: usize = 0;
-    while (at < down) : (at += limits.engine_chunk_bytes) {
-        try deliver(pair, burst[at..@min(down, at + limits.engine_chunk_bytes)], false, tally);
+    while (at < down) : (at += limits.engine_chunk_bytes_max) {
+        try deliver(pair, burst[at..@min(down, at + limits.engine_chunk_bytes_max)], false, tally);
     }
 }
 

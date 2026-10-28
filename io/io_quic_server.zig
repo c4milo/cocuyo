@@ -50,10 +50,10 @@ pub fn Server(comptime streams: u16) type {
 
         connection: quic.Connection = undefined,
         session: plain.Session = undefined,
-        pool: quic.stream.stream_incoming.Pool(limits.server_receive_bytes) = undefined,
+        pool: quic.stream.stream_incoming.Pool(limits.server_receive_bytes_max) = undefined,
         send_scratch: quic.connection_send.DefaultScratch = undefined,
         scratch: quic.connection_datagram.Scratch = undefined,
-        inbound: [limits.datagram_receive_bytes]u8 = undefined,
+        inbound: [limits.datagram_receive_bytes_max]u8 = undefined,
         source: [constants.connection_id_bytes]u8 = @splat(constants.server_id_octet),
         original: [connection_id_bytes_max]u8 = undefined,
         original_len: usize = 0,
@@ -181,9 +181,9 @@ fn is_new(self: anytype, bytes: []const u8) bool {
 /// timeout (RFC 9000 §18.2).
 pub fn parameters(streams: u16) quic.transport_parameters.Parameters {
     var local = quic.transport_parameters.Parameters.initial();
-    local.max_idle_timeout_ms = limits.idle_timeout_ms;
-    local.max_udp_payload_size = limits.datagram_receive_bytes;
-    local.initial_max_data = limits.server_receive_bytes;
+    local.max_idle_timeout_ms = limits.idle_timeout_ms_max;
+    local.max_udp_payload_size = limits.datagram_receive_bytes_max;
+    local.initial_max_data = limits.server_receive_bytes_max;
     local.initial_max_stream_data_bidi_remote = cocuyo.limits.query_bytes_max;
     local.initial_max_streams_bidi = streams;
     return local;

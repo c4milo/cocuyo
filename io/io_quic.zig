@@ -118,7 +118,7 @@ pub fn Connection(comptime options: Options) type {
         send_scratch: quic.connection_send.DefaultScratch = undefined,
         scratch: quic.connection_datagram.Scratch = undefined,
         /// The datagram being read: colibri opens packets in place.
-        inbound: [limits.datagram_receive_bytes]u8 = undefined,
+        inbound: [limits.datagram_receive_bytes_max]u8 = undefined,
         destination: [constants.connection_id_bytes]u8 = undefined,
         source: [constants.connection_id_bytes]u8 = undefined,
         streams: Streams = .{},

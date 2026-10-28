@@ -10469,3 +10469,70 @@ An independent review found no bug. It found these, and each is fixed:
   MR15 changes the cache's list alone, and only that test catches it.
 
 MR15 ran by hand against `zig build test-cocuyo`: `CAUGHT`.
+
+## Every limit with its suffix
+
+2026-10-28, c4milo/cocuyo#54. The owner ruled on 2026-10-26 that two changes to public names go
+together at 0.7.0, so a consumer changes its paths once (design §17 questions 76 and 78). The
+owner ruled on 2026-10-28 to make them now. Design §16 decision 56, At 0.7.0, records both.
+
+The prefix PN was in use already, by the rows of the SPKI pins, so these rows use LN.
+
+### What changed
+
+- Design first: §16 decision 56 and its new part At 0.7.0, §17 questions 76 and 78 marked built,
+  the new §17 question 90, and each table and rule that names a renamed limit.
+- Each public `constants.zig` lost its block of aliases: 111 names in eight files. The aliases
+  `name_text.printable_min`, `printable_max` and the two `fuzz.seed_count` went too. The twin
+  keeps its aliases of rotor's own `constants` names, since the engine's tests read them.
+- The 23 limits of the inventory above ("Every limit in a limits file") each got a suffix: 21 a
+  `_max` and two a `_min`. The twin's `socket_buffer_bytes_cap` is
+  `socket_buffer_bytes_granted_max`, and its `socket_buffer_bytes_refuse_above` is
+  `socket_buffer_bytes_asked_max`. No value changed.
+- The rule `typed-constants` reports a constant of a limits file with no limit's suffix. `_least`
+  is a limit's suffix now, for `cache_failure_seconds_least`. A name that ends in `_count` passes
+  in a limits file, for the two `fuzz_seed_count` (design §17 question 90).
+- The canary tree holds `src/resolver/limits.zig`, whose `canary_chunk_bytes` the lint must
+  report.
+- `test/consumer/` reads the new names alone. `embed.zig` builds `buffer_bytes_max` from outside
+  the package.
+- The fixture of `unbounded-loop` that pins a limit with no suffix names `limits.chunk_bytes`, a
+  name of its own, so that LF16 still breaks it.
+
+The cache keeps `failure_seconds_least` and `failure_seconds_max` in its limits file. They are the
+cache's own names for values of `core`, as `ttl_seconds_max_default` is. No move left them behind.
+
+### The rewritten rows
+
+- LF11 named the alias of `records_max` in `src/core/constants.zig`, which is gone. It now puts a
+  typed `records_max` into that file. `CAUGHT` by `zig build lint`.
+- LF2 named the list of suffixes, which holds `_least` now. `CAUGHT` by `zig build test-tools`.
+- Twelve rows of `engine.zon` named a renamed limit in their edits: SB1, SB2, SB3, SB16, SB17,
+  SB18, SB24, LM47, LM68, PL7, DS1 and DS3. Each applies once, and each is `CAUGHT` by the step it
+  names.
+- DS3 did not compile at its first run: its new text read `constants.engine_chunk_bytes`, an
+  alias that is gone. The same was true of DS2, DT28 and A1, which read
+  `constants.record_bytes_max`, `constants.timeout_ns_max` and `core.constants.candidates_max`.
+  Each reads `limits` now, and each is `CAUGHT`.
+- LM55, LM56, LM57 and LM58 read `constants.sockets_max`, `datagrams_pending_max` and
+  `connections_max` of the twin. Those left the twin's constants file on 2026-10-26, with no
+  alias, so the four did not compile since then. Each reads `limits` now, and each is `CAUGHT`
+  by `zig build test-sim`.
+- A script in the scratchpad checked that each edit of the four sets applies once.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| LN1 | the rule reads no name in a limits file | a limits file holds no name with no limit's suffix | the test of a limits file with no limit's name, `zig build test-tools` | CAUGHT |
+| LN2 | the rule takes `_least` for no ending of a limit's name | a least of RFC 9520 is a limit | the test of a limit in a constants file: `failure_seconds_least` goes unreported, `zig build test-tools` | CAUGHT |
+| LN3 | the name check passes an alias | an alias in a limits file has a limit's name too | the test of a limits file with no limit's name, `zig build test-tools` | CAUGHT |
+| LN4 | the name check takes a field of an import for a constant | an import is no constant of a limits file | the test of a limits file with no limit's name: `core` is reported, `zig build test-tools` | CAUGHT |
+| LN5 | the name check takes `_count` for no ending | the count of a fuzz gate stays as it is (design §17 question 90) | the test of a limits file with no limit's name: `fuzz_seed_count` is reported, `zig build test-tools` | CAUGHT |
+| LN6 | the canary holds no limits file with a name that is no limit's | the lint reports a constant of a limits file with no limit's suffix | the canary run, which looks for `const canary_chunk_bytes is in a limits file`, `zig build lint` | CAUGHT |
+| LN7 | a renamed limit gets its old name back, beside the new one | no limit has a name with no suffix | the lint over the tree, `zig build lint` | CAUGHT |
+
+LN4 did not compile at its first edit, which removed the loop and left `node` with no mutation. It
+ran again with an edit that compiles.
+
+Seven mutations, seven `CAUGHT`.

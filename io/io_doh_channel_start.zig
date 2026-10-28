@@ -56,7 +56,7 @@ fn assert_sizes() void {
     const record_body_bytes_max = limits.record_bytes_max - constants.record_header_bytes;
     const room_least = client.constants.stream_input_len_min - 1 + record_body_bytes_max;
     assert(client.constants.plaintext_in_len >= room_least);
-    assert(limits.stream_bytes >= limits.record_bytes_max + limits.engine_chunk_bytes);
+    assert(limits.stream_bytes_max >= limits.record_bytes_max + limits.engine_chunk_bytes_max);
     // `send_stream` always writes a record it owes into an output this long.
     assert(limits.output_bytes_max >= client.constants.stream_output_len_min);
 }

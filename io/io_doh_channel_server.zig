@@ -90,7 +90,7 @@ pub const Server = struct {
     connection: server.ConnectionHandle = undefined,
     stream: std.Random.ChaCha = std.Random.ChaCha.init(@splat(stream_octet)),
     /// The records the client sent and the server has not read.
-    input: [limits.stream_bytes]u8 = undefined,
+    input: [limits.stream_bytes_max]u8 = undefined,
     input_len: usize = 0,
     owed: [limits.server_owed_max]Owed = @splat(.{}),
     /// What it heard, which a test reads: the queries it answered, the requests it holds, the last

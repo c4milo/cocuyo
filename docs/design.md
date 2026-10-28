@@ -2981,7 +2981,7 @@ step until `zig build test` passes.
     Choices the ruling did not make, made here:
 
     - The limit follows from the buffer. `udp_payload_bytes_max` in `io/limits.zig` is what
-      rotor's `payload_capacity` gives for `buffer_bytes` under `group_options`. The datagram
+      rotor's `payload_capacity` gives for `buffer_bytes_max` under `group_options`. The datagram
       group gets the same options when the engine provides it. So a change of the buffer, of the
       options or of rotor's prefix changes the limit too. A comptime check in `io/constants.zig`
       requires the default payload to fit the limit. A test compares the limit with the room of
@@ -3272,8 +3272,8 @@ step until `zig build test` passes.
       tag. Records sealed after the query wait in the records buffer anyway, in the order they
       were sealed (TLS rule 2).
     - A second records buffer for each slot, which a new opening writes. That is
-      `tls_records_out_bytes`, 4,096 octets, more for each slot. A failure while both buffers are
-      lent still needs the wait.
+      `tls_records_out_bytes_max`, 4,096 octets, more for each slot. A failure while both buffers
+      are lent still needs the wait.
     - A query's send named by its connection slot, as a send of the session's records is. Its event
       must still give the lookup's send buffer back and tell the attempt. So the connection slot
       must keep the table slot after its connection closed, as the mark does. The model and the
@@ -4282,8 +4282,8 @@ step until `zig build test` passes.
     `limits.zig` of its module, the limits of each `constants.zig` too. Each `constants.zig` keeps
     the protocol sizes and the defaults. Each constant that is not a limit gets a type where it is.
     CLAUDE.md's non-negotiable 5 and the lint rules change with it." Built on 2026-10-26. Amended
-    on 2026-10-28 for the 0.7.0 release: the aliases are gone (§17 question 76). "At 0.7.0" below
-    says what changed.
+    on 2026-10-28 for the 0.7.0 release: the aliases are gone (§17 question 76), and each limit has
+    a suffix (§17 question 78). "At 0.7.0" below says what changed.
 
     The classification test. Each constant of a constants file, and each integer constant of the
     other files of `src/` and `io/`, takes the first class that fits:
@@ -4297,7 +4297,8 @@ step until `zig build test` passes.
        or writes it as it is. `header_bytes`, 12, is one (RFC 1035 §4.1.1). It stays in
        `constants.zig`.
     4. A limit with no such suffix: a bound that the code holds or checks. A count of slots and the
-       size of a buffer that cocuyo chooses are limits. `buffer_bytes` of the engine is one.
+       size of a buffer that cocuyo chooses are limits. `buffer_bytes` of the engine was one. Since
+       0.7.0 each such limit has a suffix, and `buffer_bytes` is `buffer_bytes_max`.
     5. Any other constant: a unit, a base, a mask, a shift, a code or a parameter of an estimate. It
        is no limit. In a constants file it stays there, and in another file it stays where it is.
 
@@ -4355,19 +4356,21 @@ step until `zig build test` passes.
       such as `output_bytes_max` of a transport, is part of that type's interface.
     - The rule `unbounded-loop` takes a chain through `limits` for a named limit, and not a chain
       through `constants`: a constants file holds no limit. A name that ends in `_max` is a limit
-      on either chain. So `limits.tcp_chunk_bytes` bounds a loop, and `constants.header_bytes`
+      on either chain. So `limits.tcp_chunk_bytes_max` bounds a loop, and `constants.header_bytes`
       does not. The rule's finding names `limits.zig` as the place of the bound.
     - The rule `magic-numbers` exempts `limits.zig` by its basename, as it exempts `constants.zig`.
       It takes a literal that a `const` names wherever the `const` is, so the place is the
       typed-constants rule's check.
     - The canary tree of `zig build lint` holds a limit in a constants file and a limit in another
-      file. The lint must report each one by its name.
+      file. The lint must report each one by its name. Since 0.7.0 it also holds a limits file with
+      a constant that has no limit's suffix.
     - Each limits file has the test of decision 40 that reads the types of its public constants.
 
     What the checks do not catch:
 
-    - A limit with no suffix in a constants file or in another file. The rule reads names, and a
-      count of slots has no name it can read (§17 question 78).
+    - A limit with no suffix outside a limits file. The rule reads names, and a count of slots has
+      no name it can read. Since 0.7.0 a limits file holds no such name, so the author of a new
+      limit names it with a suffix. The rule then keeps it in its limits file (§17 question 78).
     - A limit in a test file, in a `fixtures.zig`, or inside a type.
     - A limit in `bench/`, `tools/` or `examples/`. Nothing of them is linked into the library.
 
@@ -4377,7 +4380,8 @@ step until `zig build test` passes.
       the lint rule reads each file. A reader then cannot tell a bound that cocuyo chose from a size
       that an RFC fixed.
     - A rename of each limit with no suffix, so that the rule reads every limit. It changes public
-      names, which needs the owner (CLAUDE.md, Ask before). §17 question 78 asks it.
+      names, which needs the owner (CLAUDE.md, Ask before). §17 question 78 asked it. The owner
+      ruled it for 0.7.0.
     - The limits files with no aliases. The public API then loses each old path, which needs the
       owner too. The owner ruled it for 0.7.0 (§17 question 76).
     - A rule of its own for the place. CLAUDE.md names the rules of the lint, and the ruling changes
@@ -4402,7 +4406,35 @@ step until `zig build test` passes.
       value of `core`, as `ttl_seconds_max_default` is (decision 60, decision 37). None is a path
       that a move left behind, and each is in the file of its class. So they stay.
 
-    §12, §16 decision 40, §17 questions 37, 76, 77, 78 and 79.
+    The owner ruled on 2026-10-26 that each limit with no suffix gets one at 0.7.0 (§17 question
+    78). The 23 limits of the inventory each got the suffix of their meaning. No value changed, no
+    limit came or went, and no other name changed:
+
+    - `_max` for a size or a count that cocuyo holds at most: the engine's ten, `buffer_bytes_max`
+      and `tcp_chunk_bytes_max` among them, `cocuyo_doh`'s five and `cocuyo_quic`'s four.
+    - `_min` for a room that a check keeps at least: `quic_idle_margin_ns_min` of the engine, and
+      `quic_pending_reserve_bytes_min` of the twin.
+    - The twin's `socket_buffer_bytes_cap` is `socket_buffer_bytes_granted_max`, and its
+      `socket_buffer_bytes_refuse_above` is `socket_buffer_bytes_asked_max`. Each of the two names
+      says what it bounds, since `socket_buffer_bytes_max` of the twin is a third bound.
+    - 20 of the 23 are public. The twin's three are not.
+
+    The rule `typed-constants` then reads every limit by its name:
+
+    - It reports a `const` at the top level of a limits file whose name ends in none of `_max`,
+      `_min`, `_limit` and `_least`. An alias is no exception there, and an import is. So a new
+      limit with no suffix fails the lint in its limits file, and with a suffix it fails the lint
+      in any other file.
+    - `_least` is a limit's suffix on both checks. `cache_failure_seconds_least` of `core` and the
+      cache's `failure_seconds_least` are the least time of RFC 9520 §3.2, beside
+      `Config.cache_failure_seconds_min`, which is no limit (decision 60). No other name ends in
+      `_least` at the top level of a file.
+    - The check of a limits file passes a name that ends in `_count`. The two `fuzz_seed_count` are
+      the count of seeds a fuzz gate runs, and their names are public. The place check does not read
+      `_count`, because the count of a test ends in it too. §17 question 90 asks the owner.
+    - The canary's limits file holds `canary_chunk_bytes`, which the lint must report.
+
+    §12, §16 decision 40, §17 questions 37, 76, 77, 78, 79 and 90.
 
 57. **YXDOMAIN ends the lookup with `NameTooLong`.** Ruled by the owner on 2026-10-27, on
     c4milo/cocuyo#49: the lookup ends at once with the error `NameTooLong`, with no failover and no
@@ -5703,7 +5735,7 @@ changes. The ruling did not make four of the choices that decision 56 makes.
 
     Recommended: the rename, at the release that drops the aliases of question 76, so a consumer
     changes its paths once. Until the owner rules, as built. Answered on 2026-10-26: the rename, at
-    0.7.0, with the aliases of question 76.
+    0.7.0, with the aliases of question 76. Built on 2026-10-28: §16 decision 56, At 0.7.0.
 79. **The constants at the border of a class.** The test of decision 56 puts four constants in a
     constants file, but another reader can put each in a limits file:
 
@@ -5877,6 +5909,26 @@ say which of the two gives way.
     Recommended: the exception. It changes no type, and `attempts_made` tells the two cases
     apart. A recalled negative already has no cause. Until the owner rules, cocuyo builds the
     recommendation. Answered on 2026-10-28: as built.
+
+### Asked on 2026-10-28, for the count of a fuzz gate
+
+§16 decision 56 builds the rename of question 78. The rule `typed-constants` then reports each
+constant of a limits file with no limit's suffix. Two limits outside the inventory have none:
+`fuzz_seed_count` of `src/wire/limits.zig` and of `src/config/limits.zig`. Each is public, as
+`cocuyo.wire.limits.fuzz_seed_count` and `cocuyo.resolv_conf.limits.fuzz_seed_count`. Each is the
+count of seeds that `zig build test` runs, and `zig build fuzz-gate` runs another count when told.
+
+90. **The count of seeds of a fuzz gate.** The ways:
+
+    - As built: the names stay, and the check of a limits file passes a name that ends in `_count`.
+      The place check does not read `_count`, so such a limit can live in any file.
+    - A rename, such as `fuzz_seeds_max`. The gate runs that count and no fewer, so `_max` says
+      what is not true.
+    - A move into each constants file as a default, `fuzz_seeds_default`. The gate is the caller
+      that can change it. This changes a public path again.
+
+    Recommended: the move, at the next release that changes public names. Until the owner rules,
+    as built.
 
 ## 18. The cache
 
@@ -6913,15 +6965,15 @@ of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
     partial message at most. A stream carries no boundaries, and a server may send its answers back
     to back (RFC 7766 §6.2.1.1). So the chunk that ends a message can start the next one. The frame
     holds a message of `tcp_message_bytes`, its prefix, and what one take adds after a partial
-    message. In the clear that is one chunk, `tcp_frame_room_bytes`. Over TLS it is the body of one
-    record at its longest, `tls_frame_room_bytes`. The session opens a whole record into the frame
-    (§21, TLS rule 7). A prefix that says more than `tcp_message_bytes` fails the connection when it
-    arrives. That message is never whole, and the stream cannot be read past it. Every lookup on
-    the connection hears the failure at once. In the clear the connection closes at once. Over TLS
-    the peer is still there, so the session says `close_notify` first (TLS rule 5). Each message
-    is at least its two-octet prefix, so a frame holds at most `tcp_messages_per_frame_max` whole
-    messages. That count bounds the loop over the frame, and the loop never stops before the last
-    whole message.
+    message. In the clear that is one chunk, `tcp_frame_room_bytes_max`. Over TLS it is the body of
+    one record at its longest, `tls_frame_room_bytes_max`. The session opens a whole record into the
+    frame (§21, TLS rule 7). A prefix that says more than `tcp_message_bytes` fails the connection
+    when it arrives. That message is never whole, and the stream cannot be read past it. Every
+    lookup on the connection hears the failure at once. In the clear the connection closes at once.
+    Over TLS the peer is still there, so the session says `close_notify` first (TLS rule 5). Each
+    message is at least its two-octet prefix, so a frame holds at most `tcp_messages_per_frame_max`
+    whole messages. That count bounds the loop over the frame, and the loop never stops before the
+    last whole message.
 
     Until 2026-10-13 the frame held the message and its prefix alone. A connection refused a chunk
     that did not fit beside the partial message, and it did so before it handed a whole message
@@ -7019,15 +7071,14 @@ the attempt that made it, and the drive goes on until nothing is left.
    aside: when it cannot be opened, the old one stays in use and the replacement is tried again
    at the next drive, so a server always has a socket to send from.
 5. A draining socket's receive is held to rule 1 as the current one's is.
-6. Written on 2026-10-14 (§16 decision 43). A buffer of the datagram group holds 1,856 octets of
-   a datagram: `buffer_bytes`, 2,048, less rotor's prefix of 192. The kernel cuts a longer datagram
-   to that room, and marks it as truncated. The engine reads the mark of each datagram that a
-   server's socket receives. It gives a cut datagram to the table's `on_datagram_cut`, and each
-   other datagram to `on_datagram` (§7, A datagram that the buffer cut). A QUIC connection's
-   socket is not a server's socket of these rules: colibri reads its datagrams (§24, request
-   rule 1).
+6. Written on 2026-10-14 (§16 decision 43). A buffer of the datagram group holds 1,856 octets of a
+   datagram: `buffer_bytes_max`, 2,048, less rotor's prefix of 192. The kernel cuts a longer
+   datagram to that room, and marks it as truncated. The engine reads the mark of each datagram that
+   a server's socket receives. It gives a cut datagram to the table's `on_datagram_cut`, and each
+   other datagram to `on_datagram` (§7, A datagram that the buffer cut). A QUIC connection's socket
+   is not a server's socket of these rules: colibri reads its datagrams (§24, request rule 1).
 7. Written on 2026-10-14 (§16 decision 44). The room of rule 6 is `udp_payload_bytes_max`: what
-   rotor's `payload_capacity` gives for `buffer_bytes` under `group_options`. "The requestor
+   rotor's `payload_capacity` gives for `buffer_bytes_max` under `group_options`. "The requestor
    SHOULD place a value in this field that it can actually receive" (RFC 6891 §6.2.3). So `init`
    and `reinit` refuse a configuration whose `udp_payload_bytes` passes the room. Each returns
    `error.UdpPayloadTooLarge`, and the check comes before the call changes anything. A refused
@@ -7550,10 +7601,10 @@ cache hits).
 | `address_lookup_addresses_max` | 32 | both families' `addresses_max`, bounded the way one answer is; `truncated` past it |
 | `address_policy_rows` | 9 | RFC 6724 §2.1's default table |
 | `common_prefix_bits_v6_max` | 64 | RFC 6724 §2.2 stops at the source's prefix, and RFC 4291 §2.5.1 makes the interface identifier the low 64 bits |
-| `tcp_frame_room_bytes` | 2,048 | what a frame holds past its partial message in the clear: one chunk, `tcp_chunk_bytes`; since 2026-10-13 (step 13, the stream's rule 11) |
-| `tls_frame_room_bytes` | 16,640 | what a frame holds past its partial message over TLS: the body of one record at its longest (RFC 9846 §5.2), which the session opens into the frame; colibri asks for room as long as the body |
+| `tcp_frame_room_bytes_max` | 2,048 | what a frame holds past its partial message in the clear: one chunk, `tcp_chunk_bytes_max`; since 2026-10-13 (step 13, the stream's rule 11) |
+| `tls_frame_room_bytes_max` | 16,640 | what a frame holds past its partial message over TLS: the body of one record at its longest (RFC 9846 §5.2), which the session opens into the frame; colibri asks for room as long as the body |
 | `tcp_messages_per_frame_max` | 41,088 | the most whole messages a frame holds, each at least its two-octet prefix: a TLS connection's frame, the longest, over two. It bounds the loop over the frame, and never stops it before the last whole message. It replaced `tcp_messages_per_chunk_max`, 32, on 2026-10-13 |
-| `udp_payload_bytes_max` | 1,856 | the most `Config.udp_payload_bytes` that the engine's `init` and `reinit` take: what one buffer of the datagram group holds of a datagram, `buffer_bytes` less rotor's prefix under `group_options`. A requestor "SHOULD place a value in this field that it can actually receive" (RFC 6891 §6.2.3); since 2026-10-14 (step 13, the datagram's rule 7) |
+| `udp_payload_bytes_max` | 1,856 | the most `Config.udp_payload_bytes` that the engine's `init` and `reinit` take: what one buffer of the datagram group holds of a datagram, `buffer_bytes_max` less rotor's prefix under `group_options`. A requestor "SHOULD place a value in this field that it can actually receive" (RFC 6891 §6.2.3); since 2026-10-14 (step 13, the datagram's rule 7) |
 
 ### Order and gates
 
@@ -7909,7 +7960,7 @@ code is.
    inside a record would kill the session. Since 2026-10-13 the connection takes each chunk
    whole into its record buffer. Then it hands every whole record in the buffer to the session,
    oldest first, before the chunk's event ends. The partial record after them stays. So the
-   buffer holds a record at its longest, header and all, and one chunk: `tls_record_in_bytes`.
+   buffer holds a record at its longest, header and all, and one chunk: `tls_record_in_bytes_max`.
    Each record is at least its header, so the buffer holds at most `tls_records_per_buffer_max`
    whole records. That count bounds the loop, and the loop never stops before the last whole
    record. A record the session refuses puts the connection in its `closing` state. The rest of
@@ -8063,7 +8114,7 @@ the engine's send and held buffers, per slot.
 | `opt_option_header_bytes` | 4 | an EDNS(0) option's code and length (RFC 6891 §6.1.2) |
 | `port_dns_tls_default` | 853 | RFC 7858 §3.1 |
 | `query_bytes_max` | 328 to 386 | the largest query, padded to 384, and the stream's prefix |
-| `tls_record_in_bytes` | 16,645 to 18,693 | a TLS connection's record buffer: a record at its longest, 16,645 octets with its header (RFC 9846 §5.2), and since 2026-10-13 one chunk of 2,048 after it (TLS rule 7) |
+| `tls_record_in_bytes_max` | 16,645 to 18,693 | a TLS connection's record buffer: a record at its longest, 16,645 octets with its header (RFC 9846 §5.2), and since 2026-10-13 one chunk of 2,048 after it (TLS rule 7) |
 | `tls_records_per_buffer_max` | 3,738 | the most whole records the buffer holds, each at least its five-octet header (RFC 9846 §5.1). It bounds the loop over the buffer, and never stops it before the last whole record. It replaced `tls_records_per_chunk_max`, 32, on 2026-10-13 |
 
 ### Order and checks
@@ -8470,7 +8521,7 @@ all DoQ or all DoH (§22, §23), and the rules hold for both. Where they differ,
    drive, before anything the transport makes after it. It never left the host, so sending it
    later sends it once, where asking colibri again would wait for its loss timer.
 9. **An idle connection closes.** A connection with no request on it for `quic_idle_ns`, or one
-   with no request on it and less than `quic_idle_margin_ns` left before the idle timeout it
+   with no request on it and less than `quic_idle_margin_ns_min` left before the idle timeout it
    negotiated (RFC 9250 §4.4), closes. A request taken for such a connection closes it first,
    which is §4.4's SHOULD: a client checks the idle time before it sends a query, and opens a
    new connection when little is left. The engine has colibri make CONNECTION_CLOSE, with
@@ -9621,7 +9672,7 @@ lookup over each transport.
 | `quic_connections_max` | `servers_max` | one connection to a server |
 | `quic_streams_max` | the engine's `lookups` | one stream for a request, and a request for each lookup at most |
 | `quic_idle_ns_default` | 10 s | how long a connection with no request is kept, TCP's `tcp_idle_ns_default`; RFC 9250 §5.5.2 names no value, and this one is chosen, not measured |
-| `quic_idle_margin_ns` | 1 s | how near the negotiated idle timeout a connection stops taking requests: a query and its answer take less, chosen, not measured |
+| `quic_idle_margin_ns_min` | 1 s | how near the negotiated idle timeout a connection stops taking requests: a query and its answer take less, chosen, not measured |
 | `quic_connection_events_max` | 16 | beside one answer or reset for each of the engine's `lookups`, the `next` calls one datagram or one expiry is read with, which bounds the loop: the handshake's end, a close and tickets, chosen, not measured. What a flood leaves unread is read with the next datagram |
 | `quic_receive_bytes` | 66,560 | colibri's receive pool for a connection: a DoQ answer at its longest, 65,537 octets with its prefix, rounded up to the pool's 1,024-octet blocks. The engine reads a stream once all of it has arrived, so a stream's window holds one whole; colibri's default of 1 MiB is far past it |
 | `quic_idle_timeout_ms` | 30,000 | the idle timeout a connection advertises (RFC 9000 §18.2); the server's may be shorter, and the smaller holds (RFC 9250 §4.4); chosen, not measured |
@@ -9631,15 +9682,15 @@ lookup over each transport.
 | `doh_channels_max` | `servers_max` | one channel for each DoH server (decision 33) |
 | `channel_events_max` | 16 | beside an end for each request, what one read of a channel takes at most: its links' opens and closes, its tickets and its close, which bounds the loop over it; chosen, not measured, as `quic_connection_events_max` is. What a flood leaves unread is read at the next read |
 | `doh_fallback_delay_ns` | 250 ms | how long a channel gives QUIC's handshake before TCP opens beside it: the Connection Attempt Delay RFC 8305 §5 recommends, which that RFC sets between attempts at two addresses, not two versions of HTTP; taken from it, not measured |
-| `doh_stream_bytes` | 18,693 | the octets of the stream a channel keeps until colibri takes them: a record at its longest, 16,645 octets with its header (RFC 9846 §5.2), and one of the engine's chunks, 2,048. It is the engine's `tls_record_in_bytes` since 2026-10-13 (§21, TLS rule 7) |
+| `doh_stream_bytes` | 18,693 | the octets of the stream a channel keeps until colibri takes them: a record at its longest, 16,645 octets with its header (RFC 9846 §5.2), and one of the engine's chunks, 2,048. It is the engine's `tls_record_in_bytes_max` since 2026-10-13 (§21, TLS rule 7) |
 | `doh_datagram_bytes` | 2,048 | the datagram a channel keeps until colibri takes it: the engine's datagram buffer, which holds any datagram the engine reads |
 | `doh_values_bytes` | 256 | where a response's `content-type`, `content-encoding` and `age` are copied; a response whose values do not fit fails its request as too large; chosen, not measured |
 
 `cocuyo_doh` imports neither the engine nor `cocuyo_quic`. So four of its sizes copy theirs:
-`engine_chunk_bytes` is the engine's `tcp_chunk_bytes`, `doh_datagram_bytes` its `buffer_bytes`,
-`doh_stream_bytes` its `tls_record_in_bytes`, and the channel's receive pool `cocuyo_quic`'s
-`receive_bytes_default`. Since 2026-10-13 a test of `cocuyo_doh` imports both, and holds each copy
-to the size it copies.
+`engine_chunk_bytes_max` is the engine's `tcp_chunk_bytes_max`, `doh_datagram_bytes` its
+`buffer_bytes_max`, `doh_stream_bytes` its `tls_record_in_bytes_max`, and the channel's receive pool
+`cocuyo_quic`'s `receive_bytes_default`. Since 2026-10-13 a test of `cocuyo_doh` imports both, and
+holds each copy to the size it copies.
 
 ### Order and checks
 

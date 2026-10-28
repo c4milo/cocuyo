@@ -3465,7 +3465,7 @@
         .id = "LF2",
         .what = "the rule takes `_min` for no ending of a limit's name",
         .edits = .{
-            .{ .file = "tools/lint/typed_constants.zig", .old = "const limit_suffixes = [_][]const u8{ \"_max\", \"_min\", \"_limit\" };", .new = "const limit_suffixes = [_][]const u8{ \"_max\", \"_limit\" };" },
+            .{ .file = "tools/lint/typed_constants.zig", .old = "const limit_suffixes = [_][]const u8{ \"_max\", \"_min\", \"_limit\", \"_least\" };", .new = "const limit_suffixes = [_][]const u8{ \"_max\", \"_limit\", \"_least\" };" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -3612,6 +3612,69 @@
             .{ .file = "tools/lint/typed_constants.zig", .old = "        if (std.mem.eql(u8, word, limits_name)) return true;", .new = "        if (std.mem.indexOf(u8, word, limits_name) != null) return true;" },
         },
         .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Every limit with its suffix",
+        .id = "LN1",
+        .what = "the rule reads no name in a limits file",
+        .edits = .{
+            .{ .file = "tools/lint/typed_constants.zig", .old = "            if (is_limits_file(file.path)) visitor.check_names(tree.rootDecls());\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Every limit with its suffix",
+        .id = "LN2",
+        .what = "the rule takes `_least` for no ending of a limit's name",
+        .edits = .{
+            .{ .file = "tools/lint/typed_constants.zig", .old = "const limit_suffixes = [_][]const u8{ \"_max\", \"_min\", \"_limit\", \"_least\" };", .new = "const limit_suffixes = [_][]const u8{ \"_max\", \"_min\", \"_limit\" };" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Every limit with its suffix",
+        .id = "LN3",
+        .what = "the name check passes an alias",
+        .edits = .{
+            .{ .file = "tools/lint/typed_constants.zig", .old = "            if (is_import(self.tree, value)) continue;", .new = "            if (is_import(self.tree, value) or is_alias(self.tree, value)) continue;" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Every limit with its suffix",
+        .id = "LN4",
+        .what = "the name check takes a field of an import for a constant",
+        .edits = .{
+            .{ .file = "tools/lint/typed_constants.zig", .old = "    while (tree.nodeTag(node) == .field_access) node = tree.nodeData(node).node_and_token[0];\n", .new = "    while (false and tree.nodeTag(node) == .field_access) node = tree.nodeData(node).node_and_token[0];\n" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Every limit with its suffix",
+        .id = "LN5",
+        .what = "the name check takes `_count` for no ending",
+        .edits = .{
+            .{ .file = "tools/lint/typed_constants.zig", .old = "            if (is_limit_name(constant) or std.mem.endsWith(u8, constant, count_suffix)) continue;", .new = "            if (is_limit_name(constant)) continue;" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Every limit with its suffix",
+        .id = "LN6",
+        .what = "the canary holds no limits file with a name that is no limit's",
+        .edits = .{
+            .{ .file = "build/lint.zig", .old = "    _ = tree.add(\"src/resolver/limits.zig\", canary_limits);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "lint" },
+    },
+    .{
+        .section = "Every limit with its suffix",
+        .id = "LN7",
+        .what = "a renamed limit gets its old name back, beside the new one",
+        .edits = .{
+            .{ .file = "src/sim/limits.zig", .old = "pub const quic_pending_reserve_bytes_min: usize = 2048;\n", .new = "pub const quic_pending_reserve_bytes_min: usize = 2048;\npub const quic_pending_reserve_bytes = quic_pending_reserve_bytes_min;\n" },
+        },
+        .caught_by = .{ .step = "lint" },
     },
     .{
         .section = "Three queries of a name to a server over a transport",

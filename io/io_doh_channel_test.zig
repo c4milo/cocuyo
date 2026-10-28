@@ -168,8 +168,8 @@ pub const Pair = struct {
         const down = pair.server.send(&pair.wire, answerer, pair.now_ns);
         pair.carried = pair.carried or up > 0 or down > 0;
         var at: usize = 0;
-        while (at < down) : (at += limits.engine_chunk_bytes) {
-            const end = @min(down, at + limits.engine_chunk_bytes);
+        while (at < down) : (at += limits.engine_chunk_bytes_max) {
+            const end = @min(down, at + limits.engine_chunk_bytes_max);
             pair.doh.receive(.{ .stream = pair.wire[at..end] }, pair.now_ns);
             if (try pair.hear(until)) |event| return event;
         }
@@ -231,7 +231,7 @@ test "a datagram longer than the type keeps is dropped, and one the channel has 
     // As the network may drop a datagram, so may the type (docs/design.md §24, the interface).
     const pair = try Pair.create(.{});
     defer pair.free();
-    var long: [limits.datagram_bytes + 1]u8 = @splat(1);
+    var long: [limits.datagram_bytes_max + 1]u8 = @splat(1);
     pair.doh.receive(.{ .datagram = &long }, pair.now_ns);
     try testing.expectEqual(@as(usize, 0), pair.doh.inbound_len);
     pair.doh.receive(.{ .datagram = "first" }, pair.now_ns);
@@ -244,10 +244,10 @@ test "a datagram of exactly what the type keeps is kept, and stream octets of ex
     // test above and the overrun test below.
     const pair = try Pair.create(.{});
     defer pair.free();
-    const datagram: [limits.datagram_bytes]u8 = @splat(1);
+    const datagram: [limits.datagram_bytes_max]u8 = @splat(1);
     pair.doh.receive(.{ .datagram = &datagram }, pair.now_ns);
     try testing.expectEqual(datagram.len, pair.doh.inbound_len);
-    const stream: [limits.stream_bytes]u8 = @splat(0);
+    const stream: [limits.stream_bytes_max]u8 = @splat(0);
     pair.doh.receive(.{ .stream = &stream }, pair.now_ns);
     try testing.expectEqual(stream.len, pair.doh.stream_len);
     try testing.expect(!pair.doh.stream_overrun);
@@ -305,20 +305,20 @@ test "field values that fill the buffer to its last octet are read, and one octe
     // The server sends one field the type wants, `content-type`, so its value alone fills the
     // buffer (doh_values_bytes, rule 22).
     const media = "application/dns-message; x=";
-    const filled = media ++ "y" ** (limits.values_bytes - media.len);
+    const filled = media ++ "y" ** (limits.values_bytes_max - media.len);
     for ([_][]const u8{ filled, filled ++ "y" }) |content_type| {
         const pair = try Pair.create(.{ .content_type = content_type });
         defer pair.free();
         try testing.expect(pair.doh.request(0, &query, pair.now_ns));
         const finished = (try pair.run(.finished)).finished;
-        try testing.expectEqual(content_type.len == limits.values_bytes, finished.result == .answer);
+        try testing.expectEqual(content_type.len == limits.values_bytes_max, finished.result == .answer);
     }
 }
 
 test "a 2xx response whose field values do not fit fails its request as too large" {
     // doh_values_bytes: the values the type wants are copied into its buffer, and a response whose
     // values do not fit ends as too large, which is no answer (rule 22).
-    const long_type = "application/dns-message; x=" ++ "y" ** limits.values_bytes;
+    const long_type = "application/dns-message; x=" ++ "y" ** limits.values_bytes_max;
     const pair = try Pair.create(.{ .content_type = long_type });
     defer pair.free();
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
@@ -411,7 +411,7 @@ test "stream octets past what the type keeps end the TCP link, which the channel
         pair.now_ns += round_ns;
     }
     try testing.expectEqual(@as(usize, 1), pair.server.held);
-    var junk: [limits.stream_bytes + 1]u8 = @splat(0);
+    var junk: [limits.stream_bytes_max + 1]u8 = @splat(0);
     pair.doh.receive(.{ .stream = &junk }, pair.now_ns);
     try testing.expectEqual(Event{ .close = .tcp }, pair.doh.next(pair.now_ns).?);
     // colibri was told the link ended, so the exchange it carried ends as a failure of its

@@ -12,7 +12,7 @@ pub fn Group(comptime buffers: u16) type {
     return struct {
         const Self = @This();
 
-        const needed = rotor.buffers.group_bytes(buffers, limits.tcp_chunk_bytes);
+        const needed = rotor.buffers.group_bytes(buffers, limits.tcp_chunk_bytes_max);
         const alignment = rotor.buffers.group_alignment;
 
         /// One alignment more than the group needs, and no alignment claimed for it, for the
@@ -34,7 +34,7 @@ pub fn Group(comptime buffers: u16) type {
         pub fn provide(self: *Self, loop: *rotor.Loop) error{ReceiveFailed}!void {
             const memory = ring(self);
             assert(@intFromPtr(memory.ptr) % alignment == 0);
-            loop.provide_buffers(constants.tcp_group_id, memory, buffers, limits.tcp_chunk_bytes) catch
+            loop.provide_buffers(constants.tcp_group_id, memory, buffers, limits.tcp_chunk_bytes_max) catch
                 return error.ReceiveFailed;
         }
     };

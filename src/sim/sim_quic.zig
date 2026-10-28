@@ -195,7 +195,7 @@ pub const Connection = struct {
         assert(len <= bytes.len);
         if (self.refuses_requests) return self.fail();
         const room = self.pending.len - self.pending_len;
-        if (room < header_bytes + len + limits.quic_pending_reserve_bytes) return null;
+        if (room < header_bytes + len + limits.quic_pending_reserve_bytes_min) return null;
         const stream = self.next_stream;
         self.next_stream += constants.quic_stream_step;
         self.add(.{ .kind = .request, .stream = @intCast(stream), .bytes = bytes[0..len] });

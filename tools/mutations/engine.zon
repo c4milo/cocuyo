@@ -1605,8 +1605,8 @@
         .id = "SB1",
         .what = "a TLS connection's record buffer holds one record at its longest, and no chunk past it",
         .edits = .{
-            .{ .file = "io/limits.zig", .old = "pub const tls_record_in_bytes: usize = constants.tls_record_header_bytes + tls_record_body_bytes_max + tcp_chunk_bytes;", .new = "pub const tls_record_in_bytes: usize = constants.tls_record_header_bytes + tls_record_body_bytes_max;" },
-            .{ .file = "io/constants.zig", .old = "    if (limits.tls_record_in_bytes < tls_record_header_bytes + limits.tls_record_body_bytes_max + limits.tcp_chunk_bytes) {", .new = "    if (false and limits.tls_record_in_bytes < tls_record_header_bytes + limits.tls_record_body_bytes_max + limits.tcp_chunk_bytes) {" },
+            .{ .file = "io/limits.zig", .old = "pub const tls_record_in_bytes_max: usize = constants.tls_record_header_bytes + tls_record_body_bytes_max + tcp_chunk_bytes_max;", .new = "pub const tls_record_in_bytes_max: usize = constants.tls_record_header_bytes + tls_record_body_bytes_max;" },
+            .{ .file = "io/constants.zig", .old = "    if (limits.tls_record_in_bytes_max < tls_record_header_bytes + limits.tls_record_body_bytes_max + limits.tcp_chunk_bytes_max) {", .new = "    if (false and limits.tls_record_in_bytes_max < tls_record_header_bytes + limits.tls_record_body_bytes_max + limits.tcp_chunk_bytes_max) {" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -1615,7 +1615,7 @@
         .id = "SB2",
         .what = "a frame in the clear holds the longest message and its prefix, and no chunk past them",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "        const room_bytes = if (Tls.enabled) limits.tls_frame_room_bytes else limits.tcp_frame_room_bytes;", .new = "        const room_bytes = if (Tls.enabled) limits.tls_frame_room_bytes else 0;" },
+            .{ .file = "io/io_tcp.zig", .old = "        const room_bytes = if (Tls.enabled) limits.tls_frame_room_bytes_max else limits.tcp_frame_room_bytes_max;", .new = "        const room_bytes = if (Tls.enabled) limits.tls_frame_room_bytes_max else 0;" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -1624,7 +1624,7 @@
         .id = "SB3",
         .what = "a frame over TLS holds a chunk past its partial message, and not a record's body",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "        const room_bytes = if (Tls.enabled) limits.tls_frame_room_bytes else limits.tcp_frame_room_bytes;", .new = "        const room_bytes = limits.tcp_frame_room_bytes;" },
+            .{ .file = "io/io_tcp.zig", .old = "        const room_bytes = if (Tls.enabled) limits.tls_frame_room_bytes_max else limits.tcp_frame_room_bytes_max;", .new = "        const room_bytes = limits.tcp_frame_room_bytes_max;" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -1743,7 +1743,7 @@
         .id = "SB16",
         .what = "cocuyo_doh's copy of the engine's chunk is not the engine's chunk",
         .edits = .{
-            .{ .file = "io/io_doh_channel_limits.zig", .old = "pub const engine_chunk_bytes: usize = 2048;", .new = "pub const engine_chunk_bytes: usize = 4096;" },
+            .{ .file = "io/io_doh_channel_limits.zig", .old = "pub const engine_chunk_bytes_max: usize = 2048;", .new = "pub const engine_chunk_bytes_max: usize = 4096;" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -1752,7 +1752,7 @@
         .id = "SB17",
         .what = "cocuyo_doh's copy of the engine's datagram buffer is not the engine's buffer",
         .edits = .{
-            .{ .file = "io/io_doh_channel_limits.zig", .old = "pub const datagram_bytes: usize = 2048;", .new = "pub const datagram_bytes: usize = 4096;" },
+            .{ .file = "io/io_doh_channel_limits.zig", .old = "pub const datagram_bytes_max: usize = 2048;", .new = "pub const datagram_bytes_max: usize = 4096;" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -1761,7 +1761,7 @@
         .id = "SB18",
         .what = "cocuyo_doh's copy of cocuyo_quic's receive pool is not cocuyo_quic's",
         .edits = .{
-            .{ .file = "io/io_doh_channel_limits.zig", .old = "pub const receive_bytes: usize = 66_560;", .new = "pub const receive_bytes: usize = 67_584;" },
+            .{ .file = "io/io_doh_channel_limits.zig", .old = "pub const receive_bytes_max: usize = 66_560;", .new = "pub const receive_bytes_max: usize = 67_584;" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -1770,7 +1770,7 @@
         .id = "SB24",
         .what = "cocuyo_doh's stream holds a record at its longest, and no chunk past it",
         .edits = .{
-            .{ .file = "io/io_doh_channel_limits.zig", .old = "pub const stream_bytes: usize = record_bytes_max + engine_chunk_bytes;", .new = "pub const stream_bytes: usize = record_bytes_max;" },
+            .{ .file = "io/io_doh_channel_limits.zig", .old = "pub const stream_bytes_max: usize = record_bytes_max + engine_chunk_bytes_max;", .new = "pub const stream_bytes_max: usize = record_bytes_max;" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -1979,7 +1979,7 @@
         .id = "LM47",
         .what = "the values buffer of a DoH exchange is one octet short",
         .edits = .{
-            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    values: [limits.values_bytes]u8 = undefined,", .new = "    values: [limits.values_bytes - 1]u8 = undefined," },
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    values: [limits.values_bytes_max]u8 = undefined,", .new = "    values: [limits.values_bytes_max - 1]u8 = undefined," },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -2051,7 +2051,7 @@
         .id = "LM55",
         .what = "the twin opens one socket fewer than its bound",
         .edits = .{
-            .{ .file = "src/sim/sim_network.zig", .old = "        for (&self.sockets, 0..) |*entry, index| {", .new = "        for (self.sockets[0 .. constants.sockets_max - 1], 0..) |*entry, index| {" },
+            .{ .file = "src/sim/sim_network.zig", .old = "        for (&self.sockets, 0..) |*entry, index| {", .new = "        for (self.sockets[0 .. limits.sockets_max - 1], 0..) |*entry, index| {" },
         },
         .caught_by = .{ .step = "test-sim" },
     },
@@ -2060,7 +2060,7 @@
         .id = "LM56",
         .what = "the twin holds one datagram fewer than its bound",
         .edits = .{
-            .{ .file = "src/sim/sim_network.zig", .old = "        for (&self.datagrams) |*entry| {\n            if (!entry.live) {", .new = "        for (self.datagrams[0 .. constants.datagrams_pending_max - 1]) |*entry| {\n            if (!entry.live) {" },
+            .{ .file = "src/sim/sim_network.zig", .old = "        for (&self.datagrams) |*entry| {\n            if (!entry.live) {", .new = "        for (self.datagrams[0 .. limits.datagrams_pending_max - 1]) |*entry| {\n            if (!entry.live) {" },
         },
         .caught_by = .{ .step = "test-sim" },
     },
@@ -2069,7 +2069,7 @@
         .id = "LM57",
         .what = "the twin opens one connection fewer than its bound",
         .edits = .{
-            .{ .file = "src/sim/sim_network.zig", .old = "        for (&self.connections, 0..) |*entry, index| {", .new = "        for (self.connections[0 .. constants.connections_max - 1], 0..) |*entry, index| {" },
+            .{ .file = "src/sim/sim_network.zig", .old = "        for (&self.connections, 0..) |*entry, index| {", .new = "        for (self.connections[0 .. limits.connections_max - 1], 0..) |*entry, index| {" },
         },
         .caught_by = .{ .step = "test-sim" },
     },
@@ -2078,7 +2078,7 @@
         .id = "LM58",
         .what = "the twin opens one QUIC peer fewer than its bound",
         .edits = .{
-            .{ .file = "src/sim/sim_network.zig", .old = "        for (&self.quic_peers) |*entry| {\n            if (entry.open) continue;", .new = "        for (self.quic_peers[0 .. constants.connections_max - 1]) |*entry| {\n            if (entry.open) continue;" },
+            .{ .file = "src/sim/sim_network.zig", .old = "        for (&self.quic_peers) |*entry| {\n            if (entry.open) continue;", .new = "        for (self.quic_peers[0 .. limits.connections_max - 1]) |*entry| {\n            if (entry.open) continue;" },
         },
         .caught_by = .{ .step = "test-sim" },
     },
@@ -2123,7 +2123,7 @@
         .id = "LM68",
         .what = "the buffers of the datagram group are 1536 octets",
         .edits = .{
-            .{ .file = "io/limits.zig", .old = "pub const buffer_bytes: usize = 2048;", .new = "pub const buffer_bytes: usize = 1536;" },
+            .{ .file = "io/limits.zig", .old = "pub const buffer_bytes_max: usize = 2048;", .new = "pub const buffer_bytes_max: usize = 1536;" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -2503,7 +2503,7 @@
         .id = "PL7",
         .what = "the limit is the whole buffer, rotor's prefix with it",
         .edits = .{
-            .{ .file = "io/limits.zig", .old = "pub const udp_payload_bytes_max: usize = rotor.datagram.payload_capacity(buffer_bytes, constants.group_options);", .new = "pub const udp_payload_bytes_max: usize = buffer_bytes;" },
+            .{ .file = "io/limits.zig", .old = "pub const udp_payload_bytes_max: usize = rotor.datagram.payload_capacity(buffer_bytes_max, constants.group_options);", .new = "pub const udp_payload_bytes_max: usize = buffer_bytes_max;" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -2568,7 +2568,7 @@
         .id = "DS1",
         .what = "the stream buffer holds a record at its longest, and no chunk past it",
         .edits = .{
-            .{ .file = "io/io_doh_channel_limits.zig", .old = "pub const stream_bytes: usize = record_bytes_max + engine_chunk_bytes;\n", .new = "pub const stream_bytes: usize = record_bytes_max;\n" },
+            .{ .file = "io/io_doh_channel_limits.zig", .old = "pub const stream_bytes_max: usize = record_bytes_max + engine_chunk_bytes_max;\n", .new = "pub const stream_bytes_max: usize = record_bytes_max;\n" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -2586,7 +2586,7 @@
         .id = "DS3",
         .what = "colibri is handed one chunk of the stream at most",
         .edits = .{
-            .{ .file = "io/io_doh_channel_read.zig", .old = "    if (self.stream_len > 0) return .{ .stream = self.stream[0..self.stream_len] };\n", .new = "    if (self.stream_len > 0) return .{ .stream = self.stream[0..@min(self.stream_len, limits.engine_chunk_bytes)] };\n" },
+            .{ .file = "io/io_doh_channel_read.zig", .old = "    if (self.stream_len > 0) return .{ .stream = self.stream[0..self.stream_len] };\n", .new = "    if (self.stream_len > 0) return .{ .stream = self.stream[0..@min(self.stream_len, limits.engine_chunk_bytes_max)] };\n" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },

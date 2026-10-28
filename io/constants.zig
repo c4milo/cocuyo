@@ -27,7 +27,7 @@ pub const kind_shift: u6 = 40;
 pub const index_mask: u64 = (1 << kind_shift) - 1;
 
 /// The buffers the datagram group holds, and the group's id. The octets of each buffer are
-/// `limits.buffer_bytes`.
+/// `limits.buffer_bytes_max`.
 pub const group_buffers_default: usize = 64;
 pub const group_id: u16 = 0;
 
@@ -44,7 +44,7 @@ pub const tcp_connections_default: usize = 1;
 /// before every payload, and a stream has no peer to name.
 pub const tcp_group_id: u16 = 1;
 
-/// The buffers the stream group holds. The octets of each buffer are `limits.tcp_chunk_bytes`.
+/// The buffers the stream group holds. The octets of each buffer are `limits.tcp_chunk_bytes_max`.
 pub const tcp_group_buffers_default: usize = 8;
 
 /// How long a connection nobody is using is kept. Ten seconds, chosen and not measured, which is
@@ -114,10 +114,10 @@ comptime {
     // The chunk that ends one item can start the next, and the connection takes the whole chunk
     // first. So each buffer holds a chunk past its partial item (§19 step 13, the stream's rule
     // 11; §21, TLS rule 7).
-    if (limits.tls_record_in_bytes < tls_record_header_bytes + limits.tls_record_body_bytes_max + limits.tcp_chunk_bytes) {
+    if (limits.tls_record_in_bytes_max < tls_record_header_bytes + limits.tls_record_body_bytes_max + limits.tcp_chunk_bytes_max) {
         @compileError("a TLS connection's record buffer has no room for a chunk past a record");
     }
-    if (limits.tcp_frame_room_bytes < limits.tcp_chunk_bytes or limits.tls_frame_room_bytes < limits.tls_record_body_bytes_max) {
+    if (limits.tcp_frame_room_bytes_max < limits.tcp_chunk_bytes_max or limits.tls_frame_room_bytes_max < limits.tls_record_body_bytes_max) {
         @compileError("a frame has no room for what one take adds past its partial message");
     }
 }
