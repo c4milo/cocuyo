@@ -50,7 +50,7 @@ pub const anchors = [_]tls.Anchor{anchor};
 /// What a test states of the CPU when it names nothing: no answer of the probe, and no timing
 /// mode. The test servers state it too. A consumer that cannot state its thread's mode passes it,
 /// and its hello offers TLS_CHACHA20_POLY1305_SHA256 alone (docs/design.md §16 decision 48).
-pub const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };
+pub const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .not_stated };
 
 /// A channel's context for a test over the identity. Its anchors are the identity's CA, and its
 /// wall clock is `unix_seconds` at `now_ns`. Its stream is seeded with `seed_octet` repeated, so

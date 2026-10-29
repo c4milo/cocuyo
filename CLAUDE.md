@@ -142,7 +142,7 @@ The architecture depends on every rule in this section.
   `tls_provider` imports a consumer that speaks DoT binds to colibri's (design §16 decision 38,
   as amended for §17 question 64). `io/io_doh.zig` is `doh`, the
   DNS half of DoH: the URI template, the reading of a response and their limits.
-  `io/io_doh_channel.zig` and the files beside it are `cocuyo_doh`, colibri's `client.Channel`
+  `io/io_doh_channel.zig` and the files beside it are `cocuyo_doh`, colibri's `client.ConnectionPool`
   under the engine's DoH interface, whose `client` and `tls` imports a consumer that speaks DoH
   binds to colibri's (design §16 decision 33). Its tests run colibri's server under the TLS
   identity in `io/testdata/`, a test's own, valid from 2026 to 2126.
@@ -198,7 +198,7 @@ The architecture depends on every rule in this section.
   DoH's DNS half in `src/`. DNS over QUIC (RFC 9250) joined the same day, its DNS half in `src/`
   too. Since the owner's ruling of 2026-09-25 both are carried by the engine over colibri: DoQ
   over its QUIC with chapulin's QUIC mode (design §24), and since 2026-09-28 DoH over its
-  `client.Channel` (decision 33). Since 2026-09-27 DoT's TLS goes through colibri's `tls` too
+  `client.ConnectionPool` (decision 33). Since 2026-09-27 DoT's TLS goes through colibri's `tls` too
   (decision 32). The library in `src/` depends on
   nothing; the engine may use colibri, and colibri's library never uses cocuyo. The cache (§18)
   and the gap with c-ares (§19: every record type, cookies, the hosts file, failover, the engine

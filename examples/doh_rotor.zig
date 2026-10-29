@@ -201,7 +201,7 @@ fn report_connection(turn: []const u8) void {
 fn suite(connected: Doh.Connected) ?u16 {
     const channel = &engine.doh.slots[0].channel.channel;
     if (connected.protocol == .h3) return cpu_text.quic_suite(&channel.quic.session.session);
-    const records = channel.tcp.tls_client.provider();
+    const records = channel.tcp[0].tls_client.provider();
     const negotiated = records.vtable.negotiated_parameters(records.context) orelse return null;
     return negotiated.cipher_suite;
 }

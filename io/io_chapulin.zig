@@ -228,7 +228,9 @@ pub const Session = struct {
         self.stage_owed() catch return self.fail();
         return switch (opened.content) {
             .application_data => .{ .data = opened.plaintext_len },
-            .new_session_ticket, .key_update => .nothing,
+            // A ticket, a KeyUpdate or an empty record: colibri writes a KeyUpdate's answer in
+            // front of the next query's records (RFC 9846 §4.7.3).
+            .without_data => .nothing,
             // The peer's close_notify (RFC 9846 §6.1), the one alert a record read leaves unfailed.
             .alert => .closed,
             // RFC 8310 §9 asks no client certificate of DoT, and RFC 9846 §4.7.2 lets a client

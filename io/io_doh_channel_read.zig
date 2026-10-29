@@ -12,6 +12,10 @@ const exchange_module = @import("io_doh_channel_exchange.zig");
 /// A channel's two links: QUIC over a datagram socket, TCP over a stream socket.
 pub const Link = enum(u1) { quic, tcp };
 
+/// A handle that names no connection: colibri's calls with it change nothing. A link names it
+/// before its first `open`, and once its connection is over.
+pub const no_connection: client.ConnectionHandle = .{ .slot = std.math.maxInt(u32), .generation = 0 };
+
 /// Takes request slot `index`'s query as colibri's request, or says no answer buffer is free, and
 /// the request waits (rule 21).
 pub fn request(self: anytype, index: u16, message: []const u8) bool {
@@ -80,8 +84,8 @@ pub fn next(self: anytype, now_ns: u64) ?@TypeOf(self.*).Event {
 /// The QUIC link's next datagram, which colibri writes at the start of `out`.
 pub fn datagram(self: anytype, out: []u8, now_ns: u64) usize {
     const sent = self.channel.send_datagram(out, now_ns) orelse return 0;
-    assert(sent.octets.ptr == out.ptr);
-    return sent.octets.len;
+    assert(sent.bytes.ptr == out.ptr);
+    return sent.bytes.len;
 }
 
 /// A server took part in `link`'s opening: each live exchange learns it, and each exchange made
@@ -120,6 +124,7 @@ pub fn forget(self: anytype, link: Link) void {
             self.stream_overrun = false;
         },
     }
+    self.handles[@intFromEnum(link)] = no_connection;
     self.resuming[@intFromEnum(link)].wipe();
 }
 
@@ -130,7 +135,7 @@ fn slot_of(self: anytype, index: u16) ?*exchange_module.Exchange {
     return null;
 }
 
-fn slot_by_id(self: anytype, id: client.Id) ?*exchange_module.Exchange {
+fn slot_by_id(self: anytype, id: client.RequestId) ?*exchange_module.Exchange {
     for (&self.exchanges) |*slot| {
         if (slot.live and slot.id == id) return slot;
     }
@@ -139,8 +144,8 @@ fn slot_by_id(self: anytype, id: client.Id) ?*exchange_module.Exchange {
 
 /// What a link read that the channel is to take next: the datagram, then the stream.
 fn pending(self: anytype) client.Input {
-    if (self.inbound_len > 0) return .{ .datagram = .{ .octets = self.inbound[0..self.inbound_len], .from = self.quic_to } };
-    if (self.stream_len > 0) return .{ .stream = self.stream[0..self.stream_len] };
+    if (self.inbound_len > 0) return .{ .datagram = .{ .bytes = self.inbound[0..self.inbound_len], .from = self.quic_to } };
+    if (self.stream_len > 0) return .{ .stream = .{ .connection = handle_of(self, .tcp), .bytes = self.stream[0..self.stream_len] } };
     return .none;
 }
 
@@ -160,7 +165,7 @@ fn take(self: anytype, consumed: usize) void {
 /// The stream ran past its buffer: the TCP link ends, as the channel's close would end it.
 fn overrun(self: anytype) @TypeOf(self.*).Event {
     self.stream_overrun = false;
-    self.channel.transport_closed(.tcp);
+    self.channel.transport_closed(handle_of(self, .tcp));
     forget(self, .tcp);
     return .{ .close = .tcp };
 }
@@ -171,22 +176,39 @@ fn told(self: anytype, said: client.Event) ?@TypeOf(self.*).Event {
         .open => |asked| {
             const link = link_of(asked.transport);
             forget(self, link);
+            self.handles[@intFromEnum(link)] = asked.connection;
             if (link == .quic) self.quic_to = asked.to;
             return .{ .open = .{ .link = link, .endpoint = endpoint_of(asked.to) } };
         },
-        .close => |transport| {
-            forget(self, link_of(transport));
-            return .{ .close = link_of(transport) };
+        // The engine asks for a link's octets each time it can send them (rule 19), so a debt
+        // changes nothing it does.
+        .send => return null,
+        .close => |connection| {
+            const link = link_on(self, connection);
+            forget(self, link);
+            return .{ .close = link };
         },
-        .connected => |protocol| {
-            self.protocol = protocol;
-            came_up(self, if (protocol == .h3) .quic else .tcp);
+        .connected => |up| {
+            self.protocol = up.protocol;
+            came_up(self, link_on(self, up.connection));
             return null;
         },
-        .ticket => |transport| return .{ .ticket = link_of(transport) },
+        .ticket => |connection| return .{ .ticket = link_on(self, connection) },
         .finished => |ended| return finished(self, ended),
         .closed => return .closed,
     }
+}
+
+/// The connection that `link` carries now, which each of colibri's calls about the link names.
+pub fn handle_of(self: anytype, link: Link) client.ConnectionHandle {
+    return self.handles[@intFromEnum(link)];
+}
+
+/// The link that carries `connection`. colibri places its TCP slots first and its QUIC slot after
+/// them, and the channel holds one TCP slot.
+fn link_on(self: anytype, connection: client.ConnectionHandle) Link {
+    assert(self.channel.tcp.len == limits.tcp_connections_max);
+    return if (connection.slot < self.channel.tcp.len) .tcp else .quic;
 }
 
 /// The version the channel's connection came up on, and whether its handshake resumed with the
@@ -196,7 +218,7 @@ pub fn connected(self: anytype) ?@TypeOf(self.*).Connected {
     const link: Link = if (protocol == .h3) .quic else .tcp;
     const resumed = switch (link) {
         .quic => self.channel.quic.session.resumed(),
-        .tcp => self.channel.tcp.tls_client.resumed(),
+        .tcp => self.channel.tcp[0].tls_client.resumed(),
     };
     return .{ .protocol = protocol, .resumed = resumed, .offered = self.offered[@intFromEnum(link)] };
 }
@@ -213,13 +235,6 @@ fn finished(self: anytype, ended: client.Finished) ?@TypeOf(self.*).Event {
 
 pub fn link_of(transport: client.Transport) Link {
     return switch (transport) {
-        .quic => .quic,
-        .tcp => .tcp,
-    };
-}
-
-pub fn transport_of(link: Link) client.Transport {
-    return switch (link) {
         .quic => .quic,
         .tcp => .tcp,
     };

@@ -16,8 +16,8 @@
         // consumer that speaks DoQ or DoT needs it, so the package fetches colibri, and chapulin
         // and stdx under it.
         .colibri = .{
-            .url = "git+https://github.com/c4milo/colibri?ref=v0.8.0#7496cdc7323848cffe4774503103cd529701cb8f",
-            .hash = "colibri-0.8.0-Wo-AvtBgiAT4kSDr1cu4LH3VfEM7FWSqBgPzmwq9JIa7",
+            .url = "git+https://github.com/c4milo/colibri?ref=v0.9.0#bf4fe21f68c163090e53263baf0e414ae687e22c",
+            .hash = "colibri-0.9.0-Wo-Avj48kQT3mwcY_qvTKYBXgrNxy__YJVgOmOY-PSYj",
         },
     },
     .paths = .{

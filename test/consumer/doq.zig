@@ -25,7 +25,7 @@ const now_ns = 1;
 const unix_seconds = 1;
 /// What the program states of its CPU: nothing, which each program can state truthfully
 /// (docs/design.md §16 decision 48).
-const cpu: chapulin.Session.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };
+const cpu: chapulin.Session.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .not_stated };
 
 var loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment) = undefined;
 var resolver: Resolver = undefined;

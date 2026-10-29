@@ -61,7 +61,7 @@ const long_answer_bytes: usize = 20_000;
 const longest_answer_bytes: usize = 40_000;
 const answer_lengths = [_]usize{ short_answer_bytes, long_answer_bytes, longest_answer_bytes };
 /// What the server serves, and so selects: HTTP/2, then HTTP/1.1 (RFC 7301 §3.2).
-const protocols = [_]rig.Versions{ .{ .h11 = false }, .{ .h2 = false } };
+const protocols = [_]rig.Protocols{ .{ .h11 = false }, .{ .h2 = false } };
 /// The octet the answer is filled with after the query. Test-only.
 const filler: u8 = 0x41;
 
@@ -192,8 +192,8 @@ fn expect_answers(pair: *const rig.Pair, answer_length: usize) !void {
 }
 
 /// One run: two requests, both answered as `delivery` says.
-fn run(versions: rig.Versions, delivery: Delivery, answer_length: usize, burst: []u8, tally: *Tally) !void {
-    const pair = try rig.Pair.create(.{ .versions = versions });
+fn run(protocols_given: rig.Protocols, delivery: Delivery, answer_length: usize, burst: []u8, tally: *Tally) !void {
+    const pair = try rig.Pair.create(.{ .protocols = protocols_given });
     defer pair.free();
     var length = answer_length;
     for (0..requests) |index| try testing.expect(pair.doh.request(@intCast(index), &rig.query, pair.now_ns));

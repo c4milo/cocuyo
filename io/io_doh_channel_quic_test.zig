@@ -224,5 +224,5 @@ test "a name the certificate does not carry over QUIC ends the exchange as a han
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
     const finished = (try pair.run(.finished)).finished;
     try testing.expectEqual(Doh.Result{ .failed = .handshake }, finished.result);
-    try testing.expectEqual(.refused, pair.doh.exchanges[0].response.outcome);
+    try testing.expectEqual(.refused, pair.doh.exchanges[0].response.result);
 }

@@ -3430,7 +3430,7 @@ step until `zig build test` passes.
     - The DoT example reads the suite from colibri's record provider. The DoQ example reads it
       from chapulin's QUIC session in colibri's `tls`. The DoH example reads it from the link that
       the channel came up on.
-    - The examples pin stdx at `5da4397`, the commit that colibri v0.8.0 pins. The build requests
+    - The examples pin stdx at `5fd03aa`, the commit that colibri v0.9.0 pins. The build requests
       it with colibri's options, the target and `release`. So the build holds one `platform`
       module, and the probe's `Cpu` is the type that `tls.Cpu` holds. The examples' compile proves
       it: a second stdx would give a second type, and `tls.Cpu` would refuse it.
@@ -9126,6 +9126,21 @@ handshake completes takes the requests, and the other closes. That is decision 3
 step 7b was to write in the engine. The channel opens no socket and resolves no name: it asks its
 caller to open a UDP flow or a TCP connection to an address the caller handed it. Its TLS is
 colibri's `tls`, over chapulin (decision 32).
+
+Since colibri v0.9.0, pinned on 2026-10-29, the channel is `client.ConnectionPool` (colibri's
+decisions 125 and 126). The engine's DoH interface does not change. What changed in `cocuyo_doh`:
+
+- The pool holds one TCP connection, `tcp_connections_max`, as the channel has one TCP link. The
+  channel holds the memory the pool keeps it and its requests in, one request for each answer
+  buffer.
+- Each of colibri's calls and events about a connection names a `ConnectionHandle`. The channel
+  keeps the handle of each link from its `open`, and names it in each call about that link.
+- colibri says `send` when a TCP connection owes octets. The engine asks for a link's octets each
+  time it can send them, so the channel reads that event past. `unheard_per_next_max` is 3.
+- The owner approved both limits on 2026-10-29: `tcp_connections_max` new, and
+  `unheard_per_next_max` from 2 to 3.
+- The test server matches the root and a path of one segment itself, since colibri's router calls
+  the program's functions (colibri's decision 127).
 
 **The owner's rulings of 2026-09-28** (decision 33):
 

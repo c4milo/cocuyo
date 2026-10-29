@@ -49,7 +49,7 @@ test "a name the certificate does not carry ends the exchange as a handshake" {
     try testing.expect(pair.doh.request(0, &channel_test.query, pair.now_ns));
     const finished = (try pair.run(.finished)).finished;
     try testing.expectEqual(Doh.Result{ .failed = .handshake }, finished.result);
-    try testing.expectEqual(.refused, pair.doh.exchanges[0].response.outcome);
+    try testing.expectEqual(.refused, pair.doh.exchanges[0].response.result);
     try testing.expectEqual(@as(?Doh.Connected, null), pair.doh.connected());
 }
 
@@ -72,7 +72,7 @@ test "links whose sockets end before they connect end the exchange as a connect"
     try testing.expect(pair.doh.request(0, &channel_test.query, pair.now_ns));
     const finished = (try pair.run(.finished)).finished;
     try testing.expectEqual(Doh.Result{ .failed = .connect }, finished.result);
-    try testing.expectEqual(.refused, pair.doh.exchanges[0].response.outcome);
+    try testing.expectEqual(.refused, pair.doh.exchanges[0].response.result);
 }
 
 test "a request made while the TCP handshake runs ends as a handshake too" {

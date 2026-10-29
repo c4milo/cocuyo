@@ -89,7 +89,7 @@ pub fn command(comptime Cpu: type, arguments: []const [:0]const u8) Command(Cpu)
 
 /// What an example states without the word: nothing (docs/design.md §16 decision 48).
 pub fn nothing(comptime Cpu: type) Cpu {
-    return .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };
+    return .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .not_stated };
 }
 
 /// What an example states with the word, from what its probe found and whether PSTATE.DIT read as
@@ -234,7 +234,7 @@ test "the command line states the CPU as the word says, and keeps the operands a
 }
 
 test "without the word an example states nothing, whatever the CPU" {
-    const expected: ColibriCpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };
+    const expected: ColibriCpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .not_stated };
     try testing.expectEqual(expected, nothing(ColibriCpu));
     try testing.expectEqual(expected, state(ColibriCpu, false));
 }
@@ -242,7 +242,7 @@ test "without the word an example states nothing, whatever the CPU" {
 test "with the word the statement is data_independent only where the probe found FEAT_DIT and the bit reads as set, and nothing elsewhere" {
     for (answers) |aes_clmul| {
         for (answers) |dit| {
-            const probe: platform.Cpu = .{ .aes_clmul = aes_clmul, .dit = dit };
+            const probe: platform.Cpu = .{ .aes_clmul = aes_clmul, .dit = dit, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known };
             for ([_]bool{ true, false }) |dit_set| {
                 const independent: ColibriCpu = .{ .probe = probe, .timing = .data_independent };
                 const expected = if (dit == .yes and dit_set) independent else nothing(ColibriCpu);
@@ -270,7 +270,7 @@ test "with the word this host's statement follows its probe, and arm64 sets PSTA
 
 test "the set leaves PSTATE.DIT clear where the probe did not find FEAT_DIT, and says no" {
     const without = [_]platform.Answer{ .no, .not_known };
-    for (without) |dit| try testing.expect(!set_dit(.{ .aes_clmul = .yes, .dit = dit }));
+    for (without) |dit| try testing.expect(!set_dit(.{ .aes_clmul = .yes, .dit = dit, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }));
     if (comptime builtin.cpu.arch != .aarch64) return;
     const host = platform.probe();
     if (host.dit != .yes) return;
@@ -279,17 +279,17 @@ test "the set leaves PSTATE.DIT clear where the probe did not find FEAT_DIT, and
     dit_write(host, false);
     try testing.expect(!dit_read());
     for (without) |dit| {
-        try testing.expect(!set_dit(.{ .aes_clmul = .yes, .dit = dit }));
+        try testing.expect(!set_dit(.{ .aes_clmul = .yes, .dit = dit, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }));
         try testing.expect(!dit_read());
     }
 }
 
 test "the statement's line names the timing, then each answer of the probe" {
     var buffer: [statement_text_bytes_max]u8 = undefined;
-    const independent: ColibriCpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .yes }, .timing = .data_independent };
+    const independent: ColibriCpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .yes, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .data_independent };
     try testing.expectEqualStrings("cpu: timing data_independent, aes_clmul yes, dit yes", statement_text(independent, &buffer));
     try testing.expectEqualStrings("cpu: timing not_stated, aes_clmul not_known, dit not_known", statement_text(nothing(ColibriCpu), &buffer));
-    const longest: ColibriCpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .data_independent };
+    const longest: ColibriCpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .data_independent };
     try testing.expectEqual(statement_text_bytes_max, statement_text(longest, &buffer).len);
 }
 

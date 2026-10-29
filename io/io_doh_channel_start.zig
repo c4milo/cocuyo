@@ -45,7 +45,7 @@ pub const Context = struct {
 /// What the channel speaks (rule 18): HTTP/3 over QUIC, and HTTP/2 or HTTP/1.1 over TCP. colibri
 /// builds each ALPN list from it: `h3` over QUIC (RFC 9114 §3.1), and `h2`, then `http/1.1`, over
 /// TCP (RFC 7301 §3.1; its decision 120).
-const versions: client.Versions = .{ .h11 = true, .h2 = true, .h3 = true };
+const protocols: client.Protocols = .{ .h11 = true, .h2 = true, .h3 = true };
 
 /// The least memory colibri v0.8.0 names for a TCP transport (its decision 124, ruling 5;
 /// docs/design.md §24, the interface). `stream_input_len_min` holds a whole head of HTTP/1.1,
@@ -76,12 +76,14 @@ pub fn start(self: anytype, context: anytype) error{Failed}!void {
     // 48). colibri builds the TLS of both transports from this one value (its decision 120).
     self.channel_config = .{
         .tls = .{ .trust = trust, .cpu = self.context.cpu },
-        .versions = versions,
+        .protocols = protocols,
+        .tcp_connections = limits.tcp_connections_max,
+        .requests = @intCast(self.exchanges.len),
         .authority = https.authority,
         .fallback_delay_ns = constants.fallback_delay_ns,
     };
     self.addresses = .{client.Address.of(context.endpoint.address.slice(), 0)};
-    self.channel.init(&self.channel_config, .{
+    self.channel.init(&self.memory, &self.channel_config, .{
         .addresses = &self.addresses,
         .port = context.endpoint.port,
         .alternative = context.alternative,
@@ -105,7 +107,7 @@ pub fn start_link(self: anytype, link: read_module.Link, ticket: anytype, ticket
     const seconds = self.context.seconds_at(now_ns);
     switch (link) {
         .quic => self.channel.start_quic(random, seconds, now_ns, resumption) catch return error.Failed,
-        .tcp => self.channel.start_tcp(random, seconds, resumption) catch return error.Failed,
+        .tcp => self.channel.start_tcp(read_module.handle_of(self, .tcp), random, seconds, resumption) catch return error.Failed,
     }
     // A TCP link starts once its connect has finished, so a server took part (docs/design.md §16
     // decision 51). A QUIC link's server takes part when its first datagram comes.
@@ -114,7 +116,7 @@ pub fn start_link(self: anytype, link: read_module.Link, ticket: anytype, ticket
 
 /// A link's socket ended: its connection is gone, and what the link read of it with it.
 pub fn link_ended(self: anytype, link: read_module.Link) void {
-    self.channel.transport_closed(read_module.transport_of(link));
+    self.channel.transport_closed(read_module.handle_of(self, link));
     read_module.forget(self, link);
 }
 
@@ -122,8 +124,8 @@ pub fn link_ended(self: anytype, link: read_module.Link) void {
 /// the links resumed with are zeroed.
 pub fn wipe(self: anytype) void {
     if (!self.started) return;
-    self.channel.transport_closed(.quic);
-    self.channel.transport_closed(.tcp);
+    self.channel.transport_closed(read_module.handle_of(self, .quic));
+    self.channel.transport_closed(read_module.handle_of(self, .tcp));
     for (&self.resuming) |*ticket| ticket.wipe();
     self.started = false;
 }
@@ -178,13 +180,13 @@ const suites_with_aes = [_]u16{ aes_256_gcm_sha384, aes_128_gcm_sha256, chacha20
 const suites_without_aes = [_]u16{chacha20_poly1305_sha256};
 /// A probe that found the AES instructions and FEAT_DIT, under a timing mode the test states and
 /// nothing checks. A test that names it reads the hello alone, which runs no AES instruction.
-const cpu_with_aes: tls.Cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .yes }, .timing = .data_independent };
+const cpu_with_aes: tls.Cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .yes, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .data_independent };
 /// The same probe, with no timing mode stated.
 const cpu_aes_not_stated: tls.Cpu = .{ .probe = cpu_with_aes.probe, .timing = .not_stated };
 /// A probe that found FEAT_DIT and no AES instructions, under the timing mode of `cpu_with_aes`.
-const cpu_without_aes: tls.Cpu = .{ .probe = .{ .aes_clmul = .no, .dit = .yes }, .timing = .data_independent };
+const cpu_without_aes: tls.Cpu = .{ .probe = .{ .aes_clmul = .no, .dit = .yes, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .data_independent };
 /// A probe that found FEAT_DIT and gave no answer for the AES instructions, under the same mode.
-const cpu_aes_not_known: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .yes }, .timing = .data_independent };
+const cpu_aes_not_known: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .yes, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .data_independent };
 /// max_idle_timeout, of 30,000 milliseconds (RFC 9000 §18.2), which chapulin carries and does not
 /// read: its ID, its length, and its value as a two-octet varint.
 const transport_parameters = "\x01\x02\x75\x30";

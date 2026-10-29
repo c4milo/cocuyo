@@ -24,7 +24,7 @@ const Endpoint = server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 
 /// connection too.
 const Response = struct {
     live: bool = false,
-    id: server.Id = undefined,
+    id: server.RequestId = undefined,
     content: [cocuyo.limits.message_bytes_max]u8 = undefined,
 };
 
@@ -55,13 +55,13 @@ pub const QuicServer = struct {
     pub fn receive(self: *QuicServer, bytes: []const u8, from: server.Address, answerer: tcp_server.Answerer, now_ns: u64) void {
         if (bytes.len > self.inbound.len) return;
         @memcpy(self.inbound[0..bytes.len], bytes);
-        self.read(.{ .datagram = .{ .octets = self.inbound[0..bytes.len], .from = from } }, answerer, now_ns);
+        self.read(.{ .datagram = .{ .bytes = self.inbound[0..bytes.len], .from = from } }, answerer, now_ns);
     }
 
     /// The next datagram the server owes, written into `out`.
     pub fn send(self: *QuicServer, out: []u8, now_ns: u64) ?[]const u8 {
         const sent = self.endpoint.send_datagram(out, now_ns) orelse return null;
-        return sent.octets;
+        return sent.bytes;
     }
 
     pub fn deadline(self: *QuicServer) ?u64 {
@@ -85,8 +85,7 @@ pub const QuicServer = struct {
             const event = received.event orelse return;
             switch (event) {
                 .request => |request| if (answerer) |given| self.answer(request, given),
-                .done => |done| self.free(done.id),
-                .cancelled => |cancelled| self.free(cancelled.id),
+                .finished => |finished| self.free(finished.id),
                 .ended => |ended| self.forget(ended.connection),
                 .body, .trailers, .writable, .send, .close, .closed => {},
             }
@@ -113,7 +112,7 @@ pub const QuicServer = struct {
     }
 
     /// A response's content is the server's again.
-    fn free(self: *QuicServer, id: server.Id) void {
+    fn free(self: *QuicServer, id: server.RequestId) void {
         for (&self.responses) |*response| {
             if (response.live and response.id == id) response.live = false;
         }

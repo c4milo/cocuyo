@@ -1,6 +1,6 @@
-//! The constants of `cocuyo_doh`, colibri's `client.Channel` under the engine's DoH interface,
-//! that are no limit (docs/design.md §24, DoH over colibri's client). A module of its own, so its
-//! constants live apart from the engine's `constants.zig`. Its limits are in
+//! The constants of `cocuyo_doh`, colibri's `client.ConnectionPool` under the engine's DoH
+//! interface, that are no limit (docs/design.md §24, DoH over colibri's client). A module of
+//! its own, so its constants live apart from the engine's `constants.zig`. Its limits are in
 //! `io_doh_channel_limits.zig` (§16 decision 56).
 const std = @import("std");
 const limits = @import("io_doh_channel_limits.zig");

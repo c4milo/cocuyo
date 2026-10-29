@@ -1,4 +1,4 @@
-//! The limits of `cocuyo_doh`, colibri's `client.Channel` under the engine's DoH interface
+//! The limits of `cocuyo_doh`, colibri's `client.ConnectionPool` under the engine's DoH interface
 //! (docs/design.md §24, DoH over colibri's client, New limits; §16 decision 56). A module of its
 //! own, so its limits live apart from the engine's `limits.zig`; the ones every DoH transport
 //! shares are `doh`'s.
@@ -30,10 +30,15 @@ pub const datagram_bytes_max: usize = 2048;
 pub const values_bytes_max: usize = 256;
 
 /// The passes `next` takes at most: each takes octets of what the links read or says something, and
-/// what colibri says that the engine does not hear, the version each of the two connections speaks,
-/// comes once for each, then one pass says nothing.
-pub const unheard_per_next_max: usize = 2;
+/// what colibri says that the engine does not hear comes a bounded number of times, then one pass
+/// says nothing. That is the version each of the two connections speaks, once for each, and the
+/// TCP connection's debt, once between two of the engine's sends (colibri's decision 125).
+pub const unheard_per_next_max: usize = 3;
 pub const next_passes_max: usize = datagram_bytes_max + stream_bytes_max + unheard_per_next_max + 1;
+
+/// The TCP connections colibri's pool holds for a channel at once: one, as the channel has one TCP
+/// link (docs/design.md §24, rule 18). colibri sizes the memory of each one (its decision 125).
+pub const tcp_connections_max: u16 = 1;
 
 /// What one output holds: a record at its longest. A QUIC datagram is shorter.
 pub const output_bytes_max = record_bytes_max;

@@ -23,7 +23,7 @@ const test_answers: usize = 2;
 pub const Doh = cocuyo_doh.Channel(.{ .answers = test_answers });
 pub const Event = Doh.Event;
 pub const Answerer = server_module.Answerer;
-pub const Versions = @FieldType(server_module.Script, "versions");
+pub const Protocols = @FieldType(server_module.Script, "protocols");
 /// The wall clock a test's server starts at, inside the test identity's validity.
 pub const identity_seconds = identity.unix_seconds;
 const Tag = std.meta.Tag(Event);
@@ -255,7 +255,7 @@ test "a datagram of exactly what the type keeps is kept, and stream octets of ex
 
 test "a server that selects HTTP/1.1, or selects no protocol, answers over HTTP/1.1" {
     // colibri speaks HTTP/1.1 when the server selects it or selects nothing (its decision 88).
-    const scripts = [_]server_module.Script{ .{ .versions = .{ .h2 = false } }, .{ .selects_none = true } };
+    const scripts = [_]server_module.Script{ .{ .protocols = .{ .h2 = false } }, .{ .selects_none = true } };
     for (scripts) |script| {
         const pair = try Pair.create(script);
         defer pair.free();
@@ -324,7 +324,7 @@ test "a 2xx response whose field values do not fit fails its request as too larg
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
     const finished = (try pair.run(.finished)).finished;
     try testing.expectEqual(Doh.Result{ .failed = .status }, finished.result);
-    try testing.expectEqual(.too_large, pair.doh.exchanges[0].response.outcome);
+    try testing.expectEqual(.too_large, pair.doh.exchanges[0].response.result);
 }
 
 test "a stream the server resets after a 2xx head fails its request" {
@@ -334,7 +334,7 @@ test "a stream the server resets after a 2xx head fails its request" {
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
     const finished = (try pair.run(.finished)).finished;
     try testing.expectEqual(Doh.Result{ .failed = .reset }, finished.result);
-    try testing.expectEqual(.reset, pair.doh.exchanges[0].response.outcome);
+    try testing.expectEqual(.reset, pair.doh.exchanges[0].response.result);
     try testing.expectEqual(@as(u16, 200), pair.doh.exchanges[0].response.status);
 }
 
@@ -394,9 +394,9 @@ test "wiping a channel ends each connection it holds, whose session colibri wipe
     defer pair.free();
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
     _ = try pair.run(.finished);
-    try testing.expect(!pair.doh.channel.tcp.stopped);
+    try testing.expect(!pair.doh.channel.tcp[0].stopped);
     pair.doh.wipe();
-    try testing.expect(pair.doh.channel.tcp.stopped);
+    try testing.expect(pair.doh.channel.tcp[0].stopped);
 }
 
 test "stream octets past what the type keeps end the TCP link, which the channel is told of" {

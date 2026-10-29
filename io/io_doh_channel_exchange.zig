@@ -17,9 +17,9 @@ pub const Answer = struct { message: []const u8, age_seconds: u32 };
 /// its cause (docs/design.md §5, The cause of a failure; §16 decision 51).
 pub const Result = union(enum) { answer: Answer, failed: cocuyo.Reason };
 
-/// The GET's own field lines: a DNS message is what it accepts (RFC 8484 §4.1), and "identity" asks
+/// The GET's own headers: a DNS message is what it accepts (RFC 8484 §4.1), and "identity" asks
 /// for no content coding (RFC 9110 §12.5.3, request rule 12).
-const fields = [_]client.Field{
+const headers = [_]client.Header{
     .{ .name = "accept", .value = "application/dns-message" },
     .{ .name = "accept-encoding", .value = "identity" },
 };
@@ -42,11 +42,11 @@ pub const Exchange = struct {
     up: bool = false,
     heard: bool = false,
     index: u16 = 0,
-    id: client.Id = 0,
+    id: client.RequestId = 0,
     request: client.Request = undefined,
     response: client.Response = undefined,
     path: [doh.limits.doh_request_bytes_max]u8 = undefined,
-    wanted: [wanted_names.len]client.Wanted = undefined,
+    wanted: [wanted_names.len]client.WantedHeader = undefined,
     values: [limits.values_bytes_max]u8 = undefined,
     answer: [cocuyo.limits.message_bytes_max]u8 = undefined,
 };
@@ -73,7 +73,7 @@ pub fn make(slot: *Exchange, index: u16, template_path: []const u8, message: []c
     slot.request = .{
         .method = "GET",
         .path = path,
-        .fields = &fields,
+        .headers = &headers,
         .never_indexed = .{ .path = true },
     };
     slot.response = .{
@@ -83,16 +83,16 @@ pub fn make(slot: *Exchange, index: u16, template_path: []const u8, message: []c
     };
     slot.index = index;
     assert(slot.request.path.len > 0);
-    assert(slot.response.outcome == .pending);
+    assert(slot.response.result == .pending);
 }
 
 /// How an exchange ended, as the engine reads it: its answer, or the reason its request failed. A
 /// whole response that holds no DNS message is `status`: the server answered with HTTP that the
-/// engine cannot read as DNS. Every other end has the reason of colibri's outcome, and of what the
+/// engine cannot read as DNS. Every other end has the reason of colibri's result, and of what the
 /// channel's connections did while the exchange was live (docs/design.md §5, The cause of a
 /// failure).
 pub fn result_of(slot: *const Exchange) Result {
-    const outcome = slot.response.outcome;
+    const outcome = slot.response.result;
     // An exchange ends once, and colibri says how before it says that it ended.
     assert(outcome != .pending);
     if (outcome != .response) return .{ .failed = reason_of(outcome, slot.up, slot.heard) };
@@ -104,7 +104,7 @@ pub fn result_of(slot: *const Exchange) Result {
 
 /// The reason of an end that is not a whole response (rule 22). `up` says whether a connection of
 /// the channel came up while the exchange was live, and `heard` whether a server took part in one.
-fn reason_of(outcome: client.Outcome, up: bool, heard: bool) cocuyo.Reason {
+fn reason_of(outcome: client.Result, up: bool, heard: bool) cocuyo.Reason {
     // A reset, or a response that colibri refused, needs a stream on a connection that came up.
     assert(up or outcome == .refused or outcome == .closed or outcome == .invalid);
     // colibri gave up on it: no connection came up, and each one that the channel tried failed. A
@@ -137,14 +137,14 @@ fn reason_of(outcome: client.Outcome, up: bool, heard: bool) cocuyo.Reason {
 /// (RFC 8484 §5.1), which the lookup does.
 fn answer_of(slot: *const Exchange) ?Answer {
     const response = &slot.response;
-    if (response.outcome != .response) return null;
+    if (response.result != .response) return null;
     if (response.status < constants.status_success_first or response.status > constants.status_success_last) return null;
     if (!doh.response.is_dns_message(slot.wanted[content_type_at].value)) return null;
     if (slot.wanted[content_encoding_at].value) |coding| {
         if (!doh.response.is_identity(coding)) return null;
     }
     assert(response.body_len <= slot.answer.len);
-    return .{ .message = response.content_received(), .age_seconds = doh.response.age_seconds(slot.wanted[age_at].value) };
+    return .{ .message = response.body_received(), .age_seconds = doh.response.age_seconds(slot.wanted[age_at].value) };
 }
 
 // Tests. The ends of a whole response are `io_doh_channel_test.zig`'s, over colibri's server.
@@ -160,7 +160,7 @@ test "each end of colibri's that is not a whole response gives its reason" {
     try testing.expectEqual(cocuyo.Reason.status, reason_of(.too_large, true, true));
     try testing.expectEqual(cocuyo.Reason.local, reason_of(.invalid, true, true));
     // With no connection up: a handshake when a server took part, a connect when none did.
-    for ([_]client.Outcome{ .refused, .closed }) |outcome| {
+    for ([_]client.Result{ .refused, .closed }) |outcome| {
         try testing.expectEqual(cocuyo.Reason.handshake, reason_of(outcome, false, true));
         try testing.expectEqual(cocuyo.Reason.connect, reason_of(outcome, false, false));
     }

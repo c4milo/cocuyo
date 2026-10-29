@@ -24,16 +24,16 @@ const test_seed_octet: u8 = 7;
 
 /// What a test states of the CPU when it names nothing: no answer of the probe, and no timing
 /// mode. A consumer that cannot state its thread's mode passes it (docs/design.md §16 decision 48).
-const cpu_not_stated: Session.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };
+const cpu_not_stated: Session.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .not_stated };
 /// A probe that found the AES instructions and FEAT_DIT, under a timing mode the test states and
 /// nothing checks. A test that names it reads the hello alone, which runs no AES instruction.
-const cpu_with_aes: Session.Cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .yes }, .timing = .data_independent };
+const cpu_with_aes: Session.Cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .yes, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .data_independent };
 /// The same probe, with no timing mode stated.
 const cpu_aes_not_stated: Session.Cpu = .{ .probe = cpu_with_aes.probe, .timing = .not_stated };
 /// A probe that found FEAT_DIT and no AES instructions, under the timing mode of `cpu_with_aes`.
-const cpu_without_aes: Session.Cpu = .{ .probe = .{ .aes_clmul = .no, .dit = .yes }, .timing = .data_independent };
+const cpu_without_aes: Session.Cpu = .{ .probe = .{ .aes_clmul = .no, .dit = .yes, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .data_independent };
 /// A probe that found FEAT_DIT and gave no answer for the AES instructions, under the same mode.
-const cpu_aes_not_known: Session.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .yes }, .timing = .data_independent };
+const cpu_aes_not_known: Session.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .yes, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .data_independent };
 
 /// A context for a test: the stream seeded with `seed_octet` repeated, so each run draws what the
 /// last drew, and the wall clock at `test_seconds`. It states nothing of the CPU. Never for a

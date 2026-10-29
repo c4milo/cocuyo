@@ -1,7 +1,8 @@
-//! `cocuyo_doh`: colibri's `client.Channel` under the engine's DoH interface (docs/design.md §24,
-//! DoH over colibri's client). A consumer that speaks DoH names `Channel(...)` in the engine's
-//! `Options.doh`, and binds colibri's `client` and `tls` modules into this one. `cocuyo_rotor`
-//! never imports colibri, so a consumer that speaks no DoH binds nothing more.
+//! `cocuyo_doh`: colibri's `client.ConnectionPool` under the engine's DoH interface
+//! (docs/design.md §24, DoH over colibri's client). A consumer that speaks DoH names
+//! `Channel(...)` in the engine's `Options.doh`, and binds colibri's `client` and `tls` modules
+//! into this one. `cocuyo_rotor` never imports colibri, so a consumer that speaks no DoH binds
+//! nothing more.
 //!
 //! The channel carries a server's requests over HTTP/3, or over HTTP/2 or HTTP/1.1 on TCP, and asks
 //! the engine to open and close the sockets it runs over (rules 18 to 25). The type turns a request
@@ -37,7 +38,7 @@ pub const Options = struct {
 pub fn Channel(comptime options: Options) type {
     // A request becomes one of colibri's exchanges only while an answer buffer is free, so colibri
     // never has more than it can hold.
-    comptime assert(options.answers > 0 and options.answers <= client.constants.exchanges_max);
+    comptime assert(options.answers > 0 and options.answers <= client.constants.pool_requests_max);
     return struct {
         const Self = @This();
 
@@ -60,7 +61,12 @@ pub fn Channel(comptime options: Options) type {
         /// the ticket its link offered, for a caller to report.
         pub const Connected = struct { protocol: client.Protocol, resumed: bool, offered: bool };
 
-        channel: client.Channel = undefined,
+        channel: client.ConnectionPool = undefined,
+        /// Where colibri keeps the TCP connection and its table of requests (its decision 125): one
+        /// TCP connection, as the channel has one TCP link, and a request for each answer buffer.
+        memory: [client.ConnectionPool.memory_bytes(.{ .tcp_connections = limits.tcp_connections_max, .requests = options.answers })]u8 align(client.ConnectionPool.memory_alignment) = undefined,
+        /// The connection each link carries now, which colibri's calls about the link name.
+        handles: [@typeInfo(Link).@"enum".fields.len]client.ConnectionHandle = @splat(read_module.no_connection),
         pool: client.ReceivePool(limits.receive_bytes_max) = undefined,
         /// What the channel starts from, which colibri reads through a pointer into it. The channel
         /// builds the TLS configuration of each transport from it, in its own storage.
@@ -119,7 +125,7 @@ pub fn Channel(comptime options: Options) type {
             return read_module.datagram(self, out, now_ns);
         }
         pub fn output(self: *Self, out: []u8, now_ns: u64) usize {
-            return self.channel.send_stream(out, now_ns);
+            return self.channel.send_stream(read_module.handle_of(self, .tcp), out, now_ns);
         }
         pub fn deadline(self: *Self) ?u64 {
             return self.channel.deadline_ns();
@@ -134,7 +140,7 @@ pub fn Channel(comptime options: Options) type {
             start_module.link_ended(self, link);
         }
         pub fn take_ticket(self: *Self, link: Link) ?Ticket {
-            return self.channel.take_ticket(read_module.transport_of(link));
+            return self.channel.take_ticket(read_module.handle_of(self, link));
         }
         pub fn alternative(self: *const Self) ?Alternative {
             return self.channel.alternative();

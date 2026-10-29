@@ -858,7 +858,7 @@
         .id = "DC8",
         .what = "an overrun TCP link is closed, and the channel is not told",
         .edits = .{
-            .{ .file = "io/io_doh_channel_read.zig", .old = "    self.stream_overrun = false;\n    self.channel.transport_closed(.tcp);\n", .new = "    self.stream_overrun = false;\n" },
+            .{ .file = "io/io_doh_channel_read.zig", .old = "    self.stream_overrun = false;\n    self.channel.transport_closed(handle_of(self, .tcp));\n", .new = "    self.stream_overrun = false;\n" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -948,7 +948,7 @@
         .id = "DC18",
         .what = "wiping a channel leaves its connections up",
         .edits = .{
-            .{ .file = "io/io_doh_channel_start.zig", .old = "    self.channel.transport_closed(.quic);\n    self.channel.transport_closed(.tcp);\n    for (&self.resuming)", .new = "    for (&self.resuming)" },
+            .{ .file = "io/io_doh_channel_start.zig", .old = "    self.channel.transport_closed(read_module.handle_of(self, .quic));\n    self.channel.transport_closed(read_module.handle_of(self, .tcp));\n    for (&self.resuming)", .new = "    for (&self.resuming)" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -975,7 +975,7 @@
         .id = "DC21",
         .what = "the version a connection speaks is told to the engine as the TCP link's close",
         .edits = .{
-            .{ .file = "io/io_doh_channel_read.zig", .old = "            came_up(self, if (protocol == .h3) .quic else .tcp);\n            return null;", .new = "            came_up(self, if (protocol == .h3) .quic else .tcp);\n            return .{ .close = .tcp };" },
+            .{ .file = "io/io_doh_channel_read.zig", .old = "            came_up(self, link_on(self, up.connection));\n            return null;", .new = "            came_up(self, link_on(self, up.connection));\n            return .{ .close = .tcp };" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -984,7 +984,7 @@
         .id = "DC22",
         .what = "a close the channel says is not told to the engine",
         .edits = .{
-            .{ .file = "io/io_doh_channel_read.zig", .old = "            forget(self, link_of(transport));\n            return .{ .close = link_of(transport) };", .new = "            forget(self, link_of(transport));\n            return null;" },
+            .{ .file = "io/io_doh_channel_read.zig", .old = "            forget(self, link);\n            return .{ .close = link };", .new = "            forget(self, link);\n            return null;" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -1011,7 +1011,7 @@
         .id = "DC25",
         .what = "the version the channel came up on is not kept",
         .edits = .{
-            .{ .file = "io/io_doh_channel_read.zig", .old = "            self.protocol = protocol;\n", .new = "" },
+            .{ .file = "io/io_doh_channel_read.zig", .old = "            self.protocol = up.protocol;\n", .new = "" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -2586,7 +2586,7 @@
         .id = "DS3",
         .what = "colibri is handed one chunk of the stream at most",
         .edits = .{
-            .{ .file = "io/io_doh_channel_read.zig", .old = "    if (self.stream_len > 0) return .{ .stream = self.stream[0..self.stream_len] };\n", .new = "    if (self.stream_len > 0) return .{ .stream = self.stream[0..@min(self.stream_len, limits.engine_chunk_bytes_max)] };\n" },
+            .{ .file = "io/io_doh_channel_read.zig", .old = "    if (self.stream_len > 0) return .{ .stream = .{ .connection = handle_of(self, .tcp), .bytes = self.stream[0..self.stream_len] } };\n", .new = "    if (self.stream_len > 0) return .{ .stream = .{ .connection = handle_of(self, .tcp), .bytes = self.stream[0..@min(self.stream_len, limits.engine_chunk_bytes_max)] } };\n" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -2895,7 +2895,7 @@
         .id = "CB4",
         .what = "the DoH channel speaks no HTTP/2, so its TCP connection offers `http/1.1` alone",
         .edits = .{
-            .{ .file = "io/io_doh_channel_start.zig", .old = "const versions: client.Versions = .{ .h11 = true, .h2 = true, .h3 = true };", .new = "const versions: client.Versions = .{ .h11 = true, .h2 = false, .h3 = true };" },
+            .{ .file = "io/io_doh_channel_start.zig", .old = "const protocols: client.Protocols = .{ .h11 = true, .h2 = true, .h3 = true };", .new = "const protocols: client.Protocols = .{ .h11 = true, .h2 = false, .h3 = true };" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -2904,16 +2904,16 @@
         .id = "CB5",
         .what = "the DoH channel speaks no HTTP/3, so it opens no QUIC link",
         .edits = .{
-            .{ .file = "io/io_doh_channel_start.zig", .old = "const versions: client.Versions = .{ .h11 = true, .h2 = true, .h3 = true };", .new = "const versions: client.Versions = .{ .h11 = true, .h2 = true, .h3 = false };" },
+            .{ .file = "io/io_doh_channel_start.zig", .old = "const protocols: client.Protocols = .{ .h11 = true, .h2 = true, .h3 = true };", .new = "const protocols: client.Protocols = .{ .h11 = true, .h2 = true, .h3 = false };" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
     .{
         .section = "colibri v0.8.0",
         .id = "CB6",
-        .what = "the test server's route table has no root, so a GET of the root gets 404",
+        .what = "the test server does not serve the root, so a GET of the root gets 404",
         .edits = .{
-            .{ .file = "io/io_doh_channel_server.zig", .old = "    .{ .get, \"/\", .query },\n", .new = "" },
+            .{ .file = "io/io_doh_channel_server.zig", .old = "    if (path.len == 0 or path[0] != '/') return false;\n", .new = "    if (path.len <= 1 or path[0] != '/') return false;\n" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -2947,9 +2947,9 @@
     .{
         .section = "colibri v0.8.0",
         .id = "CB10",
-        .what = "the assertion that a new exchange's response has no outcome yet, inverted",
+        .what = "the assertion that a new exchange's response has no result yet, inverted",
         .edits = .{
-            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    assert(slot.response.outcome == .pending);\n", .new = "    assert(slot.response.outcome != .pending);\n" },
+            .{ .file = "io/io_doh_channel_exchange.zig", .old = "    assert(slot.response.result == .pending);\n", .new = "    assert(slot.response.result != .pending);\n" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -3255,7 +3255,7 @@
         .id = "CX5",
         .what = "the value that states nothing states a data-independent timing",
         .edits = .{
-            .{ .file = "examples/cpu_text.zig", .old = "    return .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };", .new = "    return .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .data_independent };" },
+            .{ .file = "examples/cpu_text.zig", .old = "    return .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .not_stated };", .new = "    return .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .data_independent };" },
         },
         .caught_by = .{ .step = "test-examples" },
     },
@@ -3264,7 +3264,7 @@
         .id = "CX6",
         .what = "the value that states nothing states the AES instructions found",
         .edits = .{
-            .{ .file = "examples/cpu_text.zig", .old = "    return .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated };", .new = "    return .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known }, .timing = .not_stated };" },
+            .{ .file = "examples/cpu_text.zig", .old = "    return .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .not_stated };", .new = "    return .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .not_stated };" },
         },
         .caught_by = .{ .step = "test-examples" },
     },
@@ -4202,9 +4202,9 @@
     .{
         .section = "The session module",
         .id = "SM4",
-        .what = "the consumer fixture pins colibri v0.7.0, where build.zig.zon pins v0.8.0",
+        .what = "the consumer fixture pins colibri v0.8.0, where build.zig.zon pins v0.9.0",
         .edits = .{
-            .{ .file = "test/consumer/build.zig.zon", .old = ".hash = \"colibri-0.8.0-Wo-AvtBgiAT4kSDr1cu4LH3VfEM7FWSqBgPzmwq9JIa7\",", .new = ".hash = \"colibri-0.7.0-Wo-AvnvDigTcA-Gfby9QcjS1khCNKsyoFdt04Z_BX1xj\"," },
+            .{ .file = "test/consumer/build.zig.zon", .old = ".hash = \"colibri-0.9.0-Wo-Avj48kQT3mwcY_qvTKYBXgrNxy__YJVgOmOY-PSYj\",", .new = ".hash = \"colibri-0.8.0-Wo-AvtBgiAT4kSDr1cu4LH3VfEM7FWSqBgPzmwq9JIa7\"," },
         },
         .caught_by = .{ .step = "consumer-check" },
     },

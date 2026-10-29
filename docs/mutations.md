@@ -10566,3 +10566,18 @@ The owner ruled on 2026-10-28, and an independent review found these. The fixes:
 
 `zig build mutations -- lookup TY11 LN1 LN2 LN3 LN4 LN5 LN6 LN7 LN8 LN9` ran each to its end, and
 each is `CAUGHT`.
+
+## The pin of colibri v0.9.0
+
+2026-10-29. The owner approved the pin of colibri v0.9.0 and of stdx `5fd03aa` on 2026-10-29, and
+the two limits of `cocuyo_doh` that the pool needs (design §24, DoH over colibri's client).
+colibri renamed its client's types and holds its TCP connections in a pool (its decisions 125
+and 126). No check of cocuyo changed, so no row is new.
+
+### The rewritten rows
+
+- DC8, DC18, DC21, DC22, DC25, DS3, CB4, CB5, CB6, CB10, CX5, CX6 and SM4 named text of
+  `cocuyo_doh`, its tests or the consumer fixture that the migration changed. Each names the new
+  text, applies once, and is `CAUGHT` by the step it names.
+- CB6 removed a route of the test server. colibri's router now calls the program's functions, so
+  the test server matches its paths itself. CB6 now breaks that path check.
