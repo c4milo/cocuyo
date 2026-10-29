@@ -10581,3 +10581,41 @@ and 126). No check of cocuyo changed, so no row is new.
   text, applies once, and is `CAUGHT` by the step it names.
 - CB6 removed a route of the test server. colibri's router now calls the program's functions, so
   the test server matches its paths itself. CB6 now breaks that path check.
+
+## The alert of a record that is too long
+
+2026-10-29, c4milo/cocuyo#45. The owner ruled on 2026-10-28 on design §17 question 88, the first
+way, and approved the pin of colibri v0.9.0 on 2026-10-29. Design §16 decision 62 records it.
+
+The prefixes A and RO were in use already, so these rows use OF.
+
+### What changed
+
+- The session interface has `stage_alert(description)`. chapulin's session calls colibri's
+  `tls.record.Client.fail`, which calls chapulin's `ch_fail`. The twin's session writes the
+  alert record itself.
+- Once up, a record header longer than `tls_record_body_bytes_max` makes the session stage
+  `record_overflow`. Then the connection ends as a refused record ends it (TLS rule 4).
+- While the handshake runs, the connection closes at once, as before. A closing connection that
+  reads such a header stays closing, and its buffer drops what it holds.
+- `io/io_chapulin_alert_test.zig` runs a handshake between chapulin's session and colibri's
+  record server under the identity of `io/testdata/`, then reads the alert on the server's side.
+
+### The rows
+
+| # | Mutation | Check it breaks | Caught by | Status |
+| --- | --- | --- | --- | --- |
+| OF1 | the engine stages no alert on a long header once up | RFC 9846 §5.2's `record_overflow` | the engine test of a long header once up, `zig build test-io` | CAUGHT |
+| OF2 | a long header once up fails the connection at once again | TLS rule 4: the alert goes before the close | the engine test of a long header once up, `zig build test-io` | CAUGHT |
+| OF3 | a closing connection that reads a long header fails at once | TLS rule 5: a closing connection reads nothing more | the engine test of a long header once up, its second header, `zig build test-io` | CAUGHT |
+| OF4 | the buffer keeps the octets after a long header | no record past the header can be read | the engine test of a long header once up, `zig build test-io` | CAUGHT |
+| OF5 | the twin's session stages another description | RFC 9846 §6.2's `record_overflow` | the engine test of a long header once up, `zig build test-io` | CAUGHT |
+| OF6 | chapulin's session names `decode_error` to colibri | RFC 9846 §5.2's `record_overflow` | the alert test, whose server reads the description, `zig build test-chapulin` | CAUGHT |
+| OF7 | chapulin's session does not stage what colibri wrote | the alert goes out before the close | the alert test, `zig build test-chapulin` | CAUGHT |
+| OF8 | chapulin's session stays live after its alert | the session fails with its alert (RFC 9846 §6.2) | the alert test, `zig build test-chapulin` | CAUGHT |
+
+OF6 did not compile at its first edit, which left `description` with no use. It ran again with
+an edit that compiles. RS34 named the line that this change replaced. It now edits the cause of the new handshake
+branch, and is `CAUGHT`. `zig build mutations -- engine RS34 OF1 ... OF8` ran each to its end.
+
+Eight mutations, eight `CAUGHT`.

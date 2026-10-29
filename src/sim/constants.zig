@@ -86,6 +86,8 @@ pub const tls_alert_fatal: u8 = 2;
 /// The fatal alert the twin's session sends for a handshake it refuses: level fatal, description
 /// `handshake_failure` (RFC 9846 §6, §6.2).
 pub const tls_alert_handshake_failure = [_]u8{ tls_alert_fatal, 40 };
+/// The description `record_overflow` (RFC 9846 §6.2), the one the engine names to a session.
+pub const tls_alert_record_overflow: u8 = 22;
 
 /// The port a scripted server speaks the twin's QUIC on: UDP's 853, which RFC 9250 §4.1.1 names
 /// for DoQ. It is TCP's 853 for DoT as well, and the socket's kind tells them apart.

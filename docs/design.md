@@ -4766,6 +4766,47 @@ step until `zig build test` passes.
 
     §17 questions 85 and 89, §18, §20.
 
+62. **The session stages the alert that the engine names.** Ruled by the owner on 2026-10-28, on
+    §17 question 88, the first way (c4milo/cocuyo#45). Before it, the engine closed a DoT
+    connection at once on a record header longer than RFC 9846 §5.2 allows. No alert went out.
+    §5.2 says that the endpoint "MUST terminate the connection with a "record_overflow" alert".
+
+    What changed:
+
+    - chapulin `a51898de` added `ch_fail`, which seals a fatal alert, wipes the keys and fails the
+      session (c4milo/chapulin#208). colibri v0.9.0 calls it from `tls.record.Client.fail`
+      (c4milo/colibri#114). The owner approved the pin of v0.9.0 on 2026-10-29, and stdx moved to
+      `5fd03aa`, the commit that colibri pins.
+    - The session interface (§21) has `stage_alert(description)`. It stages the fatal alert with
+      that description behind what the session holds, and the session fails. chapulin's session
+      calls `Client.fail`. The twin's session writes the alert record itself.
+    - Once the connection is up, a header longer than `tls_record_body_bytes_max` makes the session
+      stage `record_overflow`. Then the connection ends as a record that the session refused ends
+      it (§21, TLS rule 4): the lookups hear `closed`, and the alert goes out before the close.
+    - While the handshake runs, the connection still closes at once, with no alert. chapulin sends
+      an alert on a connected session alone: `ch_fail` returns `CH_EPROTO` before the handshake
+      completes, and sends no octet.
+
+    The limit stays at 2^14 + 256 octets, the bound that §5.2 states for every record. chapulin
+    reads less since `1f3a99cb` (c4milo/chapulin#209): at most 2^14 + 17 octets of body in a
+    protected record, after §5.4. A header between the two passes the engine's check, and chapulin
+    refuses the record with its own `record_overflow`, which the session stages already (rule 4).
+
+    The models: the TLA+ engine model has no record lengths. Its TLS step `failed` is the session's
+    refusal of a record, which `Refuse` ends. A long header once up now ends the same way, so the
+    model does not change. The Lean models hold no TLS.
+
+    Rejected:
+
+    - The header to the session, `close_notify` in its place, and no change: the other ways of
+      question 88, which the ruling did not take.
+    - An alert during the handshake from cocuyo's own records. Before the handshake completes, no
+      key seals an alert, and chapulin owns the record layer.
+    - The limit at 2^14 + 17 octets. RFC 9846 §5.2 states 2^14 + 256 for every record, and a
+      change to a named limit needs the owner.
+
+    §17 question 88, §21.
+
 ## 17. Questions for the owner
 
 ### Settled on 2026-09-21
@@ -5888,7 +5929,8 @@ this change builds no part of the ruling.
     send a wrong alert or none. Until the owner rules, cocuyo builds none of it, and the connection
     closes with no alert as today. Answered on 2026-10-28: the chapulin call and the colibri call.
     cocuyo builds the ruling after a colibri release that carries them: c4milo/chapulin#207,
-    c4milo/chapulin#208 and c4milo/colibri#114.
+    c4milo/chapulin#208 and c4milo/colibri#114. Built on 2026-10-29 over colibri v0.9.0 (§16
+    decision 62).
 
 ### Asked on 2026-10-28, for the cause of a recalled failure
 
@@ -7961,7 +8003,9 @@ code is.
    lookups leave, and the lookup waits for it (§16 decision 54).
 7. Records received go to the session whole. The connection reads each record's length from
    its five-octet header, and keeps a partial record until the rest arrives. A header that says
-   more than RFC 9846 §5.2 allows fails the connection. The session's `recv` hands over whole
+   more than RFC 9846 §5.2 allows fails the connection. Since 2026-10-29, once the connection is
+   up, the session first stages `record_overflow`, and the connection ends as rule 4 says (§16
+   decision 62). The session's `recv` hands over whole
    records and answers 0 only at a record boundary, which chapulin reads as "no record yet"; a 0
    inside a record would kill the session. Since 2026-10-13 the connection takes each chunk
    whole into its record buffer. Then it hands every whole record in the buffer to the session,
@@ -8028,6 +8072,8 @@ The engine does not call chapulin by name. It is generic over a `Session` type i
 - `open` takes one whole record once the session is up, and says what it held: a query's answer,
   nothing the engine sees (a ticket to keep, a KeyUpdate whose answer it made), the peer's
   close, or a failure;
+- `stage_alert` makes the fatal alert whose description the engine names, and the session fails.
+  Since 2026-10-29 the engine names `record_overflow` alone (§16 decision 62);
 - `close` makes the `close_notify`, and `wipe` drops every secret.
 
 Two types fill it:

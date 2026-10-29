@@ -29,6 +29,7 @@ pub const None = struct {
     pub const Ticket = struct {};
     pub const Handshake = enum { going, done };
     pub const Opened = union(enum) { data: usize, nothing, closed };
+    pub const Alert = enum { record_overflow };
 
     pub fn start(_: *None, _: anytype) Error!void {
         unreachable;
@@ -49,6 +50,9 @@ pub const None = struct {
         unreachable;
     }
     pub fn take_ticket(_: *None) ?Ticket {
+        unreachable;
+    }
+    pub fn stage_alert(_: *None, _: Alert) void {
         unreachable;
     }
     pub fn close(_: *None) void {
@@ -152,7 +156,7 @@ pub fn take(self: anytype, at: u8, bytes: []const u8, now_ns: u64) void {
     var start: usize = 0;
     var records: usize = 0;
     while (records < limits.tls_records_per_buffer_max) : (records += 1) {
-        const whole = record_len(state.record_in[start..state.record_in_used]) catch return tcp.fail(self, at, tcp.reason_of(self, at, .handshake), now_ns);
+        const whole = record_len(state.record_in[start..state.record_in_used]) catch return overflow(self, at, now_ns);
         if (whole == 0) break;
         // A connection that failed, or opens again, keeps nothing of this opening's (rule 8). One
         // that refused the record is closing, and passes the rest over unread (rules 4 and 5).
@@ -164,6 +168,27 @@ pub fn take(self: anytype, at: u8, bytes: []const u8, now_ns: u64) void {
     const rest = state.record_in_used - start;
     std.mem.copyForwards(u8, state.record_in[0..rest], state.record_in[start..state.record_in_used]);
     state.record_in_used = rest;
+}
+
+/// A record header longer than TLS allows: "An endpoint that receives a record from its peer with
+/// TLSCiphertext.length larger than 2^14 + 256 octets MUST terminate the connection with a
+/// "record_overflow" alert" (RFC 9846 §5.2). Once up, the session stages that alert, and the
+/// connection ends as a refused record ends it (rule 4). Before that, chapulin seals no alert, so
+/// the connection closes at once (docs/design.md §16 decision 62). A closing connection reads
+/// nothing more (rule 5), so the header does not end it before its alert has gone. No record
+/// past the header can be read, so the buffer drops what it holds.
+fn overflow(self: anytype, at: u8, now_ns: u64) void {
+    const connection = &self.connections[at];
+    switch (connection.state) {
+        .handshaking => tcp.fail(self, at, .handshake, now_ns),
+        .up => {
+            connection.tls.session.stage_alert(.record_overflow);
+            refuse(self, at, .closed, now_ns);
+        },
+        else => assert(connection.state == .closing),
+    }
+    connection.tls.record_in_used = 0;
+    assert(connection.state == .closing or connection.state == .closed);
 }
 
 /// The octets of the first whole record, zero while it has not all arrived. A record longer than

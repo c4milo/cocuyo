@@ -313,6 +313,38 @@ test "a prefix in a record that says more than the connection assembles ends it 
     }
 }
 
+test "a record header longer than TLS allows once up ends the connection after record_overflow" {
+    // "An endpoint that receives a record from its peer with TLSCiphertext.length larger than
+    // 2^14 + 256 octets MUST terminate the connection with a "record_overflow" alert" (RFC 9846
+    // §5.2). The session stages the alert, and the connection closes once it has gone (TLS rules
+    // 4 and 5). A chunk that comes meanwhile does not end the connection before that.
+    var rig: Rig = .{};
+    try start(&rig, 59, .{ .{ .drop_per_256 = fixtures.always }, .{ .down = true } });
+    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    try sim_test.until_sent(&rig);
+    const header_bytes = io.constants.tls_record_header_bytes;
+    var header: [header_bytes]u8 = .{ rotor.constants.tls_content_application, 3, 3, 0, 0 };
+    std.mem.writeInt(u16, header[io.constants.tls_record_length_at..][0..@sizeOf(u16)], io.limits.tls_record_body_bytes_max + 1, .big);
+    const connection = &rig.engine.connections[0];
+    for (0..fixtures.records_back_to_back) |_| {
+        io.tls.take(&rig.engine, 0, &header, rig.loop.now());
+        // Nothing past the header can be read, so the buffer keeps none of it.
+        try testing.expect(connection.state == .closing and connection.tls.record_in_used == 0);
+    }
+    try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(0));
+    // The last record sealed is the alert: level fatal, description record_overflow (RFC 9846 §6).
+    const alert = [_]u8{ rotor.constants.tls_alert_fatal, rotor.constants.tls_alert_record_overflow };
+    const sealed = connection.tls.out[0..connection.tls.out_tail];
+    try testing.expectEqualSlices(u8, &alert, sealed[sealed.len - alert.len ..]);
+    try testing.expectEqual(rotor.constants.tls_content_alert, sealed[sealed.len - header_bytes - alert.len]);
+    rig.engine.cancel(handle, rig.loop.now());
+    _ = try rig.until_result();
+    _ = rig.engine.take(rig.loop.now());
+    _ = try rig.step(fixtures.wait_ns);
+    try testing.expect(connection.state == .closed and connection.tls.record_in_used == 0);
+    try rig.deinit();
+}
+
 test "every whole record one chunk carries goes to the session with it, the last one too" {
     // Here the lookup's answer is in the last record of a full chunk. No chunk follows it,
     // because the server drops every query. The lookup has its answer before its deadline (TLS

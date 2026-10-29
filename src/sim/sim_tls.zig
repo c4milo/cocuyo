@@ -73,6 +73,8 @@ pub const Session = struct {
     pub const Ticket = struct {};
     pub const Handshake = enum { going, done };
     pub const Opened = union(enum) { data: usize, nothing, closed };
+    /// The fatal alerts the engine names (RFC 9846 §6.2).
+    pub const Alert = enum(u8) { record_overflow = constants.tls_alert_record_overflow };
 
     const State = enum { idle, handshaking, up, dead };
 
@@ -177,6 +179,16 @@ pub const Session = struct {
     pub fn close(self: *Session) void {
         assert(self.state == .up);
         self.out_len += write_record(constants.tls_content_alert, &constants.tls_close_notify, self.out[self.out_len..]);
+        self.state = .dead;
+    }
+
+    /// The fatal alert the engine names, for an error the engine found itself (RFC 9846 §6.2),
+    /// and the session dead.
+    pub fn stage_alert(self: *Session, description: Alert) void {
+        assert(self.state == .up);
+        const alert = [_]u8{ constants.tls_alert_fatal, @intFromEnum(description) };
+        assert(self.out_len + header_bytes + alert.len <= self.out.len);
+        self.out_len += write_record(constants.tls_content_alert, &alert, self.out[self.out_len..]);
         self.state = .dead;
     }
 

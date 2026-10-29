@@ -49,6 +49,7 @@ fn FailingOf(comptime room: usize) type {
         pub const Ticket = Twin.Ticket;
         pub const Handshake = Twin.Handshake;
         pub const Opened = Twin.Opened;
+        pub const Alert = Twin.Alert;
 
         twin: Twin = .{},
 
@@ -85,6 +86,9 @@ fn FailingOf(comptime room: usize) type {
         }
         pub fn take_ticket(self: *Self) ?Ticket {
             return self.twin.take_ticket();
+        }
+        pub fn stage_alert(self: *Self, description: Alert) void {
+            self.twin.stage_alert(description);
         }
         pub fn close(self: *Self) void {
             self.twin.close();

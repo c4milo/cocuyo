@@ -50,6 +50,8 @@ pub const Session = struct {
     pub const Error = error{Failed};
     pub const Handshake = enum { going, done };
     pub const Opened = union(enum) { data: usize, nothing, closed };
+    /// The alert descriptions of RFC 9846 §6, as colibri names them.
+    pub const Alert = tls_provider.Alert;
     /// A NewSessionTicket as colibri hands it over, its identity included (RFC 9846 §4.7.1). A
     /// copy holds a resumption secret, and whoever holds one zeroes it.
     pub const Ticket = tls.Ticket;
@@ -263,6 +265,23 @@ pub const Session = struct {
         self.live = false;
     }
 
+    /// The fatal alert the engine names, for an error the engine found itself (RFC 9846 §6.2),
+    /// staged, and the session failed: chapulin wipes the keys (docs/design.md §16 decision 62).
+    pub fn stage_alert(self: *Session, description: Alert) void {
+        assert(self.live);
+        const written = self.client.fail(description, self.staged[self.staged_len..]) catch |failure| switch (failure) {
+            // The engine names an error alert of RFC 9846 §6.2 alone.
+            error.NotErrorAlert => unreachable,
+            // chapulin's session failed already, the output had no room for the alert, or the key
+            // seals no more records (RFC 9846 §5.5): the alert goes unsaid, and the connection
+            // closes all the same.
+            error.NotConnected, error.NoSpaceLeft, error.KeyExhausted => 0,
+        };
+        self.staged_len += written;
+        assert(self.staged_len <= self.staged.len);
+        self.live = false;
+    }
+
     /// Every secret gone: colibri wipes chapulin's session and its copy of the ticket, and the
     /// copy this session resumed with is zeroed.
     pub fn wipe(self: *Session) void {
@@ -282,4 +301,5 @@ pub const Session = struct {
 
 test {
     _ = @import("io_chapulin_test.zig");
+    _ = @import("io_chapulin_alert_test.zig");
 }

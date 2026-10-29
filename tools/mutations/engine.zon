@@ -3788,7 +3788,7 @@
         .id = "RS34",
         .what = "a record longer than TLS allows during the handshake gives the reason local",
         .edits = .{
-            .{ .file = "io/io_tls.zig", .old = "catch return tcp.fail(self, at, tcp.reason_of(self, at, .handshake), now_ns);", .new = "catch return tcp.fail(self, at, tcp.reason_of(self, at, .local), now_ns);" },
+            .{ .file = "io/io_tls.zig", .old = "        .handshaking => tcp.fail(self, at, .handshake, now_ns),\n", .new = "        .handshaking => tcp.fail(self, at, .local, now_ns),\n" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -4659,5 +4659,77 @@
             .{ .file = "src/resolver/table_memory.zig", .old = "    if (resolution_failure(failure.err)) return .{ .failed = failure.err };\n", .new = "" },
         },
         .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The alert of a record that is too long",
+        .id = "OF1",
+        .what = "the engine stages no alert on a long header once up",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "            connection.tls.session.stage_alert(.record_overflow);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The alert of a record that is too long",
+        .id = "OF2",
+        .what = "a long header once up fails the connection at once again",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "            connection.tls.session.stage_alert(.record_overflow);\n            refuse(self, at, .closed, now_ns);\n", .new = "            tcp.fail(self, at, .closed, now_ns);\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The alert of a record that is too long",
+        .id = "OF3",
+        .what = "a closing connection that reads a long header fails at once",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "        else => assert(connection.state == .closing),\n", .new = "        else => tcp.fail(self, at, .closed, now_ns),\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The alert of a record that is too long",
+        .id = "OF4",
+        .what = "the buffer keeps the octets after a long header",
+        .edits = .{
+            .{ .file = "io/io_tls.zig", .old = "    connection.tls.record_in_used = 0;\n    assert(connection.state == .closing or connection.state == .closed);\n", .new = "    assert(connection.state == .closing or connection.state == .closed);\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The alert of a record that is too long",
+        .id = "OF5",
+        .what = "the twin's session stages another description",
+        .edits = .{
+            .{ .file = "src/sim/sim_tls.zig", .old = "        const alert = [_]u8{ constants.tls_alert_fatal, @intFromEnum(description) };\n", .new = "        const alert = [_]u8{ constants.tls_alert_fatal, @intFromEnum(description) + 1 };\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The alert of a record that is too long",
+        .id = "OF6",
+        .what = "chapulin's session names `decode_error` to colibri",
+        .edits = .{
+            .{ .file = "io/io_chapulin.zig", .old = "        const written = self.client.fail(description,", .new = "        const written = self.client.fail(if (description == .record_overflow) .decode_error else description," },
+        },
+        .caught_by = .{ .step = "test-chapulin" },
+    },
+    .{
+        .section = "The alert of a record that is too long",
+        .id = "OF7",
+        .what = "chapulin's session does not stage what colibri wrote",
+        .edits = .{
+            .{ .file = "io/io_chapulin.zig", .old = "        self.staged_len += written;\n        assert(self.staged_len <= self.staged.len);\n        self.live = false;\n", .new = "        assert(written <= self.staged.len);\n        self.live = false;\n" },
+        },
+        .caught_by = .{ .step = "test-chapulin" },
+    },
+    .{
+        .section = "The alert of a record that is too long",
+        .id = "OF8",
+        .what = "chapulin's session stays live after its alert",
+        .edits = .{
+            .{ .file = "io/io_chapulin.zig", .old = "        self.staged_len += written;\n        assert(self.staged_len <= self.staged.len);\n        self.live = false;\n", .new = "        self.staged_len += written;\n        assert(self.staged_len <= self.staged.len);\n" },
+        },
+        .caught_by = .{ .step = "test-chapulin" },
     },
 }
