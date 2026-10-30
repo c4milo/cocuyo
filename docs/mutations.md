@@ -10619,3 +10619,13 @@ an edit that compiles. RS34 named the line that this change replaced. It now edi
 branch, and is `CAUGHT`. `zig build mutations -- engine RS34 OF1 ... OF8` ran each to its end.
 
 Eight mutations, eight `CAUGHT`.
+
+## The pin of colibri v0.10.0
+
+2026-10-30. The owner approved the pin of colibri v0.10.0 on 2026-10-30 (design §24, DoH over
+colibri's client). No code of cocuyo changed for it, and no check changed, so no row is new.
+
+### The rewritten rows
+
+- SM4 named the consumer fixture's pin of v0.9.0. It now sets that pin back to v0.9.0, where
+  `build.zig.zon` pins v0.10.0. It applies once, and is `CAUGHT` by `zig build consumer-check`.

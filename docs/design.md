@@ -3430,7 +3430,7 @@ step until `zig build test` passes.
     - The DoT example reads the suite from colibri's record provider. The DoQ example reads it
       from chapulin's QUIC session in colibri's `tls`. The DoH example reads it from the link that
       the channel came up on.
-    - The examples pin stdx at `5fd03aa`, the commit that colibri v0.9.0 pins. The build requests
+    - The examples pin stdx at `5fd03aa`, the commit that colibri v0.10.0 pins. The build requests
       it with colibri's options, the target and `release`. So the build holds one `platform`
       module, and the probe's `Cpu` is the type that `tls.Cpu` holds. The examples' compile proves
       it: a second stdx would give a second type, and `tls.Cpu` would refuse it.
@@ -9187,6 +9187,17 @@ decisions 125 and 126). The engine's DoH interface does not change. What changed
   `unheard_per_next_max` from 2 to 3.
 - The test server matches the root and a path of one segment itself, since colibri's router calls
   the program's functions (colibri's decision 127).
+
+colibri v0.10.0, pinned on 2026-10-30 with the owner's approval, pins the same chapulin and stdx as
+v0.9.0. Its client API does not change, and no file of cocuyo's code changed for it:
+
+- QUIC runs CUBIC with HyStart++, for DoQ and for DoH on HTTP/3.
+- Each QUIC connection grows by its congestion state. `@sizeOf` gave these numbers in a Debug
+  build on an Apple M1 Pro on 2026-10-30, at v0.9.0 and then at v0.10.0:
+  - colibri's `quic.Connection`: 141,912 octets, then 176,888.
+  - `client.ConnectionPool`: 708,568 octets, then 747,640.
+  - `cocuyo_doh`'s type of 4 answers: 1,686,624 octets, then 1,725,696.
+- The server's endpoint grows too, but only the tests of `cocuyo_doh` run it.
 
 **The owner's rulings of 2026-09-28** (decision 33):
 
