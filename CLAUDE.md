@@ -192,8 +192,9 @@ The architecture depends on every rule in this section.
   root build requests it. `zig build graph-check` fails when a module of `src/` reaches it, or a
   module of `io/` reaches it other than through colibri.
 - Weakening an assertion or a check to make a test pass.
-- Adding anything §1 puts out of scope: DNSSEC validation, mDNS, zone transfers, nsswitch, IDN, the
-  platform resolver configuration of §14. DoT and DoH were decided in on 2026-09-23: DoT in the
+- Adding anything §1 puts out of scope: mDNS, zone transfers, nsswitch, IDN, the platform resolver
+  configuration of §14. DNSSEC validation was decided in on 2026-10-31: both stages of design §25,
+  each off by default. DoT and DoH were decided in on 2026-09-23: DoT in the
   engine, over rotor with chapulin's non-blocking record transport, strict by default (RFC 8310);
   DoH's DNS half in `src/`. DNS over QUIC (RFC 9250) joined the same day, its DNS half in `src/`
   too. Since the owner's ruling of 2026-09-25 both are carried by the engine over colibri: DoQ

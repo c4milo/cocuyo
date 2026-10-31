@@ -516,10 +516,12 @@ What it does not cover, today:
 
 These are out of scope on purpose. Each has a place it would attach if that changes.
 
-- **DNSSEC validation.** EDNS0 is in place, and a question may ask for DNSKEY, DS or RRSIG, whose
-  records are handed out as read, so a validator can sit above the library.
 - **mDNS and zone transfers.** Neither is a stub resolver's job.
 - **nsswitch, NIS and internationalised domain names.**
+
+DNSSEC validation was on this list until 2026-10-31. It is now planned in two stages, each off by
+default ([design §25](docs/design.md)). No part of it is built yet, so DNSKEY, DS and RRSIG records
+still come back as read, unvalidated.
 
 ## Build and test
 

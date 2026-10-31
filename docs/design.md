@@ -62,7 +62,9 @@ Each of these is out of scope on purpose, with the place it would attach.
   send every query it used to answer from memory. §17 asked; the owner answered yes; §18 is the
   design, and the `cache` module of §2 is the one place the answer touched, with `Failure`
   gaining the negative TTL a cache needs.
-- **No DNSSEC validation.** What a validator would build on: EDNS0 exists, the DO bit is a flag cocuyo never sets, and the
+- **DNSSEC validation, since 2026-10-31.** Out of scope until then. On 2026-10-31 the owner ruled
+  both stages of §25 in, each off by default (§17 question 16). Until they are built, a validator
+  builds on this: EDNS0 exists, the DO bit is a flag cocuyo never sets, and the
   record iterator hands out rdata unread, so a validator sits above the codec. Since 2026-09-26 a
   question may name a DNSSEC type, DS or DNSKEY among them, as it may name any type (decision
   31). Its records come back as rdata, unread and unvalidated, as any type cocuyo does not name.
@@ -4610,8 +4612,8 @@ step until `zig build test` passes.
       a server that keeps the RFCs.
     - cocuyo sets DO, then reads NXNAME. This reverses the rule that cocuyo never sets DO
       (`flag_dnssec_ok`, `src/wire/edns.zig`). Answers grow by their RRSIG records, which the
-      codec must skip, and more of them come truncated, which moves lookups to TCP. DNSSEC stays
-      out of scope (§17 question 16).
+      codec must skip, and more of them come truncated, which moves lookups to TCP. DNSSEC stayed
+      out of scope then (§17 question 16).
     - cocuyo also sends the CO flag of RFC 9824 §5.1. That flag applies to a query with DO set,
       and cocuyo never sets DO.
 
@@ -4877,28 +4879,34 @@ step until `zig build test` passes.
 ### Asked on 2026-10-03, for DNSSEC
 
 §25 is a plan with no ruling behind it. These are the rulings it needs. Each says what the plan
-recommends, and none is taken until the owner answers.
+recommends, and none is taken until the owner answers. The owner answered the last of them on
+2026-10-31.
 
 16. **Does DNSSEC come into scope, and how far?** §1 says no validation, and CLAUDE.md lists it
     under "Ask before". §25 has two stages: A relies on the server's AD bit over a channel that
     authenticates the server, and B validates in cocuyo. Recommended: A, then B, each off by
     default. Answered on 2026-10-17: not now. DNSSEC stays out of scope, and §25 stays a plan.
-    Questions 17 to 20, 22 and 23 wait for a later answer to this one.
+    Questions 17 to 20, 22 and 23 wait for a later answer to this one. Answered again on
+    2026-10-31: yes, A then B, each off by default. This answer replaces the one of 2026-10-17.
 17. **Stage A's public API.** `Config.authenticated_data`, the type `Security`, a `security`
     field on `Answer` and on `Failure`, and `options trust-ad` read from a `resolv.conf`.
-    Recommended as §25 writes them, with one type for both stages.
+    Recommended as §25 writes them, with one type for both stages. Answered on 2026-10-31: as
+    §25 writes them.
 18. **Should `Failure` carry the extended error code?** Under Stage A a server reports bogus
     data as SERVFAIL, and the extended error option says why (RFC 8914). The codec reads the
-    option, and `Failure` does not carry it. Recommended: yes, as one optional field.
+    option, and `Failure` does not carry it. Recommended: yes, as one optional field. Answered on
+    2026-10-31: yes, one optional field.
 19. **Stage B's shape.** A validator the table is handed, keys fetched under the table, and a
     question asked again when its keys have come, in place of a response kept. §25 ends with
     the decision in §16's form and what it would reject. It adds a state to §5, a module to §2,
-    and `Error.Bogus`.
+    and `Error.Bogus`. Answered on 2026-10-31: as §25 writes it. No response is kept while its
+    keys come.
 20. **Trust anchors.** Recommended: the caller supplies every anchor, and `src/` ships none,
     since a root key that changes would make a release of cocuyo expire. The engine's example
     and the live check read IANA's file (RFC 9718). And which anchor a name under two of them
     uses: the closest (RFC 6840 Appendix C.1), which the walk does, or any that succeeds (C.2),
-    which §5.10 suggests.
+    which §5.10 suggests. Answered on 2026-10-31: the caller supplies every anchor, and a name
+    uses the closest one (RFC 6840 Appendix C.1).
 21. **Whose cryptography.** Answered on 2026-10-03: chapulin's, for all of it (§16 decision 35).
     `dnssec` names a verifier, and a module outside `src/` fills it in from chapulin through
     colibri's `tls`. Still to settle is what chapulin gains and who adds it, which §25 lists:
@@ -4906,13 +4914,15 @@ recommends, and none is taken until the owner answers.
     chapulin in c4milo/chapulin#189. §25's count of 2026-10-03 gives the order and the bounds:
     RSA from 1024 bits, with the key's own exponent. Ed448 is in neither library, and no
     top-level domain signs with it. Recommended: left unsupported, so a zone signed with it
-    alone is read as unsigned.
+    alone is read as unsigned. Answered on 2026-10-31: Ed448 stays unsupported. chapulin builds
+    algorithms 8 and 13 first, then 15, 10 and 14 (c4milo/chapulin#189).
 22. **SHA-1.** Algorithms 5 and 7 written, and off unless a configuration turns them on, which
-    is how §25 reads RFC 9905 §2.
+    is how §25 reads RFC 9905 §2. Answered on 2026-10-31: as recommended.
 23. **The limits §25 proposes.** All are chosen, not measured, but those an RFC fixes or the
     count of 2026-10-03 bears out. Three are worth a word: `clock_skew_seconds_default` at
     zero, `nsec3_iterations_max` at 100, and `records_max` left at 64, which fails a lookup
-    under a signed zone when a message holds more records than that.
+    under a signed zone when a message holds more records than that. Answered on 2026-10-31: all
+    three as §25 proposes them.
 24. **More sources.** May RFC 1982, RFC 3110, RFC 8017, RFC 8032, RFC 4470 and RFC 2181 be
     downloaded into `docs/rfcs/`? §25 step 1 names them, and `docs/rfcs/README.md` says what
     each is for. Answered on 2026-10-17: yes, all six. `docs/rfcs/` holds them, with their sums.
@@ -5977,6 +5987,23 @@ count of seeds that `zig build test` runs, and `zig build fuzz-gate` runs anothe
     Recommended: the move, at the next release that changes public names. Until the owner rules,
     as built. Answered on 2026-10-28: the move, now, with the names of 0.7.0. The rule then passes
     no name that ends in `_count`. Built on 2026-10-28: §16 decision 56, At 0.7.0.
+
+### Asked on 2026-10-31, for post-quantum key exchange
+
+chapulin's web PKI client, which DoT, DoQ and DoH use, offers X25519MLKEM768 and x25519 in every
+hello, each with a key share (RFC 10024 §4.1). The server selects the group. colibri's TLS
+configuration has `require_pq`, which cocuyo never sets. colibri does not report which group a
+handshake used, so no example and no live check can say it.
+
+91. **The group a handshake used.** Recommended: colibri reports it, and the DoT, DoQ and DoH
+    examples print it. The live checks and the interop check then say which servers selected
+    X25519MLKEM768. Answered on 2026-10-31: yes. colibri gains the report first.
+92. **A setting that requires the hybrid.** A setting of each server in `cocuyo.Tls`, off by
+    default, sets colibri's `require_pq`. A server that does not select X25519MLKEM768 then fails
+    the handshake, and the lookup moves to the next server. This changes the public API. The name
+    is for the step that builds it. Answered on 2026-10-31: yes.
+93. **A copy of RFC 10024.** Rule 8 of CLAUDE.md needs it before the code cites the group.
+    Answered on 2026-10-31: yes. `docs/rfcs/` holds it, with its sum.
 
 ## 18. The cache
 
@@ -9948,19 +9975,18 @@ Checks, one for each piece:
 The checks over HTTP/2 and over TCP went on 2026-09-29 with the code they checked. A channel's
 links hold the rules they held over TCP, and `cocuyo_doh`'s tests what they held of HTTP/2.
 
-## 25. DNSSEC: a plan the owner has not ruled on
+## 25. DNSSEC: the plan the owner ruled in
 
-§1 puts DNSSEC validation out of scope. On 2026-10-01 the owner asked for a plan to bring it in,
-and this section is that plan. Nothing in it is decided: §1 and §16 stand as they are, and
-nothing under `src/` or `io/` changes, until the owner answers the questions §17 lists from 16
-on. It was written on 2026-10-03 from the RFCs added to `docs/rfcs/` on 2026-10-01, and every
+§1 put DNSSEC validation out of scope until 2026-10-31. On 2026-10-01 the owner asked for a plan to bring it in,
+and this section is that plan. The owner ruled it in on 2026-10-31, and answered §17's
+questions 16 to 23 that day. Nothing under `src/` or `io/` reads it yet. It was written on 2026-10-03 from the RFCs added to `docs/rfcs/` on 2026-10-01, and every
 rule below cites the passage that states it, read in those copies.
 
 c-ares validates nothing. Its 1.34.8 headers, read on 2026-10-03, have no channel flag for
 DNSSEC: `ares.h` names none. `ares_dns_record.h` names the AD and CD header bits for a caller
 that builds its own messages, and no DNSSEC record type but SIG: a DNSKEY, a DS, an RRSIG or an
 NSEC comes back as a raw record, which is what cocuyo already does (decision 31). So this is not
-part of the gap §19 closes. It is a feature of cocuyo's own, which is why it waits for a ruling.
+part of the gap §19 closes. It is a feature of cocuyo's own, which is why it waited for a ruling.
 
 ### Two things DNSSEC support can mean
 
