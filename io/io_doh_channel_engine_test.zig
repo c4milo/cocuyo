@@ -262,6 +262,17 @@ test "a lookup through colibri's channel is answered over HTTP/2 once QUIC's dat
     try world.destroy();
 }
 
+test "the engine hands a channel the value of its server's Https, and a server that requires the hybrid is answered" {
+    // docs/design.md §21, TLS rule 10: the engine builds the channel's `Tls` from the template's
+    // host, and copies `require_post_quantum` into it, which colibri reads as `require_pq`.
+    const world = try World.create(147, .{});
+    for (&world.servers) |*server| server.https.?.require_post_quantum = true;
+    const result = try world.resolve("example.com.");
+    try testing.expect(result.outcome == .answer);
+    try testing.expect(world.engine.doh.slots[0].channel.channel_config.tls.?.require_pq);
+    try world.destroy();
+}
+
 test "a server that selects no protocol answers the engine over HTTP/1.1" {
     // Rule 20: whatever version the channel comes up on carries the GET alike.
     const world = try World.create(142, .{ .selects_none = true });

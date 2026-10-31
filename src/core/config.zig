@@ -32,6 +32,10 @@ pub const Tls = struct {
     /// is.
     pins: []const Pin = &.{},
     port: u16 = constants.port_dns_tls_default,
+    /// Whether a handshake must end on the post-quantum hybrid X25519MLKEM768 (RFC 10024 §4). The
+    /// session then offers it alone, and a server that selects another group fails the handshake
+    /// (docs/design.md §21, TLS rule 10). Off, the hello offers the hybrid and two classic groups.
+    require_post_quantum: bool = false,
 
     /// Whether the server can be authenticated at all: a strict client connects only to a
     /// server it can authenticate (RFC 8310 §5), by a name, by pins, or by both.
@@ -45,6 +49,9 @@ pub const Tls = struct {
 /// it: a URI is HTTP's. The slice is the caller's, as `Config.servers` is.
 pub const Https = struct {
     template: []const u8,
+    /// Whether the channel's handshakes must end on X25519MLKEM768, as `Tls.require_post_quantum`
+    /// says for a TLS server (docs/design.md §21, TLS rule 10).
+    require_post_quantum: bool = false,
 };
 
 /// How a configuration's servers are spoken to: every one the same way (docs/design.md §22,
@@ -339,6 +346,15 @@ test "the first time a failure is kept is 5 s by default, and a time of 1 s to 3
         kept.assert_valid();
         try testing.expectEqual(seconds, kept.cache_failure_seconds_min);
     }
+}
+
+test "a TLS or HTTPS server does not require the post-quantum hybrid unless it says so" {
+    // docs/design.md §21, TLS rule 10: off by default, the hello offers the hybrid and two
+    // classic groups, so a server without the hybrid still answers.
+    const tls: Tls = .{ .name = try Name.from_text("dns.example.") };
+    const https: Https = .{ .template = "https://dns.example/dns-query{?dns}" };
+    try testing.expect(!tls.require_post_quantum);
+    try testing.expect(!https.require_post_quantum);
 }
 
 test "a search list at the limit is valid" {

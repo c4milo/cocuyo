@@ -121,7 +121,8 @@ pub const Session = struct {
         const context = start_with.context;
         self.* = .{};
         // What the consumer stated of its CPU decides the suites of the hello (§16 decision 48).
-        self.config.init(.{ .trust = trust(server, context, &self.hostname), .cpu = context.cpu }) catch return self.fail();
+        // A server that requires the hybrid gets a hello that offers it alone (§21, TLS rule 10).
+        self.config.init(.{ .trust = trust(server, context, &self.hostname), .cpu = context.cpu, .require_pq = server.require_post_quantum }) catch return self.fail();
         var resumption: ?tls.Resumption = null;
         if (start_with.ticket) |ticket| {
             self.resuming = ticket;

@@ -4808,6 +4808,40 @@ step until `zig build test` passes.
       change to a named limit needs the owner.
 
     §17 question 88, §21.
+63. **A server may require the post-quantum hybrid.** Ruled by the owner on 2026-10-31, on §17
+    question 92 (c4milo/cocuyo#57). chapulin's web PKI client offers X25519MLKEM768, x25519 and
+    secp256r1 in each hello, with a key share for the first two (RFC 10024 §4.1). The server
+    selects the group, so a server without the hybrid gets x25519, and the lookup never knows.
+
+    What changes:
+
+    - `cocuyo.Tls` and `cocuyo.Https` each gain `require_post_quantum: bool = false`. `Tls` serves
+      DoT and DoQ, and `Https` serves DoH. Each is a value of one server, as its name and its pins
+      are.
+    - Each session hands the value to colibri's `require_pq` (colibri's `tls.Client`). chapulin
+      then offers the hybrid alone, and fails a handshake that ends on another group.
+    - The engine builds a `cocuyo.Tls` for each DoH channel from its template's host. It copies the
+      value of `Https` into it, so the channel's TLS value carries it.
+    - A failed handshake fails the connection, as each failed handshake does (§21, TLS rule 4). The
+      lookup moves to the next server, and can end `AllServersFailed`.
+
+    The checks: a test reads the groups of each session's hello, with the value set and without
+    it. A handshake against colibri's server with the value set completes on the hybrid. Each
+    check is proved by a mutation that drops the value on its way to colibri.
+
+    The models: the value is read at the session's start, and its failure is a failed handshake,
+    which the TLA+ engine model has. So the model does not change. The Lean models hold no TLS.
+
+    Rejected:
+
+    - One value for the whole configuration. A server is known by its own name and pins, and a
+      resolver that offers the hybrid can sit beside one that does not.
+    - An enum of the groups to offer. colibri takes one boolean, and chapulin chooses the groups.
+      An enum would name a choice that cocuyo cannot make.
+    - The value on by default. A server that does not select the hybrid would then fail every
+      lookup. The hello already offers the hybrid to each server.
+
+    §17 question 92, §21 TLS rule 10.
 
 ## 17. Questions for the owner
 
@@ -6001,7 +6035,8 @@ handshake used, so no example and no live check can say it.
 92. **A setting that requires the hybrid.** A setting of each server in `cocuyo.Tls`, off by
     default, sets colibri's `require_pq`. A server that does not select X25519MLKEM768 then fails
     the handshake, and the lookup moves to the next server. This changes the public API. The name
-    is for the step that builds it. Answered on 2026-10-31: yes.
+    is for the step that builds it. Answered on 2026-10-31: yes. Written on 2026-10-31: §16
+    decision 63, §21 TLS rule 10.
 93. **A copy of RFC 10024.** Rule 8 of CLAUDE.md needs it before the code cites the group.
     Answered on 2026-10-31: yes. `docs/rfcs/` holds it, with its sum.
 
@@ -8064,8 +8099,14 @@ code is.
 9. A TLS configuration opens no UDP socket. Every query goes on a stream (all or none), so a
    datagram socket would only hold a descriptor and a receive that nothing may use. The owner
    ruled so on 2026-09-23.
+10. A server may require the post-quantum hybrid. With `require_post_quantum` set, the session
+   offers X25519MLKEM768 alone, and a handshake that ends on another group fails (RFC 10024 §4).
+   That failure is rule 4's. The setting is off by default. Then the hello offers the hybrid,
+   x25519 and secp256r1, and the server selects one. The owner ruled so on 2026-10-31 (§16
+   decision 63). The rule holds for DoT, for DoQ (§24) and for DoH (§24), on each transport.
 
-The model holds rules 1 to 6, 8 and 9. Rule 7 is about octets, which the model does not count. Four
+The model holds rules 1 to 6, 8 and 9. Rule 10 is a value the session reads at its start, and its
+failure is rule 4's, so the model holds it as rule 4. Rule 7 is about octets, which the model does not count. Four
 invariants were added for them: a slot a send of records still borrows stays closed; the sealed
 entries lead each queue, so records go out in the order they were sealed; no query waits on a
 connection that is not up; and no event leaves the session owing an answer. The last came from a

@@ -10629,3 +10629,22 @@ colibri's client). No code of cocuyo changed for it, and no check changed, so no
 
 - SM4 named the consumer fixture's pin of v0.9.0. It now sets that pin back to v0.9.0, where
   `build.zig.zon` pins v0.10.0. It applies once, and is `CAUGHT` by `zig build consumer-check`.
+
+## The post-quantum hybrid required
+
+2026-10-31. Design §16 decision 63 and §21 TLS rule 10 (c4milo/cocuyo#57). `cocuyo.Tls` and
+`cocuyo.Https` gain `require_post_quantum`, off by default, and each session hands it to colibri's
+`require_pq`. The tests read the groups of each hello: X25519MLKEM768, x25519 and secp256r1
+without the value, and X25519MLKEM768 alone with it. `zig build mutations -- engine PQ1 ... PQ6`
+ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| PQ1 | the DoT session hands colibri no `require_pq` | `zig build test-chapulin` | `CAUGHT` |
+| PQ2 | the DoQ session hands colibri no `require_pq` | `zig build test-chapulin-quic` | `CAUGHT` |
+| PQ3 | the DoH channel hands colibri no `require_pq` | `zig build test-cocuyo_doh` | `CAUGHT` |
+| PQ4 | the engine copies no `require_post_quantum` from `Https` into the channel's `Tls` | `zig build test-cocuyo_doh` | `CAUGHT` |
+| PQ5 | a TLS server requires the hybrid by default | `zig build test-core` | `CAUGHT` |
+| PQ6 | an HTTPS server requires the hybrid by default | `zig build test-core` | `CAUGHT` |
+
+Six mutations, six `CAUGHT`.

@@ -166,9 +166,14 @@ const Hello = struct {
     len: usize = 0,
 
     fn of(seed: u8, cpu: Session.Cpu) !Hello {
+        return of_server(seed, cpu, false);
+    }
+
+    /// The hello to a server known by a pin, which requires the hybrid when `required` says so.
+    fn of_server(seed: u8, cpu: Session.Cpu, required: bool) !Hello {
         var context: Context = .{ .session = test_context_with(cpu, &.{}, seed) };
         const pins = [_]cocuyo.Pin{@splat(pin_octet)};
-        const session = try started(&.{ .pins = &pins }, &context, null);
+        const session = try started(&.{ .pins = &pins, .require_post_quantum = required }, &context, null);
         defer finish(session);
         var hello: Hello = .{};
         hello.len = try session.provider().write_handshake(.initial, &hello.bytes);
@@ -208,13 +213,13 @@ const suites_with_aes = [_]u16{ aes_256_gcm_sha384, aes_128_gcm_sha256, chacha20
 /// The suites of a hello whose context states no timing mode, or no AES instructions found.
 const suites_without_aes = [_]u16{chacha20_poly1305_sha256};
 
-/// Requires that `suites`, a ClientHello's cipher_suites, offer `expected` in its order, and
-/// nothing else.
-fn expect_suites(expected: []const u16, suites: []const u8) !void {
-    try testing.expectEqual(expected.len * @sizeOf(u16), suites.len);
-    for (expected, 0..) |suite, index| {
+/// Requires that `codes`, a ClientHello's list of two-octet code points, its cipher_suites or its
+/// groups, offer `expected` in its order, and nothing else.
+fn expect_codes(expected: []const u16, codes: []const u8) !void {
+    try testing.expectEqual(expected.len * @sizeOf(u16), codes.len);
+    for (expected, 0..) |code, index| {
         const at = index * @sizeOf(u16);
-        try testing.expectEqual(suite, std.mem.readInt(u16, suites[at..][0..@sizeOf(u16)], .big));
+        try testing.expectEqual(code, std.mem.readInt(u16, codes[at..][0..@sizeOf(u16)], .big));
     }
 }
 
@@ -226,28 +231,73 @@ fn suites_of(message: []const u8) []const u8 {
     return message[suites_at..][0..suites_len];
 }
 
+/// A ClientHello's extensions follow its cipher_suites, a legacy_compression_methods of one length
+/// octet and its body, and the extensions' two-octet length (RFC 9846 §4.1.2). Each extension is a
+/// two-octet type and a two-octet length, then its body (§4.2).
+const extension_header_bytes: usize = 4;
+/// supported_groups (RFC 9846 §4.2), whose body is a two-octet length, then the groups (§4.2.7).
+const extension_supported_groups: u16 = 10;
+/// X25519MLKEM768 (RFC 10024 §7.1), x25519 and secp256r1 (RFC 9846 §4.2.7).
+const group_x25519_mlkem768: u16 = 0x11ec;
+const group_x25519: u16 = 0x001d;
+const group_secp256r1: u16 = 0x0017;
+/// The groups of a hello to a server that does not require the hybrid, in chapulin's order (its
+/// `handshake_groups.h`), and of one to a server that does (docs/design.md §21, TLS rule 10).
+const groups_offered = [_]u16{ group_x25519_mlkem768, group_x25519, group_secp256r1 };
+const groups_required = [_]u16{group_x25519_mlkem768};
+
+fn read_u16(bytes: []const u8, at: usize) usize {
+    return std.mem.readInt(u16, bytes[at..][0..@sizeOf(u16)], .big);
+}
+
+/// The groups a ClientHello handshake message offers, or none when it has no supported_groups.
+fn groups_of(message: []const u8) []const u8 {
+    const suites = suites_of(message);
+    var at = @intFromPtr(suites.ptr) - @intFromPtr(message.ptr) + suites.len;
+    at += 1 + message[at];
+    const extensions_end = at + @sizeOf(u16) + read_u16(message, at);
+    at += @sizeOf(u16);
+    // Bounded: each pass reads one extension, of four octets at least.
+    for (0..message.len) |_| {
+        if (at >= extensions_end) break;
+        const body = message[at + extension_header_bytes ..][0..read_u16(message, at + @sizeOf(u16))];
+        if (read_u16(message, at) == extension_supported_groups) return body[@sizeOf(u16)..];
+        at += extension_header_bytes + body.len;
+    }
+    return &.{};
+}
+
+test "a server that requires the post-quantum hybrid gets a hello that offers X25519MLKEM768 alone" {
+    // docs/design.md §21, TLS rule 10: the session hands colibri the server's value, and chapulin
+    // offers the hybrid alone. Without it the hello offers the hybrid and two classic groups.
+    const offered = try Hello.of_server(1, cpu_not_stated, false);
+    try expect_codes(&groups_offered, groups_of(offered.slice()));
+    const required = try Hello.of_server(1, cpu_not_stated, true);
+    try expect_codes(&groups_required, groups_of(required.slice()));
+}
+
 test "a context that states the AES instructions and a data-independent timing offers AES-GCM first" {
     // docs/design.md §24, chapulin under colibri, and §16 decision 48, as over DoT.
     const hello = try Hello.of(1, cpu_with_aes);
-    try expect_suites(&suites_with_aes, suites_of(hello.slice()));
+    try expect_codes(&suites_with_aes, suites_of(hello.slice()));
 }
 
 test "a context that states no timing mode offers TLS_CHACHA20_POLY1305_SHA256 alone, whatever its probe" {
     // docs/design.md §16 decision 48: the value a consumer passes when it cannot state its
     // thread's mode. A probe that found the AES instructions changes nothing without the mode.
     const nothing = try Hello.of(1, cpu_not_stated);
-    try expect_suites(&suites_without_aes, suites_of(nothing.slice()));
+    try expect_codes(&suites_without_aes, suites_of(nothing.slice()));
     const probe_alone = try Hello.of(1, cpu_aes_not_stated);
-    try expect_suites(&suites_without_aes, suites_of(probe_alone.slice()));
+    try expect_codes(&suites_without_aes, suites_of(probe_alone.slice()));
 }
 
 test "a context that states a data-independent timing and no AES instructions offers TLS_CHACHA20_POLY1305_SHA256 alone" {
     // docs/design.md §16 decision 48, as over DoT: a probe's `no` or `not_known` gives colibri
     // no ground to run the AES instructions.
     const without = try Hello.of(1, cpu_without_aes);
-    try expect_suites(&suites_without_aes, suites_of(without.slice()));
+    try expect_codes(&suites_without_aes, suites_of(without.slice()));
     const not_known = try Hello.of(1, cpu_aes_not_known);
-    try expect_suites(&suites_without_aes, suites_of(not_known.slice()));
+    try expect_codes(&suites_without_aes, suites_of(not_known.slice()));
 }
 
 test "the ticket a session would resume with is zeroed when it is wiped, or when its start fails" {

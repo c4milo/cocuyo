@@ -75,6 +75,8 @@ pub const Pair = struct {
     carried: bool = false,
     /// Whether a link's socket ends as soon as the channel asks for it, before it connects.
     refuses_links: bool = false,
+    /// Whether the server requires the post-quantum hybrid (docs/design.md §21, TLS rule 10).
+    require_post_quantum: bool = false,
 
     pub fn create(script: server_module.Script) !*Pair {
         return create_with(script, identity.cpu_not_stated);
@@ -97,7 +99,7 @@ pub const Pair = struct {
     /// A new channel, and a new connection of the server's for it.
     pub fn open(pair: *Pair, script: server_module.Script) !void {
         try pair.server.init(script, identity.unix_seconds, pair.now_ns);
-        const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(identity.server_name) };
+        const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(identity.server_name), .require_post_quantum = pair.require_post_quantum };
         try pair.doh.start(.{
             .server = 0,
             .endpoint = pair.endpoint,

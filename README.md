@@ -199,6 +199,10 @@ failover and cache stay as they are over UDP; what changes is the connection a q
   time. A DoH server is named by its URI template.
 - Every server is authenticated, strictly (RFC 8310): by the name its certificate must carry, by
   SPKI pins of its key, or by both. A server that cannot be authenticated is not asked.
+- Every hello offers the post-quantum hybrid X25519MLKEM768 (RFC 10024) beside x25519 and
+  secp256r1, and the server selects one. Set `require_post_quantum` on a server's `Tls` or `Https`
+  to offer the hybrid alone. A server that does not select it then fails the handshake, and the
+  lookup moves to the next server.
 - DoQ and DoH over HTTP/3 offer QUIC version 2 beside version 1, and run on version 2 when the
   server switches to it. A ticket from such a connection resumes in version 2.
 - Each encrypted transport starts its sessions from a context you hand the engine: `use_tls` for

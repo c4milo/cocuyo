@@ -4732,4 +4732,58 @@
         },
         .caught_by = .{ .step = "test-chapulin" },
     },
+    .{
+        .section = "The post-quantum hybrid required",
+        .id = "PQ1",
+        .what = "the DoT session hands colibri no require_pq",
+        .edits = .{
+            .{ .file = "io/io_chapulin.zig", .old = ", .require_pq = server.require_post_quantum }) catch return self.fail();", .new = " }) catch return self.fail();" },
+        },
+        .caught_by = .{ .step = "test-chapulin" },
+    },
+    .{
+        .section = "The post-quantum hybrid required",
+        .id = "PQ2",
+        .what = "the DoQ session hands colibri no require_pq",
+        .edits = .{
+            .{ .file = "io/io_chapulin_quic.zig", .old = ", .require_pq = server.require_post_quantum }) catch return error.Failed;", .new = " }) catch return error.Failed;" },
+        },
+        .caught_by = .{ .step = "test-chapulin-quic" },
+    },
+    .{
+        .section = "The post-quantum hybrid required",
+        .id = "PQ3",
+        .what = "the DoH channel hands colibri no require_pq",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu, .require_pq = context.tls.require_post_quantum },", .new = ".cpu = self.context.cpu }," },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "The post-quantum hybrid required",
+        .id = "PQ4",
+        .what = "the engine copies no require_post_quantum from Https into the channel's Tls",
+        .edits = .{
+            .{ .file = "io/io_channel.zig", .old = ", .require_post_quantum = https.require_post_quantum };", .new = " };" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "The post-quantum hybrid required",
+        .id = "PQ5",
+        .what = "a TLS server requires the hybrid by default",
+        .edits = .{
+            .{ .file = "src/core/config.zig", .old = "    require_post_quantum: bool = false,\n\n    /// Whether the server can be authenticated at all", .new = "    require_post_quantum: bool = true,\n\n    /// Whether the server can be authenticated at all" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "The post-quantum hybrid required",
+        .id = "PQ6",
+        .what = "an HTTPS server requires the hybrid by default",
+        .edits = .{
+            .{ .file = "src/core/config.zig", .old = "    /// says for a TLS server (docs/design.md §21, TLS rule 10).\n    require_post_quantum: bool = false,", .new = "    /// says for a TLS server (docs/design.md §21, TLS rule 10).\n    require_post_quantum: bool = true," },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
 }

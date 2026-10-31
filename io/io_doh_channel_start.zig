@@ -73,9 +73,10 @@ pub fn start(self: anytype, context: anytype) error{Failed}!void {
     self.* = .{ .context = context.context, .path = https.path };
     const trust = trust_of(context.tls, self.context.anchors, &self.hostname);
     // What the consumer stated of its CPU decides the suites of each link's hello (§16 decision
-    // 48). colibri builds the TLS of both transports from this one value (its decision 120).
+    // 48). colibri builds the TLS of both transports from this one value (its decision 120). A
+    // server that requires the hybrid gets hellos that offer it alone (§21, TLS rule 10).
     self.channel_config = .{
-        .tls = .{ .trust = trust, .cpu = self.context.cpu },
+        .tls = .{ .trust = trust, .cpu = self.context.cpu, .require_pq = context.tls.require_post_quantum },
         .protocols = protocols,
         .tcp_connections = limits.tcp_connections_max,
         .requests = @intCast(self.exchanges.len),
@@ -191,13 +192,13 @@ const cpu_aes_not_known: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit 
 /// read: its ID, its length, and its value as a two-octet varint.
 const transport_parameters = "\x01\x02\x75\x30";
 
-/// Requires that `suites`, a ClientHello's cipher_suites, offer `expected` in its order, and
-/// nothing else.
-fn expect_suites(expected: []const u16, suites: []const u8) !void {
-    try testing.expectEqual(expected.len * @sizeOf(u16), suites.len);
-    for (expected, 0..) |suite, index| {
+/// Requires that `codes`, a ClientHello's list of two-octet code points, its cipher_suites or its
+/// groups, offer `expected` in its order, and nothing else.
+fn expect_codes(expected: []const u16, codes: []const u8) !void {
+    try testing.expectEqual(expected.len * @sizeOf(u16), codes.len);
+    for (expected, 0..) |code, index| {
         const at = index * @sizeOf(u16);
-        try testing.expectEqual(suite, std.mem.readInt(u16, suites[at..][0..@sizeOf(u16)], .big));
+        try testing.expectEqual(code, std.mem.readInt(u16, codes[at..][0..@sizeOf(u16)], .big));
     }
 }
 
@@ -209,6 +210,42 @@ fn suites_of(message: []const u8) []const u8 {
     return message[suites_at..][0..suites_len];
 }
 
+/// A ClientHello's extensions follow its cipher_suites, a legacy_compression_methods of one length
+/// octet and its body, and the extensions' two-octet length (RFC 9846 §4.1.2). Each extension is a
+/// two-octet type and a two-octet length, then its body (§4.2).
+const extension_header_bytes: usize = 4;
+/// supported_groups (RFC 9846 §4.2), whose body is a two-octet length, then the groups (§4.2.7).
+const extension_supported_groups: u16 = 10;
+/// X25519MLKEM768 (RFC 10024 §7.1), x25519 and secp256r1 (RFC 9846 §4.2.7).
+const group_x25519_mlkem768: u16 = 0x11ec;
+const group_x25519: u16 = 0x001d;
+const group_secp256r1: u16 = 0x0017;
+/// The groups of a hello to a server that does not require the hybrid, in chapulin's order (its
+/// `handshake_groups.h`), and of one to a server that does (docs/design.md §21, TLS rule 10).
+const groups_offered = [_]u16{ group_x25519_mlkem768, group_x25519, group_secp256r1 };
+const groups_required = [_]u16{group_x25519_mlkem768};
+
+fn read_u16(bytes: []const u8, at: usize) usize {
+    return std.mem.readInt(u16, bytes[at..][0..@sizeOf(u16)], .big);
+}
+
+/// The groups a ClientHello handshake message offers, or none when it has no supported_groups.
+fn groups_of(message: []const u8) []const u8 {
+    const suites = suites_of(message);
+    var at = @intFromPtr(suites.ptr) - @intFromPtr(message.ptr) + suites.len;
+    at += 1 + message[at];
+    const extensions_end = at + @sizeOf(u16) + read_u16(message, at);
+    at += @sizeOf(u16);
+    // Bounded: each pass reads one extension, of four octets at least.
+    for (0..message.len) |_| {
+        if (at >= extensions_end) break;
+        const body = message[at + extension_header_bytes ..][0..read_u16(message, at + @sizeOf(u16))];
+        if (read_u16(message, at) == extension_supported_groups) return body[@sizeOf(u16)..];
+        at += extension_header_bytes + body.len;
+    }
+    return &.{};
+}
+
 /// Requires that the TCP link of a channel over `cpu` offers `expected` in its first hello. The
 /// QUIC link opens first, and goes nowhere; the TCP link's hello is its first output.
 fn expect_tcp_suites(cpu: tls.Cpu, expected: []const u16) !void {
@@ -218,7 +255,7 @@ fn expect_tcp_suites(cpu: tls.Cpu, expected: []const u16) !void {
     try testing.expectEqual(rig.Doh.Link.quic, (try pair.run(.open)).open.link);
     try testing.expectEqual(rig.Doh.Link.tcp, (try pair.run(.open)).open.link);
     const hello_len = pair.doh.output(&pair.wire, pair.now_ns);
-    try expect_suites(expected, suites_of(pair.wire[constants.record_header_bytes..hello_len]));
+    try expect_codes(expected, suites_of(pair.wire[constants.record_header_bytes..hello_len]));
 }
 
 /// Requires that the QUIC link of a channel over `cpu` offers `expected` in its first hello.
@@ -235,7 +272,7 @@ fn expect_quic_suites(cpu: tls.Cpu, expected: []const u16) !void {
     try session.provider().set_transport_params(transport_parameters);
     var hello: [limits.hello_bytes_max]u8 = undefined;
     const hello_len = try session.provider().write_handshake(.initial, &hello);
-    try expect_suites(expected, suites_of(hello[0..hello_len]));
+    try expect_codes(expected, suites_of(hello[0..hello_len]));
 }
 
 test "a context that states the AES instructions and a data-independent timing offers AES-GCM first, on each link" {
@@ -261,4 +298,61 @@ test "a context that states a data-independent timing and no AES instructions of
     try expect_quic_suites(cpu_without_aes, &suites_without_aes);
     try expect_tcp_suites(cpu_aes_not_known, &suites_without_aes);
     try expect_quic_suites(cpu_aes_not_known, &suites_without_aes);
+}
+
+/// A pair whose server requires the hybrid when `required` says so (docs/design.md §21, TLS rule 10).
+fn pair_requiring(required: bool) !*rig.Pair {
+    const pair = try testing.allocator.create(rig.Pair);
+    errdefer testing.allocator.destroy(pair);
+    pair.* = .{ .require_post_quantum = required };
+    try pair.open(.{});
+    return pair;
+}
+
+/// Requires that the TCP link's first hello offers `expected` as its groups, as `expect_tcp_suites`
+/// reads its suites.
+fn expect_tcp_groups(required: bool, expected: []const u16) !void {
+    const pair = try pair_requiring(required);
+    defer pair.free();
+    try testing.expect(pair.doh.request(0, &rig.query, pair.now_ns));
+    try testing.expectEqual(rig.Doh.Link.quic, (try pair.run(.open)).open.link);
+    try testing.expectEqual(rig.Doh.Link.tcp, (try pair.run(.open)).open.link);
+    const hello_len = pair.doh.output(&pair.wire, pair.now_ns);
+    try expect_codes(expected, groups_of(pair.wire[constants.record_header_bytes..hello_len]));
+}
+
+/// Requires that the QUIC link's first hello offers `expected` as its groups, as
+/// `expect_quic_suites` reads its suites.
+fn expect_quic_groups(required: bool, expected: []const u16) !void {
+    const pair = try pair_requiring(required);
+    defer pair.free();
+    const session = try testing.allocator.create(tls.quic.Client);
+    defer testing.allocator.destroy(session);
+    try session.start(&pair.doh.channel.quic_tls, pair.context.stream.random(), rig.identity_seconds, null);
+    defer session.close();
+    try session.provider().set_transport_params(transport_parameters);
+    var hello: [limits.hello_bytes_max]u8 = undefined;
+    const hello_len = try session.provider().write_handshake(.initial, &hello);
+    try expect_codes(expected, groups_of(hello[0..hello_len]));
+}
+
+test "a server that requires the post-quantum hybrid gets hellos that offer X25519MLKEM768 alone, on each link" {
+    // docs/design.md §21, TLS rule 10: the engine copies the value of `Https` into the channel's
+    // `Tls`, and colibri builds the TLS of both links from it (its decision 120).
+    try expect_tcp_groups(false, &groups_offered);
+    try expect_quic_groups(false, &groups_offered);
+    try expect_tcp_groups(true, &groups_required);
+    try expect_quic_groups(true, &groups_required);
+}
+
+test "a query to a server that requires the hybrid is answered, since colibri's server selects it" {
+    // colibri's server holds the hybrid and prefers it, so the handshake that offers it alone
+    // completes (RFC 10024 §4.2), and the answer comes back over HTTP/2.
+    const pair = try pair_requiring(true);
+    defer pair.free();
+    try testing.expect(pair.doh.request(0, &rig.query, pair.now_ns));
+    const finished = (try pair.run(.finished)).finished;
+    try testing.expectEqual(@as(u16, 0), finished.index);
+    try testing.expect(finished.result == .answer);
+    try testing.expectEqual(.h2, pair.doh.connected().?.protocol);
 }
