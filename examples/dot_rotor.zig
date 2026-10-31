@@ -87,7 +87,8 @@ pub fn main(init: std.process.Init) !void {
     var tls = try known_by(arguments[2], &pins);
     if (at.port) |port| tls.port = port;
     const servers = [_]cocuyo.Server{.{ .endpoint = .{ .address = at.address }, .tls = tls }};
-    const config: cocuyo.Config = .{ .servers = &servers, .search = &.{} };
+    // Strict mode authenticated the server, so its AD bit counts (docs/design.md §25, Stage A).
+    const config: cocuyo.Config = .{ .servers = &servers, .search = &.{}, .authenticated_data = .encrypted };
 
     var anchors: [anchors_max]chapulin.Session.Anchor = undefined;
     const roots = arguments[3..];

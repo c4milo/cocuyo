@@ -10189,6 +10189,11 @@ No limit is new. Checks, one for each piece:
 - A negative that had AD set ends `authenticated`, and the cache hands it back so.
 - Live, once a day, beside the DoT check (§21 step 6): a signed name comes back `authenticated`
   from each public resolver, an unsigned one `unchecked`, and one signed wrongly on purpose fails.
+  Built on 2026-10-31 in `tools/dot_live/run.sh`, with `isc.org`, `google.com` and
+  `dnssec-failed.org`. The DoT, DoQ and DoH examples run under `encrypted`, and say
+  `authenticated` and an extended error on lines of their own. Its first run passed through
+  Google, Cloudflare and Quad9. The bogus name failed with SERVFAIL, and with extended error 9
+  from the first two and 6 from Quad9.
 
 ### Stage B: what a validating lookup sends
 

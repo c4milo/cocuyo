@@ -53,6 +53,9 @@ fn kind_of(type_text: []const u8) ?cocuyo.Kind {
 /// cause of a failure). So a certificate refused over DoT prints `example.com: AllServersFailed
 /// (handshake from server 0)`, and silence `example.com: Timeout`.
 pub fn report_failure(label: []const u8, failure: *const cocuyo.Failure) void {
+    // A line of its own for each, so the failure's own line reads as it did before Stage A.
+    defer if (failure.extended_error) |code| std.debug.print("{s}: extended error {d}\n", .{ label, code });
+    defer if (failure.security == .authenticated) std.debug.print("{s}: authenticated\n", .{label});
     const cause = failure.cause orelse return std.debug.print("{s}: {t}\n", .{ label, failure.err });
     std.debug.print("{s}: {t} ({s} from server {d})\n", .{ label, failure.err, cause_text(cause), cause.server_index });
 }
@@ -69,6 +72,9 @@ pub fn cause_text(cause: cocuyo.Cause) []const u8 {
 /// kept is one its type's view refuses, which the lookup should never have kept.
 pub fn report(label: []const u8, answer: *const cocuyo.Answer) !void {
     var text: [name_text_bytes_max]u8 = undefined;
+    // The servers said they validated it, over a channel the configuration relies on (docs/design.md
+    // §25, Stage A).
+    if (answer.security == .authenticated) std.debug.print("{s}: authenticated\n", .{label});
     if (answer.canonical_name) |canonical| {
         std.debug.print("{s} canonical {s}\n", .{ label, text[0..canonical.write_text(&text)] });
     }

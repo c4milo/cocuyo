@@ -85,7 +85,8 @@ pub fn main(init: std.process.Init) !void {
     const at = try server_text.place_of(arguments[1]);
     if (at.port != null) return error.PortInTemplate;
     const servers = [_]cocuyo.Server{.{ .endpoint = .{ .address = at.address }, .https = .{ .template = arguments[2] } }};
-    const config: cocuyo.Config = .{ .servers = &servers, .search = &.{} };
+    // Strict mode authenticated the server, so its AD bit counts (docs/design.md §25, Stage A).
+    const config: cocuyo.Config = .{ .servers = &servers, .search = &.{}, .authenticated_data = .encrypted };
 
     var anchors: [anchors_max]tls.Anchor = undefined;
     const roots = arguments[3..];

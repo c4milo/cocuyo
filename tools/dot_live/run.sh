@@ -17,7 +17,9 @@
 # cause must be the handshake's, from the one server the example names (§5, The cause of a
 # failure).
 # Cloudflare is then known by its leaf key alone. Each resolver is also asked AAAA, MX, TXT and
-# HTTPS at once, of a name that has each, and must answer each with records of that type. Google,
+# HTTPS at once, of a name that has each, and must answer each with records of that type. Each
+# resolver must also say whether it validated a signed name, an unsigned one and a bogus one
+# (docs/design.md §25, Stage A). Google,
 # which shows one of two chains, is asked one name with each of its roots alone, and the run says
 # which chain it met.
 # Each resolver resolves its two names in two runs: first without the word `cpu`, then with it
@@ -101,6 +103,35 @@ reads_types() {
     echo "reads AAAA, MX, TXT and HTTPS at once through $name${counts}"
 }
 
+# DNSSEC Stage A (docs/design.md §25): the example relies on the AD bit of a server that strict mode
+# authenticated. A signed name must come back authenticated, an unsigned one must not, and a name
+# signed wrongly on purpose must fail with SERVFAIL. The three names are isc.org, google.com and
+# dnssec-failed.org. Through dns.google on 2026-10-31 they came back authenticated, unchecked, and
+# SERVFAIL with extended error 9, DNSKEY Missing. Another resolver may give another code, so the
+# code is reported and not required.
+validates() {
+    name=$1
+    shift
+    if ! answer=$(lookup_names isc.org,google.com "$@") ||
+        ! echo "$answer" | grep -q "^isc\.org: authenticated$" ||
+        ! echo "$answer" | grep -q "^google\.com A " ||
+        echo "$answer" | grep -q "^google\.com: authenticated$"; then
+        echo "MISREADS whether $name validated: $answer" >&2
+        failures=$((failures + 1))
+        return
+    fi
+    if bogus=$(lookup_names dnssec-failed.org "$@"); then
+        echo "RESOLVED through $name a name signed wrongly on purpose: $bogus" >&2
+        failures=$((failures + 1))
+    elif echo "$bogus" | grep -q "^dnssec-failed\.org: AllServersFailed (server_failure from server 0)$"; then
+        code=$(echo "$bogus" | sed -n 's/^dnssec-failed\.org: extended error //p')
+        echo "validates through $name: a signed name authenticated, an unsigned one not, and a bogus one refused${code:+ with extended error $code}"
+    else
+        echo "DID NOT SEE $name refuse a name signed wrongly on purpose: $bogus" >&2
+        failures=$((failures + 1))
+    fi
+}
+
 failures=0
 resumed=0
 for resolver in "8.8.8.8 dns.google gts-root-r1 gts-root-r4" \
@@ -139,6 +170,7 @@ for resolver in "8.8.8.8 dns.google gts-root-r1 gts-root-r4" \
     done
     word=
     reads_types "$2" "$1" "$2" $roots
+    validates "$2" "$1" "$2" $roots
 done
 if [ "$resumed" -eq 0 ]; then
     echo "NO RESOLVER RESUMED" >&2
