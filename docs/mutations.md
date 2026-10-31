@@ -10746,3 +10746,19 @@ and no RFC states it. `zig build mutations -- engine TA1 TA2` ran each to its en
 | TA2 | `trust-ad` relies on encrypted servers alone | `zig build test-config` | `CAUGHT` |
 
 Two mutations, two `CAUGHT`.
+
+## The extended error of a failure
+
+2026-10-31. Design §16 decision 64, on §17 question 18 (c4milo/cocuyo#55): `Failure.extended_error`
+is the INFO-CODE of the last response the lookup took whose rcode was not NOERROR and that carried
+an extended error (RFC 8914). `zig build mutations -- engine EE1 ... EE5` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| EE1 | no response is read for its extended error | `zig build test-resolver` | `CAUGHT` |
+| EE2 | a NOERROR response is read for its extended error too | `zig build test-resolver` | `CAUGHT` |
+| EE3 | a failure reports a code where none came | `zig build test-resolver` | `CAUGHT` |
+| EE4 | a code read never marks that one came | `zig build test-resolver` | `CAUGHT` |
+| EE5 | a lookup starts as one that heard a code | `zig build test-resolver` | `CAUGHT` |
+
+Five mutations, five `CAUGHT`.

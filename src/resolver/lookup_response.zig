@@ -134,6 +134,8 @@ pub fn apply(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64
         header.rcode_bits();
     const rcode = wire.Rcode.from_bits(bits) orelse return .ignored;
     const action = policy.rcode_action(rcode, self.flags.edns_enabled, self.config.check_response);
+    // Only a response that is not NOERROR is read for why (§16 decision 64).
+    if (rcode != .no_error) failure_module.note_extended_error(self, message);
     // NOERROR is believed only once its answer section is read, so `collect` tells the server's
     // state what it heard.
     if (action == .collect) return collect(self, message, accepted, now_ns);

@@ -84,6 +84,9 @@ pub fn init_in_place(
         .failure = core.Error.Timeout,
         // No server has failed the lookup yet (docs/design.md §5, The cause of a failure).
         .cause = .none,
+        // No response is taken yet, so none carried an extended error (§16 decision 64).
+        .extended_error = 0,
+        .has_extended_error = false,
         // No candidate has answered NXDOMAIN or NODATA, so nothing bounds the walk's end yet
         // (docs/design.md §5): the largest TTL, which a smaller one replaces.
         .negative_ttl_seconds = std.math.maxInt(u32),

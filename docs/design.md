@@ -1458,7 +1458,7 @@ The caller-provided buffer §19 keeps as the fallback is what would take it back
 | `[2N]MatchKey` | 4 bytes each | the id-to-slot table, power-of-two length |
 | send buffer | `query_bytes_max`, 386 | shared by the whole table |
 | receive buffer | `config.udp_payload_bytes`, 1232 by default | the caller's, per socket |
-| `[M]AddressLookup` | 1200 bytes each, measured | one per `getaddrinfo`-shaped lookup in flight: the name, the canonical name, 32 addresses, two handles, the failure of each lookup and the walk's scalars, beside the two slots it takes; pinned by a test in `src/resolver/address_lookup_test.zig`; 1152 until the cause of a failure on 2026-10-17 (§16 decision 45), and 1184 until the security of a negative on 2026-10-31 (§25) |
+| `[M]AddressLookup` | 1216 bytes each, measured | one per `getaddrinfo`-shaped lookup in flight: the name, the canonical name, 32 addresses, two handles, the failure of each lookup and the walk's scalars, beside the two slots it takes; pinned by a test in `src/resolver/address_lookup_test.zig`; 1152 until the cause of a failure on 2026-10-17 (§16 decision 45), 1184 until the security of a negative on 2026-10-31 (§25), and 1200 until the extended error the same day (§16 decision 64) |
 
 So 1024 concurrent lookups cost 3096 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
 ever, by anybody. `Resolver` itself holds the `Servers` table, 1488 octets, measured and pinned
@@ -4842,6 +4842,46 @@ step until `zig build test` passes.
       lookup. The hello already offers the hybrid to each server.
 
     §17 question 92, §21 TLS rule 10.
+64. **A failure carries the extended error of the last response that gave one.** Ruled by the
+    owner on 2026-10-31, on §17 question 18: one optional field (c4milo/cocuyo#55). Under Stage A
+    of §25 a validating server answers bogus data with SERVFAIL, and the extended error option of
+    RFC 8914 says why. Before this, the codec read the option, and no `Failure` carried it.
+
+    The rule:
+
+    - `Failure.extended_error` is the INFO-CODE (RFC 8914 §2) of the last response the lookup
+      took whose rcode was not NOERROR and that carried the option. It is null when none did.
+    - The first option of a message is the one read. "Receivers MUST be able to accept (but not
+      necessarily process or act on) multiple EDE options in a DNS message" (RFC 8914 §3).
+    - The EXTRA-TEXT is not kept. It is the server's text, of any length, and the lookup keeps
+      no octet of a message once it has read it.
+    - An option too short to hold its code is passed over, and the response stands. A receiver
+      "MUST be able to accept EDE codes and EXTRA-TEXT in all messages", and the code changes
+      no processing of the rcode (RFC 8914 §3).
+    - A failure that the memory of §20 recalls has none, since the memory keeps none.
+
+    A NOERROR response is never read for the option. So an answer, which is the hot path, reads no
+    more of its message than before, and `Answer` carries no code.
+
+    The sizes: the lookup holds the code in two fields, a `u16` and a flag that says one came, and
+    keeps its size of 3,080 octets. A `?u16` takes four octets, which would have grown it by
+    eight, and INFO-CODE 0 is a code (RFC 8914 §4.1), so no value of its own can mean none.
+    `Failure` grows from 16 octets to 20, and `AddressLookup`, which holds failures, from 1,200 to
+    1,216.
+
+    The models: the code changes no transition, and the models hold no message's options. So
+    neither model changes.
+
+    Rejected:
+
+    - The code of every response, NOERROR included. Each answer would walk the OPT record's
+      options once more, for a code that no answer reports.
+    - The code beside each cause (§5, The cause of a failure). A cause is held in three octets,
+      and an NXDOMAIN, which no cause records, can carry a code of its own, such as Blocked.
+    - The EXTRA-TEXT too. The lookup would hold a buffer for text that RFC 8914 §3 asks senders
+      to keep short, and that no rule of cocuyo reads.
+
+    §17 question 18, §25 Stage A.
 
 ## 17. Questions for the owner
 
@@ -4929,7 +4969,7 @@ recommends, and none is taken until the owner answers. The owner answered the la
 18. **Should `Failure` carry the extended error code?** Under Stage A a server reports bogus
     data as SERVFAIL, and the extended error option says why (RFC 8914). The codec reads the
     option, and `Failure` does not carry it. Recommended: yes, as one optional field. Answered on
-    2026-10-31: yes, one optional field.
+    2026-10-31: yes, one optional field. Written on 2026-10-31: §16 decision 64.
 19. **Stage B's shape.** A validator the table is handed, keys fetched under the table, and a
     question asked again when its keys have come, in place of a response kept. §25 ends with
     the decision in §16's form and what it would reject. It adds a state to §5, a module to §2,

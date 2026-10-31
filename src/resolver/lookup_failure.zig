@@ -38,6 +38,11 @@ pub const Failure = struct {
     /// `Answer.security` says of an answer (docs/design.md §25). `unchecked` for every other
     /// failure.
     security: core.Security,
+    /// The INFO-CODE (RFC 8914 §2) of the last response the lookup took whose rcode was not
+    /// NOERROR and that carried an extended error option, or null when none did. It says why, as
+    /// a validating server's SERVFAIL for bogus data does, and it changes nothing a lookup does
+    /// (RFC 8914 §3; docs/design.md §16 decision 64).
+    extended_error: ?u16,
 };
 
 /// What made a server fail a lookup, and that server. Each server failure replaces the cause the
@@ -175,7 +180,21 @@ pub fn failure_of(self: *const Lookup) Failure {
         .negative_ttl_seconds = if (negative) self.negative_ttl_seconds else 0,
         .cause = self.cause.get(),
         .security = if (negative) security.of(self) else .unchecked,
+        .extended_error = if (self.has_extended_error) self.extended_error else null,
     };
+}
+
+/// Keeps the code of `message`'s first extended error option, when it carries one that holds its
+/// code. Called for a response whose rcode is not NOERROR, which the checks of §7 let through.
+/// An option too short for its code is passed over: a receiver "MUST be able to accept EDE codes
+/// and EXTRA-TEXT in all messages", and the code changes no processing (RFC 8914 §3).
+pub fn note_extended_error(self: *Lookup, message: []const u8) void {
+    assert(self.state == .awaiting_udp or self.state == .awaiting_tcp);
+    const record = (wire.response_opt.find(message, &self.current) catch return) orelse return;
+    const extended = (wire.edns_options.extended_error(record.rdata) catch return) orelse return;
+    self.extended_error = extended.info_code;
+    self.has_extended_error = true;
+    assert(self.extended_error == extended.info_code);
 }
 
 // Tests. The fake server of fixtures.zig answers whatever the lookup asked (docs/design.md §5,
@@ -455,10 +474,10 @@ test "a negative that the memory recalls has no cause" {
 }
 
 test "the size of a failure is pinned, and an answer outweighs it" {
-    // 8 octets until the cause came on 2026-10-17, and 12 until the security of a negative came
-    // on 2026-10-31. An `Action` holds the larger `Answer`, so it kept its size (docs/design.md
-    // §16 decision 45, §25).
-    try testing.expectEqual(@as(usize, 16), @sizeOf(Failure));
+    // 8 octets until the cause came on 2026-10-17, 12 until the security of a negative came on
+    // 2026-10-31, and 16 until the extended error came the same day. An `Action` holds the larger
+    // `Answer`, so it kept its size (docs/design.md §16 decisions 45 and 64, §25).
+    try testing.expectEqual(@as(usize, 20), @sizeOf(Failure));
     try testing.expect(@sizeOf(Failure) < @sizeOf(lookup_module.Answer));
     // The lookup holds a cause in three octets, where a `?Cause` takes four (§16 decision 51).
     try testing.expectEqual(@as(usize, 3), @sizeOf(Held));

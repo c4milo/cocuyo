@@ -188,6 +188,13 @@ pub const Lookup = struct {
     /// fails it: an rcode, or the reason a connection or a request failed. Whether there is one
     /// decides `AllServersFailed` against `Timeout` (docs/design.md §5).
     cause: failure_module.Held,
+    /// The INFO-CODE of the last response the lookup took whose rcode was not NOERROR and that
+    /// carried an extended error, which `Failure.extended_error` reports while
+    /// `has_extended_error` says one came (§16 decision 64). Two fields and not a `?u16`, which
+    /// takes four octets and would grow the lookup by eight: INFO-CODE 0 is a code (RFC 8914
+    /// §4.1), so no value of its own can mean none.
+    extended_error: u16,
+    has_extended_error: bool,
     /// The smallest negative TTL of the candidates the search walk moved past: what
     /// `Failure.negative_ttl_seconds` reports, and what bounds `Answer.ttl_seconds`
     /// (docs/design.md §5). The largest TTL there is until a candidate answers NXDOMAIN or

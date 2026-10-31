@@ -5056,4 +5056,49 @@
         },
         .caught_by = .{ .step = "test-config" },
     },
+    .{
+        .section = "The extended error of a failure",
+        .id = "EE1",
+        .what = "no response is read for its extended error",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (rcode != .no_error) failure_module.note_extended_error(self, message);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The extended error of a failure",
+        .id = "EE2",
+        .what = "a NOERROR response is read for its extended error too",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (rcode != .no_error) failure_module.note_extended_error(self, message);", .new = "    if (rcode != .no_error or rcode == .no_error) failure_module.note_extended_error(self, message);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The extended error of a failure",
+        .id = "EE3",
+        .what = "a failure reports a code where none came",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_failure.zig", .old = "        .extended_error = if (self.has_extended_error) self.extended_error else null,", .new = "        .extended_error = if (self.has_extended_error or !self.has_extended_error) self.extended_error else null," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The extended error of a failure",
+        .id = "EE4",
+        .what = "a code read never marks that one came",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_failure.zig", .old = "    self.has_extended_error = true;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The extended error of a failure",
+        .id = "EE5",
+        .what = "a lookup starts as one that heard a code",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_init.zig", .old = "        .has_extended_error = false,", .new = "        .has_extended_error = true," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
 }

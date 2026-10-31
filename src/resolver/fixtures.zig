@@ -137,6 +137,8 @@ pub const Reply = struct {
     server_cookie: []const u8 = &.{},
     /// The AD bit: the server says it validated the answer (RFC 4035 §3.2.3).
     authentic_data: bool = false,
+    /// Options to put in the OPT record after any cookie, as written: an extended error's.
+    options: []const u8 = &.{},
 };
 
 /// What the fake server does about cookies.
@@ -357,7 +359,7 @@ pub const Harness = struct {
         if (reply.truncated) flags |= wire.constants.flag_truncated;
         if (reply.authentic_data) flags |= wire.constants.flag_authentic_data;
         const extended_high: u8 = @intCast(rcode >> wire.constants.extended_rcode_low_bits);
-        const with_opt = reply.cookie != .none or extended_high != 0;
+        const with_opt = reply.cookie != .none or extended_high != 0 or reply.options.len > 0;
 
         const header: wire.Header = .{
             .id = reply.id orelse self.lookup.transaction.id,
@@ -387,7 +389,9 @@ pub const Harness = struct {
         out[5] = extended_high; // the TTL's high octet (RFC 6891 §6.1.3)
         const option = self.cookie_option(reply, out[written..]);
         written += option;
-        wire.integer.write_u16(out, core.constants.opt_record_bytes - 2, @intCast(option)); // rdlength
+        @memcpy(out[written..][0..reply.options.len], reply.options);
+        written += reply.options.len;
+        wire.integer.write_u16(out, core.constants.opt_record_bytes - 2, @intCast(option + reply.options.len)); // rdlength
         return written;
     }
 
