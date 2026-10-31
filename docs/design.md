@@ -10110,7 +10110,9 @@ What changes, and where:
 - `wire`: the AD and CD bits by name, at the positions RFC 6895 §2 draws, with
   `Header.authentic_data` and `Query.authentic_data`. Built on 2026-10-31, with
   `Header.checking_disabled` (c4milo/cocuyo#55).
-- `core`: `Config.authenticated_data`, and `Security`.
+- `core`: `Config.authenticated_data`, and `Security`. Built on 2026-10-31 in
+  `src/core/security.zig`. The mode is the type `AuthenticatedData`, whose `relied_on` holds rule
+  1 for a transport and whose `asks` holds rule 2.
 - `resolver`: the last free bit of `Lookup.flags` holds rule 3's conjunction. `Answer` and
   `Failure` gain `security`.
 - `cache`: the status in a slot.

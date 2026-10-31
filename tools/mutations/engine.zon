@@ -4822,4 +4822,40 @@
         },
         .caught_by = .{ .step = "test-wire" },
     },
+    .{
+        .section = "When a lookup relies on the AD bit",
+        .id = "SA1",
+        .what = "encrypted relies on a cleartext server too",
+        .edits = .{
+            .{ .file = "src/core/security.zig", .old = "            .encrypted => transport != .cleartext,", .new = "            .encrypted => transport != .cleartext or transport == .cleartext," },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "When a lookup relies on the AD bit",
+        .id = "SA2",
+        .what = "always relies on an encrypted server alone",
+        .edits = .{
+            .{ .file = "src/core/security.zig", .old = "            .always => true,", .new = "            .always => transport != .cleartext," },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "When a lookup relies on the AD bit",
+        .id = "SA3",
+        .what = "a query asks for AD when the bit is ignored",
+        .edits = .{
+            .{ .file = "src/core/security.zig", .old = "        return self != .ignored;", .new = "        return self != .ignored or self == .ignored;" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "When a lookup relies on the AD bit",
+        .id = "SA4",
+        .what = "a configuration relies on the AD bit by default",
+        .edits = .{
+            .{ .file = "src/core/config.zig", .old = "    authenticated_data: AuthenticatedData = .ignored,", .new = "    authenticated_data: AuthenticatedData = .encrypted," },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
 }

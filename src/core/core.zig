@@ -30,6 +30,8 @@ pub const Kind = question.Kind;
 pub const Question = question.Question;
 
 pub const Config = @import("config.zig").Config;
+pub const Security = @import("security.zig").Security;
+pub const AuthenticatedData = @import("security.zig").AuthenticatedData;
 pub const Server = @import("config.zig").Server;
 pub const Tls = @import("config.zig").Tls;
 pub const Https = @import("config.zig").Https;
@@ -49,6 +51,7 @@ test {
     _ = question;
     _ = @import("name.zig");
     _ = @import("config.zig");
+    _ = @import("security.zig");
 }
 
 test "the limits hold the relations the design states" {

@@ -12,6 +12,7 @@ const limits = @import("limits.zig");
 const Address = @import("address.zig").Address;
 const Endpoint = @import("address.zig").Endpoint;
 const Name = @import("name.zig").Name;
+const AuthenticatedData = @import("security.zig").AuthenticatedData;
 
 /// An SPKI pin: the SHA-256 of a DER SubjectPublicKeyInfo (RFC 7858 §4.2).
 pub const Pin = [constants.spki_pin_bytes]u8;
@@ -160,6 +161,9 @@ pub const Config = struct {
     check_response: bool = true,
     /// Only the first server is asked (`ARES_FLAG_PRIMARY`).
     primary: bool = false,
+    /// Whether the AD bit of a response is relied on, and from which servers (docs/design.md §25,
+    /// Stage A). Ignored by default, so every answer is `unchecked`.
+    authenticated_data: AuthenticatedData = .ignored,
     /// Where the engine looks a name up, in order: the hosts file, then DNS, by default.
     lookups: []const Source = &default_lookups,
     /// One query in this many gives a server that failed, and whose delay has passed, the first
@@ -309,6 +313,7 @@ test "the defaults are the resolv.conf defaults, c-ares's waits, and are valid" 
     try testing.expectEqual(@as(u8, 1), config.ndots);
     try testing.expect(config.recursion_desired);
     try testing.expect(config.check_response);
+    try testing.expectEqual(AuthenticatedData.ignored, config.authenticated_data);
     try testing.expect(!config.use_tcp and !config.ignore_truncation and !config.primary);
     try testing.expectEqual(@as(u64, 5_000_000_000), config.timeout_ns_max);
     try testing.expectEqualSlices(Source, &default_lookups, config.lookups);

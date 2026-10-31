@@ -10664,3 +10664,19 @@ again with an edit that compiles.
 | AD4 | a query that sets AD sets CD too | `zig build test-wire` | `CAUGHT` |
 
 Four mutations, four `CAUGHT`.
+
+## When a lookup relies on the AD bit
+
+2026-10-31. Design §25 Stage A, its `core` piece (c4milo/cocuyo#55): `Config.authenticated_data`,
+whose type `AuthenticatedData` says when the AD bit counts (RFC 4035 §4.6) and when a query asks
+for it (RFC 6840 §5.7), and `Security`. SA1 and SA3 did not compile at their first edits, which
+left a parameter with no use. Each ran again with an edit that reads it.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| SA1 | `encrypted` relies on a cleartext server too | `zig build test-core` | `CAUGHT` |
+| SA2 | `always` relies on an encrypted server alone | `zig build test-core` | `CAUGHT` |
+| SA3 | a query asks for AD when the bit is ignored | `zig build test-core` | `CAUGHT` |
+| SA4 | a configuration relies on the AD bit by default | `zig build test-core` | `CAUGHT` |
+
+Four mutations, four `CAUGHT`.
