@@ -1,5 +1,5 @@
-//! The `options` line of a `resolv.conf`: `ndots:`, `timeout:`, `attempts:` and `rotate`
-//! (`resolv.conf(5)`).
+//! The `options` line of a `resolv.conf`: `ndots:`, `timeout:`, `attempts:`, `rotate`, `use-vc`
+//! and `trust-ad` (`resolv.conf(5)`).
 //!
 //! An option cocuyo does not know is skipped, and so is one whose value will not parse or is out
 //! of range. That is what every stub does, and the alternative — refusing the file — would stop a
@@ -18,6 +18,8 @@ pub const Option = union(enum) {
     rotate,
     /// `use-vc`: every query over TCP (`resolv.conf(5)`).
     use_tcp,
+    /// `trust-ad`: rely on the AD bit of every response (docs/design.md §25, Stage A rule 1).
+    trust_ad,
 };
 
 /// The keywords, each with the limit its value is clamped to: `limits.ndots_limit`,
@@ -33,6 +35,7 @@ const decimal_base: u8 = 10;
 pub fn parse(token: []const u8) ?Option {
     if (std.mem.eql(u8, token, rotate_keyword)) return .rotate;
     if (std.mem.eql(u8, token, constants.option_use_vc)) return .use_tcp;
+    if (std.mem.eql(u8, token, constants.option_trust_ad)) return .trust_ad;
     if (value_of(token, ndots_keyword)) |text| {
         const ndots = number(text, limits.ndots_limit) orelse return null;
         return .{ .ndots = @intCast(ndots) };
@@ -115,6 +118,12 @@ test "a zero timeout or zero attempts reads as the smallest there is" {
 test "ndots zero is a real setting and is kept" {
     // ndots:0 means try the name as written first, always. It is not the same as no setting.
     try testing.expectEqual(Option{ .ndots = 0 }, parse("ndots:0").?);
+}
+
+test "trust-ad asks to rely on the AD bit, and takes no value" {
+    try testing.expectEqual(Option.trust_ad, parse("trust-ad").?);
+    try testing.expectEqual(@as(?Option, null), parse("trust-ad:1"));
+    try testing.expectEqual(@as(?Option, null), parse("trust_ad"));
 }
 
 test "use-vc asks for TCP" {

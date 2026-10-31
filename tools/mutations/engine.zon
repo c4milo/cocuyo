@@ -5038,4 +5038,22 @@
         },
         .caught_by = .{ .step = "test-resolver" },
     },
+    .{
+        .section = "The trust-ad option",
+        .id = "TA1",
+        .what = "trust-ad is an option cocuyo does not know",
+        .edits = .{
+            .{ .file = "src/config/resolv_conf_options.zig", .old = "    if (std.mem.eql(u8, token, constants.option_trust_ad)) return .trust_ad;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-config" },
+    },
+    .{
+        .section = "The trust-ad option",
+        .id = "TA2",
+        .what = "trust-ad relies on encrypted servers alone",
+        .edits = .{
+            .{ .file = "src/config/resolv_conf.zig", .old = "        .trust_ad => config.authenticated_data = .always,", .new = "        .trust_ad => config.authenticated_data = .encrypted," },
+        },
+        .caught_by = .{ .step = "test-config" },
+    },
 }

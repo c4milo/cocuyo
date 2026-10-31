@@ -10129,7 +10129,8 @@ What changes, and where:
   carries it both ways. A recall ends `authenticated` only when the status it was kept with says
   so and the lookup that recalls it relies on the bit too. The slot grows from 2,984 octets to
   2,992, since its padding had no octet left.
-- `config`: `options trust-ad`, read as `always`.
+- `config`: `options trust-ad`, read as `always`. Built on 2026-10-31. The fuzz target of
+  `src/config/fuzz/` writes the option among the others, and compares the mode of two parses.
 - The lookup's model: the bit, and a theorem that an end is `authenticated` only when every
   message the lookup acted on had AD set, and never under `ignored`. Built on 2026-10-31, before
   the code of the `resolver` piece. A reply with AD set is the event `replyAd`, and a reply is one

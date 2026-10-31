@@ -10733,3 +10733,16 @@ status it now takes. `zig build mutations -- engine CS1 ... CS9 RA6` ran each to
 | RA6 | a recalled answer keeps the conjunction it started with | `zig build test-resolver` | `CAUGHT` |
 
 Ten mutations, ten `CAUGHT`.
+
+## The trust-ad option
+
+2026-10-31. Design §25 Stage A, its `config` piece (c4milo/cocuyo#55): `options trust-ad` in a
+`resolv.conf` sets `Config.authenticated_data` to `always`. The option is glibc's, as recalled,
+and no RFC states it. `zig build mutations -- engine TA1 TA2` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| TA1 | `trust-ad` is an option cocuyo does not know | `zig build test-config` | `CAUGHT` |
+| TA2 | `trust-ad` relies on encrypted servers alone | `zig build test-config` | `CAUGHT` |
+
+Two mutations, two `CAUGHT`.

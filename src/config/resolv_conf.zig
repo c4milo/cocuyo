@@ -109,6 +109,9 @@ fn apply_option(option: options.Option, config: *Config) void {
         .attempts => |attempts| config.attempts = attempts,
         .rotate => config.rotate = true,
         .use_tcp => config.use_tcp = true,
+        // The servers of a `resolv.conf` speak in the clear, so only `always` relies on them
+        // (RFC 4035 §4.6; docs/design.md §25, Stage A rule 1).
+        .trust_ad => config.authenticated_data = .always,
     }
 }
 
@@ -305,6 +308,12 @@ test "use-vc asks for every query over TCP" {
     var storage: Storage = .{};
     const config = parse_text("options use-vc\n", &storage);
     try testing.expect(config.use_tcp);
+}
+
+test "trust-ad relies on the AD bit of every server, and its absence on none" {
+    var storage: Storage = .{};
+    try testing.expectEqual(core.AuthenticatedData.always, parse_text("options trust-ad\n", &storage).authenticated_data);
+    try testing.expectEqual(core.AuthenticatedData.ignored, parse_text("options rotate\n", &storage).authenticated_data);
 }
 
 test "without the default server, a file naming none gives none" {

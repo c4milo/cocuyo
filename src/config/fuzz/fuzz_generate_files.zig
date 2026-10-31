@@ -55,7 +55,7 @@ fn write_options(generator: *Generator, out: *Text) void {
     write_line_end(generator, out);
 }
 
-const option_names = [_][]const u8{ "ndots:", "timeout:", "attempts:", "rotate", constants.option_use_vc, "inet6", "edns0" };
+const option_names = [_][]const u8{ "ndots:", "timeout:", "attempts:", "rotate", constants.option_use_vc, constants.option_trust_ad, "inet6", "edns0" };
 /// Values up to past every bound an option keeps, so a clamp is reached as well as the range.
 const option_value_room: u16 = std.math.maxInt(u16);
 

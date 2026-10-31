@@ -108,7 +108,8 @@ fn same_config(one: *const core.Config, other: *const core.Config) bool {
         if (!std.mem.eql(u8, a.wire(), b.wire())) return false;
     }
     return one.ndots == other.ndots and one.attempts == other.attempts and
-        one.timeout_ns == other.timeout_ns and one.rotate == other.rotate and one.use_tcp == other.use_tcp;
+        one.timeout_ns == other.timeout_ns and one.rotate == other.rotate and one.use_tcp == other.use_tcp and
+        one.authenticated_data == other.authenticated_data;
 }
 
 fn expect_config(text: *const Text, config: *const core.Config) ?[]const u8 {

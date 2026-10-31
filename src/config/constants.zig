@@ -31,6 +31,11 @@ pub const hosts_comment_start: u8 = '#';
 /// The `use-vc` option of `resolv.conf(5)`: every query over TCP.
 pub const option_use_vc = "use-vc";
 
+/// The `trust-ad` option: rely on the AD bit of every response. It is glibc's, since 2.31, as
+/// recalled from its manual page and not read on this machine. No RFC states it. It is for a
+/// validating resolver on the loopback (docs/design.md §25, Stage A rule 1).
+pub const option_trust_ad = "trust-ad";
+
 /// One second in nanoseconds, which a `timeout:` value is multiplied by. It is spelled out
 /// because nothing under `src/` may name `std.time` (CLAUDE.md non-negotiable 4).
 pub const ns_per_s: u64 = 1_000_000_000;
