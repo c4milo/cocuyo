@@ -10118,7 +10118,10 @@ What changes, and where:
   change. §16 decision 50 took the last free bit for `reply_marked` on 2026-10-20, so the
   conjunction is a field of its own, `Lookup.authentic`. The lookup keeps its size, since the
   field fits in padding. `Failure` grows from 12 octets to 16, and `AddressLookup` from 1,184 to
-  1,200. Every query sets AD under `encrypted` and `always`. The lookup acts on a message at
+  1,200. The field is a `Conjunction`, `not_relied`, `holds` or `cleared`, and init decides
+  whether the lookup relies on the bit. Read at each message instead, it cost a lookup round
+  trip 3.1% more instructions under cachegrind on CI's Linux job, past the check's 2%. Every
+  query sets AD under `encrypted` and `always`. The lookup acts on a message at
   NXDOMAIN, at each NOERROR it collects, and at a chain that is too long. A memory recall reads no
   message, so until the `cache` piece its end is `unchecked`.
 - `cache`: the status in a slot.

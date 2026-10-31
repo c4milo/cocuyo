@@ -10700,9 +10700,13 @@ to its end.
 | RA7 | every failure reports the security of a negative | `zig build test-tools` | `CAUGHT` |
 | RA8 | a query never asks for AD | `zig build test-resolver` | `CAUGHT` |
 | RA9 | a lookup starts with the conjunction clear | `zig build test-resolver` | `CAUGHT` |
+| RA10 | a lookup relies on the AD bit whatever its configuration says | `zig build test-resolver` | `CAUGHT` |
 | AS1 | a message without AD never clears the model's conjunction | `zig build spec-lean` | `CAUGHT` |
 | AS2 | `encrypted` relies on a cleartext server too, in the model | `zig build spec-lean` | `CAUGHT` |
 | AS3 | the model does not act on an NXDOMAIN | `zig build spec-lean` | `CAUGHT` |
 | AS4 | `authentic_run` proved by `sorry` | `zig build spec-lean` | `CAUGHT` |
 
-Thirteen mutations, thirteen `CAUGHT`.
+Fourteen mutations, fourteen `CAUGHT`. RA10 came with the fix of CI's instruction check, which
+also rewrote RA1, RA2 and RA9 to name the new text: the conjunction is a `Conjunction` of three
+values, and whether the lookup relies on the bit is decided once, at init. All ten `RA` rows ran
+again to their end.

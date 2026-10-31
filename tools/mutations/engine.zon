@@ -4863,7 +4863,7 @@
         .id = "RA1",
         .what = "a message without AD never clears the conjunction",
         .edits = .{
-            .{ .file = "src/resolver/lookup_security.zig", .old = "    if (relied(lookup) and !header.authentic_data()) lookup.authentic = false;", .new = "    if (relied(lookup) and !relied(lookup) and !header.authentic_data()) lookup.authentic = false;" },
+            .{ .file = "src/resolver/lookup_security.zig", .old = "    if (lookup.authentic == .holds and !header.authentic_data()) lookup.authentic = .cleared;", .new = "    if (lookup.authentic == .holds and !header.authentic_data() and header.id == 0 and header.id != 0) lookup.authentic = .cleared;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -4872,7 +4872,7 @@
         .id = "RA2",
         .what = "an end is authenticated where the configuration does not rely on the bit",
         .edits = .{
-            .{ .file = "src/resolver/lookup_security.zig", .old = "    return if (relied(lookup) and lookup.authentic) .authenticated else .unchecked;", .new = "    return if (lookup.authentic) .authenticated else .unchecked;" },
+            .{ .file = "src/resolver/lookup_security.zig", .old = "    return if (lookup.authentic == .holds) .authenticated else .unchecked;", .new = "    return if (lookup.authentic != .cleared) .authenticated else .unchecked;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -4935,7 +4935,16 @@
         .id = "RA9",
         .what = "a lookup starts with the conjunction clear",
         .edits = .{
-            .{ .file = "src/resolver/lookup_init.zig", .old = "        .authentic = true,\n        .server_index = 0,", .new = "        .authentic = false,\n        .server_index = 0," },
+            .{ .file = "src/resolver/lookup_init.zig", .old = "        .authentic = security.start(config),", .new = "        .authentic = if (config.servers.len > 0) .cleared else .cleared," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Rule 3 of DNSSEC Stage A",
+        .id = "RA10",
+        .what = "a lookup relies on the AD bit whatever its configuration says",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_security.zig", .old = "    return if (config.authenticated_data.relied_on(config.transport())) .holds else .not_relied;", .new = "    return if (config.authenticated_data.relied_on(config.transport()) or true) .holds else .not_relied;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },

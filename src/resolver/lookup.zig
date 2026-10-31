@@ -161,7 +161,7 @@ pub const Lookup = struct {
     flags: Flags,
     /// Rule 3's conjunction (docs/design.md §25, Stage A): AD set on every message the lookup
     /// acted on, while the configuration relies on the bit. `Flags` has no bit left for it.
-    authentic: bool,
+    authentic: security.Conjunction,
     /// Where the walk over the servers stands: a position in `order`, not a configured server.
     server_index: u8,
     round: u8,

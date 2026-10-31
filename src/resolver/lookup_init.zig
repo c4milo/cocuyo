@@ -7,6 +7,7 @@ const Config = core.Config;
 const Question = core.Question;
 const lookup_module = @import("lookup.zig");
 const Lookup = lookup_module.Lookup;
+const security = @import("lookup_security.zig");
 const Servers = @import("servers.zig").Servers;
 const entropy_module = @import("entropy.zig");
 
@@ -67,7 +68,7 @@ pub fn init_in_place(
             .reply_marked = false,
         },
         // No message is read yet, so none lacked AD (docs/design.md §25, Stage A).
-        .authentic = true,
+        .authentic = security.start(config),
         .server_index = 0,
         .order = identity_order,
         // No query is sent yet.

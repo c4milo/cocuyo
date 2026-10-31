@@ -10,30 +10,46 @@ const wire = @import("wire");
 const lookup_module = @import("lookup.zig");
 const Lookup = lookup_module.Lookup;
 
-/// Whether the configuration relies on the AD bit of a response from this lookup's servers.
-pub fn relied(lookup: *const Lookup) bool {
-    return lookup.config.authenticated_data.relied_on(lookup.config.transport());
+/// Rule 3's conjunction. Whether the configuration relies on the AD bit of a response from the
+/// lookup's servers is decided once, at init, so a message costs one comparison.
+pub const Conjunction = enum(u2) {
+    /// The configuration does not rely on the bit, so every end is `unchecked`.
+    not_relied,
+    /// Every message the lookup acted on so far had AD set.
+    holds,
+    /// A message the lookup acted on had AD clear. Once clear it stays clear.
+    cleared,
+
+    /// The model's `authentic`: false once a message without AD cleared the conjunction.
+    pub fn authentic(self: Conjunction) bool {
+        return self != .cleared;
+    }
+};
+
+/// Where a lookup under `config` starts (RFC 4035 §4.6; docs/design.md §25, Stage A rule 1).
+pub fn start(config: *const core.Config) Conjunction {
+    return if (config.authenticated_data.relied_on(config.transport())) .holds else .not_relied;
 }
 
 /// The lookup acts on a message with `header`: a message without AD clears rule 3's conjunction,
-/// while the configuration relies on the bit. Once clear it stays clear.
+/// while the configuration relies on the bit.
 pub fn acted_on(lookup: *Lookup, header: wire.Header) void {
     assert(lookup.state == .awaiting_udp or lookup.state == .awaiting_tcp);
-    if (relied(lookup) and !header.authentic_data()) lookup.authentic = false;
-    assert(lookup.authentic or relied(lookup));
+    if (lookup.authentic == .holds and !header.authentic_data()) lookup.authentic = .cleared;
+    assert(lookup.authentic != .holds or header.authentic_data());
 }
 
 /// What `Answer.security` and `Failure.security` report.
 pub fn of(lookup: *const Lookup) core.Security {
     assert(lookup.is_settled());
-    return if (relied(lookup) and lookup.authentic) .authenticated else .unchecked;
+    return if (lookup.authentic == .holds) .authenticated else .unchecked;
 }
 
 /// The table's memory ended the lookup, and no message was read. The memory keeps no status yet,
 /// so the end is `unchecked`.
 pub fn recalled(lookup: *Lookup) void {
     assert(lookup.is_settled());
-    lookup.authentic = false;
+    if (lookup.authentic == .holds) lookup.authentic = .cleared;
     assert(of(lookup) == .unchecked);
 }
 
