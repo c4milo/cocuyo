@@ -37,6 +37,11 @@ pub const Query = struct {
     /// The RD bit (RFC 1035 §4.1.1): a stub asks a recursive server to do the walking, unless
     /// the caller wants the server's own data alone.
     recursion_desired: bool = true,
+    /// The AD bit, which asks a validating server for the AD bit of its answer without asking for
+    /// DNSSEC records (RFC 6840 §5.7, §5.8). Set when the configuration relies on the bit
+    /// (docs/design.md §25 Stage A). CD stays clear, as a stub that does not validate needs the
+    /// server to (RFC 4035 §4.9.2), and DO is never set (RFC 3225 §3).
+    authentic_data: bool = false,
     /// Whether to pad the message to a multiple of `padding_block_bytes`, which is for a query
     /// that goes encrypted (RFC 7830 §6). A query without OPT cannot carry the option, and goes
     /// unpadded.
@@ -78,8 +83,10 @@ pub fn write(query: *const Query, out: []u8) usize {
 
     const header: header_codec.Header = .{
         .id = query.id,
-        // Nothing but the RD bit is ever set: the query is never authoritative or truncated.
-        .flags = if (query.recursion_desired) constants.flag_recursion_desired else 0,
+        // Nothing but RD and AD is ever set: the query is never authoritative or truncated, and
+        // never has CD set (RFC 4035 §4.9.2).
+        .flags = (if (query.recursion_desired) constants.flag_recursion_desired else 0) |
+            (if (query.authentic_data) constants.flag_authentic_data else 0),
         .qdcount = 1,
         .ancount = 0,
         .nscount = 0,
@@ -238,4 +245,19 @@ test "the RD bit is set unless the caller clears it" {
     query.recursion_desired = false;
     _ = write(&query, &out);
     try testing.expectEqual(@as(u16, 0), (try header_codec.parse(&out)).flags);
+}
+
+test "a query sets AD only when asked, and never CD or DO (RFC 6840 §5.7, RFC 4035 §4.9.2)" {
+    var query = try query_for("example.com");
+    var out: [core.limits.query_bytes_max]u8 = @splat(0);
+    _ = write(&query, &out);
+    try testing.expect(!(try header_codec.parse(&out)).authentic_data());
+    query.authentic_data = true;
+    const written = write(&query, &out);
+    const header = try header_codec.parse(&out);
+    try testing.expectEqual(constants.flag_recursion_desired | constants.flag_authentic_data, header.flags);
+    try testing.expect(!header.checking_disabled());
+    // AD asks for the bit without DNSSEC records, so the OPT record's DO stays clear.
+    const opt_record = (try @import("response_opt.zig").find(out[0..written], &query.name)).?;
+    try testing.expect(!(try edns.parse(opt_record.class, opt_record.ttl_seconds)).dnssec_ok());
 }

@@ -4786,4 +4786,40 @@
         },
         .caught_by = .{ .step = "test-core" },
     },
+    .{
+        .section = "The AD and CD bits",
+        .id = "AD1",
+        .what = "AD reads the Z bit, 0x0040",
+        .edits = .{
+            .{ .file = "src/wire/constants.zig", .old = "pub const flag_authentic_data: u16 = 0x0020;", .new = "pub const flag_authentic_data: u16 = 0x0040;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "The AD and CD bits",
+        .id = "AD2",
+        .what = "CD reads AD's bit",
+        .edits = .{
+            .{ .file = "src/wire/constants.zig", .old = "pub const flag_checking_disabled: u16 = 0x0010;", .new = "pub const flag_checking_disabled: u16 = 0x0020;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "The AD and CD bits",
+        .id = "AD3",
+        .what = "a query asked for AD does not set it",
+        .edits = .{
+            .{ .file = "src/wire/query.zig", .old = "            (if (query.authentic_data) constants.flag_authentic_data else 0),", .new = "            (if (false) constants.flag_authentic_data else 0)," },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "The AD and CD bits",
+        .id = "AD4",
+        .what = "a query that sets AD sets CD too",
+        .edits = .{
+            .{ .file = "src/wire/query.zig", .old = "            (if (query.authentic_data) constants.flag_authentic_data else 0),", .new = "            (if (query.authentic_data) constants.flag_authentic_data | constants.flag_checking_disabled else 0)," },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
 }

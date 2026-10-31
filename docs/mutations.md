@@ -10648,3 +10648,19 @@ ran each to its end.
 | PQ6 | an HTTPS server requires the hybrid by default | `zig build test-core` | `CAUGHT` |
 
 Six mutations, six `CAUGHT`.
+
+## The AD and CD bits
+
+2026-10-31. Design §25 Stage A, its `wire` piece (c4milo/cocuyo#55). The header reads AD and CD
+at bits 10 and 11 (RFC 6895 §2), and a query sets AD only when asked, with CD and DO clear (RFC
+6840 §5.7, RFC 4035 §4.9.2). AD3 did not compile at its first edit, `if (x) 0 else 0`. It ran
+again with an edit that compiles.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| AD1 | AD reads the Z bit, 0x0040 | `zig build test-wire` | `CAUGHT` |
+| AD2 | CD reads AD's bit | `zig build test-wire` | `CAUGHT` |
+| AD3 | a query asked for AD does not set it | `zig build test-wire` | `CAUGHT` |
+| AD4 | a query that sets AD sets CD too | `zig build test-wire` | `CAUGHT` |
+
+Four mutations, four `CAUGHT`.

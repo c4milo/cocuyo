@@ -157,6 +157,14 @@ pub const flag_recursion_desired: u16 = 0x0100;
 /// RA: recursion available.
 pub const flag_recursion_available: u16 = 0x0080;
 
+/// AD: authentic data, which a server sets when it validated the answer (RFC 4035 §3.2.3), and a
+/// query sets to ask for it without DO (RFC 6840 §5.7). Bit 10 of the flags (RFC 6895 §2).
+pub const flag_authentic_data: u16 = 0x0020;
+
+/// CD: checking disabled, which a server copies from the query (RFC 4035 §3.2.2). Bit 11 of the
+/// flags (RFC 6895 §2).
+pub const flag_checking_disabled: u16 = 0x0010;
+
 /// RCODE, the low four bits (RFC 1035 §4.1.1).
 pub const rcode_mask: u16 = 0x000f;
 

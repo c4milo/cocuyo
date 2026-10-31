@@ -43,6 +43,17 @@ pub const Header = struct {
         return self.flags & constants.flag_authoritative != 0;
     }
 
+    /// AD: the server says it validated the answer and the authority sections (RFC 4035 §3.2.3).
+    /// A lookup relies on it only as docs/design.md §25 Stage A allows (RFC 4035 §4.6).
+    pub fn authentic_data(self: *const Header) bool {
+        return self.flags & constants.flag_authentic_data != 0;
+    }
+
+    /// CD: checking disabled, as the query asked (RFC 4035 §3.2.2).
+    pub fn checking_disabled(self: *const Header) bool {
+        return self.flags & constants.flag_checking_disabled != 0;
+    }
+
     /// The low four bits of the flags. An OPT record can extend this, which edns.zig reads; this
     /// is the header's own four bits and nothing more.
     pub fn rcode_bits(self: *const Header) u8 {
@@ -149,6 +160,20 @@ test "every flag and the rcode read from the bits the RFC fixes" {
     try testing.expect(header.recursion_available());
     try testing.expect(header.authoritative());
     try testing.expectEqual(constants.Rcode.name_error, try header.rcode());
+}
+
+test "AD and CD read from bits 10 and 11, and no other flag reads them (RFC 6895 §2)" {
+    var bytes = query_bytes;
+    bytes[constants.header_flags_offset + 1] = 0x20;
+    const authentic = try parse(&bytes);
+    try testing.expect(authentic.authentic_data());
+    try testing.expect(!authentic.checking_disabled());
+    try testing.expect(!authentic.recursion_available());
+    bytes[constants.header_flags_offset + 1] = 0x10;
+    const unchecked = try parse(&bytes);
+    try testing.expect(unchecked.checking_disabled());
+    try testing.expect(!unchecked.authentic_data());
+    try testing.expectEqual(constants.Rcode.no_error, try unchecked.rcode());
 }
 
 test "rcode 6 is YXDOMAIN, which a DNAME substitution gives (RFC 6672 §2.2, RFC 6895 §2.3)" {

@@ -10108,7 +10108,8 @@ The rules:
 What changes, and where:
 
 - `wire`: the AD and CD bits by name, at the positions RFC 6895 §2 draws, with
-  `Header.authentic_data` and `Query.authentic_data`.
+  `Header.authentic_data` and `Query.authentic_data`. Built on 2026-10-31, with
+  `Header.checking_disabled` (c4milo/cocuyo#55).
 - `core`: `Config.authenticated_data`, and `Security`.
 - `resolver`: the last free bit of `Lookup.flags` holds rule 3's conjunction. `Answer` and
   `Failure` gain `security`.
