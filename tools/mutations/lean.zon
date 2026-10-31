@@ -315,4 +315,40 @@
         },
         .caught_by = .{ .step = "spec-lean" },
     },
+    .{
+        .section = "Rule 3 of DNSSEC Stage A in the model",
+        .id = "AS1",
+        .what = "a message without AD never clears the model's conjunction",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  if acts && relied c && !ad then { t with authentic := false } else t", .new = "  if false then { t with authentic := false } else t" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "Rule 3 of DNSSEC Stage A in the model",
+        .id = "AS2",
+        .what = "encrypted relies on a cleartext server too, in the model",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .encrypted => c.encrypted || c.request", .new = "  | .encrypted => true" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "Rule 3 of DNSSEC Stage A in the model",
+        .id = "AS3",
+        .what = "the model does not act on an NXDOMAIN",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .answer | .cname | .nxdomain | .nodata => true", .new = "  | .answer | .cname | .nodata => true" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "Rule 3 of DNSSEC Stage A in the model",
+        .id = "AS4",
+        .what = "authentic_run proved by sorry",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/LookupProofs/Security.lean", .old = "  induction es generalizing s with\n  | nil => exact h\n  | cons e rest ih => exact step_authentic c s e (ih _ h)", .new = "  sorry" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
 }

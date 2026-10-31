@@ -1458,7 +1458,7 @@ The caller-provided buffer §19 keeps as the fallback is what would take it back
 | `[2N]MatchKey` | 4 bytes each | the id-to-slot table, power-of-two length |
 | send buffer | `query_bytes_max`, 386 | shared by the whole table |
 | receive buffer | `config.udp_payload_bytes`, 1232 by default | the caller's, per socket |
-| `[M]AddressLookup` | 1184 bytes each, measured | one per `getaddrinfo`-shaped lookup in flight: the name, the canonical name, 32 addresses, two handles, the failure of each lookup and the walk's scalars, beside the two slots it takes; pinned by a test in `src/resolver/address_lookup_test.zig`; 1152 until the cause of a failure on 2026-10-17 (§16 decision 45) |
+| `[M]AddressLookup` | 1200 bytes each, measured | one per `getaddrinfo`-shaped lookup in flight: the name, the canonical name, 32 addresses, two handles, the failure of each lookup and the walk's scalars, beside the two slots it takes; pinned by a test in `src/resolver/address_lookup_test.zig`; 1152 until the cause of a failure on 2026-10-17 (§16 decision 45), and 1184 until the security of a negative on 2026-10-31 (§25) |
 
 So 1024 concurrent lookups cost 3096 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
 ever, by anybody. `Resolver` itself holds the `Servers` table, 1488 octets, measured and pinned
@@ -10114,11 +10114,22 @@ What changes, and where:
   `src/core/security.zig`. The mode is the type `AuthenticatedData`, whose `relied_on` holds rule
   1 for a transport and whose `asks` holds rule 2.
 - `resolver`: the last free bit of `Lookup.flags` holds rule 3's conjunction. `Answer` and
-  `Failure` gain `security`.
+  `Failure` gain `security`. Built on 2026-10-31 in `src/resolver/lookup_security.zig`, with one
+  change. §16 decision 50 took the last free bit for `reply_marked` on 2026-10-20, so the
+  conjunction is a field of its own, `Lookup.authentic`. The lookup keeps its size, since the
+  field fits in padding. `Failure` grows from 12 octets to 16, and `AddressLookup` from 1,184 to
+  1,200. Every query sets AD under `encrypted` and `always`. The lookup acts on a message at
+  NXDOMAIN, at each NOERROR it collects, and at a chain that is too long. A memory recall reads no
+  message, so until the `cache` piece its end is `unchecked`.
 - `cache`: the status in a slot.
 - `config`: `options trust-ad`, read as `always`.
 - The lookup's model: the bit, and a theorem that an end is `authenticated` only when every
-  message the lookup acted on had AD set, and never under `ignored`.
+  message the lookup acted on had AD set, and never under `ignored`. Built on 2026-10-31, before
+  the code of the `resolver` piece. A reply with AD set is the event `replyAd`, and a reply is one
+  with AD clear, so the model's tokens only grow. `Lookup.authentic` is rule 3's conjunction.
+  `spec/lean/Spec/LookupProofs/Security.lean` proves `ignored_unchecked`, `authentic_run`,
+  `reply_clears` and `authenticated_needs_ad`. The walk asks for `replyAd` only where the
+  configuration relies on the bit, so under `ignored` its states are as before.
 
 No limit is new. Checks, one for each piece:
 

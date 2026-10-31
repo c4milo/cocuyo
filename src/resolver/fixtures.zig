@@ -19,13 +19,6 @@ const Kind = core.Kind;
 const Name = core.Name;
 const Question = core.Question;
 const lookup_module = @import("lookup.zig");
-const table_module = @import("table.zig");
-const slots_module = @import("table_slots.zig");
-const Resolver = table_module.Resolver;
-const Event = table_module.Event;
-const MatchKey = table_module.MatchKey;
-const Handle = slots_module.Handle;
-const Slot = slots_module.Slot;
 const Lookup = lookup_module.Lookup;
 const Action = lookup_module.Action;
 const Verdict = lookup_module.Verdict;
@@ -142,6 +135,8 @@ pub const Reply = struct {
     /// The server cookie to send beside the client's, when `cookie` sends one; empty for the
     /// short form.
     server_cookie: []const u8 = &.{},
+    /// The AD bit: the server says it validated the answer (RFC 4035 §3.2.3).
+    authentic_data: bool = false,
 };
 
 /// What the fake server does about cookies.
@@ -360,6 +355,7 @@ pub const Harness = struct {
             wire.constants.flag_recursion_available |
             (rcode & wire.constants.rcode_mask);
         if (reply.truncated) flags |= wire.constants.flag_truncated;
+        if (reply.authentic_data) flags |= wire.constants.flag_authentic_data;
         const extended_high: u8 = @intCast(rcode >> wire.constants.extended_rcode_low_bits);
         const with_opt = reply.cookie != .none or extended_high != 0;
 
@@ -428,72 +424,5 @@ pub const Harness = struct {
     }
 };
 
-/// A whole table, its buffers, and the fake server that answers every lookup in it. Started in
-/// place for the same reason `Harness` is: the resolver holds pointers to the arrays beside it.
-pub const Table = struct {
-    config: Config,
-    slots: [slot_count]Slot = @splat(.{}),
-    keys: [key_count]MatchKey = @splat(.{}),
-    resolver: Resolver = undefined,
-    out: [core.limits.query_bytes_max]u8 = @splat(0),
-    reply: [core.constants.udp_payload_bytes_default]u8 = @splat(0),
-    now_ns: u64 = 0,
-
-    pub fn open(self: *Table) void {
-        self.resolver = Resolver.init(&self.slots, &self.keys, &self.config, seed);
-    }
-
-    pub fn start(self: *Table, text: []const u8) !Handle {
-        return self.resolver.start(try Question.from_text(text, .a));
-    }
-
-    pub fn poll(self: *Table) ?Event {
-        self.now_ns += 1;
-        return self.resolver.poll(self.now_ns, &self.out);
-    }
-
-    /// Answers one lookup the way its current server would, with one A record. The server is the
-    /// lookup's own: after a timeout it has moved to the next one, and a reply from the server it
-    /// no longer holds is not a reply (§7 check 3).
-    pub fn answer(self: *Table, handle: Handle) Verdict {
-        const lookup = self.resolver.lookup_of(handle);
-        const message = self.build(lookup, answer_a);
-        self.now_ns += 1;
-        return self.resolver.on_datagram(message, lookup.server(), self.now_ns);
-    }
-
-    /// A reply carrying one lookup's id and another lookup's question: the cross-talk a table has
-    /// to refuse.
-    pub fn crosstalk(self: *Table, id_of: Handle, question_of: Handle) Verdict {
-        const question_lookup = self.resolver.lookup_of(question_of);
-        var reply = answer_a;
-        reply.id = self.resolver.lookup_of(id_of).transaction.id;
-        const message = self.build(question_lookup, reply);
-        self.now_ns += 1;
-        return self.resolver.on_datagram(message, question_lookup.server(), self.now_ns);
-    }
-
-    /// Builds `reply` around the question `lookup` asked: the rcode's low four bits in the
-    /// header, as `Harness.build` does, and no OPT record, so the extended rcodes stay there.
-    pub fn build(self: *Table, lookup: *const Lookup, reply: Reply) []const u8 {
-        assert(reply.cookie == .none);
-        const name = lookup.cased_name();
-        const rcode: u16 = @intFromEnum(reply.rcode);
-        assert(rcode >> wire.constants.extended_rcode_low_bits == 0);
-        var flags: u16 = wire.constants.flag_response | wire.constants.flag_recursion_desired | (rcode & wire.constants.rcode_mask);
-        if (reply.truncated) flags |= wire.constants.flag_truncated;
-        const header: wire.Header = .{
-            .id = reply.id orelse lookup.transaction.id,
-            .flags = flags,
-            .qdcount = 1,
-            .ancount = reply.ancount,
-            .nscount = 0,
-            .arcount = 0,
-        };
-        wire.header.write(&header, &self.reply);
-        var offset: usize = core.constants.header_bytes;
-        offset += wire.question.write(&name, lookup.question.kind, self.reply[offset..]);
-        @memcpy(self.reply[offset..][0..reply.records.len], reply.records);
-        return self.reply[0 .. offset + reply.records.len];
-    }
-};
+/// A whole table, its buffers, and the fake server that answers every lookup in it.
+pub const Table = @import("fixtures_table.zig").Table;

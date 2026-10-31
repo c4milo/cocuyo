@@ -34,6 +34,7 @@ const init_module = @import("lookup_init.zig");
 const response_module = @import("lookup_response.zig");
 const cut_module = @import("lookup_response_cut.zig");
 const request_module = @import("lookup_request.zig");
+const security = @import("lookup_security.zig");
 const failure_module = @import("lookup_failure.zig");
 const bound = @import("lookup_bound.zig");
 
@@ -110,6 +111,9 @@ pub const Answer = struct {
     /// to ask over, or over UDP under `Config.ignore_truncation`. A cache keeps no answer marked
     /// so (RFC 1035 §7.4).
     truncated: bool,
+    /// Whether the servers said they validated it: `authenticated` when the configuration relies
+    /// on the AD bit and every message the lookup acted on had it set (docs/design.md §25).
+    security: core.Security,
 };
 
 pub const Failure = failure_module.Failure;
@@ -155,6 +159,9 @@ pub const Lookup = struct {
     // keeps the demultiplexer cheap is the side table of §11, not this declaration order.
     state: State,
     flags: Flags,
+    /// Rule 3's conjunction (docs/design.md §25, Stage A): AD set on every message the lookup
+    /// acted on, while the configuration relies on the bit. `Flags` has no bit left for it.
+    authentic: bool,
     /// Where the walk over the servers stands: a position in `order`, not a configured server.
     server_index: u8,
     round: u8,
@@ -471,6 +478,7 @@ pub const Lookup = struct {
             .canonical_name = if (self.flags.aliased) &self.current else null,
             .ttl_seconds = self.answers.ttl_seconds,
             .truncated = self.answers.truncated,
+            .security = security.of(self),
         };
     }
 

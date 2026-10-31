@@ -114,14 +114,20 @@ fn shape_of(reply: Reply, kind: core.Kind) Shape {
     };
 }
 
-/// Builds `reply` to what `lookup` is asking into `out`.
+/// Builds `reply` to what `lookup` is asking into `out`, with AD clear.
 pub fn build(lookup: *const Lookup, reply: Reply, out: []u8) []const u8 {
+    return build_with(lookup, reply, false, out);
+}
+
+/// As `build`, with AD set when `authentic` says so (docs/design.md §25, Stage A).
+pub fn build_with(lookup: *const Lookup, reply: Reply, authentic: bool, out: []u8) []const u8 {
     const shape = shape_of(reply, lookup.question.kind);
     const rcode: u16 = @intFromEnum(shape.rcode);
     const extended_high: u8 = @intCast(rcode >> wire.constants.extended_rcode_low_bits);
     var flags: u16 = wire.constants.flag_response | wire.constants.flag_recursion_desired |
         wire.constants.flag_recursion_available | (rcode & wire.constants.rcode_mask);
     if (shape.truncated) flags |= wire.constants.flag_truncated;
+    if (authentic) flags |= wire.constants.flag_authentic_data;
     const header: wire.Header = .{
         .id = lookup.transaction.id +% shape.id_offset,
         .flags = flags,

@@ -129,8 +129,8 @@ theorem marked_step (c : Config) (s : State) (e : Event) (m : Marked s) :
     split
     · exact hadv _ (keep_isSome _ _)
     · exact ⟨h, ht⟩
-  | reply r =>
-    cases hst : s.stage <;> simp only [step, hst]
+  | reply r | replyAd r =>
+    cases hst : s.stage <;> simp only [step, heard, clear, hst] <;> try split
     all_goals first
       | exact marked_onReply c s _ r ⟨h, ht⟩ hs
       | exact ⟨h, ht⟩

@@ -204,16 +204,12 @@ theorem step_le (c : Config) (s : State) (e : Event) (g : Good c s) :
       split
       · exact lexLt_le _ _ (advanceServer_lt c _ h2)
       · exact lexLe_refl _
-    | reply r =>
-      cases hs : s.stage <;> simp only [step, hs]
-      · exact lexLe_refl _
-      · exact onReply_le c s c.request r h2 h4 (fun _ => hs)
-      · exact lexLe_refl _
-      · exact lexLe_refl _
-      · exact lexLe_refl _
-      · exact onReply_le c s true r h2 h4 (fun h => absurd h (by simp))
-      · exact lexLe_refl _
-      · exact lexLe_refl _
+    | reply r | replyAd r =>
+      cases hs : s.stage <;> simp only [step, heard, clear, hs] <;> try split
+      all_goals first
+        | exact onReply_le c s c.request r h2 h4 (fun _ => hs)
+        | exact onReply_le c s true r h2 h4 (fun h => absurd h (by simp))
+        | exact lexLe_refl _
     | cancel =>
       simp only [step]
       split
@@ -351,16 +347,12 @@ theorem step_good (c : Config) (s : State) (e : Event) (hc : Sane c) (g : Good c
       split
       · exact advanceServer_good c _ hc h2 h4 h3
       · exact gs
-    | reply r =>
-      cases hs : s.stage <;> simp only [step, hs]
-      · exact gs
-      · exact onReply_good c s c.request r hc h1 h2 h3 h4
-      · exact gs
-      · exact gs
-      · exact gs
-      · exact onReply_good c s true r hc h1 h2 h3 h4
-      · exact gs
-      · exact gs
+    | reply r | replyAd r =>
+      cases hs : s.stage <;> simp only [step, heard, clear, hs] <;> try split
+      all_goals first
+        | exact onReply_good c s c.request r hc h1 h2 h3 h4
+        | exact onReply_good c s true r hc h1 h2 h3 h4
+        | exact gs
     | cancel =>
       simp only [step]
       split

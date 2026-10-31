@@ -199,8 +199,8 @@ theorem step_bounded (c : Config) (s : State) (e : Event) (h : Bounded s) :
     split
     · exact advanceServer_bounded c _ (keep_bounded s _ h)
     · exact h
-  | reply r =>
-    cases hs : s.stage <;> simp only [step, hs]
+  | reply r | replyAd r =>
+    cases hs : s.stage <;> simp only [step, heard, clear, hs] <;> try split
     all_goals first
       | exact onReply_bounded c s _ r h
       | exact h

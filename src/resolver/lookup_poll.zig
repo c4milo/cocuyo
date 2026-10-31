@@ -138,6 +138,9 @@ fn build(self: *Lookup, tcp: bool, now_ns: u64, out: []u8) []const u8 {
         .tcp = tcp,
         .cookie = cookies.query_cookie(self, now_ns, tcp),
         .recursion_desired = self.config.recursion_desired,
+        // A query asks for the AD bit whenever the configuration relies on it (RFC 6840 §5.7;
+        // docs/design.md §25, Stage A rule 2).
+        .authentic_data = self.config.authenticated_data.asks(),
         // A query to a TLS, HTTPS or QUIC server goes encrypted, and padding is for that alone
         // (RFC 7830 §6, RFC 9250 §5.4, docs/design.md §21 to §23).
         .padded = self.config.encrypted(),

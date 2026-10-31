@@ -85,6 +85,17 @@ inductive Reply where
   | badcookie
   deriving DecidableEq, Repr, Inhabited
 
+/-- Whether a configuration relies on the AD bit of a response, and from which servers
+(docs/design.md §25, Stage A rule 1). -/
+inductive Mode where
+  /-- The bit means nothing. The default. -/
+  | ignored
+  /-- The bit counts from a server over TLS, HTTPS or QUIC, which strict mode authenticated. -/
+  | encrypted
+  /-- The bit counts from every server. -/
+  | always
+  deriving DecidableEq, Repr, Inhabited, Hashable
+
 /-- What the caller can tell a lookup, and asking it what to do. -/
 inductive Event where
   /-- A poll before the deadline. -/
@@ -99,7 +110,11 @@ inductive Event where
   /-- A request over DoH or DoQ ended without an answer, and why: an HTTP status that is not 2xx,
   a stream the server reset, or the connection lost (docs/design.md §22, §23). -/
   | requestFailed (r : Reason)
+  /-- A reply whose message has AD clear. -/
   | reply (r : Reply)
+  /-- A reply whose message has AD set, the server's word that it validated the answer and the
+  authority sections (RFC 4035 §3.2.3; docs/design.md §25, Stage A). -/
+  | replyAd (r : Reply)
   | cancel
   deriving DecidableEq, Repr, Inhabited
 
@@ -125,6 +140,11 @@ structure Config where
   /-- Which kind of request: DoQ's QUIC rather than DoH's HTTP. No transition reads it, since the two
   move alike; the transcript names it, so the replay asks servers of that kind. -/
   quic : Bool := false
+  /-- Whether the AD bit is relied on (docs/design.md §25, Stage A rule 1). -/
+  authenticatedData : Mode := .ignored
+  /-- Every server is spoken to over TLS, which strict mode authenticated (docs/design.md §21). A
+  request, over DoH or DoQ, is encrypted whatever this says. -/
+  encrypted : Bool := false
   deriving Repr
 
 structure State where
@@ -155,6 +175,9 @@ structure State where
   policy; §16 decision 58). -/
   datagrams : List Nat
   streams : List Nat
+  /-- Rule 3's conjunction: AD set on every message the lookup acted on, while the configuration
+  relies on the bit (docs/design.md §25, Stage A). Once clear it stays clear. -/
+  authentic : Bool
   deriving DecidableEq, Repr, Hashable
 
 /-- Where a lookup stands before each query: every query over TCP when the configuration says so
@@ -186,7 +209,7 @@ def init (c : Config) : State :=
   let s : State := { stage := fresh c, server := 0, round := 0, candidate := 0, hops := 0,
                      edns := true, hadNoData := false, cause := none,
                      cookieRetried := false, offered := false, err := .timeout,
-                     datagrams := unsent c, streams := unsent c }
+                     datagrams := unsent c, streams := unsent c, authentic := true }
   if c.servers = 0 then fail s .noServers else s
 
 /-- The current server failed the lookup with `w`: the cause, `w` and that server, replaces the one
@@ -270,6 +293,50 @@ def onReply (c : Config) (s : State) (stream : Bool) : Reply → State × Out
       (retry c s { s with cookieRetried := true, stage := fresh c } c.useTcp (some .badcookie),
         .accepted)
 
+/-- Whether a response over the configuration's transport may be read for its AD bit. "A resolver
+MUST disregard the meaning of the CD and AD bits in a response unless the response was obtained by
+using a secure channel or the resolver was specifically configured to regard the message header
+bits without using a secure channel" (RFC 4035 §4.6; docs/design.md §25, Stage A rule 1). -/
+def relied (c : Config) : Bool :=
+  match c.authenticatedData with
+  | .ignored => false
+  | .encrypted => c.encrypted || c.request
+  | .always => true
+
+/-- Whether the lookup acts on a reply's message: it takes its records, follows its CNAME, or
+moves on its denial, which over a stream a truncated message is (docs/design.md §25, Stage A
+rule 3). -/
+def actsOn (stream : Bool) : Reply → Bool
+  | .answer | .cname | .nxdomain | .nodata => true
+  | .truncated => stream
+  | _ => false
+
+/-- A message the lookup acted on, with AD set or not: a message without it clears rule 3's
+conjunction, when the configuration relies on the bit. -/
+def clear (c : Config) (acts ad : Bool) (t : State) : State :=
+  if acts && relied c && !ad then { t with authentic := false } else t
+
+/-- What is known of where an answer came from (docs/design.md §25). The model holds Stage A,
+which never says `insecure` or `secure`. -/
+inductive Security where
+  | unchecked | authenticated
+  deriving DecidableEq, Repr, Inhabited
+
+/-- The security of a lookup's end: `authenticated` when the configuration relies on the bit and
+every message it acted on had AD set, and `unchecked` otherwise (docs/design.md §25, Stage A rule
+3). It means something for an answer, and for the two negatives. -/
+def security (c : Config) (s : State) : Security :=
+  if relied c && s.authentic then .authenticated else .unchecked
+
+/-- What an end reports, as `Answer.security` and `Failure.security` do: the security of an answer,
+and of the two negatives, `unchecked` for every other failure, and nothing while the lookup runs
+(docs/design.md §25). -/
+def reported (c : Config) (s : State) : Option Security :=
+  match s.stage with
+  | .done => some (security c s)
+  | .failed => some (if s.err = .nameNotFound ∨ s.err = .noData then security c s else .unchecked)
+  | _ => none
+
 /-- A poll: the action the lookup wants now. A query over DoH or DoQ is ready as a datagram is,
 one request a transaction, and goes as an HTTP request or a QUIC stream (docs/design.md §22,
 §23). -/
@@ -324,6 +391,19 @@ def requestReasons (c : Config) : List Reason :=
   if c.quic then [.handshake, .«local», .closed, .reset]
   else [.connect, .handshake, .«local», .closed, .status, .reset]
 
+/-- A reply, its message's AD bit `ad`, to a lookup in stage `s.stage`: read where the lookup waits
+for one, and ignored elsewhere. -/
+def heard (c : Config) (s : State) (r : Reply) (ad : Bool) : State × Out :=
+  match s.stage with
+  -- Over DoH or DoQ an answer is read as one over a stream: there is nowhere else to ask.
+  | .awaitingUdp =>
+    let p := onReply c s c.request r
+    (clear c (actsOn c.request r) ad p.1, p.2)
+  | .awaitingTcp =>
+    let p := onReply c s true r
+    (clear c (actsOn true r) ad p.1, p.2)
+  | _ => (s, .ignored)
+
 /-- One event, and what the lookup answers. -/
 def step (c : Config) (s : State) : Event → State × Out
   | .poll => poll c s
@@ -355,12 +435,8 @@ def step (c : Config) (s : State) : Event → State × Out
   | .requestFailed r =>
     if c.request ∧ s.stage = .awaitingUdp then (advanceServer c (keep s (.reason r)), .none)
     else (s, .none)
-  | .reply r =>
-    match s.stage with
-    -- Over DoH or DoQ an answer is read as one over a stream: there is nowhere else to ask.
-    | .awaitingUdp => onReply c s c.request r
-    | .awaitingTcp => onReply c s true r
-    | _ => (s, .ignored)
+  | .reply r => heard c s r false
+  | .replyAd r => heard c s r true
   | .cancel => if ended s.stage then (s, .none) else (fail s .canceled, .none)
 
 /-- The events a caller may deliver to a `Lookup`, by the contract of §4: a poll at any time, a
@@ -372,6 +448,10 @@ nothing. -/
 def enabled (c : Config) (s : State) : List Event :=
   let replies := [Reply.unmatched, .answer, .cname, .nxdomain, .nodata, .yxdomain, .servfail,
                   .formerr, .truncated, .badcookie].map Event.reply
+  -- A message the lookup acts on may have AD set. Under `ignored` the bit changes nothing, and the
+  -- walk leaves it out.
+  let authentic := if c.authenticatedData = .ignored then []
+    else [Reply.answer, .cname, .nxdomain, .nodata, .truncated].map Event.replyAd
   [Event.poll]
     ++ (if waiting s.stage then [Event.expire] else [])
     ++ (if s.offered then [Event.sent, .sendFailed] else [])
@@ -379,7 +459,7 @@ def enabled (c : Config) (s : State) : List Event :=
     ++ (if onStream s.stage then (tcpReasons s.stage).map Event.tcpFailed else [])
     ++ (if c.request ∧ s.stage = .awaitingUdp then (requestReasons c).map Event.requestFailed
         else [])
-    ++ (if listens s.stage then replies else [Event.reply .unmatched])
+    ++ (if listens s.stage then replies ++ authentic else [Event.reply .unmatched])
     ++ (if ended s.stage then [] else [Event.cancel])
 
 end Spec.Lookup

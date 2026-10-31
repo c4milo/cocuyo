@@ -94,6 +94,12 @@ pub const Event = enum {
     reply_formerr,
     reply_truncated,
     reply_badcookie,
+    // A message with AD set, of a kind the lookup acts on (docs/design.md §25, Stage A).
+    reply_ad_answer,
+    reply_ad_cname,
+    reply_ad_nxdomain,
+    reply_ad_nodata,
+    reply_ad_truncated,
 };
 
 pub const Error = error{ Malformed, TooDeep, Mismatch, WrongHops, Empty };
@@ -174,6 +180,7 @@ pub const Replay = struct {
         const attempts = try count(fields.next(), 1, core.limits.attempts_max);
         const candidates = try count(fields.next(), 1, search_all.len + 1);
         const transport = parse(Transport, fields.next()) orelse return error.Malformed;
+        const mode = parse(core.AuthenticatedData, fields.next()) orelse return error.Malformed;
         if (fields.next() != null) return error.Malformed;
         for (search_all[0 .. candidates - 1], 0..) |entry, index| {
             self.search[index] = core.Name.from_text(entry) catch unreachable;
@@ -189,6 +196,7 @@ pub const Replay = struct {
             .search = self.search[0 .. candidates - 1],
             .ndots = ndots,
             .use_tcp = transport == .tcp,
+            .authenticated_data = mode,
         };
         const name = if (candidates == 1) name_absolute else name_relative;
         self.question = core.Question.from_text(name, .a) catch unreachable;
@@ -277,13 +285,13 @@ pub const Replay = struct {
             .request_failed_reset,
             => lookup.on_request_failed(lookup.transaction.number, reason_of(event), self.now_ns),
             .cancel => lookup.cancel(),
-            else => return self.respond(reply_of(event)),
+            else => return self.respond(reply_of(event), authentic_of(event)),
         }
         return .none;
     }
 
-    fn respond(self: *Replay, reply: fixtures.Reply) Out {
-        const message = fixtures.build(&self.lookup, reply, &self.reply);
+    fn respond(self: *Replay, reply: fixtures.Reply, authentic: bool) Out {
+        const message = fixtures.build_with(&self.lookup, reply, authentic, &self.reply);
         const verdict = if (self.config.sends_requests())
             self.lookup.on_request_answer(transaction_of(&self.lookup, reply), message, 0, self.now_ns)
         else
@@ -342,8 +350,18 @@ fn reason_of(event: Event) resolver.Reason {
     return std.meta.stringToEnum(resolver.Reason, name[at + 1 ..]) orelse unreachable;
 }
 
+/// Whether a reply's message has AD set: the model's `replyAd`.
+fn authentic_of(event: Event) bool {
+    return std.mem.startsWith(u8, @tagName(event), "reply_ad_");
+}
+
 fn reply_of(event: Event) fixtures.Reply {
     return switch (event) {
+        .reply_ad_answer => .answer,
+        .reply_ad_cname => .cname,
+        .reply_ad_nxdomain => .nxdomain,
+        .reply_ad_nodata => .nodata,
+        .reply_ad_truncated => .truncated,
         .reply_unmatched => .unmatched,
         .reply_answer => .answer,
         .reply_cname => .cname,
@@ -411,8 +429,9 @@ test "the committed slice of the model's transcript replays against the lookup" 
     };
     // Since 2026-10-17 the sixth, two passes over DoH, holds a lookup that runs with a cause. Since
     // 2026-10-21 the seventh, two servers over DoQ, holds a cause from a server that the lookup
-    // is not on at its end.
-    try testing.expectEqual(@as(usize, 7), replay.configs);
+    // is not on at its end. Since 2026-10-31 the last three rely on the AD bit, or name a mode that
+    // does not, over UDP (docs/design.md §25, Stage A).
+    try testing.expectEqual(@as(usize, 10), replay.configs);
     try testing.expect(replay.events > 13600);
     try testing.expect(replay.cuts > 0);
 }
@@ -421,8 +440,8 @@ test "a line where the lookup answers otherwise than the model is a mismatch" {
     const replay = try testing.allocator.create(Replay);
     defer testing.allocator.destroy(replay);
     replay.* = .{};
-    const text = "hops 8\nconfig 1 1 1 udp\n0 init none query_ready 0/0/0/0 E--- -\n" ++
-        "1 poll send_tcp query_ready 0/0/0/0 E--- -\n";
+    const text = "hops 8\nconfig 1 1 1 udp ignored\n0 init none query_ready 0/0/0/0 E--- - A -\n" ++
+        "1 poll send_tcp query_ready 0/0/0/0 E--- - A -\n";
     try testing.expectError(error.Mismatch, replay_text(replay, text));
     try testing.expectEqual(Out.send_udp, replay.mismatch.?.got_out);
     try testing.expectEqual(@as(usize, 4), replay.mismatch.?.line);
@@ -432,11 +451,11 @@ test "a line where the lookup's state drifts from the model's is a mismatch, wha
     const replay = try testing.allocator.create(Replay);
     defer testing.allocator.destroy(replay);
     replay.* = .{};
-    const text = "hops 8\nconfig 1 1 1 udp\n0 init none query_ready 0/0/0/0 E--- -\n" ++
-        "1 poll send_udp query_ready 0/0/0/0 ---- -\n";
+    const text = "hops 8\nconfig 1 1 1 udp ignored\n0 init none query_ready 0/0/0/0 E--- - A -\n" ++
+        "1 poll send_udp query_ready 0/0/0/0 ---- - A -\n";
     try testing.expectError(error.Mismatch, replay_text(replay, text));
     const mismatch = replay.mismatch.?;
-    try testing.expectEqualStrings("query_ready 0/0/0/0 E--- -", mismatch.got_state[0..mismatch.got_state_len]);
+    try testing.expectEqualStrings("query_ready 0/0/0/0 E--- - A -", mismatch.got_state[0..mismatch.got_state_len]);
 }
 
 test "a line in the wrong place, a transcript for other hops, and an empty one are refused" {
@@ -444,15 +463,17 @@ test "a line in the wrong place, a transcript for other hops, and an empty one a
     defer testing.allocator.destroy(replay);
     const cases = [_]struct { text: []const u8, err: Error }{
         .{ .text = "hops 7\n", .err = error.WrongHops },
-        .{ .text = "config 1 1 1 udp\n", .err = error.WrongHops },
-        .{ .text = "hops 8\nconfig 1 1 1 udp\n2 poll send_udp query_ready 0/0/0/0 E--- -\n", .err = error.Malformed },
-        .{ .text = "hops 8\nconfig 1 1 1 udp\n1 poll send_udp query_ready 0/0/0/0 E--- -\n", .err = error.Malformed },
-        .{ .text = "hops 8\nconfig 1 1 1 udp\n0 init none\n", .err = error.Malformed },
-        .{ .text = "hops 8\nconfig 4 1 1 udp\n", .err = error.Malformed },
+        .{ .text = "config 1 1 1 udp ignored\n", .err = error.WrongHops },
+        .{ .text = "hops 8\nconfig 1 1 1 udp ignored\n2 poll send_udp query_ready 0/0/0/0 E--- - A -\n", .err = error.Malformed },
+        .{ .text = "hops 8\nconfig 1 1 1 udp ignored\n1 poll send_udp query_ready 0/0/0/0 E--- - A -\n", .err = error.Malformed },
+        .{ .text = "hops 8\nconfig 1 1 1 udp ignored\n0 init none\n", .err = error.Malformed },
+        .{ .text = "hops 8\nconfig 4 1 1 udp ignored\n", .err = error.Malformed },
         .{ .text = "hops 8\nconfig 1 1 1 carrier-pigeon\n", .err = error.Malformed },
         .{ .text = "hops 8\nconfig 1 1 1\n", .err = error.Malformed },
         .{ .text = "hops 8\nconfig 1 1 1 udp tcp\n", .err = error.Malformed },
-        .{ .text = "hops 8\nconfig 1 1 1 udp\n", .err = error.Empty },
+        .{ .text = "hops 8\nconfig 1 1 1 udp\n", .err = error.Malformed },
+        .{ .text = "hops 8\nconfig 1 1 1 udp ignored always\n", .err = error.Malformed },
+        .{ .text = "hops 8\nconfig 1 1 1 udp ignored\n", .err = error.Empty },
     };
     for (cases) |case| {
         replay.* = .{};

@@ -22,6 +22,7 @@ const lookup_module = @import("lookup.zig");
 const Lookup = lookup_module.Lookup;
 const Verdict = lookup_module.Verdict;
 const Cause = lookup_module.Cause;
+const security = @import("lookup_security.zig");
 const policy = @import("lookup_policy.zig");
 const cookies = @import("lookup_cookie.zig");
 const bound = @import("lookup_bound.zig");
@@ -140,6 +141,7 @@ pub fn apply(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64
     switch (action) {
         .collect => unreachable,
         .next_candidate => {
+            security.acted_on(self, header);
             // NXDOMAIN. The SOA in the authority section says how long a cache may remember it
             // (RFC 2308 §5); a message with no SOA, or a malformed one, says nothing, and nothing
             // is zero, which is not cached. The walk keeps the smallest of every candidate's.
@@ -282,12 +284,14 @@ fn collect(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64) 
         // malformed one: it passed every check of §7. Alias loops are an error passed back to
         // the client (RFC 1034 §3.6.2, §5.2.2), and §5 names it.
         if (err == error.ChainTooLong) {
+            security.acted_on(self, accepted.header);
             heard(self, accepted.cookie, null, now_ns);
             self.fail(core.Error.ChainTooLong);
             return .accepted;
         }
         return .ignored;
     };
+    security.acted_on(self, accepted.header);
     heard(self, accepted.cookie, null, now_ns);
     // A name the chain moved to came off the wire, and a server that compressed it to a pointer
     // into the question it echoed handed back cocuyo's own case randomisation. That case is noise

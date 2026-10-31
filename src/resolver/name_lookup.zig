@@ -180,7 +180,7 @@ fn take_failure(self: *NameLookup, failure: Failure) void {
 /// The walk ends with `err` on the fields of the last failure of its lookup. When its lookup
 /// never failed, the fields are zeros and the cause is null (docs/design.md §19 step 14).
 fn end_failed(self: *NameLookup, err: core.Error) void {
-    var failure: Failure = self.last_failure orelse .{ .err = err, .server_index = 0, .attempts_made = 0, .negative_ttl_seconds = 0, .cause = null };
+    var failure: Failure = self.last_failure orelse .{ .err = err, .server_index = 0, .attempts_made = 0, .negative_ttl_seconds = 0, .cause = null, .security = .unchecked };
     failure.err = err;
     end_failed_with(self, failure);
 }

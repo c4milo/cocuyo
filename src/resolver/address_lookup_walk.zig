@@ -239,7 +239,7 @@ fn end_negative(self: *AddressLookup) void {
 }
 
 pub fn end_failed(self: *AddressLookup, err: core.Error) void {
-    var failure: Failure = self.last_failure orelse .{ .err = err, .server_index = 0, .attempts_made = 0, .negative_ttl_seconds = 0, .cause = null };
+    var failure: Failure = self.last_failure orelse .{ .err = err, .server_index = 0, .attempts_made = 0, .negative_ttl_seconds = 0, .cause = null, .security = .unchecked };
     failure.err = err;
     end_failed_with(self, failure);
 }

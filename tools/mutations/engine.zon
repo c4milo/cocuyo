@@ -4858,4 +4858,85 @@
         },
         .caught_by = .{ .step = "test-core" },
     },
+    .{
+        .section = "Rule 3 of DNSSEC Stage A",
+        .id = "RA1",
+        .what = "a message without AD never clears the conjunction",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_security.zig", .old = "    if (relied(lookup) and !header.authentic_data()) lookup.authentic = false;", .new = "    if (relied(lookup) and !relied(lookup) and !header.authentic_data()) lookup.authentic = false;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Rule 3 of DNSSEC Stage A",
+        .id = "RA2",
+        .what = "an end is authenticated where the configuration does not rely on the bit",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_security.zig", .old = "    return if (relied(lookup) and lookup.authentic) .authenticated else .unchecked;", .new = "    return if (lookup.authentic) .authenticated else .unchecked;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Rule 3 of DNSSEC Stage A",
+        .id = "RA3",
+        .what = "an NXDOMAIN that moves the walk on is no message the lookup acted on",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            security.acted_on(self, header);\n            // NXDOMAIN.", .new = "            // NXDOMAIN." },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Rule 3 of DNSSEC Stage A",
+        .id = "RA4",
+        .what = "a NOERROR the lookup collects is no message it acted on",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    security.acted_on(self, accepted.header);\n    heard(self, accepted.cookie, null, now_ns);\n    // A name the chain", .new = "    heard(self, accepted.cookie, null, now_ns);\n    // A name the chain" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Rule 3 of DNSSEC Stage A",
+        .id = "RA5",
+        .what = "a chain too long is no message the lookup acted on",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            security.acted_on(self, accepted.header);\n            heard(self, accepted.cookie, null, now_ns);\n            self.fail(core.Error.ChainTooLong);", .new = "            heard(self, accepted.cookie, null, now_ns);\n            self.fail(core.Error.ChainTooLong);" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Rule 3 of DNSSEC Stage A",
+        .id = "RA6",
+        .what = "a recalled answer keeps the conjunction it started with",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_recall.zig", .old = "    assert(lookup.is_settled());\n    security.recalled(lookup);\n}", .new = "    assert(lookup.is_settled());\n}" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Rule 3 of DNSSEC Stage A",
+        .id = "RA7",
+        .what = "every failure reports the security of a negative",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_failure.zig", .old = "        .security = if (negative) security.of(self) else .unchecked,", .new = "        .security = if (negative or !negative) security.of(self) else .unchecked," },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Rule 3 of DNSSEC Stage A",
+        .id = "RA8",
+        .what = "a query never asks for AD",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        .authentic_data = self.config.authenticated_data.asks(),", .new = "        .authentic_data = self.config.authenticated_data.asks() and false," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Rule 3 of DNSSEC Stage A",
+        .id = "RA9",
+        .what = "a lookup starts with the conjunction clear",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_init.zig", .old = "        .authentic = true,\n        .server_index = 0,", .new = "        .authentic = false,\n        .server_index = 0," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
 }

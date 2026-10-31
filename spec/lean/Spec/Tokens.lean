@@ -24,6 +24,7 @@ def eventToken : Event → String
   | .tcpConnected => "tcp_connected" | .tcpFailed r => "tcp_failed_" ++ reasonToken r
   | .cancel => "cancel" | .requestFailed r => "request_failed_" ++ reasonToken r
   | .reply r => "reply_" ++ replyToken r
+  | .replyAd r => "reply_ad_" ++ replyToken r
 
 def errToken : Err → String
   | .nameNotFound => "name_not_found" | .noData => "no_data" | .timeout => "timeout"
@@ -50,6 +51,15 @@ def stageToken : Stage → String
   | .connectingTcp => "connecting_tcp" | .tcpReady => "tcp_ready"
   | .awaitingTcp => "awaiting_tcp" | .done => "done" | .failed => "failed"
 
+def modeToken : Mode → String
+  | .ignored => "ignored" | .encrypted => "encrypted" | .always => "always"
+
+/-- What an end reports, and `-` while the lookup runs. -/
+def reportedToken : Option Security → String
+  | none => "-"
+  | some .unchecked => "unchecked"
+  | some .authenticated => "authenticated"
+
 /-- How a configuration's queries go, as the transcript's `config` line names it. -/
 def transportToken (c : Config) : String :=
   if c.useTcp then "tcp" else if !c.request then "udp" else if c.quic then "quic" else "https"
@@ -70,7 +80,10 @@ def stateToken (s : State) : String :=
       flag s.edns 'E' ++ flag s.hadNoData 'N' ++ flag s.cause.isSome 'F' ++ flag s.cookieRetried 'K'
 
 /-- A state as the lookup's transcript writes it: `stateToken`, then the cause the lookup holds,
-which a failed lookup reports (docs/design.md §5, The cause of a failure). -/
-def lineToken (s : State) : String := stateToken s ++ " " ++ causeToken s.cause
+which a failed lookup reports (docs/design.md §5, The cause of a failure), then rule 3's
+conjunction and what an end reports (docs/design.md §25, Stage A). -/
+def lineToken (c : Config) (s : State) : String :=
+  stateToken s ++ " " ++ causeToken s.cause ++ " " ++ flag s.authentic 'A' ++ " " ++
+    reportedToken (reported c s)
 
 end Spec.Lookup

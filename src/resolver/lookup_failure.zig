@@ -6,6 +6,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 const wire = @import("wire");
 const lookup_module = @import("lookup.zig");
+const security = @import("lookup_security.zig");
 const Lookup = lookup_module.Lookup;
 
 pub const Failure = struct {
@@ -33,6 +34,10 @@ pub const Failure = struct {
     /// `AddressLookup` and `NameLookup` hand on the cause of the lookup whose end they report
     /// (docs/design.md §5, The cause of a failure).
     cause: ?Cause,
+    /// For `NameNotFound` and `NoData`, whether the servers said they validated the denial, as
+    /// `Answer.security` says of an answer (docs/design.md §25). `unchecked` for every other
+    /// failure.
+    security: core.Security,
 };
 
 /// What made a server fail a lookup, and that server. Each server failure replaces the cause the
@@ -169,6 +174,7 @@ pub fn failure_of(self: *const Lookup) Failure {
         .attempts_made = self.round,
         .negative_ttl_seconds = if (negative) self.negative_ttl_seconds else 0,
         .cause = self.cause.get(),
+        .security = if (negative) security.of(self) else .unchecked,
     };
 }
 
@@ -449,9 +455,10 @@ test "a negative that the memory recalls has no cause" {
 }
 
 test "the size of a failure is pinned, and an answer outweighs it" {
-    // 8 octets until the cause came on 2026-10-17. An `Action` holds the larger `Answer`, so it
-    // kept its size (docs/design.md §16 decision 45).
-    try testing.expectEqual(@as(usize, 12), @sizeOf(Failure));
+    // 8 octets until the cause came on 2026-10-17, and 12 until the security of a negative came
+    // on 2026-10-31. An `Action` holds the larger `Answer`, so it kept its size (docs/design.md
+    // §16 decision 45, §25).
+    try testing.expectEqual(@as(usize, 16), @sizeOf(Failure));
     try testing.expect(@sizeOf(Failure) < @sizeOf(lookup_module.Answer));
     // The lookup holds a cause in three octets, where a `?Cause` takes four (§16 decision 51).
     try testing.expectEqual(@as(usize, 3), @sizeOf(Held));

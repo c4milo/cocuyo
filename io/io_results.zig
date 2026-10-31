@@ -54,7 +54,7 @@ const testing = std.testing;
 
 test "results come out in the order they went in, and the queue wraps" {
     var queue: Queue(3) = .{};
-    const failure: cocuyo.Failure = .{ .err = cocuyo.Error.Timeout, .server_index = 0, .attempts_made = 1, .negative_ttl_seconds = 0, .cause = null };
+    const failure: cocuyo.Failure = .{ .err = cocuyo.Error.Timeout, .server_index = 0, .attempts_made = 1, .negative_ttl_seconds = 0, .cause = null, .security = .unchecked };
     var index: u32 = 0;
     while (index < 5) : (index += 1) {
         queue.push(.{ .handle = .{ .index = @intCast(index), .generation = 1 }, .outcome = .{ .failure = failure } });

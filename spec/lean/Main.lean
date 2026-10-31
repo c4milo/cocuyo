@@ -47,7 +47,7 @@ partial def walk (out : IO.FS.Stream) (c : Config) (seen : IO.Ref (Std.HashSet S
   let mut deepest := depth
   for e in enabled c s do
     let (t, o) := step c s e
-    out.putStrLn s!"{depth + 1} {eventToken e} {outToken o} {lineToken t}"
+    out.putStrLn s!"{depth + 1} {eventToken e} {outToken o} {lineToken c t}"
     lines := lines + 1
     deepest := max deepest (depth + 1)
     unless (← seen.get).contains (key c t) do
@@ -56,6 +56,19 @@ partial def walk (out : IO.FS.Stream) (c : Config) (seen : IO.Ref (Std.HashSet S
       lines := lines + more
       deepest := max deepest deeper
   return (lines, deepest)
+
+/-- The configurations that rely on the AD bit (docs/design.md §25, Stage A): one server, one
+pass, one name or two, over UDP and over DoH, under `encrypted` and under `always`. Over UDP,
+`encrypted` relies on no server, and over DoH it does. Two names reach a negative that moves the
+walk on, and each reaches a chain across messages. -/
+def authenticatedAll (hops : Nat) : List Config := Id.run do
+  let mut all := []
+  for mode in [Mode.encrypted, .always] do
+    for request in [false, true] do
+      for candidates in [1, 2] do
+        all := all ++ [{ servers := 1, attempts := 1, candidates, hopsMax := hops, useTcp := false,
+                         request, authenticatedData := mode }]
+  return all
 
 /-- The configurations `all` walks: none, one, two or three servers; one to three attempts and
 search candidates; every query over UDP, over TCP, over DoH or over DoQ (docs/design.md §22,
@@ -79,7 +92,7 @@ def configsAll (hops : Nat) : List Config := Id.run do
               (servers = 3 && attempts = 2 && !udp && candidates = 1)
           if walked then
             all := all ++ [{ servers, attempts, candidates, hopsMax := hops, useTcp, request, quic }]
-  return all
+  return all ++ authenticatedAll hops
 
 /-- The configurations `gate` walks: the slice `zig build test` replays without Lean. One
 server, one attempt and one name reach every reply in every state, the whole CNAME chain, the
@@ -97,7 +110,15 @@ def configsGate (hops : Nat) : List Config :=
      quic := true },
    { servers := 1, attempts := 2, candidates := 1, hopsMax := hops, useTcp := false, request := true },
    { servers := 2, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false, request := true,
-     quic := true }]
+     quic := true },
+   -- Rule 3 of docs/design.md §25 over UDP under `always`, where the bit counts, and under
+   -- `encrypted`, where it does not; and over DoH under `encrypted`, with two names.
+   { servers := 1, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false,
+     authenticatedData := .always },
+   { servers := 1, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false,
+     authenticatedData := .encrypted },
+   { servers := 1, attempts := 1, candidates := 2, hopsMax := hops, useTcp := false, request := true,
+     authenticatedData := .encrypted }]
 
 /-- Writes the transcript of `configs` to `out`. Returns the events written and the deepest. -/
 def transcript (out : IO.FS.Stream) (hops : Nat) (configs : List Config) : IO (Nat × Nat) := do
@@ -105,9 +126,9 @@ def transcript (out : IO.FS.Stream) (hops : Nat) (configs : List Config) : IO (N
   let mut total := 0
   let mut deepest := 0
   for c in configs do
-    out.putStrLn s!"config {c.servers} {c.attempts} {c.candidates} {transportToken c}"
+    out.putStrLn s!"config {c.servers} {c.attempts} {c.candidates} {transportToken c} {modeToken c.authenticatedData}"
     let s := init c
-    out.putStrLn s!"0 init none {lineToken s}"
+    out.putStrLn s!"0 init none {lineToken c s}"
     let seen ← IO.mkRef (({} : Std.HashSet State).insert (key c s))
     let (lines, depth) ← walk out c seen s 0
     total := total + lines

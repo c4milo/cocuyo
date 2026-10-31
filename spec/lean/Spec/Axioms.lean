@@ -2,6 +2,7 @@ import Spec.LookupProofs.Measure
 import Spec.LookupProofs.Timeout
 import Spec.LookupProofs.Cause
 import Spec.LookupProofs.Bound
+import Spec.LookupProofs.Security
 
 /-!
 # What the proofs rest on
@@ -54,5 +55,17 @@ namespace Spec.Lookup
 
 /-- info: 'Spec.Lookup.sends_bounded' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms sends_bounded
+
+/-- info: 'Spec.Lookup.ignored_unchecked' depends on axioms: [propext] -/
+#guard_msgs in #print axioms ignored_unchecked
+
+/-- info: 'Spec.Lookup.authentic_run' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms authentic_run
+
+/-- info: 'Spec.Lookup.reply_clears' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms reply_clears
+
+/-- info: 'Spec.Lookup.authenticated_needs_ad' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms authenticated_needs_ad
 
 end Spec.Lookup

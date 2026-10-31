@@ -10,8 +10,10 @@ const resolver = @import("resolver");
 const Lookup = resolver.Lookup;
 const Cause = resolver.Cause;
 
-/// The longest state a line writes: the longest stage, four counters, the flags and the cause.
-pub const state_bytes_max = 64;
+/// The longest state a line writes: the longest stage, four counters, the flags, the cause, and
+/// since 2026-10-31 rule 3's conjunction and what an end reports (docs/design.md §25), whose
+/// longest, `authenticated`, takes 13 octets.
+pub const state_bytes_max = 80;
 
 /// The longest cause a line writes: the longest reason, `@` and a position in the order.
 const cause_bytes_max = 16;
@@ -50,14 +52,21 @@ pub fn state_text(lookup: *const Lookup, out: *[state_bytes_max]u8) []const u8 {
     };
 }
 
-/// The state and then the cause, as the lookup's transcript ends a line (`lineToken`). A lookup
-/// that has failed reports its cause in its `Failure`, so the replay reads it there.
+/// The state, the cause, rule 3's conjunction and what an end reports, as the lookup's transcript
+/// ends a line (`lineToken`). A lookup that has ended reports its cause and its security in its
+/// `Answer` or its `Failure`, so the replay reads them there (docs/design.md §25).
 pub fn line_text(lookup: *const Lookup, out: *[state_bytes_max]u8) []const u8 {
     var state: [state_bytes_max]u8 = undefined;
     var cause_buffer: [cause_bytes_max]u8 = undefined;
     const cause = if (lookup.state == .failed) lookup.failure_of().cause else lookup.cause.get();
     const order = lookup.order[0..lookup.config.server_count()];
-    return std.fmt.bufPrint(out, "{s} {s}", .{ state_text(lookup, &state), cause_text(order, cause, &cause_buffer) }) catch unreachable;
+    const reported: []const u8 = switch (lookup.state) {
+        .done => @tagName(lookup.answer().security),
+        .failed => @tagName(lookup.failure_of().security),
+        else => "-",
+    };
+    const conjunction: []const u8 = if (lookup.authentic) "A" else "-";
+    return std.fmt.bufPrint(out, "{s} {s} {s} {s}", .{ state_text(lookup, &state), cause_text(order, cause, &cause_buffer), conjunction, reported }) catch unreachable;
 }
 
 /// A cause as the model spells one (`causeToken`): what the server gave, then the position of that

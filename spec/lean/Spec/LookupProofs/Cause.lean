@@ -111,8 +111,8 @@ theorem step_fits (c : Config) (s : State) (e : Event) (h : CauseFits s) :
     split
     · exact advanceServer_fits c _
     · exact h
-  | reply r =>
-    cases hst : s.stage <;> simp only [step, hst]
+  | reply r | replyAd r =>
+    cases hst : s.stage <;> simp only [step, heard, clear, hst] <;> try split
     all_goals first
       | exact onReply_fits c s _ r h
       | exact h
@@ -247,8 +247,8 @@ theorem step_server (c : Config) (s : State) (e : Event) (h : ServerFits c s) :
     split
     · exact hadv _
     · exact h
-  | reply r =>
-    cases hst : s.stage <;> simp only [step, hst]
+  | reply r | replyAd r =>
+    cases hst : s.stage <;> simp only [step, heard, clear, hst] <;> try split
     all_goals first
       | exact onReply_server c s _ r h hs
       | exact h

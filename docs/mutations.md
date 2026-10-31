@@ -10680,3 +10680,29 @@ left a parameter with no use. Each ran again with an edit that reads it.
 | SA4 | a configuration relies on the AD bit by default | `zig build test-core` | `CAUGHT` |
 
 Four mutations, four `CAUGHT`.
+
+## Rule 3 of DNSSEC Stage A
+
+2026-10-31. Design §25 Stage A, its `resolver` piece and the lookup's model (c4milo/cocuyo#55). A
+lookup ends `authenticated` when the configuration relies on the AD bit and every message it acted
+on had it set. The model came first, with four theorems, and the replay ties it to the code.
+`zig build mutations -- engine RA1 ... RA9` and `zig build mutations -- lean AS1 ... AS4` ran each
+to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| RA1 | a message without AD never clears the conjunction | `zig build test-resolver` | `CAUGHT` |
+| RA2 | an end is authenticated where the configuration does not rely on the bit | `zig build test-resolver` | `CAUGHT` |
+| RA3 | an NXDOMAIN that moves the walk on is no message the lookup acted on | `zig build test-resolver` | `CAUGHT` |
+| RA4 | a NOERROR the lookup collects is no message it acted on | `zig build test-resolver` | `CAUGHT` |
+| RA5 | a chain too long is no message the lookup acted on | `zig build test-tools` | `CAUGHT` |
+| RA6 | a recalled answer keeps the conjunction it started with | `zig build test-resolver` | `CAUGHT` |
+| RA7 | every failure reports the security of a negative | `zig build test-tools` | `CAUGHT` |
+| RA8 | a query never asks for AD | `zig build test-resolver` | `CAUGHT` |
+| RA9 | a lookup starts with the conjunction clear | `zig build test-resolver` | `CAUGHT` |
+| AS1 | a message without AD never clears the model's conjunction | `zig build spec-lean` | `CAUGHT` |
+| AS2 | `encrypted` relies on a cleartext server too, in the model | `zig build spec-lean` | `CAUGHT` |
+| AS3 | the model does not act on an NXDOMAIN | `zig build spec-lean` | `CAUGHT` |
+| AS4 | `authentic_run` proved by `sorry` | `zig build spec-lean` | `CAUGHT` |
+
+Thirteen mutations, thirteen `CAUGHT`.

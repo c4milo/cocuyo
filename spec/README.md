@@ -50,6 +50,12 @@ would agree with the code by construction and prove nothing about it.
   - In `LookupProofs/Bound.lean`, `sends_bounded`: no server gets more than three queries of one
     name over one transport, whatever the caller tells the lookup and whatever `Config.attempts`
     says (RFC 9520 §3.1; docs/design.md §16 decision 58).
+  - In `LookupProofs/Security.lean`, DNSSEC Stage A's rule 3 (docs/design.md §25):
+    `ignored_unchecked`, under `ignored` no end is `authenticated`; `authentic_run`, once the
+    conjunction is clear no event sets it again; `reply_clears`, a reply without AD that the
+    lookup acts on clears it where the configuration relies on the bit; and
+    `authenticated_needs_ad`, which joins them: a lookup that ends `authenticated` met no such
+    reply.
 - `lean/Spec/Axioms.lean` pins the axioms each theorem rests on. A proof left unfinished rests on
   `sorryAx`, which changes a pinned line and fails the build.
 - `lean/Spec/Address.lean` is the model of both walks, and `lean/Spec/AddressWalk.lean` walks it and
@@ -208,6 +214,17 @@ event:
 
 The transcript reaches each state with a `reply_truncated` line, so each state gets a cut
 datagram. No line of the transcript changed for it.
+
+Since 2026-10-31 the model holds DNSSEC Stage A's rule 3 (docs/design.md §25). A reply with AD set
+is the event `replyAd`, spelt `reply_ad_answer` and so on, for the five kinds of reply the lookup
+acts on. Each configuration line names its mode, `ignored`, `encrypted` or `always`. Each line ends
+with two more fields: `A` while every message the lookup acted on had AD set, and what an end
+reports, `authenticated` or `unchecked`, or `-` while the lookup runs. The replay reads the second
+from the `Answer` or the `Failure`. The walk asks for `replyAd` only where the configuration relies
+on the bit, so every configuration under `ignored` walks the states it walked before. Eight
+configurations were added: one server, one pass, one or two names, over UDP and over DoH, under
+`encrypted` and under `always`. The transcript grew from 38,759,600 transitions, 186 deep, to
+38,883,522, 186 deep. The slice gained three of them, and grew from 32,386 transitions to 64,716.
 
 ## The engine
 

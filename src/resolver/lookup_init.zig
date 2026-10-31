@@ -66,6 +66,8 @@ pub fn init_in_place(
             // No query is sent yet, so no reply marked a try.
             .reply_marked = false,
         },
+        // No message is read yet, so none lacked AD (docs/design.md §25, Stage A).
+        .authentic = true,
         .server_index = 0,
         .order = identity_order,
         // No query is sent yet.

@@ -14,6 +14,15 @@ theorem keep_isSome (s : State) (w : What) : (keep s w).cause.isSome = true := b
   unfold keep
   cases s.cause <;> rfl
 
+/-- A property that rule 3's flag does not touch holds after `clear` when it held before: `clear`
+changes that flag alone (docs/design.md §25, Stage A). -/
+theorem clear_keeps (P : State → Prop) (c : Config) (a d : Bool) (t : State)
+    (hP : ∀ u : State, P u → P { u with authentic := false }) (h : P t) : P (clear c a d t) := by
+  unfold clear
+  split
+  · exact hP t h
+  · exact h
+
 /-! ## An ended lookup stays ended -/
 
 /-- A lookup that is done or has failed is changed by nothing: every poll returns the same end,
@@ -21,7 +30,7 @@ every reply is ignored, and a cancel leaves the end standing (§5's last row; th
 `Resolver.cancel`). -/
 theorem ended_absorbing (c : Config) (s : State) (e : Event) (h : ended s.stage = true) :
     (step c s e).1 = s := by
-  cases e <;> cases hs : s.stage <;> simp_all [step, poll, ended, waiting, onStream]
+  cases e <;> cases hs : s.stage <;> simp_all [step, heard, poll, ended, waiting, onStream]
 
 /-- A cancel after the end changes nothing, and says nothing. -/
 theorem cancel_after_end (c : Config) (s : State) (h : ended s.stage = true) :
@@ -166,10 +175,11 @@ theorem useTcp_never_udp (c : Config) (s : State) (e : Event) (h : c.useTcp = tr
     split
     · exact ⟨hadv _, by simp⟩
     · exact ⟨⟨hq, ha⟩, by simp⟩
-  | reply r =>
-    cases hs : s.stage <;> simp only [step, hs]
+  | reply r | replyAd r =>
+    cases hs : s.stage <;> simp only [step, heard, hs]
     all_goals first
-      | exact onReply_noUdp c s _ r h ⟨hq, ha⟩
+      | exact (fun ⟨h1, h2⟩ => ⟨clear_keeps NoUdp c _ _ _ (fun _ h => h) h1, h2⟩)
+          (onReply_noUdp c s _ r h ⟨hq, ha⟩)
       | exact ⟨⟨hq, ha⟩, by simp⟩
       | simp_all
   | cancel =>
@@ -268,10 +278,11 @@ theorem request_never_stream (c : Config) (s : State) (e : Event) (hh : c.reques
     split
     · exact ⟨hadv _, none⟩
     · exact ⟨keep, none⟩
-  | reply r =>
-    cases hs : s.stage <;> simp only [step, hs]
+  | reply r | replyAd r =>
+    cases hs : s.stage <;> simp only [step, heard, hs]
     all_goals first
-      | (rw [hh]; exact onReply_noStream c s r hh ht keep)
+      | (rw [hh]; exact (fun ⟨h1, h2⟩ => ⟨clear_keeps NoStream c _ _ _ (fun _ h => h) h1, h2⟩)
+          (onReply_noStream c s r hh ht keep))
       | exact ⟨keep, ignored⟩
       | simp_all
   | cancel =>

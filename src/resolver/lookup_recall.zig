@@ -7,6 +7,7 @@ const core = @import("core");
 const wire = @import("wire");
 const Name = core.Name;
 const Lookup = @import("lookup.zig").Lookup;
+const security = @import("lookup_security.zig");
 
 /// Whether `lookup` is where a lookup stands before its first query: ready to build it, or, when
 /// every query goes over TCP (§19 step 11), waiting for its connection. The memory is asked only
@@ -46,6 +47,7 @@ pub fn answer(
     }
     lookup.state = .done;
     assert(lookup.is_settled());
+    security.recalled(lookup);
 }
 
 /// Ends `lookup` with a negative the memory remembered: one of the two of RFC 2308 §5, with what
@@ -55,6 +57,7 @@ pub fn failure(lookup: *Lookup, err: core.Error, ttl_seconds: u32) void {
     assert(err == core.Error.NameNotFound or err == core.Error.NoData);
     lookup.negative_ttl_seconds = ttl_seconds;
     lookup.fail(err);
+    security.recalled(lookup);
 }
 
 /// Ends `lookup` with a resolution failure the memory remembered (RFC 9520 §3.2). The memory
@@ -131,4 +134,16 @@ test "a recalled answer with its whole life left keeps every TTL it was given" {
     try testing.expectEqual(@as(u32, 200), done.ttl_seconds);
     try testing.expectEqual(@as(u32, 300), done.records.?.at(0).ttl_seconds);
     try testing.expectEqual(@as(u32, 200), done.records.?.at(1).ttl_seconds);
+}
+
+test "a recalled answer or negative is unchecked, though the configuration relies on the AD bit" {
+    // The memory read no message, and keeps no status yet (docs/design.md §25, Stage A).
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &fixtures.servers_one, .authenticated_data = .always } };
+    try harness.start("example.com.", .a, fixtures.seed);
+    const cached = fixtures.cached_a("192.0.2.1");
+    answer(&harness.lookup, &cached, fixtures.cached_ttl_seconds, null);
+    try testing.expectEqual(core.Security.unchecked, harness.lookup.answer().security);
+    try harness.start("example.com.", .a, fixtures.seed);
+    failure(&harness.lookup, core.Error.NameNotFound, fixtures.cached_ttl_seconds);
+    try testing.expectEqual(core.Security.unchecked, harness.lookup.failure_of().security);
 }
