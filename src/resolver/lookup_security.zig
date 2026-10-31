@@ -28,6 +28,9 @@ pub const Conjunction = enum(u2) {
 
 /// Where a lookup under `config` starts (RFC 4035 §4.6; docs/design.md §25, Stage A rule 1).
 pub fn start(config: *const core.Config) Conjunction {
+    // A configuration that ignores the bit never reads its transport, whose check asserts: the
+    // default pays nothing for Stage A.
+    if (config.authenticated_data == .ignored) return .not_relied;
     return if (config.authenticated_data.relied_on(config.transport())) .holds else .not_relied;
 }
 

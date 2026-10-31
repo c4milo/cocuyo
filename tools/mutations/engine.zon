@@ -5029,4 +5029,13 @@
         },
         .caught_by = .{ .step = "test-resolver" },
     },
+    .{
+        .section = "Rule 3 of DNSSEC Stage A",
+        .id = "RA11",
+        .what = "a lookup that ignores the bit starts as one that relies on it",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_security.zig", .old = "    if (config.authenticated_data == .ignored) return .not_relied;", .new = "    if (config.authenticated_data == .ignored) return .holds;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
 }
