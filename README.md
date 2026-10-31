@@ -356,7 +356,7 @@ const index = try allocator.alloc(cocuyo.cache.Key, cocuyo.cache.keys_for(slot_c
 try resolver.reinit(&config, .{ .slots = entries, .keys = index }, new_seed, now_ns);
 ```
 
-A cache takes 1 to 16,384 slots, 2,984 octets each, and `cocuyo.cache.keys_for` gives the key
+A cache takes 1 to 16,384 slots, 2,992 octets each, and `cocuyo.cache.keys_for` gives the key
 index a slot count needs. The memory must stay valid, and where it is, until the engine's `close`,
 or until a `reinit` hands the engine other memory or none. A `reinit` that fails at its sockets has
 still taken the memory it was handed. So never free that memory on that error: hand it to the next

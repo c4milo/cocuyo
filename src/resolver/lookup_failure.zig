@@ -450,7 +450,7 @@ test "a negative that the memory recalls has no cause" {
     // §20).
     var harness: Harness = .{ .config = one_try };
     try harness.start("example.com.", .a, seed);
-    recall.failure(&harness.lookup, core.Error.NameNotFound, fixtures.cached_ttl_seconds);
+    recall.failure(&harness.lookup, core.Error.NameNotFound, fixtures.cached_ttl_seconds, .unchecked);
     try expect_failure(&harness, core.Error.NameNotFound, null);
 }
 

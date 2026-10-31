@@ -62,6 +62,9 @@ pub const Slot = struct {
     /// The error of a `failed` entry, and how often its time was doubled (§16 decision 60): one
     /// octet, which fits in padding the slot had.
     kept: cache_failure.Kept,
+    /// Whether the servers said they validated what the entry holds (docs/design.md §25, Stage A
+    /// rule 5): an answer's or a negative's, and `unchecked` for a failure.
+    security: core.Security,
     absolute: bool,
     aliased: bool,
     visited: bool,
@@ -77,6 +80,7 @@ pub const Slot = struct {
         .kind = .a,
         .outcome = .answered,
         .kept = .{},
+        .security = .unchecked,
         .absolute = false,
         .aliased = false,
         .visited = false,
@@ -99,6 +103,8 @@ pub const Hit = struct {
     ttl_seconds: u32,
     /// The error the caller ends its lookup with, on a `failed` entry alone, and sends no query.
     failure: ?Error,
+    /// What the entry was put with: a hit reports it as the lookup that went out did.
+    security: core.Security,
 };
 
 /// Keeps the chain's end with the answers, or says there was none. The name is copied only
@@ -180,25 +186,30 @@ pub const Cache = struct {
             .canonical_name = if (slot.aliased) &slot.canonical else null,
             .ttl_seconds = self.remaining(slot.expires_ns, now_ns),
             .failure = if (slot.outcome == .failed) cache_failure.error_of(slot.kept.failure) else null,
+            .security = slot.security,
         };
     }
 
     /// Remembers `answers` for `question`, with the end of the CNAME chain that reached them, or
-    /// null when none did. A TTL of zero is not cached, and neither is an answer marked
-    /// truncated, which may be missing records (c-ares does the same). The TTL is capped at
-    /// `ttl_seconds_max`.
+    /// null when none did, and what the lookup that found them knew of where they came from. A
+    /// status never outlives the configuration that gave it: the engine starts a new cache at
+    /// each `reinit` (docs/design.md §25, Stage A rule 5). A TTL of zero is not cached, and
+    /// neither is an answer marked truncated, which may be missing records (c-ares does the same).
+    /// The TTL is capped at `ttl_seconds_max`.
     pub fn put(
         self: *Cache,
         question: *const Question,
         answers: *const wire.Answers,
         canonical: ?*const Name,
+        security: core.Security,
         now_ns: u64,
     ) void {
         assert(question.kind.queryable());
         // A possibly partial set is not cached (RFC 1035 §7.4), and a zero TTL "should not be
         // cached" (RFC 1035 §3.2.1).
         if (answers.truncated or answers.ttl_seconds == 0) return self.forget_failure(question);
-        _ = self.insert(question, .answered, answers, canonical, answers.ttl_seconds, now_ns);
+        const slot = self.insert(question, .answered, answers, canonical, answers.ttl_seconds, now_ns) orelse return;
+        slot.security = security;
     }
 
     /// Remembers that `question` has no answer, for the SOA minimum a `Failure` carries
@@ -208,6 +219,7 @@ pub const Cache = struct {
         question: *const Question,
         outcome: Outcome,
         ttl_seconds: u32,
+        security: core.Security,
         now_ns: u64,
     ) void {
         assert(outcome != .answered and outcome != .failed);
@@ -215,7 +227,8 @@ pub const Cache = struct {
         // No records: the slot's answers are reset where they are, rather than filled in a local
         // and copied, as a safe build fills a local left `undefined` (docs/design.md §16
         // decision 34).
-        _ = self.insert(question, outcome, null, null, ttl_seconds, now_ns);
+        const slot = self.insert(question, outcome, null, null, ttl_seconds, now_ns) orelse return;
+        slot.security = security;
     }
 
     /// Remembers that `question` ended in `err`, when `resolution_failure` says it is one
@@ -238,6 +251,8 @@ pub const Cache = struct {
         const seconds = cache_failure.seconds_for(self.failure_seconds_min, doublings);
         const slot = self.insert(question, .failed, null, null, seconds, now_ns) orelse return;
         slot.kept = .{ .failure = failure, .doublings = doublings };
+        // A failure says nothing of where an answer came from.
+        slot.security = .unchecked;
     }
 
     /// An answer the cache refuses still ends a name's backoff (RFC 9520 §3.2): its failure
@@ -399,84 +414,9 @@ const slot_count: usize = 4;
 test "the size of a slot is pinned" {
     // Measured, not derived: Zig orders the fields (docs/design.md §18). 2984 since the slot
     // keeps the chain's end: one `Name`, 256 octets, with its flag in padding that was there.
-    try testing.expectEqual(@as(usize, 2984), @sizeOf(Slot));
-}
-
-test "a put is a hit whatever the case, and a miss for another type, name or absoluteness" {
-    var fixture: fixtures.Fixture(slot_count) = .{};
-    var table = fixture.init();
-    const asked = ask("Example.COM");
-    try testing.expect(table.get(&asked, 0) == null);
-    const answers = fixtures.answers_v4(1, 300);
-    table.put(&asked, &answers, null, 0);
-    try testing.expectEqual(@as(usize, 1), table.len());
-
-    const hit = table.get(&ask("EXAMPLE.com"), 0).?;
-    try testing.expectEqual(Outcome.answered, hit.outcome);
-    try testing.expectEqual(@as(u32, 300), hit.ttl_seconds);
-    try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 1 }, hit.answers.addresses()[0].slice());
-    // The name comes back folded, whatever case it was put or asked in.
-    try testing.expectEqualSlices(u8, ask("example.com").name.wire(), hit.name.wire());
-
-    const aaaa = try Question.from_text("example.com", .aaaa);
-    try testing.expect(table.get(&aaaa, 0) == null);
-    try testing.expect(table.get(&ask("example.org"), 0) == null);
-    var absolute = asked;
-    absolute.absolute = true;
-    try testing.expect(table.get(&absolute, 0) == null);
-}
-
-test "a hit sets the visited bit and moves nothing" {
-    var fixture: fixtures.Fixture(slot_count) = .{};
-    var table = fixture.init();
-    const answers = fixtures.answers_v4(1, 300);
-    table.put(&ask("a.example"), &answers, null, 0);
-    table.put(&ask("b.example"), &answers, null, 0);
-    table.put(&ask("c.example"), &answers, null, 0);
-    const oldest = table.order.oldest;
-    const newest = table.order.newest;
-    try testing.expect(table.get(&ask("b.example"), 0) != null);
-    const b = table.find(&ask("b.example"), table.hash_of(&ask("b.example"))).?;
-    try testing.expect(table.slots[b].visited);
-    try testing.expect(!table.slots[oldest].visited);
-    try testing.expect(!table.slots[newest].visited);
-    try testing.expectEqual(oldest, table.order.oldest);
-    try testing.expectEqual(newest, table.order.newest);
-    try testing.expectEqual(b, table.order.after(table.slots, oldest));
-}
-
-test "a put for a question the cache holds replaces it in place, sets the bit, and moves nothing" {
-    var fixture: fixtures.Fixture(slot_count) = .{};
-    var table = fixture.init();
-    const first = fixtures.answers_v4(1, 300);
-    table.put(&ask("a.example"), &first, null, 0);
-    table.put(&ask("b.example"), &first, null, 0);
-    const oldest = table.order.oldest;
-    const later = fixtures.answers_v4(2, 600);
-    table.put(&ask("A.EXAMPLE"), &later, null, 10 * second);
-    try testing.expectEqual(@as(usize, 2), table.len());
-    try testing.expectEqual(oldest, table.order.oldest);
-    try testing.expect(table.slots[oldest].visited);
-    const hit = table.get(&ask("a.example"), 10 * second).?;
-    try testing.expectEqual(@as(u32, 600), hit.ttl_seconds);
-    try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 2 }, hit.answers.addresses()[0].slice());
-}
-
-test "flush empties the table, and a put after it works" {
-    var fixture: fixtures.Fixture(slot_count) = .{};
-    var table = fixture.init();
-    const answers = fixtures.answers_v4(1, 300);
-    table.put(&ask("a.example"), &answers, null, 0);
-    table.put(&ask("b.example"), &answers, null, 0);
-    try testing.expect(table.get(&ask("a.example"), 0) != null);
-    table.flush();
-    try testing.expectEqual(@as(usize, 0), table.len());
-    try testing.expect(table.get(&ask("a.example"), 0) == null);
-    try testing.expect(table.get(&ask("b.example"), 0) == null);
-    for (table.keys) |key| try testing.expectEqual(Key.State.empty, key.state);
-    table.put(&ask("a.example"), &answers, null, 0);
-    try testing.expectEqual(@as(usize, 1), table.len());
-    try testing.expect(table.get(&ask("a.example"), 0) != null);
+    // 2992 since the slot keeps the status of DNSSEC Stage A on 2026-10-31 (§25): its padding had
+    // no octet left for it.
+    try testing.expectEqual(@as(usize, 2992), @sizeOf(Slot));
 }
 
 test {
@@ -484,6 +424,7 @@ test {
     _ = cache_storage;
     _ = @import("cache_canonical_test.zig");
     _ = @import("cache_failure.zig");
+    _ = @import("cache_hit_test.zig");
     _ = @import("cache_kinds_test.zig");
     _ = @import("cache_probe_test.zig");
     _ = @import("cache_ttl_test.zig");

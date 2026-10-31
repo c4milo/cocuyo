@@ -156,7 +156,7 @@ test "a hit on a failure entry says the error, and the time is the minimum" {
     try testing.expectEqual(@as(usize, 0), hit.answers.count);
     // A hit on an answer says no error.
     const answers = fixtures.answers_v4(1, 300);
-    table.put(&ask("up.example"), &answers, null, 0);
+    table.put(&ask("up.example"), &answers, null, .unchecked, 0);
     try testing.expectEqual(@as(?Error, null), table.get(&ask("up.example"), 0).?.failure);
     // At its expiry the entry is a miss, and the caller asks again.
     try testing.expect(table.get(&ask("down.example"), 5 * second) == null);
@@ -212,8 +212,8 @@ test "a failure does not replace a live answer or a live negative" {
     var fixture: fixtures.Fixture(slot_count) = .{};
     var table = fixture.init();
     const answers = fixtures.answers_v4(1, 300);
-    table.put(&ask("up.example"), &answers, null, 0);
-    table.put_negative(&ask("gone.example"), .name_not_found, 30, 0);
+    table.put(&ask("up.example"), &answers, null, .unchecked, 0);
+    table.put_negative(&ask("gone.example"), .name_not_found, 30, .unchecked, 0);
     table.put_failure(&ask("up.example"), Error.Timeout, second);
     table.put_failure(&ask("gone.example"), Error.Timeout, second);
     try testing.expectEqual(Outcome.answered, table.get(&ask("up.example"), second).?.outcome);
@@ -242,26 +242,26 @@ fn backoff_then(table: *cache.Cache, text: []const u8, end: *const fn (*cache.Ca
 
 fn answer_in_backoff(table: *cache.Cache, text: []const u8) void {
     const answers = fixtures.answers_v4(1, 1);
-    table.put(&ask(text), &answers, null, end_ns);
+    table.put(&ask(text), &answers, null, .unchecked, end_ns);
 }
 
 fn zero_answer_in_backoff(table: *cache.Cache, text: []const u8) void {
     const answers = fixtures.answers_v4(1, 0);
-    table.put(&ask(text), &answers, null, end_ns);
+    table.put(&ask(text), &answers, null, .unchecked, end_ns);
 }
 
 fn truncated_answer_in_backoff(table: *cache.Cache, text: []const u8) void {
     var answers = fixtures.answers_v4(1, kept_ttl_seconds);
     answers.truncated = true;
-    table.put(&ask(text), &answers, null, end_ns);
+    table.put(&ask(text), &answers, null, .unchecked, end_ns);
 }
 
 fn negative_in_backoff(table: *cache.Cache, text: []const u8) void {
-    table.put_negative(&ask(text), .no_data, 1, end_ns);
+    table.put_negative(&ask(text), .no_data, 1, .unchecked, end_ns);
 }
 
 fn zero_negative_in_backoff(table: *cache.Cache, text: []const u8) void {
-    table.put_negative(&ask(text), .name_not_found, 0, end_ns);
+    table.put_negative(&ask(text), .name_not_found, 0, .unchecked, end_ns);
 }
 
 test "an answer or a negative for the name ends the backoff, kept or not" {
@@ -282,9 +282,9 @@ test "a refused answer leaves a live answer of the name in place" {
     var fixture: fixtures.Fixture(slot_count) = .{};
     var table = fixture.init();
     const answers = fixtures.answers_v4(1, 300);
-    table.put(&ask("up.example"), &answers, null, 0);
+    table.put(&ask("up.example"), &answers, null, .unchecked, 0);
     const zero = fixtures.answers_v4(1, 0);
-    table.put(&ask("up.example"), &zero, null, second);
+    table.put(&ask("up.example"), &zero, null, .unchecked, second);
     // Only a failure entry goes: the live answer stays.
     try testing.expectEqual(Outcome.answered, table.get(&ask("up.example"), second).?.outcome);
 }
@@ -302,9 +302,9 @@ test "the hand takes an expired failure entry on sight, and its count goes with 
     table.put_failure(&ask("down.example"), Error.Timeout, 0);
     try testing.expect(table.get(&ask("down.example"), 0) != null);
     const answers = fixtures.answers_v4(1, 300);
-    table.put(&ask("a.example"), &answers, null, 0);
+    table.put(&ask("a.example"), &answers, null, .unchecked, 0);
     // Full, at 5 s: the failure entry expired, visited or not, and goes first.
-    table.put(&ask("b.example"), &answers, null, 5 * second);
+    table.put(&ask("b.example"), &answers, null, .unchecked, 5 * second);
     try testing.expect(table.get(&ask("a.example"), 5 * second) != null);
     table.put_failure(&ask("down.example"), Error.Timeout, 5 * second);
     try testing.expectEqual(@as(?u32, 5), failure_left(&table, "down.example", 5 * second));

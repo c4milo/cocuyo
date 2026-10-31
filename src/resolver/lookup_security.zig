@@ -45,12 +45,13 @@ pub fn of(lookup: *const Lookup) core.Security {
     return if (lookup.authentic == .holds) .authenticated else .unchecked;
 }
 
-/// The table's memory ended the lookup, and no message was read. The memory keeps no status yet,
-/// so the end is `unchecked`.
-pub fn recalled(lookup: *Lookup) void {
+/// The table's memory ended the lookup with what it kept, and `status` is what the lookup that
+/// found it knew. The end reports it, and `authenticated` only while this lookup relies on the
+/// bit too (docs/design.md §25, Stage A rule 5).
+pub fn recalled(lookup: *Lookup, status: core.Security) void {
     assert(lookup.is_settled());
-    if (lookup.authentic == .holds) lookup.authentic = .cleared;
-    assert(of(lookup) == .unchecked);
+    if (lookup.authentic == .holds and status != .authenticated) lookup.authentic = .cleared;
+    assert(of(lookup) != .authenticated or status == .authenticated);
 }
 
 // Tests, through the fake server of `fixtures.zig`. Its servers are in the clear.

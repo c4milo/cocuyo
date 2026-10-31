@@ -16,8 +16,8 @@ test "a hit reports the chain's end it was put with, and none when there was non
     const answers = fixtures.answers_v4(1, 300);
     const target = try Name.from_text("edge.cdn.example");
 
-    table.put(&ask("www.example"), &answers, &target, 0);
-    table.put(&ask("plain.example"), &answers, null, 0);
+    table.put(&ask("www.example"), &answers, &target, .unchecked, 0);
+    table.put(&ask("plain.example"), &answers, null, .unchecked, 0);
 
     const aliased = table.get(&ask("www.example"), 0).?;
     try testing.expect(aliased.canonical_name.?.equal(&target));
@@ -32,10 +32,10 @@ test "a put in place replaces the chain's end with the new one, or with none" {
     const earlier = try Name.from_text("one.cdn.example");
     const later = try Name.from_text("two.cdn.example");
 
-    table.put(&ask("www.example"), &answers, &earlier, 0);
-    table.put(&ask("www.example"), &answers, &later, 0);
+    table.put(&ask("www.example"), &answers, &earlier, .unchecked, 0);
+    table.put(&ask("www.example"), &answers, &later, .unchecked, 0);
     try testing.expect(table.get(&ask("www.example"), 0).?.canonical_name.?.equal(&later));
     // The same name answered later with no chain: what a hit says must follow the answer.
-    table.put(&ask("www.example"), &answers, null, 0);
+    table.put(&ask("www.example"), &answers, null, .unchecked, 0);
     try testing.expectEqual(@as(?*const Name, null), table.get(&ask("www.example"), 0).?.canonical_name);
 }

@@ -51,7 +51,7 @@ pub const Slices = struct {
 
 /// The memory of a cache of `slot_count` slots, for a caller that knows the count when it
 /// compiles: the slots, and the least key index they take. A count outside the bounds does not
-/// compile, and the error says what the bounds are. Declared `undefined`, it is 2984 octets a
+/// compile, and the error says what the bounds are. Declared `undefined`, it is 2992 octets a
 /// slot and 8 a key (docs/design.md §18).
 pub fn Storage(comptime slot_count: usize) type {
     if (!slot_count_valid(slot_count)) {
@@ -153,9 +153,9 @@ test "a cache of one slot over the least memory holds one answer, and the next p
     const both = memory.slices();
     var table = cache.Cache.init(both.slots, both.keys, fixtures.seed, constants.ttl_seconds_max_default);
     const answers = fixtures.answers_v4(1, 300);
-    table.put(&ask("a.example"), &answers, null, 0);
+    table.put(&ask("a.example"), &answers, null, .unchecked, 0);
     try testing.expect(table.get(&ask("a.example"), 0) != null);
-    table.put(&ask("b.example"), &answers, null, 0);
+    table.put(&ask("b.example"), &answers, null, .unchecked, 0);
     try testing.expectEqual(@as(usize, 1), table.len());
     try testing.expect(table.get(&ask("a.example"), 0) == null);
     try testing.expect(table.get(&ask("b.example"), 0) != null);
@@ -172,7 +172,7 @@ test "a slot count read at run time sizes a cache over part of a larger memory" 
     var table = cache.Cache.init(sized.slots, sized.keys, fixtures.seed, constants.ttl_seconds_max_default);
     const answers = fixtures.answers_v4(1, 300);
     for ([_][]const u8{ "a.example", "b.example", "c.example", "d.example" }) |name| {
-        table.put(&ask(name), &answers, null, 0);
+        table.put(&ask(name), &answers, null, .unchecked, 0);
     }
     // Four names went into three slots: the cache holds the count it was sized for.
     try testing.expectEqual(slot_count, table.len());

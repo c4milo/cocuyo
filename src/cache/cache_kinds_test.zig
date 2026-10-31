@@ -19,7 +19,7 @@ test "a PTR answer comes back from the cache with its name" {
     answers.items.names[0] = try core.Name.from_text("host.example");
     answers.count = 1;
     answers.ttl_seconds = 300;
-    table.put(&asked, &answers, null, 0);
+    table.put(&asked, &answers, null, .unchecked, 0);
     const hit = table.get(&asked, 0).?;
     try testing.expectEqual(@as(usize, 1), hit.answers.names().len);
     try testing.expect(hit.answers.names()[0].equal(&answers.names()[0]));
@@ -42,7 +42,7 @@ test "an MX answer comes back from the cache with each record's type, TTL and rd
     records.used = 2 * mx.len;
     answers.count = 2;
     answers.ttl_seconds = 200;
-    table.put(&asked, &answers, null, 0);
+    table.put(&asked, &answers, null, .unchecked, 0);
     const hit = table.get(&asked, 0).?;
     try testing.expectEqual(@as(u8, 2), hit.answers.count);
     for (0..2) |index| {

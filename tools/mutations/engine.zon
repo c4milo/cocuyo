@@ -4908,7 +4908,7 @@
         .id = "RA6",
         .what = "a recalled answer keeps the conjunction it started with",
         .edits = .{
-            .{ .file = "src/resolver/lookup_recall.zig", .old = "    assert(lookup.is_settled());\n    security.recalled(lookup);\n}", .new = "    assert(lookup.is_settled());\n}" },
+            .{ .file = "src/resolver/lookup_recall.zig", .old = "    assert(lookup.is_settled());\n    security.recalled(lookup, status);\n}", .new = "    assert(lookup.is_settled());\n    _ = status;\n}" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -4945,6 +4945,87 @@
         .what = "a lookup relies on the AD bit whatever its configuration says",
         .edits = .{
             .{ .file = "src/resolver/lookup_security.zig", .old = "    return if (config.authenticated_data.relied_on(config.transport())) .holds else .not_relied;", .new = "    return if (config.authenticated_data.relied_on(config.transport()) or true) .holds else .not_relied;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The status a cache keeps",
+        .id = "CS1",
+        .what = "a put keeps no status",
+        .edits = .{
+            .{ .file = "src/cache/cache.zig", .old = "answers.ttl_seconds, now_ns) orelse return;\n        slot.security = security;", .new = "answers.ttl_seconds, now_ns) orelse return;\n        slot.security = if (security == .authenticated) .unchecked else .unchecked;" },
+        },
+        .caught_by = .{ .step = "test-cache" },
+    },
+    .{
+        .section = "The status a cache keeps",
+        .id = "CS2",
+        .what = "a negative put keeps no status",
+        .edits = .{
+            .{ .file = "src/cache/cache.zig", .old = "null, null, ttl_seconds, now_ns) orelse return;\n        slot.security = security;", .new = "null, null, ttl_seconds, now_ns) orelse return;\n        slot.security = if (security == .authenticated) .unchecked else .unchecked;" },
+        },
+        .caught_by = .{ .step = "test-cache" },
+    },
+    .{
+        .section = "The status a cache keeps",
+        .id = "CS3",
+        .what = "a hit reports no status",
+        .edits = .{
+            .{ .file = "src/cache/cache.zig", .old = "            .security = slot.security,", .new = "            .security = if (slot.occupied) .unchecked else .unchecked," },
+        },
+        .caught_by = .{ .step = "test-cache" },
+    },
+    .{
+        .section = "The status a cache keeps",
+        .id = "CS4",
+        .what = "a failure keeps the status of the answer it replaced",
+        .edits = .{
+            .{ .file = "src/cache/cache.zig", .old = "        // A failure says nothing of where an answer came from.\n        slot.security = .unchecked;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cache" },
+    },
+    .{
+        .section = "The status a cache keeps",
+        .id = "CS5",
+        .what = "the glue drops the status of a recalled answer",
+        .edits = .{
+            .{ .file = "src/cocuyo.zig", .old = "            .canonical_name = hit.canonical_name,\n            .security = hit.security,", .new = "            .canonical_name = hit.canonical_name,\n            .security = if (hit.outcome == .answered) .unchecked else .unchecked," },
+        },
+        .caught_by = .{ .step = "test-cocuyo" },
+    },
+    .{
+        .section = "The status a cache keeps",
+        .id = "CS6",
+        .what = "the glue puts every answer unchecked",
+        .edits = .{
+            .{ .file = "src/cocuyo.zig", .old = "answered.canonical_name, answered.security, now_ns)", .new = "answered.canonical_name, if (answered.ttl_seconds > 0) .unchecked else .unchecked, now_ns)" },
+        },
+        .caught_by = .{ .step = "test-cocuyo" },
+    },
+    .{
+        .section = "The status a cache keeps",
+        .id = "CS7",
+        .what = "the table writes every answer unchecked",
+        .edits = .{
+            .{ .file = "src/resolver/table_memory.zig", .old = "            .security = security.of(&slot.lookup),", .new = "            .security = if (security.of(&slot.lookup) == .authenticated) .unchecked else .unchecked," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The status a cache keeps",
+        .id = "CS8",
+        .what = "a recall clears no conjunction",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_security.zig", .old = "    if (lookup.authentic == .holds and status != .authenticated) lookup.authentic = .cleared;", .new = "    if (lookup.authentic == .holds and status != .authenticated and status == .authenticated) lookup.authentic = .cleared;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The status a cache keeps",
+        .id = "CS9",
+        .what = "the table writes every negative unchecked",
+        .edits = .{
+            .{ .file = "src/resolver/table_memory.zig", .old = ".ttl_seconds = failure.negative_ttl_seconds, .security = failure.security } };", .new = ".ttl_seconds = failure.negative_ttl_seconds, .security = if (failure.security == .authenticated) .unchecked else .unchecked } };" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },

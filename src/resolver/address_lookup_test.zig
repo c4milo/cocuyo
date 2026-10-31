@@ -423,6 +423,7 @@ const OneFamily = struct {
             .answers = &self.answers,
             .ttl_seconds = fixtures.cached_ttl_seconds,
             .canonical_name = null,
+            .security = .unchecked,
         } };
     }
 

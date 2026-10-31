@@ -60,7 +60,7 @@ pub fn replay(comptime digits: usize, recording: *const Recording, slot_count: u
         outcome.misses += 1;
         const ttl: u32 = @intCast(recording.lives_ns[index] / std.time.ns_per_s);
         const answers = wire.fixtures.answers_address(answer_address, ttl);
-        store.put(&question, &answers, null, now_ns);
+        store.put(&question, &answers, null, .unchecked, now_ns);
     }
     return outcome;
 }

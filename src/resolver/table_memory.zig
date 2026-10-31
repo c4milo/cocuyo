@@ -16,6 +16,7 @@ const wire = @import("wire");
 const Error = core.Error;
 const Question = core.Question;
 const lookup_module = @import("lookup.zig");
+const security = @import("lookup_security.zig");
 const recall_module = @import("lookup_recall.zig");
 const Action = lookup_module.Action;
 const slots_module = @import("table_slots.zig");
@@ -42,8 +43,11 @@ pub const Remembered = union(enum) {
         answers: *const wire.Answers,
         ttl_seconds: u32,
         canonical_name: ?*const core.Name,
+        /// What the lookup that found the answers knew of where they came from (docs/design.md
+        /// §25, Stage A rule 5).
+        security: core.Security,
     },
-    negative: struct { outcome: Negative, ttl_seconds: u32 },
+    negative: struct { outcome: Negative, ttl_seconds: u32, security: core.Security },
     /// A resolution failure, one that `resolution_failure` counts: no server gave a useful
     /// response (RFC 9520 §2). The memory sets its time, and a recall ends the lookup with it
     /// (docs/design.md §16 decision 61).
@@ -77,8 +81,9 @@ pub fn recall_into(memory: ?Memory, slot: *Slot, now_ns: u64) void {
             answered.answers,
             answered.ttl_seconds,
             answered.canonical_name,
+            answered.security,
         ),
-        .negative => |negative| recall_module.failure(&slot.lookup, error_of(negative.outcome), negative.ttl_seconds),
+        .negative => |negative| recall_module.failure(&slot.lookup, error_of(negative.outcome), negative.ttl_seconds, negative.security),
         .failed => |err| recall_module.failed(&slot.lookup, err),
     }
     assert(slot.lookup.is_settled());
@@ -101,6 +106,7 @@ pub fn remember_end(memory: ?Memory, slot: *Slot, action: Action, now_ns: u64) v
             .answers = &slot.lookup.answers,
             .ttl_seconds = slot.lookup.answers.ttl_seconds,
             .canonical_name = if (slot.lookup.flags.aliased) &slot.lookup.current else null,
+            .security = security.of(&slot.lookup),
         } },
         .failed => |failure| failure_end(&failure) orelse return,
         else => unreachable,
@@ -111,7 +117,7 @@ pub fn remember_end(memory: ?Memory, slot: *Slot, action: Action, now_ns: u64) v
 /// What a failed lookup's end is remembered as, or null when it is not remembered.
 fn failure_end(failure: *const lookup_module.Failure) ?Remembered {
     if (negative_of(failure.err)) |outcome| {
-        return .{ .negative = .{ .outcome = outcome, .ttl_seconds = failure.negative_ttl_seconds } };
+        return .{ .negative = .{ .outcome = outcome, .ttl_seconds = failure.negative_ttl_seconds, .security = failure.security } };
     }
     // "Resolvers MUST implement a cache for resolution failures" (RFC 9520 §3.2).
     if (resolution_failure(failure.err)) return .{ .failed = failure.err };
@@ -223,7 +229,7 @@ test "a question the memory holds is answered at its first poll, and nothing is 
     var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
     rig.open();
     const answers = try answered_once(&rig);
-    var stub: Stub = .{ .held = .{ .answered = .{ .answers = &answers, .ttl_seconds = 42, .canonical_name = null } } };
+    var stub: Stub = .{ .held = .{ .answered = .{ .answers = &answers, .ttl_seconds = 42, .canonical_name = null, .security = .unchecked } } };
     rig.resolver.remember_with(stub.memory());
 
     const handle = try rig.start("example.com.");
@@ -254,7 +260,7 @@ test "a question the memory holds is answered over TCP too, before any connectio
     var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
     rig.open();
     const answers = try answered_once(&rig);
-    var stub: Stub = .{ .held = .{ .answered = .{ .answers = &answers, .ttl_seconds = 42, .canonical_name = null } } };
+    var stub: Stub = .{ .held = .{ .answered = .{ .answers = &answers, .ttl_seconds = 42, .canonical_name = null, .security = .unchecked } } };
     rig.resolver.remember_with(stub.memory());
     // Every query over TCP (§19 step 11): the lookup starts waiting for its connection.
     rig.config.use_tcp = true;
@@ -268,7 +274,7 @@ test "a lookup that ended before its first poll is not asked about" {
     var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
     rig.open();
     const answers = try answered_once(&rig);
-    var stub: Stub = .{ .held = .{ .answered = .{ .answers = &answers, .ttl_seconds = 42, .canonical_name = null } } };
+    var stub: Stub = .{ .held = .{ .answered = .{ .answers = &answers, .ttl_seconds = 42, .canonical_name = null, .security = .unchecked } } };
     rig.resolver.remember_with(stub.memory());
     const handle = try rig.start("example.com.");
     rig.resolver.cancel(handle);
@@ -336,6 +342,7 @@ test "a recalled answer reports the chain's end it was remembered with" {
         .answers = &answers,
         .ttl_seconds = 42,
         .canonical_name = &target,
+        .security = .unchecked,
     } } };
     rig.resolver.remember_with(stub.memory());
 
@@ -349,7 +356,7 @@ test "a recalled answer reports the chain's end it was remembered with" {
 test "a negative the memory holds comes back as that failure, with what is left of it" {
     var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
     rig.open();
-    var stub: Stub = .{ .held = .{ .negative = .{ .outcome = .name_not_found, .ttl_seconds = 7 } } };
+    var stub: Stub = .{ .held = .{ .negative = .{ .outcome = .name_not_found, .ttl_seconds = 7, .security = .unchecked } } };
     rig.resolver.remember_with(stub.memory());
 
     const handle = try rig.start("example.com.");
@@ -465,4 +472,29 @@ test "a failure the memory holds ends the lookup at its first poll, and nothing 
     // Read back from the memory, so it is not written to it again.
     try testing.expectEqual(@as(u32, 0), stub.writes);
     rig.resolver.release(handle);
+}
+
+/// Starts a lookup of `text` on `rig`, and answers it with `reply`, AD set, from its server.
+fn answered_with_ad(rig: *Table, text: []const u8, reply: fixtures.Reply) !void {
+    const handle = try rig.start(text);
+    rig.resolver.on_sent(rig.poll().?.handle, rig.now_ns);
+    const lookup = rig.resolver.lookup_of(handle);
+    var signed = reply;
+    signed.authentic_data = true;
+    const message = rig.build(lookup, signed);
+    rig.now_ns += 1;
+    _ = rig.resolver.on_datagram(message, lookup.server(), rig.now_ns);
+    _ = rig.poll().?;
+    rig.resolver.release(handle);
+}
+
+test "an end is written with its status, and a negative with its own (docs/design.md §25 rule 5)" {
+    var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{}, .authenticated_data = .always } };
+    rig.open();
+    var stub: Stub = .{};
+    rig.resolver.remember_with(stub.memory());
+    try answered_with_ad(&rig, "example.com.", fixtures.answer_a);
+    try testing.expectEqual(core.Security.authenticated, stub.written.?.answered.security);
+    try answered_with_ad(&rig, "nothing.example.", fixtures.name_error_soa);
+    try testing.expectEqual(core.Security.authenticated, stub.written.?.negative.security);
 }

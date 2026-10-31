@@ -10710,3 +10710,25 @@ Fourteen mutations, fourteen `CAUGHT`. RA10 came with the fix of CI's instructio
 also rewrote RA1, RA2 and RA9 to name the new text: the conjunction is a `Conjunction` of three
 values, and whether the lookup relies on the bit is decided once, at init. All ten `RA` rows ran
 again to their end.
+
+## The status a cache keeps
+
+2026-10-31. Design §25 Stage A, its `cache` piece and rule 5 (c4milo/cocuyo#55). The cache keeps
+the status with each answer and each negative, a failure keeps `unchecked`, and the table's
+memory carries the status both ways. RA6 named the recall's old call, and was rewritten for the
+status it now takes. `zig build mutations -- engine CS1 ... CS9 RA6` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| CS1 | a put keeps no status | `zig build test-cache` | `CAUGHT` |
+| CS2 | a negative put keeps no status | `zig build test-cache` | `CAUGHT` |
+| CS3 | a hit reports no status | `zig build test-cache` | `CAUGHT` |
+| CS4 | a failure keeps the status of the answer it replaced | `zig build test-cache` | `CAUGHT` |
+| CS5 | the glue drops the status of a recalled answer | `zig build test-cocuyo` | `CAUGHT` |
+| CS6 | the glue puts every answer unchecked | `zig build test-cocuyo` | `CAUGHT` |
+| CS7 | the table writes every answer unchecked | `zig build test-resolver` | `CAUGHT` |
+| CS8 | a recall clears no conjunction | `zig build test-resolver` | `CAUGHT` |
+| CS9 | the table writes every negative unchecked | `zig build test-resolver` | `CAUGHT` |
+| RA6 | a recalled answer keeps the conjunction it started with | `zig build test-resolver` | `CAUGHT` |
+
+Ten mutations, ten `CAUGHT`.

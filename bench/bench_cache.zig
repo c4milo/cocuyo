@@ -61,7 +61,7 @@ fn setup_cache() void {
     for (&questions, 0..) |*question, index| {
         const text = std.fmt.bufPrint(&buffer, "l{d}.example", .{index}) catch unreachable;
         question.* = Question.from_text(text, .a) catch unreachable;
-        table.put(question, &answers, null, now_ns);
+        table.put(question, &answers, null, .unchecked, now_ns);
     }
     // Every name went in: no chain reached the probe bound at this seed.
     assert(table.len() == slot_count);
@@ -91,13 +91,13 @@ fn run_miss() void {
 }
 
 fn run_put_replace() void {
-    table.put(&questions[0], &answers, null, now_ns);
+    table.put(&questions[0], &answers, null, .unchecked, now_ns);
     doNotOptimizeAway(&table);
 }
 
 fn run_put_evict() void {
     advance(&fresh);
-    table.put(&fresh, &answers, null, now_ns);
+    table.put(&fresh, &answers, null, .unchecked, now_ns);
     doNotOptimizeAway(&table);
 }
 

@@ -85,9 +85,10 @@ fn recall_from_cache(context: *anyopaque, question: *const Question, now_ns: u64
             .answers = hit.answers,
             .ttl_seconds = hit.ttl_seconds,
             .canonical_name = hit.canonical_name,
+            .security = hit.security,
         } },
-        .name_not_found => .{ .negative = .{ .outcome = .name_not_found, .ttl_seconds = hit.ttl_seconds } },
-        .no_data => .{ .negative = .{ .outcome = .no_data, .ttl_seconds = hit.ttl_seconds } },
+        .name_not_found => .{ .negative = .{ .outcome = .name_not_found, .ttl_seconds = hit.ttl_seconds, .security = hit.security } },
+        .no_data => .{ .negative = .{ .outcome = .no_data, .ttl_seconds = hit.ttl_seconds, .security = hit.security } },
         // A resolution failure: the table ends the lookup with it and sends no query
         // (RFC 9520 §3.2; docs/design.md §16 decision 61).
         .failed => .{ .failed = hit.failure.? },
@@ -102,11 +103,11 @@ fn remember_in_cache(
 ) void {
     const store: *Cache = @ptrCast(@alignCast(context));
     switch (end) {
-        .answered => |answered| store.put(question, answered.answers, answered.canonical_name, now_ns),
+        .answered => |answered| store.put(question, answered.answers, answered.canonical_name, answered.security, now_ns),
         .negative => |negative| store.put_negative(question, switch (negative.outcome) {
             .name_not_found => .name_not_found,
             .no_data => .no_data,
-        }, negative.ttl_seconds, now_ns),
+        }, negative.ttl_seconds, negative.security, now_ns),
         .failed => |err| {
             // The table writes the failures that the cache keeps, and no other (§16 decision 61).
             assert(cache.resolution_failure(err));
@@ -221,6 +222,7 @@ test "an answer put through the memory comes back with what is left of its life"
         .answers = &answers,
         .ttl_seconds = remembered_ttl_seconds,
         .canonical_name = null,
+        .security = .authenticated,
     } }, 0);
 
     const half = @as(u64, remembered_ttl_seconds / 2) * cache.constants.ns_per_s;
@@ -228,6 +230,8 @@ test "an answer put through the memory comes back with what is left of its life"
     try testing.expect(found == .answered);
     try testing.expectEqual(@as(u32, remembered_ttl_seconds / 2), found.answered.ttl_seconds);
     try testing.expectEqual(@as(u8, 1), found.answered.answers.count);
+    // The status goes in and comes back with the answer (docs/design.md §25, Stage A rule 5).
+    try testing.expectEqual(Security.authenticated, found.answered.security);
 }
 
 test "each negative of RFC 2308 goes in and comes back as itself" {
@@ -240,16 +244,20 @@ test "each negative of RFC 2308 goes in and comes back as itself" {
     memory.remember(memory.context, &missing, .{ .negative = .{
         .outcome = .name_not_found,
         .ttl_seconds = remembered_ttl_seconds,
+        .security = .authenticated,
     } }, 0);
     memory.remember(memory.context, &empty, .{ .negative = .{
         .outcome = .no_data,
         .ttl_seconds = remembered_ttl_seconds,
+        .security = .unchecked,
     } }, 0);
 
     const first = memory.recall(memory.context, &missing, 0).?;
     try testing.expectEqual(resolver.Negative.name_not_found, first.negative.outcome);
+    try testing.expectEqual(Security.authenticated, first.negative.security);
     const second = memory.recall(memory.context, &empty, 0).?;
     try testing.expectEqual(resolver.Negative.no_data, second.negative.outcome);
+    try testing.expectEqual(Security.unchecked, second.negative.security);
 }
 
 test "what the memory has nothing for, and what has expired, is a miss" {
@@ -264,6 +272,7 @@ test "what the memory has nothing for, and what has expired, is a miss" {
         .answers = &answers,
         .ttl_seconds = remembered_ttl_seconds,
         .canonical_name = null,
+        .security = .unchecked,
     } }, 0);
     const past = (@as(u64, remembered_ttl_seconds) + 1) * cache.constants.ns_per_s;
     try testing.expectEqual(@as(?Remembered, null), memory.recall(memory.context, &question, past));
@@ -282,11 +291,13 @@ test "the chain's end goes through the memory and comes back as it went in" {
         .answers = &answers,
         .ttl_seconds = remembered_ttl_seconds,
         .canonical_name = &target,
+        .security = .unchecked,
     } }, 0);
     memory.remember(memory.context, &plain, .{ .answered = .{
         .answers = &answers,
         .ttl_seconds = remembered_ttl_seconds,
         .canonical_name = null,
+        .security = .unchecked,
     } }, 0);
 
     try testing.expect(memory.recall(memory.context, &aliased, 0).?.answered.canonical_name.?.equal(&target));
@@ -315,6 +326,7 @@ test "a hit through the table hands each record back less the time it spent in t
         .answers = &answers,
         .ttl_seconds = answers.ttl_seconds,
         .canonical_name = null,
+        .security = .unchecked,
     } }, 0);
 
     var slots: [1]Slot = @splat(.{});

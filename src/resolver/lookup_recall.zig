@@ -28,6 +28,7 @@ pub fn answer(
     answers: *const wire.Answers,
     ttl_seconds: u32,
     canonical: ?*const Name,
+    status: core.Security,
 ) void {
     assert(before_first_query(lookup));
     assert(!lookup.flags.aliased);
@@ -47,17 +48,17 @@ pub fn answer(
     }
     lookup.state = .done;
     assert(lookup.is_settled());
-    security.recalled(lookup);
+    security.recalled(lookup, status);
 }
 
 /// Ends `lookup` with a negative the memory remembered: one of the two of RFC 2308 §5, with what
 /// is left of its life.
-pub fn failure(lookup: *Lookup, err: core.Error, ttl_seconds: u32) void {
+pub fn failure(lookup: *Lookup, err: core.Error, ttl_seconds: u32, status: core.Security) void {
     assert(before_first_query(lookup));
     assert(err == core.Error.NameNotFound or err == core.Error.NoData);
     lookup.negative_ttl_seconds = ttl_seconds;
     lookup.fail(err);
-    security.recalled(lookup);
+    security.recalled(lookup, status);
 }
 
 /// Ends `lookup` with a resolution failure the memory remembered (RFC 9520 §3.2). The memory
@@ -102,7 +103,7 @@ test "a recalled answer's records each lose the time the answers spent in the me
     try harness.start("example.com.", .mx, fixtures.seed);
     const answers = two_mx(300, 200);
     // Given 200 seconds and left with 150: fifty spent in the memory, which each record loses.
-    answer(&harness.lookup, &answers, 150, null);
+    answer(&harness.lookup, &answers, 150, null, .unchecked);
     const done = harness.poll().done;
     try testing.expectEqual(@as(u32, 150), done.ttl_seconds);
     try testing.expectEqual(@as(u8, mx_count), done.record_count);
@@ -118,7 +119,7 @@ test "a recalled answer with more left than it was given keeps every record's TT
     var harness: fixtures.Harness = .{ .config = .{ .servers = &fixtures.servers_two } };
     try harness.start("example.com.", .mx, fixtures.seed);
     const answers = two_mx(300, 200);
-    answer(&harness.lookup, &answers, 250, null);
+    answer(&harness.lookup, &answers, 250, null, .unchecked);
     const done = harness.poll().done;
     try testing.expectEqual(@as(u32, 250), done.ttl_seconds);
     try testing.expectEqual(@as(u32, 300), done.records.?.at(0).ttl_seconds);
@@ -129,21 +130,26 @@ test "a recalled answer with its whole life left keeps every TTL it was given" {
     var harness: fixtures.Harness = .{ .config = .{ .servers = &fixtures.servers_two } };
     try harness.start("example.com.", .mx, fixtures.seed);
     const answers = two_mx(300, 200);
-    answer(&harness.lookup, &answers, 200, null);
+    answer(&harness.lookup, &answers, 200, null, .unchecked);
     const done = harness.poll().done;
     try testing.expectEqual(@as(u32, 200), done.ttl_seconds);
     try testing.expectEqual(@as(u32, 300), done.records.?.at(0).ttl_seconds);
     try testing.expectEqual(@as(u32, 200), done.records.?.at(1).ttl_seconds);
 }
 
-test "a recalled answer or negative is unchecked, though the configuration relies on the AD bit" {
-    // The memory read no message, and keeps no status yet (docs/design.md §25, Stage A).
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &fixtures.servers_one, .authenticated_data = .always } };
-    try harness.start("example.com.", .a, fixtures.seed);
+test "a recalled end reports the status it was kept with, while the lookup relies on the AD bit" {
+    // docs/design.md §25, Stage A rule 5: the memory keeps the status with the entry.
     const cached = fixtures.cached_a("192.0.2.1");
-    answer(&harness.lookup, &cached, fixtures.cached_ttl_seconds, null);
-    try testing.expectEqual(core.Security.unchecked, harness.lookup.answer().security);
-    try harness.start("example.com.", .a, fixtures.seed);
-    failure(&harness.lookup, core.Error.NameNotFound, fixtures.cached_ttl_seconds);
-    try testing.expectEqual(core.Security.unchecked, harness.lookup.failure_of().security);
+    for ([_]core.AuthenticatedData{ .always, .ignored }) |mode| {
+        for ([_]core.Security{ .authenticated, .unchecked }) |status| {
+            const expected: core.Security = if (mode == .always) status else .unchecked;
+            var harness: fixtures.Harness = .{ .config = .{ .servers = &fixtures.servers_one, .authenticated_data = mode } };
+            try harness.start("example.com.", .a, fixtures.seed);
+            answer(&harness.lookup, &cached, fixtures.cached_ttl_seconds, null, status);
+            try testing.expectEqual(expected, harness.lookup.answer().security);
+            try harness.start("example.com.", .a, fixtures.seed);
+            failure(&harness.lookup, core.Error.NameNotFound, fixtures.cached_ttl_seconds, status);
+            try testing.expectEqual(expected, harness.lookup.failure_of().security);
+        }
+    }
 }

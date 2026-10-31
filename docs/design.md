@@ -6336,7 +6336,7 @@ entries live at once.**
   here, and without limit for a peer that makes a process resolve names of its choosing.
   cocuyo holds the caller's number, whatever the traffic.
 - **Memory is not compared.** A c-ares entry is a duplicate of the parsed response, a formatted
-  key and a skip list node, and its size in bytes was not measured. A cocuyo slot is 2984 octets
+  key and a skip list node, and its size in bytes was not measured. A cocuyo slot is 2992 octets
   whatever the answer holds.
 
 ### How far from the best
@@ -6520,11 +6520,12 @@ The busiest clients are weighed by what they ask.
 
 Per slot: two `Name`s at 256 each — the key, and since §17 question 13 the end of the CNAME
 chain that reached the answers — an `Answers` at 2448 since §19 step 9 gave it the rdata buffer,
-and 24 octets of scalars and padding: 2984, measured and pinned by a test in
-`src/cache/cache.zig` (2728 before the chain's end, 568 before step 9). The key index is eight
+and 32 octets of scalars and padding: 2992, measured and pinned by a test in
+`src/cache/cache.zig` (2984 before the status of §25 Stage A on 2026-10-31, 2728 before the
+chain's end, 568 before step 9). The key index is eight
 octets an entry at two entries a slot, rounded up to a power of two. A thousand slots cost
 2.9 MiB of slots and 16 KiB of keys; sixteen thousand, the most a `u16` slot index and the key
-index allow at `cache_slots_max`, cost 46.6 MiB and 256 KiB. The caller chooses, and an address-only cache pays
+index allow at `cache_slots_max`, cost 46.8 MiB and 256 KiB. The caller chooses, and an address-only cache pays
 for the buffer too, as §9 says of the lookup.
 
 ### Sizing the memory
@@ -10122,9 +10123,12 @@ What changes, and where:
   whether the lookup relies on the bit. Read at each message instead, it cost a lookup round
   trip 3.1% more instructions under cachegrind on CI's Linux job, past the check's 2%. Every
   query sets AD under `encrypted` and `always`. The lookup acts on a message at
-  NXDOMAIN, at each NOERROR it collects, and at a chain that is too long. A memory recall reads no
-  message, so until the `cache` piece its end is `unchecked`.
-- `cache`: the status in a slot.
+  NXDOMAIN, at each NOERROR it collects, and at a chain that is too long.
+- `cache`: the status in a slot. Built on 2026-10-31. `Cache.put` and `Cache.put_negative` take
+  the status, a `Hit` hands it back, and a failure keeps `unchecked`. The table's `Remembered`
+  carries it both ways. A recall ends `authenticated` only when the status it was kept with says
+  so and the lookup that recalls it relies on the bit too. The slot grows from 2,984 octets to
+  2,992, since its padding had no octet left.
 - `config`: `options trust-ad`, read as `always`.
 - The lookup's model: the bit, and a theorem that an end is `authenticated` only when every
   message the lookup acted on had AD set, and never under `ignored`. Built on 2026-10-31, before

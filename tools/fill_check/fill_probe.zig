@@ -44,12 +44,12 @@ export fn probe_cache_get(cache: *cocuyo.Cache, question: *const cocuyo.Question
 
 /// An answer kept in the cache.
 export fn probe_cache_put(cache: *cocuyo.Cache, question: *const cocuyo.Question, answers: *const wire.Answers, now_ns: u64) void {
-    cache.put(question, answers, null, now_ns);
+    cache.put(question, answers, null, .unchecked, now_ns);
 }
 
 /// A question with no answer kept in the cache.
 export fn probe_cache_put_negative(cache: *cocuyo.Cache, question: *const cocuyo.Question, ttl_seconds: u32, now_ns: u64) void {
-    cache.put_negative(question, .no_data, ttl_seconds, now_ns);
+    cache.put_negative(question, .no_data, ttl_seconds, .unchecked, now_ns);
 }
 
 /// A lookup built by value, as a caller that holds one outside a table builds it.
