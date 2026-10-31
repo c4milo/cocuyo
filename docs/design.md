@@ -4991,7 +4991,11 @@ recommends, and none is taken until the owner answers. The owner answered the la
     alone is read as unsigned. Answered on 2026-10-31: Ed448 stays unsupported. chapulin builds
     algorithms 8 and 13 first, then 15, 10 and 14 (c4milo/chapulin#189).
 22. **SHA-1.** Algorithms 5 and 7 written, and off unless a configuration turns them on, which
-    is how §25 reads RFC 9905 §2. Answered on 2026-10-31: as recommended.
+    is how §25 reads RFC 9905 §2. Answered on 2026-10-31: as recommended. Answered again on
+    2026-10-31: out entirely. cocuyo writes neither, and a zone signed with 5 or 7 alone is
+    `insecure`, always. chapulin refuses both signatures (its decision 169). SHA-1 as a hash
+    stays, for NSEC3 and for a DS of digest type 1 (chapulin `54bad29b`). This answer replaces
+    the first.
 23. **The limits §25 proposes.** All are chosen, not measured, but those an RFC fixes or the
     count of 2026-10-03 bears out. Three are worth a word: `clock_skew_seconds_default` at
     zero, `nsec3_iterations_max` at 100, and `records_max` left at 64, which fails a lookup
@@ -10468,7 +10472,7 @@ DNSSEC Validation".
 | 14 | ECDSAP384SHA384 | RECOMMENDED | the same | nothing |
 | 15 | ED25519 | RECOMMENDED | none: it has X25519 and no Ed25519 | Ed25519 verification |
 | 16 | ED448 | RECOMMENDED | none | nothing planned: such a zone is read as unsigned |
-| 5, 7 | RSASHA1, RSASHA1-NSEC3-SHA1 | MUST | none: it holds no SHA-1 | SHA-1 under PKCS #1 v1.5, off unless the configuration turns it on |
+| 5, 7 | RSASHA1, RSASHA1-NSEC3-SHA1 | MUST | none: it refuses both | nothing: unsupported, so a zone signed with them alone is `insecure` (§17 question 22, as answered again) |
 | 1, 3, 6 | RSAMD5, DSA, DSA-NSEC3-SHA1 | MUST NOT | none | nothing |
 | 12, 17, 23 | ECC-GOST, SM2SM3, ECC-GOST12 | MAY | none | nothing |
 | 253, 254 | private | MAY | none | nothing; RFC 6840 §5.3 asks nothing of a validator that supports none |
@@ -10489,11 +10493,12 @@ So three repositories change, in this order: chapulin gains the calls and what t
 colibri's `tls` hands them on, and cocuyo binds them. §21 began the same way, with chapulin's
 three pieces first.
 
-Algorithms 5 and 7 are off by default because RFC 9905 §2 asks both things at once:
-implementations "MUST continue to support validation using these algorithms", and operators
-"MUST treat" them "as unsupported, rendering responses insecure". By item 5 above, a zone that
-has only an algorithm the verifier does not check is `insecure`, so a zone signed with Ed448
-alone, or by default with SHA-1 alone, is read as unsigned and never as bogus.
+Algorithms 5 and 7 are not written. RFC 9905 §2 asks two things at once: implementations "MUST
+continue to support validation using these algorithms", and operators "MUST treat" them "as
+unsupported, rendering responses insecure". The owner ruled on 2026-10-31 for the second alone
+(§17 question 22), and cocuyo follows the operators' rule with no setting. By item 5 above, a zone
+that has only an algorithm the verifier does not check is `insecure`. So a zone signed with Ed448,
+RSASHA1 or RSASHA1-NSEC3-SHA1 alone is read as unsigned, and never as bogus.
 
 **What signed zones publish.** Counted on 2026-10-03: the DNSKEY, DS and NSEC3PARAM sets of the
 root and of the 1,437 top-level domains in IANA's list of that day, asked of 1.1.1.1 over TCP
@@ -10530,7 +10535,7 @@ of it at least, or `lv` and every zone under it fails the same way.
 So the order chapulin's additions are worth, by the zones each opens: the public calls, SHA-1
 as a hash, and RSA with the key's own size and exponent, which together cover algorithms 8 and
 13; then RSA over SHA-512, for 28 zones; then Ed25519, for 3. Algorithm 7's 4 zones stay
-`insecure` by default, as RFC 9905 §2 asks. No top-level domain signs with Ed448.
+`insecure`, as RFC 9905 §2 asks of operators. No top-level domain signs with Ed448.
 
 **The RFCs' own examples.** Decoded from the copies in `docs/rfcs/` on 2026-10-03: the example
 zone of RFC 4035 Appendix A signs with algorithm 5 under a 1024-bit key whose exponent is 3;
@@ -10541,7 +10546,9 @@ in it: it calls a signature valid when its octets are a fixed function of the si
 the twin's session encrypts nothing (decision 29). Those tests check everything but the
 arithmetic, on the RFCs' whole responses. The arithmetic is checked in the binding's tests,
 over chapulin, on the examples chapulin admits: RFC 6605 §6's for ECDSA once the calls are
-public, and each other as its algorithm lands.
+public, and each other as its algorithm lands. A verifier says which algorithms it checks, so the
+tests' verifier may take 5 and 7 as data for the examples of RFC 4035 and RFC 5155. The verifier
+over chapulin takes neither (§17 question 22).
 
 **What the ruling rejected: Zig's `std.crypto`.** Read the same day: 0.16's has every algorithm the
 plan would verify, and no Ed448. Its ECDSA and Ed25519 verifiers take the message in pieces, and
