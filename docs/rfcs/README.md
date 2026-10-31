@@ -67,6 +67,11 @@ against `rfc-editor.org/rfc/rfcNNNN.json` that day: none is obsoleted. RFC 3110 
 RFC 6944, which RFC 9904 obsoletes through RFC 8624. RFC 2181 is updated by RFC 4343, RFC 5452
 and RFC 8767, which are here, and by the DNSSEC set.
 
+Added on 2026-10-31, when the owner asked for post-quantum key exchange in DoT, DoQ and DoH:
+RFC 10024, the hybrid group X25519MLKEM768 that chapulin's client offers. It was checked against
+`rfc-editor.org/rfc/rfc10024.json` that day: it is a Proposed Standard of August 2026, and no RFC
+obsoletes or updates it.
+
 Read these, never a summary and never another implementation's source. Cite the RFC that *states*
 a rule, not one that inherits it, and cite it by section on the line that does the checking
 (CLAUDE.md non-negotiable 8).
@@ -181,6 +186,7 @@ updates worth knowing about, none of which version one implements:
 | 9824 | Compact Denial of Existence in DNSSEC | §2 and §3 NXNAME and the responses that carry it, §5 the response code, §7 its changes to RFC 4034 and RFC 4035, §8 the header is not signed (design §25) |
 | 9904 | DNSSEC Cryptographic Algorithm Recommendation Update Process | §3 the algorithm table and §4 the digest table: what a validator implements (design §25) |
 | 9905 | Deprecating the Use of SHA-1 in DNSSEC Signature Algorithms | §2, algorithms 5 and 7 still implemented, and treated as unsupported (design §25) |
+| 10024 | Post-Quantum Traditional (PQ/T) Hybrid Key Agreement Mechanisms for TLS 1.3 | §4 the client's and the server's shares of X25519MLKEM768, §7.1 its code point, 0x11EC: the group a handshake of DoT, DoQ or DoH may use, and that a server may be required to use (design §21) |
 | 1982 | Serial Number Arithmetic | §3 the comparison of two serial numbers, which RFC 4034 §3.1.5 requires of a signature's times (design §25) |
 | 2181 | Clarifications to the DNS Specification | §5 what an RRset is, which RFC 4034 §6.3 and RFC 4035 §2.2 cite; §9 when a server sets TC (design §25, §16 decision 43) |
 | 3110 | RSA/SHA-1 SIGs and RSA KEYs in the Domain Name System (DNS) | §2 the layout of an RSA key in a DNSKEY, which RFC 5702 §2 points to (design §25) |
