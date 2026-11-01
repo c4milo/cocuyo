@@ -174,8 +174,9 @@ pub const Hashes = struct {
 /// server does with `sign`, and any changed octet changes the sum.
 pub const Sums = struct {
     state: std.hash.Fnv1a_64 = .init(),
-    /// The checks that ended, for a test to count the work.
+    /// The checks and the digests that ended, for a test to count the work.
     checked: usize = 0,
+    digested: usize = 0,
 
     pub fn verifier(self: *Sums) dnssec.Verifier {
         return .{
@@ -222,6 +223,7 @@ pub const Sums = struct {
 
     fn digest_end(context: *anyopaque, out: *[dnssec.constants.digest_bytes]u8) usize {
         const self: *Sums = @ptrCast(@alignCast(context));
+        self.digested += 1;
         std.mem.writeInt(u64, out[0..8], self.state.final(), .big);
         return 8;
     }
@@ -347,3 +349,22 @@ pub const Builder = struct {
         self.put(&octets);
     }
 };
+
+/// A DS rdata under the tests' digest: tag, algorithm, type and the 8 octets of `Sums`.
+pub const DsRdata = [12]u8;
+
+/// The DS of `key` at `owner`, of `algorithm` and `digest_type`, under the tests' digest.
+pub fn ds_of(owner: *const Name, key: []const u8, algorithm: u8, digest_type: u8) DsRdata {
+    var sums: Sums = .{};
+    const verifier = sums.verifier();
+    const hash = verifier.digest_begin(verifier.context, digest_type);
+    dnssec.ds_input(owner, key, hash);
+    var digest: [dnssec.constants.digest_bytes]u8 = undefined;
+    _ = verifier.digest_end(verifier.context, &digest);
+    var rdata: DsRdata = undefined;
+    std.mem.writeInt(u16, rdata[0..2], dnssec.key_tag(key), .big);
+    rdata[2] = algorithm;
+    rdata[3] = digest_type;
+    @memcpy(rdata[4..], digest[0..8]);
+    return rdata;
+}

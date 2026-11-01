@@ -132,4 +132,6 @@ test {
     _ = @import("dnssec_base32.zig");
     _ = @import("dnssec_message.zig");
     _ = @import("dnssec_rrset.zig");
+    _ = @import("dnssec_store.zig");
+    _ = @import("dnssec_store_keys.zig");
 }

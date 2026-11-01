@@ -10999,3 +10999,46 @@ V19 M1 ... M9` ran each to its end.
 | M9 | the best record yet is not kept apart | `zig build test-dnssec` | `CAUGHT` |
 
 28 mutations, 28 `CAUGHT`.
+
+## The key store
+
+2026-11-01. Design §25 Stage B, step 9's second piece (c4milo/cocuyo#56): `dnssec_store` keeps
+what is known of each zone in memory the caller hands in, beside the caller's anchors, and pins
+the time of day to a `now_ns`. `dnssec_store_keys` admits a zone's DNSKEY set when a key in it
+matches an anchor or a held DS set and that key's signature over the set verifies. S3, S5 and
+K12 failed to compile at first, since each left a value unused, and were rewritten. A mutation
+that let a key without the Zone Key flag match was NOT CAUGHT: the check of the set refuses such
+a key already, so the admission's own check of the flag was taken out. `zig build mutations --
+engine S1 ... S12 K1 ... K15` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| S1 | the time of day ignores the now_ns that passed | `zig build test-dnssec` | `CAUGHT` |
+| S2 | an entry lives through the instant it expires | `zig build test-dnssec` | `CAUGHT` |
+| S3 | an entry of another zone is found | `zig build test-dnssec` | `CAUGHT` |
+| S4 | the shallower of two entries speaks for a name | `zig build test-dnssec` | `CAUGHT` |
+| S5 | an entry below the name speaks for it | `zig build test-dnssec` | `CAUGHT` |
+| S6 | every name is under an anchor | `zig build test-dnssec` | `CAUGHT` |
+| S7 | more records than zone_keys_max enter an entry | `zig build test-dnssec` | `CAUGHT` |
+| S8 | more octets than zone_keys_bytes_max enter an entry | `zig build test-dnssec` | `CAUGHT` |
+| S9 | a zone already held takes a second entry | `zig build test-dnssec` | `CAUGHT` |
+| S10 | a full store replaces the entry that expires last | `zig build test-dnssec` | `CAUGHT` |
+| S11 | a DS set serves as a signer's keys | `zig build test-dnssec` | `CAUGHT` |
+| S12 | a signer under no anchor is wanted | `zig build test-dnssec` | `CAUGHT` |
+| K1 | a zone with no basis is matched against nothing | `zig build test-dnssec` | `CAUGHT` |
+| K2 | more keys than zone_keys_max are read | `zig build test-dnssec` | `CAUGHT` |
+| K3 | a zone with no supported algorithm is matched anyway | `zig build test-dnssec` | `CAUGHT` |
+| K4 | a set with no matched key is verified | `zig build test-dnssec` | `CAUGHT` |
+| K5 | a set that does not fit the store is admitted | `zig build test-dnssec` | `CAUGHT` |
+| K6 | an anchor of another zone is a basis | `zig build test-dnssec` | `CAUGHT` |
+| K7 | a held key set is a basis | `zig build test-dnssec` | `CAUGHT` |
+| K8 | a SHA-1 DS is matched beside a SHA-256 one | `zig build test-dnssec` | `CAUGHT` |
+| K9 | a DNSKEY anchor of an algorithm not checked is usable | `zig build test-dnssec` | `CAUGHT` |
+| K10 | a DNSKEY anchor matches every key | `zig build test-dnssec` | `CAUGHT` |
+| K11 | a DS of another tag computes its digest | `zig build test-dnssec` | `CAUGHT` |
+| K12 | a DS of another algorithm matches | `zig build test-dnssec` | `CAUGHT` |
+| K13 | a DS of a digest type not computed matches | `zig build test-dnssec` | `CAUGHT` |
+| K14 | any digest matches | `zig build test-dnssec` | `CAUGHT` |
+| K15 | a signer above the zone signs its keys | `zig build test-dnssec` | `CAUGHT` |
+
+27 mutations, 27 `CAUGHT`.

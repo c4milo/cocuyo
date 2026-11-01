@@ -6299,4 +6299,247 @@
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
+    .{
+        .section = "The key store",
+        .id = "S1",
+        .what = "the time of day ignores the now_ns that passed",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store.zig", .old = "        return @truncate(self.unix_seconds + (now_ns - self.clock_ns) / constants.ns_per_second);", .new = "        return @truncate(self.unix_seconds + 0 * (now_ns - self.clock_ns));" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "S2",
+        .what = "an entry lives through the instant it expires",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store.zig", .old = "        return self.known != .free and now_ns < self.expires_ns;", .new = "        return self.known != .free and now_ns <= self.expires_ns;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "S3",
+        .what = "an entry of another zone is found",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store.zig", .old = "            if (entry.live(now_ns) and entry.zone.equal(zone)) return entry;", .new = "            if (entry.live(now_ns) and (true or entry.zone.equal(zone))) return entry;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "S4",
+        .what = "the shallower of two entries speaks for a name",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store.zig", .old = "            if (best) |held| if (held.zone.label_count() >= entry.zone.label_count()) continue;", .new = "            if (best) |held| if (held.zone.label_count() <= entry.zone.label_count()) continue;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "S5",
+        .what = "an entry below the name speaks for it",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store.zig", .old = "            if (!entry.live(now_ns) or !above(&entry.zone, name)) continue;", .new = "            if (!entry.live(now_ns) or (false and !above(&entry.zone, name))) continue;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "S6",
+        .what = "every name is under an anchor",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store.zig", .old = "        for (self.anchors) |*anchor| if (above(&anchor.zone, name)) return true;\n        return false;", .new = "        for (self.anchors) |*anchor| if (above(&anchor.zone, name)) return true;\n        return true;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "S7",
+        .what = "more records than zone_keys_max enter an entry",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store.zig", .old = "        if (records.len > limits.zone_keys_max) return false;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "S8",
+        .what = "more octets than zone_keys_bytes_max enter an entry",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store.zig", .old = "        if (total > limits.zone_keys_bytes_max) return false;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "S9",
+        .what = "a zone already held takes a second entry",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store.zig", .old = "            if (entry.known != .free and entry.zone.equal(zone)) return entry;", .new = "            if (false and entry.known != .free and entry.zone.equal(zone)) return entry;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "S10",
+        .what = "a full store replaces the entry that expires last",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store.zig", .old = "            if (entry.expires_ns < chosen.expires_ns) chosen = entry;", .new = "            if (entry.expires_ns > chosen.expires_ns) chosen = entry;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "S11",
+        .what = "a DS set serves as a signer's keys",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store.zig", .old = "    if (at.store.find(signer, at.now_ns)) |entry| if (entry.known == .keys) return .{ .keys = entry.keys() };", .new = "    if (at.store.find(signer, at.now_ns)) |entry| if (entry.known != .free) return .{ .keys = entry.keys() };" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "S12",
+        .what = "a signer under no anchor is wanted",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store.zig", .old = "    return if (at.store.anchored(signer)) .wanted else .outside;", .new = "    return if (at.store.anchored(signer) or true) .wanted else .outside;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "K1",
+        .what = "a zone with no basis is matched against nothing",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "    if (bases.len == 0) return .ds_wanted;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "K2",
+        .what = "more keys than zone_keys_max are read",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "    if (set.count() > limits.zone_keys_max) return .bogus;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "K3",
+        .what = "a zone with no supported algorithm is matched anyway",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "    if (!supported(&bases, verifier)) {", .new = "    if (false and !supported(&bases, verifier)) {" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "K4",
+        .what = "a set with no matched key is verified",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "    if (matched.len == 0) return .bogus;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "K5",
+        .what = "a set that does not fit the store is admitted",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "    return if (keep(store, zone, &set, valid.ttl_seconds, now_ns)) .admitted else .bogus;", .new = "    return if (keep(store, zone, &set, valid.ttl_seconds, now_ns) or true) .admitted else .bogus;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "K6",
+        .what = "an anchor of another zone is a basis",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "        if (!anchor.zone.equal(zone)) continue;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "K7",
+        .what = "a held key set is a basis",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "    if (store.find(zone, now_ns)) |entry| if (entry.known == .ds) {", .new = "    if (store.find(zone, now_ns)) |entry| if (entry.known != .free) {" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "K8",
+        .what = "a SHA-1 DS is matched beside a SHA-256 one",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "        if (basis.kind == .ds and ds.digest_type == constants.digest_sha256 and usable_ds(verifier, &ds)) bases.sha256 = true;", .new = "        if (false and basis.kind == .ds and ds.digest_type == constants.digest_sha256 and usable_ds(verifier, &ds)) bases.sha256 = true;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "K9",
+        .what = "a DNSKEY anchor of an algorithm not checked is usable",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "            return verifier.checks(verifier.context, key.algorithm);", .new = "            return true or verifier.checks(verifier.context, key.algorithm);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "K10",
+        .what = "a DNSKEY anchor matches every key",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "        if (self.kind == .dnskey) return std.mem.eql(u8, self.rdata, rdata);", .new = "        if (self.kind == .dnskey) return true;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "K11",
+        .what = "a DS of another tag computes its digest",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "        if (ds.key_tag != dnssec.key_tag(rdata) or ds.algorithm != key.algorithm) return false;", .new = "        if (ds.algorithm != key.algorithm) return false;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "K12",
+        .what = "a DS of another algorithm matches",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "        if (ds.key_tag != dnssec.key_tag(rdata) or ds.algorithm != key.algorithm) return false;", .new = "        if (ds.key_tag != dnssec.key_tag(rdata) or (false and ds.algorithm != key.algorithm)) return false;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "K13",
+        .what = "a DS of a digest type not computed matches",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "        if (!usable_ds(verifier, &ds)) return false;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "K14",
+        .what = "any digest matches",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "    return std.mem.eql(u8, digest[0..length], ds.digest);", .new = "    return length == length;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store",
+        .id = "K15",
+        .what = "a signer above the zone signs its keys",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "        return if (signer.equal(self.zone)) .{ .keys = self.keys } else .outside;", .new = "        return if (signer.equal(self.zone) or true) .{ .keys = self.keys } else .outside;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
 }

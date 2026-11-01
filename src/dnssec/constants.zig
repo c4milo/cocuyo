@@ -35,3 +35,11 @@ pub const canonical_rdata_bytes: usize = 2 + 2 + 3 * (1 + 255) + 255;
 /// The room for the longest DS digest of a type cocuyo knows: SHA-384's 48 octets (RFC 6605 §2). SHA-1 has 20
 /// (RFC 4034 §5.1.4) and SHA-256 32 (RFC 4509 §2.1).
 pub const digest_bytes: usize = 48;
+
+/// The nanoseconds in a second, which turn a `now_ns` into the seconds a signature's dates count.
+pub const ns_per_second: u64 = 1_000_000_000;
+
+/// The DS digest types RFC 4509 §3 weighs against each other: SHA-1 (RFC 4034 Appendix A.2) and
+/// SHA-256 (RFC 4509 §5).
+pub const digest_sha1: u8 = 1;
+pub const digest_sha256: u8 = 2;

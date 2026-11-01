@@ -26,3 +26,11 @@ pub const keys_per_signature_max: usize = 2;
 /// The verifications one message costs at most (RFC 4035 §5.4, RFC 4033 §12). A chain of
 /// `cname_hops_max` links and its end take 9, and a denial three more. Chosen, not measured.
 pub const verifications_per_message_max: usize = 16;
+
+/// The octets of keys one store entry keeps (docs/design.md §25). The count of 2026-10-03 found
+/// 1,824 at most, in a set of 6 keys.
+pub const zone_keys_bytes_max: usize = 2048;
+
+/// The trust anchors a store takes: more than one, as RFC 4035 §4.4 asks, for the root's keys while
+/// one replaces another, and for a zone of the caller's own. Chosen, not measured.
+pub const anchors_max: usize = 8;

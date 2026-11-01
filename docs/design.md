@@ -10432,7 +10432,7 @@ composed ones included: `AddressLookup` and `NameLookup` change in one place, wh
 its lookups' `security` on. A bare `Lookup` with no table validates nothing, as it has no cache.
 
 **Memory.** No message is copied, and a lookup's slot grows by two small counters at most. A
-store entry is a name, a buffer of `zone_keys_bytes` and a few fields: about 2.4 KiB by sum of
+store entry is a name, a buffer of `zone_keys_bytes_max` and a few fields: about 2.4 KiB by sum of
 the limits below, not measured, so the engine's default of 64 entries is about 150 KiB. A
 verification uses the stack alone.
 
@@ -10595,7 +10595,7 @@ Every value below is chosen, not measured, unless its reason cites an RFC or the
 | `signature_bytes_max` | 512 | an RSA signature under the largest key |
 | `rsa_modulus_bits_min` | 1024 | the count: 715 top-level domains publish a key of that size and none publishes a smaller one; RFC 5702 §2 allows 512 |
 | `rsa_exponent_bytes_max` | 8 | the count: the longest exponent published is five octets; eight bounds what one verification costs |
-| `zone_keys_bytes` | 2048 | the octets of keys one store entry keeps; the count's largest set is 1,824 |
+| `zone_keys_bytes_max` | 2048 | the octets of keys one store entry keeps; the count's largest set is 1,824 |
 | `zone_keys_max` | 8 | the keys one store entry keeps; the count's largest set holds 6 |
 | `ds_records_max` | 8 | the DS records read from one set; the count's largest holds 3 |
 | `signatures_per_rrset_max` | 4 | the RRSIGs tried for one RRset |
