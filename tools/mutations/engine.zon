@@ -5273,4 +5273,31 @@
         },
         .caught_by = .{ .step = "test-core" },
     },
+    .{
+        .section = "The types of DNSSEC in wire",
+        .id = "DT16",
+        .what = "the dnslib check passes over an RRSIG's expiration",
+        .edits = .{
+            .{ .file = "tools/dnslib/check_record.zig", .old = "    if (try seconds_of(fields[4]) != sig.expiration) return Mismatch.Rdata;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "The types of DNSSEC in wire",
+        .id = "DT17",
+        .what = "the dnslib check takes an NSEC that lists more types than its map",
+        .edits = .{
+            .{ .file = "tools/dnslib/check_record.zig", .old = "    if (listed != fields.len) return Mismatch.Rdata;\n}", .new = "}" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "The types of DNSSEC in wire",
+        .id = "DT18",
+        .what = "the dnslib check reads a \\DDD escape one octet high",
+        .edits = .{
+            .{ .file = "tools/dnslib/check_record.zig", .old = "                label[len] = std.fmt.parseInt(u8, field[at + 1 .. at + 4], decimal_base) catch return Mismatch.Text;", .new = "                label[len] = (std.fmt.parseInt(u8, field[at + 1 .. at + 4], decimal_base) catch return Mismatch.Text) +% 1;" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
 }

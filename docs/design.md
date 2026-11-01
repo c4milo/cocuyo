@@ -10676,8 +10676,10 @@ Each step lands with its checks, each check broken on purpose and recorded in
    `TypeBitmaps`, and DNAME reads through `rdata.name`. The longest bitmap is a limit,
    `wire.limits.bitmap_octets_max`, which RFC 4034 §4.1.2 fixes at 32. The fuzz target writes
    each type whole, and requires its view to read it back. The dnslib check reads DS, DNSKEY,
-   NSEC3PARAM and DNAME as dnslib prints them. RRSIG, NSEC and NSEC3 stay unread there: their
-   text names types by mnemonic, writes times as dates, and NSEC3's hash in base32hex.
+   RRSIG, NSEC, NSEC3PARAM and DNAME as dnslib prints them, a signature's dates and a name's
+   escapes (RFC 1035 §5.1) included. dnslib's responses hold 26 RRSIG and 5 NSEC records, and
+   all 185 records agree. NSEC3 stays unread there, since its text writes the hash in base32hex
+   and the responses hold none.
 7. `dnssec`, the pure half, over a verifier the tests supply: canonical order and form, the key
    tag, what a DS digest and a signature are computed over, and time. Against the RFCs' own
    examples where no arithmetic is needed: the ordered list of RFC 4034 §6.1, and the octets

@@ -10788,8 +10788,14 @@ written, and the two ran again. `zig build mutations -- engine DT1 ... DT15` ran
 | DT13 | DNAME carries the code 40 | `zig build test-core` | `CAUGHT` |
 | DT14 | the fuzz generator writes a type map's windows out of order | `zig build test-wire` | `CAUGHT` |
 | DT15 | the dnslib check passes over a DS's digest | `zig build test-tools` | `CAUGHT` |
+| DT16 | the dnslib check passes over an RRSIG's expiration | `zig build test-tools` | `CAUGHT` |
+| DT17 | the dnslib check takes an NSEC that lists more types than its map | `zig build test-tools` | `CAUGHT` |
+| DT18 | the dnslib check reads a `\DDD` escape one octet high | `zig build test-tools` | `CAUGHT` |
 
-Fifteen mutations, fifteen `CAUGHT`.
+Fifteen mutations, fifteen `CAUGHT`. CI's dnslib job then failed on 1d7ca69: dnslib's responses
+hold 26 RRSIG and 5 NSEC records, which the check could not read, and an unread record of a named
+type is a disagreement. The check now reads both, and DT16 to DT18 came with that fix, each
+`CAUGHT`. Eighteen mutations, eighteen `CAUGHT`.
 
 ## Canonical name order
 
