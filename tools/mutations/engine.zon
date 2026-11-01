@@ -7226,4 +7226,166 @@
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
+    .{
+        .section = "The walks for keys",
+        .id = "WK24",
+        .what = "the table takes only the first walk's question",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "            if (self.question(walk)) |asked| return .{ .walk = walk, .question = asked };", .new = "            if (self.question(walk)) |asked| if (walk == 0) return .{ .walk = walk, .question = asked };" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The table's walks for keys",
+        .id = "TW1",
+        .what = "the consumer takes the slot kept for the walks",
+        .edits = .{
+            .{ .file = "src/resolver/table_walks.zig", .old = "    return self.slots.free_at_least(limits.trust_slots_min - held + 1);", .new = "    return self.slots.free_at_least(held - held + 1);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table's walks for keys",
+        .id = "TW2",
+        .what = "a walk's question takes a slot only as the consumer would",
+        .edits = .{
+            .{ .file = "src/resolver/table_walks.zig", .old = "        if (!self.slots.free_at_least(1)) return;", .new = "        if (!consumer_may(self)) return;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table's walks for keys",
+        .id = "TW3",
+        .what = "a walk's lookup that ended on a message is followed as the consumer's",
+        .edits = .{
+            .{ .file = "src/resolver/table_walks.zig", .old = "    if (slot.lookup.conjunctions.for_walk) {\n        if (!slot.lookup.is_settled()) return false;", .new = "    if (false) {\n        if (!slot.lookup.is_settled()) return false;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table's walks for keys",
+        .id = "TW4",
+        .what = "a walk's own lookup validates its messages",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_validate.zig", .old = "    if (self.conjunctions.for_walk) return .{ .act = .{} };", .new = "    if (false) return .{ .act = .{} };" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table's walks for keys",
+        .id = "TW5",
+        .what = "a lookup whose target finds every walk busy waits on none",
+        .edits = .{
+            .{ .file = "src/resolver/table_walks.zig", .old = "orelse return .{ .bogus = .signature };", .new = "orelse walk_none;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table's walks for keys",
+        .id = "TW6",
+        .what = "the table keeps a walk's slot after its answer",
+        .edits = .{
+            .{ .file = "src/resolver/table_walks.zig", .old = "        free(self, index);\n        hand_end(self, walk, now_ns);\n        return true;\n    }\n    if (slot.lookup.state", .new = "        hand_end(self, walk, now_ns);\n        return true;\n    }\n    if (slot.lookup.state" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table's walks for keys",
+        .id = "TW7",
+        .what = "the table keeps a walk's slot after its question failed",
+        .edits = .{
+            .{ .file = "src/resolver/table_walks.zig", .old = "walked(slot.lookup.failure));\n    free(self, index);", .new = "walked(slot.lookup.failure));" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table's walks for keys",
+        .id = "TW8",
+        .what = "a walk's end goes to every lookup that waits",
+        .edits = .{
+            .{ .file = "src/resolver/table_walks.zig", .old = "slot.walk != walk or ", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table's walks for keys",
+        .id = "TW9",
+        .what = "a walk's question that ran out of time fails as every server failing",
+        .edits = .{
+            .{ .file = "src/resolver/table_walks.zig", .old = "    return if (err == core.Error.Timeout) .timeout else .failed;", .new = "    return if (err == core.Error.Timeout and false) .timeout else .failed;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table's walks for keys",
+        .id = "TW10",
+        .what = "a walk that ends as it is joined is not handed to its lookup",
+        .edits = .{
+            .{ .file = "src/resolver/table_walks.zig", .old = "        hand_end(self, slot.walk, now_ns);\n    }\n    return false;", .new = "    }\n    return false;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table's walks for keys",
+        .id = "TW11",
+        .what = "a walk's lookup asks the memory",
+        .edits = .{
+            .{ .file = "src/resolver/table_walks.zig", .old = "        slot.asked_memory = true;\n        slot.walk = asked.walk;", .new = "        slot.walk = asked.walk;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table's walks for keys",
+        .id = "TW12",
+        .what = "the slots of the walks' lookups are not counted",
+        .edits = .{
+            .{ .file = "src/resolver/table_walks.zig", .old = "        walks.asking_slots += 1;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table's walks for keys",
+        .id = "TW13",
+        .what = "a walk that holds the kept slot is not counted for the consumer",
+        .edits = .{
+            .{ .file = "src/resolver/table_walks.zig", .old = "    const held = @min(walks.asking_slots, limits.trust_slots_min);", .new = "    const held = @min(walks.asking_slots * 0, limits.trust_slots_min);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table's walks for keys",
+        .id = "TW14",
+        .what = "a poll asks no walk's question",
+        .edits = .{
+            .{ .file = "src/resolver/table.zig", .old = "        walks_module.ask_questions(self);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table's walks for keys",
+        .id = "TW15",
+        .what = "a poll offers the end of a walk's question that failed",
+        .edits = .{
+            .{ .file = "src/resolver/table.zig", .old = "            if (walks_module.absorbed(self, index, action, now_ns)) continue;", .new = "            if (false and walks_module.absorbed(self, index, action, now_ns)) continue;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table's walks for keys",
+        .id = "TW16",
+        .what = "a request's answer is not handed to the walks",
+        .edits = .{
+            .{ .file = "src/resolver/table.zig", .old = "        if (verdict == .accepted) self.followed(handle.index, message, now_ns);", .new = "        if (verdict == .accepted) self.follow(handle.index);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The table's walks for keys",
+        .id = "TW17",
+        .what = "a datagram's answer is not handed to the walks",
+        .edits = .{
+            .{ .file = "src/resolver/table.zig", .old = "        if (verdict == .accepted) self.followed(index, message, now_ns);", .new = "        if (verdict == .accepted) self.follow(index);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
 }

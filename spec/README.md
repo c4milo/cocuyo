@@ -1094,7 +1094,7 @@ may give any. The consumer may start, cancel, take an end and free a slot whenev
 TLC checks these invariants in every state:
 
 - `NoWalkOffered`: a walk's lookup never ends where a poll offers it to the consumer.
-- `ReservedKept`: the free slots and the slots the walks hold make `trust_slots_reserved`.
+- `ReservedKept`: the free slots and the slots the walks hold make `trust_slots_min`.
 - `WalkSlotsOwned`: a walk asks one question at a time, in one slot.
 - `WaitersWalked`: a lookup that waits for keys waits on a walk that runs.
 - `OneWalkATarget`: one walk serves every lookup that waits for its target (walk rule 10).

@@ -128,6 +128,13 @@ Each as symptom, cause and rule.
   The loop then spilled one register an octet. `Accepted` now holds the flags alone. A value
   passed past the checks holds what its readers read, and nothing more. arm64 showed half the
   rise, so a count is measured on x86-64, as CI counts it.
+- **A helper with one caller more.** On 2026-11-01 the walks for keys of DNSSEC Stage B called the
+  table's `follow` from a second file. The compiler then made calls of `follow`, `rekey` and
+  `table_ready.settle`, which it had inlined on every event's path. An accepted datagram cost 21
+  instructions more on x86-64, past the 2% limit, in a table that validates nothing. The three are
+  `inline` now, and the walks' own call is `noinline`. When a count moves, compare it by function
+  under cachegrind before and after: a function that appears from nothing is a call the compiler
+  stopped inlining.
 
 ## Commands
 

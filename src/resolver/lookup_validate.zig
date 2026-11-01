@@ -68,6 +68,8 @@ pub const Step = union(enum) {
 pub fn weigh(self: *Lookup, message: []const u8, rcode: wire.Rcode, heard: Heard, now_ns: u64) Step {
     assert(self.state == .awaiting_udp or self.state == .awaiting_tcp);
     const validator = self.servers.validator orelse return .{ .act = .{} };
+    // A walk's answers go to the walk, which reads them under the keys it holds (walk rule 9).
+    if (self.conjunctions.for_walk) return .{ .act = .{} };
     // An RRSIG is never signed (RFC 4035 §2.2): such a question ends `unchecked`.
     if (self.question.kind == .rrsig) {
         self.conjunctions.checked = .unchecked;

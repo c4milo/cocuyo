@@ -301,3 +301,14 @@ test "one walk serves a target, and a target that finds every walk busy gets non
     const elsewhere = lone.walker.join(&named("example.org"), 0).?;
     try testing.expectEqual(End.ready, lone.walker.end(elsewhere).?);
 }
+
+test "the table takes each walk's question once, the first walk's first" {
+    var fixture: Fixture = .{};
+    fixture.init_anchored(anchors_count);
+    const first = fixture.walker.join(&named("a.example"), 0).?;
+    const second = fixture.walker.join(&named("c.example"), 0).?;
+    try testing.expect(first != second);
+    try testing.expectEqual(first, fixture.walker.next_question().?.walk);
+    try testing.expectEqual(second, fixture.walker.next_question().?.walk);
+    try testing.expectEqual(@as(?core.validation.Asked, null), fixture.walker.next_question());
+}

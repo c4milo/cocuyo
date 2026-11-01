@@ -62,6 +62,8 @@ test {
     _ = table_ready;
     _ = table_memory;
     _ = table_slots;
+    _ = @import("table_walks.zig");
+    _ = @import("table_walks_test.zig");
     _ = @import("table_cancel_test.zig");
     _ = @import("table_request_test.zig");
     _ = constants;

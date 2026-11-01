@@ -10458,7 +10458,7 @@ pub const Validator = struct {
 ```
 
 The table asks a walk's questions as lookups of its own, which the consumer never sees as
-events, and it keeps `trust_slots_reserved` slots that only they may take. Without that, a table
+events, and it keeps `trust_slots_min` slots that only they may take. Without that, a table
 full of lookups that wait for keys would have no slot to fetch a key in, and none could ever
 move. A walk's own lookups never wait for keys: one that would ends, and the walk starts again
 from the top of what the store holds.
@@ -10641,7 +10641,7 @@ Every value below is chosen, not measured, unless its reason cites an RFC or the
 | `nsec3_hashes_per_message_max` | 32 | a closest encloser proof hashes one name for each label it tries |
 | `chain_questions_max` | 32 | the DS and DNSKEY questions one walk asks |
 | `key_asks_max` | 2 | the times a lookup asks one message again after waiting for keys |
-| `trust_slots_reserved` | 1 | the slots only a walk's questions may take |
+| `trust_slots_min` | 1 | the slots only a walk's questions may take |
 | `walks_max` | 4 | the walks one validator runs at once; chosen, not measured: a table of 64 lookups for names of four zones the store does not hold yet |
 | `key_store_zones_default` | 64 | the engine's default; the caller sizes the store |
 | `bogus_ttl_seconds` | 5 | RFC 9520 §3.2: one second at least, five minutes at most, and its own example starts at 5 |
@@ -10906,7 +10906,7 @@ Each step lands with its checks, each check broken on purpose and recorded in
       lookup that waits on it, and to no other.
     - A walk asks its questions one at a time. The table takes the next with `next_question` at
       each poll, starts it as a lookup of its own, absolute, in a free slot or in one of the
-      `trust_slots_reserved` slots only a walk's question may take, and marks the slot as a
+      `trust_slots_min` slots only a walk's question may take, and marks the slot as a
       walk's. The consumer never sees such a lookup as an event (§25, the table's part).
     - The validator reads a walk's own answers as it reads any answer, under the keys the store
       already holds (walk rule 9), and moves the walk on as it reads them. A DS set that is
@@ -10946,11 +10946,24 @@ Each step lands with its checks, each check broken on purpose and recorded in
     - Its tests sign RFC 4035's zone with a signed child, `a.example`, for the tests' verifier.
     The table's model, written on 2026-11-01, is `spec/tla/keys/Keys.tla` (spec/README.md):
     - The consumer takes a free slot only when the free slots that remain, and the slots the
-      walks hold, still make `trust_slots_reserved`. A walk's question takes any free slot.
+      walks hold, still make `trust_slots_min`. A walk's question takes any free slot.
     - The table frees a walk's slot when its answer comes, so no poll offers the consumer its end.
     - TLC checks that a lookup that waits for keys is asked again or fails, while the consumer
       holds every other slot. It checks too that a lookup is asked again only when its walk
       reached its target.
+    The table's code, written on 2026-11-01, is `src/resolver/table_walks.zig`:
+    - The table is handed a `Trust`: `validate`, `join`, `next_question`, `answered`,
+      `question_failed`, `end` and `release`. `cocuyo.validated_by` will fill it in from a `Walker`.
+      The `Validator` of the table above names `validate` alone, so the walks' calls join it.
+    - The validator each lookup asks is the table's own. It asks `Trust.validate`, and joins the
+      walk on a `keys_wanted`. The table writes that walk's number into the lookup's slot.
+    - A walk's lookup is marked in the lookup's one octet of conjunctions, so it validates
+      nothing itself and asks no memory. The table hands the message that ended it to `answered`,
+      or its failure to `question_failed`, and frees its slot.
+    - At a walk's end the table reads every slot once, for the lookups that wait on it.
+    - The limit is named `trust_slots_min`: a limit's name ends in `_max`, `_min`, `_limit` or
+      `_least`.
+    - A table that validates nothing pays one test for each accepted message, and one for each poll.
 13. The cache: the status, the TTL bound and the bogus entries.
 14. The twin: a server in `sim` that signs for the tests' verifier, so the tests cover whole
     chains, a server that lies, signatures that have expired, signatures taken out, and a key

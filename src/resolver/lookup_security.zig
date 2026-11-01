@@ -9,6 +9,7 @@ const core = @import("core");
 const wire = @import("wire");
 const lookup_module = @import("lookup.zig");
 const Lookup = lookup_module.Lookup;
+const limits = @import("limits.zig");
 
 /// Rule 3's conjunction. Whether the configuration relies on the AD bit of a response from the
 /// lookup's servers is decided once, at init, so a message costs one comparison.
@@ -26,13 +27,20 @@ pub const Conjunction = enum(u2) {
     }
 };
 
-/// Stage A's conjunction, Stage B's and the waits for keys of the current name, which a lookup
-/// holds in one octet (docs/design.md §25).
+/// Stage A's conjunction, Stage B's, the waits for keys of the current name, and whether the
+/// lookup asks a walk's question, which a lookup holds in one octet (docs/design.md §25).
 pub const Conjunctions = packed struct(u8) {
     authentic: Conjunction,
     checked: @import("lookup_validate.zig").Checked,
     /// At most `key_asks_max`.
-    key_asks: u4 = 0,
+    key_asks: u3 = 0,
+    /// Whether the table asks this lookup for a walk for keys (§25 step 12). Its messages go to
+    /// the walk, which validates them, so the lookup itself validates none.
+    for_walk: bool = false,
+
+    comptime {
+        assert(limits.key_asks_max <= std.math.maxInt(u3));
+    }
 };
 
 /// Where a lookup under `config` starts (RFC 4035 §4.6; docs/design.md §25, Stage A rule 1).

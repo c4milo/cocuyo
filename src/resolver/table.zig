@@ -28,6 +28,7 @@ const keys_module = @import("table_keys.zig");
 const slots_module = @import("table_slots.zig");
 const ready_module = @import("table_ready.zig");
 const memory_module = @import("table_memory.zig");
+const walks_module = @import("table_walks.zig");
 const lookup_module = @import("lookup.zig");
 const Lookup = lookup_module.Lookup;
 const Action = lookup_module.Action;
@@ -36,6 +37,7 @@ const Verdict = lookup_module.Verdict;
 pub const MatchKey = keys_module.MatchKey;
 pub const Handle = slots_module.Handle;
 pub const Slot = slots_module.Slot;
+pub const Trust = walks_module.Trust;
 
 /// What a poll found for one lookup.
 pub const Event = struct {
@@ -66,6 +68,9 @@ pub const Resolver = struct {
     /// The table names no cache: it names two functions, which `cocuyo.remembered_by` fills in
     /// from a `Cache` and a consumer with a cache of its own fills the same way.
     memory: ?memory_module.Memory,
+    /// The walks for keys under every lookup, or null when the table validates nothing
+    /// (docs/design.md §25, step 12).
+    walks: ?walks_module.Walks,
 
     /// `keys.len` must be a power of two and at least `keys_per_slot_min` times `slots.len`: the
     /// probe relies on the mask, and the load factor keeps the probe short.
@@ -84,6 +89,7 @@ pub const Resolver = struct {
             .ready_tail = slots_module.slot_none,
             .soonest_ns = null,
             .memory = null,
+            .walks = null,
         };
     }
 
@@ -94,16 +100,31 @@ pub const Resolver = struct {
         self.memory = memory;
     }
 
+    /// Validates every lookup this table starts, and fetches the keys they want with walks under
+    /// it (docs/design.md §25). Set before the first lookup, as the cache is. The table must not
+    /// move from here on.
+    pub fn validate_with(self: *Resolver, trust: Trust) void {
+        walks_module.validate_with(self, trust);
+    }
+
     /// Starts a lookup. Its seed is drawn from the table's own generator, so one seed at the top
-    /// gives the whole table a reproducible stream (docs/design.md §7).
+    /// gives the whole table a reproducible stream (docs/design.md §7). A validating table keeps
+    /// `trust_slots_min` slots for the walks' questions, and refuses the consumer those.
     pub fn start(self: *Resolver, question: Question) error{NoSlot}!Handle {
+        if (!walks_module.consumer_may(self)) return error.NoSlot;
         const index = self.slots.acquire() orelse return error.NoSlot;
+        self.occupy(index, question);
+        return self.slots.handle_of(index);
+    }
+
+    /// Puts a lookup for `question` in a slot just taken.
+    pub fn occupy(self: *Resolver, index: u16, question: Question) void {
         const slot = &self.slots.items[index];
+        assert(slot.occupied);
         slot.lookup.init_in_place(self.config, &self.servers, question, self.entropy.next());
         slot.keyed_id = slot.lookup.transaction.id;
         keys_module.insert(self.keys, slot.keyed_id, index);
         ready_module.offer(self, index);
-        return self.slots.handle_of(index);
     }
 
     /// The next thing for the caller to do, for any lookup, or null when there is nothing to
@@ -117,6 +138,7 @@ pub const Resolver = struct {
     pub fn poll(self: *Resolver, now_ns: u64, out: []u8) ?Event {
         assert(out.len >= core.limits.query_bytes_max);
         ready_module.wake_expired(self, now_ns);
+        walks_module.ask_questions(self);
         var taken: usize = 0;
         while (taken < self.slots.items.len) : (taken += 1) {
             const index = ready_module.take_ready(self) orelse return null;
@@ -124,6 +146,7 @@ pub const Resolver = struct {
             assert(slot.occupied);
             memory_module.recall_into(self.memory, slot, now_ns);
             const action = slot.lookup.poll(now_ns, out);
+            if (walks_module.absorbed(self, index, action, now_ns)) continue;
             self.rekey(index);
             // A poll can start a wait as well as report one: `connect_tcp` leaves the lookup
             // waiting for its connection, and the bound must hold that deadline too, or the
@@ -214,7 +237,7 @@ pub const Resolver = struct {
         now_ns: u64,
     ) Verdict {
         const verdict = self.slot_of(handle).lookup.on_request_answer(transaction, message, age_seconds, now_ns);
-        if (verdict == .accepted) self.follow(handle.index);
+        if (verdict == .accepted) self.followed(handle.index, message, now_ns);
         return verdict;
     }
 
@@ -238,10 +261,16 @@ pub const Resolver = struct {
     /// Frees a slot. Every slice the lookup handed out — the addresses of an answer, the names —
     /// points into the slot and is invalid from here.
     pub fn release(self: *Resolver, handle: Handle) void {
-        const slot = self.slot_of(handle);
-        keys_module.remove(self.keys, slot.keyed_id, handle.index);
-        ready_module.withdraw(self, handle.index);
-        self.slots.release(handle.index);
+        // A walk's lookup is the table's own, and the table frees its slot.
+        assert(!self.slot_of(handle).lookup.conjunctions.for_walk);
+        self.free(handle.index);
+    }
+
+    pub fn free(self: *Resolver, index: u16) void {
+        const slot = &self.slots.items[index];
+        keys_module.remove(self.keys, slot.keyed_id, index);
+        ready_module.withdraw(self, index);
+        self.slots.release(index);
     }
 
     /// How many lookups are in flight.
@@ -268,8 +297,17 @@ pub const Resolver = struct {
         self.follow(handle.index);
     }
 
-    /// Follows a lookup an event moved: its new transaction, and where it belongs now.
-    fn follow(self: *Resolver, index: u16) void {
+    /// Follows a lookup that accepted `message`: the walks first, which may free its slot.
+    fn followed(self: *Resolver, index: u16, message: []const u8, now_ns: u64) void {
+        // A table that validates nothing pays this one test (docs/performance.md).
+        if (self.walks != null and walks_module.after_message(self, index, message, now_ns)) return;
+        self.follow(index);
+    }
+
+    /// Follows a lookup an event moved: its new transaction, and where it belongs now. It, `rekey`
+    /// and `table_ready.settle` are inline: once the walks called it too, the compiler made calls
+    /// of the three, which cost each accepted datagram 21 instructions (docs/performance.md).
+    pub inline fn follow(self: *Resolver, index: u16) void {
         self.rekey(index);
         ready_module.settle(self, index);
     }
@@ -293,12 +331,12 @@ pub const Resolver = struct {
         // `undefined` until something takes it.
         assert(slot.occupied);
         const verdict = respond(&slot.lookup, message, from, now_ns);
-        if (verdict == .accepted) self.follow(index);
+        if (verdict == .accepted) self.followed(index, message, now_ns);
         return verdict;
     }
 
     /// Follows a lookup that drew a new transaction.
-    fn rekey(self: *Resolver, index: u16) void {
+    inline fn rekey(self: *Resolver, index: u16) void {
         const slot = &self.slots.items[index];
         assert(slot.occupied);
         const current = slot.lookup.transaction.id;
@@ -313,149 +351,9 @@ pub const Resolver = struct {
 
 const testing = std.testing;
 const fixtures = @import("fixtures.zig");
-const Name = core.Name;
 
 const servers = fixtures.servers_two;
 const Table = fixtures.Table;
-const slot_count = fixtures.slot_count;
-const key_count = fixtures.key_count;
-test "a table starts lookups, answers them, and frees their slots" {
-    var table: Table = .{ .config = .{ .servers = &servers } };
-    table.open();
-    const handle = try table.start("example.com.");
-    try testing.expectEqual(@as(usize, 1), table.resolver.in_flight());
-
-    const event = table.poll().?;
-    try testing.expectEqual(handle, event.handle);
-    try testing.expect(event.action == .send_udp);
-    table.resolver.on_sent(handle, table.now_ns);
-
-    try testing.expectEqual(Verdict.accepted, table.answer(handle));
-    const done = table.poll().?;
-    try testing.expectEqual(@as(usize, 1), done.action.done.addresses.len);
-    table.resolver.release(handle);
-    try testing.expectEqual(@as(usize, 0), table.resolver.in_flight());
-    try testing.expectEqual(@as(?Event, null), table.poll());
-}
-
-test "a full table refuses another lookup until a slot is freed" {
-    var table: Table = .{ .config = .{ .servers = &servers } };
-    table.open();
-    var handles: [slot_count]Handle = undefined;
-    for (&handles) |*handle| handle.* = try table.start("example.com.");
-    try testing.expectEqual(@as(usize, slot_count), table.resolver.in_flight());
-    try testing.expectError(error.NoSlot, table.start("example.com."));
-    table.resolver.release(handles[2]);
-    _ = try table.start("other.example.");
-}
-
-test "a datagram reaches the lookup whose transaction it carries" {
-    var table: Table = .{ .config = .{ .servers = &servers } };
-    table.open();
-    const first = try table.start("one.example.");
-    const second = try table.start("two.example.");
-    while (table.poll()) |event| {
-        table.resolver.on_sent(event.handle, table.now_ns);
-    }
-    try testing.expectEqual(Verdict.accepted, table.answer(second));
-    try testing.expect(table.resolver.lookup_of(second).state == .done);
-    try testing.expect(table.resolver.lookup_of(first).state == .awaiting_udp);
-
-    // And the other way round, which is the case that matters: `second` sits first in the chain
-    // and ignores this datagram, so a walk that stopped there would drop `first`'s answer.
-    try testing.expectEqual(Verdict.accepted, table.answer(first));
-    try testing.expect(table.resolver.lookup_of(first).state == .done);
-}
-
-test "a datagram with one lookup's id and another's question is refused by both" {
-    var table: Table = .{ .config = .{ .servers = &servers } };
-    table.open();
-    const first = try table.start("one.example.");
-    const second = try table.start("two.example.");
-    while (table.poll()) |event| {
-        table.resolver.on_sent(event.handle, table.now_ns);
-    }
-    try testing.expectEqual(Verdict.ignored, table.crosstalk(first, second));
-    try testing.expect(table.resolver.lookup_of(first).state == .awaiting_udp);
-    try testing.expect(table.resolver.lookup_of(second).state == .awaiting_udp);
-    // The real answer still lands afterwards.
-    try testing.expectEqual(Verdict.accepted, table.answer(first));
-}
-
-test "a lookup that drew a new transaction is still reachable" {
-    var table: Table = .{ .config = .{ .servers = &servers } };
-    table.open();
-    const handle = try table.start("example.com.");
-    _ = table.poll();
-    const lookup = table.resolver.lookup_of(handle);
-    table.resolver.on_sent(handle, table.now_ns);
-    const first_id = lookup.transaction.id;
-
-    // The wait runs out, which draws a new transaction for the next server.
-    table.now_ns = lookup.deadline_ns;
-    _ = table.poll();
-    try testing.expect(lookup.transaction.id != first_id or
-        lookup.transaction.case_seed != 0);
-    table.resolver.on_sent(handle, table.now_ns);
-    try testing.expectEqual(Verdict.accepted, table.answer(handle));
-}
-
-test "the poll rotates, so one lookup cannot starve another" {
-    var table: Table = .{ .config = .{ .servers = &servers } };
-    table.open();
-    const first = try table.start("one.example.");
-    const second = try table.start("two.example.");
-    const one = table.poll().?;
-    const two = table.poll().?;
-    try testing.expect(one.handle.index != two.handle.index);
-    try testing.expect(one.handle.index == first.index or one.handle.index == second.index);
-}
-
-test "a released slot comes back with a new generation" {
-    var table: Table = .{ .config = .{ .servers = &servers } };
-    table.open();
-    const first = try table.start("example.com.");
-    table.resolver.release(first);
-    const second = try table.start("example.com.");
-    try testing.expectEqual(first.index, second.index);
-    try testing.expect(first.generation != second.generation);
-}
-
-test "a datagram for a released slot is ignored rather than delivered" {
-    var table: Table = .{ .config = .{ .servers = &servers } };
-    table.open();
-    const handle = try table.start("example.com.");
-    _ = table.poll();
-    const lookup = table.resolver.lookup_of(handle);
-    table.resolver.on_sent(handle, table.now_ns);
-    const message = table.build(lookup, fixtures.answer_a);
-    table.resolver.release(handle);
-    table.now_ns += 1;
-    try testing.expectEqual(
-        Verdict.ignored,
-        table.resolver.on_datagram(message, servers[0].endpoint, table.now_ns),
-    );
-}
-
-test "every slot and key is usable, and the key table survives churn" {
-    var table: Table = .{ .config = .{ .servers = &servers } };
-    table.open();
-    // Start and release every slot several times over, which fills the key table with tombstones
-    // and would break a probe that stopped at the first one.
-    var round: usize = 0;
-    while (round < key_count) : (round += 1) {
-        var handles: [slot_count]Handle = undefined;
-        for (&handles) |*handle| handle.* = try table.start("example.com.");
-        while (table.poll()) |event| {
-            table.resolver.on_sent(event.handle, table.now_ns);
-        }
-        for (handles) |handle| {
-            try testing.expectEqual(Verdict.accepted, table.answer(handle));
-            table.resolver.release(handle);
-        }
-    }
-    try testing.expectEqual(@as(usize, 0), table.resolver.in_flight());
-}
 
 test "two lookups sharing a transaction id are both offered the datagram" {
     // An id is sixteen bits drawn from a generator, so a collision between two live lookups is
@@ -483,18 +381,6 @@ test "two lookups sharing a transaction id are both offered the datagram" {
     try testing.expect(table.resolver.lookup_of(first).state == .done);
 }
 
-test "a cut datagram reaches the lookup whose transaction it carries, which then asks over TCP" {
-    var table: Table = .{ .config = .{ .servers = &servers } };
-    table.open();
-    const first = try table.start("one.example.");
-    const second = try table.start("two.example.");
-    while (table.poll()) |event| table.resolver.on_sent(event.handle, table.now_ns);
-    const lookup = table.resolver.lookup_of(second);
-    const whole = table.build(lookup, fixtures.answer_a);
-    try testing.expectEqual(Verdict.accepted, table.resolver.on_datagram_cut(whole[0 .. whole.len - 1], lookup.server(), table.now_ns));
-    // The table follows the lookup that moved: its next poll asks for the stream (docs/design.md §7).
-    const event = table.poll().?;
-    try testing.expectEqual(second, event.handle);
-    try testing.expect(event.action == .connect_tcp);
-    try testing.expect(table.resolver.lookup_of(first).state == .awaiting_udp);
+test {
+    _ = @import("table_test.zig");
 }

@@ -14,7 +14,7 @@ EXTENDS Naturals, FiniteSets
 
 CONSTANTS
     Slots,        \* the table's slots
-    Reserved,     \* `trust_slots_reserved`
+    Reserved,     \* `trust_slots_min`
     WalksMax,     \* `walks_max`
     Targets,      \* the names a message may want keys for
     QuestionsMax, \* `chain_questions_max`

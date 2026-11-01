@@ -15,6 +15,9 @@ const Lookup = lookup_module.Lookup;
 /// The end of the free list. A slot index cannot reach it: `lookup_slots_max` is far below.
 pub const slot_none: u16 = 0xffff;
 
+/// A slot's walk when it names none.
+pub const walk_none: u8 = 0xff;
+
 /// A lookup's name.
 pub const Handle = packed struct(u32) {
     index: u16,
@@ -41,6 +44,9 @@ pub const Slot = struct {
     /// Whether the memory of docs/design.md §20 was already asked about this lookup. It is asked
     /// once, at the first poll and before a query is built.
     asked_memory: bool = false,
+    /// The walk for keys this slot's lookup asks for or waits on, or `walk_none` (docs/design.md
+    /// §25, step 12). It sits here, beside the ready list, so a lookup grows by nothing.
+    walk: u8 = walk_none,
     /// Whether this lookup's end was written back, or came from the memory in the first place.
     /// A poll may produce the same end more than once (§11), and a recalled answer is not
     /// written back to where it was just read from.
@@ -75,6 +81,7 @@ pub const Slots = struct {
         slot.next_free = slot_none;
         slot.asked_memory = false;
         slot.remembered = false;
+        slot.walk = walk_none;
         return index;
     }
 
@@ -102,6 +109,18 @@ pub const Slots = struct {
         assert(index < self.items.len);
         assert(self.items[index].occupied);
         return .{ .index = index, .generation = self.items[index].generation };
+    }
+
+    /// Whether the free list holds `count` slots at least, read no further than that.
+    pub fn free_at_least(self: *const Slots, count: u16) bool {
+        var index = self.free_head;
+        var found: u16 = 0;
+        while (found < count) : (found += 1) {
+            if (index == slot_none) return false;
+            assert(!self.items[index].occupied);
+            index = self.items[index].next_free;
+        }
+        return true;
     }
 
     pub fn occupied_count(self: *const Slots) usize {

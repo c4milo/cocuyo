@@ -76,7 +76,7 @@ pub fn withdraw(self: *Resolver, index: u16) void {
 /// What an event leaves behind: a lookup with something to do goes on the ready list, and a
 /// lookup that is waiting takes its deadline into the bound. A lookup in `tcp_ready` does both: it
 /// has its query to send, and its deadline bounds that state (docs/design.md §5; §16 decision 52).
-pub fn settle(self: *Resolver, index: u16) void {
+pub inline fn settle(self: *Resolver, index: u16) void {
     const slot = &self.slots.items[index];
     assert(slot.occupied);
     const ready = slot.lookup.state == .tcp_ready;

@@ -2,6 +2,7 @@
 //! (docs/design.md §25, Stage B). The types live in `core` because neither of those modules may
 //! import the other.
 const Name = @import("name.zig").Name;
+const Question = @import("question.zig").Question;
 
 /// What a secure message ends a lookup's question with: its answer, a chain of CNAME links whose
 /// end the message does not say, or the negative its proof gives (RFC 9824 §8: the response code
@@ -43,4 +44,14 @@ pub const Walked = enum {
     timeout,
     /// Every server of one of its questions failed.
     failed,
+};
+
+/// How a walk for keys ended: with what its target needs held, or with a failure (§25, walk rules
+/// 7, 8 and 11).
+pub const End = union(enum) { ready, failed: Walked };
+
+/// A walk's next question, which the table asks as a lookup of its own (§25 step 12).
+pub const Asked = struct {
+    walk: u8,
+    question: Question,
 };

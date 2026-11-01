@@ -11312,6 +11312,7 @@ WK23` ran each to its end.
 | WK21 | an NSEC at a delegation with no DS proves no delegation | `zig build test-dnssec` | `CAUGHT` |
 | WK22 | an NSEC3 at a delegation with no DS proves no delegation | `zig build test-dnssec` | `CAUGHT` |
 | WK23 | an unanswered question fails the walk as bogus | `zig build test-dnssec` | `CAUGHT` |
+| WK24 | the table takes only the first walk's question | `zig build test-dnssec` | `CAUGHT` |
 
 23 mutations, 23 `CAUGHT`.
 
@@ -11341,3 +11342,29 @@ one. Eight mutations, eight `CAUGHT`.
 | KT6 | the table keeps a walk's slot after its answer | one question at a time | `WalkSlotsOwned` | 5 states | CAUGHT |
 | KT7 | a lookup starts a walk for a target a walk runs for | walk rule 10 | `OneWalkATarget` | 5 states | CAUGHT |
 | KT8 | a walk's end goes to every lookup that waits | to each lookup that waits on it, and to no other | `AskedOnlyWhenReady` | 8 states | CAUGHT |
+
+## The table's walks for keys
+
+2026-11-01. Design §25 Stage B, step 12's table part (c4milo/cocuyo#56): `table_walks.zig`, the
+walk bit of a lookup's conjunctions, and `Walker.next_question`. `zig build mutations -- engine
+TW1 ... TW17 WK24` ran each to its end. WK24 is in the section of the walks for keys.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| TW1 | the consumer takes the slot kept for the walks | `zig build test-resolver` | `CAUGHT` |
+| TW2 | a walk's question takes a slot only as the consumer would | `zig build test-resolver` | `CAUGHT` |
+| TW3 | a walk's lookup that ended on a message is followed as the consumer's | `zig build test-resolver` | `CAUGHT` |
+| TW4 | a walk's own lookup validates its messages | `zig build test-resolver` | `CAUGHT` |
+| TW5 | a lookup whose target finds every walk busy waits on none | `zig build test-resolver` | `CAUGHT` |
+| TW6 | the table keeps a walk's slot after its answer | `zig build test-resolver` | `CAUGHT` |
+| TW7 | the table keeps a walk's slot after its question failed | `zig build test-resolver` | `CAUGHT` |
+| TW8 | a walk's end goes to every lookup that waits | `zig build test-resolver` | `CAUGHT` |
+| TW9 | a walk's question that ran out of time fails as every server failing | `zig build test-resolver` | `CAUGHT` |
+| TW10 | a walk that ends as it is joined is not handed to its lookup | `zig build test-resolver` | `CAUGHT` |
+| TW11 | a walk's lookup asks the memory | `zig build test-resolver` | `CAUGHT` |
+| TW12 | the slots of the walks' lookups are not counted | `zig build test-resolver` | `CAUGHT` |
+| TW13 | a walk that holds the kept slot is not counted for the consumer | `zig build test-resolver` | `CAUGHT` |
+| TW14 | a poll asks no walk's question | `zig build test-resolver` | `CAUGHT` |
+| TW15 | a poll offers the end of a walk's question that failed | `zig build test-resolver` | `CAUGHT` |
+| TW16 | a request's answer is not handed to the walks | `zig build test-resolver` | `CAUGHT` |
+| TW17 | a datagram's answer is not handed to the walks | `zig build test-resolver` | `CAUGHT` |

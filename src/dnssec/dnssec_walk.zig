@@ -34,8 +34,7 @@ pub const Phase = enum(u8) {
     failed,
 };
 
-/// How a walk ended: with what its target needs held, or with a failure (rules 7, 8 and 11).
-pub const End = union(enum) { ready, failed: Walked };
+pub const End = core.validation.End;
 
 /// One walk. The zone it stands in and the name it asks of are ancestors of its target, so each
 /// is a count of the target's labels.
@@ -86,6 +85,16 @@ pub const Walker = struct {
         walk.phase = .asked;
         assert(walk.asking == .ds or walk.asking == .dnskey);
         return .{ .name = core.canonical.ancestor(&walk.target, walk.probe_labels), .kind = walk.asking, .absolute = true };
+    }
+
+    /// The question of the first walk that has one the table has not taken, which the table now
+    /// asks (§25 step 12).
+    pub fn next_question(self: *Walker) ?core.validation.Asked {
+        for (0..self.walks.len) |index| {
+            const walk: u8 = @intCast(index);
+            if (self.question(walk)) |asked| return .{ .walk = walk, .question = asked };
+        }
+        return null;
     }
 
     /// The end of a walk, or null while it runs.

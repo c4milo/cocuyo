@@ -48,6 +48,11 @@ test "each integer constant here has a type" {
 /// one wait for the walk, and one more after a key rolled.
 pub const key_asks_max: u8 = 2;
 
+/// The slots of a validating table that only a walk's question may take, so a table full of
+/// lookups that wait for keys still has a slot to fetch them in (docs/design.md §25, step 12).
+/// One is enough, since a walk asks one question at a time and each question ends.
+pub const trust_slots_min: u16 = 1;
+
 /// The smallest payload a validating lookup advertises: a security-aware resolver "MUST support"
 /// 1220 octets (RFC 4035 §4.1).
 pub const dnssec_payload_bytes_min: u16 = 1220;
