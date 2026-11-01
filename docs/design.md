@@ -10742,6 +10742,53 @@ Each step lands with its checks, each check broken on purpose and recorded in
 9. The key store and the validator, on whole messages: every response of RFC 4035 Appendix B and
    of RFC 5155 Appendix B, read under the tests' verifier, and refused with any signed octet
    changed.
+   The rules, written on 2026-11-01:
+   - `dnssec.Verifier` is what `dnssec` asks of the cryptography. It says whether it checks an
+     algorithm and whether it computes a digest type. A check begins with the algorithm, takes
+     the signed data in pieces, and ends with the key and the signature. A digest begins with
+     its type, takes its input in pieces, and ends with the octets.
+   - The tests' verifier takes algorithms 5, 7, 8 and 13. A signature is valid when it is the
+     64-bit FNV-1a sum of the public key and the signed data, from `std.hash`, which is no
+     cryptography. A digest is the same sum over its input. So a test signs a record as a
+     server does, and a change to any signed octet changes the sum.
+   - The validator reads the answer and the authority sections once, and keeps where each record
+     is, `records_max` at most. Under a signed zone a message with more is `bogus` (§25's
+     limits). It writes the canonical rdata of one record at a time on the stack, its names in
+     full and lowered as step 7 has it. No RRset is copied.
+   - An RRSIG counts for an RRset when it covers the RRset's type, its Labels field is no larger
+     than the owner's labels, and its signer is the owner or an ancestor (item 2). Each key of
+     its signer whose tag and algorithm match, whose Zone Key flag is set and whose protocol is
+     3 is tried (RFC 4035 §5.3.1, RFC 4034 §2.1.2). A key whose algorithm the verifier does not
+     check is passed over. A time outside the RRSIG's dates is a failed check.
+   - An RRset is valid when one signature over it verifies. Otherwise, when an RRSIG that counts
+     names a signer whose keys the store does not hold, the answer is `keys_wanted` for that
+     signer. Otherwise, when a check failed, the RRset is `bogus`. Otherwise it has no signature.
+   - The store's entries are memory the caller hands in. An entry holds a zone's name, what is
+     known of the zone, and the instant it expires. A full store replaces the entry that expires
+     first. The deepest entry at or above a name speaks for it, and an insecure delegation
+     makes the name `insecure`. A name under no anchor is `insecure` too.
+   - The anchors are the caller's DS and DNSKEY records, held by reference, `anchors_max` at
+     most. A DNSKEY set enters the store when a zone key in it matches an anchor or a held DS
+     set, and that key's signature over the set verifies (RFC 4035 §5.2). A DNSKEY anchor
+     matches a key with the same rdata. A DS matches by tag, algorithm and digest (RFC 4034
+     §5.2). When no anchor or DS names an algorithm and a digest type the verifier supports,
+     the zone is an insecure delegation (item 5).
+   - The time of day is Unix seconds pinned to a `now_ns`, which `Store.set_clock` takes. The
+     store adds the `now_ns` that has passed, and compares the low 32 bits of the sum in serial
+     number arithmetic (item 6).
+   - The validator follows the chain from the name asked, `cname_hops_max` links at most. An
+     RRset of the type asked at the name ends it. A CNAME at the name is a link, and its target
+     is the next name. A CNAME with no signature is a link when a valid DNAME in the answer
+     makes the same CNAME (item 9).
+   - An RRset whose RRSIG has fewer labels than its owner came from a wildcard. It is valid only
+     when the NSEC or NSEC3 records of the authority section prove `wildcard_answer` (item 8).
+   - A chain that ends with no RRset is a negative. Its SOA and its NSEC or NSEC3 records are
+     validated, and `deny` gives the end: no data, or a name error. The response code is not
+     read (item 13). Valid records that prove nothing make the message `bogus`.
+   - Data with no signature is `keys_wanted` for the name asked, unless the store holds an
+     insecure delegation above it. The store alone cannot tell a signed zone from an unsigned
+     delegation below it, so the walk decides (walk rules 1 and 8). This is how item 14 reads.
+   - A secure end carries the smallest TTL of item 7 over every RRset it used.
 10. The verifier over chapulin, outside `src/`: the DS examples of RFC 4034 §5.4 and RFC 4509
     §2.3, and the keys and signatures of RFC 5702 §6, RFC 6605 §6 and RFC 8080 §6, each that
     chapulin admits.

@@ -4,7 +4,9 @@ const std = @import("std");
 const core = @import("core");
 const wire = @import("wire");
 const Name = core.Name;
-const Hash = @import("dnssec.zig").Hash;
+const dnssec = @import("dnssec.zig");
+const Hash = dnssec.Hash;
+const canonical = @import("dnssec_canonical.zig");
 const nsec = @import("dnssec_nsec.zig");
 const nsec3 = @import("dnssec_nsec3_proof.zig");
 const base32 = @import("dnssec_base32.zig");
@@ -38,7 +40,7 @@ pub const rrsig_a = [_]u8{ 0x00, 0x01, 13, 2, 0x00, 0x00, 0x01, 0x2c, 0x5f, 0x00
     "\x07Example\x03COM\x00".* ++ [_]u8{ 0xde, 0xad, 0xbe, 0xef };
 
 /// A type bit map of window 0 that sets the types of `codes`, each below 256 (RFC 4034 §4.1.2).
-fn map(comptime codes: []const u8) [2 + octets_for(codes)]u8 {
+pub fn map(comptime codes: []const u8) [2 + octets_for(codes)]u8 {
     var bytes: [2 + octets_for(codes)]u8 = @splat(0);
     bytes[1] = octets_for(codes);
     for (codes) |code| bytes[2 + code / 8] |= @as(u8, 0x80) >> @intCast(code % 8);
@@ -163,5 +165,185 @@ pub const Hashes = struct {
             const wire_name = (Name.from_text(entry[0]) catch unreachable).wire();
             if (std.mem.eql(u8, wire_name, name)) out.* = comptime decoded(entry[1]);
         }
+    }
+};
+
+/// The tests' verifier (docs/design.md §25 step 9). It takes algorithms 5, 7, 8 and 13, and calls
+/// a signature valid when it is the 64-bit FNV-1a sum of the signed data, then the public key. A
+/// digest of type 1 or 2 is the same sum over its input. No cryptography: a test signs as a
+/// server does with `sign`, and any changed octet changes the sum.
+pub const Sums = struct {
+    state: std.hash.Fnv1a_64 = .init(),
+    /// The checks that ended, for a test to count the work.
+    checked: usize = 0,
+
+    pub fn verifier(self: *Sums) dnssec.Verifier {
+        return .{
+            .context = self,
+            .checks = checks,
+            .digests = digests,
+            .check_begin = begin,
+            .check_end = check_end,
+            .digest_begin = begin,
+            .digest_end = digest_end,
+        };
+    }
+
+    fn checks(context: *anyopaque, algorithm: u8) bool {
+        _ = context;
+        return algorithm == 5 or algorithm == 7 or algorithm == 8 or algorithm == 13;
+    }
+
+    fn digests(context: *anyopaque, digest_type: u8) bool {
+        _ = context;
+        return digest_type == 1 or digest_type == 2;
+    }
+
+    fn begin(context: *anyopaque, number: u8) Hash {
+        _ = number;
+        const self: *Sums = @ptrCast(@alignCast(context));
+        self.state = .init();
+        return .{ .context = self, .update = update };
+    }
+
+    fn update(context: *anyopaque, octets: []const u8) void {
+        const self: *Sums = @ptrCast(@alignCast(context));
+        self.state.update(octets);
+    }
+
+    fn check_end(context: *anyopaque, public_key: []const u8, signature: []const u8) bool {
+        const self: *Sums = @ptrCast(@alignCast(context));
+        self.checked += 1;
+        self.state.update(public_key);
+        var sum: Sum = undefined;
+        std.mem.writeInt(u64, &sum, self.state.final(), .big);
+        return std.mem.eql(u8, &sum, signature);
+    }
+
+    fn digest_end(context: *anyopaque, out: *[dnssec.constants.digest_bytes]u8) usize {
+        const self: *Sums = @ptrCast(@alignCast(context));
+        std.mem.writeInt(u64, out[0..8], self.state.final(), .big);
+        return 8;
+    }
+};
+
+pub const Sum = [8]u8;
+
+/// The signature `Sums` takes over what `rrsig_head`, an RRSIG's rdata without its signature,
+/// signs for `records` at `owner`, under `public_key`. Zero octets when it signs nothing, as a
+/// Labels field above the owner's labels does.
+pub fn sign(rrsig_head: []const u8, owner: *const Name, kind: core.Kind, records: []const []const u8, public_key: []const u8) Sum {
+    var sums: Sums = .{};
+    const hash = Sums.begin(&sums, 0);
+    canonical.signed_data(rrsig_head, owner, kind, core.constants.class_internet, canonical.Written{ .records = records }, hash) catch
+        return @splat(0);
+    sums.state.update(public_key);
+    var sum: Sum = undefined;
+    std.mem.writeInt(u64, &sum, sums.state.final(), .big);
+    return sum;
+}
+
+/// What an RRSIG says beside its signature. The defaults are RFC 4035 Appendix A's: algorithm 5,
+/// 3600 seconds, the dates 2004-05-09T18:36:19Z and 2004-04-09T18:36:19Z, key 38519, signer
+/// `example`. Labels null counts the owner's.
+pub const Signing = struct {
+    /// The type covered, when it is not the RRset's.
+    covered: ?core.Kind = null,
+    /// The TTL of the RRSIG record itself.
+    ttl: u32 = 3600,
+    algorithm: u8 = 5,
+    labels: ?u8 = null,
+    original_ttl: u32 = 3600,
+    expiration: u32 = 1084127779,
+    inception: u32 = 1081535779,
+    key_tag: u16 = 38519,
+    signer: []const u8 = "example",
+    public_key: []const u8,
+};
+
+/// A response built record by record, its names written in full, as a test's server sends it.
+pub const Builder = struct {
+    bytes: [4096]u8 = undefined,
+    len: usize = 0,
+    counts: [2]u16 = .{ 0, 0 },
+    section: usize = 0,
+
+    /// A response to `question` of `kind`: QR, AA and RCODE `rcode`, and one question.
+    pub fn init(question: []const u8, kind: core.Kind, rcode: u4) Builder {
+        var self: Builder = .{};
+        const header = [_]u8{ 0x12, 0x34, 0x84, rcode, 0x00, 0x01, 0, 0, 0, 0, 0, 0 };
+        self.put(&header);
+        self.put((Name.from_text(question) catch unreachable).wire());
+        self.put_u16(kind.code());
+        self.put_u16(core.constants.class_internet);
+        return self;
+    }
+
+    /// Records from here on go to the authority section.
+    pub fn authority(self: *Builder) void {
+        self.section = 1;
+    }
+
+    pub fn record(self: *Builder, owner: []const u8, kind: core.Kind, ttl: u32, rdata: []const u8) void {
+        self.record_wire((Name.from_text(owner) catch unreachable).wire(), kind, ttl, rdata);
+    }
+
+    /// A record whose owner is written as `owner` holds it, a compression pointer allowed.
+    pub fn record_wire(self: *Builder, owner: []const u8, kind: core.Kind, ttl: u32, rdata: []const u8) void {
+        self.put(owner);
+        self.put_u16(kind.code());
+        self.put_u16(core.constants.class_internet);
+        self.put_u32(ttl);
+        self.put_u16(@intCast(rdata.len));
+        self.put(rdata);
+        self.counts[self.section] += 1;
+    }
+
+    /// The records of `records` at `owner`, then an RRSIG over them by `signing`.
+    pub fn rrset(self: *Builder, owner: []const u8, kind: core.Kind, records: []const []const u8, signing: Signing) void {
+        for (records) |rdata| self.record(owner, kind, 3600, rdata);
+        self.rrsig(owner, kind, records, signing);
+    }
+
+    /// An RRSIG at `owner` over `records`, the RRset of `kind` there, by `signing`.
+    pub fn rrsig(self: *Builder, owner: []const u8, kind: core.Kind, records: []const []const u8, signing: Signing) void {
+        const owner_name = Name.from_text(owner) catch unreachable;
+        var rdata: [64 + 256]u8 = undefined;
+        std.mem.writeInt(u16, rdata[0..2], (signing.covered orelse kind).code(), .big);
+        rdata[2] = signing.algorithm;
+        rdata[3] = signing.labels orelse owner_name.label_count() - @intFromBool(owner[0] == '*');
+        std.mem.writeInt(u32, rdata[4..8], signing.original_ttl, .big);
+        std.mem.writeInt(u32, rdata[8..12], signing.expiration, .big);
+        std.mem.writeInt(u32, rdata[12..16], signing.inception, .big);
+        std.mem.writeInt(u16, rdata[16..18], signing.key_tag, .big);
+        const signer = (Name.from_text(signing.signer) catch unreachable).wire();
+        @memcpy(rdata[18..][0..signer.len], signer);
+        const head = 18 + signer.len;
+        const sum = sign(rdata[0..head], &owner_name, kind, records, signing.public_key);
+        @memcpy(rdata[head..][0..sum.len], &sum);
+        self.record(owner, .rrsig, signing.ttl, rdata[0 .. head + sum.len]);
+    }
+
+    pub fn message(self: *Builder) []const u8 {
+        std.mem.writeInt(u16, self.bytes[6..8], self.counts[0], .big);
+        std.mem.writeInt(u16, self.bytes[8..10], self.counts[1], .big);
+        return self.bytes[0..self.len];
+    }
+
+    fn put(self: *Builder, octets: []const u8) void {
+        @memcpy(self.bytes[self.len..][0..octets.len], octets);
+        self.len += octets.len;
+    }
+
+    fn put_u16(self: *Builder, value: u16) void {
+        var octets: [2]u8 = undefined;
+        std.mem.writeInt(u16, &octets, value, .big);
+        self.put(&octets);
+    }
+
+    fn put_u32(self: *Builder, value: u32) void {
+        var octets: [4]u8 = undefined;
+        std.mem.writeInt(u32, &octets, value, .big);
+        self.put(&octets);
     }
 };

@@ -25,3 +25,13 @@ pub const key_tag_mask: u32 = 0xffff;
 /// owner label holds in 32 characters of base32hex (RFC 5155 §10.1).
 pub const nsec3_hash_sha1: u8 = 1;
 pub const nsec3_hash_bytes: usize = 20;
+
+/// The room for the longest canonical rdata of a type whose names are lowered, which is NAPTR's: ORDER and
+/// PREFERENCE, 16 bits each, three character-strings of 256 octets at most, and a name of 255
+/// (RFC 3403 §4.1, RFC 1035 §3.3, §3.1). SIG and RRSIG are longer, and no RRSIG signs an RRset of
+/// either (RFC 4035 §2.2).
+pub const canonical_rdata_bytes: usize = 2 + 2 + 3 * (1 + 255) + 255;
+
+/// The room for the longest DS digest of a type cocuyo knows: SHA-384's 48 octets (RFC 6605 §2). SHA-1 has 20
+/// (RFC 4034 §5.1.4) and SHA-256 32 (RFC 4509 §2.1).
+pub const digest_bytes: usize = 48;

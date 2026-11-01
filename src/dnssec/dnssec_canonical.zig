@@ -36,24 +36,35 @@ const dname_layout = [_]Segment{.name};
 pub fn rdata(kind: Kind, stored: []const u8, out: []u8) Error!usize {
     assert(out.len >= stored.len);
     @memcpy(out[0..stored.len], stored);
-    const layout = lowered(kind) orelse return stored.len;
+    try lower(kind, out[0..stored.len]);
+    return stored.len;
+}
+
+/// Whether the canonical form of `kind`'s rdata differs from the rdata as it came, its names in
+/// full: whether `lower` changes anything.
+pub fn lowers(kind: Kind) bool {
+    return lowered(kind) != null;
+}
+
+/// Lowercases, in place, the names of `bytes`, rdata of `kind` with its names written in full.
+pub fn lower(kind: Kind, bytes: []u8) Error!void {
+    const layout = lowered(kind) orelse return;
     var at: usize = 0;
     for (layout) |segment| {
         switch (segment) {
-            .fixed => |bytes| {
-                if (stored.len - at < bytes) return Error.MalformedMessage;
-                at += bytes;
+            .fixed => |count| {
+                if (bytes.len - at < count) return Error.MalformedMessage;
+                at += count;
             },
-            .name => at = try lower_name(out[0..stored.len], at),
+            .name => at = try lower_name(bytes, at),
             .character_string => {
-                if (at == stored.len or stored.len - at - 1 < stored[at]) return Error.MalformedMessage;
-                at += 1 + @as(usize, stored[at]);
+                if (at == bytes.len or bytes.len - at - 1 < bytes[at]) return Error.MalformedMessage;
+                at += 1 + @as(usize, bytes[at]);
             },
             .rest => break,
         }
     }
-    assert(at <= stored.len);
-    return stored.len;
+    assert(at <= bytes.len);
 }
 
 /// Lowercases the letters of the name at `at` in `bytes`, and returns the offset after it.
@@ -64,20 +75,40 @@ fn lower_name(bytes: []u8, at: usize) Error!usize {
     return after;
 }
 
+/// The room the canonical rdata of one record is written in, when its names are written out in
+/// full or lowered.
+pub const Scratch = [constants.canonical_rdata_bytes]u8;
+
+/// An RRset given as the canonical rdata of each record (`rdata`), for a caller that holds them.
+pub const Written = struct {
+    records: []const []const u8,
+
+    pub fn count(self: Written) usize {
+        return self.records.len;
+    }
+
+    pub fn canonical(self: Written, index: usize, scratch: *Scratch) Error![]const u8 {
+        _ = scratch;
+        return self.records[index];
+    }
+};
+
 /// What an RRSIG signs, fed to `hash`: its rdata without the signature, its signer in lowercase,
 /// then each record of the RRset in canonical form and order (RFC 4035 §5.3.2). `owner` is the
-/// RRset's, `kind` its type and `class` its class. Each of `records` is the canonical rdata of
-/// one record (`rdata`). A record that repeats another is fed once: an RRset with duplicates is "a
-/// protocol error", and a validator that takes it "MUST remove all but one" (RFC 4034 §6.3).
+/// RRset's, `kind` its type and `class` its class. `records` gives the canonical rdata of each
+/// record by index, as `Written` does, written into a `Scratch` when it has to be. A record that
+/// repeats another is fed once: an RRset with duplicates is "a protocol error", and a validator
+/// that takes it "MUST remove all but one" (RFC 4034 §6.3).
 pub fn signed_data(
     rrsig_rdata: []const u8,
     owner: *const Name,
     kind: Kind,
     class: u16,
-    records: []const []const u8,
+    records: anytype,
     hash: Hash,
 ) Error!void {
-    assert(records.len >= 1 and records.len <= core.limits.records_max);
+    const count = records.count();
+    assert(count >= 1 and count <= core.limits.records_max);
     const sig = try wire.rdata.Rrsig.parse(rrsig_rdata);
     var head: [wire.constants.sig_fixed_bytes + core.limits.name_bytes_max]u8 = undefined;
     const head_bytes = rrsig_rdata.len - sig.signature.len;
@@ -90,30 +121,45 @@ pub fn signed_data(
     std.mem.writeInt(u16, fixed[0..constants.record_class_offset], kind.code(), .big);
     std.mem.writeInt(u16, fixed[constants.record_class_offset..constants.record_ttl_offset], class, .big);
     std.mem.writeInt(u32, fixed[constants.record_ttl_offset..constants.record_length_offset], sig.original_ttl, .big);
+    var last_buffer: Scratch = undefined;
+    var best_buffer: Scratch = undefined;
+    var candidate_buffer: Scratch = undefined;
+    var order: Order = .{ .last = &last_buffer, .best = &best_buffer, .candidate = &candidate_buffer };
     var last: ?[]const u8 = null;
     // In canonical order, each record once: the smallest of those after the last one fed.
-    for (0..records.len) |_| {
-        const next = smallest_after(records, last) orelse break;
+    for (0..count) |_| {
+        const next = try order.smallest_after(records, last) orelse break;
         hash.feed(name.wire());
         std.mem.writeInt(u16, fixed[constants.record_length_offset..constants.record_fixed_bytes], @intCast(next.len), .big);
         hash.feed(&fixed);
         hash.feed(next);
         last = next;
+        std.mem.swap(*Scratch, &order.last, &order.best);
     }
 }
 
-/// The record of `records` that sorts first after `after`, in canonical order: the rdata as a
-/// left-justified octet sequence, "in which the absence of an octet sorts before a zero octet"
-/// (RFC 4034 §6.3). Null when none sorts after it.
-fn smallest_after(records: []const []const u8, after: ?[]const u8) ?[]const u8 {
-    var best: ?[]const u8 = null;
-    for (records) |candidate| {
-        if (after) |floor| if (std.mem.order(u8, candidate, floor) != .gt) continue;
-        if (best) |held| if (std.mem.order(u8, candidate, held) != .lt) continue;
-        best = candidate;
+/// The three records a selection in canonical order holds at once, each in a `Scratch` of its own:
+/// the last one fed, the best one yet, and the one being read.
+const Order = struct {
+    last: *Scratch,
+    best: *Scratch,
+    candidate: *Scratch,
+
+    /// The record of `records` that sorts first after `after`, in canonical order: the rdata as a
+    /// left-justified octet sequence, "in which the absence of an octet sorts before a zero octet"
+    /// (RFC 4034 §6.3). Null when none sorts after it. The result is in `best`.
+    fn smallest_after(self: *Order, records: anytype, after: ?[]const u8) Error!?[]const u8 {
+        var best: ?[]const u8 = null;
+        for (0..records.count()) |index| {
+            const candidate = try records.canonical(index, self.candidate);
+            if (after) |floor| if (std.mem.order(u8, candidate, floor) != .gt) continue;
+            if (best) |held| if (std.mem.order(u8, candidate, held) != .lt) continue;
+            best = candidate;
+            std.mem.swap(*Scratch, &self.best, &self.candidate);
+        }
+        return best;
     }
-    return best;
-}
+};
 
 /// The owner a signature covers, in lowercase: the owner itself when the RRSIG's Labels field
 /// counts its labels, and "*." and the rightmost of them when it counts fewer, which is how a
@@ -152,7 +198,7 @@ test "the signed data is the RRSIG's head with its signer lowered, then each rec
     const high = [_]u8{ 192, 0, 2, 2 };
     const low = [_]u8{ 192, 0, 2, 1 };
     var recorded: Recorded = .{};
-    try signed_data(&rrsig_a, &owner, .a, core.constants.class_internet, &.{ &high, &low, &high }, recorded.hash());
+    try signed_data(&rrsig_a, &owner, .a, core.constants.class_internet, Written{ .records = &.{ &high, &low, &high } }, recorded.hash());
     const head = rrsig_a[0..wire.constants.sig_fixed_bytes] ++ "\x07example\x03com\x00".*;
     const rr_fixed = [_]u8{ 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x04 };
     const owner_wire = "\x07example\x03com\x00".*;
@@ -165,11 +211,11 @@ test "a wildcard expansion is signed under its wildcard, and too many labels is 
     // RFC 4035 §5.3.2: Labels 2 under a three-label owner signs `*.example.com`.
     const expanded = try Name.from_text("a.b.example.com");
     var recorded: Recorded = .{};
-    try signed_data(&rrsig_a, &expanded, .a, core.constants.class_internet, &.{&[_]u8{ 192, 0, 2, 1 }}, recorded.hash());
+    try signed_data(&rrsig_a, &expanded, .a, core.constants.class_internet, Written{ .records = &.{&[_]u8{ 192, 0, 2, 1 }} }, recorded.hash());
     const owner_at = wire.constants.sig_fixed_bytes + "\x07example\x03com\x00".len;
     try testing.expectEqualSlices(u8, "\x01*\x07example\x03com\x00", recorded.slice()[owner_at..][0.."\x01*\x07example\x03com\x00".len]);
     const short = try Name.from_text("com");
-    try testing.expectError(Error.MalformedMessage, signed_data(&rrsig_a, &short, .a, core.constants.class_internet, &.{&[_]u8{ 192, 0, 2, 1 }}, recorded.hash()));
+    try testing.expectError(Error.MalformedMessage, signed_data(&rrsig_a, &short, .a, core.constants.class_internet, Written{ .records = &.{&[_]u8{ 192, 0, 2, 1 }} }, recorded.hash()));
 }
 
 test "an MX's exchange and an RRSIG's signer are lowered, and an NSEC's next name keeps its case" {

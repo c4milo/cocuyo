@@ -6047,4 +6047,256 @@
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "V1",
+        .what = "an RRSIG over another type counts",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "    if (sig.type_covered != kind.code()) return false;\n", .new = "    if (false and sig.type_covered != kind.code()) return false;\n" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "V2",
+        .what = "an RRSIG with more labels than its owner counts",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "    if (sig.labels > owner.label_count()) return false;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "V3",
+        .what = "a signer that is no ancestor of the owner counts",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "    return core.canonical.shared_labels(&sig.signer, owner) == sig.signer.label_count();", .new = "    return true;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "V4",
+        .what = "one RRSIG past signatures_per_rrset_max is tried",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "        if (tally.tried > limits.signatures_per_rrset_max) return .bogus;", .new = "        if (tally.tried > limits.signatures_per_rrset_max + 1) return .bogus;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "V5",
+        .what = "a signer whose keys are not held is not wanted",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "        .wanted => tally.wanted = sig.signer,", .new = "        .wanted => {}," },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "V6",
+        .what = "a failed check leaves the RRset unsigned",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "            .failed => tally.failed = true,", .new = "            .failed => {}," },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "V7",
+        .what = "a spent budget passes over the RRSIG",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "            .exhausted => return .bogus,", .new = "            .exhausted => {}," },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "V8",
+        .what = "a key of another algorithm is tried",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "    if (key.algorithm != sig.algorithm or dnssec.key_tag(rdata) != sig.key_tag) return false;", .new = "    if (dnssec.key_tag(rdata) != sig.key_tag) return false;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "V9",
+        .what = "a key of another tag is tried",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "    if (key.algorithm != sig.algorithm or dnssec.key_tag(rdata) != sig.key_tag) return false;", .new = "    if (key.algorithm != sig.algorithm or (false and dnssec.key_tag(rdata) != sig.key_tag)) return false;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "V10",
+        .what = "a key without the Zone Key flag is tried",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "    if (!key.zone_key() or !key.protocol_valid()) return false;", .new = "    if (!key.protocol_valid()) return false;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "V11",
+        .what = "a key of a protocol other than 3 is tried",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "    if (!key.zone_key() or !key.protocol_valid()) return false;", .new = "    if (!key.zone_key()) return false;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "V12",
+        .what = "a key of an algorithm the verifier does not check is tried",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "    return verifier.checks(verifier.context, sig.algorithm);", .new = "    return true or verifier.checks(verifier.context, sig.algorithm);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "V13",
+        .what = "keys past keys_per_signature_max are tried",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "        if (keys_tried == limits.keys_per_signature_max) break;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "V14",
+        .what = "a signature out of its dates is checked",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "        if (!dnssec.within(check.now_seconds, sig.inception, sig.expiration)) return .failed;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "V15",
+        .what = "a check runs with no budget left",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "        if (check.budget.left == 0) return .exhausted;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "V16",
+        .what = "the TTL ignores the RRset's own TTLs",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "    const ttl = @min(@min(set.ttl_seconds(), record.ttl_seconds), @min(sig.original_ttl, left));", .new = "    const ttl = @min(@min(@max(set.ttl_seconds(), std.math.maxInt(u32)), record.ttl_seconds), @min(sig.original_ttl, left));" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "V17",
+        .what = "the TTL ignores the RRSIG's TTL",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "    const ttl = @min(@min(set.ttl_seconds(), record.ttl_seconds), @min(sig.original_ttl, left));", .new = "    const ttl = @min(@min(set.ttl_seconds(), @max(record.ttl_seconds, std.math.maxInt(u32))), @min(sig.original_ttl, left));" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "V18",
+        .what = "the TTL ignores the Original TTL",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "    const ttl = @min(@min(set.ttl_seconds(), record.ttl_seconds), @min(sig.original_ttl, left));", .new = "    const ttl = @min(@min(set.ttl_seconds(), record.ttl_seconds), left);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "V19",
+        .what = "the TTL ignores the time the signature has left",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "    const ttl = @min(@min(set.ttl_seconds(), record.ttl_seconds), @min(sig.original_ttl, left));", .new = "    const ttl = @min(@min(set.ttl_seconds(), record.ttl_seconds), @min(sig.original_ttl, @max(left, std.math.maxInt(u32))));" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "M1",
+        .what = "more than records_max records are read",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_message.zig", .old = "        if (@as(usize, header.ancount) + header.nscount > core.limits.records_max) return false;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "M2",
+        .what = "a second question is taken",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_message.zig", .old = "        if (header.qdcount != 1) return Error.MalformedMessage;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "M3",
+        .what = "a message that ends in its question is read",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_message.zig", .old = "        if (answer_offset > bytes.len) return Error.MalformedMessage;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "M4",
+        .what = "a record of the other section joins the RRset",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_message.zig", .old = "        if (self.sections[index] != section or !record.is_kind(kind)) return false;", .new = "        if ((false and self.sections[index] != section) or !record.is_kind(kind)) return false;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "M5",
+        .what = "a record of another owner joins the RRset",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_message.zig", .old = "        return name.equal(owner);", .new = "        return name.equal(owner) or true;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "M6",
+        .what = "a compressed name is signed as it came",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_message.zig", .old = "        if (!canonical_form.lowers(self.kind)) return at.rdata;", .new = "        if (true) return at.rdata;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "M7",
+        .what = "a name in rdata is signed in the case it came",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_message.zig", .old = "        try canonical_form.lower(self.kind, scratch[0..written]);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "M8",
+        .what = "the record fed last is not kept apart",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_canonical.zig", .old = "        std.mem.swap(*Scratch, &order.last, &order.best);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The signatures over an RRset",
+        .id = "M9",
+        .what = "the best record yet is not kept apart",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_canonical.zig", .old = "            std.mem.swap(*Scratch, &self.best, &self.candidate);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
 }

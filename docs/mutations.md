@@ -10951,3 +10951,51 @@ its end.
 | B3 | letters past V decode | `zig build test-dnssec` | `CAUGHT` |
 
 42 mutations, 42 `CAUGHT`.
+
+## The signatures over an RRset
+
+2026-11-01. Design §25 Stage B, step 9's first piece (c4milo/cocuyo#56): `dnssec.Verifier`, what
+`dnssec` asks of the cryptography, and `dnssec_message`, which keeps the place of each record in
+the answer and the authority sections. `dnssec_rrset` says which RRSIGs count for an RRset, which
+keys each one tries, and what the RRset is when none verifies. `canonical.signed_data` now reads
+the records by index, so a record's canonical rdata is written on the stack one at a time. The
+tests sign RFC 4035 Appendix A's records with the tests' verifier, a sum that is no cryptography.
+V1, V9, V12, V16, V17, V19, M4 and M5 failed to compile at first, since each left a value unused,
+and were rewritten. V10, V11, V12 and M8 were NOT CAUGHT at first. The tests of the Zone Key
+flag, the protocol and the algorithm changed the key tag too, so the tag check refused the key
+first. Each key now keeps its tag. The test of canonical order held two records, which an
+overwritten record sorts the same way. It now holds three. `zig build mutations -- engine V1 ...
+V19 M1 ... M9` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| V1 | an RRSIG over another type counts | `zig build test-dnssec` | `CAUGHT` |
+| V2 | an RRSIG with more labels than its owner counts | `zig build test-dnssec` | `CAUGHT` |
+| V3 | a signer that is no ancestor of the owner counts | `zig build test-dnssec` | `CAUGHT` |
+| V4 | one RRSIG past signatures_per_rrset_max is tried | `zig build test-dnssec` | `CAUGHT` |
+| V5 | a signer whose keys are not held is not wanted | `zig build test-dnssec` | `CAUGHT` |
+| V6 | a failed check leaves the RRset unsigned | `zig build test-dnssec` | `CAUGHT` |
+| V7 | a spent budget passes over the RRSIG | `zig build test-dnssec` | `CAUGHT` |
+| V8 | a key of another algorithm is tried | `zig build test-dnssec` | `CAUGHT` |
+| V9 | a key of another tag is tried | `zig build test-dnssec` | `CAUGHT` |
+| V10 | a key without the Zone Key flag is tried | `zig build test-dnssec` | `CAUGHT` |
+| V11 | a key of a protocol other than 3 is tried | `zig build test-dnssec` | `CAUGHT` |
+| V12 | a key of an algorithm the verifier does not check is tried | `zig build test-dnssec` | `CAUGHT` |
+| V13 | keys past keys_per_signature_max are tried | `zig build test-dnssec` | `CAUGHT` |
+| V14 | a signature out of its dates is checked | `zig build test-dnssec` | `CAUGHT` |
+| V15 | a check runs with no budget left | `zig build test-dnssec` | `CAUGHT` |
+| V16 | the TTL ignores the RRset's own TTLs | `zig build test-dnssec` | `CAUGHT` |
+| V17 | the TTL ignores the RRSIG's TTL | `zig build test-dnssec` | `CAUGHT` |
+| V18 | the TTL ignores the Original TTL | `zig build test-dnssec` | `CAUGHT` |
+| V19 | the TTL ignores the time the signature has left | `zig build test-dnssec` | `CAUGHT` |
+| M1 | more than records_max records are read | `zig build test-dnssec` | `CAUGHT` |
+| M2 | a second question is taken | `zig build test-dnssec` | `CAUGHT` |
+| M3 | a message that ends in its question is read | `zig build test-dnssec` | `CAUGHT` |
+| M4 | a record of the other section joins the RRset | `zig build test-dnssec` | `CAUGHT` |
+| M5 | a record of another owner joins the RRset | `zig build test-dnssec` | `CAUGHT` |
+| M6 | a compressed name is signed as it came | `zig build test-dnssec` | `CAUGHT` |
+| M7 | a name in rdata is signed in the case it came | `zig build test-dnssec` | `CAUGHT` |
+| M8 | the record fed last is not kept apart | `zig build test-dnssec` | `CAUGHT` |
+| M9 | the best record yet is not kept apart | `zig build test-dnssec` | `CAUGHT` |
+
+28 mutations, 28 `CAUGHT`.

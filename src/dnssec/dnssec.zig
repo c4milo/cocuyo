@@ -24,6 +24,24 @@ pub const Hash = struct {
     }
 };
 
+/// What `dnssec` asks of the cryptography (docs/design.md §25 step 9). The caller's: a verifier
+/// over chapulin outside `src/`, or a test's. One check or one digest runs at a time.
+pub const Verifier = struct {
+    context: *anyopaque,
+    /// Whether it checks signatures of the DNSSEC algorithm `algorithm` (RFC 4034 Appendix A.1).
+    checks: *const fn (context: *anyopaque, algorithm: u8) bool,
+    /// Whether it computes digests of the DS digest type `digest_type` (RFC 4034 Appendix A.2).
+    digests: *const fn (context: *anyopaque, digest_type: u8) bool,
+    /// Begins a check under `algorithm`, one it checks, and returns where the signed data goes.
+    check_begin: *const fn (context: *anyopaque, algorithm: u8) Hash,
+    /// Ends the check: whether `signature` verifies under `public_key` over what was fed.
+    check_end: *const fn (context: *anyopaque, public_key: []const u8, signature: []const u8) bool,
+    /// Begins a digest of `digest_type`, one it computes, and returns where its input goes.
+    digest_begin: *const fn (context: *anyopaque, digest_type: u8) Hash,
+    /// Ends the digest, writes it into `out`, and returns its length.
+    digest_end: *const fn (context: *anyopaque, out: *[constants.digest_bytes]u8) usize,
+};
+
 /// The key tag of a DNSKEY's rdata: the sum of its 16-bit groups, the carry folded in once (RFC
 /// 4034 Appendix B). Algorithm 1 has another tag (Appendix B.1). Its use "MUST NOT" be
 /// implemented (RFC 9904 §3), so no key of it is ever checked, and this sum is never asked of
@@ -112,4 +130,6 @@ test {
     _ = nsec3;
     _ = @import("dnssec_nsec3_proof.zig");
     _ = @import("dnssec_base32.zig");
+    _ = @import("dnssec_message.zig");
+    _ = @import("dnssec_rrset.zig");
 }
