@@ -9,6 +9,7 @@ const wire = @import("wire");
 const Name = core.Name;
 pub const constants = @import("constants.zig");
 pub const limits = @import("limits.zig");
+pub const canonical = @import("dnssec_canonical.zig");
 
 /// Where `dnssec` feeds the octets a digest or a signature covers, in order and in pieces. The
 /// caller's: a digest or a signature over chapulin, or a test that records what it was given.
@@ -54,9 +55,9 @@ pub fn before(a: u32, b: u32) bool {
 /// canonical form is its letters in lowercase (§6.2).
 pub fn ds_input(owner: *const Name, dnskey_rdata: []const u8, hash: Hash) void {
     assert(owner.len >= 1);
-    var canonical = owner.*;
-    canonical.fold_case();
-    hash.feed(canonical.wire());
+    var lowered = owner.*;
+    lowered.fold_case();
+    hash.feed(lowered.wire());
     hash.feed(dnskey_rdata);
 }
 
@@ -65,21 +66,7 @@ pub fn ds_input(owner: *const Name, dnskey_rdata: []const u8, hash: Hash) void {
 const testing = std.testing;
 const rdata_fixtures = wire.rdata.fixtures;
 
-/// A `Hash` that keeps what it was fed, for a test to compare. Test-only.
-const Recorded = struct {
-    octets: [rdata_fixtures.dnskey_example_bytes + core.limits.name_bytes_max]u8 = undefined,
-    len: usize = 0,
-
-    fn hash(self: *Recorded) Hash {
-        return .{ .context = self, .update = update };
-    }
-
-    fn update(context: *anyopaque, octets: []const u8) void {
-        const self: *Recorded = @ptrCast(@alignCast(context));
-        @memcpy(self.octets[self.len..][0..octets.len], octets);
-        self.len += octets.len;
-    }
-};
+const Recorded = @import("fixtures.zig").Recorded;
 
 test "RFC 4034 §5.4's DNSKEY has the key tag 60485 that its DS names" {
     var bytes: [rdata_fixtures.dnskey_example_bytes]u8 = undefined;
@@ -115,4 +102,8 @@ test "a DS digest covers the DNSKEY's owner in lowercase, then its rdata" {
     const owner = "\x05dskey\x07example\x03com\x00";
     try testing.expectEqualSlices(u8, owner, recorded.octets[0..owner.len]);
     try testing.expectEqualSlices(u8, key, recorded.octets[owner.len..recorded.len]);
+}
+
+test {
+    _ = canonical;
 }

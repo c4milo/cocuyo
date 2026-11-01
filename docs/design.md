@@ -10684,7 +10684,12 @@ Each step lands with its checks, each check broken on purpose and recorded in
 7. `dnssec`, the pure half, over a verifier the tests supply: canonical order and form, the key
    tag, what a DS digest and a signature are computed over, and time. Begun on 2026-10-31: the
    module, in `src/dnssec/`, with `Hash`, where it feeds every octet a digest or a signature
-   covers, `key_tag`, `within` and `before` in serial number arithmetic, and `ds_input`. Against the RFCs' own
+   covers, `key_tag`, `within` and `before` in serial number arithmetic, and `ds_input`. Then
+   `dnssec.canonical`: the canonical rdata of a record (`rdata`), the canonical order of an RRset,
+   each duplicate fed once, and `signed_data`, which feeds what an RRSIG signs, a wildcard's
+   owner included. Of the types cocuyo names, the names of NS, CNAME, SOA, PTR, MX, SIG, NAPTR,
+   SRV, DNAME and RRSIG are lowered. NSEC's are not (RFC 6840 §5.1), and neither are a later
+   type's (RFC 3597 §7). Against the RFCs' own
    examples where no arithmetic is needed: the ordered list of RFC 4034 §6.1, and the octets
    each example signs. The time of day is a parameter, so an example signed years ago is read
    under its own date.

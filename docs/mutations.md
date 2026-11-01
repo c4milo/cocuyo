@@ -10829,3 +10829,24 @@ RFC 4034 Appendix B, a signature's times in serial number arithmetic (RFC 1982 �
 | DN6 | a DS digest covers the rdata alone | `zig build test-dnssec` | `CAUGHT` |
 
 Six mutations, six `CAUGHT`.
+
+## The canonical form and the signed data
+
+2026-10-31. Design §25 Stage B, step 7 (c4milo/cocuyo#56): `dnssec.canonical` writes a record's
+canonical rdata, sorts an RRset into canonical order, and feeds what an RRSIG signs (RFC 4034
+§6.2, §6.3, RFC 4035 §5.3.2, RFC 6840 §5.1, RFC 3597 §7). CF9 was rewritten once, when the offsets
+it names were named. `zig build mutations -- engine CF1 ... CF9` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| CF1 | the signed data keeps the signer's case | `zig build test-dnssec` | `CAUGHT` |
+| CF2 | the records are fed in the order they came | `zig build test-dnssec` | `CAUGHT` |
+| CF3 | a record that repeats another is fed twice | `zig build test-dnssec` | `CAUGHT` |
+| CF4 | a wildcard expansion is signed under its own owner | `zig build test-dnssec` | `CAUGHT` |
+| CF5 | a Labels field above the owner's count is taken | `zig build test-dnssec` | `CAUGHT` |
+| CF6 | an NSEC's next name is lowered | `zig build test-dnssec` | `CAUGHT` |
+| CF7 | an SVCB's target is lowered | `zig build test-dnssec` | `CAUGHT` |
+| CF8 | the signed data keeps the owner's case | `zig build test-dnssec` | `CAUGHT` |
+| CF9 | each record carries a TTL of zero, not the original TTL | `zig build test-dnssec` | `CAUGHT` |
+
+Nine mutations, nine `CAUGHT`.

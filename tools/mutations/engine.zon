@@ -5341,7 +5341,7 @@
         .id = "DN5",
         .what = "a DS digest covers the owner in the case it came in",
         .edits = .{
-            .{ .file = "src/dnssec/dnssec.zig", .old = "    canonical.fold_case();\n", .new = "" },
+            .{ .file = "src/dnssec/dnssec.zig", .old = "    lowered.fold_case();\n", .new = "" },
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
@@ -5350,7 +5350,88 @@
         .id = "DN6",
         .what = "a DS digest covers the rdata alone",
         .edits = .{
-            .{ .file = "src/dnssec/dnssec.zig", .old = "    hash.feed(canonical.wire());\n", .new = "    _ = &canonical;\n" },
+            .{ .file = "src/dnssec/dnssec.zig", .old = "    hash.feed(lowered.wire());\n", .new = "    _ = &lowered;\n" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The canonical form and the signed data",
+        .id = "CF1",
+        .what = "the signed data keeps the signer's case",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_canonical.zig", .old = "    _ = try lower_name(head[0..head_bytes], wire.constants.sig_fixed_bytes);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The canonical form and the signed data",
+        .id = "CF2",
+        .what = "the records are fed in the order they came",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_canonical.zig", .old = "        if (best) |held| if (std.mem.order(u8, candidate, held) != .lt) continue;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The canonical form and the signed data",
+        .id = "CF3",
+        .what = "a record that repeats another is fed twice",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_canonical.zig", .old = "        if (after) |floor| if (std.mem.order(u8, candidate, floor) != .gt) continue;", .new = "        if (after) |floor| if (std.mem.order(u8, candidate, floor) == .lt) continue;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The canonical form and the signed data",
+        .id = "CF4",
+        .what = "a wildcard expansion is signed under its own owner",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_canonical.zig", .old = "    if (labels == count) return lowered_owner;", .new = "    if (labels <= count) return lowered_owner;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The canonical form and the signed data",
+        .id = "CF5",
+        .what = "a Labels field above the owner's count is taken",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_canonical.zig", .old = "    if (labels > count) return Error.MalformedMessage;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The canonical form and the signed data",
+        .id = "CF6",
+        .what = "an NSEC's next name is lowered",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_canonical.zig", .old = "        .ns, .cname, .soa, .ptr, .mx, .sig, .naptr, .srv => wire.rdata.layout.of(kind.code()),", .new = "        .ns, .cname, .soa, .ptr, .mx, .sig, .naptr, .srv => wire.rdata.layout.of(kind.code()),\n        .nsec => &dname_layout," },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The canonical form and the signed data",
+        .id = "CF7",
+        .what = "an SVCB's target is lowered",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_canonical.zig", .old = "        .ns, .cname, .soa, .ptr, .mx, .sig, .naptr, .srv => wire.rdata.layout.of(kind.code()),", .new = "        .ns, .cname, .soa, .ptr, .mx, .sig, .naptr, .srv, .svcb => wire.rdata.layout.of(kind.code())," },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The canonical form and the signed data",
+        .id = "CF8",
+        .what = "the signed data keeps the owner's case",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_canonical.zig", .old = "    lowered_owner.fold_case();\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The canonical form and the signed data",
+        .id = "CF9",
+        .what = "each record carries a TTL of zero, not the original TTL",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_canonical.zig", .old = "    std.mem.writeInt(u32, fixed[constants.record_ttl_offset..constants.record_length_offset], sig.original_ttl, .big);", .new = "    std.mem.writeInt(u32, fixed[constants.record_ttl_offset..constants.record_length_offset], sig.original_ttl & 0, .big);" },
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
