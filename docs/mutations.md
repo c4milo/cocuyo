@@ -11148,6 +11148,26 @@ LC26 text this step changed; each names the text as it stands. `zig build mutati
 
 9 mutations, 9 `CAUGHT`. DM1, LC26, LC27, RD11, M1 and YX8 ran again too, and each was `CAUGHT`.
 
+## The walk for keys in the model
+
+2026-11-01. Design §25 Stage B, step 12's model (c4milo/cocuyo#56): `KeyWalk.lean` models one
+walk for a zone's keys over a store that may lose any entry, and `KeyWalkProofs.lean` proves what
+§25's model section asks. No replay reads the model yet, so the proofs catch each break. KW2
+first removed its guard, which can break a proof by its form alone; it now makes the guard false,
+so the proof fails on what it states. `zig build mutations -- lean KW1 ... KW6` ran each to its
+end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| KW1 | a DNSKEY set enters the store with no anchor and no DS set to match | `zig build spec-lean` | `CAUGHT` |
+| KW2 | a DS set is taken under keys the store does not hold | `zig build spec-lean` | `CAUGHT` |
+| KW3 | an insecure delegation enters at the zone, not at the probe | `zig build spec-lean` | `CAUGHT` |
+| KW4 | a walk asks past questionsMax | `zig build spec-lean` | `CAUGHT` |
+| KW5 | an answer counts no question | `zig build spec-lean` | `CAUGHT` |
+| KW6 | a walk stands in a zone whose keys it has not matched | `zig build spec-lean` | `CAUGHT` |
+
+6 mutations, 6 `CAUGHT`.
+
 ## The validating lookup
 
 2026-11-01. Design §25 Stage B, step 11's code (c4milo/cocuyo#56): `src/resolver/lookup_validate.zig`

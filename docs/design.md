@@ -10922,6 +10922,19 @@ Each step lands with its checks, each check broken on purpose and recorded in
       target, or failed. It fails as bogus on a proof that a name on its way does not exist
       (rule 7), when a walk for data with no signature reaches the name asked inside a signed
       zone (rule 8), and past `chain_questions_max` questions (rule 10).
+    The walk's model, written on 2026-11-01, is `spec/lean/Spec/KeyWalk.lean`, with its proofs in
+    `KeyWalkProofs.lean` beside it:
+    - A name is its labels from the root down, so an ancestor is a prefix. The validator's
+      verdict on an answer is the answer itself, and a server may give any verdict.
+    - The store may lose any entry at any time. A ghost list, `proven`, keeps every entry that
+      ever entered, and the theorems are stated over it: a lost entry may have backed a kept one.
+    - `keys_chain`: when the store holds a zone's keys, a path of trust ends at that zone. Each
+      zone on the path is an anchor, or has a DS set validated under the keys of a zone above it.
+    - `insecure_proven`: the store holds an insecure delegation only under a zone above it, at
+      the end of such a path.
+    - `walk_bounded` and `answer_counts`: a walk that still asks has asked `chain_questions_max`
+      questions at most, and each answer counts one.
+    - The model holds one walk, and no restart of rule 9. The Walker's replay comes with its code.
 13. The cache: the status, the TTL bound and the bogus entries.
 14. The twin: a server in `sim` that signs for the tests' verifier, so the tests cover whole
     chains, a server that lies, signatures that have expired, signatures taken out, and a key

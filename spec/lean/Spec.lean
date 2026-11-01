@@ -9,3 +9,5 @@ import Spec.LookupProofs.Security
 import Spec.LookupProofs.Validation
 import Spec.Axioms
 import Spec.Address
+import Spec.KeyWalk
+import Spec.KeyWalkProofs

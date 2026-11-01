@@ -4,13 +4,14 @@ import Spec.LookupProofs.Cause
 import Spec.LookupProofs.Bound
 import Spec.LookupProofs.Security
 import Spec.LookupProofs.Validation
+import Spec.KeyWalkProofs
 
 /-!
 # What the proofs rest on
 
-Each theorem of `Spec.LookupProofs` and the modules under it with the axioms its proof uses,
-pinned. A proof left unfinished compiles to `sorryAx`, which would change a line below and
-fail `lake build`. The three that may appear are the ones every Lean proof about functions and
+Each theorem of `Spec.LookupProofs`, of the modules under it and of `Spec.KeyWalkProofs`, with
+the axioms its proof uses, pinned. A proof left unfinished compiles to `sorryAx`, which would
+change a line below and fail `lake build`. The three that may appear are the ones every Lean proof about functions and
 propositions uses: `propext`, `Classical.choice` and `Quot.sound`.
 -/
 namespace Spec.Lookup
@@ -88,3 +89,22 @@ namespace Spec.Lookup
 #guard_msgs in #print axioms validate_edns
 
 end Spec.Lookup
+
+namespace Spec.KeyWalk
+
+/-- info: 'Spec.KeyWalk.run_good' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms run_good
+
+/-- info: 'Spec.KeyWalk.keys_chain' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms keys_chain
+
+/-- info: 'Spec.KeyWalk.insecure_proven' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms insecure_proven
+
+/-- info: 'Spec.KeyWalk.walk_bounded' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms walk_bounded
+
+/-- info: 'Spec.KeyWalk.answer_counts' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms answer_counts
+
+end Spec.KeyWalk

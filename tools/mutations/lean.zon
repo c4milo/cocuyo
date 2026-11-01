@@ -432,4 +432,58 @@
         },
         .caught_by = .{ .step = "spec-lean" },
     },
+    .{
+        .section = "The walk for keys in the model",
+        .id = "KW1",
+        .what = "a DNSKEY set enters the store with no anchor and no DS set to match",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/KeyWalk.lean", .old = "    if c.anchors.contains w.probe || s.store.ds.contains w.probe then\n", .new = "    if true then\n" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "The walk for keys in the model",
+        .id = "KW2",
+        .what = "a DS set is taken under keys the store does not hold",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/KeyWalk.lean", .old = "  else if w.asking = .ds && !s.store.keys.contains w.zone then fail t\n", .new = "  else if false then fail t\n" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "The walk for keys in the model",
+        .id = "KW3",
+        .what = "an insecure delegation enters at the zone, not at the probe",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/KeyWalk.lean", .old = "      finish { t with store := { t.store with insecure := add t.store.insecure w.probe },\n                      proven := { t.proven with insecure := add t.proven.insecure w.probe } }", .new = "      finish { t with store := { t.store with insecure := add t.store.insecure w.zone },\n                      proven := { t.proven with insecure := add t.proven.insecure w.zone } }" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "The walk for keys in the model",
+        .id = "KW4",
+        .what = "a walk asks past questionsMax",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/KeyWalk.lean", .old = "  if t.walk.questions > c.questionsMax then fail t\n", .new = "  if false then fail t\n" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "The walk for keys in the model",
+        .id = "KW5",
+        .what = "an answer counts no question",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/KeyWalk.lean", .old = "  let t := { s with walk := { w with questions := w.questions + 1 } }\n", .new = "  let t := { s with walk := w }\n" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "The walk for keys in the model",
+        .id = "KW6",
+        .what = "a walk stands in a zone whose keys it has not matched",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/KeyWalk.lean", .old = "    | .ds, .dsSet =>\n      { t with store := { t.store with ds := add t.store.ds w.probe },\n               proven := { t.proven with ds := add t.proven.ds w.probe },\n               walk := { t.walk with asking := .dnskey } }", .new = "    | .ds, .dsSet =>\n      next { t with store := { t.store with ds := add t.store.ds w.probe, keys := add t.store.keys w.probe },\n               proven := { t.proven with ds := add t.proven.ds w.probe },\n               walk := { t.walk with zone := w.probe } }" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
 }

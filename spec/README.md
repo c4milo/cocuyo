@@ -69,6 +69,11 @@ would agree with the code by construction and prove nothing about it.
     The walk takes seven configurations that validate, and the replay hands the lookup a
     validator that gives each message the verdict the line's event names, with a secure
     message's ending what the model's reply means.
+- `lean/Spec/KeyWalk.lean` is the model of DNSSEC Stage B's walk for keys (docs/design.md §25,
+  step 12), and `lean/Spec/KeyWalkProofs.lean` holds its proofs. `keys_chain`: a zone whose keys
+  the store holds is at the end of a path of trust from an anchor. `insecure_proven`: an insecure
+  delegation rests on such a path. `walk_bounded` and `answer_counts`: a walk asks
+  `chain_questions_max` questions at most. No replay reads this model yet.
 - `lean/Spec/Axioms.lean` pins the axioms each theorem rests on. A proof left unfinished rests on
   `sorryAx`, which changes a pinned line and fails the build.
 - `lean/Spec/Address.lean` is the model of both walks, and `lean/Spec/AddressWalk.lean` walks it and
