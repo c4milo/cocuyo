@@ -21,6 +21,7 @@ const constants = @import("constants.zig");
 const header_codec = @import("header.zig");
 const question_codec = @import("question.zig");
 const edns = @import("edns.zig");
+const integer = @import("integer.zig");
 
 pub const Query = struct {
     /// The transaction id, drawn from the lookup's generator (docs/design.md §7).
@@ -41,19 +42,31 @@ pub const Query = struct {
     /// DNSSEC records (RFC 6840 §5.7, §5.8). Set when the configuration relies on the bit
     /// (docs/design.md §25 Stage A).
     authentic_data: bool = false,
-    /// The CD bit, which a validating stub SHOULD set, so the server hands back data it found
-    /// bogus and the stub validates it itself (RFC 4035 §4.9.2; docs/design.md §25, Stage B). A
-    /// stub that does not validate leaves it clear, and needs the server to validate.
-    checking_disabled: bool = false,
-    /// The DO bit of the OPT record: "A validating security-aware stub resolver MUST set the DO
-    /// bit" (RFC 4035 §4.9.1), which asks for the DNSSEC records (RFC 3225 §3). It needs
-    /// `payload_bytes`.
-    dnssec_ok: bool = false,
     /// Whether to pad the message to a multiple of `padding_block_bytes`, which is for a query
     /// that goes encrypted (RFC 7830 §6). A query without OPT cannot carry the option, and goes
     /// unpadded.
     padded: bool = false,
 };
+
+/// Marks `written`, the octets `write` wrote for `query`, as a validating stub's query: CD set and
+/// AD clear in the header, and DO set in the OPT record. "A validating security-aware stub resolver
+/// MUST set the DO bit" (RFC 4035 §4.9.1), SHOULD set CD (§4.9.2), and does not ask for AD
+/// (§4.9.3). A query without OPT has no DO to carry. Kept apart from `write`, so a query that does
+/// not validate costs not one instruction more (docs/performance.md).
+pub fn mark_validating(query: *const Query, written: []u8) void {
+    const body = if (query.tcp) written[core.constants.tcp_prefix_bytes..] else written;
+    assert(body.len >= core.constants.header_bytes);
+    const flags = integer.read_u16(body, constants.header_flags_offset);
+    const marked = (flags | constants.flag_checking_disabled) & ~constants.flag_authentic_data;
+    integer.write_u16(body, constants.header_flags_offset, marked);
+    if (query.payload_bytes == null) return;
+    // The OPT record follows the question: its root owner, type, class and extended rcode with
+    // version, then the flags, where `write` wrote none (RFC 6891 §6.1.3).
+    const opt_at = core.constants.header_bytes + question_codec.section_bytes(&query.name);
+    const flags_at = opt_at + constants.opt_flags_offset;
+    assert(integer.read_u16(body, flags_at) == 0);
+    integer.write_u16(body, flags_at, edns.flag_dnssec_ok);
+}
 
 /// The octets a query occupies.
 pub fn query_bytes(query: *const Query) usize {
@@ -90,10 +103,10 @@ pub fn write(query: *const Query, out: []u8) usize {
 
     const header: header_codec.Header = .{
         .id = query.id,
-        // Nothing but RD, AD and CD is ever set: the query is never authoritative or truncated.
+        // Nothing but RD and AD is ever set here: the query is never authoritative or truncated,
+        // and `mark_validating` sets CD.
         .flags = (if (query.recursion_desired) constants.flag_recursion_desired else 0) |
-            (if (query.authentic_data) constants.flag_authentic_data else 0) |
-            (if (query.checking_disabled) constants.flag_checking_disabled else 0),
+            (if (query.authentic_data) constants.flag_authentic_data else 0),
         .qdcount = 1,
         .ancount = 0,
         .nscount = 0,
@@ -104,7 +117,7 @@ pub fn write(query: *const Query, out: []u8) usize {
     var offset: usize = core.constants.header_bytes;
     offset += question_codec.write(&query.name, query.kind, body[offset..]);
     if (query.payload_bytes) |payload_bytes| {
-        offset += edns.write_padded(payload_bytes, cookie_of(query), padding_bytes(query), query.dnssec_ok, body[offset..]);
+        offset += edns.write_padded(payload_bytes, cookie_of(query), padding_bytes(query), body[offset..]);
     }
 
     if (query.tcp) {
@@ -268,10 +281,8 @@ test "a query sets AD only when asked, and CD and DO only when asked (RFC 6840 �
     const opt_record = (try @import("response_opt.zig").find(out[0..written], &query.name)).?;
     try testing.expect(!(try edns.parse(opt_record.class, opt_record.ttl_seconds)).dnssec_ok());
     // A validating stub sets DO and CD, and leaves AD clear (RFC 4035 §4.9.1 to §4.9.3).
-    query.authentic_data = false;
-    query.checking_disabled = true;
-    query.dnssec_ok = true;
     const validating = write(&query, &out);
+    mark_validating(&query, out[0..validating]);
     const flagged = try header_codec.parse(&out);
     try testing.expectEqual(constants.flag_recursion_desired | constants.flag_checking_disabled, flagged.flags);
     const opt_validating = (try @import("response_opt.zig").find(out[0..validating], &query.name)).?;

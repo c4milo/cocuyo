@@ -44,18 +44,9 @@ pub const Checked = enum(u2) {
     }
 };
 
-/// Hands the lookup its validator, before its first send. `udp_payload_bytes` must be one a
-/// security-aware resolver advertises (RFC 4035 §4.1).
-pub fn validate_with(self: *Lookup, validator: *const Validator) void {
-    assert(self.state == .query_ready or self.state == .tcp_needed);
-    assert(self.config.udp_payload_bytes >= limits.dnssec_payload_bytes_min);
-    self.validator = validator;
-    self.checked = .secure;
-}
-
 pub fn validating(self: *const Lookup) bool {
-    assert((self.validator == null) == (self.checked == .not_validating));
-    return self.validator != null;
+    assert((self.servers.validator == null) == (self.conjunctions.checked == .not_validating));
+    return self.servers.validator != null;
 }
 
 /// A message to act on as its rcode and its records say. A secure message bounds what the lookup
@@ -76,17 +67,17 @@ pub const Step = union(enum) {
 /// `heard`, which the lookup calls once for each message it accepts.
 pub fn weigh(self: *Lookup, message: []const u8, rcode: wire.Rcode, heard: Heard, now_ns: u64) Step {
     assert(self.state == .awaiting_udp or self.state == .awaiting_tcp);
-    const validator = self.validator orelse return .{ .act = .{} };
+    const validator = self.servers.validator orelse return .{ .act = .{} };
     // An RRSIG is never signed (RFC 4035 §2.2): such a question ends `unchecked`.
     if (self.question.kind == .rrsig) {
-        self.checked = .unchecked;
+        self.conjunctions.checked = .unchecked;
         return .{ .act = .{} };
     }
     const verdict = validator.validate(validator.context, &self.current, self.question.kind, message, now_ns);
     switch (verdict) {
         .secure => |secure| return secured(self, secure, rcode, heard, now_ns),
         .insecure, .unchecked => {
-            if (self.checked == .secure) self.checked = .insecure;
+            if (self.conjunctions.checked == .secure) self.conjunctions.checked = .insecure;
             return .{ .act = .{} };
         },
         .bogus => {
@@ -144,11 +135,11 @@ pub fn rejected(self: *Lookup, heard: Heard, now_ns: u64) void {
 /// The message's keys are wanted: the lookup waits for the table's walk, `key_asks_max` times for
 /// a name, and past that the message reads as bogus.
 fn wait_for_keys(self: *Lookup, heard: Heard, now_ns: u64) void {
-    if (self.key_asks >= limits.key_asks_max) return rejected(self, heard, now_ns);
+    if (self.conjunctions.key_asks >= limits.key_asks_max) return rejected(self, heard, now_ns);
     heard.of(self, null, now_ns);
-    self.key_asks += 1;
+    self.conjunctions.key_asks += 1;
     self.state = .awaiting_keys;
-    assert(self.key_asks <= limits.key_asks_max);
+    assert(self.conjunctions.key_asks <= limits.key_asks_max);
 }
 
 /// The walk ended with the keys held, or with an insecure delegation: the same server is asked

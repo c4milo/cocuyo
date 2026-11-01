@@ -11234,3 +11234,28 @@ V20` ran each to its end.
 | V20 | a signature of a form the algorithm refuses verifies | `zig build test-dnssec` | `CAUGHT` |
 
 7 mutations, 7 `CAUGHT`.
+
+## A lookup that does not validate pays nothing for one
+
+2026-11-01. CI's instruction check failed on 0d1d834: a query took 2.4% more instructions, an
+accepted answer 5.1% and a round trip 3.8% (cachegrind, x86-64). Every case that copies a slot paid
+for the validator's 16 octets, and every query for bits it never set. The validator moved beside
+the servers, its two fields share Stage A's octet, a validating query is marked after it is written,
+and the validating paths sit behind one branch each. Measured under cachegrind 3.22.0 in an arm64
+Linux container against 7ed0b29: a query takes as many instructions as before, an accepted answer
+0.8% more, a round trip 0.6% more, and a stray datagram 1.6% more. Nine mutations named text this
+moved, and name it as it stands: AD3, AD4, RA8, VL24, VL25, VL26, VQ1, VQ2, and the end of RF3, LC1,
+LC2 and LC12. `zig build mutations -- lookup VL24 VL25 VL26 VQ1 VQ2 VL30 VL31 RF3 LC1` and `--
+engine AD3 AD4 RA8` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| VL24 | a validating query is not marked | `zig build test-resolver` | `CAUGHT` |
+| VL25 | a validating query leaves CD clear | `zig build test-wire` | `CAUGHT` |
+| VL26 | a validating query asks for AD | `zig build test-wire` | `CAUGHT` |
+| VQ1 | a query marked for validation keeps its header as written | `zig build test-wire` | `CAUGHT` |
+| VQ2 | a query marked for validation leaves DO clear | `zig build test-wire` | `CAUGHT` |
+| VL30 | a validating NOERROR skips the validator | `zig build test-resolver` | `CAUGHT` |
+| VL31 | a validating NXDOMAIN skips the validator | `zig build test-resolver` | `CAUGHT` |
+
+7 mutations, 7 `CAUGHT`.

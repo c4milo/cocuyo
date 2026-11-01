@@ -67,7 +67,7 @@ pub fn line_text(lookup: *const Lookup, out: *[state_bytes_max]u8) []const u8 {
         .failed => @tagName(lookup.failure_of().security),
         else => "-",
     };
-    const conjunction: []const u8 = if (lookup.authentic.authentic()) "A" else "-";
+    const conjunction: []const u8 = if (lookup.conjunctions.authentic.authentic()) "A" else "-";
     return std.fmt.bufPrint(out, "{s} {s} {s} {s}", .{ state_text(lookup, &state), cause_text(order, cause, &cause_buffer), conjunction, reported }) catch unreachable;
 }
 

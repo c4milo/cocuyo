@@ -586,7 +586,7 @@
         .id = "RF3",
         .what = "a failed connection is counted as silence",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        self.servers.record_failure(self.server_slot(), now_ns);\n        failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// Hands the lookup a validator", .new = "        self.servers.record_failure(self.server_slot(), now_ns);\n        self.next_server(now_ns);\n    }\n\n    /// Hands the lookup a validator" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.servers.record_failure(self.server_slot(), now_ns);\n        failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// The walk for the keys a message needed", .new = "        self.servers.record_failure(self.server_slot(), now_ns);\n        self.next_server(now_ns);\n    }\n\n    /// The walk for the keys a message needed" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -2959,7 +2959,7 @@
         .id = "LC1",
         .what = "the cause of a failed stream is the connect's, whatever reason it came with",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// Hands the lookup a validator", .new = "        failure_module.keep(self, .{ .reason = .connect });\n        self.next_server(now_ns);\n    }\n\n    /// Hands the lookup a validator" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// The walk for the keys a message needed", .new = "        failure_module.keep(self, .{ .reason = .connect });\n        self.next_server(now_ns);\n    }\n\n    /// The walk for the keys a message needed" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -2969,7 +2969,7 @@
         .id = "LC2",
         .what = "the cause of a failed stream is the closed connection's, whatever reason it came with",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// Hands the lookup a validator", .new = "        failure_module.keep(self, .{ .reason = .closed });\n        self.next_server(now_ns);\n    }\n\n    /// Hands the lookup a validator" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// The walk for the keys a message needed", .new = "        failure_module.keep(self, .{ .reason = .closed });\n        self.next_server(now_ns);\n    }\n\n    /// The walk for the keys a message needed" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -3063,7 +3063,7 @@
         .id = "LC12",
         .what = "the first cause stays, and a failed stream after it does not replace it",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// Hands the lookup a validator", .new = "        if (self.cause.what == .none) failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// Hands the lookup a validator" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// The walk for the keys a message needed", .new = "        if (self.cause.what == .none) failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// The walk for the keys a message needed" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -3998,7 +3998,7 @@
         .id = "VL2",
         .what = "an insecure message leaves the end secure",
         .edits = .{
-            .{ .file = "src/resolver/lookup_validate.zig", .old = "            if (self.checked == .secure) self.checked = .insecure;\n", .new = "" },
+            .{ .file = "src/resolver/lookup_validate.zig", .old = "            if (self.conjunctions.checked == .secure) self.conjunctions.checked = .insecure;\n", .new = "" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -4061,7 +4061,7 @@
         .id = "VL9",
         .what = "the waits for keys are not counted",
         .edits = .{
-            .{ .file = "src/resolver/lookup_validate.zig", .old = "    self.key_asks += 1;\n", .new = "" },
+            .{ .file = "src/resolver/lookup_validate.zig", .old = "    self.conjunctions.key_asks += 1;\n", .new = "" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -4070,7 +4070,7 @@
         .id = "VL10",
         .what = "a lookup waits for keys past key_asks_max",
         .edits = .{
-            .{ .file = "src/resolver/lookup_validate.zig", .old = "    if (self.key_asks >= limits.key_asks_max) return rejected(self, heard, now_ns);", .new = "    if (self.key_asks > limits.key_asks_max) return rejected(self, heard, now_ns);" },
+            .{ .file = "src/resolver/lookup_validate.zig", .old = "    if (self.conjunctions.key_asks >= limits.key_asks_max) return rejected(self, heard, now_ns);", .new = "    if (self.conjunctions.key_asks > limits.key_asks_max) return rejected(self, heard, now_ns);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -4169,7 +4169,7 @@
         .id = "VL21",
         .what = "a CNAME's target keeps the name's waits for keys",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "            self.key_asks = 0;\n", .new = "" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            self.conjunctions.key_asks = 0;\n", .new = "" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -4178,7 +4178,7 @@
         .id = "VL22",
         .what = "the next candidate keeps the name's waits for keys",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        self.key_asks = 0;\n", .new = "" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.conjunctions.key_asks = 0;\n", .new = "" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -4194,29 +4194,29 @@
     .{
         .section = "The validating lookup",
         .id = "VL24",
-        .what = "a validating query leaves CD clear",
+        .what = "a validating query is not marked",
         .edits = .{
-            .{ .file = "src/resolver/lookup_poll.zig", .old = "        .checking_disabled = self.validator != null,", .new = "        .checking_disabled = false," },
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "    if (self.conjunctions.checked != .not_validating) wire.query.mark_validating(&query, out[0..written]);", .new = "    if (false and self.conjunctions.checked != .not_validating) wire.query.mark_validating(&query, out[0..written]);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
     .{
         .section = "The validating lookup",
         .id = "VL25",
-        .what = "a validating query leaves DO clear",
+        .what = "a validating query leaves CD clear",
         .edits = .{
-            .{ .file = "src/resolver/lookup_poll.zig", .old = "        .dnssec_ok = self.validator != null and self.flags.edns_enabled,", .new = "        .dnssec_ok = false and self.validator != null and self.flags.edns_enabled," },
+            .{ .file = "src/wire/query.zig", .old = "    const marked = (flags | constants.flag_checking_disabled) & ~constants.flag_authentic_data;", .new = "    const marked = flags & ~constants.flag_authentic_data;" },
         },
-        .caught_by = .{ .step = "test-resolver" },
+        .caught_by = .{ .step = "test-wire" },
     },
     .{
         .section = "The validating lookup",
         .id = "VL26",
         .what = "a validating query asks for AD",
         .edits = .{
-            .{ .file = "src/resolver/lookup_poll.zig", .old = "        .authentic_data = self.config.authenticated_data.asks() and self.validator == null,", .new = "        .authentic_data = self.config.authenticated_data.asks() or self.validator != null," },
+            .{ .file = "src/wire/query.zig", .old = "    const marked = (flags | constants.flag_checking_disabled) & ~constants.flag_authentic_data;", .new = "    const marked = flags | constants.flag_checking_disabled;" },
         },
-        .caught_by = .{ .step = "test-resolver" },
+        .caught_by = .{ .step = "test-wire" },
     },
     .{
         .section = "The validating lookup",
@@ -4241,26 +4241,44 @@
         .id = "VL29",
         .what = "a validating lookup reports Stage A",
         .edits = .{
-            .{ .file = "src/resolver/lookup_security.zig", .old = "    if (lookup.checked != .not_validating) return lookup.checked.security();\n", .new = "" },
+            .{ .file = "src/resolver/lookup_security.zig", .old = "    if (lookup.conjunctions.checked != .not_validating) return lookup.conjunctions.checked.security();\n", .new = "" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
     .{
         .section = "The validating lookup",
         .id = "VQ1",
-        .what = "a query asked for CD does not set it",
+        .what = "a query marked for validation keeps its header as written",
         .edits = .{
-            .{ .file = "src/wire/query.zig", .old = "            (if (query.checking_disabled) constants.flag_checking_disabled else 0),", .new = "            (if (false) constants.flag_checking_disabled else 0)," },
+            .{ .file = "src/wire/query.zig", .old = "    integer.write_u16(body, constants.header_flags_offset, marked);", .new = "    integer.write_u16(body, constants.header_flags_offset, flags | (marked & 0));" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
     .{
         .section = "The validating lookup",
         .id = "VQ2",
-        .what = "a query asked for DO does not set it",
+        .what = "a query marked for validation leaves DO clear",
         .edits = .{
-            .{ .file = "src/wire/edns.zig", .old = "    integer.write_u32(out, offset, if (dnssec_ok) flag_dnssec_ok else 0);", .new = "    integer.write_u32(out, offset, if (false and dnssec_ok) flag_dnssec_ok else 0);" },
+            .{ .file = "src/wire/query.zig", .old = "    integer.write_u16(body, flags_at, edns.flag_dnssec_ok);", .new = "    integer.write_u16(body, flags_at, 0);" },
         },
         .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL30",
+        .what = "a validating NOERROR skips the validator",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (self.conjunctions.checked != .not_validating) return collect_checked(self, message, accepted, now_ns);", .new = "    if (false and self.conjunctions.checked != .not_validating) return collect_checked(self, message, accepted, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL31",
+        .what = "a validating NXDOMAIN skips the validator",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (self.conjunctions.checked == .not_validating) return negative(self, message, accepted, true, std.math.maxInt(u32), now_ns);", .new = "    if (true or self.conjunctions.checked == .not_validating) return negative(self, message, accepted, true, std.math.maxInt(u32), now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
     },
 }

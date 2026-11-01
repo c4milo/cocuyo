@@ -67,12 +67,12 @@ pub fn init_in_place(
             // No query is sent yet, so no reply marked a try.
             .reply_marked = false,
         },
-        // No message is read yet, so none lacked AD (docs/design.md §25, Stage A).
-        .authentic = security.start(config),
-        // A validator comes after init, from the table (docs/design.md §25, step 11).
-        .checked = .not_validating,
-        .key_asks = 0,
-        .validator = null,
+        // No message is read yet, so none lacked AD (docs/design.md §25, Stage A). A table that
+        // validates holds its validator beside its servers (§25, step 11).
+        .conjunctions = .{
+            .authentic = security.start(config),
+            .checked = if (servers.validator == null) .not_validating else .secure,
+        },
         .server_index = 0,
         .order = identity_order,
         // No query is sent yet.

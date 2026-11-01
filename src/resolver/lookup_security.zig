@@ -26,6 +26,15 @@ pub const Conjunction = enum(u2) {
     }
 };
 
+/// Stage A's conjunction, Stage B's and the waits for keys of the current name, which a lookup
+/// holds in one octet (docs/design.md §25).
+pub const Conjunctions = packed struct(u8) {
+    authentic: Conjunction,
+    checked: @import("lookup_validate.zig").Checked,
+    /// At most `key_asks_max`.
+    key_asks: u4 = 0,
+};
+
 /// Where a lookup under `config` starts (RFC 4035 §4.6; docs/design.md §25, Stage A rule 1).
 pub fn start(config: *const core.Config) Conjunction {
     // A configuration that ignores the bit never reads its transport, whose check asserts: the
@@ -38,16 +47,16 @@ pub fn start(config: *const core.Config) Conjunction {
 /// while the configuration relies on the bit.
 pub fn acted_on(lookup: *Lookup, header: wire.Header) void {
     assert(lookup.state == .awaiting_udp or lookup.state == .awaiting_tcp);
-    if (lookup.authentic == .holds and !header.authentic_data()) lookup.authentic = .cleared;
-    assert(lookup.authentic != .holds or header.authentic_data());
+    if (lookup.conjunctions.authentic == .holds and !header.authentic_data()) lookup.conjunctions.authentic = .cleared;
+    assert(lookup.conjunctions.authentic != .holds or header.authentic_data());
 }
 
 /// What `Answer.security` and `Failure.security` report.
 pub fn of(lookup: *const Lookup) core.Security {
     assert(lookup.is_settled());
     // A validating lookup reports Stage B's conjunction, and never reads AD (RFC 4035 §4.9.3).
-    if (lookup.checked != .not_validating) return lookup.checked.security();
-    return if (lookup.authentic == .holds) .authenticated else .unchecked;
+    if (lookup.conjunctions.checked != .not_validating) return lookup.conjunctions.checked.security();
+    return if (lookup.conjunctions.authentic == .holds) .authenticated else .unchecked;
 }
 
 /// The table's memory ended the lookup with what it kept, and `status` is what the lookup that
@@ -55,7 +64,7 @@ pub fn of(lookup: *const Lookup) core.Security {
 /// bit too (docs/design.md §25, Stage A rule 5).
 pub fn recalled(lookup: *Lookup, status: core.Security) void {
     assert(lookup.is_settled());
-    if (lookup.authentic == .holds and status != .authenticated) lookup.authentic = .cleared;
+    if (lookup.conjunctions.authentic == .holds and status != .authenticated) lookup.conjunctions.authentic = .cleared;
     assert(of(lookup) != .authenticated or status == .authenticated);
 }
 

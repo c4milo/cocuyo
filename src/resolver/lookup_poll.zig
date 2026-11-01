@@ -142,16 +142,16 @@ fn build(self: *Lookup, tcp: bool, now_ns: u64, out: []u8) []const u8 {
         .recursion_desired = self.config.recursion_desired,
         // A query asks for the AD bit whenever the configuration relies on it (RFC 6840 §5.7;
         // docs/design.md §25, Stage A rule 2).
-        // A validating lookup asks for DNSSEC records and for the data the server found bogus, and
-        // never for AD (RFC 4035 §4.9.1 to §4.9.3; docs/design.md §25, Stage B).
-        .authentic_data = self.config.authenticated_data.asks() and self.validator == null,
-        .checking_disabled = self.validator != null,
-        .dnssec_ok = self.validator != null and self.flags.edns_enabled,
+        .authentic_data = self.config.authenticated_data.asks(),
         // A query to a TLS, HTTPS or QUIC server goes encrypted, and padding is for that alone
         // (RFC 7830 §6, RFC 9250 §5.4, docs/design.md §21 to §23).
         .padded = self.config.encrypted(),
     };
     const written = wire.query.write(&query, out);
+    // A validating lookup asks for DNSSEC records and for the data the server found bogus, and
+    // never for AD (RFC 4035 §4.9.1 to §4.9.3; docs/design.md §25, Stage B). One branch, so a
+    // lookup with no validator pays nothing more (docs/performance.md).
+    if (self.conjunctions.checked != .not_validating) wire.query.mark_validating(&query, out[0..written]);
     assert(written >= core.constants.header_bytes);
     return out[0..written];
 }

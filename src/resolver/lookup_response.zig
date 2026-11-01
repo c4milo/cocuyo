@@ -170,6 +170,8 @@ pub fn apply(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64
 
 /// NXDOMAIN, which a validating lookup acts on as its proof says (RFC 9824 §8).
 fn name_error(self: *Lookup, message: []const u8, accepted: Accepted, rcode: wire.Rcode, now_ns: u64) Verdict {
+    // A lookup with no validator pays nothing for one (docs/performance.md).
+    if (self.conjunctions.checked == .not_validating) return negative(self, message, accepted, true, std.math.maxInt(u32), now_ns);
     switch (validate_module.weigh(self, message, rcode, heard_by(&accepted.cookie), now_ns)) {
         .moved => return .accepted,
         .negative => |proved| return negative(self, message, accepted, proved.name_error, proved.ttl_seconds, now_ns),
@@ -305,6 +307,15 @@ fn bounded_by_walk(self: *const Lookup, ttl_seconds: u32) u32 {
 }
 
 fn collect(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64) Verdict {
+    // A lookup with no validator pays nothing for one: the body is inlined with nothing to agree
+    // with, which the compiler folds away (docs/performance.md).
+    if (self.conjunctions.checked != .not_validating) return collect_checked(self, message, accepted, now_ns);
+    return collect_as(self, message, accepted, .{}, now_ns);
+}
+
+/// A validating lookup's NOERROR: the validator's verdict first.
+fn collect_checked(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64) Verdict {
+    @branchHint(.cold);
     const expected = switch (validate_module.weigh(self, message, .no_error, heard_by(&accepted.cookie), now_ns)) {
         .moved => return .accepted,
         // A proof of a negative under NOERROR, compact denial's name error among them (RFC 9824
@@ -312,6 +323,11 @@ fn collect(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64) 
         .negative => |proved| return negative(self, message, accepted, proved.name_error, proved.ttl_seconds, now_ns),
         .act => |act| act,
     };
+    return collect_as(self, message, accepted, expected, now_ns);
+}
+
+/// Collects a NOERROR message whose records must be what `expected` says, when it says.
+inline fn collect_as(self: *Lookup, message: []const u8, accepted: Accepted, expected: validate_module.Act, now_ns: u64) Verdict {
     // The chain walk moves `current`, so it is restored when the walk fails: a lookup must not be
     // left pointing at half a chain by a message it then ignores.
     const before = self.current;
@@ -369,7 +385,7 @@ fn collect(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64) 
             self.chain_ttl_seconds = @min(bounded_by_chain(self, self.answers.ttl_seconds), expected.ttl_seconds);
             self.flags.aliased = true;
             // Another name, whose waits for keys start again (docs/design.md §25, step 11).
-            self.key_asks = 0;
+            self.conjunctions.key_asks = 0;
             self.cname_hops = self.answers.hops_used;
             // The server just answered, so it is the healthy one: ask it about where the chain
             // went, with a new transaction. The target is another name, so another query, and no

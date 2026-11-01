@@ -49,8 +49,15 @@ const keys_wanted: Validation = .{ .keys_wanted = Name.root };
 
 /// A harness whose lookup asks `example.com A` under `scripted`.
 fn started(harness: *fixtures.Harness, scripted: *Scripted, kind: Kind) !void {
-    try harness.start("example.com.", kind, seed);
-    harness.lookup.validate_with(scripted.bind());
+    try start_validating(harness, scripted, "example.com.", kind);
+}
+
+/// Starts `text` of `kind` on a harness whose servers validate with `scripted`.
+fn start_validating(harness: *fixtures.Harness, scripted: *Scripted, text: []const u8, kind: Kind) !void {
+    harness.servers = .init(&harness.config, seed);
+    harness.servers_ready = true;
+    harness.servers.validate_with(&harness.config, scripted.bind());
+    try harness.start(text, kind, seed);
 }
 
 test "a validating query sets DO and CD, and never AD" {
@@ -283,18 +290,17 @@ test "a new name, a CNAME's target or the next candidate, waits for keys afresh"
     try wait_and_ready(&harness);
     _ = harness.send();
     _ = harness.respond(fixtures.cname_only, servers[0].endpoint);
-    try testing.expectEqual(@as(u8, 0), harness.lookup.key_asks);
+    try testing.expectEqual(@as(u8, 0), harness.lookup.conjunctions.key_asks);
     try wait_and_ready(&harness);
     const search = [_]Name{try Name.from_text("one.net")};
     var walking: fixtures.Harness = .{ .config = .{ .servers = &servers, .search = &search, .ndots = 1 } };
     var proofs: Scripted = .{ .verdicts = &.{ keys_wanted, keys_wanted, secure(.name_error, 300), keys_wanted } };
-    try walking.start("host.example", .a, seed);
-    walking.lookup.validate_with(proofs.bind());
+    try start_validating(&walking, &proofs, "host.example", .a);
     try wait_and_ready(&walking);
     try wait_and_ready(&walking);
     _ = walking.send();
     _ = walking.respond(fixtures.name_error_soa, servers[0].endpoint);
     try testing.expect(walking.lookup.current.equal(&try Name.from_text("host.example.one.net")));
-    try testing.expectEqual(@as(u8, 0), walking.lookup.key_asks);
+    try testing.expectEqual(@as(u8, 0), walking.lookup.conjunctions.key_asks);
     try wait_and_ready(&walking);
 }

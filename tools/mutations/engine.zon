@@ -4809,7 +4809,7 @@
         .id = "AD3",
         .what = "a query asked for AD does not set it",
         .edits = .{
-            .{ .file = "src/wire/query.zig", .old = "            (if (query.authentic_data) constants.flag_authentic_data else 0) |", .new = "            (if (false) constants.flag_authentic_data else 0) |" },
+            .{ .file = "src/wire/query.zig", .old = "            (if (query.authentic_data) constants.flag_authentic_data else 0),", .new = "            (if (false) constants.flag_authentic_data else 0)," },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -4818,7 +4818,7 @@
         .id = "AD4",
         .what = "a query that sets AD sets CD too",
         .edits = .{
-            .{ .file = "src/wire/query.zig", .old = "            (if (query.authentic_data) constants.flag_authentic_data else 0) |", .new = "            (if (query.authentic_data) constants.flag_authentic_data | constants.flag_checking_disabled else 0) |" },
+            .{ .file = "src/wire/query.zig", .old = "            (if (query.authentic_data) constants.flag_authentic_data else 0),", .new = "            (if (query.authentic_data) constants.flag_authentic_data | constants.flag_checking_disabled else 0)," },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -4863,7 +4863,7 @@
         .id = "RA1",
         .what = "a message without AD never clears the conjunction",
         .edits = .{
-            .{ .file = "src/resolver/lookup_security.zig", .old = "    if (lookup.authentic == .holds and !header.authentic_data()) lookup.authentic = .cleared;", .new = "    if (lookup.authentic == .holds and !header.authentic_data() and header.id == 0 and header.id != 0) lookup.authentic = .cleared;" },
+            .{ .file = "src/resolver/lookup_security.zig", .old = "    if (lookup.conjunctions.authentic == .holds and !header.authentic_data()) lookup.conjunctions.authentic = .cleared;", .new = "    if (lookup.conjunctions.authentic == .holds and !header.authentic_data() and header.id == 0 and header.id != 0) lookup.conjunctions.authentic = .cleared;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -4872,7 +4872,7 @@
         .id = "RA2",
         .what = "an end is authenticated where the configuration does not rely on the bit",
         .edits = .{
-            .{ .file = "src/resolver/lookup_security.zig", .old = "    return if (lookup.authentic == .holds) .authenticated else .unchecked;", .new = "    return if (lookup.authentic != .cleared) .authenticated else .unchecked;" },
+            .{ .file = "src/resolver/lookup_security.zig", .old = "    return if (lookup.conjunctions.authentic == .holds) .authenticated else .unchecked;", .new = "    return if (lookup.conjunctions.authentic != .cleared) .authenticated else .unchecked;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -4926,7 +4926,7 @@
         .id = "RA8",
         .what = "a query never asks for AD",
         .edits = .{
-            .{ .file = "src/resolver/lookup_poll.zig", .old = "        .authentic_data = self.config.authenticated_data.asks() and self.validator == null,", .new = "        .authentic_data = self.config.authenticated_data.asks() and false and self.validator == null," },
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        .authentic_data = self.config.authenticated_data.asks(),", .new = "        .authentic_data = self.config.authenticated_data.asks() and false," },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -5016,7 +5016,7 @@
         .id = "CS8",
         .what = "a recall clears no conjunction",
         .edits = .{
-            .{ .file = "src/resolver/lookup_security.zig", .old = "    if (lookup.authentic == .holds and status != .authenticated) lookup.authentic = .cleared;", .new = "    if (lookup.authentic == .holds and status != .authenticated and status == .authenticated) lookup.authentic = .cleared;" },
+            .{ .file = "src/resolver/lookup_security.zig", .old = "    if (lookup.conjunctions.authentic == .holds and status != .authenticated) lookup.conjunctions.authentic = .cleared;", .new = "    if (lookup.conjunctions.authentic == .holds and status != .authenticated and status == .authenticated) lookup.conjunctions.authentic = .cleared;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },

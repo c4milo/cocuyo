@@ -28,6 +28,11 @@ pub const record_class_offset: usize = 2;
 pub const record_ttl_offset: usize = 4;
 pub const record_rdlength_offset: usize = 8;
 
+/// Where an OPT record's flags sit, from its start: after the root owner of one octet, the type,
+/// the class, which holds the payload size, and the extended rcode and version (RFC 6891 §6.1.2,
+/// §6.1.3).
+pub const opt_flags_offset: usize = 1 + 2 + 2 + 2;
+
 /// An SOA's rdata after its two names: SERIAL, REFRESH, RETRY, EXPIRE and MINIMUM, four octets
 /// each (RFC 1035 §3.3.13). MINIMUM is the last, and is the negative-caching TTL (RFC 2308 §5).
 pub const soa_fixed_bytes: usize = 20;

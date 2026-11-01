@@ -10,6 +10,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 const wire = @import("wire");
 const constants = @import("constants.zig");
+const limits = @import("limits.zig");
 const latency_module = @import("servers_latency.zig");
 const Config = core.Config;
 const Endpoint = core.Endpoint;
@@ -57,12 +58,18 @@ pub const CookieForm = enum(u8) {
     paired,
 };
 
+const Validator = @import("lookup_validate.zig").Validator;
+
 pub const Servers = struct {
     states: [core.limits.servers_max]ServerState,
     count: u8,
     /// The caller's seed, mixed into every fresh client cookie with the transaction's own draw:
     /// a table built anew with a new seed draws its cookies from a new secret too.
     secret: u64,
+    /// What validates the messages of every lookup of the table, or null for none (docs/design.md
+    /// §25, step 11). It lives here, beside the state every lookup shares, so a lookup keeps no
+    /// pointer of its own, and one that does not validate is no larger.
+    validator: ?*const Validator = null,
 
     /// One state per configured server, in the configuration's order, with no server cookie and
     /// no silence.
@@ -83,6 +90,13 @@ pub const Servers = struct {
         }
         assert(servers.count <= core.limits.servers_max);
         return servers;
+    }
+
+    /// Validates the lookups started from here on with `validator`. A security-aware resolver
+    /// advertises 1220 octets at least (RFC 4035 §4.1).
+    pub fn validate_with(self: *Servers, config: *const Config, validator: *const Validator) void {
+        assert(config.udp_payload_bytes >= limits.dnssec_payload_bytes_min);
+        self.validator = validator;
     }
 
     pub fn state(self: *const Servers, index: usize) *const ServerState {
@@ -337,7 +351,7 @@ test "a server that lowercases the name is marked alone, and a table built again
 test "the size of the table of servers is pinned" {
     // docs/design.md §9: `Resolver` holds one, and a caller driving a `Lookup` alone builds one.
     // It is measured, not computed, as a lookup's is: Zig chooses the field order and pads.
-    try testing.expectEqual(@as(usize, 1488), @sizeOf(Servers));
+    try testing.expectEqual(@as(usize, 1496), @sizeOf(Servers));
     try testing.expectEqual(@as(usize, 184), @sizeOf(ServerState));
     try testing.expectEqual(@as(usize, 120), @sizeOf(latency_module.Latency));
 }

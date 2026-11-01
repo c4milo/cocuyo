@@ -222,11 +222,11 @@ pub const Replay = struct {
 
     fn start(self: *Replay) void {
         self.servers = Servers.init(&self.config, seed);
-        self.lookup.init_in_place(&self.config, &self.servers, self.question, seed);
         if (self.validating) {
             self.validator = .{ .context = self, .validate = validated };
-            self.lookup.validate_with(&self.validator);
+            self.servers.validate_with(&self.config, &self.validator);
         }
+        self.lookup.init_in_place(&self.config, &self.servers, self.question, seed);
         self.now_ns = 0;
         self.started = true;
     }

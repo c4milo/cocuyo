@@ -1449,7 +1449,7 @@ up as a diff rather than as a surprise. The pins that exist are in `src/core/cor
 | `question` | 260 | the name as asked, its type, and whether it was absolute |
 | `current` | 256 | the current candidate, or where the CNAME chain has reached |
 | `answers` | 2448 | an extern union: `[addresses_max]Address` is 272, `[ptr_names_max]Name` is 256, and the records of §19 step 9 are 2436 — 32 references of 12 and a buffer of `rdata_bytes_max` — plus the question's type (decision 34), the count, the TTL, the hop count and two flags |
-| total | 3096, measured | pinned by a test in `src/resolver/lookup_init_test.zig`; 3080 until DNSSEC Stage B's validator, its conjunction and its count of waits for keys on 2026-11-01, whose pointer took eight octets and the rest eight with the padding (§25 step 11, §17 question 94); 3072 until the counts of RFC 9520 §3.1 on 2026-10-27, whose four octets took eight with the padding (§16 decision 58, §17 question 83); the cause's server of 2026-10-21 took no octet more, since the lookup keeps the cause in three octets, where a `?Cause` takes four (§16 decision 51); the cause of a failure on 2026-10-17 took three octets of the padding (§5); 3064 until the instant of the send, which a latency sample is measured from, on 2026-10-09 (§5), and 3048 until the cookies of 2026-10-08 (§19 step 10) |
+| total | 3080, measured | pinned by a test in `src/resolver/lookup_init_test.zig`. DNSSEC Stage B's conjunction and count of waits for keys share Stage A's octet since 2026-11-01, and the validator lives beside the servers, so the lookup kept its size (§25 step 11, §17 question 94); 3072 until the counts of RFC 9520 §3.1 on 2026-10-27, whose four octets took eight with the padding (§16 decision 58, §17 question 83); the cause's server of 2026-10-21 took no octet more, since the lookup keeps the cause in three octets, where a `?Cause` takes four (§16 decision 51); the cause of a failure on 2026-10-17 took three octets of the padding (§5); 3064 until the instant of the send, which a latency sample is measured from, on 2026-10-09 (§5), and 3048 until the cookies of 2026-10-08 (§19 step 10) |
 
 The total is larger than the parts because Zig chooses a struct's field order and pads accordingly.
 It also means a declaration order cannot be relied on for locality: the measurement that pinned
@@ -1461,13 +1461,13 @@ The caller-provided buffer §19 keeps as the fallback is what would take it back
 
 | Caller allocation | Size | For |
 | --- | --- | --- |
-| `[N]Resolver.Slot` | 3112 bytes each, measured, 3096 until 2026-11-01 and 3088 until 2026-10-27 | one per concurrent lookup: a lookup plus the table's own octets, the ready list's two links and its flag among them (§11) |
+| `[N]Resolver.Slot` | 3096 bytes each, measured, 3088 until 2026-10-27 | one per concurrent lookup: a lookup plus the table's own octets, the ready list's two links and its flag among them (§11) |
 | `[2N]MatchKey` | 4 bytes each | the id-to-slot table, power-of-two length |
 | send buffer | `query_bytes_max`, 386 | shared by the whole table |
 | receive buffer | `config.udp_payload_bytes`, 1232 by default | the caller's, per socket |
 | `[M]AddressLookup` | 1216 bytes each, measured | one per `getaddrinfo`-shaped lookup in flight: the name, the canonical name, 32 addresses, two handles, the failure of each lookup and the walk's scalars, beside the two slots it takes; pinned by a test in `src/resolver/address_lookup_test.zig`; 1152 until the cause of a failure on 2026-10-17 (§16 decision 45), 1184 until the security of a negative on 2026-10-31 (§25), and 1200 until the extended error the same day (§16 decision 64) |
 
-So 1024 concurrent lookups cost 3112 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
+So 1024 concurrent lookups cost 3096 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
 ever, by anybody. `Resolver` itself holds the `Servers` table, 1488 octets, measured and pinned
 by a test in `src/resolver/servers.zig`: 184 for each of `servers_max` servers, 120 of them the
 five windows of latency samples of §5, which 2026-10-09 added. The flag of the same day that marks
@@ -6104,7 +6104,11 @@ handshake used, so no example and no live check can say it.
     counters at most, and the pointer is more: a lookup grows from 3,080 octets to 3,096, and a
     slot from 3,096 to 3,112 (§9). The table hands the pointer over with `Lookup.validate_with`,
     before the first send. The other way is to reach the validator through the table at each
-    message, which changes `on_response` for every caller. Recommended: as built.
+    message, which changes `on_response` for every caller. Recommended: as built. Answered by the
+    measure on 2026-11-01, before the owner ruled: CI's instruction check failed, since every
+    case that copies a slot paid for the 16 octets. The validator moved beside the servers, which
+    every lookup of a table already points to, and the two fields share Stage A's octet. The
+    lookup is 3,080 octets again, and a slot 3,096. `on_response` did not change.
 
 ## 18. The cache
 
@@ -10877,10 +10881,13 @@ Each step lands with its checks, each check broken on purpose and recorded in
       chain under NXDOMAIN is bogus too.
     Built on 2026-11-01: the model first (`spec/lean/Spec/LookupProofs/Validation.lean`), then
     `src/resolver/lookup_validate.zig`, whose `Validator` the table hands a lookup with
-    `Lookup.validate_with`. `core.validation` holds the types `dnssec` and `resolver` share, since
-    neither may import the other. A validator's secure verdict names an ending, `alias` among
-    them: a chain of valid links whose end the message does not say, which the lookup asks for
-    next. The lookup grew by 16 octets (§9, §17 question 94).
+    `Servers.validate_with`, beside the state its lookups share. `core.validation` holds the types
+    `dnssec` and `resolver` share, since neither may import the other. A validator's secure verdict
+    names an ending, `alias` among them: a chain of valid links whose end the message does not
+    say, which the lookup asks for next. A lookup with no validator pays one branch for each
+    message and each query, and its size did not change (§9, §17 question 94). A validating query
+    is marked after it is written (`wire.query.mark_validating`), so no other query pays for CD
+    and DO.
 12. The walk: its rules, its model, then the table's part and the TLA+ model.
 13. The cache: the status, the TTL bound and the bogus entries.
 14. The twin: a server in `sim` that signs for the tests' verifier, so the tests cover whole

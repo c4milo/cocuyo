@@ -78,15 +78,10 @@ pub const Lookup = struct {
     // keeps the demultiplexer cheap is the side table of §11, not this declaration order.
     state: State,
     flags: Flags,
-    /// Rule 3's conjunction (docs/design.md §25, Stage A): AD set on every message the lookup
-    /// acted on, while the configuration relies on the bit. `Flags` has no bit left for it.
-    authentic: security.Conjunction,
-    /// Stage B's conjunction, and the times the lookup waited for keys for the current name
-    /// (docs/design.md §25, step 11).
-    checked: validate_module.Checked,
-    key_asks: u8,
-    /// What validates the lookup's messages, which the table hands it; null for none.
-    validator: ?*const Validator,
+    /// Rule 3's conjunction (docs/design.md §25, Stage A), Stage B's, and the waits for keys of
+    /// the current name (§25, step 11), in the one octet Stage A's took alone, so a lookup grows by
+    /// nothing for Stage B (docs/performance.md).
+    conjunctions: security.Conjunctions,
     /// Where the walk over the servers stands: a position in `order`, not a configured server.
     server_index: u8,
     round: u8,
@@ -241,11 +236,6 @@ pub const Lookup = struct {
         self.next_server(now_ns);
     }
 
-    /// Hands the lookup a validator, before its first send (docs/design.md §25).
-    pub fn validate_with(self: *Lookup, validator: *const Validator) void {
-        validate_module.validate_with(self, validator);
-    }
-
     /// The walk for the keys a message needed ended with them held, or with an insecure
     /// delegation: the lookup asks its question again.
     pub fn on_keys_ready(self: *Lookup, now_ns: u64) void {
@@ -363,7 +353,7 @@ pub const Lookup = struct {
         self.round = 0;
         // Another name, so another query, and no retry of the last (RFC 9520 §3.1).
         self.sends = .{};
-        self.key_asks = 0;
+        self.conjunctions.key_asks = 0;
         self.cname_hops = 0;
         self.flags.aliased = false;
         self.take_candidate(self.candidate_index + 1);
