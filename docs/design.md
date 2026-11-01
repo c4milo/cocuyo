@@ -105,6 +105,7 @@ by the build rather than by review.
 | `resolver` | `core`, `wire` | `Lookup`, `Resolver`, retry policy, entropy |
 | `config` | `core` | the `resolv.conf` parser |
 | `cache` | `core`, `wire` | the answer cache of §18, above the state machine and never inside it |
+| `dnssec` | `core`, `wire` | the DNS half of DNSSEC validation, §25 Stage B: canonical form, the key tag, signature times and what a digest covers, with no cryptography. Since 2026-10-31 |
 | `sim` | `core`, `wire`, `resolver` | the scripted server and the virtual clock, test-only |
 | `io` | `cocuyo`, `rotor`, and colibri's `quic` and `h3` from §24 | the engine of §19 step 13: sockets, timers and connections over a loop with rotor's surface, in `io/`; compiled against `sim` for the gate and against rotor for the comparison of step 15, and exported into the caller's loop by §24 |
 
@@ -10681,7 +10682,9 @@ Each step lands with its checks, each check broken on purpose and recorded in
    all 185 records agree. NSEC3 stays unread there, since its text writes the hash in base32hex
    and the responses hold none.
 7. `dnssec`, the pure half, over a verifier the tests supply: canonical order and form, the key
-   tag, what a DS digest and a signature are computed over, and time. Against the RFCs' own
+   tag, what a DS digest and a signature are computed over, and time. Begun on 2026-10-31: the
+   module, in `src/dnssec/`, with `Hash`, where it feeds every octet a digest or a signature
+   covers, `key_tag`, `within` and `before` in serial number arithmetic, and `ds_input`. Against the RFCs' own
    examples where no arithmetic is needed: the ordered list of RFC 4034 §6.1, and the octets
    each example signs. The time of day is a parameter, so an example signed years ago is read
    under its own date.

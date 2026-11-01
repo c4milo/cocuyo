@@ -5300,4 +5300,58 @@
         },
         .caught_by = .{ .step = "test-tools" },
     },
+    .{
+        .section = "The key tag, the times and the DS input",
+        .id = "DN1",
+        .what = "the key tag drops its sum's carry",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec.zig", .old = "    sum += (sum >> constants.key_tag_carry_shift) & constants.key_tag_mask;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key tag, the times and the DS input",
+        .id = "DN2",
+        .what = "the key tag takes each group's second octet as the high one",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec.zig", .old = "        sum += if (index & 1 == 0) @as(u32, octet) << constants.key_tag_high_shift else octet;", .new = "        sum += if (index & 1 == 1) @as(u32, octet) << constants.key_tag_high_shift else octet;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key tag, the times and the DS input",
+        .id = "DN3",
+        .what = "a signature is not yet valid at its inception",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec.zig", .old = "    return !before(now, inception) and !before(expiration, now);", .new = "    return before(inception, now) and !before(expiration, now);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key tag, the times and the DS input",
+        .id = "DN4",
+        .what = "signature times compare as plain integers, across the wrap",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec.zig", .old = "    return (a < b and b - a < constants.serial_half) or (a > b and a - b > constants.serial_half);", .new = "    return a < b or (a > b and a - b > constants.serial_half and a == b);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key tag, the times and the DS input",
+        .id = "DN5",
+        .what = "a DS digest covers the owner in the case it came in",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec.zig", .old = "    canonical.fold_case();\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key tag, the times and the DS input",
+        .id = "DN6",
+        .what = "a DS digest covers the rdata alone",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec.zig", .old = "    hash.feed(canonical.wire());\n", .new = "    _ = &canonical;\n" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
 }

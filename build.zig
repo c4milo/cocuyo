@@ -123,6 +123,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "resolver", .module = graph.resolver },
         .{ .name = "config", .module = graph.config },
         .{ .name = "cache", .module = graph.cache },
+        .{ .name = "dnssec", .module = graph.dnssec },
         .{ .name = "sim", .module = graph.sim },
         .{ .name = "cocuyo", .module = graph.cocuyo },
         .{ .name = "io", .module = graph.io },

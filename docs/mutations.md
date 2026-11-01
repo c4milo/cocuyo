@@ -10811,3 +10811,21 @@ sorts names as RFC 4034 §6.1 does, and the test holds that section's nine names
 | CN4 | a name with more labels sorts first | `zig build test-core` | `CAUGHT` |
 
 Four mutations, four `CAUGHT`.
+
+## The key tag, the times and the DS input
+
+2026-10-31. Design §25 Stage B, step 7 (c4milo/cocuyo#56): the `dnssec` module, with the key tag of
+RFC 4034 Appendix B, a signature's times in serial number arithmetic (RFC 1982 §3.2, RFC 4034
+§3.1.5), and the octets a DS digest covers (RFC 4034 §5.1.4). `zig build mutations -- engine DN1
+... DN6` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| DN1 | the key tag drops its sum's carry | `zig build test-dnssec` | `CAUGHT` |
+| DN2 | the key tag takes each group's second octet as the high one | `zig build test-dnssec` | `CAUGHT` |
+| DN3 | a signature is not yet valid at its inception | `zig build test-dnssec` | `CAUGHT` |
+| DN4 | signature times compare as plain integers, across the wrap | `zig build test-dnssec` | `CAUGHT` |
+| DN5 | a DS digest covers the owner in the case it came in | `zig build test-dnssec` | `CAUGHT` |
+| DN6 | a DS digest covers the rdata alone | `zig build test-dnssec` | `CAUGHT` |
+
+Six mutations, six `CAUGHT`.

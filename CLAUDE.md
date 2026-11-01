@@ -103,7 +103,7 @@ The architecture depends on every rule in this section.
 - Conventional Commits: `type(scope)!: description`, with the scope and the `!` optional. The type
   is one of `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`, and a scope
   is a module of §2 or a directory of code beside them: `core`, `wire`, `resolver`, `config`,
-  `cache`, `sim`, `io`, `bench`, `examples`.
+  `cache`, `dnssec`, `sim`, `io`, `bench`, `examples`.
 - The description is imperative, starts lowercase, and ends without a period: `add the name
   decoder`, never `Adds the name decoder.` The subject line stays at or under 72 columns.
 - One blank line before the body. A body line stays at or under 100 columns, and the body stays at
@@ -122,8 +122,8 @@ The architecture depends on every rule in this section.
 - `src/<module>/` is one Zig module per module of §2, declared in `build/modules.zig` with its
   imports listed, so the dependency direction is enforced by the build rather than by review:
   `core` imports nothing, `wire` reads `core`, `resolver` reads `core` and `wire`, `config` reads
-  `core` alone, `cache` reads `core` and `wire` and never `resolver`, and `sim` reads the first
-  three. `resolver` cannot reach `config`, and `zig build graph-check` compiles a fixture to show
+  `core` alone, `cache` reads `core` and `wire` and never `resolver`, `dnssec` reads `core` and
+  `wire` and holds no cryptography, and `sim` reads the first three. `resolver` cannot reach `config`, and `zig build graph-check` compiles a fixture to show
   the compiler rejects it. Its second part (`build/graph_check_packages.zig`) walks each module's
   imports at any depth: `src/` reaches neither colibri nor stdx, and `io/` reaches stdx only
   through colibri.
@@ -221,7 +221,7 @@ The architecture depends on every rule in this section.
   README check, the hook check, the fill check, then every module's unit tests, the DoT and DoQ
   sessions' tests and a build of their examples, and the tools' own tests. Every change passes it
   before it is committed. `zig build test-<module>` (`test-core`, `test-wire`, `test-resolver`,
-  `test-config`, `test-cache`, `test-sim`, `test-cocuyo`, `test-io`, `test-chapulin_hooks`,
+  `test-config`, `test-cache`, `test-dnssec`, `test-sim`, `test-cocuyo`, `test-io`, `test-chapulin_hooks`,
   `test-doh`, `test-cocuyo_quic`, `test-cocuyo_doh`, `test-chapulin`, `test-chapulin-quic`),
   `zig build test-examples` and `zig build test-tools` run one target's tests with nothing else in
   the graph, which is what a mutation is measured against. `zig build consumer-check` alone builds

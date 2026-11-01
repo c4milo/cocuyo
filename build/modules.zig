@@ -21,6 +21,9 @@ pub const Graph = struct {
     resolver: *std.Build.Module,
     config: *std.Build.Module,
     cache: *std.Build.Module,
+    /// The DNS half of DNSSEC validation (docs/design.md §25, Stage B): `core` and `wire`, and no
+    /// cryptography.
+    dnssec: *std.Build.Module,
     sim: *std.Build.Module,
     /// The driver of docs/design.md §19 step 13, compiled against the twin: `sim` stands in for
     /// `rotor`, so its tests run with no socket and no kernel.
@@ -84,6 +87,7 @@ pub const roots = .{
     .resolver = "src/resolver/resolver.zig",
     .config = "src/config/resolv_conf.zig",
     .cache = "src/cache/cache.zig",
+    .dnssec = "src/dnssec/dnssec.zig",
     .sim = "src/sim/sim.zig",
     .io = "io/io.zig",
     .chapulin_hooks = "io/io_chapulin_hooks.zig",
@@ -157,6 +161,7 @@ fn build(
         .resolver = module(b, target, optimize, "resolver", roots.resolver, false),
         .config = module(b, target, optimize, "config", roots.config, false),
         .cache = module(b, target, optimize, "cache", roots.cache, false),
+        .dnssec = module(b, target, optimize, "dnssec", roots.dnssec, false),
         .sim = module(b, target, optimize, "sim", roots.sim, false),
         .io = module(b, target, optimize, "io", roots.io, false),
         .cocuyo_rotor = module(b, target, optimize, "cocuyo_rotor", roots.io, register),
@@ -178,6 +183,8 @@ fn build(
     graph.config.addImport("core", graph.core);
     graph.cache.addImport("core", graph.core);
     graph.cache.addImport("wire", graph.wire);
+    graph.dnssec.addImport("core", graph.core);
+    graph.dnssec.addImport("wire", graph.wire);
     graph.sim.addImport("core", graph.core);
     graph.sim.addImport("wire", graph.wire);
     graph.sim.addImport("resolver", graph.resolver);
