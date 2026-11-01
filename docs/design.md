@@ -10782,12 +10782,19 @@ Each step lands with its checks, each check broken on purpose and recorded in
      makes the same CNAME (item 9).
    - An RRset whose RRSIG has fewer labels than its owner came from a wildcard. It is valid only
      when the NSEC or NSEC3 records of the authority section prove `wildcard_answer` (item 8).
-   - A chain that ends with no RRset is a negative. Its SOA and its NSEC or NSEC3 records are
-     validated, and `deny` gives the end: no data, or a name error. The response code is not
-     read (item 13). Valid records that prove nothing make the message `bogus`.
-   - Data with no signature is `keys_wanted` for the name asked, unless the store holds an
-     insecure delegation above it. The store alone cannot tell a signed zone from an unsigned
-     delegation below it, so the walk decides (walk rules 1 and 8). This is how item 14 reads.
+   - A chain that ends with no RRset is a negative. Every SOA of the authority section is
+     validated, since the lookup takes a negative's TTL from the first one. The NSEC or NSEC3
+     records are validated, and `deny` gives the end: no data, or a name error. The response
+     code is not read (item 13).
+   - A negative whose valid records prove that the name or an ancestor is an unsigned delegation
+     is `insecure`, as a referral to it shows (RFC 4035 §5.2, RFC 5155 §8.9). Otherwise valid
+     records that prove nothing make the message `bogus`.
+   - A question for RRSIG is `unchecked`, and a question for ANY validates each RRset at the
+     name (item 15).
+   - Data with no signature is `keys_wanted` for the name the chain stands at, which is the name
+     asked unless a CNAME led there. So is a negative that rests on nothing signed. The store
+     alone cannot tell a signed zone from an unsigned delegation below it, so the walk decides
+     (walk rules 1 and 8). This is how item 14 reads.
    - A secure end carries the smallest TTL of item 7 over every RRset it used.
 10. The verifier over chapulin, outside `src/`: the DS examples of RFC 4034 §5.4 and RFC 4509
     §2.3, and the keys and signatures of RFC 5702 §6, RFC 6605 §6 and RFC 8080 §6, each that

@@ -6542,4 +6542,319 @@
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
+    .{
+        .section = "The validator",
+        .id = "A1",
+        .what = "an RRSIG question is validated",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate.zig", .old = "        if (kind == .rrsig) return .unchecked;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "A2",
+        .what = "a name under no anchor has its message read",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate.zig", .old = "        if (self.insecure_at(asked, now_ns)) return .insecure;\n        var message", .new = "        var message" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "A3",
+        .what = "a name under no anchor is not insecure",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate.zig", .old = "        if (!self.store.anchored(name)) return true;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "A4",
+        .what = "an insecure delegation is not insecure",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate.zig", .old = "        return entry.known == .insecure;", .new = "        return entry.known == .insecure and false;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "A5",
+        .what = "a message past records_max is validated",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate.zig", .old = "        if (!fits) return .{ .bogus = .message };\n", .new = "        if (false and !fits) return .{ .bogus = .message };\n" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "A6",
+        .what = "the TTL of a verified RRset is not kept",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate.zig", .old = "        if (outcome == .valid) self.ttl_seconds = @min(self.ttl_seconds, outcome.valid.ttl_seconds);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "A7",
+        .what = "data with no signature is bogus",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate.zig", .old = "            .unsigned => .{ .keys_wanted = at.* },", .new = "            .unsigned => if (at.len > 0) .{ .bogus = .signature } else .{ .keys_wanted = at.* }," },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "A8",
+        .what = "a chain takes one link past cname_hops_max",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate.zig", .old = "        for (0..core.limits.cname_hops_max + 1) |_| {", .new = "        for (0..core.limits.cname_hops_max + 2) |_| {" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "A9",
+        .what = "a link's target under an insecure delegation is validated",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate.zig", .old = "            if (self.validator.insecure_at(&name, self.at.now_ns)) return .insecure;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "A10",
+        .what = "a wildcard answer needs no proof",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate.zig", .old = "        if (denial.expanded(name, outcome.valid.labels)) return denial.wildcard(self, name, outcome.valid.labels, .answer);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D1",
+        .what = "a wildcard CNAME needs no proof",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "            if (!expanded(name, valid.labels)) return .{ .next = target };", .new = "            if (true) return .{ .next = target };" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D2",
+        .what = "a wildcard CNAME without its proof is a link",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "            return if (end == .secure) .{ .next = target } else .{ .ended = end };", .new = "            return if (end == .secure or true) .{ .next = target } else .{ .ended = end };" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D3",
+        .what = "an unsigned CNAME a DNAME makes does not stand",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        .unsigned => if (try synthesized(walk, name, &target)) return .{ .next = target },", .new = "        .unsigned => if (false and try synthesized(walk, name, &target)) return .{ .next = target }," },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D4",
+        .what = "a DNAME at the name itself makes a CNAME",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        if (owner_labels >= name.label_count() or core.canonical.shared_labels(&owner, name) != owner_labels) continue;", .new = "        if (owner_labels > name.label_count() or core.canonical.shared_labels(&owner, name) != owner_labels) continue;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D5",
+        .what = "a DNAME at no ancestor makes a CNAME",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        if (owner_labels >= name.label_count() or core.canonical.shared_labels(&owner, name) != owner_labels) continue;", .new = "        if (owner_labels >= name.label_count()) continue;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D6",
+        .what = "a DNAME makes any CNAME",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        if (!made.equal(target)) continue;\n", .new = "        if (false and !made.equal(target)) continue;\n" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D7",
+        .what = "a DNAME whose signature fails makes a CNAME",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        if (try walk.verify(&set, &owner, .answer) == .valid) return true;", .new = "        if (try walk.verify(&set, &owner, .answer) != .bogus or true) return true;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D8",
+        .what = "ANY verifies the RRSIGs as an RRset",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        if (record.kind_code == Kind.rrsig.code()) continue;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D9",
+        .what = "ANY verifies an RRset once per record",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        if (std.mem.indexOfScalar(u16, seen[0..kinds], record.kind_code) != null) continue;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D10",
+        .what = "an RRset of ANY that is not valid passes",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        if (outcome != .valid) return Walk.failed(outcome, name);\n        if (expanded(name, outcome.valid.labels)) {\n            const end = try wildcard(walk, name, outcome.valid.labels, .answer);", .new = "        if (outcome != .valid) continue;\n        if (expanded(name, outcome.valid.labels)) {\n            const end = try wildcard(walk, name, outcome.valid.labels, .answer);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D11",
+        .what = "an expansion of ANY needs no proof",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "            if (end != .secure) return end;\n        }\n    }\n    if (kinds == 0)", .new = "            if (end != .secure and false) return end;\n        }\n    }\n    if (kinds == 0)" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D12",
+        .what = "ANY with no RRset is an answer",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "    if (kinds == 0) return negative(walk, name, .any);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D13",
+        .what = "a literal wildcard owner reads as an expansion",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "    return labels < name.label_count() - @intFromBool(literal);", .new = "    return labels < name.label_count() - @intFromBool(literal and false);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D14",
+        .what = "a wildcard answer with an NSEC proof is refused",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "    if (nsec.wildcard_answer(name, labels, nsecs.slice())) return walk.secure(ending);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D15",
+        .what = "an SOA that is not valid passes",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        if (outcome != .valid) return Walk.failed(outcome, name);\n        signed.* = true;", .new = "        if (outcome != .valid and false) return Walk.failed(outcome, name);\n        signed.* = true;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D16",
+        .what = "a valid SOA leaves the zone unsigned",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        signed.* = true;\n", .new = "        signed.* = false;\n" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D17",
+        .what = "a negative that rests on nothing signed is weighed",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "    if (nsecs.len == 0 and !signed) return .{ .keys_wanted = name.* };\n", .new = "    if (nsecs.len == 0 and !signed and false) return .{ .keys_wanted = name.* };\n" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D18",
+        .what = "no data reads as a name error",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        .no_data => return walk.secure(.no_data),", .new = "        .no_data => return walk.secure(.name_error)," },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D19",
+        .what = "a name error reads as no data",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        .name_error => return walk.secure(.name_error),\n        .none => {},", .new = "        .name_error => return walk.secure(.no_data),\n        .none => {}," },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D20",
+        .what = "an unsigned delegation elsewhere makes the name insecure",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        if (core.canonical.shared_labels(&record.owner, name) != record.owner.label_count()) continue;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D21",
+        .what = "a referral's unsigned delegation is bogus",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        if (nsec.unsigned_delegation(&record.owner, nsecs.slice())) return .insecure;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D22",
+        .what = "an RRset's later records are verified again",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "    for (0..index) |earlier| if (try message.holds(earlier, .authority, kind, owner)) return false;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D23",
+        .what = "a record of the answer section joins a negative",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "    if (message.sections[index] != .authority or !message.records[index].is_kind(kind)) return false;", .new = "    if (!message.records[index].is_kind(kind)) return false;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D24",
+        .what = "an unsigned NSEC ends the message",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "            .unsigned => {},\n            else => return Walk.failed(outcome, name),\n        }\n    }\n    return null;\n}\n\n/// As `gather_nsec`", .new = "            else => return Walk.failed(outcome, name),\n        }\n    }\n    return null;\n}\n\n/// As `gather_nsec`" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "D25",
+        .what = "a bogus NSEC is passed over",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "            .unsigned => {},\n            else => return Walk.failed(outcome, name),\n        }\n    }\n    return null;\n}\n\n/// As `gather_nsec`", .new = "            .unsigned => {},\n            else => if (name.len == 0) return Walk.failed(outcome, name),\n        }\n    }\n    return null;\n}\n\n/// As `gather_nsec`" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
 }

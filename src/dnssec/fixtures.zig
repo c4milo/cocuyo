@@ -264,8 +264,10 @@ pub const Signing = struct {
 };
 
 /// A response built record by record, its names written in full, as a test's server sends it.
+pub const message_bytes_max: usize = 4096;
+
 pub const Builder = struct {
-    bytes: [4096]u8 = undefined,
+    bytes: [message_bytes_max]u8 = undefined,
     len: usize = 0,
     counts: [2]u16 = .{ 0, 0 },
     section: usize = 0,

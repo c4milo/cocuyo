@@ -11042,3 +11042,54 @@ engine S1 ... S12 K1 ... K15` ran each to its end.
 | K15 | a signer above the zone signs its keys | `zig build test-dnssec` | `CAUGHT` |
 
 27 mutations, 27 `CAUGHT`.
+
+## The validator
+
+2026-11-01. Design §25 Stage B, step 9's third piece (c4milo/cocuyo#56): `dnssec.Validator` reads
+a whole message for the name and the type a lookup asks, and says whether what the lookup takes
+from it is secure, insecure or bogus, or whose keys it waits for. It follows the chain of CNAME
+links and the DNAME that makes an unsigned one, validates ANY one RRset at a time, holds a
+wildcard answer to its proof, and gives a negative's end from its NSEC records. The tests read
+every response of RFC 4035 Appendix B, and refuse each with any signed octet changed. A5, A7,
+D6, D15, D16, D17 and D25 failed to compile at first, since each left a value unused, and were
+rewritten. `zig build mutations -- engine A1 ... A10 D1 ... D25` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| A1 | an RRSIG question is validated | `zig build test-dnssec` | `CAUGHT` |
+| A2 | a name under no anchor has its message read | `zig build test-dnssec` | `CAUGHT` |
+| A3 | a name under no anchor is not insecure | `zig build test-dnssec` | `CAUGHT` |
+| A4 | an insecure delegation is not insecure | `zig build test-dnssec` | `CAUGHT` |
+| A5 | a message past records_max is validated | `zig build test-dnssec` | `CAUGHT` |
+| A6 | the TTL of a verified RRset is not kept | `zig build test-dnssec` | `CAUGHT` |
+| A7 | data with no signature is bogus | `zig build test-dnssec` | `CAUGHT` |
+| A8 | a chain takes one link past cname_hops_max | `zig build test-dnssec` | `CAUGHT` |
+| A9 | a link's target under an insecure delegation is validated | `zig build test-dnssec` | `CAUGHT` |
+| A10 | a wildcard answer needs no proof | `zig build test-dnssec` | `CAUGHT` |
+| D1 | a wildcard CNAME needs no proof | `zig build test-dnssec` | `CAUGHT` |
+| D2 | a wildcard CNAME without its proof is a link | `zig build test-dnssec` | `CAUGHT` |
+| D3 | an unsigned CNAME a DNAME makes does not stand | `zig build test-dnssec` | `CAUGHT` |
+| D4 | a DNAME at the name itself makes a CNAME | `zig build test-dnssec` | `CAUGHT` |
+| D5 | a DNAME at no ancestor makes a CNAME | `zig build test-dnssec` | `CAUGHT` |
+| D6 | a DNAME makes any CNAME | `zig build test-dnssec` | `CAUGHT` |
+| D7 | a DNAME whose signature fails makes a CNAME | `zig build test-dnssec` | `CAUGHT` |
+| D8 | ANY verifies the RRSIGs as an RRset | `zig build test-dnssec` | `CAUGHT` |
+| D9 | ANY verifies an RRset once per record | `zig build test-dnssec` | `CAUGHT` |
+| D10 | an RRset of ANY that is not valid passes | `zig build test-dnssec` | `CAUGHT` |
+| D11 | an expansion of ANY needs no proof | `zig build test-dnssec` | `CAUGHT` |
+| D12 | ANY with no RRset is an answer | `zig build test-dnssec` | `CAUGHT` |
+| D13 | a literal wildcard owner reads as an expansion | `zig build test-dnssec` | `CAUGHT` |
+| D14 | a wildcard answer with an NSEC proof is refused | `zig build test-dnssec` | `CAUGHT` |
+| D15 | an SOA that is not valid passes | `zig build test-dnssec` | `CAUGHT` |
+| D16 | a valid SOA leaves the zone unsigned | `zig build test-dnssec` | `CAUGHT` |
+| D17 | a negative that rests on nothing signed is weighed | `zig build test-dnssec` | `CAUGHT` |
+| D18 | no data reads as a name error | `zig build test-dnssec` | `CAUGHT` |
+| D19 | a name error reads as no data | `zig build test-dnssec` | `CAUGHT` |
+| D20 | an unsigned delegation elsewhere makes the name insecure | `zig build test-dnssec` | `CAUGHT` |
+| D21 | a referral's unsigned delegation is bogus | `zig build test-dnssec` | `CAUGHT` |
+| D22 | an RRset's later records are verified again | `zig build test-dnssec` | `CAUGHT` |
+| D23 | a record of the answer section joins a negative | `zig build test-dnssec` | `CAUGHT` |
+| D24 | an unsigned NSEC ends the message | `zig build test-dnssec` | `CAUGHT` |
+| D25 | a bogus NSEC is passed over | `zig build test-dnssec` | `CAUGHT` |
+
+35 mutations, 35 `CAUGHT`.

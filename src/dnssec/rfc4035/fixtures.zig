@@ -8,6 +8,34 @@ const core = @import("core");
 const fixtures = @import("../fixtures.zig");
 const Builder = fixtures.Builder;
 const map = fixtures.map;
+const Name = core.Name;
+const store_module = @import("../dnssec_store.zig");
+const validating = @import("../dnssec_validate.zig");
+
+/// The instant the tests read the zone at: 2004-04-20, inside its signatures' dates.
+pub const now_seconds: u64 = 1082419200;
+
+/// A store that holds `example`'s keys under its anchor, and the tests' cryptography.
+pub const Setup = struct {
+    entries: [4]store_module.Entry = undefined,
+    anchors: [1]store_module.Anchor = undefined,
+    store: store_module.Store = undefined,
+    sums: fixtures.Sums = .{},
+    hashes: fixtures.Hashes = .{},
+
+    pub fn init(self: *Setup) void {
+        self.anchors = .{.{ .zone = Name.from_text("example") catch unreachable, .kind = .dnskey, .rdata = &ksk }};
+        self.store = store_module.Store.init(&self.entries, &self.anchors);
+        self.store.set_clock(now_seconds, 0);
+        const held = self.store.put(&(Name.from_text("example") catch unreachable), .keys, &.{ &zsk, &ksk }, std.math.maxInt(u64));
+        std.debug.assert(held);
+    }
+
+    pub fn validate(self: *Setup, asked: []const u8, kind: core.Kind, bytes: []const u8) validating.Validation {
+        const validator: validating.Validator = .{ .store = &self.store, .verifier = self.sums.verifier(), .hasher = self.hashes.hasher() };
+        return validator.validate(&(Name.from_text(asked) catch unreachable), kind, bytes, 0);
+    }
+};
 
 /// The zone's two keys: flags, protocol 3, algorithm 5, then the key. The first has the tag
 /// 38519 and signs the zone's data; the second, with the SEP flag, has the tag 9465 and signs
@@ -50,9 +78,12 @@ pub const by_wrong_key: fixtures.Signing = .{ .public_key = ksk[4..] };
 
 const ns1 = "\x03ns1\x07example\x00";
 const ns2 = "\x03ns2\x07example\x00";
-const mx_xx = "\x00\x01\x02xx\x07example\x00";
+/// An address of the zone's, for an A record of a test's own.
+pub const address = [_]u8{ 192, 0, 2, 1 };
+
+pub const mx_xx = "\x00\x01\x02xx\x07example\x00";
 const mx_ai = "\x00\x01\x02ai\x07example\x00";
-const soa = ns1 ++ "\x04bugs\x01x\x01w\x07example\x00" ++
+pub const soa = ns1 ++ "\x04bugs\x01x\x01w\x07example\x00" ++
     [_]u8{ 0x40, 0x76, 0xfb, 0x31, 0, 0, 0x0e, 0x10, 0, 0, 0x01, 0x2c, 0, 0x36, 0xee, 0x80, 0, 0, 0x0e, 0x10 };
 
 /// NSEC rdata: the next name, then the type bit map.
@@ -72,7 +103,7 @@ fn apex_ns(builder: *Builder) void {
     builder.rrset("example", .ns, &.{ ns1, ns2 }, by_zone);
 }
 
-fn apex_soa(builder: *Builder) void {
+pub fn apex_soa(builder: *Builder) void {
     builder.rrset("example", .soa, &.{soa}, by_zone);
 }
 
@@ -167,5 +198,4 @@ pub fn ds_at_child() Builder {
 
 comptime {
     if (soa.len != ns1.len + "\x04bugs\x01x\x01w\x07example\x00".len + 20) @compileError("not an SOA");
-    _ = core;
 }

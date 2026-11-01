@@ -134,4 +134,6 @@ test {
     _ = @import("dnssec_rrset.zig");
     _ = @import("dnssec_store.zig");
     _ = @import("dnssec_store_keys.zig");
+    _ = @import("dnssec_validate.zig");
+    _ = @import("dnssec_validate_denial.zig");
 }
