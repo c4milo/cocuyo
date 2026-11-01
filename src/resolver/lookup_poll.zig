@@ -28,6 +28,8 @@ pub fn poll(self: *Lookup, now_ns: u64, out: []u8) Action {
         .tcp_needed => connect_tcp(self, now_ns),
         .tcp_ready => send_tcp(self, now_ns, out),
         .awaiting_udp, .awaiting_tcp, .connecting_tcp => .{ .wait = self.deadline_ns },
+        // No deadline: the table's walk ends the wait for keys (docs/design.md §25).
+        .awaiting_keys => .{ .wait = std.math.maxInt(u64) },
         .done => .{ .done = self.answer() },
         .failed => .{ .failed = self.failure_of() },
     };
@@ -140,7 +142,11 @@ fn build(self: *Lookup, tcp: bool, now_ns: u64, out: []u8) []const u8 {
         .recursion_desired = self.config.recursion_desired,
         // A query asks for the AD bit whenever the configuration relies on it (RFC 6840 §5.7;
         // docs/design.md §25, Stage A rule 2).
-        .authentic_data = self.config.authenticated_data.asks(),
+        // A validating lookup asks for DNSSEC records and for the data the server found bogus, and
+        // never for AD (RFC 4035 §4.9.1 to §4.9.3; docs/design.md §25, Stage B).
+        .authentic_data = self.config.authenticated_data.asks() and self.validator == null,
+        .checking_disabled = self.validator != null,
+        .dnssec_ok = self.validator != null and self.flags.edns_enabled,
         // A query to a TLS, HTTPS or QUIC server goes encrypted, and padding is for that alone
         // (RFC 7830 §6, RFC 9250 §5.4, docs/design.md §21 to §23).
         .padded = self.config.encrypted(),

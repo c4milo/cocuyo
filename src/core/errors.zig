@@ -26,6 +26,9 @@ pub const Error = error{
     AllServersFailed,
     /// The CNAME chain was longer than `limits.cname_hops_max`.
     ChainTooLong,
+    /// A validating lookup found the answer bogus: every server's message failed validation, or
+    /// the walk for its keys proved it wrong (docs/design.md §25, Stage B).
+    Bogus,
     /// The message is shorter than the part being read, or its counts disagree with its sections.
     MalformedMessage,
     /// A name in the message is not a legal encoding.

@@ -71,12 +71,12 @@ pub fn record_bytes_padded(cookie: ?*const Cookie, padding: ?usize) usize {
 /// Writes the OPT record at the start of `out`, with one COOKIE option when `cookie` is given
 /// (RFC 7873 §5.1), and returns the octets written.
 pub fn write(payload_bytes: u16, cookie: ?*const Cookie, out: []u8) usize {
-    return write_padded(payload_bytes, cookie, null, out);
+    return write_padded(payload_bytes, cookie, null, false, out);
 }
 
 /// `write`, and a Padding option of `padding` zero octets after the cookie when it is given
 /// (RFC 7830 §3).
-pub fn write_padded(payload_bytes: u16, cookie: ?*const Cookie, padding: ?usize, out: []u8) usize {
+pub fn write_padded(payload_bytes: u16, cookie: ?*const Cookie, padding: ?usize, dnssec_ok: bool, out: []u8) usize {
     assert(payload_bytes >= core.limits.udp_payload_bytes_min);
     assert(out.len >= core.limits.opt_record_bytes_max);
     assert(out.len >= record_bytes_padded(cookie, padding));
@@ -87,7 +87,8 @@ pub fn write_padded(payload_bytes: u16, cookie: ?*const Cookie, padding: ?usize,
     offset += constants.u16_bytes;
     integer.write_u16(out, offset, payload_bytes);
     offset += constants.u16_bytes;
-    integer.write_u32(out, offset, 0); // extended rcode 0, version 0, no flags
+    // Extended rcode 0, version 0, and DO alone of the flags (RFC 6891 §6.1.3, RFC 3225 §3).
+    integer.write_u32(out, offset, if (dnssec_ok) flag_dnssec_ok else 0);
     offset += constants.u32_bytes;
     const rdlength = record_bytes_padded(cookie, padding) - core.constants.opt_record_bytes;
     integer.write_u16(out, offset, @intCast(rdlength));

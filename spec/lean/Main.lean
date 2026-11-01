@@ -33,7 +33,7 @@ def key (c : Config) (s : State) : State :=
   if ended s.stage then
     { s with server := 0, round := 0, candidate := 0, hops := 0, edns := true, hadNoData := false,
              cause := none, cookieRetried := false, offered := false, datagrams := [],
-             streams := [] }
+             streams := [], asks := 0 }
   else if s.round + 1 < c.attempts then s
   else
     let behind (l : List Nat) := l.mapIdx fun p n => if p < s.server then 0 else n
@@ -70,6 +70,19 @@ def authenticatedAll (hops : Nat) : List Config := Id.run do
                          request, authenticatedData := mode }]
   return all
 
+/-- The configurations that validate (docs/design.md §25, Stage B, step 11): one server and one
+pass, one name or two, over UDP, over TCP and over DoH, and two servers over UDP. Each message the
+lookup acts on comes with each verdict, so these walk the bogus path over each transport, the
+wait for keys and its end, and a negative that moves the walk on. -/
+def validatingAll (hops : Nat) : List Config := Id.run do
+  let mut all := []
+  for (useTcp, request) in [(false, false), (true, false), (false, true)] do
+    for candidates in [1, 2] do
+      all := all ++ [{ servers := 1, attempts := 1, candidates, hopsMax := hops, useTcp, request,
+                       validate := true }]
+  return all ++ [{ servers := 2, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false,
+                   validate := true }]
+
 /-- The configurations `all` walks: none, one, two or three servers; one to three attempts and
 search candidates; every query over UDP, over TCP, over DoH or over DoQ (docs/design.md §22,
 §23). Since 2026-10-27 a state holds the queries each server got (§16 decision 58), so two states
@@ -92,7 +105,7 @@ def configsAll (hops : Nat) : List Config := Id.run do
               (servers = 3 && attempts = 2 && !udp && candidates = 1)
           if walked then
             all := all ++ [{ servers, attempts, candidates, hopsMax := hops, useTcp, request, quic }]
-  return all ++ authenticatedAll hops
+  return all ++ authenticatedAll hops ++ validatingAll hops
 
 /-- The configurations `gate` walks: the slice `zig build test` replays without Lean. One
 server, one attempt and one name reach every reply in every state, the whole CNAME chain, the
@@ -118,7 +131,12 @@ def configsGate (hops : Nat) : List Config :=
    { servers := 1, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false,
      authenticatedData := .encrypted },
    { servers := 1, attempts := 1, candidates := 2, hopsMax := hops, useTcp := false, request := true,
-     authenticatedData := .encrypted }]
+     authenticatedData := .encrypted },
+   -- DNSSEC Stage B over DoH, where a bogus message moves to the next server (docs/design.md §25,
+   -- step 11). Over UDP the walk takes 32,000 lines, which would put this file past the 4 MiB the
+   -- lint reads, so `all` alone walks it.
+   { servers := 1, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false, request := true,
+     validate := true }]
 
 /-- Writes the transcript of `configs` to `out`. Returns the events written and the deepest. -/
 def transcript (out : IO.FS.Stream) (hops : Nat) (configs : List Config) : IO (Nat × Nat) := do
@@ -126,7 +144,8 @@ def transcript (out : IO.FS.Stream) (hops : Nat) (configs : List Config) : IO (N
   let mut total := 0
   let mut deepest := 0
   for c in configs do
-    out.putStrLn s!"config {c.servers} {c.attempts} {c.candidates} {transportToken c} {modeToken c.authenticatedData}"
+    let validating := if c.validate then " validate" else ""
+    out.putStrLn s!"config {c.servers} {c.attempts} {c.candidates} {transportToken c} {modeToken c.authenticatedData}{validating}"
     let s := init c
     out.putStrLn s!"0 init none {lineToken c s}"
     let seen ← IO.mkRef (({} : Std.HashSet State).insert (key c s))

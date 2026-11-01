@@ -202,6 +202,11 @@ fn first_of(walk: *Walk, index: usize, kind: Kind, owner: *Name) Error!bool {
     return true;
 }
 
+/// Whether the authority section holds no SOA, NSEC or NSEC3: nothing a negative rests on.
+pub fn silent(walk: *const Walk) bool {
+    return !has(walk, .soa) and !has(walk, .nsec) and !has(walk, .nsec3);
+}
+
 fn has(walk: *const Walk, kind: Kind) bool {
     const message = walk.message;
     for (0..message.count) |index| {
@@ -460,4 +465,16 @@ test "a link whose target is under an insecure delegation is insecure" {
     builder.rrset("c.example", .cname, &.{"\x01x\x01w\x07example\x00"}, zone.by_zone);
     builder.record("x.w.example", .a, 3600, &address);
     try testing.expectEqual(Validation.insecure, setup.validate("c.example", .a, builder.message()));
+}
+
+test "a chain whose end the message does not say is secure as far as it goes" {
+    var setup: zone.Setup = .{};
+    setup.init();
+    var builder = Builder.init("c.example", .a, 0);
+    builder.rrset("c.example", .cname, &.{"\x01x\x01w\x07example\x00"}, zone.by_zone);
+    try testing.expectEqual(validate.Ending.alias, setup.validate("c.example", .a, builder.message()).secure.ending);
+    // The same message with an SOA in its authority section is a negative, and proves nothing.
+    builder.authority();
+    zone.apex_soa(&builder);
+    try testing.expectEqual(Validation{ .bogus = .proof }, setup.validate("c.example", .a, builder.message()));
 }

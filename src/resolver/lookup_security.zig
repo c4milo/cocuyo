@@ -45,6 +45,8 @@ pub fn acted_on(lookup: *Lookup, header: wire.Header) void {
 /// What `Answer.security` and `Failure.security` report.
 pub fn of(lookup: *const Lookup) core.Security {
     assert(lookup.is_settled());
+    // A validating lookup reports Stage B's conjunction, and never reads AD (RFC 4035 §4.9.3).
+    if (lookup.checked != .not_validating) return lookup.checked.security();
     return if (lookup.authentic == .holds) .authenticated else .unchecked;
 }
 

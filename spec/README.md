@@ -66,6 +66,9 @@ would agree with the code by construction and prove nothing about it.
     a validating lookup never sends a query without EDNS0. The measure of `step_le` covers the
     new state: a wait for keys counts more than the query asked again when the keys come, and
     each wait left for the name counts more than a wait.
+    The walk takes seven configurations that validate, and the replay hands the lookup a
+    validator that gives each message the verdict the line's event names, with a secure
+    message's ending what the model's reply means.
 - `lean/Spec/Axioms.lean` pins the axioms each theorem rests on. A proof left unfinished rests on
   `sorryAx`, which changes a pinned line and fails the build.
 - `lean/Spec/Address.lean` is the model of both walks, and `lean/Spec/AddressWalk.lean` walks it and

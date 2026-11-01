@@ -4809,7 +4809,7 @@
         .id = "AD3",
         .what = "a query asked for AD does not set it",
         .edits = .{
-            .{ .file = "src/wire/query.zig", .old = "            (if (query.authentic_data) constants.flag_authentic_data else 0),", .new = "            (if (false) constants.flag_authentic_data else 0)," },
+            .{ .file = "src/wire/query.zig", .old = "            (if (query.authentic_data) constants.flag_authentic_data else 0) |", .new = "            (if (false) constants.flag_authentic_data else 0) |" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -4818,7 +4818,7 @@
         .id = "AD4",
         .what = "a query that sets AD sets CD too",
         .edits = .{
-            .{ .file = "src/wire/query.zig", .old = "            (if (query.authentic_data) constants.flag_authentic_data else 0),", .new = "            (if (query.authentic_data) constants.flag_authentic_data | constants.flag_checking_disabled else 0)," },
+            .{ .file = "src/wire/query.zig", .old = "            (if (query.authentic_data) constants.flag_authentic_data else 0) |", .new = "            (if (query.authentic_data) constants.flag_authentic_data | constants.flag_checking_disabled else 0) |" },
         },
         .caught_by = .{ .step = "test-wire" },
     },
@@ -4881,7 +4881,7 @@
         .id = "RA3",
         .what = "an NXDOMAIN that moves the walk on is no message the lookup acted on",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "            security.acted_on(self, header);\n            // NXDOMAIN.", .new = "            // NXDOMAIN." },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    security.acted_on(self, accepted.header);\n    if (!is_name_error)", .new = "    if (!is_name_error)" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -4926,7 +4926,7 @@
         .id = "RA8",
         .what = "a query never asks for AD",
         .edits = .{
-            .{ .file = "src/resolver/lookup_poll.zig", .old = "        .authentic_data = self.config.authenticated_data.asks(),", .new = "        .authentic_data = self.config.authenticated_data.asks() and false," },
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        .authentic_data = self.config.authenticated_data.asks() and self.validator == null,", .new = "        .authentic_data = self.config.authenticated_data.asks() and false and self.validator == null," },
         },
         .caught_by = .{ .step = "test-resolver" },
     },

@@ -274,6 +274,8 @@ fn report_failure(name: []const u8, failure: *const cocuyo.Failure) void {
     const cause_text = switch (cause.what) {
         .rcode => |rcode| @tagName(rcode),
         .reason => |reason| @tagName(reason),
+        .bogus => "bogus",
+        .keys => "keys",
     };
     std.debug.print("{s}: {t} ({s} from server {d})\n", .{ name, failure.err, cause_text, cause.server_index });
 }

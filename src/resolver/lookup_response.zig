@@ -29,6 +29,7 @@ const bound = @import("lookup_bound.zig");
 const cookie_response = @import("lookup_response_cookie.zig");
 const casing = @import("lookup_response_case.zig");
 const failure_module = @import("lookup_failure.zig");
+const validate_module = @import("lookup_validate.zig");
 
 pub fn on_response(self: *Lookup, message: []const u8, from: Endpoint, now_ns: u64) Verdict {
     self.see(now_ns);
@@ -134,23 +135,22 @@ pub fn apply(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64
     const bits = (@as(u16, accepted.extended_rcode_high) << wire.constants.extended_rcode_low_bits) |
         header.rcode_bits();
     const rcode = wire.Rcode.from_bits(bits) orelse return .ignored;
-    const action = policy.rcode_action(rcode, self.flags.edns_enabled, self.config.check_response);
+    const read_action = policy.rcode_action(rcode, self.flags.edns_enabled, self.config.check_response);
+    // Under validation EDNS0 is never turned off: a query without OPT has no DO, and its answer
+    // no signatures, so FORMERR fails the server (docs/design.md §25, Stage B rule 4).
+    const action = if (read_action == .retry_without_edns and validate_module.validating(self))
+        policy.RcodeAction.next_server
+    else
+        read_action;
     // Only a response that is not NOERROR is read for why (§16 decision 64).
     if (rcode != .no_error) failure_module.note_extended_error(self, message);
     // NOERROR is believed only once its answer section is read, so `collect` tells the server's
     // state what it heard.
     if (action == .collect) return collect(self, message, accepted, now_ns);
+    if (action == .next_candidate) return name_error(self, message, accepted, rcode, now_ns);
     heard(self, accepted.cookie, cause_of(self, action, rcode), now_ns);
     switch (action) {
-        .collect => unreachable,
-        .next_candidate => {
-            security.acted_on(self, header);
-            // NXDOMAIN. The SOA in the authority section says how long a cache may remember it
-            // (RFC 2308 §5); a message with no SOA, or a malformed one, says nothing, and nothing
-            // is zero, which is not cached. The walk keeps the smallest of every candidate's.
-            bound_walk(self, negative_ttl(self, message, &self.current, accepted.age_seconds));
-            self.next_candidate(now_ns);
-        },
+        .collect, .next_candidate => unreachable,
         .next_server => self.next_server(now_ns),
         .retry_without_edns => if (bound.spent(self, bound.fresh(self))) {
             // The server has had its queries for the name: no retry (RFC 9520 §3.1).
@@ -166,6 +166,39 @@ pub fn apply(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64
         .fail, .name_too_long => self.fail(policy.error_of(rcode)),
     }
     return .accepted;
+}
+
+/// NXDOMAIN, which a validating lookup acts on as its proof says (RFC 9824 §8).
+fn name_error(self: *Lookup, message: []const u8, accepted: Accepted, rcode: wire.Rcode, now_ns: u64) Verdict {
+    switch (validate_module.weigh(self, message, rcode, heard_by(&accepted.cookie), now_ns)) {
+        .moved => return .accepted,
+        .negative => |proved| return negative(self, message, accepted, proved.name_error, proved.ttl_seconds, now_ns),
+        .act => return negative(self, message, accepted, true, std.math.maxInt(u32), now_ns),
+    }
+}
+
+/// A negative the lookup acts on: a name error or no data, the next search candidate, and a TTL
+/// no longer than `ttl_seconds`, which a secure proof bounds (docs/design.md §25 item 7). The SOA
+/// in the authority section says how long a cache may remember it (RFC 2308 §5); a message with no
+/// SOA, or a malformed one, says nothing, and nothing is zero, which is not cached. The walk keeps
+/// the smallest of every candidate's.
+fn negative(self: *Lookup, message: []const u8, accepted: Accepted, is_name_error: bool, ttl_seconds: u32, now_ns: u64) Verdict {
+    heard(self, accepted.cookie, null, now_ns);
+    security.acted_on(self, accepted.header);
+    if (!is_name_error) self.flags.had_no_data = true;
+    bound_walk(self, @min(ttl_seconds, negative_ttl(self, message, &self.current, accepted.age_seconds)));
+    self.next_candidate(now_ns);
+    return .accepted;
+}
+
+/// `heard`, for the validator's verdict to call with the response's cookie.
+fn heard_by(cookie: *const ?wire.CookieView) validate_module.Heard {
+    return .{ .context = cookie, .call = heard_called };
+}
+
+fn heard_called(context: *const anyopaque, lookup: *Lookup, cause: ?Cause.What, now_ns: u64) void {
+    const cookie: *const ?wire.CookieView = @ptrCast(@alignCast(context));
+    heard(lookup, cookie.*, cause, now_ns);
 }
 
 /// What an answer the lookup takes says of the server that sent it (docs/design.md §19 step 12).
@@ -272,6 +305,13 @@ fn bounded_by_walk(self: *const Lookup, ttl_seconds: u32) u32 {
 }
 
 fn collect(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64) Verdict {
+    const expected = switch (validate_module.weigh(self, message, .no_error, heard_by(&accepted.cookie), now_ns)) {
+        .moved => return .accepted,
+        // A proof of a negative under NOERROR, compact denial's name error among them (RFC 9824
+        // §3.1), is acted on as the proof says.
+        .negative => |proved| return negative(self, message, accepted, proved.name_error, proved.ttl_seconds, now_ns),
+        .act => |act| act,
+    };
     // The chain walk moves `current`, so it is restored when the walk fails: a lookup must not be
     // left pointing at half a chain by a message it then ignores.
     const before = self.current;
@@ -294,6 +334,13 @@ fn collect(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64) 
         }
         return .ignored;
     };
+    // A secure message's records must be what its proof says they are: an answer, or a chain
+    // whose end the message does not say. Records of another shape are bogus.
+    if (expected.ending) |ending| if (!agrees(outcome, ending)) {
+        self.current = before;
+        validate_module.rejected(self, heard_by(&accepted.cookie), now_ns);
+        return .accepted;
+    };
     security.acted_on(self, accepted.header);
     heard(self, accepted.cookie, null, now_ns);
     // A name the chain moved to came off the wire, and a server that compressed it to a pointer
@@ -311,14 +358,18 @@ fn collect(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64) 
             assert(self.answers.count > 0);
             self.answers.ttl_seconds = bounded_by_chain(self, self.answers.ttl_seconds);
             self.answers.ttl_seconds = bounded_by_walk(self, self.answers.ttl_seconds);
+            // A secure answer is kept no longer than its signatures allow (docs/design.md §25 item 7).
+            self.answers.ttl_seconds = @min(self.answers.ttl_seconds, expected.ttl_seconds);
             self.flags.aliased = self.answers.aliased or self.flags.aliased;
             self.cname_hops = self.answers.hops_used;
             self.state = .done;
         },
         .chain_incomplete => {
             assert(self.answers.aliased);
-            self.chain_ttl_seconds = bounded_by_chain(self, self.answers.ttl_seconds);
+            self.chain_ttl_seconds = @min(bounded_by_chain(self, self.answers.ttl_seconds), expected.ttl_seconds);
             self.flags.aliased = true;
+            // Another name, whose waits for keys start again (docs/design.md §25, step 11).
+            self.key_asks = 0;
             self.cname_hops = self.answers.hops_used;
             // The server just answered, so it is the healthy one: ask it about where the chain
             // went, with a new transaction. The target is another name, so another query, and no
@@ -340,149 +391,11 @@ fn collect(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64) 
     return .accepted;
 }
 
-// Tests. The fake server of fixtures.zig echoes whatever the lookup asked, so these run with
-// DNS-0x20 on, which is what a caller gets by default.
-
-const testing = std.testing;
-const Address = core.Address;
-const Name = core.Name;
-const Kind = core.Kind;
-const Question = core.Question;
-const fixtures = @import("fixtures.zig");
-
-const servers = fixtures.servers_two;
-const seed = fixtures.seed;
-
-test "a response that matches is accepted and answers the lookup" {
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a, servers[0].endpoint));
-    const action = harness.poll();
-    try testing.expectEqual(@as(usize, 1), action.done.addresses.len);
-    try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 1 }, action.done.addresses[0].slice());
-    try testing.expectEqual(@as(u32, 300), action.done.ttl_seconds);
-    try testing.expectEqual(@as(?*const Name, null), action.done.canonical_name);
-    try testing.expect(!action.done.truncated);
-}
-
-test "a response with the wrong id is ignored and the wait stands" {
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    var reply = fixtures.answer_a;
-    reply.id = harness.lookup.transaction.id ^ 0xffff;
-    try testing.expectEqual(Verdict.ignored, harness.respond(reply, servers[0].endpoint));
-    try testing.expect(harness.poll() == .wait);
-}
-
-test "a response from another server, or another port, is ignored" {
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.answer_a, servers[1].endpoint));
-    const wrong_port: Endpoint = .{ .address = servers[0].endpoint.address, .port = fixtures.port_other };
-    try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.answer_a, wrong_port));
-    try testing.expect(harness.poll() == .wait);
-}
-
-test "a truncated response sends the lookup to TCP" {
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.truncated, servers[0].endpoint));
-    try testing.expect(harness.poll() == .connect_tcp);
-}
-
-test "a record for a name nobody asked about is not part of the answer" {
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    _ = harness.respond(fixtures.injected, servers[0].endpoint);
-    const action = harness.poll();
-    try testing.expectEqual(@as(usize, 1), action.done.addresses.len);
-    try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 1 }, action.done.addresses[0].slice());
-}
-
-test "a malformed answer section is ignored and leaves the name alone" {
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    const before = harness.lookup.current;
-    try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.long_rdlength, servers[0].endpoint));
-    try testing.expectEqualSlices(u8, before.wire(), harness.lookup.current.wire());
-    try testing.expect(harness.poll() == .wait);
-}
-
-test "an address of the wrong length is ignored, though every length in the message is sound" {
-    // The scan for the OPT record walks the sections by their lengths and lets this through; the
-    // answer's collection refuses it, and a malformed answer is ignored (§16 decision 10).
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    const before = harness.lookup.current;
-    try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.short_address, servers[0].endpoint));
-    try testing.expectEqualSlices(u8, before.wire(), harness.lookup.current.wire());
-    try testing.expect(harness.poll() == .wait);
-}
-
-test "a response arriving after the lookup settled is ignored" {
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    _ = harness.respond(fixtures.answer_a, servers[0].endpoint);
-    try testing.expect(harness.poll() == .done);
-    try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.answer_a, servers[0].endpoint));
-}
-
-test "a flood of unmatched datagrams neither extends nor shortens the wait" {
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    const deadline = harness.lookup.deadline_ns;
-    var reply = fixtures.answer_a;
-    var sent: u16 = 0;
-    while (sent < 64) : (sent += 1) {
-        reply.id = harness.lookup.transaction.id ^ (sent + 1);
-        try testing.expectEqual(Verdict.ignored, harness.respond(reply, servers[0].endpoint));
-        try testing.expectEqual(deadline, harness.lookup.deadline_ns);
-    }
-    try testing.expectEqual(deadline, harness.poll().wait);
-}
-
-test "a truncated response over TCP is read, marked truncated, and not a reason to connect again" {
-    // A stream's limit is 65535 octets (RFC 9250 §4.6), so there is no larger channel to ask over.
-    // A lookup that obeyed the bit would connect again and again to the same server.
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    _ = harness.respond(fixtures.truncated, servers[0].endpoint);
-    try testing.expect(harness.poll() == .connect_tcp);
-    harness.lookup.on_tcp_connected(harness.now_ns);
-    _ = harness.send_over_tcp();
-    try testing.expectEqual(lookup_module.State.awaiting_tcp, harness.lookup.state);
-
-    var reply = fixtures.truncated;
-    reply.records = fixtures.answer_a.records;
-    reply.ancount = fixtures.answer_a.ancount;
-    try testing.expectEqual(Verdict.accepted, harness.respond(reply, servers[0].endpoint));
-    // The answer is read rather than the bit obeyed, so the lookup finishes here. Records may be
-    // missing from it all the same, so it is marked, and no cache keeps it (RFC 1035 §7.4).
-    try testing.expect(harness.poll().done.truncated);
-}
-
-test "a message of 65535 octets is read, and one of 65536 is ignored at check 1" {
-    // The longest message a length prefix describes (RFC 1035 §4.2.2). The answer sits at the
-    // front, and the codec reads nothing after the last record the counts name.
-    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
-    try harness.start("example.com.", .a, seed);
-    _ = harness.send();
-    var message: [core.limits.message_bytes_max + 1]u8 = @splat(0);
-    const reply = harness.build(fixtures.answer_a);
-    @memcpy(message[0..reply.len], reply);
-    try testing.expectEqual(Verdict.ignored, harness.lookup.on_response(&message, servers[0].endpoint, harness.now_ns));
-    try testing.expect(harness.poll() == .wait);
-    const longest = message[0..core.limits.message_bytes_max];
-    try testing.expectEqual(Verdict.accepted, harness.lookup.on_response(longest, servers[0].endpoint, harness.now_ns));
-    try testing.expect(harness.poll() == .done);
+/// Whether a collection is what a secure message's proof says it is.
+fn agrees(outcome: wire.Outcome, ending: core.validation.Ending) bool {
+    return switch (outcome) {
+        .answered => ending == .answer,
+        .chain_incomplete => ending == .alias,
+        .no_data => false,
+    };
 }

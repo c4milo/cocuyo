@@ -39,9 +39,16 @@ pub const Query = struct {
     recursion_desired: bool = true,
     /// The AD bit, which asks a validating server for the AD bit of its answer without asking for
     /// DNSSEC records (RFC 6840 §5.7, §5.8). Set when the configuration relies on the bit
-    /// (docs/design.md §25 Stage A). CD stays clear, as a stub that does not validate needs the
-    /// server to (RFC 4035 §4.9.2), and DO is never set (RFC 3225 §3).
+    /// (docs/design.md §25 Stage A).
     authentic_data: bool = false,
+    /// The CD bit, which a validating stub SHOULD set, so the server hands back data it found
+    /// bogus and the stub validates it itself (RFC 4035 §4.9.2; docs/design.md §25, Stage B). A
+    /// stub that does not validate leaves it clear, and needs the server to validate.
+    checking_disabled: bool = false,
+    /// The DO bit of the OPT record: "A validating security-aware stub resolver MUST set the DO
+    /// bit" (RFC 4035 §4.9.1), which asks for the DNSSEC records (RFC 3225 §3). It needs
+    /// `payload_bytes`.
+    dnssec_ok: bool = false,
     /// Whether to pad the message to a multiple of `padding_block_bytes`, which is for a query
     /// that goes encrypted (RFC 7830 §6). A query without OPT cannot carry the option, and goes
     /// unpadded.
@@ -83,10 +90,10 @@ pub fn write(query: *const Query, out: []u8) usize {
 
     const header: header_codec.Header = .{
         .id = query.id,
-        // Nothing but RD and AD is ever set: the query is never authoritative or truncated, and
-        // never has CD set (RFC 4035 §4.9.2).
+        // Nothing but RD, AD and CD is ever set: the query is never authoritative or truncated.
         .flags = (if (query.recursion_desired) constants.flag_recursion_desired else 0) |
-            (if (query.authentic_data) constants.flag_authentic_data else 0),
+            (if (query.authentic_data) constants.flag_authentic_data else 0) |
+            (if (query.checking_disabled) constants.flag_checking_disabled else 0),
         .qdcount = 1,
         .ancount = 0,
         .nscount = 0,
@@ -97,7 +104,7 @@ pub fn write(query: *const Query, out: []u8) usize {
     var offset: usize = core.constants.header_bytes;
     offset += question_codec.write(&query.name, query.kind, body[offset..]);
     if (query.payload_bytes) |payload_bytes| {
-        offset += edns.write_padded(payload_bytes, cookie_of(query), padding_bytes(query), body[offset..]);
+        offset += edns.write_padded(payload_bytes, cookie_of(query), padding_bytes(query), query.dnssec_ok, body[offset..]);
     }
 
     if (query.tcp) {
@@ -247,7 +254,7 @@ test "the RD bit is set unless the caller clears it" {
     try testing.expectEqual(@as(u16, 0), (try header_codec.parse(&out)).flags);
 }
 
-test "a query sets AD only when asked, and never CD or DO (RFC 6840 §5.7, RFC 4035 §4.9.2)" {
+test "a query sets AD only when asked, and CD and DO only when asked (RFC 6840 §5.7, RFC 4035 §4.9.2)" {
     var query = try query_for("example.com");
     var out: [core.limits.query_bytes_max]u8 = @splat(0);
     _ = write(&query, &out);
@@ -260,4 +267,14 @@ test "a query sets AD only when asked, and never CD or DO (RFC 6840 §5.7, RFC 4
     // AD asks for the bit without DNSSEC records, so the OPT record's DO stays clear.
     const opt_record = (try @import("response_opt.zig").find(out[0..written], &query.name)).?;
     try testing.expect(!(try edns.parse(opt_record.class, opt_record.ttl_seconds)).dnssec_ok());
+    // A validating stub sets DO and CD, and leaves AD clear (RFC 4035 §4.9.1 to §4.9.3).
+    query.authentic_data = false;
+    query.checking_disabled = true;
+    query.dnssec_ok = true;
+    const validating = write(&query, &out);
+    const flagged = try header_codec.parse(&out);
+    try testing.expectEqual(constants.flag_recursion_desired | constants.flag_checking_disabled, flagged.flags);
+    const opt_validating = (try @import("response_opt.zig").find(out[0..validating], &query.name)).?;
+    const opt = try edns.parse(opt_validating.class, opt_validating.ttl_seconds);
+    try testing.expect(opt.dnssec_ok());
 }

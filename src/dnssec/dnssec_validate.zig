@@ -20,36 +20,10 @@ const Store = store_module.Store;
 const denial = @import("dnssec_validate_denial.zig");
 const limits = @import("limits.zig");
 
-/// What a secure message ends a lookup with: its answer, or the negative its proof gives (RFC
-/// 9824 §8: the response code is not signed, so the proof decides).
-pub const Ending = enum { answer, no_data, name_error };
-
-pub const Secure = struct {
-    ending: Ending,
-    /// The smallest TTL of item 7 over every RRset the lookup used.
-    ttl_seconds: u32,
-};
-
-pub const Reason = enum {
-    /// A signature over an RRset the lookup uses failed, or the work ran past a limit.
-    signature,
-    /// The NSEC or NSEC3 records of a negative, or of a wildcard answer, prove nothing.
-    proof,
-    /// The message is malformed, holds more than `records_max` records, or a chain longer than
-    /// `cname_hops_max`, which the lookup fails anyway.
-    message,
-};
-
-pub const Validation = union(enum) {
-    secure: Secure,
-    insecure,
-    /// The question cannot be secure: an RRSIG is never signed (RFC 4035 §2.2, item 15).
-    unchecked,
-    bogus: Reason,
-    /// The validator waits for the keys of this zone, or, for data with no signature, for a walk
-    /// to this name (§25, walk rule 1).
-    keys_wanted: Name,
-};
+pub const Ending = core.validation.Ending;
+pub const Secure = core.validation.Secure;
+pub const Reason = core.validation.Reason;
+pub const Validation = core.validation.Validation;
 
 pub const Validator = struct {
     store: *const Store,
@@ -149,7 +123,9 @@ pub const Walk = struct {
             const set = try self.message.rrset(.answer, kind, &name);
             if (set.count() > 0) return self.answer(&name, &set);
             switch (try denial.link(self, &name)) {
-                .none => return denial.negative(self, &name, kind),
+                // A chain that moved, in a message that says nothing of its end: the lookup asks
+                // the end's name itself, and validates that answer then.
+                .none => return if (!name.equal(asked) and denial.silent(self)) self.secure(.alias) else denial.negative(self, &name, kind),
                 .next => |target| name = target,
                 .ended => |end| return end,
             }

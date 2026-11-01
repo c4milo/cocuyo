@@ -11147,3 +11147,53 @@ LC26 text this step changed; each names the text as it stands. `zig build mutati
 | LV9 | secure_run proved by sorry | `zig build spec-lean` | `CAUGHT` |
 
 9 mutations, 9 `CAUGHT`. DM1, LC26, LC27, RD11, M1 and YX8 ran again too, and each was `CAUGHT`.
+
+## The validating lookup
+
+2026-11-01. Design §25 Stage B, step 11's code (c4milo/cocuyo#56): `src/resolver/lookup_validate.zig`
+asks a validator of each message the lookup acts on, and moves the lookup as the model has it: a
+secure message as it would unvalidated, with its proof giving the negative, an insecure one the
+same way, a bogus one to the server's stream or the next server, and one whose keys are wanted to
+`awaiting_keys`. A query under validation sets DO and CD. The replay drives the code down the
+seven configurations of the model that validate. VL17 and VQ2 failed to compile at first, since
+each left a value unused, and were rewritten; VL17 needed a name for the payload it builds,
+`lookup_validate.Act`. Seven mutations of the engine and lookup sets named text this step
+rewrote, and name it as it stands: AD3, AD4, RA3, RA8, DH13, TT6 and WN1. RF3, LC1, LC2 and LC12
+ended at a doc comment that the new entry points moved. `zig build mutations -- lookup VL1 ...
+VL29 VQ1 VQ2` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| VL1 | an RRSIG question is validated | `zig build test-resolver` | `CAUGHT` |
+| VL2 | an insecure message leaves the end secure | `zig build test-resolver` | `CAUGHT` |
+| VL3 | a bogus message is acted on | `zig build test-resolver` | `CAUGHT` |
+| VL4 | a message whose keys are wanted is acted on | `zig build test-resolver` | `CAUGHT` |
+| VL5 | a proof of a name error reads as no data | `zig build test-resolver` | `CAUGHT` |
+| VL6 | a proof of an answer under NXDOMAIN is acted on | `zig build test-resolver` | `CAUGHT` |
+| VL7 | a bogus message over UDP moves to the next server | `zig build test-resolver` | `CAUGHT` |
+| VL8 | a bogus message over a stream keeps no cause | `zig build test-resolver` | `CAUGHT` |
+| VL9 | the waits for keys are not counted | `zig build test-resolver` | `CAUGHT` |
+| VL10 | a lookup waits for keys past key_asks_max | `zig build test-resolver` | `CAUGHT` |
+| VL11 | the keys ask a server that has had its queries | `zig build test-resolver` | `CAUGHT` |
+| VL12 | a walk whose servers failed keeps no cause | `zig build test-resolver` | `CAUGHT` |
+| VL13 | a walk's unanswered question ends Timeout after a server failed | `zig build test-resolver` | `CAUGHT` |
+| VL14 | FORMERR to a validating query retries without EDNS0 | `zig build test-resolver` | `CAUGHT` |
+| VL15 | a proof of no data under NXDOMAIN reads as a name error | `zig build test-resolver` | `CAUGHT` |
+| VL16 | a secure negative is kept past its signatures | `zig build test-resolver` | `CAUGHT` |
+| VL17 | a proof of a negative under NOERROR is collected | `zig build test-resolver` | `CAUGHT` |
+| VL18 | records of another shape than the proof's are taken | `zig build test-resolver` | `CAUGHT` |
+| VL19 | a secure answer is kept past its signatures | `zig build test-resolver` | `CAUGHT` |
+| VL20 | a secure chain is kept past its signatures | `zig build test-resolver` | `CAUGHT` |
+| VL21 | a CNAME's target keeps the name's waits for keys | `zig build test-resolver` | `CAUGHT` |
+| VL22 | the next candidate keeps the name's waits for keys | `zig build test-resolver` | `CAUGHT` |
+| VL23 | a wait for keys has the last deadline | `zig build test-resolver` | `CAUGHT` |
+| VL24 | a validating query leaves CD clear | `zig build test-resolver` | `CAUGHT` |
+| VL25 | a validating query leaves DO clear | `zig build test-resolver` | `CAUGHT` |
+| VL26 | a validating query asks for AD | `zig build test-resolver` | `CAUGHT` |
+| VL27 | passes that run out after a bogus message end AllServersFailed | `zig build test-resolver` | `CAUGHT` |
+| VL28 | a wait for keys has a deadline | `zig build test-resolver` | `CAUGHT` |
+| VL29 | a validating lookup reports Stage A | `zig build test-resolver` | `CAUGHT` |
+| VQ1 | a query asked for CD does not set it | `zig build test-wire` | `CAUGHT` |
+| VQ2 | a query asked for DO does not set it | `zig build test-wire` | `CAUGHT` |
+
+31 mutations, 31 `CAUGHT`.

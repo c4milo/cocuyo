@@ -65,6 +65,9 @@ pub fn cause_text(cause: cocuyo.Cause) []const u8 {
     return switch (cause.what) {
         .rcode => |rcode| @tagName(rcode),
         .reason => |reason| @tagName(reason),
+        // A validating lookup's: a bogus message, or a walk for its keys (docs/design.md §25).
+        .bogus => "bogus",
+        .keys => "keys",
     };
 }
 

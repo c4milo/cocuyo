@@ -42,3 +42,12 @@ test "each integer constant here has a type" {
         try std.testing.expectEqualStrings("", if (untyped) declaration.name else "");
     }
 }
+
+/// The times a lookup waits for keys for one name before a message whose keys are wanted reads as
+/// bogus, so no validator makes a lookup wait forever (docs/design.md §25). Chosen, not measured:
+/// one wait for the walk, and one more after a key rolled.
+pub const key_asks_max: u8 = 2;
+
+/// The smallest payload a validating lookup advertises: a security-aware resolver "MUST support"
+/// 1220 octets (RFC 4035 §4.1).
+pub const dnssec_payload_bytes_min: u16 = 1220;

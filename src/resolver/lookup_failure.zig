@@ -65,6 +65,10 @@ pub const Cause = struct {
         rcode: wire.Rcode,
         /// The reason that came with `on_tcp_failed` or `on_request_failed`.
         reason: Reason,
+        /// A message the validator called bogus (docs/design.md §25, step 11).
+        bogus,
+        /// The walk for a message's keys: every server of one of its questions failed.
+        keys,
     };
 };
 
@@ -129,7 +133,7 @@ pub fn fits_request(self: *const Lookup, reason: Reason) bool {
 /// lookup, and `get` gives the `?Cause` that `Failure.cause` reports.
 pub const Held = struct {
     server_index: u8,
-    what: union(enum) { none, rcode: wire.Rcode, reason: Reason },
+    what: union(enum) { none, rcode: wire.Rcode, reason: Reason, bogus, keys },
 
     pub const none: Held = .{ .server_index = 0, .what = .none };
 
@@ -138,6 +142,8 @@ pub const Held = struct {
         return switch (what) {
             .rcode => |rcode| .{ .server_index = server_index, .what = .{ .rcode = rcode } },
             .reason => |reason| .{ .server_index = server_index, .what = .{ .reason = reason } },
+            .bogus => .{ .server_index = server_index, .what = .bogus },
+            .keys => .{ .server_index = server_index, .what = .keys },
         };
     }
 
@@ -148,6 +154,8 @@ pub const Held = struct {
             .none => null,
             .rcode => |rcode| .{ .server_index = held.server_index, .what = .{ .rcode = rcode } },
             .reason => |reason| .{ .server_index = held.server_index, .what = .{ .reason = reason } },
+            .bogus => .{ .server_index = held.server_index, .what = .bogus },
+            .keys => .{ .server_index = held.server_index, .what = .keys },
         };
     }
 };
@@ -170,6 +178,8 @@ pub fn failure_of(self: *const Lookup) Failure {
     assert(!passes_end or self.round == 0 or self.round == self.config.attempts);
     assert(self.failure != core.Error.AllServersFailed or self.cause.what != .none or self.round == 0);
     assert(self.failure != core.Error.Timeout or self.cause.what == .none);
+    // `Bogus` rests on a bogus message, or on a walk that proved one (docs/design.md §25).
+    assert(self.failure != core.Error.Bogus or self.cause.what == .bogus);
     assert(self.cause.server_index < self.config.servers.len or self.cause.what == .none);
     const negative = self.failure == core.Error.NameNotFound or self.failure == core.Error.NoData;
     return .{

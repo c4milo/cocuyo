@@ -33,6 +33,8 @@ pub const Question = question.Question;
 pub const Config = @import("config.zig").Config;
 pub const Security = @import("security.zig").Security;
 pub const AuthenticatedData = @import("security.zig").AuthenticatedData;
+pub const validation = @import("validation.zig");
+pub const Validation = validation.Validation;
 pub const Server = @import("config.zig").Server;
 pub const Tls = @import("config.zig").Tls;
 pub const Https = @import("config.zig").Https;
@@ -53,6 +55,7 @@ test {
     _ = @import("name.zig");
     _ = @import("config.zig");
     _ = @import("security.zig");
+    _ = validation;
     _ = canonical;
 }
 

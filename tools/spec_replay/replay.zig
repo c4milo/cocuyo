@@ -63,44 +63,15 @@ const name_relative = "example.com";
 const name_absolute = "example.com.";
 const ndots = 1;
 
+const event_module = @import("replay_event.zig");
 /// What the caller tells a lookup: the model's `Event`, spelt as the transcript spells it.
-pub const Event = enum {
-    init,
-    poll,
-    expire,
-    sent,
-    send_failed,
-    tcp_connected,
-    // A failed connection or request and its reason (docs/design.md §16 decision 51). A stream
-    // never takes `status` or `reset`.
-    tcp_failed_connect,
-    tcp_failed_handshake,
-    tcp_failed_local,
-    tcp_failed_closed,
-    request_failed_connect,
-    request_failed_handshake,
-    request_failed_local,
-    request_failed_closed,
-    request_failed_status,
-    request_failed_reset,
-    cancel,
-    reply_unmatched,
-    reply_answer,
-    reply_cname,
-    reply_nxdomain,
-    reply_nodata,
-    reply_yxdomain,
-    reply_servfail,
-    reply_formerr,
-    reply_truncated,
-    reply_badcookie,
-    // A message with AD set, of a kind the lookup acts on (docs/design.md §25, Stage A).
-    reply_ad_answer,
-    reply_ad_cname,
-    reply_ad_nxdomain,
-    reply_ad_nodata,
-    reply_ad_truncated,
-};
+pub const Event = event_module.Event;
+const reason_of = event_module.reason_of;
+const authentic_of = event_module.authentic_of;
+const reply_of = event_module.reply_of;
+const verdict_of = event_module.verdict_of;
+const checked_reply_of = event_module.checked_reply_of;
+const validation_of = event_module.validation_of;
 
 pub const Error = error{ Malformed, TooDeep, Mismatch, WrongHops, Empty };
 
@@ -144,6 +115,11 @@ pub const Replay = struct {
     mismatch: ?Mismatch = null,
     query: [core.limits.query_bytes_max]u8 = undefined,
     reply: [core.constants.udp_payload_bytes_default]u8 = undefined,
+    /// Whether the configuration validates, and the validator its lookups read: it hands back the
+    /// verdict the line's event names (docs/design.md §25, step 11).
+    validating: bool = false,
+    verdict: core.Validation = .insecure,
+    validator: resolver.Validator = undefined,
 
     /// Replays one line of the transcript.
     pub fn line(self: *Replay, text: []const u8) Error!void {
@@ -181,7 +157,10 @@ pub const Replay = struct {
         const candidates = try count(fields.next(), 1, search_all.len + 1);
         const transport = parse(Transport, fields.next()) orelse return error.Malformed;
         const mode = parse(core.AuthenticatedData, fields.next()) orelse return error.Malformed;
+        const validating = fields.next();
+        if (validating) |word| if (!std.mem.eql(u8, word, "validate")) return error.Malformed;
         if (fields.next() != null) return error.Malformed;
+        self.validating = validating != null;
         for (search_all[0 .. candidates - 1], 0..) |entry, index| {
             self.search[index] = core.Name.from_text(entry) catch unreachable;
         }
@@ -244,6 +223,10 @@ pub const Replay = struct {
     fn start(self: *Replay) void {
         self.servers = Servers.init(&self.config, seed);
         self.lookup.init_in_place(&self.config, &self.servers, self.question, seed);
+        if (self.validating) {
+            self.validator = .{ .context = self, .validate = validated };
+            self.lookup.validate_with(&self.validator);
+        }
         self.now_ns = 0;
         self.started = true;
     }
@@ -285,7 +268,15 @@ pub const Replay = struct {
             .request_failed_reset,
             => lookup.on_request_failed(lookup.transaction.number, reason_of(event), self.now_ns),
             .cancel => lookup.cancel(),
-            else => return self.respond(reply_of(event), authentic_of(event)),
+            .keys_ready => lookup.on_keys_ready(self.now_ns),
+            .keys_failed_bogus => lookup.on_keys_failed(.bogus, self.now_ns),
+            .keys_failed_timeout => lookup.on_keys_failed(.timeout, self.now_ns),
+            .keys_failed_failed => lookup.on_keys_failed(.failed, self.now_ns),
+            else => if (verdict_of(event)) |verdict| {
+                const reply = checked_reply_of(event);
+                self.verdict = validation_of(verdict, reply);
+                return self.respond(reply, false);
+            } else return self.respond(reply_of(event), authentic_of(event)),
         }
         return .none;
     }
@@ -343,37 +334,14 @@ fn transaction_of(lookup: *const Lookup, reply: fixtures.Reply) u16 {
     return if (reply == .unmatched) number -% 1 else number;
 }
 
-/// The reason a failed connection or request carries: the last word of its event's name.
-fn reason_of(event: Event) resolver.Reason {
-    const name = @tagName(event);
-    const at = std.mem.lastIndexOfScalar(u8, name, '_') orelse unreachable;
-    return std.meta.stringToEnum(resolver.Reason, name[at + 1 ..]) orelse unreachable;
-}
-
-/// Whether a reply's message has AD set: the model's `replyAd`.
-fn authentic_of(event: Event) bool {
-    return std.mem.startsWith(u8, @tagName(event), "reply_ad_");
-}
-
-fn reply_of(event: Event) fixtures.Reply {
-    return switch (event) {
-        .reply_ad_answer => .answer,
-        .reply_ad_cname => .cname,
-        .reply_ad_nxdomain => .nxdomain,
-        .reply_ad_nodata => .nodata,
-        .reply_ad_truncated => .truncated,
-        .reply_unmatched => .unmatched,
-        .reply_answer => .answer,
-        .reply_cname => .cname,
-        .reply_nxdomain => .nxdomain,
-        .reply_nodata => .nodata,
-        .reply_yxdomain => .yxdomain,
-        .reply_servfail => .servfail,
-        .reply_formerr => .formerr,
-        .reply_truncated => .truncated,
-        .reply_badcookie => .badcookie,
-        else => unreachable,
-    };
+/// The validator of a validating configuration: the verdict the line's event named.
+fn validated(context: *anyopaque, asked: *const core.Name, kind: core.Kind, message: []const u8, now_ns: u64) core.Validation {
+    _ = asked;
+    _ = kind;
+    _ = message;
+    _ = now_ns;
+    const self: *Replay = @ptrCast(@alignCast(context));
+    return self.verdict;
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -430,8 +398,9 @@ test "the committed slice of the model's transcript replays against the lookup" 
     // Since 2026-10-17 the sixth, two passes over DoH, holds a lookup that runs with a cause. Since
     // 2026-10-21 the seventh, two servers over DoQ, holds a cause from a server that the lookup
     // is not on at its end. Since 2026-10-31 the last three rely on the AD bit, or name a mode that
-    // does not, over UDP (docs/design.md §25, Stage A).
-    try testing.expectEqual(@as(usize, 10), replay.configs);
+    // does not, over UDP (docs/design.md §25, Stage A). Since 2026-11-01 the last validates, over
+    // DoH (§25, Stage B, step 11).
+    try testing.expectEqual(@as(usize, 11), replay.configs);
     try testing.expect(replay.events > 13600);
     try testing.expect(replay.cuts > 0);
 }
@@ -473,6 +442,8 @@ test "a line in the wrong place, a transcript for other hops, and an empty one a
         .{ .text = "hops 8\nconfig 1 1 1 udp tcp\n", .err = error.Malformed },
         .{ .text = "hops 8\nconfig 1 1 1 udp\n", .err = error.Malformed },
         .{ .text = "hops 8\nconfig 1 1 1 udp ignored always\n", .err = error.Malformed },
+        .{ .text = "hops 8\nconfig 1 1 1 udp ignored validate twice\n", .err = error.Malformed },
+        .{ .text = "hops 8\nconfig 1 1 1 udp ignored verify\n", .err = error.Malformed },
         .{ .text = "hops 8\nconfig 1 1 1 udp ignored\n", .err = error.Empty },
     };
     for (cases) |case| {

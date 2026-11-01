@@ -12,7 +12,8 @@ const Cause = resolver.Cause;
 
 /// The longest state a line writes: the longest stage, four counters, the flags, the cause, and
 /// since 2026-10-31 rule 3's conjunction and what an end reports (docs/design.md §25), whose
-/// longest, `authenticated`, takes 13 octets.
+/// longest, `authenticated`, takes 13 octets. Since 2026-11-01 the longest stage is
+/// `awaiting_keys`, of 13 octets, which the room holds.
 pub const state_bytes_max = 80;
 
 /// The longest cause a line writes: the longest reason, `@` and a position in the order.
@@ -34,6 +35,7 @@ pub const Out = enum {
     failed_canceled,
     failed_no_servers,
     failed_name_too_long,
+    failed_bogus,
     /// A failure the model has no name for, which is a disagreement whatever the model said.
     failed_other,
     accepted,
@@ -83,6 +85,8 @@ pub fn cause_text(order: []const u8, cause: ?Cause, out: *[cause_bytes_max]u8) [
             else => "other",
         },
         .reason => |reason| @tagName(reason),
+        .bogus => "bogus",
+        .keys => "keys",
     };
     const position = std.mem.indexOfScalar(u8, order, held.server_index) orelse return "outside";
     return std.fmt.bufPrint(out, "{s}@{d}", .{ what, position }) catch unreachable;
@@ -130,6 +134,7 @@ fn failed_out(err: core.Error) Out {
         error.Canceled => .failed_canceled,
         error.NoServers => .failed_no_servers,
         error.NameTooLong => .failed_name_too_long,
+        error.Bogus => .failed_bogus,
         else => .failed_other,
     };
 }

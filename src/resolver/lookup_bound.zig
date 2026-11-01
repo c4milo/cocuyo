@@ -112,10 +112,12 @@ pub fn next_server(self: *Lookup, now_ns: u64) void {
         }
         if (self.round == self.config.attempts) {
             // A server that failed the lookup left a cause; silence leaves none (§16 decision 25).
-            self.fail(if (self.cause.what != .none)
-                core.Error.AllServersFailed
-            else
-                core.Error.Timeout);
+            // A bogus message as the cause ends a validating lookup `Bogus` (docs/design.md §25).
+            self.fail(switch (self.cause.what) {
+                .none => core.Error.Timeout,
+                .bogus => core.Error.Bogus,
+                else => core.Error.AllServersFailed,
+            });
             return;
         }
         if (!spent(self, fresh(self))) break;

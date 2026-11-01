@@ -351,7 +351,7 @@
         .id = "DH13",
         .what = "NXDOMAIN's negative TTL keeps its Age",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "            // is zero, which is not cached. The walk keeps the smallest of every candidate's.\n            bound_walk(self, negative_ttl(self, message, &self.current, accepted.age_seconds));", .new = "            // is zero, which is not cached. The walk keeps the smallest of every candidate's.\n            bound_walk(self, negative_ttl(self, message, &self.current, 0));" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    bound_walk(self, @min(ttl_seconds, negative_ttl(self, message, &self.current, accepted.age_seconds)));", .new = "    bound_walk(self, @min(ttl_seconds, negative_ttl(self, message, &self.current, 0)));" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -558,7 +558,7 @@
         .id = "TT6",
         .what = "a second alias forgets the first one's TTL",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "            self.chain_ttl_seconds = bounded_by_chain(self, self.answers.ttl_seconds);", .new = "            self.chain_ttl_seconds = self.answers.ttl_seconds;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            self.chain_ttl_seconds = @min(bounded_by_chain(self, self.answers.ttl_seconds), expected.ttl_seconds);", .new = "            self.chain_ttl_seconds = @min(self.answers.ttl_seconds, expected.ttl_seconds);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -586,7 +586,7 @@
         .id = "RF3",
         .what = "a failed connection is counted as silence",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        self.servers.record_failure(self.server_slot(), now_ns);\n        failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// Gives up", .new = "        self.servers.record_failure(self.server_slot(), now_ns);\n        self.next_server(now_ns);\n    }\n\n    /// Gives up" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.servers.record_failure(self.server_slot(), now_ns);\n        failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// Hands the lookup a validator", .new = "        self.servers.record_failure(self.server_slot(), now_ns);\n        self.next_server(now_ns);\n    }\n\n    /// Hands the lookup a validator" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -703,7 +703,7 @@
         .id = "WN1",
         .what = "NXDOMAIN replaces the walk's negative TTL rather than keeping the smaller",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "            // is zero, which is not cached. The walk keeps the smallest of every candidate's.\n            bound_walk(self, negative_ttl(self, message, &self.current, accepted.age_seconds));", .new = "            // is zero, which is not cached. The walk keeps the smallest of every candidate's.\n            self.negative_ttl_seconds = negative_ttl(self, message, &self.current, accepted.age_seconds);" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    bound_walk(self, @min(ttl_seconds, negative_ttl(self, message, &self.current, accepted.age_seconds)));", .new = "    self.negative_ttl_seconds = @min(ttl_seconds, negative_ttl(self, message, &self.current, accepted.age_seconds));" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -2959,7 +2959,7 @@
         .id = "LC1",
         .what = "the cause of a failed stream is the connect's, whatever reason it came with",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// Gives up", .new = "        failure_module.keep(self, .{ .reason = .connect });\n        self.next_server(now_ns);\n    }\n\n    /// Gives up" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// Hands the lookup a validator", .new = "        failure_module.keep(self, .{ .reason = .connect });\n        self.next_server(now_ns);\n    }\n\n    /// Hands the lookup a validator" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -2969,7 +2969,7 @@
         .id = "LC2",
         .what = "the cause of a failed stream is the closed connection's, whatever reason it came with",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// Gives up", .new = "        failure_module.keep(self, .{ .reason = .closed });\n        self.next_server(now_ns);\n    }\n\n    /// Gives up" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// Hands the lookup a validator", .new = "        failure_module.keep(self, .{ .reason = .closed });\n        self.next_server(now_ns);\n    }\n\n    /// Hands the lookup a validator" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -3063,7 +3063,7 @@
         .id = "LC12",
         .what = "the first cause stays, and a failed stream after it does not replace it",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// Gives up", .new = "        if (self.cause.what == .none) failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// Gives up" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// Hands the lookup a validator", .new = "        if (self.cause.what == .none) failure_module.keep(self, .{ .reason = reason });\n        self.next_server(now_ns);\n    }\n\n    /// Hands the lookup a validator" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -3983,5 +3983,284 @@
             .{ .file = "src/cache/cache_failure.zig", .old = "        Error.ChainTooLong => .chain_too_long,\n", .new = "" },
         },
         .caught_by = .{ .step = "test-cocuyo" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL1",
+        .what = "an RRSIG question is validated",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_validate.zig", .old = "    if (self.question.kind == .rrsig) {", .new = "    if (false and self.question.kind == .rrsig) {" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL2",
+        .what = "an insecure message leaves the end secure",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_validate.zig", .old = "            if (self.checked == .secure) self.checked = .insecure;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL3",
+        .what = "a bogus message is acted on",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_validate.zig", .old = "        .bogus => {\n            rejected(self, heard, now_ns);\n            return .moved;\n        },", .new = "        .bogus => return .{ .act = .{} }," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL4",
+        .what = "a message whose keys are wanted is acted on",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_validate.zig", .old = "        .keys_wanted => {\n            wait_for_keys(self, heard, now_ns);\n            return .moved;\n        },", .new = "        .keys_wanted => return .{ .act = .{} }," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL5",
+        .what = "a proof of a name error reads as no data",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_validate.zig", .old = "        .name_error => return .{ .negative = .{ .name_error = true, .ttl_seconds = secure.ttl_seconds } },", .new = "        .name_error => return .{ .negative = .{ .name_error = false, .ttl_seconds = secure.ttl_seconds } }," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL6",
+        .what = "a proof of an answer under NXDOMAIN is acted on",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_validate.zig", .old = "        .answer, .alias => if (rcode == .name_error) {", .new = "        .answer, .alias => if (false and rcode == .name_error) {" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL7",
+        .what = "a bogus message over UDP moves to the next server",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_validate.zig", .old = "    if (over_stream or bound.spent(self, .stream)) {", .new = "    if (true or over_stream or bound.spent(self, .stream)) {" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL8",
+        .what = "a bogus message over a stream keeps no cause",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_validate.zig", .old = "        heard.of(self, .bogus, now_ns);\n        self.next_server(now_ns);", .new = "        heard.of(self, null, now_ns);\n        self.next_server(now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL9",
+        .what = "the waits for keys are not counted",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_validate.zig", .old = "    self.key_asks += 1;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL10",
+        .what = "a lookup waits for keys past key_asks_max",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_validate.zig", .old = "    if (self.key_asks >= limits.key_asks_max) return rejected(self, heard, now_ns);", .new = "    if (self.key_asks > limits.key_asks_max) return rejected(self, heard, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL11",
+        .what = "the keys ask a server that has had its queries",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_validate.zig", .old = "    if (bound.spent(self, bound.fresh(self))) self.next_server(now_ns) else self.restart(now_ns);", .new = "    if (false and bound.spent(self, bound.fresh(self))) self.next_server(now_ns) else self.restart(now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL12",
+        .what = "a walk whose servers failed keeps no cause",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_validate.zig", .old = "            failure_module.keep(self, .keys);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL13",
+        .what = "a walk's unanswered question ends Timeout after a server failed",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_validate.zig", .old = "        .timeout => self.fail(if (self.cause.what == .none) core.Error.Timeout else core.Error.AllServersFailed),", .new = "        .timeout => self.fail(core.Error.Timeout)," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL14",
+        .what = "FORMERR to a validating query retries without EDNS0",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    const action = if (read_action == .retry_without_edns and validate_module.validating(self))", .new = "    const action = if (false and read_action == .retry_without_edns and validate_module.validating(self))" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL15",
+        .what = "a proof of no data under NXDOMAIN reads as a name error",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        .negative => |proved| return negative(self, message, accepted, proved.name_error, proved.ttl_seconds, now_ns),\n        .act => return negative(self, message, accepted, true, std.math.maxInt(u32), now_ns),", .new = "        .negative => |proved| return negative(self, message, accepted, true, proved.ttl_seconds, now_ns),\n        .act => return negative(self, message, accepted, true, std.math.maxInt(u32), now_ns)," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL16",
+        .what = "a secure negative is kept past its signatures",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    bound_walk(self, @min(ttl_seconds, negative_ttl(self, message, &self.current, accepted.age_seconds)));", .new = "    bound_walk(self, @max(ttl_seconds, negative_ttl(self, message, &self.current, accepted.age_seconds)));" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL17",
+        .what = "a proof of a negative under NOERROR is collected",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        .negative => |proved| return negative(self, message, accepted, proved.name_error, proved.ttl_seconds, now_ns),\n        .act => |act| act,", .new = "        .negative => |proved| validate_module.Act{ .ttl_seconds = proved.ttl_seconds },\n        .act => |act| act," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL18",
+        .what = "records of another shape than the proof's are taken",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (expected.ending) |ending| if (!agrees(outcome, ending)) {", .new = "    if (expected.ending) |ending| if (false and !agrees(outcome, ending)) {" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL19",
+        .what = "a secure answer is kept past its signatures",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            self.answers.ttl_seconds = @min(self.answers.ttl_seconds, expected.ttl_seconds);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL20",
+        .what = "a secure chain is kept past its signatures",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            self.chain_ttl_seconds = @min(bounded_by_chain(self, self.answers.ttl_seconds), expected.ttl_seconds);", .new = "            self.chain_ttl_seconds = bounded_by_chain(self, self.answers.ttl_seconds) + 0 * expected.ttl_seconds;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL21",
+        .what = "a CNAME's target keeps the name's waits for keys",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            self.key_asks = 0;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL22",
+        .what = "the next candidate keeps the name's waits for keys",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.key_asks = 0;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL23",
+        .what = "a wait for keys has the last deadline",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        .awaiting_keys => .{ .wait = std.math.maxInt(u64) },", .new = "        .awaiting_keys => .{ .wait = self.deadline_ns }," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL24",
+        .what = "a validating query leaves CD clear",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        .checking_disabled = self.validator != null,", .new = "        .checking_disabled = false," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL25",
+        .what = "a validating query leaves DO clear",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        .dnssec_ok = self.validator != null and self.flags.edns_enabled,", .new = "        .dnssec_ok = false and self.validator != null and self.flags.edns_enabled," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL26",
+        .what = "a validating query asks for AD",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        .authentic_data = self.config.authenticated_data.asks() and self.validator == null,", .new = "        .authentic_data = self.config.authenticated_data.asks() or self.validator != null," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL27",
+        .what = "passes that run out after a bogus message end AllServersFailed",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_bound.zig", .old = "                .bogus => core.Error.Bogus,", .new = "                .bogus => core.Error.AllServersFailed," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL28",
+        .what = "a wait for keys has a deadline",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "            // A wait for keys has no deadline: the table's walk ends it.\n            .awaiting_keys => false,", .new = "            .awaiting_keys => true," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VL29",
+        .what = "a validating lookup reports Stage A",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_security.zig", .old = "    if (lookup.checked != .not_validating) return lookup.checked.security();\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VQ1",
+        .what = "a query asked for CD does not set it",
+        .edits = .{
+            .{ .file = "src/wire/query.zig", .old = "            (if (query.checking_disabled) constants.flag_checking_disabled else 0),", .new = "            (if (false) constants.flag_checking_disabled else 0)," },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "The validating lookup",
+        .id = "VQ2",
+        .what = "a query asked for DO does not set it",
+        .edits = .{
+            .{ .file = "src/wire/edns.zig", .old = "    integer.write_u32(out, offset, if (dnssec_ok) flag_dnssec_ok else 0);", .new = "    integer.write_u32(out, offset, if (false and dnssec_ok) flag_dnssec_ok else 0);" },
+        },
+        .caught_by = .{ .step = "test-wire" },
     },
 }

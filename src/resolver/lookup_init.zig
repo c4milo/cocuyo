@@ -69,6 +69,10 @@ pub fn init_in_place(
         },
         // No message is read yet, so none lacked AD (docs/design.md §25, Stage A).
         .authentic = security.start(config),
+        // A validator comes after init, from the table (docs/design.md §25, step 11).
+        .checked = .not_validating,
+        .key_asks = 0,
+        .validator = null,
         .server_index = 0,
         .order = identity_order,
         // No query is sent yet.
