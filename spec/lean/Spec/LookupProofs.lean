@@ -96,6 +96,43 @@ theorem retry_of (c : Config) (s t : State) (b : Bool) (w : Option What) (P : St
     | some k => exact ha _ (Or.inr ⟨k, rfl⟩)
   · exact ht
 
+/-- A bogus message is the next server, or a retry over TCP (docs/design.md §25, step 11). -/
+theorem rejected_of (c : Config) (s : State) (stream : Bool) (Q : State → Prop)
+    (hadv : ∀ u, Q (advanceServer c u)) (htcp : Q { s with stage := .tcpNeeded }) :
+    Q (rejected c s stream) := by
+  unfold rejected
+  split
+  · exact hadv _
+  · exact retry_of c s _ _ _ Q htcp (fun u _ => hadv u)
+
+/-- The keys came: a retry of the same server, from where the lookup starts, or the next server. -/
+theorem keysCame_of (c : Config) (s : State) (Q : State → Prop)
+    (hadv : ∀ u, Q (advanceServer c u))
+    (hfresh : Q { s with stage := fresh c }) : Q (keysCame c s) := by
+  unfold keysCame
+  exact retry_of c _ _ _ _ Q hfresh (fun u _ => hadv u)
+
+/-- A reply read under validation or not: what `onReply` makes of it, with rule 3's flag or Stage
+B's flag cleared, or the bogus path, or the wait for keys. So a property of each holds of it. -/
+theorem reading_of (c : Config) (s : State) (stream : Bool) (r : Reply) (ad : Bool)
+    (v : Option Verdict) (Q : State → Prop) (O : Out → Prop)
+    (hon : Q (onReply c s stream r).1) (hout : O (onReply c s stream r).2) (hacc : O .accepted)
+    (hclear : ∀ u, Q u → Q { u with authentic := false })
+    (hsec : ∀ u, Q u → Q { u with secure := false })
+    (hrej : Q (rejected c s stream))
+    (hkeys : s.asks < keyAsksMax → Q { s with stage := .awaitingKeys, asks := s.asks + 1 }) :
+    Q (reading c s stream r ad v).1 ∧ O (reading c s stream r ad v).2 := by
+  unfold reading
+  split
+  · cases v.getD .insecure <;> simp only [checked]
+    · exact ⟨hon, hout⟩
+    · exact ⟨hsec _ hon, hout⟩
+    · exact ⟨hrej, hacc⟩
+    · split
+      · rename_i hlt; exact ⟨hkeys hlt, hacc⟩
+      · exact ⟨hrej, hacc⟩
+  · exact ⟨clear_keeps Q c _ _ _ hclear hon, hout⟩
+
 theorem nextCandidate_stage (c : Config) (s : State) (b : Bool) :
     (nextCandidate c s b).stage = fresh c ∨ (nextCandidate c s b).stage = .failed := by
   unfold nextCandidate fail
@@ -175,13 +212,25 @@ theorem useTcp_never_udp (c : Config) (s : State) (e : Event) (h : c.useTcp = tr
     split
     · exact ⟨hadv _, by simp⟩
     · exact ⟨⟨hq, ha⟩, by simp⟩
-  | reply r | replyAd r =>
+  | reply r | replyAd r | replyChecked r _ =>
     cases hs : s.stage <;> simp only [step, heard, hs]
     all_goals first
-      | exact (fun ⟨h1, h2⟩ => ⟨clear_keeps NoUdp c _ _ _ (fun _ h => h) h1, h2⟩)
-          (onReply_noUdp c s _ r h ⟨hq, ha⟩)
+      | exact (let o := onReply_noUdp c s _ r h ⟨hq, ha⟩
+          reading_of c s _ r _ _ NoUdp (· ≠ .sendUdp) o.1 o.2 (by simp) (fun _ h => h)
+            (fun _ h => h) (rejected_of c s _ NoUdp hadv (by simp [NoUdp]))
+            (fun _ => by simp [NoUdp]))
       | exact ⟨⟨hq, ha⟩, by simp⟩
       | simp_all
+  | keysReady =>
+    simp only [step]
+    split
+    · exact ⟨keysCame_of c s NoUdp hadv (by simp [NoUdp, fresh, h]), by simp⟩
+    · exact ⟨⟨hq, ha⟩, by simp⟩
+  | keysFailed w =>
+    simp only [step]
+    split
+    · exact ⟨by cases w <;> simp [walkFailed, NoUdp, fail], by simp⟩
+    · exact ⟨⟨hq, ha⟩, by simp⟩
   | cancel =>
     simp only [step]
     split
@@ -278,13 +327,25 @@ theorem request_never_stream (c : Config) (s : State) (e : Event) (hh : c.reques
     split
     · exact ⟨hadv _, none⟩
     · exact ⟨keep, none⟩
-  | reply r | replyAd r =>
+  | reply r | replyAd r | replyChecked r _ =>
     cases hs : s.stage <;> simp only [step, heard, hs]
     all_goals first
-      | (rw [hh]; exact (fun ⟨h1, h2⟩ => ⟨clear_keeps NoStream c _ _ _ (fun _ h => h) h1, h2⟩)
-          (onReply_noStream c s r hh ht keep))
+      | (rw [hh]; exact (let o := onReply_noStream c s r hh ht keep
+          reading_of c s true r _ _ NoStream NotPlain o.1 o.2 (by simp [NotPlain])
+            (fun _ h => h) (fun _ h => h) (by simp [rejected]; exact hadv _)
+            (fun _ => by simp [NoStream])))
       | exact ⟨keep, ignored⟩
       | simp_all
+  | keysReady =>
+    simp only [step]
+    split
+    · exact ⟨keysCame_of c s NoStream hadv (by simp [NoStream, fresh, ht]), none⟩
+    · exact ⟨keep, none⟩
+  | keysFailed w =>
+    simp only [step]
+    split
+    · exact ⟨by cases w <;> simp [walkFailed, NoStream, fail], none⟩
+    · exact ⟨keep, none⟩
   | cancel =>
     simp only [step]
     split

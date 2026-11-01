@@ -19,15 +19,20 @@ FORMERR (§5's table), and once more after a first BADCOOKIE (RFC 7873 §5.3). C
 lookup makes finitely many sends whatever its servers answer (§5, retry policy). -/
 
 /-- The sends a stage has left before the lookup must hear back: a query still to send over UDP
-counts two, one for the datagram and one for the stream TC=1 can send it to. -/
+counts two, one for the datagram and one for the stream TC=1 can send it to. A wait for keys
+counts six, more than the rest of a server's phase can hold, so the query asked again when the
+keys come lowers it. -/
 def stagePhase : Stage → Nat
   | .queryReady => 2
   | .awaitingUdp | .tcpNeeded | .connectingTcp | .tcpReady => 1
   | .awaitingTcp | .done | .failed => 0
+  | .awaitingKeys => 6
 
-/-- The sends left to the current server in this transaction. -/
+/-- The sends left to the current server in this transaction. Each wait for keys left for the name
+counts seven, more than a wait itself, so entering one lowers it (docs/design.md §25, step 11). -/
 def phase (s : State) : Nat :=
-  (if s.edns then 2 else 0) + (if s.cookieRetried then 0 else 1) + stagePhase s.stage
+  7 * (keyAsksMax - s.asks) + (if s.edns then 2 else 0) + (if s.cookieRetried then 0 else 1) +
+    stagePhase s.stage
 
 def measure (c : Config) (s : State) : Nat × Nat × Nat × Nat × Nat :=
   (c.candidates - s.candidate, c.hopsMax + 1 - s.hops, c.attempts - s.round,
@@ -150,7 +155,8 @@ theorem onReply_le (c : Config) (s : State) (stream : Bool) (r : Reply) (g : s.r
   | formerr =>
     simp only [onReply]
     split
-    · rename_i he
+    · rename_i he'
+      have he : s.edns = true := by revert he'; cases s.edns <;> simp
       refine hretry _ _ _ ?_
       simp only [measure, LexLe, phase, he, fresh]
       cases s.cookieRetried <;> cases c.useTcp <;> cases s.stage <;> simp [stagePhase]
@@ -176,6 +182,31 @@ theorem onReply_le (c : Config) (s : State) (stream : Bool) (r : Reply) (g : s.r
         refine hretry _ _ _ ?_
         simp only [measure, LexLe, phase, hs, hr, fresh]
         cases s.edns <;> cases c.useTcp <;> simp [stagePhase]
+
+/-- A retry of the same server, to a state no higher, or the next server, is no higher. -/
+theorem retry_le (c : Config) (s t : State) (b : Bool) (w : Option What) (g : s.round < c.attempts)
+    (ht : LexLe (measure c t) (measure c s)) : LexLe (measure c (retry c s t b w)) (measure c s) := by
+  refine retry_of c s t b w (fun x => LexLe (measure c x) (measure c s)) ht (fun u hu => ?_)
+  rcases hu with rfl | ⟨k, rfl⟩
+  · exact lexLt_le _ _ (advanceServer_lt c _ g)
+  · exact lexLt_le _ _ (advanceServer_lt c _ g)
+
+/-- A reply read under validation raises nothing: a bogus message is the next server or a retry
+over TCP, and a wait for keys spends one of the name's waits, which counts more than the wait. -/
+theorem reading_le (c : Config) (s : State) (stream : Bool) (r : Reply) (ad : Bool)
+    (v : Option Verdict) (g : s.round < c.attempts) (hh : s.hops ≤ c.hopsMax)
+    (hst : stream = false → s.stage = .awaitingUdp) :
+    LexLe (measure c (reading c s stream r ad v).1) (measure c s) := by
+  have hrej : LexLe (measure c (rejected c s stream)) (measure c s) := by
+    unfold rejected
+    split
+    · exact lexLt_le _ _ (advanceServer_lt c _ g)
+    · rename_i hs'
+      have hs := hst (by simpa using hs')
+      exact retry_le c s _ _ _ g (by simp [measure, LexLe, phase, stagePhase, hs])
+  exact (reading_of c s stream r ad v (fun x => LexLe (measure c x) (measure c s)) (fun _ => True)
+    (onReply_le c s stream r g hh hst) trivial trivial (fun _ h => h) (fun _ h => h) hrej
+    (fun hlt => by simp [keyAsksMax] at hlt; simp [measure, LexLe, phase, stagePhase, keyAsksMax]; omega)).1
 
 /-- No event raises the measure. -/
 theorem step_le (c : Config) (s : State) (e : Event) (g : Good c s) :
@@ -204,12 +235,27 @@ theorem step_le (c : Config) (s : State) (e : Event) (g : Good c s) :
       split
       · exact lexLt_le _ _ (advanceServer_lt c _ h2)
       · exact lexLe_refl _
-    | reply r | replyAd r =>
-      cases hs : s.stage <;> simp only [step, heard, clear, hs] <;> try split
+    | reply r | replyAd r | replyChecked r _ =>
+      cases hs : s.stage <;> simp only [step, heard, hs]
       all_goals first
-        | exact onReply_le c s c.request r h2 h4 (fun _ => hs)
-        | exact onReply_le c s true r h2 h4 (fun h => absurd h (by simp))
+        | exact reading_le c s c.request r _ _ h2 h4 (fun _ => hs)
+        | exact reading_le c s true r _ _ h2 h4 (fun h => absurd h (by simp))
         | exact lexLe_refl _
+    | keysReady =>
+      simp only [step]
+      split
+      · rename_i hk
+        unfold keysCame
+        refine retry_le c s _ _ _ h2 ?_
+        simp only [measure, LexLe, phase, hk, fresh]
+        cases c.useTcp <;> simp [stagePhase]
+      · exact lexLe_refl _
+    | keysFailed w =>
+      simp only [step]
+      split
+      · cases w <;> simp only [walkFailed] <;>
+          exact lexLe_of_phase c s _ rfl rfl rfl rfl (phase_ended_le _ _)
+      · exact lexLe_refl _
     | cancel =>
       simp only [step]
       split
@@ -312,6 +358,23 @@ theorem onReply_good (c : Config) (s : State) (stream : Bool) (r : Reply) (hc : 
       · exact hretry _ _ _ rfl rfl rfl rfl
       · exact hretry _ _ _ rfl rfl rfl rfl
 
+/-- A reply read under validation keeps the counters inside the configuration. -/
+theorem reading_good (c : Config) (s : State) (stream : Bool) (r : Reply) (ad : Bool)
+    (v : Option Verdict) (hc : Sane c) (h1 : s.server < c.servers) (h2 : s.round < c.attempts)
+    (h3 : s.candidate < c.candidates) (h4 : s.hops ≤ c.hopsMax) :
+    Good c (reading c s stream r ad v).1 := by
+  have hrej : Good c (rejected c s stream) := by
+    unfold rejected
+    split
+    · exact advanceServer_good c _ hc h2 h4 h3
+    · refine retry_of c s _ _ _ (Good c) (Or.inr ⟨h1, h2, h3, h4⟩) (fun u hu => ?_)
+      rcases hu with rfl | ⟨k, rfl⟩
+      · exact advanceServer_good c _ hc h2 h4 h3
+      · exact advanceServer_good c _ hc h2 h4 h3
+  exact (reading_of c s stream r ad v (Good c) (fun _ => True)
+    (onReply_good c s stream r hc h1 h2 h3 h4) trivial trivial (fun _ h => h) (fun _ h => h) hrej
+    (fun _ => Or.inr ⟨h1, h2, h3, h4⟩)).1
+
 theorem init_good (c : Config) (hc : Sane c) : Good c (init c) := by
   obtain ⟨hs1, ha1, hc1⟩ := hc
   unfold init Good
@@ -347,12 +410,25 @@ theorem step_good (c : Config) (s : State) (e : Event) (hc : Sane c) (g : Good c
       split
       · exact advanceServer_good c _ hc h2 h4 h3
       · exact gs
-    | reply r | replyAd r =>
-      cases hs : s.stage <;> simp only [step, heard, clear, hs] <;> try split
+    | reply r | replyAd r | replyChecked r _ =>
+      cases hs : s.stage <;> simp only [step, heard, hs]
       all_goals first
-        | exact onReply_good c s c.request r hc h1 h2 h3 h4
-        | exact onReply_good c s true r hc h1 h2 h3 h4
+        | exact reading_good c s _ r _ _ hc h1 h2 h3 h4
         | exact gs
+    | keysReady =>
+      simp only [step]
+      split
+      · unfold keysCame
+        refine retry_of c s _ _ _ (Good c) (Or.inr ⟨h1, h2, h3, h4⟩) (fun u hu => ?_)
+        rcases hu with rfl | ⟨k, rfl⟩
+        · exact advanceServer_good c _ hc h2 h4 h3
+        · exact advanceServer_good c _ hc h2 h4 h3
+      · exact gs
+    | keysFailed w =>
+      simp only [step]
+      split
+      · left; cases w <;> simp [walkFailed, fail, ended]
+      · exact gs
     | cancel =>
       simp only [step]
       split

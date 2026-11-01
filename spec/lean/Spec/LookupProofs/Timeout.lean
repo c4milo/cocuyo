@@ -36,7 +36,9 @@ theorem marked_advanceServer (c : Config) (s : State) (h : s.cause.isSome = true
   · exact ⟨h, fun hf => absurd hf (fresh_ne_failed c)⟩
   · rename_i ih; exact ih h
   · exact ⟨h, fun hf => absurd hf (fresh_ne_failed c)⟩
-  · simp [Marked, fail, h]
+  · refine ⟨by simpa [fail] using h, fun _ => ?_⟩
+    simp only [fail, exhausted]
+    split <;> simp_all
 
 theorem marked_nextCandidate (c : Config) (s : State) (b : Bool) (h : s.cause.isSome = true) :
     Marked (nextCandidate c s b) := by
@@ -98,6 +100,29 @@ theorem marked_onReply (c : Config) (s : State) (stream : Bool) (r : Reply) (m :
       · exact hretry _ _ _ rfl (by simp)
       · exact hretry _ _ _ rfl (fresh_ne_failed c)
 
+/-- A retry of a marked lookup, to a state that keeps its cause and has not failed. -/
+theorem marked_retry (c : Config) (s t : State) (b : Bool) (w : Option What)
+    (h : s.cause.isSome = true) (hc : t.cause = s.cause) (hn : t.stage ≠ .failed) :
+    Marked (retry c s t b w) := by
+  refine retry_of c s t b w Marked ⟨hc ▸ h, fun hf => absurd hf hn⟩
+    (fun u hu => marked_advanceServer c u ?_)
+  rcases hu with rfl | ⟨k, rfl⟩
+  · exact h
+  · exact keep_isSome _ _
+
+/-- A reply read under validation keeps a lookup marked: a bogus message keeps `bogus` as the
+cause, and the wait for keys keeps the cause it held. -/
+theorem marked_reading (c : Config) (s : State) (stream : Bool) (r : Reply) (ad : Bool)
+    (v : Option Verdict) (m : Marked s) (hs : s.stage ≠ .failed) :
+    Marked (reading c s stream r ad v).1 := by
+  have hrej : Marked (rejected c s stream) := by
+    unfold rejected
+    split
+    · exact marked_advanceServer c _ (keep_isSome _ _)
+    · exact marked_retry c s _ _ _ m.1 rfl (by simp)
+  exact (reading_of c s stream r ad v Marked (fun _ => True) (marked_onReply c s stream r m hs)
+    trivial trivial (fun _ h => h) (fun _ h => h) hrej (fun _ => ⟨m.1, fun hf => by simp at hf⟩)).1
+
 /-- A marked lookup stays marked, whatever the caller tells it. -/
 theorem marked_step (c : Config) (s : State) (e : Event) (m : Marked s) :
     Marked (step c s e).1 := by
@@ -129,11 +154,21 @@ theorem marked_step (c : Config) (s : State) (e : Event) (m : Marked s) :
     split
     · exact hadv _ (keep_isSome _ _)
     · exact ⟨h, ht⟩
-  | reply r | replyAd r =>
-    cases hst : s.stage <;> simp only [step, heard, clear, hst] <;> try split
+  | reply r | replyAd r | replyChecked r _ =>
+    cases hst : s.stage <;> simp only [step, heard, hst]
     all_goals first
-      | exact marked_onReply c s _ r ⟨h, ht⟩ hs
+      | exact marked_reading c s _ r _ _ ⟨h, ht⟩ hs
       | exact ⟨h, ht⟩
+  | keysReady =>
+    simp only [step]
+    split
+    · exact marked_retry c _ _ _ _ h rfl (fresh_ne_failed c)
+    · exact ⟨h, ht⟩
+  | keysFailed w =>
+    simp only [step]
+    split
+    · cases w <;> simp [walkFailed, Marked, fail, keep, h]
+    · exact ⟨h, ht⟩
   | cancel =>
     simp only [step]
     split

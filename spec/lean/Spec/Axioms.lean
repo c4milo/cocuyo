@@ -3,6 +3,7 @@ import Spec.LookupProofs.Timeout
 import Spec.LookupProofs.Cause
 import Spec.LookupProofs.Bound
 import Spec.LookupProofs.Security
+import Spec.LookupProofs.Validation
 
 /-!
 # What the proofs rest on
@@ -67,5 +68,23 @@ namespace Spec.Lookup
 
 /-- info: 'Spec.Lookup.authenticated_needs_ad' depends on axioms: [propext, Quot.sound] -/
 #guard_msgs in #print axioms authenticated_needs_ad
+
+/-- info: 'Spec.Lookup.keys_wait_sends_nothing' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms keys_wait_sends_nothing
+
+/-- info: 'Spec.Lookup.secure_run' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms secure_run
+
+/-- info: 'Spec.Lookup.checked_clears' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms checked_clears
+
+/-- info: 'Spec.Lookup.secure_needs_secure' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms secure_needs_secure
+
+/-- info: 'Spec.Lookup.bogus_adds_nothing' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms bogus_adds_nothing
+
+/-- info: 'Spec.Lookup.validate_edns' depends on axioms: [propext, Quot.sound] -/
+#guard_msgs in #print axioms validate_edns
 
 end Spec.Lookup

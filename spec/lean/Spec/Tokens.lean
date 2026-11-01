@@ -19,21 +19,32 @@ def reasonToken : Reason → String
   | .connect => "connect" | .handshake => "handshake" | .«local» => "local"
   | .closed => "closed" | .status => "status" | .reset => "reset"
 
+def verdictToken : Verdict → String
+  | .secure => "secure" | .insecure => "insecure" | .bogus => "bogus" | .keysWanted => "keys_wanted"
+
+def walkedToken : Walked → String
+  | .bogus => "bogus" | .timeout => "timeout" | .failed => "failed"
+
 def eventToken : Event → String
   | .poll => "poll" | .expire => "expire" | .sent => "sent" | .sendFailed => "send_failed"
   | .tcpConnected => "tcp_connected" | .tcpFailed r => "tcp_failed_" ++ reasonToken r
   | .cancel => "cancel" | .requestFailed r => "request_failed_" ++ reasonToken r
   | .reply r => "reply_" ++ replyToken r
   | .replyAd r => "reply_ad_" ++ replyToken r
+  | .replyChecked r v => "reply_" ++ verdictToken v ++ "_" ++ replyToken r
+  | .keysReady => "keys_ready"
+  | .keysFailed w => "keys_failed_" ++ walkedToken w
 
 def errToken : Err → String
   | .nameNotFound => "name_not_found" | .noData => "no_data" | .timeout => "timeout"
   | .allServersFailed => "all_servers_failed" | .chainTooLong => "chain_too_long"
   | .canceled => "canceled" | .noServers => "no_servers" | .nameTooLong => "name_too_long"
+  | .bogus => "bogus"
 
 def whatToken : What → String
   | .servfail => "servfail" | .formerr => "formerr" | .badcookie => "badcookie"
   | .reason r => reasonToken r
+  | .bogus => "bogus" | .keys => "keys"
 
 /-- A cause as the transcript writes it, what the server gave and then its position in the order,
 as `servfail@1`, and `-` for none: the last column of a line. -/
@@ -50,6 +61,7 @@ def stageToken : Stage → String
   | .queryReady => "query_ready" | .awaitingUdp => "awaiting_udp" | .tcpNeeded => "tcp_needed"
   | .connectingTcp => "connecting_tcp" | .tcpReady => "tcp_ready"
   | .awaitingTcp => "awaiting_tcp" | .done => "done" | .failed => "failed"
+  | .awaitingKeys => "awaiting_keys"
 
 def modeToken : Mode → String
   | .ignored => "ignored" | .encrypted => "encrypted" | .always => "always"
@@ -58,7 +70,9 @@ def modeToken : Mode → String
 def reportedToken : Option Security → String
   | none => "-"
   | some .unchecked => "unchecked"
+  | some .insecure => "insecure"
   | some .authenticated => "authenticated"
+  | some .secure => "secure"
 
 /-- How a configuration's queries go, as the transcript's `config` line names it. -/
 def transportToken (c : Config) : String :=

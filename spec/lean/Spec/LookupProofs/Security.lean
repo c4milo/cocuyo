@@ -17,10 +17,16 @@ So a lookup that ends `authenticated` acted on no message without AD.
 -/
 namespace Spec.Lookup
 
-/-- Under `ignored` the AD bit means nothing, so no end is `authenticated` (RFC 4035 §4.6). -/
-theorem ignored_unchecked (c : Config) (s : State) (h : c.authenticatedData = .ignored) :
-    security c s = .unchecked := by
-  simp [security, relied, h]
+/-- Under `ignored` the AD bit means nothing, so no end of a lookup that does not validate is
+`authenticated` (RFC 4035 §4.6). A validating lookup's end is `secure` or `insecure`. -/
+theorem ignored_unchecked (c : Config) (s : State) (h : c.authenticatedData = .ignored)
+    (hv : c.validate = false) : security c s = .unchecked := by
+  simp [security, relied, h, hv]
+
+/-- A configuration that relies on the bit does not validate (RFC 4035 §4.9.3). -/
+theorem relied_validate (c : Config) (h : relied c = true) : c.validate = false := by
+  unfold relied at h
+  cases hv : c.validate <;> simp_all
 
 /-- An end that is `authenticated` rests on a configuration that relies on the bit, and on rule 3's
 conjunction. -/
@@ -28,8 +34,10 @@ theorem authenticated_of (c : Config) (s : State) (h : security c s = .authentic
     relied c = true ∧ s.authentic = true := by
   unfold security at h
   split at h
-  · rename_i hc; simpa using hc
-  · simp at h
+  · split at h <;> simp at h
+  · split at h
+    · rename_i hc; simpa using hc
+    · simp at h
 
 theorem advanceServer_authentic (c : Config) (s : State) :
     (advanceServer c s).authentic = s.authentic := by
@@ -87,6 +95,20 @@ theorem clear_authentic (c : Config) (a d : Bool) (t : State)
   · simp at h
   · exact h
 
+/-- A reply read under validation leaves rule 3's conjunction where it was, but for `clear`. -/
+theorem reading_authentic (c : Config) (s : State) (stream : Bool) (r : Reply) (ad : Bool)
+    (v : Option Verdict) (h : (reading c s stream r ad v).1.authentic = true) :
+    s.authentic = true := by
+  have hrej : (rejected c s stream).authentic = s.authentic := by
+    unfold rejected
+    split
+    · rw [advanceServer_authentic]; rfl
+    · exact retry_authentic c s _ _ _ rfl
+  refine (reading_of c s stream r ad v (fun x => x.authentic = true → s.authentic = true)
+    (fun _ => True) (fun hx => by rwa [onReply_authentic] at hx) trivial trivial
+    (fun _ _ hx => by simp at hx) (fun _ hu hx => hu hx) (fun hx => by rwa [hrej] at hx)
+    (fun _ hx => hx)).1 h
+
 theorem poll_authentic (c : Config) (s : State) : (poll c s).1.authentic = s.authentic := by
   unfold poll
   cases s.stage <;> rfl
@@ -117,10 +139,23 @@ theorem step_authentic (c : Config) (s : State) (e : Event)
     split at h
     · rw [advanceServer_authentic] at h; exact h
     · exact h
-  | reply r | replyAd r =>
+  | reply r | replyAd r | replyChecked r _ =>
     cases hs : s.stage <;> simp only [step, heard, hs] at h <;> first
-      | (have := clear_authentic c _ _ _ h; rwa [onReply_authentic] at this)
+      | exact reading_authentic c s _ r _ _ h
       | exact h
+  | keysReady =>
+    simp only [step] at h
+    split at h
+    · unfold keysCame at h
+      have e := retry_authentic c s { s with stage := fresh c } c.useTcp none rfl
+      simp only at h
+      rwa [e] at h
+    · exact h
+  | keysFailed w =>
+    simp only [step] at h
+    split at h
+    · cases w <;> simpa [walkFailed, fail, keep] using h
+    · exact h
   | cancel =>
     simp only [step] at h
     split at h
@@ -144,9 +179,10 @@ theorem reply_clears (c : Config) (s : State) (r : Reply) (hr : relied c = true)
       (step c s (.reply r)).1.authentic = false) ∧
     (s.stage = .awaitingTcp → actsOn true r = true →
       (step c s (.reply r)).1.authentic = false) := by
+  have hv := relied_validate c hr
   constructor
-  · intro hs ha; simp [step, heard, clear, hs, ha, hr]
-  · intro hs ha; simp [step, heard, clear, hs, ha, hr]
+  · intro hs ha; simp [step, heard, reading, clear, hs, ha, hr, hv]
+  · intro hs ha; simp [step, heard, reading, clear, hs, ha, hr, hv]
 
 /-- A run over two lists is the run over the second from where the first left the lookup. -/
 theorem run_append (c : Config) (t : State) (pre rest : List Event) :

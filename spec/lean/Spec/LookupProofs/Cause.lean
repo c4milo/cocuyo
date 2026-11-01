@@ -13,10 +13,13 @@ question 89), so these theorems cover a lookup that went out.
 -/
 namespace Spec.Lookup
 
-/-- What the error of a failed lookup says of its cause. -/
+/-- What the error of a failed lookup says of its cause. `bogus` rests on a bogus message, or a
+walk that proved one, which the cause holds as `allServersFailed`'s cause is held (docs/design.md
+§25, step 11). -/
 def CauseFits (s : State) : Prop :=
   s.stage = .failed →
-    (s.err = .allServersFailed → s.cause.isSome = true) ∧ (s.err = .timeout → s.cause = none)
+    (s.err = .allServersFailed → s.cause.isSome = true) ∧ (s.err = .timeout → s.cause = none) ∧
+      (s.err = .bogus → s.cause.isSome = true)
 
 theorem advanceServer_fits (c : Config) (s : State) : CauseFits (advanceServer c s) := by
   fun_induction advanceServer c s
@@ -24,7 +27,7 @@ theorem advanceServer_fits (c : Config) (s : State) : CauseFits (advanceServer c
   · intro hf; exact absurd hf (fresh_ne_failed c)
   · rename_i ih; exact ih
   · intro hf; exact absurd hf (fresh_ne_failed c)
-  · simp only [CauseFits, fail]
+  · simp only [CauseFits, fail, exhausted]
     split <;> simp_all
 
 theorem nextCandidate_fits (c : Config) (s : State) (b : Bool) :
@@ -37,9 +40,32 @@ theorem nextCandidate_fits (c : Config) (s : State) (b : Bool) :
     simp only [fail]
     split <;> simp
 
-theorem fail_fits (s : State) (e : Err) (h1 : e ≠ .allServersFailed) (h2 : e ≠ .timeout) :
-    CauseFits (fail s e) := by
-  simp [CauseFits, fail, h1, h2]
+theorem fail_fits (s : State) (e : Err) (h1 : e ≠ .allServersFailed) (h2 : e ≠ .timeout)
+    (h3 : e ≠ .bogus := by simp) : CauseFits (fail s e) := by
+  simp [CauseFits, fail, h1, h2, h3]
+
+/-- A reply read under validation keeps the fit: a bogus message moves the server and keeps its
+cause, and a wait for keys ends nothing. -/
+theorem reading_fits (c : Config) (s : State) (stream : Bool) (r : Reply) (ad : Bool)
+    (v : Option Verdict) (hon : CauseFits (onReply c s stream r).1) :
+    CauseFits (reading c s stream r ad v).1 := by
+  have running : ∀ t : State, t.stage ≠ .failed → CauseFits t := fun t ht hf => absurd hf ht
+  have hrej : CauseFits (rejected c s stream) := by
+    unfold rejected
+    split
+    · exact advanceServer_fits c _
+    · exact retry_of c s _ _ _ CauseFits (running _ (by simp)) (fun u _ => advanceServer_fits c u)
+  exact (reading_of c s stream r ad v CauseFits (fun _ => True) hon trivial trivial
+    (fun _ h => h) (fun _ h => h) hrej (fun _ => running _ (by simp))).1
+
+/-- The walk's failure fits: `bogus` and `allServersFailed` keep a cause, and `timeout` comes only
+while there is none. -/
+theorem walkFailed_fits (s : State) (w : Walked) : CauseFits (walkFailed s w) := by
+  cases w
+  · simp [walkFailed, CauseFits, fail, keep]
+  · simp only [walkFailed, CauseFits, fail]
+    split <;> simp_all
+  · simp [walkFailed, CauseFits, fail, keep]
 
 theorem poll_fits (c : Config) (s : State) (h : CauseFits s) : CauseFits (poll c s).1 := by
   unfold poll
@@ -111,11 +137,22 @@ theorem step_fits (c : Config) (s : State) (e : Event) (h : CauseFits s) :
     split
     · exact advanceServer_fits c _
     · exact h
-  | reply r | replyAd r =>
-    cases hst : s.stage <;> simp only [step, heard, clear, hst] <;> try split
+  | reply r | replyAd r | replyChecked r _ =>
+    cases hst : s.stage <;> simp only [step, heard, hst]
     all_goals first
-      | exact onReply_fits c s _ r h
+      | exact reading_fits c s _ r _ _ (onReply_fits c s _ r h)
       | exact h
+  | keysReady =>
+    simp only [step]
+    split
+    · exact retry_of c s _ _ _ CauseFits (running _ (fresh_ne_failed c))
+        (fun u _ => advanceServer_fits c u)
+    · exact h
+  | keysFailed w =>
+    simp only [step]
+    split
+    · exact walkFailed_fits s w
+    · exact h
   | cancel =>
     simp only [step]
     split
@@ -215,6 +252,23 @@ theorem onReply_server (c : Config) (s : State) (stream : Bool) (r : Reply) (h :
       · exact hretry _ _ _ rfl rfl
       · exact hretry _ _ _ rfl rfl
 
+/-- A reply read under validation keeps the cause, and the position, inside the configuration. -/
+theorem reading_server (c : Config) (s : State) (stream : Bool) (r : Reply) (ad : Bool)
+    (v : Option Verdict) (h : ServerFits c s) (hs : s.server < c.servers) :
+    ServerFits c (reading c s stream r ad v).1 := by
+  have same : ∀ t : State, t.server = s.server → t.cause = s.cause → ServerFits c t :=
+    fun t h1 h2 => ⟨fun _ => h1 ▸ hs, fun k hk => h.2 k (h2 ▸ hk)⟩
+  have hrej : ServerFits c (rejected c s stream) := by
+    unfold rejected
+    split
+    · exact advanceServer_server c _ (keep_server c s .bogus h hs) hs
+    · refine retry_of c s _ _ _ (ServerFits c) (same _ rfl rfl) (fun u hu => ?_)
+      rcases hu with rfl | ⟨k, rfl⟩
+      · exact advanceServer_server c _ h hs
+      · exact advanceServer_server c _ (keep_server c s k h hs) hs
+  exact (reading_of c s stream r ad v (ServerFits c) (fun _ => True) (onReply_server c s stream r h hs)
+    trivial trivial (fun _ h => h) (fun _ h => h) hrej (fun _ => same _ rfl rfl)).1
+
 /-- No event moves a cause, or the lookup's position, outside the configuration. -/
 theorem step_server (c : Config) (s : State) (e : Event) (h : ServerFits c s) :
     ServerFits c (step c s e).1 := by
@@ -247,11 +301,27 @@ theorem step_server (c : Config) (s : State) (e : Event) (h : ServerFits c s) :
     split
     · exact hadv _
     · exact h
-  | reply r | replyAd r =>
-    cases hst : s.stage <;> simp only [step, heard, clear, hst] <;> try split
+  | reply r | replyAd r | replyChecked r _ =>
+    cases hst : s.stage <;> simp only [step, heard, hst]
     all_goals first
-      | exact onReply_server c s _ r h hs
+      | exact reading_server c s _ r _ _ h hs
       | exact h
+  | keysReady =>
+    simp only [step]
+    split
+    · refine retry_of c s _ _ _ (ServerFits c) (same _ rfl rfl) (fun u hu => ?_)
+      rcases hu with rfl | ⟨k, rfl⟩
+      · exact advanceServer_server c _ h hs
+      · exact hadv k
+    · exact h
+  | keysFailed w =>
+    simp only [step]
+    split
+    · cases w <;> simp only [walkFailed]
+      · exact ⟨fun hf => by simp [fail, ended] at hf, (keep_server c s .bogus h hs).2⟩
+      · exact ⟨fun hf => by simp [fail, ended] at hf, h.2⟩
+      · exact ⟨fun hf => by simp [fail, ended] at hf, (keep_server c s .keys h hs).2⟩
+    · exact h
   | cancel =>
     simp only [step]
     split

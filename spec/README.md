@@ -18,8 +18,10 @@ would agree with the code by construction and prove nothing about it.
 
 ## What is here
 
-- `lean/Spec/Lookup.lean` is the model: the eight states, the events a caller delivers, what each
-  answers, and `enabled`, the events the contract of §4 lets a caller deliver in each state.
+- `lean/Spec/Lookup.lean` is the model: the steps, what each event answers, and `enabled`, the
+  events the contract of §4 lets a caller deliver in each state. `lean/Spec/LookupState.lean`
+  holds its types, its state and the policies its steps share: the nine states, the events and
+  the retry, search-list and reply policies.
 - `lean/Spec/LookupProofs.lean` and the four modules under `lean/Spec/LookupProofs/` hold the
   proofs:
   - `ended_absorbing`: a lookup that is done or has failed is changed by nothing.
@@ -56,6 +58,14 @@ would agree with the code by construction and prove nothing about it.
     lookup acts on clears it where the configuration relies on the bit; and
     `authenticated_needs_ad`, which joins them: a lookup that ends `authenticated` met no such
     reply.
+  - In `LookupProofs/Validation.lean`, DNSSEC Stage B's lookup (docs/design.md §25, step 11):
+    `keys_wait_sends_nothing`, a lookup that waits for keys asks for nothing to be sent;
+    `secure_run` and `checked_clears`, Stage B's conjunction stays clear once an insecure or an
+    unvalidated message clears it, so `secure_needs_secure`, an end that is `secure` met no such
+    message; `bogus_adds_nothing`, a bogus message moves the server alone; and `validate_edns`,
+    a validating lookup never sends a query without EDNS0. The measure of `step_le` covers the
+    new state: a wait for keys counts more than the query asked again when the keys come, and
+    each wait left for the name counts more than a wait.
 - `lean/Spec/Axioms.lean` pins the axioms each theorem rests on. A proof left unfinished rests on
   `sorryAx`, which changes a pinned line and fails the build.
 - `lean/Spec/Address.lean` is the model of both walks, and `lean/Spec/AddressWalk.lean` walks it and

@@ -11120,3 +11120,30 @@ pass it. VN7 failed to compile at first, and was rewritten. `zig build mutations
 | VN11 | a wildcard answer under NSEC3 is refused | `zig build test-dnssec` | `CAUGHT` |
 
 11 mutations, 11 `CAUGHT`.
+
+## DNSSEC Stage B in the model
+
+2026-11-01. Design §25 Stage B, step 11's model (c4milo/cocuyo#56): the lookup model gains the
+state `awaitingKeys`, the validator's verdict on each message the lookup acts on, the walk's
+ends, `bogus` as an error and a cause, and the count of the waits for keys of a name.
+`LookupProofs/Validation.lean` proves what §25's model section asks, and the earlier proofs cover
+the new state and events. No configuration the walk takes validates yet, so these breaks are
+caught by the proofs, and the replay checks the code against them when the code lands. The model
+was split in two by the file-length rule, so twelve mutations of the Lean set now name
+`LookupState.lean`. DM1, LC27 and RD11 named text that DNSSEC Stage A had changed before, and
+LC26 text this step changed; each names the text as it stands. `zig build mutations -- lean LV1
+... LV9 DM1 LC26 LC27 RD11 M1 YX8` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| LV1 | an insecure message leaves the model's Stage B conjunction set | `zig build spec-lean` | `CAUGHT` |
+| LV2 | a bogus message moves the model to the next candidate | `zig build spec-lean` | `CAUGHT` |
+| LV3 | the model sends while it waits for keys | `zig build spec-lean` | `CAUGHT` |
+| LV4 | FORMERR turns EDNS0 off under validation, in the model | `zig build spec-lean` | `CAUGHT` |
+| LV5 | the model waits for keys without counting the wait | `zig build spec-lean` | `CAUGHT` |
+| LV6 | a walk's unanswered question ends the model in timeout after a server failed it | `zig build spec-lean` | `CAUGHT` |
+| LV7 | a walk that proved a message bogus keeps no cause, in the model | `zig build spec-lean` | `CAUGHT` |
+| LV8 | the model reads AD under validation | `zig build spec-lean` | `CAUGHT` |
+| LV9 | secure_run proved by sorry | `zig build spec-lean` | `CAUGHT` |
+
+9 mutations, 9 `CAUGHT`. DM1, LC26, LC27, RD11, M1 and YX8 ran again too, and each was `CAUGHT`.

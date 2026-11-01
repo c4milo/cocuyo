@@ -148,6 +148,19 @@ theorem onReply_bounded (c : Config) (s : State) (stream : Bool) (r : Reply) (h 
       · exact retry_bounded c s _ _ _ h rfl rfl rfl rfl
       · exact retry_bounded c s _ _ _ h rfl rfl rfl (streamStage_fresh c)
 
+/-- A reply read under validation keeps the bound: a bogus message is the next server or a retry
+over TCP, and a wait for keys sends nothing and comes before no send. -/
+theorem reading_bounded (c : Config) (s : State) (stream : Bool) (r : Reply) (ad : Bool)
+    (v : Option Verdict) (h : Bounded s) : Bounded (reading c s stream r ad v).1 := by
+  have hrej : Bounded (rejected c s stream) := by
+    unfold rejected
+    split
+    · exact advanceServer_bounded c _ (keep_bounded s _ h)
+    · exact retry_bounded c s _ _ _ h rfl rfl rfl rfl
+  exact (reading_of c s stream r ad v Bounded (fun _ => True) (onReply_bounded c s stream r h)
+    trivial trivial (fun _ h => h) (fun _ h => h) hrej
+    (fun _ => bounded_same s _ h rfl rfl rfl (fun hb => by simp [beforeSend] at hb))).1
+
 /-- One more query sent to the server at `p`, which had fewer than `queriesMax`. -/
 theorem bump_le (l : List Nat) (p q : Nat) (hl : ∀ q, l.getD q 0 ≤ queriesMax)
     (hp : l.getD p 0 < queriesMax) : (bump l p).getD q 0 ≤ queriesMax := by
@@ -199,11 +212,21 @@ theorem step_bounded (c : Config) (s : State) (e : Event) (h : Bounded s) :
     split
     · exact advanceServer_bounded c _ (keep_bounded s _ h)
     · exact h
-  | reply r | replyAd r =>
-    cases hs : s.stage <;> simp only [step, heard, clear, hs] <;> try split
+  | reply r | replyAd r | replyChecked r _ =>
+    cases hs : s.stage <;> simp only [step, heard, hs]
     all_goals first
-      | exact onReply_bounded c s _ r h
+      | exact reading_bounded c s _ r _ _ h
       | exact h
+  | keysReady =>
+    simp only [step]
+    split
+    · exact retry_bounded c s _ _ _ h rfl rfl rfl (streamStage_fresh c)
+    · exact h
+  | keysFailed w =>
+    simp only [step]
+    split
+    · cases w <;> exact fail_bounded _ _ h
+    · exact h
   | cancel =>
     simp only [step]
     split

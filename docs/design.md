@@ -1037,7 +1037,11 @@ spec/README.md says what the model abstracts and why. Time is one of those thing
 before the deadline or at it. So when a server's wait came to be measured, on 2026-10-09, no
 transition changed, and neither did the model. Since 2026-10-24 a poll at the deadline ends
 `tcp_ready` too, in the model first (§16 decision 52). Its proof `tcpReady_expires` shows that the
-deadline ends that state, at every lookup in it.
+deadline ends that state, at every lookup in it. Since 2026-11-01 the model holds DNSSEC Stage B's
+rows (§25 step 11): the state `awaitingKeys`, the validator's verdict on each message the lookup
+acts on, the walk's ends, and `bogus` as an error and a cause. No configuration the walk takes
+validates yet, so its transcripts did not change, and the code follows the model in a later step.
+The proofs of §25's lookup model are in `spec/lean/Spec/LookupProofs/Validation.lean`.
 
 Building the model and the replay found two defects in the code, fixed on 2026-09-23. A chain
 past `cname_hops_max` was ignored, so the lookup timed out instead of failing with
@@ -10805,6 +10809,33 @@ Each step lands with its checks, each check broken on purpose and recorded in
     §2.3, and the keys and signatures of RFC 5702 §6, RFC 6605 §6 and RFC 8080 §6, each that
     chapulin admits.
 11. The lookup: its rows in §5, its model, then `awaiting_keys`.
+    The rules, written on 2026-11-01, settle what the rows above leave open:
+    - The lookup validates when its table hands it a validator, and only then. It asks the
+      validator of each message it acts on: an answer, a CNAME, NXDOMAIN, NODATA, and TC=1 over
+      a stream, which reads as NODATA. SERVFAIL, REFUSED, NOTIMP, FORMERR, BADCOOKIE, YXDOMAIN and
+      an unmatched reply are not validated, since the lookup takes nothing from them.
+    - A secure message moves the lookup as the same message moves it today, but the proof gives
+      the negative, and not the response code (item 13). An insecure one moves it the same way,
+      and the end is `insecure`. An end is `secure` only when every message the lookup acted on
+      was secure. Stage A's AD bit is not read under validation (Stage B, what a validating
+      lookup sends, rule 3).
+    - A bogus message moves nothing but the server. Over UDP the same server is asked over TCP,
+      as TC=1 asks it; over a stream, or over DoH or DoQ, the lookup advances the server. Each
+      keeps `bogus` as the cause, as SERVFAIL keeps its rcode. A lookup whose passes run out with
+      `bogus` as its cause ends `Bogus`.
+    - A message the validator answers `keys_wanted` moves the lookup to `awaiting_keys`. The
+      state has no deadline, and its poll returns `wait`. The table's walk ends it with
+      `on_keys_ready`, keys held or an insecure delegation, or with `on_keys_failed` and the
+      walk's failure: `Bogus`, `Timeout` or `AllServersFailed` (walk rules 7 and 11).
+    - `on_keys_ready` asks the same server again, over the transport the lookup starts on, as a
+      retry asks it. The query counts as any other, so RFC 9520 §3.1's three queries still bound
+      it, and when the server has none left the lookup advances the server.
+    - The lookup counts the times it waited for keys for the current name, and a new name starts
+      the count again. Past `key_asks_max` a `keys_wanted` reads as `bogus`, so no validator makes
+      a lookup wait forever.
+    - FORMERR to a query with EDNS0 advances the server, keeps `formerr` as the cause, and leaves
+      EDNS0 on (Stage B, rule 4).
+    - A query under validation has DO and CD set and AD clear (Stage B, rules 1 to 3).
 12. The walk: its rules, its model, then the table's part and the TLA+ model.
 13. The cache: the status, the TTL bound and the bogus entries.
 14. The twin: a server in `sim` that signs for the tests' verifier, so the tests cover whole

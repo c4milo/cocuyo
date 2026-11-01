@@ -7,7 +7,7 @@
         .id = "M1",
         .what = "the model keeps EDNS0 off at the next server",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    let t := { s with server := s.server + 1, stage := fresh c, edns := true,\n", .new = "    let t := { s with server := s.server + 1, stage := fresh c,\n" },
+            .{ .file = "spec/lean/Spec/LookupState.lean", .old = "    let t := { s with server := s.server + 1, stage := fresh c, edns := true,\n", .new = "    let t := { s with server := s.server + 1, stage := fresh c,\n" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -16,7 +16,7 @@
         .id = "M2",
         .what = "the model ignores TC=1 over a stream",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    if stream then (nextCandidate c s true, .accepted)\n    else (retry c s { s with stage := .tcpNeeded } true none, .accepted)", .new = "    if stream then (s, .ignored)\n    else (retry c s { s with stage := .tcpNeeded } true none, .accepted)" },
+            .{ .file = "spec/lean/Spec/LookupState.lean", .old = "    if stream then (nextCandidate c s true, .accepted)\n    else (retry c s { s with stage := .tcpNeeded } true none, .accepted)", .new = "    if stream then (s, .ignored)\n    else (retry c s { s with stage := .tcpNeeded } true none, .accepted)" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -34,7 +34,7 @@
         .id = "DM1",
         .what = "a reply over DoH is read as a datagram's",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .awaitingUdp => onReply c s c.request r", .new = "  | .awaitingUdp => onReply c s false r" },
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .awaitingUdp => reading c s c.request r ad v", .new = "  | .awaitingUdp => reading c s false r ad v" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -82,7 +82,7 @@
         .id = "CO22",
         .what = "the model advances the server at a first BADCOOKIE over a stream, as before #36",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "      if c.request || s.cookieRetried then (advanceServer c (keep s .badcookie), .accepted)", .new = "      if c.request || s.cookieRetried || stream then (advanceServer c (keep s .badcookie), .accepted)" },
+            .{ .file = "spec/lean/Spec/LookupState.lean", .old = "      if c.request || s.cookieRetried then (advanceServer c (keep s .badcookie), .accepted)", .new = "      if c.request || s.cookieRetried || stream then (advanceServer c (keep s .badcookie), .accepted)" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -91,7 +91,7 @@
         .id = "CO23",
         .what = "the model retries a BADCOOKIE over DoH or DoQ on a stream",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "      if c.request || s.cookieRetried then (advanceServer c (keep s .badcookie), .accepted)", .new = "      if s.cookieRetried then (advanceServer c (keep s .badcookie), .accepted)" },
+            .{ .file = "spec/lean/Spec/LookupState.lean", .old = "      if c.request || s.cookieRetried then (advanceServer c (keep s .badcookie), .accepted)", .new = "      if s.cookieRetried then (advanceServer c (keep s .badcookie), .accepted)" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -100,7 +100,7 @@
         .id = "CO24",
         .what = "the model's retry over a stream does not spend the server's retry",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "      else (retry c s { s with cookieRetried := true, stage := .tcpNeeded } true (some .badcookie),", .new = "      else (retry c s { s with stage := .tcpNeeded } true (some .badcookie)," },
+            .{ .file = "spec/lean/Spec/LookupState.lean", .old = "      else (retry c s { s with cookieRetried := true, stage := .tcpNeeded } true (some .badcookie),", .new = "      else (retry c s { s with stage := .tcpNeeded } true (some .badcookie)," },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -109,7 +109,7 @@
         .id = "LC22",
         .what = "the model keeps the cause FORMERR at SERVFAIL",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .servfail => (advanceServer c (keep s .servfail), .accepted)", .new = "  | .servfail => (advanceServer c (keep s .formerr), .accepted)" },
+            .{ .file = "spec/lean/Spec/LookupState.lean", .old = "  | .servfail => (advanceServer c (keep s .servfail), .accepted)", .new = "  | .servfail => (advanceServer c (keep s .formerr), .accepted)" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -138,7 +138,7 @@
         .id = "LC25",
         .what = "the model keeps the first cause, and a later server failure does not replace it",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "def keep (s : State) (w : What) : State := { s with cause := some { server := s.server, what := w } }", .new = "def keep (s : State) (w : What) : State := { s with cause := s.cause <|> some { server := s.server, what := w } }" },
+            .{ .file = "spec/lean/Spec/LookupState.lean", .old = "def keep (s : State) (w : What) : State := { s with cause := some { server := s.server, what := w } }", .new = "def keep (s : State) (w : What) : State := { s with cause := s.cause <|> some { server := s.server, what := w } }" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -148,7 +148,7 @@
         .id = "LC26",
         .what = "the model forgets the cause at the end of its last pass",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    fail { s with round := s.round + 1 } (if s.cause.isSome then .allServersFailed else .timeout)", .new = "    fail { s with round := s.round + 1, cause := none } (if s.cause.isSome then .allServersFailed else .timeout)" },
+            .{ .file = "spec/lean/Spec/LookupState.lean", .old = "    fail { s with round := s.round + 1 } (exhausted s)", .new = "    fail { s with round := s.round + 1, cause := none } (exhausted s)" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -157,7 +157,7 @@
         .id = "LC27",
         .what = "the model's walk writes no cause",
         .edits = .{
-            .{ .file = "spec/lean/Main.lean", .old = "    out.putStrLn s!\"{depth + 1} {eventToken e} {outToken o} {lineToken t}\"", .new = "    out.putStrLn s!\"{depth + 1} {eventToken e} {outToken o} {stateToken t}\"" },
+            .{ .file = "spec/lean/Main.lean", .old = "    out.putStrLn s!\"{depth + 1} {eventToken e} {outToken o} {lineToken c t}\"", .new = "    out.putStrLn s!\"{depth + 1} {eventToken e} {outToken o} {stateToken t}\"" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -176,7 +176,7 @@
         .id = "RS90",
         .what = "the model's cause names the first server, whichever server gave it",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "def keep (s : State) (w : What) : State := { s with cause := some { server := s.server, what := w } }", .new = "def keep (s : State) (w : What) : State := { s with cause := some { server := 0, what := w } }" },
+            .{ .file = "spec/lean/Spec/LookupState.lean", .old = "def keep (s : State) (w : What) : State := { s with cause := some { server := s.server, what := w } }", .new = "def keep (s : State) (w : What) : State := { s with cause := some { server := 0, what := w } }" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -257,7 +257,7 @@
         .id = "RD11",
         .what = "the model offers each reply in tcpReady, where only the unmatched reply comes",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    ++ (if listens s.stage then replies else [Event.reply .unmatched])", .new = "    ++ (if waiting s.stage then replies else [Event.reply .unmatched])" },
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    ++ (if listens s.stage then plain ++ verdicts ++ authentic else [Event.reply .unmatched])", .new = "    ++ (if waiting s.stage then plain ++ verdicts ++ authentic else [Event.reply .unmatched])" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -275,7 +275,7 @@
         .id = "RB12",
         .what = "the model does not pass over a server with no query left",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    if spent t c.useTcp then advanceServer c t else t\n  else if _h2", .new = "    t\n  else if _h2" },
+            .{ .file = "spec/lean/Spec/LookupState.lean", .old = "    if spent t c.useTcp then advanceServer c t else t\n  else if _h2", .new = "    t\n  else if _h2" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -284,7 +284,7 @@
         .id = "RB13",
         .what = "the model's retry ignores the bound",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  if spent s stream then advanceServer c (match w with | some w => keep s w | none => s) else t", .new = "  t" },
+            .{ .file = "spec/lean/Spec/LookupState.lean", .old = "  if spent s stream then advanceServer c (match w with | some w => keep s w | none => s) else t", .new = "  t" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -302,7 +302,7 @@
         .id = "YX8",
         .what = "the model moves to the next candidate at YXDOMAIN",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .yxdomain => (fail s .nameTooLong, .accepted)", .new = "  | .yxdomain => (nextCandidate c s false, .accepted)" },
+            .{ .file = "spec/lean/Spec/LookupState.lean", .old = "  | .yxdomain => (fail s .nameTooLong, .accepted)", .new = "  | .yxdomain => (nextCandidate c s false, .accepted)" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -311,7 +311,7 @@
         .id = "YX9",
         .what = "the model moves to the next server at YXDOMAIN, as a server failure",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .yxdomain => (fail s .nameTooLong, .accepted)", .new = "  | .yxdomain => (advanceServer c (keep s .servfail), .accepted)" },
+            .{ .file = "spec/lean/Spec/LookupState.lean", .old = "  | .yxdomain => (fail s .nameTooLong, .accepted)", .new = "  | .yxdomain => (advanceServer c (keep s .servfail), .accepted)" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -348,6 +348,87 @@
         .what = "authentic_run proved by sorry",
         .edits = .{
             .{ .file = "spec/lean/Spec/LookupProofs/Security.lean", .old = "  induction es generalizing s with\n  | nil => exact h\n  | cons e rest ih => exact step_authentic c s e (ih _ h)", .new = "  sorry" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "DNSSEC Stage B in the model",
+        .id = "LV1",
+        .what = "an insecure message leaves the model's Stage B conjunction set",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .insecure => let p := onReply c s stream r; ({ p.1 with secure := false }, p.2)", .new = "  | .insecure => onReply c s stream r" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "DNSSEC Stage B in the model",
+        .id = "LV2",
+        .what = "a bogus message moves the model to the next candidate",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .bogus => (rejected c s stream, .accepted)", .new = "  | .bogus => (nextCandidate c s false, .accepted)" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "DNSSEC Stage B in the model",
+        .id = "LV3",
+        .what = "the model sends while it waits for keys",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .awaitingUdp | .connectingTcp | .awaitingTcp | .awaitingKeys => (s, .wait)", .new = "  | .awaitingUdp | .connectingTcp | .awaitingTcp => (s, .wait)\n  | .awaitingKeys => ({ s with offered := true }, .sendUdp)" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "DNSSEC Stage B in the model",
+        .id = "LV4",
+        .what = "FORMERR turns EDNS0 off under validation, in the model",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/LookupState.lean", .old = "    if s.edns && !c.validate then", .new = "    if s.edns then" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "DNSSEC Stage B in the model",
+        .id = "LV5",
+        .what = "the model waits for keys without counting the wait",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    if s.asks < keyAsksMax then ({ s with stage := .awaitingKeys, asks := s.asks + 1 }, .accepted)", .new = "    if s.asks < keyAsksMax then ({ s with stage := .awaitingKeys }, .accepted)" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "DNSSEC Stage B in the model",
+        .id = "LV6",
+        .what = "a walk's unanswered question ends the model in timeout after a server failed it",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .timeout => fail s (if s.cause.isSome then .allServersFailed else .timeout)", .new = "  | .timeout => fail s .timeout" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "DNSSEC Stage B in the model",
+        .id = "LV7",
+        .what = "a walk that proved a message bogus keeps no cause, in the model",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .bogus => fail (keep s .bogus) .bogus", .new = "  | .bogus => fail s .bogus" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "DNSSEC Stage B in the model",
+        .id = "LV8",
+        .what = "the model reads AD under validation",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  if c.validate then false else\n", .new = "" },
+        },
+        .caught_by = .{ .step = "spec-lean" },
+    },
+    .{
+        .section = "DNSSEC Stage B in the model",
+        .id = "LV9",
+        .what = "secure_run proved by sorry",
+        .edits = .{
+            .{ .file = "spec/lean/Spec/LookupProofs/Validation.lean", .old = "  induction es generalizing s with\n  | nil => exact h\n  | cons e rest ih => exact step_secure c s e (ih _ h)", .new = "  sorry" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
