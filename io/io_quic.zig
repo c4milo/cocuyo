@@ -91,7 +91,7 @@ pub fn Connection(comptime options: Options) type {
         /// A datagram at a time, over UDP (docs/design.md §24, the request interface).
         pub const socket = .datagram;
         /// colibri never makes a datagram longer than this (RFC 9000 §14.1's smallest).
-        pub const output_bytes_max = quic.constants.datagram_len_min;
+        pub const output_bytes_max = quic.constants.protocol.datagram_len_min;
         pub const request_bytes_max = cocuyo.limits.query_bytes_max;
         pub const Error = error{Failed};
         /// What every connection starts from (docs/design.md §24, the context a session starts
@@ -200,7 +200,7 @@ const Pair = struct {
     }
 
     fn exchange(pair: *Pair, answerer: server.Answerer) !void {
-        var datagram: [quic.constants.datagram_len_min]u8 = undefined;
+        var datagram: [quic.constants.protocol.datagram_len_min]u8 = undefined;
         var rounds: usize = 0;
         while (rounds < rounds_max) : (rounds += 1) {
             const out = pair.client.output(&datagram, pair.now_ns);
@@ -274,10 +274,10 @@ test "a cancelled stream keeps its slot until its answer is read, which ends its
     var query = [_]u8{ 0, 4, 0, 0, 1, 2 };
     const stream = (try pair.client.request(&query, query.len)).?;
     // The query reaches the server, and its answer is held back.
-    var datagram: [quic.constants.datagram_len_min]u8 = undefined;
+    var datagram: [quic.constants.protocol.datagram_len_min]u8 = undefined;
     const sent = pair.client.output(&datagram, pair.now_ns);
     pair.server.receive(datagram[0..sent], pair.now_ns, echo.answerer());
-    var answer: [quic.constants.datagram_len_min]u8 = undefined;
+    var answer: [quic.constants.protocol.datagram_len_min]u8 = undefined;
     const answer_len = pair.server.send(&answer, pair.now_ns);
     try testing.expect(answer_len > 0);
     // The stream is cancelled, and the connection read before the answer comes, as the engine
@@ -339,7 +339,7 @@ fn first_version(comptime Session: type) !u32 {
     var context: Client.Context = .{ .session = .{}, .stream = std.Random.ChaCha.init(@splat(0)) };
     try client.start(.{ .alpn = "doq", .ticket = @as(?Client.Ticket, null), .ticket_age_ns = 0, .context = &context, .now_ns = 1 });
     defer client.wipe();
-    var datagram: [quic.constants.datagram_len_min]u8 = undefined;
+    var datagram: [quic.constants.protocol.datagram_len_min]u8 = undefined;
     const sent = client.output(&datagram, 1);
     try testing.expect(sent > version_at + @sizeOf(u32));
     return std.mem.readInt(u32, datagram[version_at..][0..@sizeOf(u32)], .big);

@@ -15,7 +15,7 @@ const limits = @import("io_quic_limits.zig");
 const plain = @import("io_quic_plain.zig");
 
 pub const StreamId = quic.stream.StreamId;
-const connection_id_bytes_max = quic.crypto.constants.connection_id_len_max;
+const connection_id_bytes_max = quic.crypto.constants.protocol.connection_id_len_max;
 
 /// What answers a query: the message, written into `out`, and its octets, or null to reset the
 /// stream instead.

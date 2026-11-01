@@ -54,11 +54,11 @@ const protocols: client.Protocols = .{ .h11 = true, .h2 = true, .h3 = true };
 /// `stream_input_len_min`. Each start asserts it, so a test that starts a channel reads it.
 fn assert_sizes() void {
     const record_body_bytes_max = limits.record_bytes_max - constants.record_header_bytes;
-    const room_least = client.constants.stream_input_len_min - 1 + record_body_bytes_max;
-    assert(client.constants.plaintext_in_len >= room_least);
+    const room_least = client.constants.limits.stream_input_len_min - 1 + record_body_bytes_max;
+    assert(client.constants.limits.plaintext_in_len >= room_least);
     assert(limits.stream_bytes_max >= limits.record_bytes_max + limits.engine_chunk_bytes_max);
     // `send_stream` always writes a record it owes into an output this long.
-    assert(limits.output_bytes_max >= client.constants.stream_output_len_min);
+    assert(limits.output_bytes_max >= client.constants.limits.stream_output_len_min);
 }
 
 /// Makes a server's channel, with nothing opened (rule 18). Its TLS names the server as its `Tls`

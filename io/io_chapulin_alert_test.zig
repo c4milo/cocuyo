@@ -16,8 +16,8 @@ const testing = std.testing;
 /// The identity the DoH tests run colibri's server under (`io_doh_channel_identity.zig` says how
 /// it was made): a leaf for `dns.example` and the CA that signed it, valid from 2026 to 2126.
 const chain = [_][]const u8{@embedFile("testdata/identity.leaf.der")};
-const public_key: *const [tls.constants.p256_public_key_len]u8 = @embedFile("testdata/identity.pub");
-const private_key: *const [tls.constants.p256_private_key_len]u8 = @embedFile("testdata/identity.priv");
+const public_key: *const [tls.constants.protocol.p256_public_key_len]u8 = @embedFile("testdata/identity.pub");
+const private_key: *const [tls.constants.protocol.p256_private_key_len]u8 = @embedFile("testdata/identity.priv");
 const anchors = [_]tls.Anchor{.{ .subject = @embedFile("testdata/identity.name"), .spki = @embedFile("testdata/identity.spki") }};
 /// An instant inside the identity's validity, 2026-06-01T00:00:00Z.
 const unix_seconds: u64 = 1_780_272_000;
@@ -26,7 +26,7 @@ const unix_seconds: u64 = 1_780_272_000;
 const cpu_not_stated: Session.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .not_stated };
 /// RFC 9846 §4.3.2's cookie key, and the octets each side's stream is seeded with. Test-only values.
 const cookie_octet: u8 = 0x5e;
-const cookie_key: [tls.constants.server_key_len]u8 = @splat(cookie_octet);
+const cookie_key: [tls.constants.protocol.server_key_len]u8 = @splat(cookie_octet);
 const client_seed_octet: u8 = 0x36;
 const server_seed_octet: u8 = 0x35;
 /// The outer content type of every protected record, application_data (RFC 9846 §5.2).

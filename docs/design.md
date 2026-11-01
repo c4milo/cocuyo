@@ -9334,6 +9334,18 @@ v0.9.0. Its client API does not change, and no file of cocuyo's code changed for
   - `cocuyo_doh`'s type of 4 answers: 1,686,624 octets, then 1,725,696.
 - The server's endpoint grows too, but only the tests of `cocuyo_doh` run it.
 
+colibri v0.11.0, pinned on 2026-11-01 for §25 step 10, pins chapulin `f59c7e3f` and the same stdx as
+v0.10.0. It holds the `dnssec` module the verifier of step 10 binds (§16 decision 35, as amended).
+What changed for cocuyo's code:
+
+- Its constants are grouped (colibri's decision 137): `constants.protocol`, `constants.limits`
+  and the like. Forty-four lines of `io/` name a constant by its group now, and nothing else
+  changed.
+- QUIC runs BBRv3 by default, for DoQ and for DoH on HTTP/3; `.congestion_controller = .cubic`
+  keeps CUBIC, which cocuyo does not set. The sizes of the connections were not measured again.
+- A DoH response larger than its body ends `too_large` at its head. `io_doh_channel_exchange.zig`
+  hands that to the engine as a failed request with the reason `status`, as before.
+
 **The owner's rulings of 2026-09-28** (decision 33):
 
 - colibri's `client.Channel` makes decision 30's choice. The engine holds one channel for each DoH

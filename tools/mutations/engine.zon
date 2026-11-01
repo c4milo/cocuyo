@@ -4202,9 +4202,9 @@
     .{
         .section = "The session module",
         .id = "SM4",
-        .what = "the consumer fixture pins colibri v0.9.0, where build.zig.zon pins v0.10.0",
+        .what = "the consumer fixture pins colibri v0.10.0, where build.zig.zon pins v0.11.0",
         .edits = .{
-            .{ .file = "test/consumer/build.zig.zon", .old = ".hash = \"colibri-0.10.0-Wo-AvoMClAScS0Fv--6LWQCqqo9efJRTOVdz-sYlr6tV\",", .new = ".hash = \"colibri-0.9.0-Wo-Avj48kQT3mwcY_qvTKYBXgrNxy__YJVgOmOY-PSYj\"," },
+            .{ .file = "test/consumer/build.zig.zon", .old = ".hash = \"colibri-0.10.0-Wo-AvtswnASeMGAf75MDVdGAz7oGtHKg1iK_uV2rioDy\",", .new = ".hash = \"colibri-0.10.0-Wo-AvoMClAScS0Fv--6LWQCqqo9efJRTOVdz-sYlr6tV\"," },
         },
         .caught_by = .{ .step = "consumer-check" },
     },

@@ -312,7 +312,7 @@ test "the ticket a session would resume with is zeroed when its start fails" {
     const pins = [_]cocuyo.Pin{@splat(pin_octet)};
     var ticket = std.mem.zeroes(Session.Ticket);
     ticket.identity_len = 1;
-    ticket.psk_len = tls.constants.sha256_len;
+    ticket.psk_len = tls.constants.protocol.sha256_len;
     @memset(&ticket.psk, 0x5a);
     @memset(&ticket.binding, 0x33);
     ticket.lifetime_s = 1;

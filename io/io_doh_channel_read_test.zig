@@ -239,10 +239,10 @@ test "a read hands colibri the stream's whole records after a datagram that it t
 /// colibri's longest head, `h11.constants.head_len_max`, 32,768 octets at v0.8.0. No module here
 /// imports `h11`, so it is read as `client.constants.stream_input_len_min`: the longest unit a TCP
 /// connection takes whole, which is the head while the head is longer than a frame and a record.
-const head_bytes_longest = client.constants.stream_input_len_min;
+const head_bytes_longest = client.constants.limits.stream_input_len_min;
 comptime {
-    assert(head_bytes_longest > client.constants.frame_len_max);
-    assert(head_bytes_longest > client.constants.stream_output_len_min);
+    assert(head_bytes_longest > client.constants.limits.frame_len_max);
+    assert(head_bytes_longest > client.constants.limits.stream_output_len_min);
 }
 /// A head longer than colibri v0.6.0's room held beside a full record, 16,632 octets
 /// (docs/design.md §17 question 52).

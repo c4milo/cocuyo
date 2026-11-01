@@ -29,8 +29,8 @@ const start_module = @import("io_doh_channel_start.zig");
 
 /// The leaf, then nothing: the server's chain (RFC 9846 §4.5.1).
 pub const chain = [_][]const u8{@embedFile("testdata/identity.leaf.der")};
-pub const public_key: *const [tls.constants.p256_public_key_len]u8 = @embedFile("testdata/identity.pub");
-pub const private_key: *const [tls.constants.p256_private_key_len]u8 = @embedFile("testdata/identity.priv");
+pub const public_key: *const [tls.constants.protocol.p256_public_key_len]u8 = @embedFile("testdata/identity.pub");
+pub const private_key: *const [tls.constants.protocol.p256_private_key_len]u8 = @embedFile("testdata/identity.priv");
 
 /// The root a client trusts: the CA's subject Name and SubjectPublicKeyInfo.
 pub const anchor: tls.Anchor = .{

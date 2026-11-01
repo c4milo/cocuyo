@@ -25,8 +25,8 @@ const streams: usize = 1;
 /// The test identity, as `cocuyo_doh`'s tests read it (`io_doh_channel_identity.zig`, which is
 /// another module's file): the leaf for `dns.example`, its key, and the CA a client trusts.
 const chain = [_][]const u8{@embedFile("testdata/identity.leaf.der")};
-const public_key: *const [tls.constants.p256_public_key_len]u8 = @embedFile("testdata/identity.pub");
-const private_key: *const [tls.constants.p256_private_key_len]u8 = @embedFile("testdata/identity.priv");
+const public_key: *const [tls.constants.protocol.p256_public_key_len]u8 = @embedFile("testdata/identity.pub");
+const private_key: *const [tls.constants.protocol.p256_private_key_len]u8 = @embedFile("testdata/identity.priv");
 const anchors = [_]tls.Anchor{.{ .subject = @embedFile("testdata/identity.name"), .spki = @embedFile("testdata/identity.spki") }};
 const server_name = "dns.example.";
 /// What the server and the client state of the CPU: nothing (docs/design.md §16 decision 48). Each
@@ -40,8 +40,8 @@ const unix_seconds: u64 = 1_780_272_000;
 /// client's connection IDs. Test-only values.
 const cookie_octet: u8 = 0x5d;
 const ticket_octet: u8 = 0x7f;
-const cookie_key: [tls.constants.server_key_len]u8 = @splat(cookie_octet);
-const ticket_key: [tls.constants.server_key_len]u8 = @splat(ticket_octet);
+const cookie_key: [tls.constants.protocol.server_key_len]u8 = @splat(cookie_octet);
+const ticket_key: [tls.constants.protocol.server_key_len]u8 = @splat(ticket_octet);
 const server_seed_octet: u8 = 0x36;
 const session_seed_octet: u8 = 0x09;
 const ids_seed_octet: u8 = 0x0a;
@@ -49,7 +49,7 @@ const ids_seed_octet: u8 = 0x0a;
 /// The protocol the server selects (RFC 9250 §4.1).
 const alpn = [_][]const u8{"doq"};
 /// The longest connection ID a long header names (RFC 9000 §17.2).
-const id_bytes_max = quic.crypto.constants.connection_id_len_max;
+const id_bytes_max = quic.crypto.constants.protocol.connection_id_len_max;
 /// A millisecond a round, and rounds enough for a handshake and its ticket.
 const round_ns: u64 = 1_000_000;
 const rounds_max: usize = 64;
@@ -173,7 +173,7 @@ const Side = struct {
 
 /// Carries datagrams both ways, a millisecond a round, until neither side sends.
 fn exchange(client: *Client, server: *Server, now_ns: *u64) !void {
-    var datagram: [quic.constants.datagram_len_min]u8 = undefined;
+    var datagram: [quic.constants.protocol.datagram_len_min]u8 = undefined;
     for (0..rounds_max) |_| {
         const out = client.output(&datagram, now_ns.*);
         if (out > 0) try server.receive(datagram[0..out], now_ns.*);
@@ -219,7 +219,7 @@ test "a session that resumes with a ticket of QUIC version 2 starts its connecti
     defer side.client.wipe();
     defer server.close();
     try testing.expectEqual(Version.v2, side.client.session.original_version());
-    var datagram: [quic.constants.datagram_len_min]u8 = undefined;
+    var datagram: [quic.constants.protocol.datagram_len_min]u8 = undefined;
     const first = side.client.output(&datagram, now_ns);
     try testing.expect(first > version_at + @sizeOf(u32));
     try testing.expectEqual(@intFromEnum(Version.v2), std.mem.readInt(u32, datagram[version_at..][0..@sizeOf(u32)], .big));

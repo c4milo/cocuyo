@@ -11197,3 +11197,15 @@ VL29 VQ1 VQ2` ran each to its end.
 | VQ2 | a query asked for DO does not set it | `zig build test-wire` | `CAUGHT` |
 
 31 mutations, 31 `CAUGHT`.
+
+## colibri v0.11.0
+
+2026-11-01. cocuyo pins colibri v0.11.0 for design §25 step 10 (c4milo/cocuyo#56). SM4 named the
+consumer fixture's pin of v0.10.0, and names the pin of v0.11.0 now. `zig build mutations --
+engine SM4` ran it to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| SM4 | the consumer fixture pins colibri v0.10.0, where build.zig.zon pins v0.11.0 | `zig build consumer-check` | `CAUGHT` |
+
+1 mutation, 1 `CAUGHT`.

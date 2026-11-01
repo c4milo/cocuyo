@@ -22,7 +22,7 @@ const alpn = [_][]const u8{"http/1.1"};
 /// seeded with. Test-only values.
 const cookie_octet: u8 = 0x5e;
 const stream_octet: u8 = 0x35;
-const cookie_key: [tls.constants.server_key_len]u8 = @splat(cookie_octet);
+const cookie_key: [tls.constants.protocol.server_key_len]u8 = @splat(cookie_octet);
 /// The end of a request's head over HTTP/1.1: an empty line after the field lines.
 const head_end = "\r\n\r\n";
 
@@ -74,7 +74,7 @@ pub const RawServer = struct {
 
     fn handshake(self: *RawServer) !void {
         const room = self.owed[self.owed_len..];
-        assert(room.len >= server.constants.flight_len_max);
+        assert(room.len >= server.constants.limits.flight_len_max);
         const progress = try self.session.handshake(self.input[0..self.input_len], room);
         self.owed_len += progress.written;
         self.take(progress.consumed);

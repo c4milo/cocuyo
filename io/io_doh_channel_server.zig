@@ -42,8 +42,8 @@ pub const Script = struct {
 const cookie_octet: u8 = 0x5c;
 const ticket_octet: u8 = 0x7e;
 const stream_octet: u8 = 0x33;
-const cookie_key: [tls.constants.server_key_len]u8 = @splat(cookie_octet);
-const ticket_key: [tls.constants.server_key_len]u8 = @splat(ticket_octet);
+const cookie_key: [tls.constants.protocol.server_key_len]u8 = @splat(cookie_octet);
+const ticket_key: [tls.constants.protocol.server_key_len]u8 = @splat(ticket_octet);
 
 /// The server's TLS identity, the test's, with no protocol named: the endpoint names those its
 /// versions allow (colibri's decision 119).

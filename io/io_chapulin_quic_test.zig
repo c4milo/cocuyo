@@ -307,7 +307,7 @@ test "the ticket a session would resume with is zeroed when it is wiped, or when
     const pins = [_]cocuyo.Pin{@splat(pin_octet)};
     var ticket = std.mem.zeroes(Session.Ticket);
     ticket.identity_len = 1;
-    ticket.psk_len = tls.constants.sha256_len;
+    ticket.psk_len = tls.constants.protocol.sha256_len;
     @memset(&ticket.psk, 0x5a);
     ticket.lifetime_s = 1;
     ticket.quic_version = quic_version_1;

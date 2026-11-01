@@ -138,14 +138,14 @@ fn side_expire(side: *Side, now_ns: u64) void {
 fn lose_ack_frames(datagram: []u8) usize {
     var at: usize = 0;
     // Bounded by the packets a datagram holds (RFC 9000 §12.2).
-    for (0..quic.constants.coalesced_packets_max) |_| {
+    for (0..quic.constants.limits.coalesced_packets_max) |_| {
         if (at == datagram.len) return 0;
         const packet = quic.packet.header.read(datagram[at..], cocuyo_quic.constants.connection_id_bytes) catch return 0;
         switch (packet) {
             .long => |long| at += long.packet_len,
             .short => |short| {
-                const number_len = (short.first_octet & quic.constants.packet_number_len_mask) + 1;
-                const frames = datagram[at + short.packet_number_offset + number_len .. datagram.len - quic.constants.aead_tag_len];
+                const number_len = (short.first_octet & quic.constants.protocol.packet_number_len_mask) + 1;
+                const frames = datagram[at + short.packet_number_offset + number_len .. datagram.len - quic.constants.protocol.aead_tag_len];
                 return padding_for_acks(frames);
             },
             else => return 0,

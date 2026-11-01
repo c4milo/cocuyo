@@ -38,7 +38,7 @@ pub const Options = struct {
 pub fn Channel(comptime options: Options) type {
     // A request becomes one of colibri's exchanges only while an answer buffer is free, so colibri
     // never has more than it can hold.
-    comptime assert(options.answers > 0 and options.answers <= client.constants.pool_requests_max);
+    comptime assert(options.answers > 0 and options.answers <= client.constants.limits.pool_requests_max);
     return struct {
         const Self = @This();
 

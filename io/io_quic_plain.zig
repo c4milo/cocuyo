@@ -317,7 +317,7 @@ fn keys_available(context: *const anyopaque, level: Level, direction: suite_modu
 /// The header, the payload, and sixteen octets of tag (RFC 9001 §5.3), with no header protection.
 fn seal(context: *anyopaque, sealing: suite_module.Sealing, output: []u8) suite_module.SealError!usize {
     if (!keys_available(context, sealing.level, .write)) return error.KeysUnavailable;
-    const tag = crypto.constants.aead_tag_len;
+    const tag = crypto.constants.protocol.aead_tag_len;
     const len = sealing.header.len + sealing.payload.len + tag;
     if (output.len < len) return error.NoSpaceLeft;
     @memcpy(output[0..sealing.header.len], sealing.header);
@@ -331,8 +331,8 @@ fn seal(context: *anyopaque, sealing: suite_module.Sealing, output: []u8) suite_
 fn open(context: *anyopaque, opening: suite_module.Opening) suite_module.OpenError!suite_module.Opened {
     if (!keys_available(context, opening.level, .read)) return error.KeysUnavailable;
     const packet = opening.packet;
-    const number_len: u8 = (packet[0] & crypto.constants.packet_number_len_mask) + 1;
-    const tag = crypto.constants.aead_tag_len;
+    const number_len: u8 = (packet[0] & crypto.constants.protocol.packet_number_len_mask) + 1;
+    const tag = crypto.constants.protocol.aead_tag_len;
     if (packet.len < opening.packet_number_offset + number_len + tag) return error.Discarded;
     var value: u32 = 0;
     for (packet[opening.packet_number_offset..][0..number_len]) |octet| value = (value << @bitSizeOf(u8)) | octet;
@@ -356,7 +356,7 @@ fn switch_version(context: *anyopaque, version: suite_module.Version) suite_modu
     return error.Refused;
 }
 
-fn retry_tag_valid(context: *const anyopaque, version: suite_module.Version, pseudo_packet: []const u8, tag: *const [crypto.constants.retry_integrity_tag_len]u8) bool {
+fn retry_tag_valid(context: *const anyopaque, version: suite_module.Version, pseudo_packet: []const u8, tag: *const [crypto.constants.protocol.retry_integrity_tag_len]u8) bool {
     _ = context;
     _ = version;
     _ = pseudo_packet;
@@ -364,7 +364,7 @@ fn retry_tag_valid(context: *const anyopaque, version: suite_module.Version, pse
     return false;
 }
 
-fn retry_tag_write(context: *const anyopaque, version: suite_module.Version, pseudo_packet: []const u8, tag: *[crypto.constants.retry_integrity_tag_len]u8) suite_module.RetryTagError!void {
+fn retry_tag_write(context: *const anyopaque, version: suite_module.Version, pseudo_packet: []const u8, tag: *[crypto.constants.protocol.retry_integrity_tag_len]u8) suite_module.RetryTagError!void {
     _ = context;
     _ = version;
     _ = pseudo_packet;
