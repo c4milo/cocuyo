@@ -10796,6 +10796,11 @@ Each step lands with its checks, each check broken on purpose and recorded in
      alone cannot tell a signed zone from an unsigned delegation below it, so the walk decides
      (walk rules 1 and 8). This is how item 14 reads.
    - A secure end carries the smallest TTL of item 7 over every RRset it used.
+   - The NSEC3 hashes of one message are counted against `nsec3_hashes_per_message_max`. A
+     referral's proofs, one for each ancestor below the zone, stop once the message passes it.
+   Built on 2026-11-01 in `src/dnssec/`: `dnssec_message`, `dnssec_rrset`, `dnssec_store`,
+   `dnssec_store_keys`, `dnssec_validate` and `dnssec_validate_denial`. The tests read every
+   response of RFC 4035 Appendix B and of RFC 5155 Appendix B, signed for the tests' verifier.
 10. The verifier over chapulin, outside `src/`: the DS examples of RFC 4034 §5.4 and RFC 4509
     §2.3, and the keys and signatures of RFC 5702 §6, RFC 6605 §6 and RFC 8080 §6, each that
     chapulin admits.

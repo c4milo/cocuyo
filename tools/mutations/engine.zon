@@ -6857,4 +6857,103 @@
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
+    .{
+        .section = "The validator",
+        .id = "VN1",
+        .what = "an NSEC3 of the answer section turns a negative to NSEC3",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        if (message.sections[index] == .authority and message.records[index].is_kind(kind)) return true;", .new = "        if (message.records[index].is_kind(kind)) return true;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "VN2",
+        .what = "an NSEC3 negative is read as an NSEC one",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "    if (has(walk, .nsec3)) return negative_nsec3(walk, name, kind, signed);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "VN3",
+        .what = "an NSEC3 negative that rests on nothing signed is weighed",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "    if (nsec3s.len == 0 and !signed) return .{ .keys_wanted = name.* };\n    return switch", .new = "    if (nsec3s.len == 0 and !signed and false) return .{ .keys_wanted = name.* };\n    return switch" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "VN4",
+        .what = "an NSEC3 proof under Opt-Out reads as no proof",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        .insecure => .insecure,\n        .none => try delegated3(walk, name, &nsec3s),", .new = "        .insecure => .{ .bogus = .proof },\n        .none => try delegated3(walk, name, &nsec3s)," },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "VN5",
+        .what = "a referral with no verified NSEC3 reads a record that is not there",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "    if (nsec3s.len == 0) return .{ .bogus = .proof };\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "VN6",
+        .what = "a referral's proofs run past the message's hash bound",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        if (walk.hashed_past()) break;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "VN7",
+        .what = "a referral's unsigned delegation under NSEC3 is bogus",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        if (nsec3.unsigned_delegation(&ancestor, nsec3s.slice(), walk.hasher()) != .no) return .insecure;\n", .new = "        if (nsec3.unsigned_delegation(&ancestor, nsec3s.slice(), walk.hasher()) != .no and false) return .insecure;\n" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "VN8",
+        .what = "a referral to the name itself proves nothing under NSEC3",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "    for (zone_labels + 1..name.label_count() + 1) |labels| {", .new = "    for (zone_labels + 1..name.label_count()) |labels| {" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "VN9",
+        .what = "an unsigned NSEC3 ends the message",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "= valid.signer, .nsec3 = parsed };\n                out.len += 1;\n            },\n            .unsigned => {},\n            else => return Walk.failed(outcome, name),\n        }\n    }\n    return null;\n}\n", .new = "= valid.signer, .nsec3 = parsed };\n                out.len += 1;\n            },\n            else => return Walk.failed(outcome, name),\n        }\n    }\n    return null;\n}\n" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "VN10",
+        .what = "the hashes a message costs are not counted",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate.zig", .old = "        self.hashes += 1;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The validator",
+        .id = "VN11",
+        .what = "a wildcard answer under NSEC3 is refused",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        .yes => walk.secure(ending),", .new = "        .yes => .{ .bogus = .proof }," },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
 }

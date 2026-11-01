@@ -11093,3 +11093,30 @@ rewritten. `zig build mutations -- engine A1 ... A10 D1 ... D25` ran each to its
 | D25 | a bogus NSEC is passed over | `zig build test-dnssec` | `CAUGHT` |
 
 35 mutations, 35 `CAUGHT`.
+
+## The validator over NSEC3
+
+2026-11-01. Design §25 Stage B, step 9's last piece (c4milo/cocuyo#56): the validator's tests read
+every response of RFC 5155 Appendix B, with the Opt-Out flag as printed and cleared, and refuse
+each secure one with any signed octet changed. The RFC's zone signs with algorithm 7; these
+responses are signed by RFC 4035 Appendix A's zone key, which the tests' store holds, since the
+tests' verifier reads no key's arithmetic. Two checks of the hash bound were taken out first:
+one proof holds its own hashes to the bound, so only the loop over a referral's ancestors can
+pass it. VN7 failed to compile at first, and was rewritten. `zig build mutations -- engine VN1
+... VN11` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| VN1 | an NSEC3 of the answer section turns a negative to NSEC3 | `zig build test-dnssec` | `CAUGHT` |
+| VN2 | an NSEC3 negative is read as an NSEC one | `zig build test-dnssec` | `CAUGHT` |
+| VN3 | an NSEC3 negative that rests on nothing signed is weighed | `zig build test-dnssec` | `CAUGHT` |
+| VN4 | an NSEC3 proof under Opt-Out reads as no proof | `zig build test-dnssec` | `CAUGHT` |
+| VN5 | a referral with no verified NSEC3 reads a record that is not there | `zig build test-dnssec` | `CAUGHT` |
+| VN6 | a referral's proofs run past the message's hash bound | `zig build test-dnssec` | `CAUGHT` |
+| VN7 | a referral's unsigned delegation under NSEC3 is bogus | `zig build test-dnssec` | `CAUGHT` |
+| VN8 | a referral to the name itself proves nothing under NSEC3 | `zig build test-dnssec` | `CAUGHT` |
+| VN9 | an unsigned NSEC3 ends the message | `zig build test-dnssec` | `CAUGHT` |
+| VN10 | the hashes a message costs are not counted | `zig build test-dnssec` | `CAUGHT` |
+| VN11 | a wildcard answer under NSEC3 is refused | `zig build test-dnssec` | `CAUGHT` |
+
+11 mutations, 11 `CAUGHT`.

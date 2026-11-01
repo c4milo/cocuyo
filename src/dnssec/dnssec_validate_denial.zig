@@ -116,7 +116,7 @@ pub fn wildcard(walk: *Walk, name: *const Name, labels: u8, ending: validate.End
     var nsec3s: Nsec3s = .{};
     if (try gather_nsec3(walk, name, &nsec3s)) |end| return end;
     return switch (nsec3.wildcard_answer(name, labels, nsec3s.slice(), walk.hasher())) {
-        .yes => if (walk.hashed_past()) .{ .bogus = .proof } else walk.secure(ending),
+        .yes => walk.secure(ending),
         .insecure => .insecure,
         .no => .{ .bogus = .proof },
     };
@@ -154,18 +154,17 @@ fn negative_nsec3(walk: *Walk, name: *const Name, kind: Kind, signed: bool) Erro
     var nsec3s: Nsec3s = .{};
     if (try gather_nsec3(walk, name, &nsec3s)) |end| return end;
     if (nsec3s.len == 0 and !signed) return .{ .keys_wanted = name.* };
-    const ending: Validation = switch (nsec3.deny(name, kind, nsec3s.slice(), walk.hasher())) {
+    return switch (nsec3.deny(name, kind, nsec3s.slice(), walk.hasher())) {
         .no_data => walk.secure(.no_data),
         .name_error => walk.secure(.name_error),
         .insecure => .insecure,
         .none => try delegated3(walk, name, &nsec3s),
     };
-    return if (walk.hashed_past()) .{ .bogus = .proof } else ending;
 }
 
 /// Whether `name` or an ancestor below the zone is an unsigned delegation the records prove, as
-/// a referral to it shows (RFC 5155 §8.9, RFC 6840 §4.4). Each name tried costs hashes, within the
-/// message's bound.
+/// a referral to it shows (RFC 5155 §8.9, RFC 6840 §4.4). One proof holds its own hashes to
+/// `nsec3_hashes_per_message_max`, and this loop of proofs stops once the message passes it.
 fn delegated3(walk: *Walk, name: *const Name, nsec3s: *const Nsec3s) Error!Validation {
     if (nsec3s.len == 0) return .{ .bogus = .proof };
     const zone_labels = nsec3s.items[0].signer.label_count();

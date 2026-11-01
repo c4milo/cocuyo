@@ -338,3 +338,130 @@ test "a name under no anchor is insecure before its message is read" {
     const bytes = answer.message();
     try testing.expectEqual(Validation.insecure, setup.validate("x.w.org", .mx, bytes[0 .. bytes.len - 1]));
 }
+
+const nsec3_zone = @import("rfc5155/fixtures.zig");
+
+test "RFC 5155 B.1 to B.6, with the Opt-Out flag as printed and cleared" {
+    var setup: Setup = .{};
+    setup.init();
+    const cleared: nsec3_zone.Options = .{ .flags = 0 };
+    const printed: nsec3_zone.Options = .{};
+    // As printed, every proof that rests on the closest encloser proof is insecure (RFC 5155 §9.2).
+    var name_error = nsec3_zone.name_error(printed);
+    try testing.expectEqual(Validation.insecure, setup.validate("a.c.x.w.example", .a, name_error.message()));
+    name_error = nsec3_zone.name_error(cleared);
+    try testing.expectEqual(Ending.name_error, setup.validate("a.c.x.w.example", .a, name_error.message()).secure.ending);
+    var no_data = nsec3_zone.no_data(printed);
+    try testing.expectEqual(Ending.no_data, setup.validate("ns1.example", .mx, no_data.message()).secure.ending);
+    var empty = nsec3_zone.empty_non_terminal(printed);
+    try testing.expectEqual(Ending.no_data, setup.validate("y.w.example", .a, empty.message()).secure.ending);
+    var referral = nsec3_zone.referral(printed);
+    try testing.expectEqual(Validation.insecure, setup.validate("mc.c.example", .mx, referral.message()));
+    referral = nsec3_zone.referral(cleared);
+    try testing.expectEqual(Validation{ .bogus = .proof }, setup.validate("mc.c.example", .mx, referral.message()));
+    // A wildcard answer needs a cover of its next closer name alone (RFC 5155 §8.8).
+    for ([_]nsec3_zone.Options{ printed, cleared }) |options| {
+        var wildcard_answer = nsec3_zone.wildcard(options);
+        try testing.expectEqual(Ending.answer, setup.validate("a.z.w.example", .mx, wildcard_answer.message()).secure.ending);
+    }
+    var wildcard_none = nsec3_zone.wildcard_no_data(cleared);
+    try testing.expectEqual(Ending.no_data, setup.validate("a.z.w.example", .aaaa, wildcard_none.message()).secure.ending);
+    var ds = nsec3_zone.ds_at_child(printed);
+    try testing.expectEqual(Validation{ .bogus = .proof }, setup.validate("example", .ds, ds.message()));
+}
+
+fn name_error3() Builder {
+    return nsec3_zone.name_error(.{ .flags = 0 });
+}
+fn no_data3() Builder {
+    return nsec3_zone.no_data(.{ .flags = 0 });
+}
+fn empty_non_terminal3() Builder {
+    return nsec3_zone.empty_non_terminal(.{ .flags = 0 });
+}
+fn wildcard3() Builder {
+    return nsec3_zone.wildcard(.{ .flags = 0 });
+}
+fn wildcard_no_data3() Builder {
+    return nsec3_zone.wildcard_no_data(.{ .flags = 0 });
+}
+
+test "every secure response of RFC 5155 Appendix B is refused with any signed octet changed" {
+    var setup: Setup = .{};
+    setup.init();
+    const cases = [_]Case{
+        .{ .builder = name_error3, .asked = "a.c.x.w.example", .kind = .a },
+        .{ .builder = no_data3, .asked = "ns1.example", .kind = .mx },
+        .{ .builder = empty_non_terminal3, .asked = "y.w.example", .kind = .a },
+        .{ .builder = wildcard3, .asked = "a.z.w.example", .kind = .mx },
+        .{ .builder = wildcard_no_data3, .asked = "a.z.w.example", .kind = .aaaa },
+    };
+    for (cases) |case| try refused_when_changed(&setup, case);
+}
+
+test "an NSEC3 past the iteration limit is insecure once its signature verifies, and bogus before" {
+    var setup: Setup = .{};
+    setup.init();
+    // RFC 9276 §3.2, before any hash: the tests' hasher refuses any iteration count but 12.
+    var costly = nsec3_zone.no_data(.{ .iterations = 101 });
+    try testing.expectEqual(Validation.insecure, setup.validate("ns1.example", .mx, costly.message()));
+    var forged = Builder.init("ns1.example", .mx, 0);
+    forged.authority();
+    zone.apex_soa(&forged);
+    const rdata = nsec3_zone.nsec3("2vptu5timamqttgl4luu9kg21e0aor3s", &fixtures.address3, 1, 101);
+    forged.rrset("2t7b4g4vsa5smi47k61mv5bv1a22bojr.example", .nsec3, &.{&rdata}, zone.by_wrong_key);
+    try testing.expectEqual(Validation{ .bogus = .signature }, setup.validate("ns1.example", .mx, forged.message()));
+}
+
+test "an unsigned NSEC3 is passed over, and a negative on nothing signed waits for a walk" {
+    var setup: Setup = .{};
+    setup.init();
+    const rdata = nsec3_zone.nsec3("2vptu5timamqttgl4luu9kg21e0aor3s", &fixtures.address3, 0, 12);
+    var extra = nsec3_zone.no_data(.{});
+    extra.record("4g6p9u5gvfshp30pqecj98b3maqbn1ck.example", .nsec3, 3600, &rdata);
+    try testing.expectEqual(Ending.no_data, setup.validate("ns1.example", .mx, extra.message()).secure.ending);
+    var bare = Builder.init("ns1.example", .mx, 0);
+    bare.authority();
+    bare.record("2t7b4g4vsa5smi47k61mv5bv1a22bojr.example", .nsec3, 3600, &rdata);
+    try testing.expect(setup.validate("ns1.example", .mx, bare.message()).keys_wanted.equal(&named("ns1.example")));
+    // Signed, and with no NSEC3 that verifies: no proof.
+    zone.apex_soa(&bare);
+    try testing.expectEqual(Validation{ .bogus = .proof }, setup.validate("ns1.example", .mx, bare.message()));
+}
+
+test "an NSEC3 at a delegation with no DS makes a referral to it, or to its name, insecure" {
+    var setup: Setup = .{};
+    setup.init();
+    // The hash of `c.example`, its map NS and MX: a delegation with no DS (RFC 5155 §8.9).
+    const cut = nsec3_zone.nsec3("4g6p9u5gvfshp30pqecj98b3maqbn1cl", &fixtures.ns3, 0, 12);
+    for ([_][]const u8{ "mc.c.example", "c.example" }) |asked| {
+        var builder = Builder.init(asked, .mx, 0);
+        builder.authority();
+        builder.rrset("4g6p9u5gvfshp30pqecj98b3maqbn1ck.example", .nsec3, &.{&cut}, zone.by_zone);
+        try testing.expectEqual(Validation.insecure, setup.validate(asked, .mx, builder.message()));
+    }
+}
+
+test "an NSEC3 of the answer section is no part of an NSEC negative" {
+    var setup: Setup = .{};
+    setup.init();
+    var builder = Builder.init("ns1.example", .mx, 0);
+    const rdata = nsec3_zone.nsec3("2vptu5timamqttgl4luu9kg21e0aor3s", &fixtures.address3, 0, 12);
+    builder.record("2t7b4g4vsa5smi47k61mv5bv1a22bojr.example", .nsec3, 3600, &rdata);
+    builder.authority();
+    zone.apex_soa(&builder);
+    builder.rrset("ns1.example", .nsec, &.{"\x03ns2\x07example\x00" ++ fixtures.address}, zone.by_zone);
+    try testing.expectEqual(Ending.no_data, setup.validate("ns1.example", .mx, builder.message()).secure.ending);
+}
+
+test "a referral's proofs stop once the message passes nsec3_hashes_per_message_max" {
+    var setup: Setup = .{};
+    setup.init();
+    const deep = "a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.q.r.s.t.u.v.w.x.y.z.example";
+    var builder = Builder.init(deep, .a, 0);
+    builder.authority();
+    const rdata = nsec3_zone.nsec3("0p9mhaveqvm6t7vbl5lop2u3t2rp3tom", &fixtures.secure_cut3, 0, 12);
+    builder.rrset("2t7b4g4vsa5smi47k61mv5bv1a22bojr.example", .nsec3, &.{&rdata}, zone.by_zone);
+    try testing.expectEqual(Validation{ .bogus = .proof }, setup.validate(deep, .a, builder.message()));
+    try testing.expect(setup.hashes.computed <= 2 * limits.nsec3_hashes_per_message_max);
+}
