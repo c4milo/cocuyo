@@ -1,6 +1,7 @@
 # The lookup and the engine, in Lean and TLA+
 
-`lean/` holds two models in Lean 4, a Lake package; `tla/` holds the engine's in TLA+; and
+`lean/` holds two models in Lean 4, a Lake package; `tla/` holds the engine's in TLA+, and the
+table's part of the walks for keys; and
 `tools/spec_replay/` ties each to the Zig code:
 
 - `Lookup`, the state machine of docs/design.md §5, with proofs of what §5 promises of it.
@@ -90,6 +91,9 @@ would agree with the code by construction and prove nothing about it.
   `tla/engine/EngineMutants.tla`.
 - `tla/engine/EngineTrace.tla` writes TLC's walks for the replay, one configuration of
   `tla/engine/trace/` for each of the replay's.
+- `tla/keys/Keys.tla` is the table's part of the walks for keys (docs/design.md §25, step 12):
+  the slot kept for the walks' questions, the walks' own lookups, and the lookups that wait on a
+  walk. `tla/keys/mutants/` breaks each of its rules. No replay reads this model yet.
 
 ## What the lookup model leaves out
 
@@ -1079,6 +1083,33 @@ TLC's walks are uniformly random. The Lean walker's took, at each step, an event
 state no walk had reached when there was one. So TLC's short walks catch fewer mutations of the
 engine than the Lean walker's did, and the committed walks keep more of the full run's
 (docs/mutations.md).
+
+## The table's walks for keys in TLA+
+
+`tla/keys/Keys.tla` holds the table of a validating resolver as docs/design.md §25 step 12 has it.
+A slot is free, a consumer's lookup, or a walk's lookup. A walk is its phase, its target and its
+count of questions. The verdict on each message and on each walk's answer is free, as a server
+may give any. The consumer may start, cancel, take an end and free a slot whenever it likes.
+
+TLC checks these invariants in every state:
+
+- `NoWalkOffered`: a walk's lookup never ends where a poll offers it to the consumer.
+- `ReservedKept`: the free slots and the slots the walks hold make `trust_slots_reserved`.
+- `WalkSlotsOwned`: a walk asks one question at a time, in one slot.
+- `WaitersWalked`: a lookup that waits for keys waits on a walk that runs.
+- `OneWalkATarget`: one walk serves every lookup that waits for its target (walk rule 10).
+- `QuestionsBounded`: a walk asks `chain_questions_max` questions at most.
+
+It checks two properties of behaviours, under weak fairness for the table and the servers alone:
+
+- `WaitEnds`: a lookup that waits for keys is asked again or fails. A consumer that holds every
+  other slot and frees none cannot stop it.
+- `AskedOnlyWhenReady`: a lookup is asked again only when the walk it waited on reached its
+  target.
+
+`Keys_2_1.cfg` has two slots and one walk, and `Keys_3_2.cfg` three slots and two walks for two
+targets. On 2026-11-01 TLC counted 886 and 186,350 distinct states. `tla/keys/mutants/` breaks
+each rule once (docs/mutations.md, the table's walks for keys).
 
 ## The walks
 

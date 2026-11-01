@@ -10944,6 +10944,13 @@ Each step lands with its checks, each check broken on purpose and recorded in
     - An `insecure` verdict on a DS question enters the store for the SOA's negative TTL (RFC 2308
       §5). Keys that expire as they enter leave the target unreached, and the walk fails as bogus.
     - Its tests sign RFC 4035's zone with a signed child, `a.example`, for the tests' verifier.
+    The table's model, written on 2026-11-01, is `spec/tla/keys/Keys.tla` (spec/README.md):
+    - The consumer takes a free slot only when the free slots that remain, and the slots the
+      walks hold, still make `trust_slots_reserved`. A walk's question takes any free slot.
+    - The table frees a walk's slot when its answer comes, so no poll offers the consumer its end.
+    - TLC checks that a lookup that waits for keys is asked again or fails, while the consumer
+      holds every other slot. It checks too that a lookup is asked again only when its walk
+      reached its target.
 13. The cache: the status, the TTL bound and the bogus entries.
 14. The twin: a server in `sim` that signs for the tests' verifier, so the tests cover whole
     chains, a server that lies, signatures that have expired, signatures taken out, and a key

@@ -11323,3 +11323,21 @@ entries named the text this changed, and each names the text as it stands now: S
 TA1, TA9, TA10 and CO29 of the lookup set, and RA1, RA3, RA4 and RA5 of the engine set. DT4 ran
 again beside them. `zig build mutations` ran each to its end, and each was `CAUGHT`.
 
+
+## The table's walks for keys in the model
+
+Design §25 step 12, 2026-11-01. The table's part of the walks for keys, in TLA+, before its code
+(`spec/tla/keys/Keys.tla`). Each mutant is a configuration in `spec/tla/keys/mutants/` that sets
+`Mutant`, run by `zig build tla`. TLC walks breadth first, so each counterexample is a shortest
+one. Eight mutations, eight `CAUGHT`.
+
+| # | Mutation | Rule | Caught by | Counterexample | Status |
+| --- | --- | --- | --- | --- | --- |
+| KT1 | the consumer takes the reserved slot | the slot kept for the walks | `ReservedKept` | 3 states | CAUGHT |
+| KT2 | a walk's question takes a slot only as the consumer would | the slot kept for the walks | `WaitEnds` | 15 states | CAUGHT |
+| KT3 | the table leaves a walk's lookup ended, and a poll offers it | a walk's lookups never reach the consumer | `NoWalkOffered` | 5 states | CAUGHT |
+| KT4 | a walk's own lookup waits for keys | a walk's lookup never waits | `WaitEnds` | 20 states | CAUGHT |
+| KT5 | a lookup whose target finds every walk busy waits on none | the message reads as bogus | `WaitersWalked` | 5 states | CAUGHT |
+| KT6 | the table keeps a walk's slot after its answer | one question at a time | `WalkSlotsOwned` | 5 states | CAUGHT |
+| KT7 | a lookup starts a walk for a target a walk runs for | walk rule 10 | `OneWalkATarget` | 5 states | CAUGHT |
+| KT8 | a walk's end goes to every lookup that waits | to each lookup that waits on it, and to no other | `AskedOnlyWhenReady` | 8 states | CAUGHT |
