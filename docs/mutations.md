@@ -10790,3 +10790,18 @@ written, and the two ran again. `zig build mutations -- engine DT1 ... DT15` ran
 | DT15 | the dnslib check passes over a DS's digest | `zig build test-tools` | `CAUGHT` |
 
 Fifteen mutations, fifteen `CAUGHT`.
+
+## Canonical name order
+
+2026-10-31. Design §25 Stage B, step 7's first piece (c4milo/cocuyo#56): `Name.canonical_order`
+sorts names as RFC 4034 §6.1 does, and the test holds that section's nine names in its order.
+`zig build mutations -- engine CN1 ... CN4` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| CN1 | a capital letter sorts as itself | `zig build test-core` | `CAUGHT` |
+| CN2 | labels are compared from the left | `zig build test-core` | `CAUGHT` |
+| CN3 | a label that ends first sorts after one that goes on | `zig build test-core` | `CAUGHT` |
+| CN4 | a name with more labels sorts first | `zig build test-core` | `CAUGHT` |
+
+Four mutations, four `CAUGHT`.

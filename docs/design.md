@@ -10390,7 +10390,7 @@ denial came incomplete be sent again, and both paths do.
 | Piece | Module | Why there |
 | --- | --- | --- |
 | DO, CD and AD; DS, RRSIG, NSEC, DNSKEY, NSEC3, NSEC3PARAM and DNAME named in `Kind`; their rdata read; the type bit maps | `wire` | the codec, which verifies nothing |
-| canonical name order (RFC 4034 §6.1) | `core`, on `Name` | beside `equal` |
+| canonical name order (RFC 4034 §6.1) | `core`, on `Name` | beside `equal`. Built on 2026-10-31 as `Name.canonical_order`, in `src/core/canonical.zig` |
 | canonical form, the signed data, the key tag, what a DS digest and a signature are computed over, the denial proofs, the key store, the validator, the walk's rules, and the `Verifier` it asks for digests and signatures | `dnssec`, new, reading `core` and `wire` | the DNS half, with no cryptography in it |
 | the verifier over chapulin | a module outside `src/`, whose `dnssec` import a consumer binds to colibri's `dnssec` module (decision 35, as amended) | as `cocuyo_quic` and `cocuyo_doh` are bound, so that `src/` depends on nothing |
 | the `Validator` the table is handed, `awaiting_keys`, the walk's lookups, the slot kept for them | `resolver` | under the table, as `Memory` is (decision 22) |

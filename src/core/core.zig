@@ -52,6 +52,7 @@ test {
     _ = @import("name.zig");
     _ = @import("config.zig");
     _ = @import("security.zig");
+    _ = @import("canonical.zig");
 }
 
 test "the limits hold the relations the design states" {

@@ -5237,4 +5237,40 @@
         },
         .caught_by = .{ .step = "test-tools" },
     },
+    .{
+        .section = "Canonical name order",
+        .id = "CN1",
+        .what = "a capital letter sorts as itself",
+        .edits = .{
+            .{ .file = "src/core/canonical.zig", .old = "        const by_octet = std.math.order(std.ascii.toLower(octet_a), std.ascii.toLower(octet_b));", .new = "        const by_octet = std.math.order(octet_a, octet_b);" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "Canonical name order",
+        .id = "CN2",
+        .what = "labels are compared from the left",
+        .edits = .{
+            .{ .file = "src/core/canonical.zig", .old = "        const label_a = label(a, labels_a.starts[labels_a.count - from_right]);\n        const label_b = label(b, labels_b.starts[labels_b.count - from_right]);", .new = "        const label_a = label(a, labels_a.starts[from_right - 1]);\n        const label_b = label(b, labels_b.starts[from_right - 1]);" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "Canonical name order",
+        .id = "CN3",
+        .what = "a label that ends first sorts after one that goes on",
+        .edits = .{
+            .{ .file = "src/core/canonical.zig", .old = "    return std.math.order(a.len, b.len);\n}", .new = "    return std.math.order(b.len, a.len);\n}" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "Canonical name order",
+        .id = "CN4",
+        .what = "a name with more labels sorts first",
+        .edits = .{
+            .{ .file = "src/core/canonical.zig", .old = "    return std.math.order(labels_a.count, labels_b.count);", .new = "    return std.math.order(labels_b.count, labels_a.count);" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
 }

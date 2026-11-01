@@ -113,6 +113,11 @@ pub const Name = extern struct {
         return wire_equal(self.wire(), other.wire());
     }
 
+    /// How this name sorts against `other` in canonical DNS name order (RFC 4034 §6.1).
+    pub fn canonical_order(self: *const Name, other: *const Name) std.math.Order {
+        return @import("canonical.zig").order(self, other);
+    }
+
     /// Lowercases every label byte, leaving the length octets alone.
     ///
     /// This undoes cocuyo's own DNS-0x20 randomisation where it comes back. A server may compress
