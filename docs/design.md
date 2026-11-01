@@ -6109,6 +6109,11 @@ handshake used, so no example and no live check can say it.
     case that copies a slot paid for the 16 octets. The validator moved beside the servers, which
     every lookup of a table already points to, and the two fields share Stage A's octet. The
     lookup is 3,080 octets again, and a slot 3,096. `on_response` did not change.
+95. **`walks_max`.** §25 step 12 runs the walks for keys beside the key store, and a new named
+    limit bounds how many run at once. A lookup whose target finds every walk busy reads its
+    message as bogus, and the lookup moves on as for any bogus message. Recommended: 4, chosen
+    and not measured. It costs one walk's state each, a target name and a few counters, in the
+    validator's own memory.
 
 ## 18. The cache
 
@@ -10637,6 +10642,7 @@ Every value below is chosen, not measured, unless its reason cites an RFC or the
 | `chain_questions_max` | 32 | the DS and DNSKEY questions one walk asks |
 | `key_asks_max` | 2 | the times a lookup asks one message again after waiting for keys |
 | `trust_slots_reserved` | 1 | the slots only a walk's questions may take |
+| `walks_max` | 4 | the walks one validator runs at once; chosen, not measured: a table of 64 lookups for names of four zones the store does not hold yet |
 | `key_store_zones_default` | 64 | the engine's default; the caller sizes the store |
 | `bogus_ttl_seconds` | 5 | RFC 9520 §3.2: one second at least, five minutes at most, and its own example starts at 5 |
 | `clock_skew_seconds_default` | 0 | no RFC gives a value |
@@ -10889,6 +10895,33 @@ Each step lands with its checks, each check broken on purpose and recorded in
     is marked after it is written (`wire.query.mark_validating`), so no other query pays for CD
     and DO.
 12. The walk: its rules, its model, then the table's part and the TLA+ model.
+    The rules, written on 2026-11-01, settle what the walk's rules above leave open:
+    - The walks live beside the key store, in `dnssec`'s `Walker`: at most `walks_max` at once,
+      each a target, the zone whose keys it stands in, the name it asks of next, and the
+      questions it asked. One walk serves every lookup that waits for its target (walk rule 10).
+      A target that finds every walk busy waits for none: the lookup reads the message as bogus.
+    - The validator joins the walk when it answers `keys_wanted`, and says which walk. The table
+      keeps that walk's number in the lookup's slot, beside the ready list, so the lookup grows
+      by nothing. When the walk ends, the table hands `on_keys_ready` or `on_keys_failed` to each
+      lookup that waits on it, and to no other.
+    - A walk asks its questions one at a time. The table takes the next with `next_question` at
+      each poll, starts it as a lookup of its own, absolute, in a free slot or in one of the
+      `trust_slots_reserved` slots only a walk's question may take, and marks the slot as a
+      walk's. The consumer never sees such a lookup as an event (§25, the table's part).
+    - The validator reads a walk's own answers as it reads any answer, under the keys the store
+      already holds (walk rule 9), and moves the walk on as it reads them. A DS set that is
+      secure enters the store (rule 4). A secure proof of a delegation with no DS, or an
+      insecure answer, enters it as an insecure delegation (rule 5). A secure proof that the
+      name exists and is no delegation moves the walk one label down (rule 6). A DNSKEY set
+      enters through `store_keys.admit`, matched to the anchor or the DS set (rule 4).
+    - A walk's own lookup never waits for keys: when it would, the walk starts again from the
+      deepest zone the store holds, once; a second time it fails as bogus. A walk's question
+      that fails, a timeout or every server failing, fails the walk with that failure (rule 11),
+      and the table ends the walk's lookup and tells the walker with `question_failed`.
+    - A walk ends with its target's keys held, with an insecure delegation at or above the
+      target, or failed. It fails as bogus on a proof that a name on its way does not exist
+      (rule 7), when a walk for data with no signature reaches the name asked inside a signed
+      zone (rule 8), and past `chain_questions_max` questions (rule 10).
 13. The cache: the status, the TTL bound and the bogus entries.
 14. The twin: a server in `sim` that signs for the tests' verifier, so the tests cover whole
     chains, a server that lies, signatures that have expired, signatures taken out, and a key
