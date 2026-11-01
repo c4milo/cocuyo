@@ -10935,6 +10935,15 @@ Each step lands with its checks, each check broken on purpose and recorded in
     - `walk_bounded` and `answer_counts`: a walk that still asks has asked `chain_questions_max`
       questions at most, and each answer counts one.
     - The model holds one walk, and no restart of rule 9. The Walker's replay comes with its code.
+    The Walker, written on 2026-11-01, is `src/dnssec/dnssec_walk.zig`:
+    - `join`, `question`, `answered`, `question_failed`, `end` and `release` are what the table
+      will call. Nothing calls them yet: the table's part comes next.
+    - A secure no-data answer to a DS question is a delegation with no DS when
+      `Validator.delegated` finds a verified NSEC or NSEC3 at the name with NS set and DS and SOA
+      clear (rule 5). Otherwise it is rule 6.
+    - An `insecure` verdict on a DS question enters the store for the SOA's negative TTL (RFC 2308
+      §5). Keys that expire as they enter leave the target unreached, and the walk fails as bogus.
+    - Its tests sign RFC 4035's zone with a signed child, `a.example`, for the tests' verifier.
 13. The cache: the status, the TTL bound and the bogus entries.
 14. The twin: a server in `sim` that signs for the tests' verifier, so the tests cover whole
     chains, a server that lies, signatures that have expired, signatures taken out, and a key

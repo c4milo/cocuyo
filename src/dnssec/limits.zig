@@ -34,3 +34,20 @@ pub const zone_keys_bytes_max: usize = 2048;
 /// The trust anchors a store takes: more than one, as RFC 4035 §4.4 asks, for the root's keys while
 /// one replaces another, and for a zone of the caller's own. Chosen, not measured.
 pub const anchors_max: usize = 8;
+
+/// The DS records read from one DS set, which the store keeps as its entry. The count of
+/// 2026-10-03 in docs/design.md §25 found 3 at most.
+pub const ds_records_max: usize = 8;
+
+/// The DS and DNSKEY questions one walk asks (§25, walk rule 10). Chosen, not measured: a walk
+/// asks two for each zone cut, and a name 15 cuts below its anchor fits.
+pub const chain_questions_max: u8 = 32;
+
+/// The walks one validator runs at once (§25 step 12). Chosen, not measured: a table of 64 lookups
+/// for names of four zones the store does not hold yet. §17 question 95 asks the owner.
+pub const walks_max: u8 = 4;
+
+comptime {
+    // A DS set enters the store as one entry.
+    if (ds_records_max > zone_keys_max) @compileError("a DS set must fit a store entry");
+}

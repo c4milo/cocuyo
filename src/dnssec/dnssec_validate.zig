@@ -48,6 +48,24 @@ pub const Validator = struct {
         return walk.chain(asked, kind) catch .{ .bogus = .message };
     }
 
+    /// Whether `bytes`, a secure no-data answer to `name DS`, proves `name` a delegation with no
+    /// DS set: a verified NSEC or NSEC3 at the name with the NS bit set and the DS and SOA bits
+    /// clear (§25 walk rule 5; RFC 4035 §5.2, RFC 5155 §8.9). False otherwise, which is walk rule
+    /// 6: the name exists and is no delegation, or is an empty non-terminal.
+    pub fn delegated(self: *const Validator, name: *const Name, bytes: []const u8, now_ns: u64) bool {
+        assert(name.len >= 1);
+        var message: Message = undefined;
+        const fits = message.read(bytes, name) catch return false;
+        if (!fits) return false;
+        var walk: Walk = .{
+            .validator = self,
+            .message = &message,
+            .at = .{ .store = self.store, .now_ns = now_ns },
+            .now_seconds = self.store.now_seconds(now_ns),
+        };
+        return denial.delegated(&walk, name) catch false;
+    }
+
     /// Whether `name` is insecure by what the store holds: under no anchor, or at or under an
     /// insecure delegation (§25).
     pub fn insecure_at(self: *const Validator, name: *const Name, now_ns: u64) bool {

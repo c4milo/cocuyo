@@ -12,12 +12,13 @@ pub const limits = @import("limits.zig");
 pub const canonical = @import("dnssec_canonical.zig");
 pub const nsec = @import("dnssec_nsec.zig");
 pub const nsec3 = @import("dnssec_nsec3.zig");
-/// The key store and the admission of a DNSKEY set to it, and the validator of whole messages
-/// (docs/design.md §25 step 9). The module is cocuyo's own and never registered: the verifier
+/// The key store and the admission of a DNSKEY set to it, the validator of whole messages
+/// (docs/design.md §25 step 9), and the walks for keys (step 12). The module is cocuyo's own and never registered: the verifier
 /// outside `src/` and its tests read it, and no consumer can name it.
 pub const store = @import("dnssec_store.zig");
 pub const store_keys = @import("dnssec_store_keys.zig");
 pub const validate = @import("dnssec_validate.zig");
+pub const walk = @import("dnssec_walk.zig");
 
 /// Where `dnssec` feeds the octets a digest or a signature covers, in order and in pieces. The
 /// caller's: a digest or a signature over chapulin, or a test that records what it was given.
@@ -145,4 +146,6 @@ test {
     _ = @import("dnssec_store_keys.zig");
     _ = @import("dnssec_validate.zig");
     _ = @import("dnssec_validate_denial.zig");
+    _ = walk;
+    _ = @import("dnssec_walk_test.zig");
 }

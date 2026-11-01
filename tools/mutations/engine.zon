@@ -7019,4 +7019,211 @@
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
+    .{
+        .section = "The walks for keys",
+        .id = "WK1",
+        .what = "a target that a walk runs for gets a second walk",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "            if (walk.phase != .free and walk.target.equal(target)) return @intCast(index);", .new = "            if (walk.phase != .free and walk.target.equal(target) and false) return @intCast(index);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK2",
+        .what = "a busy walk is taken for a new target",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "            if (walk.phase != .free) continue;\n            walk.* =", .new = "            if (false) continue;\n            walk.* =" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK3",
+        .what = "the table may take a walk's question twice",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "        walk.phase = .asked;\n", .new = "        walk.phase = .asking;\n" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK4",
+        .what = "a walk asks past chain_questions_max",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "        if (walk.questions > limits.chain_questions_max) return fail(walk, .bogus);", .new = "        if (walk.questions > limits.chain_questions_max + 1) return fail(walk, .bogus);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK5",
+        .what = "a secure DS set leaves the walk asking for DS",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "                    walk.asking = .dnskey;\n                },", .new = "                }," },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK6",
+        .what = "a proof of a delegation with no DS moves the walk down",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "                    if (checker.delegated(probe, bytes, now_ns)) return", .new = "                    if (false and checker.delegated(probe, bytes, now_ns)) return" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK7",
+        .what = "a name with no delegation at the target moves past it",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "                    if (walk.probe_labels >= walk.target.label_count()) return fail(walk, .bogus);", .new = "                    if (walk.probe_labels > walk.target.label_count()) return fail(walk, .bogus);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK8",
+        .what = "a proof that a name on the way does not exist leaves the walk running",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "                .name_error, .alias => fail(walk, .bogus),", .new = "                .name_error, .alias => {}," },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK9",
+        .what = "an answer the store already speaks for fails the walk",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "            .insecure => self.insecure(walk, probe, wire.response.negative_ttl_seconds(bytes, probe) catch 0, now_ns),", .new = "            .insecure => fail(walk, .bogus)," },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK10",
+        .what = "a walk's answer that wants keys fails the walk at once",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "            .keys_wanted => self.restart(walk, now_ns),\n            .unchecked", .new = "            .keys_wanted => fail(walk, .bogus),\n            .unchecked" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK11",
+        .what = "a walk begins again with no end",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "        if (walk.restarted) return fail(walk, .bogus);", .new = "        if (false) return fail(walk, .bogus);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK12",
+        .what = "a DNSKEY set that matched nothing moves the walk on",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "            .bogus => fail(walk, .bogus),\n            .ds_wanted", .new = "            .bogus => self.next(walk, now_ns),\n            .ds_wanted" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK13",
+        .what = "admitted keys leave the walk in the zone above",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "                walk.zone_labels = walk.probe_labels;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK14",
+        .what = "a DS set past ds_records_max is read",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "        if (set.count() > limits.ds_records_max) return false;", .new = "        if (set.count() > limits.ds_records_max + 1) return false;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK15",
+        .what = "a walk ignores the keys the store holds and enters the anchor",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "            if (!self.holds(&walk.target, count, .keys, now_ns)) continue;", .new = "            if (true or !self.holds(&walk.target, count, .keys, now_ns)) continue;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK16",
+        .what = "a walk ignores a held DS set and asks for it again",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "        walk.asking = if (self.holds(&walk.target, walk.probe_labels, .ds, now_ns)) .dnskey else .ds;", .new = "        walk.asking = if (false and self.holds(&walk.target, walk.probe_labels, .ds, now_ns)) .dnskey else .ds;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK17",
+        .what = "an insecure delegation above the target does not end the walk",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "            if (self.holds(&walk.target, @intCast(count), .insecure, now_ns)) return true;", .new = "            if (false and self.holds(&walk.target, @intCast(count), .insecure, now_ns)) return true;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK18",
+        .what = "the target's keys held do not end the walk",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "        if (self.holds(&walk.target, labels, .keys, now_ns)) return true;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK19",
+        .what = "a walk enters the shallowest anchor",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "            if (best == null or best.? < labels) best = labels;", .new = "            if (best == null or best.? > labels) best = labels;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK20",
+        .what = "keys that expired as they entered let the walk past the target",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "        if (walk.zone_labels >= labels) return fail(walk, .bogus);", .new = "        if (walk.zone_labels > labels) return fail(walk, .bogus);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK21",
+        .what = "an NSEC at a delegation with no DS proves no delegation",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "    if (nsec.unsigned_delegation(name, nsecs.slice())) return true;", .new = "    if (false and nsec.unsigned_delegation(name, nsecs.slice())) return true;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK22",
+        .what = "an NSEC3 at a delegation with no DS proves no delegation",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "    return nsec3.unsigned_delegation(name, nsec3s.slice(), walk.hasher()) != .no;", .new = "    return nsec3.unsigned_delegation(name, nsec3s.slice(), walk.hasher()) == .insecure;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The walks for keys",
+        .id = "WK23",
+        .what = "an unanswered question fails the walk as bogus",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "        fail(walk, failure);\n    }", .new = "        fail(walk, .bogus);\n    }" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
 }

@@ -176,6 +176,17 @@ fn delegated3(walk: *Walk, name: *const Name, nsec3s: *const Nsec3s) Error!Valid
     return .{ .bogus = .proof };
 }
 
+/// Whether the verified NSEC or NSEC3 records prove `name` an unsigned delegation (RFC 4035 §5.2,
+/// RFC 5155 §8.9). A record past its limit of iterations makes the delegation insecure too.
+pub fn delegated(walk: *Walk, name: *const Name) Error!bool {
+    var nsecs: Nsecs = .{};
+    if (try gather_nsec(walk, name, &nsecs) != null) return false;
+    if (nsec.unsigned_delegation(name, nsecs.slice())) return true;
+    var nsec3s: Nsec3s = .{};
+    if (try gather_nsec3(walk, name, &nsec3s) != null) return false;
+    return nsec3.unsigned_delegation(name, nsec3s.slice(), walk.hasher()) != .no;
+}
+
 /// Validates every SOA of the authority section, whatever its owner, since the lookup takes a
 /// negative's TTL from the first one (`wire.response.negative_ttl_seconds`). `signed` says one was
 /// valid. An SOA that is not valid ends the message.

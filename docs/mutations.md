@@ -11279,3 +11279,38 @@ engine AD3 AD4 RA8` ran each to its end.
 | VL31 | a validating NXDOMAIN skips the validator | `zig build test-resolver` | `CAUGHT` |
 
 7 mutations, 7 `CAUGHT`.
+
+## The walks for keys
+
+2026-11-01. Design §25 Stage B, step 12's Walker (c4milo/cocuyo#56): the walks for keys in
+`dnssec_walk.zig`, and `Validator.delegated`, the check of walk rule 5. The table does not call
+them yet, so the module's own tests catch each break. `zig build mutations -- engine WK1 ...
+WK23` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| WK1 | a target that a walk runs for gets a second walk | `zig build test-dnssec` | `CAUGHT` |
+| WK2 | a busy walk is taken for a new target | `zig build test-dnssec` | `CAUGHT` |
+| WK3 | the table may take a walk's question twice | `zig build test-dnssec` | `CAUGHT` |
+| WK4 | a walk asks past chain_questions_max | `zig build test-dnssec` | `CAUGHT` |
+| WK5 | a secure DS set leaves the walk asking for DS | `zig build test-dnssec` | `CAUGHT` |
+| WK6 | a proof of a delegation with no DS moves the walk down | `zig build test-dnssec` | `CAUGHT` |
+| WK7 | a name with no delegation at the target moves past it | `zig build test-dnssec` | `CAUGHT` |
+| WK8 | a proof that a name on the way does not exist leaves the walk running | `zig build test-dnssec` | `CAUGHT` |
+| WK9 | an answer the store already speaks for fails the walk | `zig build test-dnssec` | `CAUGHT` |
+| WK10 | a walk's answer that wants keys fails the walk at once | `zig build test-dnssec` | `CAUGHT` |
+| WK11 | a walk begins again with no end | `zig build test-dnssec` | `CAUGHT` |
+| WK12 | a DNSKEY set that matched nothing moves the walk on | `zig build test-dnssec` | `CAUGHT` |
+| WK13 | admitted keys leave the walk in the zone above | `zig build test-dnssec` | `CAUGHT` |
+| WK14 | a DS set past ds_records_max is read | `zig build test-dnssec` | `CAUGHT` |
+| WK15 | a walk ignores the keys the store holds and enters the anchor | `zig build test-dnssec` | `CAUGHT` |
+| WK16 | a walk ignores a held DS set and asks for it again | `zig build test-dnssec` | `CAUGHT` |
+| WK17 | an insecure delegation above the target does not end the walk | `zig build test-dnssec` | `CAUGHT` |
+| WK18 | the target's keys held do not end the walk | `zig build test-dnssec` | `CAUGHT` |
+| WK19 | a walk enters the shallowest anchor | `zig build test-dnssec` | `CAUGHT` |
+| WK20 | keys that expired as they entered let the walk past the target | `zig build test-dnssec` | `CAUGHT` |
+| WK21 | an NSEC at a delegation with no DS proves no delegation | `zig build test-dnssec` | `CAUGHT` |
+| WK22 | an NSEC3 at a delegation with no DS proves no delegation | `zig build test-dnssec` | `CAUGHT` |
+| WK23 | an unanswered question fails the walk as bogus | `zig build test-dnssec` | `CAUGHT` |
+
+23 mutations, 23 `CAUGHT`.

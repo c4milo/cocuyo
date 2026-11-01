@@ -117,3 +117,17 @@ pub fn ds_at_child(options: Options) Builder {
     record(&builder, apex, ns1, &fixtures.apex3, options);
     return builder;
 }
+
+/// A walk's question `c.example DS`, answered with an NSEC3 at `c.example`, whose hash is
+/// `c_hash`, that sets NS and clears DS: an unsigned delegation (RFC 5155 §8.9; docs/design.md
+/// §25 walk rule 5).
+pub fn ds_unsigned(options: Options) Builder {
+    var builder = Builder.init("c.example", .ds, 0);
+    builder.authority();
+    zone.apex_soa(&builder);
+    record(&builder, c_hash, x_w, &fixtures.ns3, options);
+    return builder;
+}
+
+/// The hash of `c.example`, by Appendix A's salt and iterations.
+const c_hash = "4g6p9u5gvfshp30pqecj98b3maqbn1ck";

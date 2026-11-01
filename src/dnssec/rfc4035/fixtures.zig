@@ -196,6 +196,44 @@ pub fn ds_at_child() Builder {
     return builder;
 }
 
+/// The answers a walk reads (docs/design.md §25 step 12). `a.example` is a signed child, with
+/// `example`'s two keys as its own and a DS of SHA-256 for its key-signing key.
+pub fn child_ds() [12]u8 {
+    return fixtures.ds_of(&(Name.from_text("a.example") catch unreachable), &ksk, 5, 2);
+}
+
+/// A response to `a.example DS`: the set `ds` holds, signed by `example`.
+pub fn ds_answer(ds: []const u8) Builder {
+    var builder = Builder.init("a.example", .ds, 0);
+    builder.rrset("a.example", .ds, &.{ds}, by_zone);
+    return builder;
+}
+
+/// A response to `a.example DNSKEY`: the child's keys, signed by both under its own name.
+pub fn child_keys() Builder {
+    var builder = Builder.init("a.example", .dnskey, 0);
+    var by_child_key = by_key_signing;
+    by_child_key.signer = "a.example";
+    builder.rrset("a.example", .dnskey, &.{ &zsk, &ksk }, by_child_key);
+    return builder;
+}
+
+/// A response to `name DS` that proves no DS at `name` with the NSEC at `owner`, and the apex SOA.
+pub fn ds_denied(name: []const u8, owner: []const u8, nsec: []const u8) Builder {
+    var builder = Builder.init(name, .ds, 0);
+    builder.authority();
+    apex_soa(&builder);
+    builder.rrset(owner, .nsec, &.{nsec}, by_zone);
+    return builder;
+}
+
+/// NSEC rdata of the zone's chain that the walk's denials read.
+pub const nsec_at_b = nsec_b;
+pub const nsec_at_apex = nsec_apex;
+pub const nsec_at_ns1 = nsec_ns1;
+pub const nsec_at_ns2 = "\x01*\x01w\x07example\x00" ++ fixtures.address;
+pub const nsec_at_x_w = "\x01x\x01y\x01w\x07example\x00" ++ fixtures.mail;
+
 comptime {
     if (soa.len != ns1.len + "\x04bugs\x01x\x01w\x07example\x00".len + 20) @compileError("not an SOA");
 }
