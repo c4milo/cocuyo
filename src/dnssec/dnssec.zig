@@ -11,6 +11,7 @@ pub const constants = @import("constants.zig");
 pub const limits = @import("limits.zig");
 pub const canonical = @import("dnssec_canonical.zig");
 pub const nsec = @import("dnssec_nsec.zig");
+pub const nsec3 = @import("dnssec_nsec3.zig");
 
 /// Where `dnssec` feeds the octets a digest or a signature covers, in order and in pieces. The
 /// caller's: a digest or a signature over chapulin, or a test that records what it was given.
@@ -108,4 +109,7 @@ test "a DS digest covers the DNSKEY's owner in lowercase, then its rdata" {
 test {
     _ = canonical;
     _ = nsec;
+    _ = nsec3;
+    _ = @import("dnssec_nsec3_proof.zig");
+    _ = @import("dnssec_base32.zig");
 }

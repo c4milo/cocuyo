@@ -10720,6 +10720,25 @@ Each step lands with its checks, each check broken on purpose and recorded in
      bits clear (RFC 4035 §5.2, RFC 6840 §4.4).
    - A record at the name with NXNAME set is a name error under NOERROR (RFC 9824 §3.1). NXNAME is
      the one pseudo-type a reader takes (§7.1), through `wire.rdata.TypeBitmaps.nxname`.
+   Then `dnssec.nsec3`, on 2026-11-01, case by case as RFC 5155 §8 has them. The rules:
+   - The records come verified, each with its RRSIG's signer. The hashes come from a `Hasher` the
+     caller supplies, so `src/` computes no SHA-1. The tests' `Hasher` looks up the hashes that
+     RFC 5155 Appendix A and B print.
+   - A record counts when its hash is SHA-1, its flags are 0 or 1 (§8.1, §8.2), and its owner is
+     one label of base32hex below its signer (§8.3, RFC 4648 §7). Records that differ in salt or
+     iterations prove nothing, as §8.2 allows.
+   - Past `nsec3_iterations_max` iterations a proof is `insecure`, before any hash (RFC 9276
+     §3.2). One proof computes `nsec3_hashes_per_message_max` hashes at most (RFC 4035 §5.4).
+   - The closest encloser proof follows §8.3's algorithm. Its encloser's record may not set
+     DNAME, nor NS without SOA.
+   - A name error, wildcard no data and a DS denial rest on that proof (§8.4, §8.6, §8.7). When
+     the record that covers the next closer name has Opt-Out set, the proof is `insecure` (§9.2).
+   - No data needs a record at the name with the type's bit and the CNAME bit clear (§8.5). For a
+     DS, a set SOA bit is the child's apex, which proves nothing. An ancestor delegation denies
+     nothing at its owner but a DS (RFC 6840 §4.1).
+   - `wildcard_answer` needs a record that covers the next closer name (§8.8).
+     `unsigned_delegation` follows §8.9.
+   - A record at the name with NXNAME set is a name error (RFC 9824 §4).
 9. The key store and the validator, on whole messages: every response of RFC 4035 Appendix B and
    of RFC 5155 Appendix B, read under the tests' verifier, and refused with any signed octet
    changed.

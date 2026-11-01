@@ -20,3 +20,8 @@ pub const wildcard_label = "*";
 pub const key_tag_high_shift: u5 = 8;
 pub const key_tag_carry_shift: u5 = 16;
 pub const key_tag_mask: u32 = 0xffff;
+
+/// NSEC3's one hash algorithm, SHA-1 (RFC 5155 §11), and its 160 bits as octets, which a hashed
+/// owner label holds in 32 characters of base32hex (RFC 5155 §10.1).
+pub const nsec3_hash_sha1: u8 = 1;
+pub const nsec3_hash_bytes: usize = 20;

@@ -10891,3 +10891,63 @@ span that never reached the name. The test now uses the zone's last record, whos
 | CA2 | the root has no ancestor of no labels | `zig build test-core` | `CAUGHT` |
 
 26 mutations, 26 `CAUGHT`.
+
+## The denials with NSEC3
+
+2026-11-01. Design §25 Stage B, step 8's second piece (c4milo/cocuyo#56): `dnssec.nsec3` reads
+what verified NSEC3 records prove, case by case as RFC 5155 §8 has them, with RFC 6840 §4.1 and
+§4.3. It reads RFC 5155 §9.2's Opt-Out rule and RFC 9276 §3.2's iteration limit as `insecure`,
+and NXNAME as RFC 9824 §4 has it. The hashes come from a `Hasher` the caller supplies. The tests'
+hasher looks up the hashes RFC 5155 Appendix A and B print. `dnssec_base32` decodes an owner's
+hash (RFC 4648 §7). N5, N20 and P16 failed to compile at first, since each left a value unused,
+and were rewritten. P16 was then NOT CAUGHT: the test of an owner too far below its signer also
+put the owner outside the zone, which P17's check refused. A test of an owner two labels below
+its signer, inside the zone, now catches it. `zig build mutations -- engine N1 ... N21 P1 ... P18 B1 B2 B3` ran each to
+its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| N1 | a denial past the iteration limit reads as secure | `zig build test-dnssec` | `CAUGHT` |
+| N2 | an NSEC3 compact denial's NXNAME is not read | `zig build test-dnssec` | `CAUGHT` |
+| N3 | the child's apex record denies a DS | `zig build test-dnssec` | `CAUGHT` |
+| N4 | a record with the DS bit set denies a DS | `zig build test-dnssec` | `CAUGHT` |
+| N5 | an ancestor delegation denies a type at its owner | `zig build test-dnssec` | `CAUGHT` |
+| N6 | a record denies ANY at its own name | `zig build test-dnssec` | `CAUGHT` |
+| N7 | a no-data proof leaves the CNAME bit unread | `zig build test-dnssec` | `CAUGHT` |
+| N8 | a no-data proof leaves the type's own bit unread | `zig build test-dnssec` | `CAUGHT` |
+| N9 | a DS denial under an Opt-Out span reads as no proof | `zig build test-dnssec` | `CAUGHT` |
+| N10 | a DS denial with no Opt-Out span reads as insecure | `zig build test-dnssec` | `CAUGHT` |
+| N11 | the wildcard's record denies a type its map sets | `zig build test-dnssec` | `CAUGHT` |
+| N12 | a name error needs no record that covers the wildcard | `zig build test-dnssec` | `CAUGHT` |
+| N13 | a proof under an Opt-Out span reads as secure | `zig build test-dnssec` | `CAUGHT` |
+| N14 | a wildcard answer needs no cover of its next closer name | `zig build test-dnssec` | `CAUGHT` |
+| N15 | a wildcard answer hashes the encloser, not the next closer name | `zig build test-dnssec` | `CAUGHT` |
+| N16 | a wildcard answer past the iteration limit is weighed | `zig build test-dnssec` | `CAUGHT` |
+| N17 | an unsigned delegation needs no NS bit | `zig build test-dnssec` | `CAUGHT` |
+| N18 | an unsigned delegation may set the DS bit | `zig build test-dnssec` | `CAUGHT` |
+| N19 | the child's apex reads as an unsigned delegation | `zig build test-dnssec` | `CAUGHT` |
+| N20 | an Opt-Out span proves no unsigned delegation | `zig build test-dnssec` | `CAUGHT` |
+| N21 | an unsigned delegation past the iteration limit is weighed | `zig build test-dnssec` | `CAUGHT` |
+| P1 | records of other iterations join one proof | `zig build test-dnssec` | `CAUGHT` |
+| P2 | records of another salt join one proof | `zig build test-dnssec` | `CAUGHT` |
+| P3 | the iteration limit itself is costly | `zig build test-dnssec` | `CAUGHT` |
+| P4 | a proof hashes without bound | `zig build test-dnssec` | `CAUGHT` |
+| P5 | a name is hashed in the case it came in | `zig build test-dnssec` | `CAUGHT` |
+| P6 | the last span does not wrap past the end | `zig build test-dnssec` | `CAUGHT` |
+| P7 | a span covers its own owner | `zig build test-dnssec` | `CAUGHT` |
+| P8 | a match with no cover below it proves an encloser | `zig build test-dnssec` | `CAUGHT` |
+| P9 | an encloser with the DNAME bit set proves nothing less | `zig build test-dnssec` | `CAUGHT` |
+| P10 | an encloser at a zone cut proves nothing less | `zig build test-dnssec` | `CAUGHT` |
+| P11 | a record of another zone takes part in the proof | `zig build test-dnssec` | `CAUGHT` |
+| P12 | a record of an unknown hash is used | `zig build test-dnssec` | `CAUGHT` |
+| P13 | a record with unknown flags is used | `zig build test-dnssec` | `CAUGHT` |
+| P14 | a record whose next hash is short is used | `zig build test-dnssec` | `CAUGHT` |
+| P15 | a record whose owner label is no hash is used | `zig build test-dnssec` | `CAUGHT` |
+| P16 | a record more than one label below its signer is used | `zig build test-dnssec` | `CAUGHT` |
+| P17 | a record whose owner is outside its signer's zone is used | `zig build test-dnssec` | `CAUGHT` |
+| P18 | a record speaks of a name outside its zone | `zig build test-dnssec` | `CAUGHT` |
+| B1 | spare bits after the last octet are taken | `zig build test-dnssec` | `CAUGHT` |
+| B2 | octets past the buffer end the decode quietly | `zig build test-dnssec` | `CAUGHT` |
+| B3 | letters past V decode | `zig build test-dnssec` | `CAUGHT` |
+
+42 mutations, 42 `CAUGHT`.

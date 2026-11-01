@@ -5669,4 +5669,382 @@
         },
         .caught_by = .{ .step = "test-core" },
     },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N1",
+        .what = "a denial past the iteration limit reads as secure",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "    if (proof.costly()) return .insecure;\n    const hashed = proof.hash(name) orelse return .none;", .new = "    const hashed = proof.hash(name) orelse return .none;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N2",
+        .what = "an NSEC3 compact denial's NXNAME is not read",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "    if (types.nxname()) return .name_error;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N3",
+        .what = "the child's apex record denies a DS",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "        return if (types.has(.soa) or !absent(record, kind)) .none else .no_data;", .new = "        return if (!absent(record, kind)) .none else .no_data;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N4",
+        .what = "a record with the DS bit set denies a DS",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "        return if (types.has(.soa) or !absent(record, kind)) .none else .no_data;", .new = "        return if (types.has(.soa)) .none else .no_data;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N5",
+        .what = "an ancestor delegation denies a type at its owner",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "    if (cut or kind == .any) return .none;", .new = "    if ((cut and false) or kind == .any) return .none;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N6",
+        .what = "a record denies ANY at its own name",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "    if (cut or kind == .any) return .none;", .new = "    if (cut) return .none;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N7",
+        .what = "a no-data proof leaves the CNAME bit unread",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "    return !types.has(kind) and !types.has(.cname);", .new = "    return !types.has(kind);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N8",
+        .what = "a no-data proof leaves the type's own bit unread",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "    return !types.has(kind) and !types.has(.cname);", .new = "    return !types.has(.cname) and kind == kind;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N9",
+        .what = "a DS denial under an Opt-Out span reads as no proof",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "    if (kind == .ds) return if (insecure) .insecure else .none;", .new = "    if (kind == .ds) return .none;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N10",
+        .what = "a DS denial with no Opt-Out span reads as insecure",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "    if (kind == .ds) return if (insecure) .insecure else .none;", .new = "    if (kind == .ds) return .insecure;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N11",
+        .what = "the wildcard's record denies a type its map sets",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "        if (!absent(record, kind)) return .none;\n        proved = .no_data;", .new = "        _ = record;\n        proved = .no_data;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N12",
+        .what = "a name error needs no record that covers the wildcard",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "    } else if (proof.covering(&wildcard_hash) == null) {", .new = "    } else if (false) {" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N13",
+        .what = "a proof under an Opt-Out span reads as secure",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "    return if (insecure) .insecure else proved;", .new = "    return if (insecure and false) .insecure else proved;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N14",
+        .what = "a wildcard answer needs no cover of its next closer name",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "    return if (proof.covering(&hashed) != null) .yes else .no;", .new = "    return if (proof.covering(&hashed) != null or true) .yes else .no;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N15",
+        .what = "a wildcard answer hashes the encloser, not the next closer name",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "    const next_closer = canonical.ancestor(name, labels + 1);", .new = "    const next_closer = canonical.ancestor(name, labels);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N16",
+        .what = "a wildcard answer past the iteration limit is weighed",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "    if (proof.costly()) return .insecure;\n    const next_closer", .new = "    const next_closer" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N17",
+        .what = "an unsigned delegation needs no NS bit",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "        return if (types.has(.ns) and !types.has(.ds) and !types.has(.soa)) .yes else .no;", .new = "        return if (!types.has(.ds) and !types.has(.soa)) .yes else .no;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N18",
+        .what = "an unsigned delegation may set the DS bit",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "        return if (types.has(.ns) and !types.has(.ds) and !types.has(.soa)) .yes else .no;", .new = "        return if (types.has(.ns) and !types.has(.soa)) .yes else .no;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N19",
+        .what = "the child's apex reads as an unsigned delegation",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "        return if (types.has(.ns) and !types.has(.ds) and !types.has(.soa)) .yes else .no;", .new = "        return if (types.has(.ns) and !types.has(.ds)) .yes else .no;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N20",
+        .what = "an Opt-Out span proves no unsigned delegation",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "    return if (encloser.next_closer.opt_out()) .insecure else .no;", .new = "    return if (encloser.next_closer.opt_out() and false) .insecure else .no;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "N21",
+        .what = "an unsigned delegation past the iteration limit is weighed",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3.zig", .old = "    if (proof.costly()) return .insecure;\n    const hashed = proof.hash(name) orelse return .no;", .new = "    const hashed = proof.hash(name) orelse return .no;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "P1",
+        .what = "records of other iterations join one proof",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3_proof.zig", .old = "            if (record.nsec3.iterations != first.nsec3.iterations) return null;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "P2",
+        .what = "records of another salt join one proof",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3_proof.zig", .old = "            if (!std.mem.eql(u8, record.nsec3.salt, first.nsec3.salt)) return null;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "P3",
+        .what = "the iteration limit itself is costly",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3_proof.zig", .old = "        return self.iterations > limits.nsec3_iterations_max;", .new = "        return self.iterations >= limits.nsec3_iterations_max;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "P4",
+        .what = "a proof hashes without bound",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3_proof.zig", .old = "        if (self.hashes == limits.nsec3_hashes_per_message_max) return null;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "P5",
+        .what = "a name is hashed in the case it came in",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3_proof.zig", .old = "        lowered.fold_case();\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "P6",
+        .what = "the last span does not wrap past the end",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3_proof.zig", .old = "            if (if (wraps) after_owner or before_next else after_owner and before_next) return record;", .new = "            if (after_owner and before_next and wraps == wraps) return record;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "P7",
+        .what = "a span covers its own owner",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3_proof.zig", .old = "            const after_owner = std.mem.order(u8, &owner, hashed) == .lt;", .new = "            const after_owner = std.mem.order(u8, &owner, hashed) != .gt;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "P8",
+        .what = "a match with no cover below it proves an encloser",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3_proof.zig", .old = "                const next_closer = covered orelse return null;", .new = "                const next_closer = covered orelse record;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "P9",
+        .what = "an encloser with the DNAME bit set proves nothing less",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3_proof.zig", .old = "                if (types.has(.dname) or (types.has(.ns) and !types.has(.soa))) return null;", .new = "                if (types.has(.ns) and !types.has(.soa)) return null;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "P10",
+        .what = "an encloser at a zone cut proves nothing less",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3_proof.zig", .old = "                if (types.has(.dname) or (types.has(.ns) and !types.has(.soa))) return null;", .new = "                if (types.has(.dname)) return null;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "P11",
+        .what = "a record of another zone takes part in the proof",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3_proof.zig", .old = "        return record.signer.equal(self.zone) and usable(record, self.zone);", .new = "        return usable(record, self.zone);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "P12",
+        .what = "a record of an unknown hash is used",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3_proof.zig", .old = "    if (nsec3.hash_algorithm != constants.nsec3_hash_sha1) return false;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "P13",
+        .what = "a record with unknown flags is used",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3_proof.zig", .old = "    if (nsec3.flags & ~wire.constants.nsec3_flag_opt_out != 0) return false;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "P14",
+        .what = "a record whose next hash is short is used",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3_proof.zig", .old = "    if (nsec3.next_hashed.len != constants.nsec3_hash_bytes) return false;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "P15",
+        .what = "a record whose owner label is no hash is used",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3_proof.zig", .old = "    if (owner_hash(record) == null) return false;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "P16",
+        .what = "a record more than one label below its signer is used",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3_proof.zig", .old = "    if (owner_labels != signer_labels + 1) return false;\n", .new = "    if (owner_labels != signer_labels + 1 and false) return false;\n" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "P17",
+        .what = "a record whose owner is outside its signer's zone is used",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3_proof.zig", .old = "    if (canonical.shared_labels(&record.owner, &record.signer) != signer_labels) return false;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "P18",
+        .what = "a record speaks of a name outside its zone",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec3_proof.zig", .old = "    return canonical.shared_labels(name, &record.signer) == signer_labels;", .new = "    return canonical.shared_labels(name, &record.signer) <= signer_labels;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "B1",
+        .what = "spare bits after the last octet are taken",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_base32.zig", .old = "    if (accumulated != 0) return null;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "B2",
+        .what = "octets past the buffer end the decode quietly",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_base32.zig", .old = "            if (written == out.len) return null;\n", .new = "            if (written == out.len) return written;\n" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC3",
+        .id = "B3",
+        .what = "letters past V decode",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_base32.zig", .old = "    if (lower >= 'a' and lower <= 'v') return @intCast(lower - 'a' + digit_values);", .new = "    if (lower >= 'a' and lower <= 'z') return @intCast((lower - 'a' + digit_values) & 31);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
 }
