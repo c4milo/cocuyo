@@ -199,6 +199,9 @@ fn build(
     graph.cocuyo.addImport("resolver", graph.resolver);
     graph.cocuyo.addImport("config", graph.config);
     graph.cocuyo.addImport("cache", graph.cache);
+    // `dnssec` is never registered: `cocuyo` names its key store and nothing more of it (docs/design.md
+    // §25 step 12).
+    graph.cocuyo.addImport("dnssec", graph.dnssec);
     graph.io.addImport("cocuyo", graph.cocuyo);
     graph.io.addImport("rotor", graph.sim);
     graph.cocuyo_rotor.addImport("cocuyo", graph.cocuyo);

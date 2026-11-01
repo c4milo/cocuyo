@@ -7388,4 +7388,58 @@
         },
         .caught_by = .{ .step = "test-resolver" },
     },
+    .{
+        .section = "The key store a consumer owns",
+        .id = "KS1",
+        .what = "the key store keeps no time of day",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_keys.zig", .old = "        self.store.set_clock(unix_seconds, now_ns);\n        self.walker", .new = "        self.store.set_clock(unix_seconds - unix_seconds, now_ns);\n        self.walker" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store a consumer owns",
+        .id = "KS2",
+        .what = "a message reaches no validator",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_keys.zig", .old = "        return walker_of(context).validator().validate(asked, kind, message, now_ns);", .new = "        return if (false) walker_of(context).validator().validate(asked, kind, message, now_ns) else .insecure;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store a consumer owns",
+        .id = "KS3",
+        .what = "a keys_wanted joins no walk",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_keys.zig", .old = "        return walker_of(context).join(target, now_ns);", .new = "        return if (false) walker_of(context).join(target, now_ns) else null;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store a consumer owns",
+        .id = "KS4",
+        .what = "a walk's answer reaches no walk",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_keys.zig", .old = "        walker_of(context).answered(walk, message, now_ns);", .new = "        if (false) walker_of(context).answered(walk, message, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store a consumer owns",
+        .id = "KS5",
+        .what = "a question that ran out of time fails its walk as every server failing",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_keys.zig", .old = "        walker_of(context).question_failed(walk, failure);", .new = "        walker_of(context).question_failed(walk, if (false) failure else .failed);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The key store a consumer owns",
+        .id = "KS6",
+        .what = "an ended walk is never freed",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_keys.zig", .old = "        walker_of(context).release(walk);", .new = "        if (false) walker_of(context).release(walk);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
 }

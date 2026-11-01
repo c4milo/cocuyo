@@ -5,10 +5,12 @@
 //! This file is the public surface: each module of docs/design.md §2 is re-exported here, and the
 //! names a consumer reaches for are flattened alongside them as each step of §15 lands them.
 //!
-//! It holds one piece of logic, and only because this is the one file that can: `remembered_by`
+//! It holds two pieces of logic, and only because this is the one file that can: `remembered_by`
 //! turns a `Cache` into the `Memory` the table asks, and `resolver` cannot reach `cache` (§3).
 //! What may be remembered at all — RFC 2308 §5's two negatives and the resolution failures of
 //! RFC 9520 §2 — is written there once rather than in every consumer (§20, §16 decision 61).
+//! `validated_by` turns a `KeyStore` into the `Trust` the table asks, as `resolver` cannot reach
+//! `dnssec` (§25, step 12).
 pub const core = @import("core");
 pub const wire = @import("wire");
 pub const resolver = @import("resolver");
@@ -16,6 +18,8 @@ pub const resolv_conf = @import("config");
 pub const hosts = resolv_conf.hosts;
 pub const spki_pin = resolv_conf.spki_pin;
 pub const cache = @import("cache");
+/// Never public: `KeyStore`, `Anchor` and `validated_by` are what a consumer names of it.
+const dnssec = @import("dnssec");
 
 // The names a consumer reaches for, flattened. Everything else is behind the module it belongs to.
 pub const Address = core.Address;
@@ -64,7 +68,29 @@ pub const NameOutcome = resolver.NameOutcome;
 pub const Cache = cache.Cache;
 pub const Hit = cache.Hit;
 pub const Memory = resolver.Memory;
+pub const Trust = resolver.Trust;
+/// What a validating consumer names of DNSSEC: its key store and its anchors (docs/design.md §25,
+/// step 12). Nothing else of `dnssec` is public.
+pub const KeyStore = dnssec.keys.KeyStore;
+pub const Anchor = dnssec.keys.Anchor;
 pub const Remembered = resolver.Remembered;
+
+/// A `Trust` filled in from a key store: what a consumer hands `Resolver.validate_with` to
+/// validate every lookup the table starts, composed ones included (docs/design.md §25, step 12).
+/// `resolver` cannot reach `dnssec`, and this file can reach both.
+pub fn validated_by(store: *KeyStore) Trust {
+    const calls = dnssec.keys.calls;
+    return .{
+        .context = store.context(),
+        .validate = calls.validate,
+        .join = calls.join,
+        .next_question = calls.next_question,
+        .answered = calls.answered,
+        .question_failed = calls.question_failed,
+        .end = calls.end,
+        .release = calls.release,
+    };
+}
 
 /// A `Memory` filled in from a `Cache`: what a consumer hands `Resolver.remember_with` to put
 /// the cache under every lookup the table starts, composed ones included (docs/design.md §20).

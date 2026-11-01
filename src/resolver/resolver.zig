@@ -36,6 +36,7 @@ pub const MatchKey = table.MatchKey;
 pub const Handle = table.Handle;
 pub const Event = table.Event;
 pub const Memory = table_memory.Memory;
+pub const Trust = table.Trust;
 pub const Remembered = table_memory.Remembered;
 pub const Negative = table_memory.Negative;
 

@@ -11368,3 +11368,20 @@ TW1 ... TW17 WK24` ran each to its end. WK24 is in the section of the walks for 
 | TW15 | a poll offers the end of a walk's question that failed | `zig build test-resolver` | `CAUGHT` |
 | TW16 | a request's answer is not handed to the walks | `zig build test-resolver` | `CAUGHT` |
 | TW17 | a datagram's answer is not handed to the walks | `zig build test-resolver` | `CAUGHT` |
+
+## The key store a consumer owns
+
+2026-11-01. Design §25 Stage B, step 12's public surface (c4milo/cocuyo#56): `KeyStore` and the
+calls of the table's `Trust`, in `dnssec_keys.zig`. `cocuyo.validated_by` names each call in a
+field of its own type, so the compiler refuses a call put in the wrong field. KS1 first did not
+compile, and its clock of zero then broke the test. `zig build mutations -- engine KS1 ... KS6`
+ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| KS1 | the key store keeps no time of day | `zig build test-dnssec` | `CAUGHT` |
+| KS2 | a message reaches no validator | `zig build test-dnssec` | `CAUGHT` |
+| KS3 | a keys_wanted joins no walk | `zig build test-dnssec` | `CAUGHT` |
+| KS4 | a walk's answer reaches no walk | `zig build test-dnssec` | `CAUGHT` |
+| KS5 | a question that ran out of time fails its walk as every server failing | `zig build test-dnssec` | `CAUGHT` |
+| KS6 | an ended walk is never freed | `zig build test-dnssec` | `CAUGHT` |

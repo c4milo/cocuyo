@@ -10953,7 +10953,7 @@ Each step lands with its checks, each check broken on purpose and recorded in
       reached its target.
     The table's code, written on 2026-11-01, is `src/resolver/table_walks.zig`:
     - The table is handed a `Trust`: `validate`, `join`, `next_question`, `answered`,
-      `question_failed`, `end` and `release`. `cocuyo.validated_by` will fill it in from a `Walker`.
+      `question_failed`, `end` and `release`. `cocuyo.validated_by` fills it in from a `KeyStore`.
       The `Validator` of the table above names `validate` alone, so the walks' calls join it.
     - The validator each lookup asks is the table's own. It asks `Trust.validate`, and joins the
       walk on a `keys_wanted`. The table writes that walk's number into the lookup's slot.
@@ -10964,6 +10964,14 @@ Each step lands with its checks, each check broken on purpose and recorded in
     - The limit is named `trust_slots_min`: a limit's name ends in `_max`, `_min`, `_limit` or
       `_least`.
     - A table that validates nothing pays one test for each accepted message, and one for each poll.
+    The public surface, ruled by the owner on 2026-11-01, is `cocuyo.KeyStore`, its `Entry`,
+    `cocuyo.Anchor`, `cocuyo.Trust` and `cocuyo.validated_by`:
+    - `KeyStore`, in `src/dnssec/dnssec_keys.zig`, holds the store and the walker. Its `init` takes
+      the entries, the anchors, `cocuyo_dnssec`'s verifier and hasher, and the time of day.
+    - `validated_by(&key_store)` gives the `Trust` the consumer hands `Resolver.validate_with`.
+      It lives in `src/cocuyo.zig`, which imports `dnssec` and registers it nowhere.
+    - `KeyStore` is in `dnssec` and not in a file of its own beside `cocuyo.zig`, since a file
+      there that `cocuyo.zig` imported would leave the module (the relative-import rule).
 13. The cache: the status, the TTL bound and the bogus entries.
 14. The twin: a server in `sim` that signs for the tests' verifier, so the tests cover whole
     chains, a server that lies, signatures that have expired, signatures taken out, and a key

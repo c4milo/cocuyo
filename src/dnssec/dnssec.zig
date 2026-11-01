@@ -19,6 +19,8 @@ pub const store = @import("dnssec_store.zig");
 pub const store_keys = @import("dnssec_store_keys.zig");
 pub const validate = @import("dnssec_validate.zig");
 pub const walk = @import("dnssec_walk.zig");
+/// The key store a consumer owns, and the calls of the table's `Trust` (step 12).
+pub const keys = @import("dnssec_keys.zig");
 
 /// Where `dnssec` feeds the octets a digest or a signature covers, in order and in pieces. The
 /// caller's: a digest or a signature over chapulin, or a test that records what it was given.
@@ -147,5 +149,6 @@ test {
     _ = @import("dnssec_validate.zig");
     _ = @import("dnssec_validate_denial.zig");
     _ = walk;
+    _ = keys;
     _ = @import("dnssec_walk_test.zig");
 }
