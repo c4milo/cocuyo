@@ -2356,6 +2356,12 @@ step until `zig build test` passes.
     and is a second implementation of SHA-2, P-256, P-384 and RSA in an image that already
     carries chapulin's, outside what chapulin proves and tests; and both at once, chapulin
     under the engine and `std.crypto` for a consumer with no colibri, which keeps two. §25.
+
+    Amended on 2026-10-31. The verification does not go through colibri's `tls`. colibri's owner
+    ruled for a library module of colibri's own, `dnssec`, over the TCP object that colibri builds
+    with chapulin's `DNSSEC=on` (colibri's decision 142, c4milo/colibri#122). colibri builds it
+    when Stage B asks, for the chapulin commit Stage B names. The rule stands: each hash and each
+    signature is chapulin's, and nothing under `src/` holds cryptography.
 36. **A server's wait comes from its measured latency.** Ruled by the owner on 2026-10-09, with
     c-ares's numbers: five times the average of the shortest window that holds 3 samples,
     `timeout_ns` until a server has 3, at least 250 ms and at most `timeout_ns_max`, doubled per
@@ -4983,7 +4989,7 @@ recommends, and none is taken until the owner answers. The owner answered the la
     uses the closest one (RFC 6840 Appendix C.1).
 21. **Whose cryptography.** Answered on 2026-10-03: chapulin's, for all of it (§16 decision 35).
     `dnssec` names a verifier, and a module outside `src/` fills it in from chapulin through
-    colibri's `tls`. Still to settle is what chapulin gains and who adds it, which §25 lists:
+    colibri's `dnssec` module, since 2026-10-31 (§16 decision 35, as amended). Still to settle is what chapulin gains and who adds it, which §25 lists:
     public calls, SHA-1, RSA over SHA-512, RSA keys it refuses today, and Ed25519, asked of
     chapulin in c4milo/chapulin#189. §25's count of 2026-10-03 gives the order and the bounds:
     RSA from 1024 bits, with the key's own exponent. Ed448 is in neither library, and no
@@ -10386,7 +10392,7 @@ denial came incomplete be sent again, and both paths do.
 | DO, CD and AD; DS, RRSIG, NSEC, DNSKEY, NSEC3, NSEC3PARAM and DNAME named in `Kind`; their rdata read; the type bit maps | `wire` | the codec, which verifies nothing |
 | canonical name order (RFC 4034 §6.1) | `core`, on `Name` | beside `equal` |
 | canonical form, the signed data, the key tag, what a DS digest and a signature are computed over, the denial proofs, the key store, the validator, the walk's rules, and the `Verifier` it asks for digests and signatures | `dnssec`, new, reading `core` and `wire` | the DNS half, with no cryptography in it |
-| the verifier over chapulin | a module outside `src/`, whose `tls` import a consumer binds to colibri's | as `cocuyo_quic` and `cocuyo_doh` are bound, so that `src/` depends on nothing |
+| the verifier over chapulin | a module outside `src/`, whose `dnssec` import a consumer binds to colibri's `dnssec` module (decision 35, as amended) | as `cocuyo_quic` and `cocuyo_doh` are bound, so that `src/` depends on nothing |
 | the `Validator` the table is handed, `awaiting_keys`, the walk's lookups, the slot kept for them | `resolver` | under the table, as `Memory` is (decision 22) |
 | `cocuyo.validated_by(&store)` | `src/cocuyo.zig` | the one file that reaches both modules, as `remembered_by` does |
 | the status in a slot, and bogus entries | `cache` | |
@@ -10449,13 +10455,14 @@ The owner ruled on 2026-10-03 that every cryptographic operation is chapulin's, 
 DoT, DoQ and DoH already is (§16 decision 35). This section's first draft took it from Zig's
 `std.crypto`, and what follows replaces that draft.
 
-**Where it sits.** `src/` depends on nothing, and chapulin reaches cocuyo through colibri's
-`tls` alone (decision 32), which nothing under `src/` imports. So `dnssec` holds no
+**Where it sits.** `src/` depends on nothing, and chapulin reaches cocuyo through colibri alone
+(decision 32), which nothing under `src/` imports. So `dnssec` holds no
 cryptography. It names what it asks of a verifier, as the table names what it asks of a cache
 (decision 22): whether an algorithm or a digest type can be checked, the digest of octets it
 feeds in pieces, and whether a signature verifies under a key over data it feeds in pieces. A
 module outside `src/`, beside `cocuyo_quic` and `cocuyo_doh`, fills that in from chapulin
-through a `tls` import the consumer binds to colibri's, and the engine takes it in `Options`. A
+through a `dnssec` import the consumer binds to colibri's `dnssec` module, and the engine takes it
+in `Options` (decision 35, as amended). A
 consumer of the library alone, with no colibri, hands in a verifier of its own or does not
 validate.
 
@@ -10488,9 +10495,10 @@ Two more things are needed that no algorithm number names:
   delegation is unsigned.
 - **Public calls.** None of the above is one. chapulin's object exports its TLS, record and
   QUIC calls, and no call that hashes or verifies, and colibri's `tls` carries that object.
+  chapulin added the calls on 2026-10-31, under its `DNSSEC=on` (c4milo/chapulin#189).
 
 So three repositories change, in this order: chapulin gains the calls and what the table lists,
-colibri's `tls` hands them on, and cocuyo binds them. §21 began the same way, with chapulin's
+colibri's `dnssec` module hands them on (§16 decision 35, as amended), and cocuyo binds them. §21 began the same way, with chapulin's
 three pieces first.
 
 Algorithms 5 and 7 are not written. RFC 9905 §2 asks two things at once: implementations "MUST
