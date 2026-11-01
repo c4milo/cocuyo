@@ -13,6 +13,7 @@ const std = @import("std");
 const core = @import("core");
 const wire = @import("wire");
 const text = @import("check_text.zig");
+const dnssec = @import("check_record_dnssec.zig");
 const Name = core.Name;
 const Kind = core.Kind;
 const Record = wire.Record;
@@ -53,7 +54,7 @@ const line_bytes_max = 1 << 16;
 /// names out in full can make it longer, so this is twice that. A copy that needs more is reported
 /// rather than cut.
 const copy_bytes_max = 1 << 17;
-const decimal_base = 10;
+pub const decimal_base = 10;
 const hex_base = 16;
 const hex_digits = 2;
 
@@ -103,7 +104,7 @@ fn check_head(message: []const u8, record: *const Record, head: []const []const 
 /// Whether dnslib's mnemonic names the type the record carries. A type cocuyo names must be
 /// printed by its name, and any type may be printed in the generic form (RFC 3597 §5). A mnemonic
 /// cocuyo does not know is taken for what it says, as long as it is not one cocuyo knows.
-fn type_agrees(mnemonic: []const u8, type_code: u16) bool {
+pub fn type_agrees(mnemonic: []const u8, type_code: u16) bool {
     if (std.mem.startsWith(u8, mnemonic, generic_type_prefix)) {
         const digits = mnemonic[generic_type_prefix.len..];
         if (std.fmt.parseInt(u16, digits, decimal_base)) |printed| return printed == type_code else |_| {}
@@ -114,12 +115,6 @@ fn type_agrees(mnemonic: []const u8, type_code: u16) bool {
     }
     return true;
 }
-
-/// The digits of a signature time written as a date (RFC 4034 §3.2).
-const date_digits: usize = 14;
-
-/// The longest base64 text a key's fields hold: an rdata's octets, four characters for each three.
-const base64_text_bytes_max: usize = (core.limits.rdata_bytes_max + 2) / 3 * 4;
 
 fn check_typed(kind: Kind, record: *const Record, copy: []const u8, fields: []const []const u8) Mismatch!void {
     return switch (kind) {
@@ -132,11 +127,11 @@ fn check_typed(kind: Kind, record: *const Record, copy: []const u8, fields: []co
         .naptr => check_naptr(copy, fields),
         .tlsa => check_tlsa(copy, fields),
         .dname => check_name(copy, fields),
-        .ds => check_ds(copy, fields),
-        .dnskey => check_dnskey(copy, fields),
-        .nsec3param => check_nsec3param(copy, fields),
-        .rrsig => check_rrsig(copy, fields),
-        .nsec => check_nsec(copy, fields),
+        .ds => dnssec.check_ds(copy, fields),
+        .dnskey => dnssec.check_dnskey(copy, fields),
+        .nsec3param => dnssec.check_nsec3param(copy, fields),
+        .rrsig => dnssec.check_rrsig(copy, fields),
+        .nsec => dnssec.check_nsec(copy, fields),
         // Its text writes the hash in base32hex, which this check does not read yet, and
         // dnslib's responses at the pin hold none (docs/design.md §25, step 6).
         .nsec3 => Mismatch.Unread,
@@ -217,128 +212,6 @@ fn check_tlsa(copy: []const u8, fields: []const []const u8) Mismatch!void {
     try same_hex(tlsa.data, fields[3..]);
 }
 
-/// Key tag, algorithm, digest type, then the digest in hexadecimal (RFC 4034 §5.3).
-fn check_ds(copy: []const u8, fields: []const []const u8) Mismatch!void {
-    if (fields.len < 4) return Mismatch.Text;
-    const ds = rdata.Ds.parse(copy) catch return Mismatch.Codec;
-    try same_number(ds.key_tag, fields[0]);
-    try same_number(ds.algorithm, fields[1]);
-    try same_number(ds.digest_type, fields[2]);
-    try same_hex(ds.digest, fields[3..]);
-}
-
-/// Flags, protocol, algorithm, then the key in base64 (RFC 4034 §2.2).
-fn check_dnskey(copy: []const u8, fields: []const []const u8) Mismatch!void {
-    if (fields.len < 4) return Mismatch.Text;
-    const key = rdata.Dnskey.parse(copy) catch return Mismatch.Codec;
-    try same_number(key.flags, fields[0]);
-    try same_number(key.protocol, fields[1]);
-    try same_number(key.algorithm, fields[2]);
-    try same_base64(key.public_key, fields[3..]);
-}
-
-/// Hash algorithm, flags, iterations, then the salt in hexadecimal, or `-` for none (RFC 5155 §4.3).
-fn check_nsec3param(copy: []const u8, fields: []const []const u8) Mismatch!void {
-    try arity(fields, 4);
-    const param = rdata.Nsec3Param.parse(copy) catch return Mismatch.Codec;
-    try same_number(param.hash_algorithm, fields[0]);
-    try same_number(param.flags, fields[1]);
-    try same_number(param.iterations, fields[2]);
-    if (std.mem.eql(u8, fields[3], "-")) {
-        if (param.salt.len != 0) return Mismatch.Rdata;
-        return;
-    }
-    try same_hex(param.salt, fields[3..]);
-}
-
-/// Type covered, algorithm, labels, original TTL, expiration, inception, key tag, signer, then the
-/// signature in base64 (RFC 4034 §3.2).
-fn check_rrsig(copy: []const u8, fields: []const []const u8) Mismatch!void {
-    if (fields.len < 9) return Mismatch.Text;
-    const sig = rdata.Rrsig.parse(copy) catch return Mismatch.Codec;
-    if (!type_agrees(fields[0], sig.type_covered)) return Mismatch.Rdata;
-    try same_number(sig.algorithm, fields[1]);
-    try same_number(sig.labels, fields[2]);
-    try same_number(sig.original_ttl, fields[3]);
-    if (try seconds_of(fields[4]) != sig.expiration) return Mismatch.Rdata;
-    if (try seconds_of(fields[5]) != sig.inception) return Mismatch.Rdata;
-    try same_number(sig.key_tag, fields[6]);
-    try same_name(&sig.signer, fields[7]);
-    try same_base64(sig.signature, fields[8..]);
-}
-
-/// The next owner name, then each type the map holds, by mnemonic, in increasing order of its
-/// code (RFC 4034 §4.2). A type cocuyo does not name may be printed by any mnemonic cocuyo does
-/// not know, as `type_agrees` says.
-fn check_nsec(copy: []const u8, fields: []const []const u8) Mismatch!void {
-    if (fields.len < 1) return Mismatch.Text;
-    const nsec = rdata.Nsec.parse(copy) catch return Mismatch.Codec;
-    try same_name(&nsec.next, fields[0]);
-    const bytes = nsec.types.bytes;
-    var listed: usize = 1;
-    var at: usize = 0;
-    // Bounded: each pass reads one block of the map, which the view checked.
-    for (0..bytes.len + 1) |_| {
-        if (at == bytes.len) break;
-        const window: u16 = bytes[at];
-        const bitmap = bytes[at + 2 ..][0..bytes[at + 1]];
-        for (bitmap, 0..) |octet, index| {
-            for (0..8) |bit| {
-                if (octet & (@as(u8, 0x80) >> @intCast(bit)) == 0) continue;
-                if (listed == fields.len) return Mismatch.Rdata;
-                const code: u16 = window * 256 + @as(u16, @intCast(index * 8 + bit));
-                if (!type_agrees(fields[listed], code)) return Mismatch.Rdata;
-                listed += 1;
-            }
-        }
-        at += 2 + bitmap.len;
-    }
-    if (listed != fields.len) return Mismatch.Rdata;
-}
-
-/// A signature time as RFC 4034 §3.2 writes one: YYYYMMDDHHmmSS in UTC, "always exactly 14"
-/// digits, or the seconds since 1970 in decimal. A time past 2106 is kept modulo 2^32, as the
-/// field is (RFC 4034 §3.1.5).
-fn seconds_of(field: []const u8) Mismatch!u32 {
-    if (field.len != date_digits) return number(u32, field);
-    const year = try number(i64, field[0..4]);
-    const month = try number(u8, field[4..6]);
-    const day = try number(u8, field[6..8]);
-    const hour = try number(u8, field[8..10]);
-    const minute = try number(u8, field[10..12]);
-    const second = try number(u8, field[12..14]);
-    if (month < 1 or month > 12 or day < 1 or day > 31 or hour > 23 or minute > 59 or second > 59) return Mismatch.Text;
-    const days = days_from_civil(year, month, day);
-    const seconds = days * 86_400 + @as(i64, hour) * 3_600 + @as(i64, minute) * 60 + second;
-    return @truncate(@as(u64, @bitCast(seconds)));
-}
-
-/// The days from 1970-01-01 to a date of the proleptic Gregorian calendar.
-fn days_from_civil(year: i64, month: u8, day: u8) i64 {
-    const y = if (month <= 2) year - 1 else year;
-    const era = @divFloor(y, 400);
-    const year_of_era = y - era * 400;
-    const shifted_month: i64 = if (month > 2) month - 3 else month + 9;
-    const day_of_year = @divFloor(153 * shifted_month + 2, 5) + day - 1;
-    const day_of_era = year_of_era * 365 + @divFloor(year_of_era, 4) - @divFloor(year_of_era, 100) + day_of_year;
-    return era * 146_097 + day_of_era - 719_468;
-}
-
-/// Whether `octets` are what the base64 `fields` write, split as a master file may split them.
-fn same_base64(octets: []const u8, fields: []const []const u8) Mismatch!void {
-    var joined: [base64_text_bytes_max]u8 = undefined;
-    var len: usize = 0;
-    for (fields) |field| {
-        if (field.len > joined.len - len) return Mismatch.Text;
-        @memcpy(joined[len..][0..field.len], field);
-        len += field.len;
-    }
-    var decoded: [base64_text_bytes_max]u8 = undefined;
-    const size = std.base64.standard.Decoder.calcSizeForSlice(joined[0..len]) catch return Mismatch.Text;
-    std.base64.standard.Decoder.decode(decoded[0..size], joined[0..len]) catch return Mismatch.Text;
-    if (!std.mem.eql(u8, decoded[0..size], octets)) return Mismatch.Rdata;
-}
-
 /// The length, then the octets in hexadecimal (RFC 3597 §5).
 fn check_generic(octets: []const u8, fields: []const []const u8) Mismatch!void {
     if (fields.len == 0) return Mismatch.Text;
@@ -346,15 +219,15 @@ fn check_generic(octets: []const u8, fields: []const []const u8) Mismatch!void {
     try same_hex(octets, fields[1..]);
 }
 
-fn arity(fields: []const []const u8, count: usize) Mismatch!void {
+pub fn arity(fields: []const []const u8, count: usize) Mismatch!void {
     if (fields.len != count) return Mismatch.Rdata;
 }
 
-fn number(comptime T: type, field: []const u8) Mismatch!T {
+pub fn number(comptime T: type, field: []const u8) Mismatch!T {
     return std.fmt.parseInt(T, field, decimal_base) catch Mismatch.Text;
 }
 
-fn same_number(value: anytype, field: []const u8) Mismatch!void {
+pub fn same_number(value: anytype, field: []const u8) Mismatch!void {
     if (value != try number(@TypeOf(value), field)) return Mismatch.Rdata;
 }
 
@@ -369,34 +242,41 @@ fn name_of(field: []const u8) Mismatch!Name {
     var at: usize = 0;
     // Bounded: each pass takes one octet of the field at least.
     for (0..field.len + 1) |_| {
-        if (at == field.len or field[at] == '.') {
-            if (len > 0) name.append_label(label[0..len]) catch return Mismatch.Text;
+        if (at == field.len) break;
+        if (field[at] == '.') {
+            try end_label(&name, label[0..len]);
             len = 0;
-            if (at == field.len) break;
             at += 1;
             continue;
         }
         if (len == label.len) return Mismatch.Text;
-        if (field[at] == '\\') {
-            if (field.len - at > 3 and std.ascii.isDigit(field[at + 1])) {
-                label[len] = std.fmt.parseInt(u8, field[at + 1 .. at + 4], decimal_base) catch return Mismatch.Text;
-                at += 4;
-            } else {
-                if (at + 1 == field.len) return Mismatch.Text;
-                label[len] = field[at + 1];
-                at += 2;
-            }
-        } else {
-            label[len] = field[at];
-            at += 1;
-        }
+        const taken = try octet_at(field, at);
+        label[len] = taken.octet;
         len += 1;
+        at += taken.width;
     }
+    try end_label(&name, label[0..len]);
     name.terminate() catch return Mismatch.Text;
     return name;
 }
 
-fn same_name(name: *const Name, field: []const u8) Mismatch!void {
+/// The octet that starts at `at`, and the characters it takes: itself, or an escape of `\\X` or
+/// `\\DDD` (RFC 1035 §5.1).
+fn octet_at(field: []const u8, at: usize) Mismatch!struct { octet: u8, width: usize } {
+    if (field[at] != '\\') return .{ .octet = field[at], .width = 1 };
+    if (field.len - at > 3 and std.ascii.isDigit(field[at + 1])) {
+        const octet = std.fmt.parseInt(u8, field[at + 1 .. at + 4], decimal_base) catch return Mismatch.Text;
+        return .{ .octet = octet, .width = 4 };
+    }
+    if (at + 1 == field.len) return Mismatch.Text;
+    return .{ .octet = field[at + 1], .width = 2 };
+}
+
+fn end_label(name: *Name, label: []const u8) Mismatch!void {
+    if (label.len > 0) name.append_label(label) catch return Mismatch.Text;
+}
+
+pub fn same_name(name: *const Name, field: []const u8) Mismatch!void {
     const printed = try name_of(field);
     if (!name.equal(&printed)) return Mismatch.Rdata;
 }
@@ -407,7 +287,7 @@ fn same_bytes(bytes: []const u8, field: []const u8) Mismatch!void {
 
 /// Whether `octets` are what the hexadecimal `fields` write, which a master file may split into as
 /// many words as it likes, each of an even number of digits (RFC 3597 §5).
-fn same_hex(octets: []const u8, fields: []const []const u8) Mismatch!void {
+pub fn same_hex(octets: []const u8, fields: []const []const u8) Mismatch!void {
     var at: usize = 0;
     for (fields) |field| {
         if (field.len % hex_digits != 0) return Mismatch.Text;
@@ -426,9 +306,9 @@ fn same_hex(octets: []const u8, fields: []const []const u8) Mismatch!void {
 
 const testing = std.testing;
 const rdata_fixtures = wire.rdata.fixtures;
-const owner_line = "example.com. 300 IN ";
+pub const owner_line = "example.com. 300 IN ";
 
-fn one_answer(comptime type_code: u16, comptime octets: []const u8) [wire.fixtures.answer_offset + 12 + octets.len]u8 {
+pub fn one_answer(comptime type_code: u16, comptime octets: []const u8) [wire.fixtures.answer_offset + 12 + octets.len]u8 {
     const header = [_]u8{ 0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 };
     const type_octets = [_]u8{ type_code >> 8, type_code & 0xff };
     const question = rdata_fixtures.name_example ++ type_octets ++ [_]u8{ 0x00, 0x01 };
@@ -437,7 +317,7 @@ fn one_answer(comptime type_code: u16, comptime octets: []const u8) [wire.fixtur
     return header ++ question ++ record ++ octets[0..octets.len].*;
 }
 
-fn check_one(message: []const u8, line: []const u8, tally: *Tally) Mismatch!void {
+pub fn check_one(message: []const u8, line: []const u8, tally: *Tally) Mismatch!void {
     var records = wire.record.Iterator.init(message, wire.fixtures.answer_offset, 1);
     const record = (records.next() catch unreachable).?;
     std.debug.assert(record.end == message.len);
@@ -521,47 +401,6 @@ test "strings, hexadecimal and names that differ are mismatches, and a type with
     try testing.expectEqual(Tally{}, tally);
 }
 
-test "DS, DNSKEY, RRSIG, NSEC, NSEC3PARAM and DNAME read as dnslib writes them" {
-    // RFC 4034 §5.4's DS and DNSKEY (docs/design.md §25, step 6).
-    var tally: Tally = .{};
-    const ds = one_answer(43, &rdata_fixtures.ds_example);
-    try check_one(&ds, owner_line ++ "DS 60485 5 1 2BB183AF5F22588179A53B0A 98631FAD1A292118", &tally);
-    try testing.expectError(Mismatch.Rdata, check_one(&ds, owner_line ++ "DS 60485 5 2 2BB183AF5F22588179A53B0A98631FAD1A292118", &tally));
-    try testing.expectError(Mismatch.Rdata, check_one(&ds, owner_line ++ "DS 60485 5 1 2BB183AF5F22588179A53B0A98631FAD1A292119", &tally));
-    var key_bytes: [rdata_fixtures.dnskey_example_bytes]u8 = undefined;
-    const key = rdata_fixtures.dnskey_example(&key_bytes);
-    var dnskey_message: [wire.fixtures.answer_offset + 12 + rdata_fixtures.dnskey_example_bytes]u8 = undefined;
-    @memcpy(&dnskey_message, &one_answer(48, &([_]u8{0} ** rdata_fixtures.dnskey_example_bytes)));
-    @memcpy(dnskey_message[dnskey_message.len - key.len ..], key);
-    try check_one(&dnskey_message, owner_line ++ "DNSKEY 256 3 5 AQOeiiR0GOMYkDshWoSKz9XzfwJr1AYtsmx3TGkJaNXVbfi/ 2pHm822aJ5iI9BMzNXxeYCmZDRD99WYwYqUSdjMmmAphXdvxegXd/M5+X7OrzKBaMbCVdFLUUh6DhweJBjEVv5f2wwjM9XzcnOf+EPbtG9DMBmADjFDc2w/rljwvFw==", &tally);
-    try testing.expectError(Mismatch.Rdata, check_one(&dnskey_message, owner_line ++ "DNSKEY 256 3 5 AQOeiiR0", &tally));
-    const param = one_answer(51, rdata_fixtures.nsec3[0 .. wire.constants.nsec3_fixed_bytes + 4]);
-    try check_one(&param, owner_line ++ "NSEC3PARAM 1 1 12 AABBCCDD", &tally);
-    try testing.expectError(Mismatch.Rdata, check_one(&param, owner_line ++ "NSEC3PARAM 1 1 12 -", &tally));
-    const dname = one_answer(39, &rdata_fixtures.name_example);
-    try check_one(&dname, owner_line ++ "DNAME example.com.", &tally);
-    // RFC 4034 §4.3's NSEC, and each way its list can disagree.
-    const nsec = one_answer(47, &rdata_fixtures.nsec_example);
-    try check_one(&nsec, owner_line ++ "NSEC host.example.com. A MX RRSIG NSEC TYPE1234", &tally);
-    // A label of one zero octet, written as an escape (RFC 1035 §5.1), as dnslib prints it.
-    const zero_next = "\x01\x00\x07example\x03com\x00".* ++ rdata_fixtures.nsec_example[rdata_fixtures.nsec_example_next_bytes..].*;
-    const escaped = one_answer(47, &zero_next);
-    try check_one(&escaped, owner_line ++ "NSEC \\000.example.com. A MX RRSIG NSEC TYPE1234", &tally);
-    try testing.expectError(Mismatch.Rdata, check_one(&escaped, owner_line ++ "NSEC \\001.example.com. A MX RRSIG NSEC TYPE1234", &tally));
-    try testing.expectError(Mismatch.Rdata, check_one(&nsec, owner_line ++ "NSEC host.example.com. A MX RRSIG NSEC", &tally));
-    try testing.expectError(Mismatch.Rdata, check_one(&nsec, owner_line ++ "NSEC host.example.com. A MX RRSIG NSEC TYPE1234 TYPE1235", &tally));
-    try testing.expectError(Mismatch.Rdata, check_one(&nsec, owner_line ++ "NSEC host.example.com. A NS RRSIG NSEC TYPE1234", &tally));
-    // fixtures.sig: covers type 0, algorithm 13, 2 labels, TTL 0, expiration 0x5f000000 and
-    // inception 0x5e000000, which are 2020-07-04T04:05:20Z and 2019-12-22T23:45:04Z, key tag
-    // 0x1234, signer example.com, and the signature DE AD BE EF.
-    const rrsig = one_answer(46, &rdata_fixtures.sig);
-    try check_one(&rrsig, owner_line ++ "RRSIG TYPE0 13 2 0 20200704040520 20191222234504 4660 example.com. 3q2+7w==", &tally);
-    try check_one(&rrsig, owner_line ++ "RRSIG TYPE0 13 2 0 1593835520 1577058304 4660 example.com. 3q2+7w==", &tally);
-    try testing.expectError(Mismatch.Rdata, check_one(&rrsig, owner_line ++ "RRSIG TYPE0 13 2 0 20200704040521 20191222234504 4660 example.com. 3q2+7w==", &tally));
-    try testing.expectError(Mismatch.Rdata, check_one(&rrsig, owner_line ++ "RRSIG A 13 2 0 20200704040520 20191222234504 4660 example.com. 3q2+7w==", &tally));
-    try testing.expectError(Mismatch.Rdata, check_one(&rrsig, owner_line ++ "RRSIG TYPE0 13 2 0 20200704040520 20191222234504 4660 example.com. 3q2+7A==", &tally));
-}
-
 test "a copy of a type cocuyo does not name that is not the rdata as it came is a mismatch" {
     const message = one_answer(65534, &.{ 0x0d, 0xd5, 0xc6, 0x00, 0x01 });
     var records = wire.record.Iterator.init(&message, wire.fixtures.answer_offset, 1);
@@ -570,4 +409,8 @@ test "a copy of a type cocuyo does not name that is not the rdata as it came is 
     record.rdata = &.{ 0x0d, 0xd5, 0xc6, 0x00, 0x02 };
     var tally: Tally = .{};
     try testing.expectError(Mismatch.Codec, check(&message, &record, owner_line ++ "TYPE65534 \\# 5 0DD5C60002", &tally));
+}
+
+test {
+    _ = dnssec;
 }
