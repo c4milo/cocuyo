@@ -112,6 +112,9 @@ pub const bitmap_block_header_bytes: usize = 2;
 /// The types one window holds, and the bits in an octet of a bitmap.
 pub const bitmap_window_types: usize = 256;
 pub const bitmap_octet_bits: u8 = 8;
+/// NXNAME, the pseudo-type a compact denial sets in its map to say the name does not exist (RFC
+/// 9824 §2, §9).
+pub const nxname_type_code: u16 = 128;
 
 /// URI: priority and weight, 16 bits each, then the target, which must not be empty
 /// (RFC 7553 §4.5).

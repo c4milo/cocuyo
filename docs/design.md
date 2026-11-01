@@ -10391,7 +10391,7 @@ denial came incomplete be sent again, and both paths do.
 | Piece | Module | Why there |
 | --- | --- | --- |
 | DO, CD and AD; DS, RRSIG, NSEC, DNSKEY, NSEC3, NSEC3PARAM and DNAME named in `Kind`; their rdata read; the type bit maps | `wire` | the codec, which verifies nothing |
-| canonical name order (RFC 4034 §6.1) | `core`, on `Name` | beside `equal`. Built on 2026-10-31 as `Name.canonical_order`, in `src/core/canonical.zig` |
+| canonical name order (RFC 4034 §6.1) | `core`, on `Name` | beside `equal`. Built on 2026-10-31 as `Name.canonical_order`, in `src/core/canonical.zig`, which since 2026-11-01 also counts the labels two names share (`shared_labels`) and takes an ancestor (`ancestor`) |
 | canonical form, the signed data, the key tag, what a DS digest and a signature are computed over, the denial proofs, the key store, the validator, the walk's rules, and the `Verifier` it asks for digests and signatures | `dnssec`, new, reading `core` and `wire` | the DNS half, with no cryptography in it |
 | the verifier over chapulin | a module outside `src/`, whose `dnssec` import a consumer binds to colibri's `dnssec` module (decision 35, as amended) | as `cocuyo_quic` and `cocuyo_doh` are bound, so that `src/` depends on nothing |
 | the `Validator` the table is handed, `awaiting_keys`, the walk's lookups, the slot kept for them | `resolver` | under the table, as `Memory` is (decision 22) |
@@ -10695,6 +10695,31 @@ Each step lands with its checks, each check broken on purpose and recorded in
    under its own date.
 8. `dnssec`, the denials: NSEC against the responses of RFC 4035 Appendix B, NSEC3 against RFC
    5155 Appendix B, and compact denial against RFC 9824 §3.
+   Begun on 2026-11-01 with `dnssec.nsec`. It reads NSEC records whose signatures the validator
+   verified, each with its RRSIG's signer and Labels field, and verifies nothing itself. The rules:
+   - `deny` says whether the records prove no data or a name error for a name and a type, or
+     neither. A record at the name proves no data when the type's bit and the CNAME bit are
+     clear (RFC 4035 §5.4, RFC 6840 §4.3). It proves nothing for NSEC, RRSIG or ANY, since it
+     shows that NSEC and RRSIG exist.
+   - A name error needs one record that covers the name, and one that covers the wildcard at the
+     closest encloser (RFC 4035 §3.1.3.2). A record that matches that wildcard instead proves
+     wildcard no data, by its bits (§3.1.3.4).
+   - The closest encloser is the deeper of the ancestors the name shares with the covering
+     record's owner and with its next name. No RFC states this step. It follows from canonical
+     order (RFC 4034 §6.1) and from the definition in RFC 4592 §3.3.1.
+   - A covering record whose next name is below the name shows an empty non-terminal, which
+     exists (RFC 4592 §2.2.2), so the proof is no data.
+   - An ancestor delegation denies nothing at its owner but a DS, and nothing below it. A record
+     with the DNAME bit denies nothing below its owner (RFC 6840 §4.1). For a DS, a record with
+     the SOA bit set is the child's apex, and proves nothing (RFC 4035 Appendix C.8).
+   - A record speaks only of names in its signer's zone. It counts for nothing when its RRSIG's
+     Labels field shows a wildcard expansion (RFC 4035 §3.1.3.2).
+   - `wildcard_answer` holds when a record covers the name, and the closest encloser it shows is
+     the wildcard's, which the answer's RRSIG counts (RFC 4035 §5.3.4).
+   - `unsigned_delegation` holds for a record at the name with the NS bit set and the DS and SOA
+     bits clear (RFC 4035 §5.2, RFC 6840 §4.4).
+   - A record at the name with NXNAME set is a name error under NOERROR (RFC 9824 §3.1). NXNAME is
+     the one pseudo-type a reader takes (§7.1), through `wire.rdata.TypeBitmaps.nxname`.
 9. The key store and the validator, on whole messages: every response of RFC 4035 Appendix B and
    of RFC 5155 Appendix B, read under the tests' verifier, and refused with any signed octet
    changed.

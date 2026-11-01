@@ -5435,4 +5435,238 @@
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS1",
+        .what = "a compact denial's NXNAME is not read",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "    if (types.nxname()) return .name_error;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS2",
+        .what = "the child's apex record denies a DS",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "        if (types.has(.soa)) return .none;\n    } else", .new = "        if (false) return .none;\n    } else" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS3",
+        .what = "an ancestor delegation denies a type at its owner",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "    } else if (delegation(record)) {", .new = "    } else if (false) {" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS4",
+        .what = "a record denies ANY at its own name",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "    if (kind == .nsec or kind == .rrsig or kind == .any) return .none;", .new = "    if (kind == .nsec or kind == .rrsig) return .none;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS5",
+        .what = "a no-data proof leaves the CNAME bit unread",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "    if (types.has(kind) or types.has(.cname)) return .none;", .new = "    if (types.has(kind)) return .none;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS6",
+        .what = "a no-data proof leaves the type's own bit unread",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "    if (types.has(kind) or types.has(.cname)) return .none;", .new = "    if (types.has(.cname)) return .none;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS7",
+        .what = "an empty non-terminal is not seen to exist",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "    if (next_labels > name.label_count() and under(&covering.nsec.next, name)) return .no_data;", .new = "    if (false and next_labels > name.label_count() and under(&covering.nsec.next, name)) return .no_data;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS8",
+        .what = "a wildcard's record denies a type its map sets",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "        return if (matched(record, kind) == .no_data) .no_data else .none;", .new = "        _ = record;\n        return .no_data;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS9",
+        .what = "a name error needs no record that covers the wildcard",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "    if (covering_record(&wildcard, records) != null) return .name_error;\n    return .none;", .new = "    return .name_error;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS10",
+        .what = "a wildcard answer takes a closer encloser than its own",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "        if (closest_encloser(name, record) == labels) return true;", .new = "        if (closest_encloser(name, record) >= labels) return true;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS11",
+        .what = "an unsigned delegation needs no NS bit",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "    return types.has(.ns) and !types.has(.ds) and !types.has(.soa);", .new = "    return !types.has(.ds) and !types.has(.soa);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS12",
+        .what = "an unsigned delegation may set the DS bit",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "    return types.has(.ns) and !types.has(.ds) and !types.has(.soa);", .new = "    return types.has(.ns) and !types.has(.soa);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS13",
+        .what = "the child's apex reads as an unsigned delegation",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "    return types.has(.ns) and !types.has(.ds) and !types.has(.soa);", .new = "    return types.has(.ns) and !types.has(.ds);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS14",
+        .what = "a record speaks of a name outside its zone",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "    if (!under(name, &record.signer) or !under(&record.owner, &record.signer)) return false;", .new = "    if ((false and !under(name, &record.signer)) or !under(&record.owner, &record.signer)) return false;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS15",
+        .what = "a record whose owner is outside its zone is used",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "    if (!under(name, &record.signer) or !under(&record.owner, &record.signer)) return false;", .new = "    if (!under(name, &record.signer)) return false;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS16",
+        .what = "a record signed as a wildcard expansion is used",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "    return record.labels == owner_labels - wildcard;", .new = "    return record.labels <= owner_labels - wildcard;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS17",
+        .what = "the zone's last record does not wrap to the apex",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "        after_owner or before_next;", .new = "        after_owner and before_next;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS18",
+        .what = "an ancestor delegation denies a name below its cut",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "    return !delegation(record) and !record.nsec.types.has(.dname);", .new = "    return !record.nsec.types.has(.dname);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS19",
+        .what = "a DNAME's record denies a name below its owner",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "    return !delegation(record) and !record.nsec.types.has(.dname);", .new = "    return !delegation(record);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS20",
+        .what = "a record at its signer's name reads as a delegation",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "    return record.signer.label_count() < record.owner.label_count();", .new = "    return record.signer.label_count() <= record.owner.label_count();" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS21",
+        .what = "the closest encloser is read from the owner alone",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "    const labels = @max(by_owner, by_next);", .new = "    const labels = @max(by_owner, by_owner + 0 * by_next);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS22",
+        .what = "the closest encloser is read from the next name alone",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "    const labels = @max(by_owner, by_next);", .new = "    const labels = @max(by_next, by_next + 0 * by_owner);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NS23",
+        .what = "a wildcard owner's label is counted against the Labels field",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_nsec.zig", .old = "    const wildcard: u8 = if (is_wildcard(&record.owner)) 1 else 0;", .new = "    const wildcard: u8 = 0;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "NX1",
+        .what = "NXNAME reads as clear, as other pseudo-types do",
+        .edits = .{
+            .{ .file = "src/wire/rdata/rdata_bitmap.zig", .old = "        return self.set(constants.nxname_type_code);", .new = "        return self.has(Kind.of(constants.nxname_type_code));" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "CA1",
+        .what = "shared labels compare in the case they came in",
+        .edits = .{
+            .{ .file = "src/core/canonical.zig", .old = "        if (order_label(label_a, label_b) != .eq) break;", .new = "        if (!std.mem.eql(u8, label_a, label_b)) break;" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "The denials with NSEC",
+        .id = "CA2",
+        .what = "the root has no ancestor of no labels",
+        .edits = .{
+            .{ .file = "src/core/canonical.zig", .old = "    if (count == 0) return Name.root;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
 }

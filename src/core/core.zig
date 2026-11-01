@@ -24,6 +24,7 @@ pub const Hosts = hosts.Hosts;
 pub const name_text = @import("name_text.zig");
 pub const name_reverse = @import("name_reverse.zig");
 pub const Name = @import("name.zig").Name;
+pub const canonical = @import("canonical.zig");
 
 const question = @import("question.zig");
 pub const Kind = question.Kind;
@@ -52,7 +53,7 @@ test {
     _ = @import("name.zig");
     _ = @import("config.zig");
     _ = @import("security.zig");
-    _ = @import("canonical.zig");
+    _ = canonical;
 }
 
 test "the limits hold the relations the design states" {

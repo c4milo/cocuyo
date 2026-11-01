@@ -10850,3 +10850,44 @@ it names were named. `zig build mutations -- engine CF1 ... CF9` ran each to its
 | CF9 | each record carries a TTL of zero, not the original TTL | `zig build test-dnssec` | `CAUGHT` |
 
 Nine mutations, nine `CAUGHT`.
+
+## The denials with NSEC
+
+2026-11-01. Design §25 Stage B, step 8's first piece (c4milo/cocuyo#56): `dnssec.nsec` reads what
+verified NSEC records prove. The cases are no data, a name error, a wildcard answer with no closer
+match, and an unsigned delegation (RFC 4035 §5.4, RFC 6840 §4.1, §4.3, §4.4). It reads a compact
+denial's NXNAME too (RFC 9824 §3.1, §7.1). The tests read the responses of RFC 4035 Appendix B
+over its Appendix A zone. NS14 was NOT CAUGHT at first: the test of a name outside the zone used a
+span that never reached the name. The test now uses the zone's last record, whose span wraps.
+`zig build mutations -- engine NS1 ... NS23 NX1 CA1 CA2` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| NS1 | a compact denial's NXNAME is not read | `zig build test-dnssec` | `CAUGHT` |
+| NS2 | the child's apex record denies a DS | `zig build test-dnssec` | `CAUGHT` |
+| NS3 | an ancestor delegation denies a type at its owner | `zig build test-dnssec` | `CAUGHT` |
+| NS4 | a record denies ANY at its own name | `zig build test-dnssec` | `CAUGHT` |
+| NS5 | a no-data proof leaves the CNAME bit unread | `zig build test-dnssec` | `CAUGHT` |
+| NS6 | a no-data proof leaves the type's own bit unread | `zig build test-dnssec` | `CAUGHT` |
+| NS7 | an empty non-terminal is not seen to exist | `zig build test-dnssec` | `CAUGHT` |
+| NS8 | a wildcard's record denies a type its map sets | `zig build test-dnssec` | `CAUGHT` |
+| NS9 | a name error needs no record that covers the wildcard | `zig build test-dnssec` | `CAUGHT` |
+| NS10 | a wildcard answer takes a closer encloser than its own | `zig build test-dnssec` | `CAUGHT` |
+| NS11 | an unsigned delegation needs no NS bit | `zig build test-dnssec` | `CAUGHT` |
+| NS12 | an unsigned delegation may set the DS bit | `zig build test-dnssec` | `CAUGHT` |
+| NS13 | the child's apex reads as an unsigned delegation | `zig build test-dnssec` | `CAUGHT` |
+| NS14 | a record speaks of a name outside its zone | `zig build test-dnssec` | `CAUGHT` |
+| NS15 | a record whose owner is outside its zone is used | `zig build test-dnssec` | `CAUGHT` |
+| NS16 | a record signed as a wildcard expansion is used | `zig build test-dnssec` | `CAUGHT` |
+| NS17 | the zone's last record does not wrap to the apex | `zig build test-dnssec` | `CAUGHT` |
+| NS18 | an ancestor delegation denies a name below its cut | `zig build test-dnssec` | `CAUGHT` |
+| NS19 | a DNAME's record denies a name below its owner | `zig build test-dnssec` | `CAUGHT` |
+| NS20 | a record at its signer's name reads as a delegation | `zig build test-dnssec` | `CAUGHT` |
+| NS21 | the closest encloser is read from the owner alone | `zig build test-dnssec` | `CAUGHT` |
+| NS22 | the closest encloser is read from the next name alone | `zig build test-dnssec` | `CAUGHT` |
+| NS23 | a wildcard owner's label is counted against the Labels field | `zig build test-dnssec` | `CAUGHT` |
+| NX1 | NXNAME reads as clear, as other pseudo-types do | `zig build test-wire` | `CAUGHT` |
+| CA1 | shared labels compare in the case they came in | `zig build test-core` | `CAUGHT` |
+| CA2 | the root has no ancestor of no labels | `zig build test-core` | `CAUGHT` |
+
+26 mutations, 26 `CAUGHT`.

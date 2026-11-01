@@ -45,6 +45,17 @@ pub const TypeBitmaps = struct {
     pub fn has(self: TypeBitmaps, kind: Kind) bool {
         const type_code = kind.code();
         if (pseudo(type_code)) return false;
+        return self.set(type_code);
+    }
+
+    /// Whether the map sets NXNAME, the one pseudo-type a reader takes: "There is one exception to
+    /// this rule for Compact Denial of Existence" (RFC 9824 §7.1, which updates RFC 4034 §4.1.2).
+    pub fn nxname(self: TypeBitmaps) bool {
+        assert(pseudo(constants.nxname_type_code));
+        return self.set(constants.nxname_type_code);
+    }
+
+    fn set(self: TypeBitmaps, type_code: u16) bool {
         const window: u8 = @intCast(type_code / constants.bitmap_window_types);
         const bit: usize = type_code % constants.bitmap_window_types;
         var at: usize = 0;
@@ -114,4 +125,14 @@ test "a bit for a pseudo-type reads as clear" {
     try testing.expect(!map.has(.opt));
     try testing.expect(!map.has(.any));
     try testing.expect(!map.has(Kind.of(core.constants.type_code_query_meta_first)));
+}
+
+test "NXNAME is read from the map, though it is a pseudo-type, and only where its bit is set" {
+    // RFC 9824 §3.1: "RRSIG NSEC NXNAME", type 128 in window 0, octet 16, the high bit.
+    const compact = [_]u8{ 0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80 };
+    const map = try TypeBitmaps.parse(&compact);
+    try testing.expect(map.nxname());
+    try testing.expect(map.has(.rrsig) and map.has(.nsec));
+    try testing.expect(!map.has(Kind.of(constants.nxname_type_code)));
+    try testing.expect(!(try TypeBitmaps.parse(fixtures.nsec_example[fixtures.nsec_example_next_bytes..])).nxname());
 }
