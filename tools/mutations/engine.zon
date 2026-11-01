@@ -4863,7 +4863,7 @@
         .id = "RA1",
         .what = "a message without AD never clears the conjunction",
         .edits = .{
-            .{ .file = "src/resolver/lookup_security.zig", .old = "    if (lookup.conjunctions.authentic == .holds and !header.authentic_data()) lookup.conjunctions.authentic = .cleared;", .new = "    if (lookup.conjunctions.authentic == .holds and !header.authentic_data() and header.id == 0 and header.id != 0) lookup.conjunctions.authentic = .cleared;" },
+            .{ .file = "src/resolver/lookup_security.zig", .old = "    if (lookup.conjunctions.authentic == .holds and !authentic) lookup.conjunctions.authentic = .cleared;", .new = "    if (lookup.conjunctions.authentic == .holds and !authentic and false) lookup.conjunctions.authentic = .cleared;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -4881,7 +4881,7 @@
         .id = "RA3",
         .what = "an NXDOMAIN that moves the walk on is no message the lookup acted on",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    security.acted_on(self, accepted.header);\n    if (!is_name_error)", .new = "    if (!is_name_error)" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    security.acted_on(self, accepted.authentic_data());\n    if (!is_name_error)", .new = "    if (!is_name_error)" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -4890,7 +4890,7 @@
         .id = "RA4",
         .what = "a NOERROR the lookup collects is no message it acted on",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    security.acted_on(self, accepted.header);\n    heard(self, accepted.cookie, null, now_ns);\n    // A name the chain", .new = "    heard(self, accepted.cookie, null, now_ns);\n    // A name the chain" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    security.acted_on(self, accepted.authentic_data());\n    heard(self, accepted.cookie, null, now_ns);\n    // A name the chain", .new = "    heard(self, accepted.cookie, null, now_ns);\n    // A name the chain" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -4899,7 +4899,7 @@
         .id = "RA5",
         .what = "a chain too long is no message the lookup acted on",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "            security.acted_on(self, accepted.header);\n            heard(self, accepted.cookie, null, now_ns);\n            self.fail(core.Error.ChainTooLong);", .new = "            heard(self, accepted.cookie, null, now_ns);\n            self.fail(core.Error.ChainTooLong);" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            security.acted_on(self, accepted.authentic_data());\n            heard(self, accepted.cookie, null, now_ns);\n            self.fail(core.Error.ChainTooLong);", .new = "            heard(self, accepted.cookie, null, now_ns);\n            self.fail(core.Error.ChainTooLong);" },
         },
         .caught_by = .{ .step = "test-tools" },
     },

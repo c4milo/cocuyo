@@ -11314,3 +11314,12 @@ WK23` ran each to its end.
 | WK23 | an unanswered question fails the walk as bogus | `zig build test-dnssec` | `CAUGHT` |
 
 23 mutations, 23 `CAUGHT`.
+
+## A response's flags, past the checks
+
+2026-11-01. `Accepted` holds the header's flags in place of the whole header, so the response
+cases count as they did before Stage B (docs/performance.md, Pitfalls). No check changed. Twelve
+entries named the text this changed, and each names the text as it stands now: S2, S7, DH15,
+TA1, TA9, TA10 and CO29 of the lookup set, and RA1, RA3, RA4 and RA5 of the engine set. DT4 ran
+again beside them. `zig build mutations` ran each to its end, and each was `CAUGHT`.
+

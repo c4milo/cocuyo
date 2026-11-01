@@ -41,7 +41,10 @@ pub fn on_response(self: *Lookup, message: []const u8, from: Endpoint, now_ns: u
 /// What the checks of §7 let through: the header, and what the OPT record said when there was
 /// one.
 pub const Accepted = struct {
-    header: wire.Header,
+    /// The header's flags, which are all the lookup reads of the header once the checks passed. A
+    /// whole header here would hold its counts in registers or on the stack across the body that
+    /// reads the message, for a callee that takes it whole (docs/performance.md).
+    flags: u16,
     /// The COOKIE option the OPT carried; null for no OPT, or an OPT with no cookie.
     cookie: ?wire.CookieView,
     /// The rcode's eight high bits, from the OPT record's TTL (RFC 6891 §6.1.3).
@@ -49,6 +52,21 @@ pub const Accepted = struct {
     /// How long an HTTP cache held a DoH answer, which every TTL loses (RFC 8484 §5.1); zero
     /// over every other transport.
     age_seconds: u32 = 0,
+
+    /// TC (RFC 1035 §4.1.1), as `wire.Header.truncated` reads it.
+    pub fn truncated(self: *const Accepted) bool {
+        return self.flags & wire.constants.flag_truncated != 0;
+    }
+
+    /// AD (RFC 4035 §3.2.3), as `wire.Header.authentic_data` reads it.
+    pub fn authentic_data(self: *const Accepted) bool {
+        return self.flags & wire.constants.flag_authentic_data != 0;
+    }
+
+    /// The header's four bits of the response code, as `wire.Header.rcode_bits` reads them.
+    pub fn rcode_bits(self: *const Accepted) u8 {
+        return @intCast(self.flags & wire.constants.rcode_mask);
+    }
 };
 
 /// Every check of §7, in order. Returns what was read when the message is ours, and null when it
@@ -94,7 +112,7 @@ pub fn accepted_shape(self: *Lookup, message: []const u8, header: wire.Header) ?
     //    carried, and a server that has given a server cookie must give one again.
     const opt = opt_of(message, &self.current) orelse return null;
     if (!cookies.accepted(self, opt.cookie)) return null;
-    return .{ .header = header, .cookie = opt.cookie, .extended_rcode_high = opt.extended_rcode_high };
+    return .{ .flags = header.flags, .cookie = opt.cookie, .extended_rcode_high = opt.extended_rcode_high };
 }
 
 pub const OptFields = struct { cookie: ?wire.CookieView, extended_rcode_high: u8 };
@@ -118,7 +136,6 @@ pub fn opt_of(message: []const u8, question: *const core.Name) ?OptFields {
 pub fn apply(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64) Verdict {
     // Check 5 found the question, `current`'s length of it, inside the message.
     assert(message.len >= wire.response.section_start(&self.current));
-    const header = accepted.header;
     // The checks of §7 passed, the cookie's among them, so the server cookie is cached whatever
     // the lookup makes of the rest: an error, or a response it ignores (RFC 7873 §5.3).
     cookies.learn(self, accepted.cookie);
@@ -127,13 +144,13 @@ pub fn apply(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64
     // to ask over. No RFC says what a client does with TC there: cocuyo reads the message
     // (docs/design.md §5), as `ignore_truncation` has it read one over UDP, and `collect` marks
     // the answer it gives.
-    if (header.truncated() and !over_stream(self) and !self.config.ignore_truncation) {
+    if (accepted.truncated() and !over_stream(self) and !self.config.ignore_truncation) {
         heard(self, accepted.cookie, null, now_ns);
         bound.to_stream(self, now_ns);
         return .accepted;
     }
     const bits = (@as(u16, accepted.extended_rcode_high) << wire.constants.extended_rcode_low_bits) |
-        header.rcode_bits();
+        accepted.rcode_bits();
     const rcode = wire.Rcode.from_bits(bits) orelse return .ignored;
     const read_action = policy.rcode_action(rcode, self.flags.edns_enabled, self.config.check_response);
     // Under validation EDNS0 is never turned off: a query without OPT has no DO, and its answer
@@ -186,7 +203,7 @@ fn name_error(self: *Lookup, message: []const u8, accepted: Accepted, rcode: wir
 /// the smallest of every candidate's.
 fn negative(self: *Lookup, message: []const u8, accepted: Accepted, is_name_error: bool, ttl_seconds: u32, now_ns: u64) Verdict {
     heard(self, accepted.cookie, null, now_ns);
-    security.acted_on(self, accepted.header);
+    security.acted_on(self, accepted.authentic_data());
     if (!is_name_error) self.flags.had_no_data = true;
     bound_walk(self, @min(ttl_seconds, negative_ttl(self, message, &self.current, accepted.age_seconds)));
     self.next_candidate(now_ns);
@@ -259,10 +276,10 @@ pub fn over_stream(self: *const Lookup) bool {
 /// Whether the message read may hold a partial set of records. TC says it was cut to fit its
 /// channel, whichever channel that was, and over DoH it can say the server could not get the full
 /// answer. The lookup reads such a message over a stream, and over UDP under `ignore_truncation`.
-fn possibly_partial(self: *const Lookup, header: wire.Header) bool {
+fn possibly_partial(self: *const Lookup, accepted: *const Accepted) bool {
     // TC: "this message was truncated due to length greater than that permitted on the
     // transmission channel" (RFC 1035 §4.1.1), or the server's best answer (RFC 8484 §10).
-    const cut = header.truncated();
+    const cut = accepted.truncated();
     // Over UDP without the knob, a truncated answer sent the lookup to TCP before it was read.
     assert(!cut or over_stream(self) or self.config.ignore_truncation);
     return cut;
@@ -343,7 +360,7 @@ inline fn collect_as(self: *Lookup, message: []const u8, accepted: Accepted, exp
         // malformed one: it passed every check of §7. Alias loops are an error passed back to
         // the client (RFC 1034 §3.6.2, §5.2.2), and §5 names it.
         if (err == error.ChainTooLong) {
-            security.acted_on(self, accepted.header);
+            security.acted_on(self, accepted.authentic_data());
             heard(self, accepted.cookie, null, now_ns);
             self.fail(core.Error.ChainTooLong);
             return .accepted;
@@ -357,7 +374,7 @@ inline fn collect_as(self: *Lookup, message: []const u8, accepted: Accepted, exp
         validate_module.rejected(self, heard_by(&accepted.cookie), now_ns);
         return .accepted;
     };
-    security.acted_on(self, accepted.header);
+    security.acted_on(self, accepted.authentic_data());
     heard(self, accepted.cookie, null, now_ns);
     // A name the chain moved to came off the wire, and a server that compressed it to a pointer
     // into the question it echoed handed back cocuyo's own case randomisation. That case is noise
@@ -368,7 +385,7 @@ inline fn collect_as(self: *Lookup, message: []const u8, accepted: Accepted, exp
     self.answers.age(self.question.kind, accepted.age_seconds);
     // "When a response is truncated, and a resolver doesn't know whether it has a complete set,
     // it should not cache a possibly partial set of RRs" (RFC 1035 §7.4): the answer says so.
-    if (possibly_partial(self, accepted.header)) self.answers.truncated = true;
+    if (possibly_partial(self, &accepted)) self.answers.truncated = true;
     switch (outcome) {
         .answered => {
             assert(self.answers.count > 0);

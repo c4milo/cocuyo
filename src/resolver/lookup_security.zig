@@ -43,12 +43,12 @@ pub fn start(config: *const core.Config) Conjunction {
     return if (config.authenticated_data.relied_on(config.transport())) .holds else .not_relied;
 }
 
-/// The lookup acts on a message with `header`: a message without AD clears rule 3's conjunction,
-/// while the configuration relies on the bit.
-pub fn acted_on(lookup: *Lookup, header: wire.Header) void {
+/// The lookup acts on a message whose AD bit is `authentic`: a message without AD clears rule 3's
+/// conjunction, while the configuration relies on the bit.
+pub fn acted_on(lookup: *Lookup, authentic: bool) void {
     assert(lookup.state == .awaiting_udp or lookup.state == .awaiting_tcp);
-    if (lookup.conjunctions.authentic == .holds and !header.authentic_data()) lookup.conjunctions.authentic = .cleared;
-    assert(lookup.conjunctions.authentic != .holds or header.authentic_data());
+    if (lookup.conjunctions.authentic == .holds and !authentic) lookup.conjunctions.authentic = .cleared;
+    assert(lookup.conjunctions.authentic != .holds or authentic);
 }
 
 /// What `Answer.security` and `Failure.security` report.

@@ -63,7 +63,7 @@
         .id = "S7",
         .what = "truncation over TCP is obeyed",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (header.truncated() and !over_stream(self) and !self.config.ignore_truncation) {", .new = "    if (header.truncated() and !self.config.sends_requests() and !self.config.ignore_truncation) {" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (accepted.truncated() and !over_stream(self) and !self.config.ignore_truncation) {", .new = "    if (accepted.truncated() and !self.config.sends_requests() and !self.config.ignore_truncation) {" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -162,7 +162,7 @@
         .id = "S2",
         .what = "TC=1 over TCP is ignored",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (header.truncated() and !over_stream(self) and !self.config.ignore_truncation) {", .new = "    if (header.truncated() and self.state == .awaiting_tcp) return .ignored;\n    if (header.truncated() and !over_stream(self) and !self.config.ignore_truncation) {" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (accepted.truncated() and !over_stream(self) and !self.config.ignore_truncation) {", .new = "    if (accepted.truncated() and self.state == .awaiting_tcp) return .ignored;\n    if (accepted.truncated() and !over_stream(self) and !self.config.ignore_truncation) {" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -369,7 +369,7 @@
         .id = "DH15",
         .what = "TC=1 over DoH sends the lookup to TCP",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (header.truncated() and !over_stream(self) and !self.config.ignore_truncation) {", .new = "    if (header.truncated() and self.state == .awaiting_udp and !self.config.ignore_truncation) {" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (accepted.truncated() and !over_stream(self) and !self.config.ignore_truncation) {", .new = "    if (accepted.truncated() and self.state == .awaiting_udp and !self.config.ignore_truncation) {" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -604,7 +604,7 @@
         .id = "TA1",
         .what = "an answer `ignore_truncation` takes is not marked truncated",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (possibly_partial(self, accepted.header)) self.answers.truncated = true;", .new = "    _ = possibly_partial(self, accepted.header);" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (possibly_partial(self, &accepted)) self.answers.truncated = true;", .new = "    _ = possibly_partial(self, &accepted);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -667,7 +667,7 @@
         .id = "TA9",
         .what = "TC over TCP leaves the answer unmarked",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    const cut = header.truncated();", .new = "    const cut = header.truncated() and self.state != .awaiting_tcp;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    const cut = accepted.truncated();", .new = "    const cut = accepted.truncated() and self.state != .awaiting_tcp;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -676,7 +676,7 @@
         .id = "TA10",
         .what = "TC over DoH or DoQ leaves the answer unmarked",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    const cut = header.truncated();", .new = "    const cut = header.truncated() and !self.config.sends_requests();" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    const cut = accepted.truncated();", .new = "    const cut = accepted.truncated() and !self.config.sends_requests();" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1110,7 +1110,7 @@
         .id = "CO29",
         .what = "a response ignored for an rcode cocuyo does not know teaches no server cookie",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    cookies.learn(self, accepted.cookie);\n    // Truncation over UDP", .new = "    const known = wire.Rcode.from_bits((@as(u16, accepted.extended_rcode_high) << wire.constants.extended_rcode_low_bits) | header.rcode_bits()) != null;\n    if (known) cookies.learn(self, accepted.cookie);\n    // Truncation over UDP" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    cookies.learn(self, accepted.cookie);\n    // Truncation over UDP", .new = "    const known = wire.Rcode.from_bits((@as(u16, accepted.extended_rcode_high) << wire.constants.extended_rcode_low_bits) | accepted.rcode_bits()) != null;\n    if (known) cookies.learn(self, accepted.cookie);\n    // Truncation over UDP" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },

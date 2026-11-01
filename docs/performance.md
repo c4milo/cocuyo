@@ -120,6 +120,14 @@ Each as symptom, cause and rule.
   `zig build <step> --verbose` shows the mode every module compiles in. The comparison and the
   fill check now refuse to build over a rotor of any other mode than ReleaseSafe
   (`build/modules.zig`).
+- **A whole header carried past the checks.** On 2026-11-01, CI's x86-64 count of match-wrong
+  rose 2.6% and match-accept 2.3% under DNSSEC Stage B, though neither runs its code. The
+  response's `Accepted` held the whole `wire.Header`, and new callees the compiler did not inline
+  took `Accepted` by value. So the body loaded the three counts at the header's parse, before any
+  store to the lookup that might alias the message, and held them across the case check's loop.
+  The loop then spilled one register an octet. `Accepted` now holds the flags alone. A value
+  passed past the checks holds what its readers read, and nothing more. arm64 showed half the
+  rise, so a count is measured on x86-64, as CI counts it.
 
 ## Commands
 
