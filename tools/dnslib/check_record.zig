@@ -115,6 +115,9 @@ fn type_agrees(mnemonic: []const u8, type_code: u16) bool {
     return true;
 }
 
+/// The longest base64 text a key's fields hold: an rdata's octets, four characters for each three.
+const base64_text_bytes_max: usize = (core.limits.rdata_bytes_max + 2) / 3 * 4;
+
 fn check_typed(kind: Kind, record: *const Record, copy: []const u8, fields: []const []const u8) Mismatch!void {
     return switch (kind) {
         .a, .aaaa => check_address(record, fields),
@@ -125,6 +128,13 @@ fn check_typed(kind: Kind, record: *const Record, copy: []const u8, fields: []co
         .srv => check_srv(copy, fields),
         .naptr => check_naptr(copy, fields),
         .tlsa => check_tlsa(copy, fields),
+        .dname => check_name(copy, fields),
+        .ds => check_ds(copy, fields),
+        .dnskey => check_dnskey(copy, fields),
+        .nsec3param => check_nsec3param(copy, fields),
+        // Their text names types by mnemonic, writes times as dates and hashes in base32hex,
+        // which this check does not read yet (docs/design.md §25, step 6).
+        .rrsig, .nsec, .nsec3 => Mismatch.Unread,
         .hinfo, .sig, .opt, .svcb, .https, .any, .uri, .caa => Mismatch.Unread,
         _ => Mismatch.Unread,
     };
@@ -200,6 +210,55 @@ fn check_tlsa(copy: []const u8, fields: []const []const u8) Mismatch!void {
     try same_number(tlsa.selector, fields[1]);
     try same_number(tlsa.matching_type, fields[2]);
     try same_hex(tlsa.data, fields[3..]);
+}
+
+/// Key tag, algorithm, digest type, then the digest in hexadecimal (RFC 4034 §5.3).
+fn check_ds(copy: []const u8, fields: []const []const u8) Mismatch!void {
+    if (fields.len < 4) return Mismatch.Text;
+    const ds = rdata.Ds.parse(copy) catch return Mismatch.Codec;
+    try same_number(ds.key_tag, fields[0]);
+    try same_number(ds.algorithm, fields[1]);
+    try same_number(ds.digest_type, fields[2]);
+    try same_hex(ds.digest, fields[3..]);
+}
+
+/// Flags, protocol, algorithm, then the key in base64 (RFC 4034 §2.2).
+fn check_dnskey(copy: []const u8, fields: []const []const u8) Mismatch!void {
+    if (fields.len < 4) return Mismatch.Text;
+    const key = rdata.Dnskey.parse(copy) catch return Mismatch.Codec;
+    try same_number(key.flags, fields[0]);
+    try same_number(key.protocol, fields[1]);
+    try same_number(key.algorithm, fields[2]);
+    try same_base64(key.public_key, fields[3..]);
+}
+
+/// Hash algorithm, flags, iterations, then the salt in hexadecimal, or `-` for none (RFC 5155 §4.3).
+fn check_nsec3param(copy: []const u8, fields: []const []const u8) Mismatch!void {
+    try arity(fields, 4);
+    const param = rdata.Nsec3Param.parse(copy) catch return Mismatch.Codec;
+    try same_number(param.hash_algorithm, fields[0]);
+    try same_number(param.flags, fields[1]);
+    try same_number(param.iterations, fields[2]);
+    if (std.mem.eql(u8, fields[3], "-")) {
+        if (param.salt.len != 0) return Mismatch.Rdata;
+        return;
+    }
+    try same_hex(param.salt, fields[3..]);
+}
+
+/// Whether `octets` are what the base64 `fields` write, split as a master file may split them.
+fn same_base64(octets: []const u8, fields: []const []const u8) Mismatch!void {
+    var joined: [base64_text_bytes_max]u8 = undefined;
+    var len: usize = 0;
+    for (fields) |field| {
+        if (field.len > joined.len - len) return Mismatch.Text;
+        @memcpy(joined[len..][0..field.len], field);
+        len += field.len;
+    }
+    var decoded: [base64_text_bytes_max]u8 = undefined;
+    const size = std.base64.standard.Decoder.calcSizeForSlice(joined[0..len]) catch return Mismatch.Text;
+    std.base64.standard.Decoder.decode(decoded[0..size], joined[0..len]) catch return Mismatch.Text;
+    if (!std.mem.eql(u8, decoded[0..size], octets)) return Mismatch.Rdata;
 }
 
 /// The length, then the octets in hexadecimal (RFC 3597 §5).
@@ -294,7 +353,8 @@ test "a type cocuyo does not name is compared as generic octets, or copied whole
     const octets = [_]u8{ 0x0d, 0xd5, 0xc6, 0x00, 0x01 };
     var tally: Tally = .{};
     try check_one(&one_answer(65534, &octets), owner_line ++ "TYPE65534 \\# 5 0DD5C6 0001", &tally);
-    try check_one(&one_answer(46, &octets), owner_line ++ "RRSIG A 8 2 300 20190412195152", &tally);
+    // CDS (59), which cocuyo does not name.
+    try check_one(&one_answer(59, &octets), owner_line ++ "CDS 60485 5 1 2BB183AF", &tally);
     try check_one(&one_answer(1, &.{ 192, 0, 2, 1 }), owner_line ++ "A \\# 4 C0000201", &tally);
     try testing.expectEqual(Tally{ .records = 3, .generic = 2, .copied = 1 }, tally);
     const cases = .{
@@ -347,6 +407,29 @@ test "strings, hexadecimal and names that differ are mismatches, and a type with
     const caa = one_answer(257, &rdata_fixtures.caa);
     try testing.expectError(Mismatch.Unread, check_one(&caa, owner_line ++ "CAA 0 issue \"ca.example.net\"", &tally));
     try testing.expectEqual(Tally{}, tally);
+}
+
+test "DS, DNSKEY, NSEC3PARAM and DNAME read as dnslib writes them, and RRSIG is unread" {
+    // RFC 4034 §5.4's DS and DNSKEY (docs/design.md §25, step 6).
+    var tally: Tally = .{};
+    const ds = one_answer(43, &rdata_fixtures.ds_example);
+    try check_one(&ds, owner_line ++ "DS 60485 5 1 2BB183AF5F22588179A53B0A 98631FAD1A292118", &tally);
+    try testing.expectError(Mismatch.Rdata, check_one(&ds, owner_line ++ "DS 60485 5 2 2BB183AF5F22588179A53B0A98631FAD1A292118", &tally));
+    try testing.expectError(Mismatch.Rdata, check_one(&ds, owner_line ++ "DS 60485 5 1 2BB183AF5F22588179A53B0A98631FAD1A292119", &tally));
+    var key_bytes: [rdata_fixtures.dnskey_example_bytes]u8 = undefined;
+    const key = rdata_fixtures.dnskey_example(&key_bytes);
+    var dnskey_message: [wire.fixtures.answer_offset + 12 + rdata_fixtures.dnskey_example_bytes]u8 = undefined;
+    @memcpy(&dnskey_message, &one_answer(48, &([_]u8{0} ** rdata_fixtures.dnskey_example_bytes)));
+    @memcpy(dnskey_message[dnskey_message.len - key.len ..], key);
+    try check_one(&dnskey_message, owner_line ++ "DNSKEY 256 3 5 AQOeiiR0GOMYkDshWoSKz9XzfwJr1AYtsmx3TGkJaNXVbfi/ 2pHm822aJ5iI9BMzNXxeYCmZDRD99WYwYqUSdjMmmAphXdvxegXd/M5+X7OrzKBaMbCVdFLUUh6DhweJBjEVv5f2wwjM9XzcnOf+EPbtG9DMBmADjFDc2w/rljwvFw==", &tally);
+    try testing.expectError(Mismatch.Rdata, check_one(&dnskey_message, owner_line ++ "DNSKEY 256 3 5 AQOeiiR0", &tally));
+    const param = one_answer(51, rdata_fixtures.nsec3[0 .. wire.constants.nsec3_fixed_bytes + 4]);
+    try check_one(&param, owner_line ++ "NSEC3PARAM 1 1 12 AABBCCDD", &tally);
+    try testing.expectError(Mismatch.Rdata, check_one(&param, owner_line ++ "NSEC3PARAM 1 1 12 -", &tally));
+    const dname = one_answer(39, &rdata_fixtures.name_example);
+    try check_one(&dname, owner_line ++ "DNAME example.com.", &tally);
+    const rrsig = one_answer(46, &rdata_fixtures.sig);
+    try testing.expectError(Mismatch.Unread, check_one(&rrsig, owner_line ++ "RRSIG A 13 2 0 20200711015552 20200122035552 4660 example.com. 3q2+7w==", &tally));
 }
 
 test "a copy of a type cocuyo does not name that is not the rdata as it came is a mismatch" {

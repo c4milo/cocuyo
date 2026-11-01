@@ -10762,3 +10762,31 @@ an extended error (RFC 8914). `zig build mutations -- engine EE1 ... EE5` ran ea
 | EE5 | a lookup starts as one that heard a code | `zig build test-resolver` | `CAUGHT` |
 
 Five mutations, five `CAUGHT`.
+
+## The types of DNSSEC in wire
+
+2026-10-31. Design §25 Stage B, step 6 (c4milo/cocuyo#56): `Kind` names DNAME, DS, RRSIG, NSEC,
+DNSKEY, NSEC3 and NSEC3PARAM, each is copied as it came, and `wire.rdata` reads each one and its
+type maps. DT5 and DT15 were `NOT CAUGHT` at first. No test asked a map for a type past a block's
+last octet, and the dnslib case for DS changed the digest type and not the digest. Each test was
+written, and the two ran again. `zig build mutations -- engine DT1 ... DT15` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| DT1 | a type map's block of no octets is accepted | `zig build test-wire` | `CAUGHT` |
+| DT2 | a type map's block of 33 octets is accepted | `zig build test-wire` | `CAUGHT` |
+| DT3 | a type map's windows may come in any order | `zig build test-wire` | `CAUGHT` |
+| DT4 | a bit for a pseudo-type reads as set | `zig build test-wire` | `CAUGHT` |
+| DT5 | a type past a block's last octet reads as present | `zig build test-wire` | `CAUGHT` |
+| DT6 | a DS one octet short of its fixed part is read | `zig build test-wire` | `CAUGHT` |
+| DT7 | a DNSKEY of any protocol is valid | `zig build test-wire` | `CAUGHT` |
+| DT8 | the Zone Key flag reads the SEP bit | `zig build test-wire` | `CAUGHT` |
+| DT9 | an NSEC3's hash is read past the rdata's end | `zig build test-wire` | `CAUGHT` |
+| DT10 | an NSEC3PARAM with octets after its salt is read | `zig build test-wire` | `CAUGHT` |
+| DT11 | Opt-Out reads the high bit of the flags | `zig build test-wire` | `CAUGHT` |
+| DT12 | an RRSIG is rewritten as a SIG is | `zig build test-wire` | `CAUGHT` |
+| DT13 | DNAME carries the code 40 | `zig build test-core` | `CAUGHT` |
+| DT14 | the fuzz generator writes a type map's windows out of order | `zig build test-wire` | `CAUGHT` |
+| DT15 | the dnslib check passes over a DS's digest | `zig build test-tools` | `CAUGHT` |
+
+Fifteen mutations, fifteen `CAUGHT`.

@@ -79,6 +79,40 @@ pub const tlsa_fixed_bytes: usize = 3;
 pub const tlsa_selector_offset: usize = 1;
 pub const tlsa_matching_type_offset: usize = 2;
 
+/// DS: key tag, 16 bits, algorithm and digest type, one octet each, then the digest (RFC 4034
+/// §5.1).
+pub const ds_fixed_bytes: usize = 4;
+pub const ds_algorithm_offset: usize = 2;
+pub const ds_digest_type_offset: usize = 3;
+
+/// DNSKEY: flags, 16 bits, protocol and algorithm, one octet each, then the public key (RFC 4034
+/// §2.1). The protocol "MUST have value 3" (§2.1.2).
+pub const dnskey_fixed_bytes: usize = 4;
+pub const dnskey_protocol_offset: usize = 2;
+pub const dnskey_algorithm_offset: usize = 3;
+pub const dnskey_protocol: u8 = 3;
+/// The Zone Key flag, bit 7, and the Secure Entry Point flag, bit 15, in RFC 4034 §2.1.1's
+/// numbering from the high bit.
+pub const dnskey_flag_zone_key: u16 = 0x0100;
+pub const dnskey_flag_secure_entry_point: u16 = 0x0001;
+
+/// NSEC3 and NSEC3PARAM: hash algorithm and flags, one octet each, iterations, 16 bits, then the
+/// salt's length octet (RFC 5155 §3.2, §4.2). NSEC3 goes on with the hash's length octet.
+pub const nsec3_fixed_bytes: usize = 5;
+pub const nsec3_flags_offset: usize = 1;
+pub const nsec3_iterations_offset: usize = 2;
+pub const nsec3_salt_length_offset: usize = 4;
+/// The Opt-Out flag, the low bit of the flags octet (RFC 5155 §3.1.2.1).
+pub const nsec3_flag_opt_out: u8 = 0x01;
+
+/// A block of the type bit maps: a window number and a bitmap length, one octet each, then 1 to
+/// `limits.bitmap_octets_max` octets of bitmap, which hold the 256 types of the window (RFC 4034
+/// §4.1.2).
+pub const bitmap_block_header_bytes: usize = 2;
+/// The types one window holds, and the bits in an octet of a bitmap.
+pub const bitmap_window_types: usize = 256;
+pub const bitmap_octet_bits: u8 = 8;
+
 /// URI: priority and weight, 16 bits each, then the target, which must not be empty
 /// (RFC 7553 §4.5).
 pub const uri_fixed_bytes: usize = 4;

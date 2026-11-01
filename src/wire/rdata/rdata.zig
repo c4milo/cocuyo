@@ -16,6 +16,15 @@ pub const Srv = @import("rdata_srv.zig").Srv;
 pub const Soa = @import("rdata_soa.zig").Soa;
 pub const Naptr = @import("rdata_naptr.zig").Naptr;
 pub const Sig = @import("rdata_sig.zig").Sig;
+/// RRSIG's rdata is SIG's (RFC 4034 §3.1), and its signer's name "MUST NOT" be compressed
+/// (§3.1.7), which the view reads as labels alone.
+pub const Rrsig = Sig;
+pub const Ds = @import("rdata_ds.zig").Ds;
+pub const Dnskey = @import("rdata_dnskey.zig").Dnskey;
+pub const Nsec = @import("rdata_nsec.zig").Nsec;
+pub const Nsec3 = @import("rdata_nsec3.zig").Nsec3;
+pub const Nsec3Param = @import("rdata_nsec3.zig").Nsec3Param;
+pub const TypeBitmaps = @import("rdata_bitmap.zig").TypeBitmaps;
 pub const Svcb = @import("rdata_svcb.zig").Svcb;
 pub const SvcbParam = @import("rdata_svcb.zig").Param;
 pub const Tlsa = @import("rdata_tlsa.zig").Tlsa;
@@ -33,6 +42,11 @@ test {
     _ = @import("rdata_soa.zig");
     _ = @import("rdata_naptr.zig");
     _ = @import("rdata_sig.zig");
+    _ = @import("rdata_ds.zig");
+    _ = @import("rdata_dnskey.zig");
+    _ = @import("rdata_bitmap.zig");
+    _ = @import("rdata_nsec.zig");
+    _ = @import("rdata_nsec3.zig");
     _ = @import("rdata_svcb.zig");
     _ = @import("rdata_tlsa.zig");
     _ = @import("rdata_uri.zig");

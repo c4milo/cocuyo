@@ -13,17 +13,23 @@ pub const caa_tag_bytes_min: usize = 1;
 /// A `<character-string>`: one length octet, then at most that many octets (RFC 1035 §3.3).
 pub const character_string_bytes_max: usize = 255;
 
+/// The longest bitmap a block of NSEC's or NSEC3's type maps holds: 32 octets, the 256 types of a
+/// window, which RFC 4034 §4.1.2 fixes ("from 1 to 32"). A longer one is malformed.
+pub const bitmap_octets_max: usize = 32;
+
 /// The shape of a record the fuzz generator writes whole (`fuzz/fuzz_generate_records.zig`,
 /// docs/design.md §19, step 9's gate): names of up to three labels of up to twelve letters,
 /// character-strings of up to twenty octets and up to four of them in a TXT or an ALPN list,
-/// opaque fields of up to thirty-two octets, and up to three addresses in an SVCB hint. A record
-/// of every type then fits a message several times over. Chosen, not measured.
+/// opaque fields of up to thirty-two octets, up to three addresses in an SVCB hint, and up to three
+/// blocks in an NSEC or NSEC3 type map. A record of every type then fits a message several times
+/// over. Chosen, not measured.
 pub const fuzz_labels_max: usize = 3;
 pub const fuzz_label_bytes_max: usize = 12;
 pub const fuzz_string_bytes_max: usize = 20;
 pub const fuzz_strings_max: usize = 4;
 pub const fuzz_opaque_bytes_max: usize = 32;
 pub const fuzz_hints_max: usize = 3;
+pub const fuzz_windows_max: usize = 3;
 
 /// The shortest name of the long questions the fuzz generator writes (`fuzz/fuzz_generate.zig`):
 /// 64 lengths, from here to the longest name, 255 octets. They hold the fourteen whose question's

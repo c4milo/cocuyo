@@ -247,6 +247,13 @@ fn reads_back(kind: core.Kind, stored: []const u8) ?bool {
         .uri => accepted(rdata.Uri.parse(stored)),
         .caa => accepted(rdata.Caa.parse(stored)),
         .svcb, .https => svcb_reads(stored),
+        .dname => accepted(rdata.name.whole(stored)),
+        .ds => accepted(rdata.Ds.parse(stored)),
+        .dnskey => accepted(rdata.Dnskey.parse(stored)),
+        .rrsig => accepted(rdata.Rrsig.parse(stored)),
+        .nsec => accepted(rdata.Nsec.parse(stored)),
+        .nsec3 => accepted(rdata.Nsec3.parse(stored)),
+        .nsec3param => accepted(rdata.Nsec3Param.parse(stored)),
         .a, .aaaa, .opt, .any => null,
         _ => null,
     };

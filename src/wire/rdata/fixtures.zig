@@ -2,6 +2,8 @@
 //! vector, the vector is used: SVCB's are RFC 9460 Appendix D. Exempt from the magic-numbers
 //! rule by name, like every corpus (tools/lint/magic_numbers.zig), and test-only.
 
+const std = @import("std");
+
 // Names, in the uncompressed form the collector stores.
 
 pub const name_example = "\x07example\x03com\x00".*;
@@ -200,3 +202,41 @@ pub fn caa_response(comptime rdata: []const u8) [41 + rdata.len]u8 {
     const answer = [_]u8{ 0xc0, 0x0c, 0x01, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, rdata.len };
     return header ++ question ++ answer ++ rdata[0..rdata.len].*;
 }
+
+// DNSSEC's types (docs/design.md §25, step 6).
+
+/// RFC 4034 §4.3's NSEC: next name host.example.com, then A, MX, RRSIG, NSEC and TYPE1234, as that
+/// section writes its octets.
+pub const nsec_example = "\x04host\x07example\x03com\x00".* ++ [_]u8{
+    0x00, 0x06, 0x40, 0x01, 0x00, 0x00, 0x00, 0x03,
+    0x04, 0x1b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x20,
+};
+/// The octets of its next name, where its map starts.
+pub const nsec_example_next_bytes: usize = "\x04host\x07example\x03com\x00".len;
+
+/// RFC 4034 §5.4's DS: key tag 60485, algorithm 5, digest type 1, and its SHA-1 digest.
+pub const ds_example_digest = [_]u8{
+    0x2B, 0xB1, 0x83, 0xAF, 0x5F, 0x22, 0x58, 0x81, 0x79, 0xA5,
+    0x3B, 0x0A, 0x98, 0x63, 0x1F, 0xAD, 0x1A, 0x29, 0x21, 0x18,
+};
+pub const ds_example = [_]u8{ 0xEC, 0x45, 5, 1 } ++ ds_example_digest;
+
+/// RFC 4034 §5.4's DNSKEY: flags 256, protocol 3, algorithm 5, and the key that section writes in
+/// base64, whose key tag is 60485.
+const dnskey_example_key = "AQOeiiR0GOMYkDshWoSKz9XzfwJr1AYtsmx3TGkJaNXVbfi/2pHm822aJ5iI9BMzNXxeYCmZDRD99WYwYqUSdjMmmAphXdvxegXd/M5+X7OrzKBaMbCVdFLUUh6DhweJBjEVv5f2wwjM9XzcnOf+EPbtG9DMBmADjFDc2w/rljwvFw==";
+pub const dnskey_example_bytes: usize = 4 + 130;
+pub fn dnskey_example(out: *[dnskey_example_bytes]u8) []const u8 {
+    out[0..4].* = .{ 0x01, 0x00, 3, 5 };
+    std.base64.standard.Decoder.decode(out[4..], dnskey_example_key) catch unreachable;
+    return out;
+}
+
+/// An NSEC3 of this file's own: SHA-1, Opt-Out, 12 iterations, a salt of four octets, a next
+/// hashed owner of three, and NS and DS in its map.
+pub const nsec3 = [_]u8{
+    1,    0x01, 0x00, 0x0c, 4,    0xaa, 0xbb, 0xcc, 0xdd, 3, 0x01, 0x02, 0x03,
+    0x00, 0x06, 0x20, 0x00, 0x00, 0x00, 0x00, 0x10,
+};

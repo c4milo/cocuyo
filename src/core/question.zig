@@ -13,8 +13,9 @@ const Name = @import("name.zig").Name;
 const name_text = @import("name_text.zig");
 const name_reverse = @import("name_reverse.zig");
 
-/// A record type. The named ones are every type c-ares parses (docs/design.md §19 step 9), each
-/// with the RFC that defines its fields. The enum is open (decision 31): `Kind.of` is any code, a
+/// A record type. The named ones are every type c-ares parses (docs/design.md §19 step 9), and since
+/// 2026-10-31 the types DNSSEC validation reads (docs/design.md §25, step 6), each with the RFC
+/// that defines its fields. The enum is open (decision 31): `Kind.of` is any code, a
 /// question may name one cocuyo does not, and its records come back with their rdata raw (RFC 3597
 /// §3), as does a record of such a type in any answer.
 pub const Kind = enum(u16) {
@@ -30,7 +31,14 @@ pub const Kind = enum(u16) {
     aaaa = 28, // RFC 3596 §2.2
     srv = 33, // RFC 2782
     naptr = 35, // RFC 3403 §4.1
+    dname = 39, // RFC 6672 §2.1
     opt = 41, // RFC 6891 §6.1.2, a pseudo-record and never a question
+    ds = 43, // RFC 4034 §5.1
+    rrsig = 46, // RFC 4034 §3.1
+    nsec = 47, // RFC 4034 §4.1
+    dnskey = 48, // RFC 4034 §2.1
+    nsec3 = 50, // RFC 5155 §3.2
+    nsec3param = 51, // RFC 5155 §4.2
     tlsa = 52, // RFC 6698 §2.1
     svcb = 64, // RFC 9460 §2.2
     https = 65, // RFC 9460 §9
@@ -129,6 +137,17 @@ fn is_absolute(text: []const u8) bool {
 // Tests.
 
 const testing = std.testing;
+
+test "the types of DNSSEC carry the codes their RFCs assign" {
+    // RFC 6672 §2.1, RFC 4034 §2.1, §3.1, §4.1 and §5.1, and RFC 5155 §3.2 and §4.2.
+    try testing.expectEqual(@as(u16, 39), Kind.dname.code());
+    try testing.expectEqual(@as(u16, 43), Kind.ds.code());
+    try testing.expectEqual(@as(u16, 46), Kind.rrsig.code());
+    try testing.expectEqual(@as(u16, 47), Kind.nsec.code());
+    try testing.expectEqual(@as(u16, 48), Kind.dnskey.code());
+    try testing.expectEqual(@as(u16, 50), Kind.nsec3.code());
+    try testing.expectEqual(@as(u16, 51), Kind.nsec3param.code());
+}
 
 test "a trailing dot makes the question absolute and the wire name identical" {
     const relative = try Question.from_text("example.com", .a);

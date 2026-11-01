@@ -5101,4 +5101,140 @@
         },
         .caught_by = .{ .step = "test-resolver" },
     },
+    .{
+        .section = "The types of DNSSEC in wire",
+        .id = "DT1",
+        .what = "a type map's block of no octets is accepted",
+        .edits = .{
+            .{ .file = "src/wire/rdata/rdata_bitmap.zig", .old = "            if (length == 0 or length > limits.bitmap_octets_max) return Error.MalformedMessage;", .new = "            if (length > limits.bitmap_octets_max) return Error.MalformedMessage;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "The types of DNSSEC in wire",
+        .id = "DT2",
+        .what = "a type map's block of 33 octets is accepted",
+        .edits = .{
+            .{ .file = "src/wire/rdata/rdata_bitmap.zig", .old = "            if (length == 0 or length > limits.bitmap_octets_max) return Error.MalformedMessage;", .new = "            if (length == 0 or length > limits.bitmap_octets_max + 1) return Error.MalformedMessage;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "The types of DNSSEC in wire",
+        .id = "DT3",
+        .what = "a type map's windows may come in any order",
+        .edits = .{
+            .{ .file = "src/wire/rdata/rdata_bitmap.zig", .old = "            if (last_window) |last| if (window <= last) return Error.MalformedMessage;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "The types of DNSSEC in wire",
+        .id = "DT4",
+        .what = "a bit for a pseudo-type reads as set",
+        .edits = .{
+            .{ .file = "src/wire/rdata/rdata_bitmap.zig", .old = "        if (pseudo(type_code)) return false;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "The types of DNSSEC in wire",
+        .id = "DT5",
+        .what = "a type past a block's last octet reads as present",
+        .edits = .{
+            .{ .file = "src/wire/rdata/rdata_bitmap.zig", .old = "                if (octet >= bitmap.len) return false;", .new = "                if (octet >= bitmap.len) return true;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "The types of DNSSEC in wire",
+        .id = "DT6",
+        .what = "a DS one octet short of its fixed part is read",
+        .edits = .{
+            .{ .file = "src/wire/rdata/rdata_ds.zig", .old = "        if (rdata.len < constants.ds_fixed_bytes) return Error.MalformedMessage;", .new = "        if (rdata.len < constants.ds_fixed_bytes - 1) return Error.MalformedMessage;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "The types of DNSSEC in wire",
+        .id = "DT7",
+        .what = "a DNSKEY of any protocol is valid",
+        .edits = .{
+            .{ .file = "src/wire/rdata/rdata_dnskey.zig", .old = "        return self.protocol == constants.dnskey_protocol;", .new = "        return self.protocol == constants.dnskey_protocol or self.protocol != constants.dnskey_protocol;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "The types of DNSSEC in wire",
+        .id = "DT8",
+        .what = "the Zone Key flag reads the SEP bit",
+        .edits = .{
+            .{ .file = "src/wire/rdata/rdata_dnskey.zig", .old = "        return self.flags & constants.dnskey_flag_zone_key != 0;", .new = "        return self.flags & constants.dnskey_flag_secure_entry_point != 0;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "The types of DNSSEC in wire",
+        .id = "DT9",
+        .what = "an NSEC3's hash is read past the rdata's end",
+        .edits = .{
+            .{ .file = "src/wire/rdata/rdata_nsec3.zig", .old = "        if (rdata.len - hash_at < hash_length) return Error.MalformedMessage;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "The types of DNSSEC in wire",
+        .id = "DT10",
+        .what = "an NSEC3PARAM with octets after its salt is read",
+        .edits = .{
+            .{ .file = "src/wire/rdata/rdata_nsec3.zig", .old = "        if (fields.after != rdata.len) return Error.MalformedMessage;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "The types of DNSSEC in wire",
+        .id = "DT11",
+        .what = "Opt-Out reads the high bit of the flags",
+        .edits = .{
+            .{ .file = "src/wire/rdata/rdata_nsec3.zig", .old = "        return self.flags & constants.nsec3_flag_opt_out != 0;", .new = "        return self.flags & 0x80 != 0;" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "The types of DNSSEC in wire",
+        .id = "DT12",
+        .what = "an RRSIG is rewritten as a SIG is",
+        .edits = .{
+            .{ .file = "src/wire/rdata/rdata_layout.zig", .old = "        .sig => &sig,", .new = "        .sig, .rrsig => &sig," },
+            .{ .file = "src/wire/rdata/rdata_layout.zig", .old = "        .dname, .ds, .rrsig, .nsec, .dnskey, .nsec3, .nsec3param => &opaque_rest,", .new = "        .dname, .ds, .nsec, .dnskey, .nsec3, .nsec3param => &opaque_rest," },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "The types of DNSSEC in wire",
+        .id = "DT13",
+        .what = "DNAME carries the code 40",
+        .edits = .{
+            .{ .file = "src/core/question.zig", .old = "    dname = 39, // RFC 6672 §2.1", .new = "    dname = 40, // RFC 6672 §2.1" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "The types of DNSSEC in wire",
+        .id = "DT14",
+        .what = "the fuzz generator writes a type map's windows out of order",
+        .edits = .{
+            .{ .file = "src/wire/fuzz/fuzz_generate_records_dnssec.zig", .old = "        window += 1 + generator.below(limits.fuzz_windows_max);", .new = "        window += generator.below(limits.fuzz_windows_max);" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "The types of DNSSEC in wire",
+        .id = "DT15",
+        .what = "the dnslib check passes over a DS's digest",
+        .edits = .{
+            .{ .file = "tools/dnslib/check_record.zig", .old = "    try same_hex(ds.digest, fields[3..]);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
 }

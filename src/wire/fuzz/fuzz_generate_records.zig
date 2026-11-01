@@ -14,12 +14,14 @@ const Generator = generate_module.Generator;
 const Message = generate_module.Message;
 const message_bytes_max = generate_module.message_bytes_max;
 const pointer_to = generate_module.pointer_to;
+const dnssec = @import("fuzz_generate_records_dnssec.zig");
 
 /// The types a record is written in: every type the codec reads but OPT, a pseudo-record, and ANY,
 /// a question only.
 pub const record_kinds = [_]core.Kind{
-    .a,    .ns,  .cname, .soa,  .ptr,  .hinfo, .mx,  .txt, .sig,
-    .aaaa, .srv, .naptr, .tlsa, .svcb, .https, .uri, .caa,
+    .a,    .ns,    .cname, .soa,    .ptr,   .hinfo,      .mx,  .txt, .sig,
+    .aaaa, .srv,   .naptr, .tlsa,   .svcb,  .https,      .uri, .caa, .dname,
+    .ds,   .rrsig, .nsec,  .dnskey, .nsec3, .nsec3param,
 };
 
 /// The name every record's response asks about, which the fuzz check asks about too.
@@ -135,6 +137,18 @@ fn write_rdata(generator: *Generator, writer: *Writer, kind: core.Kind) void {
         .uri => writer.noise(generator, constants.uri_fixed_bytes + 1 + generator.below(limits.fuzz_opaque_bytes_max)),
         .caa => write_caa(generator, writer),
         .svcb, .https => write_svcb(generator, writer),
+        .dname => write_labels(generator, writer),
+        .ds, .dnskey => writer.noise(generator, constants.ds_fixed_bytes + generator.below(limits.fuzz_opaque_bytes_max + 1)),
+        .rrsig => {
+            writer.noise(generator, constants.sig_fixed_bytes);
+            write_labels(generator, writer);
+            writer.noise(generator, generator.below(limits.fuzz_opaque_bytes_max + 1));
+        },
+        .nsec => {
+            write_labels(generator, writer);
+            dnssec.write_bitmaps(generator, writer);
+        },
+        .nsec3, .nsec3param => dnssec.write_nsec3(generator, writer, kind == .nsec3),
         // The generator writes only the types the codec reads.
         .opt, .any, _ => unreachable,
     }
@@ -145,6 +159,11 @@ fn write_rdata(generator: *Generator, writer: *Writer, kind: core.Kind) void {
 /// docs/design.md §16 decision 16).
 fn write_name(generator: *Generator, writer: *Writer) void {
     if (generator.coin()) return writer.short(pointer_to(core.constants.header_bytes));
+    write_labels(generator, writer);
+}
+
+/// A name as labels alone, for the types whose names may not be compressed (RFC 3597 §4).
+fn write_labels(generator: *Generator, writer: *Writer) void {
     for (0..1 + generator.below(limits.fuzz_labels_max)) |_| {
         const length = 1 + generator.below(limits.fuzz_label_bytes_max);
         writer.octet(@intCast(length));

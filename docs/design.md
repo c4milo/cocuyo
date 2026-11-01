@@ -10652,6 +10652,32 @@ Each step lands with its checks, each check broken on purpose and recorded in
    chapulin for them, opened on 2026-10-03. cocuyo pins the colibri that carries them.
 6. `wire`: the types, the bits and the bit maps. The fuzz target builds each new type, and the
    dnslib check reads them.
+   The rules, written on 2026-10-31:
+   - `Kind` names DNAME (39), DS (43), RRSIG (46), NSEC (47), DNSKEY (48), NSEC3 (50) and
+     NSEC3PARAM (51), each with the section that defines its fields: RFC 6672 §2.1, RFC 4034
+     §5.1, §3.1, §4.1 and §2.1, and RFC 5155 §3.2 and §4.2.
+   - Each is kept as rdata, and copied exactly as it arrived. No name in these types may be
+     compressed: RFC 4034 §3.1.7 and §4.1.1, RFC 6672 §2.5, and RFC 3597 §4 for any later
+     type. A signature covers these octets, so the collector rewrites none of them. A typed view
+     reads a name only as labels, so a compression pointer is malformed.
+   - A view reads the fields and verifies nothing. DNSKEY's protocol octet "MUST have value 3"
+     (RFC 4034 §2.1.2), and the view reports it, since the validator treats a key with another
+     value as invalid. Each field's length is checked against the end of the rdata before it is
+     read, as non-negotiable 6 has it.
+   - The type bit maps of NSEC and NSEC3 (RFC 4034 §4.1.2, RFC 5155 §3.2.1). A map is refused
+     when a block's length is outside 1 to 32, when a window is not above the window before it,
+     or when a block runs past the rdata. An empty block and trailing zero octets break a
+     sender's rule and not the format, so they are read as no types: "Trailing zero octets not
+     specified MUST be interpreted as zero octets". A bit for a pseudo-type, OPT or a type of
+     the query and meta range, reads as clear: "If encountered, they MUST be ignored upon being
+     read".
+   Built on 2026-10-31. The views are `wire.rdata`'s `Ds`, `Dnskey`, `Rrsig`, which is SIG's
+   view, since RFC 4034 §3.1 gives RRSIG SIG's rdata, `Nsec`, `Nsec3`, `Nsec3Param` and
+   `TypeBitmaps`, and DNAME reads through `rdata.name`. The longest bitmap is a limit,
+   `wire.limits.bitmap_octets_max`, which RFC 4034 §4.1.2 fixes at 32. The fuzz target writes
+   each type whole, and requires its view to read it back. The dnslib check reads DS, DNSKEY,
+   NSEC3PARAM and DNAME as dnslib prints them. RRSIG, NSEC and NSEC3 stay unread there: their
+   text names types by mnemonic, writes times as dates, and NSEC3's hash in base32hex.
 7. `dnssec`, the pure half, over a verifier the tests supply: canonical order and form, the key
    tag, what a DS digest and a signature are computed over, and time. Against the RFCs' own
    examples where no arithmetic is needed: the ordered list of RFC 4034 §6.1, and the octets

@@ -46,6 +46,9 @@ pub fn of(type_code: u16) []const Segment {
         .sig => &sig,
         .svcb, .https => &svcb,
         .a, .aaaa, .hinfo, .txt, .opt, .tlsa, .uri, .caa, .any => &opaque_rest,
+        // No name in these may be compressed (RFC 4034 §3.1.7 and §4.1.1, RFC 6672 §2.5), and a
+        // signature covers their octets, so each is copied as it came (docs/design.md §25).
+        .dname, .ds, .rrsig, .nsec, .dnskey, .nsec3, .nsec3param => &opaque_rest,
         // A type cocuyo does not name is copied as it is: a name in it is never compressed (RFC
         // 3597 §4), so there is nothing to write out.
         _ => &opaque_rest,
@@ -93,6 +96,14 @@ test "the types with a name in their rdata say where it sits, and the rest are c
     try testing.expect(!has_name(of(Kind.txt.code())));
     try testing.expect(!has_name(of(Kind.a.code())));
     try testing.expect(!has_name(of(Kind.caa.code())));
+}
+
+test "the types of DNSSEC are copied as they came: no layout of theirs holds a name to rewrite" {
+    // No name in them may be compressed (RFC 4034 §3.1.7 and §4.1.1, RFC 6672 §2.5), and a
+    // signature covers their octets (docs/design.md §25, step 6).
+    for ([_]Kind{ .dname, .ds, .rrsig, .nsec, .dnskey, .nsec3, .nsec3param }) |kind| {
+        try testing.expect(!has_name(of(kind.code())));
+    }
 }
 
 test "an unknown type is copied whole" {
