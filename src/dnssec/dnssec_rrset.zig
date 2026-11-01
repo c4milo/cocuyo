@@ -150,11 +150,26 @@ fn one(
         if (!dnssec.within(check.now_seconds, sig.inception, sig.expiration)) return .failed;
         if (check.budget.left == 0) return .exhausted;
         check.budget.left -= 1;
-        const hash = check.verifier.check_begin(check.verifier.context, sig.algorithm);
-        try canonical.signed_data(record.rdata, owner, set.kind, core.constants.class_internet, set, hash);
-        if (check.verifier.check_end(check.verifier.context, key.public_key, sig.signature)) return .valid;
+        if (try signs(check, set, owner, record, sig, &key)) return .valid;
     }
     return if (keys_tried == 0) .disregarded else .failed;
+}
+
+/// Whether `sig` verifies under `key` over what it signs of `set`. A key or a signature of a form
+/// the algorithm refuses verifies nothing.
+fn signs(
+    check: Check,
+    set: *const Rrset,
+    owner: *const Name,
+    record: *const wire.Record,
+    sig: *const wire.rdata.Rrsig,
+    key: *const wire.rdata.Dnskey,
+) Error!bool {
+    const verifier = check.verifier;
+    const hash = verifier.check_begin(verifier.context, sig.algorithm, key.public_key, sig.signature) orelse
+        return false;
+    try canonical.signed_data(record.rdata, owner, set.kind, core.constants.class_internet, set, hash);
+    return verifier.check_end(verifier.context, key.public_key, sig.signature);
 }
 
 /// Whether `key` is one `sig` names, and one a check can use: the same algorithm and key tag
@@ -439,4 +454,12 @@ test "an RRset is kept no longer than its RRSIG's TTL, nor than the Original TTL
         var builder = signed_mx(signing);
         try testing.expectEqual(@min(ttls[0], ttls[1]), (try answer_outcome(builder.message(), &fixed)).valid.ttl_seconds);
     }
+}
+
+test "a signature of a form the algorithm refuses is a check that failed" {
+    var signing = zone.by_zone;
+    signing.cut = 1;
+    var builder = signed_mx(signing);
+    const fixed: Fixed = .{ .keys = zone_keys(&.{&zone.zsk}) };
+    try testing.expect(try answer_outcome(builder.message(), &fixed) == .bogus);
 }

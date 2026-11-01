@@ -11,7 +11,7 @@ const std = @import("std");
 const manifest = @import("../build.zig.zon");
 
 /// The module graph as a value. `cocuyo`, `cocuyo_rotor`, `chapulin_hooks`, `chapulin`,
-/// `cocuyo_quic`, `chapulin_quic` and `cocuyo_doh` are the ones a consumer imports and the ones
+/// `cocuyo_quic`, `chapulin_quic`, `cocuyo_doh` and `cocuyo_dnssec` are the ones a consumer imports and the ones
 /// this build registers by name. The rest are this build's own, named by `zig build test-<name>`
 /// through this struct rather than through the package (docs/design.md §20, §24).
 pub const Graph = struct {
@@ -64,6 +64,10 @@ pub const Graph = struct {
     /// (docs/design.md §24, DoH over colibri's client): its `client` and `tls` imports are left for
     /// the consumer to bind, as `cocuyo_quic`'s `quic` is.
     cocuyo_doh: *std.Build.Module,
+    /// The verifier of DNSSEC over chapulin (docs/design.md §25 step 10), whose `dnssec` import
+    /// is the consumer's to bind to colibri's `dnssec`, as `cocuyo_quic`'s `quic` is (§16
+    /// decision 35, as amended).
+    cocuyo_dnssec: *std.Build.Module,
     /// The same, for this build's tests, whose imports `build/doh.zig` binds to colibri's.
     io_doh_channel: *std.Build.Module,
 };
@@ -96,6 +100,7 @@ pub const roots = .{
     .chapulin_quic = "io/io_chapulin_quic.zig",
     .doh = "io/io_doh.zig",
     .io_doh_channel = "io/io_doh_channel.zig",
+    .cocuyo_dnssec = "io/io_dnssec.zig",
 };
 
 // Every module this build registers has its root under a path the manifest ships. A dependent
@@ -103,7 +108,7 @@ pub const roots = .{
 // show a path left out: it depends on cocuyo by path, which reads the whole tree
 // (docs/mutations.md EX2).
 comptime {
-    for ([_][]const u8{ roots.cocuyo, roots.io, roots.chapulin_hooks, roots.chapulin, roots.io_quic, roots.chapulin_quic, roots.io_doh_channel }) |root| {
+    for ([_][]const u8{ roots.cocuyo, roots.io, roots.chapulin_hooks, roots.chapulin, roots.io_quic, roots.chapulin_quic, roots.io_doh_channel, roots.cocuyo_dnssec }) |root| {
         if (!shipped(root)) @compileError("build.zig.zon's paths do not ship " ++ root);
     }
 }
@@ -115,7 +120,7 @@ fn shipped(comptime root: []const u8) bool {
     return false;
 }
 
-/// The graph, registered: a consumer names the seven modules that `Graph` says it imports, and
+/// The graph, registered: a consumer names the eight modules that `Graph` says it imports, and
 /// `zig build test-<name>` names the rest.
 pub fn add(
     b: *std.Build,
@@ -150,8 +155,8 @@ fn build(
     optimize: std.builtin.OptimizeMode,
     register: bool,
 ) Graph {
-    // Only `cocuyo`, `cocuyo_rotor`, `chapulin`, `cocuyo_quic`, `chapulin_quic`, `cocuyo_doh`
-    // and `chapulin_hooks` are registered, so they are the only names a dependent can import
+    // Only `cocuyo`, `cocuyo_rotor`, `chapulin`, `cocuyo_quic`, `chapulin_quic`, `cocuyo_doh`,
+    // `cocuyo_dnssec` and `chapulin_hooks` are registered, so they are the only names a dependent can import
     // (docs/design.md §20, §24). The rest are created. This build holds the graph as a value, so
     // `zig build test-<name>` still names each one, and the name is not part of the package.
     const graph: Graph = .{
@@ -173,6 +178,7 @@ fn build(
         .doh = module(b, target, optimize, "doh", roots.doh, false),
         .cocuyo_doh = module(b, target, optimize, "cocuyo_doh", roots.io_doh_channel, register),
         .io_doh_channel = module(b, target, optimize, "io_doh_channel", roots.io_doh_channel, false),
+        .cocuyo_dnssec = module(b, target, optimize, "cocuyo_dnssec", roots.cocuyo_dnssec, register),
     };
 
     // core imports nothing, and that is the point of it: every limit and every type that two
@@ -210,6 +216,12 @@ fn build(
     graph.chapulin_quic.addImport("cocuyo", graph.cocuyo);
     graph.chapulin_quic.addImport("cocuyo_quic", graph.cocuyo_quic);
     graph.chapulin_quic.addImport("chapulin_hooks", graph.chapulin_hooks);
+    // chapulin's object needs libc, and the image defines chapulin's hook once.
+    // `validation` is cocuyo's own `dnssec`, which is never registered: the verifier fills in its
+    // interfaces, and no consumer can name the module (docs/design.md §25 step 10).
+    graph.cocuyo_dnssec.link_libc = true;
+    graph.cocuyo_dnssec.addImport("validation", graph.dnssec);
+    graph.cocuyo_dnssec.addImport("chapulin_hooks", graph.chapulin_hooks);
     for ([_]*std.Build.Module{ graph.cocuyo_doh, graph.io_doh_channel }) |doh_channel| {
         doh_channel.addImport("cocuyo", graph.cocuyo);
         doh_channel.addImport("doh", graph.doh);

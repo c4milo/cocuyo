@@ -12,6 +12,12 @@ pub const limits = @import("limits.zig");
 pub const canonical = @import("dnssec_canonical.zig");
 pub const nsec = @import("dnssec_nsec.zig");
 pub const nsec3 = @import("dnssec_nsec3.zig");
+/// The key store and the admission of a DNSKEY set to it, and the validator of whole messages
+/// (docs/design.md §25 step 9). The module is cocuyo's own and never registered: the verifier
+/// outside `src/` and its tests read it, and no consumer can name it.
+pub const store = @import("dnssec_store.zig");
+pub const store_keys = @import("dnssec_store_keys.zig");
+pub const validate = @import("dnssec_validate.zig");
 
 /// Where `dnssec` feeds the octets a digest or a signature covers, in order and in pieces. The
 /// caller's: a digest or a signature over chapulin, or a test that records what it was given.
@@ -32,8 +38,11 @@ pub const Verifier = struct {
     checks: *const fn (context: *anyopaque, algorithm: u8) bool,
     /// Whether it computes digests of the DS digest type `digest_type` (RFC 4034 Appendix A.2).
     digests: *const fn (context: *anyopaque, digest_type: u8) bool,
-    /// Begins a check under `algorithm`, one it checks, and returns where the signed data goes.
-    check_begin: *const fn (context: *anyopaque, algorithm: u8) Hash,
+    /// Begins a check under `algorithm`, one it checks, of `signature` under `public_key`, and
+    /// returns where the signed data goes. Both come first, since Ed25519 hashes R and the key
+    /// before the data (RFC 8032 §5.1.7, RFC 8080 §4). Null when the algorithm refuses the form of
+    /// the key or of the signature, which is a check that failed.
+    check_begin: *const fn (context: *anyopaque, algorithm: u8, public_key: []const u8, signature: []const u8) ?Hash,
     /// Ends the check: whether `signature` verifies under `public_key` over what was fed.
     check_end: *const fn (context: *anyopaque, public_key: []const u8, signature: []const u8) bool,
     /// Begins a digest of `digest_type`, one it computes, and returns where its input goes.

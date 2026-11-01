@@ -11209,3 +11209,28 @@ engine SM4` ran it to its end.
 | SM4 | the consumer fixture pins colibri v0.10.0, where build.zig.zon pins v0.11.0 | `zig build consumer-check` | `CAUGHT` |
 
 1 mutation, 1 `CAUGHT`.
+
+## The verifier over chapulin
+
+2026-11-01. Design §25 Stage B, step 10 (c4milo/cocuyo#56): `cocuyo_dnssec`, in `io/io_dnssec.zig`,
+fills in `dnssec.Verifier` and the NSEC3 `Hasher` from chapulin, through colibri v0.11.0's
+`dnssec` module. Its tests check the DS digests of RFC 4034 §5.4, RFC 4509 §2.3, RFC 6605 §6 and
+RFC 8080 §6.1, the signatures of RFC 5702 §6, RFC 6605 §6 and RFC 8080 §6.1, the hashed names of
+RFC 5155 Appendix A, and RFC 6605 §6.1's answer as a whole message through the validator.
+`Verifier.check_begin` takes the key and the signature now, since Ed25519 hashes them before the
+data (RFC 8032 §5.1.7), and returns no hash for a form the algorithm refuses. A mutation that ran
+a refused signature on to its end was NOT CAUGHT, and is not kept: `colibri.verify` refuses the
+same form at the end, so the verdict cannot change. `zig build mutations -- engine DV1 ... DV6
+V20` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| DV1 | every algorithm is one chapulin checks | `zig build test-cocuyo_dnssec` | `CAUGHT` |
+| DV2 | every digest type is one chapulin computes | `zig build test-cocuyo_dnssec` | `CAUGHT` |
+| DV3 | a check verifies whatever chapulin says | `zig build test-cocuyo_dnssec` | `CAUGHT` |
+| DV4 | a DS digest loses its last octet | `zig build test-cocuyo_dnssec` | `CAUGHT` |
+| DV5 | an NSEC3 hash takes one iteration too few | `zig build test-cocuyo_dnssec` | `CAUGHT` |
+| DV6 | an NSEC3 round leaves the salt out | `zig build test-cocuyo_dnssec` | `CAUGHT` |
+| V20 | a signature of a form the algorithm refuses verifies | `zig build test-dnssec` | `CAUGHT` |
+
+7 mutations, 7 `CAUGHT`.

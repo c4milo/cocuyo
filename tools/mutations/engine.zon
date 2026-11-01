@@ -6956,4 +6956,67 @@
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
+    .{
+        .section = "The verifier over chapulin",
+        .id = "DV1",
+        .what = "every algorithm is one chapulin checks",
+        .edits = .{
+            .{ .file = "io/io_dnssec.zig", .old = "        return colibri.algorithm(algorithm) != null;", .new = "        return colibri.algorithm(algorithm) != null or algorithm > 0;" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_dnssec" },
+    },
+    .{
+        .section = "The verifier over chapulin",
+        .id = "DV2",
+        .what = "every digest type is one chapulin computes",
+        .edits = .{
+            .{ .file = "io/io_dnssec.zig", .old = "        return colibri.digest_type(digest_type) != null;", .new = "        return colibri.digest_type(digest_type) != null or digest_type > 0;" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_dnssec" },
+    },
+    .{
+        .section = "The verifier over chapulin",
+        .id = "DV3",
+        .what = "a check verifies whatever chapulin says",
+        .edits = .{
+            .{ .file = "io/io_dnssec.zig", .old = "        colibri.verify(chosen, public_key, written, signature) catch return false;\n        return true;", .new = "        colibri.verify(chosen, public_key, written, signature) catch return true;\n        return true;" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_dnssec" },
+    },
+    .{
+        .section = "The verifier over chapulin",
+        .id = "DV4",
+        .what = "a DS digest loses its last octet",
+        .edits = .{
+            .{ .file = "io/io_dnssec.zig", .old = "        @memcpy(out[0..written.len], written);\n        return written.len;", .new = "        @memcpy(out[0..written.len], written);\n        return written.len - 1;" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_dnssec" },
+    },
+    .{
+        .section = "The verifier over chapulin",
+        .id = "DV5",
+        .what = "an NSEC3 hash takes one iteration too few",
+        .edits = .{
+            .{ .file = "io/io_dnssec.zig", .old = "        for (0..iterations) |_| {", .new = "        for (1..iterations) |_| {" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_dnssec" },
+    },
+    .{
+        .section = "The verifier over chapulin",
+        .id = "DV6",
+        .what = "an NSEC3 round leaves the salt out",
+        .edits = .{
+            .{ .file = "io/io_dnssec.zig", .old = "        self.hash.update(input);\n        self.hash.update(salt);", .new = "        self.hash.update(input);\n        self.hash.update(salt[0..0]);" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_dnssec" },
+    },
+    .{
+        .section = "The verifier over chapulin",
+        .id = "V20",
+        .what = "a signature of a form the algorithm refuses verifies",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "    const hash = verifier.check_begin(verifier.context, sig.algorithm, key.public_key, sig.signature) orelse\n        return false;", .new = "    const hash = verifier.check_begin(verifier.context, sig.algorithm, key.public_key, sig.signature) orelse\n        return true;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
 }

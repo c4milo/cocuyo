@@ -29,6 +29,7 @@ const dot = @import("build/dot.zig");
 const quic = @import("build/quic.zig");
 const doq = @import("build/doq.zig");
 const doh = @import("build/doh.zig");
+const dnssec_verifier = @import("build/dnssec.zig");
 const dnslib = @import("build/dnslib.zig");
 const fuzz = @import("build/fuzz.zig");
 const coverage = @import("build/coverage.zig");
@@ -182,6 +183,7 @@ pub fn build(b: *std.Build) void {
     add_coverage(b, &(unit_test_modules ++ replays), graph, colibri != null, test_step);
     doq.add(b, target, optimize, graph, test_step, .{ .rotor = rotor, .colibri = colibri, .platform = platform });
     doh.add(b, target, optimize, graph, test_step, .{ .rotor = rotor, .colibri = colibri, .platform = platform });
+    dnssec_verifier.add(b, graph, test_step, colibri);
     dnslib.add(b, target, graph, test_step, tool_test_step);
     fuzz.add(b, target, graph, test_step, tool_test_step);
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));

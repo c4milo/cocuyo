@@ -183,7 +183,7 @@ pub const Sums = struct {
             .context = self,
             .checks = checks,
             .digests = digests,
-            .check_begin = begin,
+            .check_begin = check_begin,
             .check_end = check_end,
             .digest_begin = begin,
             .digest_end = digest_end,
@@ -198,6 +198,13 @@ pub const Sums = struct {
     fn digests(context: *anyopaque, digest_type: u8) bool {
         _ = context;
         return digest_type == 1 or digest_type == 2;
+    }
+
+    /// A signature of another length than a sum's is of a form the algorithm refuses.
+    fn check_begin(context: *anyopaque, algorithm: u8, public_key: []const u8, signature: []const u8) ?Hash {
+        _ = public_key;
+        if (signature.len != @sizeOf(Sum)) return null;
+        return begin(context, algorithm);
     }
 
     fn begin(context: *anyopaque, number: u8) Hash {
@@ -261,6 +268,9 @@ pub const Signing = struct {
     key_tag: u16 = 38519,
     signer: []const u8 = "example",
     public_key: []const u8,
+    /// Octets of the sum to leave out of the signature, which makes its form one the tests'
+    /// verifier refuses.
+    cut: usize = 0,
 };
 
 /// A response built record by record, its names written in full, as a test's server sends it.
@@ -325,7 +335,7 @@ pub const Builder = struct {
         const head = 18 + signer.len;
         const sum = sign(rdata[0..head], &owner_name, kind, records, signing.public_key);
         @memcpy(rdata[head..][0..sum.len], &sum);
-        self.record(owner, .rrsig, signing.ttl, rdata[0 .. head + sum.len]);
+        self.record(owner, .rrsig, signing.ttl, rdata[0 .. head + sum.len - signing.cut]);
     }
 
     pub fn message(self: *Builder) []const u8 {

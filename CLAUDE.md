@@ -145,7 +145,9 @@ The architecture depends on every rule in this section.
   `io/io_doh_channel.zig` and the files beside it are `cocuyo_doh`, colibri's `client.ConnectionPool`
   under the engine's DoH interface, whose `client` and `tls` imports a consumer that speaks DoH
   binds to colibri's (design §16 decision 33). Its tests run colibri's server under the TLS
-  identity in `io/testdata/`, a test's own, valid from 2026 to 2126.
+  identity in `io/testdata/`, a test's own, valid from 2026 to 2126. `io/io_dnssec.zig` is
+  `cocuyo_dnssec`, the DNSSEC verifier over chapulin, whose `dnssec` import a consumer that
+  validates binds to colibri's (design §16 decision 35, as amended; §25 step 10).
 - Each module owns its `limits.zig` and its `constants.zig`. A limit two modules share lives in
   `src/core/limits.zig`, and a protocol size or a default two modules share in
   `src/core/constants.zig`.
@@ -222,7 +224,8 @@ The architecture depends on every rule in this section.
   sessions' tests and a build of their examples, and the tools' own tests. Every change passes it
   before it is committed. `zig build test-<module>` (`test-core`, `test-wire`, `test-resolver`,
   `test-config`, `test-cache`, `test-dnssec`, `test-sim`, `test-cocuyo`, `test-io`, `test-chapulin_hooks`,
-  `test-doh`, `test-cocuyo_quic`, `test-cocuyo_doh`, `test-chapulin`, `test-chapulin-quic`),
+  `test-doh`, `test-cocuyo_quic`, `test-cocuyo_doh`, `test-cocuyo_dnssec`, `test-chapulin`,
+  `test-chapulin-quic`),
   `zig build test-examples` and `zig build test-tools` run one target's tests with nothing else in
   the graph, which is what a mutation is measured against. `zig build consumer-check` alone builds
   `test/consumer/`, the package that depends on cocuyo the way a consumer does, with `cocuyo_rotor`

@@ -10831,6 +10831,19 @@ Each step lands with its checks, each check broken on purpose and recorded in
 10. The verifier over chapulin, outside `src/`: the DS examples of RFC 4034 §5.4 and RFC 4509
     §2.3, and the keys and signatures of RFC 5702 §6, RFC 6605 §6 and RFC 8080 §6, each that
     chapulin admits.
+    Built on 2026-11-01 as `cocuyo_dnssec` (`io/io_dnssec.zig`), over colibri v0.11.0's `dnssec`
+    module, which a consumer that validates binds as it binds colibri's `quic`. chapulin admits
+    every example: RFC 5702 §6.1's key of 512 bits too, which RFC 5702 §2 allows. The verifier
+    hands RSA/SHA-1 (5) and NSEC3RSASHA1 (7) to no check, as §17 question 22 answers. The NSEC3
+    `Hasher` is SHA-1 iterated as RFC 5155 §5 has it, and gives the hashes RFC 5155 Appendix A
+    prints. `Verifier.check_begin` takes the key and the signature, since Ed25519 hashes them
+    before the data (RFC 8032 §5.1.7). RFC 8080 §6.1's RRSIG text leaves out its Algorithm field
+    and gives a Labels field of 3 for `example.com`, which has 2; its signatures verify over that
+    Labels field, so the test builds its signed data by hand. cocuyo is a resolver, and its
+    public surface shows nothing of DNSSEC's internals: the build binds `dnssec` into the
+    verifier as the private import `validation`, and registers it nowhere. The verifier's tests
+    read it through a root of their own. A consumer that validates names what step 12 flattens
+    onto `cocuyo` for it, its key store and `validated_by`, and nothing more.
 11. The lookup: its rows in §5, its model, then `awaiting_keys`.
     The rules, written on 2026-11-01, settle what the rows above leave open:
     - The lookup validates when its table hands it a validator, and only then. It asks the
