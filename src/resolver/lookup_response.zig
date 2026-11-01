@@ -82,7 +82,8 @@ pub fn accepted_shape(self: *Lookup, message: []const u8, header: wire.Header) ?
     if (!header.is_response()) return null;
     if (header.opcode() != wire.constants.opcode_query) return null;
     // 5. One question, byte-identical to the one asked (RFC 5452 §9.1), case included: DNS-0x20
-    //    lives here, the practice of the expired draft-vixie-dnsext-dns0x20.
+    //    lives here, the practice of the expired draft-vixie-dnsext-dns0x20. More than one is
+    //    malformed (RFC 9619 §4), and none echoes nothing to compare.
     if (header.qdcount != 1) return null;
     if (!casing.echoes_question(self, message)) {
         casing.case_change(self, message);

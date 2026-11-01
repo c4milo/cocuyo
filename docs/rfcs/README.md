@@ -72,6 +72,12 @@ RFC 10024, the hybrid group X25519MLKEM768 that chapulin's client offers. It was
 `rfc-editor.org/rfc/rfc10024.json` that day: it is a Proposed Standard of August 2026, and no RFC
 obsoletes or updates it.
 
+Added on 2026-10-31, when the owner asked for the updates that the folder lacked and that bear on
+cocuyo: RFC 9619, which updates RFC 1035, RFC 4592, which updates RFC 1034, and RFC 5952, which
+updates RFC 4291. Each was checked against `rfc-editor.org/rfc/rfcNNNN.json` that day: none is
+obsoleted or updated. The same check found RFC 2535 the folder's only obsoleted document, as
+its row below says.
+
 Read these, never a summary and never another implementation's source. Cite the RFC that *states*
 a rule, not one that inherits it, and cite it by section on the line that does the checking
 (CLAUDE.md non-negotiable 8).
@@ -129,11 +135,13 @@ updates worth knowing about, none of which version one implements:
 | 3986 | Uniform Resource Identifier (URI): Generic Syntax | §3 the components, §3.2 the authority and its userinfo, §3.2.2 the host: a DoH template is split into the `:authority` and the `:path` of its GET, and its host is the TLS name (design §24 step 5) |
 | 4648 | The Base16, Base32, and Base64 Data Encodings | §4 the base64 alphabet a pin is written in, §3.5 the zero pad bits a pin's text must have |
 | 4291 | IP Version 6 Addressing Architecture | §2.2 the text form `address_text` parses, `::` included |
+| 5952 | A Recommendation for IPv6 Address Text Representation | §4 the text form a program should write: §4.1 no leading zeros, §4.2 `::` for the longest run of zero groups, §4.3 lowercase. The examples write all eight groups, which §4.2.1 does not recommend |
 | 5737 | IPv4 Address Blocks Reserved for Documentation | `192.0.2.0/24`, the addresses the fixtures and the tests spell |
 | 6698 | The DNS-Based Authentication of Named Entities (DANE) TLSA | §2.1, the TLSA record's fields |
 | 6724 | Default Address Selection for Internet Protocol Version 6 | §6, the destination address ordering the engine may apply to a `getaddrinfo` answer (§19 step 15) |
 | 1035 | Domain Names, Implementation and Specification | the wire format: §4.1 the message, §4.1.4 compression, §2.3.4 the size limits, §2.3.3 character case, §3.5 IN-ADDR.ARPA, §4.2.1 port 53 |
 | 3596 | DNS Extensions to Support IPv6 | §2.2 the AAAA record, §2.5 the IP6.ARPA domain |
+| 4592 | The Role of Wildcards in the Domain Name System | §2.1 what a wildcard domain name is, §2.2 the existence rules, §3 how a wildcard answers, §4 the special types: what DNSSEC Stage B validates when an answer was expanded from a wildcard (design §25) |
 | 4343 | DNS Case Insensitivity Clarification | what "the same name" means, which is why `Name.equal` folds case and the question compare does not |
 | 5452 | Measures for Making DNS More Resilient against Forged Answers | §4 the spoofing scenarios, §5 birthday attacks, §6 accepting only in-domain records, §9.1 the query matching rules, §9.2 extending the id space with ports and case |
 | 6335 | IANA Procedures for Service Name and Transport Protocol Port Number Registry | §6, the Dynamic port range the source-port hint is drawn from |
@@ -181,6 +189,7 @@ updates worth knowing about, none of which version one implements:
 | 9157 | Revised IANA Considerations for DNSSEC | how the registries RFC 9904 fills are changed; the plan cites no section of it |
 | 9276 | Guidance for NSEC3 Parameter Settings | §3.2 what a validator may do with an iteration count above zero, Appendix A the limit of 100 (design §25) |
 | 9364 | DNS Security Extensions (DNSSEC) | §2 to §5, which documents make up DNSSEC: the list this set was drawn from |
+| 9619 | In the DNS, QDCOUNT Is (Usually) One | §4: a message of opcode 0 with QDCOUNT above 1 is malformed, and one with QDCOUNT 0 is not. A response without its question still fails check 5 of design §7, which matches a response to its query by the question it echoes (RFC 5452 §9.1) |
 | 9520 | Negative Caching of DNS Resolution Failures | §3.1 three queries to a server over a transport, §3.2 a cache of failures and its bounds, §3.4 validation failures are cached (design §25) |
 | 9718 | DNSSEC Trust Anchor Publication for the Root Zone | §2 the file IANA publishes, §3.1 where, §4.1 what a relying party checks: the caller's to fetch (design §25) |
 | 9824 | Compact Denial of Existence in DNSSEC | §2 and §3 NXNAME and the responses that carry it, §5 the response code, §7 its changes to RFC 4034 and RFC 4035, §8 the header is not signed (design §25) |

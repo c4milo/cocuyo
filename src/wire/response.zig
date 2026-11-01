@@ -114,7 +114,8 @@ pub fn section_start(question: *const Name) usize {
 const Sections = struct { header: header_codec.Header, answer_offset: usize };
 
 /// The start every walk past the question shares. A message that echoes other than one question,
-/// or that ends inside the one it echoes, is malformed.
+/// or that ends inside the one it echoes, is malformed: QDCOUNT above 1 is (RFC 9619 §4), and a
+/// response without its question cannot be matched to the query (RFC 5452 §9.1).
 fn sections(message: []const u8, question: *const Name) Error!Sections {
     assert(question.len >= 1);
     const header = try header_codec.parse(message);
