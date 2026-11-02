@@ -7515,6 +7515,15 @@
         .caught_by = .{ .step = "test-resolver" },
     },
     .{
+        .section = "The cache under validation",
+        .id = "VC9",
+        .what = "a recalled end leaves a validating lookup's conjunction as it started",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_security.zig", .old = "    if (lookup.conjunctions.checked != .not_validating) {\n", .new = "    if (false) {\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
         .section = "The signing twin",
         .id = "ST1",
         .what = "a signature past its expiration verifies",

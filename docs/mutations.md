@@ -11410,6 +11410,14 @@ its end, under the first ids.
 | VC7 | the cache keeps no Bogus failure | `zig build test-cocuyo` | `CAUGHT` |
 | VC8 | the table writes no Bogus failure back | `zig build test-resolver` | `CAUGHT` |
 
+On 2026-11-02 an audit of §25's checks found that a validating lookup reported a recalled
+`insecure` or `unchecked` end as `secure`. `lookup_security.recalled` read Stage A's conjunction
+alone. VC9 puts that back, and `zig build mutations -- engine VC9` ran it.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| VC9 | a recalled end leaves a validating lookup's conjunction as it started | `zig build test-resolver` | `CAUGHT` |
+
 ## The signing twin
 
 2026-11-01. Design §25 Stage B, step 14 (c4milo/cocuyo#56): a validating table resolves over the

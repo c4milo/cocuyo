@@ -392,6 +392,21 @@ test "a validating table takes only an end a validating table wrote (docs/design
     }
 }
 
+test "a validating table hands back the security that a recalled end was stored with" {
+    // §25 step 13: an entry holds its end's security, and a hit reports it.
+    for ([_]core.Security{ .secure, .insecure }) |security| {
+        try testing.expectEqual(security, (try first_poll(negative_of(security), .a, true)).failed.security);
+    }
+    try testing.expectEqual(core.Security.unchecked, (try first_poll(negative_of(.unchecked), .rrsig, true)).failed.security);
+    var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
+    rig.open();
+    const answers = try answered_once(&rig);
+    for ([_]core.Security{ .secure, .insecure }) |security| {
+        const held: memory_module.Remembered = .{ .answered = .{ .answers = &answers, .ttl_seconds = 42, .canonical_name = null, .security = security } };
+        try testing.expectEqual(security, (try first_poll(held, .a, true)).done.security);
+    }
+}
+
 test "a Bogus failure is taken by a validating table alone" {
     const bogus: memory_module.Remembered = .{ .failed = Error.Bogus };
     const taken = try first_poll(bogus, .a, true);

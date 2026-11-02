@@ -69,10 +69,21 @@ pub fn of(lookup: *const Lookup) core.Security {
 
 /// The table's memory ended the lookup with what it kept, and `status` is what the lookup that
 /// found it knew. The end reports it, and `authenticated` only while this lookup relies on the
-/// bit too (docs/design.md §25, Stage A rule 5).
+/// bit too (docs/design.md §25, Stage A rule 5). A validating lookup reports `status` as it is,
+/// since its table takes only an end that a validating lookup wrote (§25 step 13).
 pub fn recalled(lookup: *Lookup, status: core.Security) void {
     assert(lookup.is_settled());
     if (lookup.conjunctions.authentic == .holds and status != .authenticated) lookup.conjunctions.authentic = .cleared;
+    if (lookup.conjunctions.checked != .not_validating) {
+        lookup.conjunctions.checked = switch (status) {
+            .secure => .secure,
+            .insecure => .insecure,
+            .unchecked => .unchecked,
+            // `table_memory.takes` gives a validating lookup no end of Stage A.
+            .authenticated => unreachable,
+        };
+        assert(of(lookup) == status);
+    }
     assert(of(lookup) != .authenticated or status == .authenticated);
 }
 
