@@ -131,12 +131,14 @@ pub fn main(init: std.process.Init) !void {
     if (std.mem.count(u8, arguments[0], ",") >= names_max) return error.TooManyNames;
     var turns = std.mem.splitScalar(u8, arguments[0], ',');
     for (0..names_max) |position| {
-        const turn = turns.next() orelse return;
+        const turn = turns.next() orelse break;
         if (position > 0) try wait_for_close(&loop, &events, clock);
         try resolve(&loop, &events, clock, turn);
         std.debug.print("{s}: handshake {s}\n", .{ turn, handshake() });
         std.debug.print("{s}: suite {s}\n", .{ turn, cpu_text.suite_text(suite()) });
     }
+    // Every result of every turn is written out first, and a failure among them ends the run.
+    if (failed) std.process.exit(1);
 }
 
 /// One turn's names, `+` between two, started at once and driven until each has its result, which
@@ -216,12 +218,15 @@ fn suite() ?u16 {
     return null;
 }
 
+/// Whether a lookup of the run failed. The run goes on to its last turn, and then exits 1.
+var failed = false;
+
 fn report(name: []const u8, result: Resolver.Result) !void {
     switch (result.outcome) {
         .answer => |answer| try answer_text.report(name, &answer),
         .failure => |failure| {
             answer_text.report_failure(name, &failure);
-            std.process.exit(1);
+            failed = true;
         },
     }
 }

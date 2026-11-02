@@ -132,6 +132,81 @@ validates() {
     fi
 }
 
+# DNSSEC Stage B (docs/design.md §25 step 16): cocuyo validates each name itself, from the root's
+# anchors in tools/dot_live/root.ds, and must give the verdict the name is known for. The server,
+# asked the same name without validation, must agree: AD for secure, no AD for insecure, SERVFAIL
+# for Bogus (§17 question 115). One run, without the word `cpu` (question 116).
+# sigok.verteiltesysteme.net was dropped, since Cloudflare alone refused it (question 117).
+anchors="$here/root.ds"
+stage_b_names="isc.org:secure cloudflare.com:secure google.com:insecure dnssec-failed.org:bogus
+badsig.test.dnscheck.tools:bogus sigfail.verteiltesysteme.net:bogus rhybar.cz:bogus"
+validated() {
+    (cd "$root" && zig build example-dot-rotor -- dnssec "$anchors" "$@" 2>&1)
+}
+says() {
+    echo "$1" | grep -q "$2"
+}
+# Whether cocuyo's answer `ours` and the server's `theirs` both give `expected` for `asked`.
+agrees() {
+    asked=$1 expected=$2 ours=$3 theirs=$4
+    quoted=$(echo "$asked" | sed 's/\./\\./g')
+    case $expected in
+    secure)
+        says "$ours" "^$quoted: secure$" && says "$theirs" "^$quoted: authenticated$" ;;
+    insecure)
+        says "$ours" "^$quoted: insecure$" && says "$theirs" "^$quoted A " &&
+            ! says "$theirs" "^$quoted: authenticated$" ;;
+    bogus)
+        says "$ours" "^$quoted: Bogus (bogus from server 0)$" &&
+            says "$theirs" "^$quoted: AllServersFailed (server_failure from server 0)$" ;;
+    esac
+}
+# Whether `answer` holds no verdict for `asked`: a Timeout, a connection the server closed, or no
+# line at all, which is a turn that ran out of ticks. Each is the network, not a verdict.
+unanswered() {
+    quoted=$(echo "$1" | sed 's/\./\\./g')
+    says "$2" "^$quoted: Timeout$" || says "$2" "^$quoted: AllServersFailed (closed from server" ||
+        ! says "$2" "^$quoted[: ]"
+}
+validates_itself() {
+    name=$1
+    shift
+    # Seven names in two turns of four and three, at once on one connection each turn, with
+    # validation and then without: four connections to each resolver, not fourteen. Quad9 closed
+    # connections when each name had two of its own. The example writes every result, then exits 1
+    # if one failed, which a Bogus name does, so the status is not read.
+    turns="isc.org+cloudflare.com+google.com+dnssec-failed.org,badsig.test.dnscheck.tools+sigfail.verteiltesysteme.net+rhybar.cz"
+    ours=$(validated "$turns" "$@") || true
+    theirs=$(lookup_names "$turns" "$@") || true
+    agreed=0
+    for entry in $stage_b_names; do
+        asked=${entry%%:*} expected=${entry##*:}
+        # A side the network did not answer is asked once more, alone (§17 question 118).
+        mine=$ours server=$theirs
+        if unanswered "$asked" "$mine" || unanswered "$asked" "$server"; then
+            mine=$(validated "$asked" "$@") || true
+            server=$(lookup_names "$asked" "$@") || true
+            if unanswered "$asked" "$mine" || unanswered "$asked" "$server"; then
+                echo "NOT ANSWERED, twice: $asked through $name: cocuyo said" \
+                    "$(echo "$mine" | grep "^$asked[: ]" | tr '\n' ' ')and the server said" \
+                    "$(echo "$server" | grep "^$asked[: ]" | tr '\n' ' ')" >&2
+                failures=$((failures + 1))
+                continue
+            fi
+        fi
+        ours_now=$mine theirs_now=$server
+        if agrees "$asked" "$expected" "$ours_now" "$theirs_now"; then
+            agreed=$((agreed + 1))
+        else
+            echo "DISAGREES on $asked through $name, which must be $expected: cocuyo said" \
+                "$(echo "$ours_now" | grep "^$asked[: ]" | tr '\n' ' ')and the server said" \
+                "$(echo "$theirs_now" | grep "^$asked[: ]" | tr '\n' ' ')" >&2
+            failures=$((failures + 1))
+        fi
+    done
+    echo "validates through $name from the root's anchors: $agreed names as expected, and as the server says"
+}
+
 failures=0
 resumed=0
 for resolver in "8.8.8.8 dns.google gts-root-r1 gts-root-r4" \
@@ -171,6 +246,7 @@ for resolver in "8.8.8.8 dns.google gts-root-r1 gts-root-r4" \
     word=
     reads_types "$2" "$1" "$2" $roots
     validates "$2" "$1" "$2" $roots
+    validates_itself "$2" "$1" "$2" $roots
 done
 if [ "$resumed" -eq 0 ]; then
     echo "NO RESOLVER RESUMED" >&2

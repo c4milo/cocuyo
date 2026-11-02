@@ -78,9 +78,11 @@ pub fn main(init: std.process.Init) !void {
     if (std.mem.count(u8, arguments[0], ",") >= turns_max) return error.TooManyTurns;
     var turns = std.mem.splitScalar(u8, arguments[0], ',');
     for (0..turns_max) |_| {
-        const turn = turns.next() orelse return;
+        const turn = turns.next() orelse break;
         try resolve(&loop, &events, clock, turn);
     }
+    // Every result of every turn is written out first, and a failure among them ends the run.
+    if (failed) std.process.exit(1);
 }
 
 /// One turn's names, `+` between two, started at once and driven until each has its result, which
@@ -116,12 +118,15 @@ fn tick(loop: *rotor.Loop, events: []rotor.Event, clock: Clock) !void {
     engine.drive(now);
 }
 
+/// Whether a lookup of the run failed. The run goes on to its last turn, and then exits 1.
+var failed = false;
+
 fn report(name: []const u8, result: Resolver.Result) !void {
     switch (result.outcome) {
         .answer => |answer| try answer_text.report(name, &answer),
         .failure => |failure| {
             answer_text.report_failure(name, &failure);
-            std.process.exit(1);
+            failed = true;
         },
     }
 }

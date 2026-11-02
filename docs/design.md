@@ -6227,6 +6227,30 @@ handshake used, so no example and no live check can say it.
 112. **The pre-push hook's scopes.** The hook warned that `dnssec` is not a scope, and `zig build
     lint-commits` did not. Recommended: find the linter build the hook runs and make it the one
     `tools/commit_lint.zig` configures. Answered on 2026-11-02: fix it.
+113. **Where step 16 goes.** Recommended: a Stage B part of `tools/dot_live/run.sh`, beside Stage
+    A's, with its resolvers, roots and daily workflow. Answered on 2026-11-02: yes.
+114. **The live check's anchors.** Recommended: the root's two DS records, 20326 and 38696, from
+    IANA's `root-anchors.xml`, in a file in the tree with the date they were fetched. A KSK roll
+    then needs a commit, and nothing is fetched at run time. Answered on 2026-11-02: yes.
+115. **What each name's result must be.** Recommended: each name has an expected verdict, and
+    cocuyo must give it. The server, asked without validation, must agree: AD for secure, no AD
+    for insecure, SERVFAIL for Bogus. A mismatch of either fails the run. Answered on 2026-11-02:
+    yes.
+116. **The word `cpu` in step 16.** Recommended: one run, without it. Answered on 2026-11-02: yes.
+117. **`sigok.verteiltesysteme.net`.** On 2026-11-02 cocuyo validated it secure through all
+    three resolvers, and Quad9 and Google set AD for it. Cloudflare returned SERVFAIL, extended
+    error 9 (DNSKEY Missing), so the pair would fail each day under question 115. Recommended:
+    drop it, since `isc.org` and `cloudflare.com` are the secure controls. Answered on 2026-11-02:
+    drop it. This amends question 109.
+118. **A name the network does not answer.** On 2026-11-02 Quad9 closed DoT connections, also in
+    the older parts of `dot_live`, and `rhybar.cz` timed out through Cloudflare under CD.
+    Recommended: a name with a Timeout or a closed connection on either side is asked once more,
+    alone. A second failure of the transport fails the run as NOT ANSWERED. A wrong verdict fails
+    at once. Answered on 2026-11-02: yes.
+119. **The examples' exit.** The four engine examples write every result of every turn, and exit 1
+    at the end if one failed, not at the first failure. So one run asks a Bogus name beside the
+    others, and the check makes four connections to each resolver, not fourteen. Answered on
+    2026-11-02: keep it.
 
 ## 18. The cache
 
@@ -11229,9 +11253,15 @@ Each step lands with its checks, each check broken on purpose and recorded in
     the AD bit the same server sets for the same question.
     The names and servers, ruled on 2026-11-01 (§17 question 99): `isc.org`, `cloudflare.com`,
     `google.com` and `dnssec-failed.org`, through Cloudflare, Quad9 and Google.
-    The owner's ruling of 2026-11-02 (§17 question 109) adds `badsig.test.dnscheck.tools`,
-    `sigfail.verteiltesysteme.net` and `rhybar.cz`, which must be Bogus, and
-    `sigok.verteiltesysteme.net`, which must be secure.
+    The owner's rulings of 2026-11-02 (§17 questions 109 and 113 to 117):
+    - The check also asks `badsig.test.dnscheck.tools`, `sigfail.verteiltesysteme.net` and
+      `rhybar.cz`, which must be Bogus. `sigok.verteiltesysteme.net` was dropped (question 117).
+    - It is a part of `tools/dot_live/run.sh`, which runs it once, without the word `cpu`.
+    - The anchors are `tools/dot_live/root.ds`, the root's DS records from IANA.
+    - cocuyo must give each name's expected verdict, and the server, asked without validation,
+      must agree with it.
+    - The seven names go in two turns, with validation and then without (question 119). A name
+      that one side did not answer is asked once more, alone (question 118).
 
 Checks, one for each piece of Stage B:
 
