@@ -6126,6 +6126,16 @@ handshake used, so no example and no live check can say it.
 97. **How a run asks for validation.** Recommended: the word `dnssec` on the command line, as
     `cpu` is (decision 48). Without the word the example runs as it does now, since Stage B is
     off by default. Answered on 2026-11-01: yes.
+98. **How the engine takes a key store.** §25 put the store's memory, the anchors and the time
+    of day in `Options`, before `cocuyo.KeyStore` held all three and the verifier. Recommended:
+    `use_trust(&key_store)`, once after `init` and before the first lookup, as `use_tls` is. The
+    consumer owns the store and calls its `set_clock`. A `reinit` keeps the store, as it keeps the
+    TLS contexts. `init`, `reinit` and `Options` do not change. Answered on 2026-11-01: yes. This
+    replaces the row of "where each piece goes" for `io`.
+99. **The names and servers of the live check.** Recommended: `isc.org` and `cloudflare.com`,
+    signed; `google.com`, unsigned; `dnssec-failed.org`, signed wrongly on purpose. The servers
+    are Cloudflare (1.1.1.1), Quad9 (9.9.9.9) and Google (8.8.8.8), over DoT. Answered on
+    2026-11-01: yes.
 
 ## 18. The cache
 
@@ -10446,7 +10456,7 @@ denial came incomplete be sent again, and both paths do.
 | `cocuyo.validated_by(&store)` | `src/cocuyo.zig` | the one file that reaches both modules, as `remembered_by` does |
 | the status in a slot, and bogus entries | `cache` | |
 | anchors from text: the DS and DNSKEY presentation forms (RFC 4034 §5.3, §2.2) | `config` | a parser beside `resolv_conf` |
-| the key store's memory, the anchors and the time of day, in `Options` | `io` | the engine hands them down |
+| `use_trust(&key_store)`, once after `init`, which a `reinit` keeps (§17 question 98) | `io` | the engine hands the store to its table |
 
 The table names no cryptography. It names what it asks of a validator, and `dnssec` fills that
 in from a key store:
@@ -11050,9 +11060,13 @@ Each step lands with its checks, each check broken on purpose and recorded in
     algorithm, in §11.
     The owner's rulings of 2026-11-01 (§17 questions 96 and 97): the example reads the root's DS
     records from a file named on its command line, and the word `dnssec` turns validation on.
+    The engine takes the consumer's `KeyStore` with `use_trust`, once after `init`, and a
+    `reinit` keeps it (§17 question 98).
 16. A live check, once a day and not a gate: names known to be signed, unsigned and signed
     wrongly on purpose, through the public resolvers over DoT. cocuyo's status is compared with
     the AD bit the same server sets for the same question.
+    The names and servers, ruled on 2026-11-01 (§17 question 99): `isc.org`, `cloudflare.com`,
+    `google.com` and `dnssec-failed.org`, through Cloudflare, Quad9 and Google.
 
 Checks, one for each piece of Stage B:
 
