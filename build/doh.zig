@@ -75,13 +75,15 @@ fn add_example(
     module.addImport("rotor", rotor.module("rotor"));
     module.addImport("io", engine);
     module.addImport("cocuyo_doh", doh);
+    // The verifier the word `dnssec` validates over (`examples/trust_text.zig`).
+    module.addImport("cocuyo_dnssec", graph.cocuyo_dnssec);
     module.addImport("tls", colibri.module("tls"));
     // The probe the word `cpu` states the CPU from (`examples/cpu_text.zig`).
     module.addImport("platform", platform);
     const exe = b.addExecutable(.{ .name = "doh-rotor", .root_module = module });
     const run = b.addRunArtifact(exe);
     if (b.args) |arguments| run.addArgs(arguments);
-    const step = b.step("example-doh-rotor", "Lookups over DoH through colibri's channel: -- [cpu] <name>[/TYPE][+...][,...] <address> <URI template> <root.der>...");
+    const step = b.step("example-doh-rotor", "Lookups over DoH through colibri's channel: -- [cpu] [dnssec <anchors>] <name>[/TYPE][+...][,...] <address> <URI template> <root.der>...");
     step.dependOn(&run.step);
     return &exe.step;
 }

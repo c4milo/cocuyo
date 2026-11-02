@@ -77,6 +77,8 @@ pub const Anchor = dnssec.keys.Anchor;
 pub const trust_anchors = struct {
     pub const Error = dnssec.anchors.Error;
     pub const parse = dnssec.anchors.parse;
+    /// The anchors a key store takes, and a text holds, at most (§17 question 105).
+    pub const anchors_max = dnssec.limits.anchors_max;
 };
 pub const Remembered = resolver.Remembered;
 

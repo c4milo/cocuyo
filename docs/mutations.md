@@ -11478,3 +11478,14 @@ one check of the parser or of its base64 decoder. Two tests were added before th
 | AF14 | base64 with pad bits set is read | `zig build test-dnssec` | `CAUGHT` |
 | AF15 | base64 data after padding is read | `zig build test-dnssec` | `CAUGHT` |
 | AF16 | an empty text holds anchors | `zig build test-dnssec` | `CAUGHT` |
+
+## The word dnssec
+
+2026-11-02. Design §25 step 15 and §17 questions 97 and 102 (c4milo/cocuyo#56): the four engine
+examples read `dnssec <anchor file>` through `examples/trust_text.zig`. Each mutation breaks one
+check of the word's reader. `zig build mutations -- engine DW1 DW2` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| DW1 | the word with no file after it turns validation on | `zig build test-examples` | `CAUGHT` |
+| DW2 | any first operand is read as the word | `zig build test-examples` | `CAUGHT` |

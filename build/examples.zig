@@ -53,12 +53,17 @@ const shared_roots = [_][]const u8{ "examples/server_text.zig", "examples/answer
 /// decision 48). Its tests read stdx's `platform`, so they run where the build resolved stdx.
 const cpu_root = "examples/cpu_text.zig";
 
+/// What the engine examples validate under, with the word `dnssec` (docs/design.md §25 step 15).
+/// It reads `cocuyo_dnssec`, chapulin's verifier, so its tests run where the build resolved
+/// colibri.
+const trust_root = "examples/trust_text.zig";
+
 /// The engine over plain DNS, UDP or TCP, on rotor's loop. It runs the engine, which is built
 /// privately against rotor here, as the two-engine example's is.
 const cleartext_example: Example = .{
     .name = "cleartext-rotor",
     .root = "examples/cleartext_rotor.zig",
-    .summary = "Lookups over plain DNS through the engine on rotor's loop: -- <name>[/TYPE][+...][,...] <address>[:<port>] [udp | tcp]",
+    .summary = "Lookups over plain DNS through the engine on rotor's loop: -- [dnssec <anchors>] <name>[/TYPE][+...][,...] <address>[:<port>] [udp | tcp]",
 };
 
 pub fn add(
@@ -68,6 +73,7 @@ pub fn add(
     optimize: std.builtin.OptimizeMode,
     test_step: *std.Build.Step,
     rotor: ?*std.Build.Dependency,
+    colibri: ?*std.Build.Dependency,
     platform: ?*std.Build.Module,
     sanitize_thread: bool,
 ) void {
@@ -79,7 +85,7 @@ pub fn add(
     }
     add_rotor(b, graph, target, optimize, test_step, install, rotor);
     add_threads(b, graph, target, optimize, test_step, install, rotor, sanitize_thread);
-    add_cleartext(b, graph, target, optimize, test_step, install, rotor);
+    add_cleartext(b, graph, target, optimize, test_step, install, rotor, colibri);
     // `zig build test-examples`: the shared files' tests alone, which a mutation of them is
     // measured against.
     const examples_step = b.step("test-examples", "Run the tests of the files the examples share, alone");
@@ -88,6 +94,14 @@ pub fn add(
         module.addImport("cocuyo", graph.cocuyo);
         const tests = b.addTest(.{ .name = std.fs.path.stem(root), .root_module = module });
         const run = &b.addRunArtifact(tests).step;
+        test_step.dependOn(run);
+        examples_step.dependOn(run);
+    }
+    if (colibri != null) {
+        const module = b.createModule(.{ .root_source_file = b.path(trust_root), .target = target, .optimize = optimize });
+        module.addImport("cocuyo", graph.cocuyo);
+        module.addImport("cocuyo_dnssec", graph.cocuyo_dnssec);
+        const run = &b.addRunArtifact(b.addTest(.{ .name = std.fs.path.stem(trust_root), .root_module = module })).step;
         test_step.dependOn(run);
         examples_step.dependOn(run);
     }
@@ -191,7 +205,8 @@ fn add_threads(
     step.dependOn(&run.step);
 }
 
-/// The engine over plain DNS, where rotor has a backend.
+/// The engine over plain DNS, where rotor has a backend and colibri resolved: the word `dnssec`
+/// validates over chapulin's verifier.
 fn add_cleartext(
     b: *std.Build,
     graph: modules.Graph,
@@ -200,8 +215,10 @@ fn add_cleartext(
     test_step: *std.Build.Step,
     install: *std.Build.Step,
     rotor: ?*std.Build.Dependency,
+    colibri: ?*std.Build.Dependency,
 ) void {
     const dependency = rotor orelse return;
+    if (colibri == null) return;
     switch (target.result.os.tag) {
         .linux, .macos, .ios, .tvos, .watchos, .visionos => {},
         else => return,
@@ -212,4 +229,5 @@ fn add_cleartext(
     const module = add_one(b, graph.cocuyo, target, optimize, test_step, install, cleartext_example);
     module.addImport("rotor", dependency.module("rotor"));
     module.addImport("io", engine);
+    module.addImport("cocuyo_dnssec", graph.cocuyo_dnssec);
 }

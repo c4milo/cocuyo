@@ -11142,6 +11142,15 @@ Each step lands with its checks, each check broken on purpose and recorded in
       §5.3, §2.2). `src/dnssec/dnssec_base64.zig` decodes base64 one character at a time, and it
       refuses pad bits that are not zero (RFC 4648 §3.5).
     - A text with no anchor is an error, so a validating example never runs under no anchor.
+    The word `dnssec`, built on 2026-11-02 (§17 questions 96, 97 and 102):
+    - `examples/trust_text.zig` reads `dnssec <anchor file>` after `cpu` and before the names. It
+      starts a `KeyStore` of 64 entries over `cocuyo_dnssec`'s verifier, at the wall clock, and
+      the example hands it to `use_trust` before any lookup.
+    - The plain DNS, DoT, DoQ and DoH examples take the word, and each answer then says `secure`
+      or `insecure`. The plain DNS example is now built only where colibri resolved.
+    - On 2026-11-02, under the root's two DS records from IANA's `root-anchors.xml`, the plain
+      DNS example through 9.9.9.9 found `isc.org` and `cloudflare.com` secure, `google.com`
+      insecure and `dnssec-failed.org` Bogus. The DoT example through 1.1.1.1 agreed.
 16. A live check, once a day and not a gate: names known to be signed, unsigned and signed
     wrongly on purpose, through the public resolvers over DoT. cocuyo's status is compared with
     the AD bit the same server sets for the same question.

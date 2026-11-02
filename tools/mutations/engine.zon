@@ -7775,4 +7775,22 @@
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
+    .{
+        .section = "The word dnssec",
+        .id = "DW1",
+        .what = "the word with no file after it turns validation on",
+        .edits = .{
+            .{ .file = "examples/trust_text.zig", .old = "    const given: Command = if (operands.len >= 2 and std.mem.eql(u8, operands[0], word))", .new = "    const given: Command = if (operands.len >= 1 and std.mem.eql(u8, operands[0], word))" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
+    .{
+        .section = "The word dnssec",
+        .id = "DW2",
+        .what = "any first operand is read as the word",
+        .edits = .{
+            .{ .file = "examples/trust_text.zig", .old = "    const given: Command = if (operands.len >= 2 and std.mem.eql(u8, operands[0], word))", .new = "    const given: Command = if (operands.len >= 2)" },
+        },
+        .caught_by = .{ .step = "test-examples" },
+    },
 }

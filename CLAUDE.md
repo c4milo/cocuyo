@@ -302,8 +302,11 @@ The architecture depends on every rule in this section.
   probe the CPU through stdx and state it to its TLS session (design §16 decision 48). The live
   checks and the interop check run each encrypted server without the word and with it, and
   `tools/cpu_word/suite.sh` says which suite each run must reach.
-- Plain DNS through the engine: `zig build example-cleartext-rotor -- <name>[/TYPE][,...]
-  <server>[:<port>] [udp | tcp]`, which the interop check drives.
+- Plain DNS through the engine: `zig build example-cleartext-rotor -- [dnssec <anchor file>]
+  <name>[/TYPE][,...] <server>[:<port>] [udp | tcp]`, which the interop check drives.
+- The DNSSEC word: `dnssec <anchor file>`, after `cpu` and before the names in the four engine
+  examples, validates each lookup from the file's DS or DNSKEY records over chapulin's verifier
+  (`examples/trust_text.zig`, design §25 step 15).
 - dnslib: `tools/dnslib/run.sh` fetches dnslib's captured responses at a pinned commit and runs
   `zig build dnslib-check` over them, which compares the codec's reading of every record with
   dnslib's. It needs the network, so CI's `dnslib` job runs it and the gate runs only its tests.

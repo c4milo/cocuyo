@@ -42,13 +42,15 @@ pub fn add(
     module.addImport("io", engine);
     module.addImport("cocuyo_quic", graph.cocuyo_quic);
     module.addImport("chapulin_quic", session);
+    // The verifier the word `dnssec` validates over (`examples/trust_text.zig`).
+    module.addImport("cocuyo_dnssec", graph.cocuyo_dnssec);
     // The probe the word `cpu` states the CPU from (`examples/cpu_text.zig`).
     module.addImport("platform", platform);
     const exe = b.addExecutable(.{ .name = "doq-rotor", .root_module = module });
     test_step.dependOn(&exe.step);
     const run = b.addRunArtifact(exe);
     if (b.args) |arguments| run.addArgs(arguments);
-    const example = b.step("example-doq-rotor", "Lookups over DNS over QUIC: -- [cpu] <name>[/TYPE][+...][,...] <address>[:<port>] <auth name | pin-sha256:<pin>,...> <root.der>...");
+    const example = b.step("example-doq-rotor", "Lookups over DNS over QUIC: -- [cpu] [dnssec <anchors>] <name>[/TYPE][+...][,...] <address>[:<port>] <auth name | pin-sha256:<pin>,...> <root.der>...");
     example.dependOn(&run.step);
 }
 

@@ -4,7 +4,7 @@
 //! ask. DoH goes through colibri's channel, in `examples/doh_rotor.zig`.
 //!
 //!     zig build example-doq-rotor -- \
-//!         [cpu] <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...
+//!         [cpu] [dnssec <anchor file>] <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...
 //!
 //! for instance `example.com 94.140.14.14 dns.adguard-dns.com usertrust-ecc.der`. Each root is a DER
 //! certificate the server's chain is expected to end at (`examples/root_text.zig`). The leaf must
@@ -26,6 +26,9 @@
 //! the example states nothing, and each hello offers TLS_CHACHA20_POLY1305_SHA256 alone. The
 //! example says what it states before the first turn.
 //!
+//! With the word `dnssec` and a file of DS or DNSKEY records after `cpu`, the example validates
+//! each lookup from those anchors (`examples/trust_text.zig`, docs/design.md §25 step 15).
+//!
 //! What cocuyo does not read, the caller hands in (§24):
 //!
 //! - the wall clock, for the certificate's dates;
@@ -41,6 +44,7 @@ const answer_text = @import("answer_text.zig");
 const server_text = @import("server_text.zig");
 const root_text = @import("root_text.zig");
 const cpu_text = @import("cpu_text.zig");
+const trust_text = @import("trust_text.zig");
 
 const Quic = cocuyo_quic.Connection(.{ .Session = chapulin.Session, .streams = at_once_max });
 const Resolver = io.Resolver(.{
@@ -56,6 +60,8 @@ var engine: Resolver = undefined;
 /// recommends, 2.9 MiB. The engine builds its cache over it at `init`, and `null` in its place
 /// would be an engine with no cache.
 var cache_memory: cocuyo.cache.Storage(io.constants.cache_slots_default) = undefined;
+/// The key store under the word `dnssec`, and the memory it names.
+var trust: trust_text.Trust = .{};
 
 /// The roots one run may trust: chapulin's bound on its anchors, as colibri's configuration holds
 /// them.
@@ -78,9 +84,10 @@ pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     // Once, at the start, on the one thread that drives the engine and each of its sessions.
     const command = cpu_text.command(chapulin.Session.Cpu, try init.minimal.args.toSlice(arena));
-    const arguments = command.operands;
+    const trusted = trust_text.read(command.operands);
+    const arguments = trusted.operands;
     if (arguments.len < 3) {
-        std.debug.print("usage: doq-rotor [cpu] <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...\n", .{});
+        std.debug.print("usage: doq-rotor [cpu] [dnssec <anchor file>] <name>[,<name>...] <server address> <authentication name | pin-sha256:<pin>,...> <root certificate>...\n", .{});
         std.process.exit(2);
     }
     const at = try server_text.place_of(arguments[1]);
@@ -125,6 +132,8 @@ pub fn main(init: std.process.Init) !void {
         loop.drain(&events) catch {};
         engine.close();
     }
+    // Before any lookup, which the engine asserts.
+    if (trusted.anchor_path) |path| engine.use_trust(try trust.open(init.io, arena, path, unix_seconds, clock.read()));
     if (std.mem.count(u8, arguments[0], ",") >= names_max) return error.TooManyNames;
     var turns = std.mem.splitScalar(u8, arguments[0], ',');
     for (0..names_max) |position| {

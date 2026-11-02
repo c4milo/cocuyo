@@ -1,7 +1,7 @@
 //! Lookups over plain DNS: the engine of docs/design.md §19 step 13 on rotor's loop, asking one
 //! server over UDP (RFC 1035 §4.2.1), or over TCP alone (RFC 7766), as `Config.use_tcp` asks.
 //!
-//!     zig build example-cleartext-rotor -- <name>[,<name>...] <server address>[:<port>] [udp | tcp]
+//!     zig build example-cleartext-rotor -- [dnssec <anchor file>] <name>[,<name>...] <server address>[:<port>] [udp | tcp]
 //!
 //! for instance `example.com 9.9.9.9`, or `example.com/MX+example.com/TXT 127.0.0.1:8053 tcp`. A
 //! server on a port other than 53 is named with it, an IPv6 one in brackets, as `[::1]:8053`
@@ -9,6 +9,9 @@
 //! (`examples/answer_text.zig`, which writes the answers out). Names after the first are resolved
 //! in turn. Names joined by `+` are resolved at once: over UDP each query on a datagram
 //! of its own, and over TCP each on the one connection (RFC 7766 §6.2.1.1).
+//!
+//! With the word `dnssec` and a file of DS or DNSKEY records first, the example validates each
+//! lookup from those anchors (`examples/trust_text.zig`, docs/design.md §25 step 15).
 //!
 //! `examples/udp_rotor.zig` drives a `Lookup` by hand over the same loop; this drives the engine,
 //! which owns the sockets, the timers and the connections for every lookup at once.
@@ -18,6 +21,7 @@ const rotor = @import("rotor");
 const io = @import("io");
 const answer_text = @import("answer_text.zig");
 const server_text = @import("server_text.zig");
+const trust_text = @import("trust_text.zig");
 
 const Resolver = io.Resolver(.{ .lookups = at_once_max + 1 });
 
@@ -28,6 +32,8 @@ var engine: Resolver = undefined;
 /// recommends, 2.9 MiB. The engine builds its cache over it at `init`, and `null` in its place
 /// would be an engine with no cache.
 var cache_memory: cocuyo.cache.Storage(io.constants.cache_slots_default) = undefined;
+/// The key store under the word `dnssec`, and the memory it names.
+var trust: trust_text.Trust = .{};
 
 /// How long a turn is given, in ticks of `tick_ns`, before the example gives up on it.
 const tick_ns = 100_000_000;
@@ -40,15 +46,16 @@ const at_once_max = 4;
 
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
-    const arguments = try init.minimal.args.toSlice(arena);
-    if (arguments.len < 3 or arguments.len > 4) {
-        std.debug.print("usage: cleartext-rotor <name>[,<name>...] <server address>[:<port>] [udp | tcp]\n", .{});
+    const command = trust_text.read((try init.minimal.args.toSlice(arena))[1..]);
+    const arguments = command.operands;
+    if (arguments.len < 2 or arguments.len > 3) {
+        std.debug.print("usage: cleartext-rotor [dnssec <anchor file>] <name>[,<name>...] <server address>[:<port>] [udp | tcp]\n", .{});
         std.process.exit(2);
     }
-    const at = try server_text.place_of(arguments[2]);
+    const at = try server_text.place_of(arguments[1]);
     const endpoint: cocuyo.Endpoint = .{ .address = at.address, .port = at.port orelse cocuyo.constants.port_dns_default };
-    const use_tcp = arguments.len == 4 and std.mem.eql(u8, arguments[3], "tcp");
-    if (arguments.len == 4 and !use_tcp and !std.mem.eql(u8, arguments[3], "udp")) return error.BadTransport;
+    const use_tcp = arguments.len == 3 and std.mem.eql(u8, arguments[2], "tcp");
+    if (arguments.len == 3 and !use_tcp and !std.mem.eql(u8, arguments[2], "udp")) return error.BadTransport;
     const servers = [_]cocuyo.Server{.{ .endpoint = endpoint }};
     const config: cocuyo.Config = .{ .servers = &servers, .search = &.{}, .use_tcp = use_tcp };
 
@@ -66,8 +73,10 @@ pub fn main(init: std.process.Init) !void {
         loop.drain(&events) catch {};
         engine.close();
     }
-    if (std.mem.count(u8, arguments[1], ",") >= turns_max) return error.TooManyTurns;
-    var turns = std.mem.splitScalar(u8, arguments[1], ',');
+    // Before any lookup, which the engine asserts.
+    if (command.anchor_path) |path| engine.use_trust(try trust.open(init.io, arena, path, unix_seconds(init.io), clock.read()));
+    if (std.mem.count(u8, arguments[0], ",") >= turns_max) return error.TooManyTurns;
+    var turns = std.mem.splitScalar(u8, arguments[0], ',');
     for (0..turns_max) |_| {
         const turn = turns.next() orelse return;
         try resolve(&loop, &events, clock, turn);
@@ -115,6 +124,11 @@ fn report(name: []const u8, result: Resolver.Result) !void {
             std.process.exit(1);
         },
     }
+}
+
+/// The wall clock, for the dates of the signatures (docs/design.md §25, Time).
+fn unix_seconds(io_handle: std.Io) u64 {
+    return @intCast(@divFloor(std.Io.Timestamp.now(io_handle, .real).nanoseconds, std.time.ns_per_s));
 }
 
 /// The clock cocuyo is driven by: monotonic, as `examples/udp_rotor.zig` reads it.

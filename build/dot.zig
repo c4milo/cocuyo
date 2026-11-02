@@ -61,12 +61,14 @@ fn add_example(
     module.addImport("rotor", rotor.module("rotor"));
     module.addImport("io", graph.cocuyo_rotor);
     module.addImport("chapulin", graph.chapulin);
+    // The verifier the word `dnssec` validates over (`examples/trust_text.zig`).
+    module.addImport("cocuyo_dnssec", graph.cocuyo_dnssec);
     // The probe the word `cpu` states the CPU from (`examples/cpu_text.zig`).
     module.addImport("platform", platform);
     const exe = b.addExecutable(.{ .name = "dot-rotor", .root_module = module });
     const run = b.addRunArtifact(exe);
     if (b.args) |arguments| run.addArgs(arguments);
-    const step = b.step("example-dot-rotor", "Lookups over DNS over TLS: -- [cpu] <name>[/TYPE][+...][,...] <address>[:<port>] <auth name | pin-sha256:<pin>,...> <root.der>...");
+    const step = b.step("example-dot-rotor", "Lookups over DNS over TLS: -- [cpu] [dnssec <anchors>] <name>[/TYPE][+...][,...] <address>[:<port>] <auth name | pin-sha256:<pin>,...> <root.der>...");
     step.dependOn(&run.step);
     return &exe.step;
 }

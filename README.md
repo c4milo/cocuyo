@@ -547,10 +547,11 @@ that depends on cocuyo, and every unit test. Other steps:
 | `zig build example-udp-blocking -- example.com` | Resolve a name over a blocking socket |
 | `zig build example-udp-rotor -- example.com` | Resolve a name over rotor's event loop |
 | `zig build example-threads-rotor` | Two engines on two threads, each on its own loop |
-| `zig build example-cleartext-rotor -- <name> <server>[:<port>] [udp \| tcp]` | Resolve over plain DNS through the engine |
+| `zig build example-cleartext-rotor -- [dnssec <anchors>] <name> <server>[:<port>] [udp \| tcp]` | Resolve over plain DNS through the engine |
 | `zig build example-dot-rotor -- [cpu] ...` | Resolve over DNS over TLS |
 | `zig build example-doq-rotor -- [cpu] ...` | Resolve over DNS over QUIC |
 | `zig build example-doh-rotor -- [cpu] ...` | Resolve over DNS over HTTPS |
+| `... [dnssec <anchors>] ...` | Validate every lookup of an engine example from a file of DS or DNSKEY records |
 | `tools/dot_live/run.sh`, `tools/doq_live/run.sh`, `tools/doh_live/run.sh` | The live checks against public resolvers |
 | `tools/interop/run.sh` | Every transport against dnsproxy on the loopback |
 | `tools/dnslib/run.sh` | The codec against dnslib's reading of real responses |
