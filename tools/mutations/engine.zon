@@ -7442,4 +7442,76 @@
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
+    .{
+        .section = "The cache under validation",
+        .id = "VC1",
+        .what = "a table that validates nothing takes a Bogus failure",
+        .edits = .{
+            .{ .file = "src/resolver/table_memory.zig", .old = "        .failed => |err| return err != Error.Bogus or validate_module.validating(lookup),", .new = "        .failed => |err| return err == err or validate_module.validating(lookup)," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The cache under validation",
+        .id = "VC2",
+        .what = "a table that validates nothing refuses what no validator read",
+        .edits = .{
+            .{ .file = "src/resolver/table_memory.zig", .old = "    if (!validate_module.validating(lookup)) return true;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The cache under validation",
+        .id = "VC3",
+        .what = "a validating table refuses an insecure end",
+        .edits = .{
+            .{ .file = "src/resolver/table_memory.zig", .old = "        .secure, .insecure => true,", .new = "        .secure => true,\n        .insecure => false," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The cache under validation",
+        .id = "VC4",
+        .what = "a validating table takes an unchecked end of any type",
+        .edits = .{
+            .{ .file = "src/resolver/table_memory.zig", .old = "        .unchecked => lookup.question.kind == .rrsig,", .new = "        .unchecked => true," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The cache under validation",
+        .id = "VC5",
+        .what = "a validating table takes an end the server said it validated",
+        .edits = .{
+            .{ .file = "src/resolver/table_memory.zig", .old = "        .authenticated => false,", .new = "        .authenticated => true," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The cache under validation",
+        .id = "VC6",
+        .what = "the memory's every end is taken",
+        .edits = .{
+            .{ .file = "src/resolver/table_memory.zig", .old = "    if (!takes(&slot.lookup, &found)) return;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The cache under validation",
+        .id = "VC7",
+        .what = "the cache keeps no Bogus failure",
+        .edits = .{
+            .{ .file = "src/cache/cache_failure.zig", .old = "        Error.Bogus => .bogus,\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cocuyo" },
+    },
+    .{
+        .section = "The cache under validation",
+        .id = "VC8",
+        .what = "the table writes no Bogus failure back",
+        .edits = .{
+            .{ .file = "src/resolver/table_memory.zig", .old = "        Error.Bogus => true,\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
 }

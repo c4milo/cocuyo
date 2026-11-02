@@ -23,6 +23,8 @@ pub const Failure = enum(u4) {
     not_implemented,
     format_error,
     chain_too_long,
+    /// A validation failure, which resolvers "MUST cache" (RFC 9520 §3.4).
+    bogus,
 };
 
 /// What a `failed` slot keeps: its failure, and how often its time was doubled. `next_doublings`
@@ -47,6 +49,8 @@ pub fn failure_of(err: Error) ?Failure {
         Error.FormatError => .format_error,
         // The chain bound is how a lookup sees an alias loop (RFC 9520 §2.5).
         Error.ChainTooLong => .chain_too_long,
+        // "Resolvers MUST cache DNSSEC validation failures" (RFC 9520 §3.4).
+        Error.Bogus => .bogus,
         // No RFC states a rule here: these are no resolution failure by cocuyo's choice
         // (docs/design.md §16 decision 60). A server that says YXDOMAIN (`NameTooLong`) answered.
         // `Canceled` and `NoServers` asked no server. A codec error moves the lookup on.
@@ -64,6 +68,7 @@ pub fn error_of(failure: Failure) Error {
         .not_implemented => Error.NotImplemented,
         .format_error => Error.FormatError,
         .chain_too_long => Error.ChainTooLong,
+        .bogus => Error.Bogus,
     };
 }
 

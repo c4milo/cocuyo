@@ -10480,10 +10480,10 @@ certificate's dates (§21). This value may go backwards. `now_ns` still may not.
 
 **Cache.** An entry keeps its status, and a validating table takes only entries a validating
 table wrote. An entry lives no longer than item 7's TTL. A bogus end is remembered for
-`bogus_ttl_seconds`: resolvers "MUST cache DNSSEC validation failures" (RFC 9520 §3.4), for one
-second at least and five minutes at most (§3.2). The backoff §3.2 recommends is not in the first
-cut. Neither is RFC 8198's aggressive use of validated NSEC records, a SHOULD: the cache keeps
-what a server said about the question asked and infers nothing, which is the rule
+`failure_seconds_min`: resolvers "MUST cache DNSSEC validation failures" (RFC 9520 §3.4), for one
+second at least and five minutes at most (§3.2). Step 13 says why it is no limit of its own.
+RFC 8198's aggressive use of validated NSEC records, a SHOULD, is not in the first cut: the cache
+keeps what a server said about the question asked and infers nothing, which is the rule
 `docs/rfcs/README.md` gives for RFC 8020.
 
 ### Stage B: the cryptography
@@ -10644,7 +10644,6 @@ Every value below is chosen, not measured, unless its reason cites an RFC or the
 | `trust_slots_min` | 1 | the slots only a walk's questions may take |
 | `walks_max` | 4 | the walks one validator runs at once; chosen, not measured: a table of 64 lookups for names of four zones the store does not hold yet |
 | `key_store_zones_default` | 64 | the engine's default; the caller sizes the store |
-| `bogus_ttl_seconds` | 5 | RFC 9520 §3.2: one second at least, five minutes at most, and its own example starts at 5 |
 | `clock_skew_seconds_default` | 0 | no RFC gives a value |
 
 `records_max` stays 64. A signature covers every record of its RRset, so an RRset the record
@@ -10973,6 +10972,23 @@ Each step lands with its checks, each check broken on purpose and recorded in
     - `KeyStore` is in `dnssec` and not in a file of its own beside `cocuyo.zig`, since a file
       there that `cocuyo.zig` imported would leave the module (the relative-import rule).
 13. The cache: the status, the TTL bound and the bogus entries.
+    The rules, written on 2026-11-01:
+    - An answer or a negative the cache keeps holds its end's security, as Stage A already has it.
+    - A validating table takes an answer or a negative only when its security is `secure` or
+      `insecure`, or when its question is for RRSIG, which ends `unchecked` (item 15). Any other
+      entry is a miss: the lookup asks, and its end replaces the entry.
+    - A table that validates nothing takes every entry but a `Bogus` failure, which it could not
+      reach itself.
+    - The TTL needs no step of its own: item 7's bound is in the lookup's end since step 11, and
+      the cache keeps the TTL the end gives.
+    - A `Bogus` end is a resolution failure, kept as the cache keeps every one: for
+      `failure_seconds_min`, 5 s by default, doubled at each failure after the entry expired, to
+      5 minutes. RFC 9520 §3.4 asks resolvers to "cache DNSSEC validation failures", and §3.2
+      gives the bounds. So `bogus_ttl_seconds` is no limit of its own: its 5 is the default of
+      `failure_seconds_min`, and the backoff the first cut left out was there already (decision 60).
+    Built on 2026-11-01: `takes` in `src/resolver/table_memory.zig` is the filter, and `bogus` is
+    a failure of `src/cache/cache_failure.zig`. A `Bogus` the memory recalled has no cause, as a
+    recalled `AllServersFailed` has none, and the lookup's assertion says so: it sent nothing.
 14. The twin: a server in `sim` that signs for the tests' verifier, so the tests cover whole
     chains, a server that lies, signatures that have expired, signatures taken out, and a key
     that is replaced.

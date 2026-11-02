@@ -171,16 +171,7 @@ pub fn keep(self: *Lookup, what: Cause.What) void {
 /// `Lookup.failure_of`: what `.failed` carries.
 pub fn failure_of(self: *const Lookup) Failure {
     assert(self.state == .failed);
-    // `AllServersFailed` rests on a server that failed the lookup, and `Timeout` on none. A cause
-    // names a server of the configuration. A failure that the memory recalled made no pass and
-    // has no cause (docs/design.md §17 question 89); one that went out ends after its last pass.
-    const passes_end = self.failure == core.Error.AllServersFailed or self.failure == core.Error.Timeout;
-    assert(!passes_end or self.round == 0 or self.round == self.config.attempts);
-    assert(self.failure != core.Error.AllServersFailed or self.cause.what != .none or self.round == 0);
-    assert(self.failure != core.Error.Timeout or self.cause.what == .none);
-    // `Bogus` rests on a bogus message, or on a walk that proved one (docs/design.md §25).
-    assert(self.failure != core.Error.Bogus or self.cause.what == .bogus);
-    assert(self.cause.server_index < self.config.servers.len or self.cause.what == .none);
+    assert_rests(self);
     const negative = self.failure == core.Error.NameNotFound or self.failure == core.Error.NoData;
     return .{
         .err = self.failure,
@@ -192,6 +183,20 @@ pub fn failure_of(self: *const Lookup) Failure {
         .security = if (negative) security.of(self) else .unchecked,
         .extended_error = if (self.has_extended_error) self.extended_error else null,
     };
+}
+
+fn assert_rests(self: *const Lookup) void {
+    // `AllServersFailed` rests on a server that failed the lookup, and `Timeout` on none. A cause
+    // names a server of the configuration. A failure that the memory recalled made no pass and
+    // has no cause (docs/design.md §17 question 89); one that went out ends after its last pass.
+    const passes_end = self.failure == core.Error.AllServersFailed or self.failure == core.Error.Timeout;
+    assert(!passes_end or self.round == 0 or self.round == self.config.attempts);
+    assert(self.failure != core.Error.AllServersFailed or self.cause.what != .none or self.round == 0);
+    assert(self.failure != core.Error.Timeout or self.cause.what == .none);
+    // `Bogus` rests on a bogus message, or a walk that proved one, or the memory: then it sent
+    // nothing, and has no order and no cause (docs/design.md §25, steps 11 to 13).
+    assert(self.failure != core.Error.Bogus or self.cause.what == .bogus or (!self.flags.ordered and self.cause.what == .none));
+    assert(self.cause.server_index < self.config.servers.len or self.cause.what == .none);
 }
 
 /// Keeps the code of `message`'s first extended error option, when it carries one that holds its

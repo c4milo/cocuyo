@@ -11385,3 +11385,22 @@ ran each to its end.
 | KS4 | a walk's answer reaches no walk | `zig build test-dnssec` | `CAUGHT` |
 | KS5 | a question that ran out of time fails its walk as every server failing | `zig build test-dnssec` | `CAUGHT` |
 | KS6 | an ended walk is never freed | `zig build test-dnssec` | `CAUGHT` |
+
+## The cache under validation
+
+2026-11-01. Design §25 Stage B, step 13 (c4milo/cocuyo#56): a validating table takes only an end a
+validating table wrote, a table that validates nothing takes no `Bogus` failure, and `Bogus` is a
+resolution failure the cache keeps. The ids ran first as CA1 to CA8, which "The denials with NSEC"
+already holds, and are VC1 to VC8 since. `zig build mutations -- engine VC1 ... VC8` ran each to
+its end, under the first ids.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| VC1 | a table that validates nothing takes a Bogus failure | `zig build test-resolver` | `CAUGHT` |
+| VC2 | a table that validates nothing refuses what no validator read | `zig build test-resolver` | `CAUGHT` |
+| VC3 | a validating table refuses an insecure end | `zig build test-resolver` | `CAUGHT` |
+| VC4 | a validating table takes an unchecked end of any type | `zig build test-resolver` | `CAUGHT` |
+| VC5 | a validating table takes an end the server said it validated | `zig build test-resolver` | `CAUGHT` |
+| VC6 | the memory's every end is taken | `zig build test-resolver` | `CAUGHT` |
+| VC7 | the cache keeps no Bogus failure | `zig build test-cocuyo` | `CAUGHT` |
+| VC8 | the table writes no Bogus failure back | `zig build test-resolver` | `CAUGHT` |
