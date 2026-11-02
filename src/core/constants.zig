@@ -85,6 +85,11 @@ pub const port_dns_default: u16 = 53;
 /// (RFC 7858 §3.1).
 pub const port_dns_tls_default: u16 = 853;
 
+/// The entries a consumer's `KeyStore` takes by default: each one zone's keys, its DS set, or an
+/// insecure delegation (docs/design.md §25, §17 question 121). The consumer sizes the store.
+/// Chosen, not measured: a run of a few names fills far fewer.
+pub const key_store_zones_default: usize = 64;
+
 /// An SPKI pin is the SHA-256 of a DER SubjectPublicKeyInfo (RFC 7858 §4.2).
 pub const spki_pin_bytes: usize = 32;
 

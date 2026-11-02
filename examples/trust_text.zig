@@ -23,9 +23,6 @@ const verifier = @import("cocuyo_dnssec");
 /// `dnssec.`, with the root's dot.
 pub const word = "dnssec";
 
-/// The zones the store keeps at once: their keys, or an insecure delegation. Chosen, not
-/// measured: a run of a few names reaches far fewer.
-const entries_count = 64;
 /// The largest anchor file the example reads. The root's anchors take a few hundred octets.
 const file_bytes_max = 16384;
 
@@ -53,7 +50,7 @@ pub fn read(operands: []const [:0]const u8) Command {
 pub const Trust = struct {
     anchors: [cocuyo.trust_anchors.anchors_max]cocuyo.Anchor = undefined,
     rdata: [cocuyo.trust_anchors.anchors_max * cocuyo.limits.rdata_bytes_max]u8 = undefined,
-    entries: [entries_count]cocuyo.KeyStore.Entry = undefined,
+    entries: [cocuyo.constants.key_store_zones_default]cocuyo.KeyStore.Entry = undefined,
     chapulin: verifier.Chapulin = .{},
     store: cocuyo.KeyStore = undefined,
 

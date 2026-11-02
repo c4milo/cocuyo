@@ -6252,6 +6252,13 @@ handshake used, so no example and no live check can say it.
     at the end if one failed, not at the first failure. So one run asks a Bogus name beside the
     others, and the check makes four connections to each resolver, not fourteen. Answered on
     2026-11-02: keep it.
+120. **`clock_skew_seconds_default`.** §25's limits named it at 0, and no option was built. A
+    signature must hold at the store's time of day, which the caller sets with `set_clock`.
+    Recommended: drop the name, so a caller who wants skew shifts its own clock. Answered on
+    2026-11-02: drop it. This amends question 23 for that name alone.
+121. **`key_store_zones_default`.** The consumer owns the store and sizes it (question 98), and the
+    examples wrote 64 as their own number. Recommended: a public constant in `cocuyo.constants`,
+    as the cache's default is. Answered on 2026-11-02: yes.
 
 ## 18. The cache
 
@@ -10781,8 +10788,7 @@ Every value below is chosen, not measured, unless its reason cites an RFC or the
 | `key_asks_max` | 2 | the times a lookup asks one message again after waiting for keys |
 | `trust_slots_min` | 1 | the slots only a walk's questions may take |
 | `walks_max` | 4 | the walks one validator runs at once; chosen, not measured: a table of 64 lookups for names of four zones the store does not hold yet |
-| `key_store_zones_default` | 64 | the engine's default; the caller sizes the store |
-| `clock_skew_seconds_default` | 0 | no RFC gives a value |
+| `key_store_zones_default` | 64 | the entries a consumer's `KeyStore` takes by default, `cocuyo.constants`; the caller sizes the store |
 
 `records_max` stays 64. A signature covers every record of its RRset, so an RRset the record
 walk cannot read whole cannot be verified, and under a signed zone a message with more records
@@ -11224,7 +11230,7 @@ Each step lands with its checks, each check broken on purpose and recorded in
     - A text with no anchor is an error, so a validating example never runs under no anchor.
     The word `dnssec`, built on 2026-11-02 (§17 questions 96, 97 and 102):
     - `examples/trust_text.zig` reads `dnssec <anchor file>` after `cpu` and before the names. It
-      starts a `KeyStore` of 64 entries over `cocuyo_dnssec`'s verifier, at the wall clock, and
+      starts a `KeyStore` of `key_store_zones_default` entries over `cocuyo_dnssec`'s verifier, at the wall clock, and
       the example hands it to `use_trust` before any lookup.
     - The plain DNS, DoT, DoQ and DoH examples take the word, and each answer then says `secure`
       or `insecure`. The plain DNS example is now built only where colibri resolved.
