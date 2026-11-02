@@ -2,7 +2,8 @@
 //! script and a seed, not by a network. It answers A and AAAA with an address derived from the
 //! name, says NODATA for any other type, and, as the draw says, drops the query, delays it,
 //! truncates it, answers SERVFAIL or NXDOMAIN, or echoes the cookie it was sent with a server
-//! cookie of its own (RFC 7873 §5.2.3).
+//! cookie of its own (RFC 7873 §5.2.3). A script whose `signed.on` is set answers from the signed
+//! tree of `sim_signed.zig` instead (docs/design.md §25 step 14).
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -10,6 +11,7 @@ const wire = @import("wire");
 const constants = @import("constants.zig");
 const limits = @import("limits.zig");
 const types = @import("sim_types.zig");
+const signed = @import("sim_signed.zig");
 const Address = types.Address;
 const Name = core.Name;
 
@@ -39,6 +41,8 @@ pub const Script = struct {
     tls: @import("sim_tls.zig").Behaviour = .{},
     /// How it speaks the twin's QUIC on its QUIC port.
     quic: @import("sim_quic.zig").Behaviour = .{},
+    /// Whether it answers from the signed tree, and what it does wrong there.
+    signed: signed.Behaviour = .{},
 };
 
 pub const Answer = struct { len: usize, delay_ns: u64 };
@@ -61,8 +65,9 @@ pub fn respond(
     const question = wire.question.parse(query, &name) catch return null;
     const dice = Dice.of(draw);
     if (dice.hit(script.drop_per_256)) return null;
-    const decision = decide(script, &dice, over_tcp, question.kind_code);
     const opt = (wire.response_opt.find(query, &name) catch null);
+    if (script.signed.on) return respond_signed(script, address, header.id, &name, question.kind_code, opt, &dice, out);
+    const decision = decide(script, &dice, over_tcp, question.kind_code);
     const reply_header: wire.Header = .{
         .id = header.id,
         .flags = decision.flags,
@@ -78,6 +83,29 @@ pub fn respond(
     len += question_bytes.len;
     if (decision.answered) len += write_answer(&name, core.Kind.from_code(question.kind_code).?, script.ttl_seconds, out[len..]);
     if (opt) |record| len += write_opt(script, address, &record, out[len..]);
+    assert(len <= out.len);
+    return .{ .len = len, .delay_ns = dice.delay(script) };
+}
+
+/// The signed tree's reply, then the OPT record when the query carried one, whose DO bit says
+/// whether the reply carries RRSIG and NSEC records (RFC 3225 §3).
+fn respond_signed(
+    script: *const Script,
+    address: *const Address,
+    id: u16,
+    name: *const Name,
+    kind_code: u16,
+    opt: ?wire.Record,
+    dice: *const Dice,
+    out: []u8,
+) ?Answer {
+    const fields = if (opt) |record| (wire.edns.parse(record.class, record.ttl_seconds) catch return null) else null;
+    const dnssec_ok = if (fields) |held| held.dnssec_ok() else false;
+    var len = signed.respond(&script.signed, id, name, kind_code, dnssec_ok, out) orelse return null;
+    if (opt) |record| {
+        len += write_opt(script, address, &record, out[len..]);
+        wire.integer.write_u16(out, wire.constants.header_arcount_offset, 1);
+    }
     assert(len <= out.len);
     return .{ .len = len, .delay_ns = dice.delay(script) };
 }

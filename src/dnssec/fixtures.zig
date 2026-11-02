@@ -284,10 +284,15 @@ pub const Builder = struct {
 
     /// A response to `question` of `kind`: QR, AA and RCODE `rcode`, and one question.
     pub fn init(question: []const u8, kind: core.Kind, rcode: u4) Builder {
+        return init_name(&(Name.from_text(question) catch unreachable), kind, rcode);
+    }
+
+    /// A response to `question` as written, its case kept.
+    pub fn init_name(question: *const Name, kind: core.Kind, rcode: u4) Builder {
         var self: Builder = .{};
         const header = [_]u8{ 0x12, 0x34, 0x84, rcode, 0x00, 0x01, 0, 0, 0, 0, 0, 0 };
         self.put(&header);
-        self.put((Name.from_text(question) catch unreachable).wire());
+        self.put(question.wire());
         self.put_u16(kind.code());
         self.put_u16(core.constants.class_internet);
         return self;
@@ -321,11 +326,16 @@ pub const Builder = struct {
 
     /// An RRSIG at `owner` over `records`, the RRset of `kind` there, by `signing`.
     pub fn rrsig(self: *Builder, owner: []const u8, kind: core.Kind, records: []const []const u8, signing: Signing) void {
-        const owner_name = Name.from_text(owner) catch unreachable;
+        self.rrsig_name(&(Name.from_text(owner) catch unreachable), kind, records, signing);
+    }
+
+    /// `rrsig` at `owner` as written, its case kept. A wildcard owner's `*` is no label it counts.
+    pub fn rrsig_name(self: *Builder, owner_name: *const Name, kind: core.Kind, records: []const []const u8, signing: Signing) void {
+        const owner = owner_name.wire();
         var rdata: [64 + 256]u8 = undefined;
         std.mem.writeInt(u16, rdata[0..2], (signing.covered orelse kind).code(), .big);
         rdata[2] = signing.algorithm;
-        rdata[3] = signing.labels orelse owner_name.label_count() - @intFromBool(owner[0] == '*');
+        rdata[3] = signing.labels orelse owner_name.label_count() - @intFromBool(owner[0] == 1 and owner[1] == '*');
         std.mem.writeInt(u32, rdata[4..8], signing.original_ttl, .big);
         std.mem.writeInt(u32, rdata[8..12], signing.expiration, .big);
         std.mem.writeInt(u32, rdata[12..16], signing.inception, .big);
@@ -333,9 +343,9 @@ pub const Builder = struct {
         const signer = (Name.from_text(signing.signer) catch unreachable).wire();
         @memcpy(rdata[18..][0..signer.len], signer);
         const head = 18 + signer.len;
-        const sum = sign(rdata[0..head], &owner_name, kind, records, signing.public_key);
+        const sum = sign(rdata[0..head], owner_name, kind, records, signing.public_key);
         @memcpy(rdata[head..][0..sum.len], &sum);
-        self.record(owner, .rrsig, signing.ttl, rdata[0 .. head + sum.len - signing.cut]);
+        self.record_wire(owner, .rrsig, signing.ttl, rdata[0 .. head + sum.len - signing.cut]);
     }
 
     pub fn message(self: *Builder) []const u8 {

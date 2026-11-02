@@ -7514,4 +7514,67 @@
         },
         .caught_by = .{ .step = "test-resolver" },
     },
+    .{
+        .section = "The signing twin",
+        .id = "ST1",
+        .what = "a signature past its expiration verifies",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "        if (!dnssec.within(check.now_seconds, sig.inception, sig.expiration)) return .failed;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-sim" },
+    },
+    .{
+        .section = "The signing twin",
+        .id = "ST2",
+        .what = "a signature that does not verify counts as one that does",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "    return verifier.check_end(verifier.context, key.public_key, sig.signature);", .new = "    _ = verifier.check_end(verifier.context, key.public_key, sig.signature);\n    return true;" },
+        },
+        .caught_by = .{ .step = "test-sim" },
+    },
+    .{
+        .section = "The signing twin",
+        .id = "ST3",
+        .what = "data with no signature at a walk's target, inside a signed zone, is insecure",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "                    if (walk.probe_labels >= walk.target.label_count()) return fail(walk, .bogus);", .new = "                    if (walk.probe_labels >= walk.target.label_count()) return self.insecure(walk, probe, secure.ttl_seconds, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-sim" },
+    },
+    .{
+        .section = "The signing twin",
+        .id = "ST4",
+        .what = "an NSEC proof of a delegation with no DS proves nothing",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "    if (nsec.unsigned_delegation(name, nsecs.slice())) return true;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-sim" },
+    },
+    .{
+        .section = "The signing twin",
+        .id = "ST5",
+        .what = "a store entry never expires",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store.zig", .old = "        return self.known != .free and now_ns < self.expires_ns;", .new = "        return self.known != .free and now_ns == now_ns;" },
+        },
+        .caught_by = .{ .step = "test-sim" },
+    },
+    .{
+        .section = "The signing twin",
+        .id = "ST6",
+        .what = "the twin's DS set names only the child's first key",
+        .edits = .{
+            .{ .file = "src/sim/sim_signed.zig", .old = "        const published = self.phase_of(child).published();\n        const apex", .new = "        const published = self.phase_of(child).published()[0..1];\n        const apex" },
+        },
+        .caught_by = .{ .step = "test-sim" },
+    },
+    .{
+        .section = "The signing twin",
+        .id = "ST7",
+        .what = "a walk that stands in the target's zone for data with no signature reaches it",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "        if (walk.zone_labels >= labels) return fail(walk, .bogus);", .new = "        if (walk.zone_labels >= labels) {\n            walk.phase = .ready;\n            return;\n        }" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
 }

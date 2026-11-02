@@ -123,7 +123,7 @@ The architecture depends on every rule in this section.
   imports listed, so the dependency direction is enforced by the build rather than by review:
   `core` imports nothing, `wire` reads `core`, `resolver` reads `core` and `wire`, `config` reads
   `core` alone, `cache` reads `core` and `wire` and never `resolver`, `dnssec` reads `core` and
-  `wire` and holds no cryptography, and `sim` reads the first three. `resolver` cannot reach `config`, and `zig build graph-check` compiles a fixture to show
+  `wire` and holds no cryptography, and `sim` reads the first three and `dnssec`. `resolver` cannot reach `config`, and `zig build graph-check` compiles a fixture to show
   the compiler rejects it. Its second part (`build/graph_check_packages.zig`) walks each module's
   imports at any depth: `src/` reaches neither colibri nor stdx, and `io/` reaches stdx only
   through colibri.

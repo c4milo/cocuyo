@@ -51,6 +51,9 @@ pub const Operation = types.Operation;
 
 /// The scripted servers and the network's tables, for a test to set up and to read.
 pub const server = @import("sim_server.zig");
+/// The signed tree a scripted server answers from when its script says so, and the trust anchor
+/// a test's key store takes for it (docs/design.md §25 step 14).
+pub const signed = @import("sim_signed.zig");
 pub const Network = network.Network;
 
 test {
@@ -66,4 +69,6 @@ test {
     _ = @import("sim_loop_quic.zig");
     _ = @import("sim_quic_stream.zig");
     _ = @import("sim_scenarios_test.zig");
+    _ = signed;
+    _ = @import("sim_signed_test.zig");
 }

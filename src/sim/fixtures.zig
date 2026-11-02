@@ -32,7 +32,8 @@ pub const trace_drop_per_256: usize = 64;
 const types = @import("sim_types.zig");
 
 /// The first scripted server's address, as the server tests spell it.
-pub const server_address = types.Address.ipv4(.{ 192, 0, 2, 53 }, 53);
+pub const server_octets = [_]u8{ 192, 0, 2, 53 };
+pub const server_address = types.Address.ipv4(server_octets, 53);
 
 /// The id the server tests' queries carry, and the octet their client cookie is filled with.
 pub const server_query_id: u16 = 0x1234;

@@ -106,7 +106,7 @@ by the build rather than by review.
 | `config` | `core` | the `resolv.conf` parser |
 | `cache` | `core`, `wire` | the answer cache of §18, above the state machine and never inside it |
 | `dnssec` | `core`, `wire` | the DNS half of DNSSEC validation, §25 Stage B: canonical form, the key tag, signature times and what a digest covers, with no cryptography. Since 2026-10-31 |
-| `sim` | `core`, `wire`, `resolver` | the scripted server and the virtual clock, test-only |
+| `sim` | `core`, `wire`, `resolver`, `dnssec` | the scripted server, the signed one of §25 step 14 and the virtual clock, test-only |
 | `io` | `cocuyo`, `rotor`, and colibri's `quic` and `h3` from §24 | the engine of §19 step 13: sockets, timers and connections over a loop with rotor's surface, in `io/`; compiled against `sim` for the gate and against rotor for the comparison of step 15, and exported into the caller's loop by §24 |
 
 `resolver` cannot import `config`. That is the split between the state machine and the config
@@ -150,7 +150,8 @@ src/cache/    cache.zig cache_keys.zig cache_chain.zig cache_sweep.zig cache_sto
               constants.zig limits.zig
 src/sim/      sim.zig sim_types.zig sim_loop.zig sim_loop_perform.zig sim_network.zig
               sim_server.zig sim_buffers.zig constants.zig limits.zig fixtures.zig
-              sim_scenarios_test.zig
+              sim_scenarios_test.zig sim_signed.zig sim_signed_test.zig
+              signed/fixtures.zig
 io/           io.zig io_drive.zig io_events.zig io_udp.zig io_results.zig constants.zig
               limits.zig fixtures.zig io_sim_test.zig
 examples/udp_blocking.zig examples/udp_rotor.zig
@@ -10992,6 +10993,47 @@ Each step lands with its checks, each check broken on purpose and recorded in
 14. The twin: a server in `sim` that signs for the tests' verifier, so the tests cover whole
     chains, a server that lies, signatures that have expired, signatures taken out, and a key
     that is replaced.
+    The rules, written on 2026-11-01:
+    - A scripted server whose `Script.signed.on` is set answers from the twin's tree, and not
+      with the address it derives from the name. It speaks as a recursive server does that
+      passes the records on: RA set, AA clear.
+    - The tree has four zones. The root, `example` and `signed.example` are signed, and
+      `plain.example` is an unsigned delegation of `example`. Data lives at `www.signed.example`
+      (A and AAAA) and at `www.plain.example` (A, unsigned).
+    - Each signed zone has one key at a time, with the Zone Key and SEP flags, of algorithm 13.
+      Its key signs every RRset of the zone, its DNSKEY set too, under the tests' verifier: the
+      FNV-1a sum of `src/dnssec/fixtures.zig`. The parent's DS set names each key of the child's
+      DNSKEY set.
+    - A question for an RRset the zone holds gets it. A DS question is answered by the parent
+      zone. A name the zone holds with no RRset of the type gets NODATA, and a name it does not
+      hold gets NXDOMAIN. Each negative carries the zone's SOA and the NSEC records that prove it
+      (RFC 4035 §3.1.3).
+    - RRSIG and NSEC records go only to a query with the DO bit set (RFC 3225 §3, RFC 4035
+      §3.1.3). Every name is under the root, so the tree answers every question.
+    - The signatures hold from a day before `signed_now_seconds` to 30 days after it, and a
+      test pins the key store's time of day there.
+    - A fault touches every RRset that one zone signs, `Script.signed.zone`:
+      - `lies`: the server changes the last octet of the first record after the signature, in
+        every RRset but the DNSKEY set. A lie there would fail at the DS digest, and no test would
+        read a signature.
+      - `expired`: the signatures expired an hour before `signed_now_seconds`.
+      - `stripped`: the RRSIG records are taken out.
+      - `stripped_answer`: the RRSIG records of the answer are taken out, but those of a DNSKEY or
+        a DS set. A walk then proves the name exists in a signed zone, and rule 8 makes its data
+        bogus.
+    - The key of that zone moves through the four phases of a key replacement:
+      - `first`: the DNSKEY set holds key 0, and key 0 signs.
+      - `both`: the set holds keys 0 and 1, and key 0 signs. Key 1 is published before it signs.
+      - `both_second`: the set holds keys 0 and 1, and key 1 signs.
+      - `second`: the set holds key 1, and key 1 signs.
+    - The tests drive a validating table over the twin, with a key store under the root's DS.
+      They count the questions each lookup costs, against the walk's rules (Stage B: where the
+      keys come from).
+    Built on 2026-11-01: `src/sim/sim_signed.zig` is the server and `src/sim/signed/fixtures.zig`
+    the tree. `sim` reads `dnssec` for the tests' verifier and its response builder, which
+    `dnssec` exports as `fixtures`, as `wire` exports its own. The tests are
+    `src/sim/sim_signed_test.zig`. A lie that touched the DNSKEY set failed at the DS digest
+    before a signature was read, so a lie leaves that set alone.
 15. The engine: its options, the time, an example that resolves under the root's anchor over
     chapulin, the fill check and the instruction counts, and what one validation costs by
     algorithm, in §11.

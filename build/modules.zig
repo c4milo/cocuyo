@@ -194,6 +194,7 @@ fn build(
     graph.sim.addImport("core", graph.core);
     graph.sim.addImport("wire", graph.wire);
     graph.sim.addImport("resolver", graph.resolver);
+    graph.sim.addImport("dnssec", graph.dnssec);
     graph.cocuyo.addImport("core", graph.core);
     graph.cocuyo.addImport("wire", graph.wire);
     graph.cocuyo.addImport("resolver", graph.resolver);

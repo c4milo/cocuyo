@@ -21,6 +21,9 @@ pub const validate = @import("dnssec_validate.zig");
 pub const walk = @import("dnssec_walk.zig");
 /// The key store a consumer owns, and the calls of the table's `Trust` (step 12).
 pub const keys = @import("dnssec_keys.zig");
+/// The tests' verifier and the response builder that signs for it, for the twin's signed server
+/// (docs/design.md §25 step 14), as `wire.fixtures` is for the tests of the modules above it.
+pub const fixtures = @import("fixtures.zig");
 
 /// Where `dnssec` feeds the octets a digest or a signature covers, in order and in pieces. The
 /// caller's: a digest or a signature over chapulin, or a test that records what it was given.

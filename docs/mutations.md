@@ -11404,3 +11404,27 @@ its end, under the first ids.
 | VC6 | the memory's every end is taken | `zig build test-resolver` | `CAUGHT` |
 | VC7 | the cache keeps no Bogus failure | `zig build test-cocuyo` | `CAUGHT` |
 | VC8 | the table writes no Bogus failure back | `zig build test-resolver` | `CAUGHT` |
+
+## The signing twin
+
+2026-11-01. Design §25 Stage B, step 14 (c4milo/cocuyo#56): a validating table resolves over the
+twin's signed server, from the root's DS down. The mutations break the checks those tests rely
+on. The first run left ST2, ST3 and ST6 `NOT CAUGHT`:
+
+- ST2: a lie in the DNSKEY set failed at the DS digest first. A lie now leaves the DNSKEY set
+  alone.
+- ST3: no fault reached rule 8. The fault `stripped_answer` now does. It reaches the check in
+  `ds_answered`, so ST3 breaks that check, and ST7 breaks the check in `next`.
+- ST6: no test started a store in the middle of a key replacement. One now does.
+
+`zig build mutations -- engine ST1 ... ST7` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| ST1 | a signature past its expiration verifies | `zig build test-sim` | `CAUGHT` |
+| ST2 | a signature that does not verify counts as one that does | `zig build test-sim` | `CAUGHT` |
+| ST3 | data with no signature at a walk's target, inside a signed zone, is insecure | `zig build test-sim` | `CAUGHT` |
+| ST4 | an NSEC proof of a delegation with no DS proves nothing | `zig build test-sim` | `CAUGHT` |
+| ST5 | a store entry never expires | `zig build test-sim` | `CAUGHT` |
+| ST6 | the twin's DS set names only the child's first key | `zig build test-sim` | `CAUGHT` |
+| ST7 | a walk that stands in the target's zone for data with no signature reaches it | `zig build test-dnssec` | `CAUGHT` |
