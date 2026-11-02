@@ -117,11 +117,16 @@ fn validating(table: *Table, scripted: *Scripted) void {
     table.resolver.validate_with(scripted.trust());
 }
 
-/// Sends every query the table asks for, and returns the handle of the one lookup that is not in
-/// `known`, the walk's, or null.
+/// Sends every query the table asks for, frees each walk's lookup a poll hands `walked` for, and
+/// returns the handle of the one lookup that is not in `known`, the walk's, or null.
 fn send_all(table: *Table, known: []const Handle) !?Handle {
     var stranger: ?Handle = null;
     while (table.poll()) |event| {
+        if (event.action == .walked) {
+            try testing.expect(std.mem.indexOfScalar(Handle, known, event.handle) == null);
+            table.resolver.release(event.handle);
+            continue;
+        }
         try testing.expect(event.action == .send_udp);
         table.resolver.on_sent(event.handle, table.now_ns);
         if (std.mem.indexOfScalar(Handle, known, event.handle) == null) stranger = event.handle;
@@ -162,10 +167,13 @@ test "a table full of lookups that wait for keys still fetches them, in the slot
     try testing.expectEqual(@as(u32, handles.len), stub.recalls);
     scripted.verdict = .insecure;
 
-    // The walk's slot is free again, and each lookup that waited asks its server again.
-    try testing.expectEqual(@as(usize, slot_count - limits.trust_slots_min), table.resolver.in_flight());
+    // Each lookup that waited asks its server again. The walk's slot waits for the driver, and a
+    // poll hands `walked` for it: the end goes neither to the consumer nor to the memory.
     for (handles) |handle| try testing.expect(table.resolver.lookup_of(handle).state == .query_ready);
+    try testing.expectEqual(@as(usize, slot_count), table.resolver.in_flight());
     try testing.expectEqual(@as(?Handle, null), try send_all(&table, &handles));
+    try testing.expectEqual(@as(usize, slot_count - limits.trust_slots_min), table.resolver.in_flight());
+    try testing.expectEqual(@as(u32, 0), stub.writes);
     for (handles) |handle| {
         _ = table.answer(handle);
         const event = table.poll().?;
@@ -195,13 +203,46 @@ test "a walk's question that runs out of time fails each lookup that waits on it
                 try testing.expectEqual(core.Error.Timeout, failure.err);
                 ended += 1;
             },
+            .walked => {
+                try testing.expectEqual(walk, event.handle);
+                table.resolver.release(walk);
+            },
             else => return error.Unexpected,
         };
     }
     try testing.expectEqual(@as(?validation.Walked, .timeout), scripted.failed_with);
     try testing.expectEqual(handles.len, ended);
-    // The walk's slot is free: the table holds the lookups that ended, for the consumer to free.
+    // The driver freed the walk's slot: the table holds the lookups that ended, for the consumer to
+    // free.
     try testing.expectEqual(handles.len, table.resolver.in_flight());
+}
+
+test "a cancelled walk's lookup fails its walk, and a poll hands walked for it" {
+    var table: Table = .{ .config = .{ .servers = &servers } };
+    var scripted: Scripted = .{};
+    validating(&table, &scripted);
+    var handles: [slot_count - limits.trust_slots_min]Handle = undefined;
+    try fill_waiting(&table, &handles);
+    const walk = (try send_all(&table, &handles)).?;
+    table.resolver.cancel(walk);
+    // The poll that reaches the cancelled lookup tells its walk, and hands `walked`.
+    const event = table.poll().?;
+    try testing.expectEqual(walk, event.handle);
+    try testing.expect(event.action == .walked);
+    try testing.expectEqual(@as(?validation.Walked, .failed), scripted.failed_with);
+    for (handles) |handle| {
+        const ended = table.poll().?;
+        try testing.expect(ended.action == .failed);
+        try testing.expectEqual(handle, ended.handle);
+    }
+    // Until the driver frees it, the slot is the walks' and not the consumer's.
+    for (handles) |handle| table.resolver.release(handle);
+    try testing.expectEqual(@as(usize, 1), table.resolver.in_flight());
+    table.resolver.release(walk);
+    try testing.expectEqual(@as(usize, 0), table.resolver.in_flight());
+    // The released slot is the walks' to keep again: the consumer may take every slot but it.
+    for (0..slot_count - limits.trust_slots_min) |_| _ = try table.start("example.com.");
+    try testing.expectError(error.NoSlot, table.start("example.com."));
 }
 
 test "a walk that holds the kept slot leaves the consumer every other" {

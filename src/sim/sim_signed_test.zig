@@ -80,6 +80,8 @@ const Rig = struct {
                     try testing.expectEqual(handle, event.handle);
                     return .{ .action = event.action, .questions = questions };
                 },
+                // The driver frees a walk's lookup that ended (docs/design.md §17 question 100).
+                .walked => self.table.release(event.handle),
                 .wait, .send_request => return error.Unexpected,
             }
         }

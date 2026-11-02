@@ -129,6 +129,8 @@ const Driver = struct {
                 .wait => |deadline_ns| @min(deadline_ns -| self.clock.read(), rotor.constants.wait_ns_max),
                 // Cleartext servers alone: DoH and DoQ are colibri's to drive (§22, §23).
                 .send_request => unreachable,
+                // A walk for keys is a validating table's, and never a bare lookup's.
+                .walked => unreachable,
                 .connect_tcp, .send_tcp => {
                     std.debug.print("{s}: the answer needs TCP, which this example does not do\n", .{name});
                     std.process.exit(1);

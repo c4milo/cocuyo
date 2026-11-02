@@ -55,9 +55,24 @@ pub fn drive(self: anytype, now_ns: u64) void {
     arm_timer(self, now_ns);
 }
 
+/// Takes the lookup a slot now holds: one `start` began, or a walk's for keys, which the table
+/// began and the engine meets at its first event (docs/design.md §25 step 15).
+pub fn adopt(self: anytype, handle: cocuyo.Handle) void {
+    self.handles[handle.index] = handle;
+    // The buffer may still be lent to a send of the lookup the slot held before: it stays lent
+    // until that send's final event (the stream's rule 6).
+    self.held[handle.index] = null;
+    self.reported[handle.index] = false;
+    // The lookup before in the slot left its connection and any wait for a connection slot at its
+    // end (the stream's rule 12).
+    assert(self.tcp_connection[handle.index] == null);
+    assert(!self.tcp_waiting[handle.index]);
+}
+
 /// True when the lookup moved on, false when it asked for what it has already been given.
 fn act(self: anytype, event: cocuyo.Event, now_ns: u64) bool {
     const index = event.handle.index;
+    if (!std.meta.eql(self.handles[index], event.handle)) adopt(self, event.handle);
     tcp.follow(self, index, now_ns);
     switch (event.action) {
         .send_udp => |send| send_module.ask(self, index, .{ .udp = .{ .server = send.server, .bytes = send.message_bytes } }, now_ns),
@@ -65,6 +80,9 @@ fn act(self: anytype, event: cocuyo.Event, now_ns: u64) bool {
         .send_tcp => |send| send_module.ask(self, index, .{ .tcp = send.message_bytes }, now_ns),
         .done => |answer| return report(self, index, .{ .answer = answer }, now_ns),
         .failed => |failure| return report(self, index, .{ .failure = failure }, now_ns),
+        // A walk's lookup ended. `tcp.follow` took it off its connection, and its request is
+        // cancelled after the drive, so the slot is the table's to free (§17 question 100).
+        .walked => self.resolver.release(event.handle),
         .wait => unreachable,
         .send_request => |send| if (channel_module.carries(self))
             channel_module.take(self, index, send, now_ns)

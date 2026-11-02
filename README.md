@@ -109,6 +109,7 @@ while (true) {
         },
         .done => |answer| return answer, // addresses, TTL, canonical name
         .failed => |failure| return failure.err,
+        .walked => unreachable, // a walk for keys is a validating table's, never a bare lookup's
     }
 }
 ```

@@ -76,6 +76,12 @@ pub const address_signed_v4 = tree.address_signed_v4;
 pub const address_signed_v6 = tree.address_signed_v6;
 pub const address_plain_v4 = tree.address_plain_v4;
 
+/// The tests' verifier and hasher, which a key store over this tree is handed, for the engine's
+/// tests: no cryptography, and every changed octet changes a sum (`dnssec.fixtures`).
+pub const Sums = dnssec.fixtures.Sums;
+pub const Hashes = dnssec.fixtures.Hashes;
+pub const DsRdata = dnssec.fixtures.DsRdata;
+
 /// The DS a key store takes as the root's trust anchor (RFC 4035 §4.4): the root's key 0.
 pub fn root_anchor() dnssec.fixtures.DsRdata {
     return dnssec.fixtures.ds_of(&Name.root, key(.root, 0), tree.algorithm, tree.digest_type);

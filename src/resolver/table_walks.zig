@@ -1,7 +1,8 @@
 //! The walks for keys under a validating table (docs/design.md §25, step 12). The table asks each
 //! walk's question as a lookup of its own, in a free slot or in one of the `trust_slots_min`
 //! slots only such a lookup may take, and hands its answer to the walk. The consumer never sees
-//! such a lookup end. When a walk ends, each lookup that waits on it is asked again or fails.
+//! such a lookup end: a poll hands the driver `walked`, and the driver frees the slot (step 15).
+//! When a walk ends, each lookup that waits on it is asked again or fails.
 //! `spec/tla/keys/Keys.tla` is the model. Split from `table.zig` by the file-length rule.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -101,44 +102,56 @@ pub fn ask_questions(self: *Resolver) void {
     }
 }
 
-/// A walk's lookup that a poll ended: its time ran out, or every server failed. The walk is told
-/// and the slot freed, so the consumer never sees the end. True when the slot was a walk's.
-pub fn absorbed(self: *Resolver, index: u16, action: Action, now_ns: u64) bool {
+/// Whether a poll hands `walked` for the slot: a walk's lookup that ended (§17 question 100). One
+/// that the poll itself ended, as its time ran out, every server failed or a cancel came, has
+/// not told its walk yet, and does so now. Its end never reaches the memory.
+pub fn walked(self: *Resolver, index: u16, action: Action, now_ns: u64) bool {
     const slot = &self.slots.items[index];
-    if (slot.walk == walk_none or !slot.lookup.conjunctions.for_walk) return false;
-    if (action != .failed) {
-        // A walk's lookup reads neither the memory nor writes it, so no poll ends it with an
-        // answer.
-        assert(action != .done);
-        return false;
-    }
+    if (!slot.lookup.conjunctions.for_walk) return false;
+    if (action != .done and action != .failed) return false;
     assert(slot.lookup.is_settled());
-    const walk = slot.walk;
-    const walks = &self.walks.?;
-    walks.trust.question_failed(walks.trust.context, walk, walked(slot.lookup.failure));
-    free(self, index);
-    hand_end(self, walk, now_ns);
+    if (slot.walk != walk_none) {
+        const walk = slot.walk;
+        const walks = &self.walks.?;
+        assert(action == .failed);
+        walks.trust.question_failed(walks.trust.context, walk, walked_with(slot.lookup.failure));
+        slot.walk = walk_none;
+        hand_end(self, walk, now_ns);
+    }
     return true;
 }
 
+/// The driver frees a walk's slot that a poll handed `walked` for. Until now it counted among the
+/// slots the walks hold.
+pub fn release(self: *Resolver, index: u16) void {
+    const walks = &self.walks.?;
+    const slot = &self.slots.items[index];
+    assert(slot.lookup.is_settled());
+    assert(slot.walk == walk_none);
+    assert(walks.asking_slots >= 1);
+    walks.asking_slots -= 1;
+}
+
 /// What the table does once a lookup accepted `message`. A walk's lookup that ended on it hands the
-/// walk the message, or its failure, and its slot is freed: true then. A lookup the message left
-/// waiting for keys keeps the walk it joined in its slot. Never inline: a table that validates
-/// nothing never calls it, and it keeps the path of each accepted datagram short.
-pub noinline fn after_message(self: *Resolver, index: u16, message: []const u8, now_ns: u64) bool {
-    const walks = if (self.walks) |*walks| walks else return false;
+/// walk the message, or its failure, and its slot waits for a poll to hand `walked`. A lookup the
+/// message left waiting for keys keeps the walk it joined in its slot. The table follows the lookup
+/// next. Never inline: a table that validates nothing never calls it, and it
+/// keeps the path of each accepted datagram short.
+pub noinline fn after_message(self: *Resolver, index: u16, message: []const u8, now_ns: u64) void {
+    const walks = if (self.walks) |*walks| walks else return;
     const slot = &self.slots.items[index];
     if (slot.lookup.conjunctions.for_walk) {
-        if (!slot.lookup.is_settled()) return false;
+        if (!slot.lookup.is_settled()) return;
         const walk = slot.walk;
+        assert(walk != walk_none);
         if (acted(&slot.lookup)) {
             walks.trust.answered(walks.trust.context, walk, message, now_ns);
         } else {
-            walks.trust.question_failed(walks.trust.context, walk, walked(slot.lookup.failure));
+            walks.trust.question_failed(walks.trust.context, walk, walked_with(slot.lookup.failure));
         }
-        free(self, index);
+        slot.walk = walk_none;
         hand_end(self, walk, now_ns);
-        return true;
+        return;
     }
     if (slot.lookup.state == .awaiting_keys and slot.walk == walk_none) {
         assert(walks.joined != walk_none);
@@ -147,7 +160,6 @@ pub noinline fn after_message(self: *Resolver, index: u16, message: []const u8, 
         // A walk can end as it is joined: under no anchor, or with the store already holding.
         hand_end(self, slot.walk, now_ns);
     }
-    return false;
 }
 
 /// Whether a walk's lookup ended on a message it read: an answer, or one of the two negatives.
@@ -157,15 +169,8 @@ fn acted(lookup: *const Lookup) bool {
 }
 
 /// A walk's question that ended with no message fails the walk with that failure (walk rule 11).
-fn walked(err: core.Error) validation.Walked {
+fn walked_with(err: core.Error) validation.Walked {
     return if (err == core.Error.Timeout) .timeout else .failed;
-}
-
-fn free(self: *Resolver, index: u16) void {
-    const walks = &self.walks.?;
-    assert(walks.asking_slots >= 1);
-    walks.asking_slots -= 1;
-    self.free(index);
 }
 
 /// A walk that ended hands `on_keys_ready` or `on_keys_failed` to each lookup that waits on it, and

@@ -11433,3 +11433,21 @@ on. The first run left ST2, ST3 and ST6 `NOT CAUGHT`:
 | ST5 | a store entry never expires | `zig build test-sim` | `CAUGHT` |
 | ST6 | the twin's DS set names only the child's first key | `zig build test-sim` | `CAUGHT` |
 | ST7 | a walk that stands in the target's zone for data with no signature reaches it | `zig build test-dnssec` | `CAUGHT` |
+
+## The driver frees a walk's slot
+
+2026-11-01. Design §25 step 15 and §17 question 100 (c4milo/cocuyo#56): a poll hands `walked` for
+a walk's lookup that ended, and the driver's `release` frees the slot. The engine adopts a walk's
+lookup at its first event, frees its slot at `walked`, and keeps the key store across `reinit`.
+The first run left WD2 `NOT CAUGHT`, since no test took the slots again after a walk's release,
+and WD3 failed to compile. A test now takes them, and WD3's edit uses `now_ns`.
+`zig build mutations -- engine WD1 ... WD6` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| WD1 | a poll hands a walk's end on as the lookup's own | `zig build test-resolver` | `CAUGHT` |
+| WD2 | the driver's release of a walk's slot leaves it among the walks' | `zig build test-resolver` | `CAUGHT` |
+| WD3 | a walk's lookup that a poll ended hands no end to the lookups that wait | `zig build test-resolver` | `CAUGHT` |
+| WD4 | the engine keeps a walk's slot after walked | `zig build test-io` | `CAUGHT` |
+| WD5 | the engine never adopts a walk's lookup | `zig build test-io` | `CAUGHT` |
+| WD6 | a reinit forgets the key store | `zig build test-io` | `CAUGHT` |

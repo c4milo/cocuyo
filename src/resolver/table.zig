@@ -146,7 +146,7 @@ pub const Resolver = struct {
             assert(slot.occupied);
             memory_module.recall_into(self.memory, slot, now_ns);
             const action = slot.lookup.poll(now_ns, out);
-            if (walks_module.absorbed(self, index, action, now_ns)) continue;
+            if (walks_module.walked(self, index, action, now_ns)) return .{ .handle = self.slots.handle_of(index), .action = .walked };
             self.rekey(index);
             // A poll can start a wait as well as report one: `connect_tcp` leaves the lookup
             // waiting for its connection, and the bound must hold that deadline too, or the
@@ -261,12 +261,12 @@ pub const Resolver = struct {
     /// Frees a slot. Every slice the lookup handed out — the addresses of an answer, the names —
     /// points into the slot and is invalid from here.
     pub fn release(self: *Resolver, handle: Handle) void {
-        // A walk's lookup is the table's own, and the table frees its slot.
-        assert(!self.slot_of(handle).lookup.conjunctions.for_walk);
+        // A walk's lookup is freed once a poll handed `walked` for it.
+        if (self.slot_of(handle).lookup.conjunctions.for_walk) walks_module.release(self, handle.index);
         self.free(handle.index);
     }
 
-    pub fn free(self: *Resolver, index: u16) void {
+    fn free(self: *Resolver, index: u16) void {
         const slot = &self.slots.items[index];
         keys_module.remove(self.keys, slot.keyed_id, index);
         ready_module.withdraw(self, index);
@@ -300,7 +300,7 @@ pub const Resolver = struct {
     /// Follows a lookup that accepted `message`: the walks first, which may free its slot.
     fn followed(self: *Resolver, index: u16, message: []const u8, now_ns: u64) void {
         // A table that validates nothing pays this one test (docs/performance.md).
-        if (self.walks != null and walks_module.after_message(self, index, message, now_ns)) return;
+        if (self.walks != null) walks_module.after_message(self, index, message, now_ns);
         self.follow(index);
     }
 

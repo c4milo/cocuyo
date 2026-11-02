@@ -13,7 +13,7 @@ const options: io.Options = .{
     .lookups = fixtures.lookups,
     .group_buffers = fixtures.group_buffers,
 };
-const Resolver = io.Resolver(options);
+pub const Resolver = io.Resolver(options);
 
 /// Two scripted servers, which are the twin's first two, and the engine the tests use over them.
 pub const Rig = RigOf(Resolver);

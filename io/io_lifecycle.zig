@@ -14,6 +14,17 @@ const request_tend = @import("io_request_connection_tend.zig");
 const channel_module = @import("io_channel.zig");
 const channel_link = @import("io_channel_link.zig");
 
+/// The table holds 1 to `lookup_slots_max` lookups, which `Resolver.init` asserts. An engine of any
+/// other count does not compile, and the error names the bound (docs/design.md §19 step 13, §17
+/// question 43).
+pub fn check_lookups(comptime lookups: u16) void {
+    if (lookups > 0 and lookups <= cocuyo.limits.lookup_slots_max) return;
+    @compileError(std.fmt.comptimePrint(
+        "an engine holds 1 to {d} lookups, lookup_slots_max, and these Options name {d}",
+        .{ cocuyo.limits.lookup_slots_max, lookups },
+    ));
+}
+
 /// Settles every lookup as cancelled, which is `ares_cancel`. Each failure comes through
 /// `take` like any other, so the caller learns of all of them.
 pub fn cancel_all(self: anytype, now_ns: u64) void {
@@ -66,6 +77,8 @@ pub fn reset_tables(self: anytype, config: *const cocuyo.Config, cache_memory: ?
         self.cache.?.failure_seconds_min = config.cache_failure_seconds_min;
         self.resolver.remember_with(cocuyo.remembered_by(&self.cache.?));
     }
+    // A `reinit` keeps the key store (docs/design.md §17 question 98).
+    if (self.trust) |key_store| self.resolver.validate_with(cocuyo.validated_by(key_store));
     send_module.forget_all(self);
     self.reported = @splat(false);
     self.results = .{};

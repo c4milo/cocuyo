@@ -32,6 +32,10 @@ pub const Action = union(enum) {
     wait: u64,
     done: Answer,
     failed: Failure,
+    /// A walk's lookup of a validating table ended: the walk has its message or its failure.
+    /// Drop what is held for the handle, then call `Resolver.release`. No lookup the caller
+    /// started ends so (docs/design.md §25 step 15, §17 question 100).
+    walked,
 };
 
 /// Whether a datagram belonged to this lookup. Either way the caller polls afterwards.

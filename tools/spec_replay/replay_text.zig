@@ -121,6 +121,8 @@ pub fn out_of(action: resolver.Action) Out {
         .wait => .wait,
         .done => .done,
         .failed => |failure| failed_out(failure.err),
+        // The models drive a bare lookup, which never walks for keys.
+        .walked => unreachable,
     };
 }
 

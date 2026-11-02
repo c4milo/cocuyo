@@ -11087,6 +11087,18 @@ Each step lands with its checks, each check broken on purpose and recorded in
     - The model changes first: in `spec/tla/keys/Keys.tla` a walk's slot that ended waits for
       the driver, and the driver holds state for every slot it was asked to send for. TLC checks
       that the driver never holds state for a free slot.
+    Built on 2026-11-01:
+    - `table_walks.walked` decides, at each poll, whether a slot's event is `walked`. A walk's
+      lookup that the poll itself ended tells its walk there. `table_walks.release` takes the slot
+      out of the walks' count when the driver frees it.
+    - The engine adopts a lookup it never started at its first event (`io_drive.adopt`), which
+      `start` calls too. At `walked` it frees the slot: `tcp.follow` has already taken the lookup
+      off its connection, and the drive cancels its request.
+    - `use_trust` is in `io/io.zig`, and `io_lifecycle.reset_tables` hands the store to each new
+      table, so a `reinit` keeps it. Its tests are `io/io_trust_test.zig`, over the twin's signed
+      servers of step 14.
+    - A bare `Lookup` never hands `walked`. The README, the examples and the replays say so with
+      `unreachable`.
 16. A live check, once a day and not a gate: names known to be signed, unsigned and signed
     wrongly on purpose, through the public resolvers over DoT. cocuyo's status is compared with
     the AD bit the same server sets for the same question.

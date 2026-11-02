@@ -79,17 +79,6 @@ fn with_quic(comptime options: Options, comptime count: usize) usize {
     return if (options.quic.enabled) count else 0;
 }
 
-/// The table holds 1 to `lookup_slots_max` lookups, which `Resolver.init` asserts. An engine of any
-/// other count does not compile, and the error names the bound (docs/design.md §19 step 13, §17
-/// question 43).
-fn check_lookups(comptime options: Options) void {
-    if (options.lookups > 0 and options.lookups <= cocuyo.limits.lookup_slots_max) return;
-    @compileError(std.fmt.comptimePrint(
-        "an engine holds 1 to {d} lookups, lookup_slots_max, and these Options name {d}",
-        .{ cocuyo.limits.lookup_slots_max, options.lookups },
-    ));
-}
-
 /// A request slot holds a DoQ message at its longest, prefix and all (request rule 3).
 fn check_transports(comptime options: Options) void {
     assert(!options.quic.enabled or options.quic.request_bytes_max >= cocuyo.limits.query_bytes_max);
@@ -114,7 +103,7 @@ fn request_bytes_of(comptime options: Options) usize {
 }
 
 pub fn Resolver(comptime options: Options) type {
-    comptime check_lookups(options);
+    comptime lifecycle.check_lookups(options.lookups);
     const quic_servers = with_quic(options, cocuyo.limits.servers_max);
     const doh_servers = with_doh(options, cocuyo.limits.servers_max);
     const request_lookups = with_requests(options, options.lookups);
@@ -136,6 +125,8 @@ pub fn Resolver(comptime options: Options) type {
         /// The cache under the table, built over the memory `init` or the last `reinit` was
         /// handed, or null when that was none. The slots and the key index are the caller's.
         cache: ?cocuyo.Cache,
+        /// The key store every lookup is validated under, or null until `use_trust` names one.
+        trust: ?*cocuyo.KeyStore,
         /// One handle per slot, kept so an event's index finds its lookup.
         handles: [options.lookups]cocuyo.Handle,
         /// Whether the slot's send buffer is lent to the loop: from a send's submission to its
@@ -257,6 +248,7 @@ pub fn Resolver(comptime options: Options) type {
             self.config = config;
             self.send_in_flight = @splat(false);
             self.sent_from = @splat(null);
+            self.trust = null;
             lifecycle.reset_tables(self, config, cache_memory, seed);
             self.timer_handle = null;
             self.timer_due_ns = null;
@@ -313,15 +305,7 @@ pub fn Resolver(comptime options: Options) type {
             // programmer error (docs/design.md §24, the context a session starts from, rule 3).
             assert(self.has_context());
             const handle = self.resolver.start(question) catch return error.Full;
-            self.handles[handle.index] = handle;
-            // The buffer may still be lent to a send of the lookup the slot held before: it stays
-            // lent until that send's final event (the stream's rule 6).
-            self.held[handle.index] = null;
-            self.reported[handle.index] = false;
-            self.tcp_connection[handle.index] = null;
-            // The lookup before in the slot left any wait for a connection slot at its end (the
-            // stream's rule 12).
-            assert(!self.tcp_waiting[handle.index]);
+            drive_module.adopt(self, handle);
             drive_module.drive(self, now_ns);
             return handle;
         }
@@ -359,6 +343,15 @@ pub fn Resolver(comptime options: Options) type {
         /// one started. The twin's context holds nothing, and a test names it all the same.
         pub fn use_tls(self: *Self, context: options.tls.Context) void {
             self.tls_context = context;
+        }
+
+        /// Validates every lookup under `key_store` from here on (docs/design.md §25, §17
+        /// question 98). Call it after `init` and before the first lookup. The store stays the
+        /// caller's, who calls its `set_clock`, and it must not move. `reinit` keeps it.
+        pub fn use_trust(self: *Self, key_store: *cocuyo.KeyStore) void {
+            assert(self.resolver.in_flight() == 0);
+            self.trust = key_store;
+            self.resolver.validate_with(cocuyo.validated_by(key_store));
         }
 
         /// Names what every QUIC connection starts from (docs/design.md §24): the session's
@@ -486,6 +479,7 @@ test {
         _ = @import("io_tcp_frame_test.zig");
         _ = @import("io_lifecycle_test.zig");
         _ = @import("io_lifecycle_cache_test.zig");
+        _ = @import("io_trust_test.zig");
         _ = @import("io_tls_test.zig");
         _ = @import("io_tls_failing_test.zig");
         _ = @import("io_tls_cause_test.zig");

@@ -7577,4 +7577,58 @@
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
+    .{
+        .section = "The driver frees a walk's slot",
+        .id = "WD1",
+        .what = "a poll hands a walk's end on as the lookup's own",
+        .edits = .{
+            .{ .file = "src/resolver/table.zig", .old = "            if (walks_module.walked(self, index, action, now_ns)) return .{ .handle = self.slots.handle_of(index), .action = .walked };", .new = "            _ = walks_module.walked(self, index, action, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The driver frees a walk's slot",
+        .id = "WD2",
+        .what = "the driver's release of a walk's slot leaves it among the walks'",
+        .edits = .{
+            .{ .file = "src/resolver/table_walks.zig", .old = "    walks.asking_slots -= 1;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The driver frees a walk's slot",
+        .id = "WD3",
+        .what = "a walk's lookup that a poll ended hands no end to the lookups that wait",
+        .edits = .{
+            .{ .file = "src/resolver/table_walks.zig", .old = "        slot.walk = walk_none;\n        hand_end(self, walk, now_ns);\n    }\n    return true;", .new = "        slot.walk = walk_none;\n        _ = now_ns;\n    }\n    return true;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The driver frees a walk's slot",
+        .id = "WD4",
+        .what = "the engine keeps a walk's slot after walked",
+        .edits = .{
+            .{ .file = "io/io_drive.zig", .old = "        .walked => self.resolver.release(event.handle),", .new = "        .walked => {}," },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The driver frees a walk's slot",
+        .id = "WD5",
+        .what = "the engine never adopts a walk's lookup",
+        .edits = .{
+            .{ .file = "io/io_drive.zig", .old = "    if (!std.meta.eql(self.handles[index], event.handle)) adopt(self, event.handle);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The driver frees a walk's slot",
+        .id = "WD6",
+        .what = "a reinit forgets the key store",
+        .edits = .{
+            .{ .file = "io/io_lifecycle.zig", .old = "    if (self.trust) |key_store| self.resolver.validate_with(cocuyo.validated_by(key_store));\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
 }
