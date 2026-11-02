@@ -6212,6 +6212,21 @@ handshake used, so no example and no live check can say it.
     storage, as decision 34 did for the answers. The store grows by about 30 KB of the caller's
     memory. The other ways were the fills named in `known`, and a measure of §11 first.
     Answered on 2026-11-02: the scratch goes in the store.
+109. **More names for the live check.** Public zones are broken on purpose, and a validator must
+    find them Bogus. Recommended: add `badsig.test.dnscheck.tools`, `sigfail.verteiltesysteme.net`
+    and `rhybar.cz`, which must be Bogus, and `sigok.verteiltesysteme.net`, which must be secure.
+    A zone that its operator lets lapse then fails the daily check until it is removed. Answered on
+    2026-11-02: add them. This amends question 99.
+110. **The hickory-dns conformance suite.** It tests DNSSEC by RFC section in Docker, against a
+    recursive resolver that runs as a server. Recommended: a GitHub issue for after Stage B, and
+    nothing built now. Answered on 2026-11-02: open the issue, which is c4milo/cocuyo#59.
+111. **An instruction count of a validation.** Recommended: a case of `bench/count.zig` that
+    validates one A message under the tests' verifier, which does no cryptography. So CI holds
+    cocuyo's half of a validation to 2%, and a change in chapulin moves no count. Answered on
+    2026-11-02: count cocuyo's half.
+112. **The pre-push hook's scopes.** The hook warned that `dnssec` is not a scope, and `zig build
+    lint-commits` did not. Recommended: find the linter build the hook runs and make it the one
+    `tools/commit_lint.zig` configures. Answered on 2026-11-02: fix it.
 
 ## 18. The cache
 
@@ -11200,6 +11215,13 @@ Each step lands with its checks, each check broken on purpose and recorded in
       of rdata. It adds about 30 KB to the store. Each message writes counts, never the storage.
     - `rrset.Keys` reads a zone's keys in the store's entry or in a list, and copies none. The
       copy it replaced was eight slices, which the compiler writes inline, so it was no fill.
+    The instruction count of a validation, built on 2026-11-02 (§17 question 111):
+    - `bench/bench_validate.zig` validates one A message under the tests' verifier, which does no
+      cryptography. `zig build bench` measures it, and `zig build instructions` counts it.
+    - It is counted by a program apart, `bench/count_dnssec.zig`, with its own baseline. In
+      `bench/count.zig` the compiler inlined the codec otherwise, and `parse-sixteen` moved 2.1%
+      with no change to its code. Apart, every count of the codec stays as it was.
+    - The count of 2026-11-02 on x86-64 Linux: 7,570 instructions for one validation.
     - Three fills stay on x86-64, none on arm64. Each is a `Name` the codec zeroes as it reads
       one, in an RRSIG and in an NSEC or NSEC3. `tools/fill_check/fill_check.zig` names them.
 16. A live check, once a day and not a gate: names known to be signed, unsigned and signed
@@ -11207,6 +11229,9 @@ Each step lands with its checks, each check broken on purpose and recorded in
     the AD bit the same server sets for the same question.
     The names and servers, ruled on 2026-11-01 (§17 question 99): `isc.org`, `cloudflare.com`,
     `google.com` and `dnssec-failed.org`, through Cloudflare, Quad9 and Google.
+    The owner's ruling of 2026-11-02 (§17 question 109) adds `badsig.test.dnscheck.tools`,
+    `sigfail.verteiltesysteme.net` and `rhybar.cz`, which must be Bogus, and
+    `sigok.verteiltesysteme.net`, which must be secure.
 
 Checks, one for each piece of Stage B:
 

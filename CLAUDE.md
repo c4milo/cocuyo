@@ -242,7 +242,9 @@ The architecture depends on every rule in this section.
   `memset` must call none.
 - Instructions: `zig build instructions` holds each case of `bench/count.zig` to the instructions
   one operation takes, in `bench/instructions.zon`, through pepegrillo's `instructions` tool under
-  cachegrind (`tools/instructions.zig`). It needs valgrind, so it runs on Linux; CI's Linux job runs
+  cachegrind (`tools/instructions.zig`). cocuyo's half of a validation is a program apart,
+  `bench/count_dnssec.zig`, against `bench/instructions_dnssec.zon` (`tools/instructions_dnssec.zig`),
+  so the validator's code moves no count of the codec. It needs valgrind, so it runs on Linux; CI's Linux job runs
   it, and prints the counts as they stand when they move. `zig build instructions-rewrite` writes
   them anew, in a commit that says why they moved.
 - Guide: `zig build guide` installs pepegrillo's `docs/performance/`, the method every

@@ -13,6 +13,7 @@
 const harness = @import("harness.zig");
 const cases = @import("bench_cases.zig");
 const cache_cases = @import("bench_cache.zig");
+const validate_cases = @import("bench_validate.zig");
 const cache_trace = @import("cache_trace.zig");
 const memset = @import("memset.zig");
 
@@ -22,7 +23,7 @@ comptime {
 }
 
 pub fn main() void {
-    harness.run("cocuyo bench", &(cases.all ++ cache_cases.all));
+    harness.run("cocuyo bench", &(cases.all ++ cache_cases.all ++ validate_cases.all));
     cache_trace.run(cache_trace.trace_seed);
 }
 
@@ -30,9 +31,11 @@ test {
     _ = harness;
     _ = cases;
     _ = cache_cases;
+    _ = validate_cases;
     _ = cache_trace;
     _ = memset;
     _ = @import("log_replay.zig");
     _ = @import("log_csv.zig");
     _ = @import("count.zig");
+    _ = @import("count_dnssec.zig");
 }

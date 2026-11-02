@@ -1,0 +1,10 @@
+// What each case's operations cost, written by pepegrillo's instructions tool. Write it anew
+// with --rewrite, in a commit that says why the counts moved.
+.{
+    .counter = "cachegrind 3.22.0",
+    .zig = "0.16.0",
+    .target = "x86_64-linux",
+    .cases = .{
+        .{ .name = "validate-one", .rounds = 1000, .instructions = 7570000 },
+    },
+}

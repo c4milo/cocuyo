@@ -188,7 +188,7 @@ pub fn build(b: *std.Build) void {
     fuzz.add(b, target, graph, test_step, tool_test_step);
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     guide.add(b, pepegrillo_dependency);
-    instructions.add(b, tool_module(b, pepegrillo, "tools/instructions.zig"), test_step);
+    instructions.add(b, tool_module(b, pepegrillo, "tools/instructions.zig"), tool_module(b, pepegrillo, "tools/instructions_dnssec.zig"), test_step);
     add_commit_lint_step(b, pepegrillo, install_step);
     add_tla_step(b, tla_tool);
     add_hooks_step(b);
@@ -271,7 +271,7 @@ fn add_hook_check_step(b: *std.Build, pepegrillo: *std.Build.Dependency) *std.Bu
 /// `zig build lint-commits`: the Conventional Commit rules of CLAUDE.md over the commits this
 /// branch adds. Not part of `zig build test`: commit shape is a property of the history.
 /// `zig build install-commit-lint` installs the linter alone, which .githooks/pre-push runs when
-/// zig-out/bin/commit_lint is missing.
+/// zig-out/bin/commit_lint is missing. `lint-commits` installs it too.
 fn add_commit_lint_step(
     b: *std.Build,
     pepegrillo: *std.Build.Module,
@@ -289,6 +289,10 @@ fn add_commit_lint_step(
     run.addArgs(&.{ "--range", commit_lint_range });
     const step = b.step("lint-commits", "Check the commit messages this branch adds");
     step.dependOn(&run.step);
+    // The hook runs the installed linter and builds it only when it is missing, so a linter
+    // installed before a rule changed would check the old rule (§17 question 112). Each run of
+    // this step installs the linter it ran, so the hook's copy is the current one.
+    step.dependOn(&install_tool.step);
 }
 
 fn add_hooks_step(b: *std.Build) void {

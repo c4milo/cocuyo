@@ -31,6 +31,7 @@ pub fn add(
     });
     module.addImport("cocuyo", graph.cocuyo);
     module.addImport("wire", graph.wire);
+    module.addImport("validation", graph.dnssec);
     const exe = b.addExecutable(.{ .name = "bench", .root_module = module });
     test_step.dependOn(&exe.step);
 
@@ -47,6 +48,7 @@ pub fn add(
     });
     test_module.addImport("cocuyo", debug_graph.cocuyo);
     test_module.addImport("wire", debug_graph.wire);
+    test_module.addImport("validation", debug_graph.dnssec);
     const tests = b.addTest(.{ .name = "bench", .root_module = test_module });
     const run_tests = &b.addRunArtifact(tests).step;
     test_step.dependOn(run_tests);
