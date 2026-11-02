@@ -13,6 +13,7 @@ const Verifier = dnssec.Verifier;
 const constants = @import("constants.zig");
 const limits = @import("limits.zig");
 const rrset = @import("dnssec_rrset.zig");
+const Scratch = @import("dnssec_scratch.zig").Scratch;
 const message_reader = @import("dnssec_message.zig");
 const store_module = @import("dnssec_store.zig");
 const Store = store_module.Store;
@@ -56,7 +57,7 @@ const Basis = struct {
     }
 };
 
-const Bases = struct {
+pub const Bases = struct {
     items: [limits.anchors_max + limits.zone_keys_max]Basis = undefined,
     len: usize = 0,
     /// Set when a DS of SHA-256 the verifier computes is among them: "Validator implementations
@@ -71,51 +72,53 @@ const Bases = struct {
 
 /// Reads `bytes`, a response to `zone DNSKEY`, and admits its DNSKEY set to `store` when it is
 /// valid (RFC 4035 §5.2). It verifies under the matched keys alone, `zone` its only signer.
-pub fn admit(store: *Store, verifier: Verifier, zone: *const Name, bytes: []const u8, now_ns: u64) Error!Admission {
-    const bases = gather(store, verifier, zone, now_ns);
+/// `scratch` is the key store's, which the admission writes and keeps nothing in.
+pub fn admit(store: *Store, verifier: Verifier, scratch: *Scratch, zone: *const Name, bytes: []const u8, now_ns: u64) Error!Admission {
+    const bases = gather(&scratch.bases, store, verifier, zone, now_ns);
     if (bases.len == 0) return .ds_wanted;
-    var message: message_reader.Message = undefined;
+    const message = &scratch.message;
     if (!try message.read(bytes, zone)) return .bogus;
     const set = try message.rrset(.answer, .dnskey, zone);
     if (set.count() > limits.zone_keys_max) return .bogus;
-    if (!supported(&bases, verifier)) {
+    if (!supported(bases, verifier)) {
         const expires_ns = now_ns + @as(u64, set.ttl_seconds()) * constants.ns_per_second;
         return if (store.put(zone, .insecure, &.{}, expires_ns)) .insecure else .bogus;
     }
-    const matched = matched_keys(&bases, verifier, zone, &set);
-    if (matched.len == 0) return .bogus;
+    const matched = matched_keys(&scratch.matched, bases, verifier, zone, &set);
+    if (matched.len() == 0) return .bogus;
     var budget: rrset.Budget = .{};
     const only: Only = .{ .zone = zone, .keys = matched };
     const check: rrset.Check = .{
-        .message = &message,
+        .message = message,
         .signers = .{ .context = &only, .keys = Only.held },
         .verifier = verifier,
         .now_seconds = store.now_seconds(now_ns),
         .budget = &budget,
+        .buffers = &scratch.buffers,
     };
     const valid = switch (try rrset.verify(check, &set, zone, .answer)) {
         .valid => |valid| valid,
         else => return .bogus,
     };
-    return if (keep(store, zone, &set, valid.ttl_seconds, now_ns)) .admitted else .bogus;
+    return if (keep(&scratch.kept, store, zone, &set, valid.ttl_seconds, now_ns)) .admitted else .bogus;
 }
 
-/// The keys of `set` that match a basis.
-fn matched_keys(bases: *const Bases, verifier: Verifier, zone: *const Name, set: *const message_reader.Rrset) rrset.Keys {
+/// The keys of `set` that match a basis, listed in `out`.
+fn matched_keys(out: *[limits.zone_keys_max][]const u8, bases: *const Bases, verifier: Verifier, zone: *const Name, set: *const message_reader.Rrset) rrset.Keys {
     assert(set.count() <= limits.zone_keys_max);
-    var matched: rrset.Keys = .{};
+    var count: usize = 0;
     for (0..set.count()) |index| {
         const rdata = set.record(index).rdata;
         if (!matches(bases, verifier, zone, rdata)) continue;
-        matched.records[matched.len] = rdata;
-        matched.len += 1;
+        out[count] = rdata;
+        count += 1;
     }
-    return matched;
+    return .{ .list = out[0..count] };
 }
 
 /// Keeps every record of `set` as the zone's keys for `ttl_seconds`.
-fn keep(store: *Store, zone: *const Name, set: *const message_reader.Rrset, ttl_seconds: u32, now_ns: u64) bool {
-    var records: [limits.zone_keys_max][]const u8 = undefined;
+fn keep(records: []([]const u8), store: *Store, zone: *const Name, set: *const message_reader.Rrset, ttl_seconds: u32, now_ns: u64) bool {
+    assert(set.count() <= records.len);
     for (0..set.count()) |index| records[index] = set.record(index).rdata;
     const expires_ns = now_ns + @as(u64, ttl_seconds) * constants.ns_per_second;
     return store.put(zone, .keys, records[0..set.count()], expires_ns);
@@ -133,8 +136,9 @@ const Only = struct {
 };
 
 /// The anchors for exactly `zone`, then the records of the DS set the store holds for it.
-fn gather(store: *const Store, verifier: Verifier, zone: *const Name, now_ns: u64) Bases {
-    var bases: Bases = .{};
+fn gather(bases: *Bases, store: *const Store, verifier: Verifier, zone: *const Name, now_ns: u64) *const Bases {
+    bases.len = 0;
+    bases.sha256 = false;
     for (store.anchors) |*anchor| {
         if (!anchor.zone.equal(zone)) continue;
         bases.items[bases.len] = .{ .kind = anchor.kind, .rdata = anchor.rdata };
@@ -205,7 +209,8 @@ fn admitted(anchors: []const store_module.Anchor, ds: []const []const u8, bytes:
     store.set_clock(now_seconds, 0);
     if (ds.len > 0) try testing.expect(store.put(&example(), .ds, ds, std.math.maxInt(u64)));
     var sums: fixtures.Sums = .{};
-    const result = try admit(&store, sums.verifier(), &example(), bytes, 0);
+    var scratch: Scratch = .{};
+    const result = try admit(&store, sums.verifier(), &scratch, &example(), bytes, 0);
     return .{ result, store };
 }
 
@@ -310,7 +315,8 @@ test "a DS is matched by its tag and algorithm before its digest is computed" {
     var store = Store.init(&entries, &ds_anchor(&ds));
     store.set_clock(now_seconds, 0);
     var sums: fixtures.Sums = .{};
-    try testing.expectEqual(Admission.admitted, try admit(&store, sums.verifier(), &example(), builder.message(), 0));
+    var scratch: Scratch = .{};
+    try testing.expectEqual(Admission.admitted, try admit(&store, sums.verifier(), &scratch, &example(), builder.message(), 0));
     try testing.expectEqual(@as(usize, 1), sums.digested);
     // The key's digest under a DS of another algorithm matches nothing.
     const other = fixtures.ds_of(&example(), &zone_fixtures.ksk, 8, 2);
@@ -369,5 +375,6 @@ test "a key set the store holds is no DS set to match a new one against" {
     const ds = fixtures.ds_of(&example(), &zone_fixtures.ksk, 5, 2);
     try testing.expect(store.put(&example(), .keys, &.{&ds}, std.math.maxInt(u64)));
     var sums: fixtures.Sums = .{};
-    try testing.expectEqual(Admission.ds_wanted, try admit(&store, sums.verifier(), &example(), builder.message(), 0));
+    var scratch: Scratch = .{};
+    try testing.expectEqual(Admission.ds_wanted, try admit(&store, sums.verifier(), &scratch, &example(), builder.message(), 0));
 }

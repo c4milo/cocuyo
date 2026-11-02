@@ -12,6 +12,7 @@ const validation = core.validation;
 const dnssec = @import("dnssec.zig");
 const store_module = @import("dnssec_store.zig");
 const Walker = @import("dnssec_walk.zig").Walker;
+const Scratch = @import("dnssec_scratch.zig").Scratch;
 
 /// A trust anchor: a DS or a DNSKEY record for a zone, whose rdata the caller keeps for as long as
 /// the store lives (RFC 4035 §4.4).
@@ -26,6 +27,8 @@ pub const KeyStore = struct {
 
     store: store_module.Store,
     walker: Walker,
+    /// The memory one validation writes, held here so that none fills it (§17 question 108).
+    scratch: Scratch,
 
     /// `verifier` and `hasher` are the cryptography, `cocuyo_dnssec`'s over chapulin. The time of
     /// day is `unix_seconds` at `now_ns` (§25, Time).
@@ -41,7 +44,8 @@ pub const KeyStore = struct {
         assert(anchors.len >= 1);
         self.store = .init(entries, anchors);
         self.store.set_clock(unix_seconds, now_ns);
-        self.walker = .{ .store = &self.store, .verifier = verifier, .hasher = hasher };
+        self.scratch = .{};
+        self.walker = .{ .store = &self.store, .verifier = verifier, .hasher = hasher, .scratch = &self.scratch };
     }
 
     /// The caller corrected its clock: the time of day is `unix_seconds` at `now_ns`. It may go

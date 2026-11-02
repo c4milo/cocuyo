@@ -165,7 +165,8 @@ test "a whole message validates over chapulin: RFC 6605 §6.1's answer, under it
     // 2010-08-20, inside the signature's dates.
     store.set_clock(1282262400, 0);
     try testing.expect(store.put(&zone, .keys, &.{&key}, std.math.maxInt(u64)));
-    const validator: validation.validate.Validator = .{ .store = &store, .verifier = chapulin.verifier(), .hasher = chapulin.hasher() };
+    var scratch: validation.scratch.Scratch = .{};
+    const validator: validation.validate.Validator = .{ .store = &store, .verifier = chapulin.verifier(), .hasher = chapulin.hasher(), .scratch = &scratch };
     var signature = base64("qx6wLYqmh+l9oCKTN6qIc+bw6ya+KJ8oMz0YP107epXAyGmt+3SNruPFKG7tZoLBLlUzGGus7ZwmwWep666VCw==");
     var buffer: [512]u8 = undefined;
     const asked = try Name.from_text("www.example.net");

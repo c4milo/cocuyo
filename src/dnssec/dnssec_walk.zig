@@ -22,6 +22,7 @@ const Store = store_module.Store;
 const store_keys = @import("dnssec_store_keys.zig");
 const validate = @import("dnssec_validate.zig");
 const Validator = validate.Validator;
+const Scratch = @import("dnssec_scratch.zig").Scratch;
 
 pub const Phase = enum(u8) {
     free,
@@ -54,10 +55,12 @@ pub const Walker = struct {
     store: *Store,
     verifier: Verifier,
     hasher: proof.Hasher,
+    /// The key store's memory for one validation at a time (§17 question 108).
+    scratch: *Scratch,
     walks: [limits.walks_max]Walk = @splat(.{}),
 
     pub fn validator(self: *const Walker) Validator {
-        return .{ .store = self.store, .verifier = self.verifier, .hasher = self.hasher };
+        return .{ .store = self.store, .verifier = self.verifier, .hasher = self.hasher, .scratch = self.scratch };
     }
 
     /// The walk for `target`: the one that runs for it, else a new one. Null when every walk is
@@ -168,7 +171,7 @@ pub const Walker = struct {
 
     /// Rule 4: the DNSKEY set enters when a key in it matches the anchor or the held DS set.
     fn keys_answered(self: *Walker, walk: *Walk, probe: *const Name, bytes: []const u8, now_ns: u64) void {
-        const admission = store_keys.admit(self.store, self.verifier, probe, bytes, now_ns) catch return fail(walk, .bogus);
+        const admission = store_keys.admit(self.store, self.verifier, self.scratch, probe, bytes, now_ns) catch return fail(walk, .bogus);
         switch (admission) {
             .admitted => {
                 walk.zone_labels = walk.probe_labels;
@@ -190,13 +193,13 @@ pub const Walker = struct {
 
     /// Keeps the DS set at `probe` that the validator called secure.
     fn keep_ds(self: *Walker, probe: *const Name, bytes: []const u8, ttl_seconds: u32, now_ns: u64) bool {
-        var message: message_reader.Message = undefined;
+        const message = &self.scratch.message;
         const fits = message.read(bytes, probe) catch return false;
         if (!fits) return false;
         const set = message.rrset(.answer, .ds, probe) catch return false;
         assert(set.count() >= 1);
         if (set.count() > limits.ds_records_max) return false;
-        var records: [limits.ds_records_max][]const u8 = undefined;
+        const records = &self.scratch.kept;
         for (0..set.count()) |index| records[index] = set.record(index).rdata;
         return self.store.put(probe, .ds, records[0..set.count()], expires(ttl_seconds, now_ns));
     }

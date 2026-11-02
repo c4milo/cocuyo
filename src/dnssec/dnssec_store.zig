@@ -39,10 +39,8 @@ pub const Entry = struct {
 
     pub fn keys(self: *const Entry) rrset.Keys {
         assert(self.known == .keys);
-        var held: rrset.Keys = .{};
-        for (0..self.len) |index| held.records[index] = self.record(index);
-        held.len = self.len;
-        return held;
+        assert(self.len <= limits.zone_keys_max);
+        return .{ .entry = self };
     }
 
     fn live(self: *const Entry, now_ns: u64) bool {
@@ -201,7 +199,7 @@ test "the deepest live entry at or above a name speaks for it, and an anchor mak
     try testing.expect(!store.anchored(&named("org")));
     const at: At = .{ .store = &store, .now_ns = 0 };
     const signers = store.signers(&at);
-    try testing.expectEqual(@as(usize, 1), signers.keys(signers.context, &named("example")).keys.len);
+    try testing.expectEqual(@as(usize, 1), signers.keys(signers.context, &named("example")).keys.len());
     try testing.expect(signers.keys(signers.context, &named("w.example")) == .wanted);
     // A DS set is no key set.
     try testing.expect(signers.keys(signers.context, &named("d.example")) == .wanted);

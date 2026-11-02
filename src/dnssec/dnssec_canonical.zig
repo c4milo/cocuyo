@@ -93,13 +93,38 @@ pub const Written = struct {
     }
 };
 
+/// The room `signed_data` writes in: the RRSIG's rdata with its signer lowered, and the three
+/// records it compares at once. A validation holds it in the key store's scratch, so no
+/// verification fills it (docs/design.md §17 question 108).
+pub const Buffers = struct {
+    head: [wire.constants.sig_fixed_bytes + core.limits.name_bytes_max]u8,
+    last: Scratch,
+    best: Scratch,
+    candidate: Scratch,
+};
+
+/// `signed_data_in` over buffers of its own, for a caller off the validator's path: a test, or a
+/// test's signer.
+pub fn signed_data(
+    rrsig_rdata: []const u8,
+    owner: *const Name,
+    kind: Kind,
+    class: u16,
+    records: anytype,
+    hash: Hash,
+) Error!void {
+    var buffers: Buffers = undefined;
+    return signed_data_in(&buffers, rrsig_rdata, owner, kind, class, records, hash);
+}
+
 /// What an RRSIG signs, fed to `hash`: its rdata without the signature, its signer in lowercase,
 /// then each record of the RRset in canonical form and order (RFC 4035 §5.3.2). `owner` is the
 /// RRset's, `kind` its type and `class` its class. `records` gives the canonical rdata of each
 /// record by index, as `Written` does, written into a `Scratch` when it has to be. A record that
 /// repeats another is fed once: an RRset with duplicates is "a protocol error", and a validator
 /// that takes it "MUST remove all but one" (RFC 4034 §6.3).
-pub fn signed_data(
+pub fn signed_data_in(
+    buffers: *Buffers,
     rrsig_rdata: []const u8,
     owner: *const Name,
     kind: Kind,
@@ -110,7 +135,7 @@ pub fn signed_data(
     const count = records.count();
     assert(count >= 1 and count <= core.limits.records_max);
     const sig = try wire.rdata.Rrsig.parse(rrsig_rdata);
-    var head: [wire.constants.sig_fixed_bytes + core.limits.name_bytes_max]u8 = undefined;
+    const head = &buffers.head;
     const head_bytes = rrsig_rdata.len - sig.signature.len;
     assert(head_bytes <= head.len);
     @memcpy(head[0..head_bytes], rrsig_rdata[0..head_bytes]);
@@ -121,10 +146,7 @@ pub fn signed_data(
     std.mem.writeInt(u16, fixed[0..constants.record_class_offset], kind.code(), .big);
     std.mem.writeInt(u16, fixed[constants.record_class_offset..constants.record_ttl_offset], class, .big);
     std.mem.writeInt(u32, fixed[constants.record_ttl_offset..constants.record_length_offset], sig.original_ttl, .big);
-    var last_buffer: Scratch = undefined;
-    var best_buffer: Scratch = undefined;
-    var candidate_buffer: Scratch = undefined;
-    var order: Order = .{ .last = &last_buffer, .best = &best_buffer, .candidate = &candidate_buffer };
+    var order: Order = .{ .last = &buffers.last, .best = &buffers.best, .candidate = &buffers.candidate };
     var last: ?[]const u8 = null;
     // In canonical order, each record once: the smallest of those after the last one fed.
     for (0..count) |_| {

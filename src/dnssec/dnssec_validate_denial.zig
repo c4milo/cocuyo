@@ -110,11 +110,11 @@ pub fn expanded(name: *const Name, labels: u8) bool {
 /// A wildcard answer at `name`, signed under `labels`, is valid only with a proof that no closer
 /// match exists (RFC 4035 §5.3.4, RFC 5155 §8.8).
 pub fn wildcard(walk: *Walk, name: *const Name, labels: u8, ending: validate.Ending) Error!Validation {
-    var nsecs: Nsecs = .{};
-    if (try gather_nsec(walk, name, &nsecs)) |end| return end;
+    const nsecs = emptied(&walk.validator.scratch.nsecs);
+    if (try gather_nsec(walk, name, nsecs)) |end| return end;
     if (nsec.wildcard_answer(name, labels, nsecs.slice())) return walk.secure(ending);
-    var nsec3s: Nsec3s = .{};
-    if (try gather_nsec3(walk, name, &nsec3s)) |end| return end;
+    const nsec3s = emptied(&walk.validator.scratch.nsec3s);
+    if (try gather_nsec3(walk, name, nsec3s)) |end| return end;
     return switch (nsec3.wildcard_answer(name, labels, nsec3s.slice(), walk.hasher())) {
         .yes => walk.secure(ending),
         .insecure => .insecure,
@@ -132,8 +132,8 @@ pub fn negative(walk: *Walk, name: *const Name, kind: Kind) Error!Validation {
 }
 
 fn negative_nsec(walk: *Walk, name: *const Name, kind: Kind, signed: bool) Error!Validation {
-    var nsecs: Nsecs = .{};
-    if (try gather_nsec(walk, name, &nsecs)) |end| return end;
+    const nsecs = emptied(&walk.validator.scratch.nsecs);
+    if (try gather_nsec(walk, name, nsecs)) |end| return end;
     // Nothing the negative rests on is signed: the walk decides (§25 item 14).
     if (nsecs.len == 0 and !signed) return .{ .keys_wanted = name.* };
     switch (nsec.deny(name, kind, nsecs.slice())) {
@@ -151,14 +151,14 @@ fn negative_nsec(walk: *Walk, name: *const Name, kind: Kind, signed: bool) Error
 }
 
 fn negative_nsec3(walk: *Walk, name: *const Name, kind: Kind, signed: bool) Error!Validation {
-    var nsec3s: Nsec3s = .{};
-    if (try gather_nsec3(walk, name, &nsec3s)) |end| return end;
+    const nsec3s = emptied(&walk.validator.scratch.nsec3s);
+    if (try gather_nsec3(walk, name, nsec3s)) |end| return end;
     if (nsec3s.len == 0 and !signed) return .{ .keys_wanted = name.* };
     return switch (nsec3.deny(name, kind, nsec3s.slice(), walk.hasher())) {
         .no_data => walk.secure(.no_data),
         .name_error => walk.secure(.name_error),
         .insecure => .insecure,
-        .none => try delegated3(walk, name, &nsec3s),
+        .none => try delegated3(walk, name, nsec3s),
     };
 }
 
@@ -179,11 +179,11 @@ fn delegated3(walk: *Walk, name: *const Name, nsec3s: *const Nsec3s) Error!Valid
 /// Whether the verified NSEC or NSEC3 records prove `name` an unsigned delegation (RFC 4035 §5.2,
 /// RFC 5155 §8.9). A record past its limit of iterations makes the delegation insecure too.
 pub fn delegated(walk: *Walk, name: *const Name) Error!bool {
-    var nsecs: Nsecs = .{};
-    if (try gather_nsec(walk, name, &nsecs) != null) return false;
+    const nsecs = emptied(&walk.validator.scratch.nsecs);
+    if (try gather_nsec(walk, name, nsecs) != null) return false;
     if (nsec.unsigned_delegation(name, nsecs.slice())) return true;
-    var nsec3s: Nsec3s = .{};
-    if (try gather_nsec3(walk, name, &nsec3s) != null) return false;
+    const nsec3s = emptied(&walk.validator.scratch.nsec3s);
+    if (try gather_nsec3(walk, name, nsec3s) != null) return false;
     return nsec3.unsigned_delegation(name, nsec3s.slice(), walk.hasher()) != .no;
 }
 
@@ -228,8 +228,14 @@ fn has(walk: *const Walk, kind: Kind) bool {
 
 /// The verified records a proof reads. Each one costs a verification at least, so the message's
 /// budget bounds them.
-const Nsecs = Gathered(nsec.Record);
-const Nsec3s = Gathered(nsec3.Record);
+pub const Nsecs = Gathered(nsec.Record);
+pub const Nsec3s = Gathered(nsec3.Record);
+
+/// The list in the scratch, with nothing in it. Its items are left as the last message wrote them.
+fn emptied(list: anytype) @TypeOf(list) {
+    list.len = 0;
+    return list;
+}
 
 fn Gathered(comptime Record: type) type {
     return struct {

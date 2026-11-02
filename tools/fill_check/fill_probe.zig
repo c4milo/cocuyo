@@ -8,6 +8,18 @@ const wire = cocuyo.wire;
 const bench_memset = @import("bench_memset");
 const io = @import("io");
 const rotor = @import("rotor");
+const validation = @import("validation");
+
+/// A message validated under a key store: every answer a validating lookup takes (docs/design.md
+/// §25 step 15). The verifier's calls go through pointers, to chapulin's code outside the library.
+export fn probe_validate(store: *cocuyo.KeyStore, asked: *const cocuyo.Name, kind: cocuyo.Kind, message: [*]const u8, message_bytes: usize, now_ns: u64) bool {
+    return validation.keys.calls.validate(store.context(), asked, kind, message[0..message_bytes], now_ns) == .secure;
+}
+
+/// A walk's answer read: each DS or DNSKEY set a walk for keys takes.
+export fn probe_walk_answered(store: *cocuyo.KeyStore, walk: u8, message: [*]const u8, message_bytes: usize, now_ns: u64) void {
+    validation.keys.calls.answered(store.context(), walk, message[0..message_bytes], now_ns);
+}
 
 /// A query's octets written out: every lookup's first send.
 export fn probe_query_write(query: *const wire.Query, out: [*]u8, out_bytes: usize) usize {

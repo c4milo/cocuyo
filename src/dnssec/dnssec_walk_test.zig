@@ -11,6 +11,7 @@ const store_module = @import("dnssec_store.zig");
 const Store = store_module.Store;
 const walk_module = @import("dnssec_walk.zig");
 const End = walk_module.End;
+const Scratch = @import("dnssec_scratch.zig").Scratch;
 const Walker = walk_module.Walker;
 
 const testing = std.testing;
@@ -44,6 +45,7 @@ const Fixture = struct {
     sums: fixtures.Sums = .{},
     hashes: fixtures.Hashes = .{},
     walker: Walker = undefined,
+    scratch: Scratch = .{},
 
     fn init(self: *Fixture) void {
         self.init_anchored(1);
@@ -57,7 +59,7 @@ const Fixture = struct {
         };
         self.store = Store.init(&self.entries, self.anchors[0..count]);
         self.store.set_clock(zone.now_seconds, 0);
-        self.walker = .{ .store = &self.store, .verifier = self.sums.verifier(), .hasher = self.hashes.hasher() };
+        self.walker = .{ .store = &self.store, .verifier = self.sums.verifier(), .hasher = self.hashes.hasher(), .scratch = &self.scratch };
     }
 
     /// The store holds `example`'s keys until `expires_ns`, as an earlier walk left them.

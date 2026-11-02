@@ -19,6 +19,8 @@ pub const store = @import("dnssec_store.zig");
 pub const store_keys = @import("dnssec_store_keys.zig");
 pub const validate = @import("dnssec_validate.zig");
 pub const walk = @import("dnssec_walk.zig");
+/// The memory one validation writes, which the key store owns (§17 question 108).
+pub const scratch = @import("dnssec_scratch.zig");
 /// The key store a consumer owns, and the calls of the table's `Trust` (step 12).
 pub const keys = @import("dnssec_keys.zig");
 /// The trust anchors from text, which `cocuyo.trust_anchors` names (§25 step 15).

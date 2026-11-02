@@ -11,6 +11,7 @@ const map = fixtures.map;
 const Name = core.Name;
 const store_module = @import("../dnssec_store.zig");
 const validating = @import("../dnssec_validate.zig");
+const Scratch = @import("../dnssec_scratch.zig").Scratch;
 
 /// The instant the tests read the zone at: 2004-04-20, inside its signatures' dates.
 pub const now_seconds: u64 = 1082419200;
@@ -22,6 +23,7 @@ pub const Setup = struct {
     store: store_module.Store = undefined,
     sums: fixtures.Sums = .{},
     hashes: fixtures.Hashes = .{},
+    scratch: Scratch = .{},
 
     pub fn init(self: *Setup) void {
         self.anchors = .{.{ .zone = Name.from_text("example") catch unreachable, .kind = .dnskey, .rdata = &ksk }};
@@ -32,7 +34,7 @@ pub const Setup = struct {
     }
 
     pub fn validate(self: *Setup, asked: []const u8, kind: core.Kind, bytes: []const u8) validating.Validation {
-        const validator: validating.Validator = .{ .store = &self.store, .verifier = self.sums.verifier(), .hasher = self.hashes.hasher() };
+        const validator: validating.Validator = .{ .store = &self.store, .verifier = self.sums.verifier(), .hasher = self.hashes.hasher(), .scratch = &self.scratch };
         return validator.validate(&(Name.from_text(asked) catch unreachable), kind, bytes, 0);
     }
 };

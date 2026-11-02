@@ -11489,3 +11489,19 @@ check of the word's reader. `zig build mutations -- engine DW1 DW2` ran each to 
 | --- | --- | --- | --- |
 | DW1 | the word with no file after it turns validation on | `zig build test-examples` | `CAUGHT` |
 | DW2 | any first operand is read as the word | `zig build test-examples` | `CAUGHT` |
+
+## The validator's scratch
+
+2026-11-02. Design §25 step 15 and §17 question 108 (c4milo/cocuyo#56): the key store holds the
+memory one validation writes, so ReleaseSafe fills none of it. Each mutation puts one local back,
+and the fill check counts its fill. A fifth mutation copied a zone's keys into a local list again.
+The fill check did not see it: eight slices compile to inline stores and no memset. So that copy
+was no fill, and the mutation was dropped. `zig build mutations -- engine FS1 ... FS4` ran each
+to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| FS1 | each signature check writes its signed data in buffers of its own | `zig build fill-check` | `CAUGHT` |
+| FS2 | a message's validation reads it into a local reader | `zig build fill-check` | `CAUGHT` |
+| FS3 | a wildcard's proof gathers its NSEC records in a local list | `zig build fill-check` | `CAUGHT` |
+| FS4 | a key admission reads the DNSKEY set into a local reader | `zig build fill-check` | `CAUGHT` |

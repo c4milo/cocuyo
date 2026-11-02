@@ -16,14 +16,28 @@ const message_reader = @import("dnssec_message.zig");
 const Message = message_reader.Message;
 const Rrset = message_reader.Rrset;
 const Section = message_reader.Section;
+const Entry = @import("dnssec_store.zig").Entry;
 
-/// The DNSKEY rdatas of one zone, as the store holds them or a message carries them.
-pub const Keys = struct {
-    records: [limits.zone_keys_max][]const u8 = undefined,
-    len: usize = 0,
+/// The DNSKEY rdatas of one zone, read where they are: in the store's entry, or in a list the
+/// caller keeps while they are read. Nothing is copied, so a verification fills nothing (§17
+/// question 108).
+pub const Keys = union(enum) {
+    list: []const []const u8,
+    entry: *const Entry,
 
-    pub fn slice(self: *const Keys) []const []const u8 {
-        return self.records[0..self.len];
+    pub fn len(self: *const Keys) usize {
+        return switch (self.*) {
+            .list => |list| list.len,
+            .entry => |entry| entry.len,
+        };
+    }
+
+    pub fn record(self: *const Keys, index: usize) []const u8 {
+        assert(index < self.len());
+        return switch (self.*) {
+            .list => |list| list[index],
+            .entry => |entry| entry.record(index),
+        };
     }
 };
 
@@ -50,6 +64,8 @@ pub const Check = struct {
     verifier: Verifier,
     now_seconds: u32,
     budget: *Budget,
+    /// Where the signed data is written, in the key store's scratch.
+    buffers: *canonical.Buffers,
 };
 
 /// An RRset one signature verified: the signer, the RRSIG's Labels field, and the longest the
@@ -139,7 +155,9 @@ fn one(
     keys: *const Keys,
 ) Error!One {
     var keys_tried: usize = 0;
-    for (keys.slice()) |rdata| {
+    assert(keys.len() <= limits.zone_keys_max);
+    for (0..keys.len()) |index| {
+        const rdata = keys.record(index);
         const key = wire.rdata.Dnskey.parse(rdata) catch continue;
         if (!names(check.verifier, sig, rdata, &key)) continue;
         if (keys_tried == limits.keys_per_signature_max) break;
@@ -168,7 +186,7 @@ fn signs(
     const verifier = check.verifier;
     const hash = verifier.check_begin(verifier.context, sig.algorithm, key.public_key, sig.signature) orelse
         return false;
-    try canonical.signed_data(record.rdata, owner, set.kind, core.constants.class_internet, set, hash);
+    try canonical.signed_data_in(check.buffers, record.rdata, owner, set.kind, core.constants.class_internet, set, hash);
     return verifier.check_end(verifier.context, key.public_key, sig.signature);
 }
 
@@ -205,7 +223,7 @@ const mx_xx = "\x00\x01\x02xx\x07example\x00";
 
 /// Signers that hold `keys` for `zone`, wait for `wanted`, and know nothing else.
 const Fixed = struct {
-    keys: Keys,
+    keys: KeyList,
     zone: []const u8 = "example",
     wanted: ?[]const u8 = null,
 
@@ -215,14 +233,24 @@ const Fixed = struct {
 
     fn held(context: *const anyopaque, signer: *const Name) Held {
         const self: *const Fixed = @ptrCast(@alignCast(context));
-        if (signer.equal(&(Name.from_text(self.zone) catch unreachable))) return .{ .keys = self.keys };
+        if (signer.equal(&(Name.from_text(self.zone) catch unreachable))) return .{ .keys = .{ .list = self.keys.slice() } };
         const wanted = self.wanted orelse return .outside;
         return if (signer.equal(&(Name.from_text(wanted) catch unreachable))) .wanted else .outside;
     }
 };
 
-fn zone_keys(records: []const []const u8) Keys {
-    var keys: Keys = .{};
+/// A zone's keys a test holds, as a list it keeps.
+const KeyList = struct {
+    records: [limits.zone_keys_max][]const u8 = undefined,
+    len: usize = 0,
+
+    fn slice(self: *const KeyList) []const []const u8 {
+        return self.records[0..self.len];
+    }
+};
+
+fn zone_keys(records: []const []const u8) KeyList {
+    var keys: KeyList = .{};
     for (records) |rdata| {
         keys.records[keys.len] = rdata;
         keys.len += 1;
@@ -238,7 +266,8 @@ fn outcome(bytes: []const u8, asked: []const u8, owner: []const u8, kind: Kind, 
     const set = try message.rrset(.answer, kind, &owner_name);
     // A changed owner or type leaves no RRset to verify.
     if (set.count() == 0) return .unsigned;
-    const check: Check = .{ .message = &message, .signers = fixed.signers(), .verifier = sums.verifier(), .now_seconds = now_seconds, .budget = budget };
+    var buffers: canonical.Buffers = undefined;
+    const check: Check = .{ .message = &message, .signers = fixed.signers(), .verifier = sums.verifier(), .now_seconds = now_seconds, .budget = budget, .buffers = &buffers };
     return verify(check, &set, &owner_name, .answer);
 }
 

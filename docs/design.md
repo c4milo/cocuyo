@@ -6172,6 +6172,14 @@ handshake used, so no example and no live check can say it.
 107. **The bound on one anchor's rdata.** Recommended: `core.limits.rdata_bytes_max`, 2048. The
     caller's `rdata` memory bounds the total, and the parser returns an error when it is full.
     Answered on 2026-11-02: yes.
+108. **The validator's fills.** The fill check, given probes of the validator and of a walk's
+    answer, finds 12 fills on x86-64 and 8 on arm64. Each is ReleaseSafe's 0xAA over an
+    `undefined` local. The message reader is 2,648 octets, each RRset's check fills three
+    canonical buffers of 1,027, and a denial fills NSEC lists of 12,672 and 9,088. Recommended:
+    the `KeyStore` owns that memory, set once, and each message writes counts and never the
+    storage, as decision 34 did for the answers. The store grows by about 30 KB of the caller's
+    memory. The other ways were the fills named in `known`, and a measure of §11 first.
+    Answered on 2026-11-02: the scratch goes in the store.
 
 ## 18. The cache
 
@@ -11151,6 +11159,17 @@ Each step lands with its checks, each check broken on purpose and recorded in
     - On 2026-11-02, under the root's two DS records from IANA's `root-anchors.xml`, the plain
       DNS example through 9.9.9.9 found `isc.org` and `cloudflare.com` secure, `google.com`
       insecure and `dnssec-failed.org` Bogus. The DoT example through 1.1.1.1 agreed.
+    The validator's fills, built on 2026-11-02 (§17 question 108):
+    - The fill check has two probes of validation: a message validated under a store
+      (`probe_validate`), and a walk's answer read (`probe_walk_answered`). They found 12 fills on
+      x86-64 and 8 on arm64.
+    - `KeyStore` holds a `Scratch` (`src/dnssec/dnssec_scratch.zig`): the message reader, the
+      signed data's buffers, the NSEC and NSEC3 lists, the bases of a key admission and two lists
+      of rdata. It adds about 30 KB to the store. Each message writes counts, never the storage.
+    - `rrset.Keys` reads a zone's keys in the store's entry or in a list, and copies none. The
+      copy it replaced was eight slices, which the compiler writes inline, so it was no fill.
+    - Three fills stay on x86-64, none on arm64. Each is a `Name` the codec zeroes as it reads
+      one, in an RRSIG and in an NSEC or NSEC3. `tools/fill_check/fill_check.zig` names them.
 16. A live check, once a day and not a gate: names known to be signed, unsigned and signed
     wrongly on purpose, through the public resolvers over DoT. cocuyo's status is compared with
     the AD bit the same server sets for the same question.

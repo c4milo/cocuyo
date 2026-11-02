@@ -7793,4 +7793,40 @@
         },
         .caught_by = .{ .step = "test-examples" },
     },
+    .{
+        .section = "The validator's scratch",
+        .id = "FS1",
+        .what = "each signature check writes its signed data in buffers of its own",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "    try canonical.signed_data_in(check.buffers, record.rdata,", .new = "    try canonical.signed_data(record.rdata," },
+        },
+        .caught_by = .{ .step = "fill-check" },
+    },
+    .{
+        .section = "The validator's scratch",
+        .id = "FS2",
+        .what = "a message's validation reads it into a local reader",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate.zig", .old = "        if (self.insecure_at(asked, now_ns)) return .insecure;\n        const message = &self.scratch.message;", .new = "        if (self.insecure_at(asked, now_ns)) return .insecure;\n        var local: Message = undefined;\n        const message = &local;" },
+        },
+        .caught_by = .{ .step = "fill-check" },
+    },
+    .{
+        .section = "The validator's scratch",
+        .id = "FS3",
+        .what = "a wildcard's proof gathers its NSEC records in a local list",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "    const nsecs = emptied(&walk.validator.scratch.nsecs);\n    if (try gather_nsec(walk, name, nsecs)) |end| return end;\n    if (nsec.wildcard_answer(", .new = "    var local: Nsecs = .{};\n    const nsecs = &local;\n    if (try gather_nsec(walk, name, nsecs)) |end| return end;\n    if (nsec.wildcard_answer(" },
+        },
+        .caught_by = .{ .step = "fill-check" },
+    },
+    .{
+        .section = "The validator's scratch",
+        .id = "FS4",
+        .what = "a key admission reads the DNSKEY set into a local reader",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "    const message = &scratch.message;\n    if (!try message.read(bytes, zone)) return .bogus;", .new = "    var local: message_reader.Message = undefined;\n    const message = &local;\n    if (!try message.read(bytes, zone)) return .bogus;" },
+        },
+        .caught_by = .{ .step = "fill-check" },
+    },
 }

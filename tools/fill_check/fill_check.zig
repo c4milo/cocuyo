@@ -32,6 +32,11 @@ const assert = std.debug.assert;
 ///   stack. On macOS a changelist that fills up between two ticks goes to the kernel early,
 ///   through a list of 8 KiB of receipts that a safe build fills with 0xAA.
 ///
+/// - On x86-64, a `Name` that the codec zeroes as it reads one, 256 octets: an RRSIG's signer,
+///   and the next owner of an NSEC or the owner of an NSEC3, for each record a validation reads.
+///   The codec zeroes every name it decodes, and arm64 writes the zeros inline. Every fill of the
+///   validator's own scratch went to the key store (docs/design.md §17 question 108).
+///
 /// A probe not listed reaches none.
 pub const Known = struct { target: []const u8, probe: []const u8, fills: u32 };
 pub const known = [_]Known{
@@ -45,6 +50,8 @@ pub const known = [_]Known{
     .{ .target = "x86_64-linux-gnu", .probe = "probe_engine_apply", .fills = 2 },
     .{ .target = "aarch64-macos", .probe = "probe_engine_start", .fills = 2 },
     .{ .target = "aarch64-macos", .probe = "probe_engine_apply", .fills = 2 },
+    .{ .target = "x86_64-linux-gnu", .probe = "probe_validate", .fills = 3 },
+    .{ .target = "x86_64-linux-gnu", .probe = "probe_walk_answered", .fills = 3 },
 };
 
 /// How a target's assembly spells what the tool reads: the prefixes a function's symbol may carry,

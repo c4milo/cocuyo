@@ -25,6 +25,8 @@ pub fn add(b: *std.Build, tool: *std.Build.Module) *std.Build.Step {
             .strip = true,
         });
         probe.addImport("cocuyo", graph.cocuyo);
+        // cocuyo's own `dnssec`, which no consumer names: the validator's paths, under a store.
+        probe.addImport("validation", graph.dnssec);
         probe.addImport("bench_memset", b.createModule(.{
             .root_source_file = b.path("bench/memset.zig"),
             .target = target,

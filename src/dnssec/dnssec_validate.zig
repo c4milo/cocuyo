@@ -19,6 +19,7 @@ const store_module = @import("dnssec_store.zig");
 const Store = store_module.Store;
 const denial = @import("dnssec_validate_denial.zig");
 const limits = @import("limits.zig");
+const Scratch = @import("dnssec_scratch.zig").Scratch;
 
 pub const Ending = core.validation.Ending;
 pub const Secure = core.validation.Secure;
@@ -29,6 +30,8 @@ pub const Validator = struct {
     store: *const Store,
     verifier: Verifier,
     hasher: proof.Hasher,
+    /// The memory a message's validation writes, which the key store owns.
+    scratch: *Scratch,
 
     /// Reads `bytes`, a response that passed the checks of docs/design.md §7, for `asked` of
     /// `kind`.
@@ -36,12 +39,12 @@ pub const Validator = struct {
         assert(asked.len >= 1);
         if (kind == .rrsig) return .unchecked;
         if (self.insecure_at(asked, now_ns)) return .insecure;
-        var message: Message = undefined;
+        const message = &self.scratch.message;
         const fits = message.read(bytes, asked) catch return .{ .bogus = .message };
         if (!fits) return .{ .bogus = .message };
         var walk: Walk = .{
             .validator = self,
-            .message = &message,
+            .message = message,
             .at = .{ .store = self.store, .now_ns = now_ns },
             .now_seconds = self.store.now_seconds(now_ns),
         };
@@ -54,12 +57,12 @@ pub const Validator = struct {
     /// 6: the name exists and is no delegation, or is an empty non-terminal.
     pub fn delegated(self: *const Validator, name: *const Name, bytes: []const u8, now_ns: u64) bool {
         assert(name.len >= 1);
-        var message: Message = undefined;
+        const message = &self.scratch.message;
         const fits = message.read(bytes, name) catch return false;
         if (!fits) return false;
         var walk: Walk = .{
             .validator = self,
-            .message = &message,
+            .message = message,
             .at = .{ .store = self.store, .now_ns = now_ns },
             .now_seconds = self.store.now_seconds(now_ns),
         };
@@ -109,6 +112,7 @@ pub const Walk = struct {
             .verifier = self.validator.verifier,
             .now_seconds = self.now_seconds,
             .budget = &self.budget,
+            .buffers = &self.validator.scratch.buffers,
         };
         const outcome = try rrset.verify(check, set, owner, section);
         if (outcome == .valid) self.ttl_seconds = @min(self.ttl_seconds, outcome.valid.ttl_seconds);
