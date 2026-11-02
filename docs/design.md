@@ -105,7 +105,7 @@ by the build rather than by review.
 | `resolver` | `core`, `wire` | `Lookup`, `Resolver`, retry policy, entropy |
 | `config` | `core` | the `resolv.conf` parser |
 | `cache` | `core`, `wire` | the answer cache of §18, above the state machine and never inside it |
-| `dnssec` | `core`, `wire` | the DNS half of DNSSEC validation, §25 Stage B: canonical form, the key tag, signature times and what a digest covers, with no cryptography. Since 2026-10-31 |
+| `dnssec` | `core`, `wire` | the DNS half of DNSSEC validation, §25 Stage B: canonical form, the key tag, signature times and what a digest covers, with no cryptography, and the trust-anchor parser. Since 2026-10-31 |
 | `sim` | `core`, `wire`, `resolver`, `dnssec` | the scripted server, the signed one of §25 step 14 and the virtual clock, test-only |
 | `io` | `cocuyo`, `rotor`, and colibri's `quic` and `h3` from §24 | the engine of §19 step 13: sockets, timers and connections over a loop with rotor's surface, in `io/`; compiled against `sim` for the gate and against rotor for the comparison of step 15, and exported into the caller's loop by §24 |
 
@@ -6158,6 +6158,20 @@ handshake used, so no example and no live check can say it.
     Answered on 2026-11-01: all four.
 103. **The algorithms §11 measures.** Recommended: all five that colibri's verifier checks, 8,
     10, 13, 14 and 15. Answered on 2026-11-01: all five.
+104. **Where the anchor parser goes.** `config` reads `core` alone, and `Anchor` is in `dnssec`.
+    Recommended: `Anchor` moves to `core`, and the parser stays in `config`. The other ways were
+    the parser in `dnssec`, beside the type, and a type of `config`'s own that the caller copies.
+    Answered on 2026-11-02: the parser goes in `dnssec`. `cocuyo.trust_anchors` names it.
+105. **The limit on the count of anchors.** Recommended: the parser shares `anchors_max`, 8,
+    which the store asserts. A file with more anchors is an error, so the assertion holds.
+    Answered on 2026-11-02: yes. The parser and the limit are in `dnssec`, so the limit stays in
+    `src/dnssec/limits.zig`.
+106. **The zone-file forms the parser reads.** Recommended: RFC 1035 §5.1's parentheses across
+    lines, an optional TTL and an optional class `IN`, and absolute owner names only. The parser
+    refuses `$ORIGIN`, `$TTL` and `$INCLUDE`. Answered on 2026-11-02: yes.
+107. **The bound on one anchor's rdata.** Recommended: `core.limits.rdata_bytes_max`, 2048. The
+    caller's `rdata` memory bounds the total, and the parser returns an error when it is full.
+    Answered on 2026-11-02: yes.
 
 ## 18. The cache
 
@@ -11087,6 +11101,9 @@ Each step lands with its checks, each check broken on purpose and recorded in
     The owner's rulings of 2026-11-01 (§17 questions 101 to 103): `cocuyo.trust_anchors` reads DS
     and DNSKEY records from text, all four engine examples take `dnssec`, and §11 measures
     algorithms 8, 10, 13, 14 and 15.
+    The owner's rulings of 2026-11-02 (§17 questions 104 to 107): the parser is in `dnssec`, it
+    shares `anchors_max`, it reads parentheses and absolute names only, and one anchor's rdata
+    stays within `core.limits.rdata_bytes_max`.
     The engine takes the consumer's `KeyStore` with `use_trust`, once after `init`, and a
     `reinit` keeps it (§17 question 98).
     The walk's end, ruled on 2026-11-01 (§17 question 100):
