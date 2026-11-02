@@ -63,12 +63,14 @@ Each of these is out of scope on purpose, with the place it would attach.
   design, and the `cache` module of §2 is the one place the answer touched, with `Failure`
   gaining the negative TTL a cache needs.
 - **DNSSEC validation, since 2026-10-31.** Out of scope until then. On 2026-10-31 the owner ruled
-  both stages of §25 in, each off by default (§17 question 16). Until they are built, a validator
-  builds on this: EDNS0 exists, the DO bit is a flag cocuyo never sets, and the
-  record iterator hands out rdata unread, so a validator sits above the codec. Since 2026-09-26 a
-  question may name a DNSSEC type, DS or DNSKEY among them, as it may name any type (decision
-  31). Its records come back as rdata, unread and unvalidated, as any type cocuyo does not name.
-  The owner ruled that out of scope means validating, not fetching.
+  both stages of §25 in, each off by default (§17 question 16).
+  - Stage A, built on 2026-10-31, relies on the AD bit of a server that the channel
+    authenticates (`Config.authenticated_data`).
+  - Stage B, built from 2026-10-31 to 2026-11-02, validates in cocuyo from the caller's trust
+    anchors (`cocuyo.KeyStore`, `cocuyo.validated_by`, §16 decision 65). Its cryptography is
+    chapulin's, outside `src/` (decision 35).
+  - A question may name a DNSSEC type, DS or DNSKEY among them, as it may name any type
+    (decision 31). Its records come back as rdata, as any type that cocuyo does not name.
 - **DNS over TLS and DNS over HTTPS, since 2026-09-23.** Out of version one; the owner brought
   both in on 2026-09-23, with three rulings. DoT (RFC 7858) is the engine's: rotor carries the
   TCP, chapulin, the owner's TLS 1.3 client, carries the TLS through its non-blocking record
@@ -562,6 +564,10 @@ Eight states: `query_ready`, `awaiting_udp`, `tcp_needed`, `connecting_tcp`, `tc
 | `awaiting_tcp` | `on_response` BADCOOKIE again | `query_ready` or `failed` | keep the rcode as the cause, advance the server, as SERVFAIL does |
 | `awaiting_tcp` | `poll` at or past the deadline | `query_ready` or `failed` | a sample as long as the wait, unless a reply to the try marked its server (§7), then advance the server, then the attempt |
 | `done`, `failed` | any | unchanged | `poll` returns the same value; `on_response` is `ignored` |
+
+A lookup whose table validates has six rows more, and the state `awaiting_keys` (§16 decision
+65). §25 Stage B, under "what the lookup does with it", gives the rows and why each is so.
+`spec/lean/Spec/LookupProofs/Validation.lean` is their model.
 
 Since 2026-10-27 no server gets more than three queries of one name over one transport (§16
 decision 58). "A resolver MUST NOT retry a given query to a server address over a given DNS
@@ -4932,6 +4938,41 @@ step until `zig build test` passes.
       to keep short, and that no rule of cocuyo reads.
 
     §17 question 18, §25 Stage A.
+65. **Validation is a validator the table is handed, and the keys it needs are fetched under the
+    table.** Ruled by the owner on 2026-10-31, on §17 question 19 (c4milo/cocuyo#56). Written on
+    2026-11-02, when the last step of §25 Stage B was built.
+
+    The rule:
+
+    - The table names a `Validator` as it names a `Memory` (decision 22). So every lookup it
+      starts is validated, the composed ones included, which is why the cache is under the table
+      (decision 23).
+    - The cryptography is chapulin's, behind a verifier that `dnssec` names (decision 35). So
+      `src/` holds none.
+    - A message is validated in place when it arrives, with the keys the store already holds.
+    - A lookup whose keys are missing waits. The table asks the DS and DNSKEY questions in slots
+      it keeps for them, and then the lookup asks its question again. No response is kept.
+
+    Rejected:
+
+    - A composition above the table, as `AddressLookup` is (decision 18). Validation decides what
+      a lookup may do with a message, so it belongs where the message is read. Above the table,
+      every other composition would also have to know it.
+    - A response kept until its keys come. That is a buffer of up to 64 KiB for each lookup that
+      waits, and decision 14 refused the whole message in a slot. A second ask costs one round
+      trip, which the recursive server answers from its cache.
+    - A walk up from the signer, by the Signer's Name of each DS answer. It asks one DS question
+      for each zone, not one for each label. But each answer must then be kept unvalidated until
+      the keys above it come, or be asked twice.
+    - Cryptography under `src/`, from Zig's `std.crypto`, which decision 35 refused.
+    - chapulin imported by `dnssec` itself. That gives the library a dependency, and leaves a
+      consumer with no colibri no way to supply its own verifier.
+    - Ed448 written for this, in either library, before a count says that a zone needs it.
+    - Stage A alone, which does not find a server that lies (RFC 4033 §12).
+    - Stage B alone, which leaves out a consumer that already trusts the resolver it reaches over
+      TLS.
+
+    §17 question 19, §25 Stage B and its new limits, §5 (`awaiting_keys`).
 
 ## 17. Questions for the owner
 
@@ -5024,7 +5065,8 @@ recommends, and none is taken until the owner answers. The owner answered the la
     question asked again when its keys have come, in place of a response kept. §25 ends with
     the decision in §16's form and what it would reject. It adds a state to §5, a module to §2,
     and `Error.Bogus`. Answered on 2026-10-31: as §25 writes it. No response is kept while its
-    keys come.
+    keys come. Written on
+    2026-11-02: §16 decision 65.
 20. **Trust anchors.** Recommended: the caller supplies every anchor, and `src/` ships none,
     since a root key that changes would make a release of cocuyo expire. The engine's example
     and the live check read IANA's file (RFC 9718). And which anchor a name under two of them
@@ -11305,7 +11347,7 @@ Checks, one for each piece of Stage B:
 
 ### The decision this asks for, and what it would reject
 
-When the owner rules, this goes to §16 as its next decision, in these words or better ones.
+The owner ruled it on 2026-10-31 (§17 question 19). It is §16 decision 65 since 2026-11-02.
 
 **Validation is a validator the table is handed, and the keys it needs are fetched under the
 table.** The table names a `Validator` as it names a `Memory` (decision 22), so every lookup it

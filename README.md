@@ -528,9 +528,18 @@ These are out of scope on purpose. Each has a place it would attach if that chan
 - **mDNS and zone transfers.** Neither is a stub resolver's job.
 - **nsswitch, NIS and internationalised domain names.**
 
-DNSSEC validation was on this list until 2026-10-31. It is now planned in two stages, each off by
-default ([design §25](docs/design.md)). No part of it is built yet, so DNSKEY, DS and RRSIG records
-still come back as read, unvalidated.
+DNSSEC validation was on this list until 2026-10-31. Both stages of
+[design §25](docs/design.md) are now built, and each is off by default:
+
+- **Stage A** relies on the AD bit of the server. Set `Config.authenticated_data` to `encrypted`
+  to rely on it over DoT, DoH or DoQ, or to `always` for a validating resolver on the loopback.
+- **Stage B** validates each answer in cocuyo, from trust anchors that you supply. cocuyo ships
+  no anchor. `cocuyo.trust_anchors.parse` reads DS or DNSKEY records from text, a
+  `cocuyo.KeyStore` holds them, and `cocuyo.validated_by` gives the table its validator.
+  `cocuyo_dnssec` checks the signatures, over chapulin.
+
+Stage B checks algorithms 8, 10, 13, 14 and 15. A zone signed with RSA/SHA-1 alone (5 or 7), or
+with Ed448 (16) alone, reads as `insecure`.
 
 ## Build and test
 
