@@ -6114,7 +6114,18 @@ handshake used, so no example and no live check can say it.
     limit bounds how many run at once. A lookup whose target finds every walk busy reads its
     message as bogus, and the lookup moves on as for any bogus message. Recommended: 4, chosen
     and not measured. It costs one walk's state each, a target name and a few counters, in the
-    validator's own memory.
+    validator's own memory. Answered on 2026-11-01: 4.
+
+### Asked on 2026-11-01, for the engine under validation
+
+96. **The root's anchor in the example.** RFC 9718 leaves IANA's file of the root's anchors to
+    the caller. Recommended: the example reads DS records in presentation form from a file named
+    on its command line, through `config`'s anchor parser, and the live check writes IANA's
+    current values into that file. So no key in the code can go stale. Answered on 2026-11-01:
+    yes.
+97. **How a run asks for validation.** Recommended: the word `dnssec` on the command line, as
+    `cpu` is (decision 48). Without the word the example runs as it does now, since Stage B is
+    off by default. Answered on 2026-11-01: yes.
 
 ## 18. The cache
 
@@ -11037,6 +11048,8 @@ Each step lands with its checks, each check broken on purpose and recorded in
 15. The engine: its options, the time, an example that resolves under the root's anchor over
     chapulin, the fill check and the instruction counts, and what one validation costs by
     algorithm, in §11.
+    The owner's rulings of 2026-11-01 (§17 questions 96 and 97): the example reads the root's DS
+    records from a file named on its command line, and the word `dnssec` turns validation on.
 16. A live check, once a day and not a gate: names known to be signed, unsigned and signed
     wrongly on purpose, through the public resolvers over DoT. cocuyo's status is compared with
     the AD bit the same server sets for the same question.
