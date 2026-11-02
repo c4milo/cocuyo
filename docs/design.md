@@ -1670,6 +1670,38 @@ nanoseconds, a figure recalled and not measured, because the largest table there
 second-level cache and the harness cannot build one that does not. It is still nothing against a
 millisecond, but it is an estimate where the rest of this section is not.
 
+**DNSSEC, by algorithm.** `zig build bench-dnssec` on 2026-11-02, Zig 0.16.0, ReleaseSafe with
+colibri ReleaseSafe, on the same Apple M1 Pro under macOS 26.6.2 (§25 step 15, §17 question 103).
+The machine was not quiet: its load average was 22. Two runs back to back, and each fastest figure
+below is from the second and within 2% of the first. The medians moved more, so the fastest
+column is the one to read. "Check" is cocuyo's signed data of one A record fed to chapulin, and
+the check. "Validate" is the whole answer read, its RRSIG found, the key taken from the store, and
+the check. The keys and signatures are the RFCs' own:
+
+- RFC 5702 §6 for algorithms 8 and 10. Its keys are 512 and 1,024 bits, and a signed zone uses
+  2,048, so these two rows understate an RSA check.
+- RFC 6605 §6 for 13 and 14.
+- RFC 8080 §6.1 for 15. Its RRSIG has a Labels field past its owner's labels, which cocuyo refuses
+  (RFC 4035 §5.3.1), so algorithm 15 has the check alone.
+
+Nanoseconds per operation:
+
+| Case | Fastest | Median |
+| --- | --- | --- |
+| check, RSA/SHA-256 (8), 512-bit key | 3,736 | 3,861 |
+| validate one A, RSA/SHA-256 (8), 512-bit key | 4,033 | 4,073 |
+| check, RSA/SHA-512 (10), 1,024-bit key | 7,801 | 7,925 |
+| validate one A, RSA/SHA-512 (10), 1,024-bit key | 8,117 | 8,288 |
+| check, ECDSA P-256 (13) | 55,277 | 55,786 |
+| validate one A, ECDSA P-256 (13) | 55,630 | 80,799 |
+| check, ECDSA P-384 (14) | 273,646 | 283,821 |
+| validate one A, ECDSA P-384 (14) | 277,253 | 379,225 |
+| check, Ed25519 (15) | 50,110 | 52,051 |
+
+The check is chapulin's, and it is almost all of the cost. The gap between a validation and its
+check, about 300 to 350 ns in the fastest column, is cocuyo's half: the message read, the RRset
+and RRSIG found, and the key taken from the store. Of the five, ECDSA P-384 costs the most by far.
+
 **Against c-ares.** `zig build bench-cares` on 2026-09-22, the same machine and clock as the
 table above: cocuyo ReleaseSafe against the Homebrew build of c-ares 1.34.8, which is its
 shipping build, optimised, with its assertions compiled out. Five runs back to back; each cell is

@@ -91,16 +91,22 @@ pub fn base32hex(hash: *const validation.nsec3.Hash) [32]u8 {
 
 /// RFC 6605 §6.1's answer as one message: the question, the A record and its RRSIG.
 pub fn p256_message(out: []u8, signature: []const u8) []const u8 {
+    const fields = rrsig(1, 13, 3, 1284026679, 1281607479, 55648, example_net, "");
+    return a_message(out, .{ 192, 0, 2, 1 }, &fields, signature);
+}
+
+/// An answer to `www.example.net A` as one message, as RFC 5702 §6 and RFC 6605 §6 print it: the
+/// question, the A record of `address`, and the RRSIG of `fields` and `signature` over it.
+pub fn a_message(out: []u8, address: [4]u8, fields: []const u8, signature: []const u8) []const u8 {
     const owner = "\x03www\x07example\x03net\x00";
     const head = [_]u8{ 0, 0, 0x81, 0x80, 0, 1, 0, 2, 0, 0, 0, 0 };
     var writer: std.Io.Writer = .fixed(out);
     writer.writeAll(&head) catch unreachable;
     writer.writeAll(owner ++ [_]u8{ 0, 1, 0, 1 }) catch unreachable;
-    writer.writeAll(owner ++ [_]u8{ 0, 1, 0, 1, 0, 0, 0x0e, 0x10, 0, 4, 192, 0, 2, 1 }) catch unreachable;
-    const fields = rrsig(1, 13, 3, 1284026679, 1281607479, 55648, example_net, "");
+    writer.writeAll(owner ++ [_]u8{ 0, 1, 0, 1, 0, 0, 0x0e, 0x10, 0, 4 } ++ address) catch unreachable;
     writer.writeAll(owner ++ [_]u8{ 0, 46, 0, 1, 0, 0, 0x0e, 0x10 }) catch unreachable;
     writer.writeInt(u16, @intCast(fields.len + signature.len), .big) catch unreachable;
-    writer.writeAll(&fields) catch unreachable;
+    writer.writeAll(fields) catch unreachable;
     writer.writeAll(signature) catch unreachable;
     return writer.buffered();
 }

@@ -54,6 +54,35 @@ pub fn add(
 
     add_cares(b, target, graph, debug_graph, rotor, sanitize_thread);
     add_log(b, target, graph, test_step);
+    add_dnssec(b, target, graph, test_step);
+}
+
+/// `zig build bench-dnssec`: what one validation costs, by algorithm (docs/design.md §25 step 15,
+/// §11). It reads chapulin's verifier through colibri, which is lazy and is asked here for its
+/// ReleaseSafe build, so nothing is added until colibri is fetched. The gate compiles it.
+fn add_dnssec(b: *std.Build, target: std.Build.ResolvedTarget, graph: modules.Graph, test_step: *std.Build.Step) void {
+    const colibri = b.lazyDependency("colibri", .{ .target = target, .release = true }) orelse return;
+    graph.cocuyo_dnssec.addImport("dnssec", colibri.module("dnssec"));
+    const fixtures = b.createModule(.{
+        .root_source_file = b.path("io/dnssec/fixtures.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    fixtures.addImport("validation", graph.dnssec);
+    const module = b.createModule(.{
+        .root_source_file = b.path("bench/bench_dnssec.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+        .link_libc = true,
+    });
+    module.addImport("cocuyo", graph.cocuyo);
+    module.addImport("validation", graph.dnssec);
+    module.addImport("cocuyo_dnssec", graph.cocuyo_dnssec);
+    module.addImport("dnssec_fixtures", fixtures);
+    const exe = b.addExecutable(.{ .name = "bench-dnssec", .root_module = module });
+    test_step.dependOn(&exe.step);
+    const step = b.step("bench-dnssec", "Measure one DNSSEC signature check and one validation, by algorithm");
+    step.dependOn(&b.addRunArtifact(exe).step);
 }
 
 /// `zig build bench-log -- <dataset.csv>`: the cache and its policy models over a real DNS log
