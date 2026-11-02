@@ -21,6 +21,8 @@ pub const validate = @import("dnssec_validate.zig");
 pub const walk = @import("dnssec_walk.zig");
 /// The key store a consumer owns, and the calls of the table's `Trust` (step 12).
 pub const keys = @import("dnssec_keys.zig");
+/// The trust anchors from text, which `cocuyo.trust_anchors` names (§25 step 15).
+pub const anchors = @import("dnssec_anchors.zig");
 /// The tests' verifier and the response builder that signs for it, for the twin's signed server
 /// (docs/design.md §25 step 14), as `wire.fixtures` is for the tests of the modules above it.
 pub const fixtures = @import("fixtures.zig");
@@ -154,4 +156,7 @@ test {
     _ = walk;
     _ = keys;
     _ = @import("dnssec_walk_test.zig");
+    _ = anchors;
+    _ = @import("dnssec_anchors_test.zig");
+    _ = @import("dnssec_base64.zig");
 }

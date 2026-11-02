@@ -7631,4 +7631,148 @@
         },
         .caught_by = .{ .step = "test-io" },
     },
+    .{
+        .section = "The anchors from text",
+        .id = "AF1",
+        .what = "a relative owner name is read",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_anchors.zig", .old = "    if (word[word.len - 1] != constants.label_separator) return Error.MalformedAnchor;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The anchors from text",
+        .id = "AF2",
+        .what = "a control entry is read as an owner",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_anchors.zig", .old = "    if (word[0] == constants.control_mark) return Error.MalformedAnchor;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The anchors from text",
+        .id = "AF3",
+        .what = "a TTL past 2147483647 is read",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_anchors.zig", .old = "            _ = try decimal(u31, word);", .new = "            _ = try decimal(u32, word);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The anchors from text",
+        .id = "AF4",
+        .what = "a TTL is taken twice",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_anchors.zig", .old = "            self.ttl = true;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The anchors from text",
+        .id = "AF5",
+        .what = "a DS digest of odd length is read",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_anchors.zig", .old = "    if (words == 0 or high != null) return Error.MalformedAnchor;", .new = "    if (words == 0) return Error.MalformedAnchor;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The anchors from text",
+        .id = "AF6",
+        .what = "a DS with no digest is read",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_anchors.zig", .old = "    if (words == 0 or high != null) return Error.MalformedAnchor;", .new = "    if (high != null) return Error.MalformedAnchor;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The anchors from text",
+        .id = "AF7",
+        .what = "a public key that ends in the middle of a quantum is read",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_anchors.zig", .old = "    if (!decoder.finished()) return Error.MalformedAnchor;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The anchors from text",
+        .id = "AF8",
+        .what = "parentheses nest",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_anchors.zig", .old = "                if (self.open == (character == '(')) return Error.MalformedAnchor;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The anchors from text",
+        .id = "AF9",
+        .what = "a parenthesis the text never closes is read",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_anchors.zig", .old = "        // A parenthesis that the text never closes.\n        if (self.open) return Error.MalformedAnchor;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The anchors from text",
+        .id = "AF10",
+        .what = "the parser takes as many anchors as the caller has room for",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_anchors.zig", .old = "        if (count == @min(anchors.len, limits.anchors_max)) return Error.TooManyAnchors;", .new = "        if (count == anchors.len) return Error.TooManyAnchors;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The anchors from text",
+        .id = "AF11",
+        .what = "one anchor's rdata may pass rdata_bytes_max",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_anchors.zig", .old = "        if (self.used - self.start == core.limits.rdata_bytes_max) return Error.AnchorTooLong;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The anchors from text",
+        .id = "AF12",
+        .what = "an integer with a sign is read",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_anchors.zig", .old = "    if (!digits(word)) return Error.MalformedAnchor;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The anchors from text",
+        .id = "AF13",
+        .what = "an entry that begins with a blank states its owner",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_anchors.zig", .old = "            if (!rest_blank) return content == self.at;", .new = "            if (!rest_blank) return true;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The anchors from text",
+        .id = "AF14",
+        .what = "base64 with pad bits set is read",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_base64.zig", .old = "and self.characters % quantum_characters == 0 and self.accumulated == 0;", .new = "and self.characters % quantum_characters == 0;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The anchors from text",
+        .id = "AF15",
+        .what = "base64 data after padding is read",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_base64.zig", .old = "        if (self.pads != 0) return Error.MalformedBase64;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The anchors from text",
+        .id = "AF16",
+        .what = "an empty text holds anchors",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_anchors.zig", .old = "    if (count == 0) return Error.NoAnchors;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
 }

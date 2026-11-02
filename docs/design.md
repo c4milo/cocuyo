@@ -11129,6 +11129,19 @@ Each step lands with its checks, each check broken on purpose and recorded in
       servers of step 14.
     - A bare `Lookup` never hands `walked`. The README, the examples and the replays say so with
       `unreachable`.
+    The anchors from text, built on 2026-11-02 (§17 questions 101 and 104 to 107):
+    - `src/dnssec/dnssec_anchors.zig` holds the parser, and `cocuyo.trust_anchors` names its
+      `parse` and its `Error`. It writes each anchor's rdata in wire form into the caller's
+      memory, and each anchor's `rdata` is a slice of it.
+    - It reads RFC 1035 §5.1's comments, parentheses, blank lines, and the optional TTL and class
+      `IN` in either order. An entry that begins with a blank has the last owner.
+    - It refuses a relative owner, a control entry, another class or type, a TTL past RFC 2181
+      §8's maximum, and an algorithm mnemonic. Every mnemonic of RFC 4034 Appendix A.1 names an
+      algorithm the verifier does not check.
+    - The DS digest is hexadecimal and the DNSKEY key is base64, each across words (RFC 4034
+      §5.3, §2.2). `src/dnssec/dnssec_base64.zig` decodes base64 one character at a time, and it
+      refuses pad bits that are not zero (RFC 4648 §3.5).
+    - A text with no anchor is an error, so a validating example never runs under no anchor.
 16. A live check, once a day and not a gate: names known to be signed, unsigned and signed
     wrongly on purpose, through the public resolvers over DoT. cocuyo's status is compared with
     the AD bit the same server sets for the same question.

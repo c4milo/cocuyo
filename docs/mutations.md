@@ -11451,3 +11451,30 @@ and WD3 failed to compile. A test now takes them, and WD3's edit uses `now_ns`.
 | WD4 | the engine keeps a walk's slot after walked | `zig build test-io` | `CAUGHT` |
 | WD5 | the engine never adopts a walk's lookup | `zig build test-io` | `CAUGHT` |
 | WD6 | a reinit forgets the key store | `zig build test-io` | `CAUGHT` |
+
+## The anchors from text
+
+2026-11-02. Design §25 step 15 and §17 questions 101 and 104 to 107 (c4milo/cocuyo#56):
+`cocuyo.trust_anchors.parse` reads DS and DNSKEY records in zone-file form. Each mutation breaks
+one check of the parser or of its base64 decoder. Two tests were added before the run: an owner
+`$ORIGIN.` with a dot, and base64 data after its padding that leaves no pad bits set.
+`zig build mutations -- engine AF1 ... AF16` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| AF1 | a relative owner name is read | `zig build test-dnssec` | `CAUGHT` |
+| AF2 | a control entry is read as an owner | `zig build test-dnssec` | `CAUGHT` |
+| AF3 | a TTL past 2147483647 is read | `zig build test-dnssec` | `CAUGHT` |
+| AF4 | a TTL is taken twice | `zig build test-dnssec` | `CAUGHT` |
+| AF5 | a DS digest of odd length is read | `zig build test-dnssec` | `CAUGHT` |
+| AF6 | a DS with no digest is read | `zig build test-dnssec` | `CAUGHT` |
+| AF7 | a public key that ends in the middle of a quantum is read | `zig build test-dnssec` | `CAUGHT` |
+| AF8 | parentheses nest | `zig build test-dnssec` | `CAUGHT` |
+| AF9 | a parenthesis the text never closes is read | `zig build test-dnssec` | `CAUGHT` |
+| AF10 | the parser takes as many anchors as the caller has room for | `zig build test-dnssec` | `CAUGHT` |
+| AF11 | one anchor's rdata may pass rdata_bytes_max | `zig build test-dnssec` | `CAUGHT` |
+| AF12 | an integer with a sign is read | `zig build test-dnssec` | `CAUGHT` |
+| AF13 | an entry that begins with a blank states its owner | `zig build test-dnssec` | `CAUGHT` |
+| AF14 | base64 with pad bits set is read | `zig build test-dnssec` | `CAUGHT` |
+| AF15 | base64 data after padding is read | `zig build test-dnssec` | `CAUGHT` |
+| AF16 | an empty text holds anchors | `zig build test-dnssec` | `CAUGHT` |

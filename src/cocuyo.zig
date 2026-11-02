@@ -73,6 +73,11 @@ pub const Trust = resolver.Trust;
 /// step 12). Nothing else of `dnssec` is public.
 pub const KeyStore = dnssec.keys.KeyStore;
 pub const Anchor = dnssec.keys.Anchor;
+/// The anchors from text: DS and DNSKEY records in zone-file form (docs/design.md §25 step 15).
+pub const trust_anchors = struct {
+    pub const Error = dnssec.anchors.Error;
+    pub const parse = dnssec.anchors.parse;
+};
 pub const Remembered = resolver.Remembered;
 
 /// A `Trust` filled in from a key store: what a consumer hands `Resolver.validate_with` to

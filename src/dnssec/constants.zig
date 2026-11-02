@@ -43,3 +43,12 @@ pub const ns_per_second: u64 = 1_000_000_000;
 /// SHA-256 (RFC 4509 §5).
 pub const digest_sha1: u8 = 1;
 pub const digest_sha256: u8 = 2;
+
+/// The master file format's marks (RFC 1035 §5.1): a control entry begins with `$`, and an
+/// absolute name ends with the label separator.
+pub const control_mark: u8 = '$';
+pub const label_separator: u8 = '.';
+
+/// The bases of the integers and the digest in presentation form (RFC 4034 §2.2, §5.3).
+pub const decimal_radix: u8 = 10;
+pub const hex_radix: u8 = 16;
