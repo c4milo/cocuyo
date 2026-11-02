@@ -311,6 +311,9 @@ pub const Action = union(enum) {
     wait: u64,                                      // absolute deadline, monotonic nanoseconds
     done: Answer,
     failed: Failure,
+    // Since 2026-11-01: a walk's lookup of a validating table ended (§25 step 15). The caller
+    // drops what it holds for the handle and calls `release`. No consumer's lookup ends so.
+    walked,
 };
 
 pub const Verdict = enum { accepted, ignored };
@@ -6136,6 +6139,15 @@ handshake used, so no example and no live check can say it.
     signed; `google.com`, unsigned; `dnssec-failed.org`, signed wrongly on purpose. The servers
     are Cloudflare (1.1.1.1), Quad9 (9.9.9.9) and Google (8.8.8.8), over DoT. Answered on
     2026-11-01: yes.
+100. **How a driver learns that a walk's lookup ended.** Step 12 had the table free a walk's slot
+    by itself, inside `on_datagram` or a poll. The driver is never told, and it still holds what
+    it held for the handle: the TCP connection's user, the wait for a connection slot, the
+    handle itself. Recommended: `Action` gains `walked`. A poll hands it for a walk's lookup that
+    ended, and the driver drops what it holds and calls `release`, as for any end. This breaks
+    every exhaustive switch over `Action`. The other ways were an engine that adopts a handle it
+    never started, which leaves a dead walk's connection user until its slot is used again, and
+    a call from the table into the driver in the middle of `on_datagram`. Answered on
+    2026-11-01: `walked`.
 
 ## 18. The cache
 
@@ -10969,6 +10981,8 @@ Each step lands with its checks, each check broken on purpose and recorded in
     - The consumer takes a free slot only when the free slots that remain, and the slots the
       walks hold, still make `trust_slots_min`. A walk's question takes any free slot.
     - The table frees a walk's slot when its answer comes, so no poll offers the consumer its end.
+      Since step 15 the slot waits for the driver instead: a poll hands `walked`, and the
+      driver's `release` frees it (§17 question 100).
     - TLC checks that a lookup that waits for keys is asked again or fails, while the consumer
       holds every other slot. It checks too that a lookup is asked again only when its walk
       reached its target.
@@ -11062,6 +11076,17 @@ Each step lands with its checks, each check broken on purpose and recorded in
     records from a file named on its command line, and the word `dnssec` turns validation on.
     The engine takes the consumer's `KeyStore` with `use_trust`, once after `init`, and a
     `reinit` keeps it (§17 question 98).
+    The walk's end, ruled on 2026-11-01 (§17 question 100):
+    - A walk's lookup that ends hands the walk its message or its failure at once, as in step
+      12, and the lookups that wait on the walk move on. Its slot stays held.
+    - The next poll that reaches the slot hands `walked` with its handle. It writes nothing to the
+      memory, and no `done` or `failed` is ever handed for that handle.
+    - The driver drops what it holds for the handle, then calls `release`, which frees the slot.
+      Until then the slot counts among the slots the walks hold, so `trust_slots_min` holds.
+    - A cancel of a walk's lookup fails its question for the walk, and the poll hands `walked`.
+    - The model changes first: in `spec/tla/keys/Keys.tla` a walk's slot that ended waits for
+      the driver, and the driver holds state for every slot it was asked to send for. TLC checks
+      that the driver never holds state for a free slot.
 16. A live check, once a day and not a gate: names known to be signed, unsigned and signed
     wrongly on purpose, through the public resolvers over DoT. cocuyo's status is compared with
     the AD bit the same server sets for the same question.

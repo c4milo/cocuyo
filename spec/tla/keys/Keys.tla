@@ -7,7 +7,11 @@
 \*
 \* A slot is free, a consumer's lookup, or a walk's. A consumer's lookup asks, waits for keys, or
 \* ended: its end waits for the consumer, who takes it and later frees the slot. A walk's lookup
-\* asks, and the table frees its slot when the answer comes. The consumer sees nothing of it.
+\* asks, and when the answer comes its slot waits for the driver, who frees it (step 15). The
+\* consumer sees nothing of it.
+\*
+\* The driver sends what the table asks, and holds state for each slot it sent for: `held`. It
+\* drops that state when it frees the slot.
 \*
 \* `Mutant` names the rule a configuration of `mutants/` breaks, and is "none" everywhere else.
 EXTENDS Naturals, FiniteSets
@@ -22,9 +26,9 @@ CONSTANTS
     StartsMax,    \* the walk's bound on the consumer's lookups
     Mutant
 
-VARIABLES slots, walks, starts
+VARIABLES slots, walks, starts, held
 
-vars == <<slots, walks, starts>>
+vars == <<slots, walks, starts, held>>
 
 SlotIds == 0..(Slots - 1)
 WalkIds == 0..(WalksMax - 1)
@@ -57,6 +61,7 @@ Start(l) ==
     /\ Mutant = "KT1" \/ ConsumerMay
     /\ slots' = [slots EXCEPT ![l] = [kind |-> "lookup", stage |-> "asking", walk |-> NoWalk, asks |-> 0]]
     /\ starts' = starts + 1
+    /\ held' = [held EXCEPT ![l] = TRUE]
     /\ UNCHANGED walks
 
 \* The consumer cancels a lookup that has not ended. A walk it waited on runs on.
@@ -64,18 +69,19 @@ Cancel(l) ==
     /\ slots[l].kind = "lookup"
     /\ slots[l].stage \in {"asking", "awaitingKeys"}
     /\ slots' = [slots EXCEPT ![l].stage = "ended", ![l].walk = NoWalk]
-    /\ UNCHANGED <<walks, starts>>
+    /\ UNCHANGED <<walks, starts, held>>
 
 \* The consumer takes the end a poll offers. The poll reads the slot's stage alone, so the table
 \* must never leave a walk's lookup ended.
 Take(l) ==
     /\ slots[l].stage = "ended"
     /\ slots' = [slots EXCEPT ![l].stage = "offered"]
-    /\ UNCHANGED <<walks, starts>>
+    /\ UNCHANGED <<walks, starts, held>>
 
 Release(l) ==
     /\ slots[l].stage = "offered"
     /\ slots' = [slots EXCEPT ![l] = FreeSlot]
+    /\ held' = [held EXCEPT ![l] = FALSE]
     /\ UNCHANGED <<walks, starts>>
 
 -------------------------------------------------------------------------------
@@ -87,7 +93,7 @@ Acted(l) ==
     /\ slots[l].kind = "lookup"
     /\ slots[l].stage = "asking"
     /\ slots' = [slots EXCEPT ![l].stage = "ended"]
-    /\ UNCHANGED <<walks, starts>>
+    /\ UNCHANGED <<walks, starts, held>>
 
 Wait(l, w) == slots' = [slots EXCEPT ![l].stage = "awaitingKeys", ![l].walk = w, ![l].asks = @ + 1]
 
@@ -97,7 +103,7 @@ Wait(l, w) == slots' = [slots EXCEPT ![l].stage = "awaitingKeys", ![l].walk = w,
 KeysWanted(l, t) ==
     /\ slots[l].kind = "lookup"
     /\ slots[l].stage = "asking"
-    /\ UNCHANGED starts
+    /\ UNCHANGED <<starts, held>>
     /\ IF slots[l].asks >= KeyAsksMax THEN
            slots' = [slots EXCEPT ![l].stage = "ended"] /\ UNCHANGED walks
        ELSE IF Running(t) # {} /\ Mutant # "KT7" THEN
@@ -121,18 +127,19 @@ Ask(w, l) ==
     /\ Mutant # "KT2" \/ ConsumerMay
     /\ slots' = [slots EXCEPT ![l] = [kind |-> "walk", stage |-> "asking", walk |-> w, asks |-> 0]]
     /\ walks' = [walks EXCEPT ![w].phase = "asked"]
+    /\ held' = [held EXCEPT ![l] = TRUE]
     /\ UNCHANGED starts
 
 \* What the walk makes of its answer: another question, its target reached, or a failure, the
 \* question's own among them (walk rules 7, 8 and 11). A walk's lookup never waits for keys.
 Outcomes == IF Mutant = "KT4" THEN {"more", "ready", "failed", "wait"} ELSE {"more", "ready", "failed"}
 
-\* The answer to a walk's question, or its failure. The table hands it to the walker and frees the
-\* slot, and the consumer never sees it.
+\* The answer to a walk's question, or its failure. The table hands it to the walker, and the slot
+\* waits for the driver as `walked`. The consumer never sees it.
 WalkAnswer(l, o) ==
     /\ slots[l].kind = "walk"
     /\ slots[l].stage = "asking"
-    /\ UNCHANGED starts
+    /\ UNCHANGED <<starts, held>>
     /\ LET w == slots[l].walk
            q == walks[w].questions + 1
        IN IF o = "wait" THEN
@@ -140,7 +147,8 @@ WalkAnswer(l, o) ==
           ELSE
               /\ slots' = CASE Mutant = "KT3" -> [slots EXCEPT ![l].stage = "ended"]
                             [] Mutant = "KT6" -> slots
-                            [] OTHER -> [slots EXCEPT ![l] = FreeSlot]
+                            [] Mutant = "KT9" -> [slots EXCEPT ![l] = FreeSlot]
+                            [] OTHER -> [slots EXCEPT ![l].stage = "walked", ![l].walk = NoWalk]
               \* Rule 10: past `chain_questions_max` questions the walk fails.
               /\ walks' = [walks EXCEPT ![w].questions = q,
                                         ![w].phase = IF o # "more" THEN o
@@ -148,6 +156,14 @@ WalkAnswer(l, o) ==
                                                      ELSE "asking"]
 
 WalkAnswered(l) == \E o \in Outcomes : WalkAnswer(l, o)
+
+\* A poll hands `walked`: the driver drops what it holds for the slot and frees it.
+ReleaseWalk(l) ==
+    /\ slots[l].kind = "walk"
+    /\ slots[l].stage = "walked"
+    /\ slots' = [slots EXCEPT ![l] = FreeSlot]
+    /\ held' = [held EXCEPT ![l] = FALSE]
+    /\ UNCHANGED <<walks, starts>>
 
 \* A walk ended: the table hands `on_keys_ready` or `on_keys_failed` to each lookup that waits on
 \* it, and to no other, and frees the walk.
@@ -160,7 +176,7 @@ HandEnd(w) ==
                                           !.walk = NoWalk]
                     ELSE slots[l]]
     /\ walks' = [walks EXCEPT ![w] = FreeWalk]
-    /\ UNCHANGED starts
+    /\ UNCHANGED <<starts, held>>
 
 -------------------------------------------------------------------------------
 \* The specification.
@@ -169,19 +185,21 @@ Init ==
     /\ slots = [l \in SlotIds |-> FreeSlot]
     /\ walks = [w \in WalkIds |-> FreeWalk]
     /\ starts = 0
+    /\ held = [l \in SlotIds |-> FALSE]
 
 Next ==
     \/ \E l \in SlotIds :
            \/ Start(l) \/ Cancel(l) \/ Take(l) \/ Release(l) \/ Acted(l) \/ WalkAnswered(l)
+           \/ ReleaseWalk(l)
            \/ \E t \in 1..Targets : KeysWanted(l, t)
            \/ \E w \in WalkIds : Ask(w, l)
     \/ \E w \in WalkIds : HandEnd(w)
 
-\* The table and the servers move; the consumer need not. A server that never answers is a
-\* timeout, which is an answer here.
+\* The table, the driver and the servers move; the consumer need not. A server that never answers
+\* is a timeout, which is an answer here.
 Fairness ==
     /\ \A w \in WalkIds : WF_vars(\E l \in SlotIds : Ask(w, l)) /\ WF_vars(HandEnd(w))
-    /\ \A l \in SlotIds : WF_vars(WalkAnswered(l))
+    /\ \A l \in SlotIds : WF_vars(WalkAnswered(l)) /\ WF_vars(ReleaseWalk(l))
 
 Spec == Init /\ [][Next]_vars /\ Fairness
 
@@ -191,12 +209,14 @@ Spec == Init /\ [][Next]_vars /\ Fairness
 TypeOK ==
     /\ \A l \in SlotIds :
            /\ slots[l].kind \in {"free", "lookup", "walk"}
+           /\ slots[l].stage \in {"none", "asking", "awaitingKeys", "ended", "offered", "walked"}
            /\ slots[l].walk \in WalkIds \cup {NoWalk}
            /\ slots[l].asks \in 0..KeyAsksMax
     /\ \A w \in WalkIds :
            /\ walks[w].phase \in {"free", "asking", "asked", "ready", "failed"}
            /\ walks[w].target \in 0..Targets
     /\ starts \in 0..StartsMax
+    /\ held \in [SlotIds -> BOOLEAN]
 
 \* A walk's lookups never reach the consumer.
 NoWalkOffered == \A l \in Walking : slots[l].stage \notin {"ended", "offered"}
@@ -205,10 +225,16 @@ NoWalkOffered == \A l \in Walking : slots[l].stage \notin {"ended", "offered"}
 \* once the walks before it leave theirs.
 ReservedKept == Cardinality(Free) + Lesser(Cardinality(Walking), Reserved) >= Reserved
 
-\* A walk asks one question at a time, in one slot.
+\* A walk asks one question at a time, in one slot. A slot that is `walked` asks for no walk.
+Asking == {l \in Walking : slots[l].stage = "asking"}
 WalkSlotsOwned ==
-    /\ \A l \in Walking : slots[l].walk \in WalkIds /\ walks[slots[l].walk].phase = "asked"
-    /\ \A w \in WalkIds : walks[w].phase = "asked" => Cardinality({l \in Walking : slots[l].walk = w}) = 1
+    /\ \A l \in Asking : slots[l].walk \in WalkIds /\ walks[slots[l].walk].phase = "asked"
+    /\ \A l \in Walking \ Asking : slots[l].stage = "walked" /\ slots[l].walk = NoWalk
+    /\ \A w \in WalkIds : walks[w].phase = "asked" => Cardinality({l \in Asking : slots[l].walk = w}) = 1
+
+\* The driver holds state for no free slot: the table tells it of every slot it frees (§17
+\* question 100).
+DriverKnows == \A l \in SlotIds : held[l] => slots[l].kind # "free"
 
 \* A lookup that waits for keys waits on a walk that runs.
 WaitersWalked ==

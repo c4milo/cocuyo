@@ -11342,6 +11342,11 @@ one. Eight mutations, eight `CAUGHT`.
 | KT6 | the table keeps a walk's slot after its answer | one question at a time | `WalkSlotsOwned` | 5 states | CAUGHT |
 | KT7 | a lookup starts a walk for a target a walk runs for | walk rule 10 | `OneWalkATarget` | 5 states | CAUGHT |
 | KT8 | a walk's end goes to every lookup that waits | to each lookup that waits on it, and to no other | `AskedOnlyWhenReady` | 8 states | CAUGHT |
+| KT9 | the table frees a walk's slot by itself, as step 12 built it | the driver frees it after `walked` (§17 question 100) | `DriverKnows` | 5 states | CAUGHT |
+
+Step 15 added KT9 on 2026-11-01, with the invariant `DriverKnows` and the action `ReleaseWalk`.
+KT6 now reads "keeps a walk's slot asking", since every walk's slot is kept until the driver
+frees it. The other eight still fail as before.
 
 ## The table's walks for keys
 

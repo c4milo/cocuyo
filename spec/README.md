@@ -1090,6 +1090,8 @@ engine than the Lean walker's did, and the committed walks keep more of the full
 A slot is free, a consumer's lookup, or a walk's lookup. A walk is its phase, its target and its
 count of questions. The verdict on each message and on each walk's answer is free, as a server
 may give any. The consumer may start, cancel, take an end and free a slot whenever it likes.
+Since step 15 a walk's slot that ended waits for the driver, who frees it after a poll hands
+`walked`. `held` is the state the driver keeps for each slot it was asked to send for.
 
 TLC checks these invariants in every state:
 
@@ -1099,8 +1101,11 @@ TLC checks these invariants in every state:
 - `WaitersWalked`: a lookup that waits for keys waits on a walk that runs.
 - `OneWalkATarget`: one walk serves every lookup that waits for its target (walk rule 10).
 - `QuestionsBounded`: a walk asks `chain_questions_max` questions at most.
+- `DriverKnows`: the driver holds state for no free slot, since the table tells it of every
+  slot it frees (docs/design.md §17 question 100).
 
-It checks two properties of behaviours, under weak fairness for the table and the servers alone:
+It checks two properties of behaviours, under weak fairness for the table, the driver and the
+servers alone:
 
 - `WaitEnds`: a lookup that waits for keys is asked again or fails. A consumer that holds every
   other slot and frees none cannot stop it.
@@ -1108,7 +1113,7 @@ It checks two properties of behaviours, under weak fairness for the table and th
   target.
 
 `Keys_2_1.cfg` has two slots and one walk, and `Keys_3_2.cfg` three slots and two walks for two
-targets. On 2026-11-01 TLC counted 886 and 186,350 distinct states. `tla/keys/mutants/` breaks
+targets. On 2026-11-01, after step 15's change, TLC counted 1,633 and 333,241 distinct states. `tla/keys/mutants/` breaks
 each rule once (docs/mutations.md, the table's walks for keys).
 
 ## The walks
