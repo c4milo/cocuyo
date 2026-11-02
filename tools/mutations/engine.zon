@@ -7829,4 +7829,76 @@
         },
         .caught_by = .{ .step = "fill-check" },
     },
+    .{
+        .section = "The bounds of an RSA key",
+        .id = "RK1",
+        .what = "an RSA key under rsa_modulus_bits_min is usable",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rsa.zig", .old = "    return bits >= limits.rsa_modulus_bits_min and bits <= limits.rsa_modulus_bits_max;", .new = "    return bits <= limits.rsa_modulus_bits_max;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The bounds of an RSA key",
+        .id = "RK2",
+        .what = "an RSA key over rsa_modulus_bits_max is usable",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rsa.zig", .old = "    return bits >= limits.rsa_modulus_bits_min and bits <= limits.rsa_modulus_bits_max;", .new = "    return bits >= limits.rsa_modulus_bits_min;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The bounds of an RSA key",
+        .id = "RK3",
+        .what = "an exponent past rsa_exponent_bytes_max is read",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rsa.zig", .old = "    if (exponent_bytes == 0 or exponent_bytes > limits.rsa_exponent_bytes_max) return false;", .new = "    if (exponent_bytes == 0) return false;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The bounds of an RSA key",
+        .id = "RK4",
+        .what = "leading zeros in the exponent or the modulus are read",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rsa.zig", .old = "    if (exponent[0] == 0 or modulus[0] == 0) return false;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The bounds of an RSA key",
+        .id = "RK5",
+        .what = "a key whose exponent fills it, with no modulus, is read",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rsa.zig", .old = "    if (public_key.len <= at + exponent_bytes) return false;", .new = "    if (public_key.len < at + exponent_bytes) return false;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The bounds of an RSA key",
+        .id = "RK6",
+        .what = "the three-octet exponent length is read as one octet",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rsa.zig", .old = "        exponent_bytes = std.mem.readInt(u16, public_key[1..constants.rsa_exponent_length_long_bytes], .big);\n        at = constants.rsa_exponent_length_long_bytes;\n", .new = "        exponent_bytes = public_key[0];\n        at = 1;\n" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The bounds of an RSA key",
+        .id = "RK7",
+        .what = "a check hands the verifier an RSA key outside the bounds",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "    if (sig.signature.len > limits.signature_bytes_max or !rsa.usable(key.algorithm, key.public_key)) return false;", .new = "    if (sig.signature.len > limits.signature_bytes_max) return false;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The bounds of an RSA key",
+        .id = "RK8",
+        .what = "a signature past signature_bytes_max is handed to the verifier",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_rrset.zig", .old = "    if (sig.signature.len > limits.signature_bytes_max or !rsa.usable(key.algorithm, key.public_key)) return false;", .new = "    if (!rsa.usable(key.algorithm, key.public_key)) return false;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
 }

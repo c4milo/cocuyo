@@ -11505,3 +11505,23 @@ to its end.
 | FS2 | a message's validation reads it into a local reader | `zig build fill-check` | `CAUGHT` |
 | FS3 | a wildcard's proof gathers its NSEC records in a local list | `zig build fill-check` | `CAUGHT` |
 | FS4 | a key admission reads the DNSKEY set into a local reader | `zig build fill-check` | `CAUGHT` |
+
+## The bounds of an RSA key
+
+2026-11-02. Design §25, New limits, and issue c4milo/cocuyo#56: a check reads an RSA key's form
+(RFC 3110 §2) and passes over a key under 1,024 bits or over 4,096, an exponent past eight
+octets, and a signature past 512. The first run left RK6 failing to compile, since its edit left
+a variable unchanged, and RK7 and RK8 `NOT CAUGHT`, since no test reached the check in `names`.
+RK6's edit now sets both variables, and a test of `names` now covers both. `zig build mutations
+-- engine RK1 ... RK8` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| RK1 | an RSA key under rsa_modulus_bits_min is usable | `zig build test-dnssec` | `CAUGHT` |
+| RK2 | an RSA key over rsa_modulus_bits_max is usable | `zig build test-dnssec` | `CAUGHT` |
+| RK3 | an exponent past rsa_exponent_bytes_max is read | `zig build test-dnssec` | `CAUGHT` |
+| RK4 | leading zeros in the exponent or the modulus are read | `zig build test-dnssec` | `CAUGHT` |
+| RK5 | a key whose exponent fills it, with no modulus, is read | `zig build test-dnssec` | `CAUGHT` |
+| RK6 | the three-octet exponent length is read as one octet | `zig build test-dnssec` | `CAUGHT` |
+| RK7 | a check hands the verifier an RSA key outside the bounds | `zig build test-dnssec` | `CAUGHT` |
+| RK8 | a signature past signature_bytes_max is handed to the verifier | `zig build test-dnssec` | `CAUGHT` |

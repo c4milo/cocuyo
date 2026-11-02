@@ -390,3 +390,24 @@ pub fn ds_of(owner: *const Name, key: []const u8, algorithm: u8, digest_type: u8
     @memcpy(rdata[4..], digest[0..8]);
     return rdata;
 }
+
+/// An RSA/SHA-256 zone key's rdata, its exponent 65537 and a modulus of `modulus_bytes` octets.
+pub fn rsa_key(comptime modulus_bytes: usize) [4 + 4 + modulus_bytes]u8 {
+    return [_]u8{ 0x01, 0x00, 3, 8, 3, 1, 0, 1 } ++ [_]u8{0xc1} ** modulus_bytes;
+}
+
+/// An RRSIG over an A set by `key`, signer `example`, with a signature of `signature_bytes`.
+pub fn rsa_rrsig(out: []u8, key: []const u8, signature_bytes: usize) !wire.rdata.Rrsig {
+    const signer = "\x07example\x00";
+    const head = 18;
+    std.mem.writeInt(u16, out[0..2], 1, .big);
+    out[2] = 8;
+    out[3] = 2;
+    std.mem.writeInt(u32, out[4..8], 3600, .big);
+    std.mem.writeInt(u32, out[8..12], 1084127779, .big);
+    std.mem.writeInt(u32, out[12..16], 1081535779, .big);
+    std.mem.writeInt(u16, out[16..18], dnssec.key_tag(key), .big);
+    @memcpy(out[head..][0..signer.len], signer);
+    @memset(out[head + signer.len ..][0..signature_bytes], 0x5a);
+    return wire.rdata.Rrsig.parse(out[0 .. head + signer.len + signature_bytes]);
+}

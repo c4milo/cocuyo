@@ -12,6 +12,7 @@ const dnssec = @import("dnssec.zig");
 const Verifier = dnssec.Verifier;
 const limits = @import("limits.zig");
 const canonical = @import("dnssec_canonical.zig");
+const rsa = @import("dnssec_rsa.zig");
 const message_reader = @import("dnssec_message.zig");
 const Message = message_reader.Message;
 const Rrset = message_reader.Rrset;
@@ -193,9 +194,11 @@ fn signs(
 /// Whether `key` is one `sig` names, and one a check can use: the same algorithm and key tag
 /// (RFC 4035 §5.3.1), the Zone Key flag set (RFC 4034 §2.1.1), the protocol 3 (§2.1.2), and an
 /// algorithm the verifier checks.
-fn names(verifier: Verifier, sig: *const wire.rdata.Rrsig, rdata: []const u8, key: *const wire.rdata.Dnskey) bool {
+pub fn names(verifier: Verifier, sig: *const wire.rdata.Rrsig, rdata: []const u8, key: *const wire.rdata.Dnskey) bool {
     if (key.algorithm != sig.algorithm or dnssec.key_tag(rdata) != sig.key_tag) return false;
     if (!key.zone_key() or !key.protocol_valid()) return false;
+    // A key or a signature outside §25's bounds is passed over, as one the verifier cannot use.
+    if (sig.signature.len > limits.signature_bytes_max or !rsa.usable(key.algorithm, key.public_key)) return false;
     return verifier.checks(verifier.context, sig.algorithm);
 }
 

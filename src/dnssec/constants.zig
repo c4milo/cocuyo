@@ -52,3 +52,12 @@ pub const label_separator: u8 = '.';
 /// The bases of the integers and the digest in presentation form (RFC 4034 §2.2, §5.3).
 pub const decimal_radix: u8 = 10;
 pub const hex_radix: u8 = 16;
+
+/// The RSA algorithms a check reads the key's form for: RSA/SHA-256 and RSA/SHA-512 (RFC 5702
+/// §2.1, §2.2).
+pub const algorithm_rsa_sha256: u8 = 8;
+pub const algorithm_rsa_sha512: u8 = 10;
+
+/// An RSA key's exponent length in one octet, or, when that octet is zero, in the two after it
+/// (RFC 3110 §2).
+pub const rsa_exponent_length_long_bytes: usize = 3;

@@ -1679,7 +1679,9 @@ the check. "Validate" is the whole answer read, its RRSIG found, the key taken f
 the check. The keys and signatures are the RFCs' own:
 
 - RFC 5702 §6 for algorithms 8 and 10. Its keys are 512 and 1,024 bits, and a signed zone uses
-  2,048, so these two rows understate an RSA check.
+  2,048, so these rows understate an RSA check. The validator passes over a key under 1,024 bits
+  (§25, New limits, built on 2026-11-02), so the 512-bit key has the check alone. The first run
+  also validated one A under it, at 4,033 ns fastest, before that check was built.
 - RFC 6605 §6 for 13 and 14.
 - RFC 8080 §6.1 for 15. Its RRSIG has a Labels field past its owner's labels, which cocuyo refuses
   (RFC 4035 §5.3.1), so algorithm 15 has the check alone.
@@ -1689,7 +1691,6 @@ Nanoseconds per operation:
 | Case | Fastest | Median |
 | --- | --- | --- |
 | check, RSA/SHA-256 (8), 512-bit key | 3,736 | 3,861 |
-| validate one A, RSA/SHA-256 (8), 512-bit key | 4,033 | 4,073 |
 | check, RSA/SHA-512 (10), 1,024-bit key | 7,801 | 7,925 |
 | validate one A, RSA/SHA-512 (10), 1,024-bit key | 8,117 | 8,288 |
 | check, ECDSA P-256 (13) | 55,277 | 55,786 |
@@ -11246,6 +11247,12 @@ Each step lands with its checks, each check broken on purpose and recorded in
       `bench/count.zig` the compiler inlined the codec otherwise, and `parse-sixteen` moved 2.1%
       with no change to its code. Apart, every count of the codec stays as it was.
     - The count of 2026-11-02 on x86-64 Linux: 7,570 instructions for one validation.
+    The bounds of an RSA key and of a signature, built on 2026-11-02 (§25, New limits; issue
+    #56): `rsa_modulus_bits_min`, `rsa_modulus_bits_max`, `rsa_exponent_bytes_max` and
+    `signature_bytes_max` are in `src/dnssec/limits.zig`. `src/dnssec/dnssec_rsa.zig` reads an
+    RSA key's form (RFC 3110 §2) before a check hands it to the verifier. A key outside the bounds
+    is passed over, as one of an algorithm the verifier does not check. chapulin admits 512 bits,
+    so this check is cocuyo's own.
     - Three fills stay on x86-64, none on arm64. Each is a `Name` the codec zeroes as it reads
       one, in an RRSIG and in an NSEC or NSEC3. `tools/fill_check/fill_check.zig` names them.
 16. A live check, once a day and not a gate: names known to be signed, unsigned and signed

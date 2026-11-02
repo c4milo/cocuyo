@@ -47,6 +47,18 @@ pub const chain_questions_max: u8 = 32;
 /// for names of four zones the store does not hold yet. §17 question 95 asks the owner.
 pub const walks_max: u8 = 4;
 
+/// The RSA keys a check uses, by modulus (algorithms 8 and 10). RFC 5702 §2 allows 512 bits for
+/// algorithm 8, and the count of 2026-10-03 in docs/design.md §25 found 1,024 the smallest any
+/// top-level domain publishes, in 715 of them. So a smaller key is passed over.
+pub const rsa_modulus_bits_min: usize = 1024;
+/// "MUST NOT be more than 4096 bits" (RFC 5702 §2), and chapulin's own bound.
+pub const rsa_modulus_bits_max: usize = 4096;
+/// The octets of an RSA key's exponent. The count of 2026-10-03 found five at most, and eight
+/// bounds what one check costs.
+pub const rsa_exponent_bytes_max: usize = 8;
+/// The octets of one signature: an RSA signature under the largest key, 4,096 bits.
+pub const signature_bytes_max: usize = 512;
+
 comptime {
     // A DS set enters the store as one entry.
     if (ds_records_max > zone_keys_max) @compileError("a DS set must fit a store entry");

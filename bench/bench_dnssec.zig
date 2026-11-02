@@ -12,7 +12,9 @@
 //!
 //! The keys and signatures are the ones the RFCs print: RFC 5702 §6 for algorithms 8 and 10,
 //! RFC 6605 §6 for 13 and 14, RFC 8080 §6.1 for 15. RFC 5702's keys are 512 and 1,024 bits, far
-//! smaller than the 2,048 bits a signed zone uses, so the RSA rows understate an RSA check. RFC
+//! smaller than the 2,048 bits a signed zone uses, so the RSA rows understate an RSA check. The
+//! validator passes over a key under 1,024 bits (§25, New limits), so algorithm 8's key has the
+//! check alone. RFC
 //! 8080's example signs an MX set with a Labels field past its owner's labels, which cocuyo
 //! refuses (RFC 4035 §5.3.1). So algorithm 15 has the check alone, over that example's signed data.
 //!
@@ -108,8 +110,9 @@ fn asked() Name {
     return Name.from_text("www.example.net") catch unreachable;
 }
 
-/// Sets up one example: the message, the RRSIG's rdata, and a store that holds the key.
-fn set(example: *const Example) void {
+/// Sets up one example: the message, the RRSIG's rdata, and a store that holds the key. A key
+/// the validator passes over, as RFC 5702 §6.1's 512 bits are, is not validated.
+fn set(example: *const Example, validates: bool) void {
     key = example.key;
     address = example.address;
     message = fixtures.a_message(&message_buffer, example.address, example.fields, example.signature);
@@ -123,7 +126,7 @@ fn set(example: *const Example) void {
     std.debug.assert(held);
     // Each case is checked once, here, so a row never measures a check that fails.
     std.debug.assert(check());
-    std.debug.assert(validate() == .secure);
+    if (validates) std.debug.assert(validate() == .secure);
 }
 
 /// cocuyo's signed data of the one A record, fed to chapulin, and the check.
@@ -170,25 +173,24 @@ fn set_ed25519() void {
 }
 
 fn set_rsa_sha256() void {
-    set(&examples.rsa_sha256);
+    set(&examples.rsa_sha256, false);
 }
 
 fn set_rsa_sha512() void {
-    set(&examples.rsa_sha512);
+    set(&examples.rsa_sha512, true);
 }
 
 fn set_p256() void {
-    set(&examples.p256);
+    set(&examples.p256, true);
 }
 
 fn set_p384() void {
-    set(&examples.p384);
+    set(&examples.p384, true);
 }
 
 /// The iterations make one sample last milliseconds on the machine of §11's rows.
 const cases = [_]harness.Case{
     .{ .name = "check, RSA/SHA-256 (8), 512-bit key, RFC 5702", .iterations = 2000, .run = &run_check, .setup = &set_rsa_sha256 },
-    .{ .name = "validate one A, RSA/SHA-256 (8), 512-bit key", .iterations = 2000, .run = &run_validate, .setup = &set_rsa_sha256 },
     .{ .name = "check, RSA/SHA-512 (10), 1024-bit key, RFC 5702", .iterations = 1000, .run = &run_check, .setup = &set_rsa_sha512 },
     .{ .name = "validate one A, RSA/SHA-512 (10), 1024-bit key", .iterations = 1000, .run = &run_validate, .setup = &set_rsa_sha512 },
     .{ .name = "check, ECDSA P-256 (13), RFC 6605", .iterations = 200, .run = &run_check, .setup = &set_p256 },

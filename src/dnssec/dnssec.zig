@@ -161,4 +161,5 @@ test {
     _ = anchors;
     _ = @import("dnssec_anchors_test.zig");
     _ = @import("dnssec_base64.zig");
+    _ = @import("dnssec_rsa.zig");
 }
