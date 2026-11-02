@@ -6148,6 +6148,16 @@ handshake used, so no example and no live check can say it.
     never started, which leaves a dead walk's connection user until its slot is used again, and
     a call from the table into the driver in the middle of `on_datagram`. Answered on
     2026-11-01: `walked`.
+101. **The anchors from text.** `config` holds no anchor parser yet, and the example needs one.
+    Recommended: `cocuyo.trust_anchors.parse(text, anchors, rdata)`, which reads DS and DNSKEY
+    records in zone-file form (RFC 4034 §5.3, §2.2), with `;` comments, into the caller's memory.
+    A DNSKEY needs base64, and a new named limit bounds the count of anchors. Answered on
+    2026-11-01: yes, DS and DNSKEY.
+102. **The examples that validate.** Recommended: all four, plain DNS, DoT, DoQ and DoH, each with
+    the word `dnssec` and an anchor file. So the interop check can validate over each transport.
+    Answered on 2026-11-01: all four.
+103. **The algorithms §11 measures.** Recommended: all five that colibri's verifier checks, 8,
+    10, 13, 14 and 15. Answered on 2026-11-01: all five.
 
 ## 18. The cache
 
@@ -11074,6 +11084,9 @@ Each step lands with its checks, each check broken on purpose and recorded in
     algorithm, in §11.
     The owner's rulings of 2026-11-01 (§17 questions 96 and 97): the example reads the root's DS
     records from a file named on its command line, and the word `dnssec` turns validation on.
+    The owner's rulings of 2026-11-01 (§17 questions 101 to 103): `cocuyo.trust_anchors` reads DS
+    and DNSKEY records from text, all four engine examples take `dnssec`, and §11 measures
+    algorithms 8, 10, 13, 14 and 15.
     The engine takes the consumer's `KeyStore` with `use_trust`, once after `init`, and a
     `reinit` keeps it (§17 question 98).
     The walk's end, ruled on 2026-11-01 (§17 question 100):
