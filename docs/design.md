@@ -10579,6 +10579,13 @@ When the validator answers `keys_wanted`, a walk fetches what is missing. Its ru
     `chain_questions_max` questions at most.
 11. A walk whose question fails for another reason, a timeout or every server failing, ends the
     lookups that wait for it with that failure, and not with `Bogus`.
+12. Walks for other targets share the store, which holds one entry for each zone: its DS set
+    until its keys enter, then its keys. So the answer to a walk's question can come after
+    another walk entered the zone it asked of. When the store holds that zone's keys as the
+    answer comes, the walk stands in the zone, as rule 4 ends, and keeps nothing of the answer.
+    A DS set never takes the place of keys the store holds. The model of `spec/lean/` runs one
+    walk at a time, so this rule is the code's alone (found on 2026-11-02, live against
+    `dns.google`).
 
 Counted from these rules, not measured: `www.example.com` under the root's anchor alone takes
 seven questions the first time, which are the question, the root's DNSKEY set, the DS and DNSKEY
@@ -11341,6 +11348,7 @@ Checks, one for each piece of Stage B:
 - A lookup that waits for keys sends nothing, and asks again when they come.
 - A table full of lookups that wait still fetches their keys.
 - A walk past `chain_questions_max` fails the lookups that wait for it.
+- A walk whose zone another walk entered first stands in it, and the zone keeps its keys.
 - A bogus answer over UDP is asked again over TCP, and a bogus one there moves to the next
   server.
 - A hit from the cache hands back the status the entry was stored with.

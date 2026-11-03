@@ -207,6 +207,40 @@ test "a second walk's answer, which the store already speaks for, ends it too" {
     try testing.expectEqual(End.ready, fixture.walker.end(second).?);
 }
 
+test "a walk whose zone another walk entered first stands in it, and keeps its keys" {
+    const ds = zone.child_ds();
+    var ds_answer = zone.ds_answer(&ds);
+    var child_keys = zone.child_keys();
+    // Both walks ask `a.example DS`. The first enters the zone before the second's answer
+    // comes, which must not put the DS set back in place of the keys.
+    var late_ds: Fixture = .{};
+    late_ds.init();
+    late_ds.hold_example(std.math.maxInt(u64));
+    const first = late_ds.walker.join(&named("a.example"), 0).?;
+    const second = late_ds.walker.join(&named("x.a.example"), 0).?;
+    _ = late_ds.walker.question(second).?;
+    try late_ds.ask(first, "a.example", .ds, ds_answer.message(), 0);
+    try late_ds.ask(first, "a.example", .dnskey, child_keys.message(), 0);
+    try testing.expectEqual(End.ready, late_ds.walker.end(first).?);
+    late_ds.walker.answered(second, ds_answer.message(), 0);
+    try testing.expectEqual(store_module.Known.keys, late_ds.known("a.example").?);
+    try testing.expect(late_ds.walker.question(second).?.name.equal(&named("x.a.example")));
+    // Both walks ask `a.example DNSKEY`. The second's answer finds the keys held, not the DS
+    // set, and stands in the zone with no new start.
+    var late_keys: Fixture = .{};
+    late_keys.init();
+    late_keys.hold_example(std.math.maxInt(u64));
+    const one = late_keys.walker.join(&named("a.example"), 0).?;
+    const other = late_keys.walker.join(&named("x.a.example"), 0).?;
+    try late_keys.ask(one, "a.example", .ds, ds_answer.message(), 0);
+    try late_keys.ask(other, "a.example", .ds, ds_answer.message(), 0);
+    _ = late_keys.walker.question(other).?;
+    try late_keys.ask(one, "a.example", .dnskey, child_keys.message(), 0);
+    late_keys.walker.answered(other, child_keys.message(), 0);
+    try testing.expect(!late_keys.walker.walks[other].restarted);
+    try testing.expect(late_keys.walker.question(other).?.name.equal(&named("x.a.example")));
+}
+
 test "an NSEC3 at a delegation with no DS bit ends the walk insecure" {
     var fixture: Fixture = .{};
     fixture.init();

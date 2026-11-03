@@ -137,6 +137,12 @@ pub const Walker = struct {
         // "the resolver MUST bound the work it puts into answering any particular query" (RFC
         // 4035 §5.4): rule 10.
         if (walk.questions > limits.chain_questions_max) return fail(walk, .bogus);
+        // Another walk entered the zone first: its keys stand, and nothing of this answer is kept
+        // in their place (rule 12).
+        if (self.holds(&walk.target, walk.probe_labels, .keys, now_ns)) {
+            walk.zone_labels = walk.probe_labels;
+            return self.next(walk, now_ns);
+        }
         const probe = core.canonical.ancestor(&walk.target, walk.probe_labels);
         if (walk.asking == .ds) self.ds_answered(walk, &probe, bytes, now_ns) else self.keys_answered(walk, &probe, bytes, now_ns);
         assert(walk.questions <= limits.chain_questions_max);

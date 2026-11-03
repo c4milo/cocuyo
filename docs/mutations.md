@@ -11557,3 +11557,15 @@ engine AU1 ... AU5` ran each to its end.
 | AU3 | the serial comparison of two times loses its wrap | `zig build test-dnssec` | `CAUGHT` |
 | AU4 | an alias on a walk's way reads as a delegation with no DS | `zig build test-dnssec` | `CAUGHT` |
 | AU5 | a walk asks one question past chain_questions_max, its assertion moved too | `zig build test-sim` | `CAUGHT` |
+
+## Walks that share a zone
+
+2026-11-02. Design §25, walk rule 12, and issue c4milo/cocuyo#56. The live check gave `Bogus`
+for google.com through `dns.google` when it walked beside cloudflare.com. The store holds one
+entry for each zone. A walk whose answer came after another walk entered the zone put the DS set
+back in place of the keys, or found no DS set to match its keys and started again. A test of two
+walks now holds both cases, and failed before the fix. `zig build mutations -- engine WS1` ran it.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| WS1 | a walk's late answer is read when another walk entered the zone first | `zig build test-dnssec` | `CAUGHT` |

@@ -7956,4 +7956,13 @@
         },
         .caught_by = .{ .step = "test-sim" },
     },
+    .{
+        .section = "Walks that share a zone",
+        .id = "WS1",
+        .what = "a walk's late answer is read when another walk entered the zone first",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "        if (self.holds(&walk.target, walk.probe_labels, .keys, now_ns)) {\n", .new = "        if (false) {\n" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
 }
