@@ -160,10 +160,8 @@ pub const Walker = struct {
                 },
                 .no_data => {
                     if (checker.delegated(probe, bytes, now_ns)) return self.insecure(walk, probe, secure.ttl_seconds, now_ns);
-                    // The name exists and is no delegation: the next label, in the same zone. At
-                    // the target, data with no signature sits inside a signed zone (rule 8).
-                    if (walk.probe_labels >= walk.target.label_count()) return fail(walk, .bogus);
-                    walk.probe_labels += 1;
+                    // The name exists and is no delegation: the next label, in the same zone.
+                    next_label(walk);
                 },
                 .name_error, .alias => fail(walk, .bogus),
             },
@@ -171,8 +169,21 @@ pub const Walker = struct {
             // TTL is its SOA's (RFC 2308 §5).
             .insecure => self.insecure(walk, probe, wire.response.negative_ttl_seconds(bytes, probe) catch 0, now_ns),
             .keys_wanted => self.restart(walk, now_ns),
-            .unchecked, .bogus => fail(walk, .bogus),
+            // A signed answer that proves nothing at the probe, as NSD's DS answer at an empty
+            // non-terminal under Opt-Out, which leaves out the record RFC 5155 §7.2.4 requires
+            // (rule 6). Nothing of it is kept, and the next answer is validated under the same keys.
+            .bogus => |reason| if (reason == .proof) next_label(walk) else fail(walk, .bogus),
+            .unchecked => fail(walk, .bogus),
         }
+    }
+
+    /// Rule 6: the next label, in the same zone. At the target, data with no signature sits inside
+    /// a signed zone (rule 8).
+    fn next_label(walk: *Walk) void {
+        assert(walk.asking == .ds);
+        if (walk.probe_labels >= walk.target.label_count()) return fail(walk, .bogus);
+        walk.probe_labels += 1;
+        assert(walk.probe_labels <= walk.target.label_count());
     }
 
     /// Rule 4: the DNSKEY set enters when a key in it matches the anchor or the held DS set.

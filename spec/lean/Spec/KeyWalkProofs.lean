@@ -216,6 +216,12 @@ theorem answered_good (c : Config) (s : State) (a : Answer) (g : Good c s)
     · rename_i hlen
       refine ⟨h, fun _ => ⟨below_above _ _, hzone, fun _ => ?_⟩⟩
       exact prefix_trans_strict _ _ _ (hds hw) (strictly_below _ _ hprobe (by omega)).1
+  · -- An answer that proves nothing: the next label, as for no delegation.
+    split
+    · exact good_fail c _ h
+    · rename_i hlen
+      refine ⟨h, fun _ => ⟨below_above _ _, hzone, fun _ => ?_⟩⟩
+      exact prefix_trans_strict _ _ _ (hds hw) (strictly_below _ _ hprobe (by omega)).1
   · -- An unsigned delegation.
     have hk : s.walk.zone ∈ s.store.keys := by simpa [hw] using hguard
     exact good_finish c _ (backed_add_insecure c _ _ h _ hk (hds hw))

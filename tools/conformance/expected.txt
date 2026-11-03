@@ -42,7 +42,6 @@ resolver::dnssec::scenarios::cname::secure_cname_nsec3_secure_nodata_nsec nodata
 resolver::dnssec::scenarios::cname::secure_cname_nsec3_secure_positive_wildcard_expanded_nsec records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)
 resolver::dnssec::scenarios::cname::secure_cname_nsec_secure_nodata_nsec3 nodata: a Failure holds no chain's end, so a no data after a CNAME has no CNAME in the reply
 resolver::dnssec::scenarios::cname::secure_cname_nsec_secure_positive_wildcard_expanded_nsec3 records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)
-resolver::dnssec::scenarios::insecure::no_ds_record_nsec3_opt_out_below_empty_non_terminal ent: the walk asks DS at an empty non-terminal, and NSD leaves out the opt-out NSEC3 (RFC 5155 §7.2.4)
 resolver::dnssec::scenarios::secure::also_secure_when_do_is_set records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)
 resolver::nsec::domain_exists_record_type_does_not_nsec records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)
 resolver::nsec::domain_exists_record_type_does_not_nsec3 records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)

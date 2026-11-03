@@ -292,6 +292,35 @@ test "a CNAME that no valid DNAME makes fails its walk as bogus, and is never in
     try testing.expectEqual(@as(?store_module.Known, null), fixture.known("x.d.example"));
 }
 
+test "an answer that proves nothing at a name moves the walk on, and fails it at the target" {
+    var fixture: Fixture = .{};
+    fixture.init();
+    fixture.hold_example(std.math.maxInt(u64));
+    // `b.example DS` answered with the zone's SOA and no NSEC: signed, and a proof of nothing, as
+    // NSD's answer at an empty non-terminal under Opt-Out is (docs/design.md §25 walk rule 6).
+    var unproven = Builder.init("b.example", .ds, 0);
+    unproven.authority();
+    zone.apex_soa(&unproven);
+    const index = fixture.walker.join(&named("a.b.example"), 0).?;
+    try fixture.ask(index, "b.example", .ds, unproven.message(), 0);
+    try testing.expectEqual(@as(?End, null), fixture.walker.end(index));
+    // One label down, the NSEC at `b.example` proves a delegation with no DS (rule 5).
+    var below = zone.ds_denied("a.b.example", "b.example", zone.nsec_at_b);
+    try fixture.ask(index, "a.b.example", .ds, below.message(), 0);
+    try testing.expectEqual(End.ready, fixture.walker.end(index).?);
+    // At the target itself the same answer fails the walk (rule 8).
+    const at_target = fixture.walker.join(&named("b.example"), 0).?;
+    try fixture.ask(at_target, "b.example", .ds, unproven.message(), 0);
+    try testing.expectEqual(End{ .failed = .bogus }, fixture.walker.end(at_target).?);
+    // A signature that fails ends the walk at once, wherever it is.
+    var forged = Builder.init("b.example", .ds, 0);
+    forged.authority();
+    forged.rrset("example", .soa, &.{zone.soa}, zone.by_wrong_key);
+    const signed_wrongly = fixture.walker.join(&named("x.b.example"), 0).?;
+    try fixture.ask(signed_wrongly, "b.example", .ds, forged.message(), 0);
+    try testing.expectEqual(@as(?End, .{ .failed = .bogus }), fixture.walker.end(signed_wrongly));
+}
+
 test "a proof that a name on the way does not exist fails the walk as bogus" {
     var fixture: Fixture = .{};
     fixture.init();

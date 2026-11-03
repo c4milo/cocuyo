@@ -11601,3 +11601,17 @@ beside a secure no data now holds it. `zig build mutations -- engine NZ1` ran it
 | Id | Mutation | Caught by | Result |
 | --- | --- | --- | --- |
 | NZ1 | any NSEC3 in the authority section makes a negative read NSEC3 | `zig build test-dnssec` | `CAUGHT` |
+
+## A DS answer that proves nothing
+
+2026-11-03. Design §25 walk rule 6, and issue c4milo/cocuyo#59. hickory-dns's suite gave `Bogus`
+for a zone with no DS under an empty non-terminal of an Opt-Out zone. NSD answered the walk's DS
+question at the empty non-terminal with the closest encloser alone, and the walk failed at that
+answer. The walk now takes the next label after a signed answer that proves nothing, and still
+fails at once on a signature that fails. The Lean model gained the answer `unproven`.
+`zig build mutations -- engine UP1 UP2` ran both.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| UP1 | a walk fails at a DS answer that proves nothing at its name | `zig build test-dnssec` | `CAUGHT` |
+| UP2 | a walk takes the next label after a DS answer whose signature fails | `zig build test-dnssec` | `CAUGHT` |

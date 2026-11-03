@@ -10570,7 +10570,15 @@ When the validator answers `keys_wanted`, a walk fetches what is missing. Its ru
    set SOA bit marks the child's own record, which proves nothing here. The store keeps the
    delegation, and the walk ends: everything at or under that name is `insecure`.
 6. A proof that the name exists and is no delegation, or is an empty non-terminal, leaves the
-   walk in the same zone, and it takes the next label.
+   walk in the same zone, and it takes the next label. So does a signed answer that proves
+   nothing at the name, whose verdict is `bogus` for its proof alone. An empty non-terminal under
+   Opt-Out has no NSEC3 record of its own, and NSD answers its DS question with the closest
+   encloser alone, without the covering record RFC 5155 §7.2.4 requires. Unbound and hickory-dns
+   ask DS at the cut a referral showed them, and never ask it there. The walk trusts nothing of
+   such an answer: the next answer is validated under the same keys, a real delegation at the
+   name has an NSEC3 record that marks a cut, and rule 10 bounds the questions. At the target,
+   rule 8 still fails the walk. A signature that fails still fails it at once (found on
+   2026-11-03 by step 17's suite).
 7. A proof that the name does not exist ends the walk, and the lookups that wait for it end
    `Bogus`: the response they read spoke of a name the zone above has proved is not there.
 8. The walk ends when the store holds the target's keys, when it holds an insecure delegation
@@ -11349,10 +11357,9 @@ Each step lands with its checks, each check broken on purpose and recorded in
       table that validates validates every lookup. A test that expects one of these fails, and
       `expected.txt` names it with its reason.
     - **The first run, on 2026-11-03.** 131 tests passed and 48 failed, each for a reason
-      `expected.txt` names. Two faults it found are fixed: a negative read with NSEC3 of another
-      zone (rule 11), and the program's AD, opcode and version replies. One is a question for
-      the owner: the walk asks DS at an empty non-terminal, where NSD leaves out the opt-out
-      NSEC3 that RFC 5155 §7.2.4 requires, and so reads the zone below as Bogus.
+      `expected.txt` names. Three faults it found are fixed: a negative read with NSEC3 of
+      another zone (rule 11), the program's AD, opcode and version replies, and a walk that
+      failed at an empty non-terminal whose DS answer proved nothing (walk rule 6).
     - **The forwarder role.** The upstream is the resolver the suite names.
     - **The resolver role.** The image also runs Unbound with validation off, `module-config:
       "iterator"`, on the loopback, from the suite's root hints. cocuyo forwards to it, and

@@ -8001,4 +8001,22 @@
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
+    .{
+        .section = "A DS answer that proves nothing",
+        .id = "UP1",
+        .what = "a walk fails at a DS answer that proves nothing at its name",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "            .bogus => |reason| if (reason == .proof) next_label(walk) else fail(walk, .bogus),", .new = "            .bogus => fail(walk, .bogus)," },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "A DS answer that proves nothing",
+        .id = "UP2",
+        .what = "a walk takes the next label after a DS answer whose signature fails",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "            .bogus => |reason| if (reason == .proof) next_label(walk) else fail(walk, .bogus),", .new = "            .bogus => next_label(walk)," },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
 }

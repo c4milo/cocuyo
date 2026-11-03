@@ -70,6 +70,9 @@ inductive Answer where
   | dsSet
   /-- A secure proof that the probe exists and is no delegation, or is an empty non-terminal. -/
   | noDelegation
+  /-- A signed answer that proves nothing at the probe: its verdict is bogus for its proof alone,
+  as NSD's answer at an empty non-terminal under Opt-Out is (§25, walk rule 6). -/
+  | unproven
   /-- A secure proof of a delegation with no DS at the probe, or an insecure answer. -/
   | unsigned
   /-- A secure proof that the probe does not exist. -/
@@ -138,7 +141,9 @@ def answered (c : Config) (s : State) (a : Answer) : State :=
     -- The probe exists and is no delegation: the next label, in the same zone (rule 6). At the
     -- target, a walk for data with no signature reached the name asked inside a signed zone
     -- (rule 8).
-    | .ds, .noDelegation =>
+    -- An answer that proves nothing at the probe moves the walk on the same way, since nothing
+    -- of it enters the store (rule 6).
+    | .ds, .noDelegation | .ds, .unproven =>
       if w.probe.length ≥ w.target.length then fail t
       else { t with walk := { t.walk with probe := below w.probe w.target } }
     | .ds, .unsigned =>
