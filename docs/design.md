@@ -10512,7 +10512,11 @@ keeps none of it. It answers one of four things: `secure`, `insecure`, `bogus` w
     (§8.2). A record whose iteration count is above `nsec3_iterations_max` makes the answer
     `insecure`, once its own signature has been verified (RFC 9276 §3.2). A proof that rests on
     an Opt-Out record is `insecure` as well: names under such a record "may or may not exist
-    as insecure delegations" (RFC 5155 §9.2).
+    as insecure delegations" (RFC 5155 §9.2). A negative at a name is proved with NSEC3 only
+    when an NSEC3 record of a zone at or above the name is there. An NSEC3 record's zone is its
+    owner without the hash label (RFC 5155 §3). So the NSEC3 record of a wildcard CNAME's zone
+    does not make the NSEC zone at the chain's end prove with NSEC3 (found on 2026-11-03 by
+    step 17's suite).
 12. **Compact denial.** An NSEC at the name asked, with the NXNAME bit set, says the name does
     not exist, under a response code of NOERROR (RFC 9824 §2, §3.1; §4 has the NSEC3 form).
     The validator reads it as a name error.

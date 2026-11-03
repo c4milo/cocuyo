@@ -162,6 +162,7 @@ test {
     _ = walk;
     _ = keys;
     _ = @import("dnssec_walk_test.zig");
+    _ = @import("dnssec_validate_denial_test.zig");
     _ = anchors;
     _ = @import("dnssec_anchors_test.zig");
     _ = @import("dnssec_base64.zig");

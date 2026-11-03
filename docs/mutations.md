@@ -11589,3 +11589,15 @@ The expire order catches WS4 at seed 0. `zig build mutations -- engine WS3 WS4` 
 | --- | --- | --- | --- |
 | WS3 | a lookup cancelled while its walk asks is not cancelled | `zig build test-sim` | `CAUGHT` |
 | WS4 | a walk that loses its keys fails at once, and never begins again | `zig build test-sim` | `CAUGHT` |
+
+## A negative proved in its own zone
+
+2026-11-03. Design §25, Stage B rule 11, and issue c4milo/cocuyo#59. hickory-dns's suite gave
+`Bogus` for a wildcard CNAME in an NSEC3 zone whose target had no data in an NSEC zone. The
+validator read a negative with NSEC3 whenever the authority section held any NSEC3 record, and
+the only NSEC3 record there was the CNAME zone's. A test with an NSEC3 record of another zone
+beside a secure no data now holds it. `zig build mutations -- engine NZ1` ran it.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| NZ1 | any NSEC3 in the authority section makes a negative read NSEC3 | `zig build test-dnssec` | `CAUGHT` |

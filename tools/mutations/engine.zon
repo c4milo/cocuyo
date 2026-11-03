@@ -7992,4 +7992,13 @@
         },
         .caught_by = .{ .step = "test-sim" },
     },
+    .{
+        .section = "A negative proved in its own zone",
+        .id = "NZ1",
+        .what = "any NSEC3 in the authority section makes a negative read NSEC3",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "    if (try has_nsec3_over(walk, name)) return negative_nsec3(walk, name, kind, signed);", .new = "    if (has(walk, .nsec3)) return negative_nsec3(walk, name, kind, signed);" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
 }
