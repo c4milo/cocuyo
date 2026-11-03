@@ -8019,4 +8019,77 @@
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
+    .{
+        .section = "The chain a lookup keeps",
+        .id = "LK1",
+        .what = "a chain refuses a link one before cname_hops_max",
+        .edits = .{
+            .{ .file = "src/core/aliases.zig", .old = "        if (self.count == limits.cname_hops_max) return false;", .new = "        if (self.count + 1 == limits.cname_hops_max) return false;" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "The chain a lookup keeps",
+        .id = "LK2",
+        .what = "a message the lookup does not take leaves its links",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (expected.ending) |ending| if (!agrees(outcome, ending)) {\n        self.current = before;\n        self.aliases.truncate(links_before);", .new = "    if (expected.ending) |ending| if (!agrees(outcome, ending)) {\n        self.current = before;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The chain a lookup keeps",
+        .id = "LK3",
+        .what = "the codec keeps no link for a CNAME it follows",
+        .edits = .{
+            .{ .file = "src/wire/response.zig", .old = "        if (aliases) |links| if (!links.append(chain, pass.alias_ttl_seconds)) return Error.ChainTooLong;", .new = "        if (aliases) |links| _ = links;" },
+            .{ .file = "src/wire/response.zig", .old = "        if (aliases) |links| assert(links.count == hops);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-wire" },
+    },
+    .{
+        .section = "The chain a lookup keeps",
+        .id = "LK4",
+        .what = "the next candidate keeps the chain of the last, its links and its hops",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "                    self.cname_hops = 0;\n                    self.aliases.clear();\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The chain a lookup keeps",
+        .id = "LK5",
+        .what = "a negative's message moves no chain",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    follow_to_negative(self, message);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The chain a lookup keeps",
+        .id = "LK6",
+        .what = "a failure hands back no chain's end",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_failure.zig", .old = "        .canonical_name = if (negative and self.flags.aliased) &self.current else null,", .new = "        .canonical_name = null," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The chain a lookup keeps",
+        .id = "LK7",
+        .what = "a cache slot keeps the end but not the links",
+        .edits = .{
+            .{ .file = "src/cache/cache.zig", .old = "    slot.aliases.assign(kept.aliases);\n    assert(slot.aliases.count == kept.aliases.count);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-cache" },
+    },
+    .{
+        .section = "The chain a lookup keeps",
+        .id = "LK8",
+        .what = "a recall takes the end but not the links",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_recall.zig", .old = "    lookup.aliases.assign(aliases);\n", .new = "    _ = aliases;\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
 }

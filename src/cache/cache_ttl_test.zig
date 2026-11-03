@@ -83,7 +83,7 @@ test "a TTL of zero and a truncated answer are not cached, and a TTL over the ca
     var truncated = fixtures.answers_v4(1, 300);
     truncated.truncated = true;
     table.put(&ask("a.example"), &truncated, null, .unchecked, 0);
-    table.put_negative(&ask("b.example"), .name_not_found, 0, .unchecked, 0);
+    table.put_negative(&ask("b.example"), .name_not_found, 0, null, .unchecked, 0);
     try testing.expectEqual(@as(usize, 0), table.len());
     const long = fixtures.answers_v4(1, 300);
     table.put(&ask("a.example"), &long, null, .unchecked, 0);
@@ -119,8 +119,8 @@ fn cache_init_capped(fixture: *fixtures.Fixture(slot_count), ttl_seconds_max: u3
 test "a negative answer is cached with its outcome, its TTL and no records" {
     var fixture: fixtures.Fixture(slot_count) = .{};
     var table = fixture.init();
-    table.put_negative(&ask("nx.example"), .name_not_found, 60, .unchecked, 0);
-    table.put_negative(&ask("nodata.example"), .no_data, 30, .unchecked, 0);
+    table.put_negative(&ask("nx.example"), .name_not_found, 60, null, .unchecked, 0);
+    table.put_negative(&ask("nodata.example"), .no_data, 30, null, .unchecked, 0);
     const nx = table.get(&ask("nx.example"), 0).?;
     try testing.expectEqual(Outcome.name_not_found, nx.outcome);
     try testing.expectEqual(@as(u32, 60), nx.ttl_seconds);
@@ -141,7 +141,7 @@ test "a negative answer put over an answered one resets the slot's answers where
     table.put(&ask("example.com"), &answers, null, .unchecked, 0);
     // No local to fill and copy: the slot's own answers are reset (docs/design.md §16
     // decision 34), and none of the address it held is left counted.
-    table.put_negative(&ask("example.com"), .no_data, 30, .unchecked, 0);
+    table.put_negative(&ask("example.com"), .no_data, 30, null, .unchecked, 0);
     const hit = table.get(&ask("example.com"), 0).?;
     try testing.expectEqual(Outcome.no_data, hit.outcome);
     try testing.expectEqual(@as(usize, 0), hit.answers.addresses().len);

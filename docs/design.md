@@ -327,6 +327,8 @@ pub const Answer = struct {
     records: ?*const wire.Records, // every other type (§19 step 9): `records.?.at(i)` for i below
     record_count: u8,             // `record_count`, each a `wire.Kept` the views of `wire.rdata` read
     canonical_name: ?*const Name, // the end of the CNAME chain, when there was one
+    aliases: *const Aliases,      // since 2026-11-03: each CNAME link on the way, its owner and TTL,
+                                  // `aliases.at(i)` for i below `aliases.count` (§5, §17 question 122)
     ttl_seconds: u32,             // the minimum TTL over the records used, bounded by the chain and
                                   // the search walk's negatives (§5); on a hit, what is left; each
                                   // record's own TTL is bounded by neither
@@ -346,6 +348,8 @@ pub const Failure = struct {
                                // NameLookup, the last lookup's that failed (§19 step 14)
     cause: ?Cause,             // since 2026-10-17: the last server failure the lookup met, null
                                // when none did; never null for AllServersFailed, always for Timeout
+    canonical_name: ?*const Name, // since 2026-11-03: for NameNotFound and NoData, the chain's end
+    aliases: *const Aliases,      // the links that reached it, as `Answer.aliases` (§17 question 122)
 };
 
 /// What made a server fail a lookup, and that server (§5, The cause of a failure; §16 decisions
@@ -1017,6 +1021,15 @@ and it stops at NODATA.
   `ChainTooLong`, and so does a loop inside one message: RFC 1034 §3.6.2 and §5.2.2 have alias
   loops signalled as an error to the client. The message passed every check of §7, so it is the
   server's answer and not a malformed one, and §16 decision 10 does not apply.
+- The lookup keeps each link it follows (§17 question 122): the link's owner in wire form and its
+  TTL, in `core.Aliases`. A link's target is the next link's owner, and the last link's target
+  is the chain's end. A link is kept only when the chain stays within `cname_hops_max`, so a
+  lookup holds as many links as it used hops, which an assertion holds. The owners are at most
+  `chain_bytes_max` octets, `cname_hops_max` names of `name_bytes_max`, held in the lookup's
+  slot and never allocated. A new search candidate starts with no link, as its hops start at
+  zero. `Answer` and `Failure` both hand the links back, and `Failure` the chain's end too, so a
+  no data after a CNAME says where the chain went. The table's memory and the cache keep the
+  links with the end, so a recalled end reports them as one that went out does.
 - The chain's CNAMEs bound what its end is kept for, across messages as well as inside one. The
   end is cached under the name asked, which reaches it through them, and each may be kept no
   longer than its own TTL (RFC 1035 §3.2.1). So the answer's TTL, and the negative TTL of an
@@ -1459,7 +1472,8 @@ up as a diff rather than as a surprise. The pins that exist are in `src/core/cor
 | `question` | 260 | the name as asked, its type, and whether it was absolute |
 | `current` | 256 | the current candidate, or where the CNAME chain has reached |
 | `answers` | 2448 | an extern union: `[addresses_max]Address` is 272, `[ptr_names_max]Name` is 256, and the records of §19 step 9 are 2436 — 32 references of 12 and a buffer of `rdata_bytes_max` — plus the question's type (decision 34), the count, the TTL, the hop count and two flags |
-| total | 3080, measured | pinned by a test in `src/resolver/lookup_init_test.zig`. DNSSEC Stage B's conjunction and count of waits for keys share Stage A's octet since 2026-11-01, and the validator lives beside the servers, so the lookup kept its size (§25 step 11, §17 question 94); 3072 until the counts of RFC 9520 §3.1 on 2026-10-27, whose four octets took eight with the padding (§16 decision 58, §17 question 83); the cause's server of 2026-10-21 took no octet more, since the lookup keeps the cause in three octets, where a `?Cause` takes four (§16 decision 51); the cause of a failure on 2026-10-17 took three octets of the padding (§5); 3064 until the instant of the send, which a latency sample is measured from, on 2026-10-09 (§5), and 3048 until the cookies of 2026-10-08 (§19 step 10) |
+| `aliases` | 2089 | the CNAME links of §5: `chain_bytes_max` octets of owners, then `cname_hops_max` ends and TTLs and the count (§17 question 122) |
+| total | 5176, measured | pinned by a test in `src/resolver/lookup_init_test.zig`. 3080 until the CNAME links of 2026-11-03 (§17 question 122). DNSSEC Stage B's conjunction and count of waits for keys share Stage A's octet since 2026-11-01, and the validator lives beside the servers, so the lookup kept its size (§25 step 11, §17 question 94); 3072 until the counts of RFC 9520 §3.1 on 2026-10-27, whose four octets took eight with the padding (§16 decision 58, §17 question 83); the cause's server of 2026-10-21 took no octet more, since the lookup keeps the cause in three octets, where a `?Cause` takes four (§16 decision 51); the cause of a failure on 2026-10-17 took three octets of the padding (§5); 3064 until the instant of the send, which a latency sample is measured from, on 2026-10-09 (§5), and 3048 until the cookies of 2026-10-08 (§19 step 10) |
 
 The total is larger than the parts because Zig chooses a struct's field order and pads accordingly.
 It also means a declaration order cannot be relied on for locality: the measurement that pinned
@@ -1471,13 +1485,13 @@ The caller-provided buffer §19 keeps as the fallback is what would take it back
 
 | Caller allocation | Size | For |
 | --- | --- | --- |
-| `[N]Resolver.Slot` | 3096 bytes each, measured, 3088 until 2026-10-27 | one per concurrent lookup: a lookup plus the table's own octets, the ready list's two links and its flag among them (§11) |
+| `[N]Resolver.Slot` | 5192 bytes each, measured, 3096 until the CNAME links of 2026-11-03 and 3088 until 2026-10-27 | one per concurrent lookup: a lookup plus the table's own octets, the ready list's two links and its flag among them (§11) |
 | `[2N]MatchKey` | 4 bytes each | the id-to-slot table, power-of-two length |
 | send buffer | `query_bytes_max`, 386 | shared by the whole table |
 | receive buffer | `config.udp_payload_bytes`, 1232 by default | the caller's, per socket |
-| `[M]AddressLookup` | 1216 bytes each, measured | one per `getaddrinfo`-shaped lookup in flight: the name, the canonical name, 32 addresses, two handles, the failure of each lookup and the walk's scalars, beside the two slots it takes; pinned by a test in `src/resolver/address_lookup_test.zig`; 1152 until the cause of a failure on 2026-10-17 (§16 decision 45), 1184 until the security of a negative on 2026-10-31 (§25), and 1200 until the extended error the same day (§16 decision 64) |
+| `[M]AddressLookup` | 1328 bytes each, measured | one per `getaddrinfo`-shaped lookup in flight: the name, the canonical name, 32 addresses, two handles, the failure of each lookup and the walk's scalars, beside the two slots it takes; pinned by a test in `src/resolver/address_lookup_test.zig`; 1216 until each failure gained its chain on 2026-11-03 (§17 question 122), 1152 until the cause of a failure on 2026-10-17 (§16 decision 45), 1184 until the security of a negative on 2026-10-31 (§25), and 1200 until the extended error the same day (§16 decision 64) |
 
-So 1024 concurrent lookups cost 3096 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
+So 1024 concurrent lookups cost 5192 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
 ever, by anybody. `Resolver` itself holds the `Servers` table, 1488 octets, measured and pinned
 by a test in `src/resolver/servers.zig`: 184 for each of `servers_max` servers, 120 of them the
 five windows of latency samples of §5, which 2026-10-09 added. The flag of the same day that marks
@@ -1947,6 +1961,7 @@ or a count is a `usize`, so its sum with a narrow value is a `usize` too (§16 d
 | `labels_max` | 128 | 255 bytes at two bytes minimum per label |
 | `compression_hops_max` | 16 | a legal name needs none; 16 is slack over any real encoder |
 | `cname_hops_max` | 8 | matches the chain length BIND allows; recalled, not measured |
+| `chain_bytes_max` | 2040 | the owners of `cname_hops_max` links, each a name of `name_bytes_max` (§17 question 122) |
 | `records_max` | 64 | bounds the walk whatever the count fields claim |
 | `addresses_max` | 16 | §17 asks whether this is enough for large round-robin names |
 | `ptr_names_max` | 1 | a reverse lookup returns one name in practice, and `truncated` says when more existed |
@@ -6301,6 +6316,12 @@ handshake used, so no example and no live check can say it.
 121. **`key_store_zones_default`.** The consumer owns the store and sizes it (question 98), and the
     examples wrote 64 as their own number. Recommended: a public constant in `cocuyo.constants`,
     as the cache's default is. Answered on 2026-11-02: yes.
+122. **The CNAME chain in a lookup's end.** hickory-dns's suite checks each link of a chain, and
+    a CNAME before a no data (§25 step 17). `Answer` held the chain's end alone, and `Failure`
+    held nothing of it. Answered on 2026-11-03: both hold each link and the end, and the chain
+    stays bounded by `cname_hops_max` and by `chain_bytes_max` (§5, The chain a lookup keeps).
+    Unknown types needed nothing: `Kind` is open since §16 decision 31, as c-ares's `ares_query`
+    takes any type code.
 
 ## 18. The cache
 
@@ -6598,8 +6619,8 @@ entries live at once.**
   here, and without limit for a peer that makes a process resolve names of its choosing.
   cocuyo holds the caller's number, whatever the traffic.
 - **Memory is not compared.** A c-ares entry is a duplicate of the parsed response, a formatted
-  key and a skip list node, and its size in bytes was not measured. A cocuyo slot is 2992 octets
-  whatever the answer holds.
+  key and a skip list node, and its size in bytes was not measured. A cocuyo slot is 5080 octets
+  whatever the answer holds, 2992 until the CNAME links of 2026-11-03.
 
 ### How far from the best
 
@@ -6782,12 +6803,13 @@ The busiest clients are weighed by what they ask.
 
 Per slot: two `Name`s at 256 each — the key, and since §17 question 13 the end of the CNAME
 chain that reached the answers — an `Answers` at 2448 since §19 step 9 gave it the rdata buffer,
-and 32 octets of scalars and padding: 2992, measured and pinned by a test in
-`src/cache/cache.zig` (2984 before the status of §25 Stage A on 2026-10-31, 2728 before the
-chain's end, 568 before step 9). The key index is eight
+the chain's links at 2089 since §17 question 122, and 31 octets of scalars and padding: 5080,
+measured and pinned by a test in `src/cache/cache.zig` (2992 before the links on 2026-11-03,
+2984 before the status of §25 Stage A on 2026-10-31, 2728 before the chain's end, 568 before
+step 9). The key index is eight
 octets an entry at two entries a slot, rounded up to a power of two. A thousand slots cost
-2.9 MiB of slots and 16 KiB of keys; sixteen thousand, the most a `u16` slot index and the key
-index allow at `cache_slots_max`, cost 46.8 MiB and 256 KiB. The caller chooses, and an address-only cache pays
+5.0 MiB of slots and 16 KiB of keys (2.9 MiB before the links); sixteen thousand, the most a `u16` slot index and the key
+index allow at `cache_slots_max`, cost 79.4 MiB and 256 KiB (46.8 MiB before the links). The caller chooses, and an address-only cache pays
 for the buffer too, as §9 says of the lookup.
 
 ### Sizing the memory
@@ -7970,7 +7992,7 @@ cache hits).
 | `udp_queries_per_port_default` | 0 | c-ares's default: never replace the socket |
 | `tcp_idle_ns_default` | 10 s | chosen, not measured: a burst's worth, and short by RFC 7766 §6.2.3's standard |
 | `engine_lookups_default` | 256 | in flight at once; the caller sizes the memory |
-| `engine_cache_slots_default` | 1024 | 2.9 MiB of slots, the cost §18 measures; since 2026-10-11 the size the README and the engine's examples hand an engine, and no default the engine takes, since it holds no cache memory of its own (step 13, the cache's memory) |
+| `engine_cache_slots_default` | 1024 | 5.0 MiB of slots since the CNAME links of 2026-11-03, 2.9 MiB before, the cost §18 measures; since 2026-10-11 the size the README and the engine's examples hand an engine, and no default the engine takes, since it holds no cache memory of its own (step 13, the cache's memory) |
 | `address_lookup_addresses_max` | 32 | both families' `addresses_max`, bounded the way one answer is; `truncated` past it |
 | `address_policy_rows` | 9 | RFC 6724 §2.1's default table |
 | `common_prefix_bits_v6_max` | 64 | RFC 6724 §2.2 stops at the source's prefix, and RFC 4291 §2.5.1 makes the interface identifier the low 64 bits |

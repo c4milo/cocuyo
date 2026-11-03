@@ -244,10 +244,10 @@ test "an A question is answered with one address owned by the name, the same on 
     const first = respond(&script, &server_address, query, false, 1, &reply).?;
     var chain = try Name.from_text("example.com");
     var answers: wire.Answers = undefined;
-    try testing.expectEqual(wire.Outcome.answered, try wire.response.collect(reply[0..first.len], &chain, .a, 0, &answers));
+    try testing.expectEqual(wire.Outcome.answered, try wire.response.collect(reply[0..first.len], &chain, .a, 0, null, &answers));
     const address = answers.addresses()[0];
     const second = respond(&script, &server_address, query, false, 99, &reply).?;
-    try testing.expectEqual(wire.Outcome.answered, try wire.response.collect(reply[0..second.len], &chain, .a, 0, &answers));
+    try testing.expectEqual(wire.Outcome.answered, try wire.response.collect(reply[0..second.len], &chain, .a, 0, null, &answers));
     try testing.expect(address.equal(&answers.addresses()[0]));
     try testing.expect(first.delay_ns >= script.delay_ns_min and first.delay_ns <= script.delay_ns_max);
 }

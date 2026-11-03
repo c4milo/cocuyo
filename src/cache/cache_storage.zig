@@ -51,7 +51,7 @@ pub const Slices = struct {
 
 /// The memory of a cache of `slot_count` slots, for a caller that knows the count when it
 /// compiles: the slots, and the least key index they take. A count outside the bounds does not
-/// compile, and the error says what the bounds are. Declared `undefined`, it is 2992 octets a
+/// compile, and the error says what the bounds are. Declared `undefined`, it is 5080 octets a
 /// slot and 8 a key (docs/design.md §18).
 pub fn Storage(comptime slot_count: usize) type {
     if (!slot_count_valid(slot_count)) {

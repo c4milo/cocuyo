@@ -18,18 +18,19 @@ const identity_order: [core.limits.servers_max]u8 = blk: {
     break :blk order;
 };
 
-/// Every field of `Lookup` but its answers. `init_in_place` builds one of these whole, so the
-/// compiler refuses a field left out, and copies it into the lookup field by field, so that the
-/// answers' storage, which nothing reads before `collect` writes it, is not written: assigning the
-/// whole lookup would write it, since a safe build fills whatever is `undefined` with 0xAA
-/// (docs/design.md §16 decision 34).
+/// Every field of `Lookup` but its answers and its links. `init_in_place` builds one of these
+/// whole, so the compiler refuses a field left out, and copies it into the lookup field by field,
+/// so that the answers' storage and the links' octets, which nothing reads before `collect` writes
+/// them, are not written: assigning the whole lookup would write them, since a safe build fills
+/// whatever is `undefined` with 0xAA (docs/design.md §16 decision 34).
 const Head = head: {
     const fields = @typeInfo(Lookup).@"struct".fields;
-    var names: [fields.len - 1][]const u8 = undefined;
-    var types: [fields.len - 1]type = undefined;
+    const left_out = [_][]const u8{ "answers", "aliases" };
+    var names: [fields.len - left_out.len][]const u8 = undefined;
+    var types: [fields.len - left_out.len]type = undefined;
     var at: usize = 0;
-    for (fields) |field| {
-        if (std.mem.eql(u8, field.name, "answers")) continue;
+    fields: for (fields) |field| {
+        for (left_out) |name| if (std.mem.eql(u8, field.name, name)) continue :fields;
         names[at] = field.name;
         types[at] = field.type;
         at += 1;
@@ -105,6 +106,7 @@ pub fn init_in_place(
     };
     inline for (@typeInfo(Head).@"struct".fields) |field| @field(self, field.name) = @field(head, field.name);
     self.answers.reset(question.kind);
+    self.aliases.clear();
     // A configuration with no server is one a `resolv.conf` with none gave, read without
     // the default: every lookup on it fails at once (§19 step 11).
     if (config.server_count() == 0) {

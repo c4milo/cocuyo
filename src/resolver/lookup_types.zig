@@ -53,6 +53,10 @@ pub const Answer = struct {
     record_count: u8,
     /// The end of the CNAME chain, when one was followed.
     canonical_name: ?*const Name,
+    /// The CNAME links that reached `canonical_name`, from the name asked on, in the lookup's
+    /// own storage: `aliases.at(index)` for `index` below `aliases.count` (docs/design.md §5).
+    /// None when no CNAME was followed.
+    aliases: *const core.Aliases = &core.Aliases.none,
     /// The smallest TTL over the records used, for a cache above cocuyo, no larger than the CNAMEs
     /// that reached them and no larger than the negative TTL of any search candidate before the
     /// one that answered. The answer is kept under the name as asked, and once that negative

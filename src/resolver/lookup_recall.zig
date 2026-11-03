@@ -20,14 +20,16 @@ fn before_first_query(lookup: *const Lookup) bool {
 /// answers' own TTL, the life they were given, so the answer reports the life it has now. A
 /// memory may report more than that TTL, and the answer then reports what it says.
 ///
-/// `canonical` is the end of the CNAME chain that reached them, or null when none did. The
-/// answer reports it as a lookup that went out reports its own, so the same question answers the
-/// same whether the memory held it or not (§17 question 13).
+/// `canonical` is the end of the CNAME chain that reached them, or null when none did, and
+/// `aliases` the links on the way. The answer reports both as a lookup that went out reports its
+/// own, so the same question answers the same whether the memory held it or not (§17 questions 13
+/// and 122).
 pub fn answer(
     lookup: *Lookup,
     answers: *const wire.Answers,
     ttl_seconds: u32,
     canonical: ?*const Name,
+    aliases: *const core.Aliases,
     status: core.Security,
 ) void {
     assert(before_first_query(lookup));
@@ -42,23 +44,39 @@ pub fn answer(
     lookup.answers.age(lookup.question.kind, answers.ttl_seconds -| ttl_seconds);
     assert(lookup.answers.ttl_seconds == @min(answers.ttl_seconds, ttl_seconds));
     lookup.answers.ttl_seconds = ttl_seconds;
-    if (canonical) |name| {
-        lookup.current = name.*;
-        lookup.flags.aliased = true;
-    }
+    keep_chain(lookup, canonical, aliases);
     lookup.state = .done;
     assert(lookup.is_settled());
     security.recalled(lookup, status);
 }
 
-/// Ends `lookup` with a negative the memory remembered: one of the two of RFC 2308 §5, with what
-/// is left of its life.
-pub fn failure(lookup: *Lookup, err: core.Error, ttl_seconds: u32, status: core.Security) void {
+/// A negative the memory remembered: one of the two of RFC 2308 §5, with what is left of its
+/// life, and the CNAME chain that reached the name with no data, when one did.
+pub const Negative = struct {
+    err: core.Error,
+    ttl_seconds: u32,
+    canonical: ?*const Name = null,
+    aliases: *const core.Aliases = &core.Aliases.none,
+};
+
+/// Ends `lookup` with a negative the memory remembered.
+pub fn failure(lookup: *Lookup, negative: Negative, status: core.Security) void {
     assert(before_first_query(lookup));
-    assert(err == core.Error.NameNotFound or err == core.Error.NoData);
-    lookup.negative_ttl_seconds = ttl_seconds;
-    lookup.fail(err);
+    assert(negative.err == core.Error.NameNotFound or negative.err == core.Error.NoData);
+    lookup.negative_ttl_seconds = negative.ttl_seconds;
+    keep_chain(lookup, negative.canonical, negative.aliases);
+    lookup.fail(negative.err);
     security.recalled(lookup, status);
+}
+
+/// Takes the chain a memory kept: its end, which the lookup reports as its own, and its links.
+fn keep_chain(lookup: *Lookup, canonical: ?*const Name, aliases: *const core.Aliases) void {
+    assert(!lookup.flags.aliased);
+    assert(lookup.aliases.count == 0);
+    const end = canonical orelse return;
+    lookup.current = end.*;
+    lookup.flags.aliased = true;
+    lookup.aliases.assign(aliases);
 }
 
 /// Ends `lookup` with a resolution failure the memory remembered (RFC 9520 §3.2). The memory
@@ -103,7 +121,7 @@ test "a recalled answer's records each lose the time the answers spent in the me
     try harness.start("example.com.", .mx, fixtures.seed);
     const answers = two_mx(300, 200);
     // Given 200 seconds and left with 150: fifty spent in the memory, which each record loses.
-    answer(&harness.lookup, &answers, 150, null, .unchecked);
+    answer(&harness.lookup, &answers, 150, null, &core.Aliases.none, .unchecked);
     const done = harness.poll().done;
     try testing.expectEqual(@as(u32, 150), done.ttl_seconds);
     try testing.expectEqual(@as(u8, mx_count), done.record_count);
@@ -119,7 +137,7 @@ test "a recalled answer with more left than it was given keeps every record's TT
     var harness: fixtures.Harness = .{ .config = .{ .servers = &fixtures.servers_two } };
     try harness.start("example.com.", .mx, fixtures.seed);
     const answers = two_mx(300, 200);
-    answer(&harness.lookup, &answers, 250, null, .unchecked);
+    answer(&harness.lookup, &answers, 250, null, &core.Aliases.none, .unchecked);
     const done = harness.poll().done;
     try testing.expectEqual(@as(u32, 250), done.ttl_seconds);
     try testing.expectEqual(@as(u32, 300), done.records.?.at(0).ttl_seconds);
@@ -130,7 +148,7 @@ test "a recalled answer with its whole life left keeps every TTL it was given" {
     var harness: fixtures.Harness = .{ .config = .{ .servers = &fixtures.servers_two } };
     try harness.start("example.com.", .mx, fixtures.seed);
     const answers = two_mx(300, 200);
-    answer(&harness.lookup, &answers, 200, null, .unchecked);
+    answer(&harness.lookup, &answers, 200, null, &core.Aliases.none, .unchecked);
     const done = harness.poll().done;
     try testing.expectEqual(@as(u32, 200), done.ttl_seconds);
     try testing.expectEqual(@as(u32, 300), done.records.?.at(0).ttl_seconds);
@@ -145,10 +163,10 @@ test "a recalled end reports the status it was kept with, while the lookup relie
             const expected: core.Security = if (mode == .always) status else .unchecked;
             var harness: fixtures.Harness = .{ .config = .{ .servers = &fixtures.servers_one, .authenticated_data = mode } };
             try harness.start("example.com.", .a, fixtures.seed);
-            answer(&harness.lookup, &cached, fixtures.cached_ttl_seconds, null, status);
+            answer(&harness.lookup, &cached, fixtures.cached_ttl_seconds, null, &core.Aliases.none, status);
             try testing.expectEqual(expected, harness.lookup.answer().security);
             try harness.start("example.com.", .a, fixtures.seed);
-            failure(&harness.lookup, core.Error.NameNotFound, fixtures.cached_ttl_seconds, status);
+            failure(&harness.lookup, .{ .err = core.Error.NameNotFound, .ttl_seconds = fixtures.cached_ttl_seconds }, status);
             try testing.expectEqual(expected, harness.lookup.failure_of().security);
         }
     }

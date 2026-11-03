@@ -218,7 +218,7 @@ test "a failure does not replace a live answer or a live negative" {
     var table = fixture.init();
     const answers = fixtures.answers_v4(1, 300);
     table.put(&ask("up.example"), &answers, null, .unchecked, 0);
-    table.put_negative(&ask("gone.example"), .name_not_found, 30, .unchecked, 0);
+    table.put_negative(&ask("gone.example"), .name_not_found, 30, null, .unchecked, 0);
     table.put_failure(&ask("up.example"), Error.Timeout, second);
     table.put_failure(&ask("gone.example"), Error.Timeout, second);
     try testing.expectEqual(Outcome.answered, table.get(&ask("up.example"), second).?.outcome);
@@ -262,11 +262,11 @@ fn truncated_answer_in_backoff(table: *cache.Cache, text: []const u8) void {
 }
 
 fn negative_in_backoff(table: *cache.Cache, text: []const u8) void {
-    table.put_negative(&ask(text), .no_data, 1, .unchecked, end_ns);
+    table.put_negative(&ask(text), .no_data, 1, null, .unchecked, end_ns);
 }
 
 fn zero_negative_in_backoff(table: *cache.Cache, text: []const u8) void {
-    table.put_negative(&ask(text), .name_not_found, 0, .unchecked, end_ns);
+    table.put_negative(&ask(text), .name_not_found, 0, null, .unchecked, end_ns);
 }
 
 test "an answer or a negative for the name ends the backoff, kept or not" {

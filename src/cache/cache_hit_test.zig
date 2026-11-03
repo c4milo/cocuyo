@@ -103,7 +103,7 @@ test "a hit reports the status its entry was put with, and a failure is unchecke
     try testing.expectEqual(core.Security.authenticated, table.get(&ask("a.example"), 0).?.security);
     table.put(&ask("a.example"), &answers, null, .unchecked, 0);
     try testing.expectEqual(core.Security.unchecked, table.get(&ask("a.example"), 0).?.security);
-    table.put_negative(&ask("b.example"), .name_not_found, 300, .authenticated, 0);
+    table.put_negative(&ask("b.example"), .name_not_found, 300, null, .authenticated, 0);
     try testing.expectEqual(core.Security.authenticated, table.get(&ask("b.example"), 0).?.security);
     table.put(&ask("c.example"), &answers, null, .authenticated, 0);
     table.put_failure(&ask("c.example"), core.Error.Timeout, 301 * second);

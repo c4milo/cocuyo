@@ -125,7 +125,7 @@ fn run_name_decode_pointer() void {
 }
 
 fn parse(message: []const u8) void {
-    const outcome = wire.response.collect(message, &chain, .a, 0, &answers) catch unreachable;
+    const outcome = wire.response.collect(message, &chain, .a, 0, null, &answers) catch unreachable;
     doNotOptimizeAway(outcome);
     doNotOptimizeAway(&answers);
 }

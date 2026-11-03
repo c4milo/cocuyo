@@ -161,7 +161,9 @@ fn take_answer(self: *NameLookup, answer: *const @import("lookup.zig").Answer) v
     self.ended = .answered;
 }
 
-fn take_failure(self: *NameLookup, failure: Failure) void {
+fn take_failure(self: *NameLookup, taken: Failure) void {
+    // Kept past the lookup's release, so without the chain that points into its slot.
+    const failure = taken.detached();
     // A cancel is the caller's word and ends the walk, even when the lookup failed on its own
     // before the cancel reached it.
     if (failure.err == core.Error.Canceled) return end_failed_with(self, failure);

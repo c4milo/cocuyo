@@ -54,6 +54,9 @@ pub const Slot = struct {
     /// was one: what a lookup that went out reports as the canonical name, kept so that a hit
     /// reports it too (docs/design.md §17 question 13).
     canonical: Name,
+    /// The CNAME links that reached `canonical`, when `aliased` says there was a chain, so that a
+    /// hit reports them as a lookup that went out does (docs/design.md §5, §17 question 122).
+    aliases: core.Aliases,
     expires_ns: u64,
     hash: u32,
     links: Links,
@@ -74,6 +77,7 @@ pub const Slot = struct {
         .name = Name.root,
         .answers = wire.Answers.init(.a),
         .canonical = Name.root,
+        .aliases = .{},
         .expires_ns = 0,
         .hash = 0,
         .links = .{},
@@ -99,6 +103,8 @@ pub const Hit = struct {
     name: *const Name,
     /// The end of the CNAME chain, when the answers were reached through one.
     canonical_name: ?*const Name,
+    /// The links that reached `canonical_name`: none when no chain did.
+    aliases: *const core.Aliases,
     /// What is left, not what was put: the expiry less `now_ns`, rounded down to a second.
     ttl_seconds: u32,
     /// The error the caller ends its lookup with, on a `failed` entry alone, and sends no query.
@@ -107,11 +113,18 @@ pub const Hit = struct {
     security: core.Security,
 };
 
-/// Keeps the chain's end with the answers, or says there was none. The name is copied only
-/// when there is one: a slot that never held an aliased answer never pays the 256 octets' copy.
-fn keep_canonical(slot: *Slot, canonical: ?*const Name) void {
-    slot.aliased = canonical != null;
-    if (canonical) |name| slot.canonical = name.*;
+/// The CNAME chain that reached an entry: its end, and the links on the way (docs/design.md §5).
+pub const Chain = struct { end: *const Name, aliases: *const core.Aliases };
+
+/// Keeps the chain's end and its links with the entry, or says there was none. Both are copied
+/// only when there is one, and the links only as far as they are used: a slot that never held an
+/// aliased entry never pays the copy.
+fn keep_chain(slot: *Slot, chain: ?Chain) void {
+    slot.aliased = chain != null;
+    const kept = chain orelse return;
+    slot.canonical = kept.end.*;
+    slot.aliases.assign(kept.aliases);
+    assert(slot.aliases.count == kept.aliases.count);
 }
 
 pub const Cache = struct {
@@ -184,14 +197,15 @@ pub const Cache = struct {
             .answers = &slot.answers,
             .name = &slot.name,
             .canonical_name = if (slot.aliased) &slot.canonical else null,
+            .aliases = if (slot.aliased) &slot.aliases else &core.Aliases.none,
             .ttl_seconds = self.remaining(slot.expires_ns, now_ns),
             .failure = if (slot.outcome == .failed) cache_failure.error_of(slot.kept.failure) else null,
             .security = slot.security,
         };
     }
 
-    /// Remembers `answers` for `question`, with the end of the CNAME chain that reached them, or
-    /// null when none did, and what the lookup that found them knew of where they came from. A
+    /// Remembers `answers` for `question`, with the CNAME chain that reached them, or null when
+    /// none did, and what the lookup that found them knew of where they came from. A
     /// status never outlives the configuration that gave it: the engine starts a new cache at
     /// each `reinit` (docs/design.md §25, Stage A rule 5). A TTL of zero is not cached, and
     /// neither is an answer marked truncated, which may be missing records (c-ares does the same).
@@ -200,7 +214,7 @@ pub const Cache = struct {
         self: *Cache,
         question: *const Question,
         answers: *const wire.Answers,
-        canonical: ?*const Name,
+        chain: ?Chain,
         security: core.Security,
         now_ns: u64,
     ) void {
@@ -208,17 +222,19 @@ pub const Cache = struct {
         // A possibly partial set is not cached (RFC 1035 §7.4), and a zero TTL "should not be
         // cached" (RFC 1035 §3.2.1).
         if (answers.truncated or answers.ttl_seconds == 0) return self.forget_failure(question);
-        const slot = self.insert(question, .answered, answers, canonical, answers.ttl_seconds, now_ns) orelse return;
+        const slot = self.insert(question, .answered, answers, chain, answers.ttl_seconds, now_ns) orelse return;
         slot.security = security;
     }
 
     /// Remembers that `question` has no answer, for the SOA minimum a `Failure` carries
-    /// (RFC 2308 §5). Zero, which a failure that is not a negative answer carries, is not cached.
+    /// (RFC 2308 §5), with the CNAME chain that reached the name with none, or null when none
+    /// did. Zero, which a failure that is not a negative answer carries, is not cached.
     pub fn put_negative(
         self: *Cache,
         question: *const Question,
         outcome: Outcome,
         ttl_seconds: u32,
+        chain: ?Chain,
         security: core.Security,
         now_ns: u64,
     ) void {
@@ -227,7 +243,7 @@ pub const Cache = struct {
         // No records: the slot's answers are reset where they are, rather than filled in a local
         // and copied, as a safe build fills a local left `undefined` (docs/design.md §16
         // decision 34).
-        const slot = self.insert(question, outcome, null, null, ttl_seconds, now_ns) orelse return;
+        const slot = self.insert(question, outcome, null, chain, ttl_seconds, now_ns) orelse return;
         slot.security = security;
     }
 
@@ -267,7 +283,7 @@ pub const Cache = struct {
         question: *const Question,
         outcome: Outcome,
         answers: ?*const wire.Answers,
-        canonical: ?*const Name,
+        chain: ?Chain,
         ttl_seconds: u32,
         now_ns: u64,
     ) ?*Slot {
@@ -280,7 +296,7 @@ pub const Cache = struct {
             // Replaced in place, and the bit set: a name put twice is a name being used.
             const slot = &self.slots[index];
             keep_answers(slot, answers, question.kind, ttl);
-            keep_canonical(slot, canonical);
+            keep_chain(slot, chain);
             slot.outcome = outcome;
             slot.expires_ns = expires_ns;
             slot.visited = true;
@@ -298,7 +314,7 @@ pub const Cache = struct {
         const slot = &self.slots[index];
         slot.name = question.name;
         keep_answers(slot, answers, question.kind, ttl);
-        keep_canonical(slot, canonical);
+        keep_chain(slot, chain);
         slot.expires_ns = expires_ns;
         slot.hash = hash;
         slot.links = .{};
@@ -415,8 +431,9 @@ test "the size of a slot is pinned" {
     // Measured, not derived: Zig orders the fields (docs/design.md §18). 2984 since the slot
     // keeps the chain's end: one `Name`, 256 octets, with its flag in padding that was there.
     // 2992 since the slot keeps the status of DNSSEC Stage A on 2026-10-31 (§25): its padding had
-    // no octet left for it.
-    try testing.expectEqual(@as(usize, 2992), @sizeOf(Slot));
+    // no octet left for it. 5080 since the slot keeps the chain's links on 2026-11-03 (§17
+    // question 122).
+    try testing.expectEqual(@as(usize, 5080), @sizeOf(Slot));
 }
 
 test {

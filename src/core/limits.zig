@@ -54,6 +54,11 @@ pub const compression_hops_max: usize = 16;
 /// length BIND allows; recalled, not measured.
 pub const cname_hops_max: usize = 8;
 
+/// The octets the links of one chain take: each link's owner in wire form, and a chain holds at
+/// most `cname_hops_max` links, each a name of at most `name_bytes_max` octets (docs/design.md §5,
+/// §17 question 122).
+pub const chain_bytes_max: usize = cname_hops_max * name_bytes_max;
+
 /// The most records one message walk reads, whatever the count fields claim. A count is never a
 /// reason to read (non-negotiable 6).
 pub const records_max: usize = 64;

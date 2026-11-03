@@ -142,7 +142,9 @@ pub fn take_answer(self: *AddressLookup, pending: *Pending, answer: *const Answe
     }
 }
 
-pub fn take_failure(self: *AddressLookup, pending: *Pending, failure: Failure) void {
+pub fn take_failure(self: *AddressLookup, pending: *Pending, taken: Failure) void {
+    // Kept past the lookup's release, so without the chain that points into its slot.
+    const failure = taken.detached();
     pending.failure = failure;
     // A cancel is nobody's failure: the walk's own, or the consumer's, which ends the walk as
     // `Canceled` whatever else was seen. Once the consumer cancelled, a `Canceled` end that carries

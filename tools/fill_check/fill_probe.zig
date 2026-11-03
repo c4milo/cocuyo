@@ -27,8 +27,8 @@ export fn probe_query_write(query: *const wire.Query, out: [*]u8, out_bytes: usi
 }
 
 /// A response's records read into answers: every answer a lookup takes.
-export fn probe_response_collect(message: [*]const u8, message_bytes: usize, chain: *cocuyo.Name, kind: cocuyo.Kind, answers: *wire.Answers) bool {
-    _ = wire.response.collect(message[0..message_bytes], chain, kind, 0, answers) catch return false;
+export fn probe_response_collect(message: [*]const u8, message_bytes: usize, chain: *cocuyo.Name, kind: cocuyo.Kind, aliases: *cocuyo.Aliases, answers: *wire.Answers) bool {
+    _ = wire.response.collect(message[0..message_bytes], chain, kind, aliases.count, aliases, answers) catch return false;
     return true;
 }
 
@@ -61,7 +61,7 @@ export fn probe_cache_put(cache: *cocuyo.Cache, question: *const cocuyo.Question
 
 /// A question with no answer kept in the cache.
 export fn probe_cache_put_negative(cache: *cocuyo.Cache, question: *const cocuyo.Question, ttl_seconds: u32, now_ns: u64) void {
-    cache.put_negative(question, .no_data, ttl_seconds, .unchecked, now_ns);
+    cache.put_negative(question, .no_data, ttl_seconds, null, .unchecked, now_ns);
 }
 
 /// A lookup built by value, as a caller that holds one outside a table builds it.

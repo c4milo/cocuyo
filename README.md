@@ -350,7 +350,7 @@ const dns = @import("cocuyo_rotor");
 
 const Resolver = dns.Resolver(.{});
 var resolver: Resolver = undefined;
-// A size known when you compile: 1,024 slots, the size measured below, 2.9 MiB.
+// A size known when you compile: 1,024 slots, the size measured below, 5.0 MiB.
 var cache_memory: cocuyo.cache.Storage(dns.constants.cache_slots_default) = undefined;
 try resolver.init(&loop, &config, cache_memory.slices(), seed, now_ns);
 
@@ -361,7 +361,7 @@ const index = try allocator.alloc(cocuyo.cache.Key, cocuyo.cache.keys_for(slot_c
 try resolver.reinit(&config, .{ .slots = entries, .keys = index }, new_seed, now_ns);
 ```
 
-A cache takes 1 to 16,384 slots, 2,992 octets each, and `cocuyo.cache.keys_for` gives the key
+A cache takes 1 to 16,384 slots, 5,080 octets each, and `cocuyo.cache.keys_for` gives the key
 index a slot count needs. The memory must stay valid, and where it is, until the engine's `close`,
 or until a `reinit` hands the engine other memory or none. A `reinit` that fails at its sockets has
 still taken the memory it was handed. So never free that memory on that error: hand it to the next

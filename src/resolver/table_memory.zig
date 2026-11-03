@@ -40,16 +40,24 @@ pub const Negative = enum { name_not_found, no_data };
 /// the answer reports `ttl_seconds`.
 pub const Remembered = union(enum) {
     /// `canonical_name` is the end of the CNAME chain that reached the answers, or null when
-    /// none did (§17 question 13).
+    /// none did (§17 question 13), and `aliases` the links on the way (§5, §17 question 122).
     answered: struct {
         answers: *const wire.Answers,
         ttl_seconds: u32,
         canonical_name: ?*const core.Name,
+        aliases: *const core.Aliases = &core.Aliases.none,
         /// What the lookup that found the answers knew of where they came from (docs/design.md
         /// §25, Stage A rule 5).
         security: core.Security,
     },
-    negative: struct { outcome: Negative, ttl_seconds: u32, security: core.Security },
+    /// A negative at the end of a CNAME chain keeps the chain, as an answer does.
+    negative: struct {
+        outcome: Negative,
+        ttl_seconds: u32,
+        security: core.Security,
+        canonical_name: ?*const core.Name = null,
+        aliases: *const core.Aliases = &core.Aliases.none,
+    },
     /// A resolution failure, one that `resolution_failure` counts: no server gave a useful
     /// response (RFC 9520 §2). The memory sets its time, and a recall ends the lookup with it
     /// (docs/design.md §16 decision 61).
@@ -84,9 +92,15 @@ pub fn recall_into(memory: ?Memory, slot: *Slot, now_ns: u64) void {
             answered.answers,
             answered.ttl_seconds,
             answered.canonical_name,
+            answered.aliases,
             answered.security,
         ),
-        .negative => |negative| recall_module.failure(&slot.lookup, error_of(negative.outcome), negative.ttl_seconds, negative.security),
+        .negative => |negative| recall_module.failure(&slot.lookup, .{
+            .err = error_of(negative.outcome),
+            .ttl_seconds = negative.ttl_seconds,
+            .canonical = negative.canonical_name,
+            .aliases = negative.aliases,
+        }, negative.security),
         .failed => |err| recall_module.failed(&slot.lookup, err),
     }
     assert(slot.lookup.is_settled());
@@ -127,6 +141,7 @@ pub fn remember_end(memory: ?Memory, slot: *Slot, action: Action, now_ns: u64) v
             .answers = &slot.lookup.answers,
             .ttl_seconds = slot.lookup.answers.ttl_seconds,
             .canonical_name = if (slot.lookup.flags.aliased) &slot.lookup.current else null,
+            .aliases = &slot.lookup.aliases,
             .security = security.of(&slot.lookup),
         } },
         .failed => |failure| failure_end(&failure) orelse return,
@@ -138,7 +153,13 @@ pub fn remember_end(memory: ?Memory, slot: *Slot, action: Action, now_ns: u64) v
 /// What a failed lookup's end is remembered as, or null when it is not remembered.
 fn failure_end(failure: *const lookup_module.Failure) ?Remembered {
     if (negative_of(failure.err)) |outcome| {
-        return .{ .negative = .{ .outcome = outcome, .ttl_seconds = failure.negative_ttl_seconds, .security = failure.security } };
+        return .{ .negative = .{
+            .outcome = outcome,
+            .ttl_seconds = failure.negative_ttl_seconds,
+            .security = failure.security,
+            .canonical_name = failure.canonical_name,
+            .aliases = failure.aliases,
+        } };
     }
     // "Resolvers MUST implement a cache for resolution failures" (RFC 9520 §3.2).
     if (resolution_failure(failure.err)) return .{ .failed = failure.err };

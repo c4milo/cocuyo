@@ -364,8 +364,9 @@ test "the size of an address lookup is pinned" {
     // docs/design.md §9: the number there is this one. 1152 until 2026-10-17, when `Failure`
     // gained its cause and each pending lookup kept its whole failure (§16 decision 45), 1184
     // until 2026-10-31, when it gained the security of a negative (§25), and 1200 until its
-    // extended error came the same day (§16 decision 64).
-    try testing.expectEqual(@as(usize, 1216), @sizeOf(AddressLookup));
+    // extended error came the same day (§16 decision 64), and 1216 until each failure gained its
+    // chain on 2026-11-03 (§17 question 122).
+    try testing.expectEqual(@as(usize, 1328), @sizeOf(AddressLookup));
 }
 
 test "a table with one slot short of the pair refuses the start and leaves nothing behind" {

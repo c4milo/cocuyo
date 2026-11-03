@@ -206,8 +206,32 @@ fn negative(self: *Lookup, message: []const u8, accepted: Accepted, is_name_erro
     security.acted_on(self, accepted.authentic_data());
     if (!is_name_error) self.flags.had_no_data = true;
     bound_walk(self, @min(ttl_seconds, negative_ttl(self, message, &self.current, accepted.age_seconds)));
+    // After the TTL, which reads the sections from the name the message echoes.
+    follow_to_negative(self, message);
     self.next_candidate(now_ns);
     return .accepted;
+}
+
+/// A negative's message may hold the CNAMEs that led to the name with no data, or to the name
+/// that does not exist (RFC 1034 §3.6.2, RFC 2308 §2.1). The chain moves through them, so the
+/// failure reports its links and its end (docs/design.md §5, The chain a lookup keeps). A chain
+/// the message cannot carry leaves the lookup as it was: the negative still stands.
+fn follow_to_negative(self: *Lookup, message: []const u8) void {
+    const before = self.current;
+    const links_before = self.aliases.count;
+    _ = wire.response.collect(message, &self.current, self.question.kind, self.cname_hops, &self.aliases, &self.answers) catch {
+        self.current = before;
+        self.aliases.truncate(links_before);
+        return;
+    };
+    if (!self.answers.aliased) return;
+    if (self.flags.mix_case) {
+        self.current.fold_case();
+        self.aliases.fold_case(links_before);
+    }
+    self.flags.aliased = true;
+    self.cname_hops = self.answers.hops_used;
+    assert(self.aliases.count == self.cname_hops);
 }
 
 /// `heard`, for the validator's verdict to call with the response's cookie.
@@ -348,14 +372,17 @@ inline fn collect_as(self: *Lookup, message: []const u8, accepted: Accepted, exp
     // The chain walk moves `current`, so it is restored when the walk fails: a lookup must not be
     // left pointing at half a chain by a message it then ignores.
     const before = self.current;
+    const links_before = self.aliases.count;
     const outcome = wire.response.collect(
         message,
         &self.current,
         self.question.kind,
         self.cname_hops,
+        &self.aliases,
         &self.answers,
     ) catch |err| {
         self.current = before;
+        self.aliases.truncate(links_before);
         // A chain past `cname_hops_max`, a loop above all, is the server's answer and not a
         // malformed one: it passed every check of §7. Alias loops are an error passed back to
         // the client (RFC 1034 §3.6.2, §5.2.2), and §5 names it.
@@ -371,6 +398,7 @@ inline fn collect_as(self: *Lookup, message: []const u8, accepted: Accepted, exp
     // whose end the message does not say. Records of another shape are bogus.
     if (expected.ending) |ending| if (!agrees(outcome, ending)) {
         self.current = before;
+        self.aliases.truncate(links_before);
         validate_module.rejected(self, heard_by(&accepted.cookie), now_ns);
         return .accepted;
     };
@@ -379,7 +407,10 @@ inline fn collect_as(self: *Lookup, message: []const u8, accepted: Accepted, exp
     // A name the chain moved to came off the wire, and a server that compressed it to a pointer
     // into the question it echoed handed back cocuyo's own case randomisation. That case is noise
     // cocuyo made, not the server's spelling, so it is folded away before anyone reads it.
-    if (self.flags.mix_case and self.answers.aliased) self.current.fold_case();
+    if (self.flags.mix_case and self.answers.aliased) {
+        self.current.fold_case();
+        self.aliases.fold_case(links_before);
+    }
     // "DoH clients MUST account for the Age response header field's value" (RFC 8484 §5.1): this
     // message's TTLs lose it before the chain's earlier ones, which lost their own, bound them.
     self.answers.age(self.question.kind, accepted.age_seconds);

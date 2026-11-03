@@ -43,18 +43,22 @@ pub const Kept = response_answers.Kept;
 /// Collects what `message` answers about `question`, of type `kind`, into `out`.
 ///
 /// `hops_before` is how many CNAMEs this lookup has already followed in earlier messages, so the
-/// bound holds across a chain that spans several responses. The loop's own condition is the bound:
-/// a pass that follows an alias raises the hop count, and the `ChainTooLong` after the loop is
-/// what a chain that runs out of hops ends in.
+/// bound holds across a chain that spans several responses. `aliases`, when the caller keeps the
+/// chain, holds those CNAMEs' links, one for each hop, and gains a link for each CNAME this
+/// message moves the chain by (docs/design.md §5, The chain a lookup keeps). A link it has no
+/// room for is a chain past `cname_hops_max`, which is `ChainTooLong`. A caller that keeps no
+/// chain passes null, and the loop's own bound holds the chain to the same length.
 pub fn collect(
     message: []const u8,
     chain: *Name,
     kind: Kind,
     hops_before: u8,
+    aliases: ?*core.Aliases,
     out: *Answers,
 ) Error!Outcome {
     assert(kind.queryable());
     assert(chain.len >= 1);
+    if (aliases) |links| assert(links.count == hops_before);
     const start = try sections(message, chain);
     out.reset(kind);
     out.hops_used = hops_before;
@@ -67,10 +71,13 @@ pub fn collect(
         // where it moved to; if it never moved, the name simply has no record of this type.
         const target = pass.alias orelse
             return if (out.aliased) .chain_incomplete else .no_data;
+        // A chain holds `cname_hops_max` links at most, a loop above all (RFC 1034 §3.6.2).
+        if (aliases) |links| if (!links.append(chain, pass.alias_ttl_seconds)) return Error.ChainTooLong;
         chain.* = target;
         out.aliased = true;
         hops += 1;
         out.hops_used = hops;
+        if (aliases) |links| assert(links.count == hops);
     }
     assert(hops > core.limits.cname_hops_max);
     return Error.ChainTooLong;
@@ -132,6 +139,8 @@ fn sections(message: []const u8, question: *const Name) Error!Sections {
 const Pass = struct {
     collected: bool = false,
     alias: ?Name = null,
+    /// The TTL of the CNAME that `alias` came from.
+    alias_ttl_seconds: u32 = 0,
 };
 
 /// The part a record can play for the question being asked.
@@ -173,6 +182,7 @@ fn one_pass(
                 var target: Name = Name.empty;
                 try record.rdata_name(message, &target);
                 pass.alias = target;
+                pass.alias_ttl_seconds = record.ttl_seconds;
                 note_ttl(record.ttl_seconds, out);
             },
             .other => unreachable,
@@ -200,12 +210,22 @@ test {
     _ = response_answers;
 }
 
-/// The chain the tests walk, left holding the canonical name when a CNAME was followed.
+/// The chain the tests walk, left holding the canonical name when a CNAME was followed, and the
+/// links it kept on the way.
 threadlocal var test_chain: Name = Name.empty;
+threadlocal var test_aliases: core.Aliases = .{};
 
 fn collect_from(message: []const u8, kind: Kind, out: *Answers) !Outcome {
     test_chain = try Name.from_text("example.com");
-    return collect(message, &test_chain, kind, 0, out);
+    test_aliases.clear();
+    return collect(message, &test_chain, kind, 0, &test_aliases, out);
+}
+
+/// Links for `count` hops an earlier message took, each owned by `example.com`.
+fn earlier_links(count: usize) void {
+    test_aliases.clear();
+    const owner = Name.from_text("example.com") catch unreachable;
+    for (0..count) |_| assert(test_aliases.append(&owner, 1));
 }
 
 test "an A record owned by the question is collected" {
@@ -271,11 +291,13 @@ test "a chain already at the hop bound is refused rather than followed" {
     var collected: Answers = undefined;
     const question = try Name.from_text("example.com");
     test_chain = question;
+    earlier_links(core.limits.cname_hops_max);
     try testing.expectError(Error.ChainTooLong, collect(
         &fixtures.answer_cname_only,
         &test_chain,
         .a,
         core.limits.cname_hops_max,
+        &test_aliases,
         &collected,
     ));
 }
@@ -312,9 +334,13 @@ test "the hop count follows the chain across messages" {
     var collected: Answers = undefined;
     _ = try collect_from(&fixtures.answer_cname_then_a, .a, &collected);
     try testing.expectEqual(@as(u8, 1), collected.hops_used);
+    // The one link: the CNAME owned by the name asked (docs/design.md §5).
+    try testing.expectEqual(@as(u8, 1), test_aliases.count);
+    try testing.expectEqualSlices(u8, (try Name.from_text("example.com")).wire(), test_aliases.at(0).owner);
 
     test_chain = try Name.from_text("example.com");
-    const outcome = try collect(&fixtures.answer_cname_only, &test_chain, .a, 3, &collected);
+    earlier_links(3);
+    const outcome = try collect(&fixtures.answer_cname_only, &test_chain, .a, 3, &test_aliases, &collected);
     try testing.expectEqual(Outcome.chain_incomplete, outcome);
     try testing.expectEqual(@as(u8, 4), collected.hops_used);
 }
@@ -340,7 +366,8 @@ test "a response echoing a maximal name parses, and its offsets do not overflow 
     var collected: Answers = undefined;
     test_chain = try Name.from_text("a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63 ++ "." ++ "d" ** 61);
     try testing.expectEqual(core.limits.name_bytes_max, test_chain.len);
-    const outcome = try collect(&fixtures.answer_a_long_name, &test_chain, .a, 0, &collected);
+    test_aliases.clear();
+    const outcome = try collect(&fixtures.answer_a_long_name, &test_chain, .a, 0, &test_aliases, &collected);
     try testing.expectEqual(Outcome.answered, outcome);
     try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 1 }, collected.addresses()[0].slice());
     try testing.expectEqual(@as(u32, 0), try negative_ttl_seconds(&fixtures.answer_a_long_name, &test_chain));

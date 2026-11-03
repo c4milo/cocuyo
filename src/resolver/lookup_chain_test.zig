@@ -105,3 +105,78 @@ test "a chain name compressed into the question comes back without cocuyo's own 
         );
     }
 }
+
+// The links a chain keeps (docs/design.md §5, The chain a lookup keeps; §17 question 122).
+
+test "an answer through a chain across messages hands back each link, and each target" {
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
+    try harness.start("example.com.", .a, seed);
+    for ([_]fixtures.Reply{ fixtures.cname_short, fixtures.cname_fresh, fixtures.answer_a }) |reply| {
+        _ = harness.send();
+        try testing.expectEqual(Verdict.accepted, harness.respond(reply, servers[0].endpoint));
+    }
+    const done = harness.poll().done;
+    const end = done.canonical_name.?;
+    try testing.expect(end.equal(&try Name.from_text("c.host.example.net")));
+    try testing.expectEqual(@as(u8, 2), done.aliases.count);
+    try testing.expectEqualSlices(u8, (try Name.from_text("example.com")).wire(), done.aliases.at(0).owner);
+    try testing.expectEqual(@as(u32, 20), done.aliases.at(0).ttl_seconds);
+    try testing.expectEqualSlices(u8, (try Name.from_text("host.example.net")).wire(), done.aliases.at(1).owner);
+    try testing.expectEqual(@as(u32, 60), done.aliases.at(1).ttl_seconds);
+    try testing.expectEqualSlices(u8, done.aliases.at(1).owner, done.aliases.target(0, end));
+    try testing.expectEqualSlices(u8, end.wire(), done.aliases.target(1, end));
+}
+
+test "a no data after a CNAME reports the chain's end and its link" {
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
+    try harness.start("example.com.", .a, seed);
+    for ([_]fixtures.Reply{ fixtures.cname_short, fixtures.no_data_soa }) |reply| {
+        _ = harness.send();
+        try testing.expectEqual(Verdict.accepted, harness.respond(reply, servers[0].endpoint));
+    }
+    const failed = harness.poll().failed;
+    try testing.expectEqual(core.Error.NoData, failed.err);
+    try testing.expect(failed.canonical_name.?.equal(&try Name.from_text("host.example.net")));
+    try testing.expectEqual(@as(u8, 1), failed.aliases.count);
+    try testing.expectEqualSlices(u8, (try Name.from_text("example.com")).wire(), failed.aliases.at(0).owner);
+}
+
+test "a name error whose message holds the CNAME reports the link it took" {
+    // RFC 2308 §2.1: the CNAME and the NXDOMAIN of its target in one message.
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
+    try harness.start("example.com.", .a, seed);
+    _ = harness.send();
+    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.name_error_cname_soa, servers[0].endpoint));
+    const failed = harness.poll().failed;
+    try testing.expectEqual(core.Error.NameNotFound, failed.err);
+    try testing.expect(failed.canonical_name.?.equal(&try Name.from_text("host.example.net")));
+    try testing.expectEqual(@as(u8, 1), failed.aliases.count);
+}
+
+test "a reply the lookup ignores leaves the links as they were" {
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
+    try harness.start("example.com.", .a, seed);
+    _ = harness.send();
+    _ = harness.respond(fixtures.cname_short, servers[0].endpoint);
+    // A CNAME whose rdata length runs past the message: the walk fails, and the chain stays.
+    var malformed = fixtures.record_cname_fresh;
+    malformed[11] = 0x40;
+    _ = harness.send();
+    try testing.expectEqual(Verdict.ignored, harness.respond(.{ .records = &malformed, .ancount = 1 }, servers[0].endpoint));
+    try testing.expectEqual(@as(u8, 1), harness.lookup.aliases.count);
+    try testing.expectEqual(harness.lookup.cname_hops, harness.lookup.aliases.count);
+}
+
+test "the search walk's next candidate starts with no link" {
+    const search = [_]Name{try Name.from_text("one.net")};
+    var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .search = &search, .ndots = 1 } };
+    try harness.start("example", .a, seed);
+    // `example.one.net` moves the chain, then has no data; `example` answers with no chain.
+    for ([_]fixtures.Reply{ fixtures.cname_short, fixtures.no_data_soa, fixtures.answer_a }) |reply| {
+        _ = harness.send();
+        try testing.expectEqual(Verdict.accepted, harness.respond(reply, servers[0].endpoint));
+    }
+    const done = harness.poll().done;
+    try testing.expectEqual(@as(?*const Name, null), done.canonical_name);
+    try testing.expectEqual(@as(u8, 0), done.aliases.count);
+}

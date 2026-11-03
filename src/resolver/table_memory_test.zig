@@ -108,6 +108,8 @@ test "an answer reached through a chain is written with the chain's end" {
     const target = try core.Name.from_text("host.example.net");
     try testing.expect(end.action.done.canonical_name.?.equal(&target));
     try testing.expect(stub.written.?.answered.canonical_name.?.equal(&target));
+    // And its links (docs/design.md §5, §17 question 122).
+    try testing.expectEqual(@as(u8, 1), stub.written.?.answered.aliases.count);
     rig.resolver.release(handle);
 }
 
@@ -143,10 +145,13 @@ test "a recalled answer reports the chain's end it was remembered with" {
     rig.open();
     const answers = try answered_once(&rig);
     const target = try core.Name.from_text("host.example.net");
+    var aliases: core.Aliases = .{};
+    try testing.expect(aliases.append(&try core.Name.from_text("example.com"), 60));
     var stub: Stub = .{ .held = .{ .answered = .{
         .answers = &answers,
         .ttl_seconds = 42,
         .canonical_name = &target,
+        .aliases = &aliases,
         .security = .unchecked,
     } } };
     rig.resolver.remember_with(stub.memory());
@@ -155,6 +160,32 @@ test "a recalled answer reports the chain's end it was remembered with" {
     const event = rig.poll().?;
     try testing.expect(event.action == .done);
     try testing.expect(event.action.done.canonical_name.?.equal(&target));
+    // The links, copied into the lookup's own storage, as the end is.
+    try testing.expectEqual(@as(u8, 1), event.action.done.aliases.count);
+    try testing.expect(event.action.done.aliases != &aliases);
+    rig.resolver.release(handle);
+}
+
+test "a recalled negative reports the chain that reached the name with no data" {
+    var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
+    rig.open();
+    const target = try core.Name.from_text("host.example.net");
+    var aliases: core.Aliases = .{};
+    try testing.expect(aliases.append(&try core.Name.from_text("example.com"), 60));
+    var stub: Stub = .{ .held = .{ .negative = .{
+        .outcome = .no_data,
+        .ttl_seconds = 42,
+        .security = .unchecked,
+        .canonical_name = &target,
+        .aliases = &aliases,
+    } } };
+    rig.resolver.remember_with(stub.memory());
+
+    const handle = try rig.start("example.com.");
+    const failed = rig.poll().?.action.failed;
+    try testing.expectEqual(core.Error.NoData, failed.err);
+    try testing.expect(failed.canonical_name.?.equal(&target));
+    try testing.expectEqual(@as(u8, 1), failed.aliases.count);
     rig.resolver.release(handle);
 }
 

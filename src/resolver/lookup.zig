@@ -141,6 +141,9 @@ pub const Lookup = struct {
     /// Held uncased; the case is applied on the way out and checked on the way back.
     current: Name,
     answers: wire.Answers,
+    /// The CNAME links the chain moved through to reach `current`, one for each of `cname_hops`
+    /// (docs/design.md §5, The chain a lookup keeps).
+    aliases: core.Aliases,
 
     pub fn init(config: *const Config, servers: *Servers, question: Question, seed: u64) Lookup {
         var lookup: Lookup = undefined;
@@ -354,8 +357,8 @@ pub const Lookup = struct {
         // Another name, so another query, and no retry of the last (RFC 9520 §3.1).
         self.sends = .{};
         self.conjunctions.key_asks = 0;
-        self.cname_hops = 0;
-        self.flags.aliased = false;
+        // A walk with no candidate left fails with the chain it had: the chain resets only when
+        // another candidate is taken (docs/design.md §5, The chain a lookup keeps).
         self.take_candidate(self.candidate_index + 1);
         if (self.state == .query_ready) self.restart(now_ns);
     }
@@ -384,6 +387,8 @@ pub const Lookup = struct {
                     self.current = name;
                     self.state = .query_ready;
                     self.flags.aliased = false;
+                    self.cname_hops = 0;
+                    self.aliases.clear();
                     return;
                 },
                 .skip => at += 1,
@@ -418,6 +423,7 @@ pub const Lookup = struct {
             .records = if (storage == .rdata) self.answers.records() else null,
             .record_count = if (storage == .rdata) self.answers.count else 0,
             .canonical_name = if (self.flags.aliased) &self.current else null,
+            .aliases = &self.aliases,
             .ttl_seconds = self.answers.ttl_seconds,
             .truncated = self.answers.truncated,
             .security = security.of(self),

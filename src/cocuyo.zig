@@ -26,6 +26,9 @@ pub const Address = core.Address;
 pub const Endpoint = core.Endpoint;
 pub const Family = core.Family;
 pub const Name = core.Name;
+/// The CNAME links a lookup followed, which `Answer.aliases` and `Failure.aliases` hand back
+/// (docs/design.md §5, §17 question 122).
+pub const Aliases = core.Aliases;
 pub const Kind = core.Kind;
 pub const Question = core.Question;
 pub const Config = core.Config;
@@ -118,14 +121,26 @@ fn recall_from_cache(context: *anyopaque, question: *const Question, now_ns: u64
             .answers = hit.answers,
             .ttl_seconds = hit.ttl_seconds,
             .canonical_name = hit.canonical_name,
+            .aliases = hit.aliases,
             .security = hit.security,
         } },
-        .name_not_found => .{ .negative = .{ .outcome = .name_not_found, .ttl_seconds = hit.ttl_seconds, .security = hit.security } },
-        .no_data => .{ .negative = .{ .outcome = .no_data, .ttl_seconds = hit.ttl_seconds, .security = hit.security } },
+        .name_not_found, .no_data => .{ .negative = .{
+            .outcome = if (hit.outcome == .no_data) .no_data else .name_not_found,
+            .ttl_seconds = hit.ttl_seconds,
+            .security = hit.security,
+            .canonical_name = hit.canonical_name,
+            .aliases = hit.aliases,
+        } },
         // A resolution failure: the table ends the lookup with it and sends no query
         // (RFC 9520 §3.2; docs/design.md §16 decision 61).
         .failed => .{ .failed = hit.failure.? },
     };
+}
+
+/// The chain a cache keeps of an end: its end and its links, or none when no CNAME reached it.
+fn chain_of(canonical: ?*const core.Name, aliases: *const core.Aliases) ?cache.Chain {
+    const end = canonical orelse return null;
+    return .{ .end = end, .aliases = aliases };
 }
 
 fn remember_in_cache(
@@ -136,11 +151,11 @@ fn remember_in_cache(
 ) void {
     const store: *Cache = @ptrCast(@alignCast(context));
     switch (end) {
-        .answered => |answered| store.put(question, answered.answers, answered.canonical_name, answered.security, now_ns),
+        .answered => |answered| store.put(question, answered.answers, chain_of(answered.canonical_name, answered.aliases), answered.security, now_ns),
         .negative => |negative| store.put_negative(question, switch (negative.outcome) {
             .name_not_found => .name_not_found,
             .no_data => .no_data,
-        }, negative.ttl_seconds, negative.security, now_ns),
+        }, negative.ttl_seconds, chain_of(negative.canonical_name, negative.aliases), negative.security, now_ns),
         .failed => |err| {
             // The table writes the failures that the cache keeps, and no other (§16 decision 61).
             assert(cache.resolution_failure(err));
@@ -352,7 +367,7 @@ test "a hit through the table hands each record back less the time it spent in t
     const question = try Question.from_text("example.com.", .mx);
     var chain = question.name;
     var answers = wire.Answers.init(.mx);
-    _ = try wire.response.collect(&wire.fixtures.answer_mx, &chain, .mx, 0, &answers);
+    _ = try wire.response.collect(&wire.fixtures.answer_mx, &chain, .mx, 0, null, &answers);
     const stored_ttl_seconds = answers.records().at(0).ttl_seconds;
     try testing.expect(stored_ttl_seconds > capped_ttl_seconds);
     memory.remember(memory.context, &question, .{ .answered = .{

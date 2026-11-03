@@ -24,6 +24,7 @@ pub const Hosts = hosts.Hosts;
 pub const name_text = @import("name_text.zig");
 pub const name_reverse = @import("name_reverse.zig");
 pub const Name = @import("name.zig").Name;
+pub const Aliases = @import("aliases.zig").Aliases;
 pub const canonical = @import("canonical.zig");
 
 const question = @import("question.zig");
@@ -43,6 +44,7 @@ pub const Source = @import("config.zig").Source;
 
 test {
     _ = constants;
+    _ = @import("aliases.zig");
     _ = limits;
     _ = mix;
     _ = address;

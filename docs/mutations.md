@@ -11615,3 +11615,22 @@ fails at once on a signature that fails. The Lean model gained the answer `unpro
 | --- | --- | --- | --- |
 | UP1 | a walk fails at a DS answer that proves nothing at its name | `zig build test-dnssec` | `CAUGHT` |
 | UP2 | a walk takes the next label after a DS answer whose signature fails | `zig build test-dnssec` | `CAUGHT` |
+
+## The chain a lookup keeps
+
+2026-11-03. Design §5, The chain a lookup keeps, and §17 question 122. A lookup keeps each CNAME
+link it follows, bounded by `cname_hops_max` and by `chain_bytes_max`, and `Answer` and `Failure`
+hand the links back. LK3 drops the assertion beside the append with it, and LK4 the hops' reset
+with the links', so that a test's expectation catches each, and not the assertion that the
+links equal the hops. `zig build mutations -- engine LK1 ... LK8` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| LK1 | a chain refuses a link one before cname_hops_max | `zig build test-core` | `CAUGHT` |
+| LK2 | a message the lookup does not take leaves its links | `zig build test-resolver` | `CAUGHT` |
+| LK3 | the codec keeps no link for a CNAME it follows | `zig build test-wire` | `CAUGHT` |
+| LK4 | the next candidate keeps the chain of the last, its links and its hops | `zig build test-resolver` | `CAUGHT` |
+| LK5 | a negative's message moves no chain | `zig build test-resolver` | `CAUGHT` |
+| LK6 | a failure hands back no chain's end | `zig build test-resolver` | `CAUGHT` |
+| LK7 | a cache slot keeps the end but not the links | `zig build test-cache` | `CAUGHT` |
+| LK8 | a recall takes the end but not the links | `zig build test-resolver` | `CAUGHT` |

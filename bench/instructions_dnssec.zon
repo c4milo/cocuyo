@@ -5,6 +5,6 @@
     .zig = "0.16.0",
     .target = "x86_64-linux",
     .cases = .{
-        .{ .name = "validate-one", .rounds = 1000, .instructions = 7572000 },
+        .{ .name = "validate-one", .rounds = 1000, .instructions = 7573000 },
     },
 }

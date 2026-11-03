@@ -245,6 +245,8 @@ test "records of another shape than the proof's are bogus" {
         _ = harness.respond(case.reply, servers[0].endpoint);
         try testing.expectEqual(State.tcp_needed, harness.lookup.state);
         try testing.expect(harness.lookup.current.equal(&try Name.from_text("example.com.")));
+        // A CNAME the lookup did not take leaves no link (docs/design.md §5).
+        try testing.expectEqual(@as(u8, 0), harness.lookup.aliases.count);
     }
 }
 

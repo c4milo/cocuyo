@@ -76,10 +76,12 @@ const Name = core.Name;
 const Outcome = response.Outcome;
 
 threadlocal var test_chain: Name = Name.empty;
+threadlocal var test_aliases: core.Aliases = .{};
 
 fn collect_from(message: []const u8, kind: Kind, out: *Answers) !Outcome {
     test_chain = try Name.from_text("example.com");
-    return response.collect(message, &test_chain, kind, 0, out);
+    test_aliases.clear();
+    return response.collect(message, &test_chain, kind, 0, &test_aliases, out);
 }
 
 test "a record with a TTL of zero keeps the answer's TTL at zero, whatever comes after it" {

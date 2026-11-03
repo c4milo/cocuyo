@@ -317,7 +317,8 @@ fn accepted(result: anytype) bool {
 fn records_check(message: []const u8, kind: core.Kind) ?[]const u8 {
     var chain = Name.from_text(question_text) catch unreachable;
     var collected: response_codec.Answers = undefined;
-    const outcome = response_codec.collect(message, &chain, kind, 0, &collected) catch return null;
+    var aliases: core.Aliases = .{};
+    const outcome = response_codec.collect(message, &chain, kind, 0, &aliases, &collected) catch return null;
     if (collected.count > core.limits.records_kept_max) return "more records were kept than there is room for";
     if ((outcome == .answered) != (collected.count > 0)) return "an answer and a count disagree";
     if (collected.records().used > core.limits.rdata_bytes_max) return "the rdata buffer overflowed";
@@ -343,7 +344,8 @@ fn response_check(message: []const u8) ?[]const u8 {
     if (records_check(message, .any)) |failure| return failure;
     var chain = Name.from_text(question_text) catch unreachable;
     var collected: response_codec.Answers = response_codec.Answers.init(.a);
-    const outcome = response_codec.collect(message, &chain, .a, 0, &collected) catch return null;
+    var aliases: core.Aliases = .{};
+    const outcome = response_codec.collect(message, &chain, .a, 0, &aliases, &collected) catch return null;
     if (collected.count > core.limits.addresses_max) return "more addresses were collected than there is room for";
     if (outcome == .answered and collected.count == 0) return "an answer was reported with nothing collected";
     if (outcome != .answered and collected.count != 0) return "records were collected without an answer";
