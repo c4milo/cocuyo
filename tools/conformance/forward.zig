@@ -51,9 +51,10 @@ const loopback = [_]u8{ 127, 0, 0, 1 };
 /// A slash and a type's name in a log line's label, as `/NSEC3PARAM`.
 const type_text_bytes_max: usize = 16;
 
-/// A query or a reply: the largest UDP payload over IPv4, 65,535 octets less a 20-octet IP header
-/// and an 8-octet UDP header, since a TCP query reaches the main thread as a datagram on the
-/// loopback. A reply over
+/// A query or a reply: the largest UDP payload over IPv4, since a TCP query reaches the main thread
+/// as a datagram on the loopback. "UDP_Length <= IPv4_Total_Length - IPv4_IHL * 4", and a UDP
+/// Length of 8 holds no payload (RFC 9868 §7): 65,535 octets, less a 20-octet IP header, less the
+/// 8-octet UDP header. A reply over
 /// UDP stays within what the query offers, and past that sets TC (RFC 1035 §4.2.1, RFC 6891
 /// §6.2.3). One over TCP is not held to that size: "Some EDNS-aware servers incorrectly limit the
 /// TCP response sizes to the advertised UDP response size" (RFC 8906 §3.2.7).
