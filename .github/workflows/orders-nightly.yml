@@ -1,7 +1,7 @@
 # The order check of src/sim/sim_orders.zig over 65,536 seeds, once a day and on demand
-# (c4milo/cocuyo#61). `zig build test` runs seeds 0 to 63 on every push. This runs a new range each
-# day, from the day's number since 1970 times 65,536, so the nights do not repeat each other's
-# seeds. A failure prints its seed and its twist; `zig build orders -- 1 <seed>` runs it again.
+# (c4milo/cocuyo#61). Every push runs seeds 0 to 65,535 in ci.yml's Linux job. This runs a new
+# range each day, from the day's number since 1970 times 65,536, so the nights repeat neither
+# each other's seeds nor the push's. A failure prints its seed and its twist; `zig build orders -- 1 <seed>` runs it again.
 #
 # Zig is pinned as ci.yml pins it. No third-party action runs here; `actions/checkout` is
 # GitHub's own.

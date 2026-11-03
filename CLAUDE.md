@@ -329,8 +329,8 @@ The architecture depends on every rule in this section.
 - Orders: `zig build test` runs the order check of `src/sim/sim_orders.zig` over seeds 0 to 63:
   four validating lookups whose walks share zones, their replies handed back in an order a seed
   chooses, each one required to end as it ends alone. `zig build orders -- [<count> [<first>]]`
-  runs a range, 65,536 by default, ReleaseSafe; the `orders-nightly` workflow runs a new range
-  each day.
+  runs a range, 65,536 by default, ReleaseSafe. CI's Linux job runs it on every push, and the
+  `orders-nightly` workflow runs a new range each day.
 - Format: `zig build fmt`, which the gate runs too, or `zig fmt build.zig build src tools examples
   bench io` to rewrite what it refuses.
 - Commit messages: `zig build hooks` once after clone; `zig build lint-commits` by hand.

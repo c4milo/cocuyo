@@ -137,6 +137,8 @@ jobs:
       - run: zig version
       - name: The whole local gate
         run: zig build test
+      - name: 65,536 orders of a validating table's replies, seeds 0 to 65,535
+        run: zig build orders
       - name: Two engines on two threads, each on its own io_uring loop, resolve at once
         run: zig build example-threads-rotor
       - name: Install valgrind, the counter of the instruction check

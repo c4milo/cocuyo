@@ -1,6 +1,7 @@
 //! `zig build orders`: the check of `src/sim/sim_orders.zig` over a range of seeds, outside the
 //! test runner (c4milo/cocuyo#61). `zig build test` runs seeds 0 to 63. This runs as many as the
-//! caller likes, ReleaseSafe, which is how CI's `orders-nightly` workflow runs 65,536.
+//! caller likes, ReleaseSafe: CI's Linux job runs seeds 0 to 65,535 on every push, and the
+//! `orders-nightly` workflow runs a new range of 65,536 each day.
 //!
 //!     zig build orders -- [<count> [<first>]]
 //!
