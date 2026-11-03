@@ -99,6 +99,29 @@ test "an insecure message ends insecure, and an RRSIG question unchecked" {
     try testing.expectEqual(@as(usize, 0), rrsig.asked);
 }
 
+test "a validating lookup reads neither AD nor DO in a response" {
+    // RFC 4035 §4.9.3: a validating stub SHOULD NOT examine AD. RFC 6840 §5.6: a resolver MUST
+    // ignore DO in a response. So the validator's verdict decides, even where Stage A relies on AD.
+    for ([_]struct { verdict: Validation, signed: bool, security: core.Security }{
+        .{ .verdict = .insecure, .signed = true, .security = .insecure },
+        .{ .verdict = secure(.answer, 60), .signed = false, .security = .secure },
+    }) |case| {
+        var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .authenticated_data = .always } };
+        var scripted: Scripted = .{ .verdicts = &.{case.verdict} };
+        try started(&harness, &scripted, .a);
+        _ = harness.send();
+        var reply = fixtures.answer_a;
+        reply.authentic_data = case.signed;
+        reply.dnssec_ok = case.signed;
+        reply.cookie = .opt_only;
+        const message = harness.build(reply);
+        const opt = (try wire.response_opt.find(message, &harness.lookup.current)).?;
+        try testing.expectEqual(case.signed, (try wire.edns.parse(opt.class, opt.ttl_seconds)).dnssec_ok());
+        _ = harness.respond(reply, servers[0].endpoint);
+        try testing.expectEqual(case.security, harness.poll().done.security);
+    }
+}
+
 test "a bogus answer over UDP is asked again over TCP, and one there moves to the next server" {
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers } };
     var scripted: Scripted = .{ .verdicts = &.{bogus} };

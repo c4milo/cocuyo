@@ -137,6 +137,8 @@ pub const Reply = struct {
     server_cookie: []const u8 = &.{},
     /// The AD bit: the server says it validated the answer (RFC 4035 §3.2.3).
     authentic_data: bool = false,
+    /// The DO bit in an OPT record, which a server echoes (RFC 3225 §3).
+    dnssec_ok: bool = false,
     /// Options to put in the OPT record after any cookie, as written: an extended error's.
     options: []const u8 = &.{},
 };
@@ -359,7 +361,7 @@ pub const Harness = struct {
         if (reply.truncated) flags |= wire.constants.flag_truncated;
         if (reply.authentic_data) flags |= wire.constants.flag_authentic_data;
         const extended_high: u8 = @intCast(rcode >> wire.constants.extended_rcode_low_bits);
-        const with_opt = reply.cookie != .none or extended_high != 0 or reply.options.len > 0;
+        const with_opt = reply.cookie != .none or extended_high != 0 or reply.options.len > 0 or reply.dnssec_ok;
 
         const header: wire.Header = .{
             .id = reply.id orelse self.lookup.transaction.id,
@@ -387,6 +389,7 @@ pub const Harness = struct {
         const out = self.reply_buffer[offset..];
         var written: usize = wire.edns.write(core.constants.udp_payload_bytes_default, null, out);
         out[5] = extended_high; // the TTL's high octet (RFC 6891 §6.1.3)
+        if (reply.dnssec_ok) out[7] |= @intCast(wire.edns.flag_dnssec_ok >> 8); // the flags' high octet
         const option = self.cookie_option(reply, out[written..]);
         written += option;
         @memcpy(out[written..][0..reply.options.len], reply.options);

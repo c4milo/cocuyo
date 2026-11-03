@@ -129,6 +129,10 @@ test "a time is within a signature's dates, both included, in serial number arit
     // RFC 1982 §3.2: across the wrap of the 32-bit space, 0x00000005 comes after 0xfffffff0.
     try testing.expect(within(0x00000002, 0xfffffff0, 0x00000005));
     try testing.expect(!within(0x00000006, 0xfffffff0, 0x00000005));
+    // A second before an inception just past the wrap, and a second after an expiration just
+    // before it.
+    try testing.expect(!within(0xffffffff, 0x00000000, 0x00000100));
+    try testing.expect(!within(0x00000000, 0xffffff00, 0xffffffff));
     try testing.expect(!before(0x80000000, 0) and !before(0, 0x80000000));
 }
 

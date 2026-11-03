@@ -11533,3 +11533,27 @@ RK6's edit now sets both variables, and a test of `names` now covers both. `zig 
 | RK6 | the three-octet exponent length is read as one octet | `zig build test-dnssec` | `CAUGHT` |
 | RK7 | a check hands the verifier an RSA key outside the bounds | `zig build test-dnssec` | `CAUGHT` |
 | RK8 | a signature past signature_bytes_max is handed to the verifier | `zig build test-dnssec` | `CAUGHT` |
+
+## The checks of Stage B, completed
+
+2026-11-02. Design §25's list of checks, and issue c4milo/cocuyo#56. An audit found five checks
+that no test proved in full. Each now has a test:
+
+- a response with AD and DO set to a validating lookup;
+- a DS set that names Ed448 beside an algorithm the verifier checks;
+- the dates a second outside a signature, across the wrap of the 32-bit count;
+- a CNAME that no valid DNAME makes, through its walk to Bogus;
+- a walk past `chain_questions_max`, through the table to the lookup that waits for it.
+
+AU1, AU3 and AU4 were `NOT CAUGHT` before these tests. No code reads DO in a response, so no
+mutation can break that read; the test holds the rule only. AU5 moves the bound and its
+assertion together, since the assertion alone stops the run first. `zig build mutations --
+engine AU1 ... AU5` ran each to its end.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| AU1 | a validating lookup reports the AD bit before its own verdict | `zig build test-resolver` | `CAUGHT` |
+| AU2 | a DS set that names an algorithm not checked makes the zone insecure | `zig build test-dnssec` | `CAUGHT` |
+| AU3 | the serial comparison of two times loses its wrap | `zig build test-dnssec` | `CAUGHT` |
+| AU4 | an alias on a walk's way reads as a delegation with no DS | `zig build test-dnssec` | `CAUGHT` |
+| AU5 | a walk asks one question past chain_questions_max, its assertion moved too | `zig build test-sim` | `CAUGHT` |

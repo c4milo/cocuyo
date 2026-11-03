@@ -253,6 +253,18 @@ test "a DS of an algorithm or a digest the verifier lacks makes the zone insecur
     }
 }
 
+test "a DS set that names Ed448 alone is insecure, and one that names it beside a checked algorithm is not" {
+    // Algorithm 16 is Ed448, which no verifier checks (§25). The zone's keys are of algorithm 5,
+    // which the tests' verifier checks as the real one checks 13.
+    var builder = zone_fixtures.keys();
+    const ed448 = fixtures.ds_of(&example(), &zone_fixtures.ksk, 16, 2);
+    const checked = fixtures.ds_of(&example(), &zone_fixtures.ksk, 5, 2);
+    try testing.expectEqual(Admission.insecure, try admission(&.{}, &.{&ed448}, builder.message()));
+    // "a validator accepts any single valid path" (RFC 6840 §5.11).
+    try testing.expectEqual(Admission.admitted, try admission(&.{}, &.{ &ed448, &checked }, builder.message()));
+    try testing.expectEqual(Admission.admitted, try admission(&.{}, &.{ &checked, &ed448 }, builder.message()));
+}
+
 test "a SHA-1 DS is passed over beside a SHA-256 one" {
     // RFC 4509 §3: the SHA-1 digest matches, and the SHA-256 one does not.
     var builder = zone_fixtures.keys();

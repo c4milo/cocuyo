@@ -232,6 +232,32 @@ test "an empty non-terminal moves the walk down, and unsigned data in a signed z
     try testing.expectEqual(@as(?store_module.Known, null), fixture.known("x.w.example"));
 }
 
+test "a CNAME that no valid DNAME makes fails its walk as bogus, and is never insecure" {
+    var fixture: Fixture = .{};
+    fixture.init();
+    fixture.hold_example(std.math.maxInt(u64));
+    // RFC 6672 §2.2: `d.example DNAME w.example` makes `x.d.example CNAME x.w.example`, and not
+    // the unsigned CNAME to `y.w.example` that this message holds.
+    var forged = Builder.init("x.d.example", .a, 0);
+    forged.rrset("d.example", .dname, &.{"\x01w\x07example\x00"}, zone.by_zone);
+    forged.record("x.d.example", .cname, 3600, "\x01y\x01w\x07example\x00");
+    forged.rrset("y.w.example", .a, &.{&zone.address}, zone.by_zone);
+    const wanted = fixture.walker.validator().validate(&named("x.d.example"), .a, forged.message(), 0);
+    const index = fixture.walker.join(&wanted.keys_wanted, 0).?;
+    // `d.example` exists, holds the DNAME and no DS, and is no delegation.
+    var no_ds = zone.ds_denied("d.example", "d.example", "\x03ns1\x07example\x00" ++ fixtures.redirect);
+    try fixture.ask(index, "d.example", .ds, no_ds.message(), 0);
+    try testing.expectEqual(@as(?End, null), fixture.walker.end(index));
+    // Below it the DNAME speaks: `x.d.example` is the alias it makes, so no data of its own is
+    // there to be unsigned.
+    var alias = Builder.init("x.d.example", .ds, 0);
+    alias.rrset("d.example", .dname, &.{"\x01w\x07example\x00"}, zone.by_zone);
+    alias.record("x.d.example", .cname, 3600, "\x01x\x01w\x07example\x00");
+    try fixture.ask(index, "x.d.example", .ds, alias.message(), 0);
+    try testing.expectEqual(End{ .failed = .bogus }, fixture.walker.end(index).?);
+    try testing.expectEqual(@as(?store_module.Known, null), fixture.known("x.d.example"));
+}
+
 test "a proof that a name on the way does not exist fails the walk as bogus" {
     var fixture: Fixture = .{};
     fixture.init();

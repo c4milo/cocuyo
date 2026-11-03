@@ -49,6 +49,8 @@ const Rig = struct {
     now_ns: u64 = 0,
     draw: u64 = 0,
     handle: ?resolver.Handle = null,
+    /// The questions a walk has counted once it is joined, where a test sets them, or null.
+    walk_questions: ?u8 = null,
 
     fn open(self: *Rig) void {
         self.anchors = .{.{ .zone = core.Name.root, .kind = .ds, .rdata = &self.anchor_rdata }};
@@ -99,6 +101,10 @@ const Rig = struct {
         const reply = server.respond(&self.script, &fixtures.server_address, query, over_tcp, self.draw, &self.reply).?;
         self.now_ns += 1;
         _ = self.table.on_datagram(self.reply[0..reply.len], servers[0].endpoint, self.now_ns);
+        const questions = self.walk_questions orelse return;
+        for (&self.store.walker.walks) |*walk| {
+            if (walk.phase != .free and walk.questions == 0) walk.questions = questions;
+        }
     }
 };
 
@@ -190,6 +196,17 @@ test "a server that lies, signs with expired signatures, or strips them, gives B
         try expect_failure(try rig.resolve("www.signed.example.", .a), core.Error.Bogus, .unchecked, case.questions);
         rig.release();
     }
+}
+
+test "a walk past chain_questions_max fails the lookup that waits for it as Bogus" {
+    var rig: Rig = .{};
+    // The walk counts one question less than its bound as it is joined (§25 walk rule 10).
+    rig.walk_questions = dnssec.limits.chain_questions_max - 1;
+    rig.open();
+    // The question, then the root's DNSKEY set, the walk's last question in its bound. The
+    // answer to `example DS` is one past it.
+    try expect_failure(try rig.resolve("www.signed.example.", .a), core.Error.Bogus, .unchecked, 3);
+    rig.release();
 }
 
 test "a key published before it signs replaces the old one with no new walk" {

@@ -7910,4 +7910,50 @@
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
+    .{
+        .section = "The checks of Stage B, completed",
+        .id = "AU1",
+        .what = "a validating lookup reports the AD bit before its own verdict",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_security.zig", .old = "    if (lookup.conjunctions.checked != .not_validating) return lookup.conjunctions.checked.security();", .new = "    if (lookup.conjunctions.authentic == .holds) return .authenticated;\n    if (lookup.conjunctions.checked != .not_validating) return lookup.conjunctions.checked.security();" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The checks of Stage B, completed",
+        .id = "AU2",
+        .what = "a DS set that names an algorithm not checked makes the zone insecure",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "    for (bases.slice()) |*basis| if (basis.usable(verifier)) return true;\n    return false;\n", .new = "    for (bases.slice()) |*basis| if (!basis.usable(verifier)) return false;\n    return bases.len > 0;\n" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The checks of Stage B, completed",
+        .id = "AU3",
+        .what = "the serial comparison of two times loses its wrap",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec.zig", .old = "    return (a < b and b - a < constants.serial_half) or (a > b and a - b > constants.serial_half);", .new = "    return a < b and b - a < constants.serial_half;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The checks of Stage B, completed",
+        .id = "AU4",
+        .what = "an alias on a walk's way reads as a delegation with no DS",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "                .name_error, .alias => fail(walk, .bogus),", .new = "                .name_error => fail(walk, .bogus),\n                .alias => self.insecure(walk, probe, secure.ttl_seconds, now_ns)," },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The checks of Stage B, completed",
+        .id = "AU5",
+        .what = "a walk asks one question past chain_questions_max, its assertion moved too",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "        if (walk.questions > limits.chain_questions_max) return fail(walk, .bogus);", .new = "        if (walk.questions > limits.chain_questions_max + 1) return fail(walk, .bogus);" },
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "        assert(walk.questions <= limits.chain_questions_max);", .new = "        assert(walk.questions <= limits.chain_questions_max + 1);" },
+        },
+        .caught_by = .{ .step = "test-sim" },
+    },
 }
