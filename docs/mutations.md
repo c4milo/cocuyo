@@ -11569,3 +11569,12 @@ walks now holds both cases, and failed before the fix. `zig build mutations -- e
 | Id | Mutation | Caught by | Result |
 | --- | --- | --- | --- |
 | WS1 | a walk's late answer is read when another walk entered the zone first | `zig build test-dnssec` | `CAUGHT` |
+
+2026-11-03, issue c4milo/cocuyo#61. `src/sim/sim_signed_order_test.zig` starts four lookups at
+once over the twin's signed server, and hands their replies back in an order a seed chooses. Each
+must end as it ends alone. With WS1's edit, seed 25 of 64 ends a lookup `Bogus`, as the live
+check did, and with no network. `zig build mutations -- engine WS2` ran it.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| WS2 | the same, found by an order of replies a seed chooses | `zig build test-sim` | `CAUGHT` |

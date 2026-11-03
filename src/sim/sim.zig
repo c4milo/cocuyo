@@ -71,4 +71,5 @@ test {
     _ = @import("sim_scenarios_test.zig");
     _ = signed;
     _ = @import("sim_signed_test.zig");
+    _ = @import("sim_signed_order_test.zig");
 }

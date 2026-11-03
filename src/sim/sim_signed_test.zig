@@ -109,7 +109,7 @@ const Rig = struct {
 };
 
 /// The calls `cocuyo.validated_by` names, over the store.
-fn trust(store: *KeyStore) resolver.Trust {
+pub fn trust(store: *KeyStore) resolver.Trust {
     const calls = dnssec.keys.calls;
     return .{
         .context = store.context(),

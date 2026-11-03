@@ -7965,4 +7965,13 @@
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
+    .{
+        .section = "Walks that share a zone",
+        .id = "WS2",
+        .what = "the same, found by an order of replies a seed chooses",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "        if (self.holds(&walk.target, walk.probe_labels, .keys, now_ns)) {\n", .new = "        if (false) {\n" },
+        },
+        .caught_by = .{ .step = "test-sim" },
+    },
 }

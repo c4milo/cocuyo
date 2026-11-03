@@ -11349,6 +11349,8 @@ Checks, one for each piece of Stage B:
 - A table full of lookups that wait still fetches their keys.
 - A walk past `chain_questions_max` fails the lookups that wait for it.
 - A walk whose zone another walk entered first stands in it, and the zone keeps its keys.
+- Lookups whose walks share zones end as each ends alone, in every order of replies that a seed
+  chooses (`src/sim/sim_signed_order_test.zig`).
 - A bogus answer over UDP is asked again over TCP, and a bogus one there moves to the next
   server.
 - A hit from the cache hands back the status the entry was stored with.
