@@ -32,6 +32,7 @@ const doh = @import("build/doh.zig");
 const dnssec_verifier = @import("build/dnssec.zig");
 const dnslib = @import("build/dnslib.zig");
 const fuzz = @import("build/fuzz.zig");
+const orders = @import("build/orders.zig");
 const coverage = @import("build/coverage.zig");
 const guide = @import("build/guide.zig");
 const fill_check = @import("build/fill_check.zig");
@@ -186,6 +187,7 @@ pub fn build(b: *std.Build) void {
     dnssec_verifier.add(b, graph, test_step, colibri);
     dnslib.add(b, target, graph, test_step, tool_test_step);
     fuzz.add(b, target, graph, test_step, tool_test_step);
+    orders.add(b, target, graph, test_step, tool_test_step);
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     guide.add(b, pepegrillo_dependency);
     instructions.add(b, tool_module(b, pepegrillo, "tools/instructions.zig"), tool_module(b, pepegrillo, "tools/instructions_dnssec.zig"), test_step);

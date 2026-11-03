@@ -2,9 +2,13 @@
 //! handed back in an order a seed chooses (c4milo/cocuyo#61). Their walks share the root's keys and
 //! `example`'s. Each lookup must end as it ends when it runs alone, in every order: no order of
 //! replies changes a verdict (docs/design.md §25, walk rule 12).
+//!
+//! Each seed runs three orders: the replies alone, then one lookup cancelled at a step the seed
+//! picks, then every entry of the key store expired at a step the seed picks, as a TTL that runs
+//! out or a full store does. `zig build test` runs a fixed range of seeds, and `zig build orders`
+//! runs a range as long as the caller likes (`tools/orders.zig`).
 const std = @import("std");
 const assert = std.debug.assert;
-const testing = std.testing;
 const core = @import("core");
 const resolver = @import("resolver");
 const dnssec = @import("dnssec");
@@ -12,7 +16,6 @@ const Kind = core.Kind;
 const Question = core.Question;
 const server = @import("sim_server.zig");
 const signed = @import("sim_signed.zig");
-const signed_test = @import("sim_signed_test.zig");
 const limits = @import("limits.zig");
 const fixtures = @import("fixtures.zig");
 const KeyStore = dnssec.keys.KeyStore;
@@ -37,14 +40,18 @@ const key_count: usize = std.math.ceilPowerOfTwoAssert(usize, slot_count * resol
 const entries_count: usize = 8;
 /// Replies held at once: one for each slot, since each slot has one query out at most.
 const held_max: usize = slot_count;
-/// More steps than any order takes: each step sends or hands back one message.
-const steps_max: usize = 256;
-/// The orders `zig build test` tries, seeds 0 to 63.
-const orders_count: u64 = 64;
+/// The orders `zig build test` runs, seeds 0 to 63.
+pub const gate_count: u64 = 64;
 /// The table's seed: any value, since a verdict does not depend on the ids.
 const table_seed: u64 = 0x5eed;
 
 const servers = [_]core.Server{.{ .endpoint = .{ .address = core.Address.from_v4(fixtures.server_octets) } }};
+
+/// What an order does beside the replies it hands back.
+pub const Twist = enum { none, cancel, expire };
+
+/// A seed and a twist whose order changed what a lookup ended with.
+pub const Broke = struct { seed: u64, twist: Twist, what: []const u8 };
 
 /// What a lookup ended with, as far as an order must not change it.
 const Verdict = struct {
@@ -60,11 +67,10 @@ const Verdict = struct {
         };
     }
 
-    fn expect(self: Verdict, actual: Verdict) !void {
-        try testing.expectEqual(self.err, actual.err);
-        try testing.expectEqual(self.security, actual.security);
-        try testing.expectEqual(self.address == null, actual.address == null);
-        if (self.address) |address| try testing.expect(address.equal(&actual.address.?));
+    fn equal(self: Verdict, other: Verdict) bool {
+        if (self.err != other.err or self.security != other.security) return false;
+        const address = self.address orelse return other.address == null;
+        return other.address != null and address.equal(&other.address.?);
     }
 };
 
@@ -100,19 +106,23 @@ const Rig = struct {
         self.anchors = .{.{ .zone = core.Name.root, .kind = .ds, .rdata = &self.anchor_rdata }};
         self.table = resolver.Resolver.init(&self.slots, &self.keys, &self.config, table_seed);
         self.store.init(&self.entries, &self.anchors, self.sums.verifier(), self.hashes.hasher(), signed.now_seconds, 0);
-        self.table.validate_with(signed_test.trust(&self.store));
+        self.table.validate_with(signed.trust(&self.store));
     }
 
     /// Starts each of `asked`, then hands the replies back in the order `seed` chooses, until
-    /// each lookup ends.
-    fn run(self: *Rig, asked: []const Asked, seed: u64) !void {
+    /// each lookup ends. The twist comes before the reply its step names, and to the lookup the
+    /// seed picks. Returns the lookup cancelled, if any.
+    fn run(self: *Rig, asked: []const Asked, seed: u64, how: Twist) !?usize {
         assert(asked.len <= names.len);
         for (asked, 0..) |name, index| self.handles[index] = try self.table.start(try Question.from_text(name.text, name.kind));
         var order = resolver.Entropy.init(seed);
-        for (0..steps_max) |_| {
+        const twist_step = order.next() % limits.order_twist_steps_max;
+        const cancelled: ?usize = if (how == .cancel) @intCast(order.next() % asked.len) else null;
+        for (0..limits.order_steps_max) |step| {
             try self.send_all(asked.len);
-            if (self.ended(asked.len)) return;
+            if (self.ended(asked.len)) return cancelled;
             if (self.held_count == 0) return error.Stalled;
+            if (step == twist_step) self.apply(how, cancelled);
             // The seed picks which held reply comes back next.
             const pick: usize = @intCast(order.next() % self.held_count);
             const reply = self.held[pick];
@@ -124,10 +134,21 @@ const Rig = struct {
         return error.Stalled;
     }
 
+    fn apply(self: *Rig, how: Twist, cancelled: ?usize) void {
+        switch (how) {
+            .none => {},
+            .cancel => self.table.cancel(self.handles[cancelled.?]),
+            // Every entry expires now, as each TTL ran out (§25, walk rule 2, and step 12).
+            .expire => for (self.store.store.entries) |*entry| {
+                if (entry.known != .free) entry.expires_ns = @min(entry.expires_ns, self.now_ns);
+            },
+        }
+    }
+
     /// Takes every event the table has: each query's reply is written and held, and each end is
     /// kept.
     fn send_all(self: *Rig, count: usize) !void {
-        for (0..steps_max) |_| {
+        for (0..limits.order_steps_max) |_| {
             self.now_ns += 1;
             const event = self.table.poll(self.now_ns, &self.out) orelse return;
             switch (event.action) {
@@ -137,7 +158,7 @@ const Rig = struct {
                 .done, .failed => {
                     const index = std.mem.indexOfScalar(resolver.Handle, self.handles[0..count], event.handle) orelse
                         return error.Unexpected;
-                    try testing.expectEqual(@as(?Verdict, null), self.verdicts[index]);
+                    if (self.verdicts[index] != null) return error.Unexpected;
                     self.verdicts[index] = Verdict.of(event.action);
                 },
                 // The driver frees a walk's lookup that ended (docs/design.md §17 question 100).
@@ -163,28 +184,72 @@ const Rig = struct {
     }
 };
 
-test "lookups whose walks share zones end as each ends alone, in every order of replies" {
-    var alone: [names.len]Verdict = undefined;
-    for (names, &alone) |name, *verdict| {
+/// What each name ends with when it runs alone.
+pub const Alone = [names.len]Verdict;
+
+pub fn alone() !Alone {
+    var verdicts: Alone = undefined;
+    for (names, &verdicts) |name, *verdict| {
         var rig: Rig = .{};
         rig.open();
-        try rig.run(&.{name}, 0);
+        _ = try rig.run(&.{name}, 0, .none);
         verdict.* = rig.verdicts[0].?;
     }
-    try testing.expectEqual(core.Security.secure, alone[0].security);
-    try testing.expectEqual(core.Security.insecure, alone[1].security);
-    try testing.expectEqual(core.Error.NameNotFound, alone[2].err.?);
-    try testing.expectEqual(core.Error.NoData, alone[3].err.?);
-    for (0..orders_count) |seed| {
+    return verdicts;
+}
+
+/// Runs the order of `seed` under `twist`, and says what broke, or null when each lookup ended as
+/// it ends alone. A lookup cancelled before its end comes ends `Canceled` instead.
+pub fn check(expected: *const Alone, seed: u64, twist: Twist) ?[]const u8 {
+    var rig: Rig = .{};
+    rig.open();
+    const cancelled = rig.run(&names, seed, twist) catch return "a lookup did not end";
+    for (expected, rig.verdicts, 0..) |want, got, index| {
+        const verdict = got.?;
+        if (verdict.equal(want)) continue;
+        if (cancelled == index and verdict.err == @as(?core.Error, core.Error.Canceled)) continue;
+        return if (cancelled == index) "a cancelled lookup ended as neither itself nor Canceled" else "a verdict changed";
+    }
+    return null;
+}
+
+/// Runs `count` seeds from `first`, each under every twist, and returns the first that broke.
+pub fn gate(expected: *const Alone, first: u64, count: u64) ?Broke {
+    for (0..count) |offset| {
+        const seed = first + offset;
+        for (std.enums.values(Twist)) |twist| {
+            if (check(expected, seed, twist)) |what| return .{ .seed = seed, .twist = twist, .what = what };
+        }
+    }
+    return null;
+}
+
+// Tests.
+
+const testing = std.testing;
+
+test "lookups whose walks share zones end as each ends alone, in every order of replies" {
+    const expected = try alone();
+    try testing.expectEqual(core.Security.secure, expected[0].security);
+    try testing.expectEqual(core.Security.insecure, expected[1].security);
+    try testing.expectEqual(core.Error.NameNotFound, expected[2].err.?);
+    try testing.expectEqual(core.Error.NoData, expected[3].err.?);
+    if (gate(&expected, 0, gate_count)) |broke| {
+        std.debug.print("seed {d}, {t}: {s}\n", .{ broke.seed, broke.twist, broke.what });
+        return error.TestUnexpectedResult;
+    }
+}
+
+test "a cancelled lookup ends Canceled, and the others as each ends alone" {
+    const expected = try alone();
+    var cancelled_count: usize = 0;
+    for (0..gate_count) |seed| {
         var rig: Rig = .{};
         rig.open();
-        rig.run(&names, seed) catch |err| {
-            std.debug.print("seed {d} did not end: {t}\n", .{ seed, err });
-            return err;
-        };
-        for (alone, rig.verdicts) |expected, actual| expected.expect(actual.?) catch |err| {
-            std.debug.print("seed {d} changed a verdict\n", .{seed});
-            return err;
-        };
+        const cancelled = (try rig.run(&names, seed, .cancel)).?;
+        if (rig.verdicts[cancelled].?.err == @as(?core.Error, core.Error.Canceled)) cancelled_count += 1;
     }
+    // Some seed cancels a lookup before its end comes, so the twist reaches the table.
+    try testing.expect(cancelled_count > 0);
+    try testing.expectEqual(@as(?[]const u8, null), check(&expected, 0, .cancel));
 }

@@ -1,0 +1,48 @@
+# The order check of src/sim/sim_orders.zig over 65,536 seeds, once a day and on demand
+# (c4milo/cocuyo#61). `zig build test` runs seeds 0 to 63 on every push. This runs a new range each
+# day, from the day's number since 1970 times 65,536, so the nights do not repeat each other's
+# seeds. A failure prints its seed and its twist; `zig build orders -- 1 <seed>` runs it again.
+#
+# Zig is pinned as ci.yml pins it. No third-party action runs here; `actions/checkout` is
+# GitHub's own.
+name: orders-nightly
+
+on:
+  schedule:
+    - cron: "37 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ZIG_VERSION: "0.16.0"
+
+jobs:
+  orders:
+    name: Linux, 65,536 orders of a validating table's replies
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Zig
+        run: |
+          set -euo pipefail
+          url="https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          sha="70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+          curl -fsSL "$url" -o zig.tar.xz
+          echo "$sha  zig.tar.xz" | sha256sum -c -
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+          # Zig 0.16 makes no tmp/ in a new global cache, and a zip package's fetch then fails.
+          cache_dir="$("$PWD/zig-x86_64-linux-${ZIG_VERSION}/zig" env | sed -n 's/^ *\.global_cache_dir = "\(.*\)",$/\1/p')"
+          test -n "$cache_dir"
+          mkdir -p "$cache_dir/tmp"
+      - run: zig version
+      - name: The day's range of seeds
+        run: |
+          set -euo pipefail
+          count=65536
+          first=$(( $(date -u +%s) / 86400 * count ))
+          echo "seeds $first to $(( first + count - 1 ))"
+          zig build orders -- "$count" "$first"

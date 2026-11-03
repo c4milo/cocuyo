@@ -7974,4 +7974,22 @@
         },
         .caught_by = .{ .step = "test-sim" },
     },
+    .{
+        .section = "Walks that share a zone",
+        .id = "WS3",
+        .what = "a lookup cancelled while its walk asks is not cancelled",
+        .edits = .{
+            .{ .file = "src/resolver/table.zig", .old = "        if (slot.lookup.is_settled()) return;", .new = "        if (true) return;" },
+        },
+        .caught_by = .{ .step = "test-sim" },
+    },
+    .{
+        .section = "Walks that share a zone",
+        .id = "WS4",
+        .what = "a walk that loses its keys fails at once, and never begins again",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "        if (walk.restarted) return fail(walk, .bogus);", .new = "        if (walk.restarted or true) return fail(walk, .bogus);" },
+        },
+        .caught_by = .{ .step = "test-sim" },
+    },
 }

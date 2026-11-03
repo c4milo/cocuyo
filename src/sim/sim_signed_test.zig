@@ -56,7 +56,7 @@ const Rig = struct {
         self.anchors = .{.{ .zone = core.Name.root, .kind = .ds, .rdata = &self.anchor_rdata }};
         self.table = resolver.Resolver.init(&self.slots, &self.keys, &self.config, table_seed);
         self.store.init(&self.entries, &self.anchors, self.sums.verifier(), self.hashes.hasher(), signed.now_seconds, 0);
-        self.table.validate_with(trust(&self.store));
+        self.table.validate_with(signed.trust(&self.store));
     }
 
     /// Resolves `text` of `kind` to its end. The caller frees the lookup with `release`.
@@ -107,21 +107,6 @@ const Rig = struct {
         }
     }
 };
-
-/// The calls `cocuyo.validated_by` names, over the store.
-pub fn trust(store: *KeyStore) resolver.Trust {
-    const calls = dnssec.keys.calls;
-    return .{
-        .context = store.context(),
-        .validate = calls.validate,
-        .join = calls.join,
-        .next_question = calls.next_question,
-        .answered = calls.answered,
-        .question_failed = calls.question_failed,
-        .end = calls.end,
-        .release = calls.release,
-    };
-}
 
 fn expect_answer(end: End, security: core.Security, questions: usize) !void {
     try testing.expect(end.action == .done);

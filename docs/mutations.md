@@ -11570,7 +11570,7 @@ walks now holds both cases, and failed before the fix. `zig build mutations -- e
 | --- | --- | --- | --- |
 | WS1 | a walk's late answer is read when another walk entered the zone first | `zig build test-dnssec` | `CAUGHT` |
 
-2026-11-03, issue c4milo/cocuyo#61. `src/sim/sim_signed_order_test.zig` starts four lookups at
+2026-11-03, issue c4milo/cocuyo#61. `src/sim/sim_signed_order_test.zig`, now `src/sim/sim_orders.zig`, starts four lookups at
 once over the twin's signed server, and hands their replies back in an order a seed chooses. Each
 must end as it ends alone. With WS1's edit, seed 25 of 64 ends a lookup `Bogus`, as the live
 check did, and with no network. `zig build mutations -- engine WS2` ran it.
@@ -11578,3 +11578,14 @@ check did, and with no network. `zig build mutations -- engine WS2` ran it.
 | Id | Mutation | Caught by | Result |
 | --- | --- | --- | --- |
 | WS2 | the same, found by an order of replies a seed chooses | `zig build test-sim` | `CAUGHT` |
+
+2026-11-03, the rest of issue c4milo/cocuyo#61. The check moved to `src/sim/sim_orders.zig`, so
+that `zig build orders` runs it over a long range (`tools/orders.zig`). Each seed now runs two
+more orders: one lookup cancelled at a step the seed picks, and every entry of the key store
+expired at one. WS3 makes a cancel do nothing, and WS4 fails a walk that loses its keys at once.
+The expire order catches WS4 at seed 0. `zig build mutations -- engine WS3 WS4` ran both.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| WS3 | a lookup cancelled while its walk asks is not cancelled | `zig build test-sim` | `CAUGHT` |
+| WS4 | a walk that loses its keys fails at once, and never begins again | `zig build test-sim` | `CAUGHT` |

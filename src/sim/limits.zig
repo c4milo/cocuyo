@@ -102,6 +102,13 @@ pub const quic_frame_bytes_max: usize = core.constants.tcp_prefix_bytes + quic_d
 /// this many whole queries.
 pub const frames_per_send_max: usize = 16;
 
+/// The order check (`sim_orders.zig`): more steps than any order of its replies takes, where each
+/// step sends or hands back one message.
+pub const order_steps_max: usize = 256;
+/// The replies an order hands back before its twist, at most: about what the check's four names
+/// take together, counted from the tests' runs rather than measured, so a twist falls inside a run.
+pub const order_twist_steps_max: u64 = 24;
+
 // A constant with no type is a `comptime_int`, which takes the type of a narrow runtime value it
 // meets in a sum. The lint rule reads the shape of each value, and this reads the type, so an
 // alias or a call that gives a `comptime_int` is caught here (docs/design.md §16 decision 40).

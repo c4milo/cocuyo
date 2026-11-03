@@ -7,6 +7,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 const wire = @import("wire");
 const dnssec = @import("dnssec");
+const resolver = @import("resolver");
 const Kind = core.Kind;
 const Name = core.Name;
 const Builder = dnssec.fixtures.Builder;
@@ -85,6 +86,22 @@ pub const DsRdata = dnssec.fixtures.DsRdata;
 /// The DS a key store takes as the root's trust anchor (RFC 4035 §4.4): the root's key 0.
 pub fn root_anchor() dnssec.fixtures.DsRdata {
     return dnssec.fixtures.ds_of(&Name.root, key(.root, 0), tree.algorithm, tree.digest_type);
+}
+
+/// The calls `cocuyo.validated_by` names, over `store`: a validating table over this tree, for
+/// the tests that drive one.
+pub fn trust(store: *dnssec.keys.KeyStore) resolver.Trust {
+    const calls = dnssec.keys.calls;
+    return .{
+        .context = store.context(),
+        .validate = calls.validate,
+        .join = calls.join,
+        .next_question = calls.next_question,
+        .answered = calls.answered,
+        .question_failed = calls.question_failed,
+        .end = calls.end,
+        .release = calls.release,
+    };
 }
 
 /// Writes the reply to `name` of `kind_code`, with the query's `id`, into `out`: the header, the

@@ -54,6 +54,9 @@ pub const server = @import("sim_server.zig");
 /// The signed tree a scripted server answers from when its script says so, and the trust anchor
 /// a test's key store takes for it (docs/design.md §25 step 14).
 pub const signed = @import("sim_signed.zig");
+/// The check that no order of a validating table's replies changes a verdict, which a test and
+/// `zig build orders` run (c4milo/cocuyo#61).
+pub const orders = @import("sim_orders.zig");
 pub const Network = network.Network;
 
 test {
@@ -71,5 +74,5 @@ test {
     _ = @import("sim_scenarios_test.zig");
     _ = signed;
     _ = @import("sim_signed_test.zig");
-    _ = @import("sim_signed_order_test.zig");
+    _ = orders;
 }
