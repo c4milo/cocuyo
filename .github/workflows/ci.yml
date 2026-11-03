@@ -51,7 +51,7 @@
 #     gates run only the check's own tests.
 #
 #   - `coverage`: `zig build coverage`, every module's tests under kcov, built here from its
-#     pinned release since Ubuntu 24.04 packages none. The table goes on the run page, and on main
+#     pinned release, so its version stays the same when the image changes. The table goes on the run page, and on main
 #     the badge goes to the orphan `badges` branch, which the README shows. It is the one job with
 #     a write token, and only its badge step holds it.
 #
@@ -64,12 +64,12 @@
 # machine, as §11 says.
 #
 # c-ares is built here from its release tarball rather than installed from the distribution.
-# Ubuntu 24.04 packages 1.27.0, which predates the `ares_dns_record` reader and `ares_query_dnsrec`
-# that `bench/` is written against, so the comparison does not compile against it. Building the
-# release also makes both sides of the comparison the same c-ares: 1.34.8 is what the macOS
-# measurements in §11 were made against.
+# Ubuntu 24.04 packaged 1.27.0, which predates the `ares_dns_record` reader and `ares_query_dnsrec`
+# that `bench/` is written against. Ubuntu 26.04 packages 1.34.6. Building the release makes both
+# sides of the comparison the same c-ares: 1.34.8 is what the macOS measurements in §11 were made
+# against.
 #
-# valgrind comes from Ubuntu 24.04's archive, 3.22. The baseline records the counter it was taken
+# valgrind comes from Ubuntu 26.04's archive, 3.26. The baseline records the counter it was taken
 # with, and one taken with another is not compared: the counts are written anew.
 #
 # Zig is downloaded from ziglang.org and checked against the SHA-256 the release index published
@@ -118,7 +118,7 @@ jobs:
 
   linux:
     name: Linux
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - name: Install Zig
@@ -130,6 +130,10 @@ jobs:
           echo "$sha  zig.tar.xz" | sha256sum -c -
           tar -xf zig.tar.xz
           echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+          # Zig 0.16 makes no tmp/ in a new global cache, and a zip package's fetch then fails.
+          cache_dir="$("$PWD/zig-x86_64-linux-${ZIG_VERSION}/zig" env | sed -n 's/^ *\.global_cache_dir = "\(.*\)",$/\1/p')"
+          test -n "$cache_dir"
+          mkdir -p "$cache_dir/tmp"
       - run: zig version
       - name: The whole local gate
         run: zig build test
@@ -152,7 +156,7 @@ jobs:
 
   epoll:
     name: Linux, the rotor example where io_uring is refused
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - name: Install Zig
@@ -164,13 +168,17 @@ jobs:
           echo "$sha  zig.tar.xz" | sha256sum -c -
           tar -xf zig.tar.xz
           echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+          # Zig 0.16 makes no tmp/ in a new global cache, and a zip package's fetch then fails.
+          cache_dir="$("$PWD/zig-x86_64-linux-${ZIG_VERSION}/zig" env | sed -n 's/^ *\.global_cache_dir = "\(.*\)",$/\1/p')"
+          test -n "$cache_dir"
+          mkdir -p "$cache_dir/tmp"
       - run: zig version
       - name: The rotor example resolves over epoll, with io_uring refused
         run: tools/epoll_check/run.sh
 
   engine:
     name: Linux, the engine over rotor and c-ares
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - name: Install Zig
@@ -182,6 +190,10 @@ jobs:
           echo "$sha  zig.tar.xz" | sha256sum -c -
           tar -xf zig.tar.xz
           echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+          # Zig 0.16 makes no tmp/ in a new global cache, and a zip package's fetch then fails.
+          cache_dir="$("$PWD/zig-x86_64-linux-${ZIG_VERSION}/zig" env | sed -n 's/^ *\.global_cache_dir = "\(.*\)",$/\1/p')"
+          test -n "$cache_dir"
+          mkdir -p "$cache_dir/tmp"
       - run: zig version
       - name: Build c-ares
         run: |
@@ -212,7 +224,7 @@ jobs:
 
   spec:
     name: Linux, the Lean and TLA+ models against the code
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # A push to a branch cancels the run it replaces. On main a run already going finishes, and
     # the newest push waits behind it: from 2f30feb on, each push cancelled the run before it.
     concurrency:
@@ -229,6 +241,10 @@ jobs:
           echo "$sha  zig.tar.xz" | sha256sum -c -
           tar -xf zig.tar.xz
           echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+          # Zig 0.16 makes no tmp/ in a new global cache, and a zip package's fetch then fails.
+          cache_dir="$("$PWD/zig-x86_64-linux-${ZIG_VERSION}/zig" env | sed -n 's/^ *\.global_cache_dir = "\(.*\)",$/\1/p')"
+          test -n "$cache_dir"
+          mkdir -p "$cache_dir/tmp"
       - name: Install Lean
         run: |
           set -euo pipefail
@@ -239,15 +255,20 @@ jobs:
           echo "$sha  lean.tar.zst" | sha256sum -c -
           tar --zstd -xf lean.tar.zst
           echo "$PWD/lean-${LEAN_VERSION}-linux/bin" >> "$GITHUB_PATH"
-      - name: Use the image's Java 21, for TLC
-        run: echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
+      - name: Use the image's Java, for TLC
+        run: |
+          set -euo pipefail
+          # TLC needs Java 11 or newer. The image names its Java 21 or its Java 25.
+          java_home="${JAVA_HOME_21_X64:-${JAVA_HOME_25_X64:-}}"
+          test -n "$java_home"
+          echo "$java_home/bin" >> "$GITHUB_PATH"
       - run: zig version && lean --version && java -version
       - name: The proofs, the committed slices, and the whole transcripts replayed
         run: zig build spec
 
   tla:
     name: Linux, the engine model checked by TLC
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # A push to a branch cancels the run it replaces. On main a run already going finishes, and
     # the newest push waits behind it: from 2f30feb on, each push cancelled the run before it.
     concurrency:
@@ -264,8 +285,17 @@ jobs:
           echo "$sha  zig.tar.xz" | sha256sum -c -
           tar -xf zig.tar.xz
           echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
-      - name: Use the image's Java 21, for TLC
-        run: echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
+          # Zig 0.16 makes no tmp/ in a new global cache, and a zip package's fetch then fails.
+          cache_dir="$("$PWD/zig-x86_64-linux-${ZIG_VERSION}/zig" env | sed -n 's/^ *\.global_cache_dir = "\(.*\)",$/\1/p')"
+          test -n "$cache_dir"
+          mkdir -p "$cache_dir/tmp"
+      - name: Use the image's Java, for TLC
+        run: |
+          set -euo pipefail
+          # TLC needs Java 11 or newer. The image names its Java 21 or its Java 25.
+          java_home="${JAVA_HOME_21_X64:-${JAVA_HOME_25_X64:-}}"
+          test -n "$java_home"
+          echo "$java_home/bin" >> "$GITHUB_PATH"
       - run: zig version && java -version
       - name: The engine model checked by TLC, and its mutants refused, but for what runs nightly
         run: |
@@ -279,7 +309,7 @@ jobs:
 
   dnslib:
     name: Linux, the codec against dnslib's reading of responses real servers sent
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - name: Install Zig
@@ -291,13 +321,17 @@ jobs:
           echo "$sha  zig.tar.xz" | sha256sum -c -
           tar -xf zig.tar.xz
           echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+          # Zig 0.16 makes no tmp/ in a new global cache, and a zip package's fetch then fails.
+          cache_dir="$("$PWD/zig-x86_64-linux-${ZIG_VERSION}/zig" env | sed -n 's/^ *\.global_cache_dir = "\(.*\)",$/\1/p')"
+          test -n "$cache_dir"
+          mkdir -p "$cache_dir/tmp"
       - run: zig version
       - name: Every record of dnslib's captured responses, read by the codec and by dnslib
         run: tools/dnslib/run.sh
 
   coverage:
     name: Linux, line coverage of the library and the engine
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # The badge step pushes the regenerated SVG to the badges branch, so this job alone gets write.
     permissions:
       contents: write
@@ -319,8 +353,12 @@ jobs:
           echo "$sha  zig.tar.xz" | sha256sum -c -
           tar -xf zig.tar.xz
           echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+          # Zig 0.16 makes no tmp/ in a new global cache, and a zip package's fetch then fails.
+          cache_dir="$("$PWD/zig-x86_64-linux-${ZIG_VERSION}/zig" env | sed -n 's/^ *\.global_cache_dir = "\(.*\)",$/\1/p')"
+          test -n "$cache_dir"
+          mkdir -p "$cache_dir/tmp"
       - name: Build kcov from its release, pinned
-        # Ubuntu 24.04 packages no kcov, so it is built from the release archive, checked against
+        # kcov is built from the release archive, so its version stays pinned. It is checked against
         # the SHA-256 computed when the release was pinned.
         run: |
           set -euo pipefail
