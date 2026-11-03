@@ -11358,8 +11358,8 @@ Each step lands with its checks, each check broken on purpose and recorded in
       `expected.txt` names it with its reason.
     - **The first run, on 2026-11-03.** 131 tests passed and 48 failed, each for a reason
       `expected.txt` names. Three faults it found are fixed: a negative read with NSEC3 of
-      another zone (rule 11), the program's AD, opcode and version replies, and a walk that
-      failed at an empty non-terminal whose DS answer proved nothing (walk rule 6).
+      another zone (rule 11), the program's AD, opcode, version and type replies, and a walk
+      that failed at an empty non-terminal whose DS answer proved nothing (walk rule 6).
     - **The forwarder role.** The upstream is the resolver the suite names.
     - **The resolver role.** The image also runs Unbound with validation off, `module-config:
       "iterator"`, on the loopback, from the suite's root hints. cocuyo forwards to it, and

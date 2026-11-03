@@ -270,8 +270,10 @@ fn read_query(bytes: []const u8) !Query {
         length = 1;
     }
     if (at + 2 * u16_bytes > bytes.len) return error.FormatError;
-    const code = std.mem.readInt(u16, bytes[at..][0..u16_bytes], .big);
-    const kind = cocuyo.Kind.from_code(code) orelse return error.NotImplemented;
+    // Any type a question may name, whether cocuyo names it or not (design §16 decision 31): "the
+    // only valid response is NOERROR if the qname exists and NXDOMAIN otherwise", and "For
+    // Meta-RRs, NOTIMP may be returned instead" (RFC 8906 §7), which `Kind.queryable` refuses.
+    const kind = cocuyo.Kind.of(std.mem.readInt(u16, bytes[at..][0..u16_bytes], .big));
     at += 2 * u16_bytes;
     const question = cocuyo.Question.from_text(text[0..length], kind) catch return error.NotImplemented;
     return .{
@@ -377,7 +379,11 @@ fn log(query: *const Query, result: Resolver.Result) !void {
     var text: [cocuyo.limits.name_text_bytes_max]u8 = undefined;
     const name = text[0..query.question.name.write_text(&text)];
     var label: [cocuyo.limits.name_text_bytes_max + type_text_bytes_max]u8 = undefined;
-    const labelled = try std.fmt.bufPrint(&label, "{s}/{t}", .{ name, query.question.kind });
+    const kind = query.question.kind;
+    const labelled = if (std.enums.tagName(cocuyo.Kind, kind)) |tag|
+        try std.fmt.bufPrint(&label, "{s}/{s}", .{ name, tag })
+    else
+        try std.fmt.bufPrint(&label, "{s}/TYPE{d}", .{ name, kind.code() });
     switch (result.outcome) {
         .answer => |found| try answer_text.report(labelled, &found),
         .failure => |failure| answer_text.report_failure(labelled, &failure),

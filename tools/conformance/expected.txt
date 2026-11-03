@@ -4,8 +4,6 @@
 
 forwarder::dnssec::scenarios::bogus::checking_disabled cd: cocuyo validates every lookup of a table that validates, so a query with CD gets no data that failed
 forwarder::dnssec::scenarios::noerror_with_dnssec_ok records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)
-resolver::dns::rfc3597::unknown_type_transparency type: cocuyo asks only the types Kind names, so the program answers another type NOTIMP
-resolver::dns::rfc8906::basic::test_8_1_2_unknown_types type: cocuyo asks only the types Kind names, so the program answers another type NOTIMP
 resolver::dns::scenarios::cname::longer_chain links: the reply holds one CNAME, to the chain's end, since cocuyo returns no link between
 resolver::dns::scenarios::cname::longer_chain_cached links: the reply holds one CNAME, to the chain's end, since cocuyo returns no link between
 resolver::dnssec::missing_records::rfc_4035_appendix_b::name_error records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)
