@@ -650,12 +650,12 @@ decision 40). A sum with a literal `2` is still a `u16`.
   that ran out, a connection or a handshake that failed, a request that failed and a lookup
   cancelled give none. Since 2026-10-24 a deadline in `tcp_ready` gives none either (decision
   52). Since 2026-10-20 a try that runs out after a reply to it marked its
-  server gives none too (below). A response is accepted only for the current transaction, and each
-  transaction has an id of its own (§7), so no sample pairs a response with the send of a query
-  sent again. A datagram that fails §7's checks is no sample, so it moves no server's wait
-  (decision 10). An attacker who can make a server's answers go missing moves it all the same,
-  with no datagram that passes a check (What the rule costs, below). A sample longer than the
-  constant `timeout_ns_max`, 30 seconds, counts as 30 seconds, which bounds what one sample adds
+  server gives none too (below). A response is accepted for an open try of the name, and each try
+  has an id and an `on_sent` of its own (§7; Tries kept open, below). So a sample pairs a response
+  with the send of its own try alone. A datagram that fails §7's checks is no sample, so it moves no
+  server's wait (decision 10). An attacker who can make a server's answers go missing moves it all
+  the same, with no datagram that passes a check (What the rule costs, below). A sample longer than
+  the constant `timeout_ns_max`, 30 seconds, counts as 30 seconds, which bounds what one sample adds
   to a sum.
 - `Servers` keeps each server's samples, their count and their sum, in five windows: a minute,
   fifteen minutes, an hour, a day, and since the table was built. A window starts at its first
@@ -707,21 +707,23 @@ decision 40). A sum with a literal `2` is still a `u16`.
   that ran out would count in the second alone. A try that a reply to it marked is the one
   exception (below).
 - Before that ruling only an answer that came in time was a sample, and a server whose latency
-  rose past its wait gave no sample after that. An answer after the deadline answers a
-  transaction the lookup has left, so the lookup ignores it. The window since the table was
-  built never passes, so the wait stayed where the server's old record left it until the table
-  was built again. Take a server whose record averages 50 ms, so that its wait is the 250 ms
-  floor, under the default 2 attempts, and that comes to answer in 600 ms. Every try at it ran
-  out, at 250 ms and then at 500 ms, and with no other server every lookup ended in `Timeout`.
-  Now each try that runs out raises the server's average, and its wait, five times the average
-  up to `config.timeout_ns_max`, rises with it until its answers come in time again. With a
+  rose past its wait gave no sample after that. An answer after the deadline answered a
+  transaction the lookup had left, so the lookup ignored it. Since 2026-11-03 it answers a try
+  that stays open (Tries kept open, below). The worked numbers here and in the next four items
+  describe a server whose answers do not come at all, and so do the tests they cite. Under
+  decision 66 a server that answers in 600 ms is heard at 600 ms by the try it answers. The window
+  since the table was built never passes, so the wait stayed where the server's old record left it
+  until the table was built again. Take a server whose record averages 50 ms, so that its wait is
+  the 250 ms floor, under the default 2 attempts, and that comes to answer in 600 ms. Every try at
+  it ran out, at 250 ms and then at 500 ms, and with no other server every lookup ended in
+  `Timeout`. Now each try that runs out raises the server's average, and its wait, five times the
+  average up to `config.timeout_ns_max`, rises with it until its answers come in time again. With a
   record of 3 such samples, the first lookup's first try runs out at 250 ms, its second waits 1
-  second and is answered, and the next lookup is answered on its first try. With a record of
-  100, the first two lookups end in `Timeout`, every lookup from the third on is answered, and
-  from the eleventh on at its first try (`src/resolver/lookup_latency_test.zig`). A server that
-  never answers has its wait rise to the cap and stay there, by the third lookup from that
-  record of 3. Failover already asks it last (§19 step 12), though each probe of it then waits
-  the cap (below).
+  second and is answered, and the next lookup is answered on its first try. With a record of 100,
+  the first two lookups end in `Timeout`, every lookup from the third on is answered, and from the
+  eleventh on at its first try (`src/resolver/lookup_latency_test.zig`). A server that never answers
+  has its wait rise to the cap and stay there, by the third lookup from that record of 3. Failover
+  already asks it last (§19 step 12), though each probe of it then waits the cap (below).
 - What the rule costs. A timeout says the answer took at least the wait, not how long it took.
   So a slowed server's wait rises in steps, a try at a time, rather than to its true latency at
   once, and the more samples its record holds the more tries that takes. For a client that
@@ -813,6 +815,57 @@ decision 40). A sum with a literal `2` is still a `u16`.
   one query in the next. The bound `queries_per_transport_max`, 3, now holds RFC 9520 §3.1 for
   any `attempts`, and `attempts_max` stays 5. A move to TCP after TC=1 is another transport, and
   RFC 9520 §3.1 lets it go.
+
+### Tries kept open
+
+The owner ruled on 2026-11-03 that a lookup keeps each try of a name open until it ends or moves to
+another name (§16 decision 66, c4milo/cocuyo#63). A try is one send of a query, as decision 50
+defines it.
+
+- A try keeps what §7 reads of it, and its `on_sent` instant for the sample. §7 reads these:
+  - its id;
+  - its server's position and its transport;
+  - the case seed of its question;
+  - the cookie it carried, and whether it carried EDNS0.
+- The lookup keeps at most `tries_open_max` tries. That is `servers_max` servers, two transports
+  and `queries_per_transport_max` queries, 48 in all, the bound of RFC 9520 §3.1.
+- A response that carries the id of an open try is read against that try. Check 3 reads its
+  server and port, check 5 its question in the case it went out in, and check 6 its cookie. RFC
+  5452 §9.1 asks for each of these against the query. Two open tries can draw one id, so the
+  response is read against each, the newest first.
+- Only the current try has a deadline. At it the lookup takes the sample and moves on, as before
+  (Retry and timeout policy, above). The earlier tries stay open, and an answer to one of them
+  that passes §7 counts as an answer to the current try does.
+- A response to an earlier try that ends the lookup ends it: an answer, NXDOMAIN, NODATA, or a
+  CNAME the lookup follows.
+- A response to an earlier try that would move the lookup on closes that try alone, and the lookup
+  waits on its current try. That is SERVFAIL, REFUSED, NOTIMP, FORMERR, BADCOOKIE, TC=1 and a
+  datagram the buffer cut. Its server takes the failure that the response gives.
+- A response to an earlier try is a sample of that try, from its own `on_sent`. A try that ran out
+  took a sample of its wait at its deadline, and takes this one too. The first sample says that
+  the answer took at least the wait, and the second says how long it took.
+- Over a stream, a later pass that reaches a server and a transport with an open try of the name
+  sends no query. It arms its deadline and waits on that try. The query is still on its
+  connection, and RFC 1035 §4.2.1 asks for a retransmission over UDP alone. Over UDP a later pass
+  sends again, as before.
+- A lookup leaves a connection when the last of its open tries on it closes. A deadline alone does
+  not take it off (§19 step 13, stream rule 3). The engine keeps the request of each open try over
+  DoH and DoQ (§24, request rule 6). It keeps a draining socket open while an open try went out from
+  it.
+- A new name closes every try: a search candidate, or a CNAME's target. An answer to one of those
+  tries would answer another question.
+
+What the rule fixes. A recursive server answers a name from its cache in milliseconds, and a name
+it must fetch in hundreds of milliseconds or more. The wait follows the fast answers. So before the
+ruling a slow answer came after its try had closed, and the lookup ended in `Timeout`. The
+`dot-live` check failed on this on 2026-11-03. Cloudflare and Quad9 took about one second for
+`rhybar.cz`. The lookup gave up at about 750 ms: the 250 ms floor, and then 500 ms.
+
+What the rule costs. Each open try is a target for a forged response. RFC 5452 §5 says that the
+chance "rises linearly with the number of outstanding queries for the exact domain and
+nameserver". `queries_per_transport_max` holds that number to 3 for each server and transport.
+Each try has its own id, port hint and case pattern, so a forged datagram can match one try alone.
+Each slot holds `tries_open_max` tries, and the key table holds one entry for each open try.
 
 ### The cause of a failure
 
@@ -1107,7 +1160,9 @@ mutation that proves each one is live.
 A response is considered only if all of these hold, checked in this order:
 
 1. `message.len` is at least `header_bytes` (12) and at most `message_bytes_max`.
-2. The transaction id equals the one sent. This is the most selective check and so it is first.
+2. The transaction id equals the id of a try the lookup keeps open. This is the most selective
+   check and so it is first. Since 2026-11-03 that is any try of the name, and not the last try
+   alone. Checks 3 to 6 read the try whose id the response carries (§5, Tries kept open).
 3. `from` equals the endpoint the query was sent to: family, every address octet, and the port.
 4. QR is 1 and the opcode is QUERY.
 5. QDCOUNT is 1 and the question section is byte-identical to the one sent, case included.
@@ -4989,6 +5044,36 @@ step until `zig build test` passes.
 
     §17 question 19, §25 Stage B and its new limits, §5 (`awaiting_keys`).
 
+66. **A lookup keeps each try of a name open.** Ruled by the owner on 2026-11-03, after the
+    `dot-live` check timed out on names that a recursive server had to fetch
+    (c4milo/cocuyo#63).
+
+    The rule (§5, Tries kept open):
+
+    - Each try of the name stays open until the lookup ends or moves to another name. An answer to
+      any of them that passes §7 for that try counts.
+    - The next server is asked at the current try's deadline, as before.
+    - Over a stream, a later pass to a server with an open try of the name sends no query.
+
+    Rejected:
+
+    - A higher floor, or a factor larger than 5. It slows the move from a silent server for every
+      lookup, and a name that the server must fetch can still take longer.
+    - Over a stream, the one try kept until `timeout_ns_max`, and only then the next server. A
+      silent server then costs 5 seconds by default before the next is asked, against 250 ms.
+    - Every server asked at once, and the first answer taken. Every provider then sees every name,
+      and each lookup sends one query to each server. RFC 1035 §4.2.1 warns that "Too aggressive
+      retransmission can easily slow responses for the community at large".
+    - The last two tries kept. An answer that comes later than that is lost, as before.
+    - A late answer that gives no sample, since its try gave one at its deadline. The wait then
+      rises a try at a time, as decision 36 describes, and not to what the server takes.
+
+    It amends decisions 36 and 50. A sample pairs an answer with its own try's send. A try ends at
+    the answer that ends it, or when the lookup ends or moves to another name. §7 check 2, stream
+    rule 3 of §19 step 13 and request rule 6 of §24 change with it. The Lean model of §5 gains an
+    answer to an earlier try, and the pass that waits on a stream. The TLA+ model of the engine
+    keeps a lookup on its connection past a deadline.
+
 ## 17. Questions for the owner
 
 ### Settled on 2026-09-21
@@ -7307,7 +7392,10 @@ of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
    drive takes it off before acting on its poll when the poll shows it anywhere else: its
    deadline passed, its connection failed, it moved to the next name, it ended. Since 2026-10-24
    a deadline ends `tcp_ready` too (§5, §16 decision 52). So a lookup whose query's send never
-   ends leaves its connection at its deadline. A query that has started stays at the head of the
+   ends leaves its connection at its deadline. Since 2026-11-03 a lookup stays on a connection
+   while an open try of it is on that connection. A deadline alone takes it off no more (§5,
+   Tries kept open; §16 decision 66). A lookup in `tcp_ready` sent nothing, so it has no open try
+   there, and its deadline still takes it off. A query that has started stays at the head of the
    queue until its send ends (rule 9). Since 2026-10-25, when the last lookup leaves while that
    send is in flight, the drive shuts the connection at once (§16 decision 53). When a lookup
    leaves while its own query's send is in flight, and another lookup stays, the drive marks the
@@ -8908,7 +8996,9 @@ all DoQ or all DoH (§22, §23), and the rules hold for both. Where they differ,
    (§4.2).
 6. **A request the lookup left is cancelled.** When the drive finds a lookup has left the
    transaction its request carries, because its deadline passed, it moved on, it ended, or it was
-   cancelled or released, the engine cancels the stream. It sends STOP_SENDING and resets its own
+   cancelled or released, the engine cancels the stream. Since 2026-11-03 a deadline alone
+   leaves no request: its try stays open, and the request with it (§5, Tries kept open; §16
+   decision 66). It sends STOP_SENDING and resets its own
    side, so colibri needs the request's bytes no more. Over DoQ STOP_SENDING is a MUST, with
    DOQ_REQUEST_CANCELLED (RFC 9250 §4.3.1). Over HTTP/3 ending both directions is a SHOULD (RFC
    9114 §4.1.1), with H3_REQUEST_CANCELLED (§8.1). The request slot is free
