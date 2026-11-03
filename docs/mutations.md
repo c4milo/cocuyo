@@ -11634,3 +11634,17 @@ links equal the hops. `zig build mutations -- engine LK1 ... LK8` ran each to it
 | LK6 | a failure hands back no chain's end | `zig build test-resolver` | `CAUGHT` |
 | LK7 | a cache slot keeps the end but not the links | `zig build test-cache` | `CAUGHT` |
 | LK8 | a recall takes the end but not the links | `zig build test-resolver` | `CAUGHT` |
+
+## Errors the order check compares
+
+2026-11-03, issue c4milo/cocuyo#62. Zig 0.16.0's own x86_64 backend, which builds Debug on x86_64
+Linux, gave false for two equal `?core.Error` values. The order check then saw a changed verdict
+at seed 0 on CI's Linux job, where none changed. `same_error` compares the payloads instead, and a
+test holds it to all nine pairs of none, `NoData` and `Canceled`. `zig build mutations -- engine
+OE1 OE2 OE3` ran each.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| OE1 | two errors are always the same | `zig build test-sim` | `CAUGHT` |
+| OE2 | no error is the same as any error | `zig build test-sim` | `CAUGHT` |
+| OE3 | an error is the same as no error | `zig build test-sim` | `CAUGHT` |

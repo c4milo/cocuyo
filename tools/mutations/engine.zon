@@ -8092,4 +8092,31 @@
         },
         .caught_by = .{ .step = "test-resolver" },
     },
+    .{
+        .section = "Errors the order check compares",
+        .id = "OE1",
+        .what = "two errors are always the same",
+        .edits = .{
+            .{ .file = "src/sim/sim_orders.zig", .old = "    return left_err == right_err;", .new = "    return left_err == right_err or true;" },
+        },
+        .caught_by = .{ .step = "test-sim" },
+    },
+    .{
+        .section = "Errors the order check compares",
+        .id = "OE2",
+        .what = "no error is the same as any error",
+        .edits = .{
+            .{ .file = "src/sim/sim_orders.zig", .old = "    const left_err = left orelse return right == null;", .new = "    const left_err = left orelse return true;" },
+        },
+        .caught_by = .{ .step = "test-sim" },
+    },
+    .{
+        .section = "Errors the order check compares",
+        .id = "OE3",
+        .what = "an error is the same as no error",
+        .edits = .{
+            .{ .file = "src/sim/sim_orders.zig", .old = "    const right_err = right orelse return false;", .new = "    const right_err = right orelse return true;" },
+        },
+        .caught_by = .{ .step = "test-sim" },
+    },
 }

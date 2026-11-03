@@ -68,11 +68,20 @@ const Verdict = struct {
     }
 
     fn equal(self: Verdict, other: Verdict) bool {
-        if (self.err != other.err or self.security != other.security) return false;
+        if (!same_error(self.err, other.err) or self.security != other.security) return false;
         const address = self.address orelse return other.address == null;
         return other.address != null and address.equal(&other.address.?);
     }
 };
+
+/// Compares the payloads and not the optionals. Zig 0.16.0's own x86_64 backend, which builds
+/// Debug on x86_64 Linux, gets `==` wrong when it compares two `?core.Error` values: it gives false
+/// for two equal values (c4milo/cocuyo#62). LLVM compiles it right.
+fn same_error(left: ?core.Error, right: ?core.Error) bool {
+    const left_err = left orelse return right == null;
+    const right_err = right orelse return false;
+    return left_err == right_err;
+}
 
 /// A reply the server wrote, which the rig holds until the seed hands it back.
 const Held = struct {
@@ -207,7 +216,7 @@ pub fn check(expected: *const Alone, seed: u64, twist: Twist) ?[]const u8 {
     for (expected, rig.verdicts, 0..) |want, got, index| {
         const verdict = got.?;
         if (verdict.equal(want)) continue;
-        if (cancelled == index and verdict.err == @as(?core.Error, core.Error.Canceled)) continue;
+        if (cancelled == index and same_error(verdict.err, core.Error.Canceled)) continue;
         return if (cancelled == index) "a cancelled lookup ended as neither itself nor Canceled" else "a verdict changed";
     }
     return null;
@@ -240,6 +249,13 @@ test "lookups whose walks share zones end as each ends alone, in every order of 
     }
 }
 
+test "two errors are the same when both are none, or both are the same error" {
+    const values = [_]?core.Error{ null, core.Error.NoData, core.Error.Canceled };
+    for (values, 0..) |left, left_index| for (values, 0..) |right, right_index| {
+        try testing.expectEqual(left_index == right_index, same_error(left, right));
+    };
+}
+
 test "a cancelled lookup ends Canceled, and the others as each ends alone" {
     const expected = try alone();
     var cancelled_count: usize = 0;
@@ -247,7 +263,7 @@ test "a cancelled lookup ends Canceled, and the others as each ends alone" {
         var rig: Rig = .{};
         rig.open();
         const cancelled = (try rig.run(&names, seed, .cancel)).?;
-        if (rig.verdicts[cancelled].?.err == @as(?core.Error, core.Error.Canceled)) cancelled_count += 1;
+        if (same_error(rig.verdicts[cancelled].?.err, core.Error.Canceled)) cancelled_count += 1;
     }
     // Some seed cancels a lookup before its end comes, so the twist reaches the table.
     try testing.expect(cancelled_count > 0);
