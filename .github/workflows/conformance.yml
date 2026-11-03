@@ -1,0 +1,48 @@
+# hickory-dns's DNSSEC conformance suite against cocuyo (docs/design.md §25 step 17,
+# c4milo/cocuyo#59), once a day and on demand. `tools/conformance/run.sh` fetches the suite at a
+# pinned commit and checks its tree id, applies the patch that adds `cocuyo` to DNS_TEST_SUBJECT,
+# and runs the tests of the forwarder and the resolver roles. Each test runs in a Docker network of
+# its own and asks cocuyo's program with `dig`; in the resolver role, Unbound iterates for cocuyo
+# with validation off, and cocuyo validates. Each test must pass, or tools/conformance/expected.txt
+# must name it with the reason it fails.
+#
+# It is not a gate: it needs Docker, a Rust toolchain and the network, which the owner approved for
+# this job alone on 2026-11-03 (CLAUDE.md, Ask before). The runner image holds Docker and Rust.
+# Zig is pinned as ci.yml pins it. No third-party action runs here; `actions/checkout` is GitHub's
+# own.
+name: conformance
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ZIG_VERSION: "0.16.0"
+
+jobs:
+  conformance:
+    name: Linux, hickory-dns's DNSSEC conformance suite
+    runs-on: ubuntu-26.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Zig
+        run: |
+          set -euo pipefail
+          url="https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          sha="70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+          curl -fsSL "$url" -o zig.tar.xz
+          echo "$sha  zig.tar.xz" | sha256sum -c -
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+          # Zig 0.16 makes no tmp/ in a new global cache, and a zip package's fetch then fails.
+          cache_dir="$("$PWD/zig-x86_64-linux-${ZIG_VERSION}/zig" env | sed -n 's/^ *\.global_cache_dir = "\(.*\)",$/\1/p')"
+          test -n "$cache_dir"
+          mkdir -p "$cache_dir/tmp"
+      - run: zig version && cargo --version && docker version --format '{{.Server.Version}}'
+      - name: The suite's forwarder and resolver tests
+        run: tools/conformance/run.sh all

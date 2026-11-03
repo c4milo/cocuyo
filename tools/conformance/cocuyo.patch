@@ -1,0 +1,258 @@
+diff --git a/conformance/dns-test/src/container.rs b/conformance/dns-test/src/container.rs
+index e3a9b26..5813655 100644
+--- a/conformance/dns-test/src/container.rs
++++ b/conformance/dns-test/src/container.rs
+@@ -35,6 +35,7 @@ pub enum Image {
+     Pdns,
+     Unbound,
+     EdeDotCom,
++    Cocuyo,
+     TestServer {
+         handler: String,
+         repo: Repository<'static>,
+@@ -58,6 +59,7 @@ impl Image {
+             Self::Pdns => include_str!("docker/pdns.Dockerfile"),
+             Self::Unbound => include_str!("docker/unbound.Dockerfile"),
+             Self::EdeDotCom => include_str!("docker/ede-dot-com/Dockerfile"),
++            Self::Cocuyo => include_str!("docker/cocuyo/Dockerfile"),
+             Self::TestServer { .. } => include_str!("docker/test-server.Dockerfile"),
+         }
+     }
+@@ -94,6 +96,11 @@ impl Image {
+                 &EDE_ONCE
+             }
+ 
++            Self::Cocuyo => {
++                static COCUYO_ONCE: Once = Once::new();
++                &COCUYO_ONCE
++            }
++
+             Self::TestServer { .. } => {
+                 static TESTSERVER_ONCE: Once = Once::new();
+                 &TESTSERVER_ONCE
+@@ -115,6 +122,7 @@ impl From<Implementation> for Image {
+                 crypto_provider,
+             },
+             Implementation::EdeDotCom => Self::EdeDotCom,
++            Implementation::Cocuyo => Self::Cocuyo,
+             Implementation::Pdns => Self::Pdns,
+             Implementation::TestServer {
+                 handler,
+@@ -141,6 +149,7 @@ impl fmt::Display for Image {
+             Self::Pdns => f.write_str("pdns"),
+             Self::Unbound => f.write_str("unbound"),
+             Self::EdeDotCom => f.write_str("ede-dot-com"),
++            Self::Cocuyo => f.write_str("cocuyo"),
+             Self::TestServer { .. } => f.write_str("test-server"),
+         }
+     }
+@@ -196,6 +205,7 @@ impl Container {
+                         Image::Pdns => "pdns",
+                         Image::Unbound => "unbound",
+                         Image::EdeDotCom => "ede-dot-com",
++                        Image::Cocuyo => "cocuyo",
+                         Image::TestServer { .. } => "test-server",
+                     };
+ 
+@@ -237,6 +247,18 @@ impl Container {
+                     .expect("could not copy configure_parent.sh");
+                 }
+ 
++                if let Image::Cocuyo = image {
++                    let binary = env::var("DNS_TEST_COCUYO_BINARY")
++                        .expect("DNS_TEST_COCUYO_BINARY names the program cocuyo's image holds");
++                    fs::copy(&binary, docker_build_dir.join("conformance-forward"))
++                        .expect("could not copy cocuyo's program");
++                    fs::write(
++                        docker_build_dir.join("cocuyo-start"),
++                        include_str!("docker/cocuyo/cocuyo-start"),
++                    )
++                    .expect("could not copy cocuyo-start");
++                }
++
+                 if let Image::TestServer { repo, .. } = image {
+                     let mut cp_r = Command::new("git");
+                     cp_r.args([
+@@ -404,6 +426,7 @@ impl Container {
+                 }
+                 Implementation::Bind | Implementation::EdeDotCom => "all zones loaded",
+                 Implementation::Hickory { .. } => "server starting up, awaiting connections...",
++                Implementation::Cocuyo => "conformance-forward: listening",
+                 Implementation::Pdns if role == Role::Resolver => "Enabled multiplexer",
+                 Implementation::Pdns => panic!("Pdns unsupported as name server"),
+                 Implementation::TestServer { .. } => "TEST SERVER STARTED",
+diff --git a/conformance/dns-test/src/docker/cocuyo/Dockerfile b/conformance/dns-test/src/docker/cocuyo/Dockerfile
+new file mode 100644
+index 0000000..602c900
+--- /dev/null
++++ b/conformance/dns-test/src/docker/cocuyo/Dockerfile
+@@ -0,0 +1,11 @@
++FROM debian:bookworm-slim
++
++# Unbound iterates for cocuyo in the resolver role, with validation off. tshark lets a test
++# eavesdrop, as in the other images.
++ENV DEBIAN_FRONTEND=noninteractive
++RUN apt-get update && \
++    apt-get install -y unbound tshark && \
++    rm -rf /var/lib/apt/lists/*
++
++COPY conformance-forward cocuyo-start /usr/local/bin/
++RUN chmod +x /usr/local/bin/conformance-forward /usr/local/bin/cocuyo-start
+diff --git a/conformance/dns-test/src/docker/cocuyo/cocuyo-start b/conformance/dns-test/src/docker/cocuyo/cocuyo-start
+new file mode 100644
+index 0000000..ae79beb
+--- /dev/null
++++ b/conformance/dns-test/src/docker/cocuyo/cocuyo-start
+@@ -0,0 +1,29 @@
++#!/bin/sh
++# Starts cocuyo's program from /etc/cocuyo.conf. In the resolver role, Unbound iterates from the
++# test's root hints on the loopback, with validation off, and cocuyo forwards to it and validates.
++set -eu
++. /etc/cocuyo.conf
++sed "s/^/cocuyo.conf: /" /etc/cocuyo.conf >&2
++if [ "$ROLE" = resolver ]; then
++    cat >/etc/unbound/unbound.conf <<CONF
++server:
++    verbosity: 1
++    use-syslog: no
++    interface: 127.0.0.1
++    port: 5353
++    access-control: 127.0.0.0/8 allow
++    root-hints: /etc/root.hints
++    pidfile: /tmp/unbound.pid
++    module-config: "iterator"
++    cache-max-ttl: 60
++    chroot: ""
++    username: ""
++    use-caps-for-id: no
++CONF
++    unbound -d >/tmp/unbound.stdout 2>/tmp/unbound.stderr &
++    UPSTREAM=127.0.0.1:5353
++fi
++if [ "$USE_DNSSEC" = true ]; then
++    exec conformance-forward dnssec /etc/trusted-key.key "$UPSTREAM"
++fi
++exec conformance-forward "$UPSTREAM"
+diff --git a/conformance/dns-test/src/implementation.rs b/conformance/dns-test/src/implementation.rs
+index 8032a41..ece5802 100644
+--- a/conformance/dns-test/src/implementation.rs
++++ b/conformance/dns-test/src/implementation.rs
+@@ -74,6 +74,9 @@ pub enum Implementation {
+     #[default]
+     Unbound,
+     EdeDotCom,
++    /// cocuyo, a stub resolver that validates, in front of Unbound with validation off. The image
++    /// holds the program `DNS_TEST_COCUYO_BINARY` names.
++    Cocuyo,
+     TestServer {
+         handler: String,
+         handler_args: Vec<String>,
+@@ -90,6 +93,7 @@ impl Implementation {
+             Self::Pdns => true,
+             Self::Unbound => true,
+             Self::EdeDotCom => false, // does not support running a resolver
++            Self::Cocuyo => false,
+             Self::TestServer { .. } => true,
+         }
+     }
+@@ -133,6 +137,11 @@ impl Implementation {
+         matches!(self, Self::Hickory { .. })
+     }
+ 
++    #[must_use]
++    pub fn is_cocuyo(&self) -> bool {
++        matches!(self, Self::Cocuyo)
++    }
++
+     #[must_use]
+     pub fn is_pdns(&self) -> bool {
+         matches!(self, Self::Pdns)
+@@ -200,6 +209,13 @@ impl Implementation {
+                     "".into()
+                 }
+ 
++                Self::Cocuyo => minijinja::render!(
++                    include_str!("templates/cocuyo.conf.jinja"),
++                    role => "resolver",
++                    use_dnssec => use_dnssec,
++                    netmask => netmask,
++                ),
++
+                 Self::TestServer { .. } => {
+                     // TestServer instances don't have a config
+                     "".into()
+@@ -256,6 +272,8 @@ impl Implementation {
+ 
+                 Self::EdeDotCom => include_str!("templates/named.ede-dot-com.conf").into(),
+ 
++                Self::Cocuyo => unimplemented!("cocuyo is a stub resolver, and serves no zone"),
++
+                 Self::TestServer { .. } => {
+                     // TestServer instances don't have a config
+                     "".into()
+@@ -290,6 +308,13 @@ impl Implementation {
+                     use_dnssec => use_dnssec,
+                 ),
+ 
++                Self::Cocuyo => minijinja::render!(
++                    include_str!("templates/cocuyo.conf.jinja"),
++                    role => "forwarder",
++                    use_dnssec => use_dnssec,
++                    resolver_ip => resolver_ip,
++                ),
++
+                 Self::EdeDotCom => {
+                     // Does not support running a forwarder
+                     "".into()
+@@ -321,6 +346,8 @@ impl Implementation {
+ 
+             Self::EdeDotCom => Some("/etc/named.conf"),
+ 
++            Self::Cocuyo => Some("/etc/cocuyo.conf"),
++
+             Self::TestServer { .. } => None,
+         }
+     }
+@@ -329,6 +356,7 @@ impl Implementation {
+         let base = match self {
+             Self::Bind | Self::EdeDotCom => "named -g -d5",
+             Self::Hickory { .. } => "hickory-dns -d",
++            Self::Cocuyo => "cocuyo-start",
+             Self::Pdns => match role {
+                 Role::Resolver | Role::Forwarder => "pdns_recursor",
+                 Role::NameServer => "pdns_server",
+@@ -377,6 +405,8 @@ impl Implementation {
+ 
+             Self::Pdns => "/tmp/pdns",
+ 
++            Self::Cocuyo => "/tmp/cocuyo",
++
+             Self::Unbound => match role {
+                 Role::NameServer => "/tmp/nsd",
+                 Role::Resolver | Role::Forwarder => "/tmp/unbound",
+diff --git a/conformance/dns-test/src/lib.rs b/conformance/dns-test/src/lib.rs
+index 8d6b933..534de7e 100644
+--- a/conformance/dns-test/src/lib.rs
++++ b/conformance/dns-test/src/lib.rs
+@@ -134,6 +134,10 @@ fn parse_implementation(env_var: &str) -> Implementation {
+             return Implementation::Pdns;
+         }
+ 
++        if subject == "cocuyo" {
++            return Implementation::Cocuyo;
++        }
++
+         if subject.starts_with("hickory ") {
+             let tokens = subject.split_ascii_whitespace().collect::<Vec<_>>();
+             let Ok([_, url, crypto_provider]) = <[&str; 3]>::try_from(tokens) else {
+diff --git a/conformance/dns-test/src/templates/cocuyo.conf.jinja b/conformance/dns-test/src/templates/cocuyo.conf.jinja
+new file mode 100644
+index 0000000..38c623c
+--- /dev/null
++++ b/conformance/dns-test/src/templates/cocuyo.conf.jinja
+@@ -0,0 +1,4 @@
++ROLE={{ role }}
++USE_DNSSEC={% if use_dnssec %}true{% else %}false{% endif %}
++{% if resolver_ip %}UPSTREAM={{ resolver_ip }}
++{% endif %}
+\ No newline at end of file

@@ -193,6 +193,10 @@ The architecture depends on every rule in this section.
   `build.zig.zon` pins it by hash as a lazy dependency at the commit colibri pins, and only the
   root build requests it. `zig build graph-check` fails when a module of `src/` reaches it, or a
   module of `io/` reaches it other than through colibri.
+  hickory-dns's DNSSEC conformance suite is a ruled dependency of the conformance check alone,
+  approved by the owner on 2026-11-03 (c4milo/cocuyo#59, design §25 step 17), with Docker and a
+  Rust toolchain in its one CI job: `tools/conformance/run.sh` fetches it at a pinned commit and
+  checks its tree id, and nothing in the library builds, links or imports it.
 - Weakening an assertion or a check to make a test pass.
 - Adding anything §1 puts out of scope: mDNS, zone transfers, nsswitch, IDN, the platform resolver
   configuration of §14. DNSSEC validation was decided in on 2026-10-31: both stages of design §25,
@@ -304,6 +308,11 @@ The architecture depends on every rule in this section.
   probe the CPU through stdx and state it to its TLS session (design §16 decision 48). The live
   checks and the interop check run each encrypted server without the word and with it, and
   `tools/cpu_word/suite.sh` says which suite each run must reach.
+- Conformance: `tools/conformance/run.sh [forwarder | resolver | all]` runs hickory-dns's DNSSEC
+  conformance suite against `tools/conformance/forward.zig`, which `zig build
+  conformance-forward` builds (design §25 step 17). It needs Docker, a Rust toolchain and the
+  network. Each test passes or `tools/conformance/expected.txt` names it with its reason. The
+  `conformance` workflow runs it once a day.
 - Plain DNS through the engine: `zig build example-cleartext-rotor -- [dnssec <anchor file>]
   <name>[/TYPE][,...] <server>[:<port>] [udp | tcp]`, which the interop check drives.
 - The DNSSEC word: `dnssec <anchor file>`, after `cpu` and before the names in the four engine

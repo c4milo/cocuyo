@@ -23,6 +23,7 @@ const graph_check = @import("build/graph_check.zig");
 const consumer_check = @import("build/consumer_check.zig");
 const readme_check = @import("build/readme_check.zig");
 const examples = @import("build/examples.zig");
+const conformance = @import("build/conformance.zig");
 const bench = @import("build/bench.zig");
 const spec = @import("build/spec.zig");
 const dot = @import("build/dot.zig");
@@ -173,6 +174,7 @@ pub fn build(b: *std.Build) void {
     // 0.16 cannot build its runtime for arm64 macOS).
     const sanitize_thread = b.option(bool, "sanitize-thread", "Run the comparison's tests and the two-engine example under ThreadSanitizer (Linux)") orelse false;
     examples.add(b, graph, target, optimize, test_step, rotor, colibri, platform, sanitize_thread);
+    conformance.add(b, graph, target, optimize, test_step, rotor, colibri);
     bench.add(b, target, test_step, tool_test_step, rotor_release, sanitize_thread);
     const tla_tool = b.addExecutable(.{ .name = "tla", .root_module = tool_module(b, pepegrillo, "tools/tla.zig") });
     const replays = spec.add(b, target, test_step, tool_test_step, b.addExecutable(.{

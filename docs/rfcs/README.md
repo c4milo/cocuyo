@@ -160,6 +160,7 @@ updates worth knowing about, none of which version one implements:
 | 8484 | DNS Queries over HTTPS (DoH) | §5.2 HTTP/2 the minimum recommended version, so HTTP/3 carries DoH as it is; the rest is read when DoH's DNS half lands |
 | 8482 | Providing Minimal-Sized Responses to DNS Queries That Have QTYPE=ANY | §4, what an ANY question may get back, a synthesized HINFO included |
 | 8659 | DNS Certification Authority Authorization (CAA) Resource Record | §4.1, the CAA record's fields |
+| 8906 | A Common Operational Problem in DNS Servers: Failure to Communicate | §3 what a server must answer, §7 the response code it chooses, §8 the tests that hickory-dns's suite follows: read for the conformance program, which answers as a server (design §25 step 17) |
 | 9000 | QUIC: A UDP-Based Multiplexed and Secure Transport | §7.2 a client's first Destination Connection ID, 8 octets at least; §18.2 `max_idle_timeout`; read for colibri under the request interface (design §24) |
 | 9001 | Using TLS to Secure QUIC | §4 the encryption levels, §4.1.5 the exchange between QUIC and TLS, §5.3 the 16-octet tag; read for the provider that encrypts nothing, which the gate runs colibri over (design §24) |
 | 9110 | HTTP Semantics | §8.4 Content-Encoding, §12.5.3 Accept-Encoding: a request with none leaves the server free to compress, so a DoH request asks for `identity` (design §24, request rule 12) |

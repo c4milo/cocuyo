@@ -11328,6 +11328,42 @@ Each step lands with its checks, each check broken on purpose and recorded in
       must agree with it.
     - The seven names go in two turns, with validation and then without (question 119). A name
       that one side did not answer is asked once more, alone (question 118).
+17. hickory-dns's conformance suite, after Stage B (§17 question 110, c4milo/cocuyo#59). The
+    owner approved its dependencies on 2026-11-03: Docker and a Rust toolchain, in one CI job.
+    The suite asks a server with `dig` in a Docker network of its own, and reads only the reply.
+    - **The program.** `tools/conformance/forward.zig` answers DNS queries over UDP and TCP, and
+      asks each one of an upstream through the engine, with validation. Its anchors are the
+      DNSKEY records the suite writes to `/etc/trusted-key.key`, read by `examples/trust_text.zig`.
+      It is a tool, outside `src/`, and owns its sockets as the examples do. The engine runs on
+      the main thread alone, so a second thread takes each TCP query and asks it of the main
+      thread's UDP socket on the loopback.
+    - **The reply.** The rcode is NOERROR for an answer or no data, NXDOMAIN for a name error,
+      and SERVFAIL for Bogus or any other failure. AD is set only when the end is `secure`
+      (RFC 4035 §3.2.3), and the query had DO or AD set (RFC 6840 §5.8). The answer section
+      holds a CNAME to the chain's end when one was followed, then the records, each at the TTL
+      cocuyo gives. An opcode other than QUERY is NOTIMP (RFC 1035 §4.1.1), and an EDNS version
+      other than 0 is BADVERS (RFC 6891 §6.1.3).
+    - **What the reply cannot hold.** No RRSIG, NSEC or NSEC3: cocuyo keeps nothing of a
+      message (walk rule 9). No link of a CNAME chain but its end, and no CNAME before a no
+      data, since a `Failure` holds no chain's end. No data for a query with CD set, since a
+      table that validates validates every lookup. A test that expects one of these fails, and
+      `expected.txt` names it with its reason.
+    - **The first run, on 2026-11-03.** 131 tests passed and 48 failed, each for a reason
+      `expected.txt` names. Two faults it found are fixed: a negative read with NSEC3 of another
+      zone (rule 11), and the program's AD, opcode and version replies. One is a question for
+      the owner: the walk asks DS at an empty non-terminal, where NSD leaves out the opt-out
+      NSEC3 that RFC 5155 §7.2.4 requires, and so reads the zone below as Bogus.
+    - **The forwarder role.** The upstream is the resolver the suite names.
+    - **The resolver role.** The image also runs Unbound with validation off, `module-config:
+      "iterator"`, on the loopback, from the suite's root hints. cocuyo forwards to it, and
+      cocuyo validates everything.
+    - **The subject.** A patch over a pinned hickory-dns commit adds `cocuyo` to
+      `DNS_TEST_SUBJECT`. `tools/conformance/run.sh` fetches the commit, checks its tree id,
+      applies the patch, builds the program for x86-64 Linux, and runs the suite.
+    - **The check.** Each test passes, or `tools/conformance/expected.txt` names it with the reason
+      it fails. A test that the list names and that passes fails the run too, so the list stays
+      true.
+    - **CI.** A workflow of its own, once a day and on demand, as `interop` runs.
 
 Checks, one for each piece of Stage B:
 
@@ -11358,6 +11394,7 @@ Checks, one for each piece of Stage B:
   chooses (`src/sim/sim_orders.zig`).
 - A bogus answer over UDP is asked again over TCP, and a bogus one there moves to the next
   server.
+- hickory-dns's conformance tests pass, or each one that fails is named with its reason (step 17).
 - A hit from the cache hands back the status the entry was stored with.
 
 ### The decision this asks for, and what it would reject
