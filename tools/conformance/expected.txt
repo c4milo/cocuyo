@@ -4,8 +4,6 @@
 
 forwarder::dnssec::scenarios::bogus::checking_disabled cd: cocuyo validates every lookup of a table that validates, so a query with CD gets no data that failed
 forwarder::dnssec::scenarios::noerror_with_dnssec_ok records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)
-resolver::dns::scenarios::cname::longer_chain links: the reply holds one CNAME, to the chain's end, since cocuyo returns no link between
-resolver::dns::scenarios::cname::longer_chain_cached links: the reply holds one CNAME, to the chain's end, since cocuyo returns no link between
 resolver::dnssec::missing_records::rfc_4035_appendix_b::name_error records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)
 resolver::dnssec::missing_records::rfc_4035_appendix_b::no_data_error records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)
 resolver::dnssec::missing_records::rfc_4035_appendix_b::wildcard_expansion records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)
@@ -28,17 +26,13 @@ resolver::dnssec::rfc4035::section_5::section_5_3::rrsig_rr_expiration_time_is_1
 resolver::dnssec::scenarios::bogus::ds_bad_key_algo alg7: cocuyo checks no RSA/SHA-1 (§17 question 22), so a DS set of algorithm 7 alone is insecure (RFC 4035 §5.2)
 resolver::dnssec::scenarios::cname::checking_disabled cd: cocuyo validates every lookup of a table that validates, so a query with CD gets no data that failed
 resolver::dnssec::scenarios::cname::checking_disabled_cached cd: cocuyo validates every lookup of a table that validates, so a query with CD gets no data that failed
-resolver::dnssec::scenarios::cname::dnssec_ok links: the reply holds one CNAME, to the chain's end, since cocuyo returns no link between
-resolver::dnssec::scenarios::cname::dnssec_ok_cached links: the reply holds one CNAME, to the chain's end, since cocuyo returns no link between
-resolver::dnssec::scenarios::cname::dnssec_ok_cross_zone links: the reply holds one CNAME, to the chain's end, since cocuyo returns no link between
-resolver::dnssec::scenarios::cname::dnssec_ok_cross_zone_cached links: the reply holds one CNAME, to the chain's end, since cocuyo returns no link between
-resolver::dnssec::scenarios::cname::insecure_cname_secure_nodata_nsec nodata: a Failure holds no chain's end, so a no data after a CNAME has no CNAME in the reply
-resolver::dnssec::scenarios::cname::insecure_cname_secure_nodata_nsec3 nodata: a Failure holds no chain's end, so a no data after a CNAME has no CNAME in the reply
-resolver::dnssec::scenarios::cname::no_dnssec links: the reply holds one CNAME, to the chain's end, since cocuyo returns no link between
-resolver::dnssec::scenarios::cname::no_dnssec_cached links: the reply holds one CNAME, to the chain's end, since cocuyo returns no link between
-resolver::dnssec::scenarios::cname::secure_cname_nsec3_secure_nodata_nsec nodata: a Failure holds no chain's end, so a no data after a CNAME has no CNAME in the reply
+resolver::dnssec::scenarios::cname::dnssec_ok records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)
+resolver::dnssec::scenarios::cname::dnssec_ok_cached records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)
+resolver::dnssec::scenarios::cname::dnssec_ok_cross_zone records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)
+resolver::dnssec::scenarios::cname::dnssec_ok_cross_zone_cached records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)
+resolver::dnssec::scenarios::cname::secure_cname_nsec3_secure_nodata_nsec records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)
 resolver::dnssec::scenarios::cname::secure_cname_nsec3_secure_positive_wildcard_expanded_nsec records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)
-resolver::dnssec::scenarios::cname::secure_cname_nsec_secure_nodata_nsec3 nodata: a Failure holds no chain's end, so a no data after a CNAME has no CNAME in the reply
+resolver::dnssec::scenarios::cname::secure_cname_nsec_secure_nodata_nsec3 records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)
 resolver::dnssec::scenarios::cname::secure_cname_nsec_secure_positive_wildcard_expanded_nsec3 records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)
 resolver::dnssec::scenarios::secure::also_secure_when_do_is_set records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)
 resolver::nsec::domain_exists_record_type_does_not_nsec records: cocuyo keeps nothing of a message, so the reply holds no RRSIG, NSEC or NSEC3 (design §25 step 17)

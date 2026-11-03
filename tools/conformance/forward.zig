@@ -320,13 +320,14 @@ const Writer = struct {
     at: usize,
     count: u16 = 0,
 
-    fn owner(self: *Writer, name: ?*const cocuyo.Name) void {
-        if (name) |full| return self.bytes(full.wire());
+    /// An owner in wire form, or null for a pointer to the question's name.
+    fn owner(self: *Writer, name: ?[]const u8) void {
+        if (name) |full| return self.bytes(full);
         self.integer(u16, question_pointer);
     }
 
-    fn record(self: *Writer, name: ?*const cocuyo.Name, kind_code: u16, ttl_seconds: u32, rdata: []const u8) !void {
-        const owner_bytes = if (name) |full| full.wire().len else u16_bytes;
+    fn record(self: *Writer, name: ?[]const u8, kind_code: u16, ttl_seconds: u32, rdata: []const u8) !void {
+        const owner_bytes = if (name) |full| full.len else u16_bytes;
         if (self.at + owner_bytes + record_fixed_bytes + rdata.len > self.out.len) return error.NoRoom;
         self.owner(name);
         self.integer(u16, kind_code);
@@ -356,7 +357,12 @@ fn write_reply(query: *const Query, bytes: []const u8, result: Resolver.Result, 
     @memcpy(room[0..query.question_end], bytes[0..query.question_end]);
     var writer: Writer = .{ .out = room, .at = query.question_end };
     var truncated = false;
-    if (result.outcome == .answer) answers(&writer, query, &result.outcome.answer) catch {
+    const written = switch (result.outcome) {
+        .answer => |found| answers(&writer, query, &found),
+        // A no data or a name error after a CNAME holds the chain that reached it (RFC 2308 §2.1).
+        .failure => |failure| if (chain(&writer, query, failure.canonical_name, failure.aliases, 0)) |_| {} else |err| err,
+    };
+    written catch {
         truncated = true;
         writer = .{ .out = room, .at = query.question_end };
     };
@@ -427,14 +433,30 @@ fn bad_version(query: *const Query, bytes: []const u8, out: []u8) []const u8 {
     return out[0..writer.at];
 }
 
+/// The CNAME records that led from the name asked to `end`, one for each link cocuyo kept
+/// (docs/design.md §5, The chain a lookup keeps), and the owner of what follows them: the end, or
+/// the question when no chain was followed. An end recalled with no link gets one CNAME, from the
+/// name asked to the end, at `ttl_seconds`.
+fn chain(writer: *Writer, query: *const Query, end: ?*const cocuyo.Name, aliases: *const cocuyo.Aliases, ttl_seconds: u32) !?[]const u8 {
+    const reached = end orelse return null;
+    if (reached.equal(&query.question.name)) return null;
+    if (aliases.count == 0) {
+        try writer.record(null, type_cname, ttl_seconds, reached.wire());
+        return reached.wire();
+    }
+    for (0..aliases.count) |index| {
+        const link = aliases.at(index);
+        // The first link is owned by the name asked, which the question already spells.
+        const owner: ?[]const u8 = if (index == 0) null else link.owner;
+        try writer.record(owner, type_cname, link.ttl_seconds, aliases.target(index, reached));
+    }
+    return reached.wire();
+}
+
 /// The answer section: a CNAME to the chain's end when one was followed, then the addresses, the
 /// names or the records, each owned by the chain's end.
 fn answers(writer: *Writer, query: *const Query, found: *const cocuyo.Answer) !void {
-    var owner: ?*const cocuyo.Name = null;
-    if (found.canonical_name) |end| if (!end.equal(&query.question.name)) {
-        try writer.record(null, type_cname, found.ttl_seconds, end.wire());
-        owner = end;
-    };
+    const owner = try chain(writer, query, found.canonical_name, found.aliases, found.ttl_seconds);
     for (found.addresses) |*address| {
         const kind_code = if (address.family == .ipv4) type_a else type_aaaa;
         try writer.record(owner, kind_code, found.ttl_seconds, address.slice());

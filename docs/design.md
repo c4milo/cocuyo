@@ -11374,14 +11374,15 @@ Each step lands with its checks, each check broken on purpose and recorded in
       cocuyo gives. An opcode other than QUERY is NOTIMP (RFC 1035 §4.1.1), and an EDNS version
       other than 0 is BADVERS (RFC 6891 §6.1.3).
     - **What the reply cannot hold.** No RRSIG, NSEC or NSEC3: cocuyo keeps nothing of a
-      message (walk rule 9). No link of a CNAME chain but its end, and no CNAME before a no
-      data, since a `Failure` holds no chain's end. No data for a query with CD set, since a
-      table that validates validates every lookup. A test that expects one of these fails, and
-      `expected.txt` names it with its reason.
+      message (walk rule 9). No data for a query with CD set, since a table that validates
+      validates every lookup. A test that expects one of these fails, and `expected.txt` names
+      it with its reason. Each link of a CNAME chain, and the chain before a no data, the reply
+      holds since §17 question 122.
     - **The first run, on 2026-11-03.** 131 tests passed and 48 failed, each for a reason
       `expected.txt` names. Three faults it found are fixed: a negative read with NSEC3 of
       another zone (rule 11), the program's AD, opcode, version and type replies, and a walk
-      that failed at an empty non-terminal whose DS answer proved nothing (walk rule 6).
+      that failed at an empty non-terminal whose DS answer proved nothing (walk rule 6). With
+      the chain of §17 question 122, 140 passed and 39 failed, each named in `expected.txt`.
     - **The forwarder role.** The upstream is the resolver the suite names.
     - **The resolver role.** The image also runs Unbound with validation off, `module-config:
       "iterator"`, on the loopback, from the suite's root hints. cocuyo forwards to it, and
