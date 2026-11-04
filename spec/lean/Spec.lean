@@ -1,8 +1,11 @@
 import Spec.LookupState
 import Spec.Lookup
+import Spec.LookupProofs.Tries
 import Spec.LookupProofs
 import Spec.LookupProofs.Measure
+import Spec.LookupProofs.MeasureGood
 import Spec.LookupProofs.Timeout
+import Spec.LookupProofs.CauseOpen
 import Spec.LookupProofs.Cause
 import Spec.LookupProofs.Bound
 import Spec.LookupProofs.Security

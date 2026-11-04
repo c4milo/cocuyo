@@ -25,15 +25,26 @@ def verdictToken : Verdict → String
 def walkedToken : Walked → String
   | .bogus => "bogus" | .timeout => "timeout" | .failed => "failed"
 
+/-- A reply as an event spells it: its AD bit or its verdict, then the reply. -/
+def heardToken (r : Reply) (ad : Bool) : Option Verdict → String
+  | some v => "reply_" ++ verdictToken v ++ "_" ++ replyToken r
+  | none => (if ad then "reply_ad_" else "reply_") ++ replyToken r
+
 def eventToken : Event → String
   | .poll => "poll" | .expire => "expire" | .sent => "sent" | .sendFailed => "send_failed"
   | .tcpConnected => "tcp_connected" | .tcpFailed r => "tcp_failed_" ++ reasonToken r
   | .cancel => "cancel" | .requestFailed r => "request_failed_" ++ reasonToken r
-  | .reply r => "reply_" ++ replyToken r
-  | .replyAd r => "reply_ad_" ++ replyToken r
-  | .replyChecked r v => "reply_" ++ verdictToken v ++ "_" ++ replyToken r
+  | .reply r => heardToken r false none
+  | .replyAd r => heardToken r true none
+  | .replyChecked r v => heardToken r false (some v)
   | .keysReady => "keys_ready"
   | .keysFailed w => "keys_failed_" ++ walkedToken w
+  -- A reply to an earlier try names its position and its transport, then the reply as `reply_`
+  -- spells it: `earlier_1_stream_reply_ad_answer`.
+  | .earlier p stream r ad v =>
+    s!"earlier_{p}_{if stream then "stream" else "datagram"}_" ++ heardToken r ad v
+  | .earlierFailed p stream r =>
+    s!"earlier_{p}_{if stream then "stream" else "datagram"}_failed_" ++ reasonToken r
 
 def errToken : Err → String
   | .nameNotFound => "name_not_found" | .noData => "no_data" | .timeout => "timeout"

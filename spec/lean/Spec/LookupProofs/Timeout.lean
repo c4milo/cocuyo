@@ -33,9 +33,9 @@ theorem marked_advanceServer (c : Config) (s : State) (h : s.cause.isSome = true
   revert h
   fun_induction advanceServer c s <;> intro h
   · rename_i ih; exact ih h
-  · exact ⟨h, fun hf => absurd hf (fresh_ne_failed c)⟩
+  · exact ⟨by simpa using h, fun hf => absurd (waitOn_failed c _ hf) (by simpa +zetaDelta using fresh_ne_failed c)⟩
   · rename_i ih; exact ih h
-  · exact ⟨h, fun hf => absurd hf (fresh_ne_failed c)⟩
+  · exact ⟨by simpa using h, fun hf => absurd (waitOn_failed c _ hf) (by simpa +zetaDelta using fresh_ne_failed c)⟩
   · refine ⟨by simpa [fail] using h, fun _ => ?_⟩
     simp only [fail, exhausted]
     split <;> simp_all
@@ -155,10 +155,30 @@ theorem marked_step (c : Config) (s : State) (e : Event) (m : Marked s) :
     · exact hadv _ (keep_isSome _ _)
     · exact ⟨h, ht⟩
   | reply r | replyAd r | replyChecked r _ =>
+    have key : ∀ u : State, u.cause = s.cause → u.stage = s.stage → ∀ b ad v,
+        Marked (reading c u b r ad v).1 := fun u hc hu b ad v =>
+      marked_reading c u b r ad v ⟨hc ▸ h, fun hf => absurd (hu ▸ hf) hs⟩ (hu ▸ hs)
     cases hst : s.stage <;> simp only [step, heard, hst]
     all_goals first
-      | exact marked_reading c s _ r _ _ ⟨h, ht⟩ hs
+      | (split <;> exact key _ (by simp) (by simp) _ _ _)
       | exact ⟨h, ht⟩
+  | earlier p stream r ad v =>
+    simp only [step]
+    split
+    · exact ⟨h, ht⟩
+    · have mc : Marked (closeTry s stream p) := ⟨by simpa using h, fun hf => absurd (by simpa using hf) hs⟩
+      exact (earlierHeard_of c s p stream r ad v Marked (fun _ => True)
+        (marked_onReply c _ _ r mc (by simpa using hs)) trivial trivial (fun _ h => h)
+        (fun _ h => h) (fun _ h => h) mc
+        (fun _ => ⟨by simp [keepAt], fun hf => absurd (by simpa [keepAt] using hf) hs⟩)
+        ⟨by simpa [fail] using h, fun _ => by simp [fail]⟩
+        ⟨by simpa using h, fun hf => by simp at hf⟩).1
+  | earlierFailed p stream r =>
+    simp only [step]
+    split
+    · exact ⟨h, ht⟩
+    · refine ⟨?_, fun hf => absurd ((earlierFailed_stage s p stream r).symm.trans hf) hs⟩
+      unfold earlierFailed; split <;> simp [keepAt]
   | keysReady =>
     simp only [step]
     split

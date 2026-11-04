@@ -1,4 +1,4 @@
-import Spec.Lookup
+import Spec.LookupProofs.Tries
 
 /-!
 # What the lookup state machine guarantees
@@ -13,15 +13,6 @@ namespace Spec.Lookup
 theorem keep_isSome (s : State) (w : What) : (keep s w).cause.isSome = true := by
   unfold keep
   cases s.cause <;> rfl
-
-/-- A property that rule 3's flag does not touch holds after `clear` when it held before: `clear`
-changes that flag alone (docs/design.md §25, Stage A). -/
-theorem clear_keeps (P : State → Prop) (c : Config) (a d : Bool) (t : State)
-    (hP : ∀ u : State, P u → P { u with authentic := false }) (h : P t) : P (clear c a d t) := by
-  unfold clear
-  split
-  · exact hP t h
-  · exact h
 
 /-! ## An ended lookup stays ended -/
 
@@ -54,10 +45,13 @@ theorem init_noUdp (c : Config) (h : c.useTcp = true) : NoUdp (init c) := by
   unfold init NoUdp fail
   split <;> simp [fresh, h]
 
-/-- After either advance a lookup stands where it stands before any query, or has failed. -/
+/-- After either advance a lookup stands where it stands before any query, waits on an open stream
+try under `useTcp`, or has failed. -/
 theorem advanceServer_stage (c : Config) (s : State) :
-    (advanceServer c s).stage = fresh c ∨ (advanceServer c s).stage = .failed := by
-  fun_induction advanceServer c s <;> simp_all +zetaDelta [fail]
+    (advanceServer c s).stage = fresh c ∨
+      (c.useTcp = true ∧ (advanceServer c s).stage = .awaitingTcp) ∨
+      (advanceServer c s).stage = .failed := by
+  fun_induction advanceServer c s <;> simp_all +zetaDelta [fail, waitOn] <;> split <;> simp_all
 
 /-- The next server keeps the cause, the name, the hops and the queries each server got. -/
 theorem advanceServer_cause (c : Config) (s : State) : (advanceServer c s).cause = s.cause := by
@@ -143,6 +137,10 @@ theorem noUdp_of_stage (c : Config) (s : State) (h : c.useTcp = true)
     (hs : s.stage = fresh c ∨ s.stage = .failed) : NoUdp s := by
   rcases hs with hs | hs <;> simp [NoUdp, hs, fresh, h]
 
+theorem noUdp_of_advance (c : Config) (t : State) (h : c.useTcp = true) :
+    NoUdp (advanceServer c t) := by
+  rcases advanceServer_stage c t with hs | ⟨_, hs⟩ | hs <;> simp [NoUdp, hs, fresh, h]
+
 theorem poll_noUdp (c : Config) (s : State) (inv : NoUdp s) :
     NoUdp (poll c s).1 ∧ (poll c s).2 ≠ .sendUdp := by
   obtain ⟨hq, ha⟩ := inv
@@ -151,7 +149,7 @@ theorem poll_noUdp (c : Config) (s : State) (inv : NoUdp s) :
 
 theorem onReply_noUdp (c : Config) (s : State) (stream : Bool) (r : Reply) (h : c.useTcp = true)
     (inv : NoUdp s) : NoUdp (onReply c s stream r).1 ∧ (onReply c s stream r).2 ≠ .sendUdp := by
-  have hadv : ∀ t, NoUdp (advanceServer c t) := fun t => noUdp_of_stage c _ h (advanceServer_stage c t)
+  have hadv : ∀ t, NoUdp (advanceServer c t) := fun t => noUdp_of_advance c t h
   have hnxt : ∀ t b, NoUdp (nextCandidate c t b) :=
     fun t b => noUdp_of_stage c _ h (nextCandidate_stage c t b)
   cases r with
@@ -189,7 +187,7 @@ theorem onReply_noUdp (c : Config) (s : State) (stream : Bool) (r : Reply) (h : 
 caller tells it: every state it reaches is one of the stream states or an end. -/
 theorem useTcp_never_udp (c : Config) (s : State) (e : Event) (h : c.useTcp = true)
     (inv : NoUdp s) : NoUdp (step c s e).1 ∧ (step c s e).2 ≠ .sendUdp := by
-  have hadv : ∀ t, NoUdp (advanceServer c t) := fun t => noUdp_of_stage c _ h (advanceServer_stage c t)
+  have hadv : ∀ t, NoUdp (advanceServer c t) := fun t => noUdp_of_advance c t h
   obtain ⟨hq, ha⟩ := inv
   cases e with
   | poll => exact poll_noUdp c s ⟨hq, ha⟩
@@ -213,12 +211,15 @@ theorem useTcp_never_udp (c : Config) (s : State) (e : Event) (h : c.useTcp = tr
     · exact ⟨hadv _, by simp⟩
     · exact ⟨⟨hq, ha⟩, by simp⟩
   | reply r | replyAd r | replyChecked r _ =>
+    have key : ∀ u : State, NoUdp u → ∀ b ad v,
+        NoUdp (reading c u b r ad v).1 ∧ (reading c u b r ad v).2 ≠ .sendUdp :=
+      fun u hu b ad v => let o := onReply_noUdp c u b r h hu
+        reading_of c u b r ad v NoUdp (· ≠ .sendUdp) o.1 o.2 (by simp) (fun _ h => h)
+          (fun _ h => h) (rejected_of c u b NoUdp hadv (by simp [NoUdp]))
+          (fun _ => by simp [NoUdp])
     cases hs : s.stage <;> simp only [step, heard, hs]
     all_goals first
-      | exact (let o := onReply_noUdp c s _ r h ⟨hq, ha⟩
-          reading_of c s _ r _ _ NoUdp (· ≠ .sendUdp) o.1 o.2 (by simp) (fun _ h => h)
-            (fun _ h => h) (rejected_of c s _ NoUdp hadv (by simp [NoUdp]))
-            (fun _ => by simp [NoUdp]))
+      | (split <;> exact key _ (by simp [NoUdp, hq, ha]) _ _ _)
       | exact ⟨⟨hq, ha⟩, by simp⟩
       | simp_all
   | keysReady =>
@@ -226,6 +227,20 @@ theorem useTcp_never_udp (c : Config) (s : State) (e : Event) (h : c.useTcp = tr
     split
     · exact ⟨keysCame_of c s NoUdp hadv (by simp [NoUdp, fresh, h]), by simp⟩
     · exact ⟨⟨hq, ha⟩, by simp⟩
+  | earlier p stream r ad v =>
+    simp only [step]
+    split
+    · exact ⟨⟨hq, ha⟩, by simp⟩
+    · have hc : NoUdp (closeTry s stream p) := by simp [NoUdp, hq, ha]
+      exact earlierHeard_of c s p stream r ad v NoUdp (· ≠ .sendUdp)
+        (onReply_noUdp c _ _ r h hc).1 (onReply_noUdp c _ _ r h hc).2 (by simp)
+        (fun _ h => h) (fun _ h => h) (fun _ h => h) hc (fun _ => by simpa [NoUdp] using hc)
+        (by simp [NoUdp, fail]) (by simp [NoUdp])
+  | earlierFailed p stream r =>
+    simp only [step]
+    split
+    · exact ⟨⟨hq, ha⟩, by simp⟩
+    · exact ⟨by simp [NoUdp, earlierFailed_stage, hq, ha], by simp⟩
   | keysFailed w =>
     simp only [step]
     split
@@ -251,6 +266,13 @@ theorem noStream_of_stage (c : Config) (s : State) (h : c.useTcp = false)
     (hs : s.stage = fresh c ∨ s.stage = .failed) : NoStream s := by
   rcases hs with hs | hs <;> simp [NoStream, hs, fresh, h]
 
+theorem noStream_of_advance (c : Config) (t : State) (h : c.useTcp = false) :
+    NoStream (advanceServer c t) := by
+  rcases advanceServer_stage c t with hs | ⟨hu, _⟩ | hs
+  · simp [NoStream, hs, fresh, h]
+  · simp [h] at hu
+  · simp [NoStream, hs]
+
 theorem init_noStream (c : Config) (h : c.useTcp = false) : NoStream (init c) := by
   unfold init NoStream fail
   split <;> simp [fresh, h]
@@ -265,7 +287,7 @@ theorem onReply_noStream (c : Config) (s : State) (r : Reply) (hh : c.request = 
     (h : c.useTcp = false) (inv : NoStream s) :
     NoStream (onReply c s true r).1 ∧ NotPlain (onReply c s true r).2 := by
   have hadv : ∀ t, NoStream (advanceServer c t) :=
-    fun t => noStream_of_stage c _ h (advanceServer_stage c t)
+    fun t => noStream_of_advance c t h
   have hnxt : ∀ t b, NoStream (nextCandidate c t b) :=
     fun t b => noStream_of_stage c _ h (nextCandidate_stage c t b)
   cases r with
@@ -300,7 +322,7 @@ theorem request_never_stream (c : Config) (s : State) (e : Event) (hh : c.reques
     (ht : c.useTcp = false) (inv : NoStream s) :
     NoStream (step c s e).1 ∧ NotPlain (step c s e).2 := by
   have hadv : ∀ t, NoStream (advanceServer c t) :=
-    fun t => noStream_of_stage c _ ht (advanceServer_stage c t)
+    fun t => noStream_of_advance c t ht
   have none : NotPlain Out.none := by simp [NotPlain]
   have ignored : NotPlain Out.ignored := by simp [NotPlain]
   obtain ⟨h1, h2, h3, h4⟩ := inv
@@ -328,12 +350,15 @@ theorem request_never_stream (c : Config) (s : State) (e : Event) (hh : c.reques
     · exact ⟨hadv _, none⟩
     · exact ⟨keep, none⟩
   | reply r | replyAd r | replyChecked r _ =>
+    have key : ∀ u : State, NoStream u → ∀ ad v,
+        NoStream (reading c u true r ad v).1 ∧ NotPlain (reading c u true r ad v).2 :=
+      fun u hu ad v => let o := onReply_noStream c u r hh ht hu
+        reading_of c u true r ad v NoStream NotPlain o.1 o.2 (by simp [NotPlain])
+          (fun _ h => h) (fun _ h => h) (by simp [rejected]; exact hadv _)
+          (fun _ => by simp [NoStream])
     cases hs : s.stage <;> simp only [step, heard, hs]
     all_goals first
-      | (rw [hh]; exact (let o := onReply_noStream c s r hh ht keep
-          reading_of c s true r _ _ NoStream NotPlain o.1 o.2 (by simp [NotPlain])
-            (fun _ h => h) (fun _ h => h) (by simp [rejected]; exact hadv _)
-            (fun _ => by simp [NoStream])))
+      | (rw [hh]; split <;> exact key _ (by simp [NoStream, h1, h2, h3, h4]) _ _)
       | exact ⟨keep, ignored⟩
       | simp_all
   | keysReady =>
@@ -341,6 +366,23 @@ theorem request_never_stream (c : Config) (s : State) (e : Event) (hh : c.reques
     split
     · exact ⟨keysCame_of c s NoStream hadv (by simp [NoStream, fresh, ht]), none⟩
     · exact ⟨keep, none⟩
+  | earlier p stream r ad v =>
+    simp only [step]
+    split
+    · exact ⟨keep, ignored⟩
+    · have hc : NoStream (closeTry s stream p) := by simp [NoStream, h1, h2, h3, h4]
+      have e : (stream || c.request) = true := by simp [hh]
+      have o := onReply_noStream c _ r hh ht hc
+      have := earlierHeard_of c s p stream r ad v NoStream NotPlain
+      rw [e] at this
+      exact this o.1 o.2 (by simp [NotPlain]) (fun _ h => h) (fun _ h => h) (fun _ h => h) hc
+        (fun _ => by simpa [NoStream] using hc) (by simp [NoStream, fail])
+        (by simp [NoStream])
+  | earlierFailed p stream r =>
+    simp only [step]
+    split
+    · exact ⟨keep, none⟩
+    · exact ⟨by simp [NoStream, earlierFailed_stage, h1, h2, h3, h4], none⟩
   | keysFailed w =>
     simp only [step]
     split
@@ -361,9 +403,10 @@ theorem tcpReady_expires (c : Config) (s : State) (h : s.stage = .tcpReady) :
     Event.expire ∈ enabled c s ∧ (step c s .expire).1.stage ≠ .tcpReady := by
   refine ⟨by simp [enabled, h, waiting], ?_⟩
   simp only [step, h, waiting, if_true]
-  rcases advanceServer_stage c s with hs | hs
+  rcases advanceServer_stage c s with hs | ⟨_, hs⟩ | hs
   · unfold fresh at hs
     split at hs <;> simp [poll, hs]
+  · simp [poll, hs]
   · simp [poll, hs]
 
 end Spec.Lookup

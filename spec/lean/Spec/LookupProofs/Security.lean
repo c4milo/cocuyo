@@ -141,8 +141,22 @@ theorem step_authentic (c : Config) (s : State) (e : Event)
     · exact h
   | reply r | replyAd r | replyChecked r _ =>
     cases hs : s.stage <;> simp only [step, heard, hs] at h <;> first
-      | exact reading_authentic c s _ r _ _ h
+      | (split at h <;> simpa using reading_authentic c _ _ r _ _ h)
       | exact h
+  | earlier p stream r ad v =>
+    simp only [step] at h
+    split at h
+    · exact h
+    · exact (earlierHeard_of c s p stream r ad v (fun x => x.authentic = true → s.authentic = true)
+        (fun _ => True) (fun hx => by rwa [onReply_authentic, closeTry_authentic] at hx) trivial
+        trivial (fun _ hu hx => hu hx) (fun _ _ hx => by simp at hx) (fun _ hu hx => hu hx)
+        (fun hx => by simpa using hx) (fun _ hx => by simpa [keepAt] using hx)
+        (fun hx => by simpa [fail] using hx) (fun hx => by simpa using hx)).1 h
+  | earlierFailed p stream r =>
+    simp only [step] at h
+    split at h
+    · exact h
+    · unfold earlierFailed at h; split at h <;> simpa [keepAt] using h
   | keysReady =>
     simp only [step] at h
     split at h
@@ -206,5 +220,32 @@ theorem authenticated_needs_ad (c : Config) (pre es : List Event) (r : Reply)
   rcases hs with ⟨hst, hact⟩ | ⟨hst, hact⟩
   · rw [hclear.1 hst hact] at hafter; simp at hafter
   · rw [hclear.2 hst hact] at hafter; simp at hafter
+
+/-- A message without AD of an open earlier try, one the lookup acts on, clears rule 3's
+conjunction as the current try's does, when the configuration relies on the bit (docs/design.md
+§5, Tries kept open; §25, Stage A rule 3). -/
+theorem earlier_clears (c : Config) (s : State) (p : Nat) (stream : Bool) (r : Reply)
+    (hr : relied c = true) (hn : ended s.stage = false) (ho : earlierOpen s stream p ≠ 0)
+    (ha : actsOn (stream || c.request) r = true) :
+    (step c s (.earlier p stream r false none)).1.authentic = false := by
+  have hv := relied_validate c hr
+  simp only [step, earlierHeard, hn, ho, ha, hv]
+  simp only [Bool.false_eq_true, false_or, if_false, if_true, clear, hr, Bool.not_false,
+    Bool.and_self]
+  split <;> simp
+
+/-- A lookup that ends `authenticated` acted on no message without AD of an earlier try either. -/
+theorem authenticated_needs_ad_earlier (c : Config) (pre es : List Event) (p : Nat) (stream : Bool)
+    (r : Reply)
+    (h : security c (run c (init c) (pre ++ Event.earlier p stream r false none :: es)) =
+      .authenticated) :
+    ¬ (ended (run c (init c) pre).stage = false ∧ earlierOpen (run c (init c) pre) stream p ≠ 0 ∧
+        actsOn (stream || c.request) r = true) := by
+  intro ⟨hn, ho, hact⟩
+  obtain ⟨hr, ha⟩ := authenticated_of c _ h
+  rw [run_append] at ha
+  have hafter := authentic_run c _ es ha
+  rw [earlier_clears c _ p stream r hr hn ho hact] at hafter
+  simp at hafter
 
 end Spec.Lookup

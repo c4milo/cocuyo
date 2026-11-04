@@ -70,6 +70,16 @@ would agree with the code by construction and prove nothing about it.
     The walk takes seven configurations that validate, and the replay hands the lookup a
     validator that gives each message the verdict the line's event names, with a secure
     message's ending what the model's reply means.
+  - In `LookupProofs/Tries.lean` and `LookupProofs/CauseOpen.lean`, the tries kept open
+    (docs/design.md §5, Tries kept open; §16 decision 66). A reply to an earlier try closes it.
+    One the lookup acts on moves the lookup as the current try's would, and one that would move
+    it on closes that try alone and names its server as the cause. A later pass over a stream to
+    a server with an open try waits on it and sends nothing (`waitOn`). The measure of `step_le`
+    covers both: closing a try keeps it, and an earlier try's moves are moves a reply already
+    makes. `earlier_clears` and `earlier_checked_clears` say that an earlier try's message clears
+    each conjunction as the current try's does, so `authenticated_needs_ad_earlier` and
+    `secure_needs_secure_earlier`: an end that is `authenticated` or `secure` met no such message
+    of an earlier try either.
 - `lean/Spec/KeyWalk.lean` is the model of DNSSEC Stage B's walk for keys (docs/design.md §25,
   step 12), and `lean/Spec/KeyWalkProofs.lean` holds its proofs. `keys_chain`: a zone whose keys
   the store holds is at the end of a path of trust from an anchor. `insecure_proven`: an insecure
@@ -137,9 +147,18 @@ would agree with the code by construction and prove nothing about it.
   but a count of a server that the lookup does not ask again for the name is no part of what makes
   a state new to the walk (`key` in `lean/Main.lean`).
 - A DoH or DoQ transaction's number. The model delivers an answer or a failed request to the current
-  transaction, and an unmatched reply is one for another. DoH and DoQ move alike, so the model's
-  `quic` names which servers the replay asks and no transition reads it. That a late answer names a
-  number the lookup has left is the unit tests' to show (docs/mutations.md DH8, DH9, DH21).
+  try, or to an earlier try by its position and its transport, and an unmatched reply is one that
+  no open try sent. DoH and DoQ move alike, so the model's `quic` names which servers the replay
+  asks and no transition reads it. That an answer names the number of the try it answers is the
+  unit tests' to show (docs/mutations.md DH8, DH9, DH21).
+- Which of several open tries at one position and over one transport a reply answers. The model
+  counts the open tries at each position and transport (`openDatagrams`, `openStreams`), and an
+  earlier try's event names its position and its transport alone. Two tries there answer alike,
+  since §7 reads each against its own query and the reply moves the lookup the same way.
+- Since 2026-11-03 the gate slice leaves out one server over UDP under `encrypted`, whose moves are
+  `ignored`'s: the bit counts from no server there. It kept the slice under the 4 MiB the lint
+  reads once the earlier tries of decision 66 came. The full walk still takes it, and two passes
+  over TCP, where a later pass waits on an open stream try.
 
 ## The replay
 

@@ -3354,7 +3354,7 @@
         .id = "RS10",
         .what = "the replay hands every failed connection the reason connect",
         .edits = .{
-            .{ .file = "tools/spec_replay/replay.zig", .old = "                lookup.on_tcp_failed(reason_of(event), self.now_ns);", .new = "                lookup.on_tcp_failed(.connect, self.now_ns);" },
+            .{ .file = "tools/spec_replay/replay.zig", .old = "                lookup.on_tcp_failed(lookup.server_slot(), reason_of(event), self.now_ns);", .new = "                lookup.on_tcp_failed(lookup.server_slot(), .connect, self.now_ns);" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -3363,7 +3363,7 @@
         .id = "RS11",
         .what = "the table hands every failed connection the reason connect",
         .edits = .{
-            .{ .file = "src/resolver/table.zig", .old = "        self.slot_of(handle).lookup.on_tcp_failed(reason, now_ns);", .new = "        _ = reason;\n        self.slot_of(handle).lookup.on_tcp_failed(.connect, now_ns);" },
+            .{ .file = "src/resolver/table.zig", .old = "        self.slot_of(handle).lookup.on_tcp_failed(configured, reason, now_ns);", .new = "        _ = reason;\n        self.slot_of(handle).lookup.on_tcp_failed(configured, .connect, now_ns);" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -4278,6 +4278,168 @@
         .what = "a validating NXDOMAIN skips the validator",
         .edits = .{
             .{ .file = "src/resolver/lookup_response.zig", .old = "    if (self.conjunctions.checked == .not_validating) return negative(self, message, accepted, true, std.math.maxInt(u32), now_ns);", .new = "    if (true or self.conjunctions.checked == .not_validating) return negative(self, message, accepted, true, std.math.maxInt(u32), now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Tries kept open",
+        .id = "TK1",
+        .what = "a try whose deadline passed is not kept open",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "    if (try_open) tries_module.keep_current(self);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Tries kept open",
+        .id = "TK2",
+        .what = "a reply to an earlier try leaves that try open",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_earlier.zig", .old = "    if (self.tries.epoch == epoch) self.tries.remove(index) else assert(self.tries.count == 0);", .new = "    if (self.tries.epoch != epoch) assert(self.tries.count == 0) else assert(index < self.tries.count);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Tries kept open",
+        .id = "TK3",
+        .what = "an earlier try's SERVFAIL moves the lookup on",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (self.hearing_earlier and moves_on(action)) {", .new = "    if (false and moves_on(action)) {" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Tries kept open",
+        .id = "TK4",
+        .what = "an earlier try's TC=1 sends the lookup to TCP",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        if (!self.hearing_earlier) bound.to_stream(self, now_ns);", .new = "        bound.to_stream(self, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Tries kept open",
+        .id = "TK5",
+        .what = "an earlier try's bogus message moves the server",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_validate.zig", .old = "    if (self.hearing_earlier) return heard.of(self, .bogus, now_ns);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Tries kept open",
+        .id = "TK6",
+        .what = "a cut datagram for an earlier try leaves that try open",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_earlier.zig", .old = "        // No sample, no success and no cookie: check 6 did not read a whole message (§7).\n        self.tries.remove(index);\n", .new = "        // No sample, no success and no cookie: check 6 did not read a whole message (§7).\n" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Tries kept open",
+        .id = "TK7",
+        .what = "a CNAME to an earlier try asks the target on that try's server",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_earlier.zig", .old = "            self.server_index = saved.server_index;\n            self.flags.edns_enabled = saved.flags.edns_enabled;\n        },", .new = "            self.flags.edns_enabled = saved.flags.edns_enabled;\n        }," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Tries kept open",
+        .id = "TK8",
+        .what = "a CNAME followed leaves the tries of the name before open",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            self.sends = .{};\n            self.tries.clear();\n            self.restart(now_ns);", .new = "            self.sends = .{};\n            self.restart(now_ns);" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Tries kept open",
+        .id = "TK9",
+        .what = "an earlier stream try's failed connection closes nothing",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_earlier.zig", .old = "        closed = close_streams_at(self, @intCast(position)) or closed;", .new = "        closed = closed or position > self.config.server_count();" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Tries kept open",
+        .id = "TK10",
+        .what = "a failed connection the lookup is on leaves the earlier stream tries there open",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        _ = earlier_module.close_streams_at(self, self.server_index);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Tries kept open",
+        .id = "TK11",
+        .what = "a later pass over a stream sends again in place of waiting on its open try",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_bound.zig", .old = "    if (fresh(self) == .stream and earlier.wait_again(self, now_ns)) return;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Tries kept open",
+        .id = "TK12",
+        .what = "an earlier request's failure is ignored",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_request.zig", .old = "        _ = earlier.on_request_failed(self, transaction, reason, now_ns);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Tries kept open",
+        .id = "TK13",
+        .what = "an answer to an earlier request is ignored",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_request.zig", .old = "    if (!waits_on(self, transaction)) return earlier.on_request_answer(self, transaction, message, age_seconds, now_ns);", .new = "    if (!waits_on(self, transaction)) return .ignored;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Tries kept open",
+        .id = "TK14",
+        .what = "a late answer is measured from the current try's send",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_tries.zig", .old = "    self.sent_at_ns = kept.sent_at_ns;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Tries kept open",
+        .id = "TK15",
+        .what = "the table keys no open try",
+        .edits = .{
+            .{ .file = "src/resolver/table.zig", .old = "        if (slot.lookup.tries.epoch != slot.keyed_epoch) self.rekey_tries(index);\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Tries kept open",
+        .id = "TK16",
+        .what = "a datagram the current try does not take is offered to no earlier try",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        return if (self.tries.count == 0) .ignored else earlier_module.on_response(self, message, from, now_ns);", .new = "        return .ignored;" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Tries kept open",
+        .id = "TK17",
+        .what = "the next search candidate leaves the tries of the name before open",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "                    // Another name: an answer to a try of the last would answer another question.\n                    self.tries.clear();\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Tries kept open",
+        .id = "TK18",
+        .what = "an earlier try's message that wants keys closes the try the lookup waited on",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_earlier.zig", .old = "            if (saved.state == .awaiting_udp or saved.state == .awaiting_tcp) self.tries.push(try_of(self, saved));\n", .new = "" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },

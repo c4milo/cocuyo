@@ -7,6 +7,7 @@
 //! has no business asking about it again, and silently answering about a different lookup would be
 //! worse than halting.
 const std = @import("std");
+const limits = @import("limits.zig");
 const assert = std.debug.assert;
 const core = @import("core");
 const lookup_module = @import("lookup.zig");
@@ -33,6 +34,12 @@ pub const Slot = struct {
     /// The id the key table currently holds for this slot, so a lookup that drew a new
     /// transaction can be re-keyed without the table having to be told.
     keyed_id: u16 = 0,
+    /// The ids the key table holds for the tries its lookup keeps open, and the lookup's
+    /// `tries.epoch` they were keyed at, so they are keyed again only when they change
+    /// (docs/design.md §5, Tries kept open).
+    keyed_tries: [limits.tries_open_max]u16 = undefined,
+    keyed_tries_count: u8 = 0,
+    keyed_epoch: u8 = 0,
     next_free: u16 = slot_none,
     /// The ready list of docs/design.md §11, threaded through the slots so it costs no memory
     /// of its own: the lookups with something to do, oldest first. Doubly linked, so a slot
@@ -187,8 +194,9 @@ test "a handle names the slot it was taken from" {
 
 test "the size of a slot is pinned" {
     // docs/design.md §9: a caller sizing a table needs this number, and it is a lookup plus the
-    // few octets the table keeps beside it.
-    try testing.expectEqual(@as(usize, 5192), @sizeOf(Slot));
+    // few octets the table keeps beside it. Since 2026-11-03 those hold the ids it keys for the
+    // tries its lookup keeps open, two octets for each (docs/design.md §16 decision 66).
+    try testing.expectEqual(@as(usize, 6848), @sizeOf(Slot));
     try testing.expectEqual(@as(usize, 4), @sizeOf(Handle));
 }
 

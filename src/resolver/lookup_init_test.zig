@@ -12,6 +12,7 @@ const Lookup = lookup_module.Lookup;
 const State = lookup_module.State;
 const Servers = @import("servers.zig").Servers;
 const entropy_module = @import("entropy.zig");
+const tries_module = @import("lookup_tries.zig");
 const fixtures = @import("fixtures.zig");
 
 const one_server = fixtures.servers_one;
@@ -101,8 +102,11 @@ test "the size of a lookup slot is pinned" {
     // docs/design.md §9 budgets the memory a caller provides, and a caller sizing a table needs
     // this number. It is measured, not computed: Zig chooses the field order, so a field added
     // here can cost more than its own width in padding.
-    // 3080 until the CNAME links of 2026-11-03 (§17 question 122).
-    try testing.expectEqual(@as(usize, 5176), @sizeOf(Lookup));
+    // 3080 until the CNAME links of 2026-11-03 (§17 question 122), and 5176 until the tries kept
+    // open of the same day, 48 of 32 octets (§16 decision 66).
+    try testing.expectEqual(@as(usize, 6728), @sizeOf(Lookup));
+    try testing.expectEqual(@as(usize, 32), @sizeOf(tries_module.Try));
+    try testing.expectEqual(@as(usize, 1544), @sizeOf(tries_module.Tries));
     try testing.expectEqual(@as(usize, 2448), @sizeOf(wire.Answers));
     try testing.expectEqual(@as(usize, 24), @sizeOf(entropy_module.Transaction));
 }

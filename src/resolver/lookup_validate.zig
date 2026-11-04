@@ -123,6 +123,9 @@ fn secured(self: *Lookup, secure: core.validation.Secure, rcode: wire.Rcode, hea
 /// cause when the server is passed (docs/design.md §25, step 11).
 pub fn rejected(self: *Lookup, heard: Heard, now_ns: u64) void {
     assert(self.state == .awaiting_udp or self.state == .awaiting_tcp);
+    // A bogus message of an earlier try closes that try alone, and is its server's failure: the
+    // lookup waits on its current try (docs/design.md §5, Tries kept open; `earlierChecked`).
+    if (self.hearing_earlier) return heard.of(self, .bogus, now_ns);
     const over_stream = self.state == .awaiting_tcp or self.config.sends_requests();
     if (over_stream or bound.spent(self, .stream)) {
         heard.of(self, .bogus, now_ns);
@@ -131,7 +134,9 @@ pub fn rejected(self: *Lookup, heard: Heard, now_ns: u64) void {
         heard.of(self, null, now_ns);
         self.state = .tcp_needed;
     }
-    assert(self.state != .awaiting_udp and self.state != .awaiting_tcp);
+    // The try the bogus message answered is over. A later pass may wait on another try it kept
+    // open on a stream, whose wait began now (docs/design.md §5, Tries kept open).
+    assert((self.state != .awaiting_udp and self.state != .awaiting_tcp) or self.waited_from_ns == now_ns);
 }
 
 /// The message's keys are wanted: the lookup waits for the table's walk, `key_asks_max` times for

@@ -78,6 +78,7 @@ test {
     _ = @import("lookup_extended_error_test.zig");
     _ = @import("lookup_validate.zig");
     _ = @import("lookup_validate_test.zig");
+    _ = @import("lookup_earlier_test.zig");
     _ = @import("lookup_response_test.zig");
     _ = @import("lookup_types.zig");
     _ = @import("lookup_response_cookie.zig");

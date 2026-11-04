@@ -51,7 +51,7 @@ fn takes_cut(self: *const Lookup) bool {
 
 /// The checks of a cut datagram (§7): checks 1 to 5 in the order `lookup_response.zig` runs them,
 /// on the octets the cut left, then check 6 on a message with no COOKIE option.
-fn matches(self: *const Lookup, message: []const u8, from: Endpoint) bool {
+pub fn matches(self: *const Lookup, message: []const u8, from: Endpoint) bool {
     assert(self.state == .awaiting_udp);
     assert(!self.config.sends_requests());
     // 1. A message too short to hold a header, or longer than a message can be.

@@ -11648,3 +11648,33 @@ OE1 OE2 OE3` ran each.
 | OE1 | two errors are always the same | `zig build test-sim` | `CAUGHT` |
 | OE2 | no error is the same as any error | `zig build test-sim` | `CAUGHT` |
 | OE3 | an error is the same as no error | `zig build test-sim` | `CAUGHT` |
+
+## Tries kept open
+
+2026-11-04. Design §5, Tries kept open, and §16 decision 66 (c4milo/cocuyo#63). A lookup keeps
+each try of a name open until it ends or moves to another name, and an answer to any of them that
+passes §7 for that try counts. A reply to an earlier try that would move the lookup on closes that
+try alone. Over a stream a later pass to a server with an open try waits on it. The tests are in
+`src/resolver/lookup_earlier_test.zig`, and each mutation is caught by a test's expectation, not by
+an assertion. `zig build mutations -- lookup TK1 ... TK18` ran each.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| TK1 | a try whose deadline passed is not kept open | `zig build test-resolver` | `CAUGHT` |
+| TK2 | a reply to an earlier try leaves that try open | `zig build test-resolver` | `CAUGHT` |
+| TK3 | an earlier try's SERVFAIL moves the lookup on | `zig build test-resolver` | `CAUGHT` |
+| TK4 | an earlier try's TC=1 sends the lookup to TCP | `zig build test-resolver` | `CAUGHT` |
+| TK5 | an earlier try's bogus message moves the server | `zig build test-resolver` | `CAUGHT` |
+| TK6 | a cut datagram for an earlier try leaves that try open | `zig build test-resolver` | `CAUGHT` |
+| TK7 | a CNAME to an earlier try asks the target on that try's server | `zig build test-resolver` | `CAUGHT` |
+| TK8 | a CNAME followed leaves the tries of the name before open | `zig build test-resolver` | `CAUGHT` |
+| TK9 | an earlier stream try's failed connection closes nothing | `zig build test-resolver` | `CAUGHT` |
+| TK10 | a failed connection the lookup is on leaves the earlier stream tries there open | `zig build test-resolver` | `CAUGHT` |
+| TK11 | a later pass over a stream sends again in place of waiting on its open try | `zig build test-resolver` | `CAUGHT` |
+| TK12 | an earlier request's failure is ignored | `zig build test-resolver` | `CAUGHT` |
+| TK13 | an answer to an earlier request is ignored | `zig build test-resolver` | `CAUGHT` |
+| TK14 | a late answer is measured from the current try's send | `zig build test-resolver` | `CAUGHT` |
+| TK15 | the table keys no open try | `zig build test-resolver` | `CAUGHT` |
+| TK16 | a datagram the current try does not take is offered to no earlier try | `zig build test-resolver` | `CAUGHT` |
+| TK17 | the next search candidate leaves the tries of the name before open | `zig build test-resolver` | `CAUGHT` |
+| TK18 | an earlier try's message that wants keys closes the try the lookup waited on | `zig build test-resolver` | `CAUGHT` |

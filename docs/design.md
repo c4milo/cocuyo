@@ -171,7 +171,7 @@ the entry point.
 | Thing | How it arrives | Note |
 | --- | --- | --- |
 | Lookup storage | `var slots: [N]cocuyo.Lookup = undefined;` | §9 gives the size |
-| Match keys | `var keys: [2*N]cocuyo.MatchKey = undefined;` | power-of-two length, §11 |
+| Match keys | `var keys: [64*N]cocuyo.MatchKey = undefined;` | power-of-two length, `keys_per_slot_min` for each slot, §11 |
 | Cache memory | `var cache_memory: cocuyo.cache.Storage(M) = undefined;` | optional; §18 gives the size, the bounds and the form for a count read at run time |
 | Send buffer | `poll(now_ns, out)` | `out.len >= query_bytes_max` |
 | Receive buffer | the caller's own | at least `config.udp_payload_bytes` |
@@ -293,8 +293,9 @@ pub const Lookup = struct {
     /// marked (§7, A datagram that the buffer cut).
     pub fn on_datagram_cut(self: *Lookup, message: []const u8, from: Endpoint, now_ns: u64) Verdict;
     pub fn on_tcp_connected(self: *Lookup, now_ns: u64) void;
-    /// Since 2026-10-21 with the reason the connection failed (§5, The cause of a failure).
-    pub fn on_tcp_failed(self: *Lookup, reason: Reason, now_ns: u64) void;
+    /// Since 2026-10-21 with the reason the connection failed (§5, The cause of a failure), and
+    /// since 2026-11-03 with the configured server whose connection failed (§16 decision 66).
+    pub fn on_tcp_failed(self: *Lookup, configured: u8, reason: Reason, now_ns: u64) void;
     /// Over DoH or DoQ (§22, §23): the answer to the transaction `send_request` named, and its
     /// `Age` over DoH; or the request ended without one, and why.
     pub fn on_request_answer(self: *Lookup, transaction: u16, message: []const u8, age_seconds: u32, now_ns: u64) Verdict;
@@ -423,7 +424,7 @@ pub const Resolver = struct {
     pub fn on_sent(self: *Resolver, handle: Handle, now_ns: u64) void;
     pub fn on_send_failed(self: *Resolver, handle: Handle, now_ns: u64) void;
     pub fn on_tcp_connected(self: *Resolver, handle: Handle, now_ns: u64) void;
-    pub fn on_tcp_failed(self: *Resolver, handle: Handle, reason: Reason, now_ns: u64) void;
+    pub fn on_tcp_failed(self: *Resolver, handle: Handle, configured: u8, reason: Reason, now_ns: u64) void;
     // Over DoH or DoQ (§22, §23) an answer comes by handle: HTTP or QUIC paired it with its query.
     pub fn on_request_answer(self: *Resolver, handle: Handle, transaction: u16, message: []const u8, age_seconds: u32, now_ns: u64) Verdict;
     pub fn on_request_failed(self: *Resolver, handle: Handle, transaction: u16, reason: Reason, now_ns: u64) void;
@@ -1528,7 +1529,8 @@ up as a diff rather than as a surprise. The pins that exist are in `src/core/cor
 | `current` | 256 | the current candidate, or where the CNAME chain has reached |
 | `answers` | 2448 | an extern union: `[addresses_max]Address` is 272, `[ptr_names_max]Name` is 256, and the records of §19 step 9 are 2436 — 32 references of 12 and a buffer of `rdata_bytes_max` — plus the question's type (decision 34), the count, the TTL, the hop count and two flags |
 | `aliases` | 2089 | the CNAME links of §5: `chain_bytes_max` octets of owners, then `cname_hops_max` ends and TTLs and the count (§17 question 122) |
-| total | 5176, measured | pinned by a test in `src/resolver/lookup_init_test.zig`. 3080 until the CNAME links of 2026-11-03 (§17 question 122). DNSSEC Stage B's conjunction and count of waits for keys share Stage A's octet since 2026-11-01, and the validator lives beside the servers, so the lookup kept its size (§25 step 11, §17 question 94); 3072 until the counts of RFC 9520 §3.1 on 2026-10-27, whose four octets took eight with the padding (§16 decision 58, §17 question 83); the cause's server of 2026-10-21 took no octet more, since the lookup keeps the cause in three octets, where a `?Cause` takes four (§16 decision 51); the cause of a failure on 2026-10-17 took three octets of the padding (§5); 3064 until the instant of the send, which a latency sample is measured from, on 2026-10-09 (§5), and 3048 until the cookies of 2026-10-08 (§19 step 10) |
+| `tries` | 1544 | the earlier tries kept open of §5: `tries_open_max` of 32 octets, the count and the epoch, and the padding to eight (§16 decision 66) |
+| total | 6728, measured | pinned by a test in `src/resolver/lookup_init_test.zig`. 5176 until the tries kept open of 2026-11-03, with the instant a wait began and the mode that reads an earlier try (§16 decision 66). 3080 until the CNAME links of 2026-11-03 (§17 question 122). DNSSEC Stage B's conjunction and count of waits for keys share Stage A's octet since 2026-11-01, and the validator lives beside the servers, so the lookup kept its size (§25 step 11, §17 question 94); 3072 until the counts of RFC 9520 §3.1 on 2026-10-27, whose four octets took eight with the padding (§16 decision 58, §17 question 83); the cause's server of 2026-10-21 took no octet more, since the lookup keeps the cause in three octets, where a `?Cause` takes four (§16 decision 51); the cause of a failure on 2026-10-17 took three octets of the padding (§5); 3064 until the instant of the send, which a latency sample is measured from, on 2026-10-09 (§5), and 3048 until the cookies of 2026-10-08 (§19 step 10) |
 
 The total is larger than the parts because Zig chooses a struct's field order and pads accordingly.
 It also means a declaration order cannot be relied on for locality: the measurement that pinned
@@ -1540,13 +1542,13 @@ The caller-provided buffer §19 keeps as the fallback is what would take it back
 
 | Caller allocation | Size | For |
 | --- | --- | --- |
-| `[N]Resolver.Slot` | 5192 bytes each, measured, 3096 until the CNAME links of 2026-11-03 and 3088 until 2026-10-27 | one per concurrent lookup: a lookup plus the table's own octets, the ready list's two links and its flag among them (§11) |
-| `[2N]MatchKey` | 4 bytes each | the id-to-slot table, power-of-two length |
+| `[N]Resolver.Slot` | 6848 bytes each, measured, 5192 until the tries kept open of 2026-11-03, 3096 until the CNAME links of the same day and 3088 until 2026-10-27 | one per concurrent lookup: a lookup plus the table's own octets, the ready list's two links and its flag among them, and the ids it keys for its lookup's open tries (§11, §16 decision 66) |
+| `[64N]MatchKey` | 4 bytes each | the id-to-slot table, power-of-two length, `keys_per_slot_min` entries for each slot, two until 2026-11-03 |
 | send buffer | `query_bytes_max`, 386 | shared by the whole table |
 | receive buffer | `config.udp_payload_bytes`, 1232 by default | the caller's, per socket |
 | `[M]AddressLookup` | 1328 bytes each, measured | one per `getaddrinfo`-shaped lookup in flight: the name, the canonical name, 32 addresses, two handles, the failure of each lookup and the walk's scalars, beside the two slots it takes; pinned by a test in `src/resolver/address_lookup_test.zig`; 1216 until each failure gained its chain on 2026-11-03 (§17 question 122), 1152 until the cause of a failure on 2026-10-17 (§16 decision 45), 1184 until the security of a negative on 2026-10-31 (§25), and 1200 until the extended error the same day (§16 decision 64) |
 
-So 1024 concurrent lookups cost 5192 KiB of slots plus 8 KiB of keys. Nothing else is allocated,
+So 1024 concurrent lookups cost 6848 KiB of slots plus 256 KiB of keys. Nothing else is allocated,
 ever, by anybody. `Resolver` itself holds the `Servers` table, 1488 octets, measured and pinned
 by a test in `src/resolver/servers.zig`: 184 for each of `servers_max` servers, 120 of them the
 five windows of latency samples of §5, which 2026-10-09 added. The flag of the same day that marks
@@ -2039,6 +2041,8 @@ or a count is a `usize`, so its sum with a narrow value is a `usize` too (§16 d
 | `search_max` | 6 | glibc's MAXDNSRCH; recalled, not measured |
 | `attempts_default` | 2 | the `resolv.conf` default |
 | `attempts_max` | 5 | bounds the retry loop; the passes past the third find each server with no query left (§16 decision 58) |
+| `tries_open_max` | 48 | the earlier tries one lookup keeps open for one name: `servers_max` servers, two transports and `queries_per_transport_max` queries, the bound of RFC 9520 §3.1; `src/resolver/limits.zig`, since 2026-11-03 (§16 decision 66) |
+| `keys_per_slot_min` | 64 | the key table's entries for each slot: the current transaction and each open try, 49 at most, so the table is never full; twice that would pass the 2^16 entries a sixteen-bit id indexes at `lookup_slots_max`; 2 until 2026-11-03 (§16 decision 66) |
 | `queries_per_transport_max` | 3 | the queries one lookup sends one server for one name over one transport: "A resolver MUST NOT retry a given query to a server address over a given DNS transport more than twice" (RFC 9520 §3.1); `src/resolver/limits.zig`, since 2026-10-27 (§16 decision 58) |
 | `ndots_default` | 1 | the `resolv.conf` default |
 | `ndots_limit` | 15 | `resolv.conf(5)`'s cap on `ndots:`, which reads a larger value as 15; in `src/config/limits.zig` since 2026-10-26, in `src/config/constants.zig` from 2026-10-13, and in the parser's own file before |
@@ -5074,6 +5078,18 @@ step until `zig build test` passes.
     answer to an earlier try, and the pass that waits on a stream. The TLA+ model of the engine
     keeps a lookup on its connection past a deadline.
 
+    It changes the public API. `on_tcp_failed`, on `Lookup` and on `Resolver`, names the
+    configured server whose connection failed, as the owner ruled on 2026-11-03. An earlier try's
+    connection can fail while the lookup is on another server, and the lookup must close that try,
+    or a later pass waits on it until its deadline.
+
+    It changes two limits. `tries_open_max`, 48, is new. `keys_per_slot_min` goes from 2 to 64.
+    A slot keys at most 49 ids, so the table is never full. A key's index is its sixteen-bit id, so
+    at `lookup_slots_max` slots, twice 49 for each would pass the 2^16 entries a probe reaches well.
+    So a table whose every lookup kept every try open is 77 percent full in the worst case, and a
+    lookup keys one or two ids in the usual case. The owner has not ruled on the 64: §17 question
+    123 asks.
+
 ## 17. Questions for the owner
 
 ### Settled on 2026-09-21
@@ -6407,6 +6423,16 @@ handshake used, so no example and no live check can say it.
     stays bounded by `cname_hops_max` and by `chain_bytes_max` (§5, The chain a lookup keeps).
     Unknown types needed nothing: `Kind` is open since §16 decision 31, as c-ares's `ares_query`
     takes any type code.
+123. **The key table's floor under tries kept open.** Since §16 decision 66 a slot keys its
+    current transaction and each try it keeps open, 49 ids at most. A floor of twice that, 98 for
+    each slot, keeps the load factor at one half in the worst case. But at `lookup_slots_max`,
+    1024, that is 100,352 entries, and a key's index is its sixteen-bit id, so a probe reaches
+    65,536 entries well at most. The floor is 64 for now: the table is never full, a lookup keys
+    one or two ids in the usual case, and the worst case is 77 percent full. The alternatives:
+    `lookup_slots_max` down to 668, with 98 a slot; or a bound on the tries a table keys at once,
+    past which a try stays open in its lookup but is not keyed. Recommended: 64, since the worst
+    case needs every lookup of the largest table to keep every try open. Answered on 2026-11-04:
+    64, as recommended.
 
 ## 18. The cache
 

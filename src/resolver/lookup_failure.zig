@@ -180,8 +180,15 @@ pub const Held = struct {
 /// Keeps `what` as the cause, from the server the lookup is on (docs/design.md §5, The cause of a
 /// failure).
 pub fn keep(self: *Lookup, what: Cause.What) void {
+    keep_at(self, self.server_slot(), what);
+}
+
+/// As `keep`, for the configured server `slot`, which an earlier try went to and which the lookup
+/// need not be on now (docs/design.md §5, Tries kept open).
+pub fn keep_at(self: *Lookup, slot: u8, what: Cause.What) void {
     assert(!self.is_settled());
-    self.cause = Held.of(self.server_slot(), what);
+    assert(slot < self.config.servers.len);
+    self.cause = Held.of(slot, what);
     assert(self.cause.server_index < self.config.servers.len);
 }
 

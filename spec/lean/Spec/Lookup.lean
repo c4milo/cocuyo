@@ -141,11 +141,62 @@ def reading (c : Config) (s : State) (stream : Bool) (r : Reply) (ad : Bool) (v 
 /-- A reply, its message's AD bit `ad` and its verdict `v`, to a lookup in stage `s.stage`: read
 where the lookup waits for one, and ignored elsewhere. -/
 def heard (c : Config) (s : State) (r : Reply) (ad : Bool) (v : Option Verdict) : State × Out :=
+  -- A reply to the current try closes it, whatever it says: the try was answered.
+  let answered (stream : Bool) := if r = .unmatched then s else closeTry s stream s.server
   match s.stage with
   -- Over DoH or DoQ an answer is read as one over a stream: there is nowhere else to ask.
-  | .awaitingUdp => reading c s c.request r ad v
-  | .awaitingTcp => reading c s true r ad v
+  | .awaitingUdp => reading c (answered false) c.request r ad v
+  | .awaitingTcp => reading c (answered true) true r ad v
   | _ => (s, .ignored)
+
+/-- The tries open at position `p` over a stream or not, the current try left out. -/
+def earlierOpen (s : State) (stream : Bool) (p : Nat) : Nat :=
+  let current := p = s.server ∧
+    ((s.stage = .awaitingUdp ∧ stream = false) ∨ (s.stage = .awaitingTcp ∧ stream = true))
+  openAt s stream p - (if current then 1 else 0)
+
+/-- What a reply to an earlier try that the lookup does not act on does: it closes that try, and its
+server's failure is the cause. YXDOMAIN ends the lookup, as each server gives it (§16 decision 57).
+TC=1 over UDP closes the try alone, since its server answered. -/
+def passed (t : State) (p : Nat) : Reply → State
+  | .servfail => keepAt t p .servfail
+  | .formerr => keepAt t p .formerr
+  | .badcookie => keepAt t p .badcookie
+  | .yxdomain => fail t .nameTooLong
+  | _ => t
+
+/-- A message of an earlier try that the lookup acts on, and the validator's verdict. A secure or an
+insecure one moves the lookup as the current try's would. A bogus one closes the try alone, its
+server the cause, and the lookup waits on its current try (docs/design.md §5, Tries kept open). -/
+def earlierChecked (c : Config) (t : State) (p : Nat) (stream : Bool) (r : Reply) :
+    Verdict → State × Out
+  | .secure => onReply c t stream r
+  | .insecure => let q := onReply c t stream r; ({ q.1 with secure := false }, q.2)
+  | .bogus => (keepAt t p .bogus, .accepted)
+  | .keysWanted =>
+    if t.asks < keyAsksMax then ({ t with stage := .awaitingKeys, asks := t.asks + 1 }, .accepted)
+    else (keepAt t p .bogus, .accepted)
+
+/-- A reply to an open earlier try at position `p`, over a stream or not (docs/design.md §5, Tries
+kept open). It closes that try. One the lookup acts on moves it as the current try's would. A send
+a poll handed out is the lookup's no more once the stage moves, as the engine reads it (§19 step 13,
+stream rule 7). -/
+def earlierHeard (c : Config) (s : State) (p : Nat) (stream : Bool) (r : Reply) (ad : Bool)
+    (v : Option Verdict) : State × Out :=
+  let t := closeTry s stream p
+  let reads := stream || c.request
+  let moved (q : State × Out) : State × Out :=
+    (if q.1.stage = s.stage then q.1 else { q.1 with offered := false }, q.2)
+  if actsOn reads r then
+    if c.validate then moved (earlierChecked c t p reads r (v.getD .insecure))
+    else let q := onReply c t reads r; moved (clear c true ad q.1, q.2)
+  else (passed t p r, .accepted)
+
+/-- The connection of an earlier try at position `p` failed, which closes every stream try on it, or
+an earlier request failed, which closes that try. The server's failure is the cause. -/
+def earlierFailed (s : State) (p : Nat) (stream : Bool) (r : Reason) : State :=
+  let t := if stream then { s with openStreams := s.openStreams.set p 0 } else closeTry s false p
+  keepAt t p (.reason r)
 
 /-- The keys came: the same server is asked again over the transport the lookup starts on, as a
 retry asks it (docs/design.md §25, step 11). The wait was counted when it began. -/
@@ -167,11 +218,11 @@ def step (c : Config) (s : State) : Event → State × Out
   | .sent =>
     match s.stage with
     | .queryReady =>
-      ({ s with stage := .awaitingUdp, offered := false, datagrams := bump s.datagrams s.server },
-        .none)
+      ({ s with stage := .awaitingUdp, offered := false, datagrams := bump s.datagrams s.server,
+                 openDatagrams := bump s.openDatagrams s.server }, .none)
     | .tcpReady =>
-      ({ s with stage := .awaitingTcp, offered := false, streams := bump s.streams s.server },
-        .none)
+      ({ s with stage := .awaitingTcp, offered := false, streams := bump s.streams s.server,
+                 openStreams := bump s.openStreams s.server }, .none)
     | _ => (s, .none)
   | .sendFailed =>
     match s.stage with
@@ -183,20 +234,53 @@ def step (c : Config) (s : State) : Event → State × Out
     | _ => (s, .none)
   -- A connection or a handshake that failed is the server refusing the lookup, which counts as
   -- SERVFAIL does (§16 decision 25). The cause is the reason the caller gave (§16 decision 51).
+  -- It closes every stream try on that connection.
   | .tcpFailed r =>
-    if onStream s.stage then (advanceServer c (keep s (.reason r)), .none)
+    if onStream s.stage then
+      (advanceServer c (keep { s with openStreams := s.openStreams.set s.server 0 } (.reason r)),
+        .none)
     else (s, .none)
   -- An HTTP or a QUIC failure is the server's: the next one (docs/design.md §22, §23), counted as
   -- the stream's is.
   | .requestFailed r =>
-    if c.request ∧ s.stage = .awaitingUdp then (advanceServer c (keep s (.reason r)), .none)
+    if c.request ∧ s.stage = .awaitingUdp then
+      (advanceServer c (keep (closeTry s false s.server) (.reason r)), .none)
     else (s, .none)
   | .reply r => heard c s r false none
   | .replyAd r => heard c s r true none
   | .replyChecked r v => heard c s r false (some v)
+  | .earlier p stream r ad v =>
+    if ended s.stage ∨ earlierOpen s stream p = 0 then (s, .ignored)
+    else earlierHeard c s p stream r ad v
+  | .earlierFailed p stream r =>
+    if ended s.stage ∨ earlierOpen s stream p = 0 then (s, .none)
+    else (earlierFailed s p stream r, .none)
   | .keysReady => if s.stage = .awaitingKeys then (keysCame c s, .none) else (s, .none)
   | .keysFailed w => if s.stage = .awaitingKeys then (walkFailed s w, .none) else (s, .none)
   | .cancel => if ended s.stage then (s, .none) else (fail s .canceled, .none)
+
+/-- The replies and the failures that may come for the lookup's open earlier tries: at each
+position and over each transport where one is open, every reply the lookup reads but the unmatched
+one, with each verdict under validation and with AD where the bit counts, and the failure of the
+connection or the request (docs/design.md §5, Tries kept open). A connection the lookup is on
+fails with `tcpFailed`, so its tries are not offered here. -/
+def earlierEvents (c : Config) (s : State) : List Event :=
+  let kinds := [Reply.answer, .cname, .nxdomain, .nodata, .yxdomain, .servfail, .formerr,
+                .truncated, .badcookie]
+  (List.range c.servers).flatMap fun p => [false, true].flatMap fun stream =>
+    if earlierOpen s stream p = 0 then [] else
+    let reads := stream || c.request
+    let replies := if c.validate then
+        kinds.flatMap fun r => if actsOn reads r then
+          [Verdict.secure, .insecure, .bogus, .keysWanted].map fun v => Event.earlier p stream r false (some v)
+        else [Event.earlier p stream r false none]
+      else kinds.map fun r => Event.earlier p stream r false none
+    let authentic := if c.authenticatedData = .ignored || c.validate then []
+      else (kinds.filter (actsOn reads)).map fun r => Event.earlier p stream r true none
+    let failures :=
+      if stream then (if onStream s.stage ∧ p = s.server then [] else [Event.earlierFailed p true .closed])
+      else if c.request then (requestReasons c).map (Event.earlierFailed p false) else []
+    replies ++ authentic ++ failures
 
 /-- The events a caller may deliver to a `Lookup`, by the contract of §4: a poll at any time, a
 poll past the deadline while a deadline bounds the lookup, `on_sent` and `on_send_failed` only for
@@ -232,6 +316,7 @@ def enabled (c : Config) (s : State) : List Event :=
     ++ (if s.stage = .awaitingKeys then
           [Event.keysReady, .keysFailed .bogus, .keysFailed .timeout, .keysFailed .failed]
         else [])
+    ++ (if ended s.stage then [] else earlierEvents c s)
     ++ (if ended s.stage then [] else [Event.cancel])
 
 end Spec.Lookup

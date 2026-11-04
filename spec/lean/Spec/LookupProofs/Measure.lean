@@ -183,6 +183,31 @@ theorem onReply_le (c : Config) (s : State) (stream : Bool) (r : Reply) (g : s.r
         simp only [measure, LexLe, phase, hs, hr, fresh]
         cases s.edns <;> cases c.useTcp <;> simp [stagePhase]
 
+/-- Closing a try moves no counter the measure reads. -/
+@[simp] theorem measure_closeTry (c : Config) (s : State) (b : Bool) (p : Nat) :
+    measure c (closeTry s b p) = measure c s := by
+  simp [measure, phase]
+
+/-- A reply the lookup acts on raises nothing, in whatever stage it comes: it ends the lookup,
+follows a CNAME, or moves to the next name. An earlier try's reply comes so (docs/design.md §5,
+Tries kept open). -/
+theorem onReply_acts_le (c : Config) (s : State) (stream : Bool) (r : Reply)
+    (ha : actsOn stream r = true) : LexLe (measure c (onReply c s stream r).1) (measure c s) := by
+  cases r with
+  | answer => exact lexLe_of_phase c s _ rfl rfl rfl rfl (phase_done_le s)
+  | cname =>
+    simp only [onReply]
+    split
+    · exact lexLe_of_phase c s _ rfl rfl rfl rfl (phase_ended_le s .chainTooLong)
+    · simp [measure, LexLe]; omega
+  | nxdomain => exact nextCandidate_le c s false
+  | nodata => exact nextCandidate_le c s true
+  | truncated =>
+    cases stream
+    · simp [actsOn] at ha
+    · exact nextCandidate_le c s true
+  | _ => simp [actsOn] at ha
+
 /-- A retry of the same server, to a state no higher, or the next server, is no higher. -/
 theorem retry_le (c : Config) (s t : State) (b : Bool) (w : Option What) (g : s.round < c.attempts)
     (ht : LexLe (measure c t) (measure c s)) : LexLe (measure c (retry c s t b w)) (measure c s) := by
@@ -236,11 +261,47 @@ theorem step_le (c : Config) (s : State) (e : Event) (g : Good c s) :
       · exact lexLt_le _ _ (advanceServer_lt c _ h2)
       · exact lexLe_refl _
     | reply r | replyAd r | replyChecked r _ =>
+      -- The reply closes the current try first, which moves nothing the measure reads.
+      have key : ∀ u : State, measure c u = measure c s → u.round = s.round → u.hops = s.hops →
+          ∀ b ad v, (b = false → u.stage = .awaitingUdp) →
+          LexLe (measure c (reading c u b r ad v).1) (measure c s) := by
+        intro u hm hr hh b ad v hb
+        have e := reading_le c u b r ad v (by rw [hr]; exact h2) (by rw [hh]; exact h4) hb
+        rwa [hm] at e
       cases hs : s.stage <;> simp only [step, heard, hs]
       all_goals first
-        | exact reading_le c s c.request r _ _ h2 h4 (fun _ => hs)
-        | exact reading_le c s true r _ _ h2 h4 (fun h => absurd h (by simp))
+        | (split <;> exact key _ (by simp) (by simp) (by simp) _ _ _ (fun _ => by simpa using hs))
+        | (split <;> exact key _ (by simp) (by simp) (by simp) _ _ _ (fun h => absurd h (by simp)))
         | exact lexLe_refl _
+    | earlier p stream r ad v =>
+      simp only [step]
+      split
+      · exact lexLe_refl _
+      · have same : ∀ u : State, measure c u = measure c s → LexLe (measure c u) (measure c s) :=
+          fun u hu => hu ▸ lexLe_refl _
+        exact (earlierHeard_acts_of c s p stream r ad v (fun x => LexLe (measure c x) (measure c s))
+          (fun _ => True)
+          (fun hact => by
+            have e := onReply_acts_le c (closeTry s stream p) _ r hact
+            rwa [measure_closeTry] at e)
+          (fun _ => trivial) trivial (fun _ h => h) (fun _ h => h) (fun _ h => h)
+          (same _ (by simp))
+          (fun _ => same _ (by simp [measure, phase, keepAt]))
+          (lexLe_of_phase c s _ (by simp [fail]) (by simp [fail]) (by simp [fail]) (by simp [fail])
+            (by have := phase_ended_le (closeTry s stream p) .nameTooLong
+                simp only [phase, closeTry_asks, closeTry_edns, closeTry_cookieRetried,
+                  closeTry_stage] at this ⊢
+                exact this))
+          (fun hlt => by
+            simp [measure, LexLe, phase, keyAsksMax] at hlt ⊢
+            cases s.stage <;> simp [stagePhase] <;> omega)).1
+    | earlierFailed p stream r =>
+      simp only [step]
+      split
+      · exact lexLe_refl _
+      · have e : measure c (earlierFailed s p stream r) = measure c s := by
+          unfold earlierFailed; split <;> first | rfl | simp [measure, phase, keepAt]
+        rw [e]; exact lexLe_refl _
     | keysReady =>
       simp only [step]
       split
@@ -284,155 +345,5 @@ theorem lexLt_wf : WellFounded LexLt := by
   · exact Prod.Lex.right _ (Prod.Lex.right _ (Prod.Lex.left _ _ h))
   · exact Prod.Lex.right _ (Prod.Lex.right _ (Prod.Lex.right _ (Prod.Lex.left _ _ h)))
   · exact Prod.Lex.right _ (Prod.Lex.right _ (Prod.Lex.right _ (Prod.Lex.right _ h)))
-
-/-! ### The counters stay inside the configuration -/
-
-theorem advanceServer_good (c : Config) (s : State) (hc : Sane c) (hr : s.round < c.attempts)
-    (hh : s.hops ≤ c.hopsMax) (hk : s.candidate < c.candidates) : Good c (advanceServer c s) := by
-  obtain ⟨hs1, _, _⟩ := hc
-  unfold Good
-  cases hn : ended (advanceServer c s).stage
-  · have h1 := advanceServer_inside c s hs1 hn
-    have h2 := advanceServer_round c s hr hn
-    obtain ⟨h3, h4, _, _⟩ := advanceServer_counts c s
-    right; exact ⟨h1, h2, h3 ▸ hk, h4 ▸ hh⟩
-  · left; rfl
-
-theorem nextCandidate_good (c : Config) (s : State) (b : Bool) (hc : Sane c) :
-    Good c (nextCandidate c s b) := by
-  obtain ⟨hs1, ha1, _⟩ := hc
-  unfold nextCandidate Good
-  dsimp only
-  split
-  · right; simp; omega
-  · left; simp [fail, ended]
-
-theorem poll_good (c : Config) (s : State) (g : Good c s) : Good c (poll c s).1 := by
-  rcases g with hend | ⟨h1, h2, h3, h4⟩
-  · left; unfold poll; cases hs : s.stage <;> simp_all [ended]
-  · right; unfold poll; cases hs : s.stage <;> simp_all
-
-theorem onReply_good (c : Config) (s : State) (stream : Bool) (r : Reply) (hc : Sane c)
-    (h1 : s.server < c.servers) (h2 : s.round < c.attempts) (h3 : s.candidate < c.candidates)
-    (h4 : s.hops ≤ c.hopsMax) : Good c (onReply c s stream r).1 := by
-  have gs : Good c s := Or.inr ⟨h1, h2, h3, h4⟩
-  -- A retry keeps every counter, or moves on as the next server does (RFC 9520 §3.1).
-  have hretry : ∀ (t : State) (b : Bool) (w : Option What), t.server = s.server →
-      t.round = s.round → t.candidate = s.candidate → t.hops = s.hops →
-      Good c (retry c s t b w) := by
-    intro t b w e1 e2 e3 e4
-    refine retry_of c s t b w (Good c) (Or.inr ⟨e1 ▸ h1, e2 ▸ h2, e3 ▸ h3, e4 ▸ h4⟩)
-      (fun u hu => ?_)
-    rcases hu with rfl | ⟨k, rfl⟩
-    · exact advanceServer_good c _ hc h2 h4 h3
-    · exact advanceServer_good c _ hc h2 h4 h3
-  cases r with
-  | unmatched => exact gs
-  | truncated =>
-    cases stream
-    · exact hretry _ _ _ rfl rfl rfl rfl
-    · exact nextCandidate_good c s true hc
-  | answer => left; simp [onReply, ended]
-  | cname =>
-    simp only [onReply]
-    split
-    · left; simp [fail, ended]
-    · rename_i hn
-      exact Or.inr ⟨h1, h2, h3, by show s.hops + 1 ≤ c.hopsMax; omega⟩
-  | nxdomain => exact nextCandidate_good c s false hc
-  | nodata => exact nextCandidate_good c s true hc
-  | yxdomain => left; simp [onReply, fail, ended]
-  | servfail => exact advanceServer_good c _ hc h2 h4 h3
-  | formerr =>
-    simp only [onReply]
-    split
-    · exact hretry _ _ _ rfl rfl rfl rfl
-    · exact advanceServer_good c _ hc h2 h4 h3
-  | badcookie =>
-    simp only [onReply]
-    split
-    · split
-      · exact advanceServer_good c _ hc h2 h4 h3
-      · exact hretry _ _ _ rfl rfl rfl rfl
-    · split
-      · exact hretry _ _ _ rfl rfl rfl rfl
-      · exact hretry _ _ _ rfl rfl rfl rfl
-
-/-- A reply read under validation keeps the counters inside the configuration. -/
-theorem reading_good (c : Config) (s : State) (stream : Bool) (r : Reply) (ad : Bool)
-    (v : Option Verdict) (hc : Sane c) (h1 : s.server < c.servers) (h2 : s.round < c.attempts)
-    (h3 : s.candidate < c.candidates) (h4 : s.hops ≤ c.hopsMax) :
-    Good c (reading c s stream r ad v).1 := by
-  have hrej : Good c (rejected c s stream) := by
-    unfold rejected
-    split
-    · exact advanceServer_good c _ hc h2 h4 h3
-    · refine retry_of c s _ _ _ (Good c) (Or.inr ⟨h1, h2, h3, h4⟩) (fun u hu => ?_)
-      rcases hu with rfl | ⟨k, rfl⟩
-      · exact advanceServer_good c _ hc h2 h4 h3
-      · exact advanceServer_good c _ hc h2 h4 h3
-  exact (reading_of c s stream r ad v (Good c) (fun _ => True)
-    (onReply_good c s stream r hc h1 h2 h3 h4) trivial trivial (fun _ h => h) (fun _ h => h) hrej
-    (fun _ => Or.inr ⟨h1, h2, h3, h4⟩)).1
-
-theorem init_good (c : Config) (hc : Sane c) : Good c (init c) := by
-  obtain ⟨hs1, ha1, hc1⟩ := hc
-  unfold init Good
-  split
-  · left; simp [fail, ended]
-  · right; simp; omega
-
-/-- A lookup started under a sane configuration keeps its counters inside it, whatever happens. -/
-theorem step_good (c : Config) (s : State) (e : Event) (hc : Sane c) (g : Good c s) :
-    Good c (step c s e).1 := by
-  rcases g with hend | ⟨h1, h2, h3, h4⟩
-  · rw [ended_absorbing c s e hend]; exact Or.inl hend
-  · have gs : Good c s := Or.inr ⟨h1, h2, h3, h4⟩
-    cases e with
-    | poll => exact poll_good c s gs
-    | expire =>
-      simp only [step]
-      split
-      · exact poll_good c _ (advanceServer_good c s hc h2 h4 h3)
-      · exact poll_good c s gs
-    | sent => cases hs : s.stage <;> simp_all [step, Good]
-    | sendFailed =>
-      cases hs : s.stage <;> simp only [step, hs] <;>
-        first | exact advanceServer_good c s hc h2 h4 h3 | exact gs
-    | tcpConnected => cases hs : s.stage <;> simp_all [step, Good]
-    | tcpFailed _ =>
-      simp only [step]
-      split
-      · exact advanceServer_good c _ hc h2 h4 h3
-      · exact gs
-    | requestFailed _ =>
-      simp only [step]
-      split
-      · exact advanceServer_good c _ hc h2 h4 h3
-      · exact gs
-    | reply r | replyAd r | replyChecked r _ =>
-      cases hs : s.stage <;> simp only [step, heard, hs]
-      all_goals first
-        | exact reading_good c s _ r _ _ hc h1 h2 h3 h4
-        | exact gs
-    | keysReady =>
-      simp only [step]
-      split
-      · unfold keysCame
-        refine retry_of c s _ _ _ (Good c) (Or.inr ⟨h1, h2, h3, h4⟩) (fun u hu => ?_)
-        rcases hu with rfl | ⟨k, rfl⟩
-        · exact advanceServer_good c _ hc h2 h4 h3
-        · exact advanceServer_good c _ hc h2 h4 h3
-      · exact gs
-    | keysFailed w =>
-      simp only [step]
-      split
-      · left; cases w <;> simp [walkFailed, fail, ended]
-      · exact gs
-    | cancel =>
-      simp only [step]
-      split
-      · exact gs
-      · left; simp [fail, ended]
 
 end Spec.Lookup

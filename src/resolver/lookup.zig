@@ -38,7 +38,10 @@ const security = @import("lookup_security.zig");
 const failure_module = @import("lookup_failure.zig");
 const bound = @import("lookup_bound.zig");
 const validate_module = @import("lookup_validate.zig");
+const tries_module = @import("lookup_tries.zig");
+const earlier_module = @import("lookup_earlier.zig");
 pub const Validator = validate_module.Validator;
+pub const Try = tries_module.Try;
 
 pub const State = enum {
     /// A query is ready to be sent to the current server over UDP, or over DoH or DoQ as one
@@ -99,6 +102,13 @@ pub const Lookup = struct {
     /// its server's latency from, and what a deadline that passes first measures the wait it used
     /// from (docs/design.md §5).
     sent_at_ns: u64,
+    /// When the current try's wait began: its send, or the later pass that waits on it again over
+    /// a stream (docs/design.md §5, Tries kept open). A try that runs out is a sample as long as
+    /// that wait.
+    waited_from_ns: u64,
+    /// Whether the lookup reads a response to an earlier try: it closes that try alone where the
+    /// current try's would move the lookup on (`lookup_earlier.zig`).
+    hearing_earlier: bool,
     /// The last instant the caller passed in, so a clock going backwards is caught.
     now_ns_seen: u64,
     entropy: entropy_module.Entropy,
@@ -144,6 +154,8 @@ pub const Lookup = struct {
     /// The CNAME links the chain moved through to reach `current`, one for each of `cname_hops`
     /// (docs/design.md §5, The chain a lookup keeps).
     aliases: core.Aliases,
+    /// The earlier tries of the current name still open (docs/design.md §5, Tries kept open).
+    tries: tries_module.Tries,
 
     pub fn init(config: *const Config, servers: *Servers, question: Question, seed: u64) Lookup {
         var lookup: Lookup = undefined;
@@ -168,6 +180,8 @@ pub const Lookup = struct {
         return poll_module.poll(self, now_ns, out);
     }
 
+    /// A datagram, or a message on a stream: the current try's response first, then one of an
+    /// earlier try still open, the newest first (docs/design.md §5, Tries kept open).
     pub fn on_response(self: *Lookup, message: []const u8, from: Endpoint, now_ns: u64) Verdict {
         return response_module.on_response(self, message, from, now_ns);
     }
@@ -175,7 +189,8 @@ pub const Lookup = struct {
     /// A datagram longer than the caller's buffer, which the kernel cut and marked. Over UDP, one
     /// that passes the checks of a cut datagram (§7) sends the lookup to TCP.
     pub fn on_datagram_cut(self: *Lookup, message: []const u8, from: Endpoint, now_ns: u64) Verdict {
-        return cut_module.on_datagram_cut(self, message, from, now_ns);
+        if (cut_module.on_datagram_cut(self, message, from, now_ns) == .accepted) return .accepted;
+        return earlier_module.on_datagram_cut(self, message, from, now_ns);
     }
 
     /// The caller sent what `poll` asked for.
@@ -191,6 +206,7 @@ pub const Lookup = struct {
         // A try starts at its send, and no reply to it has marked its server yet (§16 decision 50).
         self.flags.reply_marked = false;
         self.sent_at_ns = now_ns;
+        self.waited_from_ns = now_ns;
         poll_module.arm(self, now_ns);
     }
 
@@ -226,14 +242,20 @@ pub const Lookup = struct {
         poll_module.arm(self, now_ns);
     }
 
-    /// The connection failed, for `reason`: refused, reset, or its handshake failed. The server
-    /// refused the lookup, which counts as SERVFAIL does (docs/design.md §16 decision 25). The
-    /// reason is the cause, and it must fit the state (§5, The cause of a failure).
-    pub fn on_tcp_failed(self: *Lookup, reason: Reason, now_ns: u64) void {
+    /// The connection to the configured server `configured` failed, for `reason`: refused, reset, or
+    /// its handshake failed. The server refused the lookup, which counts as SERVFAIL does
+    /// (docs/design.md §16 decision 25). The reason is the cause, and it must fit the state (§5,
+    /// The cause of a failure). It closes every try open on that connection. A lookup on another
+    /// server keeps waiting there (§5, Tries kept open).
+    pub fn on_tcp_failed(self: *Lookup, configured: u8, reason: Reason, now_ns: u64) void {
         self.see(now_ns);
-        assert(self.state == .connecting_tcp or self.state == .tcp_ready or
-            self.state == .awaiting_tcp);
+        assert(configured < self.config.servers.len);
+        if (self.is_settled()) return;
+        if (!self.is_on_stream() or self.server_slot() != configured) {
+            return earlier_module.on_connection_failed(self, configured, reason, now_ns);
+        }
         assert(failure_module.fits_stream(self, reason));
+        _ = earlier_module.close_streams_at(self, self.server_index);
         self.servers.record_failure(self.server_slot(), now_ns);
         failure_module.keep(self, .{ .reason = reason });
         self.next_server(now_ns);
@@ -389,6 +411,8 @@ pub const Lookup = struct {
                     self.flags.aliased = false;
                     self.cname_hops = 0;
                     self.aliases.clear();
+                    // Another name: an answer to a try of the last would answer another question.
+                    self.tries.clear();
                     return;
                 },
                 .skip => at += 1,
@@ -432,5 +456,14 @@ pub const Lookup = struct {
 
     pub fn failure_of(self: *const Lookup) Failure {
         return failure_module.failure_of(self);
+    }
+
+    /// The lookup as the earlier try at `index` left it: its id, server, case and cookie in the
+    /// lookup's own fields. What a test or a replay builds that try's reply from.
+    pub fn viewed_as(self: *const Lookup, index: usize) Lookup {
+        assert(index < self.tries.count);
+        var view = self.*;
+        tries_module.load(&view, index);
+        return view;
     }
 };

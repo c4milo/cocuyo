@@ -22,13 +22,30 @@ namespace Spec.Lookup
 /-- A send the lookup may ask for. -/
 def Sends (o : Out) : Prop := o = .sendUdp ∨ o = .connectTcp ∨ o = .sendTcp ∨ o = .sendRequest
 
+/-- A reply answers `accepted` or `ignored`, whatever it moves. -/
+theorem onReply_out (c : Config) (s : State) (b : Bool) (r : Reply) :
+    (onReply c s b r).2 = .accepted ∨ (onReply c s b r).2 = .ignored := by
+  cases r <;> simp only [onReply] <;> (try split) <;> (try split) <;> simp
+
 /-- A lookup that waits for keys asks for nothing to be sent: its poll says `wait`, no deadline
 bounds it, and every other event answers nothing or ignores a reply (docs/design.md §25). -/
 theorem keys_wait_sends_nothing (c : Config) (s : State) (e : Event)
     (h : s.stage = .awaitingKeys) : ¬ Sends (step c s e).2 := by
-  cases e <;> simp [step, h, poll, waiting, heard, onStream, Sends] <;> split <;> simp
+  cases e
+  case earlier p stream r ad v =>
+    simp only [step]
+    split
+    · simp [Sends]
+    · exact (earlierHeard_of c s p stream r ad v (fun _ => True) (¬ Sends ·) trivial
+        (by rcases onReply_out c (closeTry s stream p) (stream || c.request) r with o | o <;>
+              simp [o, Sends])
+        (by simp [Sends]) (fun _ _ => trivial) (fun _ _ => trivial) (fun _ _ => trivial) trivial
+        (fun _ => trivial) trivial trivial).2
+  case earlierFailed p stream r => simp only [step]; split <;> simp [Sends]
+  all_goals simp [step, h, poll, waiting, heard, onStream, Sends] <;> split <;> simp
 
 /-! ## Secure only when every message was -/
+
 
 theorem advanceServer_secure (c : Config) (s : State) :
     (advanceServer c s).secure = s.secure := by
@@ -119,8 +136,22 @@ theorem step_secure (c : Config) (s : State) (e : Event) (h : (step c s e).1.sec
     · exact h
   | reply r | replyAd r | replyChecked r _ =>
     cases hs : s.stage <;> simp only [step, heard, hs] at h <;> first
-      | exact reading_secure c s _ r _ _ h
+      | (split at h <;> simpa using reading_secure c _ _ r _ _ h)
       | exact h
+  | earlier p stream r ad v =>
+    simp only [step] at h
+    split at h
+    · exact h
+    · exact (earlierHeard_of c s p stream r ad v (fun x => x.secure = true → s.secure = true)
+        (fun _ => True) (fun hx => by rwa [onReply_secure, closeTry_secure] at hx) trivial
+        trivial (fun _ hu hx => hu hx) (fun _ hu hx => hu hx) (fun _ _ hx => by simp at hx)
+        (fun hx => by simpa using hx) (fun _ hx => by simpa [keepAt] using hx)
+        (fun hx => by simpa [fail] using hx) (fun hx => by simpa using hx)).1 h
+  | earlierFailed p stream r =>
+    simp only [step] at h
+    split at h
+    · exact h
+    · unfold earlierFailed at h; split at h <;> simpa [keepAt] using h
   | keysReady =>
     simp only [step] at h
     split at h
@@ -179,6 +210,33 @@ theorem secure_needs_secure (c : Config) (pre es : List Event) (r : Reply) (e : 
   · rw [hclear.1 hst hact] at hafter; simp at hafter
   · rw [hclear.2 hst hact] at hafter; simp at hafter
 
+/-- A message of an open earlier try that the validator calls insecure, one the lookup acts on,
+clears Stage B's conjunction as the current try's does (docs/design.md §5, Tries kept open; §25,
+Stage B). -/
+theorem earlier_checked_clears (c : Config) (s : State) (p : Nat) (stream : Bool) (r : Reply)
+    (hv : c.validate = true) (hn : ended s.stage = false) (ho : earlierOpen s stream p ≠ 0)
+    (ha : actsOn (stream || c.request) r = true) :
+    (step c s (.earlier p stream r false (some .insecure))).1.secure = false := by
+  simp only [step, earlierHeard, hn, ho, ha, hv]
+  simp only [Bool.false_eq_true, false_or, if_false, if_true, Option.getD_some, earlierChecked]
+  by_cases hst : (onReply c (closeTry s stream p) (stream || c.request) r).1.stage = s.stage <;>
+    simp [hst]
+
+/-- A lookup that ends `secure` met no message of an earlier try that the validator called
+insecure. -/
+theorem secure_needs_secure_earlier (c : Config) (pre es : List Event) (p : Nat) (stream : Bool)
+    (r : Reply)
+    (h : security c (run c (init c) (pre ++ Event.earlier p stream r false (some .insecure) :: es)) =
+      .secure) :
+    ¬ (ended (run c (init c) pre).stage = false ∧ earlierOpen (run c (init c) pre) stream p ≠ 0 ∧
+        actsOn (stream || c.request) r = true) := by
+  intro ⟨hn, ho, hact⟩
+  obtain ⟨hv, hsec⟩ := secure_of c _ h
+  rw [run_append] at hsec
+  have hafter := secure_run c _ es hsec
+  rw [earlier_checked_clears c _ p stream r hv hn ho hact] at hafter
+  simp at hafter
+
 /-! ## A bogus message adds nothing -/
 
 /-- A message the validator calls bogus, one the validating lookup acts on and waits for, moves
@@ -200,26 +258,31 @@ theorem bogus_adds_nothing (c : Config) (s : State) (r : Reply) (hv : c.validate
     have a3 : (advanceServer c u).hadNoData = u.hadNoData := by
       fun_induction advanceServer c u <;> simp_all +zetaDelta [fail]
     refine ⟨a1.trans h1, a2.trans h2, a3.trans h3, (advanceServer_secure c u).trans h4, ?_⟩
-    rcases advanceServer_stage c u with hs | hs <;> rw [hs]
+    rcases advanceServer_stage c u with hs | ⟨_, hs⟩ | hs <;> rw [hs]
     · unfold fresh; split <;> simp
     · simp
-  have hrej : ∀ stream : Bool, let t := rejected c s stream
+    · simp
+  -- The reply closes the current try first, which changes none of these counters.
+  have hrej : ∀ (u : State) (stream : Bool), u.candidate = s.candidate → u.hops = s.hops →
+      u.hadNoData = s.hadNoData → u.secure = s.secure → let t := rejected c u stream
       t.candidate = s.candidate ∧ t.hops = s.hops ∧ t.hadNoData = s.hadNoData ∧
         t.secure = s.secure ∧ t.stage ≠ .done := by
-    intro stream
+    intro u stream h1 h2 h3 h4
     unfold rejected
     split
-    · exact hadv _ rfl rfl rfl rfl
-    · refine retry_of c s _ _ _ (fun t => t.candidate = s.candidate ∧ t.hops = s.hops ∧
+    · exact hadv _ h1 h2 h3 h4
+    · refine retry_of c u _ _ _ (fun t => t.candidate = s.candidate ∧ t.hops = s.hops ∧
         t.hadNoData = s.hadNoData ∧ t.secure = s.secure ∧ t.stage ≠ .done)
-        ⟨rfl, rfl, rfl, rfl, by simp⟩ (fun u hu => ?_)
-      rcases hu with rfl | ⟨k, rfl⟩
-      · exact hadv _ rfl rfl rfl rfl
-      · exact hadv _ rfl rfl rfl rfl
+        ⟨h1, h2, h3, h4, by simp⟩ (fun w hw => ?_)
+      rcases hw with rfl | ⟨k, rfl⟩
+      · exact hadv _ h1 h2 h3 h4
+      · exact hadv _ h1 h2 h3 h4
+  have hr : r ≠ .unmatched := by
+    rintro rfl; rcases hw with ⟨_, ha⟩ | ⟨_, ha⟩ <;> simp [actsOn] at ha
   rcases hw with ⟨hs, ha⟩ | ⟨hs, ha⟩ <;>
-    simp only [step, heard, hs, reading, hv, ha, Bool.and_self, ↓reduceIte, Option.getD_some,
-      checked] <;>
-    exact hrej _
+    simp only [step, heard, hs, if_neg hr, reading, hv, closeTry_stage, ha, Bool.and_self,
+      ↓reduceIte, Option.getD_some, checked] <;>
+    exact hrej _ _ (by simp) (by simp) (by simp) (by simp)
 
 /-! ## EDNS0 stays on -/
 
@@ -307,8 +370,21 @@ theorem step_edns (c : Config) (s : State) (e : Event) (hv : c.validate = true)
     · exact h
   | reply r | replyAd r | replyChecked r _ =>
     cases hs : s.stage <;> simp only [step, heard, hs] <;> first
-      | exact reading_edns c s _ r _ _ hv h
+      | (split <;> exact reading_edns c _ _ r _ _ hv (by simpa using h))
       | exact h
+  | earlier p stream r ad v =>
+    simp only [step]
+    split
+    · exact h
+    · exact (earlierHeard_of c s p stream r ad v (fun x => x.edns = true) (fun _ => True)
+        (onReply_edns c _ _ r hv (by simpa using h)) trivial trivial (fun _ hu => hu)
+        (fun _ hu => hu) (fun _ hu => hu) (by simpa using h) (fun _ => by simpa [keepAt] using h)
+        (by simpa [fail] using h) (by simpa using h)).1
+  | earlierFailed p stream r =>
+    simp only [step]
+    split
+    · exact h
+    · unfold earlierFailed; split <;> simpa [keepAt] using h
   | keysReady =>
     simp only [step]
     split

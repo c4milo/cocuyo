@@ -137,12 +137,12 @@ pub const admit = wait_module.admit;
 /// server (docs/design.md §5, The cause of a failure).
 pub fn want(self: anytype, index: usize, now_ns: u64) void {
     const handle = self.handles[index];
-    if (comptime !@TypeOf(self.*).keeps_tcp) return self.resolver.on_tcp_failed(handle, .local, now_ns);
     const server = self.resolver.lookup_of(handle).server_slot();
+    if (comptime !@TypeOf(self.*).keeps_tcp) return self.resolver.on_tcp_failed(handle, server, .local, now_ns);
     const at = attach(self, index, server, now_ns) catch |err| {
         if (err == error.NoSlot and wait_module.pending(self)) return wait_module.wait(self, index);
         if (err == error.NoSlot and mark_module.holds_slot(self)) return wait_module.wait(self, index);
-        return self.resolver.on_tcp_failed(handle, .local, now_ns);
+        return self.resolver.on_tcp_failed(handle, server, .local, now_ns);
     };
     if (self.connections[at].state == .up) self.resolver.on_tcp_connected(handle, now_ns);
 }
@@ -360,7 +360,7 @@ pub fn tell_all(self: anytype, at: u8, now_ns: u64, failed: ?cocuyo.Reason) void
         // own now, and telling it would be telling it about somebody else's connection.
         if (!self.resolver.lookup_of(handle).is_on_stream()) continue;
         if (failed) |reason| {
-            self.resolver.on_tcp_failed(handle, reason, now_ns);
+            self.resolver.on_tcp_failed(handle, self.connections[at].server, reason, now_ns);
         } else {
             self.resolver.on_tcp_connected(handle, now_ns);
         }

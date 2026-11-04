@@ -30,10 +30,14 @@ const cookie_response = @import("lookup_response_cookie.zig");
 const casing = @import("lookup_response_case.zig");
 const failure_module = @import("lookup_failure.zig");
 const validate_module = @import("lookup_validate.zig");
+const earlier_module = @import("lookup_earlier.zig");
 
 pub fn on_response(self: *Lookup, message: []const u8, from: Endpoint, now_ns: u64) Verdict {
     self.see(now_ns);
-    const accepted = accepted_header(self, message, from) orelse return .ignored;
+    // A response the current try's checks refuse may be an earlier try's (docs/design.md §5,
+    // Tries kept open). Most lookups keep no try open, and their datagrams pay one test.
+    const accepted = accepted_header(self, message, from) orelse
+        return if (self.tries.count == 0) .ignored else earlier_module.on_response(self, message, from, now_ns);
     assert(!self.is_settled());
     return apply(self, message, accepted, now_ns);
 }
@@ -73,7 +77,7 @@ pub const Accepted = struct {
 /// is not. A message that is not ours touches nothing but the case mark. Its server can learn
 /// that it lowercases the name, and the lookup can learn that the reply marked its try
 /// (`lookup_response_case.zig`).
-fn accepted_header(self: *Lookup, message: []const u8, from: Endpoint) ?Accepted {
+pub inline fn accepted_header(self: *Lookup, message: []const u8, from: Endpoint) ?Accepted {
     if (self.state != .awaiting_udp and self.state != .awaiting_tcp) return null;
     // Over DoH or DoQ an answer comes by its transaction, and never as a datagram
     // (docs/design.md §22, §23).
@@ -146,7 +150,9 @@ pub fn apply(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64
     // the answer it gives.
     if (accepted.truncated() and !over_stream(self) and !self.config.ignore_truncation) {
         heard(self, accepted.cookie, null, now_ns);
-        bound.to_stream(self, now_ns);
+        // An earlier try's TC=1 closes that try alone: its server answered, and the lookup waits
+        // on its current try (docs/design.md §5, Tries kept open).
+        if (!self.hearing_earlier) bound.to_stream(self, now_ns);
         return .accepted;
     }
     const bits = (@as(u16, accepted.extended_rcode_high) << wire.constants.extended_rcode_low_bits) |
@@ -165,6 +171,17 @@ pub fn apply(self: *Lookup, message: []const u8, accepted: Accepted, now_ns: u64
     // state what it heard.
     if (action == .collect) return collect(self, message, accepted, now_ns);
     if (action == .next_candidate) return name_error(self, message, accepted, rcode, now_ns);
+    return failed_rcode(self, accepted, action, rcode, now_ns);
+}
+
+/// An rcode that is neither NOERROR nor NXDOMAIN: the server failed, a retry, or the end.
+fn failed_rcode(self: *Lookup, accepted: Accepted, action: policy.RcodeAction, rcode: wire.Rcode, now_ns: u64) Verdict {
+    // An earlier try's reply that would move the lookup on closes that try alone, and its rcode
+    // is its server's failure (docs/design.md §5, Tries kept open; the model's `passed`).
+    if (self.hearing_earlier and moves_on(action)) {
+        heard(self, accepted.cookie, .{ .rcode = rcode }, now_ns);
+        return .accepted;
+    }
     heard(self, accepted.cookie, cause_of(self, action, rcode), now_ns);
     switch (action) {
         .collect, .next_candidate => unreachable,
@@ -264,6 +281,16 @@ fn heard(self: *Lookup, cookie: ?wire.CookieView, cause: ?Cause.What, now_ns: u6
     }
     cookies.silence_if_missing(self, cookie, now_ns);
     assert((cause != null) == (self.servers.failures(slot) > 0));
+}
+
+/// Whether an rcode's action moves the lookup to another server or asks this one again: what a
+/// reply to an earlier try does not do (docs/design.md §5, Tries kept open).
+fn moves_on(action: policy.RcodeAction) bool {
+    assert(action != .collect and action != .next_candidate);
+    return switch (action) {
+        .next_server, .retry_without_edns, .retry_with_cookie => true,
+        .collect, .next_candidate, .fail, .name_too_long => false,
+    };
 }
 
 /// The cause a response keeps, its rcode, when that rcode fails the server; null when it does not.
@@ -437,8 +464,10 @@ inline fn collect_as(self: *Lookup, message: []const u8, accepted: Accepted, exp
             self.cname_hops = self.answers.hops_used;
             // The server just answered, so it is the healthy one: ask it about where the chain
             // went, with a new transaction. The target is another name, so another query, and no
-            // retry of the last (RFC 9520 §3.1).
+            // retry of the last (RFC 9520 §3.1). An answer to a try of the last name would answer
+            // another question (docs/design.md §5, Tries kept open).
             self.sends = .{};
+            self.tries.clear();
             self.restart(now_ns);
         },
         .no_data => {

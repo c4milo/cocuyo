@@ -49,11 +49,13 @@ theorem bounded_unsent (s : State) (c : Config) (hd : s.datagrams = unsent c)
   · simp only [spent, sentTo_unsent s c hd hs, queriesMax]; decide
 
 /-- The next server leaves the counts as they were, and stands on a server with a query left over
-the transport it starts on, or ends the lookup (RFC 9520 §3.1). -/
+the transport it starts on, or waits on an open stream try there and sends nothing, or ends the
+lookup (RFC 9520 §3.1; docs/design.md §5, Tries kept open). -/
 theorem advanceServer_ready (c : Config) (s : State) :
     (advanceServer c s).stage = .failed ∨
-      ((advanceServer c s).stage = fresh c ∧ spent (advanceServer c s) c.useTcp = false) := by
-  fun_induction advanceServer c s <;> simp_all +zetaDelta [fail]
+      ((advanceServer c s).stage = fresh c ∧ spent (advanceServer c s) c.useTcp = false) ∨
+      (advanceServer c s).stage = .awaitingTcp := by
+  fun_induction advanceServer c s <;> simp_all +zetaDelta [fail, waitOn] <;> split <;> simp_all
 
 theorem advanceServer_bounded (c : Config) (s : State) (h : Bounded s) :
     Bounded (advanceServer c s) := by
@@ -62,9 +64,10 @@ theorem advanceServer_bounded (c : Config) (s : State) (h : Bounded s) :
   · have := h.1 p
     simp only [sentTo, hd, hs] at this ⊢
     exact this
-  · rcases advanceServer_ready c s with hf | ⟨hf, hsp⟩
+  · rcases advanceServer_ready c s with hf | ⟨hf, hsp⟩ | hf
     · simp [beforeSend, hf] at hb
     · rw [hf, streamStage_fresh]; exact hsp
+    · simp [beforeSend, hf] at hb
 
 theorem keep_bounded (s : State) (w : What) (h : Bounded s) : Bounded (keep s w) := h
 
@@ -205,18 +208,42 @@ theorem step_bounded (c : Config) (s : State) (e : Event) (h : Bounded s) :
   | tcpFailed _ =>
     simp only [step]
     split
-    · exact advanceServer_bounded c _ (keep_bounded s _ h)
+    · exact advanceServer_bounded c _ (bounded_same s _ h rfl rfl rfl (fun hb => h.2 hb))
     · exact h
   | requestFailed _ =>
     simp only [step]
     split
-    · exact advanceServer_bounded c _ (keep_bounded s _ h)
+    · exact advanceServer_bounded c _ (bounded_same s _ h (by simp [keep]) (by simp [keep])
+        (by simp [keep]) (fun hb => by simpa [keep] using h.2 (by simpa [keep] using hb)))
     · exact h
   | reply r | replyAd r | replyChecked r _ =>
+    have hc : ∀ b p, Bounded (closeTry s b p) := fun b p =>
+      bounded_same s _ h (by simp) (by simp) (by simp) (fun hb => by simpa using h.2 (by simpa using hb))
     cases hs : s.stage <;> simp only [step, heard, hs]
     all_goals first
-      | exact reading_bounded c s _ r _ _ h
+      | (split
+         · exact reading_bounded c s _ r _ _ h
+         · exact reading_bounded c _ _ r _ _ (hc _ _))
       | exact h
+  | earlier p stream r ad v =>
+    simp only [step]
+    split
+    · exact h
+    · have hc : Bounded (closeTry s stream p) :=
+        bounded_same s _ h (by simp) (by simp) (by simp) (fun hb => by simpa using h.2 (by simpa using hb))
+      exact (earlierHeard_of c s p stream r ad v Bounded (fun _ => True)
+        (onReply_bounded c _ _ r hc) trivial trivial (fun _ h => h) (fun _ h => h) (fun _ h => h) hc
+        (fun _ => hc) (fail_bounded _ _ hc)
+        (bounded_same s _ h (by simp) (by simp) (by simp) (fun hb => by simp [beforeSend] at hb))).1
+  | earlierFailed p stream r =>
+    simp only [step]
+    split
+    · exact h
+    · unfold earlierFailed
+      split
+      · exact bounded_same s _ h rfl rfl rfl (fun hb => h.2 hb)
+      · exact bounded_same s _ h (by simp [keepAt]) (by simp [keepAt]) (by simp [keepAt])
+          (fun hb => by simpa using h.2 (by simpa [keepAt] using hb))
   | keysReady =>
     simp only [step]
     split

@@ -12,6 +12,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
+const limits = @import("limits.zig");
 const wire = @import("wire");
 const Config = core.Config;
 const Endpoint = core.Endpoint;
@@ -278,7 +279,7 @@ pub const format_error: Reply = .{ .rcode = .format_error };
 
 /// How many slots and keys the table tests use.
 pub const slot_count: usize = 4;
-pub const key_count: usize = 16;
+pub const key_count: usize = std.math.ceilPowerOfTwoAssert(usize, slot_count * limits.keys_per_slot_min);
 
 /// A lookup, the buffers a caller provides, and the fake server that answers it.
 ///

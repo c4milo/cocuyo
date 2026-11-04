@@ -92,7 +92,7 @@ test "a connection that fails keeps the reason given: what failed before it is u
         var connecting: Harness = .{ .config = case.config };
         try connecting.start("example.com.", .a, seed);
         try testing.expect(connecting.poll() == .connect_tcp);
-        connecting.lookup.on_tcp_failed(case.reason, connecting.now_ns);
+        connecting.lookup.on_tcp_failed(connecting.lookup.server_slot(), case.reason, connecting.now_ns);
         try expect_failure(&connecting, core.Error.AllServersFailed, from(0, .{ .reason = case.reason }));
     }
     // Up, before the query went and after it: whatever failed, the reason is `closed`.
@@ -103,7 +103,7 @@ test "a connection that fails keeps the reason given: what failed before it is u
             try testing.expect(up.poll() == .connect_tcp);
             up.lookup.on_tcp_connected(up.now_ns);
             if (sent) _ = up.send_over_tcp();
-            up.lookup.on_tcp_failed(.closed, up.now_ns);
+            up.lookup.on_tcp_failed(up.lookup.server_slot(), .closed, up.now_ns);
             try expect_failure(&up, core.Error.AllServersFailed, from(0, .{ .reason = .closed }));
         }
     }
@@ -189,7 +189,7 @@ test "a stream that fails after an rcode replaces it, and an rcode after a strea
     // The second server's answer is truncated, and its connection fails.
     try ask(&rcode_first, fixtures.truncated);
     try testing.expect(rcode_first.poll() == .connect_tcp);
-    rcode_first.lookup.on_tcp_failed(.connect, rcode_first.now_ns);
+    rcode_first.lookup.on_tcp_failed(rcode_first.lookup.server_slot(), .connect, rcode_first.now_ns);
     try expect_failure(&rcode_first, core.Error.AllServersFailed, from(1, .{ .reason = .connect }));
 
     var stream_first: Harness = .{ .config = config };
@@ -198,7 +198,7 @@ test "a stream that fails after an rcode replaces it, and an rcode after a strea
     try testing.expect(stream_first.poll() == .connect_tcp);
     stream_first.lookup.on_tcp_connected(stream_first.now_ns);
     _ = stream_first.send_over_tcp();
-    stream_first.lookup.on_tcp_failed(.closed, stream_first.now_ns);
+    stream_first.lookup.on_tcp_failed(stream_first.lookup.server_slot(), .closed, stream_first.now_ns);
     try ask(&stream_first, fixtures.server_failure);
     try expect_failure(&stream_first, core.Error.AllServersFailed, from(1, .{ .rcode = .server_failure }));
 }
@@ -268,7 +268,7 @@ test "an error but AllServersFailed carries the last server failure too" {
     var cancelled: Harness = .{ .config = .{ .servers = &fixtures.servers_two, .use_tcp = true, .failover_retry_chance = 0 } };
     try cancelled.start("example.com.", .a, seed);
     try testing.expect(cancelled.poll() == .connect_tcp);
-    cancelled.lookup.on_tcp_failed(.connect, cancelled.now_ns);
+    cancelled.lookup.on_tcp_failed(cancelled.lookup.server_slot(), .connect, cancelled.now_ns);
     cancelled.lookup.cancel();
     try expect_failure(&cancelled, core.Error.Canceled, from(0, .{ .reason = .connect }));
 }

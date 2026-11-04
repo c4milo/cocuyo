@@ -142,6 +142,12 @@ inductive Event where
   /-- A reply the lookup acts on, and what the validator says of its message (docs/design.md §25,
   step 11). -/
   | replyChecked (r : Reply) (v : Verdict)
+  /-- A reply to an earlier try that is still open: the server at position `p`, over a stream or not,
+  the reply, its AD bit and the validator's verdict when it gave one (docs/design.md §5, Tries kept
+  open). -/
+  | earlier (p : Nat) (stream : Bool) (r : Reply) (ad : Bool) (v : Option Verdict)
+  /-- The connection of an earlier try at position `p` failed, or its request did, and why. -/
+  | earlierFailed (p : Nat) (stream : Bool) (r : Reason)
   /-- The walk ended with the keys held, or with an insecure delegation. -/
   | keysReady
   /-- The walk failed. -/
@@ -208,6 +214,12 @@ structure State where
   policy; §16 decision 58). -/
   datagrams : List Nat
   streams : List Nat
+  /-- The tries of the current name still open at each position, over UDP or as a DoH or DoQ
+  request, and over a stream (docs/design.md §5, Tries kept open; §16 decision 66). A try opens at
+  `sent`. It closes at a reply to it that moves the lookup on, at a failure of its connection or
+  its request, and at a new name. The current try is one of them while the lookup waits on it. -/
+  openDatagrams : List Nat
+  openStreams : List Nat
   /-- Rule 3's conjunction: AD set on every message the lookup acted on, while the configuration
   relies on the bit (docs/design.md §25, Stage A). Once clear it stays clear. -/
   authentic : Bool
@@ -250,13 +262,32 @@ def init (c : Config) : State :=
   let s : State := { stage := fresh c, server := 0, round := 0, candidate := 0, hops := 0,
                      edns := true, hadNoData := false, cause := none,
                      cookieRetried := false, offered := false, err := .timeout,
-                     datagrams := unsent c, streams := unsent c, authentic := true, asks := 0,
-                     secure := true }
+                     datagrams := unsent c, streams := unsent c, openDatagrams := unsent c,
+                     openStreams := unsent c, authentic := true, asks := 0, secure := true }
   if c.servers = 0 then fail s .noServers else s
 
 /-- The current server failed the lookup with `w`: the cause, `w` and that server, replaces the one
 the lookup held, and nothing else changes (§5, The cause of a failure). -/
 def keep (s : State) (w : What) : State := { s with cause := some { server := s.server, what := w } }
+
+/-- The server at position `p` failed one of the lookup's earlier tries with `w`. The cause names
+that server, and the lookup stays where it is (docs/design.md §5, Tries kept open). -/
+def keepAt (s : State) (p : Nat) (w : What) : State := { s with cause := some { server := p, what := w } }
+
+/-- The tries of the current name open at position `p`, over a stream or not. -/
+def openAt (s : State) (stream : Bool) (p : Nat) : Nat :=
+  (if stream then s.openStreams else s.openDatagrams).getD p 0
+
+/-- One try fewer open at position `p`, over a stream or not. -/
+def closeTry (s : State) (stream : Bool) (p : Nat) : State :=
+  if stream then { s with openStreams := s.openStreams.set p (openAt s true p - 1) }
+  else { s with openDatagrams := s.openDatagrams.set p (openAt s false p - 1) }
+
+/-- A later pass that reaches a server with an open try of the name over a stream sends no query.
+It waits on that try, whose query is still on its connection: RFC 1035 §4.2.1 asks for a
+retransmission over UDP alone (docs/design.md §5, Tries kept open). -/
+def waitOn (c : Config) (t : State) : State :=
+  if c.useTcp && decide (0 < openAt t true t.server) then { t with stage := .awaitingTcp } else t
 
 /-- How a lookup ends when its passes run out: `bogus` when a bogus message is the cause it holds,
 `allServersFailed` for every other cause, and `timeout` with none (§5, retry policy;
@@ -275,11 +306,11 @@ def advanceServer (c : Config) (s : State) : State :=
   if _h : s.server + 1 < c.servers then
     let t := { s with server := s.server + 1, stage := fresh c, edns := true,
                       cookieRetried := false, offered := false }
-    if spent t c.useTcp then advanceServer c t else t
+    if spent t c.useTcp then advanceServer c t else waitOn c t
   else if _h2 : s.round + 1 < c.attempts then
     let t := { s with server := 0, round := s.round + 1, stage := fresh c, edns := true,
                       cookieRetried := false, offered := false }
-    if spent t c.useTcp then advanceServer c t else t
+    if spent t c.useTcp then advanceServer c t else waitOn c t
   else
     fail { s with round := s.round + 1 } (exhausted s)
 termination_by (c.attempts - s.round, c.servers - s.server)
@@ -301,7 +332,7 @@ def nextCandidate (c : Config) (s : State) (noData : Bool) : State :=
   if t.candidate + 1 < c.candidates then
     { t with candidate := t.candidate + 1, server := 0, round := 0, hops := 0, stage := fresh c,
              edns := true, cookieRetried := false, offered := false, datagrams := unsent c,
-             streams := unsent c, asks := 0 }
+             streams := unsent c, openDatagrams := unsent c, openStreams := unsent c, asks := 0 }
   else
     fail t (if t.hadNoData then .noData else .nameNotFound)
 
@@ -317,7 +348,8 @@ def onReply (c : Config) (s : State) (stream : Bool) : Reply → State × Out
   | .cname =>
     if s.hops + 1 > c.hopsMax then (fail s .chainTooLong, .accepted)
     else ({ s with hops := s.hops + 1, stage := fresh c, datagrams := unsent c,
-                   streams := unsent c, asks := 0 }, .accepted)
+                   streams := unsent c, openDatagrams := unsent c, openStreams := unsent c,
+                   asks := 0 }, .accepted)
   | .nxdomain => (nextCandidate c s false, .accepted)
   | .nodata => (nextCandidate c s true, .accepted)
   -- Each server applies the same DNAME, so the lookup ends: no next server and no next candidate

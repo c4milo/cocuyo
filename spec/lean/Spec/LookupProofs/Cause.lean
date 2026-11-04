@@ -1,4 +1,5 @@
 import Spec.LookupProofs.Timeout
+import Spec.LookupProofs.CauseOpen
 
 /-!
 # What a failure says of its cause
@@ -24,9 +25,9 @@ def CauseFits (s : State) : Prop :=
 theorem advanceServer_fits (c : Config) (s : State) : CauseFits (advanceServer c s) := by
   fun_induction advanceServer c s
   · rename_i ih; exact ih
-  · intro hf; exact absurd hf (fresh_ne_failed c)
+  · intro hf; exact absurd (waitOn_failed c _ hf) (by simpa +zetaDelta using fresh_ne_failed c)
   · rename_i ih; exact ih
-  · intro hf; exact absurd hf (fresh_ne_failed c)
+  · intro hf; exact absurd (waitOn_failed c _ hf) (by simpa +zetaDelta using fresh_ne_failed c)
   · simp only [CauseFits, fail, exhausted]
     split <;> simp_all
 
@@ -138,10 +139,29 @@ theorem step_fits (c : Config) (s : State) (e : Event) (h : CauseFits s) :
     · exact advanceServer_fits c _
     · exact h
   | reply r | replyAd r | replyChecked r _ =>
+    have hc : ∀ b p, CauseFits (closeTry s b p) := fun b p => by simpa [CauseFits] using h
     cases hst : s.stage <;> simp only [step, heard, hst]
     all_goals first
-      | exact reading_fits c s _ r _ _ (onReply_fits c s _ r h)
+      | (split
+         · exact reading_fits c s _ r _ _ (onReply_fits c s _ r h)
+         · exact reading_fits c _ _ r _ _ (onReply_fits c _ _ r (hc _ _)))
       | exact h
+  | earlier p stream r ad v =>
+    simp only [step]
+    split
+    · exact h
+    · have hc : CauseFits (closeTry s stream p) := by simpa [CauseFits] using h
+      have hs : s.stage ≠ .failed := fun hf => hend (by simp [ended, hf])
+      exact (earlierHeard_of c s p stream r ad v CauseFits (fun _ => True)
+        (onReply_fits c _ _ r hc) trivial trivial (fun _ h => h) (fun _ h => h) (fun _ h => h) hc
+        (fun _ => running _ (by simpa [keepAt] using hs))
+        (fail_fits _ .nameTooLong (by simp) (by simp)) (running _ (by simp))).1
+  | earlierFailed p stream r =>
+    simp only [step]
+    split
+    · exact h
+    · have hs : s.stage ≠ .failed := fun hf => hend (by simp [ended, hf])
+      exact running _ (by rw [earlierFailed_stage]; exact hs)
   | keysReady =>
     simp only [step]
     split
@@ -270,7 +290,7 @@ theorem reading_server (c : Config) (s : State) (stream : Bool) (r : Reply) (ad 
     trivial trivial (fun _ h => h) (fun _ h => h) hrej (fun _ => same _ rfl rfl)).1
 
 /-- No event moves a cause, or the lookup's position, outside the configuration. -/
-theorem step_server (c : Config) (s : State) (e : Event) (h : ServerFits c s) :
+theorem step_server (c : Config) (s : State) (e : Event) (h : ServerFits c s) (ho : OpenFits c s) :
     ServerFits c (step c s e).1 := by
   by_cases hend : ended s.stage = true
   · rw [ended_absorbing c s e hend]; exact h
@@ -294,18 +314,47 @@ theorem step_server (c : Config) (s : State) (e : Event) (h : ServerFits c s) :
   | tcpFailed _ =>
     simp only [step]
     split
-    · exact hadv _
+    · exact advanceServer_server c _ (keep_server c _ _ (same _ rfl rfl) hs) hs
     · exact h
   | requestFailed _ =>
     simp only [step]
     split
-    · exact hadv _
+    · exact advanceServer_server c _
+        (keep_server c _ _ (same _ (by simp) (by simp)) (by simpa using hs))
+        (by simpa [keep] using hs)
     · exact h
   | reply r | replyAd r | replyChecked r _ =>
+    have hc : ∀ b p, ServerFits c (closeTry s b p) := fun b p => same _ (by simp) (by simp)
     cases hst : s.stage <;> simp only [step, heard, hst]
     all_goals first
-      | exact reading_server c s _ r _ _ h hs
+      | (split
+         · exact reading_server c s _ r _ _ h hs
+         · exact reading_server c _ _ r _ _ (hc _ _) (by simpa using hs))
       | exact h
+  | earlier p stream r ad v =>
+    simp only [step]
+    split
+    · exact h
+    · rename_i hn
+      have hp : p < c.servers := lt_of_open c s stream p ho (by intro hz; exact hn (Or.inr hz))
+      have hc : ServerFits c (closeTry s stream p) := same _ (by simp) (by simp)
+      have hk : ∀ w, ServerFits c (keepAt (closeTry s stream p) p w) := fun w =>
+        ⟨fun _ => by simpa [keepAt] using hs, fun k hk => by simp [keepAt] at hk; subst hk; exact hp⟩
+      exact (earlierHeard_of c s p stream r ad v (ServerFits c) (fun _ => True)
+        (onReply_server c _ _ r hc (by simpa using hs)) trivial trivial (fun _ h => h)
+        (fun _ h => h) (fun _ h => h) hc hk
+        ⟨fun hf => by simp [fail, ended] at hf, fun k hk => h.2 k (by simpa [fail] using hk)⟩
+        (same _ (by simp) (by simp))).1
+  | earlierFailed p stream r =>
+    simp only [step]
+    split
+    · exact h
+    · rename_i hn
+      have hp : p < c.servers := lt_of_open c s stream p ho (by intro hz; exact hn (Or.inr hz))
+      unfold earlierFailed
+      split
+      · exact ⟨fun _ => by simpa [keepAt] using hs, fun k hk => by simp [keepAt] at hk; subst hk; exact hp⟩
+      · exact ⟨fun _ => by simpa [keepAt] using hs, fun k hk => by simp [keepAt] at hk; subst hk; exact hp⟩
   | keysReady =>
     simp only [step]
     split
@@ -341,12 +390,15 @@ that fails with `timeout` holds none, whatever the caller tells it (§5, The cau
 51). -/
 theorem failure_cause (c : Config) (es : List Event) :
     CauseFits (run c (init c) es) ∧ ServerFits c (run c (init c) es) := by
-  have key : ∀ (es : List Event) (t : State), CauseFits t ∧ ServerFits c t →
-      CauseFits (run c t es) ∧ ServerFits c (run c t es) := by
+  have key : ∀ (es : List Event) (t : State), CauseFits t ∧ ServerFits c t ∧ OpenFits c t →
+      CauseFits (run c t es) ∧ ServerFits c (run c t es) ∧ OpenFits c (run c t es) := by
     intro es
     induction es with
     | nil => intro t h; exact h
-    | cons e rest ih => intro t h; exact ih _ ⟨step_fits c t e h.1, step_server c t e h.2⟩
-  exact key es _ ⟨init_fits c, init_server c⟩
+    | cons e rest ih =>
+      intro t h
+      exact ih _ ⟨step_fits c t e h.1, step_server c t e h.2.1 h.2.2, step_open c t e h.2.2⟩
+  have k := key es _ ⟨init_fits c, init_server c, init_open c⟩
+  exact ⟨k.1, k.2.1⟩
 
 end Spec.Lookup

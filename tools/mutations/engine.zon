@@ -2624,7 +2624,7 @@
         .id = "LC32",
         .what = "an engine that keeps no TCP connection tells the lookup it is up before it fails it",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "    if (comptime !@TypeOf(self.*).keeps_tcp) return self.resolver.on_tcp_failed(handle, .local, now_ns);\n    const server", .new = "    if (comptime !@TypeOf(self.*).keeps_tcp) {\n        self.resolver.on_tcp_connected(handle, now_ns);\n        return self.resolver.on_tcp_failed(handle, .local, now_ns);\n    }\n    const server" },
+            .{ .file = "io/io_tcp.zig", .old = "    if (comptime !@TypeOf(self.*).keeps_tcp) return self.resolver.on_tcp_failed(handle, server, .local, now_ns);\n    const at", .new = "    if (comptime !@TypeOf(self.*).keeps_tcp) {\n        self.resolver.on_tcp_connected(handle, now_ns);\n        return self.resolver.on_tcp_failed(handle, server, .local, now_ns);\n    }\n    const at" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -2634,7 +2634,7 @@
         .id = "LC33",
         .what = "a lookup that finds no free connection slot is told it is up before it is failed",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "        return self.resolver.on_tcp_failed(handle, .local, now_ns);\n    };\n    if (self.connections[at].state == .up)", .new = "        self.resolver.on_tcp_connected(handle, now_ns);\n        return self.resolver.on_tcp_failed(handle, .local, now_ns);\n    };\n    if (self.connections[at].state == .up)" },
+            .{ .file = "io/io_tcp.zig", .old = "        return self.resolver.on_tcp_failed(handle, server, .local, now_ns);\n    };\n    if (self.connections[at].state == .up)", .new = "        self.resolver.on_tcp_connected(handle, now_ns);\n        return self.resolver.on_tcp_failed(handle, server, .local, now_ns);\n    };\n    if (self.connections[at].state == .up)" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -3669,7 +3669,7 @@
         .id = "RS20",
         .what = "an engine with no TCP connection gives the reason connect",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "    if (comptime !@TypeOf(self.*).keeps_tcp) return self.resolver.on_tcp_failed(handle, .local, now_ns);", .new = "    if (comptime !@TypeOf(self.*).keeps_tcp) return self.resolver.on_tcp_failed(handle, .connect, now_ns);" },
+            .{ .file = "io/io_tcp.zig", .old = "    if (comptime !@TypeOf(self.*).keeps_tcp) return self.resolver.on_tcp_failed(handle, server, .local, now_ns);", .new = "    if (comptime !@TypeOf(self.*).keeps_tcp) return self.resolver.on_tcp_failed(handle, server, .connect, now_ns);" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -3678,7 +3678,7 @@
         .id = "RS21",
         .what = "no slot, or a socket refused, gives the reason connect",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "        return self.resolver.on_tcp_failed(handle, .local, now_ns);\n    };", .new = "        return self.resolver.on_tcp_failed(handle, .connect, now_ns);\n    };" },
+            .{ .file = "io/io_tcp.zig", .old = "        return self.resolver.on_tcp_failed(handle, server, .local, now_ns);\n    };", .new = "        return self.resolver.on_tcp_failed(handle, server, .connect, now_ns);\n    };" },
         },
         .caught_by = .{ .step = "test-io" },
     },

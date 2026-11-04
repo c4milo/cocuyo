@@ -26,7 +26,9 @@ pub fn on_bad_cookie(self: *Lookup, now_ns: u64) void {
         self.flags.cookie_retried = true;
         self.restart(now_ns);
     }
-    assert(self.state != .awaiting_udp and self.state != .awaiting_tcp);
+    // The try BADCOOKIE answered is over. A later pass may wait on another try it kept open on a
+    // stream, whose wait began now (docs/design.md §5, Tries kept open).
+    assert((self.state != .awaiting_udp and self.state != .awaiting_tcp) or self.waited_from_ns == now_ns);
 }
 
 /// Whether BADCOOKIE fails the lookup over: over a stream once the server has had its retry, over

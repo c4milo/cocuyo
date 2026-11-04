@@ -15,6 +15,7 @@ const constants = @import("constants.zig");
 const limits = @import("limits.zig");
 const response_module = @import("lookup_response.zig");
 const failure_module = @import("lookup_failure.zig");
+const earlier = @import("lookup_earlier.zig");
 
 comptime {
     // A transaction's number wraps at 65536, further than a lookup goes: for each candidate, CNAME
@@ -37,7 +38,8 @@ pub fn on_request_answer(
 ) Verdict {
     self.see(now_ns);
     assert(self.config.sends_requests());
-    if (!waits_on(self, transaction)) return .ignored;
+    // An answer to an earlier try still open counts (docs/design.md §5, Tries kept open).
+    if (!waits_on(self, transaction)) return earlier.on_request_answer(self, transaction, message, age_seconds, now_ns);
     const header = response_module.header_of(message) orelse return .ignored;
     var accepted = response_module.accepted_shape(self, message, header) orelse return .ignored;
     accepted.age_seconds = age_seconds;
@@ -54,7 +56,10 @@ pub fn on_request_failed(self: *Lookup, transaction: u16, reason: lookup_module.
     self.see(now_ns);
     assert(self.config.sends_requests());
     assert(failure_module.fits_request(self, reason));
-    if (!waits_on(self, transaction)) return;
+    if (!waits_on(self, transaction)) {
+        _ = earlier.on_request_failed(self, transaction, reason, now_ns);
+        return;
+    }
     self.servers.record_failure(self.server_slot(), now_ns);
     failure_module.keep(self, .{ .reason = reason });
     self.next_server(now_ns);

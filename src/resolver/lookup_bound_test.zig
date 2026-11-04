@@ -68,18 +68,23 @@ test "one server under five passes gets three queries of a name, and the lookup 
     try testing.expectEqual(@as(u8, core.limits.attempts_max), harness.lookup.failure_of().attempts_made);
 }
 
-test "under use_tcp one server under five passes gets three queries of a name on a stream" {
+test "under use_tcp one server under five passes asks once on a stream, and each later pass waits on that query" {
+    // The query is still on its connection, so a later pass sends it no second time: RFC 1035
+    // §4.2.1 asks for a retransmission over UDP alone (docs/design.md §5, Tries kept open).
     var harness: Harness = .{ .config = .{ .servers = &one_server, .use_tcp = true, .attempts = core.limits.attempts_max } };
     try harness.start("example.com.", .a, seed);
-    var queries: usize = 0;
-    var action = harness.poll();
-    while (action == .connect_tcp) : (queries += 1) {
-        try testing.expect(queries < core.limits.attempts_max);
-        harness.lookup.on_tcp_connected(harness.now_ns);
-        _ = harness.send_over_tcp();
+    try send_on_stream(&harness);
+    const sent_id = harness.lookup.transaction.id;
+    var passes: usize = 1;
+    var action = run_out(&harness);
+    while (action == .wait) : (passes += 1) {
+        try testing.expect(passes < core.limits.attempts_max);
+        try testing.expectEqual(lookup_module.State.awaiting_tcp, harness.lookup.state);
+        try testing.expectEqual(sent_id, harness.lookup.transaction.id);
         action = run_out(&harness);
     }
-    try testing.expectEqual(limits.queries_per_transport_max, queries);
+    try testing.expectEqual(@as(usize, core.limits.attempts_max), passes);
+    try testing.expectEqual(@as(usize, 1), harness.lookup.sends.count(0, .stream));
     try expect_failure(action, core.Error.Timeout, null);
 }
 
@@ -138,13 +143,15 @@ test "a BADCOOKIE whose retry over UDP the bound forbids fails the server with i
 test "a BADCOOKIE whose retry on a stream the bound forbids fails the server with its rcode" {
     var harness: Harness = .{ .config = .{ .servers = &one_server, .use_tcp = true, .attempts = 3 } };
     try harness.start("example.com.", .a, seed);
+    // A connection that fails closes the try on it, so each later pass asks again on a new one
+    // (docs/design.md §5, Tries kept open).
+    for (0..limits.queries_per_transport_max - 1) |_| {
+        try send_on_stream(&harness);
+        harness.now_ns += 1;
+        harness.lookup.on_tcp_failed(harness.lookup.server_slot(), .closed, harness.now_ns);
+    }
     try send_on_stream(&harness);
-    try testing.expect(run_out(&harness) == .connect_tcp);
-    harness.lookup.on_tcp_connected(harness.now_ns);
-    _ = harness.send_over_tcp();
-    try testing.expect(run_out(&harness) == .connect_tcp);
-    harness.lookup.on_tcp_connected(harness.now_ns);
-    _ = harness.send_over_tcp();
+    try testing.expectEqual(@as(usize, limits.queries_per_transport_max), harness.lookup.sends.count(0, .stream));
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.bad_cookie_fresh, harness.lookup.server()));
     const cause: Cause = .{ .server_index = 0, .what = .{ .rcode = .bad_cookie } };
     try expect_failure(harness.poll(), core.Error.AllServersFailed, cause);

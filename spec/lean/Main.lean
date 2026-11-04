@@ -90,7 +90,10 @@ that differ in a count alone are walked apart. Several servers over several pass
 counts, over UDP most, where TC=1 adds a stream to each datagram. So two servers over several
 passes walk one name over UDP, and three servers over several passes walk one name over a stream
 or a request alone. One server reaches each rule of the bound, and two servers reach a server
-passed over in the middle of a pass and at the start of the next. -/
+passed over in the middle of a pass and at the start of the next. Since 2026-11-03 a state holds
+the tries still open too (docs/design.md §16 decision 66), which multiplies the states again. So
+two servers walk two passes at most over UDP, and two names at most over three passes. The tries of
+the first pass are open in the second, so two passes reach each rule of an earlier try. -/
 def configsAll (hops : Nat) : List Config := Id.run do
   let mut all := [{ servers := 0, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false }]
   let transports := [(false, false, false), (true, false, false), (false, true, false), (false, true, true)]
@@ -101,7 +104,8 @@ def configsAll (hops : Nat) : List Config := Id.run do
           let udp := !useTcp && !request
           let walked :=
             servers = 1 || attempts = 1 ||
-              (servers = 2 && (!udp || candidates = 1)) ||
+              (servers = 2 && (if udp then candidates = 1 && attempts ≤ 2 else
+                (attempts < 3 || candidates ≤ 2))) ||
               (servers = 3 && attempts = 2 && !udp && candidates = 1)
           if walked then
             all := all ++ [{ servers, attempts, candidates, hopsMax := hops, useTcp, request, quic }]
@@ -124,12 +128,12 @@ def configsGate (hops : Nat) : List Config :=
    { servers := 1, attempts := 2, candidates := 1, hopsMax := hops, useTcp := false, request := true },
    { servers := 2, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false, request := true,
      quic := true },
-   -- Rule 3 of docs/design.md §25 over UDP under `always`, where the bit counts, and under
-   -- `encrypted`, where it does not; and over DoH under `encrypted`, with two names.
+   -- Rule 3 of docs/design.md §25 over UDP under `always`, where the bit counts, and over DoH
+   -- under `encrypted`, with two names. Over UDP under `encrypted` the bit counts from no server,
+   -- so its moves are `ignored`'s. `all` walks it, and since 2026-11-03 the gate does not, to keep
+   -- this file under the 4 MiB the lint reads with the earlier tries of decision 66.
    { servers := 1, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false,
      authenticatedData := .always },
-   { servers := 1, attempts := 1, candidates := 1, hopsMax := hops, useTcp := false,
-     authenticatedData := .encrypted },
    { servers := 1, attempts := 1, candidates := 2, hopsMax := hops, useTcp := false, request := true,
      authenticatedData := .encrypted },
    -- DNSSEC Stage B over DoH, where a bogus message moves to the next server (docs/design.md §25,

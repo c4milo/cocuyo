@@ -18,14 +18,14 @@ const identity_order: [core.limits.servers_max]u8 = blk: {
     break :blk order;
 };
 
-/// Every field of `Lookup` but its answers and its links. `init_in_place` builds one of these
+/// Every field of `Lookup` but its answers, its links and its tries. `init_in_place` builds one of these
 /// whole, so the compiler refuses a field left out, and copies it into the lookup field by field,
 /// so that the answers' storage and the links' octets, which nothing reads before `collect` writes
 /// them, are not written: assigning the whole lookup would write them, since a safe build fills
 /// whatever is `undefined` with 0xAA (docs/design.md §16 decision 34).
 const Head = head: {
     const fields = @typeInfo(Lookup).@"struct".fields;
-    const left_out = [_][]const u8{ "answers", "aliases" };
+    const left_out = [_][]const u8{ "answers", "aliases", "tries" };
     var names: [fields.len - left_out.len][]const u8 = undefined;
     var types: [fields.len - left_out.len]type = undefined;
     var at: usize = 0;
@@ -84,6 +84,9 @@ pub fn init_in_place(
         .transaction = transaction,
         .deadline_ns = 0,
         .sent_at_ns = 0,
+        .waited_from_ns = 0,
+        // No response is read yet.
+        .hearing_earlier = false,
         .now_ns_seen = 0,
         .entropy = entropy,
         .failure = core.Error.Timeout,
@@ -107,6 +110,9 @@ pub fn init_in_place(
     inline for (@typeInfo(Head).@"struct".fields) |field| @field(self, field.name) = @field(head, field.name);
     self.answers.reset(question.kind);
     self.aliases.clear();
+    // No query is sent yet, so no try is open. The tries' records are not written.
+    self.tries.count = 0;
+    self.tries.epoch = 0;
     // A configuration with no server is one a `resolv.conf` with none gave, read without
     // the default: every lookup on it fails at once (§19 step 11).
     if (config.server_count() == 0) {

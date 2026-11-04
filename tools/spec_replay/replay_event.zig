@@ -68,6 +68,9 @@ pub const Event = enum {
     keys_failed_bogus,
     keys_failed_timeout,
     keys_failed_failed,
+    /// A reply to an earlier try, or the failure of its connection or its request: the event
+    /// `replay_earlier.zig` reads from the transcript's token (docs/design.md §5, Tries kept open).
+    earlier,
 };
 
 /// The reason a failed connection or request carries: the last word of its event's name.

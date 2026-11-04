@@ -124,6 +124,10 @@ pub const Resolver = struct {
         slot.lookup.init_in_place(self.config, &self.servers, question, self.entropy.next());
         slot.keyed_id = slot.lookup.transaction.id;
         keys_module.insert(self.keys, slot.keyed_id, index);
+        // A new lookup has sent nothing, so it keeps no try open.
+        assert(slot.lookup.tries.count == 0);
+        slot.keyed_tries_count = 0;
+        slot.keyed_epoch = slot.lookup.tries.epoch;
         ready_module.offer(self, index);
     }
 
@@ -219,9 +223,11 @@ pub const Resolver = struct {
         self.event(handle, now_ns, Lookup.on_tcp_connected);
     }
 
-    /// The connection failed, for `reason` (docs/design.md §5, The cause of a failure).
-    pub fn on_tcp_failed(self: *Resolver, handle: Handle, reason: lookup_module.Reason, now_ns: u64) void {
-        self.slot_of(handle).lookup.on_tcp_failed(reason, now_ns);
+    /// The connection to the configured server `configured` failed, for `reason` (docs/design.md
+    /// §5, The cause of a failure). A lookup that is on another server now closes the tries it
+    /// kept open on that connection (§5, Tries kept open).
+    pub fn on_tcp_failed(self: *Resolver, handle: Handle, configured: u8, reason: lookup_module.Reason, now_ns: u64) void {
+        self.slot_of(handle).lookup.on_tcp_failed(configured, reason, now_ns);
         self.follow(handle.index);
     }
 
@@ -269,6 +275,8 @@ pub const Resolver = struct {
     fn free(self: *Resolver, index: u16) void {
         const slot = &self.slots.items[index];
         keys_module.remove(self.keys, slot.keyed_id, index);
+        for (slot.keyed_tries[0..slot.keyed_tries_count]) |id| keys_module.remove(self.keys, id, index);
+        slot.keyed_tries_count = 0;
         ready_module.withdraw(self, index);
         self.slots.release(index);
     }
@@ -335,15 +343,33 @@ pub const Resolver = struct {
         return verdict;
     }
 
-    /// Follows a lookup that drew a new transaction.
+    /// Follows a lookup that drew a new transaction, or whose open tries changed.
     inline fn rekey(self: *Resolver, index: u16) void {
         const slot = &self.slots.items[index];
         assert(slot.occupied);
+        if (slot.lookup.tries.epoch != slot.keyed_epoch) self.rekey_tries(index);
         const current = slot.lookup.transaction.id;
         if (current == slot.keyed_id) return;
         keys_module.remove(self.keys, slot.keyed_id, index);
         keys_module.insert(self.keys, current, index);
         slot.keyed_id = current;
+    }
+
+    /// Keys the ids of the tries a lookup keeps open, in place of those keyed before, so that an
+    /// answer to one of them reaches the lookup (docs/design.md §5, Tries kept open). Out of line:
+    /// most events change no try.
+    noinline fn rekey_tries(self: *Resolver, index: u16) void {
+        @branchHint(.cold);
+        const slot = &self.slots.items[index];
+        for (slot.keyed_tries[0..slot.keyed_tries_count]) |id| keys_module.remove(self.keys, id, index);
+        const tries = slot.lookup.tries.slice();
+        for (tries, 0..) |kept, at| {
+            keys_module.insert(self.keys, kept.id, index);
+            slot.keyed_tries[at] = kept.id;
+        }
+        slot.keyed_tries_count = @intCast(tries.len);
+        slot.keyed_epoch = slot.lookup.tries.epoch;
+        assert(slot.keyed_tries_count <= limits.tries_open_max);
     }
 };
 

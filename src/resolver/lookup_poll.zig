@@ -16,6 +16,7 @@ const Action = lookup_module.Action;
 const policy = @import("lookup_policy.zig");
 const lookup_order = @import("lookup_order.zig");
 const cookies = @import("lookup_cookie.zig");
+const tries_module = @import("lookup_tries.zig");
 
 pub fn poll(self: *Lookup, now_ns: u64, out: []u8) Action {
     self.see(now_ns);
@@ -54,8 +55,9 @@ fn expired(self: *const Lookup, now_ns: u64) bool {
 fn ran_out(self: *Lookup, now_ns: u64) void {
     assert(expired(self, now_ns));
     const slot = self.server_slot();
-    if (self.state == .awaiting_udp or self.state == .awaiting_tcp) {
-        const waited_ns = self.deadline_ns - self.sent_at_ns;
+    const try_open = self.state == .awaiting_udp or self.state == .awaiting_tcp;
+    if (try_open) {
+        const waited_ns = self.deadline_ns - self.waited_from_ns;
         assert(waited_ns >= 1 and waited_ns <= self.config.timeout_ns_max);
         // Only a reply to a query that mixed the case marks a try. A caller can build the table
         // again during the wait, and the new table holds no mark (§16 decision 50). So this
@@ -67,6 +69,8 @@ fn ran_out(self: *Lookup, now_ns: u64) void {
             self.servers.record_latency(slot, waited_ns, now_ns);
         }
     }
+    // The try stays open, so an answer to it still counts (docs/design.md §5, Tries kept open).
+    if (try_open) tries_module.keep_current(self);
     self.servers.record_failure(slot, now_ns);
     self.next_server(now_ns);
 }
@@ -283,7 +287,7 @@ test "a connection that failed costs the server its turn" {
     var out: Buffer = @splat(0);
     lookup.state = .tcp_needed;
     _ = lookup.poll(0, &out);
-    lookup.on_tcp_failed(.connect, 1);
+    lookup.on_tcp_failed(lookup.server_slot(), .connect, 1);
     try testing.expectEqual(@as(u8, 1), lookup.server_index);
     try testing.expectEqual(lookup_module.State.query_ready, lookup.state);
 }

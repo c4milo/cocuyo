@@ -324,7 +324,7 @@ test "a connection that failed and a lookup cancelled take no sample" {
     harness.lookup.on_tcp_connected(harness.now_ns);
     _ = harness.send_over_tcp();
     harness.now_ns += 40 * millisecond;
-    harness.lookup.on_tcp_failed(.closed, harness.now_ns);
+    harness.lookup.on_tcp_failed(harness.lookup.server_slot(), .closed, harness.now_ns);
     try testing.expectEqual(@as(u64, 1), harness.servers.samples(0));
     // The query to the second server goes out, and the lookup is cancelled while it waits. Its
     // deadline passes with nothing to measure.

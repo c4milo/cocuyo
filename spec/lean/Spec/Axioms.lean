@@ -1,4 +1,5 @@
 import Spec.LookupProofs.Measure
+import Spec.LookupProofs.MeasureGood
 import Spec.LookupProofs.Timeout
 import Spec.LookupProofs.Cause
 import Spec.LookupProofs.Bound

@@ -245,7 +245,7 @@ test "an echo of another lookup's mixed query marks nothing, nor does one in cap
     try testing.expect(first.servers.changes_case(0));
 }
 
-test "a late echo of a lookup's own earlier query marks nothing, though the retry drew its id" {
+test "a late echo of a lookup's own earlier query answers that try and marks nothing, though the retry drew its id" {
     var harness: fixtures.Harness = .{ .config = .{ .servers = &fixtures.servers_one } };
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
@@ -262,10 +262,11 @@ test "a late echo of a lookup's own earlier query marks nothing, though the retr
     const first_sent = first_name[0..harness.lookup.current.len];
     try testing.expect(!std.mem.eql(u8, first_sent, sent_name(&harness)));
     harness.now_ns += 1;
+    // The first try stays open, and its echo carries its own case (§5, Tries kept open).
     const verdict = harness.lookup.on_response(late[0..late_bytes], only, harness.now_ns);
-    try testing.expectEqual(Verdict.ignored, verdict);
+    try testing.expectEqual(Verdict.accepted, verdict);
     try testing.expect(!harness.servers.changes_case(0));
-    try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a, only));
+    try testing.expectEqual(lookup_module.State.done, harness.lookup.state);
 }
 
 test "a reply in another case that check 6 refuses marks nothing" {

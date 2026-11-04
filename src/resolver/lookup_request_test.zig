@@ -86,7 +86,7 @@ fn expect_shape(harness: *const fixtures.Harness, message: []const u8) !void {
     try testing.expectEqual(@as(usize, 0), message.len % core.constants.padding_block_bytes);
 }
 
-test "an answer to a transaction the lookup has left is ignored; one to its own is taken" {
+test "an answer to an earlier transaction still open is taken; one to a transaction never sent is ignored" {
     for (both) |list| {
         var harness: fixtures.Harness = undefined;
         try start_over(&harness, list, "example.com.", .a, seed);
@@ -96,9 +96,10 @@ test "an answer to a transaction the lookup has left is ignored; one to its own 
         const second = (try send(&harness)).send_request;
         try testing.expectEqual(@as(u8, 1), second.server_index);
         try testing.expect(second.transaction != first);
-        try testing.expectEqual(Verdict.ignored, answer(&harness, fixtures.answer_a, first, 0));
+        try testing.expectEqual(Verdict.ignored, answer(&harness, fixtures.answer_a, second.transaction +% 1, 0));
         try testing.expect(harness.poll() == .wait);
-        try testing.expectEqual(Verdict.accepted, answer(&harness, fixtures.answer_a, second.transaction, 0));
+        // The first try stays open past its deadline (docs/design.md §5, Tries kept open).
+        try testing.expectEqual(Verdict.accepted, answer(&harness, fixtures.answer_a, first, 0));
         try testing.expectEqual(@as(usize, 1), harness.poll().done.addresses.len);
     }
 }

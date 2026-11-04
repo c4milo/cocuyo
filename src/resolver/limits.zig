@@ -1,11 +1,28 @@
 //! The limits the table and the lookup hold (docs/design.md §16 decision 56). The limits more than
 //! one module shares are in `core/limits.zig`; these are the table's own.
 const std = @import("std");
+const core_limits = @import("core").limits;
 
-/// The key table holds at least this many entries per slot. A load factor of one half is where
-/// linear probing still finds an entry in a step or two, and the table is sized by the caller, so
-/// the floor is checked rather than assumed (docs/design.md §11).
-pub const keys_per_slot_min: usize = 2;
+/// The earlier tries one lookup keeps open for one name: each query it sent and has not heard back
+/// from, after its deadline passed (docs/design.md §5, Tries kept open; §16 decision 66). A lookup
+/// sends one name at most `queries_per_transport_max` queries for each server and each of the two
+/// transports (RFC 9520 §3.1), so it never has more open than that.
+pub const tries_open_max: usize = core_limits.servers_max * 2 * queries_per_transport_max;
+
+/// The key table holds at least this many entries per slot. A slot keys its lookup's current
+/// transaction and each try it keeps open, at most `tries_open_max` and one more, so the table is
+/// never full. A lookup keys one or two ids in the usual case, which keeps the load factor far
+/// below one half, where linear probing still finds an entry in a step or two. A table of
+/// `lookup_slots_max` slots whose every lookup kept every try open is 77 percent full. Twice the
+/// worst case does not fit: a key's index is its sixteen-bit id, so more than 2^16 entries are
+/// not reached well (`constants.zig`). The table is sized by the caller, so the floor is checked
+/// rather than assumed (docs/design.md §11).
+pub const keys_per_slot_min: usize = 64;
+
+comptime {
+    // A slot never keys more ids than it has entries for.
+    std.debug.assert(keys_per_slot_min > tries_open_max + 1);
+}
 
 /// The transactions a lookup draws for one name on one server in one pass: the query, the
 /// retry without EDNS0 after FORMERR (RFC 6891 §6.2.2) and the retry with the server cookie

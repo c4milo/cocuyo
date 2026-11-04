@@ -17,12 +17,17 @@ const Out = replay_module.Out;
 const Event = replay_module.Event;
 const fixtures = @import("fixtures.zig");
 const text_module = @import("replay_text.zig");
+const earlier_module = @import("replay_earlier.zig");
 
 /// Whether the line's reply is the one that a cut datagram stands for, to the lookup that the line's
 /// parent left, whose frame the replay has restored.
 pub fn applies(replay: *const Replay, event: Event) bool {
-    const stands_for_tc = replay.lookup.state == .awaiting_udp and !replay.config.sends_requests();
-    return event == if (stands_for_tc) Event.reply_truncated else Event.reply_unmatched;
+    return event == if (stands_for_tc(replay)) Event.reply_truncated else Event.reply_unmatched;
+}
+
+/// Whether the cut datagram stands for TC=1, and not for the unmatched reply.
+fn stands_for_tc(replay: *const Replay) bool {
+    return replay.lookup.state == .awaiting_udp and !replay.config.sends_requests();
 }
 
 /// The cut datagram at line `depth`, whose parent the replay has restored. Returns false and
@@ -31,6 +36,10 @@ pub fn agrees(replay: *Replay, depth: usize, expected_out: Out, expected_state: 
     assert(depth > 0);
     const whole = fixtures.build(&replay.lookup, .answer, &replay.reply);
     assert(whole.len > 1);
+    // Where it stands for the unmatched reply, it names no try the lookup keeps open: the current
+    // transaction is one of them while the lookup waits for keys (docs/design.md §5, Tries kept
+    // open).
+    if (!stands_for_tc(replay)) std.mem.writeInt(u16, replay.reply[0..2], earlier_module.unmatched_id(&replay.lookup), .big);
     const verdict = replay.lookup.on_datagram_cut(whole[0 .. whole.len - 1], replay.source(), replay.now_ns);
     const got_out: Out = if (verdict == .accepted) .accepted else .ignored;
     var got_buffer: [replay_module.state_bytes_max]u8 = undefined;

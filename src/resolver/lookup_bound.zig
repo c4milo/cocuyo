@@ -19,6 +19,7 @@ const core = @import("core");
 const lookup_module = @import("lookup.zig");
 const Lookup = lookup_module.Lookup;
 const limits = @import("limits.zig");
+const earlier = @import("lookup_earlier.zig");
 
 /// How a query goes to its server: as a datagram, over UDP or as a DoH or DoQ request, or on a
 /// stream, over TCP or TLS. Each is one DNS transport of RFC 9520 §3.1.
@@ -124,5 +125,8 @@ pub fn next_server(self: *Lookup, now_ns: u64) void {
     } else unreachable;
     assert(self.round < self.config.attempts);
     assert(!spent(self, fresh(self)));
+    // Over a stream a try of the name still open on this server is waited on again, and not sent
+    // again (docs/design.md §5, Tries kept open; the model's `waitOn`).
+    if (fresh(self) == .stream and earlier.wait_again(self, now_ns)) return;
     self.restart(now_ns);
 }

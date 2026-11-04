@@ -72,6 +72,7 @@ const reply_of = event_module.reply_of;
 const verdict_of = event_module.verdict_of;
 const checked_reply_of = event_module.checked_reply_of;
 const validation_of = event_module.validation_of;
+const earlier_module = @import("replay_earlier.zig");
 
 pub const Error = error{ Malformed, TooDeep, Mismatch, WrongHops, Empty };
 
@@ -120,6 +121,10 @@ pub const Replay = struct {
     validating: bool = false,
     verdict: core.Validation = .insecure,
     validator: resolver.Validator = undefined,
+    /// The earlier try's event of the line being replayed, when its event is `earlier`.
+    earlier: earlier_module.Earlier = undefined,
+    /// The events of an earlier try replayed (`replay_earlier.zig`).
+    earliers: usize = 0,
 
     /// Replays one line of the transcript.
     pub fn line(self: *Replay, text: []const u8) Error!void {
@@ -132,7 +137,11 @@ pub const Replay = struct {
         if (!self.hops_checked) return error.WrongHops;
         if (std.mem.eql(u8, first, "config")) return self.configure(text, &fields);
         const depth = std.fmt.parseInt(usize, first, 10) catch return error.Malformed;
-        const event = parse(Event, fields.next()) orelse return error.Malformed;
+        const token = fields.next() orelse return error.Malformed;
+        const event = if (earlier_module.parse(token)) |earlier| blk: {
+            self.earlier = earlier;
+            break :blk Event.earlier;
+        } else parse(Event, token) orelse return error.Malformed;
         const out = parse(Out, fields.next()) orelse return error.Malformed;
         const state = fields.rest();
         if (state.len == 0 or state.len > state_bytes_max) return error.Malformed;
@@ -258,7 +267,7 @@ pub const Replay = struct {
             .send_failed => lookup.on_send_failed(self.now_ns),
             .tcp_connected => lookup.on_tcp_connected(self.now_ns),
             .tcp_failed_connect, .tcp_failed_handshake, .tcp_failed_local, .tcp_failed_closed => {
-                lookup.on_tcp_failed(reason_of(event), self.now_ns);
+                lookup.on_tcp_failed(lookup.server_slot(), reason_of(event), self.now_ns);
             },
             .request_failed_connect,
             .request_failed_handshake,
@@ -272,6 +281,7 @@ pub const Replay = struct {
             .keys_failed_bogus => lookup.on_keys_failed(.bogus, self.now_ns),
             .keys_failed_timeout => lookup.on_keys_failed(.timeout, self.now_ns),
             .keys_failed_failed => lookup.on_keys_failed(.failed, self.now_ns),
+            .earlier => return self.apply_earlier(),
             else => if (verdict_of(event)) |verdict| {
                 const reply = checked_reply_of(event);
                 self.verdict = validation_of(verdict, reply);
@@ -281,8 +291,38 @@ pub const Replay = struct {
         return .none;
     }
 
+    /// An earlier try's reply or failure (`replay_earlier.zig`).
+    fn apply_earlier(self: *Replay) Out {
+        const earlier = self.earlier;
+        const lookup = &self.lookup;
+        const index = earlier_module.newest(lookup, earlier.position, earlier.stream) orelse
+            return if (earlier.reply == null) .none else .ignored;
+        self.earliers += 1;
+        const reply_event = earlier.reply orelse {
+            if (earlier.stream) {
+                lookup.on_tcp_failed(lookup.order[earlier.position], earlier.reason, self.now_ns);
+            } else {
+                lookup.on_request_failed(lookup.tries.items[index].number, earlier.reason, self.now_ns);
+            }
+            return .none;
+        };
+        const reply = if (verdict_of(reply_event)) |verdict| blk: {
+            const checked = checked_reply_of(reply_event);
+            self.verdict = validation_of(verdict, checked);
+            break :blk checked;
+        } else reply_of(reply_event);
+        const message = earlier_module.build(lookup, index, reply, authentic_of(reply_event), &self.reply);
+        const verdict = if (self.config.sends_requests())
+            lookup.on_request_answer(lookup.tries.items[index].number, message, 0, self.now_ns)
+        else
+            lookup.on_response(message, earlier_module.source(lookup, index), self.now_ns);
+        return if (verdict == .accepted) .accepted else .ignored;
+    }
+
     fn respond(self: *Replay, reply: fixtures.Reply, authentic: bool) Out {
         const message = fixtures.build_with(&self.lookup, reply, authentic, &self.reply);
+        // The unmatched reply names no try the lookup has open, now that it listens for each.
+        if (reply == .unmatched) std.mem.writeInt(u16, self.reply[0..2], earlier_module.unmatched_id(&self.lookup), .big);
         const verdict = if (self.config.sends_requests())
             self.lookup.on_request_answer(transaction_of(&self.lookup, reply), message, 0, self.now_ns)
         else
@@ -331,7 +371,9 @@ fn count(token: ?[]const u8, min: usize, max: usize) Error!usize {
 /// unmatched, one the lookup is not on, since over DoH the id is not what is checked (§22).
 fn transaction_of(lookup: *const Lookup, reply: fixtures.Reply) u16 {
     const number = lookup.transaction.number;
-    return if (reply == .unmatched) number -% 1 else number;
+    // A number the lookup has not drawn yet: an earlier one may be a try it keeps open
+    // (docs/design.md §5, Tries kept open).
+    return if (reply == .unmatched) number +% 1 else number;
 }
 
 /// The validator of a validating configuration: the verdict the line's event named.
@@ -378,6 +420,7 @@ const testing = std.testing;
 
 test {
     _ = cut_module;
+    _ = earlier_module;
     _ = text_module;
 }
 
@@ -397,12 +440,14 @@ test "the committed slice of the model's transcript replays against the lookup" 
     };
     // Since 2026-10-17 the sixth, two passes over DoH, holds a lookup that runs with a cause. Since
     // 2026-10-21 the seventh, two servers over DoQ, holds a cause from a server that the lookup
-    // is not on at its end. Since 2026-10-31 the last three rely on the AD bit, or name a mode that
-    // does not, over UDP (docs/design.md §25, Stage A). Since 2026-11-01 the last validates, over
-    // DoH (§25, Stage B, step 11).
-    try testing.expectEqual(@as(usize, 11), replay.configs);
+    // is not on at its end. Since 2026-10-31 the last three rely on the AD bit, over UDP and over
+    // DoH (docs/design.md §25, Stage A). Since 2026-11-01 the last validates, over DoH (§25, Stage
+    // B, step 11). Since 2026-11-03 the slice leaves out UDP under `encrypted`, and the two passes
+    // over DoH and the two servers over DoQ reach an answer to an earlier try (§16 decision 66).
+    try testing.expectEqual(@as(usize, 10), replay.configs);
     try testing.expect(replay.events > 13600);
     try testing.expect(replay.cuts > 0);
+    try testing.expect(replay.earliers > 0);
 }
 
 test "a line where the lookup answers otherwise than the model is a mismatch" {
