@@ -41,7 +41,7 @@ const forbidden_prefixes = [_][]const u8{ "std.time", "std.Random" };
 // these lists held such a name until 2026-09-22 — `std.crypto.random`, which Zig 0.16 does not
 // have, and `std.net`, which moved under `std.Io`.
 comptime {
-    lint.names.assert_all_resolve(std, "std", &forbidden_prefixes);
+    lint.assert_all_resolve(std, "std", &forbidden_prefixes);
 }
 
 const reason = "time is a caller-supplied parameter and entropy is a caller-supplied seed" ++

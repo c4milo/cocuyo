@@ -20,14 +20,14 @@ const lint = pepegrillo.lint;
 const file_length = lint.rules.file_length;
 
 /// The most lines a hand-written file may hold.
-pub const max_lines: u32 = 500;
+pub const lines_max: u32 = 500;
 
 pub const config: file_length.Config = .{
     .scope = .{
         .extensions = &.{ ".zig", ".sh", ".lean", ".tla" },
         .include_directories = &.{ "src", "tools", "build", "examples", "bench", "io", "spec" },
     },
-    .max_lines = max_lines,
+    .lines_max = lines_max,
     .message_suffix = "; split the file",
 };
 
@@ -43,8 +43,8 @@ const harness = lint.harness;
 /// One line of a fixture. A comment line, so the passing fixture is also a file that compiles.
 const fixture_line = "//\n";
 
-const passing_fixture: [:0]const u8 = fixture_line ** max_lines;
-const failing_fixture: [:0]const u8 = fixture_line ** (max_lines + 1);
+const passing_fixture: [:0]const u8 = fixture_line ** lines_max;
+const failing_fixture: [:0]const u8 = fixture_line ** (lines_max + 1);
 
 test "file-length passes a file at the limit and flags one line over it" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
@@ -56,7 +56,7 @@ test "file-length passes a file at the limit and flags one line over it" {
     );
     const findings = try harness.run(arena, Rule, "src/wire/wire.zig", failing_fixture);
     try harness.expect_messages(findings, &.{"501 lines, over the 500-line limit; split the file"});
-    try testing.expectEqual(max_lines + 1, findings[0].line);
+    try testing.expectEqual(lines_max + 1, findings[0].line);
 }
 
 test "file-length reads the code directories and leaves the documents alone" {

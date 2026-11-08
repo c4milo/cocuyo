@@ -24,7 +24,7 @@ const forbidden_prefixes = [_][]const u8{
 // these lists held such a name until 2026-09-22 — `std.crypto.random`, which Zig 0.16 does not
 // have, and `std.net`, which moved under `std.Io`.
 comptime {
-    lint.names.assert_all_resolve(std, "std", &forbidden_prefixes);
+    lint.assert_all_resolve(std, "std", &forbidden_prefixes);
 }
 
 const reason = "cocuyo allocates nothing; the caller owns every buffer (non-negotiable 2)";

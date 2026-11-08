@@ -140,7 +140,7 @@ fn TypedConstants(comptime rule_config: Config) type {
         pub const name = rule_config.name;
         const settings: Config = rule_config;
 
-        pub fn check(context: *report.Context, file: report.File) !void {
+        pub fn check(context: *report.Context, file: *const report.File) !void {
             if (!reads_file(&settings.scope, file.path)) return;
             const tree = file.tree orelse return;
             var visitor: Visitor = .{
@@ -178,7 +178,7 @@ const Visitor = struct {
     pub fn child(self: *Visitor, node: Node.Index) void {
         self.depth += 1;
         defer self.depth -= 1;
-        std.debug.assert(self.depth <= ast.max_tree_depth);
+        std.debug.assert(self.depth <= ast.tree_depth_max);
         var buffer: [2]Node.Index = undefined;
         if (self.tree.fullContainerDecl(&buffer, node)) |container| {
             return self.check_members(container.ast.members);
@@ -223,10 +223,10 @@ const Visitor = struct {
         const name_token = declaration.ast.mut_token + 1;
         const location = ast.token_location(self.tree, name_token);
         self.findings.add(
-            self.name,
             self.path,
             location.line,
             location.column,
+            self.name,
             format,
             .{self.tree.tokenSlice(name_token)},
         ) catch |failure| {

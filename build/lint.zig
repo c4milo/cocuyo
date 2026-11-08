@@ -43,7 +43,7 @@ const canary_messages = [_][]const u8{
 };
 
 /// The most lines a hand-written file may hold (tools/lint/file_length.zig).
-const file_length_max_lines = 500;
+const file_length_lines_max = 500;
 
 /// One violation of each Zig rule under `src/`, a limit outside a limits file among them, then
 /// enough comment lines to pass the file-length limit.
@@ -74,7 +74,7 @@ const canary_source =
     \\    try arm(taken);
     \\}
     \\
-++ "//\n" ** file_length_max_lines;
+++ "//\n" ** file_length_lines_max;
 
 /// A constants file with an integer constant that has no type and a limit, each of which the
 /// typed-constants rule refuses. The magic-numbers rule reads no file of this name.

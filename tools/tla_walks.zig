@@ -13,7 +13,6 @@
 const std = @import("std");
 const Io = std.Io;
 const pepegrillo = @import("pepegrillo");
-const tlc = pepegrillo.tla.tlc;
 
 /// Where the walks come from, from the repository's root: the model's directory, which TLC runs
 /// in, the configurations inside it, and the module that writes the walks.
@@ -90,8 +89,8 @@ pub fn run(
         try errors.writeAll(usage);
         return exit_usage;
     };
-    const context: pepegrillo.tla.Context = .{ .arena = arena, .io = init.io, .environ = init.environ_map, .out = out, .errors = errors };
-    const jar = try pepegrillo.tla.verified_jar(context, project);
+    const context: pepegrillo.Context = .{ .arena = arena, .io = init.io, .environ = init.environ_map, .out = out, .errors = errors };
+    const jar = try pepegrillo.tla.verified_jar(&context, project);
     const names = try configurations(arena, init.io);
     if (beyond(request, names.len)) |walk| {
         try errors.print("there is no walk {d}: {d} configurations of {d} walks\n", .{ walk, names.len, request.walks });
@@ -197,31 +196,29 @@ fn start(
     const label = try std.fmt.allocPrint(arena, "walks-{x}-{s}-{s}-{d}-{s}", .{
         checkout, std.fs.path.stem(configuration), request.seed, request.walks, request.depth,
     });
-    const states = try tlc.states_path(arena, init.environ_map, label);
+    const states = try pepegrillo.tla.states_path(arena, init.environ_map, label);
     Io.Dir.cwd().deleteTree(init.io, states) catch {};
     try Io.Dir.cwd().createDirPath(init.io, states);
     const output = try std.fs.path.join(arena, &.{ states, "walks.out" });
     const file = try Io.Dir.cwd().createFile(init.io, output, .{});
     defer file.close(init.io);
-    const argv = try tlc.argv(arena, .{
-        .java_program = project.java_program,
-        .java_options = try std.mem.concat(arena, []const u8, &.{
-            &.{ java_heap, try std.fmt.allocPrint(arena, "{s}{s}", .{ java_temporary_option, states }) },
-            project.java_options,
-        }),
-        .workers = "1",
-        .jar = jar,
-        .states = states,
-        .configuration = configuration,
-        .module = trace_module,
-        .tlc_options = &.{
-            "-simulate", try std.fmt.allocPrint(arena, "num={d}", .{request.walks}),
-            "-depth",    request.depth,
-            "-seed",     request.seed,
-        },
+    const java_options = try std.mem.concat(arena, []const u8, &.{
+        &.{ java_heap, try std.fmt.allocPrint(arena, "{s}{s}", .{ java_temporary_option, states }) },
+        project.java_options,
     });
+    var argv: std.ArrayList([]const u8) = .empty;
+    try argv.append(arena, project.java_program);
+    try argv.appendSlice(arena, java_options);
+    try argv.appendSlice(arena, &.{ "-cp", jar, "tlc2.TLC" });
+    try argv.appendSlice(arena, &.{
+        "-simulate", try std.fmt.allocPrint(arena, "num={d}", .{request.walks}),
+        "-depth",    request.depth,
+        "-seed",     request.seed,
+    });
+    try argv.appendSlice(arena, &.{ "-workers", "1", "-metadir", states });
+    try argv.appendSlice(arena, &.{ "-config", configuration, trace_module });
     const child = try std.process.spawn(init.io, .{
-        .argv = argv,
+        .argv = argv.items,
         .cwd = .{ .path = model_directory },
         .stdin = .ignore,
         .stdout = .{ .file = file },

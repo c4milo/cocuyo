@@ -33,7 +33,7 @@ const comptime_int_functions = [_][]const u8{ "maxInt", "minInt" };
 
 /// Whether `node` is a value the compiler holds as a `comptime_int`, by its shape alone.
 pub fn integer_shaped(tree: *const Ast, node: Node.Index, depth: u32) bool {
-    if (depth > ast.max_tree_depth) return false;
+    if (depth > ast.tree_depth_max) return false;
     return switch (tree.nodeTag(node)) {
         .number_literal => is_integer_literal(tree, node),
         .char_literal => true,
@@ -94,7 +94,7 @@ const BreakFinder = struct {
     found: bool = false,
 
     pub fn child(self: *BreakFinder, node: Node.Index) void {
-        if (self.found or self.depth > ast.max_tree_depth) return;
+        if (self.found or self.depth > ast.tree_depth_max) return;
         if (self.tree.nodeTag(node) == .@"break") {
             const value = self.tree.nodeData(node).opt_token_and_opt_node[1].unwrap() orelse return;
             self.found = integer_shaped(self.tree, value, self.depth + 1);
