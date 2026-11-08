@@ -126,7 +126,9 @@ gave it, and its `what` is one of these:
   - `local`: no server took part, as when the system refused a socket or each connection slot
     held a lookup.
   - `closed`: a connection that was up failed, or a send on it.
-  - `status`: over DoH, a response that holds no DNS message, such as a status that is not 2xx.
+  - `status`: over DoH, a response that holds no DNS message, such as a status that is not 2xx,
+    or one whose header section does not fit `header_section_bytes_max`, 2,048 octets with 4
+    for each line.
   - `reset`: over DoH or DoQ, the server reset the request's stream, or refused it.
 
 The engine passes the reason at each failure it sees. If you own the sockets, pass it yourself.
@@ -203,7 +205,8 @@ failover and cache stay as they are over UDP; what changes is the connection a q
 - Set `Config.authenticated_data` to `encrypted` to rely on the AD bit of an encrypted server, which
   strict mode authenticated. `Answer.security` and `Failure.security` then say `authenticated`
   for what the servers validated, and `Failure.extended_error` says why a server failed (RFC
-  8914). cocuyo validates no signature itself yet ([design §25](docs/design.md)).
+  8914). To validate the signatures in cocuyo instead, see Stage B under
+  [what it will not do](#what-it-will-not-do).
 - Every hello offers the post-quantum hybrid X25519MLKEM768 (RFC 10024) beside x25519 and
   secp256r1, and the server selects one. Set `require_post_quantum` on a server's `Tls` or `Https`
   to offer the hybrid alone. A server that does not select it then fails the handshake, and the
