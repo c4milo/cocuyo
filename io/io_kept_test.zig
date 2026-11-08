@@ -8,6 +8,7 @@ const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 
 const io = @import("io.zig");
+const tcp = @import("io_tcp.zig");
 const fixtures = @import("fixtures.zig");
 const sim_test = @import("io_sim_test.zig");
 const Rig = sim_test.Rig;
@@ -101,6 +102,33 @@ test "a later pass over TCP waits on its open query, and takes its answer there"
     try testing.expectEqual(@TypeOf(rig.engine.connections[at].state).up, rig.engine.connections[at].state);
     try testing.expectEqual(@as(u16, 1), rig.engine.connections[at].keepers);
     try testing.expect((try rig.until_result()).outcome == .answer);
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
+test "a keeper hears closed when its connection fails for a reason that fits a closing connection" {
+    var rig: TwoSlots = .{};
+    try rig.init(145, late_then_dropping, .{ .servers = &.{}, .use_tcp = true, .timeout_ns = wait_ns, .attempts = 1, .failover_retry_chance = 0 });
+    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    // The deadline moves the lookup to the second server: it keeps the first connection.
+    for (0..fixtures.until_rounds_max) |_| {
+        if (rig.engine.kept.conns[handle.index][0] != null) break;
+        _ = try rig.step(step_ns);
+    }
+    const at = rig.engine.kept.conns[handle.index][0] orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(0));
+    // The connection closes, and a send of its own records fails then, as
+    // `io_tcp_queue.on_records_event` fails it: `handshake`, the reason a closing one gives. The
+    // keeper's try went out while it was up, so it hears `closed` (the owner's ruling of
+    // 2026-11-08). Before, the lookup halted at its assertion that an earlier connection closed.
+    rig.engine.connections[at].state = .closing;
+    tcp.fail(&rig.engine, at, .handshake, rig.loop.now());
+    const lookup = rig.engine.resolver.lookup_of(handle);
+    try testing.expectEqual(@as(?u8, null), lookup.earlier_try_at(0, .stream));
+    // Its connection's failure is its server's: one more failure, and the cause.
+    try testing.expectEqual(@as(u8, 2), rig.engine.resolver.servers.failures(0));
+    try testing.expectEqual(@as(?cocuyo.Cause, .{ .server_index = 0, .what = .{ .reason = .closed } }), lookup.cause.get());
+    _ = try rig.until_result();
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
 }

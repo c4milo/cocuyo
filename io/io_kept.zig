@@ -168,14 +168,24 @@ pub fn tell_failed(self: anytype, at: u8, reason: cocuyo.Reason, now_ns: u64) vo
         assert(connection.keepers >= 1);
         connection.keepers -= 1;
         if (!self.slots[index].occupied) continue;
-        // A later pass that waits on its open try there sent nothing, so the drive saw no event
-        // for it and it is still a keeper here. A close the engine made is `closed` to it: it waited
-        // on a connection that was up (docs/design.md §19 step 13, the stream's rule 3).
-        const lookup = self.resolver.lookup_of(self.handles[index]);
-        const waits_here = lookup.is_on_stream() and lookup.server_slot() == server;
-        self.resolver.on_tcp_failed(self.handles[index], server, if (waits_here and reason == .local) .closed else reason, now_ns);
+        self.resolver.on_tcp_failed(self.handles[index], server, keeper_reason(self, index, server, reason), now_ns);
     }
     assert(connection.keepers == 0);
+}
+
+/// What a keeper of the connection to `server` hears when that connection ends for `reason`. Its
+/// try went out while the connection was up, so it hears `closed`, whatever reason fits the
+/// connection's state now: `handshake` for one that closes is no reason of its try's. A close the
+/// engine made itself is `local`, which names no server (docs/design.md §19 step 13, the stream's
+/// rule 5; the owner's ruling of 2026-11-08, "Keepers hear .closed"). A later pass that waits on
+/// its open try there sent nothing, so the drive saw no event for it and it is still a keeper here:
+/// it waited on a connection that was up, so a close the engine made is `closed` to it too.
+fn keeper_reason(self: anytype, index: usize, server: u8, reason: cocuyo.Reason) cocuyo.Reason {
+    const lookup = self.resolver.lookup_of(self.handles[index]);
+    const waits_here = lookup.is_on_stream() and lookup.server_slot() == server;
+    const heard: cocuyo.Reason = if (reason == .local and !waits_here) .local else .closed;
+    assert(heard == .closed or heard == .local);
+    return heard;
 }
 
 // Datagrams.

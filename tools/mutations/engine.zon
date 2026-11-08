@@ -8191,4 +8191,13 @@
         },
         .caught_by = .{ .step = "test-io" },
     },
+    .{
+        .section = "The engine keeps each try of a name open",
+        .id = "KP10",
+        .what = "a keeper hears local where its connection failed, and no server takes the failure",
+        .edits = .{
+            .{ .file = "io/io_kept.zig", .old = "    const heard: cocuyo.Reason = if (reason == .local and !waits_here) .local else .closed;", .new = "    const heard: cocuyo.Reason = if (reason == .local and !waits_here) .local else .local;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
 }

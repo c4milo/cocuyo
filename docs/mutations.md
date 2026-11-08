@@ -11713,6 +11713,17 @@ earlier request, whose lookup hears `local`, which names no server. The tests ar
 | KP8 | the drive cancels each earlier try's request at the deadline, as before decision 66 | `zig build test-io` | `CAUGHT` |
 | KP9 | a request the pool cancelled counts as its server's failure | `zig build test-io` | `CAUGHT` |
 
+2026-11-08, the owner's ruling "Keepers hear .closed". A keeper's try went out while its connection
+was up, so a failure of that connection gives it `closed`, and a close the engine made `local`.
+Before, a connection that closed and then failed gave its keepers `handshake`, the reason that
+fits a closing connection, and a lookup on another server halted at its assertion that an earlier
+connection closed. The test is in `io/io_kept_test.zig`; without the fix it crashed there.
+`zig build mutations -- engine KP10` ran it.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| KP10 | a keeper hears local where its connection failed, and no server takes the failure | `zig build test-io` | `CAUGHT` |
+
 The pool made two checks of the engine model false in a state that is now legal: an event on one
 connection or channel ends a lookup, and the drive's cancel then drops that lookup's request that
 waited on another, whose try closed. "Waiting kept" (`EngineRequest.tla`) and "link end fails none"

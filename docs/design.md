@@ -7451,7 +7451,11 @@ of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
    try, and on the one its current try uses (rule 3). So a failure tells each of them, by the
    connection's server: `on_tcp_failed(handle, server, reason, now_ns)` (§5, Tries kept open; §16
    decision 66). A lookup is on one connection for each server at most, since a later pass waits
-   on its open try there and opens no other.
+   on its open try there and opens no other. The owner ruled on 2026-11-08: "Keepers hear
+   .closed". A keeper's try went out on that connection while it was up, so the keeper hears
+   `closed` whatever the failure's reason, and `local` alone for a close the engine made itself.
+   A reason that fits the connection's state now, such as `handshake` for one that closes, does
+   not fit the keeper's try.
 6. A send lends the lookup's send buffer to the loop until the send's final event (rotor
    decision 5, rule 3). No send is submitted from that buffer before then. A send asked for
    while the buffer is lent is held, and submitted when the buffer comes back if the attempt
