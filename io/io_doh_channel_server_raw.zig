@@ -55,7 +55,7 @@ pub const RawServer = struct {
         assert(heads_wanted > 0);
         self.* = .{ .heads_wanted = heads_wanted };
         try self.config.init(.{
-            .ecdsa_p256 = .{ .chain = &identity.chain, .public_key = identity.public_key, .private_key = identity.private_key },
+            .identities = &identity.identities,
             .cookie_key = &cookie_key,
             .alpn = &alpn,
             .cpu = identity.cpu_not_stated,

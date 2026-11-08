@@ -11735,3 +11735,33 @@ check still forbids, caught by that check. TLC found each, and CH8 is still caug
 | --- | --- | --- | --- | --- |
 | CH11 | a link's end drops each request on its own channel that the channel does not hold, neither failed nor told | request rule 19 | link end fails none | CAUGHT |
 | RQ23 | a connection that fails drops the requests that wait on every other connection that closes, whose tries are still open | request rule 9 | waiting kept | CAUGHT |
+
+## The pin of colibri cd195999
+
+2026-11-08. The owner approved the move of colibri to `cd195999`, of Rotor to v0.9.0, of stdx to
+`0c0ba95` and of pepegrillo to `9ae244b`. colibri's client no longer copies the three field values
+the engine reads. It copies the whole header section, so the owner ruled
+`header_section_bytes_max`, 2,048, in place of `values_bytes_max`, 256. colibri's `cancel` takes
+the time, for its bounded drop of an HTTP/1.1 response, so the owner ruled that the channel's
+`cancel` takes `now_ns` too. `zig build mutations -- engine CE3 DC3 DC4 DC9 DC10 DC11 DC12 LM45
+LM46 LM47 CB4 CB5 SM4` ran each row below.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| CE3 | a request its lookup left is not cancelled on its channel | the short walks | `CAUGHT` |
+| DC3 | a cancelled exchange goes on in colibri | `zig build test-cocuyo_doh` | `CAUGHT` |
+| DC4 | a cancelled exchange keeps its buffer | `zig build test-cocuyo_doh` | `CAUGHT` |
+| DC9 | a response of any status is an answer | `zig build test-cocuyo_doh` | `CAUGHT` |
+| DC10 | content of any media type is an answer | `zig build test-cocuyo_doh` | `CAUGHT` |
+| DC11 | coded content is an answer | `zig build test-cocuyo_doh` | `CAUGHT` |
+| DC12 | an answer's `Age` is not read | `zig build test-cocuyo_doh` | `CAUGHT` |
+| LM45 | a DoH status of 299 is no answer | `zig build test-cocuyo_doh` | `CAUGHT` |
+| LM46 | a DoH status of 300 is an answer | `zig build test-cocuyo_doh` | `CAUGHT` |
+| LM47 | the header section buffer of a DoH exchange is one octet short | `zig build test-cocuyo_doh` | `CAUGHT` |
+| CB4 | the DoH channel speaks no HTTP/2, so its TCP connection offers `http/1.1` alone | `zig build test-cocuyo_doh` | `CAUGHT` |
+| CB5 | the DoH channel speaks no HTTP/3, so it opens no QUIC link | `zig build test-cocuyo_doh` | `CAUGHT` |
+| SM4 | the consumer fixture pins colibri v0.11.0, where `build.zig.zon` pins `cd195999` | `zig build consumer-check` | `CAUGHT` |
+
+Each row names the new text. DC3 deleted the call to colibri's `cancel` alone, which left `now_ns`
+unused, so the step did not compile. It now discards `now_ns` too. LM47 breaks the new boundary
+test: a section that fills the buffer to its last octet is read, and one octet more is too large.

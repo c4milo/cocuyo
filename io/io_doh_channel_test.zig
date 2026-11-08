@@ -303,30 +303,32 @@ test "a status of 299, the last 2xx, is an answer, and 300 is none" {
     }
 }
 
-test "field values that fill the buffer to its last octet are read, and one octet more is too large" {
-    // The server sends one field the type wants, `content-type`, so its value alone fills the
-    // buffer (doh_values_bytes_max, rule 22).
-    const media = "application/dns-message; x=";
-    const filled = media ++ "y" ** (limits.values_bytes_max - media.len);
-    for ([_][]const u8{ filled, filled ++ "y" }) |content_type| {
-        const pair = try Pair.create(.{ .content_type = content_type });
-        defer pair.free();
-        try testing.expect(pair.doh.request(0, &query, pair.now_ns));
-        const finished = (try pair.run(.finished)).finished;
-        try testing.expectEqual(content_type.len == limits.values_bytes_max, finished.result == .answer);
-    }
-}
-
-test "a 2xx response whose field values do not fit fails its request as too large" {
-    // doh_values_bytes_max: the values the type wants are copied into its buffer, and a response
-    // whose values do not fit ends as too large, which is no answer (rule 22).
-    const long_type = "application/dns-message; x=" ++ "y" ** limits.values_bytes_max;
-    const pair = try Pair.create(.{ .content_type = long_type });
+/// One exchange whose server sends `content_type`: whether it was answered, whether colibri ended
+/// it as too large and the engine as `status`, and the octets of the header section colibri copied.
+fn exchange_with(content_type: []const u8) !struct { answered: bool, too_large: bool, section_len: usize } {
+    const pair = try Pair.create(.{ .content_type = content_type });
     defer pair.free();
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
-    const finished = (try pair.run(.finished)).finished;
-    try testing.expectEqual(Doh.Result{ .failed = .status }, finished.result);
-    try testing.expectEqual(.too_large, pair.doh.exchanges[0].response.result);
+    const result = (try pair.run(.finished)).finished.result;
+    const response = &pair.doh.exchanges[0].response;
+    const too_large = response.result == .too_large and result == .failed and result.failed == .status;
+    return .{ .answered = result == .answer, .too_large = too_large, .section_len = response.headers.len };
+}
+
+test "a header section that fills the buffer to its last octet is read, and one octet more is too large" {
+    // colibri copies each field line of the section into the buffer, with 4 octets for each line. A
+    // section that does not fit ends as too large, which is no answer (doh_header_section_bytes_max,
+    // rule 22). A first exchange measures the server's section, and a longer `content-type` fills it.
+    const media = "application/dns-message; x=";
+    const measured = try exchange_with(media);
+    try testing.expect(measured.answered and measured.section_len < limits.header_section_bytes_max);
+    var long_type: [limits.header_section_bytes_max]u8 = @splat('y');
+    @memcpy(long_type[0..media.len], media);
+    const filled_len = media.len + limits.header_section_bytes_max - measured.section_len;
+    const filled = try exchange_with(long_type[0..filled_len]);
+    try testing.expect(filled.answered and filled.section_len == limits.header_section_bytes_max);
+    const past = try exchange_with(long_type[0 .. filled_len + 1]);
+    try testing.expect(!past.answered and past.too_large);
 }
 
 test "a stream the server resets after a 2xx head fails its request" {
@@ -337,7 +339,7 @@ test "a stream the server resets after a 2xx head fails its request" {
     const finished = (try pair.run(.finished)).finished;
     try testing.expectEqual(Doh.Result{ .failed = .reset }, finished.result);
     try testing.expectEqual(.reset, pair.doh.exchanges[0].response.result);
-    try testing.expectEqual(@as(u16, 200), pair.doh.exchanges[0].response.status);
+    try testing.expectEqual(@as(u16, 200), @intFromEnum(pair.doh.exchanges[0].response.status));
 }
 
 test "a request past the answer buffers waits, and one cancelled frees its buffer and tells nothing" {
@@ -347,7 +349,7 @@ test "a request past the answer buffers waits, and one cancelled frees its buffe
     try testing.expect(pair.doh.request(0, &query, pair.now_ns));
     try testing.expect(pair.doh.request(1, &query, pair.now_ns));
     try testing.expect(!pair.doh.request(2, &query, pair.now_ns));
-    pair.doh.cancel(0);
+    pair.doh.cancel(0, pair.now_ns);
     try testing.expect(pair.doh.request(2, &query, pair.now_ns));
     _ = try pair.run(.finished);
     _ = try pair.run(.finished);

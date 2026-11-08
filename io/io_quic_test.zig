@@ -406,7 +406,7 @@ test "a connection colibri's server closes is closed, and the next lookup opens 
     _ = try world.rig.engine.start(question("a.example."), world.rig.loop.now());
     _ = try world.rig.until_result();
     const entry = &world.sides[0].entries[0];
-    quic.connection_close.owe(&entry.server.connection, .{
+    quic.Connection.owe_close(&entry.server.connection, .{
         .layer = .application,
         .error_code = cocuyo_quic.constants.doq_no_error,
         .frame_type = null,

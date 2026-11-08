@@ -27,11 +27,21 @@ const streams: usize = 1;
 const chain = [_][]const u8{@embedFile("testdata/identity.leaf.der")};
 const public_key: *const [tls.constants.protocol.p256_public_key_len]u8 = @embedFile("testdata/identity.pub");
 const private_key: *const [tls.constants.protocol.p256_private_key_len]u8 = @embedFile("testdata/identity.priv");
+/// The leaf's key as a server holds it: the scheme, then the scalar and the point, each at the
+/// start of its room (colibri's `tls.Key`).
+const key: tls.Key = p256_key: {
+    var filled: tls.Key = .{ .scheme = .ecdsa_secp256r1_sha256 };
+    @memcpy(filled.private_key[0..private_key.len], private_key);
+    @memcpy(filled.public_key[0..public_key.len], public_key);
+    break :p256_key filled;
+};
+/// The identity a server holds: the chain and its key.
+const identities = [_]tls.Identity{.{ .chain = &chain, .key = &key }};
 const anchors = [_]tls.Anchor{.{ .subject = @embedFile("testdata/identity.name"), .spki = @embedFile("testdata/identity.spki") }};
 const server_name = "dns.example.";
 /// What the server and the client state of the CPU: nothing (docs/design.md §16 decision 48). Each
 /// side then holds TLS_CHACHA20_POLY1305_SHA256 alone.
-const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .not_stated };
+const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .not_stated };
 /// 2026-06-01T00:00:00Z, inside the identity's validity.
 const unix_seconds: u64 = 1_780_272_000;
 
@@ -61,9 +71,9 @@ const Server = struct {
     config: tls.quic.ServerConfig = undefined,
     session: tls.quic.Server = undefined,
     connection: quic.Connection = undefined,
-    pool: quic.stream.stream_incoming.Pool(limits.server_receive_bytes_max) = undefined,
-    send_scratch: quic.connection_send.DefaultScratch = undefined,
-    scratch: quic.connection_datagram.Scratch = undefined,
+    pool: quic.ReceivePool(.{ .capacity = limits.server_receive_bytes_max }) = undefined,
+    send_scratch: quic.Connection.SendScratch(.{}) = undefined,
+    scratch: quic.Connection.ReceiveScratch = undefined,
     inbound: [limits.datagram_receive_bytes_max]u8 = undefined,
     source: [constants.connection_id_bytes]u8 = @splat(constants.server_id_octet),
     original: [id_bytes_max]u8 = undefined,
@@ -76,7 +86,7 @@ const Server = struct {
     fn init(server: *Server) !void {
         server.* = .{};
         try server.config.init(.{
-            .ecdsa_p256 = .{ .chain = &chain, .public_key = public_key, .private_key = private_key },
+            .identities = &identities,
             .cookie_key = &cookie_key,
             .ticket_key = &ticket_key,
             .alpn = &alpn,
@@ -88,7 +98,7 @@ const Server = struct {
     fn receive(server: *Server, bytes: []const u8, now_ns: u64) !void {
         @memcpy(server.inbound[0..bytes.len], bytes);
         if (!server.started) try server.start(bytes, now_ns);
-        _ = try quic.connection_datagram.receive(
+        _ = try quic.Connection.receive(
             &server.connection,
             server.session.suite(),
             server.session.provider(),
@@ -123,7 +133,7 @@ const Server = struct {
         });
         server.send_scratch = .{};
         server.session.start(&server.config, server.stream.random(), unix_seconds, long.version);
-        server.session.set_version_chooser(quic.connection_version.chooser(&server.connection));
+        server.session.set_version_chooser(quic.Connection.version_chooser(&server.connection));
         var body: [limits.params_bytes_max]u8 = undefined;
         var writer = quic.core.Writer.init(&body);
         try quic.transport_parameters.write(&writer, &server.connection.local_parameters, .server);
@@ -134,8 +144,8 @@ const Server = struct {
     }
 
     fn send(server: *Server, out: []u8, now_ns: u64) !usize {
-        const provider: quic.stream.StreamProvider = .{ .context = server, .vtable = &no_streams };
-        const sent = try quic.connection_send.send(&server.connection, server.session.suite(), server.session.provider(), provider, &server.send_scratch, out, now_ns);
+        const provider: quic.StreamProvider = .{ .context = server, .vtable = &no_streams };
+        const sent = try server.connection.send(server.session.suite(), server.session.provider(), provider, .{}, &server.send_scratch, out, now_ns);
         return if (sent) |made| made.len else 0;
     }
 
@@ -145,7 +155,7 @@ const Server = struct {
 };
 
 /// The server writes on no stream.
-const no_streams: quic.stream.stream_provider.VTable = .{ .read = read_none };
+const no_streams: quic.StreamProvider.VTable = .{ .read = read_none };
 
 fn read_none(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     _ = context;

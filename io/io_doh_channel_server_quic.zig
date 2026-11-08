@@ -1,4 +1,4 @@
-//! A DoH server over QUIC on colibri's `server.Endpoint`, for `cocuyo_doh`'s tests (docs/design.md
+//! A DoH server over QUIC on colibri's `server.Engine`, for `cocuyo_doh`'s tests (docs/design.md
 //! §24, DoH over colibri's client): an endpoint of QUIC connections under the test identity
 //! (`io_doh_channel_identity`), which serves `h3` and answers each GET as the TCP server does
 //! (`io_doh_channel_server.zig`). QUIC reads a response's content in place until the request is
@@ -18,7 +18,7 @@ const events_per_input_max = limits.datagram_bytes_max;
 
 /// An endpoint of QUIC connections alone. Each connection holds the server's unread octets in a
 /// pool of the channel's size.
-const Endpoint = server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = limits.server_connections_max, .receive_pool_len = limits.receive_bytes_max });
+const Endpoint = server.Engine(.{ .tcp_connections = 0, .quic_connections = limits.server_connections_max, .receive_pool_len = limits.receive_bytes_max });
 
 /// A response whose content QUIC still reads: the request it answers, whose id names its
 /// connection too.
@@ -48,7 +48,7 @@ pub const QuicServer = struct {
         self.* = .{ .script = script };
         // The endpoint names `h3` for its QUIC connections (RFC 9114 §3.1; colibri's decision 119).
         self.config = .{ .tls = tcp_server.identity_values(script.tickets) };
-        try self.endpoint.init(&self.config, self.stream.random(), unix_seconds, now_ns);
+        try self.endpoint.init(&self.config, self.stream.random(), .{ .ns = now_ns, .unix_seconds = unix_seconds });
     }
 
     /// Takes a datagram from `from`, and answers each request the endpoint reads.

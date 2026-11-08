@@ -11,9 +11,7 @@ const cocuyo = @import("cocuyo");
 const quic = @import("quic");
 const constants = @import("io_quic_constants.zig");
 
-const StreamId = quic.stream.StreamId;
-const send = quic.connection_stream_send;
-const read = quic.connection_stream_read;
+const StreamId = quic.StreamId;
 
 /// What a stream said: its answer, `len` octets long, which the call copied as far as `out` held,
 /// or its reset.
@@ -43,11 +41,11 @@ pub fn Streams(comptime capacity: u16, comptime bytes_max: usize) type {
         slots: [capacity]Slot(bytes_max) = @splat(.{}),
 
         /// The provider colibri reads each request's bytes through.
-        pub fn provider(self: *Self) quic.stream.StreamProvider {
+        pub fn provider(self: *Self) quic.StreamProvider {
             return .{ .context = self, .vtable = &vtable };
         }
 
-        const vtable: quic.stream.stream_provider.VTable = .{ .read = read_bytes };
+        const vtable: quic.StreamProvider.VTable = .{ .read = read_bytes };
 
         fn read_bytes(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
             const self: *Self = @ptrCast(@alignCast(context));
@@ -92,13 +90,13 @@ fn open_stream(slots: anytype, connection: *quic.Connection, bytes: []const u8) 
     const slot = for (slots) |*slot| {
         if (!slot.live) break slot;
     } else return null;
-    const id = send.open(connection, .bidirectional) catch |err| switch (err) {
+    const id = connection.open_stream(.bidirectional) catch |err| switch (err) {
         error.StreamLimitReached, error.Full => return null,
         error.IdentifiersExhausted => return error.Failed,
     };
     slot.* = .{ .live = true, .id = id.value, .len = @intCast(bytes.len) };
     @memcpy(slot.bytes[0..bytes.len], bytes);
-    send.supply(connection, id, bytes.len, true) catch return error.Failed;
+    connection.supply(id, bytes.len, true) catch return error.Failed;
     return id.value;
 }
 
@@ -108,8 +106,8 @@ fn cancel_stream(slots: anytype, connection: *quic.Connection, stream_id: u64) v
     const slot = slot_of(slots, stream_id) orelse return;
     const id: StreamId = .{ .value = stream_id };
     slot.cancelled = true;
-    send.stop_sending(connection, id, constants.doq_request_cancelled) catch {};
-    send.reset(connection, id, constants.doq_request_cancelled) catch {};
+    connection.stop_sending(id, constants.doq_request_cancelled) catch {};
+    connection.reset_stream(id, constants.doq_request_cancelled) catch {};
     slot.sent = true;
 }
 
@@ -167,7 +165,7 @@ fn answer(connection: *quic.Connection, slot: anytype, final_size: u64, out: []u
     assert(out.len >= 1);
     const id: StreamId = .{ .value = slot.id };
     const window = out[0..@intCast(@min(out.len, @max(final_size, 1)))];
-    _ = read.read(connection, id, window) catch return ended(connection, slot);
+    _ = connection.read(id, window) catch return ended(connection, slot);
     slot.told = true;
     if (slot.cancelled) return null;
     return .{ .answered = .{ .stream = slot.id, .len = @intCast(final_size) } };
@@ -177,7 +175,7 @@ fn answer(connection: *quic.Connection, slot: anytype, final_size: u64, out: []u
 /// §3.2, "Reset Read").
 fn ended(connection: *quic.Connection, slot: anytype) ?Said {
     var nothing: [1]u8 = undefined;
-    _ = read.read(connection, .{ .value = slot.id }, &nothing) catch {};
+    _ = connection.read(.{ .value = slot.id }, &nothing) catch {};
     slot.told = true;
     if (slot.cancelled) return null;
     return .{ .reset = slot.id };

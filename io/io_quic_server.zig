@@ -14,7 +14,7 @@ const constants = @import("io_quic_constants.zig");
 const limits = @import("io_quic_limits.zig");
 const plain = @import("io_quic_plain.zig");
 
-pub const StreamId = quic.stream.StreamId;
+pub const StreamId = quic.StreamId;
 const connection_id_bytes_max = quic.crypto.constants.protocol.connection_id_len_max;
 
 /// What answers a query: the message, written into `out`, and its octets, or null to reset the
@@ -50,9 +50,9 @@ pub fn Server(comptime streams: u16) type {
 
         connection: quic.Connection = undefined,
         session: plain.Session = undefined,
-        pool: quic.stream.stream_incoming.Pool(limits.server_receive_bytes_max) = undefined,
-        send_scratch: quic.connection_send.DefaultScratch = undefined,
-        scratch: quic.connection_datagram.Scratch = undefined,
+        pool: quic.ReceivePool(.{ .capacity = limits.server_receive_bytes_max }) = undefined,
+        send_scratch: quic.Connection.SendScratch(.{}) = undefined,
+        scratch: quic.Connection.ReceiveScratch = undefined,
         inbound: [limits.datagram_receive_bytes_max]u8 = undefined,
         source: [constants.connection_id_bytes]u8 = @splat(constants.server_id_octet),
         original: [connection_id_bytes_max]u8 = undefined,
@@ -91,7 +91,7 @@ pub fn Server(comptime streams: u16) type {
             expire_due(self, now_ns);
         }
 
-        const stream_vtable: quic.stream.stream_provider.VTable = .{ .read = read_answer };
+        const stream_vtable: quic.StreamProvider.VTable = .{ .read = read_answer };
 
         fn read_answer(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
             const self: *Self = @ptrCast(@alignCast(context));
@@ -116,7 +116,7 @@ pub fn take(self: anytype, bytes: []const u8, now_ns: u64, local: quic.transport
     // a closed one's descriptor.
     if (self.started and is_new(self, bytes)) self.renew();
     if (!self.started and !start(self, bytes, now_ns, local)) return false;
-    const received = quic.connection_datagram.receive(
+    const received = quic.Connection.receive(
         &self.connection,
         self.session.suite(),
         self.session.provider(),
@@ -225,7 +225,7 @@ fn take_opened(self: anytype) void {
 fn read_query(self: anytype, request: *Request, answerer: Answerer) void {
     const room = request.query[request.query_len..];
     if (room.len == 0) return refuse(self, request);
-    const got = quic.connection_stream_read.read(&self.connection, request.id, room) catch {
+    const got = quic.Connection.read(&self.connection, request.id, room) catch {
         request.* = .{};
         return;
     };
@@ -240,12 +240,12 @@ fn read_query(self: anytype, request: *Request, answerer: Answerer) void {
     request.answer_len = prefix + len;
     request.answered = true;
     self.answered += 1;
-    quic.connection_stream_send.supply(&self.connection, request.id, request.answer_len, true) catch refuse(self, request);
+    quic.Connection.supply(&self.connection, request.id, request.answer_len, true) catch refuse(self, request);
 }
 
 fn refuse(self: anytype, request: *Request) void {
     request.answered = true;
-    quic.connection_stream_send.reset(&self.connection, request.id, constants.doq_request_cancelled) catch {};
+    quic.Connection.reset_stream(&self.connection, request.id, constants.doq_request_cancelled) catch {};
 }
 
 fn release_if_done(self: anytype, request: *Request) void {
@@ -259,18 +259,19 @@ fn release_if_done(self: anytype, request: *Request) void {
 }
 
 fn send_datagram(self: anytype, out: []u8, now_ns: u64) usize {
-    const provider: quic.stream.StreamProvider = .{ .context = self, .vtable = &@TypeOf(self.*).stream_vtable };
+    const provider: quic.StreamProvider = .{ .context = self, .vtable = &@TypeOf(self.*).stream_vtable };
     return send(self, out, now_ns, provider);
 }
 
 /// The next datagram the server owes, its streams read through `provider`, or nothing.
-pub fn send(self: anytype, out: []u8, now_ns: u64, provider: quic.stream.StreamProvider) usize {
+pub fn send(self: anytype, out: []u8, now_ns: u64, provider: quic.StreamProvider) usize {
     if (!self.started) return 0;
-    const sent = quic.connection_send.send(
+    const sent = quic.Connection.send(
         &self.connection,
         self.session.suite(),
         self.session.provider(),
         provider,
+        .{},
         &self.send_scratch,
         out,
         now_ns,
@@ -293,11 +294,11 @@ fn provide(requests: []Request, stream_id: u64, offset: u64, output: []u8) usize
 
 pub fn next_deadline(self: anytype) ?u64 {
     if (!self.started) return null;
-    const due = quic.connection_timer.next(&self.connection) orelse return null;
+    const due = quic.Connection.deadline(&self.connection) orelse return null;
     return due.at_ns;
 }
 
 pub fn expire_due(self: anytype, now_ns: u64) void {
     if (!self.started) return;
-    _ = quic.connection_timer.on_instant(&self.connection, self.session.suite(), &self.scratch.recovery, now_ns) catch {};
+    _ = quic.Connection.on_instant(&self.connection, self.session.suite(), &self.scratch.recovery, now_ns) catch {};
 }

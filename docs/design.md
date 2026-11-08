@@ -961,7 +961,7 @@ The engine gives each reason for these failures:
   - a response whose content is not a DNS message, or has a coding;
   - a response that colibri refused as malformed;
   - a response that colibri refused as too large. Its content passed 65,535 octets, the largest
-    DNS message (RFC 8484 §6), or a field that the engine reads passed `doh_values_bytes_max`.
+    DNS message (RFC 8484 §6), or its header section passed `doh_header_section_bytes_max`.
 - `reset`:
   - a stream that the server reset (RFC 9250 §4.3.2, RFC 9113 §6.4);
   - over DoH, an exchange that colibri ends as refused after a connection came up. The server
@@ -3887,7 +3887,8 @@ step until `zig build test` passes.
       not 2xx (RFC 8484 §4.2.1), or content of another type or coding. It is also a response that
       colibri refused as malformed or too large. In each the server answered with HTTP that the
       engine cannot read as a DNS message. A response is too large when its content passes 65,535
-      octets, the largest DNS message (RFC 8484 §6), or a field value passes `doh_values_bytes_max`.
+      octets, the largest DNS message (RFC 8484 §6), or its header section passes
+      `doh_header_section_bytes_max`.
     - Over DoQ an answer longer than the engine's buffer is `closed`, not `status`. It breaks the
       stream's framing, so the engine fails the whole connection (§24, request rule 5). Over DoH
       colibri ends that exchange alone, and the connection stays up.
@@ -10282,7 +10283,7 @@ lookup over each transport.
 | `doh_fallback_delay_ns` | 250 ms | how long a channel gives QUIC's handshake before TCP opens beside it: the Connection Attempt Delay RFC 8305 §5 recommends, which that RFC sets between attempts at two addresses, not two versions of HTTP; taken from it, not measured |
 | `doh_stream_bytes_max` | 18,693 | the octets of the stream a channel keeps until colibri takes them: a record at its longest, 16,645 octets with its header (RFC 9846 §5.2), and one of the engine's chunks, 2,048. It is the engine's `tls_record_in_bytes_max` since 2026-10-13 (§21, TLS rule 7) |
 | `doh_datagram_bytes_max` | 2,048 | the datagram a channel keeps until colibri takes it: the engine's datagram buffer, which holds any datagram the engine reads |
-| `doh_values_bytes_max` | 256 | where a response's `content-type`, `content-encoding` and `age` are copied; a response whose values do not fit fails its request as too large; chosen, not measured |
+| `doh_header_section_bytes_max` | 2,048 | where colibri copies a response's header section, every field line and the 4 octets it counts for each; a section that does not fit fails its request as too large. Measured on 2026-11-08 over HTTP/2 and HTTP/1.1, as field-line octets plus 4 for each line: Google 473, Cloudflare 257 to 283, Quad9 60 to 183, AdGuard 139; 2,048 gives about 4 times the largest. The owner's ruling of 2026-11-08 |
 
 `cocuyo_doh` imports neither the engine nor `cocuyo_quic`. So four of its sizes copy theirs:
 `engine_chunk_bytes_max` is the engine's `tcp_chunk_bytes_max`, `doh_datagram_bytes_max` its

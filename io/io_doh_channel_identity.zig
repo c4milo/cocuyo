@@ -31,6 +31,16 @@ const start_module = @import("io_doh_channel_start.zig");
 pub const chain = [_][]const u8{@embedFile("testdata/identity.leaf.der")};
 pub const public_key: *const [tls.constants.protocol.p256_public_key_len]u8 = @embedFile("testdata/identity.pub");
 pub const private_key: *const [tls.constants.protocol.p256_private_key_len]u8 = @embedFile("testdata/identity.priv");
+/// The leaf's key as a server holds it: the scheme, then the scalar and the point, each at the
+/// start of its room (colibri's `tls.Key`).
+pub const key: tls.Key = p256_key: {
+    var filled: tls.Key = .{ .scheme = .ecdsa_secp256r1_sha256 };
+    @memcpy(filled.private_key[0..private_key.len], private_key);
+    @memcpy(filled.public_key[0..public_key.len], public_key);
+    break :p256_key filled;
+};
+/// The identity a server holds: the chain and its key.
+pub const identities = [_]tls.Identity{.{ .chain = &chain, .key = &key }};
 
 /// The root a client trusts: the CA's subject Name and SubjectPublicKeyInfo.
 pub const anchor: tls.Anchor = .{
@@ -50,7 +60,7 @@ pub const anchors = [_]tls.Anchor{anchor};
 /// What a test states of the CPU when it names nothing: no answer of the probe, and no timing
 /// mode. The test servers state it too. A consumer that cannot state its thread's mode passes it,
 /// and its hello offers TLS_CHACHA20_POLY1305_SHA256 alone (docs/design.md §16 decision 48).
-pub const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .not_stated };
+pub const cpu_not_stated: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .not_stated };
 
 /// A channel's context for a test over the identity. Its anchors are the identity's CA, and its
 /// wall clock is `unix_seconds` at `now_ns`. Its stream is seeded with `seed_octet` repeated, so

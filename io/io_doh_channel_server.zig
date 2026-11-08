@@ -1,4 +1,4 @@
-//! A DoH server over colibri's `server.Endpoint`, for `cocuyo_doh`'s tests (docs/design.md §24, DoH
+//! A DoH server over colibri's `server.Engine`, for `cocuyo_doh`'s tests (docs/design.md §24, DoH
 //! over colibri's client): an endpoint of one TCP connection over TLS under the test identity
 //! (`io_doh_channel_identity`), which serves the protocols its script names. It reads a
 //! GET's query out of its `dns` parameter (RFC 8484 §4.1). It answers the query with what
@@ -49,7 +49,7 @@ const ticket_key: [tls.constants.protocol.server_key_len]u8 = @splat(ticket_octe
 /// versions allow (colibri's decision 119).
 pub fn identity_values(tickets: bool) tls.Server {
     return .{
-        .ecdsa_p256 = .{ .chain = &identity.chain, .public_key = identity.public_key, .private_key = identity.private_key },
+        .identities = &identity.identities,
         .cookie_key = &cookie_key,
         .ticket_key = if (tickets) &ticket_key else null,
         // Nothing, so the server's sessions hold TLS_CHACHA20_POLY1305_SHA256 alone.
@@ -80,7 +80,7 @@ pub const http_1_1: server.Version = .{ .major = 1, .minor = 1 };
 pub const http_2: server.Version = .{ .major = http_2_major, .minor = 0 };
 
 /// An endpoint of one TCP connection, the one a test's channel opens.
-const Endpoint = server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
+const Endpoint = server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 });
 
 pub const Server = struct {
     script: Script = .{},
@@ -107,7 +107,7 @@ pub const Server = struct {
     pub fn init(self: *Server, script: Script, unix_seconds: u64, now_ns: u64) !void {
         self.* = .{ .script = script };
         self.config = .{ .tls = identity_values(script.tickets), .protocols = script.protocols };
-        try self.endpoint.init(&self.config, self.stream.random(), unix_seconds, now_ns);
+        try self.endpoint.init(&self.config, self.stream.random(), .{ .ns = now_ns, .unix_seconds = unix_seconds });
         // The endpoint names in ALPN the versions it serves. A server that names none has its
         // TCP configuration made again with the identity's empty list, which a test alone does.
         if (script.selects_none) try self.endpoint.tcp_tls.init(self.config.tls.?);
@@ -245,7 +245,7 @@ pub fn read_request(record: anytype, endpoint: anytype, request: server.Request)
 
 /// Answers request `id` with `status` and no content. Null, for the caller to return.
 fn refuse(endpoint: anytype, id: server.RequestId, status: u16) ?[]const u8 {
-    endpoint.respond(id, .{ .status = status, .end = true }) catch {};
+    endpoint.respond(id, .{ .status = @enumFromInt(status), .end = true }) catch {};
     return null;
 }
 
@@ -280,7 +280,7 @@ fn respond_head(endpoint: anytype, id: server.RequestId, script: Script, content
         fields[count] = .{ .name = "age", .value = age };
         count += 1;
     }
-    endpoint.respond(id, .{ .status = script.status, .headers = fields[0..count], .end = false }) catch return false;
+    endpoint.respond(id, .{ .status = @enumFromInt(script.status), .headers = fields[0..count], .end = false }) catch return false;
     if (script.reset_after_head) {
         // RFC 9113 §6.4 and RFC 9114 §4.1.1: the stream ends at once, before its content.
         endpoint.cancel(id);

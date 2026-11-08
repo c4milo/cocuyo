@@ -289,8 +289,8 @@ const Flooding = struct {
     pub fn request(self: *Flooding, index: u16, message: []const u8, now_ns: u64) bool {
         return self.twin.request(index, message, now_ns);
     }
-    pub fn cancel(self: *Flooding, index: u16) void {
-        self.twin.cancel(index);
+    pub fn cancel(self: *Flooding, index: u16, now_ns: u64) void {
+        self.twin.cancel(index, now_ns);
     }
     pub fn shutdown(self: *Flooding) void {
         self.twin.shutdown();

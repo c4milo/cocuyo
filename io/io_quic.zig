@@ -114,9 +114,9 @@ pub fn Connection(comptime options: Options) type {
         stage: Stage = .idle,
         connection: quic.Connection = undefined,
         session: Session = .{},
-        pool: quic.stream.stream_incoming.Pool(options.receive_bytes) = undefined,
-        send_scratch: quic.connection_send.DefaultScratch = undefined,
-        scratch: quic.connection_datagram.Scratch = undefined,
+        pool: quic.ReceivePool(.{ .capacity = options.receive_bytes }) = undefined,
+        send_scratch: quic.Connection.SendScratch(.{}) = undefined,
+        scratch: quic.Connection.ReceiveScratch = undefined,
         /// The datagram being read: colibri opens packets in place.
         inbound: [limits.datagram_receive_bytes_max]u8 = undefined,
         destination: [constants.connection_id_bytes]u8 = undefined,

@@ -133,7 +133,8 @@ pub const Channel = struct {
 
     /// Ends slot `index`'s exchange, whose memory is the engine's again at once. What the channel
     /// held of it tells nobody, and goes with it.
-    pub fn cancel(self: *Channel, index: u16) void {
+    pub fn cancel(self: *Channel, index: u16, now_ns: u64) void {
+        _ = now_ns;
         const exchange = self.exchange_of(index) orelse return;
         exchange.live = false;
         if (self.held) |held| {
@@ -361,7 +362,7 @@ test "a link owes octets only while it runs, and a cancelled exchange ends in no
     try testing.expect(channel.output(&out, 0) > 0);
     try testing.expectEqual(@as(usize, 0), channel.output(&out, 0));
     try testing.expect(channel.request(1, "q", 0));
-    channel.cancel(1);
+    channel.cancel(1, 0);
     channel.say(.{ .finished = .{ .index = 1, .answer = true } }, 0);
     try testing.expectEqual(@as(?Channel.Event, null), channel.next(0));
 }

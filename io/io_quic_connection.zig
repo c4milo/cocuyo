@@ -60,7 +60,7 @@ pub fn receive(self: anytype, bytes: []const u8, now_ns: u64) void {
     if (self.stage != .handshaking and self.stage != .up) return;
     if (bytes.len > self.inbound.len) return;
     @memcpy(self.inbound[0..bytes.len], bytes);
-    _ = quic.connection_datagram.receive(
+    _ = quic.Connection.receive(
         &self.connection,
         self.session.suite(),
         self.session.provider(),
@@ -141,11 +141,12 @@ pub fn cancel(self: anytype, stream: u64) void {
 /// connection, and `next` says so.
 pub fn datagram(self: anytype, out: []u8, now_ns: u64) usize {
     if (self.stage == .idle or self.stage == .done) return 0;
-    const sent = quic.connection_send.send(
+    const sent = quic.Connection.send(
         &self.connection,
         self.session.suite(),
         self.session.provider(),
         self.streams.provider(),
+        .{},
         &self.send_scratch,
         out,
         now_ns,
@@ -161,7 +162,7 @@ pub fn datagram(self: anytype, out: []u8, now_ns: u64) usize {
 /// The instant came: colibri resends what was lost, or closes an idle connection.
 pub fn expire(self: anytype, now_ns: u64) void {
     if (self.stage == .idle or self.stage == .done) return;
-    _ = quic.connection_timer.on_instant(&self.connection, self.session.suite(), &self.scratch.recovery, now_ns) catch {
+    _ = quic.Connection.on_instant(&self.connection, self.session.suite(), &self.scratch.recovery, now_ns) catch {
         self.stage = .failed;
     };
     read_deadline(self);
@@ -176,7 +177,7 @@ pub fn idle_left_ns(self: anytype, now_ns: u64) u64 {
 
 /// The CONNECTION_CLOSE of an idle close, with DOQ_NO_ERROR (RFC 9250 §4.4).
 pub fn close(self: anytype) void {
-    quic.connection_close.owe(&self.connection, .{
+    quic.Connection.owe_close(&self.connection, .{
         .layer = .application,
         .error_code = constants.doq_no_error,
         .frame_type = null,
@@ -193,7 +194,7 @@ pub fn wipe(self: anytype) void {
 
 /// colibri's next deadline, which the engine's one timer is armed for (request rule 11).
 fn read_deadline(self: anytype) void {
-    const due = quic.connection_timer.next(&self.connection) orelse {
+    const due = quic.Connection.deadline(&self.connection) orelse {
         self.due_ns = null;
         return;
     };

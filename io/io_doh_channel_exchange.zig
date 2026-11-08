@@ -24,15 +24,11 @@ const headers = [_]client.Header{
     .{ .name = "accept-encoding", .value = "identity" },
 };
 
-/// The response fields the engine reads, and where each is in a response's `wanted`.
-const wanted_names = [_][]const u8{ "content-type", "content-encoding", "age" };
-const content_type_at: usize = 0;
-const content_encoding_at: usize = 1;
-const age_at: usize = 2;
-
 /// A request's place on the channel. It holds the request and the response that colibri holds from
 /// `request` until the exchange ends, the engine's request slot, and colibri's id for the exchange.
-/// It also holds the memory the two name: the GET's path, the values wanted, and the answer buffer.
+/// It also holds the memory the two name: the GET's path, the header section, and the answer
+/// buffer. colibri copies every field line of the response's header section into it, and the engine
+/// reads `content-type`, `content-encoding` and `age` there.
 pub const Exchange = struct {
     live: bool = false,
     /// Whether a connection of the channel came up while the exchange was live, and whether a
@@ -42,12 +38,11 @@ pub const Exchange = struct {
     up: bool = false,
     heard: bool = false,
     index: u16 = 0,
-    id: client.RequestId = 0,
+    id: client.RequestId = @enumFromInt(0),
     request: client.Request = undefined,
     response: client.Response = undefined,
     path: [doh.limits.doh_request_bytes_max]u8 = undefined,
-    wanted: [wanted_names.len]client.WantedHeader = undefined,
-    values: [limits.values_bytes_max]u8 = undefined,
+    header_section: [limits.header_section_bytes_max]u8 = undefined,
     answer: [cocuyo.limits.message_bytes_max]u8 = undefined,
 };
 
@@ -69,7 +64,6 @@ pub fn make(slot: *Exchange, index: u16, template_path: []const u8, message: []c
     const dns = cocuyo.wire.doh.dns_variable(message, &variable);
     // `fits` expanded the template with a longer value when the channel started, so this one fits.
     const path = doh.template.expand(template_path, dns, &slot.path) orelse unreachable;
-    for (&slot.wanted, wanted_names) |*wanted, name| wanted.* = .{ .name = name };
     slot.request = .{
         .method = "GET",
         .path = path,
@@ -77,8 +71,7 @@ pub fn make(slot: *Exchange, index: u16, template_path: []const u8, message: []c
         .never_indexed = .{ .path = true },
     };
     slot.response = .{
-        .wanted = &slot.wanted,
-        .values = &slot.values,
+        .headers = .{ .buffer = &slot.header_section },
         .body = &slot.answer,
     };
     slot.index = index;
@@ -138,13 +131,13 @@ fn reason_of(outcome: client.Result, up: bool, heard: bool) cocuyo.Reason {
 fn answer_of(slot: *const Exchange) ?Answer {
     const response = &slot.response;
     if (response.result != .response) return null;
-    if (response.status < constants.status_success_first or response.status > constants.status_success_last) return null;
-    if (!doh.response.is_dns_message(slot.wanted[content_type_at].value)) return null;
-    if (slot.wanted[content_encoding_at].value) |coding| {
+    if (@intFromEnum(response.status) < constants.status_success_first or @intFromEnum(response.status) > constants.status_success_last) return null;
+    if (!doh.response.is_dns_message(response.headers.get("content-type"))) return null;
+    if (response.headers.get("content-encoding")) |coding| {
         if (!doh.response.is_identity(coding)) return null;
     }
     assert(response.body_len <= slot.answer.len);
-    return .{ .message = response.body_received(), .age_seconds = doh.response.age_seconds(slot.wanted[age_at].value) };
+    return .{ .message = response.body_received(), .age_seconds = doh.response.age_seconds(response.headers.get("age")) };
 }
 
 // Tests. The ends of a whole response are `io_doh_channel_test.zig`'s, over colibri's server.

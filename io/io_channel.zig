@@ -49,7 +49,7 @@ pub const None = struct {
     pub fn request(_: *None, _: u16, _: []const u8, _: u64) bool {
         unreachable;
     }
-    pub fn cancel(_: *None, _: u16) void {
+    pub fn cancel(_: *None, _: u16, _: u64) void {
         unreachable;
     }
     pub fn shutdown(_: *None) void {
@@ -229,7 +229,7 @@ pub fn drop(self: anytype, index: usize, now_ns: u64) void {
     assert(slot.state != .closed);
     if (request.exchange) {
         assert(slot.exchanges >= 1);
-        slot.channel.cancel(@intCast(index));
+        slot.channel.cancel(@intCast(index), now_ns);
         slot.exchanges -= 1;
         request.exchange = false;
     } else {

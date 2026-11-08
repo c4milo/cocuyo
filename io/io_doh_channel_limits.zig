@@ -24,10 +24,12 @@ pub const stream_bytes_max: usize = record_bytes_max + engine_chunk_bytes_max;
 /// reads.
 pub const datagram_bytes_max: usize = 2048;
 
-/// Where a response's `content-type`, `content-encoding` and `age` are copied,
-/// `doh_values_bytes_max`. A response whose values do not fit fails its request as too large.
-/// Chosen, not measured.
-pub const values_bytes_max: usize = 256;
+/// Where colibri copies a response's header section, `doh_header_section_bytes_max`: every field
+/// line, and the 4 octets colibri counts for each line. A section that does not fit fails its
+/// request as too large. Measured on 2026-11-08 over HTTP/2 and HTTP/1.1, as field-line octets
+/// plus 4 for each line: Google 473, Cloudflare 257 to 283, Quad9 60 to 183, AdGuard 139. 2048
+/// gives about 4 times the largest. The owner ruled the value on 2026-11-08.
+pub const header_section_bytes_max: usize = 2048;
 
 /// The passes `next` takes at most: each takes octets of what the links read or says something, and
 /// what colibri says that the engine does not hear comes a bounded number of times, then one pass

@@ -18,12 +18,22 @@ const testing = std.testing;
 const chain = [_][]const u8{@embedFile("testdata/identity.leaf.der")};
 const public_key: *const [tls.constants.protocol.p256_public_key_len]u8 = @embedFile("testdata/identity.pub");
 const private_key: *const [tls.constants.protocol.p256_private_key_len]u8 = @embedFile("testdata/identity.priv");
+/// The leaf's key as a server holds it: the scheme, then the scalar and the point, each at the
+/// start of its room (colibri's `tls.Key`).
+const key: tls.Key = p256_key: {
+    var filled: tls.Key = .{ .scheme = .ecdsa_secp256r1_sha256 };
+    @memcpy(filled.private_key[0..private_key.len], private_key);
+    @memcpy(filled.public_key[0..public_key.len], public_key);
+    break :p256_key filled;
+};
+/// The identity a server holds: the chain and its key.
+const identities = [_]tls.Identity{.{ .chain = &chain, .key = &key }};
 const anchors = [_]tls.Anchor{.{ .subject = @embedFile("testdata/identity.name"), .spki = @embedFile("testdata/identity.spki") }};
 /// An instant inside the identity's validity, 2026-06-01T00:00:00Z.
 const unix_seconds: u64 = 1_780_272_000;
 
 /// What the test states of the CPU: nothing (docs/design.md §16 decision 48).
-const cpu_not_stated: Session.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .not_stated };
+const cpu_not_stated: Session.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .not_stated };
 /// RFC 9846 §4.3.2's cookie key, and the octets each side's stream is seeded with. Test-only values.
 const cookie_octet: u8 = 0x5e;
 const cookie_key: [tls.constants.protocol.server_key_len]u8 = @splat(cookie_octet);
@@ -94,7 +104,7 @@ test "a session that is up stages the record_overflow alert the engine names, wh
     defer testing.allocator.destroy(sides);
     sides.* = .{};
     sides.context = .init(&anchors, cpu_not_stated, @splat(client_seed_octet), unix_seconds, 0);
-    try sides.config.init(.{ .ecdsa_p256 = .{ .chain = &chain, .public_key = public_key, .private_key = private_key }, .cookie_key = &cookie_key, .cpu = cpu_not_stated });
+    try sides.config.init(.{ .identities = &identities, .cookie_key = &cookie_key, .cpu = cpu_not_stated });
     try sides.server.start(&sides.config, sides.server_stream.random(), unix_seconds);
     defer sides.server.close();
     const server: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };

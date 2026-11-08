@@ -33,10 +33,12 @@ pub fn request(self: anytype, index: u16, message: []const u8) bool {
     return true;
 }
 
-/// Ends slot `index`'s exchange, whose memory is the engine's again at once.
-pub fn cancel(self: anytype, index: u16) void {
+/// Ends slot `index`'s exchange at `now_ns`, whose memory is the engine's again at once. Over
+/// HTTP/1.1 colibri reads the rest of the response and drops it, for a time it bounds from
+/// `now_ns` (its decision 146).
+pub fn cancel(self: anytype, index: u16, now_ns: u64) void {
     const slot = slot_of(self, index) orelse return;
-    self.channel.cancel(slot.id);
+    self.channel.cancel(slot.id, now_ns);
     slot.live = false;
 }
 
@@ -196,6 +198,9 @@ fn told(self: anytype, said: client.Event) ?@TypeOf(self.*).Event {
         .ticket => |connection| return .{ .ticket = link_on(self, connection) },
         .finished => |ended| return finished(self, ended),
         .closed => return .closed,
+        // colibri says these of a streamed exchange alone (its decision 153), and the channel
+        // streams no request and no response.
+        .body_taken, .headers, .body => unreachable,
     }
 }
 

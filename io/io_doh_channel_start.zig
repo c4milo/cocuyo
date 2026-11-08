@@ -44,8 +44,9 @@ pub const Context = struct {
 
 /// What the channel speaks (rule 18): HTTP/3 over QUIC, and HTTP/2 or HTTP/1.1 over TCP. colibri
 /// builds each ALPN list from it: `h3` over QUIC (RFC 9114 §3.1), and `h2`, then `http/1.1`, over
-/// TCP (RFC 7301 §3.1; its decision 120).
-const protocols: client.Protocols = .{ .h11 = true, .h2 = true, .h3 = true };
+/// TCP (RFC 7301 §3.1; its decision 120). QUIC opens first, and TCP once QUIC fails or the
+/// fallback delay passes during its handshake (colibri's decision 117 as amended).
+const protocols: client.Protocols = .{ .h11 = true, .h2 = true, .h3 = true, .prefer = .quic };
 
 /// The least memory colibri v0.8.0 names for a TCP transport (its decision 124, ruling 5;
 /// docs/design.md §24, the interface). `stream_input_len_min` holds a whole head of HTTP/1.1,
@@ -181,13 +182,13 @@ const suites_with_aes = [_]u16{ aes_256_gcm_sha384, aes_128_gcm_sha256, chacha20
 const suites_without_aes = [_]u16{chacha20_poly1305_sha256};
 /// A probe that found the AES instructions and FEAT_DIT, under a timing mode the test states and
 /// nothing checks. A test that names it reads the hello alone, which runs no AES instruction.
-const cpu_with_aes: tls.Cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .yes, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .data_independent };
+const cpu_with_aes: tls.Cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .yes, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .data_independent };
 /// The same probe, with no timing mode stated.
 const cpu_aes_not_stated: tls.Cpu = .{ .probe = cpu_with_aes.probe, .timing = .not_stated };
 /// A probe that found FEAT_DIT and no AES instructions, under the timing mode of `cpu_with_aes`.
-const cpu_without_aes: tls.Cpu = .{ .probe = .{ .aes_clmul = .no, .dit = .yes, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .data_independent };
+const cpu_without_aes: tls.Cpu = .{ .probe = .{ .aes_clmul = .no, .dit = .yes, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .data_independent };
 /// A probe that found FEAT_DIT and gave no answer for the AES instructions, under the same mode.
-const cpu_aes_not_known: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .yes, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known }, .timing = .data_independent };
+const cpu_aes_not_known: tls.Cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .yes, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .data_independent };
 /// max_idle_timeout, of 30,000 milliseconds (RFC 9000 §18.2), which chapulin carries and does not
 /// read: its ID, its length, and its value as a two-octet varint.
 const transport_parameters = "\x01\x02\x75\x30";

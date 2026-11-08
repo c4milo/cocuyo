@@ -23,7 +23,7 @@ const tls = quic.tls_provider;
 const crypto = quic.crypto;
 const suite_module = crypto.suite;
 
-pub const Role = suite_module.Role;
+pub const Role = crypto.Role;
 const Level = quic.core.Level;
 const levels = quic.core.levels_count;
 
@@ -193,7 +193,7 @@ pub const Session = struct {
 
 // The TLS provider (colibri's `tls.QuicVTable`).
 
-const provider_vtable: tls.quic_provider.VTable = .{
+const provider_vtable: tls.QuicVTable = .{
     .set_transport_params = set_transport_params,
     .peer_transport_params = peer_transport_params,
     .provide_handshake = provide_handshake,
@@ -254,7 +254,7 @@ fn write_handshake(context: *anyopaque, level: Level, output: []u8) tls.quic_pro
     len.* -= written;
     // A client's handshake completes when it has sent its Finished, having read the server's
     // (RFC 9001 §4.1.1).
-    const application = session.keys[@intFromEnum(Level.application)][@intFromEnum(suite_module.Direction.write)];
+    const application = session.keys[@intFromEnum(Level.application)][@intFromEnum(crypto.Direction.write)];
     if (session.role == .client and level == .handshake and len.* == 0 and application) {
         session.complete = true;
     }
@@ -310,7 +310,7 @@ fn install_initial_keys(context: *anyopaque, role: Role, dcid: []const u8) suite
     Session.of(context).open_keys(.initial);
 }
 
-fn keys_available(context: *const anyopaque, level: Level, direction: suite_module.Direction) bool {
+fn keys_available(context: *const anyopaque, level: Level, direction: crypto.Direction) bool {
     return Session.of_const(context).keys[@intFromEnum(level)][@intFromEnum(direction)];
 }
 

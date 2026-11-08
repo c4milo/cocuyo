@@ -61,15 +61,15 @@ pub fn Channel(comptime options: Options) type {
         /// the ticket its link offered, for a caller to report.
         pub const Connected = struct { protocol: client.Protocol, resumed: bool, offered: bool };
 
-        channel: client.ConnectionPool = undefined,
+        channel: client.ConnectionPool(.{}) = undefined,
         /// Where colibri keeps the TCP connection and its table of requests (its decision 125): one
         /// TCP connection, as the channel has one TCP link, and a request for each answer buffer.
-        memory: [client.ConnectionPool.memory_bytes(.{ .tcp_connections = limits.tcp_connections_max, .requests = options.answers })]u8 align(client.ConnectionPool.memory_alignment) = undefined,
+        memory: [client.ConnectionPool(.{}).memory_bytes(.{ .tcp_connections = limits.tcp_connections_max, .requests = options.answers })]u8 align(client.ConnectionPool(.{}).memory_alignment) = undefined,
         /// The connection each link carries now, which colibri's calls about the link name.
         handles: [@typeInfo(Link).@"enum".fields.len]client.ConnectionHandle = @splat(read_module.no_connection),
-        pool: client.ReceivePool(limits.receive_bytes_max) = undefined,
-        /// What the channel starts from, which colibri reads through a pointer into it. The channel
-        /// builds the TLS configuration of each transport from it, in its own storage.
+        pool: client.ReceivePool(.{ .capacity = limits.receive_bytes_max }) = undefined,
+        /// What the channel starts from, which colibri copies at `init` (its decision 158). The
+        /// channel builds the TLS configuration of each transport from it, in its own storage.
         channel_config: client.Config = undefined,
         hostname: [cocuyo.limits.name_text_bytes_max]u8 = undefined,
         addresses: [1]client.Address = undefined,
@@ -108,8 +108,8 @@ pub fn Channel(comptime options: Options) type {
             _ = now_ns;
             return read_module.request(self, index, message);
         }
-        pub fn cancel(self: *Self, index: u16) void {
-            read_module.cancel(self, index);
+        pub fn cancel(self: *Self, index: u16, now_ns: u64) void {
+            read_module.cancel(self, index, now_ns);
         }
         pub fn shutdown(self: *Self) void {
             self.channel.shutdown();
