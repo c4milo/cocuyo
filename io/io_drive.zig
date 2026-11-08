@@ -8,6 +8,7 @@ const constants = @import("constants.zig");
 const limits = @import("limits.zig");
 const udp = @import("io_udp.zig");
 const tcp = @import("io_tcp.zig");
+const kept_module = @import("io_kept.zig");
 const results_module = @import("io_results.zig");
 const send_module = @import("io_send.zig");
 const queue_module = @import("io_tcp_queue.zig");
@@ -129,8 +130,8 @@ fn close_if_drained(self: anytype, server: u8) void {
 }
 
 /// Whether server `server`'s draining socket is still owed something: the answer to a query that
-/// left from it for a lookup still waiting on that server, or the end of a send from it that
-/// still holds a slot's buffer.
+/// left from it for a lookup still waiting on that server or for an open try of one, or the end of
+/// a send from it that still holds a slot's buffer.
 fn drain_owed(self: anytype, server: u8) bool {
     const epoch = self.sockets.draining[server].epoch;
     for (self.slots[0..], 0..) |*slot, index| {
@@ -141,7 +142,8 @@ fn drain_owed(self: anytype, server: u8) bool {
         const lookup = &slot.lookup;
         if (lookup.state == .awaiting_udp and lookup.server_slot() == server) return true;
     }
-    return false;
+    // An open try that went out from it still waits for its answer (§16 decision 66).
+    return kept_module.owes(self, server, epoch);
 }
 
 /// One rotor timer at the soonest of the table's deadline and each request connection's, moved

@@ -19,6 +19,7 @@ const frame_module = @import("io_tcp_frame.zig");
 const reset = @import("io_reset.zig");
 const wait_module = @import("io_tcp_wait.zig");
 const mark_module = @import("io_tcp_mark.zig");
+const kept_module = @import("io_kept.zig");
 
 pub const Error = error{SocketFailed};
 /// What asking for a connection can meet: a socket or a connect refused, or no free slot.
@@ -67,8 +68,13 @@ pub fn Connection(comptime message_bytes: u32, comptime lookups: u16, comptime T
         frame: [frame_bytes]u8 = undefined,
         used: usize = 0,
         receiving: bool = false,
-        /// How many lookups are on it. One with none is closed when it has been idle long enough.
+        /// How many lookups are on it for their current try. One with none, and no keeper, is
+        /// closed when it has been idle long enough.
         users: u16 = 0,
+        /// How many lookups stay on it for an open try, past the deadline that moved them on (the
+        /// stream's rule 3). A connection with keepers alone may close to make room, and tells
+        /// them `local` first (`io_kept.zig`).
+        keepers: u16 = 0,
         /// No lookup joins it, since one left during its query's send (`io_tcp_mark.zig`).
         marked: bool = false,
         /// The instant from which the idle close's wait counts while no lookup is on it. Its
@@ -150,6 +156,8 @@ pub fn want(self: anytype, index: usize, now_ns: u64) void {
 /// Puts the lookup on its server's connection, opening one if a slot can be had.
 pub fn attach(self: anytype, index: usize, server: u8, now_ns: u64) OpenError!u8 {
     if (self.tcp_connection[index]) |at| return at;
+    // A connection it stays on for an open try there is the one it is on again (the stream's rule 3).
+    if (kept_module.promote(self, index, server)) return self.tcp_connection[index].?;
     const at = find(self, server) orelse try open(self, server, now_ns);
     self.tcp_connection[index] = at;
     self.connections[at].users += 1;
@@ -169,7 +177,7 @@ fn find(self: anytype, server: u8) ?u8 {
 /// Opens a connection to `server` in a free slot and submits the connect. Over TLS the opening
 /// resumes with the server's ticket when one is kept (§21, TLS rule 8).
 fn open(self: anytype, server: u8, now_ns: u64) OpenError!u8 {
-    const at = free_slot(self) orelse return error.NoSlot;
+    const at = free_slot(self, now_ns) orelse return error.NoSlot;
     try connect(self, at, server);
     if (tls_module.speaks(self)) tls_module.spend(self, at, server, now_ns);
     return at;
@@ -185,6 +193,7 @@ fn connect(self: anytype, at: u8, server: u8) Error!void {
     const descriptor = rotor.sync.open_socket(udp.family_of(endpoint)) catch return error.SocketFailed;
     udp.size_buffers(descriptor, self.config);
     const users = connection.users;
+    const keepers = connection.keepers;
     const idle_since_ns = connection.idle_since_ns;
     connection.restart();
     connection.incarnation +%= 1;
@@ -193,6 +202,7 @@ fn connect(self: anytype, at: u8, server: u8) Error!void {
     connection.descriptor = descriptor;
     connection.address = udp.address_of(endpoint);
     connection.users = users;
+    connection.keepers = keepers;
     connection.idle_since_ns = idle_since_ns;
     const operation: rotor.Operation = .connect(user_data_of(self, .tcp_connect, at), descriptor, &connection.address);
     var handles: [1]rotor.Handle = undefined;
@@ -210,14 +220,14 @@ fn connect(self: anytype, at: u8, server: u8) Error!void {
 /// memory the loop still borrows (the stream's rule 10). With none, and no slot pending, a
 /// connection nobody is using whose connect is in flight is closed, so that its slot is pending
 /// (rule 12). A TLS connection is never closed to make room (§21, TLS rule 6).
-fn free_slot(self: anytype) ?u8 {
+fn free_slot(self: anytype, now_ns: u64) ?u8 {
     for (self.connections[0..], 0..) |*connection, at| {
         if (connection.state == .closed and !connection.borrowed()) return @intCast(at);
     }
     if (tls_module.speaks(self)) return null;
     for (self.connections[0..], 0..) |*connection, at| {
         if (connection.users == 0 and !connection.borrowed()) {
-            shut(self, @intCast(at));
+            kept_module.shut_telling(self, @intCast(at), now_ns);
             return @intCast(at);
         }
     }
@@ -225,34 +235,9 @@ fn free_slot(self: anytype) ?u8 {
     return null;
 }
 
-/// Takes the lookup off its connection unless it is on a stream to that connection's server
-/// (the stream's rule 3): its deadline passed, its connection failed, it moved to the next name,
-/// or it ended. What it asks for next is then asked of the right server's connection. A lookup
-/// that acts no longer waits for a slot (rule 12).
-pub fn follow(self: anytype, index: usize, now_ns: u64) void {
-    if (comptime !@TypeOf(self.*).keeps_tcp) return;
-    wait_module.unwait(self, index);
-    const at = self.tcp_connection[index] orelse return;
-    const lookup = self.resolver.lookup_of(self.handles[index]);
-    if (lookup.is_on_stream() and self.connections[at].server == lookup.server_slot()) return;
-    release(self, index, now_ns);
-}
-
-/// A lookup has ended or been freed: it is off its connection, with its query that waits there.
-/// When none stays during a query's send, the shut cancels that send, which a peer that does not
-/// read never ends (docs/design.md §16 decision 53). `io_tcp_mark.leave` marks it (decision 54).
-pub fn release(self: anytype, index: usize, now_ns: u64) void {
-    if (comptime !@TypeOf(self.*).keeps_tcp) return;
-    const at = self.tcp_connection[index] orelse return;
-    self.tcp_connection[index] = null;
-    queue_module.drop(self, at, index);
-    const connection = &self.connections[at];
-    assert(connection.users >= 1);
-    connection.users -= 1;
-    if (connection.users == 0) connection.idle_since_ns = now_ns;
-    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut(self, at);
-    mark_module.leave(self, at, index, now_ns);
-}
+/// Which connections a lookup is on after its poll, and its leave at its end (`io_kept.zig`).
+pub const follow = kept_module.follow;
+pub const release = kept_module.release;
 
 // What the loop says.
 
@@ -378,10 +363,12 @@ pub fn abandon(self: anytype, at: u8, reason: cocuyo.Reason, now_ns: u64) void {
     const state = self.connections[at].state;
     assert(state == .closing or (state == .up) == (reason == .closed));
     tell_all(self, at, now_ns, reason);
+    kept_module.tell_failed(self, at, reason, now_ns);
     for (self.tcp_connection[0..], 0..) |held, index| {
         if (held == at) self.tcp_connection[index] = null;
     }
     self.connections[at].users = 0;
+    assert(self.connections[at].keepers == 0);
 }
 
 /// Ends a connection. Each operation on it is cancelled, which is what makes the loop let it go
@@ -416,11 +403,13 @@ pub fn retry_full(self: anytype, at: u8, now_ns: u64) void {
     if (connection.descriptor) |descriptor| rotor.sync.close_now(descriptor);
     const server = connection.server;
     const users = connection.users;
+    const keepers = connection.keepers;
     const idle_since_ns = connection.idle_since_ns;
     connection.restart();
     connection.state = .reopening;
     connection.server = server;
     connection.users = users;
+    connection.keepers = keepers;
     connection.idle_since_ns = idle_since_ns;
     connect_again(self, at, now_ns);
 }
@@ -457,7 +446,7 @@ pub fn close_idle(self: anytype, now_ns: u64) void {
     for (self.connections[0..], 0..) |*connection, at| {
         // No lookup is on a connection that closes, and none joins it (§21, TLS rules 4 and 5).
         assert(connection.state != .closing or connection.users == 0);
-        if (connection.state == .closed or connection.users != 0) continue;
+        if (connection.state == .closed or connection.users != 0 or connection.keepers != 0) continue;
         if (now_ns -| connection.idle_since_ns < self.tcp_idle_ns) continue;
         // A TLS connection that is up says `close_notify`, and closes once it has gone; one whose
         // handshake has not ended has no session to close (§21, TLS rule 5).

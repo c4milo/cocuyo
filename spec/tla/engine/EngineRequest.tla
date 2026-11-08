@@ -1,7 +1,7 @@
 ---------------------------- MODULE EngineRequest -----------------------------
 \* The engine's requests over DoQ, written from the request rules of docs/design.md §24: a QUIC
-\* connection for each server over a datagram socket of its own, a request slot for each lookup
-\* slot, the streams, the one datagram a connection has in flight, the cancel of a request its
+\* connection for each server over a datagram socket of its own, a pool of request slots (rule 3),
+\* the streams, the one datagram a connection has in flight, the cancel of a request its
 \* lookup left, the failure told to each request once, and the idle close.
 \*
 \* colibri is abstracted to what it tells the engine: that it owes a datagram, that the handshake
@@ -15,49 +15,104 @@ Distinct(seq) == \A a, b \in 1..Len(seq) : a # b => seq[a] # seq[b]
 -------------------------------------------------------------------------------
 \* Requests.
 
-RequestOf(st, l) == Get(st.reqs[l])
+\* A request names its lookup's table slot, its server, and the attempt it went for. A request is
+\* named by its slot in the pool, which the connections' queues and streams hold.
+RequestOf(st, r) == Get(st.reqs[r])
+SlotOfReq(st, r) == RequestOf(st, r).slot
 
 \* The requests on connection v: waiting for it, and on its streams.
 RUsers(st, v) == Len(st.rconns[v].queue) + Cardinality(st.rconns[v].streams)
 
-\* Whether slot l's request speaks for its lookup's attempt now (request rules 5 and 6).
-CurrentRequest(st, l) ==
-    st.reqs[l] # {} /\ st.slots[l].lookup # {} /\
+\* Whether request r speaks for its lookup's attempt now (request rules 5 and 6).
+CurrentRequest(st, r) ==
+    st.reqs[r] # {} /\
+    LET l == SlotOfReq(st, r) IN
+    st.slots[l].lookup # {} /\
     LET lk == Get(st.slots[l].lookup) IN
-    lk.stage = "awaitingUdp" /\ Attempt(lk) = RequestOf(st, l).attempt
+    lk.stage = "awaitingUdp" /\ Attempt(lk) = RequestOf(st, r).attempt
 
-\* Slot l's request leaves its connection: out of the queue if it waits, and its stream cancelled
-\* if it has one, which colibri owes the server STOP_SENDING and a reset for (request rule 6).
-DropRequest(st, l) ==
-    IF st.reqs[l] = {} THEN st
+\* Whether request r's try is open: it is its lookup's current request, or the request of an
+\* earlier try the lookup keeps open (§5, Tries kept open; request rule 6).
+OpenRequest(st, r) ==
+    st.reqs[r] # {} /\
+    (CurrentRequest(st, r) \/ KeepsTry(st, SlotOfReq(st, r), RequestOf(st, r).server, "req"))
+
+\* Request slot r is free again: on the free list's head, and out of the order requests were taken.
+FreeReq(st, r) ==
+    [st EXCEPT !.reqs[r] = {}, !.rfree = <<r>> \o @, !.rorder = SelectSeq(@, LAMBDA x : x # r)]
+
+\* Request r leaves its connection: out of the queue if it waits, and its stream cancelled if it has
+\* one, which colibri owes the server STOP_SENDING and a reset for (request rule 6).
+DropRequest(st, r) ==
+    IF st.reqs[r] = {} THEN st
     ELSE
-    LET v == RequestOf(st, l).server
-        streamed == l \in st.rconns[v].streams
-        left == [st EXCEPT !.reqs[l] = {}, !.rconns[v].queue = SelectSeq(@, LAMBDA x : x # l),
-                           !.rconns[v].streams = @ \ {l}, !.rconns[v].owes = @ \/ streamed]
+    LET v == RequestOf(st, r).server
+        streamed == r \in st.rconns[v].streams
+        left == [FreeReq(st, r) EXCEPT !.rconns[v].queue = SelectSeq(@, LAMBDA x : x # r),
+                                       !.rconns[v].streams = @ \ {r}, !.rconns[v].owes = @ \/ streamed]
     IN [left EXCEPT !.rconns[v].idleNow = @ \/ RUsers(left, v) = 0]
 
 RECURSIVE CancelLeftFrom(_, _)
-CancelLeftFrom(st, l) ==
-    IF l >= Slots THEN st
-    ELSE CancelLeftFrom(IF st.reqs[l] # {} /\ ~CurrentRequest(st, l) THEN DropRequest(st, l) ELSE st,
-                        l + 1)
+CancelLeftFrom(st, r) ==
+    IF r >= Pool THEN st
+    ELSE CancelLeftFrom(IF st.reqs[r] # {} /\ ~OpenRequest(st, r) THEN DropRequest(st, r) ELSE st,
+                        r + 1)
 
-\* Every request whose lookup has left it is cancelled: its deadline passed, it moved on, it ended,
-\* or it was cancelled (request rule 6).
+\* Every request whose try closed is cancelled: its lookup ended, moved to another name, was
+\* cancelled, or heard that try answered or failed. A deadline alone leaves the request (request
+\* rule 6; §16 decision 66).
 CancelLeft(st) == CancelLeftFrom(st, 0)
 
-\* Slot l's request failed: its lookup hears it if the request is still its attempt, once, since the
-\* slot is free before anyone else can tell it (request rule 7).
-FailRequest(st, l) ==
-    LET told == IF CurrentRequest(st, l) THEN TableEvent(st, l, "requestFailed") ELSE st IN
-    [told EXCEPT !.reqs[l] = {}]
+RECURSIVE OldestEarlier(_, _)
+\* The first request of `seq`, the order they were taken in, that is no lookup's current one.
+OldestEarlier(st, seq) ==
+    IF seq = <<>> THEN {}
+    ELSE IF ~CurrentRequest(st, Head(seq)) THEN {Head(seq)} ELSE OldestEarlier(st, Tail(seq))
+
+\* The pool is full and a lookup needs a slot: the oldest request that is no lookup's current one,
+\* by `drop`, its lookup hearing `local` while its try is open (request rule 3). The pool holds more
+\* slots than the table, so such a request is there.
+EvictBy(st, Dropping(_, _)) ==
+    LET found == OldestEarlier(st, st.rorder) IN
+    IF ~Assert(found # {}, "a full pool of current requests") THEN st
+    ELSE
+    LET r == Get(found)
+        l == SlotOfReq(st, r)
+        v == RequestOf(st, r).server
+        told == IF OpenRequest(st, r)
+                THEN LookupEvent(st, l, "earlierFailed", <<PosOf(st, l, v), "req", "local">>)[1]
+                ELSE st
+    IN Dropping(told, r)
+
+\* Request r of slot l at server v ended unanswered: its lookup hears it once if its try is open,
+\* the current try's as `requestFailed`, an earlier one's as that try's failure (request rule 7).
+TellFailed(st, r) ==
+    LET l == SlotOfReq(st, r)
+        v == RequestOf(st, r).server
+    IN IF CurrentRequest(st, r) THEN TableEvent(st, l, "requestFailed")
+       ELSE IF OpenRequest(st, r)
+       THEN LookupEvent(st, l, "earlierFailed", <<PosOf(st, l, v), "req", "failed">>)[1]
+       ELSE st
+
+\* Request r of slot l at server v ended with reply `reply`: the current try's or an earlier one's.
+\* A reply the lookup accepts offers it (request rule 5).
+TellAnswered(st, r, reply) ==
+    LET l == SlotOfReq(st, r)
+        v == RequestOf(st, r).server
+        heard == IF CurrentRequest(st, r) THEN LookupEvent(st, l, "reply", reply)
+                 ELSE LookupEvent(st, l, "earlier", <<PosOf(st, l, v), "req", reply>>)
+    IN IF ~OpenRequest(st, r) THEN st
+       ELSE IF heard[2] = "accepted" THEN Settle(heard[1], l) ELSE heard[1]
+
+\* Request r failed: its lookup hears it once, since the slot is free before anyone else can tell it
+\* (request rule 7).
+FailRequest(st, r) == FreeReq(TellFailed(st, r), r)
 
 RECURSIVE FailRequestsFrom(_, _, _)
-FailRequestsFrom(st, v, l) ==
-    IF l >= Slots THEN st
-    ELSE FailRequestsFrom(IF st.reqs[l] # {} /\ RequestOf(st, l).server = v THEN FailRequest(st, l)
-                          ELSE st, v, l + 1)
+FailRequestsFrom(st, v, r) ==
+    IF r >= Pool THEN st
+    ELSE FailRequestsFrom(IF st.reqs[r] # {} /\ RequestOf(st, r).server = v THEN FailRequest(st, r)
+                          ELSE st, v, r + 1)
 
 -------------------------------------------------------------------------------
 \* Connections.
@@ -140,13 +195,10 @@ QRecvEnded(st, op, outcome) ==
     ELSE IF outcome = "exhausted" THEN QListen(finished, op.target)
     ELSE FailRConn(finished, op.target)
 
-\* Slot l's stream ended: answered, or reset. Its lookup hears if the request is still its attempt.
-StreamEnded(st, v, l, answer, r) ==
-    LET replied == LookupEvent(st, l, "reply", r)
-        reached == IF ~CurrentRequest(st, l) THEN st
-                 ELSE IF ~answer THEN TableEvent(st, l, "requestFailed")
-                 ELSE IF replied[2] = "accepted" THEN Settle(replied[1], l) ELSE replied[1]
-        left == [reached EXCEPT !.reqs[l] = {}, !.rconns[v].streams = @ \ {l}, !.rconns[v].owes = TRUE]
+\* Request r's stream ended: answered, or reset. Its lookup hears if r's try is open.
+StreamEnded(st, v, r, answer, reply) ==
+    LET reached == IF answer THEN TellAnswered(st, r, reply) ELSE TellFailed(st, r)
+        left == [FreeReq(reached, r) EXCEPT !.rconns[v].streams = @ \ {r}, !.rconns[v].owes = TRUE]
     IN [left EXCEPT !.rconns[v].idleNow = @ \/ RUsers(left, v) = 0]
 
 RECURSIVE TendRConnsFrom(_, _)
@@ -163,20 +215,29 @@ TendRConnsFrom(st, v) ==
 \* for again there (request rule 8, the datagram's rule 1).
 TendRConns(st) == TendRConnsFrom(st, 0)
 
+\* A free request slot for slot l's request at server v, taken: the free list's head, after the
+\* oldest earlier request when none is free (rule 3). Returns it, and the state.
+TakeSlot(st, l, v, Evict(_)) ==
+    LET room == IF st.rfree = <<>> THEN Evict(st) ELSE st
+        r == Head(room.rfree)
+        told == TableEvent(room, l, "sent")
+    IN <<r, [told EXCEPT !.reqs[r] = {[slot |-> l, server |-> v,
+                                       attempt |-> Attempt(Get(told.slots[l].lookup))]},
+                         !.rfree = Tail(@), !.rorder = Append(@, r)]>>
+
 \* The drive takes slot l's request onto its server's connection whatever the connection's state,
 \* and tells the lookup it went out, so its deadline covers the handshake (request rules 3 and 4).
-\* An earlier request of the slot's is cancelled first.
+\* The requests of the lookup's earlier tries stay (rule 6).
 TakeRequest(st, l) ==
     LET v == ServerOf(st, l)
-        cleared == DropRequest(st, l)
-        told == TableEvent(cleared, l, "sent")
-        taken == [told EXCEPT !.reqs[l] = {[server |-> v,
-                                            attempt |-> Attempt(Get(told.slots[l].lookup))]}]
+        took == TakeSlot(st, l, v, LAMBDA x : EvictBy(x, DropRequest))
+        r == took[1]
+        taken == took[2]
         c == taken.rconns[v]
-    IN CASE c.stage = "closed" -> OpenR(taken, v, <<l>>)
-         [] c.stage = "up" -> [taken EXCEPT !.rconns[v].streams = @ \cup {l},
+    IN CASE c.stage = "closed" -> OpenR(taken, v, <<r>>)
+         [] c.stage = "up" -> [taken EXCEPT !.rconns[v].streams = @ \cup {r},
                                             !.rconns[v].owes = TRUE]
-         [] OTHER -> [taken EXCEPT !.rconns[v].queue = Append(@, l)]
+         [] OTHER -> [taken EXCEPT !.rconns[v].queue = Append(@, r)]
 
 \* A datagram's send ended: the buffer comes back. A send that failed fails its connection, and a
 \* closing connection whose CONNECTION_CLOSE has gone closes (request rules 7 to 9).
@@ -222,16 +283,16 @@ QTimed(st) == {v \in 0..RServers - 1 : st.rconns[v].stage # "closed"}
 \* A request slot is free, or its request waits on its server's connection or has a stream there,
 \* and never both; and whatever a connection holds is a request of that server's.
 RequestsPlaced(st) ==
-    /\ \A l \in 0..Slots - 1 :
-          st.reqs[l] = {} \/ Channel \/
-          LET v == RequestOf(st, l).server
+    /\ \A r \in 0..Pool - 1 :
+          st.reqs[r] = {} \/ Channel \/
+          LET v == RequestOf(st, r).server
               c == st.rconns[v]
-          IN c.stage # "closed" /\ (Contains(c.queue, l) # (l \in c.streams))
+          IN c.stage # "closed" /\ (Contains(c.queue, r) # (r \in c.streams))
     /\ \A v \in 0..RServers - 1 :
           LET c == st.rconns[v] IN
           Distinct(c.queue) /\
-          \A l \in c.streams \cup {c.queue[i] : i \in 1..Len(c.queue)} :
-              st.reqs[l] # {} /\ RequestOf(st, l).server = v
+          \A r \in c.streams \cup {c.queue[i] : i \in 1..Len(c.queue)} :
+              st.reqs[r] # {} /\ RequestOf(st, r).server = v
 
 \* A request has a stream only on a connection that is up, and waits only on one that handshakes or
 \* closes.
@@ -241,17 +302,51 @@ StreamsWhenUp(st) ==
         (c.streams = {} \/ c.stage = "up") /\
         (c.queue = <<>> \/ c.stage \in {"handshaking", "closing"})
 
+\* Whether request r of `before` still speaks for an open try in `st`: its lookup's current attempt,
+\* or an earlier try it keeps open. A request whose try closed is cancelled, as rule 6 says, and
+\* none of what rule 9 keeps (§16 decision 66).
+StillOpen(before, st, r) ==
+    LET rq == RequestOf(before, r)
+        sl == st.slots[rq.slot]
+    IN sl.lookup # {} /\
+       \/ KeepsTry(st, rq.slot, rq.server, "req")
+       \/ Get(sl.lookup).stage = "awaitingUdp" /\ Attempt(Get(sl.lookup)) = rq.attempt
+\* Whether event e is about request connection v itself: what colibri made of its receive, its
+\* timer, or the end of its datagram's send. An event about another connection can end a lookup,
+\* which closes the tries of its requests that wait on v.
+About(e, v) ==
+    \/ e.kind \in {"quic", "finish"} /\ e.op.kind \in {"qrecv", "qsend"} /\ e.op.target = v
+    \/ e.kind = "qtime" /\ e.server = v
+
+
 \* What colibri tells of a connection, or its timer, or a datagram's end, fails none of the requests
 \* that wait on one that closes: they never went to it (request rule 9). A socket the system refuses
-\* for the connection they open again fails them, as rule 7 has it.
+\* for the connection they open again fails them, as rule 7 has it. Since 2026-11-05 an event about
+\* another connection may end a lookup, which closes the try of its request that waits here, and that
+\* request goes (§16 decision 66). The owner ruled that day: "Accept, with proof". RQ23 is the
+\* proof: what this still forbids, caught here.
 WaitingKept(before, e, st) ==
     ~(e.kind \in {"quic", "qtime", "finish"}) \/ before.starved \/
     \A v \in 0..RServers - 1 :
         LET c == before.rconns[v] IN
-        c.stage # "closing" \/ \A i \in 1..Len(c.queue) : st.reqs[c.queue[i]] # {}
+        c.stage # "closing" \/
+        \A i \in 1..Len(c.queue) :
+            st.reqs[c.queue[i]] # {} \/ (~About(e, v) /\ ~StillOpen(before, st, c.queue[i]))
 
-\* After a drive, every request speaks for its lookup's attempt: one it left is cancelled.
-RequestsCurrent(st) == \A l \in 0..Slots - 1 : st.reqs[l] = {} \/ CurrentRequest(st, l)
+
+\* After a drive, every request's try is open: one whose try closed is cancelled (rule 6).
+RequestsOpen(st) == \A r \in 0..Pool - 1 : st.reqs[r] = {} \/ OpenRequest(st, r)
+
+\* The pool's slots are each free or taken, once: the free list and the order requests were taken
+\* in hold them all, and a lookup has one current request at most (rule 3).
+PoolKept(st) ==
+    LET live == {r \in 0..Pool - 1 : st.reqs[r] # {}}
+        free == {st.rfree[i] : i \in 1..Len(st.rfree)}
+        taken == {st.rorder[i] : i \in 1..Len(st.rorder)}
+    IN /\ Distinct(st.rfree) /\ Distinct(st.rorder)
+       /\ free \cap live = {} /\ free \cup live = 0..Pool - 1 /\ taken = live
+       /\ \A l \in 0..Slots - 1 :
+             Cardinality({r \in live : CurrentRequest(st, r) /\ SlotOfReq(st, r) = l}) <= 1
 
 \* A closed connection holds nothing and owes nothing, and keeps no datagram.
 ClosedEmpty(st) ==

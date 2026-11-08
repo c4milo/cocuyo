@@ -63,11 +63,16 @@ fn item(self: anytype, server: u8, name: []const u8, slot: usize, reply: ?fixtur
     return rotor.quic.write_item(.{ .kind = .answer, .stream = stream, .bytes = answer }, out);
 }
 
-/// The answer `reply` names for the lookup in `slot`, as a DoQ stream carries it: after its
-/// length, and with ID 0 (RFC 9250 §4.2, §4.2.1).
+/// The answer `reply` names for request `slot` of the pool, as a DoQ stream carries it: after its
+/// length, and with ID 0 (RFC 9250 §4.2, §4.2.1). It answers the try the request went for: its
+/// lookup's current one, or an earlier try the lookup keeps open (§16 decision 66).
 fn answer_of(self: anytype, slot: usize, reply: fixtures.Reply, out: []u8) []const u8 {
     const prefix = cocuyo.constants.tcp_prefix_bytes;
-    const lookup = self.engine.resolver.lookup_of(self.engine.handles[slot]);
+    const request = &self.engine.requests[slot];
+    const current = self.engine.resolver.lookup_of(request.handle);
+    var viewed: cocuyo.Lookup = undefined;
+    if (current.transaction.number != request.transaction) viewed = current.viewed_as(current.tries.numbered(request.transaction).?);
+    const lookup = if (current.transaction.number != request.transaction) &viewed else current;
     const body = fixtures.build(lookup, reply, out[prefix..]);
     std.mem.writeInt(u16, out[prefix..][0..@sizeOf(u16)], 0, .big);
     std.mem.writeInt(u16, out[0..prefix], @intCast(body.len), .big);

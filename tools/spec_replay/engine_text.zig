@@ -14,6 +14,7 @@ const cocuyo = @import("cocuyo");
 const io = @import("io");
 const rotor = @import("rotor");
 const lookup_text = @import("replay.zig");
+const tries_module = @import("engine_text_tries.zig");
 const world_module = @import("engine_world.zig");
 
 const slot_none = cocuyo.resolver.table_slots.slot_none;
@@ -23,16 +24,16 @@ const Line = struct {
     buffer: []u8,
     len: usize = 0,
 
-    fn print(line: *Line, comptime format: []const u8, arguments: anytype) void {
+    pub fn print(line: *Line, comptime format: []const u8, arguments: anytype) void {
         const written = std.fmt.bufPrint(line.buffer[line.len..], format, arguments) catch unreachable;
         line.len += written.len;
     }
 
-    fn flag(line: *Line, set: bool, letter: u8) void {
+    pub fn flag(line: *Line, set: bool, letter: u8) void {
         line.print("{c}", .{if (set) letter else '-'});
     }
 
-    fn list(line: *Line, items: []const usize) void {
+    pub fn list(line: *Line, items: []const usize) void {
         line.print("[", .{});
         for (items, 0..) |item, index| {
             if (index > 0) line.print(",", .{});
@@ -80,9 +81,12 @@ fn connection_text(line: *Line, world: anytype, connection: anytype) void {
     }
     line.print("]", .{});
     if (connection.marked) line.print(" X", .{});
-    if (!world.config.uses_tls()) return;
-    line.print(" k{d}", .{connection.queue.sealed});
-    line.flag(connection.tls.ticket != null, 'M');
+    if (world.config.uses_tls()) {
+        line.print(" k{d}", .{connection.queue.sealed});
+        line.flag(connection.tls.ticket != null, 'M');
+    }
+    // The lookups that stay on it for an open try (§16 decision 66).
+    if (connection.keepers > 0) line.print(" p{d}", .{connection.keepers});
 }
 
 /// Each server's QUIC connection, then each slot's request: the server it went to, or "-"
@@ -95,7 +99,8 @@ fn requests_text(line: *Line, world: anytype) void {
     line.print(" | ", .{});
     for (engine.requests[0..], 0..) |*request, index| {
         if (index > 0) line.print(" ; ", .{});
-        if (request.live) line.print("{d}", .{request.server}) else line.print("-", .{});
+        // Its lookup's table slot and its server (§24, request rule 3).
+        if (request.live) line.print("{d}:{d}", .{ request.slot, request.server }) else line.print("-", .{});
     }
     line.print(" | ", .{});
     if (channels) channels_text(line, world);
@@ -234,6 +239,7 @@ fn slot(line: *Line, world: anytype, index: usize) void {
     line.flag(engine.send_in_flight[index], 'B');
     line.flag(engine.held[index] != null, 'H');
     line.flag(engine.reported[index], 'R');
+    tries_module.write(line, world, index);
 }
 
 /// The socket a slot's last datagram left from, as it stands now: its server, then `c` for the

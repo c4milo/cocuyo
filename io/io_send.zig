@@ -16,6 +16,7 @@ const cocuyo = @import("cocuyo");
 const rotor = @import("rotor");
 const udp = @import("io_udp.zig");
 const tcp_queue = @import("io_tcp_queue.zig");
+const kept_module = @import("io_kept.zig");
 
 /// The attempt a send was made for: the lookup, and the transaction it was on.
 pub const Owner = struct {
@@ -38,9 +39,12 @@ pub const Asked = union(enum) {
     tcp: []const u8,
 };
 
-/// A send the drive was handed: out now, or held until the buffer comes back.
+/// A send the drive was handed: out now, or held until the buffer comes back. One the slot's lent
+/// buffer already holds for the lookup's attempt asks for nothing new: a reply to an earlier try
+/// offers a lookup whose send is out, and its poll asks for that send again (§16 decision 66).
 pub fn ask(self: anytype, index: usize, asked: Asked, now_ns: u64) void {
     if (!self.send_in_flight[index]) return submit(self, index, asked, now_ns);
+    if (self.send_owner[index]) |owner| if (is_current(self, index, owner)) return;
     const bytes = switch (asked) {
         .udp => |datagram| datagram.bytes,
         .tcp => |stream| stream,
@@ -80,6 +84,7 @@ fn send_datagram(self: anytype, index: usize, server: cocuyo.Endpoint, bytes: []
     if (self.loop.submit(&.{operation}, &.{}) == 1) {
         lend(self, index);
         self.sent_from[index] = .{ .server = slot, .epoch = self.sockets.epoch_of(slot) };
+        kept_module.note_sent(self, index, slot, self.sockets.epoch_of(slot));
         _ = self.sockets.count_sent(slot, self.config.udp_queries_per_port);
     } else {
         self.resolver.on_send_failed(self.handles[index], now_ns);

@@ -40,6 +40,11 @@ pub const group_options: rotor.datagram.GroupOptions = .{};
 /// asks several servers over TCP at once raises it. Each costs a message buffer.
 pub const tcp_connections_default: usize = 1;
 
+/// The request slots over DoH and DoQ for each lookup, when the caller says nothing: its current
+/// request and one earlier try's (docs/design.md §24, request rule 3). The pool is shared, so a
+/// lookup with no earlier request leaves a slot to one with two.
+pub const requests_per_lookup_default: usize = 2;
+
 /// The stream chunks arrive in a group of their own: a datagram group carries rotor's prefix
 /// before every payload, and a stream has no peer to name.
 pub const tcp_group_id: u16 = 1;

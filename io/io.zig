@@ -29,6 +29,8 @@ const events_module = @import("io_events.zig");
 const lifecycle = @import("io_lifecycle.zig");
 const send_module = @import("io_send.zig");
 const tcp_queue = @import("io_tcp_queue.zig");
+const kept_module = @import("io_kept.zig");
+const sizes = @import("io_sizes.zig");
 pub const tls = @import("io_tls.zig");
 /// The request transport's default and the engine's requests (docs/design.md §24).
 pub const quic = @import("io_request.zig");
@@ -49,6 +51,10 @@ pub const Options = struct {
     /// engine that speaks DoQ alone, which asks for no stream (docs/design.md §24).
     tcp_connections: u16 = constants.tcp_connections_default,
     tcp_group_buffers: u16 = constants.tcp_group_buffers_default,
+    /// The request slots over DoH and DoQ: one pool for the current request of each lookup and
+    /// the request of each earlier try it keeps open. Null is 2 × `lookups`, and fewer than
+    /// `lookups` is refused (docs/design.md §24, request rule 3).
+    requests: ?u16 = null,
     /// The longest message one connection can assemble (RFC 7766 §8).
     tcp_message_bytes: u32 = limits.tcp_message_bytes_max,
     /// The TLS session type of docs/design.md §21, the session interface: chapulin's when the
@@ -74,43 +80,16 @@ pub const InitError = error{ SocketFailed, ReceiveFailed, UdpPayloadTooLarge };
 /// What one of the engine's `user_data` values says.
 pub const Kind = enum(u8) { udp_send, udp_receive, timer, tcp_connect, tcp_send, tcp_receive, tls_send, quic_send, quic_receive, doh_connect, doh_send, doh_receive };
 
-/// `count` with a QUIC transport, and none without one: that engine holds no QUIC connection.
-fn with_quic(comptime options: Options, comptime count: usize) usize {
-    return if (options.quic.enabled) count else 0;
-}
-
-/// A request slot holds a DoQ message at its longest, prefix and all (request rule 3).
-fn check_transports(comptime options: Options) void {
-    assert(!options.quic.enabled or options.quic.request_bytes_max >= cocuyo.limits.query_bytes_max);
-}
-
-/// `count`, for an engine with a request transport or a channel type, and none without: such an
-/// engine holds no request slot and no answer buffer.
-fn with_requests(comptime options: Options, comptime count: usize) usize {
-    return if (options.quic.enabled or options.doh.enabled) count else 0;
-}
-
-/// `count`, for an engine with a channel type, and none without.
-fn with_doh(comptime options: Options, comptime count: usize) usize {
-    return if (options.doh.enabled) count else 0;
-}
-
-/// The longest request a slot holds: what the QUIC transport asks, and a DNS message over a
-/// channel, whose GET the channel builds (rule 21).
-fn request_bytes_of(comptime options: Options) usize {
-    const channel_bytes = if (options.doh.enabled) cocuyo.limits.query_bytes_max else 0;
-    return @max(options.quic.request_bytes_max, channel_bytes);
-}
-
 pub fn Resolver(comptime options: Options) type {
     comptime lifecycle.check_lookups(options.lookups);
-    const quic_servers = with_quic(options, cocuyo.limits.servers_max);
-    const doh_servers = with_doh(options, cocuyo.limits.servers_max);
-    const request_lookups = with_requests(options, options.lookups);
-    const request_bytes_max = request_bytes_of(options);
+    const quic_servers = sizes.with_quic(options, cocuyo.limits.servers_max);
+    const doh_servers = sizes.with_doh(options, cocuyo.limits.servers_max);
+    // The request pool's slots, which bound each connection's and channel's queue as well.
+    const request_slots = sizes.with_requests(options, sizes.request_slots(options));
+    const request_bytes_max = sizes.request_bytes_of(options);
     // The stream of a DoQ answer holds the message and its prefix (RFC 9250 §4.2).
-    const answer_bytes = with_requests(options, cocuyo.constants.tcp_prefix_bytes + options.tcp_message_bytes);
-    comptime check_transports(options);
+    const answer_bytes = sizes.with_requests(options, cocuyo.constants.tcp_prefix_bytes + options.tcp_message_bytes);
+    comptime sizes.check_transports(options);
     return struct {
         const Self = @This();
 
@@ -153,6 +132,8 @@ pub fn Resolver(comptime options: Options) type {
         /// The streams of RFC 7766, and which one each lookup is on (`io_tcp.zig`).
         connections: [options.tcp_connections]tcp.Connection(options.tcp_message_bytes, options.lookups, options.tls),
         tcp_connection: [options.lookups]?u8,
+        /// What each lookup's open tries keep: connections and sockets (`io_kept.zig`).
+        kept: kept_module.Kept(options.lookups),
         /// Whether each lookup waits for a connection slot, on no connection, and how many do
         /// (docs/design.md §19 step 13, the stream's rule 12).
         tcp_waiting: [options.lookups]bool,
@@ -167,10 +148,11 @@ pub fn Resolver(comptime options: Options) type {
         tcp_idle_ns: u64,
         /// The QUIC connections, a slot for each server, and a request slot for each lookup
         /// (docs/design.md §24, request rules 1, 3 and 8).
-        quic: request_connection.Set(options.quic, quic_servers, options.lookups),
+        quic: request_connection.Set(options.quic, quic_servers, @intCast(request_slots)),
         /// The channels DoH goes over, a slot for each server (§24, rules 18 to 25).
-        doh: channel.Set(options.doh, doh_servers, options.lookups),
-        requests: [request_lookups]quic.Request(request_bytes_max),
+        doh: channel.Set(options.doh, doh_servers, @intCast(request_slots)),
+        requests: [request_slots]quic.Request(request_bytes_max),
+        request_pool: quic.Pool(request_slots),
         /// Where a stream's answer is read to, whole, and handed over at once (request rule 5).
         answer: [answer_bytes]u8,
         results: results_module.Queue(options.lookups),
@@ -256,6 +238,7 @@ pub fn Resolver(comptime options: Options) type {
             self.closing = false;
             self.connections = @splat(.{});
             self.tcp_connection = @splat(null);
+            self.kept.forget();
             self.tcp_waiting = @splat(false);
             self.tcp_waiters = 0;
             self.tcp_idle_ns = constants.tcp_idle_ns_default;
@@ -266,6 +249,7 @@ pub fn Resolver(comptime options: Options) type {
             self.quic = .{};
             self.doh = .{};
             self.requests = @splat(.{});
+            self.request_pool.reset();
             self.sockets.reset_generation();
             try self.group.provide(loop);
             try self.tcp_group.provide(loop);
@@ -475,6 +459,7 @@ test {
         _ = @import("io_sim_datagram_test.zig");
         _ = @import("io_tcp_test.zig");
         _ = @import("io_tcp_cause_test.zig");
+        _ = @import("io_kept_test.zig");
         _ = @import("io_tcp_wait_test.zig");
         _ = @import("io_tcp_frame_test.zig");
         _ = @import("io_lifecycle_test.zig");

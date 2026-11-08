@@ -127,13 +127,12 @@ QuicStepAnyProtocol(st, v, seen, l, r) ==
 \* RQ3: a request opens its stream before its connection is up (request rule 4).
 TakeRequestEager(st, l) ==
     LET v == ServerOf(st, l)
-        cleared == DropRequest(st, l)
-        told == TableEvent(cleared, l, "sent")
-        taken == [told EXCEPT !.reqs[l] = {[server |-> v,
-                                            attempt |-> Attempt(Get(told.slots[l].lookup))]}]
+        took == TakeSlot(st, l, v, LAMBDA x : EvictBy(x, DropRequest))
+        r == took[1]
+        taken == took[2]
         c == taken.rconns[v]
-    IN IF c.stage = "closed" THEN OpenR(taken, v, <<l>>)
-       ELSE [taken EXCEPT !.rconns[v].streams = @ \cup {l}, !.rconns[v].owes = TRUE]
+    IN IF c.stage = "closed" THEN OpenR(taken, v, <<r>>)
+       ELSE [taken EXCEPT !.rconns[v].streams = @ \cup {r}, !.rconns[v].owes = TRUE]
 
 \* RQ4: a connection that fails tells none of its requests (request rule 7).
 FailRConnSilent(st, v) == ShutR(st, v)
@@ -243,14 +242,13 @@ LinkCloseSending(st, i) ==
 \* CH4: a request taken while its channel shuts down goes on that channel as an exchange (rule 24).
 ChanTakeWhileShutting(st, l) ==
     LET v == ServerOf(st, l)
-        cleared == DropExchange(st, l)
-        told == TableEvent(cleared, l, "sent")
-        taken == [told EXCEPT !.reqs[l] = {[server |-> v,
-                                            attempt |-> Attempt(Get(told.slots[l].lookup))]}]
+        took == TakeSlot(st, l, v, LAMBDA x : EvictBy(x, DropExchange))
+        r == took[1]
+        taken == took[2]
         placed == IF taken.chans[v].stage = "closed"
-                  THEN [taken EXCEPT !.chans[v].stage = "open", !.chans[v].exchanges = {l},
+                  THEN [taken EXCEPT !.chans[v].stage = "open", !.chans[v].exchanges = {r},
                                      !.chans[v].idleNow = FALSE]
-                  ELSE [taken EXCEPT !.chans[v].exchanges = @ \cup {l}]
+                  ELSE [taken EXCEPT !.chans[v].exchanges = @ \cup {r}]
     IN TellHeldC(placed, v)
 
 \* CH5: a channel's close drops the requests that waited for the next, which opens none (rule 24).
@@ -273,13 +271,13 @@ StartLinkKeeping(st, i) ==
                        !.links[i].resumed = st.linkTickets[i]], i)
 
 RECURSIVE FailExchangesFrom(_, _, _)
-FailExchangesFrom(st, v, l) ==
-    IF l >= Slots THEN st
+FailExchangesFrom(st, v, r) ==
+    IF r >= Pool THEN st
     ELSE FailExchangesFrom(
-             IF l \in st.chans[v].exchanges
-             THEN Idled([FailRequest(st, l) EXCEPT !.chans[v].exchanges = @ \ {l},
-                                                   !.chans[v].held = {h \in @ : h.slot # l}], v)
-             ELSE st, v, l + 1)
+             IF r \in st.chans[v].exchanges
+             THEN Idled([FailRequest(st, r) EXCEPT !.chans[v].exchanges = @ \ {r},
+                                                   !.chans[v].held = {h \in @ : h.slot # r}], v)
+             ELSE st, v, r + 1)
 
 \* CH8: a link's socket that ends fails every request on its channel itself, before the channel says
 \* what that ended (rule 19).
@@ -420,5 +418,35 @@ EndMarkedShut(st, k) == Shut(st, k)
 \* DL1: a move of the clock leaves a link that closes as it is, as until 2026-10-26. A link whose
 \* last send does not end then stays closing for ever (§16 decision 55).
 ShutLapsedNone(st) == st
+
+\* CH11: a link's socket that ends drops each request on its own channel that the channel does not
+\* hold, neither failed nor told (rule 19). The owner ruled on 2026-11-05 that "link end fails none"
+\* lets a request on another channel go when its try closed, and must still catch this.
+RECURSIVE DropExchangesFrom(_, _, _)
+DropExchangesFrom(st, v, r) ==
+    IF r >= Pool THEN st
+    ELSE DropExchangesFrom(
+             IF r \in st.chans[v].exchanges /\ r \notin {h.slot : h \in st.chans[v].held}
+             THEN DropExchange(st, r) ELSE st, v, r + 1)
+
+LinkEndedDropping(st, i) ==
+    TellHeldC(DropExchangesFrom(LinkGone(st, i), LinkServer(i), 0), LinkServer(i))
+
+\* RQ23: a connection that fails drops the requests that wait on every other connection that
+\* closes, whose tries are still open (request rule 9). The owner ruled on 2026-11-05 that
+\* "waiting kept" lets such a request go when an event about another connection closed its try,
+\* and must still catch this.
+RECURSIVE DropWaitingFrom(_, _, _)
+DropWaitingFrom(st, w, v) ==
+    IF v >= RServers THEN st
+    ELSE
+    LET c == st.rconns[v]
+        dropped == IF v # w /\ c.stage = "closing" /\ c.queue # <<>>
+                   THEN DropRequest(st, Head(c.queue)) ELSE st
+    IN DropWaitingFrom(dropped, w, v + 1)
+
+FailRConnDroppingOthers(st, w) ==
+    DropWaitingFrom(IF st.rconns[w].stage = "closing" THEN ClosedR(st, w)
+                    ELSE ShutR(FailRequestsFrom(st, w, 0), w), w, 0)
 
 ===============================================================================

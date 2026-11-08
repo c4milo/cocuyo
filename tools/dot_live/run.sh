@@ -162,7 +162,10 @@ agrees() {
     esac
 }
 # Whether `answer` holds no verdict for `asked`: a Timeout, a connection the server closed, or no
-# line at all, which is a turn that ran out of ticks. Each is the network, not a verdict.
+# line at all, which is a turn that ran out of ticks. Each gives no verdict, so the name is asked
+# once more, alone. Since docs/design.md §16 decision 66 a Timeout means that every try stayed
+# open and none was answered: a slow answer no longer makes one. A path that lost the packets
+# still can, so the one retry stays, and a second Timeout fails the run.
 unanswered() {
     quoted=$(echo "$1" | sed 's/\./\\./g')
     says "$2" "^$quoted: Timeout$" || says "$2" "^$quoted: AllServersFailed (closed from server" ||

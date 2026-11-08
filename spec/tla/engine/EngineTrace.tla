@@ -13,6 +13,9 @@ VARIABLE event
 
 Flag(b, c) == IF b THEN c ELSE "-"
 
+\* The members of a set of numbers, least first.
+Sorted(set) == [i \in 1..Cardinality(set) |-> CHOOSE l \in set : Cardinality({m \in set : m < l}) = i - 1]
+
 RECURSIVE Join(_, _)
 \* The strings of `seq` with `sep` between them.
 Join(seq, sep) ==
@@ -46,28 +49,57 @@ SentToken(sl) ==
          ToString(from[1]) \o (CASE from[2] = "current" -> "c" [] from[2] = "draining" -> "d"
                                  [] from[2] = "gone" -> "g")
 
+AgeLetter(age) == CASE age = "current" -> "c" [] age = "draining" -> "d" [] age = "gone" -> "g"
+
+\* The tries a lookup keeps open, least position first, each as its position and its transport's
+\* letter: `0u`, `1t`, `2r` (§16 decision 66).
+OpensToken(lk) ==
+    LET ps == {x[1] : x \in lk.opens}
+        ks == <<"udp", "tcp", "req">>
+        ls == <<"u", "t", "r">>
+        each == [i \in 1..Cardinality(ps) |-> Sorted(ps)[i]]
+        one(p) == Join(SelectSeq([j \in 1..3 |-> IF <<p, ks[j]>> \in lk.opens
+                                                THEN ToString(p) \o ls[j] ELSE ""],
+                                 LAMBDA t : t # ""), ",")
+    IN "[" \o Join([i \in 1..Len(each) |-> one(each[i])], ",") \o "]"
+
+\* The sockets the slot's open datagram tries went out from, least server first.
+KeptFromToken(sl) ==
+    LET vs == Sorted({x[1] : x \in sl.keptFrom}) IN
+    "[" \o Join([i \in 1..Len(vs) |-> ToString(vs[i]) \o
+                 AgeLetter((CHOOSE x \in sl.keptFrom : x[1] = vs[i])[2])], ",") \o "]"
+
+\* What a slot keeps for its lookup's open tries (§16 decision 66): ` t` and the tries, ` k` and the
+\* connections it stays on, ` f` and the sockets of its datagram tries. A slot whose lookup keeps
+\* none is written as before.
+TriesToken(sl) ==
+    LET lk == Get(sl.lookup) IN
+    IF lk.opens = {} /\ sl.kept = {} /\ sl.keptFrom = {} THEN ""
+    ELSE " t" \o OpensToken(lk) \o " k" \o NumbersToken(Sorted(sl.kept)) \o " f" \o KeptFromToken(sl)
+
 \* A slot: `c` and its connection, `w` for a lookup that waits for a connection slot (the
 \* stream's rule 12), or `-` for neither. A walk where no lookup waits is written as before.
 SlotToken(sl) ==
     IF sl.lookup = {} THEN "free " \o Flag(sl.busy, "B") \o " u" \o SentToken(sl)
     ELSE LookupToken(Get(sl.lookup)) \o " o" \o NumbersToken(sl.order) \o " c" \o
          (IF sl.conn = {} THEN Flag(sl.waits, "w") ELSE ToString(Get(sl.conn))) \o " u" \o
-         SentToken(sl) \o " " \o Flag(sl.busy, "B") \o Flag(sl.held, "H") \o Flag(sl.reported, "R")
+         SentToken(sl) \o " " \o Flag(sl.busy, "B") \o Flag(sl.held, "H") \o Flag(sl.reported, "R") \o
+         TriesToken(sl)
 
 EntryToken(e) == IF e.kind = "query" THEN ToString(e.slot) ELSE "r"
 
-\* A connection. ` X` follows its queue when it is marked (§16 decision 54), so a walk where no
-\* connection is marked is written as before.
+\* A connection. ` X` follows its queue when it is marked (§16 decision 54), and ` p` and its keepers
+\* end it when a lookup stays on it for an open try (§16 decision 66). So a walk where neither is so
+\* is written as before.
 ConnToken(c) ==
     c.stage \o " s" \o ToString(c.server) \o " u" \o ToString(c.users) \o Flag(c.idleNow, "I") \o
     Flag(c.partSent, "P") \o " q[" \o Join([i \in 1..Len(c.queue) |-> EntryToken(c.queue[i])], ",") \o
     "]" \o (IF c.marked THEN " X" ELSE "") \o
-    (IF Tls THEN " k" \o ToString(c.sealed) \o Flag(c.resumed, "M") ELSE "")
+    (IF Tls THEN " k" \o ToString(c.sealed) \o Flag(c.resumed, "M") ELSE "") \o
+    (IF c.keepers > 0 THEN " p" \o ToString(c.keepers) ELSE "")
 
 SockToken(sk) == "open s" \o ToString(sk.sent) \o Flag(sk.retiring, "R") \o Flag(sk.draining, "D")
 
-\* The members of a set of numbers, least first.
-Sorted(set) == [i \in 1..Cardinality(set) |-> CHOOSE l \in set : Cardinality({m \in set : m < l}) = i - 1]
 
 \* A request connection (EngineRequest.tla): its stage, the requests waiting in its queue and those
 \* with a stream, and whether it owes a datagram, keeps one the loop refused, lent its buffer, and
@@ -76,8 +108,9 @@ RConnToken(c) ==
     c.stage \o " q" \o NumbersToken(c.queue) \o " st" \o NumbersToken(Sorted(c.streams)) \o " " \o
     Flag(c.owes, "O") \o Flag(c.made, "K") \o Flag(c.lent, "B") \o Flag(c.idleNow, "I")
 
-\* A request slot: the server its request went to, or "-" for none.
-ReqToken(r) == IF r = {} THEN "-" ELSE ToString(Get(r).server)
+\* A slot of the request pool: the table slot whose lookup its request is, and the server it went
+\* to, as `0:1`, or "-" for none (§24, request rule 3).
+ReqToken(r) == IF r = {} THEN "-" ELSE ToString(Get(r).slot) \o ":" \o ToString(Get(r).server)
 
 \* A channel's link (EngineChannel.tla): its state, and whether its buffer is lent, a connect borrows
 \* its address, the channel owes octets on it, it keeps octets not yet sent, its connection started
@@ -146,7 +179,7 @@ Line(st) ==
     Join([v \in 1..Sockets |-> SockToken(st.socks[v - 1])], " ; ") \o " | " \o
     (IF Request
      THEN Join([v \in 1..RServers |-> RConnToken(st.rconns[v - 1])], " ; ") \o " | " \o
-          Join([l \in 1..Slots |-> ReqToken(st.reqs[l - 1])], " ; ") \o " | "
+          Join([r \in 1..Pool |-> ReqToken(st.reqs[r - 1])], " ; ") \o " | "
      ELSE "") \o
     (IF Channel THEN Join([v \in 1..CServers |-> ChanToken(st, v - 1)], " ; ") \o " | " ELSE "") \o
     Join(OpsTokens(st.ops, DOMAIN st.ops), " ") \o " | " \o
@@ -163,6 +196,7 @@ EventToken(e) ==
       [] e.kind = "cancel" -> "cancel:" \o ToString(e.slot)
       [] e.kind = "finish" -> "finish:" \o OpToken(e.op) \o ":" \o e.outcome
       [] e.kind = "message" -> "message:" \o OpToken(e.op) \o ":" \o ToString(e.slot) \o ":" \o e.reply
+      [] e.kind = "earlier" -> "earlier:" \o OpToken(e.op) \o ":" \o ToString(e.slot) \o ":" \o e.reply
       [] e.kind = "tls" -> "tls:" \o OpToken(e.op) \o ":" \o e.step
       [] e.kind = "lapse" -> "lapse:" \o ToString(e.server)
       [] e.kind = "straggle" -> "straggle:" \o OpToken(e.op)

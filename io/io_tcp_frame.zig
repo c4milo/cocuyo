@@ -11,6 +11,7 @@ const constants = @import("constants.zig");
 const limits = @import("limits.zig");
 const tcp = @import("io_tcp.zig");
 const tls_module = @import("io_tls.zig");
+const kept_module = @import("io_kept.zig");
 
 /// One chunk of a connection's stream: taken whole, and every whole message it ends handed over.
 pub fn take_chunk(self: anytype, at: u8, event: rotor.Event, count: u32, now_ns: u64) void {
@@ -51,6 +52,8 @@ pub fn deliver(self: anytype, at: u8, now_ns: u64) bool {
         }
         const length = whole_len(connection, start) orelse break;
         _ = self.resolver.on_datagram(connection.frame[start + prefix ..][0..length], from, now_ns);
+        // A reply to an earlier try can close it, and its lookup leaves the connection then.
+        kept_module.tidy_at(self, at, now_ns);
         start += prefix + length;
     }
     // Each message is at least its prefix, so the bound never leaves a whole message behind.

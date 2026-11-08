@@ -195,24 +195,13 @@ pub fn carries(self: anytype) bool {
 
 /// What the drive does with a lookup's `send_request` over DoH: the request is taken at once onto
 /// its server's channel, whatever the channel's state, and the lookup told it went out (request
-/// rule 3). An earlier request of the slot's is cancelled first.
+/// rule 3). It takes a slot of the request pool, and the requests of the lookup's earlier tries
+/// stay (rule 6).
 pub fn take(self: anytype, index: usize, send: anytype, now_ns: u64) void {
     // The drive takes onto a channel only in an engine that holds channels (`carries`).
     if (comptime !@TypeOf(self.*).Doh.enabled) unreachable;
-    drop(self, index, now_ns);
-    const handle = self.handles[index];
-    self.resolver.on_sent(handle, now_ns);
-    const request = &self.requests[index];
-    assert(send.message_bytes.len <= request.bytes.len);
-    @memcpy(request.bytes[0..send.message_bytes.len], send.message_bytes);
-    request.live = true;
-    request.handle = handle;
-    request.transaction = send.transaction;
-    request.server = send.server_index;
-    request.stream = null;
-    request.exchange = false;
-    request.len = @intCast(send.message_bytes.len);
-    place(self, index, now_ns);
+    const at = request_module.fill(self, index, send, request_module.claim(self, drop, now_ns), now_ns);
+    place(self, at, now_ns);
 }
 
 /// Puts slot `index`'s request on its server's channel. A closed channel opens with it, and one
@@ -235,7 +224,7 @@ fn place(self: anytype, index: usize, now_ns: u64) void {
 pub fn drop(self: anytype, index: usize, now_ns: u64) void {
     const request = &self.requests[index];
     if (!request.live) return;
-    request.live = false;
+    request_module.free(self, index);
     const slot = &self.doh.slots[request.server];
     assert(slot.state != .closed);
     if (request.exchange) {
@@ -249,22 +238,22 @@ pub fn drop(self: anytype, index: usize, now_ns: u64) void {
     if (slot.users() == 0) slot.idle_since_ns = now_ns;
 }
 
-/// Every request whose lookup has left it is cancelled (request rule 6). The drive does this last.
+/// Every request whose try closed is cancelled (request rule 6). The drive does this last.
 pub fn cancel_left(self: anytype, now_ns: u64) void {
     if (comptime !@TypeOf(self.*).Doh.enabled) return;
     for (self.requests[0..], 0..) |*request, index| {
-        if (request.live and !request_module.current(self, index)) drop(self, index, now_ns);
+        if (request.live and !request_module.open(self, index)) drop(self, index, now_ns);
     }
 }
 
-/// Slot `index`'s request failed, for `reason`: its lookup hears so if the request is still its
-/// attempt, once (request rule 7), and decision 25 counts it as the server's failure.
+/// Request `index` failed, for `reason`: its lookup hears so if its try is open, once (request rule
+/// 7), and decision 25 counts it as the server's failure.
 fn fail_one(self: anytype, index: usize, reason: cocuyo.Reason, now_ns: u64) void {
     const request = &self.requests[index];
     assert(request.live);
-    if (request_module.current(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns);
-    request.live = false;
+    if (request_module.open(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns);
     request.exchange = false;
+    request_module.free(self, index);
 }
 
 fn enqueue(slot: anytype, index: u16) void {
@@ -392,22 +381,22 @@ fn keep_ticket(self: anytype, server: u8, link: anytype, now_ns: u64) void {
 }
 
 /// An exchange ended: a response carrying a DNS message goes to the lookup with its `Age`, and any
-/// other end fails the request (rule 22). The lookup hears only if the request is still its
-/// attempt, and the channel's room goes to the requests that wait.
+/// other end fails the request (rule 22). The lookup hears only if the request's try is open, and
+/// the channel's room goes to the requests that wait.
 fn ended(self: anytype, server: u8, finished: anytype, now_ns: u64) void {
     const index = finished.index;
     const request = &self.requests[index];
     // A request the engine cancelled tells nobody (request rule 6): the channel says no end of it.
     assert(request.live and request.exchange and request.server == server);
-    if (request_module.current(self, index)) {
+    if (request_module.open(self, index)) {
         switch (finished.result) {
             .answer => |answer| _ = self.resolver.on_request_answer(request.handle, request.transaction, answer.message, answer.age_seconds, now_ns),
             // The channel says why the request failed (docs/design.md §5, The cause of a failure).
             .failed => |reason| self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns),
         }
     }
-    request.live = false;
     request.exchange = false;
+    request_module.free(self, index);
     const slot = &self.doh.slots[server];
     assert(slot.exchanges >= 1);
     slot.exchanges -= 1;

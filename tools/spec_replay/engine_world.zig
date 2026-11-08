@@ -17,6 +17,7 @@ const fixtures = @import("fixtures.zig");
 const text_module = @import("engine_text.zig");
 const quic_world = @import("engine_world_quic.zig");
 const channel_world = @import("engine_world_channel.zig");
+const earlier_world = @import("engine_world_earlier.zig");
 
 /// The seed every engine of the replay starts from; the model abstracts the entropy away.
 const seed = 0x5eed_e791;
@@ -70,6 +71,9 @@ pub fn WorldOver(comptime slots: u16, comptime conns: u16, comptime Doh: type) t
             .quic = rotor.quic.Connection,
             // And a channel configuration's twin channel (§24, DoH over colibri's client).
             .doh = Doh,
+            // The model's pool, `Pool` in EngineTable.tla: one slot more than the lookups, so a
+            // walk fills it (§24, request rule 3).
+            .requests = slots + 1,
         });
 
         loop: rotor.Loop,
@@ -179,10 +183,11 @@ fn instant(self: anytype, name: []const u8, parts: *std.mem.SplitIterator(u8, .s
         const outcome = std.meta.stringToEnum(Outcome, parts.next() orelse "") orelse return error.Malformed;
         return finish(self, op, outcome);
     }
-    if (std.mem.eql(u8, name, "message")) {
+    const earlier = std.mem.eql(u8, name, "earlier");
+    if (earlier or std.mem.eql(u8, name, "message")) {
         const slot = try number(parts.next());
         const reply = std.meta.stringToEnum(fixtures.Reply, parts.next() orelse "") orelse return error.Malformed;
-        return message(self, op, slot, reply);
+        return message(self, op, slot, reply, earlier);
     }
     if (std.mem.eql(u8, name, "tls")) return tls_step(self, op, parts.next() orelse "");
     return error.Malformed;
@@ -384,10 +389,14 @@ fn carrying(self: anytype, user_data: u64, kind: io.Kind, more: bool) Error!roto
 /// A message on the receive `op` names by its token, for the lookup in `slot`: on a stream, one whole
 /// frame, length and all, in one buffer of the stream's group (RFC 7766 §8); on a socket, one
 /// datagram from its server, laid out in the datagram group as rotor lays one out.
-fn message(self: anytype, op: []const u8, slot: usize, reply: fixtures.Reply) Error!void {
+fn message(self: anytype, op: []const u8, slot: usize, reply: fixtures.Reply, earlier: bool) Error!void {
     const loop_slot = try operation(self, op);
     const user_data = self.loop.slots[loop_slot].user_data;
-    const lookup = self.engine.resolver.lookup_of(self.engine.handles[slot]);
+    const current = self.engine.resolver.lookup_of(self.engine.handles[slot]);
+    // An earlier try's message is built from that try (`engine_world_earlier.zig`).
+    var viewed: cocuyo.Lookup = undefined;
+    if (earlier) viewed = try earlier_world.view(self, current, kind_of(user_data) orelse return error.Malformed, user_data);
+    const lookup = if (earlier) &viewed else current;
     var body_buffer: [io.limits.buffer_bytes_max]u8 = undefined;
     const room = rotor.datagram.payload_capacity(io.limits.buffer_bytes_max, self.loop.group_options);
     const body = if (reply == .cut) fixtures.build_cut(lookup, room, &body_buffer) else fixtures.build(lookup, reply, &body_buffer);

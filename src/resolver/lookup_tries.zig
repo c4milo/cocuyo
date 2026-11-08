@@ -212,3 +212,22 @@ pub fn load(self: *Lookup, index: usize) void {
     self.flags.query_mixed = kept.marks.query_mixed;
     self.flags.reply_marked = kept.marks.reply_marked;
 }
+
+/// What a try went out over: a datagram, or a stream (docs/design.md §5, Tries kept open).
+pub const Carrier = enum { datagram, stream };
+
+/// The newest earlier try open at the configured server `configured`, over `carrier`, or null.
+/// What a driver asks to know whether the lookup still waits on a connection or a socket it left
+/// at a deadline (docs/design.md §19 step 13, the stream's rule 3, the datagram's rule 4).
+pub fn earlier_at(self: *const Lookup, configured: u8, carrier: Carrier) ?u8 {
+    assert(configured < self.config.servers.len);
+    const stream = carrier == .stream;
+    var index: u8 = self.tries.count;
+    while (index > 0) {
+        index -= 1;
+        const kept = &self.tries.items[index];
+        if (kept.marks.stream == stream and self.order[kept.position] == configured) return index;
+    }
+    assert(index == 0);
+    return null;
+}

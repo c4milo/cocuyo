@@ -178,7 +178,7 @@ theorem marked_step (c : Config) (s : State) (e : Event) (m : Marked s) :
     split
     · exact ⟨h, ht⟩
     · refine ⟨?_, fun hf => absurd ((earlierFailed_stage s p stream r).symm.trans hf) hs⟩
-      unfold earlierFailed; split <;> simp [keepAt]
+      unfold earlierFailed; split <;> split <;> simp_all
   | keysReady =>
     simp only [step]
     split

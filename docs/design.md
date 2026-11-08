@@ -850,9 +850,9 @@ defines it.
   connection, and RFC 1035 §4.2.1 asks for a retransmission over UDP alone. Over UDP a later pass
   sends again, as before.
 - A lookup leaves a connection when the last of its open tries on it closes. A deadline alone does
-  not take it off (§19 step 13, stream rule 3). The engine keeps the request of each open try over
-  DoH and DoQ (§24, request rule 6). It keeps a draining socket open while an open try went out from
-  it.
+  not take it off (§19 step 13, stream rule 3). The engine keeps a draining socket open while an
+  open try went out from it (the datagram's rule 4). Over DoH and DoQ it keeps an earlier try's
+  request in a slot of its request pool while the try is open (§24, request rules 3 and 6).
 - A new name closes every try: a search candidate, or a CNAME's target. An answer to one of those
   tries would answer another question.
 
@@ -5072,6 +5072,12 @@ step until `zig build test` passes.
     - A late answer that gives no sample, since its try gave one at its deadline. The wait then
       rises a try at a time, as decision 36 describes, and not to what the server takes.
 
+    On 2026-11-05 the owner ruled on the requests over DoH and DoQ. The engine holds them in one
+    pool of `requests` slots, 2 × `lookups` by default. A full pool cancels the oldest earlier
+    request and tells its lookup `local`, so no server is blamed (§24, request rules 3 and 6).
+    Rejected: two request slots for each lookup slot, which holds no slot spare for a lookup with
+    one request and none for one with three.
+
     It amends decisions 36 and 50. A sample pairs an answer with its own try's send. A try ends at
     the answer that ends it, or when the lookup ends or moves to another name. §7 check 2, stream
     rule 3 of §19 step 13 and request rule 6 of §24 change with it. The Lean model of §5 gains an
@@ -7414,18 +7420,24 @@ of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
    that is gone and changes nothing, whatever it holds: a cancelled connect can still end in
    success (rotor decision 5, rule 2). A provided buffer the event carries goes back to the
    loop all the same.
-3. A lookup is on a connection only while it is on a stream to that connection's server. The
-   drive takes it off before acting on its poll when the poll shows it anywhere else: its
-   deadline passed, its connection failed, it moved to the next name, it ended. Since 2026-10-24
-   a deadline ends `tcp_ready` too (§5, §16 decision 52). So a lookup whose query's send never
-   ends leaves its connection at its deadline. Since 2026-11-03 a lookup stays on a connection
-   while an open try of it is on that connection. A deadline alone takes it off no more (§5,
-   Tries kept open; §16 decision 66). A lookup in `tcp_ready` sent nothing, so it has no open try
-   there, and its deadline still takes it off. A query that has started stays at the head of the
-   queue until its send ends (rule 9). Since 2026-10-25, when the last lookup leaves while that
-   send is in flight, the drive shuts the connection at once (§16 decision 53). When a lookup
-   leaves while its own query's send is in flight, and another lookup stays, the drive marks the
-   connection. No lookup joins it again, and its last leave ends it at once (§16 decision 54).
+3. A lookup is on a connection only while it is on a stream to that connection's server. The drive
+   takes it off before acting on its poll when the poll shows it anywhere else: its deadline
+   passed, its connection failed, it moved to the next name, it ended. Since 2026-10-24 a deadline
+   ends `tcp_ready` too (§5, §16 decision 52). So a lookup whose query's send never ends leaves its
+   connection at its deadline. Since 2026-11-03 a lookup stays on a connection while an open try of
+   it is on that connection. A deadline alone takes it off no more (§5, Tries kept open; §16
+   decision 66). A lookup in `tcp_ready` sent nothing, so it has no open try there, and its
+   deadline still takes it off. A lookup stays there as a keeper, which counts apart from the
+   lookups on a connection's current try. A connection that only keepers hold is idle for no rule,
+   and may still close to make room. A later pass that waits on its open try sends nothing, and the
+   table hands the drive no event for it. So the drive moves it between its connections at its next
+   event, and until then it is a keeper of the connection it waits on. That connection stays open
+   for it, and a close the engine makes there tells it `closed`. A query that has started stays at
+   the head of the queue until its send ends (rule 9). Since 2026-10-25, when the last lookup
+   leaves while that send is in flight, the drive shuts the connection at once (§16 decision 53).
+   When a lookup leaves while its own query's send is in flight, and another lookup stays, the
+   drive marks the connection. No lookup joins it again, and its last leave ends it at once (§16
+   decision 54).
 4. A connection's users are the lookups on it. When the last leaves, the connection is idle from
    that instant, and one idle for `tcp_idle_ns` is closed by the drive at an instant that late.
    Since 2026-10-20 a TLS connection that closes is idle from the instant it began to close. The
@@ -7435,7 +7447,11 @@ of 2026-09-22 broke one, the model found it, and the fix is recorded with it.
 5. When the connect succeeds, the receive is armed and every lookup on the connection that is
    still connecting is told. When the connect fails, the receive fails, or the peer closes,
    every lookup on the connection is told its connection failed and leaves it, and the
-   connection is closed.
+   connection is closed. Since 2026-11-03 a lookup is on each connection where it has an open
+   try, and on the one its current try uses (rule 3). So a failure tells each of them, by the
+   connection's server: `on_tcp_failed(handle, server, reason, now_ns)` (§5, Tries kept open; §16
+   decision 66). A lookup is on one connection for each server at most, since a later pass waits
+   on its open try there and opens no other.
 6. A send lends the lookup's send buffer to the loop until the send's final event (rotor
    decision 5, rule 3). No send is submitted from that buffer before then. A send asked for
    while the buffer is lent is held, and submitted when the buffer comes back if the attempt
@@ -7574,11 +7590,14 @@ the attempt that made it, and the drive goes on until nothing is left.
    that sent its share, whoever waits on it. A new socket on a new port takes every query from
    then on, and the old one drains: it keeps its receive, since the answers to its queries come
    back to it, until no lookup that sent from it still waits for an answer or has a send in
-   flight from it. Then its receive is cancelled and it is closed. A server has one socket
-   draining at most, so a port that carries its share while an older one still drains carries
-   queries on until that one is closed. The new socket is opened before the old one steps
-   aside: when it cannot be opened, the old one stays in use and the replacement is tried again
-   at the next drive, so a server always has a socket to send from.
+   flight from it. Since 2026-11-03 a lookup with an open try that went out from it still waits
+   for that answer (§5, Tries kept open; §16 decision 66). The engine keeps, for each slot and
+   each server, the oldest socket an open try of the slot's lookup went out from, so the one
+   socket that drains is owed while that try is open. Then its receive is cancelled and it is
+   closed. A server has one socket draining at most, so a port that carries its share while an older
+   one still drains carries queries on until that one is closed. The new socket is opened before the
+   old one steps aside: when it cannot be opened, the old one stays in use and the replacement is
+   tried again at the next drive, so a server always has a socket to send from.
 5. A draining socket's receive is held to rule 1 as the current one's is.
 6. Written on 2026-10-14 (§16 decision 43). A buffer of the datagram group holds 1,856 octets of a
    datagram: `buffer_bytes_max`, 2,048, less rotor's prefix of 192. The kernel cuts a longer
@@ -8994,8 +9013,15 @@ all DoQ or all DoH (§22, §23), and the rules hold for both. Where they differ,
    (rule 7).
 3. **A request is taken at once.** The drive takes a lookup's request onto its server's
    connection whatever the connection's state, and tells the lookup it went out, so the lookup's
-   deadline covers the handshake as well. The request's bytes are copied into a request slot,
-   one for each lookup slot: over DoQ the message with its prefix, over DoH the message alone.
+   deadline covers the handshake as well. The request's bytes are copied into a request slot:
+   over DoQ the message with its prefix, over DoH the message alone. Since 2026-11-05 the slots are
+   one pool of `requests`, which the caller sets, 2 × `lookups` by default and never fewer than
+   `lookups` (§16 decision 66, as the owner ruled that day). A lookup's current request takes a
+   free slot. The request of an earlier try keeps its slot while that try is open (rule 6). When
+   no slot is free, the engine cancels the oldest request of an earlier try, as rule 6 cancels
+   one. It tells that try's lookup `on_request_failed(number, .local, now_ns)`: no server took
+   part, so no server failed. The pool's slots are on a free list, so a request costs the same
+   whatever the pool's size.
    Over DoH the channel builds the GET from the message. The exchange holds the GET's path in a
    buffer of its own, of `doh_request_bytes_max` octets (rule 21; DoH over HTTP/3, the path).
    colibri reads a stream's bytes by offset until the server acknowledges them, so they
@@ -9004,7 +9030,12 @@ all DoQ or all DoH (§22, §23), and the rules hold for both. Where they differ,
    handshakes waits in the connection's queue. When the connection is up, each waiting request
    opens its stream in the order it was taken, and supplies its bytes, then FIN. A stream colibri
    cannot open yet, for want of the server's stream credit or, over DoH, of a free answer
-   buffer, waits, and each drive asks again.
+   buffer, waits, and each drive asks again. Since 2026-11-05 an earlier try's request holds its
+   stream while the try is open (rule 6). So it spends the server's stream credit, QUIC's
+   `initial_max_streams_bidi` (RFC 9000 §18.2) or the concurrent streams HTTP/2 and HTTP/3 allow,
+   and over DoH an answer buffer, as a current request does. A current request that finds none
+   waits as this rule says, and its deadline bounds the wait. The pool bounds the streams one
+   connection holds at `requests`.
    Every datagram received is followed by a drive, so the credit's arrival is. The model gives
    the server credit for every request.
 5. **The answer by its stream.** A stream the server ends with FIN is read whole, into one buffer
@@ -9022,17 +9053,21 @@ all DoQ or all DoH (§22, §23), and the rules hold for both. Where they differ,
    (§4.2).
 6. **A request the lookup left is cancelled.** When the drive finds a lookup has left the
    transaction its request carries, because its deadline passed, it moved on, it ended, or it was
-   cancelled or released, the engine cancels the stream. Since 2026-11-03 a deadline alone
-   leaves no request: its try stays open, and the request with it (§5, Tries kept open; §16
-   decision 66). It sends STOP_SENDING and resets its own
-   side, so colibri needs the request's bytes no more. Over DoQ STOP_SENDING is a MUST, with
-   DOQ_REQUEST_CANCELLED (RFC 9250 §4.3.1). Over HTTP/3 ending both directions is a SHOULD (RFC
-   9114 §4.1.1), with H3_REQUEST_CANCELLED (§8.1). The request slot is free
-   from then, and whatever the stream carries later tells nobody.
+   cancelled or released, the engine cancels the stream. Since 2026-11-05 the engine cancels a
+   request when its try closes, and a deadline alone leaves no request: the try stays open, and
+   the request with it (§5, Tries kept open; §16 decision 66). A try closes when its lookup ends,
+   moves to another name, is cancelled or released, or hears that try answered or failed. A
+   request whose slot the pool gives to a current request is cancelled too (rule 3). The cancel
+   sends STOP_SENDING and resets the engine's own side, so colibri needs the request's bytes no
+   more. Over DoQ STOP_SENDING is a MUST, with DOQ_REQUEST_CANCELLED
+   (RFC 9250 §4.3.1). Over HTTP/3 ending both directions is a SHOULD (RFC 9114 §4.1.1), with
+   H3_REQUEST_CANCELLED (§8.1). The request slot is free from then, and whatever the stream
+   carries later tells nobody.
 7. **A failure fails each request on it, once.** A stream the server resets fails its request. A
    connection fails for a handshake that fails, a connection error, the server's close, an idle
    timeout, a receive or a send that fails, or a socket the system refuses. Then each request on
-   it whose attempt is current hears it failed, once, and the connection closes. Decision 25
+   it whose try is open hears it failed, once, and the connection closes. Since 2026-11-05 that
+   is the current try's request and each earlier try's that keeps its slot (rule 6). Decision 25
    counts each as the server's failure. A request taken later opens the connection again.
 8. **A datagram at a time.** A connection sends one datagram at a time, from a buffer of its
    slot's that is lent to the loop from the send's submission to its final event (rotor decision

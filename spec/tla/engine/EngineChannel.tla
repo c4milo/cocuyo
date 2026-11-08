@@ -108,33 +108,31 @@ CUsers(st, v) == Cardinality(st.chans[v].exchanges) + Len(st.chans[v].queue)
 \* Channel v went idle at this instant if nothing is left on it.
 Idled(st, v) == [st EXCEPT !.chans[v].idleNow = @ \/ CUsers(st, v) = 0]
 
-\* Slot l's request leaves its channel: out of the queue if it waits, and its exchange cancelled if
-\* the channel holds it, whose memory is the engine's again at once (rule 21, request rule 6). What
-\* the channel held of it tells nobody, and goes with it.
-DropExchange(st, l) ==
-    IF st.reqs[l] = {} THEN st
+\* Request r leaves its channel: out of the queue if it waits, and its exchange cancelled if the
+\* channel holds it, whose memory is the engine's again at once (rule 21, request rule 6). What the
+\* channel held of it tells nobody, and goes with it. The request slot is free again.
+DropExchange(st, r) ==
+    IF st.reqs[r] = {} THEN st
     ELSE
-    LET v == RequestOf(st, l).server IN
-    Idled([st EXCEPT !.reqs[l] = {}, !.chans[v].queue = SelectSeq(@, LAMBDA x : x # l),
-                     !.chans[v].exchanges = @ \ {l}, !.chans[v].held = {h \in @ : h.slot # l}], v)
+    LET v == RequestOf(st, r).server IN
+    Idled([FreeReq(st, r) EXCEPT !.chans[v].queue = SelectSeq(@, LAMBDA x : x # r),
+                                 !.chans[v].exchanges = @ \ {r},
+                                 !.chans[v].held = {h \in @ : h.slot # r}], v)
 
 RECURSIVE CancelLeftCFrom(_, _)
-CancelLeftCFrom(st, l) ==
-    IF l >= Slots THEN st
-    ELSE CancelLeftCFrom(IF st.reqs[l] # {} /\ ~CurrentRequest(st, l) THEN DropExchange(st, l)
-                         ELSE st, l + 1)
+CancelLeftCFrom(st, r) ==
+    IF r >= Pool THEN st
+    ELSE CancelLeftCFrom(IF st.reqs[r] # {} /\ ~OpenRequest(st, r) THEN DropExchange(st, r)
+                         ELSE st, r + 1)
 
-\* Every request whose lookup has left it is cancelled (request rule 6).
+\* Every request whose try closed is cancelled (request rule 6).
 CancelLeftC(st) == CancelLeftCFrom(st, 0)
 
-\* Slot l's exchange on channel v ended: a response carrying a DNS message, or an end that fails it
-\* (rule 22). Its lookup hears only if the request is still its attempt.
-ExchangeEnded(st, v, l, r) ==
-    LET replied == LookupEvent(st, l, "reply", r)
-        reached == IF ~CurrentRequest(st, l) THEN st
-                   ELSE IF r = "failed" THEN TableEvent(st, l, "requestFailed")
-                   ELSE IF replied[2] = "accepted" THEN Settle(replied[1], l) ELSE replied[1]
-    IN Idled([reached EXCEPT !.reqs[l] = {}, !.chans[v].exchanges = @ \ {l}], v)
+\* Request r's exchange on channel v ended: a response carrying a DNS message, or an end that fails
+\* it (rule 22). Its lookup hears only if r's try is open.
+ExchangeEnded(st, v, r, reply) ==
+    LET reached == IF reply = "failed" THEN TellFailed(st, r) ELSE TellAnswered(st, r, reply) IN
+    Idled([FreeReq(reached, r) EXCEPT !.chans[v].exchanges = @ \ {r}], v)
 
 \* The engine reads channel v, which tells first what it held: an exchange's end (rule 17).
 TellHeldC(st, v) ==
@@ -165,16 +163,15 @@ ShutLapsed(st) == ShutLapsedFrom(st, 0)
 \* tells first what it held (rule 17).
 ChanTake(st, l) ==
     LET v == ServerOf(st, l)
-        cleared == DropExchange(st, l)
-        told == TableEvent(cleared, l, "sent")
-        taken == [told EXCEPT !.reqs[l] = {[server |-> v,
-                                            attempt |-> Attempt(Get(told.slots[l].lookup))]}]
+        took == TakeSlot(st, l, v, LAMBDA x : EvictBy(x, DropExchange))
+        r == took[1]
+        taken == took[2]
         c == taken.chans[v]
         placed == CASE c.stage = "closed" -> [taken EXCEPT !.chans[v].stage = "open",
-                                                           !.chans[v].exchanges = {l},
+                                                           !.chans[v].exchanges = {r},
                                                            !.chans[v].idleNow = FALSE]
-                    [] c.stage = "open" -> [taken EXCEPT !.chans[v].exchanges = @ \cup {l}]
-                    [] OTHER -> [taken EXCEPT !.chans[v].queue = Append(@, l)]
+                    [] c.stage = "open" -> [taken EXCEPT !.chans[v].exchanges = @ \cup {r}]
+                    [] OTHER -> [taken EXCEPT !.chans[v].queue = Append(@, r)]
     IN TellHeldC(placed, v)
 
 \* The channel said closed: shut down, with no exchange left and every link closed. Its slot is
@@ -294,18 +291,18 @@ LinkLent(st) ==
 \* that shuts down keeps requests for the next, and a closed one holds nothing (rules 21 and 24).
 ExchangesPlaced(st) ==
     ~Channel \/
-    /\ \A l \in 0..Slots - 1 :
-          st.reqs[l] = {} \/
-          LET c == st.chans[RequestOf(st, l).server]
-          IN c.stage # "closed" /\ (Contains(c.queue, l) # (l \in c.exchanges))
+    /\ \A r \in 0..Pool - 1 :
+          st.reqs[r] = {} \/
+          LET c == st.chans[RequestOf(st, r).server]
+          IN c.stage # "closed" /\ (Contains(c.queue, r) # (r \in c.exchanges))
     /\ \A v \in 0..CServers - 1 :
           LET c == st.chans[v] IN
           /\ Distinct(c.queue)
           /\ (c.queue = <<>> \/ c.stage = "shutting")
           /\ (c.stage # "closed" \/ c.exchanges = {})
           /\ {h.slot : h \in c.held} \subseteq c.exchanges
-          /\ \A l \in c.exchanges \cup {c.queue[i] : i \in 1..Len(c.queue)} :
-                st.reqs[l] # {} /\ RequestOf(st, l).server = v
+          /\ \A r \in c.exchanges \cup {c.queue[i] : i \in 1..Len(c.queue)} :
+                st.reqs[r] # {} /\ RequestOf(st, r).server = v
 
 \* A channel that shuts down takes no new exchange: a request taken meanwhile waits for the next
 \* (rule 24).
@@ -341,8 +338,12 @@ LinkClosingBounded(before, e, st) ==
 \* (rule 17).
 LinkEndFailsNone(before, e, st) ==
     ~(e.kind = "finish" /\ e.op.kind \in LinkOps /\ e.op.current) \/
-    \A l \in 0..Slots - 1 :
-        before.reqs[l] = {} \/ st.reqs[l] # {} \/
-        l \in UNION {{h.slot : h \in before.chans[v].held} : v \in 0..CServers - 1}
+    \A r \in 0..Pool - 1 :
+        before.reqs[r] = {} \/ st.reqs[r] # {} \/
+        r \in UNION {{h.slot : h \in before.chans[v].held} : v \in 0..CServers - 1} \/
+        \* A request on another channel goes when what the channel told ended its lookup, which
+        \* closed the request's try (§16 decision 66). The owner ruled on 2026-11-05: "Accept, with
+        \* proof". CH11 is the proof: what this still forbids, caught here.
+        (RequestOf(before, r).server # LinkServer(e.op.target) /\ ~StillOpen(before, st, r))
 
 ===============================================================================

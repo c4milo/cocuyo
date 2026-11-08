@@ -11,9 +11,29 @@ VARIABLES s, broken
 -------------------------------------------------------------------------------
 \* What must hold after an event took `before` to `st`.
 
+\* A connection's users are the lookups whose current try uses it, and its keepers each one that
+\* stays on it for an open try (the stream's rule 3).
 UsersCounted(st) ==
     \A k \in 0..Conns - 1 :
-        st.conns[k].users = Cardinality({l \in 0..Slots - 1 : st.slots[l].conn = {k}})
+        /\ st.conns[k].users = Cardinality({l \in 0..Slots - 1 : st.slots[l].conn = {k}})
+        /\ st.conns[k].keepers = Cardinality({l \in 0..Slots - 1 : k \in st.slots[l].kept})
+
+\* A lookup stays on a connection only for an open try there, on an open connection, and never on
+\* the one its current try uses as well (the stream's rule 3; §16 decision 66).
+KeptForItsTry(st) ==
+    \A l \in 0..Slots - 1 :
+        \A k \in st.slots[l].kept :
+            /\ st.conns[k].stage # "closed"
+            /\ KeepsTry(st, l, st.conns[k].server, "tcp")
+            /\ st.slots[l].conn # {k}
+
+\* The socket an open datagram try went out from is still open: the current one, or the one that
+\* drains, which stays open for it (the datagram's rule 4; §16 decision 66).
+KeptFromOpen(st) ==
+    \A l \in 0..Slots - 1 :
+        \A x \in st.slots[l].keptFrom :
+            /\ KeepsTry(st, l, x[1], "udp")
+            /\ (x[2] = "current" \/ (x[2] = "draining" /\ st.socks[x[1]].draining))
 
 AttachedRight(st) ==
     \A l \in 0..Slots - 1 :
@@ -241,6 +261,7 @@ MarkedHeld(st) ==
 
 Checks(before, e, st) ==
     << <<"users counted", UsersCounted(st)>>, <<"attached right", AttachedRight(st)>>,
+       <<"kept for its try", KeptForItsTry(st)>>, <<"kept from open", KeptFromOpen(st)>>,
        <<"buffers lent", BuffersLent(st)>>, <<"one send a stream", OneSendAStream(st)>>,
        <<"borrow kept", BorrowKept(st)>>, <<"sealed in order", SealedInOrder(st)>>,
        <<"queued for its lookup", QueuedForItsLookup(st)>>,
@@ -254,7 +275,7 @@ Checks(before, e, st) ==
        <<"listening", ~Drove(before, e) \/ (ListeningAll(st) /\ RListening(st) /\ LListening(st))>>,
        <<"rotated", ~Drove(before, e) \/ RotatedAll(st)>>,
        <<"requests placed", RequestsPlaced(st)>>, <<"streams when up", StreamsWhenUp(st)>>,
-       <<"requests current", RequestsCurrent(st)>>, <<"closed empty", ClosedEmpty(st)>>,
+       <<"requests open", RequestsOpen(st)>>, <<"pool kept", PoolKept(st)>>, <<"closed empty", ClosedEmpty(st)>>,
        <<"datagram lent", DatagramLent(st)>>, <<"up on protocol", UpOnProtocol(st)>>,
        <<"receive current", RecvCurrent(st)>>, <<"request ticket spent", RTicketSpent(before, st)>>,
        <<"waiting kept", WaitingKept(before, e, st)>>,

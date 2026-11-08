@@ -11678,3 +11678,49 @@ an assertion. `zig build mutations -- lookup TK1 ... TK18` ran each.
 | TK16 | a datagram the current try does not take is offered to no earlier try | `zig build test-resolver` | `CAUGHT` |
 | TK17 | the next search candidate leaves the tries of the name before open | `zig build test-resolver` | `CAUGHT` |
 | TK18 | an earlier try's message that wants keys closes the try the lookup waited on | `zig build test-resolver` | `CAUGHT` |
+
+## The engine keeps each try of a name open
+
+2026-11-04. Design §16 decision 66, the stream's rules 3 and 5 and the datagram's rule 4 of §19
+step 13. A lookup stays on the connection of its open try as a keeper, a socket that drains stays
+open for an open datagram try, and a connection the engine closes itself tells its keepers `local`,
+no server's failure. The tests are in `io/io_kept_test.zig`. KP5's first test had a server that
+refuses a connect, so no try went out and nothing was kept; its server now drops the query.
+`zig build mutations -- engine KP1 KP2 KP3 KP5` ran them.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| KP1 | the drive keeps no connection for an open try, and leaves it at the deadline | `zig build test-io` | `CAUGHT` |
+| KP2 | a draining socket is never owed to an open datagram try | `zig build test-io` | `CAUGHT` |
+| KP3 | the idle close forgets the keepers | `zig build test-io` | `CAUGHT` |
+| KP5 | a connection the engine closed itself counts as its server's failure | `zig build test-io` | `CAUGHT` |
+| KP6 | a poll that asks again for the send in flight holds a second copy | `zig build test-tools` | `CAUGHT` |
+
+KP6 breaks the drive's rule that a poll asking again for the send in flight adds nothing: a reply to
+an earlier try offers a lookup whose send is out, and before the rule the copy went out on the same
+attempt. The short walks missed it, and the full run caught it at walk 14,608, which the picks keep
+since 2026-11-07 (`build/spec.zig`). `zig build mutations -- engine KP6` ran it on the committed
+walks.
+
+2026-11-05, the owner's ruling on the requests over DoH and DoQ. One pool holds each lookup's
+current request and the request of each earlier try it keeps open. A full pool cancels the oldest
+earlier request, whose lookup hears `local`, which names no server. The tests are in
+`io/io_request_test.zig`. `zig build mutations -- engine KP7 KP8 KP9` ran them.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| KP7 | a full pool cancels the oldest earlier request, and its lookup hears nothing | `zig build test-io` | `CAUGHT` |
+| KP8 | the drive cancels each earlier try's request at the deadline, as before decision 66 | `zig build test-io` | `CAUGHT` |
+| KP9 | a request the pool cancelled counts as its server's failure | `zig build test-io` | `CAUGHT` |
+
+The pool made two checks of the engine model false in a state that is now legal: an event on one
+connection or channel ends a lookup, and the drive's cancel then drops that lookup's request that
+waited on another, whose try closed. "Waiting kept" (`EngineRequest.tla`) and "link end fails none"
+(`EngineChannel.tla`) now let such a request go, and only such a request. The owner ruled on
+2026-11-05: "Accept, with proof". The proof is a mutant for each that breaks what the narrowed
+check still forbids, caught by that check. TLC found each, and CH8 is still caught.
+
+| Id | Mutation | Rule | Check | Result |
+| --- | --- | --- | --- | --- |
+| CH11 | a link's end drops each request on its own channel that the channel does not hold, neither failed nor told | request rule 19 | link end fails none | CAUGHT |
+| RQ23 | a connection that fails drops the requests that wait on every other connection that closes, whose tries are still open | request rule 9 | waiting kept | CAUGHT |

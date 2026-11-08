@@ -99,13 +99,16 @@ pub fn on_request_answer(self: *Lookup, transaction: u16, message: []const u8, a
 }
 
 /// An earlier request over DoH or DoQ ended without an answer: it closes that try, and its server
-/// is the cause (`earlierFailed`). False when no open try has that number.
+/// is the cause (`earlierFailed`). A request the driver cancelled itself, its request pool full,
+/// is `local`: no server took part, so the cause stays (docs/design.md §24, request rule 3). False
+/// when no open try has that number.
 pub fn on_request_failed(self: *Lookup, transaction: u16, reason: Reason, now_ns: u64) bool {
     assert(self.config.sends_requests());
     if (self.is_settled()) return false;
     const index = self.tries.numbered(transaction) orelse return false;
     const slot = self.order[self.tries.items[index].position];
     self.tries.remove(index);
+    if (reason == .local) return true;
     self.servers.record_failure(slot, now_ns);
     failure_module.keep_at(self, slot, .{ .reason = reason });
     return true;
@@ -113,14 +116,16 @@ pub fn on_request_failed(self: *Lookup, transaction: u16, reason: Reason, now_ns
 
 /// The connection to `server`, which the lookup is no longer on, failed: it closes each stream try
 /// open on it, and its server is the cause (`earlierFailed`). Such a connection was up, since a
-/// try went out on it, so it can only have closed.
+/// try went out on it, so it can only have closed. A driver that closed it itself, to make room
+/// or at the last leave of a query's send, says `local`: no server took part, so no server failed
+/// and the cause stays (docs/design.md §19 step 13, the stream's rule 5).
 pub fn on_connection_failed(self: *Lookup, server: u8, reason: Reason, now_ns: u64) void {
     var closed = false;
     for (0..self.config.server_count()) |position| {
         if (self.order[position] != server) continue;
         closed = close_streams_at(self, @intCast(position)) or closed;
     }
-    if (!closed) return;
+    if (!closed or reason == .local) return;
     assert(reason == .closed);
     self.servers.record_failure(server, now_ns);
     failure_module.keep_at(self, server, .{ .reason = reason });

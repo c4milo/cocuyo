@@ -26,20 +26,23 @@ ArmReceive(st, k) == IF st.jammed THEN st ELSE [st EXCEPT !.ops = Add(@, Op("rec
 -------------------------------------------------------------------------------
 \* Sockets.
 
-\* Moves every slot's record of server v's socket `older` to `newer`.
+\* Moves every slot's record of server v's socket `older` to `newer`: the socket its last datagram
+\* left from, and the one each of its open datagram tries left from.
 AgeSockets(st, v, older, newer) ==
-    LET sl == st.slots IN
-    [st EXCEPT !.slots = [l \in DOMAIN sl |->
-        IF sl[l].sentFrom = {<<v, older>>} THEN [sl[l] EXCEPT !.sentFrom = {<<v, newer>>}]
-        ELSE sl[l]]]
+    LET sl == st.slots
+        aged(x) == IF x = <<v, older>> THEN <<v, newer>> ELSE x
+    IN [st EXCEPT !.slots = [l \in DOMAIN sl |->
+        [sl[l] EXCEPT !.sentFrom = {aged(x) : x \in @}, !.keptFrom = {aged(x) : x \in @}]]]
 
 \* Whether server v's draining socket is still owed an answer, or the end of a send from it.
 DrainNeeded(st, v) ==
     \E l \in 0..Slots - 1 :
         LET sl == st.slots[l] IN
-        sl.sentFrom = {<<v, "draining">>} /\
-        (sl.busy \/ (sl.lookup # {} /\ Get(sl.lookup).stage = "awaitingUdp" /\
-                     ServerOf(st, l) = v))
+        \/ sl.sentFrom = {<<v, "draining">>} /\
+           (sl.busy \/ (sl.lookup # {} /\ Get(sl.lookup).stage = "awaitingUdp" /\
+                        ServerOf(st, l) = v))
+        \* An open try that went out from it still waits for its answer (§16 decision 66).
+        \/ <<v, "draining">> \in sl.keptFrom
 
 \* Closes server v's draining socket: its receive cancelled, the socket gone.
 CloseDrain(st, v) ==
@@ -125,7 +128,7 @@ MakeRecords(st, k) ==
 \* has gone, as an idle one does after its close_notify (TLS rules 4 and 5, RFC 9846 §6.2). It is
 \* idle from this instant, so the idle close's wait bounds it (§16 decision 49).
 Refuse(st, k) ==
-    LET told == TellAll(st, k, FALSE)
+    LET told == TellKept(TellAll(st, k, FALSE), k, "failed")
         sl == told.slots
         c == told.conns[k]
         freed == FreeBuffers(told, QuerySlots(Drop(c.queue, c.sealed)))
@@ -145,7 +148,7 @@ CloseIdleFrom(st, k) ==
     IF k >= Conns THEN st
     ELSE
     LET c == st.conns[k]
-        closed == IF c.stage = "closed" \/ c.users # 0 \/ c.idleNow THEN st
+        closed == IF c.stage = "closed" \/ c.users # 0 \/ c.keepers # 0 \/ c.idleNow THEN st
                   ELSE IF Tls /\ c.stage = "up"
                   THEN MakeRecords([st EXCEPT !.conns[k].stage = "closing",
                                               !.conns[k].idleNow = TRUE], k)
@@ -170,6 +173,12 @@ SubmitDatagram(st, l) ==
     IN [lent EXCEPT !.socks[v].sent = sent,
                     !.socks[v].retiring = @ \/ (PerPort > 0 /\ sent >= PerPort)]
 
+\* Whether the slot's lent buffer holds its lookup's current attempt: a current send of it in flight,
+\* or its query waiting in its connection's queue.
+SendsNow(st, l) ==
+    \/ \E op \in DOMAIN st.ops : IsSend(op.kind) /\ op.target = l /\ op.current
+    \/ st.slots[l].conn # {} /\ Contains(st.conns[Get(st.slots[l].conn)].queue, Query(l))
+
 \* The lookup's query goes out, or waits for the buffer (rule 6), on the lookup's own transport.
 \* A query on a stream goes out on a connection that is up. The lookup heard that it was up, and
 \* each end of a connection tells each lookup on it at once. A held send goes out only on the
@@ -177,7 +186,10 @@ SubmitDatagram(st, l) ==
 \* connection that is not up is an error of the engine, which TLC reports (§17 question 66).
 Send(st, l) ==
     LET sl == st.slots[l] IN
-    IF sl.busy THEN [st EXCEPT !.slots[l].held = TRUE, !.slots[l].heldCurrent = TRUE]
+    \* The slot's buffer already holds this attempt's send: a reply to an earlier try offered the
+    \* lookup while its send was out, and its poll asked for it again (§16 decision 66).
+    IF sl.busy /\ SendsNow(st, l) THEN st
+    ELSE IF sl.busy THEN [st EXCEPT !.slots[l].held = TRUE, !.slots[l].heldCurrent = TRUE]
     ELSE IF sl.lookup = {} THEN st
     ELSE IF Get(sl.lookup).stage = "queryReady" THEN SubmitDatagram(st, l)
     ELSE IF Assert(sl.conn # {} /\ st.conns[Get(sl.conn)].stage = "up",

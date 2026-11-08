@@ -351,10 +351,13 @@ theorem step_server (c : Config) (s : State) (e : Event) (h : ServerFits c s) (h
     · exact h
     · rename_i hn
       have hp : p < c.servers := lt_of_open c s stream p ho (by intro hz; exact hn (Or.inr hz))
+      -- The cause is the state's, for a connection the driver closed, or one that names `p`.
       unfold earlierFailed
-      split
-      · exact ⟨fun _ => by simpa [keepAt] using hs, fun k hk => by simp [keepAt] at hk; subst hk; exact hp⟩
-      · exact ⟨fun _ => by simpa [keepAt] using hs, fun k hk => by simp [keepAt] at hk; subst hk; exact hp⟩
+      refine ⟨fun _ => by split <;> simpa using hs, fun k hk => ?_⟩
+      split at hk <;> (dsimp only at hk; split at hk)
+      all_goals first
+        | exact h.2 k (by simpa [closeTry] using hk)
+        | (simp at hk; subst hk; exact hp)
   | keysReady =>
     simp only [step]
     split

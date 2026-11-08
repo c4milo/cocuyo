@@ -42,6 +42,7 @@ const tries_module = @import("lookup_tries.zig");
 const earlier_module = @import("lookup_earlier.zig");
 pub const Validator = validate_module.Validator;
 pub const Try = tries_module.Try;
+pub const Carrier = tries_module.Carrier;
 
 pub const State = enum {
     /// A query is ready to be sent to the current server over UDP, or over DoH or DoQ as one
@@ -456,6 +457,13 @@ pub const Lookup = struct {
 
     pub fn failure_of(self: *const Lookup) Failure {
         return failure_module.failure_of(self);
+    }
+
+    /// The newest earlier try open at the configured server `configured`, over `carrier`, or
+    /// null (docs/design.md §5, Tries kept open). A lookup that ended keeps none.
+    pub fn earlier_try_at(self: *const Lookup, configured: u8, carrier: Carrier) ?u8 {
+        if (self.is_settled()) return null;
+        return tries_module.earlier_at(self, configured, carrier);
     }
 
     /// The lookup as the earlier try at `index` left it: its id, server, case and cookie in the

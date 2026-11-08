@@ -8119,4 +8119,76 @@
         },
         .caught_by = .{ .step = "test-sim" },
     },
+    .{
+        .section = "The engine keeps each try of a name open",
+        .id = "KP1",
+        .what = "the drive keeps no connection for an open try, and leaves it at the deadline",
+        .edits = .{
+            .{ .file = "io/io_kept.zig", .old = "            if (lookup.earlier_try_at(server, .stream) != null) keep(self, index, at, now_ns) else release_current(self, index, now_ns);", .new = "            release_current(self, index, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The engine keeps each try of a name open",
+        .id = "KP2",
+        .what = "a draining socket is never owed to an open datagram try",
+        .edits = .{
+            .{ .file = "io/io_drive.zig", .old = "    return kept_module.owes(self, server, epoch);", .new = "    return false;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The engine keeps each try of a name open",
+        .id = "KP3",
+        .what = "the idle close forgets the keepers",
+        .edits = .{
+            .{ .file = "io/io_tcp.zig", .old = "        if (connection.state == .closed or connection.users != 0 or connection.keepers != 0) continue;", .new = "        if (connection.state == .closed or connection.users != 0) continue;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The engine keeps each try of a name open",
+        .id = "KP5",
+        .what = "a connection the engine closed itself counts as its server's failure",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_earlier.zig", .old = "    if (!closed or reason == .local) return;\n    assert(reason == .closed);", .new = "    if (!closed) return;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The engine keeps each try of a name open",
+        .id = "KP6",
+        .what = "a poll that asks again for the send in flight holds a second copy",
+        .edits = .{
+            .{ .file = "io/io_send.zig", .old = "    if (self.send_owner[index]) |owner| if (is_current(self, index, owner)) return;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "The engine keeps each try of a name open",
+        .id = "KP7",
+        .what = "a full pool cancels the oldest earlier request, and its lookup hears nothing",
+        .edits = .{
+            .{ .file = "io/io_request.zig", .old = "    if (open(self, oldest)) self.resolver.on_request_failed(request.handle, request.transaction, .local, now_ns);\n", .new = "    _ = request;\n" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The engine keeps each try of a name open",
+        .id = "KP8",
+        .what = "the drive cancels each earlier try's request at the deadline, as before decision 66",
+        .edits = .{
+            .{ .file = "io/io_request.zig", .old = "        if (request.live and !open(self, index)) drop(self, index, now_ns);", .new = "        if (request.live and !current(self, index)) drop(self, index, now_ns);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "The engine keeps each try of a name open",
+        .id = "KP9",
+        .what = "a request the pool cancelled counts as its server's failure",
+        .edits = .{
+            .{ .file = "src/resolver/lookup_earlier.zig", .old = "    self.tries.remove(index);\n    if (reason == .local) return true;", .new = "    self.tries.remove(index);" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
 }

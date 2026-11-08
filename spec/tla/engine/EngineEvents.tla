@@ -12,26 +12,44 @@ EXTENDS EngineChannel
 \* shuts it. Over TLS it says close_notify and closes, as the idle close does, with no wait (§16
 \* decision 54; TLS rule 5).
 EndMarked(st, k) ==
-    IF Tls THEN MakeRecords([st EXCEPT !.conns[k].stage = "closing", !.conns[k].idleNow = TRUE], k)
-    ELSE Shut(st, k)
+    LET told == TellKept(st, k, "local") IN
+    IF Tls THEN MakeRecords([told EXCEPT !.conns[k].stage = "closing", !.conns[k].idleNow = TRUE], k)
+    ELSE Shut(told, k)
 
-\* The lookup leaves its connection (Release). The last leave of a marked connection ends it at
+\* After a leave of connection k as `released`: the last leave of a marked connection ends it at
 \* once, since no lookup may join it. `unsaid` notes a mistake: over TLS, with no send refused, the
 \* end left the connection anything but closing, so the peer heard no close_notify.
-Leave(st, l) ==
-    LET released == Release(st, l) IN
-    IF st.slots[l].conn = {} THEN released
-    ELSE
-    LET k == Get(st.slots[l].conn)
-        c == released.conns[k]
+AfterLeave(released, k) ==
+    LET c == released.conns[k]
         ended == EndMarked(released, k)
     IN IF ~c.marked \/ c.users # 0 \/ c.stage # "up" THEN released
        ELSE [ended EXCEPT !.unsaid = @ \/ (Tls /\ ~released.jammed /\
                                             ended.conns[k].stage # "closing")]
 
+\* The lookup leaves its connection (Release), or stays on it for the open try its query went out
+\* for (Keep; the stream's rule 3, §16 decision 66).
+Leave(st, l) ==
+    IF st.slots[l].conn = {} THEN st
+    ELSE
+    LET k == Get(st.slots[l].conn) IN
+    IF KeepsTry(st, l, st.conns[k].server, "tcp") THEN AfterLeave(Keep(st, l), k)
+    ELSE AfterLeave(Release(st, l), k)
+
+RECURSIVE TidyFrom(_, _, _)
+TidyFrom(st, l, ks) ==
+    IF ks = {} THEN st
+    ELSE LET k == Least(ks) IN
+         TidyFrom(IF KeepsTry(st, l, st.conns[k].server, "tcp") THEN st
+                  ELSE AfterLeave(ReleaseKept(st, l, k), k), l, ks \ {k})
+
+\* The lookup leaves each connection it stayed on whose try has closed: answered, failed, or ended
+\* with the lookup (the stream's rule 3).
+TidyKept(st, l) == TidyFrom(st, l, st.slots[l].kept)
+
 Report(st, l) ==
     IF st.slots[l].reported THEN <<st, FALSE>>
-    ELSE <<[Leave([st EXCEPT !.slots[l].reported = TRUE], l) EXCEPT !.results = Append(@, l)],
+    ELSE <<[TidyKept(Leave([st EXCEPT !.slots[l].reported = TRUE], l), l) EXCEPT
+              !.results = Append(@, l)],
            TRUE>>
 
 \* What the drive does with one lookup's poll. The lookup no longer waits for a slot, and leaves
@@ -43,7 +61,7 @@ Act(st, l, out) ==
         placed == IF sl.conn # {} /\ sl.lookup # {} /\
                      ~(OnStream(Get(sl.lookup).stage) /\
                        st.conns[Get(sl.conn)].server = ServerOf(st, l))
-                  THEN Leave(unwaited, l) ELSE unwaited
+                  THEN TidyKept(Leave(unwaited, l), l) ELSE TidyKept(unwaited, l)
     IN CASE out = "connectTcp" -> <<Want(placed, l), TRUE>>
          [] out \in {"sendTcp", "sendUdp"} -> <<Send(placed, l), TRUE>>
          [] out = "sendRequest" ->
@@ -142,6 +160,7 @@ RetryFull(st, k) ==
         c == cancelled.conns[k]
     IN ConnectAgain([cancelled EXCEPT !.conns[k] =
            [NoConn EXCEPT !.stage = "reopening", !.server = c.server, !.users = c.users,
+                          !.keepers = c.keepers,
                           !.idleNow = c.idleNow]], k)
 
 RecordsSendEnded(st, op, outcome) ==
@@ -200,6 +219,14 @@ Message(st, l, r) ==
     LET heard == LookupEvent(st, l, "reply", r) IN
     IF heard[2] = "accepted" THEN Settle(heard[1], l) ELSE heard[1]
 
+\* A message for the open try of slot l at configured server v over transport `kind`, which a
+\* connection the lookup stays on or a socket an open try went out from brought (§5, Tries kept
+\* open). A connection whose try it closed is left.
+EarlierMessage(st, l, v, kind, r) ==
+    LET heard == LookupEvent(st, l, "earlier", <<PosOf(st, l, v), kind, r>>)
+        tidied == TidyKept(heard[1], l)
+    IN IF heard[2] = "accepted" THEN Settle(tidied, l) ELSE tidied
+
 Start(st) ==
     IF st.free = <<>> THEN st
     ELSE
@@ -207,7 +234,8 @@ Start(st) ==
     Offer([st EXCEPT !.free = Tail(@), !.slots[l].lookup = {LInit}, !.slots[l].order = <<>>,
                      !.slots[l].conn = {}, !.slots[l].held = FALSE,
                      !.slots[l].heldCurrent = FALSE, !.slots[l].reported = FALSE,
-                     !.slots[l].expired = FALSE], l)
+                     !.slots[l].expired = FALSE, !.slots[l].kept = {},
+                     !.slots[l].keptFrom = {}], l)
 
 TakeResult(st) ==
     LET freed ==
@@ -259,6 +287,11 @@ Happen(st, e) ==
       [] e.kind = "idle" -> Drive(Pass(Moving(st), 1), TRUE)
       [] e.kind = "finish" -> Drive(Finish(st, e.op, e.outcome), FALSE)
       [] e.kind = "message" -> Drive(Message(st, e.slot, e.reply), FALSE)
+      [] e.kind = "earlier" ->
+            Drive(EarlierMessage(st, e.slot,
+                                 IF e.op.kind = "receive" THEN st.conns[e.op.target].server
+                                 ELSE e.op.target,
+                                 IF e.op.kind = "receive" THEN "tcp" ELSE "udp", e.reply), FALSE)
       [] e.kind = "tls" -> Drive(TlsStep(st, e.op.target, e.step), FALSE)
       [] e.kind = "quic" -> Drive(QuicStep(st, e.op.target, e.step, e.slot, e.reply), FALSE)
       [] e.kind = "qtime" -> Drive(QuicTime(st, e.server, e.step), FALSE)
@@ -290,6 +323,16 @@ Awaits(st, op, l) ==
     IN \/ op.kind = "receive" /\ sl.conn = {op.target} /\ stage = "awaitingTcp"
        \/ op.kind = "receiveFrom" /\ ServerOf(st, l) = op.target /\ stage = "awaitingUdp" /\
           sl.sentFrom = {<<op.target, age>>}
+
+\* Whether a receive's operation brings a message for an open earlier try of slot l: a connection
+\* the lookup stays on, or the socket that try went out from, current or draining.
+AwaitsEarlier(st, op, l) ==
+    LET sl == st.slots[l]
+        age == IF op.draining THEN "draining" ELSE "current"
+    IN \/ op.kind = "receive" /\ op.target \in sl.kept /\
+          KeepsTry(st, l, st.conns[op.target].server, "tcp")
+       \/ op.kind = "receiveFrom" /\ <<op.target, age>> \in sl.keptFrom /\
+          KeepsTry(st, l, op.target, "udp")
 
 \* What the table may make of a message a receive brought (§5, §7). Under `Truncates` a datagram
 \* may also say TC, or come cut by its buffer (§19 step 13, the datagram's rule 6). A stream's
@@ -373,7 +416,8 @@ Enabled(st) ==
     {[Ev("cancel") EXCEPT !.slot = l] :
         l \in {l \in 0..Slots - 1 : st.slots[l].lookup # {} /\ ~Ended(Get(st.slots[l].lookup).stage)}} \cup
     (IF WaitingSlots(st) # {} THEN {Ev("expire")} ELSE {}) \cup
-    (IF \/ \E k \in 0..Conns - 1 : st.conns[k].stage # "closed" /\ st.conns[k].users = 0
+    (IF \/ \E k \in 0..Conns - 1 : st.conns[k].stage # "closed" /\ st.conns[k].users = 0 /\
+                                   st.conns[k].keepers = 0
         \/ \E v \in 0..RServers - 1 : st.rconns[v].stage \in {"handshaking", "up"} /\ RUsers(st, v) = 0
         \/ \E v \in 0..CServers - 1 : st.chans[v].stage = "open" /\ CUsers(st, v) = 0
         \/ \E i \in 0..2 * CServers - 1 : st.links[i].state = "closing"
@@ -384,6 +428,9 @@ Enabled(st) ==
     UNION {{[Ev("message") EXCEPT !.op = op, !.slot = l, !.reply = r] :
                 l \in {l \in 0..Slots - 1 : Awaits(st, op, l)}, r \in Replies(op)} :
            op \in {op \in DOMAIN st.ops : Receives(op) /\ op.current}} \cup
+    UNION {{[Ev("earlier") EXCEPT !.op = op, !.slot = l, !.reply = r] :
+                l \in {l \in 0..Slots - 1 : AwaitsEarlier(st, op, l)}, r \in Replies(op)} :
+           op \in {op \in DOMAIN st.ops : op.kind \in {"receive", "receiveFrom"} /\ op.current}} \cup
     UNION {{[Ev("tls") EXCEPT !.op = op, !.step = t] : t \in TlsSteps(st, op)} :
            op \in DOMAIN st.ops} \cup
     {[Ev("straggle") EXCEPT !.op = op] : op \in {op \in DOMAIN st.ops : Receives(op) /\ ~op.current}} \cup

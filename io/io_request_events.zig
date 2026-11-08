@@ -155,21 +155,22 @@ pub fn doq_message(bytes: []const u8) ?[]const u8 {
 }
 
 /// A stream ended: answered, or reset by the server when `answered` is null. The lookup hears it if
-/// the request is still its attempt (request rules 5 and 7), and the slot is free. A DoQ answer's
+/// the request's try is open (request rules 5 and 7), and the slot is the pool's again. A DoQ answer's
 /// `Age` is 0.
 fn ended(self: anytype, server: u8, stream: u64, answered: ?[]const u8, now_ns: u64) void {
     // A stream the engine let go of: its request was cancelled, and whatever it carries tells
     // nobody (request rule 6).
     const index = request_module.of_stream(self, server, stream) orelse return;
     const request = &self.requests[index];
-    if (request_module.current(self, index)) {
+    // The current try's request, or an earlier try's that its lookup keeps open (§16 decision 66).
+    if (request_module.open(self, index)) {
         if (answered) |message| {
             _ = self.resolver.on_request_answer(request.handle, request.transaction, message, 0, now_ns);
         } else {
             self.resolver.on_request_failed(request.handle, request.transaction, .reset, now_ns);
         }
     }
-    request.live = false;
+    request_module.free(self, index);
     const connection = &self.quic.connections[server];
     assert(connection.streams >= 1);
     connection.streams -= 1;

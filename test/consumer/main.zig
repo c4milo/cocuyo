@@ -9,7 +9,8 @@ const cocuyo = @import("cocuyo");
 
 /// Small on purpose: this proves the package, not the library.
 const lookups = 2;
-const keys_per_lookup = 4;
+/// The table asserts this many keys for each slot at least (docs/design.md §17 question 123).
+const keys_per_lookup = cocuyo.resolver.limits.keys_per_slot_min;
 const cache_entries = 4;
 const seed = 1;
 const now_ns = 1;

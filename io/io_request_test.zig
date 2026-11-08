@@ -147,9 +147,11 @@ test "a ticket the server gave is kept, and the next connection resumes with it"
     try rig.deinit();
 }
 
-test "a request its lookup left is cancelled with STOP_SENDING, and the next server answers" {
+test "a request whose try closed is cancelled with STOP_SENDING, and the next server answers" {
     // The first server's handshake ends, and it never answers the stream: the lookup's deadline
-    // moves it on, and the drive cancels the stream it left (request rule 6, RFC 9250 §4.3.1).
+    // moves it on, and the request stays while its try is open. The next server's answer ends
+    // the lookup, which closes that try, and the drive cancels the stream (request rule 6, RFC
+    // 9250 §4.3.1).
     var rig: Rig = .{};
     try start(&rig, 65, .{ .{ .drop_per_256 = fixtures.always }, .{} });
     _ = try rig.engine.start(question("example.com."), rig.loop.now());
@@ -338,4 +340,64 @@ test "one read of a connection takes an end for each request and 16 of its own, 
     request_events.expire_due(&rig.engine, rig.loop.now());
     try testing.expectEqual(per_read + 1, transport.said);
     try rig.deinit();
+}
+
+/// The wait for each server, and the first server's delay for each datagram: its answer comes after
+/// the first wait, and before the second ends.
+const late_wait_ns: u64 = 1_000_000_000;
+const late_delay_ns: u64 = 700_000_000;
+
+test "an earlier try's request stays open over DoQ, and its late answer ends the lookup" {
+    var rig: Rig = .{};
+    const quic: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
+    for (&rig.servers) |*server| server.quic = quic;
+    // Before the pool kept it, the drive cancelled the first request at the deadline, and the
+    // second server, which drops each query, left the lookup to time out.
+    try rig.init(66, .{ .{ .delay_ns_min = late_delay_ns, .delay_ns_max = late_delay_ns }, .{ .drop_per_256 = fixtures.always } }, .{ .servers = &.{}, .timeout_ns = late_wait_ns, .attempts = 1, .failover_retry_chance = 0 });
+    rig.use_test_contexts();
+    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    const result = try rig.until_result();
+    try testing.expect(result.outcome == .answer);
+    try testing.expect(rig.loop.now() > late_wait_ns);
+    _ = rig.engine.take(rig.loop.now());
+    try rig.deinit();
+}
+
+/// An engine whose request pool holds one slot for each lookup alone.
+const Tight = io.Resolver(.{
+    .lookups = fixtures.small_lookups,
+    .group_buffers = fixtures.group_buffers,
+    .tcp_connections = 0,
+    .quic = rotor.quic.Connection,
+    .requests = fixtures.small_lookups,
+});
+
+test "a full request pool cancels the oldest earlier request, whose lookup hears local, no failure" {
+    var rig: sim_test.RigOf(Tight) = .{};
+    const quic: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
+    for (&rig.servers) |*server| server.quic = quic;
+    try rig.init(67, .{ .{ .drop_per_256 = fixtures.always }, .{ .drop_per_256 = fixtures.always } }, .{ .servers = &.{}, .timeout_ns = late_wait_ns, .attempts = 1, .failover_retry_chance = 0 });
+    rig.use_test_contexts();
+    // Every slot of the pool holds a lookup's request to the first server.
+    var handles: [fixtures.small_lookups]cocuyo.Handle = undefined;
+    for (&handles) |*handle| handle.* = try rig.engine.start(question("example.com."), rig.loop.now());
+    // Each deadline moves its lookup to the second server, whose request takes the slot of the
+    // oldest earlier one. That try closes, and its server takes no failure beyond its deadline's.
+    for (0..fixtures.until_rounds_max) |_| {
+        if (all_moved(&rig, &handles)) break;
+        _ = try rig.step(late_wait_ns / 4);
+    }
+    try testing.expect(all_moved(&rig, &handles));
+    for (handles) |handle| try testing.expectEqual(@as(u8, 0), rig.engine.resolver.lookup_of(handle).tries.count);
+    // One failure for each lookup's deadline, and none for a request the pool cancelled.
+    try testing.expectEqual(@as(u8, fixtures.small_lookups), rig.engine.resolver.servers.failures(0));
+    try rig.deinit();
+}
+
+/// Whether every lookup of `handles` is on the second server.
+fn all_moved(rig: anytype, handles: []const cocuyo.Handle) bool {
+    for (handles) |handle| {
+        if (rig.engine.resolver.lookup_of(handle).server_index != 1) return false;
+    }
+    return true;
 }

@@ -73,8 +73,10 @@ would agree with the code by construction and prove nothing about it.
   - In `LookupProofs/Tries.lean` and `LookupProofs/CauseOpen.lean`, the tries kept open
     (docs/design.md §5, Tries kept open; §16 decision 66). A reply to an earlier try closes it.
     One the lookup acts on moves the lookup as the current try's would, and one that would move
-    it on closes that try alone and names its server as the cause. A later pass over a stream to
-    a server with an open try waits on it and sends nothing (`waitOn`). The measure of `step_le`
+    it on closes that try alone and names its server as the cause. A connection of an earlier try
+    that fails closes its tries there and names its server, unless the driver closed it itself:
+    `local` keeps the cause. A later pass over a stream to a server with an open try waits on it
+    and sends nothing (`waitOn`). The measure of `step_le`
     covers both: closing a try keeps it, and an earlier try's moves are moves a reply already
     makes. `earlier_clears` and `earlier_checked_clears` say that an earlier try's message clears
     each conjunction as the current try's does, so `authenticated_needs_ad_earlier` and
@@ -496,7 +498,8 @@ The table's bound on the soonest deadline takes any deadline a lookup arms, and 
 
 `tla/engine/` holds the engine model in TLA+, checked by TLC through pepegrillo's `tla` tool
 (docs/design.md §16 decision 24). It was ported from the Lean model, definition by definition:
-`EngineTable.tla` holds the configuration, the lookup's transitions the engine asks of it, the
+`EngineLookup.tla` holds the configuration and the lookup's transitions the engine asks of it,
+split from `EngineTable.tla` on 2026-11-03 by the file-length rule; `EngineTable.tla` holds the
 table and the connections; `EngineIo.tla` the sockets and the sends; `EngineRequest.tla` the
 requests over DoQ, and `EngineChannel.tla` DoH through colibri's channel (§24); `EngineEvents.tla`
 the drive and the events; and `Engine.tla` the checks and the specification. `EngineEvents.tla`
@@ -504,6 +507,21 @@ was split from `Engine.tla` on 2026-09-27 by the file-length rule, with nothing 
 came before: TLC orders strings as it first reads them, so a check read ahead of the events would
 change the order of their successors, and with it every walk. The Lean model retired once the
 replay read its walks from TLC.
+
+Since 2026-11-03 the model holds the tries a lookup keeps open (docs/design.md §16 decision 66).
+A lookup keeps a try open when its deadline moves it on: the position its query went to and its
+transport. A message on a connection it stays on, or on the socket a datagram try went out from,
+is a reply to that try (`earlier`). A slot keeps the connections and the sockets of its open tries,
+and a connection counts its keepers apart from its users. A connection the engine closes to make
+room, or at a last leave, tells its keepers `local`, which is no server's failure. Checks "kept for
+its try" and "kept from open" hold each, and "users counted" counts the keepers too. Since
+2026-11-05 the requests over DoH and DoQ are one pool of `Pool` slots, one more than the lookups so
+that a walk fills it (§24, request rule 3). An earlier try's request keeps its slot while the try is
+open. A full pool cancels the oldest earlier request, and its lookup hears `local`. Checks "requests
+open" and "pool kept" hold both. "Waiting kept" lets a request that waits on a closing connection go
+when an event on another connection closed its try, and only then. The checks found one
+fault of the design, which both now avoid: a reply to an earlier try offered a lookup whose send
+was out, and its poll asked for that send again, which went out twice.
 
 Three choices make TLC count what the Lean walker counts:
 

@@ -139,6 +139,7 @@ pub fn reinit(
     tcp.cancel_all(self);
     tcp.close_all(self);
     self.tcp_connection = @splat(null);
+    self.kept.forget();
     request_tend.cancel_all(self);
     request_tend.close_all(self);
     channel_link.cancel_all(self);

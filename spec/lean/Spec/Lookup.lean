@@ -193,10 +193,15 @@ def earlierHeard (c : Config) (s : State) (p : Nat) (stream : Bool) (r : Reply) 
   else (passed t p r, .accepted)
 
 /-- The connection of an earlier try at position `p` failed, which closes every stream try on it, or
-an earlier request failed, which closes that try. The server's failure is the cause. -/
+an earlier request failed, which closes that try. The server's failure is the cause, unless the
+driver closed the connection itself (`local`). -/
 def earlierFailed (s : State) (p : Nat) (stream : Bool) (r : Reason) : State :=
   let t := if stream then { s with openStreams := s.openStreams.set p 0 } else closeTry s false p
-  keepAt t p (.reason r)
+  -- A connection the driver closed to make room, or at the last leave of a query's send, is no
+  -- server's failure: `local`, no server took part (docs/design.md §19 step 13, the stream's rule
+  -- 5). Nor is a request the driver cancelled when its request pool was full (§24, request rule
+  -- 3). The try closes, and the cause stays.
+  { t with cause := if r = .«local» then t.cause else some { server := p, what := .reason r } }
 
 /-- The keys came: the same server is asked again over the transport the lookup starts on, as a
 retry asks it (docs/design.md §25, step 11). The wait was counted when it began. -/
@@ -278,7 +283,8 @@ def earlierEvents (c : Config) (s : State) : List Event :=
     let authentic := if c.authenticatedData = .ignored || c.validate then []
       else (kinds.filter (actsOn reads)).map fun r => Event.earlier p stream r true none
     let failures :=
-      if stream then (if onStream s.stage ∧ p = s.server then [] else [Event.earlierFailed p true .closed])
+      if stream then (if onStream s.stage ∧ p = s.server then []
+        else [Event.earlierFailed p true .closed, Event.earlierFailed p true .«local»])
       else if c.request then (requestReasons c).map (Event.earlierFailed p false) else []
     replies ++ authentic ++ failures
 

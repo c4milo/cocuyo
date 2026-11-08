@@ -1,150 +1,7 @@
 ----------------------------- MODULE EngineTable -----------------------------
-\* The engine of docs/design.md §19 step 13, §21 and §24, written from the stream's rules, the
-\* datagram's rules, the TLS rules and the request rules, and never from the Zig source
-\* (spec/README.md). This
-\* module holds the configuration, the lookup's transitions the engine asks of it, the table and
-\* the connections; EngineIo.tla holds the sockets and the sends, and Engine.tla the drive, the
-\* events and the checks. It was ported from the Lean model that came before it, and held to it by
-\* count until that one retired (§16 decision 24).
-\*
-\* Three choices of the port. An absent value is the empty set and a present one a set of one.
-\* The loop's operations are a bag: every rule reads them as a multiset, so an event names an
-\* operation by its value and TLC counts a state once whatever the order they came in. Numbers
-\* the Lean model took from `Nat` subtract with `Sub`, which stops at zero as `Nat` does.
-EXTENDS Naturals, Sequences, FiniteSets, Bags
-
-CONSTANTS
-    Servers,      \* the configured servers
-    Slots,        \* the table's slots
-    Conns,        \* the connection slots
-    PollsMax,     \* the polls one drive makes at most, as the code bounds it
-    TimeoutTicks, \* the ticks a lookup waits for its server
-    UseTcp,       \* every query over TCP
-    PerPort,      \* the queries a port carries before it is replaced; zero for never
-    Tls,          \* every server speaks TLS, so every query goes on a stream (§21)
-    Request,      \* every server speaks DoQ or DoH, so every query is a request (§24)
-    Channel,      \* every server speaks DoH through colibri's channel (§24, rules 18 to 25)
-    OpsMax,       \* the walk's bound on the operations the loop holds
-    FailuresMax,  \* the walk's bound on a server's failures
-    SentMax       \* the walk's bound on the queries a port has carried
-
-\* Whether a datagram's answer may come truncated: TC set by its server, or the datagram cut by the
-\* buffer it arrives in (docs/design.md §7, §19 step 13, the datagram's rule 6). Only the
-\* configurations of that rule set it, with `Truncates <- Truncating`. So each other configuration
-\* reaches what it reached before.
-Truncates == FALSE
-Truncating == TRUE
-
--------------------------------------------------------------------------------
-\* Helpers.
-
-Sub(a, b) == IF a > b THEN a - b ELSE 0
-Get(opt) == CHOOSE x \in opt : TRUE
-Least(S) == CHOOSE x \in S : \A y \in S : x <= y
-Lesser(a, b) == IF a < b THEN a ELSE b
-Contains(seq, x) == \E i \in 1..Len(seq) : seq[i] = x
-Take(seq, n) == SubSeq(seq, 1, Lesser(n, Len(seq)))
-Drop(seq, n) == IF n >= Len(seq) THEN <<>> ELSE SubSeq(seq, n + 1, Len(seq))
-HeadIs(seq, x) == Len(seq) > 0 /\ Head(seq) = x
-
-RECURSIVE SumOver(_, _)
-\* The copies of every element of S in bag B.
-SumOver(S, B) == IF S = {} THEN 0 ELSE
-    LET x == CHOOSE x \in S : TRUE IN B[x] + SumOver(S \ {x}, B)
-
-Count(B, P(_)) == SumOver({x \in DOMAIN B : P(x)}, B)
-Add(B, x) == B (+) SetToBag({x})
-Remove(B, x) == B (-) SetToBag({x})
-\* Every element of B through F, its copies kept.
-MapBag(B, F(_)) == [y \in {F(x) : x \in DOMAIN B} |-> SumOver({x \in DOMAIN B : F(x) = y}, B)]
-
--------------------------------------------------------------------------------
-\* The lookup of spec/lean/Spec/Lookup.lean, as the engine runs it: one pass over the servers,
-\* one name, no CNAME past the answer, and the four replies the table makes of a message. Over
-\* DoQ or DoH a query is a request, sent and answered as a datagram's, and a request that fails is
-\* the server's failure (§22, §23). Under `Truncates` a datagram has two replies more: TC set, and
-\* a datagram the buffer cut that passes the checks of a cut datagram (§7). Each sends its lookup
-\* to TCP.
-
-Stream == UseTcp \/ Tls
-Fresh == IF Stream THEN "tcpNeeded" ELSE "queryReady"
-\* The stages that wait on a server, for its answer or for its connection.
-WaitsOnServer(stage) == stage \in {"awaitingUdp", "connectingTcp", "awaitingTcp"}
-Ended(stage) == stage \in {"done", "failed"}
-OnStream(stage) == stage \in {"connectingTcp", "tcpReady", "awaitingTcp"}
-\* The stages a deadline bounds. Since 2026-10-24 `tcpReady` waits for the deadline that
-\* `tcpConnected` arms, and its query's send does not stop it (§5, §16 decision 52).
-Waiting(stage) == WaitsOnServer(stage) \/ stage = "tcpReady"
-
-LFail(lk, err) == [lk EXCEPT !.stage = "failed", !.err = err, !.offered = FALSE]
-
-LInit ==
-    LET lk == [stage |-> Fresh, server |-> 0, round |-> 0, candidate |-> 0, hops |-> 0,
-               edns |-> TRUE, hadNoData |-> FALSE, serverFailed |-> FALSE,
-               cookieRetried |-> FALSE, offered |-> FALSE, err |-> "timeout"]
-    IN IF Servers = 0 THEN LFail(lk, "noServers") ELSE lk
-
-\* The next server, then failure: the engine's lookups make one pass (§5, retry policy).
-AdvanceServer(lk) ==
-    IF lk.server + 1 < Servers
-    THEN [lk EXCEPT !.server = @ + 1, !.stage = Fresh, !.edns = TRUE, !.cookieRetried = FALSE,
-                    !.offered = FALSE]
-    ELSE LFail([lk EXCEPT !.round = @ + 1],
-               IF lk.serverFailed THEN "allServersFailed" ELSE "timeout")
-
-\* NXDOMAIN on the one name there is: the walk over the names is over (§5, search list policy).
-NoName(lk) == LFail(lk, IF lk.hadNoData THEN "noData" ELSE "nameNotFound")
-
-LReply(lk, r) ==
-    CASE r = "unmatched" -> <<lk, "ignored">>
-      [] r = "answer" -> <<[lk EXCEPT !.stage = "done"], "accepted">>
-      [] r = "nxdomain" -> <<NoName(lk), "accepted">>
-      [] r = "servfail" -> <<AdvanceServer([lk EXCEPT !.serverFailed = TRUE]), "accepted">>
-      \* The same server, over TCP (§5). Only a datagram brings either, so only `awaitingUdp`.
-      [] r \in {"truncated", "cut"} -> <<[lk EXCEPT !.stage = "tcpNeeded"], "accepted">>
-
-LPoll(lk) ==
-    CASE lk.stage = "queryReady" ->
-            <<[lk EXCEPT !.offered = TRUE], IF Request THEN "sendRequest" ELSE "sendUdp">>
-      [] lk.stage = "tcpNeeded" -> <<[lk EXCEPT !.stage = "connectingTcp"], "connectTcp">>
-      [] lk.stage = "tcpReady" -> <<[lk EXCEPT !.offered = TRUE], "sendTcp">>
-      [] WaitsOnServer(lk.stage) -> <<lk, "wait">>
-      [] lk.stage = "done" -> <<lk, "done">>
-      [] lk.stage = "failed" -> <<lk, "failed">>
-
-\* The deadline passed: a lookup that waits moves to the next server (§5).
-Expire(lk) == IF Waiting(lk.stage) THEN LPoll(AdvanceServer(lk)) ELSE LPoll(lk)
-
-\* One event on a lookup, and what it answers.
-LStep(lk, ev, r) ==
-    CASE ev = "poll" -> LPoll(lk)
-      [] ev = "expire" -> Expire(lk)
-      [] ev = "sent" ->
-            IF lk.stage = "queryReady"
-            THEN <<[lk EXCEPT !.stage = "awaitingUdp", !.offered = FALSE], "none">>
-            ELSE IF lk.stage = "tcpReady"
-            THEN <<[lk EXCEPT !.stage = "awaitingTcp", !.offered = FALSE], "none">>
-            ELSE <<lk, "none">>
-      [] ev = "sendFailed" ->
-            IF lk.stage \in {"queryReady", "tcpReady"} THEN <<AdvanceServer(lk), "none">>
-            ELSE <<lk, "none">>
-      [] ev = "tcpConnected" ->
-            IF lk.stage = "connectingTcp" THEN <<[lk EXCEPT !.stage = "tcpReady"], "none">>
-            ELSE <<lk, "none">>
-      \* A connection or a handshake that failed is the server refusing the lookup, which counts
-      \* as SERVFAIL does (§16 decision 25).
-      [] ev = "tcpFailed" ->
-            IF OnStream(lk.stage)
-            THEN <<AdvanceServer([lk EXCEPT !.serverFailed = TRUE]), "none">>
-            ELSE <<lk, "none">>
-      [] ev = "requestFailed" ->
-            IF lk.stage = "awaitingUdp"
-            THEN <<AdvanceServer([lk EXCEPT !.serverFailed = TRUE]), "none">>
-            ELSE <<lk, "none">>
-      [] ev = "reply" ->
-            IF lk.stage \in {"awaitingUdp", "awaitingTcp"} THEN LReply(lk, r) ELSE <<lk, "ignored">>
-      [] ev = "cancel" ->
-            IF Ended(lk.stage) THEN <<lk, "none">> ELSE <<LFail(lk, "canceled"), "none">>
+\* The table and the connections of the engine model. The configuration and the lookup are
+\* EngineLookup.tla's, which this extends, split by the file-length rule.
+EXTENDS EngineLookup
 
 -------------------------------------------------------------------------------
 \* The state.
@@ -154,13 +11,17 @@ Sockets == IF Tls \/ Request THEN 0 ELSE Servers
 RServers == IF Request /\ ~Channel THEN Servers ELSE 0
 \* A channel for each server, over DoH through colibri's client, and two links each (rule 18).
 CServers == IF Channel THEN Servers ELSE 0
+\* The request slots: one pool, smaller than the engine's default of 2 × `lookups`, so that a walk
+\* fills it. Two lookups over two servers reach four requests (§24, request rule 3).
+Pool == IF Request THEN Slots + 1 ELSE 0
 
 \* `waits`: the slot's lookup waits for a connection slot, on no connection (the stream's rule 12).
 NoSlot == [lookup |-> {}, order |-> <<>>, conn |-> {}, busy |-> FALSE, held |-> FALSE,
            heldCurrent |-> FALSE, reported |-> FALSE, expired |-> FALSE, remaining |-> 0,
-           sentFrom |-> {}, waits |-> FALSE]
+           sentFrom |-> {}, waits |-> FALSE, kept |-> {}, keptFrom |-> {}]
 \* `marked`: a lookup left the connection during its query's send, so none joins it (decision 54).
-NoConn == [stage |-> "closed", server |-> 0, users |-> 0, idleNow |-> FALSE, queue |-> <<>>,
+\* `keepers`: the lookups that stay on it for an open try, past their deadline (the stream's rule 3).
+NoConn == [stage |-> "closed", server |-> 0, users |-> 0, keepers |-> 0, idleNow |-> FALSE, queue |-> <<>>,
            sealed |-> 0, partSent |-> FALSE, owes |-> FALSE, resumed |-> FALSE, marked |-> FALSE]
 NoSock == [sent |-> 0, retiring |-> FALSE, draining |-> FALSE]
 \* A request connection: its stage, the requests waiting for it to be up, the ones on a stream,
@@ -199,10 +60,27 @@ InitState ==
      ready |-> <<>>, free |-> [i \in 1..Slots |-> i - 1], results |-> <<>>, lastTaken |-> {},
      failures |-> [v \in 0..Servers - 1 |-> 0], socks |-> [v \in 0..Sockets - 1 |-> NoSock],
      jammed |-> FALSE, starved |-> FALSE, tickets |-> [v \in 0..Servers - 1 |-> FALSE],
-     rconns |-> [v \in 0..RServers - 1 |-> NoRConn], reqs |-> [l \in 0..Slots - 1 |-> {}],
+     rconns |-> [v \in 0..RServers - 1 |-> NoRConn], reqs |-> [r \in 0..Pool - 1 |-> {}],
+     rfree |-> [i \in 1..Pool |-> i - 1], rorder |-> <<>>,
      chans |-> [v \in 0..CServers - 1 |-> NoChan], links |-> [i \in 0..2 * CServers - 1 |-> NoLink],
      asked |-> [i \in 0..2 * CServers - 1 |-> FALSE], slotless |-> FALSE, unsaid |-> FALSE,
      linkTickets |-> [i \in 0..2 * CServers - 1 |-> FALSE], joinedMarked |-> FALSE]
+
+\* `kept`: the connections the slot's lookup stays on for an open try, past the deadline that moved
+\* it on (the stream's rule 3). `keptFrom`: the sockets its open datagram tries went out from, as
+\* `sentFrom` names one, which a draining socket stays open for (the datagram's rule 4).
+
+\* The configured server at position p of a slot's order.
+ServerAt(st, l, p) == IF p < Len(st.slots[l].order) THEN st.slots[l].order[p + 1] ELSE 0
+
+\* The position of configured server v in a slot's order: one pass reaches each server once.
+PosOf(st, l, v) ==
+    LET ps == {p \in 0..Len(st.slots[l].order) - 1 : st.slots[l].order[p + 1] = v} IN
+    IF ps = {} THEN Servers ELSE Least(ps)
+
+\* Whether the slot's lookup keeps an open try at configured server v over transport `kind`.
+KeepsTry(st, l, v, kind) ==
+    st.slots[l].lookup # {} /\ Opened(Get(st.slots[l].lookup), PosOf(st, l, v), kind)
 
 \* The configured server a slot's lookup is asking now.
 ServerOf(st, l) ==
@@ -262,7 +140,8 @@ LookupEvent(st, l, ev, r) ==
     IF st.slots[l].lookup = {} THEN <<st, "none">>
     ELSE
     LET lk == Get(st.slots[l].lookup)
-        v == ServerOf(st, l)
+        \* An earlier try's event speaks for the server that try went to.
+        v == IF ev \in {"earlier", "earlierFailed"} THEN ServerAt(st, l, r[1]) ELSE ServerOf(st, l)
         moved == LStep(lk, ev, r)
         after == moved[1]
         out == moved[2]
@@ -280,8 +159,20 @@ LookupEvent(st, l, ev, r) ==
                     IF out # "accepted" \/ r \in {"unmatched", "cut"} THEN st
                     ELSE IF r = "servfail" THEN RecordFailure(st, v)
                     ELSE RecordSuccess(st, v)
+              [] ev = "earlier" ->
+                    IF out # "accepted" \/ r[3] = "cut" THEN st
+                    ELSE IF r[3] = "servfail" THEN RecordFailure(st, v)
+                    ELSE RecordSuccess(st, v)
+              [] ev = "earlierFailed" ->
+                    IF Opened(lk, r[1], r[2]) /\ r[3] # "local" THEN RecordFailure(st, v) ELSE st
               [] OTHER -> st
-        kept == [counted EXCEPT !.slots[l].lookup = {after}]
+        \* A datagram try left open at its deadline keeps the socket it went out from, until that
+        \* try closes (the datagram's rule 4).
+        held == IF ev = "expire" /\ lk.stage = "awaitingUdp" /\ ~Request
+                THEN counted.slots[l].keptFrom \cup counted.slots[l].sentFrom
+                ELSE counted.slots[l].keptFrom
+        from == {x \in held : Opened(after, PosOf(counted, l, x[1]), "udp")}
+        kept == [counted EXCEPT !.slots[l].lookup = {after}, !.slots[l].keptFrom = from]
         rearmed == Rearms(ev, out, after)
         cleared == IF Waiting(after.stage) /\ ~rearmed THEN kept
                    ELSE [kept EXCEPT !.slots[l].expired = FALSE]
@@ -356,6 +247,26 @@ Shut(st, k) == [CancelOps(FreeBuffers(st, Queued(st, k)), k) EXCEPT !.conns[k] =
 QueryInFlight(st, k) ==
     LET q == st.conns[k].queue IN q # <<>> /\ Head(q).kind = "query" /\ Sending(st, Head(q).slot)
 
+RECURSIVE TellKeptFrom(_, _, _, _)
+\* Tells every lookup that stays on connection k for an open try that k ended, for `reason`, slot
+\* by slot, and takes it off k. That closes the try. A failure is its server's; `local`, a close the
+\* engine made itself, is no server's (the stream's rule 5).
+TellKeptFrom(st, k, reason, l) ==
+    IF l >= Slots THEN st
+    ELSE
+    LET v == st.conns[k].server
+        told == IF k \in st.slots[l].kept /\ KeepsTry(st, l, v, "tcp")
+                THEN LookupEvent(st, l, "earlierFailed", <<PosOf(st, l, v), "tcp", reason>>)[1] ELSE st
+        off == IF k \in told.slots[l].kept
+               THEN [told EXCEPT !.slots[l].kept = @ \ {k}, !.conns[k].keepers = Sub(@, 1)]
+               ELSE told
+    IN TellKeptFrom(off, k, reason, l + 1)
+
+TellKept(st, k, reason) == TellKeptFrom(st, k, reason, 0)
+
+\* Shuts connection k, which the engine closes itself, after telling its keepers `local`.
+ShutTelling(st, k) == Shut(TellKept(st, k, "local"), k)
+
 \* Whether a leave shuts connection k at once: no lookup is on it, and a query's send is in flight.
 \* That send holds a lookup's buffer, and the shut cancels it (§16 decision 53).
 LeaveShuts(st, k) == st.conns[k].users = 0 /\ QueryInFlight(st, k)
@@ -366,22 +277,40 @@ MarkLeft(before, st, k, l) ==
     IF st.conns[k].users > 0 /\ HeadIs(before.conns[k].queue, Query(l)) /\ Sending(before, l)
     THEN [st EXCEPT !.conns[k].marked = TRUE] ELSE st
 
-\* The lookup leaves its connection, and its query that has not started goes too. When no lookup
-\* stays during a query's send, the drive shuts the connection. When one stays, MarkLeft decides.
-Release(st, l) ==
-    IF st.slots[l].conn = {} THEN st
-    ELSE
-    LET k == Get(st.slots[l].conn)
-        left == [st EXCEPT !.slots[l].conn = {}]
-        waiting == Contains(left.conns[k].queue, Query(l)) /\ ~Sending(left, l)
+\* The lookup in slot l, no longer on connection k in `left`, leaves it: its query that has not
+\* started goes too. When no lookup stays during a query's send, the drive shuts the connection.
+\* When one stays, MarkLeft decides.
+LeaveConn(left, l, k) ==
+    LET waiting == Contains(left.conns[k].queue, Query(l)) /\ ~Sending(left, l)
         freed == IF waiting THEN [left EXCEPT !.slots[l].busy = FALSE] ELSE left
         users == Sub(freed.conns[k].users, 1)
-        released == [freed EXCEPT !.conns[k].users = users, !.conns[k].idleNow = @ \/ users = 0,
+        released == [freed EXCEPT !.conns[k].users = users,
+                                  !.conns[k].idleNow = @ \/ (users = 0 /\ freed.conns[k].keepers = 0),
                                   !.conns[k].queue = IF waiting
                                                      THEN SelectSeq(@, LAMBDA e : e # Query(l))
                                                      ELSE @]
         marked == MarkLeft(left, released, k, l)
-    IN IF LeaveShuts(marked, k) THEN Shut(marked, k) ELSE marked
+    IN IF LeaveShuts(marked, k) THEN ShutTelling(marked, k) ELSE marked
+
+\* The lookup leaves its connection.
+Release(st, l) ==
+    IF st.slots[l].conn = {} THEN st
+    ELSE LET k == Get(st.slots[l].conn) IN LeaveConn([st EXCEPT !.slots[l].conn = {}], l, k)
+
+\* The lookup leaves connection k that it stayed on for an open try (the stream's rule 3). With no
+\* lookup left, the connection is idle from now.
+ReleaseKept(st, l, k) ==
+    LET keepers == Sub(st.conns[k].keepers, 1) IN
+    [st EXCEPT !.slots[l].kept = @ \ {k}, !.conns[k].keepers = keepers,
+               !.conns[k].idleNow = @ \/ (keepers = 0 /\ st.conns[k].users = 0)]
+
+\* The lookup's connection moves to the ones it stays on: its query went out there, and the try it
+\* went out for is open (the stream's rule 3; §16 decision 66). Nothing of it waits in the queue. It
+\* is a keeper there now, and no user, so its leave as a user follows the rules of a leave.
+Keep(st, l) ==
+    LET k == Get(st.slots[l].conn) IN
+    LeaveConn([st EXCEPT !.slots[l].conn = {}, !.slots[l].kept = @ \cup {k},
+                         !.conns[k].keepers = @ + 1], l, k)
 
 \* Whether the loop still holds memory of slot k's, of whichever incarnation: its address, which a
 \* connect reads, or its records buffer, which a send over TLS reads (rule 10, TLS rule 3).
@@ -401,7 +330,7 @@ FreeConn(st) ==
         cancelled == \E k \in 0..Conns - 1 : st.conns[k].stage = "closed" /\ Borrowed(st, k)
     IN IF closed # {} THEN <<{Least(closed)}, st>>
        ELSE IF Tls THEN <<{}, st>>
-       ELSE IF unused # {} THEN <<{Least(unused)}, Shut(st, Least(unused))>>
+       ELSE IF unused # {} THEN <<{Least(unused)}, ShutTelling(st, Least(unused))>>
        ELSE IF lapsed # {} /\ ~cancelled THEN <<{}, Shut(st, Least(lapsed))>>
        ELSE <<{}, st>>
 
@@ -490,11 +419,12 @@ TellFrom(st, k, connected, l) ==
 \* Tells every lookup on the connection, slot by slot, that it is up or that it failed.
 TellAll(st, k, connected) == TellFrom(st, k, connected, 0)
 
-\* The connection is no good: every lookup on it is told, and leaves it, and it is closed.
+\* The connection is no good: every lookup on it is told, and leaves it, and it is closed. Since
+\* 2026-11-03 that is each lookup that stays on it for an open try too (the stream's rule 5).
 FailConn(st, k) ==
-    LET told == TellAll(st, k, FALSE)
+    LET told == TellKept(TellAll(st, k, FALSE), k, "failed")
         sl == told.slots
     IN Shut([told EXCEPT !.slots = [l \in DOMAIN sl |->
-                IF sl[l].conn = {k} THEN [sl[l] EXCEPT !.conn = {}] ELSE sl[l]]], k)
+                [sl[l] EXCEPT !.conn = IF @ = {k} THEN {} ELSE @]]], k)
 
 ===============================================================================

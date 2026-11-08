@@ -12,6 +12,7 @@ const assert = std.debug.assert;
 const tcp = @import("io_tcp.zig");
 const queue_module = @import("io_tcp_queue.zig");
 const tls_module = @import("io_tls.zig");
+const kept_module = @import("io_kept.zig");
 
 /// The lookup at `index` has left the connection in slot `at`, after `tcp.release` took it off.
 /// The shut at the last leave during a query's send came first (decision 53). When a lookup stays,
@@ -47,6 +48,8 @@ fn close_now(self: anytype, at: u8, now_ns: u64) void {
     assert(connection.marked and connection.users == 0);
     // The shut of decision 53 ended a connection whose query's send was in flight.
     assert(!queue_module.query_in_flight(self, at));
+    // A lookup that stays on it for an open try hears that it ends (the stream's rule 5).
+    kept_module.tell_failed(self, at, .local, now_ns);
     if (tls_module.speaks(self)) return tls_module.say_close_notify(self, at, now_ns);
     tcp.shut(self, at);
 }
