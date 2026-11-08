@@ -11765,3 +11765,138 @@ LM46 LM47 CB4 CB5 SM4` ran each row below.
 Each row names the new text. DC3 deleted the call to colibri's `cancel` alone, which left `now_ns`
 unused, so the step did not compile. It now discards `now_ns` too. LM47 breaks the new boundary
 test: a section that fills the buffer to its last octet is read, and one octet more is too large.
+
+## Mutations that no longer applied
+
+2026-11-08. The owner ruled that the mutations that no longer apply get new text. An edit applies
+only when its `old` text occurs once in its file. Later commits changed the text of 89 mutations,
+so none of them could run, and each proved nothing.
+
+Each of 86 mutations now breaks the same check in the same way, at the text the check has now. The
+table names the commit after which the old text no longer applied. The tool ran each row with a
+build step and each row of the short walks: `zig build mutations -- lookup`, `lean` and `engine`,
+with the ids of the table. E3 and CL11 need the picked walks, so a script applied each edit and
+replayed `tools/spec_replay/engine_gate.txt`, then `tools/spec_replay/engine_picks.txt`. That is
+what the tool does, without TLC's full run.
+
+| Id | Mutation | Commit | Caught by | Result |
+| --- | --- | --- | --- | --- |
+| E3 | a new lookup forgets its slot's buffer is lent | `6ff8fef` | the picked walks | `CAUGHT` |
+| RF5 | the engine model counts a failed connection as silence | `6d41c62` | `zig build spec-engine` | `CAUGHT` |
+| RW1 | a request its lookup left is never cancelled by the drive | `6d41c62` | the short walks | `CAUGHT` |
+| RW3 | a connection that fails tells none of its requests | `6d41c62` | the short walks | `CAUGHT` |
+| QO11 | the DoQ answer buffer holds tcp_message_bytes, with no room for the prefix beside the longest message | `6d41c62` | `zig build test-io` | `CAUGHT` |
+| OA3 | a lookup reads a cut datagram as a whole message | `8bd5f8a` | `zig build test-resolver` | `CAUGHT` |
+| PL10 | reinit checks the payload after it closes its connections and its sockets | `6d41c62` | `zig build test-io` | `CAUGHT` |
+| TS6 | a lookup that acts still waits for a slot | `6d41c62` | `zig build test-io` | `CAUGHT` |
+| CB1 | the DoT session states the AES instructions and a data-independent timing, whatever its context states | `b17ce6d` | `zig build test-chapulin` | `CAUGHT` |
+| CB2 | the DoQ session states the AES instructions and a data-independent timing, whatever its context states | `b17ce6d` | `zig build test-chapulin-quic` | `CAUGHT` |
+| CB3 | the DoH channel states the AES instructions and a data-independent timing, whatever its context states | `b17ce6d` | `zig build test-cocuyo_doh` | `CAUGHT` |
+| CU3 | the DoT session states nothing of the CPU, whatever its context states | `b17ce6d` | `zig build test-chapulin` | `CAUGHT` |
+| CU4 | the DoT session states a data-independent timing, whatever its context states | `b17ce6d` | `zig build test-chapulin` | `CAUGHT` |
+| CU7 | the DoQ session states nothing of the CPU, whatever its context states | `b17ce6d` | `zig build test-chapulin-quic` | `CAUGHT` |
+| CU8 | the DoQ session states a data-independent timing, whatever its context states | `b17ce6d` | `zig build test-chapulin-quic` | `CAUGHT` |
+| CU11 | the DoH channel states nothing of the CPU, whatever its context states | `b17ce6d` | `zig build test-cocuyo_doh` | `CAUGHT` |
+| CU12 | the DoH channel states a data-independent timing, whatever its context states | `b17ce6d` | `zig build test-cocuyo_doh` | `CAUGHT` |
+| CU13 | the DoT session states the AES instructions found, whatever its probe found | `b17ce6d` | `zig build test-chapulin` | `CAUGHT` |
+| CU15 | the DoT session takes a probe that did not answer for one that found the AES instructions | `b17ce6d` | `zig build test-chapulin` | `CAUGHT` |
+| CU16 | the DoQ session states the AES instructions found, whatever its probe found | `b17ce6d` | `zig build test-chapulin-quic` | `CAUGHT` |
+| CU18 | the DoQ session takes a probe that did not answer for one that found the AES instructions | `b17ce6d` | `zig build test-chapulin-quic` | `CAUGHT` |
+| CU19 | the DoH channel states the AES instructions found, whatever its probe found | `b17ce6d` | `zig build test-cocuyo_doh` | `CAUGHT` |
+| CU21 | the DoH channel takes a probe that did not answer for one that found the AES instructions | `b17ce6d` | `zig build test-cocuyo_doh` | `CAUGHT` |
+| CL1 | the idle close passes over a connection that closes, as until 2026-10-20 | `6d41c62` | `zig build test-io` | `CAUGHT` |
+| CL11 | as CL1, against the walks | `6d41c62` | the picked walks | `CAUGHT` |
+| RS63 | a DoQ request fails with closed, whatever reason its connection gave | `6d41c62` | `zig build test-io` | `CAUGHT` |
+| RS73 | a DoH request that fails before its exchange gives closed, whatever its reason | `6d41c62` | `zig build test-io` | `CAUGHT` |
+| RD15 | the last lookup to leave a connection during a query's send leaves it up for the idle close, as built until 2026-10-25 | `6d41c62` | `zig build test-io` | `CAUGHT` |
+| SH2 | as RD15, against the walks | `6d41c62` | the short walks | `CAUGHT` |
+| SH3 | the last lookup to leave during any send shuts the connection, a send of the session's records among them | `6d41c62` | `zig build test-io` | `CAUGHT` |
+| SH4 | a leave during a query's send shuts the connection while another lookup stays on it | `6d41c62` | `zig build test-io` | `CAUGHT` |
+| SH5 | only a lookup that moves on shuts the connection; one that ends or is cancelled leaves it up | `6d41c62` | `zig build test-io` | `CAUGHT` |
+| SH6 | over TLS the last leave during a query's send leaves the connection up for the idle close | `6d41c62` | `zig build test-io` | `CAUGHT` |
+| SH7 | the last lookup to leave during a query's send leaves the connection up, and the drive's assertion stays | `6d41c62` | `zig build test-io` | `CAUGHT` |
+| NJ19 | the release asks for the mark while the lookup is still on its connection | `6d41c62` | `zig build test-io` | `CAUGHT` |
+| CS2 | a negative put keeps no status | `a2d6116` | `zig build test-cache` | `CAUGHT` |
+| CS5 | the glue drops the status of a recalled answer | `a2d6116` | `zig build test-cocuyo` | `CAUGHT` |
+| CS6 | the glue puts every answer unchecked | `a2d6116` | `zig build test-cocuyo` | `CAUGHT` |
+| CS9 | the table writes every negative unchecked | `a2d6116` | `zig build test-resolver` | `CAUGHT` |
+| CN2 | labels are compared from the left | `91ea62b` | `zig build test-core` | `CAUGHT` |
+| K3 | a zone with no supported algorithm is matched anyway | `e5fc427` | `zig build test-dnssec` | `CAUGHT` |
+| K4 | a set with no matched key is verified | `e5fc427` | `zig build test-dnssec` | `CAUGHT` |
+| K5 | a set that does not fit the store is admitted | `e5fc427` | `zig build test-dnssec` | `CAUGHT` |
+| A2 | a name under no anchor has its message read | `e5fc427` | `zig build test-dnssec` | `CAUGHT` |
+| VN2 | an NSEC3 negative is read as an NSEC one | `ba90773` | `zig build test-dnssec` | `CAUGHT` |
+| VN4 | an NSEC3 proof under Opt-Out reads as no proof | `e5fc427` | `zig build test-dnssec` | `CAUGHT` |
+| WK7 | a name with no delegation at the target moves past it | `456a393` | `zig build test-dnssec` | `CAUGHT` |
+| WK10 | a walk's answer that wants keys fails the walk at once | `456a393` | `zig build test-dnssec` | `CAUGHT` |
+| TW3 | a walk's lookup does not hear its answer | `6ff8fef` | `zig build test-resolver` | `CAUGHT` |
+| TW10 | a walk that ends as it is joined is not handed to its lookup | `6ff8fef` | `zig build test-resolver` | `CAUGHT` |
+| KS1 | the key store keeps no time of day | `e5fc427` | `zig build test-dnssec` | `CAUGHT` |
+| ST3 | data with no signature at a walk's target, inside a signed zone, is insecure | `456a393` | `zig build test-sim` | `CAUGHT` |
+| S12 | a chain re-query keeps its transaction | `8bd5f8a` | `zig build test-resolver` | `CAUGHT` |
+| S13 | the deadline is not armed on a send | `8bd5f8a` | `zig build test-resolver` | `CAUGHT` |
+| G1 | the committed slice edited by hand | `5e09fbd` | `zig build test-tools` | `CAUGHT` |
+| DH8 | an answer to any transaction is taken | `8bd5f8a` | `zig build test-resolver` | `CAUGHT` |
+| DH17 | an HTTP failure counts no failure | `8bd5f8a` | `zig build test-resolver` | `CAUGHT` |
+| DH19 | the table does not follow an accepted DoH answer | `dbb2c12` | `zig build test-resolver` | `CAUGHT` |
+| DH21 | an HTTP failure for a transaction left moves the lookup | `8bd5f8a` | `zig build test-resolver` | `CAUGHT` |
+| TA8 | a new entry keeps the TTL before the cap | `a2d6116` | `zig build test-cache` | `CAUGHT` |
+| FR12 | a truncated answer over UDP leaves the count as it stood | `8bd5f8a` | `zig build test-resolver` | `CAUGHT` |
+| CO30 | a response ignored for a malformed answer section teaches no server cookie: the cookie of an answer to collect waits for its answer section | `8bd5f8a` | `zig build test-resolver` | `CAUGHT` |
+| DT3 | a send does not keep its instant, so every sample is measured from instant zero | `8bd5f8a` | `zig build test-resolver` | `CAUGHT` |
+| DT4 | a response takes a sample before §7's checks, so an unmatched one does too | `8bd5f8a` | `zig build test-resolver` | `CAUGHT` |
+| CM13 | a chain name is folded only when the query mixed the case, so a server asked in lowercase keeps its capitals | `a2d6116` | `zig build test-resolver` | `CAUGHT` |
+| DT32 | a try that ran out is measured to the poll that found it, not to its deadline | `8bd5f8a` | `zig build test-resolver` | `CAUGHT` |
+| DT33 | a later pass's try that ran out counts its wait before the doubling | `8bd5f8a` | `zig build test-resolver` | `CAUGHT` |
+| DT34 | a connect that ran out takes a sample too, measured from a send that was not its own | `8bd5f8a` | `zig build test-resolver` | `CAUGHT` |
+| DT35 | a try over TCP or TLS that ran out takes no sample | `8bd5f8a` | `zig build test-resolver` | `CAUGHT` |
+| DT36 | a DoH or DoQ request that ran out takes no sample | `8bd5f8a` | `zig build test-resolver` | `CAUGHT` |
+| LC9 | the next candidate clears the cause | `a2d6116` | `zig build test-resolver` | `CAUGHT` |
+| RS1 | a cause names the first server, whichever server gave it | `8bd5f8a` | `zig build test-resolver` | `CAUGHT` |
+| RS3 | a cause names its server by its place in the lookup's order | `8bd5f8a` | `zig build test-resolver` | `CAUGHT` |
+| RD4 | a deadline in tcp_ready is a sample, as long as the wait from the connect's end | `8bd5f8a` | `zig build test-resolver` | `CAUGHT` |
+| RB9 | a CNAME's target keeps the counts of the name | `8bd5f8a` | `zig build test-resolver` | `CAUGHT` |
+| YX5 | YXDOMAIN counts as a failure of its server | `8bd5f8a` | `zig build test-resolver` | `CAUGHT` |
+| DM1 | a reply over DoH is read as a datagram's | `8bd5f8a` | `zig build spec-lean` | `CAUGHT` |
+| DM3 | an HTTP failure changes nothing | `8bd5f8a` | `zig build spec-lean` | `CAUGHT` |
+| RF1 | the model counts a failed connection as silence | `8bd5f8a` | `zig build spec-lean` | `CAUGHT` |
+| RF2 | the model counts a failed request as silence | `8bd5f8a` | `zig build spec-lean` | `CAUGHT` |
+| LC23 | the model's failed stream keeps the connect's reason, whatever reason it came with | `8bd5f8a` | `zig build spec-lean` | `CAUGHT` |
+| LC24 | the model's failed request keeps the closed connection's reason, whatever reason it came with | `8bd5f8a` | `zig build spec-lean` | `CAUGHT` |
+| LC28 | failure_cause proved by sorry | `8bd5f8a` | `zig build spec-lean` | `CAUGHT` |
+| RD10 | the proof that a deadline ends tcpReady rests on sorry | `8bd5f8a` | `zig build spec-lean` | `CAUGHT` |
+| RB12 | the model does not pass over a server with no query left | `8bd5f8a` | `zig build spec-lean` | `CAUGHT` |
+| RB14 | the model does not count a query sent over UDP | `8bd5f8a` | `zig build spec-lean` | `CAUGHT` |
+
+These changes are more than a new place for the same text:
+
+- TS6, RD15, SH2 to SH7 and NJ19 moved from `io/io_tcp.zig` to `io/io_kept.zig`, with `follow`
+  and `release`.
+- SH5 needs the slot index, which `leave` no longer takes. So SH5 now edits `release_current`: a
+  lookup that has ended takes its user off the connection, and does not call `leave`.
+- E3 moved from `io/io.zig` to `adopt` in `io/io_drive.zig`.
+- RS3 now edits `keep`, which gives `keep_at` the server's slot.
+- WK7 also removes the assertion after the check in `next_label`. Without that, the assertion
+  stops the test, not the test's expectation.
+- ST3 now edits the `no_data` branch before its call to `next_label`, since `next_label` has no
+  `probe` and no TTL.
+- DT32 to DT36 and RD4 read `waited_from_ns` and `try_open` now. DT34 to DT36 edit the test of
+  the sample alone, not the try that stays open.
+- The CB and CU rows write each field of the probe, because the probe of stdx `0c0ba95` has nine
+  fields with no default.
+
+Three mutations do not apply, and they get no new text. Commit `6ff8fef` removed what each one
+broke. A poll now hands `walked` for a walk's lookup, and the driver's release frees its slot. The
+owner ruled on 2026-11-08 to remove them from `tools/mutations/engine.zon`, since other mutations
+break the checks that replaced theirs.
+
+- TW6, the table keeps a walk's slot after its answer. The table frees no walk's slot now. WD2
+  and WD4 break the release that frees it.
+- TW7, the table keeps a walk's slot after its question failed. The same reason applies.
+- TW15, a poll offers the end of a walk's question that failed. WD1 breaks the same check in
+  `walked`.
+
+The `what` of TW3 said that the table follows a walk's lookup "as the consumer's". Since
+`6ff8fef` the table follows each lookup that accepted a message. The owner ruled on 2026-11-08 to
+rewrite it as what the mutation breaks now: a walk's lookup does not hear its answer. The table
+above gives the new text. `zig build test-resolver` catches it.

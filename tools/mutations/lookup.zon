@@ -108,7 +108,7 @@
         .id = "S12",
         .what = "a chain re-query keeps its transaction",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "            self.sends = .{};\n            self.restart(now_ns);", .new = "            self.sends = .{};\n            self.state = if (self.config.streams_only()) .tcp_needed else .query_ready;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            self.sends = .{};\n            self.tries.clear();\n            self.restart(now_ns);", .new = "            self.sends = .{};\n            self.tries.clear();\n            self.state = if (self.config.streams_only()) .tcp_needed else .query_ready;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -117,7 +117,7 @@
         .id = "S13",
         .what = "the deadline is not armed on a send",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        self.sent_at_ns = now_ns;\n        poll_module.arm(self, now_ns);\n    }\n", .new = "        self.sent_at_ns = now_ns;\n    }\n" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.waited_from_ns = now_ns;\n        poll_module.arm(self, now_ns);\n    }\n", .new = "        self.waited_from_ns = now_ns;\n    }\n" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -234,7 +234,7 @@
         .id = "G1",
         .what = "the committed slice edited by hand",
         .edits = .{
-            .{ .file = "tools/spec_replay/lookup_gate.txt", .old = "\n35 reply_truncated accepted tcp_needed 0/0/0/8 ---- -\n", .new = "\n35 reply_truncated ignored tcp_needed 0/0/0/8 ---- -\n" },
+            .{ .file = "tools/spec_replay/lookup_gate.txt", .old = "\n35 reply_truncated accepted tcp_needed 0/0/0/8 ---- - A -\n", .new = "\n35 reply_truncated ignored tcp_needed 0/0/0/8 ---- - A -\n" },
         },
         .caught_by = .{ .step = "test-tools" },
     },
@@ -306,7 +306,7 @@
         .id = "DH8",
         .what = "an answer to any transaction is taken",
         .edits = .{
-            .{ .file = "src/resolver/lookup_request.zig", .old = "    if (!waits_on(self, transaction)) return .ignored;\n", .new = "    _ = transaction;\n    if (self.state != .awaiting_udp) return .ignored;\n" },
+            .{ .file = "src/resolver/lookup_request.zig", .old = "    if (!waits_on(self, transaction)) return earlier.on_request_answer(", .new = "    if (self.state != .awaiting_udp) return earlier.on_request_answer(" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -387,7 +387,7 @@
         .id = "DH17",
         .what = "an HTTP failure counts no failure",
         .edits = .{
-            .{ .file = "src/resolver/lookup_request.zig", .old = "    if (!waits_on(self, transaction)) return;\n    self.servers.record_failure(self.server_slot(), now_ns);\n", .new = "    if (!waits_on(self, transaction)) return;\n" },
+            .{ .file = "src/resolver/lookup_request.zig", .old = "    self.servers.record_failure(self.server_slot(), now_ns);\n", .new = "" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -405,7 +405,7 @@
         .id = "DH19",
         .what = "the table does not follow an accepted DoH answer",
         .edits = .{
-            .{ .file = "src/resolver/table.zig", .old = "        if (verdict == .accepted) self.follow(handle.index);\n", .new = "" },
+            .{ .file = "src/resolver/table.zig", .old = "        if (verdict == .accepted) self.followed(handle.index, message, now_ns);\n", .new = "" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -423,7 +423,7 @@
         .id = "DH21",
         .what = "an HTTP failure for a transaction left moves the lookup",
         .edits = .{
-            .{ .file = "src/resolver/lookup_request.zig", .old = "    if (!waits_on(self, transaction)) return;\n", .new = "    _ = transaction;\n    if (self.state != .awaiting_udp) return;\n" },
+            .{ .file = "src/resolver/lookup_request.zig", .old = "    if (!waits_on(self, transaction)) {\n", .new = "    if (self.state != .awaiting_udp) {\n" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -658,7 +658,7 @@
         .id = "TA8",
         .what = "a new entry keeps the TTL before the cap",
         .edits = .{
-            .{ .file = "src/cache/cache.zig", .old = "        keep_answers(slot, answers, question.kind, ttl);\n        keep_canonical(slot, canonical);\n        slot.expires_ns = expires_ns;\n        slot.hash = hash;", .new = "        keep_answers(slot, answers, question.kind, ttl_seconds);\n        keep_canonical(slot, canonical);\n        slot.expires_ns = expires_ns;\n        slot.hash = hash;" },
+            .{ .file = "src/cache/cache.zig", .old = "        keep_answers(slot, answers, question.kind, ttl);\n        keep_chain(slot, chain);\n        slot.expires_ns = expires_ns;\n        slot.hash = hash;", .new = "        keep_answers(slot, answers, question.kind, ttl_seconds);\n        keep_chain(slot, chain);\n        slot.expires_ns = expires_ns;\n        slot.hash = hash;" },
         },
         .caught_by = .{ .step = "test-cache" },
     },
@@ -875,7 +875,7 @@
         .id = "FR12",
         .what = "a truncated answer over UDP leaves the count as it stood",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "        heard(self, accepted.cookie, null, now_ns);\n        bound.to_stream(self, now_ns);", .new = "        bound.to_stream(self, now_ns);" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        heard(self, accepted.cookie, null, now_ns);\n        // An earlier try's TC=1", .new = "        // An earlier try's TC=1" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1120,7 +1120,7 @@
         .what = "a response ignored for a malformed answer section teaches no server cookie: the cookie of an answer to collect waits for its answer section",
         .edits = .{
             .{ .file = "src/resolver/lookup_response.zig", .old = "    cookies.learn(self, accepted.cookie);\n    // Truncation over UDP", .new = "    // Truncation over UDP" },
-            .{ .file = "src/resolver/lookup_response.zig", .old = "        heard(self, accepted.cookie, null, now_ns);\n        bound.to_stream(self, now_ns);", .new = "        cookies.learn(self, accepted.cookie);\n        heard(self, accepted.cookie, null, now_ns);\n        bound.to_stream(self, now_ns);" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        heard(self, accepted.cookie, null, now_ns);\n        // An earlier try's TC=1", .new = "        cookies.learn(self, accepted.cookie);\n        heard(self, accepted.cookie, null, now_ns);\n        // An earlier try's TC=1" },
             .{ .file = "src/resolver/lookup_response.zig", .old = "    const rcode = wire.Rcode.from_bits(bits) orelse return .ignored;", .new = "    const rcode = wire.Rcode.from_bits(bits) orelse {\n        cookies.learn(self, accepted.cookie);\n        return .ignored;\n    };" },
             .{ .file = "src/resolver/lookup_response.zig", .old = "    heard(self, accepted.cookie, cause_of(self, action, rcode), now_ns);", .new = "    cookies.learn(self, accepted.cookie);\n    heard(self, accepted.cookie, cause_of(self, action, rcode), now_ns);" },
             .{ .file = "src/resolver/lookup_response.zig", .old = "            heard(self, accepted.cookie, null, now_ns);\n            self.fail(core.Error.ChainTooLong);", .new = "            cookies.learn(self, accepted.cookie);\n            heard(self, accepted.cookie, null, now_ns);\n            self.fail(core.Error.ChainTooLong);" },
@@ -1187,7 +1187,7 @@
         .id = "DT3",
         .what = "a send does not keep its instant, so every sample is measured from instant zero",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        self.sent_at_ns = now_ns;\n        poll_module.arm(self, now_ns);", .new = "        poll_module.arm(self, now_ns);" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.sent_at_ns = now_ns;\n        self.waited_from_ns = now_ns;\n        poll_module.arm(self, now_ns);", .new = "        self.waited_from_ns = now_ns;\n        poll_module.arm(self, now_ns);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1196,7 +1196,7 @@
         .id = "DT4",
         .what = "a response takes a sample before §7's checks, so an unmatched one does too",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    const accepted = accepted_header(self, message, from) orelse return .ignored;", .new = "    if (self.state == .awaiting_udp or self.state == .awaiting_tcp) self.servers.record_latency(self.server_slot(), now_ns - self.sent_at_ns, now_ns);\n    const accepted = accepted_header(self, message, from) orelse return .ignored;" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    const accepted = accepted_header(self, message, from) orelse\n", .new = "    if (self.state == .awaiting_udp or self.state == .awaiting_tcp) self.servers.record_latency(self.server_slot(), now_ns - self.sent_at_ns, now_ns);\n    const accepted = accepted_header(self, message, from) orelse\n" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1547,7 +1547,7 @@
         .id = "CM13",
         .what = "a chain name is folded only when the query mixed the case, so a server asked in lowercase keeps its capitals",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (self.flags.mix_case and self.answers.aliased) self.current.fold_case();", .new = "    if (self.flags.query_mixed and self.answers.aliased) self.current.fold_case();" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "    if (self.flags.mix_case and self.answers.aliased) {", .new = "    if (self.flags.query_mixed and self.answers.aliased) {" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1655,7 +1655,7 @@
         .id = "DT32",
         .what = "a try that ran out is measured to the poll that found it, not to its deadline",
         .edits = .{
-            .{ .file = "src/resolver/lookup_poll.zig", .old = "        const waited_ns = self.deadline_ns - self.sent_at_ns;", .new = "        const waited_ns = now_ns - self.sent_at_ns;" },
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        const waited_ns = self.deadline_ns - self.waited_from_ns;", .new = "        const waited_ns = now_ns - self.waited_from_ns;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1664,7 +1664,7 @@
         .id = "DT33",
         .what = "a later pass's try that ran out counts its wait before the doubling",
         .edits = .{
-            .{ .file = "src/resolver/lookup_poll.zig", .old = "        const waited_ns = self.deadline_ns - self.sent_at_ns;", .new = "        const waited_ns = policy.wait_ns(self.config, self.servers.latency_ns(slot, now_ns));" },
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        const waited_ns = self.deadline_ns - self.waited_from_ns;", .new = "        const waited_ns = policy.wait_ns(self.config, self.servers.latency_ns(slot, now_ns));" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1673,7 +1673,7 @@
         .id = "DT34",
         .what = "a connect that ran out takes a sample too, measured from a send that was not its own",
         .edits = .{
-            .{ .file = "src/resolver/lookup_poll.zig", .old = "    if (self.state == .awaiting_udp or self.state == .awaiting_tcp) {", .new = "    if (self.is_waiting()) {" },
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "    if (try_open) {\n        const waited_ns", .new = "    if (self.is_waiting()) {\n        const waited_ns" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1682,7 +1682,7 @@
         .id = "DT35",
         .what = "a try over TCP or TLS that ran out takes no sample",
         .edits = .{
-            .{ .file = "src/resolver/lookup_poll.zig", .old = "    if (self.state == .awaiting_udp or self.state == .awaiting_tcp) {", .new = "    if (self.state == .awaiting_udp) {" },
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "    if (try_open) {\n        const waited_ns", .new = "    if (self.state == .awaiting_udp) {\n        const waited_ns" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -1691,7 +1691,7 @@
         .id = "DT36",
         .what = "a DoH or DoQ request that ran out takes no sample",
         .edits = .{
-            .{ .file = "src/resolver/lookup_poll.zig", .old = "    if (self.state == .awaiting_udp or self.state == .awaiting_tcp) {", .new = "    if ((self.state == .awaiting_udp and !self.config.sends_requests()) or self.state == .awaiting_tcp) {" },
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "    if (try_open) {\n        const waited_ns", .new = "    if ((self.state == .awaiting_udp and !self.config.sends_requests()) or self.state == .awaiting_tcp) {\n        const waited_ns" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -3035,7 +3035,7 @@
         .id = "LC9",
         .what = "the next candidate clears the cause",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        self.cname_hops = 0;\n        self.flags.aliased = false;\n        self.take_candidate(self.candidate_index + 1);", .new = "        self.cname_hops = 0;\n        self.flags.aliased = false;\n        self.cause = .none;\n        self.take_candidate(self.candidate_index + 1);" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        self.take_candidate(self.candidate_index + 1);\n", .new = "        self.cause = .none;\n        self.take_candidate(self.candidate_index + 1);\n" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -3273,7 +3273,7 @@
         .id = "RS1",
         .what = "a cause names the first server, whichever server gave it",
         .edits = .{
-            .{ .file = "src/resolver/lookup_failure.zig", .old = "    self.cause = Held.of(self.server_slot(), what);", .new = "    self.cause = Held.of(0, what);" },
+            .{ .file = "src/resolver/lookup_failure.zig", .old = "    self.cause = Held.of(slot, what);", .new = "    self.cause = Held.of(0, what);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -3291,7 +3291,7 @@
         .id = "RS3",
         .what = "a cause names its server by its place in the lookup's order",
         .edits = .{
-            .{ .file = "src/resolver/lookup_failure.zig", .old = "    self.cause = Held.of(self.server_slot(), what);", .new = "    self.cause = Held.of(self.server_index, what);" },
+            .{ .file = "src/resolver/lookup_failure.zig", .old = "    keep_at(self, self.server_slot(), what);", .new = "    keep_at(self, self.server_index, what);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -3419,7 +3419,7 @@
         .id = "RD4",
         .what = "a deadline in tcp_ready is a sample, as long as the wait from the connect's end",
         .edits = .{
-            .{ .file = "src/resolver/lookup_poll.zig", .old = "    if (self.state == .awaiting_udp or self.state == .awaiting_tcp) {\n        const waited_ns = self.deadline_ns - self.sent_at_ns;", .new = "    if (self.state == .awaiting_udp or self.state == .awaiting_tcp or self.state == .tcp_ready) {\n        if (self.state == .tcp_ready) self.sent_at_ns = self.deadline_ns - self.config.timeout_ns;\n        const waited_ns = self.deadline_ns - self.sent_at_ns;" },
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "    if (try_open) {\n        const waited_ns = self.deadline_ns - self.waited_from_ns;", .new = "    if (try_open or self.state == .tcp_ready) {\n        if (self.state == .tcp_ready) self.waited_from_ns = self.deadline_ns - self.config.timeout_ns;\n        const waited_ns = self.deadline_ns - self.waited_from_ns;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -3773,7 +3773,7 @@
         .id = "RB9",
         .what = "a CNAME's target keeps the counts of the name",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "            self.sends = .{};\n            self.restart(now_ns);", .new = "            self.restart(now_ns);" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "            self.sends = .{};\n            self.tries.clear();\n            self.restart(now_ns);", .new = "            self.tries.clear();\n            self.restart(now_ns);" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -3836,7 +3836,7 @@
         .id = "YX5",
         .what = "YXDOMAIN counts as a failure of its server",
         .edits = .{
-            .{ .file = "src/resolver/lookup_response.zig", .old = "        .collect, .next_candidate, .fail, .name_too_long => false,\n", .new = "        .name_too_long => true,\n        .collect, .next_candidate, .fail => false,\n" },
+            .{ .file = "src/resolver/lookup_response.zig", .old = "        // YXDOMAIN is the same answer from each server, so it fails no server (§16 decision 57).\n        .collect, .next_candidate, .fail, .name_too_long => false,\n", .new = "        // YXDOMAIN is the same answer from each server, so it fails no server (§16 decision 57).\n        .name_too_long => true,\n        .collect, .next_candidate, .fail => false,\n" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },

@@ -25,7 +25,7 @@
         .id = "E3",
         .what = "a new lookup forgets its slot's buffer is lent",
         .edits = .{
-            .{ .file = "io/io.zig", .old = "            self.held[handle.index] = null;\n            self.reported[handle.index] = false;", .new = "            self.held[handle.index] = null;\n            self.send_in_flight[handle.index] = false;\n            self.reported[handle.index] = false;" },
+            .{ .file = "io/io_drive.zig", .old = "    self.held[handle.index] = null;\n    self.reported[handle.index] = false;", .new = "    self.held[handle.index] = null;\n    self.send_in_flight[handle.index] = false;\n    self.reported[handle.index] = false;" },
         },
         .caught_by = .picked_walks,
     },
@@ -475,7 +475,7 @@
         .id = "RF5",
         .what = "the engine model counts a failed connection as silence",
         .edits = .{
-            .{ .file = "spec/tla/engine/EngineTable.tla", .old = "            IF OnStream(lk.stage)\n            THEN <<AdvanceServer([lk EXCEPT !.serverFailed = TRUE]), \"none\">>", .new = "            IF OnStream(lk.stage)\n            THEN <<AdvanceServer(lk), \"none\">>" },
+            .{ .file = "spec/tla/engine/EngineLookup.tla", .old = "            IF OnStream(lk.stage)\n            THEN <<AdvanceServer([lk EXCEPT !.serverFailed = TRUE]), \"none\">>", .new = "            IF OnStream(lk.stage)\n            THEN <<AdvanceServer(lk), \"none\">>" },
         },
         .caught_by = .{ .step = "spec-engine" },
     },
@@ -484,7 +484,7 @@
         .id = "RW1",
         .what = "a request its lookup left is never cancelled by the drive",
         .edits = .{
-            .{ .file = "io/io_request.zig", .old = "if (request.live and !current(self, index)) drop(self, index, now_ns);", .new = "if (request.live and !current(self, index) and false) drop(self, index, now_ns);" },
+            .{ .file = "io/io_request.zig", .old = "if (request.live and !open(self, index)) drop(self, index, now_ns);", .new = "if (request.live and !open(self, index) and false) drop(self, index, now_ns);" },
         },
         .caught_by = .short_walks,
     },
@@ -502,7 +502,7 @@
         .id = "RW3",
         .what = "a connection that fails tells none of its requests",
         .edits = .{
-            .{ .file = "io/io_request.zig", .old = "    if (current(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns);", .new = "    if (current(self, index) and false) self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns);" },
+            .{ .file = "io/io_request.zig", .old = "    if (open(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns);", .new = "    if (open(self, index) and false) self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns);" },
         },
         .caught_by = .short_walks,
     },
@@ -1085,7 +1085,7 @@
         .id = "QO11",
         .what = "the DoQ answer buffer holds tcp_message_bytes, with no room for the prefix beside the longest message",
         .edits = .{
-            .{ .file = "io/io.zig", .old = "    const answer_bytes = with_requests(options, cocuyo.constants.tcp_prefix_bytes + options.tcp_message_bytes);", .new = "    const answer_bytes = with_requests(options, options.tcp_message_bytes);" },
+            .{ .file = "io/io.zig", .old = "    const answer_bytes = sizes.with_requests(options, cocuyo.constants.tcp_prefix_bytes + options.tcp_message_bytes);", .new = "    const answer_bytes = sizes.with_requests(options, options.tcp_message_bytes);" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -2150,7 +2150,7 @@
         .id = "OA3",
         .what = "a lookup reads a cut datagram as a whole message",
         .edits = .{
-            .{ .file = "src/resolver/lookup.zig", .old = "        return cut_module.on_datagram_cut(self, message, from, now_ns);", .new = "        return response_module.on_response(self, message, from, now_ns);" },
+            .{ .file = "src/resolver/lookup.zig", .old = "        if (cut_module.on_datagram_cut(self, message, from, now_ns) == .accepted) return .accepted;", .new = "        if (response_module.on_response(self, message, from, now_ns) == .accepted) return .accepted;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -2530,7 +2530,7 @@
         .id = "PL10",
         .what = "reinit checks the payload after it closes its connections and its sockets",
         .edits = .{
-            .{ .file = "io/io_lifecycle.zig", .old = "    try check_payload(config);\n    tcp.cancel_all(self);\n    tcp.close_all(self);\n    self.tcp_connection = @splat(null);\n    request_tend.cancel_all(self);\n    request_tend.close_all(self);\n    channel_link.cancel_all(self);\n    channel_link.close_all(self);\n    channel_module.forget_all(self);\n    request_module.forget_all(self);\n    self.sockets.cancel(self.loop);\n    self.sockets.close();\n", .new = "    tcp.cancel_all(self);\n    tcp.close_all(self);\n    self.tcp_connection = @splat(null);\n    request_tend.cancel_all(self);\n    request_tend.close_all(self);\n    channel_link.cancel_all(self);\n    channel_link.close_all(self);\n    channel_module.forget_all(self);\n    request_module.forget_all(self);\n    self.sockets.cancel(self.loop);\n    self.sockets.close();\n    try check_payload(config);\n" },
+            .{ .file = "io/io_lifecycle.zig", .old = "    try check_payload(config);\n    tcp.cancel_all(self);\n    tcp.close_all(self);\n    self.tcp_connection = @splat(null);\n    self.kept.forget();\n    request_tend.cancel_all(self);\n    request_tend.close_all(self);\n    channel_link.cancel_all(self);\n    channel_link.close_all(self);\n    channel_module.forget_all(self);\n    request_module.forget_all(self);\n    self.sockets.cancel(self.loop);\n    self.sockets.close();\n", .new = "    tcp.cancel_all(self);\n    tcp.close_all(self);\n    self.tcp_connection = @splat(null);\n    self.kept.forget();\n    request_tend.cancel_all(self);\n    request_tend.close_all(self);\n    channel_link.cancel_all(self);\n    channel_link.close_all(self);\n    channel_module.forget_all(self);\n    request_module.forget_all(self);\n    self.sockets.cancel(self.loop);\n    self.sockets.close();\n    try check_payload(config);\n" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -2699,7 +2699,7 @@
         .id = "TS6",
         .what = "a lookup that acts still waits for a slot",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "    wait_module.unwait(self, index);\n", .new = "" },
+            .{ .file = "io/io_kept.zig", .old = "    wait_module.unwait(self, index);\n", .new = "" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -3003,7 +3003,7 @@
         .id = "CB1",
         .what = "the DoT session states the AES instructions and a data-independent timing, whatever its context states",
         .edits = .{
-            .{ .file = "io/io_chapulin.zig", .old = ".cpu = context.cpu })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known }, .timing = .data_independent } })" },
+            .{ .file = "io/io_chapulin.zig", .old = ".cpu = context.cpu, .require_pq = server.require_post_quantum })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .data_independent }, .require_pq = server.require_post_quantum })" },
         },
         .caught_by = .{ .step = "test-chapulin" },
     },
@@ -3012,7 +3012,7 @@
         .id = "CB2",
         .what = "the DoQ session states the AES instructions and a data-independent timing, whatever its context states",
         .edits = .{
-            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = context.cpu })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known }, .timing = .data_independent } })" },
+            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = context.cpu, .require_pq = server.require_post_quantum })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .data_independent }, .require_pq = server.require_post_quantum })" },
         },
         .caught_by = .{ .step = "test-chapulin-quic" },
     },
@@ -3021,7 +3021,7 @@
         .id = "CB3",
         .what = "the DoH channel states the AES instructions and a data-independent timing, whatever its context states",
         .edits = .{
-            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu },", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known }, .timing = .data_independent } }," },
+            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu, .require_pq = context.tls.require_post_quantum },", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .data_independent }, .require_pq = context.tls.require_post_quantum }," },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -3048,7 +3048,7 @@
         .id = "CU3",
         .what = "the DoT session states nothing of the CPU, whatever its context states",
         .edits = .{
-            .{ .file = "io/io_chapulin.zig", .old = ".cpu = context.cpu })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated } })" },
+            .{ .file = "io/io_chapulin.zig", .old = ".cpu = context.cpu, .require_pq = server.require_post_quantum })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .not_stated }, .require_pq = server.require_post_quantum })" },
         },
         .caught_by = .{ .step = "test-chapulin" },
     },
@@ -3057,7 +3057,7 @@
         .id = "CU4",
         .what = "the DoT session states a data-independent timing, whatever its context states",
         .edits = .{
-            .{ .file = "io/io_chapulin.zig", .old = ".cpu = context.cpu })", .new = ".cpu = .{ .probe = context.cpu.probe, .timing = .data_independent } })" },
+            .{ .file = "io/io_chapulin.zig", .old = ".cpu = context.cpu, .require_pq = server.require_post_quantum })", .new = ".cpu = .{ .probe = context.cpu.probe, .timing = .data_independent }, .require_pq = server.require_post_quantum })" },
         },
         .caught_by = .{ .step = "test-chapulin" },
     },
@@ -3084,7 +3084,7 @@
         .id = "CU7",
         .what = "the DoQ session states nothing of the CPU, whatever its context states",
         .edits = .{
-            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = context.cpu })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated } })" },
+            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = context.cpu, .require_pq = server.require_post_quantum })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .not_stated }, .require_pq = server.require_post_quantum })" },
         },
         .caught_by = .{ .step = "test-chapulin-quic" },
     },
@@ -3093,7 +3093,7 @@
         .id = "CU8",
         .what = "the DoQ session states a data-independent timing, whatever its context states",
         .edits = .{
-            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = context.cpu })", .new = ".cpu = .{ .probe = context.cpu.probe, .timing = .data_independent } })" },
+            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = context.cpu, .require_pq = server.require_post_quantum })", .new = ".cpu = .{ .probe = context.cpu.probe, .timing = .data_independent }, .require_pq = server.require_post_quantum })" },
         },
         .caught_by = .{ .step = "test-chapulin-quic" },
     },
@@ -3120,7 +3120,7 @@
         .id = "CU11",
         .what = "the DoH channel states nothing of the CPU, whatever its context states",
         .edits = .{
-            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu },", .new = ".cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known }, .timing = .not_stated } }," },
+            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu, .require_pq = context.tls.require_post_quantum },", .new = ".cpu = .{ .probe = .{ .aes_clmul = .not_known, .dit = .not_known, .sha256 = .not_known, .sha512 = .not_known, .sha3 = .not_known, .ssse3 = .not_known, .sse4_1 = .not_known, .avx2 = .not_known, .vaes = .not_known }, .timing = .not_stated }, .require_pq = context.tls.require_post_quantum }," },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -3129,7 +3129,7 @@
         .id = "CU12",
         .what = "the DoH channel states a data-independent timing, whatever its context states",
         .edits = .{
-            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu },", .new = ".cpu = .{ .probe = self.context.cpu.probe, .timing = .data_independent } }," },
+            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu, .require_pq = context.tls.require_post_quantum },", .new = ".cpu = .{ .probe = self.context.cpu.probe, .timing = .data_independent }, .require_pq = context.tls.require_post_quantum }," },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -3138,7 +3138,7 @@
         .id = "CU13",
         .what = "the DoT session states the AES instructions found, whatever its probe found",
         .edits = .{
-            .{ .file = "io/io_chapulin.zig", .old = ".cpu = context.cpu })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = context.cpu.probe.dit }, .timing = context.cpu.timing } })" },
+            .{ .file = "io/io_chapulin.zig", .old = ".cpu = context.cpu, .require_pq = server.require_post_quantum })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = context.cpu.probe.dit, .sha256 = context.cpu.probe.sha256, .sha512 = context.cpu.probe.sha512, .sha3 = context.cpu.probe.sha3, .ssse3 = context.cpu.probe.ssse3, .sse4_1 = context.cpu.probe.sse4_1, .avx2 = context.cpu.probe.avx2, .vaes = context.cpu.probe.vaes }, .timing = context.cpu.timing }, .require_pq = server.require_post_quantum })" },
         },
         .caught_by = .{ .step = "test-chapulin" },
     },
@@ -3156,7 +3156,7 @@
         .id = "CU15",
         .what = "the DoT session takes a probe that did not answer for one that found the AES instructions",
         .edits = .{
-            .{ .file = "io/io_chapulin.zig", .old = ".cpu = context.cpu })", .new = ".cpu = .{ .probe = .{ .aes_clmul = if (context.cpu.probe.aes_clmul == .no) .no else .yes, .dit = context.cpu.probe.dit }, .timing = context.cpu.timing } })" },
+            .{ .file = "io/io_chapulin.zig", .old = ".cpu = context.cpu, .require_pq = server.require_post_quantum })", .new = ".cpu = .{ .probe = .{ .aes_clmul = if (context.cpu.probe.aes_clmul == .no) .no else .yes, .dit = context.cpu.probe.dit, .sha256 = context.cpu.probe.sha256, .sha512 = context.cpu.probe.sha512, .sha3 = context.cpu.probe.sha3, .ssse3 = context.cpu.probe.ssse3, .sse4_1 = context.cpu.probe.sse4_1, .avx2 = context.cpu.probe.avx2, .vaes = context.cpu.probe.vaes }, .timing = context.cpu.timing }, .require_pq = server.require_post_quantum })" },
         },
         .caught_by = .{ .step = "test-chapulin" },
     },
@@ -3165,7 +3165,7 @@
         .id = "CU16",
         .what = "the DoQ session states the AES instructions found, whatever its probe found",
         .edits = .{
-            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = context.cpu })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = context.cpu.probe.dit }, .timing = context.cpu.timing } })" },
+            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = context.cpu, .require_pq = server.require_post_quantum })", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = context.cpu.probe.dit, .sha256 = context.cpu.probe.sha256, .sha512 = context.cpu.probe.sha512, .sha3 = context.cpu.probe.sha3, .ssse3 = context.cpu.probe.ssse3, .sse4_1 = context.cpu.probe.sse4_1, .avx2 = context.cpu.probe.avx2, .vaes = context.cpu.probe.vaes }, .timing = context.cpu.timing }, .require_pq = server.require_post_quantum })" },
         },
         .caught_by = .{ .step = "test-chapulin-quic" },
     },
@@ -3183,7 +3183,7 @@
         .id = "CU18",
         .what = "the DoQ session takes a probe that did not answer for one that found the AES instructions",
         .edits = .{
-            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = context.cpu })", .new = ".cpu = .{ .probe = .{ .aes_clmul = if (context.cpu.probe.aes_clmul == .no) .no else .yes, .dit = context.cpu.probe.dit }, .timing = context.cpu.timing } })" },
+            .{ .file = "io/io_chapulin_quic.zig", .old = ".cpu = context.cpu, .require_pq = server.require_post_quantum })", .new = ".cpu = .{ .probe = .{ .aes_clmul = if (context.cpu.probe.aes_clmul == .no) .no else .yes, .dit = context.cpu.probe.dit, .sha256 = context.cpu.probe.sha256, .sha512 = context.cpu.probe.sha512, .sha3 = context.cpu.probe.sha3, .ssse3 = context.cpu.probe.ssse3, .sse4_1 = context.cpu.probe.sse4_1, .avx2 = context.cpu.probe.avx2, .vaes = context.cpu.probe.vaes }, .timing = context.cpu.timing }, .require_pq = server.require_post_quantum })" },
         },
         .caught_by = .{ .step = "test-chapulin-quic" },
     },
@@ -3192,7 +3192,7 @@
         .id = "CU19",
         .what = "the DoH channel states the AES instructions found, whatever its probe found",
         .edits = .{
-            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu },", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = self.context.cpu.probe.dit }, .timing = self.context.cpu.timing } }," },
+            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu, .require_pq = context.tls.require_post_quantum },", .new = ".cpu = .{ .probe = .{ .aes_clmul = .yes, .dit = self.context.cpu.probe.dit, .sha256 = self.context.cpu.probe.sha256, .sha512 = self.context.cpu.probe.sha512, .sha3 = self.context.cpu.probe.sha3, .ssse3 = self.context.cpu.probe.ssse3, .sse4_1 = self.context.cpu.probe.sse4_1, .avx2 = self.context.cpu.probe.avx2, .vaes = self.context.cpu.probe.vaes }, .timing = self.context.cpu.timing }, .require_pq = context.tls.require_post_quantum }," },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -3210,7 +3210,7 @@
         .id = "CU21",
         .what = "the DoH channel takes a probe that did not answer for one that found the AES instructions",
         .edits = .{
-            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu },", .new = ".cpu = .{ .probe = .{ .aes_clmul = if (self.context.cpu.probe.aes_clmul == .no) .no else .yes, .dit = self.context.cpu.probe.dit }, .timing = self.context.cpu.timing } }," },
+            .{ .file = "io/io_doh_channel_start.zig", .old = ".cpu = self.context.cpu, .require_pq = context.tls.require_post_quantum },", .new = ".cpu = .{ .probe = .{ .aes_clmul = if (self.context.cpu.probe.aes_clmul == .no) .no else .yes, .dit = self.context.cpu.probe.dit, .sha256 = self.context.cpu.probe.sha256, .sha512 = self.context.cpu.probe.sha512, .sha3 = self.context.cpu.probe.sha3, .ssse3 = self.context.cpu.probe.ssse3, .sse4_1 = self.context.cpu.probe.sse4_1, .avx2 = self.context.cpu.probe.avx2, .vaes = self.context.cpu.probe.vaes }, .timing = self.context.cpu.timing }, .require_pq = context.tls.require_post_quantum }," },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
     },
@@ -3534,7 +3534,7 @@
         .id = "CL1",
         .what = "the idle close passes over a connection that closes, as until 2026-10-20",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "        if (connection.state == .closed or connection.users != 0) continue;\n", .new = "        if (connection.state == .closed or connection.state == .closing or connection.users != 0) continue;\n" },
+            .{ .file = "io/io_tcp.zig", .old = "        if (connection.state == .closed or connection.users != 0 or connection.keepers != 0) continue;\n", .new = "        if (connection.state == .closed or connection.state == .closing or connection.users != 0 or connection.keepers != 0) continue;\n" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -3615,7 +3615,7 @@
         .id = "CL11",
         .what = "as CL1, against the walks",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "        if (connection.state == .closed or connection.users != 0) continue;\n", .new = "        if (connection.state == .closed or connection.state == .closing or connection.users != 0) continue;\n" },
+            .{ .file = "io/io_tcp.zig", .old = "        if (connection.state == .closed or connection.users != 0 or connection.keepers != 0) continue;\n", .new = "        if (connection.state == .closed or connection.state == .closing or connection.users != 0 or connection.keepers != 0) continue;\n" },
         },
         .caught_by = .picked_walks,
     },
@@ -3970,7 +3970,7 @@
         .id = "RS63",
         .what = "a DoQ request fails with closed, whatever reason its connection gave",
         .edits = .{
-            .{ .file = "io/io_request.zig", .old = "    if (current(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns);", .new = "    _ = reason;\n    if (current(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, .closed, now_ns);" },
+            .{ .file = "io/io_request.zig", .old = "    if (open(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns);", .new = "    _ = reason;\n    if (open(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, .closed, now_ns);" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -4006,7 +4006,7 @@
         .id = "RS73",
         .what = "a DoH request that fails before its exchange gives closed, whatever its reason",
         .edits = .{
-            .{ .file = "io/io_channel.zig", .old = "    if (request_module.current(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns);", .new = "    _ = reason;\n    if (request_module.current(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, .closed, now_ns);" },
+            .{ .file = "io/io_channel.zig", .old = "    if (request_module.open(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, reason, now_ns);", .new = "    _ = reason;\n    if (request_module.open(self, index)) self.resolver.on_request_failed(request.handle, request.transaction, .closed, now_ns);" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -4341,7 +4341,7 @@
         .id = "RD15",
         .what = "the last lookup to leave a connection during a query's send leaves it up for the idle close, as built until 2026-10-25",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut(self, at);\n", .new = "" },
+            .{ .file = "io/io_kept.zig", .old = "    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut_telling(self, at, now_ns);\n", .new = "" },
             .{ .file = "io/io_drive.zig", .old = "    queue_module.assert_none_held(self);\n", .new = "" },
         },
         .caught_by = .{ .step = "test-io" },
@@ -4360,7 +4360,7 @@
         .id = "SH2",
         .what = "as RD15, against the walks",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut(self, at);\n", .new = "" },
+            .{ .file = "io/io_kept.zig", .old = "    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut_telling(self, at, now_ns);\n", .new = "" },
             .{ .file = "io/io_drive.zig", .old = "    queue_module.assert_none_held(self);\n", .new = "" },
         },
         .caught_by = .short_walks,
@@ -4370,7 +4370,7 @@
         .id = "SH3",
         .what = "the last lookup to leave during any send shuts the connection, a send of the session's records among them",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut(self, at);", .new = "    if (connection.users == 0 and connection.sending) shut(self, at);" },
+            .{ .file = "io/io_kept.zig", .old = "    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut_telling(self, at, now_ns);", .new = "    if (connection.users == 0 and connection.sending) shut_telling(self, at, now_ns);" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -4379,7 +4379,7 @@
         .id = "SH4",
         .what = "a leave during a query's send shuts the connection while another lookup stays on it",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut(self, at);", .new = "    if (queue_module.query_in_flight(self, at)) shut(self, at);" },
+            .{ .file = "io/io_kept.zig", .old = "    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut_telling(self, at, now_ns);", .new = "    if (queue_module.query_in_flight(self, at)) shut_telling(self, at, now_ns);" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -4388,7 +4388,7 @@
         .id = "SH5",
         .what = "only a lookup that moves on shuts the connection; one that ends or is cancelled leaves it up",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut(self, at);", .new = "    if (connection.users == 0 and queue_module.query_in_flight(self, at) and !self.resolver.lookup_of(self.handles[index]).is_settled()) shut(self, at);" },
+            .{ .file = "io/io_kept.zig", .old = "    queue_module.drop(self, at, index);\n    leave(self, at, now_ns);\n    mark_module.leave(self, at, index, now_ns);\n", .new = "    queue_module.drop(self, at, index);\n    if (self.resolver.lookup_of(self.handles[index]).is_settled()) {\n        self.connections[at].users -= 1;\n        if (self.connections[at].users == 0 and self.connections[at].keepers == 0) self.connections[at].idle_since_ns = now_ns;\n    } else leave(self, at, now_ns);\n    mark_module.leave(self, at, index, now_ns);\n" },
             .{ .file = "io/io_drive.zig", .old = "    queue_module.assert_none_held(self);\n", .new = "" },
         },
         .caught_by = .{ .step = "test-io" },
@@ -4398,7 +4398,7 @@
         .id = "SH6",
         .what = "over TLS the last leave during a query's send leaves the connection up for the idle close",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut(self, at);", .new = "    if (connection.users == 0 and queue_module.query_in_flight(self, at) and !tls_module.speaks(self)) shut(self, at);" },
+            .{ .file = "io/io_kept.zig", .old = "    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut_telling(self, at, now_ns);", .new = "    if (connection.users == 0 and queue_module.query_in_flight(self, at) and !@import(\"io_tls.zig\").speaks(self)) shut_telling(self, at, now_ns);" },
             .{ .file = "io/io_drive.zig", .old = "    queue_module.assert_none_held(self);\n", .new = "" },
         },
         .caught_by = .{ .step = "test-io" },
@@ -4408,7 +4408,7 @@
         .id = "SH7",
         .what = "the last lookup to leave during a query's send leaves the connection up, and the drive's assertion stays",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut(self, at);\n", .new = "" },
+            .{ .file = "io/io_kept.zig", .old = "    if (connection.users == 0 and queue_module.query_in_flight(self, at)) shut_telling(self, at, now_ns);\n", .new = "" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -4529,8 +4529,8 @@
         .id = "NJ19",
         .what = "the release asks for the mark while the lookup is still on its connection",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "    self.tcp_connection[index] = null;\n    queue_module.drop(self, at, index);\n", .new = "    queue_module.drop(self, at, index);\n" },
-            .{ .file = "io/io_tcp.zig", .old = "    mark_module.leave(self, at, index, now_ns);\n}\n", .new = "    mark_module.leave(self, at, index, now_ns);\n    self.tcp_connection[index] = null;\n}\n" },
+            .{ .file = "io/io_kept.zig", .old = "    self.tcp_connection[index] = null;\n    queue_module.drop(self, at, index);\n", .new = "    queue_module.drop(self, at, index);\n" },
+            .{ .file = "io/io_kept.zig", .old = "    mark_module.leave(self, at, index, now_ns);\n}\n", .new = "    mark_module.leave(self, at, index, now_ns);\n    self.tcp_connection[index] = null;\n}\n" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -4962,7 +4962,7 @@
         .id = "CS2",
         .what = "a negative put keeps no status",
         .edits = .{
-            .{ .file = "src/cache/cache.zig", .old = "null, null, ttl_seconds, now_ns) orelse return;\n        slot.security = security;", .new = "null, null, ttl_seconds, now_ns) orelse return;\n        slot.security = if (security == .authenticated) .unchecked else .unchecked;" },
+            .{ .file = "src/cache/cache.zig", .old = "null, chain, ttl_seconds, now_ns) orelse return;\n        slot.security = security;", .new = "null, chain, ttl_seconds, now_ns) orelse return;\n        slot.security = if (security == .authenticated) .unchecked else .unchecked;" },
         },
         .caught_by = .{ .step = "test-cache" },
     },
@@ -4989,7 +4989,7 @@
         .id = "CS5",
         .what = "the glue drops the status of a recalled answer",
         .edits = .{
-            .{ .file = "src/cocuyo.zig", .old = "            .canonical_name = hit.canonical_name,\n            .security = hit.security,", .new = "            .canonical_name = hit.canonical_name,\n            .security = if (hit.outcome == .answered) .unchecked else .unchecked," },
+            .{ .file = "src/cocuyo.zig", .old = "            .canonical_name = hit.canonical_name,\n            .aliases = hit.aliases,\n            .security = hit.security,", .new = "            .canonical_name = hit.canonical_name,\n            .aliases = hit.aliases,\n            .security = if (hit.outcome == .answered) .unchecked else .unchecked," },
         },
         .caught_by = .{ .step = "test-cocuyo" },
     },
@@ -4998,7 +4998,7 @@
         .id = "CS6",
         .what = "the glue puts every answer unchecked",
         .edits = .{
-            .{ .file = "src/cocuyo.zig", .old = "answered.canonical_name, answered.security, now_ns)", .new = "answered.canonical_name, if (answered.ttl_seconds > 0) .unchecked else .unchecked, now_ns)" },
+            .{ .file = "src/cocuyo.zig", .old = "answered.aliases), answered.security, now_ns)", .new = "answered.aliases), if (answered.ttl_seconds > 0) .unchecked else .unchecked, now_ns)" },
         },
         .caught_by = .{ .step = "test-cocuyo" },
     },
@@ -5025,7 +5025,7 @@
         .id = "CS9",
         .what = "the table writes every negative unchecked",
         .edits = .{
-            .{ .file = "src/resolver/table_memory.zig", .old = ".ttl_seconds = failure.negative_ttl_seconds, .security = failure.security } };", .new = ".ttl_seconds = failure.negative_ttl_seconds, .security = if (failure.security == .authenticated) .unchecked else .unchecked } };" },
+            .{ .file = "src/resolver/table_memory.zig", .old = ".ttl_seconds = failure.negative_ttl_seconds,\n            .security = failure.security,", .new = ".ttl_seconds = failure.negative_ttl_seconds,\n            .security = if (failure.security == .authenticated) .unchecked else .unchecked," },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -5251,7 +5251,7 @@
         .id = "CN2",
         .what = "labels are compared from the left",
         .edits = .{
-            .{ .file = "src/core/canonical.zig", .old = "        const label_a = label(a, labels_a.starts[labels_a.count - from_right]);\n        const label_b = label(b, labels_b.starts[labels_b.count - from_right]);", .new = "        const label_a = label(a, labels_a.starts[from_right - 1]);\n        const label_b = label(b, labels_b.starts[from_right - 1]);" },
+            .{ .file = "src/core/canonical.zig", .old = "        const label_a = label(a, labels_a.starts[labels_a.count - from_right]);\n        const label_b = label(b, labels_b.starts[labels_b.count - from_right]);\n        const by_label", .new = "        const label_a = label(a, labels_a.starts[from_right - 1]);\n        const label_b = label(b, labels_b.starts[from_right - 1]);\n        const by_label" },
         },
         .caught_by = .{ .step = "test-core" },
     },
@@ -6430,7 +6430,7 @@
         .id = "K3",
         .what = "a zone with no supported algorithm is matched anyway",
         .edits = .{
-            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "    if (!supported(&bases, verifier)) {", .new = "    if (false and !supported(&bases, verifier)) {" },
+            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "    if (!supported(bases, verifier)) {", .new = "    if (false and !supported(bases, verifier)) {" },
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
@@ -6439,7 +6439,7 @@
         .id = "K4",
         .what = "a set with no matched key is verified",
         .edits = .{
-            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "    if (matched.len == 0) return .bogus;\n", .new = "" },
+            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "    if (matched.len() == 0) return .bogus;\n", .new = "" },
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
@@ -6448,7 +6448,7 @@
         .id = "K5",
         .what = "a set that does not fit the store is admitted",
         .edits = .{
-            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "    return if (keep(store, zone, &set, valid.ttl_seconds, now_ns)) .admitted else .bogus;", .new = "    return if (keep(store, zone, &set, valid.ttl_seconds, now_ns) or true) .admitted else .bogus;" },
+            .{ .file = "src/dnssec/dnssec_store_keys.zig", .old = "    return if (keep(&scratch.kept, store, zone, &set, valid.ttl_seconds, now_ns)) .admitted else .bogus;", .new = "    return if (keep(&scratch.kept, store, zone, &set, valid.ttl_seconds, now_ns) or true) .admitted else .bogus;" },
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
@@ -6556,7 +6556,7 @@
         .id = "A2",
         .what = "a name under no anchor has its message read",
         .edits = .{
-            .{ .file = "src/dnssec/dnssec_validate.zig", .old = "        if (self.insecure_at(asked, now_ns)) return .insecure;\n        var message", .new = "        var message" },
+            .{ .file = "src/dnssec/dnssec_validate.zig", .old = "        if (self.insecure_at(asked, now_ns)) return .insecure;\n        const message", .new = "        const message" },
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
@@ -6871,7 +6871,7 @@
         .id = "VN2",
         .what = "an NSEC3 negative is read as an NSEC one",
         .edits = .{
-            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "    if (has(walk, .nsec3)) return negative_nsec3(walk, name, kind, signed);\n", .new = "" },
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "    if (try has_nsec3_over(walk, name)) return negative_nsec3(walk, name, kind, signed);\n", .new = "" },
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
@@ -6889,7 +6889,7 @@
         .id = "VN4",
         .what = "an NSEC3 proof under Opt-Out reads as no proof",
         .edits = .{
-            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        .insecure => .insecure,\n        .none => try delegated3(walk, name, &nsec3s),", .new = "        .insecure => .{ .bogus = .proof },\n        .none => try delegated3(walk, name, &nsec3s)," },
+            .{ .file = "src/dnssec/dnssec_validate_denial.zig", .old = "        .insecure => .insecure,\n        .none => try delegated3(walk, name, nsec3s),", .new = "        .insecure => .{ .bogus = .proof },\n        .none => try delegated3(walk, name, nsec3s)," },
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
@@ -7078,7 +7078,7 @@
         .id = "WK7",
         .what = "a name with no delegation at the target moves past it",
         .edits = .{
-            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "                    if (walk.probe_labels >= walk.target.label_count()) return fail(walk, .bogus);", .new = "                    if (walk.probe_labels > walk.target.label_count()) return fail(walk, .bogus);" },
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "        if (walk.probe_labels >= walk.target.label_count()) return fail(walk, .bogus);\n        walk.probe_labels += 1;\n        assert(walk.probe_labels <= walk.target.label_count());\n", .new = "        if (walk.probe_labels > walk.target.label_count()) return fail(walk, .bogus);\n        walk.probe_labels += 1;\n" },
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
@@ -7105,7 +7105,7 @@
         .id = "WK10",
         .what = "a walk's answer that wants keys fails the walk at once",
         .edits = .{
-            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "            .keys_wanted => self.restart(walk, now_ns),\n            .unchecked", .new = "            .keys_wanted => fail(walk, .bogus),\n            .unchecked" },
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "            .keys_wanted => self.restart(walk, now_ns),\n", .new = "            .keys_wanted => fail(walk, .bogus),\n" },
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
@@ -7256,9 +7256,9 @@
     .{
         .section = "The table's walks for keys",
         .id = "TW3",
-        .what = "a walk's lookup that ended on a message is followed as the consumer's",
+        .what = "a walk's lookup does not hear its answer",
         .edits = .{
-            .{ .file = "src/resolver/table_walks.zig", .old = "    if (slot.lookup.conjunctions.for_walk) {\n        if (!slot.lookup.is_settled()) return false;", .new = "    if (false) {\n        if (!slot.lookup.is_settled()) return false;" },
+            .{ .file = "src/resolver/table_walks.zig", .old = "    if (slot.lookup.conjunctions.for_walk) {\n        if (!slot.lookup.is_settled()) return;", .new = "    if (false) {\n        if (!slot.lookup.is_settled()) return;" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -7277,24 +7277,6 @@
         .what = "a lookup whose target finds every walk busy waits on none",
         .edits = .{
             .{ .file = "src/resolver/table_walks.zig", .old = "orelse return .{ .bogus = .signature };", .new = "orelse walk_none;" },
-        },
-        .caught_by = .{ .step = "test-resolver" },
-    },
-    .{
-        .section = "The table's walks for keys",
-        .id = "TW6",
-        .what = "the table keeps a walk's slot after its answer",
-        .edits = .{
-            .{ .file = "src/resolver/table_walks.zig", .old = "        free(self, index);\n        hand_end(self, walk, now_ns);\n        return true;\n    }\n    if (slot.lookup.state", .new = "        hand_end(self, walk, now_ns);\n        return true;\n    }\n    if (slot.lookup.state" },
-        },
-        .caught_by = .{ .step = "test-resolver" },
-    },
-    .{
-        .section = "The table's walks for keys",
-        .id = "TW7",
-        .what = "the table keeps a walk's slot after its question failed",
-        .edits = .{
-            .{ .file = "src/resolver/table_walks.zig", .old = "walked(slot.lookup.failure));\n    free(self, index);", .new = "walked(slot.lookup.failure));" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -7321,7 +7303,7 @@
         .id = "TW10",
         .what = "a walk that ends as it is joined is not handed to its lookup",
         .edits = .{
-            .{ .file = "src/resolver/table_walks.zig", .old = "        hand_end(self, slot.walk, now_ns);\n    }\n    return false;", .new = "    }\n    return false;" },
+            .{ .file = "src/resolver/table_walks.zig", .old = "        hand_end(self, slot.walk, now_ns);\n    }\n}\n", .new = "    }\n}\n" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -7363,15 +7345,6 @@
     },
     .{
         .section = "The table's walks for keys",
-        .id = "TW15",
-        .what = "a poll offers the end of a walk's question that failed",
-        .edits = .{
-            .{ .file = "src/resolver/table.zig", .old = "            if (walks_module.absorbed(self, index, action, now_ns)) continue;", .new = "            if (false and walks_module.absorbed(self, index, action, now_ns)) continue;" },
-        },
-        .caught_by = .{ .step = "test-resolver" },
-    },
-    .{
-        .section = "The table's walks for keys",
         .id = "TW16",
         .what = "a request's answer is not handed to the walks",
         .edits = .{
@@ -7393,7 +7366,7 @@
         .id = "KS1",
         .what = "the key store keeps no time of day",
         .edits = .{
-            .{ .file = "src/dnssec/dnssec_keys.zig", .old = "        self.store.set_clock(unix_seconds, now_ns);\n        self.walker", .new = "        self.store.set_clock(unix_seconds - unix_seconds, now_ns);\n        self.walker" },
+            .{ .file = "src/dnssec/dnssec_keys.zig", .old = "        self.store.set_clock(unix_seconds, now_ns);\n        self.scratch = .{};", .new = "        self.store.set_clock(unix_seconds - unix_seconds, now_ns);\n        self.scratch = .{};" },
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
@@ -7546,7 +7519,7 @@
         .id = "ST3",
         .what = "data with no signature at a walk's target, inside a signed zone, is insecure",
         .edits = .{
-            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "                    if (walk.probe_labels >= walk.target.label_count()) return fail(walk, .bogus);", .new = "                    if (walk.probe_labels >= walk.target.label_count()) return self.insecure(walk, probe, secure.ttl_seconds, now_ns);" },
+            .{ .file = "src/dnssec/dnssec_walk.zig", .old = "                    next_label(walk);\n", .new = "                    if (walk.probe_labels >= walk.target.label_count()) return self.insecure(walk, probe, secure.ttl_seconds, now_ns);\n                    next_label(walk);\n" },
         },
         .caught_by = .{ .step = "test-sim" },
     },

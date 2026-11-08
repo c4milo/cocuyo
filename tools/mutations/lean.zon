@@ -34,7 +34,7 @@
         .id = "DM1",
         .what = "a reply over DoH is read as a datagram's",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .awaitingUdp => reading c s c.request r ad v", .new = "  | .awaitingUdp => reading c s false r ad v" },
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .awaitingUdp => reading c (answered false) c.request r ad v", .new = "  | .awaitingUdp => reading c (answered false) false r ad v" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -52,7 +52,7 @@
         .id = "DM3",
         .what = "an HTTP failure changes nothing",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    if c.request ∧ s.stage = .awaitingUdp then (advanceServer c (keep s (.reason r)), .none)\n    else (s, .none)", .new = "    if c.request ∧ s.stage = .awaitingUdp then (s, .none)\n    else (s, .none)" },
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "      (advanceServer c (keep (closeTry s false s.server) (.reason r)), .none)\n    else (s, .none)", .new = "      (s, .none)\n    else (s, .none)" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -62,7 +62,7 @@
         .id = "RF1",
         .what = "the model counts a failed connection as silence",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    if onStream s.stage then (advanceServer c (keep s (.reason r)), .none)\n", .new = "    if onStream s.stage then (advanceServer c s, .none)\n" },
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "      (advanceServer c (keep { s with openStreams := s.openStreams.set s.server 0 } (.reason r)),\n        .none)", .new = "      (advanceServer c { s with openStreams := s.openStreams.set s.server 0 },\n        .none)" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -72,7 +72,7 @@
         .id = "RF2",
         .what = "the model counts a failed request as silence",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    if c.request ∧ s.stage = .awaitingUdp then (advanceServer c (keep s (.reason r)), .none)\n    else (s, .none)", .new = "    if c.request ∧ s.stage = .awaitingUdp then (advanceServer c s, .none)\n    else (s, .none)" },
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "      (advanceServer c (keep (closeTry s false s.server) (.reason r)), .none)\n    else (s, .none)", .new = "      (advanceServer c (closeTry s false s.server), .none)\n    else (s, .none)" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -118,7 +118,7 @@
         .id = "LC23",
         .what = "the model's failed stream keeps the connect's reason, whatever reason it came with",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    if onStream s.stage then (advanceServer c (keep s (.reason r)), .none)\n", .new = "    if onStream s.stage then (advanceServer c (keep s (.reason .connect)), .none)\n" },
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "      (advanceServer c (keep { s with openStreams := s.openStreams.set s.server 0 } (.reason r)),\n        .none)", .new = "      (advanceServer c (keep { s with openStreams := s.openStreams.set s.server 0 } (.reason .connect)),\n        .none)" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -128,7 +128,7 @@
         .id = "LC24",
         .what = "the model's failed request keeps the closed connection's reason, whatever reason it came with",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "    if c.request ∧ s.stage = .awaitingUdp then (advanceServer c (keep s (.reason r)), .none)\n    else (s, .none)", .new = "    if c.request ∧ s.stage = .awaitingUdp then (advanceServer c (keep s (.reason .closed)), .none)\n    else (s, .none)" },
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "      (advanceServer c (keep (closeTry s false s.server) (.reason r)), .none)\n    else (s, .none)", .new = "      (advanceServer c (keep (closeTry s false s.server) (.reason .closed)), .none)\n    else (s, .none)" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -166,7 +166,7 @@
         .id = "LC28",
         .what = "failure_cause proved by sorry",
         .edits = .{
-            .{ .file = "spec/lean/Spec/LookupProofs/Cause.lean", .old = "  exact key es _ ⟨init_fits c, init_server c⟩", .new = "  sorry" },
+            .{ .file = "spec/lean/Spec/LookupProofs/Cause.lean", .old = "  have k := key es _ ⟨init_fits c, init_server c, init_open c⟩\n  exact ⟨k.1, k.2.1⟩", .new = "  sorry" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -248,7 +248,7 @@
         .id = "RD10",
         .what = "the proof that a deadline ends tcpReady rests on sorry",
         .edits = .{
-            .{ .file = "spec/lean/Spec/LookupProofs.lean", .old = "  refine ⟨by simp [enabled, h, waiting], ?_⟩\n  simp only [step, h, waiting, if_true]\n  rcases advanceServer_stage c s with hs | hs\n  · unfold fresh at hs\n    split at hs <;> simp [poll, hs]\n  · simp [poll, hs]\n", .new = "  sorry\n" },
+            .{ .file = "spec/lean/Spec/LookupProofs.lean", .old = "  refine ⟨by simp [enabled, h, waiting], ?_⟩\n  simp only [step, h, waiting, if_true]\n  rcases advanceServer_stage c s with hs | ⟨_, hs⟩ | hs\n  · unfold fresh at hs\n    split at hs <;> simp [poll, hs]\n  · simp [poll, hs]\n  · simp [poll, hs]\n", .new = "  sorry\n" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -275,7 +275,7 @@
         .id = "RB12",
         .what = "the model does not pass over a server with no query left",
         .edits = .{
-            .{ .file = "spec/lean/Spec/LookupState.lean", .old = "    if spent t c.useTcp then advanceServer c t else t\n  else if _h2", .new = "    t\n  else if _h2" },
+            .{ .file = "spec/lean/Spec/LookupState.lean", .old = "    if spent t c.useTcp then advanceServer c t else waitOn c t\n  else if _h2", .new = "    waitOn c t\n  else if _h2" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
@@ -293,7 +293,7 @@
         .id = "RB14",
         .what = "the model does not count a query sent over UDP",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "      ({ s with stage := .awaitingUdp, offered := false, datagrams := bump s.datagrams s.server },", .new = "      ({ s with stage := .awaitingUdp, offered := false }," },
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "      ({ s with stage := .awaitingUdp, offered := false, datagrams := bump s.datagrams s.server,\n", .new = "      ({ s with stage := .awaitingUdp, offered := false,\n" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },
