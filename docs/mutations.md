@@ -11900,3 +11900,13 @@ The `what` of TW3 said that the table follows a walk's lookup "as the consumer's
 `6ff8fef` the table follows each lookup that accepted a message. The owner ruled on 2026-11-08 to
 rewrite it as what the mutation breaks now: a walk's lookup does not hear its answer. The table
 above gives the new text. `zig build test-resolver` catches it.
+
+## The pin of colibri v0.15.0
+
+2026-11-08. The owner approved the move of colibri from `cd195999` to its tag v0.15.0, four
+commits later, with the same pins of chapulin, stdx, Rotor and pepegrillo. No check of cocuyo
+changed. SM4 names the consumer fixture's new hash, and `zig build mutations -- engine SM4` ran it.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| SM4 | the consumer fixture pins colibri v0.11.0, where `build.zig.zon` pins v0.15.0 | `zig build consumer-check` | `CAUGHT` |
