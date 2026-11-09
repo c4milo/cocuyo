@@ -6,6 +6,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
 const limits = @import("limits.zig");
@@ -145,7 +146,7 @@ fn answer(self: anytype, server: u8, answered: anytype, now_ns: u64) void {
 /// error (§4.3.3). So is "a message with a non-zero Message ID" (§4.3.3). A message too short to
 /// hold an ID goes to the lookup, which reads it as it reads any short message.
 pub fn doq_message(bytes: []const u8) ?[]const u8 {
-    const prefix = cocuyo.constants.tcp_prefix_bytes;
+    const prefix = core.constants.tcp_prefix_bytes;
     if (bytes.len < prefix) return null;
     const message = bytes[prefix..];
     if (cocuyo.message_len(bytes[0..prefix]) != message.len) return null;

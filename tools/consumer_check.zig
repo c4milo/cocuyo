@@ -1,5 +1,5 @@
 //! The check of docs/design.md §20: a package that depends on cocuyo builds against it, and the
-//! same package cannot import a module the surface does not export.
+//! same package cannot reach a module or a path the surface does not export.
 //!
 //! §20 claims cocuyo is a package before it is a library, and the branch a dependent takes through
 //! cocuyo's own build — the early return before the tools' dependency, the manifest's `paths` —
@@ -7,10 +7,13 @@
 //! relative path, imports `cocuyo`, and builds a query through the table with the cache under it.
 //! It also builds the engine on a rotor of its own, and over DoQ and DoT with a colibri of its own.
 //!
-//! The negative control is the same package with `-Dreach-inside`, which asks for `sim`. The build
-//! registers `sim` under no name, so that build must fail. As in `graph_check`, the positive run
-//! gives the check its meaning. A check of a failure alone also passes on a failure of another
-//! cause. Examples are a path with a typo, an absent Zig and a broken invocation.
+//! The refusals are the same package with each value of `-Dreach-inside`. The first asks for
+//! `sim`, which the build registers under no name. The rest reach for a path that left the surface
+//! on 2026-11-09: `cocuyo.wire`, `cocuyo.resolver`, `cocuyo.core`, and the test data under
+//! `cocuyo.wire`, `cocuyo.rdata` and `cocuyo.resolv_conf`. Each of those builds must fail. As in
+//! `graph_check`, the positive run gives the check its meaning. A check of a failure alone also
+//! passes on a failure of another cause. Examples are a path with a typo, an absent Zig and a
+//! broken invocation.
 //!
 //! The package pins its own rotor and colibri, and binds them where a consumer binds them
 //! (docs/design.md §24, §16 decision 38, as amended). Each pin must be the one cocuyo's
@@ -23,8 +26,24 @@ const assert = std.debug.assert;
 
 const Outcome = enum { built, refused };
 
-/// The option the fixture's own build reads to import a module the package does not export.
-const reach_inside = "-Dreach-inside=true";
+/// The option the fixture's own build reads to reach a path the package does not export.
+const reach_inside = "-Dreach-inside=";
+
+/// One refusal: the value of `reach_inside` the fixture's build takes, and the path its program
+/// reaches for.
+const Refusal = struct { value: []const u8, path: []const u8 };
+
+/// The paths a consumer must not reach (docs/design.md §20). Each value is a tag of `Inside` in
+/// `test/consumer/build.zig`, and names a program of `test/consumer/inside/`.
+const refusals = [_]Refusal{
+    .{ .value = "sim", .path = "the module 'sim'" },
+    .{ .value = "wire", .path = "cocuyo.wire" },
+    .{ .value = "resolver", .path = "cocuyo.resolver" },
+    .{ .value = "core", .path = "cocuyo.core" },
+    .{ .value = "wire_fixtures", .path = "cocuyo.wire.fixtures" },
+    .{ .value = "rdata_fixtures", .path = "cocuyo.rdata.fixtures" },
+    .{ .value = "resolv_conf_fuzz", .path = "cocuyo.resolv_conf.fuzz" },
+};
 
 /// What the nested build may print before this tool stops reading it. It is swallowed either way;
 /// the negative run fails on purpose and its trace is not news.
@@ -68,11 +87,19 @@ pub fn main(init: std.process.Init) !void {
     }
     std.debug.print("consumer-check control: a package depending on cocuyo builds, as it must\n", .{});
 
-    if (try run_build(arena, init.io, zig_exe, package, cache, reach_inside) != .refused) {
-        std.debug.print("consumer-check: a consumer imported 'sim', which the package must not export\n", .{});
-        std.process.exit(1);
+    // Each refusal runs, so one report names every path a consumer reached.
+    var reached: usize = 0;
+    for (refusals) |refusal| {
+        const option = try std.mem.concat(arena, u8, &.{ reach_inside, refusal.value });
+        if (try run_build(arena, init.io, zig_exe, package, cache, option) == .refused) {
+            std.debug.print("consumer-check: a consumer cannot reach {s}\n", .{refusal.path});
+        } else {
+            std.debug.print("consumer-check: a consumer reached {s}, which the package must not export\n", .{refusal.path});
+            reached += 1;
+        }
     }
-    std.debug.print("consumer-check: a consumer cannot import 'sim'\n", .{});
+    assert(reached <= refusals.len);
+    if (reached > 0) std.process.exit(1);
 }
 
 /// Stops the program when the package's manifest pins rotor or colibri apart from `manifest_path`.
@@ -165,11 +192,22 @@ fn run_build(
 
 const testing = std.testing;
 
-test "the option the negative control passes is spelled the way a build option is" {
+test "the option each refusal passes is spelled the way a build option is" {
     // The fixture's own build declares `reach-inside`; the build wiring lists that file as an
     // input, so a rename there re-runs this check rather than passing it quietly.
-    try testing.expectEqualStrings("-Dreach-inside=true", reach_inside);
+    try testing.expectEqualStrings("-Dreach-inside=", reach_inside);
     try testing.expect(std.mem.startsWith(u8, reach_inside, "-D"));
+}
+
+test "each refusal names a program of the fixture, once" {
+    var directory = try std.Io.Dir.cwd().openDir(testing.io, "test/consumer/inside", .{});
+    defer directory.close(testing.io);
+    for (refusals, 0..) |refusal, index| {
+        const file = try std.mem.concat(testing.allocator, u8, &.{ refusal.value, ".zig" });
+        defer testing.allocator.free(file);
+        try directory.access(testing.io, file, .{});
+        for (refusals[index + 1 ..]) |other| try testing.expect(!std.mem.eql(u8, refusal.value, other.value));
+    }
 }
 
 /// A manifest as cocuyo's is written: a lazy package before the two, and the two with their URLs.

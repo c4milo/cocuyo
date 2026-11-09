@@ -8,6 +8,7 @@
 const std = @import("std");
 const testing = std.testing;
 const cocuyo = @import("cocuyo");
+const resolver = @import("resolver");
 const rotor = @import("rotor");
 const io = @import("io.zig");
 
@@ -88,7 +89,7 @@ fn stall_query(rig: anytype, handle: cocuyo.Handle) !void {
         _ = try rig.step(fixtures.channel_read_ns);
     }
     try testing.expect(connection.state == .up and connection.queue.first().?.slot == handle.index);
-    try testing.expectEqual(cocuyo.resolver.State.tcp_ready, rig.engine.resolver.lookup_of(handle).state);
+    try testing.expectEqual(resolver.State.tcp_ready, rig.engine.resolver.lookup_of(handle).state);
 }
 
 /// The first lookup's query's send never ends. A second later a second lookup joins the
@@ -108,7 +109,7 @@ fn mark_first(rig: anytype) !Marked {
     const connection = &rig.engine.connections[0];
     try testing.expect(connection.state == .up and connection.users == 1 and connection.sending);
     try testing.expect(rig.engine.send_in_flight[left.index]);
-    try testing.expectEqual(cocuyo.resolver.State.tcp_ready, rig.engine.resolver.lookup_of(stays).state);
+    try testing.expectEqual(resolver.State.tcp_ready, rig.engine.resolver.lookup_of(stays).state);
     return .{ .left = left, .stays = stays };
 }
 

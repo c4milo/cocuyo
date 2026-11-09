@@ -53,6 +53,7 @@ fn add_example(
 ) *std.Build.Step {
     const engine = b.createModule(.{ .root_source_file = b.path(modules.roots.io), .target = target, .optimize = optimize });
     engine.addImport("cocuyo", graph.cocuyo);
+    modules.add_internal(engine, graph);
     engine.addImport("rotor", rotor.module("rotor"));
     const doh = b.createModule(.{
         .root_source_file = b.path(modules.roots.io_doh_channel),
@@ -61,6 +62,7 @@ fn add_example(
         .link_libc = true,
     });
     doh.addImport("cocuyo", graph.cocuyo);
+    modules.add_internal(doh, graph);
     doh.addImport("doh", graph.doh);
     doh.addImport("chapulin_hooks", graph.chapulin_hooks);
     doh.addImport("client", colibri.module("client"));

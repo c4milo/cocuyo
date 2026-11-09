@@ -11928,3 +11928,37 @@ tree. `zig build mutations -- engine MA1 MA2 MA3 MA4` ran each row.
 
 MA4 changes the text of mutation A20 in `tools/mutations/address.zon`, so the test of the tree
 finds one mutation that does not apply.
+
+## The surface, since 2026-11-09
+
+2026-11-09. The owner ruled that the surface holds only what a consumer cannot do without
+(docs/design.md §20, "The surface, since 2026-11-09"). `zig build consumer-check` built the fixture
+once with `-Dreach-inside`, which asked for `sim`. The option now names a path, and
+`test/consumer/inside/` holds one program for each path. Each program must fail to build. Each
+mutation below exports one path again. `zig build mutations -- engine SF1 SF2 SF3 SF4 SF5` ran
+each row.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| SF1 | the surface exports `wire` again, and with it `wire.fixtures` | `zig build consumer-check` | `CAUGHT` |
+| SF2 | the surface exports `resolver` again | `zig build consumer-check` | `CAUGHT` |
+| SF3 | the surface exports `core` again | `zig build consumer-check` | `CAUGHT` |
+| SF4 | `resolv_conf` is the whole module again, its fuzz data with it | `zig build consumer-check` | `CAUGHT` |
+| SF5 | `rdata` is the whole of `wire.rdata` again, its fixtures with it | `zig build consumer-check` | `CAUGHT` |
+
+Under SF1 the check reports two paths, `cocuyo.wire` and `cocuyo.wire.fixtures`. No mutation
+exports `cocuyo.wire.fixtures` alone: the test data is under `wire`, so a consumer reaches it only
+through `wire`. The refusal stays, so that a later namespace `wire` cannot carry the test data.
+
+The change moved the text of five mutations. The engine reads `core.constants`, `core.limits` and
+`cache.Slices` from the modules the build gives it, and not through `cocuyo`. Each mutation now
+breaks the same check at its new text. `zig build mutations -- engine QO10 QO11 LM31 CZ18 CZ23` ran
+each row.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| QO10 | a connection's frame has no room for the prefix beside the longest message | `zig build test-io` | `CAUGHT` |
+| QO11 | the DoQ answer buffer holds tcp_message_bytes, with no room for the prefix beside the longest message | `zig build test-io` | `CAUGHT` |
+| LM31 | the port span of the engine leaves out its last port | `zig build test-io` | `CAUGHT` |
+| CZ18 | the engine caps its cache at the constant of an hour, whatever the configuration says | `zig build test-io` | `CAUGHT` |
+| CZ23 | reinit builds its cache over the memory the engine held, when it held some | `zig build test-io` | `CAUGHT` |

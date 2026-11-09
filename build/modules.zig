@@ -206,6 +206,9 @@ fn build(
     graph.io.addImport("cocuyo", graph.cocuyo);
     graph.io.addImport("rotor", graph.sim);
     graph.cocuyo_rotor.addImport("cocuyo", graph.cocuyo);
+    for ([_]*std.Build.Module{ graph.io, graph.cocuyo_rotor, graph.cocuyo_quic, graph.io_quic, graph.cocuyo_doh, graph.io_doh_channel }) |engine| {
+        add_internal(engine, graph);
+    }
     // chapulin's object needs libc. The DoT session reads the limits of the registered
     // `cocuyo_rotor`, the engine that the consumer binds its rotor into, and not the twin's `io`.
     graph.chapulin.link_libc = true;
@@ -233,6 +236,17 @@ fn build(
     }
 
     return graph;
+}
+
+/// The modules of §2 that the engine of `io/`, `bench/` and `tools/` read beside `cocuyo`: the
+/// paths that left the surface on 2026-11-09 (docs/design.md §20). Each is a part of this package,
+/// so the build gives them the modules, and a consumer never names them. Each module rooted in
+/// `io/` that imports `cocuyo` takes them, and each program of `bench/` and `tools/` that reads one.
+pub fn add_internal(reader: *std.Build.Module, graph: Graph) void {
+    reader.addImport("core", graph.core);
+    reader.addImport("wire", graph.wire);
+    reader.addImport("resolver", graph.resolver);
+    reader.addImport("cache", graph.cache);
 }
 
 fn module(

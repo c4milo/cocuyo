@@ -5,6 +5,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
+const wire = @import("wire");
 const client = @import("client");
 const doh = @import("doh");
 const constants = @import("io_doh_channel_constants.zig");
@@ -43,13 +45,13 @@ pub const Exchange = struct {
     response: client.Response = undefined,
     path: [doh.limits.doh_request_bytes_max]u8 = undefined,
     header_section: [limits.header_section_bytes_max]u8 = undefined,
-    answer: [cocuyo.limits.message_bytes_max]u8 = undefined,
+    answer: [core.limits.message_bytes_max]u8 = undefined,
 };
 
 /// Whether the template's path, expanded with a `dns` value at its longest, fits a GET's path: the
 /// check a channel makes at its start, so every request's expansion fits after it.
 pub fn fits(template_path: []const u8) bool {
-    var longest: [cocuyo.wire.limits.dns_variable_bytes_max]u8 = @splat('A');
+    var longest: [wire.limits.dns_variable_bytes_max]u8 = @splat('A');
     var path: [doh.limits.doh_request_bytes_max]u8 = undefined;
     return doh.template.expand(template_path, &longest, &path) != null;
 }
@@ -60,8 +62,8 @@ pub fn fits(template_path: []const u8) bool {
 /// what compresses (RFC 7541 §7.1.3, RFC 9204 §7.1.3, request rule 12).
 pub fn make(slot: *Exchange, index: u16, template_path: []const u8, message: []const u8) void {
     assert(!slot.live);
-    var variable: [cocuyo.wire.limits.dns_variable_bytes_max]u8 = undefined;
-    const dns = cocuyo.wire.doh.dns_variable(message, &variable);
+    var variable: [wire.limits.dns_variable_bytes_max]u8 = undefined;
+    const dns = wire.doh.dns_variable(message, &variable);
     // `fits` expanded the template with a longer value when the channel started, so this one fits.
     const path = doh.template.expand(template_path, dns, &slot.path) orelse unreachable;
     slot.request = .{

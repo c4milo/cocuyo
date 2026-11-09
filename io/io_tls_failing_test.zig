@@ -10,6 +10,7 @@
 const std = @import("std");
 const testing = std.testing;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
 const rotor = @import("rotor");
 const io = @import("io.zig");
 const tcp = @import("io_tcp.zig");
@@ -407,7 +408,7 @@ test "the records buffer takes a session that asks for all of it, and a session 
     try testing.expectEqual(@as(?cocuyo.Error, cocuyo.Error.AllServersFailed), over.failure);
     // No server took part: the room is the engine's (docs/design.md §5, The cause of a failure).
     try testing.expectEqual(@as(?cocuyo.Cause, .{ .server_index = 1, .what = .{ .reason = .local } }), over.cause);
-    try testing.expectEqual(@as(u8, cocuyo.constants.attempts_default), over.failures);
+    try testing.expectEqual(@as(u8, core.constants.attempts_default), over.failures);
     try testing.expect(over.at_once);
 }
 

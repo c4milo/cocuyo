@@ -4,6 +4,7 @@
 const std = @import("std");
 const constants = @import("io_quic_constants.zig");
 const cocuyo = @import("cocuyo");
+const core = @import("core");
 
 /// The idle timeout a connection advertises (RFC 9000 §18.2, `max_idle_timeout`): thirty seconds.
 /// The server's may be shorter, and the smaller holds (RFC 9250 §4.4). Chosen, not measured.
@@ -16,7 +17,7 @@ pub const datagram_receive_bytes_max: usize = 1500;
 
 /// A DoQ answer at its longest, with its prefix (RFC 9250 §4.2). The engine reads a stream once all
 /// of it has arrived, so a stream's receive window holds one whole.
-pub const answer_bytes_max: usize = cocuyo.constants.tcp_prefix_bytes + cocuyo.limits.message_bytes_max;
+pub const answer_bytes_max: usize = core.constants.tcp_prefix_bytes + core.limits.message_bytes_max;
 
 /// What a connection's transport parameters take when written (RFC 9000 §18): far past the dozen
 /// it sends.
@@ -26,7 +27,7 @@ pub const params_bytes_max: usize = 256;
 /// sends at once, and the longest answer it keeps, a datagram's worth after the prefix.
 pub const server_receive_blocks_max: usize = 16;
 pub const server_receive_bytes_max: usize = server_receive_blocks_max * constants.pool_block_bytes;
-pub const server_answer_bytes_max: usize = cocuyo.constants.tcp_prefix_bytes + cocuyo.constants.udp_payload_bytes_default;
+pub const server_answer_bytes_max: usize = core.constants.tcp_prefix_bytes + cocuyo.constants.udp_payload_bytes_default;
 
 /// The longest transport parameters either side of `Plain` sends, and the longest ALPN token it
 /// keeps (`io_quic_plain.zig`).

@@ -1076,7 +1076,7 @@
         .id = "QO10",
         .what = "a connection's frame has no room for the prefix beside the longest message",
         .edits = .{
-            .{ .file = "io/io_tcp.zig", .old = "        pub const frame_bytes: usize = cocuyo.constants.tcp_prefix_bytes + message_bytes + room_bytes;", .new = "        pub const frame_bytes: usize = message_bytes + room_bytes;" },
+            .{ .file = "io/io_tcp.zig", .old = "        pub const frame_bytes: usize = core.constants.tcp_prefix_bytes + message_bytes + room_bytes;", .new = "        pub const frame_bytes: usize = message_bytes + room_bytes;" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -1085,7 +1085,7 @@
         .id = "QO11",
         .what = "the DoQ answer buffer holds tcp_message_bytes, with no room for the prefix beside the longest message",
         .edits = .{
-            .{ .file = "io/io.zig", .old = "    const answer_bytes = sizes.with_requests(options, cocuyo.constants.tcp_prefix_bytes + options.tcp_message_bytes);", .new = "    const answer_bytes = sizes.with_requests(options, options.tcp_message_bytes);" },
+            .{ .file = "io/io.zig", .old = "    const answer_bytes = sizes.with_requests(options, core.constants.tcp_prefix_bytes + options.tcp_message_bytes);", .new = "    const answer_bytes = sizes.with_requests(options, options.tcp_message_bytes);" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -1189,7 +1189,7 @@
         .id = "CZ18",
         .what = "the engine caps its cache at the constant of an hour, whatever the configuration says",
         .edits = .{
-            .{ .file = "io/io_lifecycle.zig", .old = "        self.cache = cocuyo.Cache.init(memory.slots, memory.keys, seed, config.cache_ttl_seconds_max);", .new = "        self.cache = cocuyo.Cache.init(memory.slots, memory.keys, seed, cocuyo.cache.constants.ttl_seconds_max_default);" },
+            .{ .file = "io/io_lifecycle.zig", .old = "        self.cache = cocuyo.Cache.init(memory.slots, memory.keys, seed, config.cache_ttl_seconds_max);", .new = "        self.cache = cocuyo.Cache.init(memory.slots, memory.keys, seed, cache.constants.ttl_seconds_max_default);" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -1234,7 +1234,7 @@
         .id = "CZ23",
         .what = "reinit builds its cache over the memory the engine held, when it held some",
         .edits = .{
-            .{ .file = "io/io.zig", .old = "            try lifecycle.reinit(self, config, cache_memory, seed, now_ns);", .new = "            const held: ?cocuyo.cache.Slices = if (self.cache) |store| .{ .slots = store.slots, .keys = store.keys } else cache_memory;\n            try lifecycle.reinit(self, config, held, seed, now_ns);" },
+            .{ .file = "io/io.zig", .old = "            try lifecycle.reinit(self, config, cache_memory, seed, now_ns);", .new = "            const held: ?cache.Slices = if (self.cache) |store| .{ .slots = store.slots, .keys = store.keys } else cache_memory;\n            try lifecycle.reinit(self, config, held, seed, now_ns);" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -1835,7 +1835,7 @@
         .id = "LM31",
         .what = "the port span of the engine leaves out its last port",
         .edits = .{
-            .{ .file = "io/io_udp.zig", .old = "    const span = cocuyo.limits.port_ephemeral_max - cocuyo.limits.port_ephemeral_min + 1;", .new = "    const span = cocuyo.limits.port_ephemeral_max - cocuyo.limits.port_ephemeral_min;" },
+            .{ .file = "io/io_udp.zig", .old = "    const span = core.limits.port_ephemeral_max - core.limits.port_ephemeral_min + 1;", .new = "    const span = core.limits.port_ephemeral_max - core.limits.port_ephemeral_min;" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -8208,5 +8208,50 @@
             .{ .file = "tools/mutations/address.zon", .old = "walk.release_pair(self);", .new = "walk.release_pair(this);" },
         },
         .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "The surface, since 2026-11-09",
+        .id = "SF1",
+        .what = "the surface exports `wire` again, and with it `wire.fixtures`",
+        .edits = .{
+            .{ .file = "src/cocuyo.zig", .old = "const wire = @import(\"wire\");\n", .new = "pub const wire = @import(\"wire\");\n" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "The surface, since 2026-11-09",
+        .id = "SF2",
+        .what = "the surface exports `resolver` again",
+        .edits = .{
+            .{ .file = "src/cocuyo.zig", .old = "const resolver = @import(\"resolver\");\n", .new = "pub const resolver = @import(\"resolver\");\n" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "The surface, since 2026-11-09",
+        .id = "SF3",
+        .what = "the surface exports `core` again",
+        .edits = .{
+            .{ .file = "src/cocuyo.zig", .old = "const core = @import(\"core\");\n", .new = "pub const core = @import(\"core\");\n" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "The surface, since 2026-11-09",
+        .id = "SF4",
+        .what = "`resolv_conf` is the whole module again, its fuzz data with it",
+        .edits = .{
+            .{ .file = "src/cocuyo.zig", .old = "pub const resolv_conf = struct {\n    pub const parse = config_module.parse;\n    pub const Storage = config_module.Storage;\n};", .new = "pub const resolv_conf = config_module;" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "The surface, since 2026-11-09",
+        .id = "SF5",
+        .what = "`rdata` is the whole of `wire.rdata` again, its fixtures with it",
+        .edits = .{
+            .{ .file = "src/cocuyo.zig", .old = "pub const rdata = struct {\n    pub const name = wire.rdata.name;", .new = "pub const rdata = wire.rdata;\nconst rdata_readers = struct {\n    pub const name = wire.rdata.name;" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
     },
 }

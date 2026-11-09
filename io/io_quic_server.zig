@@ -9,6 +9,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
 const quic = @import("quic");
 const constants = @import("io_quic_constants.zig");
 const limits = @import("io_quic_limits.zig");
@@ -231,7 +232,7 @@ fn read_query(self: anytype, request: *Request, answerer: Answerer) void {
     };
     request.query_len += got.len;
     if (!got.fin or self.script.hold) return;
-    const prefix = cocuyo.constants.tcp_prefix_bytes;
+    const prefix = core.constants.tcp_prefix_bytes;
     const query = request.query[0..request.query_len];
     if (query.len < prefix) return refuse(self, request);
     const out = request.answer[prefix..];

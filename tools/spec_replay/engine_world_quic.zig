@@ -7,6 +7,7 @@
 //! This is developer tooling. It is never linked into the library.
 const std = @import("std");
 const cocuyo = @import("cocuyo");
+const core = @import("core");
 const rotor = @import("rotor");
 const io = @import("io");
 const fixtures = @import("fixtures.zig");
@@ -58,7 +59,7 @@ fn item(self: anytype, server: u8, name: []const u8, slot: usize, reply: ?fixtur
     const stream: u32 = @intCast(self.engine.requests[slot].stream orelse return error.Malformed);
     if (std.mem.eql(u8, name, "reset")) return rotor.quic.write_item(.{ .kind = .reset, .stream = stream }, out);
     if (!std.mem.eql(u8, name, "answer")) return error.Malformed;
-    var message: [512 + cocuyo.constants.tcp_prefix_bytes]u8 = undefined;
+    var message: [512 + core.constants.tcp_prefix_bytes]u8 = undefined;
     const answer = answer_of(self, slot, reply orelse return error.Malformed, &message);
     return rotor.quic.write_item(.{ .kind = .answer, .stream = stream, .bytes = answer }, out);
 }
@@ -67,7 +68,7 @@ fn item(self: anytype, server: u8, name: []const u8, slot: usize, reply: ?fixtur
 /// length, and with ID 0 (RFC 9250 §4.2, §4.2.1). It answers the try the request went for: its
 /// lookup's current one, or an earlier try the lookup keeps open (§16 decision 66).
 fn answer_of(self: anytype, slot: usize, reply: fixtures.Reply, out: []u8) []const u8 {
-    const prefix = cocuyo.constants.tcp_prefix_bytes;
+    const prefix = core.constants.tcp_prefix_bytes;
     const request = &self.engine.requests[slot];
     const current = self.engine.resolver.lookup_of(request.handle);
     var viewed: cocuyo.Lookup = undefined;

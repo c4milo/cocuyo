@@ -9,6 +9,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
 const io = @import("io");
 const client = @import("client");
 const rig = @import("io_doh_channel_test.zig");
@@ -67,7 +68,7 @@ const filler: u8 = 0x41;
 
 /// The most that the server writes in one round: a DNS message at its longest for each request.
 /// That is more than the answers and their heads.
-const burst_bytes: usize = requests * cocuyo.limits.message_bytes_max;
+const burst_bytes: usize = requests * core.limits.message_bytes_max;
 
 /// What the test saw over its runs:
 ///

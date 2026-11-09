@@ -24,7 +24,7 @@
         "build.zig",
         "build.zig.zon",
         "main.zig",
-        "inside.zig",
+        "inside",
         "embed.zig",
         "doq.zig",
         "dot.zig",

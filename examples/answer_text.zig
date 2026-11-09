@@ -8,13 +8,13 @@
 //!     <name> <TYPE> <fields> (ttl <seconds>)
 //!
 //! for each address and each record kept, and `<name> canonical <target>` for the end of a CNAME
-//! chain. A record kept as rdata prints through `cocuyo.wire.rdata`'s view of its type. A type
+//! chain. A record kept as rdata prints through `cocuyo.rdata`'s view of its type. A type
 //! this file has no view for prints in RFC 3597 §5's generic form, `\# <length> <hex>`. A failure
 //! prints as `<name>: <error>`, with `(<cause> from server <index>)` after it when a server failed
 //! the lookup.
 const std = @import("std");
 const cocuyo = @import("cocuyo");
-const rdata = cocuyo.wire.rdata;
+const rdata = cocuyo.rdata;
 
 /// The longest type name a question may spell: `naptr`, and room to spare.
 const type_text_bytes_max = 16;
@@ -49,7 +49,7 @@ fn kind_of(type_text: []const u8) ?cocuyo.Kind {
 
 /// A failure as one line: `<name>: <error>`, and the cause in parentheses when a server failed the
 /// lookup, with the index of that server in the configuration. The cause is the rcode as
-/// `cocuyo.wire.Rcode` names it, or the reason as `cocuyo.Reason` names it (docs/design.md §5, The
+/// `cocuyo.Rcode` names it, or the reason as `cocuyo.Reason` names it (docs/design.md §5, The
 /// cause of a failure). So a certificate refused over DoT prints `example.com: AllServersFailed
 /// (handshake from server 0)`, and silence `example.com: Timeout`.
 pub fn report_failure(label: []const u8, failure: *const cocuyo.Failure) void {
@@ -105,7 +105,7 @@ fn address_line(label: []const u8, address: *const cocuyo.Address, ttl_seconds: 
     std.debug.print(" (ttl {d})\n", .{ttl_seconds});
 }
 
-fn record_line(label: []const u8, kept: cocuyo.wire.Kept) !void {
+fn record_line(label: []const u8, kept: cocuyo.Kept) !void {
     var type_text: [type_text_bytes_max]u8 = undefined;
     const kind = cocuyo.Kind.from_code(kept.kind_code);
     const type_name = if (kind) |named| std.ascii.upperString(&type_text, @tagName(named)) else try std.fmt.bufPrint(&type_text, "TYPE{d}", .{kept.kind_code});

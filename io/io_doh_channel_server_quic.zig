@@ -5,6 +5,7 @@
 //! done, so each request answered keeps a buffer of its own until then.
 const std = @import("std");
 const cocuyo = @import("cocuyo");
+const core = @import("core");
 const server = @import("server");
 const constants = @import("io_doh_channel_constants.zig");
 const limits = @import("io_doh_channel_limits.zig");
@@ -25,7 +26,7 @@ const Endpoint = server.Engine(.{ .tcp_connections = 0, .quic_connections = limi
 const Response = struct {
     live: bool = false,
     id: server.RequestId = undefined,
-    content: [cocuyo.limits.message_bytes_max]u8 = undefined,
+    content: [core.limits.message_bytes_max]u8 = undefined,
 };
 
 pub const QuicServer = struct {
@@ -39,7 +40,7 @@ pub const QuicServer = struct {
     /// What it heard, which a test reads, as the TCP server keeps it.
     answered: usize = 0,
     held: usize = 0,
-    query: [cocuyo.limits.message_bytes_max]u8 = undefined,
+    query: [core.limits.message_bytes_max]u8 = undefined,
     query_len: usize = 0,
     accept: tcp_server.Heard = .{},
     accept_encoding: tcp_server.Heard = .{},

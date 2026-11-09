@@ -20,6 +20,8 @@ pub fn add(b: *std.Build, graph: modules.Graph, test_step: *std.Build.Step, coli
         .optimize = graph.cocuyo_dnssec.optimize,
     });
     root.addImport("cocuyo", graph.cocuyo);
+    root.addImport("core", graph.core);
+    root.addImport("wire", graph.wire);
     root.addImport("cocuyo_dnssec", graph.cocuyo_dnssec);
     root.addImport("validation", graph.dnssec);
     const tests = b.addTest(.{ .name = "cocuyo_dnssec", .root_module = root });

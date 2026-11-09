@@ -13,6 +13,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
+const resolver = @import("resolver");
 const rotor = @import("rotor");
 const udp = @import("io_udp.zig");
 const tcp_queue = @import("io_tcp_queue.zig");
@@ -21,7 +22,7 @@ const kept_module = @import("io_kept.zig");
 /// The attempt a send was made for: the lookup, and the transaction it was on.
 pub const Owner = struct {
     handle: cocuyo.Handle,
-    transaction: cocuyo.resolver.entropy.Transaction,
+    transaction: resolver.entropy.Transaction,
 };
 
 /// A send asked for while the slot's buffer was lent. Its octets wait in `held_buffers`.

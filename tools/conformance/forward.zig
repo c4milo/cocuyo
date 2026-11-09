@@ -23,6 +23,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
 const rotor = @import("rotor");
 const io = @import("io");
 const answer_text = @import("answer_text");
@@ -250,10 +251,10 @@ fn tick(loop: *rotor.Loop, events: []rotor.Event, clock: Clock) !void {
 fn read_query(bytes: []const u8) !Query {
     const qdcount = std.mem.readInt(u16, bytes[4..6], .big);
     if (qdcount != 1) return error.FormatError;
-    var text: [cocuyo.limits.name_bytes_max + 1]u8 = undefined;
+    var text: [core.limits.name_bytes_max + 1]u8 = undefined;
     var length: usize = 0;
     var at: usize = header_bytes;
-    for (0..cocuyo.limits.name_bytes_max) |_| {
+    for (0..core.limits.name_bytes_max) |_| {
         if (at >= bytes.len) return error.FormatError;
         const label = bytes[at];
         at += 1;
@@ -397,7 +398,7 @@ fn log(query: *const Query, result: Resolver.Result) !void {
 }
 
 /// What the reply says of the lookup's end: its security, and the rcode.
-fn end_of(result: Resolver.Result) struct { cocuyo.Security, u16 } {
+fn end_of(result: Resolver.Result) struct { core.Security, u16 } {
     return switch (result.outcome) {
         .answer => |found| .{ found.security, 0 },
         .failure => |failure| .{ failure.security, switch (failure.err) {
@@ -437,7 +438,7 @@ fn bad_version(query: *const Query, bytes: []const u8, out: []u8) []const u8 {
 /// (docs/design.md §5, The chain a lookup keeps), and the owner of what follows them: the end, or
 /// the question when no chain was followed. An end recalled with no link gets one CNAME, from the
 /// name asked to the end, at `ttl_seconds`.
-fn chain(writer: *Writer, query: *const Query, end: ?*const cocuyo.Name, aliases: *const cocuyo.Aliases, ttl_seconds: u32) !?[]const u8 {
+fn chain(writer: *Writer, query: *const Query, end: ?*const cocuyo.Name, aliases: *const core.Aliases, ttl_seconds: u32) !?[]const u8 {
     const reached = end orelse return null;
     if (reached.equal(&query.question.name)) return null;
     if (aliases.count == 0) {

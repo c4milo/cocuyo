@@ -6,6 +6,8 @@
 const std = @import("std");
 const testing = std.testing;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
+const cache = @import("cache");
 const rotor = @import("rotor");
 
 const fixtures = @import("fixtures.zig");
@@ -45,7 +47,7 @@ fn ask(rig: *Rig, name: []const u8) !Asked {
 
 /// `slot_count` slots of the rig's memory and the least key index they take, as a caller that
 /// read the count at run time hands them over.
-fn part_of(rig: *Rig, slot_count: usize) cocuyo.cache.Slices {
+fn part_of(rig: *Rig, slot_count: usize) cache.Slices {
     return .{
         .slots = rig.cache_memory.slots[0..slot_count],
         .keys = rig.cache_memory.keys[0..cocuyo.cache.keys_for(slot_count)],
@@ -248,12 +250,12 @@ test "reinit takes the cap of the configuration it is handed" {
 
 test "the cache takes the failure minimum of the configuration, at init and at reinit" {
     var rig: Rig = .{};
-    try rig.init(47, up, .{ .servers = &.{}, .cache_failure_seconds_min = cocuyo.limits.cache_failure_seconds_least });
-    try testing.expectEqual(cocuyo.limits.cache_failure_seconds_least, rig.engine.cache.?.failure_seconds_min);
+    try rig.init(47, up, .{ .servers = &.{}, .cache_failure_seconds_min = core.limits.cache_failure_seconds_least });
+    try testing.expectEqual(core.limits.cache_failure_seconds_least, rig.engine.cache.?.failure_seconds_min);
     var replacement = rig.config;
-    replacement.cache_failure_seconds_min = cocuyo.limits.cache_failure_seconds_max;
+    replacement.cache_failure_seconds_min = core.limits.cache_failure_seconds_max;
     try rig.engine.reinit(&replacement, rig.cache_memory.slices(), 48, rig.loop.now());
-    try testing.expectEqual(cocuyo.limits.cache_failure_seconds_max, rig.engine.cache.?.failure_seconds_min);
+    try testing.expectEqual(core.limits.cache_failure_seconds_max, rig.engine.cache.?.failure_seconds_min);
     try rig.deinit();
 }
 
@@ -285,7 +287,7 @@ test "a name whose servers all failed is not asked again until the failure expir
     // "the resolver MUST NOT send any corresponding outgoing queries until after the cache
     // entries expire" (RFC 9520 §3.2; docs/design.md §16 decision 61).
     var rig: Rig = .{};
-    const least = cocuyo.limits.cache_failure_seconds_least;
+    const least = core.limits.cache_failure_seconds_least;
     try rig.init(52, failing, .{ .servers = &.{}, .cache_failure_seconds_min = least });
     const first = try ask_failed(&rig, "down.example.");
     try testing.expect(first.sent);

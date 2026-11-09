@@ -8333,6 +8333,68 @@ and nothing else, and `Started` goes away.
   that depends on cocuyo, and runs the quick start to its first `send_udp`. The README's driving
   loop had stopped compiling once `send_request` joined the actions, and nothing had noticed.
 
+### The surface, since 2026-11-09
+
+The owner ruled on 2026-11-07 that each public name has one path, flat from `src/cocuyo.zig`
+(c4milo/cocuyo#65). On 2026-11-09 the owner ruled that the surface holds only what a consumer
+cannot do without. Until then `src/cocuyo.zig` exported `core`, `wire`, `resolver` and `cache`
+whole, and with them every file that splits a type apart.
+
+**The rule.** A name is public when a consumer must write it: a type it constructs, a type it
+declares storage of, or a type of a function it writes itself. A type a consumer reaches only
+through a field, a literal or a `switch` stays unnamed. A name joins later when a consumer needs
+it, and that change breaks nobody.
+
+The central types are flat:
+
+- Names and questions: `Name`, `Question`, `Kind`, `Address`, `Endpoint`, `Family`.
+- Configuration: `Config`, `Server`, `Tls`, `Https`, `Pin`.
+- The table: `Resolver`, `Slot`, `MatchKey`, `Handle`, `Event`, `Action`, `Answer`, `Failure`,
+  `Cause`, `Reason`, `Error`.
+- One lookup: `Lookup`, `Servers`.
+- The `getaddrinfo` shape: `AddressLookup`, `AddressFlags`, `NameLookup`, `Hosts`.
+- The cache: `Cache`, `Memory`, `Remembered`, `remembered_by`.
+- DNSSEC: `KeyStore`, `Anchor`, `validated_by`.
+- Records: `Rcode`, `Kept`, `message_len`.
+
+Each namespace holds one job, and its helpers keep their names without a prefix, as std does:
+
+- `resolv_conf`: `parse` and `Storage`.
+- `hosts`: `parse` and `Storage`.
+- `spki_pin`: `from_base64` and `Error`.
+- `trust_anchors`: `parse`, `Error` and `anchors_max`.
+- `cache`: `Storage`, `Slot`, `Key`, `keys_for`, `slot_count_valid` and `ttl_seconds_max_valid`.
+- `rdata`: the readers of record data.
+- `limits` and `constants`: each limit and each constant that a consumer sizes its memory with,
+  once.
+
+`core`, `wire`, `resolver` and `config` are not public. Nor is any file that splits a type apart,
+nor the test data. The engine of `io/`, `bench/` and `tools/` are parts of this package, so the
+build hands them the internal modules they read, and a consumer never sees them. `zig build
+consumer-check` requires the fixture to fail when it reaches for a path that left.
+
+How the build and the checks hold it:
+
+- `add_internal` in `build/modules.zig` gives `core`, `wire`, `resolver` and `cache` to each
+  module of `io/` that imports `cocuyo`, and to each program of `bench/` and `tools/` that reads
+  them. Each imports them by name, as `@import("wire")`.
+- `zig build consumer-check` builds the fixture once for each path that left, as it does for
+  `sim`, and each build must fail: `cocuyo.wire`, `cocuyo.resolver`, `cocuyo.core`,
+  `cocuyo.wire.fixtures`, `cocuyo.rdata.fixtures` and `cocuyo.resolv_conf.fuzz`. The fixture's
+  `-Dreach-inside` names the path, and `test/consumer/inside/` holds one program for each
+  (docs/mutations.md, SF1 to SF5).
+- `examples/threads_rotor.zig` answered its own queries through `wire`. A responder is no part
+  of what a consumer of cocuyo writes, so its reply moved to `examples/responder.zig`, a module
+  that the build hands the internal `core` and `wire` alone. The example's own code names only
+  the surface. No name joined the surface for it (the owner's ruling of 2026-11-09).
+
+**Rejected alternatives.**
+
+- **Every name flat, with a prefix**, such as `CacheStorage`. std keeps a helper inside its
+  namespace, as `std.http.Client` does, and the ruling keeps the name `resolv_conf`.
+- **The modules kept, their files hidden.** Each type keeps two paths, which the ruling of
+  2026-11-07 removes.
+
 ## 21. DNS over TLS
 
 §1 brought DoT in on 2026-09-23. This section is its plan, step 17, and it records the owner's

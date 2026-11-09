@@ -4,6 +4,9 @@
 const std = @import("std");
 const testing = std.testing;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
+const wire = @import("wire");
+const cache = @import("cache");
 const rotor = @import("rotor");
 const io = @import("io.zig");
 
@@ -68,7 +71,7 @@ pub fn RigOfServers(comptime EngineType: type, comptime server_count: u8) type {
             seed: u64,
             scripts: [server_count]rotor.server.Script,
             config: cocuyo.Config,
-            cache_memory: ?cocuyo.cache.Slices,
+            cache_memory: ?cache.Slices,
         ) !void {
             try rig.loop.init(&rig.memory, loop_options);
             rig.loop.seed(seed);
@@ -172,11 +175,11 @@ pub fn until_sent(rig: anytype) !void {
 /// The answer a scripted server that drops nothing writes to the stream query of `handle`'s
 /// lookup, framed by its length (RFC 1035 §4.2.2), into `out`. Returns the octets it took.
 pub fn framed_answer(engine: anytype, handle: cocuyo.Handle, out: []u8) !usize {
-    const prefix = cocuyo.constants.tcp_prefix_bytes;
+    const prefix = core.constants.tcp_prefix_bytes;
     const query = engine.send_buffers[handle.index][prefix..engine.send_lengths[handle.index]];
     const server = rotor.Network.server_address(0);
     const answer = rotor.server.respond(&.{}, &server, query, true, 0, out[prefix..]) orelse return error.NoAnswer;
-    cocuyo.wire.header.write_message_len(out[0..prefix], @intCast(answer.len));
+    wire.header.write_message_len(out[0..prefix], @intCast(answer.len));
     return prefix + answer.len;
 }
 
@@ -203,7 +206,7 @@ test "a lookup of a name of 255 octets is answered through the loop, over UDP an
         var rig: Rig = .{};
         try rig.init(fixtures.longest_name_seed + case, .{ script, .{ .down = true } }, .{ .servers = &.{} });
         const text_question = question(fixtures.longest_name_text);
-        try testing.expectEqual(@as(usize, cocuyo.limits.name_bytes_max), text_question.name.len);
+        try testing.expectEqual(@as(usize, core.limits.name_bytes_max), text_question.name.len);
         _ = try rig.engine.start(text_question, rig.loop.now());
         const result = try rig.until_result();
         try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
@@ -409,7 +412,7 @@ fn many(seed: u64) !u64 {
                 .answer => |answer| answer.addresses[0].octets[cocuyo.constants.address_v4_bytes - 1],
                 .failure => |failure| @intFromError(failure.err),
             };
-            trace = cocuyo.core.mix.next(trace ^ result.handle.index ^ (code << fixtures.trace_code_shift) ^ rig.loop.now());
+            trace = core.mix.next(trace ^ result.handle.index ^ (code << fixtures.trace_code_shift) ^ rig.loop.now());
         }
         _ = try rig.step(fixtures.lossy_step_ns);
     }

@@ -7,6 +7,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
 const server = @import("server");
 const tls = @import("tls");
 const doh = @import("doh");
@@ -98,7 +99,7 @@ pub const Server = struct {
     /// for. A program reads a request's version from the request (colibri's decision 121).
     answered: usize = 0,
     held: usize = 0,
-    query: [cocuyo.limits.message_bytes_max]u8 = undefined,
+    query: [core.limits.message_bytes_max]u8 = undefined,
     query_len: usize = 0,
     version: ?server.Version = null,
     accept: Heard = .{},
@@ -192,7 +193,7 @@ pub const Server = struct {
 const Owed = struct {
     live: bool = false,
     id: server.RequestId = undefined,
-    content: [cocuyo.limits.message_bytes_max]u8 = undefined,
+    content: [core.limits.message_bytes_max]u8 = undefined,
     len: usize = 0,
     written: usize = 0,
 };

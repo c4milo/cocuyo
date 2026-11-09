@@ -9,6 +9,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
 const constants = @import("constants.zig");
 const limits = @import("limits.zig");
 
@@ -85,7 +86,7 @@ pub fn Queue(comptime capacity: u16) type {
         fn ring_index(head: u16, position: u16) u16 {
             assert(head < capacity);
             assert(position < capacity);
-            assert(capacity <= cocuyo.limits.lookup_slots_max + limits.tls_records_entries_max);
+            assert(capacity <= core.limits.lookup_slots_max + limits.tls_records_entries_max);
             return (head + position) % capacity;
         }
 

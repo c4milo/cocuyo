@@ -18,6 +18,9 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
+const resolver = @import("resolver");
+const cache = @import("cache");
 const rotor = @import("rotor");
 pub const constants = @import("constants.zig");
 pub const limits = @import("limits.zig");
@@ -88,7 +91,7 @@ pub fn Resolver(comptime options: Options) type {
     const request_slots = sizes.with_requests(options, sizes.request_slots(options));
     const request_bytes_max = sizes.request_bytes_of(options);
     // The stream of a DoQ answer holds the message and its prefix (RFC 9250 §4.2).
-    const answer_bytes = sizes.with_requests(options, cocuyo.constants.tcp_prefix_bytes + options.tcp_message_bytes);
+    const answer_bytes = sizes.with_requests(options, core.constants.tcp_prefix_bytes + options.tcp_message_bytes);
     comptime sizes.check_transports(options);
     return struct {
         const Self = @This();
@@ -171,7 +174,7 @@ pub fn Resolver(comptime options: Options) type {
         /// The key table the lookups' slots need: the load factor the table asks, at a power of
         /// two. The cache's key index is sized by its caller, with `cocuyo.cache.keys_for`.
         fn table_keys_for(lookups: usize) usize {
-            return std.math.ceilPowerOfTwoAssert(usize, lookups * cocuyo.resolver.limits.keys_per_slot_min);
+            return std.math.ceilPowerOfTwoAssert(usize, lookups * resolver.limits.keys_per_slot_min);
         }
 
         /// The high bits of every `user_data` this engine submits.
@@ -218,7 +221,7 @@ pub fn Resolver(comptime options: Options) type {
             self: *Self,
             loop: *rotor.Loop,
             config: *const cocuyo.Config,
-            cache_memory: ?cocuyo.cache.Slices,
+            cache_memory: ?cache.Slices,
             seed: u64,
             now_ns: u64,
         ) InitError!void {
@@ -377,7 +380,7 @@ pub fn Resolver(comptime options: Options) type {
         pub fn reinit(
             self: *Self,
             config: *const cocuyo.Config,
-            cache_memory: ?cocuyo.cache.Slices,
+            cache_memory: ?cache.Slices,
             seed: u64,
             now_ns: u64,
         ) InitError!void {

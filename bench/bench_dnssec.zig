@@ -23,6 +23,8 @@
 const std = @import("std");
 const harness = @import("harness.zig");
 const cocuyo = @import("cocuyo");
+const core = @import("core");
+const wire = @import("wire");
 const validation = @import("validation");
 const Chapulin = @import("cocuyo_dnssec").Chapulin;
 const fixtures = @import("dnssec_fixtures");
@@ -132,11 +134,11 @@ fn set(example: *const Example, validates: bool) void {
 /// cocuyo's signed data of the one A record, fed to chapulin, and the check.
 fn check() bool {
     const verifier = chapulin.verifier();
-    const sig = cocuyo.wire.rdata.Rrsig.parse(rrsig_rdata) catch unreachable;
+    const sig = wire.rdata.Rrsig.parse(rrsig_rdata) catch unreachable;
     const public_key = fixtures.public_key(key);
     const hash = verifier.check_begin(verifier.context, sig.algorithm, public_key, sig.signature) orelse return false;
     const records = validation.canonical.Written{ .records = &.{&address} };
-    validation.canonical.signed_data(rrsig_rdata, &asked(), .a, cocuyo.core.constants.class_internet, records, hash) catch return false;
+    validation.canonical.signed_data(rrsig_rdata, &asked(), .a, core.constants.class_internet, records, hash) catch return false;
     return verifier.check_end(verifier.context, public_key, sig.signature);
 }
 

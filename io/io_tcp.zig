@@ -9,6 +9,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
 const limits = @import("limits.zig");
@@ -42,11 +43,11 @@ pub fn Connection(comptime message_bytes: u32, comptime lookups: u16, comptime T
         /// What the frame holds past its partial message: what one take adds. That is a chunk in
         /// the clear, and a record's body over TLS (§19 step 13, the stream's rule 11).
         const room_bytes = if (Tls.enabled) limits.tls_frame_room_bytes_max else limits.tcp_frame_room_bytes_max;
-        pub const frame_bytes: usize = cocuyo.constants.tcp_prefix_bytes + message_bytes + room_bytes;
+        pub const frame_bytes: usize = core.constants.tcp_prefix_bytes + message_bytes + room_bytes;
 
         comptime {
             // The loop over the frame ends at the last whole message, never at its bound.
-            assert(frame_bytes / cocuyo.constants.tcp_prefix_bytes <= limits.tcp_messages_per_frame_max);
+            assert(frame_bytes / core.constants.tcp_prefix_bytes <= limits.tcp_messages_per_frame_max);
         }
 
         state: State = .closed,

@@ -13,6 +13,7 @@
 //! It exits 0 when both engines took every answer, and 1 when either did not.
 const std = @import("std");
 const cocuyo = @import("cocuyo");
+const replies = @import("responder");
 const rotor = @import("rotor");
 const io = @import("io");
 
@@ -130,13 +131,6 @@ fn drive(state: *Engine, resolver: *Resolver, loop: *rotor.Loop, events: []rotor
 }
 
 const loopback_v4 = [_]u8{ 127, 0, 0, 1 };
-/// What the responder answers every query with: 192.0.2.1 (RFC 5737 §3), for a minute.
-const answer_v4 = [_]u8{ 192, 0, 2, 1 };
-const answer_ttl_seconds = 60;
-/// The answer's owner, a pointer to the question's name at the header's end, its type A and its
-/// class IN (RFC 1035 §4.1.3, §4.1.4), and its RDLENGTH of four.
-const record_head = [_]u8{ 0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01 };
-const record_rdlength = [_]u8{ 0x00, 0x04 };
 const datagram_bytes_max = cocuyo.constants.udp_payload_bytes_default;
 
 /// A thread on a loopback datagram socket that answers every query with one A record, until a
@@ -175,7 +169,7 @@ const Responder = struct {
             var len: c.socklen_t = @sizeOf(c.sockaddr.in);
             const got = c.recvfrom(self.socket, &query, query.len, 0, @ptrCast(&from), &len);
             if (got < 0) continue;
-            const reply_len = build_reply(query[0..@intCast(got)], &reply) orelse continue;
+            const reply_len = replies.build_reply(query[0..@intCast(got)], &reply) orelse continue;
             _ = c.sendto(self.socket, &reply, reply_len, 0, @ptrCast(&from), @sizeOf(c.sockaddr.in));
             _ = self.answered.fetchAdd(1, .monotonic);
         }
@@ -184,33 +178,6 @@ const Responder = struct {
 
 fn loopback(port: u16) c.sockaddr.in {
     return .{ .port = std.mem.nativeToBig(u16, port), .addr = @bitCast(loopback_v4) };
-}
-
-/// The reply to `query`: its header with QR and RA set and one answer, its question as it came,
-/// and the A record. Null for a datagram that is not a query.
-fn build_reply(query: []const u8, reply: []u8) ?usize {
-    const wire = cocuyo.wire;
-    const header_bytes = cocuyo.constants.header_bytes;
-    if (query.len < header_bytes) return null;
-    const name_end = wire.name.skip(query, header_bytes) catch return null;
-    const question_end = name_end + cocuyo.constants.question_fixed_bytes;
-    if (question_end > query.len) return null;
-    @memcpy(reply[0..question_end], query[0..question_end]);
-    var header = wire.header.parse(query) catch return null;
-    header.flags = (header.flags | wire.constants.flag_response | wire.constants.flag_recursion_available) &
-        ~@as(u16, wire.constants.rcode_mask);
-    header.ancount = 1;
-    header.nscount = 0;
-    header.arcount = 0;
-    wire.header.write(&header, reply);
-    var ttl: [@sizeOf(u32)]u8 = undefined;
-    std.mem.writeInt(u32, &ttl, answer_ttl_seconds, .big);
-    var at = question_end;
-    for ([_][]const u8{ &record_head, &ttl, &record_rdlength, &answer_v4 }) |part| {
-        @memcpy(reply[at..][0..part.len], part);
-        at += part.len;
-    }
-    return at;
 }
 
 /// The clock cocuyo is driven by: monotonic, as `examples/udp_rotor.zig` reads it.

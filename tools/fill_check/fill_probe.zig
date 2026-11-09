@@ -4,7 +4,8 @@
 //! pointers, so the compiler keeps the whole path, and nothing here ever runs: the check reads the
 //! code the compiler wrote for it.
 const cocuyo = @import("cocuyo");
-const wire = cocuyo.wire;
+const core = @import("core");
+const wire = @import("wire");
 const bench_memset = @import("bench_memset");
 const io = @import("io");
 const rotor = @import("rotor");
@@ -27,7 +28,7 @@ export fn probe_query_write(query: *const wire.Query, out: [*]u8, out_bytes: usi
 }
 
 /// A response's records read into answers: every answer a lookup takes.
-export fn probe_response_collect(message: [*]const u8, message_bytes: usize, chain: *cocuyo.Name, kind: cocuyo.Kind, aliases: *cocuyo.Aliases, answers: *wire.Answers) bool {
+export fn probe_response_collect(message: [*]const u8, message_bytes: usize, chain: *cocuyo.Name, kind: cocuyo.Kind, aliases: *core.Aliases, answers: *wire.Answers) bool {
     _ = wire.response.collect(message[0..message_bytes], chain, kind, aliases.count, aliases, answers) catch return false;
     return true;
 }

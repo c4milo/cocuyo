@@ -8,6 +8,8 @@
 const std = @import("std");
 const testing = std.testing;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
+const wire = @import("wire");
 const rotor = @import("rotor");
 const io = @import("io.zig");
 
@@ -81,7 +83,7 @@ test "a socket binds to the local address the caller named" {
     const bound = rig.loop.network().socket(descriptor).local;
     try testing.expectEqualSlices(u8, &fixtures.local_octets, bound.bytes[0..fixtures.local_octets.len]);
     // The port is still the seed's, which is the entropy of RFC 5452 §9.2.
-    try testing.expect(bound.port >= cocuyo.limits.port_ephemeral_min);
+    try testing.expect(bound.port >= core.limits.port_ephemeral_min);
     try rig.deinit();
 }
 
@@ -198,7 +200,7 @@ test "a receive's generation and a socket's epoch wrap at the last of their thir
     const sent_ns = rig.loop.now();
     _ = try rig.engine.start(question("two.example."), rig.loop.now());
     try testing.expect((try rig.until_result()).outcome == .answer);
-    try testing.expect(rig.loop.now() - sent_ns < cocuyo.constants.timeout_ns_default);
+    try testing.expect(rig.loop.now() - sent_ns < core.constants.timeout_ns_default);
     try testing.expectEqual(@as(u8, 0), rig.engine.resolver.servers.failures(0));
     _ = rig.engine.take(rig.loop.now());
     try testing.expectEqual(@as(u32, 0), rig.engine.sockets.items[0].armed_generation);
@@ -218,8 +220,8 @@ fn open_sockets(loop: *rotor.Loop) usize {
 fn advertised(engine: anytype, handle: cocuyo.Handle) !u16 {
     const query = &engine.send_buffers[handle.index];
     var name: cocuyo.Name = cocuyo.Name.empty;
-    _ = try cocuyo.wire.question.parse(query, &name);
-    const opt = (try cocuyo.wire.response_opt.find(query, &name)) orelse return error.NoOpt;
+    _ = try wire.question.parse(query, &name);
+    const opt = (try wire.response_opt.find(query, &name)) orelse return error.NoOpt;
     return opt.class;
 }
 

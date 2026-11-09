@@ -9,6 +9,7 @@
 const std = @import("std");
 const testing = std.testing;
 const cocuyo = @import("cocuyo");
+const resolver = @import("resolver");
 const io = @import("io.zig");
 
 const fixtures = @import("fixtures.zig");
@@ -68,7 +69,7 @@ fn stall_when_connecting(rig: anytype, handle: cocuyo.Handle) !void {
     rig.loop.network().stall(connection.descriptor.?);
     _ = try rig.step(fixtures.wait_ns);
     try testing.expect(connection.state == .up and connection.sending);
-    try testing.expectEqual(cocuyo.resolver.State.tcp_ready, rig.engine.resolver.lookup_of(handle).state);
+    try testing.expectEqual(resolver.State.tcp_ready, rig.engine.resolver.lookup_of(handle).state);
 }
 
 test "a lookup whose query's send never ends moves on at its deadline, and the next server answers" {
@@ -128,7 +129,7 @@ test "a send never ends after TC=1, and the datagram at the next server goes at 
     try stall_when_connecting(&rig, handle);
     const deadline = rig.engine.resolver.lookup_of(handle).deadline_ns;
     try drive_at(&rig, deadline);
-    try testing.expectEqual(cocuyo.resolver.State.query_ready, rig.engine.resolver.lookup_of(handle).state);
+    try testing.expectEqual(resolver.State.query_ready, rig.engine.resolver.lookup_of(handle).state);
     try testing.expect(rig.engine.held[handle.index] != null);
     const result = try rig.until_result();
     try testing.expectEqual(@as(?cocuyo.Error, null), failure_of(result));
@@ -177,7 +178,7 @@ test "the other lookups on a connection whose send never ends keep their own dea
         if (rig.engine.resolver.lookup_of(answered).state == .awaiting_tcp) break;
         _ = try rig.step(fixtures.wait_ns);
     }
-    try testing.expectEqual(cocuyo.resolver.State.awaiting_tcp, rig.engine.resolver.lookup_of(answered).state);
+    try testing.expectEqual(resolver.State.awaiting_tcp, rig.engine.resolver.lookup_of(answered).state);
     const connection = &rig.engine.connections[0];
     rig.loop.network().stall(connection.descriptor.?);
     const started = try rig.engine.start(question("example.net."), rig.loop.now());

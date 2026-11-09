@@ -7,6 +7,9 @@
 const std = @import("std");
 const testing = std.testing;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
+const wire = @import("wire");
+const resolver = @import("resolver");
 const rotor = @import("rotor");
 const io = @import("io.zig");
 
@@ -15,8 +18,8 @@ const Rig = sim_test.Rig;
 const question = sim_test.question;
 const fixtures = @import("fixtures.zig");
 
-const integer = cocuyo.wire.integer;
-const u16_bytes = cocuyo.wire.constants.u16_bytes;
+const integer = wire.integer;
+const u16_bytes = wire.constants.u16_bytes;
 
 /// The octets of a datagram that fill a buffer of the group after rotor's prefix.
 fn room(rig: anytype) usize {
@@ -31,13 +34,13 @@ fn padded_answer(rig: anytype, handle: cocuyo.Handle, total: usize, out: []u8) !
     const query = &rig.engine.send_buffers[handle.index];
     const answer = rotor.server.respond(&.{}, &server, query, false, 0, out) orelse return error.NoAnswer;
     var name: cocuyo.Name = cocuyo.Name.empty;
-    _ = try cocuyo.wire.question.parse(out[0..answer.len], &name);
-    const opt = (try cocuyo.wire.response_opt.find(out[0..answer.len], &name)) orelse return error.NoOpt;
+    _ = try wire.question.parse(out[0..answer.len], &name);
+    const opt = (try wire.response_opt.find(out[0..answer.len], &name)) orelse return error.NoOpt;
     try testing.expectEqual(answer.len, opt.end);
-    const padding = total - answer.len - cocuyo.constants.opt_option_header_bytes;
-    integer.write_u16(out, answer.len, cocuyo.wire.constants.padding_option_code);
+    const padding = total - answer.len - core.constants.opt_option_header_bytes;
+    integer.write_u16(out, answer.len, wire.constants.padding_option_code);
     integer.write_u16(out, answer.len + u16_bytes, @intCast(padding));
-    @memset(out[answer.len + cocuyo.constants.opt_option_header_bytes ..][0..padding], 0);
+    @memset(out[answer.len + core.constants.opt_option_header_bytes ..][0..padding], 0);
     const rdlength_at = opt.end - opt.rdata.len - u16_bytes;
     integer.write_u16(out, rdlength_at, @intCast(total - (opt.end - opt.rdata.len)));
     return out[0..total];
@@ -116,11 +119,11 @@ test "a datagram one octet longer than the room is taken as truncated, and its l
     const free = rig.loop.groups[io.constants.group_id].free_count;
     try deliver(&rig, 0, answer);
     try testing.expectEqual(free, rig.loop.groups[io.constants.group_id].free_count);
-    try testing.expectEqual(cocuyo.resolver.State.connecting_tcp, rig.engine.resolver.lookup_of(handle).state);
+    try testing.expectEqual(resolver.State.connecting_tcp, rig.engine.resolver.lookup_of(handle).state);
     // A copy that comes once the lookup is on its way to a stream is ignored (rule 1 of §7, A
     // datagram that the buffer cut).
     try deliver(&rig, 0, answer);
-    try testing.expectEqual(cocuyo.resolver.State.connecting_tcp, rig.engine.resolver.lookup_of(handle).state);
+    try testing.expectEqual(resolver.State.connecting_tcp, rig.engine.resolver.lookup_of(handle).state);
     const result = try rig.until_result();
     try testing.expectEqual(handle, result.handle);
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
@@ -141,7 +144,7 @@ test "a cut datagram that fails a check of section 7 is ignored, and its lookup 
     const free = rig.loop.groups[io.constants.group_id].free_count;
     try deliver(&rig, 1, answer);
     try testing.expectEqual(free, rig.loop.groups[io.constants.group_id].free_count);
-    try testing.expectEqual(cocuyo.resolver.State.awaiting_udp, rig.engine.resolver.lookup_of(handle).state);
+    try testing.expectEqual(resolver.State.awaiting_udp, rig.engine.resolver.lookup_of(handle).state);
     try testing.expect(rig.engine.take(rig.loop.now()) == null);
     try testing.expect(rig.engine.connections[0].state == .closed);
     rig.engine.cancel(handle, rig.loop.now());
@@ -160,7 +163,7 @@ test "a cut datagram on a draining socket moves its lookup to TCP, and the drive
     var out: [io.limits.buffer_bytes_max]u8 = undefined;
     const answer = try padded_answer(&rig, handle, room(&rig) + 1, &out);
     try deliver_to(&rig, 0, rig.engine.sockets.draining[0].armed_generation, answer);
-    try testing.expectEqual(cocuyo.resolver.State.connecting_tcp, rig.engine.resolver.lookup_of(handle).state);
+    try testing.expectEqual(resolver.State.connecting_tcp, rig.engine.resolver.lookup_of(handle).state);
     try testing.expect(!rig.engine.sockets.draining[0].open);
     rig.engine.cancel(handle, rig.loop.now());
     try testing.expectEqual(cocuyo.Error.Canceled, (try rig.until_result()).outcome.failure.err);
@@ -203,7 +206,7 @@ test "under ignore_truncation a cut datagram is ignored, and its lookup waits on
     var out: [io.limits.buffer_bytes_max]u8 = undefined;
     const answer = try padded_answer(&rig, handle, room(&rig) + 1, &out);
     try deliver(&rig, 0, answer);
-    try testing.expectEqual(cocuyo.resolver.State.awaiting_udp, rig.engine.resolver.lookup_of(handle).state);
+    try testing.expectEqual(resolver.State.awaiting_udp, rig.engine.resolver.lookup_of(handle).state);
     try testing.expect(rig.engine.connections[0].state == .closed);
     rig.engine.cancel(handle, rig.loop.now());
     try testing.expectEqual(cocuyo.Error.Canceled, (try rig.until_result()).outcome.failure.err);

@@ -6,6 +6,7 @@
 const std = @import("std");
 const testing = std.testing;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
 const rotor = @import("rotor");
 const io = @import("io.zig");
 
@@ -93,7 +94,7 @@ test "one drive takes a lookup through every try at eight servers when the loop 
     const answering: [servers_max]rotor.server.Script = @splat(.{});
     try rig.init(114, answering, .{
         .servers = &.{},
-        .attempts = cocuyo.limits.attempts_max,
+        .attempts = core.limits.attempts_max,
         .use_tcp = true,
         .rotate = true,
         .failover_retry_chance = 0,

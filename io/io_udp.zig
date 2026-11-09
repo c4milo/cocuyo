@@ -5,6 +5,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
 const limits = @import("limits.zig");
@@ -71,7 +72,7 @@ pub const Sockets = struct {
 
     /// A socket on a port the seed chooses, not yet receiving.
     fn open_port(self: *Sockets, config: *const cocuyo.Config, family: cocuyo.Family) error{SocketFailed}!Socket {
-        self.word = cocuyo.core.mix.next(self.word);
+        self.word = core.mix.next(self.word);
         const local = local_for(config, family);
         const descriptor = open_bound(family, port_from(self.word), local) catch
             open_bound(family, 0, local) catch return error.SocketFailed;
@@ -234,8 +235,8 @@ fn user_data(tag: u16, kind: Kind, index: usize) u64 {
 
 /// A port in the Dynamic range from one word of the seed (RFC 6335 §6).
 fn port_from(word: u64) u16 {
-    const span = cocuyo.limits.port_ephemeral_max - cocuyo.limits.port_ephemeral_min + 1;
-    return @intCast(cocuyo.limits.port_ephemeral_min + word % span);
+    const span = core.limits.port_ephemeral_max - core.limits.port_ephemeral_min + 1;
+    return @intCast(core.limits.port_ephemeral_min + word % span);
 }
 
 fn rotor_family(family: cocuyo.Family) rotor.Address.Family {
@@ -350,17 +351,17 @@ const testing = std.testing;
 
 test "the two ends of the Dynamic range are drawn, and the span wraps after the last" {
     // 49152 to 65535, both ends included (RFC 6335 §6).
-    const ports: u64 = @as(u64, cocuyo.limits.port_ephemeral_max) - cocuyo.limits.port_ephemeral_min + 1;
-    try testing.expectEqual(cocuyo.limits.port_ephemeral_min, port_from(0));
-    try testing.expectEqual(cocuyo.limits.port_ephemeral_max, port_from(ports - 1));
-    try testing.expectEqual(cocuyo.limits.port_ephemeral_min, port_from(ports));
+    const ports: u64 = @as(u64, core.limits.port_ephemeral_max) - core.limits.port_ephemeral_min + 1;
+    try testing.expectEqual(core.limits.port_ephemeral_min, port_from(0));
+    try testing.expectEqual(core.limits.port_ephemeral_max, port_from(ports - 1));
+    try testing.expectEqual(core.limits.port_ephemeral_min, port_from(ports));
 }
 
 test "a port from a word is in the Dynamic range, and an endpoint round-trips through rotor's address" {
     var word: u64 = 0;
     while (word < 64) : (word += 1) {
-        const port = port_from(cocuyo.core.mix.next(word));
-        try testing.expect(port >= cocuyo.limits.port_ephemeral_min);
+        const port = port_from(core.mix.next(word));
+        try testing.expect(port >= core.limits.port_ephemeral_min);
     }
     const endpoint: cocuyo.Endpoint = .{ .address = cocuyo.Address.from_v4(.{ 192, 0, 2, 53 }), .port = 53 };
     try testing.expect(endpoint_of(address_of(endpoint)).equal(&endpoint));

@@ -4,9 +4,9 @@
 //! compares real names while the recording keeps only indices.
 const std = @import("std");
 const cocuyo = @import("cocuyo");
-const cache_module = cocuyo.cache;
+const cache_module = @import("cache");
 const Question = cocuyo.Question;
-const wire = cocuyo.wire;
+const wire = @import("wire");
 const recording_module = @import("trace_recording.zig");
 const Outcome = recording_module.Outcome;
 const Recording = recording_module.Recording;

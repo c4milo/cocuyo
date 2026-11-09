@@ -11,13 +11,14 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
+const resolver_module = @import("resolver");
 const io = @import("io");
 const rotor = @import("rotor");
 const lookup_text = @import("replay.zig");
 const tries_module = @import("engine_text_tries.zig");
 const world_module = @import("engine_world.zig");
 
-const slot_none = cocuyo.resolver.table_slots.slot_none;
+const slot_none = resolver_module.table_slots.slot_none;
 
 /// A line being written into a fixed buffer.
 const Line = struct {

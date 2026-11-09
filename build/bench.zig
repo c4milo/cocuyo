@@ -30,7 +30,7 @@ pub fn add(
         .optimize = .ReleaseSafe,
     });
     module.addImport("cocuyo", graph.cocuyo);
-    module.addImport("wire", graph.wire);
+    modules.add_internal(module, graph);
     module.addImport("validation", graph.dnssec);
     const exe = b.addExecutable(.{ .name = "bench", .root_module = module });
     test_step.dependOn(&exe.step);
@@ -47,7 +47,7 @@ pub fn add(
         .optimize = .Debug,
     });
     test_module.addImport("cocuyo", debug_graph.cocuyo);
-    test_module.addImport("wire", debug_graph.wire);
+    modules.add_internal(test_module, debug_graph);
     test_module.addImport("validation", debug_graph.dnssec);
     const tests = b.addTest(.{ .name = "bench", .root_module = test_module });
     const run_tests = &b.addRunArtifact(tests).step;
@@ -78,6 +78,7 @@ fn add_dnssec(b: *std.Build, target: std.Build.ResolvedTarget, graph: modules.Gr
         .link_libc = true,
     });
     module.addImport("cocuyo", graph.cocuyo);
+    modules.add_internal(module, graph);
     module.addImport("validation", graph.dnssec);
     module.addImport("cocuyo_dnssec", graph.cocuyo_dnssec);
     module.addImport("dnssec_fixtures", fixtures);
@@ -97,6 +98,7 @@ fn add_log(b: *std.Build, target: std.Build.ResolvedTarget, graph: modules.Graph
         .optimize = .ReleaseSafe,
     });
     module.addImport("cocuyo", graph.cocuyo);
+    modules.add_internal(module, graph);
     const exe = b.addExecutable(.{ .name = "bench-log", .root_module = module });
     test_step.dependOn(&exe.step);
     const run = b.addRunArtifact(exe);
@@ -199,7 +201,7 @@ fn cares_module(
         .link_libc = true,
     });
     module.addImport("cocuyo", graph.cocuyo);
-    module.addImport("wire", graph.wire);
+    modules.add_internal(module, graph);
     if (rotor) |dependency| {
         const engine = b.createModule(.{
             .root_source_file = b.path(modules.roots.io),
@@ -207,6 +209,7 @@ fn cares_module(
             .optimize = optimize,
         });
         engine.addImport("cocuyo", graph.cocuyo);
+        modules.add_internal(engine, graph);
         engine.addImport("rotor", dependency.module("rotor"));
         module.addImport("rotor", dependency.module("rotor"));
         module.addImport("io", engine);

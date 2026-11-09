@@ -2,8 +2,11 @@
 //! socket, no file descriptor, no thread, no timer and no allocator. The caller does the sending
 //! and the receiving; cocuyo says what to do next.
 //!
-//! This file is the public surface: each module of docs/design.md §2 is re-exported here, and the
-//! names a consumer reaches for are flattened alongside them as each step of §15 lands them.
+//! This file is the public surface of docs/design.md §20, "The surface, since 2026-11-09". A name
+//! is here when a consumer must write it, and each name has one path. The central types are flat,
+//! and each namespace below holds one job. The modules of §2 are not public, nor is any file that
+//! splits a type apart, nor the test data. `zig build consumer-check` requires a consumer to fail
+//! when it reaches for a path that left.
 //!
 //! It holds two pieces of logic, and only because this is the one file that can: `remembered_by`
 //! turns a `Cache` into the `Memory` the table asks, and `resolver` cannot reach `cache` (§3).
@@ -11,79 +14,189 @@
 //! RFC 9520 §2 — is written there once rather than in every consumer (§20, §16 decision 61).
 //! `validated_by` turns a `KeyStore` into the `Trust` the table asks, as `resolver` cannot reach
 //! `dnssec` (§25, step 12).
-pub const core = @import("core");
-pub const wire = @import("wire");
-pub const resolver = @import("resolver");
-pub const resolv_conf = @import("config");
-pub const hosts = resolv_conf.hosts;
-pub const spki_pin = resolv_conf.spki_pin;
-pub const cache = @import("cache");
-/// Never public: `KeyStore`, `Anchor` and `validated_by` are what a consumer names of it.
+
+// The modules of §2. None is public: the names below are what a consumer reaches of them.
+const core = @import("core");
+const wire = @import("wire");
+const resolver = @import("resolver");
+const config_module = @import("config");
+const cache_module = @import("cache");
 const dnssec = @import("dnssec");
 
-// The names a consumer reaches for, flattened. Everything else is behind the module it belongs to.
+// Names and questions.
+pub const Name = core.Name;
+pub const Question = core.Question;
+pub const Kind = core.Kind;
 pub const Address = core.Address;
 pub const Endpoint = core.Endpoint;
 pub const Family = core.Family;
-pub const Name = core.Name;
-/// The CNAME links a lookup followed, which `Answer.aliases` and `Failure.aliases` hand back
-/// (docs/design.md §5, §17 question 122).
-pub const Aliases = core.Aliases;
-pub const Kind = core.Kind;
-pub const Question = core.Question;
+
+// Configuration.
 pub const Config = core.Config;
-pub const Security = core.Security;
-pub const AuthenticatedData = core.AuthenticatedData;
 pub const Server = core.Server;
 pub const Tls = core.Tls;
 pub const Https = core.Https;
 pub const Pin = core.Pin;
-pub const Source = core.Source;
-pub const Hosts = core.Hosts;
-/// RFC 6724's destination address ordering over routes the consumer supplies (§19 step 15).
-pub const Route = core.address_order.Route;
-pub const order_addresses = core.address_order.order;
-pub const Error = core.Error;
-pub const constants = core.constants;
-pub const limits = core.limits;
 
-pub const Lookup = resolver.Lookup;
+// The table.
 pub const Resolver = resolver.Resolver;
-pub const Servers = resolver.Servers;
+pub const Slot = resolver.Slot;
+pub const MatchKey = resolver.MatchKey;
+pub const Handle = resolver.Handle;
+pub const Event = resolver.Event;
 pub const Action = resolver.Action;
 pub const Answer = resolver.Answer;
 pub const Failure = resolver.Failure;
 pub const Cause = resolver.Cause;
 pub const Reason = resolver.Reason;
-pub const Verdict = resolver.Verdict;
-pub const Handle = resolver.Handle;
-pub const Slot = resolver.Slot;
-pub const MatchKey = resolver.MatchKey;
-pub const Event = resolver.Event;
+pub const Error = core.Error;
+
+// One lookup.
+pub const Lookup = resolver.Lookup;
+pub const Servers = resolver.Servers;
+
+// The `getaddrinfo` shape.
 pub const AddressLookup = resolver.AddressLookup;
 pub const AddressFlags = resolver.AddressFlags;
-pub const AddressInfo = resolver.AddressInfo;
-pub const AddressOutcome = resolver.AddressOutcome;
 pub const NameLookup = resolver.NameLookup;
-pub const NameInfo = resolver.NameInfo;
-pub const NameOutcome = resolver.NameOutcome;
+pub const Hosts = core.Hosts;
 
-pub const Cache = cache.Cache;
-pub const Hit = cache.Hit;
+// The cache.
+pub const Cache = cache_module.Cache;
 pub const Memory = resolver.Memory;
-pub const Trust = resolver.Trust;
-/// What a validating consumer names of DNSSEC: its key store and its anchors (docs/design.md §25,
-/// step 12). Nothing else of `dnssec` is public.
+pub const Remembered = resolver.Remembered;
+
+// DNSSEC. What a validating consumer names of it: its key store and its anchors (docs/design.md
+// §25, step 12). Nothing else of `dnssec` is public.
 pub const KeyStore = dnssec.keys.KeyStore;
 pub const Anchor = dnssec.keys.Anchor;
+
+// Records.
+pub const Rcode = wire.Rcode;
+pub const Kept = wire.Kept;
+/// The length a TCP length prefix describes (RFC 7766 §8). A caller reads two octets, calls this,
+/// reads that many more, and hands them to `on_response`.
+pub const message_len = wire.message_len;
+
+/// A `Config` from the text of `resolv.conf`.
+pub const resolv_conf = struct {
+    pub const parse = config_module.parse;
+    pub const Storage = config_module.Storage;
+};
+
+/// A `Hosts` from the text of a hosts file.
+pub const hosts = struct {
+    pub const parse = config_module.hosts.parse;
+    pub const Storage = config_module.hosts.Storage;
+};
+
+/// A `Pin` from its base64 text (RFC 7858 §4.2).
+pub const spki_pin = struct {
+    pub const from_base64 = config_module.spki_pin.from_base64;
+    pub const Error = config_module.spki_pin.Error;
+};
+
 /// The anchors from text: DS and DNSKEY records in zone-file form (docs/design.md §25 step 15).
 pub const trust_anchors = struct {
-    pub const Error = dnssec.anchors.Error;
     pub const parse = dnssec.anchors.parse;
+    pub const Error = dnssec.anchors.Error;
     /// The anchors a key store takes, and a text holds, at most (§17 question 105).
     pub const anchors_max = dnssec.limits.anchors_max;
 };
-pub const Remembered = resolver.Remembered;
+
+/// The memory a consumer hands a `Cache`, and the checks of its size and its cap.
+pub const cache = struct {
+    pub const Storage = cache_module.Storage;
+    pub const Slot = cache_module.Slot;
+    pub const Key = cache_module.Key;
+    pub const keys_for = cache_module.keys_for;
+    pub const slot_count_valid = cache_module.slot_count_valid;
+    pub const ttl_seconds_max_valid = cache_module.ttl_seconds_max_valid;
+};
+
+/// The readers of record data, one for each type a lookup keeps as rdata.
+pub const rdata = struct {
+    pub const name = wire.rdata.name;
+    pub const string = wire.rdata.string;
+    pub const Txt = wire.rdata.Txt;
+    pub const Hinfo = wire.rdata.Hinfo;
+    pub const Mx = wire.rdata.Mx;
+    pub const Srv = wire.rdata.Srv;
+    pub const Soa = wire.rdata.Soa;
+    pub const Naptr = wire.rdata.Naptr;
+    pub const Sig = wire.rdata.Sig;
+    pub const Rrsig = wire.rdata.Rrsig;
+    pub const Ds = wire.rdata.Ds;
+    pub const Dnskey = wire.rdata.Dnskey;
+    pub const Nsec = wire.rdata.Nsec;
+    pub const Nsec3 = wire.rdata.Nsec3;
+    pub const Nsec3Param = wire.rdata.Nsec3Param;
+    pub const TypeBitmaps = wire.rdata.TypeBitmaps;
+    pub const Svcb = wire.rdata.Svcb;
+    pub const SvcbParam = wire.rdata.SvcbParam;
+    pub const Tlsa = wire.rdata.Tlsa;
+    pub const Uri = wire.rdata.Uri;
+    pub const Caa = wire.rdata.Caa;
+    pub const Option = wire.rdata.Option;
+    pub const Options = wire.rdata.Options;
+};
+
+/// The limits a consumer sizes its memory with. Each is the module's own, under the same name.
+pub const limits = struct {
+    /// A name in presentation form, which escapes: four bytes per wire byte at worst, `\255`.
+    pub const name_text_bytes_max = core.limits.name_text_bytes_max;
+    /// The largest query cocuyo builds: the header, a maximal qname, qtype and qclass, an OPT
+    /// record carrying the largest COOKIE option and a Padding option, padded to a whole block, and
+    /// the TCP length prefix. 12 + 255 + 4 + 55 + 4 is 330, padded to 384, and 2 more
+    /// (docs/design.md §21).
+    pub const query_bytes_max = core.limits.query_bytes_max;
+    /// The rdata buffer of one lookup: one UDP payload of `udp_payload_bytes_default` with room for
+    /// the names written out in full on the way in, each of which can grow from a two-octet
+    /// pointer to `name_bytes_max`. A TCP answer that does not fit sets `truncated`
+    /// (docs/design.md §19).
+    pub const rdata_bytes_max = core.limits.rdata_bytes_max;
+    /// The most servers a configuration may name. glibc's MAXNS is 3; 8 leaves room and still
+    /// bounds every loop over the list.
+    pub const servers_max = core.limits.servers_max;
+    /// The pins one TLS server may carry: a primary pin and the backup RFC 7858 §4.2 asks to deploy
+    /// with it, each with room to rotate. It is also chapulin's own bound (docs/design.md §21).
+    pub const spki_pins_max = core.limits.spki_pins_max;
+    /// The key table holds at least this many entries per slot. A slot keys its lookup's current
+    /// transaction and each try it keeps open, at most `tries_open_max` and one more, so the table
+    /// is never full. The table is sized by the caller, so the floor is checked rather than
+    /// assumed (docs/design.md §11).
+    pub const keys_per_slot_min = resolver.limits.keys_per_slot_min;
+};
+
+/// The protocol sizes and the defaults a consumer sizes its memory with. Each is the module's own,
+/// under the same name.
+pub const constants = struct {
+    /// The DNS header: id, flags, and four section counts, two octets each (RFC 1035 §4.1.1).
+    pub const header_bytes = core.constants.header_bytes;
+    /// The question section's fixed part after the qname: qtype and qclass, two octets each
+    /// (RFC 1035 §4.1.2).
+    pub const question_fixed_bytes = core.constants.question_fixed_bytes;
+    /// The UDP payload size cocuyo advertises in OPT by default. 1232 is the widely recommended
+    /// value that keeps a response inside the smallest IPv6 MTU without fragmenting; recalled, not
+    /// measured.
+    pub const udp_payload_bytes_default = core.constants.udp_payload_bytes_default;
+    /// The port a DNS server listens on (RFC 1035 §4.2.1).
+    pub const port_dns_default = core.constants.port_dns_default;
+    /// An IPv4 address, in octets: the "32 bit Internet address" an A record carries
+    /// (RFC 1035 §3.4.1).
+    pub const address_v4_bytes = core.constants.address_v4_bytes;
+    /// An IPv6 address, in octets (RFC 3596 §2.2 gives the AAAA rdata this length).
+    pub const address_v6_bytes = core.constants.address_v6_bytes;
+    /// The entries a consumer's `KeyStore` takes by default: each one zone's keys, its DS set, or
+    /// an insecure delegation (docs/design.md §25, §17 question 121). The consumer sizes the store.
+    /// Chosen, not measured: a run of a few names fills far fewer.
+    pub const key_store_zones_default = core.constants.key_store_zones_default;
+};
+
+/// What the table asks of a validator, and what `validated_by` fills in. Not public: a consumer
+/// hands it on and never names it.
+const Trust = resolver.Trust;
+const Security = core.Security;
 
 /// A `Trust` filled in from a key store: what a consumer hands `Resolver.validate_with` to
 /// validate every lookup the table starts, composed ones included (docs/design.md §25, step 12).
@@ -138,7 +251,7 @@ fn recall_from_cache(context: *anyopaque, question: *const Question, now_ns: u64
 }
 
 /// The chain a cache keeps of an end: its end and its links, or none when no CNAME reached it.
-fn chain_of(canonical: ?*const core.Name, aliases: *const core.Aliases) ?cache.Chain {
+fn chain_of(canonical: ?*const core.Name, aliases: *const core.Aliases) ?cache_module.Chain {
     const end = canonical orelse return null;
     return .{ .end = end, .aliases = aliases };
 }
@@ -158,7 +271,7 @@ fn remember_in_cache(
         }, negative.ttl_seconds, chain_of(negative.canonical_name, negative.aliases), negative.security, now_ns),
         .failed => |err| {
             // The table writes the failures that the cache keeps, and no other (§16 decision 61).
-            assert(cache.resolution_failure(err));
+            assert(cache_module.resolution_failure(err));
             store.put_failure(question, err, now_ns);
         },
     }
@@ -180,10 +293,10 @@ test "a failure written through the memory is kept for the cache's minimum, and 
     const question = try Question.from_text("down.example", .a);
     memory.remember(memory.context, &question, .{ .failed = Error.Timeout }, 0);
     const hit = rig.store.get(&question, 0).?;
-    try testing.expectEqual(cache.Outcome.failed, hit.outcome);
+    try testing.expectEqual(cache_module.Outcome.failed, hit.outcome);
     try testing.expectEqual(Error.Timeout, hit.failure.?);
     try testing.expectEqual(rig.store.failure_seconds_min, hit.ttl_seconds);
-    const past = @as(u64, rig.store.failure_seconds_min) * cache.constants.ns_per_s;
+    const past = @as(u64, rig.store.failure_seconds_min) * cache_module.constants.ns_per_s;
     try testing.expectEqual(@as(?Remembered, null), memory.recall(memory.context, &question, past));
 }
 
@@ -192,7 +305,7 @@ test "the table writes as failed exactly the errors the cache keeps" {
     // failures (RFC 9520 §2). This file reads both, and holds them equal (§16 decision 61).
     inline for (@typeInfo(Error).error_set.?) |member| {
         const err = @field(Error, member.name);
-        try testing.expectEqual(cache.resolution_failure(err), resolver.table_memory.resolution_failure(err));
+        try testing.expectEqual(cache_module.resolution_failure(err), resolver.table_memory.resolution_failure(err));
     }
 }
 
@@ -217,16 +330,12 @@ test "a failure in the cache ends a table's lookup at its first poll, and nothin
     try testing.expectEqual(@as(u8, 0), failure.attempts_made);
 }
 
-/// The length a TCP length prefix describes (RFC 7766 §8). A caller reads two octets, calls this,
-/// reads that many more, and hands them to `on_response`.
-pub const message_len = wire.message_len;
-
 test {
     _ = core;
     _ = wire;
     _ = resolver;
-    _ = resolv_conf;
-    _ = cache;
+    _ = config_module;
+    _ = cache_module;
 }
 
 // Tests of the glue above: what a `Cache` hands the table, and what the table writes into it.
@@ -249,7 +358,7 @@ const CacheRig = struct {
     store: Cache = undefined,
 
     fn open(self: *CacheRig) void {
-        self.store = Cache.init(&self.slots, &self.keys, 0, cache.constants.ttl_seconds_max_default);
+        self.store = Cache.init(&self.slots, &self.keys, 0, cache_module.constants.ttl_seconds_max_default);
     }
 };
 
@@ -273,7 +382,7 @@ test "an answer put through the memory comes back with what is left of its life"
         .security = .authenticated,
     } }, 0);
 
-    const half = @as(u64, remembered_ttl_seconds / 2) * cache.constants.ns_per_s;
+    const half = @as(u64, remembered_ttl_seconds / 2) * cache_module.constants.ns_per_s;
     const found = memory.recall(memory.context, &question, half).?;
     try testing.expect(found == .answered);
     try testing.expectEqual(@as(u32, remembered_ttl_seconds / 2), found.answered.ttl_seconds);
@@ -322,7 +431,7 @@ test "what the memory has nothing for, and what has expired, is a miss" {
         .canonical_name = null,
         .security = .unchecked,
     } }, 0);
-    const past = (@as(u64, remembered_ttl_seconds) + 1) * cache.constants.ns_per_s;
+    const past = (@as(u64, remembered_ttl_seconds) + 1) * cache_module.constants.ns_per_s;
     try testing.expectEqual(@as(?Remembered, null), memory.recall(memory.context, &question, past));
 }
 
@@ -385,7 +494,7 @@ test "a hit through the table hands each record back less the time it spent in t
     table.remember_with(memory);
     _ = try table.start(question);
     var out: [limits.query_bytes_max]u8 = @splat(0);
-    const done = table.poll(spent_seconds * cache.constants.ns_per_s, &out).?.action.done;
+    const done = table.poll(spent_seconds * cache_module.constants.ns_per_s, &out).?.action.done;
     try testing.expectEqual(@as(u32, capped_ttl_seconds - spent_seconds), done.ttl_seconds);
     try testing.expectEqual(stored_ttl_seconds - spent_seconds, done.records.?.at(0).ttl_seconds);
 }

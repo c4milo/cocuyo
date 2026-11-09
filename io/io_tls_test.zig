@@ -7,6 +7,8 @@
 const std = @import("std");
 const testing = std.testing;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
+const wire = @import("wire");
 const rotor = @import("rotor");
 const io = @import("io.zig");
 
@@ -160,8 +162,8 @@ test "a length prefix of 65535 in a record's plaintext is waited for, and the co
     _ = rig.engine.take(rig.loop.now());
     const connection = &rig.engine.connections[0];
     try testing.expect(connection.state == .up and connection.used == 0);
-    var prefix: [cocuyo.constants.tcp_prefix_bytes]u8 = undefined;
-    std.mem.writeInt(u16, &prefix, cocuyo.limits.message_bytes_max, .big);
+    var prefix: [core.constants.tcp_prefix_bytes]u8 = undefined;
+    std.mem.writeInt(u16, &prefix, core.limits.message_bytes_max, .big);
     var record: [rotor.constants.tls_record_header_bytes + prefix.len]u8 = undefined;
     const len = rotor.tls.write_record(rotor.constants.tls_content_application, &prefix, &record);
     try testing.expect(rig.loop.network().write_stream(connection.descriptor.?, record[0..len], rig.loop.now()));
@@ -187,7 +189,7 @@ pub fn up(rig: anytype, seed: u64) !void {
 /// session opens an application record's body as it is.
 fn record_of_zeros(out: []u8, content: u8, body: usize) usize {
     const header = io.constants.tls_record_header_bytes;
-    const prefix = cocuyo.constants.tcp_prefix_bytes;
+    const prefix = core.constants.tcp_prefix_bytes;
     @memset(out[0 .. header + body], 0);
     out[0] = content;
     std.mem.writeInt(u16, out[rotor.constants.tls_record_version_at..][0..@sizeOf(u16)], rotor.constants.tls_legacy_version, .big);
@@ -259,10 +261,10 @@ test "a record opens into the frame after a partial message at its longest" {
     var rig: Rig = .{};
     try up(&rig, 54);
     const connection = &rig.engine.connections[0];
-    const prefix = cocuyo.constants.tcp_prefix_bytes;
-    const partial = prefix + cocuyo.limits.message_bytes_max - 1;
+    const prefix = core.constants.tcp_prefix_bytes;
+    const partial = prefix + core.limits.message_bytes_max - 1;
     @memset(connection.frame[0..partial], 0);
-    std.mem.writeInt(u16, connection.frame[0..prefix], cocuyo.limits.message_bytes_max, .big);
+    std.mem.writeInt(u16, connection.frame[0..prefix], core.limits.message_bytes_max, .big);
     connection.used = partial;
     // The record's body: the message's last octet, then a message of zeros with its prefix.
     const body = fixtures.record_plaintext_bytes_max;
@@ -284,7 +286,7 @@ test "a prefix in a record that says more than the connection assembles ends it 
     // The peer is still there, so the session says close_notify, and the connection closes once
     // that has gone (TLS rule 5). It reads nothing more, so the record after it is not read. A
     // send the loop refuses fails the connection at once, and the rest of the chunk is not its.
-    const body = cocuyo.constants.tcp_prefix_bytes + fixtures.tiny_message_bytes + 1;
+    const body = core.constants.tcp_prefix_bytes + fixtures.tiny_message_bytes + 1;
     const application = rotor.constants.tls_content_application;
     for ([_]bool{ false, true }) |refused| {
         var rig: TinyRig = .{};
@@ -358,8 +360,8 @@ test "every whole record one chunk carries goes to the session with it, the last
     // Each record before the answer's record holds a header of zeros. Such a header is a query,
     // and no lookup takes a query (docs/design.md §7, check 4).
     const header = cocuyo.constants.header_bytes;
-    var message: [cocuyo.constants.tcp_prefix_bytes + header]u8 = @splat(0);
-    cocuyo.wire.header.write_message_len(&message, @intCast(header));
+    var message: [core.constants.tcp_prefix_bytes + header]u8 = @splat(0);
+    wire.header.write_message_len(&message, @intCast(header));
     const record_bytes = rotor.constants.tls_record_header_bytes;
     const others = (io.limits.tcp_chunk_bytes_max - record_bytes - answer_bytes) / (record_bytes + message.len);
     var chunk: [io.limits.tcp_chunk_bytes_max]u8 = undefined;

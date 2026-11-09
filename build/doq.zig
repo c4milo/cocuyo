@@ -30,6 +30,7 @@ pub fn add(
     const platform = lazy.platform orelse return;
     const engine = b.createModule(.{ .root_source_file = b.path(modules.roots.io), .target = target, .optimize = optimize });
     engine.addImport("cocuyo", graph.cocuyo);
+    modules.add_internal(engine, graph);
     engine.addImport("rotor", dependency.module("rotor"));
     const module = b.createModule(.{
         .root_source_file = b.path("examples/doq_rotor.zig"),

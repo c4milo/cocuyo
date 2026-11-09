@@ -26,7 +26,7 @@ pub fn add(b: *std.Build, tool: *std.Build.Module, dnssec_tool: *std.Build.Modul
             .optimize = .ReleaseSafe,
         });
         program_module.addImport("cocuyo", graph.cocuyo);
-        program_module.addImport("wire", graph.wire);
+        modules.add_internal(program_module, graph);
         program_module.addImport("validation", graph.dnssec);
         const program = b.addExecutable(.{ .name = entry.name, .root_module = program_module });
         const instructions = b.addExecutable(.{ .name = b.fmt("instructions-{s}", .{entry.name}), .root_module = entry.tool });

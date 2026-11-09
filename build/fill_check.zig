@@ -25,6 +25,7 @@ pub fn add(b: *std.Build, tool: *std.Build.Module) *std.Build.Step {
             .strip = true,
         });
         probe.addImport("cocuyo", graph.cocuyo);
+        modules.add_internal(probe, graph);
         // cocuyo's own `dnssec`, which no consumer names: the validator's paths, under a store.
         probe.addImport("validation", graph.dnssec);
         probe.addImport("bench_memset", b.createModule(.{
@@ -44,6 +45,7 @@ pub fn add(b: *std.Build, tool: *std.Build.Module) *std.Build.Step {
             .strip = true,
         });
         engine.addImport("cocuyo", graph.cocuyo);
+        modules.add_internal(engine, graph);
         engine.addImport("rotor", rotor.module("rotor"));
         probe.addImport("io", engine);
         probe.addImport("rotor", rotor.module("rotor"));

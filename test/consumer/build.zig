@@ -1,7 +1,8 @@
 //! A package that depends on cocuyo the way any project would, so the branch a dependent takes
 //! through cocuyo's own build — the early return, the manifest's `paths` — is compiled rather
-//! than assumed (docs/design.md §20). `zig build consumer-check` in the parent runs this twice:
-//! once as it stands, which must build, and once with `-Dreach-inside`, which must not.
+//! than assumed (docs/design.md §20). `zig build consumer-check` in the parent runs this once as
+//! it stands, which must build. Then it runs it once with each value of `-Dreach-inside`, and none
+//! of those must build.
 //!
 //! It builds four programs:
 //!
@@ -14,22 +15,29 @@
 //!   into which this package binds its colibri (§16 decision 38, as amended for §17 question 64).
 const std = @import("std");
 
+/// The paths a consumer must not reach. Each names a program in `inside/` that reaches one.
+/// `sim` is a module the package registers under no name. The rest left the surface on
+/// 2026-11-09 (docs/design.md §20).
+const Inside = enum { sim, wire, resolver, core, wire_fixtures, rdata_fixtures, resolv_conf_fuzz };
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    const inside = b.option(bool, "reach-inside", "Import a module the package does not export") orelse false;
+    const inside = b.option(Inside, "reach-inside", "Reach a path the package does not export");
     const cocuyo = b.dependency("cocuyo", .{ .target = target });
     const exe = b.addExecutable(.{
         .name = "consumer",
         .root_module = b.createModule(.{
-            .root_source_file = b.path(if (inside) "inside.zig" else "main.zig"),
+            .root_source_file = if (inside) |path| b.path(b.fmt("inside/{t}.zig", .{path})) else b.path("main.zig"),
             .target = target,
             .optimize = .Debug,
         }),
     });
     exe.root_module.addImport("cocuyo", cocuyo.module("cocuyo"));
     // `sim` is not a name this package registers, so asking for it fails the build here.
-    if (inside) exe.root_module.addImport("sim", cocuyo.module("sim"));
+    if (inside == .sim) exe.root_module.addImport("sim", cocuyo.module("sim"));
     b.installArtifact(exe);
+    // A program that reaches inside is the one this build makes, so its failure is the refusal.
+    if (inside != null) return;
 
     // The consumer's own rotor, bound into cocuyo's resolver, so the loop the program makes is the
     // type the resolver takes and the image holds one rotor.

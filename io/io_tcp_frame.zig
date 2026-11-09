@@ -6,6 +6,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
 const limits = @import("limits.zig");
@@ -40,7 +41,7 @@ pub fn take_chunk(self: anytype, at: u8, event: rotor.Event, count: u32, now_ns:
 pub fn deliver(self: anytype, at: u8, now_ns: u64) bool {
     const connection = &self.connections[at];
     const from = self.config.servers[connection.server].tcp_endpoint();
-    const prefix = cocuyo.constants.tcp_prefix_bytes;
+    const prefix = core.constants.tcp_prefix_bytes;
     var start: usize = 0;
     var delivered: usize = 0;
     while (delivered < limits.tcp_messages_per_frame_max) : (delivered += 1) {
@@ -72,14 +73,14 @@ fn end(self: anytype, at: u8, now_ns: u64) void {
 
 /// Whether the prefix at `start` in the frame says more than the connection assembles.
 fn too_long(connection: anytype, start: usize) bool {
-    const prefix = cocuyo.constants.tcp_prefix_bytes;
+    const prefix = core.constants.tcp_prefix_bytes;
     if (connection.used - start < prefix) return false;
     return cocuyo.message_len(connection.frame[start..][0..prefix]) > @TypeOf(connection.*).message_bytes_max;
 }
 
 /// The length of the message at `start` in the frame once all of it has arrived, and null before.
 fn whole_len(connection: anytype, start: usize) ?usize {
-    const prefix = cocuyo.constants.tcp_prefix_bytes;
+    const prefix = core.constants.tcp_prefix_bytes;
     if (connection.used - start < prefix) return null;
     // `usize`, not the `u16` the prefix reads as: with the prefix's two octets a message of
     // 65534 or 65535 octets passes 65535, and a prefix can say either (RFC 1035 §4.2.2).

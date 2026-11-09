@@ -10,6 +10,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
 const rotor = @import("rotor");
 const io = @import("io");
 const lookup_text = @import("replay.zig");
@@ -429,7 +430,7 @@ fn message(self: anytype, op: []const u8, slot: usize, reply: fixtures.Reply, ea
 /// One whole frame, length and all (RFC 7766 §8), and over TLS in a data record of its own
 /// (RFC 7858 §3.3).
 fn stream_frame(self: anytype, body: []const u8, buffer: []u8) u32 {
-    const prefix = cocuyo.constants.tcp_prefix_bytes;
+    const prefix = core.constants.tcp_prefix_bytes;
     var frame: [512 + prefix]u8 = undefined;
     std.mem.writeInt(u16, frame[0..prefix], @intCast(body.len), .big);
     @memcpy(frame[prefix..][0..body.len], body);

@@ -25,6 +25,7 @@ pub fn add(
     }
     const engine = b.createModule(.{ .root_source_file = b.path(modules.roots.io), .target = target, .optimize = optimize });
     engine.addImport("cocuyo", graph.cocuyo);
+    modules.add_internal(engine, graph);
     engine.addImport("rotor", dependency.module("rotor"));
     const server_text = b.createModule(.{ .root_source_file = b.path("examples/server_text.zig"), .target = target, .optimize = optimize });
     server_text.addImport("cocuyo", graph.cocuyo);
@@ -35,6 +36,7 @@ pub fn add(
     trust_text.addImport("cocuyo_dnssec", graph.cocuyo_dnssec);
     const module = b.createModule(.{ .root_source_file = b.path(root), .target = target, .optimize = optimize });
     module.addImport("cocuyo", graph.cocuyo);
+    modules.add_internal(module, graph);
     module.addImport("rotor", dependency.module("rotor"));
     module.addImport("io", engine);
     module.addImport("answer_text", answer_text);

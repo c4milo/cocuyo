@@ -24,6 +24,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
 const wire = @import("wire");
 const harness = @import("harness.zig");
 const cases = @import("bench_cases.zig");
@@ -189,7 +190,7 @@ test "c-ares reads the same records from the corpus that cocuyo does" {
     try testing.expectEqual(@as(usize, 1), parse_cares(&cares_message_one));
     try testing.expectEqual(@as(usize, 1), parse_cares(&cares_message_cname));
     // Seventeen A records are in the message. cocuyo keeps sixteen and says so; c-ares keeps all.
-    try testing.expectEqual(@as(usize, cocuyo.limits.addresses_max + 1), parse_cares(&cares_message_seventeen));
+    try testing.expectEqual(@as(usize, core.limits.addresses_max + 1), parse_cares(&cares_message_seventeen));
 }
 
 test {

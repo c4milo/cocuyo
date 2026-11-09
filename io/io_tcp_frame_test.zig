@@ -6,6 +6,8 @@
 const std = @import("std");
 const testing = std.testing;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
+const wire = @import("wire");
 const rotor = @import("rotor");
 const io = @import("io.zig");
 const tcp = @import("io_tcp.zig");
@@ -71,10 +73,10 @@ fn answered_stream(rig: *Rig, seed: u64) !rotor.Descriptor {
 test "a length prefix of 65534 or 65535 is waited for, and the connection stays up" {
     // The prefix's two octets and a message that long pass 65535 (RFC 1035 §4.2.2). Summed in
     // the `u16` the prefix reads as, they overflowed: a panic on two octets any server can write.
-    for ([_]u16{ fixtures.message_bytes_unsummed, fixtures.message_bytes_unsummed + 1, cocuyo.limits.message_bytes_max }) |length| {
+    for ([_]u16{ fixtures.message_bytes_unsummed, fixtures.message_bytes_unsummed + 1, core.limits.message_bytes_max }) |length| {
         var rig: Rig = .{};
         const socket = try answered_stream(&rig, 23);
-        var prefix: [cocuyo.constants.tcp_prefix_bytes]u8 = undefined;
+        var prefix: [core.constants.tcp_prefix_bytes]u8 = undefined;
         std.mem.writeInt(u16, &prefix, length, .big);
         try testing.expect(rig.loop.network().write_stream(socket, &prefix, rig.loop.now()));
         _ = try rig.step(fixtures.channel_read_ns);
@@ -92,11 +94,11 @@ test "a frame holds the longest message a prefix can say and a chunk after it, a
     var rig: Rig = .{};
     _ = try answered_stream(&rig, 24);
     const connection = &rig.engine.connections[0];
-    const prefix = cocuyo.constants.tcp_prefix_bytes;
-    const longest = prefix + cocuyo.limits.message_bytes_max;
+    const prefix = core.constants.tcp_prefix_bytes;
+    const longest = prefix + core.limits.message_bytes_max;
     try testing.expectEqual(longest + io.limits.tcp_chunk_bytes_max, connection.frame.len);
     @memset(&connection.frame, 0);
-    std.mem.writeInt(u16, connection.frame[0..prefix], cocuyo.limits.message_bytes_max, .big);
+    std.mem.writeInt(u16, connection.frame[0..prefix], core.limits.message_bytes_max, .big);
     connection.used = connection.frame.len;
     try testing.expect(frame.deliver(&rig.engine, 0, rig.loop.now()));
     try testing.expectEqual(@as(usize, 0), connection.used);
@@ -113,9 +115,9 @@ fn failures_after_message(seed: u64, length: usize) !u8 {
     const handle = try rig.engine.start(question("example.com."), rig.loop.now());
     _ = try rig.step(fixtures.wait_ns);
     try testing.expect(rig.engine.connections[0].state == .up);
-    var bytes: [cocuyo.constants.tcp_prefix_bytes + fixtures.tiny_message_bytes + 1]u8 = @splat(0);
-    const framed = bytes[0 .. cocuyo.constants.tcp_prefix_bytes + length];
-    std.mem.writeInt(u16, framed[0..cocuyo.constants.tcp_prefix_bytes], @intCast(length), .big);
+    var bytes: [core.constants.tcp_prefix_bytes + fixtures.tiny_message_bytes + 1]u8 = @splat(0);
+    const framed = bytes[0 .. core.constants.tcp_prefix_bytes + length];
+    std.mem.writeInt(u16, framed[0..core.constants.tcp_prefix_bytes], @intCast(length), .big);
     const socket = rig.engine.connections[0].descriptor.?;
     try testing.expect(rig.loop.network().write_stream(socket, framed, rig.loop.now()));
     _ = try rig.step(fixtures.channel_read_ns);
@@ -144,7 +146,7 @@ test "a chunk that ends a message and starts the next keeps the connection up" {
     _ = try rig.step(fixtures.wait_ns);
     const connection = &rig.engine.connections[0];
     try testing.expect(connection.state == .up);
-    const prefix = cocuyo.constants.tcp_prefix_bytes;
+    const prefix = core.constants.tcp_prefix_bytes;
     var bytes: [prefix + fixtures.tiny_message_bytes + fixtures.next_message_octets]u8 = @splat(0);
     std.mem.writeInt(u16, bytes[0..prefix], fixtures.tiny_message_bytes, .big);
     std.mem.writeInt(u16, bytes[prefix + fixtures.tiny_message_bytes ..][0..prefix], fixtures.next_message_bytes, .big);
@@ -183,10 +185,10 @@ test "every whole message one chunk carries is handed over with it, the last one
     // check 4).
     const connection = &rig.engine.connections[0];
     const header = cocuyo.constants.header_bytes;
-    const framed = cocuyo.constants.tcp_prefix_bytes + header;
+    const framed = core.constants.tcp_prefix_bytes + header;
     const others = (io.limits.tcp_chunk_bytes_max - answer_bytes) / framed;
     @memset(connection.frame[0 .. others * framed], 0);
-    for (0..others) |other| cocuyo.wire.header.write_message_len(connection.frame[other * framed ..], @intCast(header));
+    for (0..others) |other| wire.header.write_message_len(connection.frame[other * framed ..], @intCast(header));
     @memcpy(connection.frame[others * framed ..][0..answer_bytes], answer[0..answer_bytes]);
     connection.used = others * framed + answer_bytes;
     // `take_chunk` gives the frame to `deliver`, and `apply` then drives the engine, as after
@@ -209,11 +211,11 @@ test "a frame over TLS of messages that are their prefix alone is handed over wh
     var rig: tls_test.Rig = .{};
     try tls_test.up(&rig, 56);
     const connection = &rig.engine.connections[0];
-    try testing.expectEqual(io.limits.tcp_messages_per_frame_max, connection.frame.len / cocuyo.constants.tcp_prefix_bytes);
+    try testing.expectEqual(io.limits.tcp_messages_per_frame_max, connection.frame.len / core.constants.tcp_prefix_bytes);
     @memset(&connection.frame, 0);
     connection.used = connection.frame.len;
     try testing.expect(frame.deliver(&rig.engine, 0, rig.loop.now()));
-    try testing.expectEqual(connection.frame.len % cocuyo.constants.tcp_prefix_bytes, connection.used);
+    try testing.expectEqual(connection.frame.len % core.constants.tcp_prefix_bytes, connection.used);
     try testing.expect(connection.state == .up);
     try rig.deinit();
 }
@@ -235,7 +237,7 @@ test "a prefix split between two chunks is read once its second octet has come" 
     _ = try rig.step(fixtures.wait_ns);
     const connection = &rig.engine.connections[0];
     try testing.expect(connection.state == .up and connection.used == 0);
-    const prefix = cocuyo.constants.tcp_prefix_bytes;
+    const prefix = core.constants.tcp_prefix_bytes;
     var sound: [prefix]u8 = undefined;
     std.mem.writeInt(u16, &sound, fixtures.next_message_bytes, .big);
     var long: [prefix]u8 = undefined;

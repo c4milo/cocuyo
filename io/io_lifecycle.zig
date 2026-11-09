@@ -4,6 +4,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
+const cache = @import("cache");
 const constants = @import("constants.zig");
 const limits = @import("limits.zig");
 const drive_module = @import("io_drive.zig");
@@ -18,10 +20,10 @@ const channel_link = @import("io_channel_link.zig");
 /// other count does not compile, and the error names the bound (docs/design.md §19 step 13, §17
 /// question 43).
 pub fn check_lookups(comptime lookups: u16) void {
-    if (lookups > 0 and lookups <= cocuyo.limits.lookup_slots_max) return;
+    if (lookups > 0 and lookups <= core.limits.lookup_slots_max) return;
     @compileError(std.fmt.comptimePrint(
         "an engine holds 1 to {d} lookups, lookup_slots_max, and these Options name {d}",
-        .{ cocuyo.limits.lookup_slots_max, lookups },
+        .{ core.limits.lookup_slots_max, lookups },
     ));
 }
 
@@ -43,7 +45,7 @@ pub fn cancel_every(self: anytype) void {
 /// `Cache.init` takes. A caller that reads a slot count at run time refuses a bad one itself,
 /// with `cocuyo.cache.slot_count_valid`, so slices of another shape are a programmer error
 /// (docs/design.md §18, Sizing the memory).
-pub fn assert_cache_memory(cache_memory: ?cocuyo.cache.Slices) void {
+pub fn assert_cache_memory(cache_memory: ?cache.Slices) void {
     const memory = cache_memory orelse return;
     assert(memory.valid());
 }
@@ -53,7 +55,7 @@ pub fn assert_cache_memory(cache_memory: ?cocuyo.cache.Slices) void {
 /// so the engine cannot receive a larger size (docs/design.md §19 step 13, the datagram's rule 7;
 /// §16 decision 44).
 pub fn check_payload(config: *const cocuyo.Config) error{UdpPayloadTooLarge}!void {
-    assert(config.udp_payload_bytes >= cocuyo.limits.udp_payload_bytes_min);
+    assert(config.udp_payload_bytes >= core.limits.udp_payload_bytes_min);
     // "The requestor SHOULD place a value in this field that it can actually receive" (RFC 6891
     // §6.2.3).
     if (config.udp_payload_bytes > limits.udp_payload_bytes_max) return error.UdpPayloadTooLarge;
@@ -67,7 +69,7 @@ pub fn check_payload(config: *const cocuyo.Config) error{UdpPayloadTooLarge}!voi
 /// engine has no cache, and every lookup goes to its servers (docs/design.md §19 step 13, the
 /// cache's memory; §20). A send the old table made keeps its buffer until its final event, which
 /// then speaks for nobody (the stream's rules 6 and 7).
-pub fn reset_tables(self: anytype, config: *const cocuyo.Config, cache_memory: ?cocuyo.cache.Slices, seed: u64) void {
+pub fn reset_tables(self: anytype, config: *const cocuyo.Config, cache_memory: ?cache.Slices, seed: u64) void {
     // `check_payload` refused a larger size before the call changed anything (rule 7).
     assert(config.udp_payload_bytes <= limits.udp_payload_bytes_max);
     self.resolver = cocuyo.Resolver.init(&self.slots, &self.keys, config, seed);
@@ -124,7 +126,7 @@ pub fn reset_tables(self: anytype, config: *const cocuyo.Config, cache_memory: ?
 pub fn reinit(
     self: anytype,
     config: *const cocuyo.Config,
-    cache_memory: ?cocuyo.cache.Slices,
+    cache_memory: ?cache.Slices,
     seed: u64,
     now_ns: u64,
 ) @TypeOf(self.*).InitErrorType!void {

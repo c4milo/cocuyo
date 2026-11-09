@@ -1,10 +1,12 @@
 //! Tests of `cocuyo_dnssec` over chapulin, against the examples the RFCs print (docs/design.md §25
 //! step 10): the DS digests of RFC 4034 §5.4, RFC 4509 §2.3, RFC 6605 §6 and RFC 8080 §6.1, the
 //! signatures of RFC 5702 §6, RFC 6605 §6 and RFC 8080 §6.1, and the NSEC3 hashes of RFC 5155
-//! Appendix A. Each signature is checked over the data `cocuyo.dnssec.canonical.signed_data`
+//! Appendix A. Each signature is checked over the data `validation.canonical.signed_data`
 //! builds, where the RFC's RRSIG allows, and refused with one signed octet changed.
 const std = @import("std");
 const cocuyo = @import("cocuyo");
+const core = @import("core");
+const wire = @import("wire");
 const validation = @import("validation");
 const Name = cocuyo.Name;
 const Chapulin = @import("cocuyo_dnssec").Chapulin;
@@ -40,10 +42,10 @@ test "the algorithms and digest types chapulin checks, and none of RSA/SHA-1" {
 
 test "the DS digests of RFC 4034 §5.4 and RFC 4509 §2.3" {
     var chapulin: Chapulin = .{};
-    var bytes: [cocuyo.wire.rdata.fixtures.dnskey_example_bytes]u8 = undefined;
-    const key = cocuyo.wire.rdata.fixtures.dnskey_example(&bytes);
+    var bytes: [wire.rdata.fixtures.dnskey_example_bytes]u8 = undefined;
+    const key = wire.rdata.fixtures.dnskey_example(&bytes);
     var out: [validation.constants.digest_bytes]u8 = undefined;
-    try testing.expectEqualSlices(u8, &cocuyo.wire.rdata.fixtures.ds_example_digest, digest_of(&chapulin, "dskey.example.com", key, 1, &out));
+    try testing.expectEqualSlices(u8, &wire.rdata.fixtures.ds_example_digest, digest_of(&chapulin, "dskey.example.com", key, 1, &out));
     const sha256 = hex("D4B7D520E7BB5F0F67674A0CCEB1E3E0614B93C4F9E99B8383F6A1E4469DA50A");
     try testing.expectEqualSlices(u8, &sha256, digest_of(&chapulin, "dskey.example.com", key, 2, &out));
 }
@@ -52,10 +54,10 @@ test "the DS digests of RFC 4034 §5.4 and RFC 4509 §2.3" {
 /// at `owner`, through cocuyo's signed data.
 fn verifies(chapulin: *Chapulin, rrsig_rdata: []const u8, owner: []const u8, address: []const u8, key: []const u8) !bool {
     const verifier = chapulin.verifier();
-    const sig = try cocuyo.wire.rdata.Rrsig.parse(rrsig_rdata);
+    const sig = try wire.rdata.Rrsig.parse(rrsig_rdata);
     const hash = verifier.check_begin(verifier.context, sig.algorithm, fixtures.public_key(key), sig.signature) orelse return false;
     const records = validation.canonical.Written{ .records = &.{address} };
-    try validation.canonical.signed_data(rrsig_rdata, &try Name.from_text(owner), .a, cocuyo.core.constants.class_internet, records, hash);
+    try validation.canonical.signed_data(rrsig_rdata, &try Name.from_text(owner), .a, core.constants.class_internet, records, hash);
     return verifier.check_end(verifier.context, fixtures.public_key(key), sig.signature);
 }
 

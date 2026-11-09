@@ -9,13 +9,14 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
+const resolver_module = @import("resolver");
 const wire = @import("wire");
 const fixtures = wire.fixtures;
-const table_keys = cocuyo.resolver.table_keys;
+const table_keys = resolver_module.table_keys;
 const Case = @import("harness.zig").Case;
 const Name = cocuyo.Name;
 const Lookup = cocuyo.Lookup;
-
 const doNotOptimizeAway = std.mem.doNotOptimizeAway;
 
 /// Iterations per sample, the same for every case, and for the comparison bench. The bound that matters is the clock's step
@@ -27,10 +28,10 @@ pub const iterations = 200_000;
 /// The table sizes the datagram match is measured at, to show the probe does not grow with them.
 const table_small = 1;
 const table_medium = 64;
-const table_large = cocuyo.limits.lookup_slots_max;
+const table_large = core.limits.lookup_slots_max;
 
 /// The keys the largest table needs: at least `keys_per_slot_min` per slot, a power of two.
-const keys_large = table_large * cocuyo.resolver.limits.keys_per_slot_min;
+const keys_large = table_large * resolver_module.limits.keys_per_slot_min;
 
 /// The seed every lookup here is started from. A fixed one, so two runs measure the same ids and
 /// the same case patterns.
@@ -80,7 +81,7 @@ pub fn setup_queries() void {
     query = .{ .id = fixtures.id, .name = Name.from_text("example.com") catch unreachable, .kind = .a };
     const long = "a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63 ++ "." ++ "d" ** 61;
     query_max = .{ .id = fixtures.id, .name = Name.from_text(long) catch unreachable, .kind = .a, .tcp = true };
-    assert(query_max.name.len == cocuyo.limits.name_bytes_max);
+    assert(query_max.name.len == core.limits.name_bytes_max);
 }
 
 pub fn run_query_build() void {
@@ -186,7 +187,7 @@ fn setup_table_large() void {
 fn setup_table(count: usize) void {
     assert(count >= 1);
     assert(count <= table_large);
-    resolver = cocuyo.Resolver.init(slots[0..count], keys[0 .. count * cocuyo.resolver.limits.keys_per_slot_min], &config, seed);
+    resolver = cocuyo.Resolver.init(slots[0..count], keys[0 .. count * resolver_module.limits.keys_per_slot_min], &config, seed);
     var started: usize = 0;
     while (started < count) : (started += 1) {
         handles[started] = resolver.start(question_for(started)) catch unreachable;
@@ -333,7 +334,7 @@ fn setup_round_trip() void {
 
 /// Appends an OPT record to the reply of `len` octets in `out`, with a COOKIE option that echoes
 /// `client` beside a server cookie, and counts it in the header. Returns the octets appended.
-fn with_cookie(out: []u8, len: usize, client: *const [cocuyo.constants.cookie_client_bytes]u8) usize {
+fn with_cookie(out: []u8, len: usize, client: *const [core.constants.cookie_client_bytes]u8) usize {
     var cookie: wire.Cookie = .{ .client = client.*, .server = @splat(0), .server_len = fixtures.cookie_server.len };
     @memcpy(cookie.server[0..fixtures.cookie_server.len], &fixtures.cookie_server);
     var header = wire.header.parse(out[0..len]) catch unreachable;
@@ -406,9 +407,9 @@ fn expect_three_verdicts(count: usize) !void {
     try testing.expectEqual(@as(?u16, first.index), own_walk.next());
     try testing.expectEqual(@as(?u16, null), own_walk.next());
 
-    try testing.expectEqual(cocuyo.Verdict.ignored, resolver.on_datagram(reply_stray[0..reply_stray_len], servers[0].endpoint, now_ns + 1));
-    try testing.expectEqual(cocuyo.Verdict.ignored, resolver.on_datagram(reply_wrong[0..reply_wrong_len], servers[0].endpoint, now_ns + 2));
-    try testing.expectEqual(cocuyo.Verdict.accepted, resolver.on_datagram(reply_accept[0..reply_accept_len], servers[0].endpoint, now_ns + 3));
+    try testing.expectEqual(resolver_module.Verdict.ignored, resolver.on_datagram(reply_stray[0..reply_stray_len], servers[0].endpoint, now_ns + 1));
+    try testing.expectEqual(resolver_module.Verdict.ignored, resolver.on_datagram(reply_wrong[0..reply_wrong_len], servers[0].endpoint, now_ns + 2));
+    try testing.expectEqual(resolver_module.Verdict.accepted, resolver.on_datagram(reply_accept[0..reply_accept_len], servers[0].endpoint, now_ns + 3));
     try testing.expect(resolver.lookup_of(first).state == .done);
 }
 
@@ -460,7 +461,7 @@ test "every parse case collects what its message holds" {
 
     setup_messages();
     run_parse_sixteen();
-    try testing.expectEqual(@as(u8, cocuyo.limits.addresses_max), answers.count);
+    try testing.expectEqual(@as(u8, core.limits.addresses_max), answers.count);
     try testing.expect(answers.truncated);
     try testing.expect(chain.equal(&question_name));
 }

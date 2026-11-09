@@ -3,7 +3,7 @@
 //! engine are in `limits.zig` (§16 decision 56).
 const std = @import("std");
 const limits = @import("limits.zig");
-const core = @import("cocuyo").core;
+const core = @import("core");
 const rotor = @import("rotor");
 
 /// The lookups an engine holds in flight, when the caller says nothing.
@@ -113,7 +113,7 @@ comptime {
     if (limits.udp_payload_bytes_max < core.constants.udp_payload_bytes_default) {
         @compileError("a group buffer cannot hold the payload cocuyo advertises after rotor's prefix");
     }
-    if (!@import("cocuyo").cache.slot_count_valid(cache_slots_default)) {
+    if (!@import("cache").slot_count_valid(cache_slots_default)) {
         @compileError("the cache size the README and the examples declare is one no cache takes");
     }
     // The chunk that ends one item can start the next, and the connection takes the whole chunk

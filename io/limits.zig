@@ -2,7 +2,7 @@
 //! holds beside the lookups its options size and the cache its caller hands it the memory of.
 const std = @import("std");
 const constants = @import("constants.zig");
-const core = @import("cocuyo").core;
+const core = @import("core");
 const rotor = @import("rotor");
 
 /// The octets of each buffer the datagram group holds: rotor's prefix plus the payload cocuyo

@@ -183,12 +183,19 @@ fn add_threads(
     const mode: std.builtin.OptimizeMode = if (sanitize_thread) .Debug else optimize;
     const engine = b.createModule(.{ .root_source_file = b.path(modules.roots.io), .target = target, .optimize = mode });
     engine.addImport("cocuyo", used.cocuyo);
+    modules.add_internal(engine, used);
     engine.addImport("rotor", dependency.module("rotor"));
     engine.sanitize_thread = sanitize_thread;
     const module = b.createModule(.{ .root_source_file = b.path(threads_example.root), .target = target, .optimize = mode });
     module.addImport("cocuyo", used.cocuyo);
     module.addImport("rotor", dependency.module("rotor"));
     module.addImport("io", engine);
+    // The responder's reply reads the query with the internal `wire`, which the example itself
+    // never names: its own code keeps to the public surface (docs/design.md §20).
+    const responder = b.createModule(.{ .root_source_file = b.path("examples/responder.zig"), .target = target, .optimize = mode });
+    responder.addImport("core", used.core);
+    responder.addImport("wire", used.wire);
+    module.addImport("responder", responder);
     // The responder's socket is libc's, as the bench's is.
     module.link_libc = true;
     module.sanitize_thread = sanitize_thread;
@@ -225,6 +232,7 @@ fn add_cleartext(
     }
     const engine = b.createModule(.{ .root_source_file = b.path(modules.roots.io), .target = target, .optimize = optimize });
     engine.addImport("cocuyo", graph.cocuyo);
+    modules.add_internal(engine, graph);
     engine.addImport("rotor", dependency.module("rotor"));
     const module = add_one(b, graph.cocuyo, target, optimize, test_step, install, cleartext_example);
     module.addImport("rotor", dependency.module("rotor"));

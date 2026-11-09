@@ -6,6 +6,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
+const core = @import("core");
 const constants = @import("constants.zig");
 const limits = @import("limits.zig");
 
@@ -169,7 +170,7 @@ const Fuzz = struct {
     word: u64,
 
     fn next(self: *Fuzz) u64 {
-        self.word = cocuyo.core.mix.next(self.word);
+        self.word = core.mix.next(self.word);
         return self.word;
     }
 

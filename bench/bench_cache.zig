@@ -10,7 +10,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cocuyo = @import("cocuyo");
-const cache = cocuyo.cache;
+const wire = @import("wire");
+const cache = @import("cache");
 const Case = @import("harness.zig").Case;
 const iterations = @import("bench_cases.zig").iterations;
 const Question = cocuyo.Question;
@@ -49,14 +50,14 @@ var slots: [slot_count]cache.Slot = undefined;
 var keys: [key_count]cache.Key = undefined;
 var table: cache.Cache = undefined;
 var questions: [slot_count]Question = undefined;
-var answers: cocuyo.wire.Answers = undefined;
+var answers: wire.Answers = undefined;
 var absent: Question = undefined;
 var fresh: Question = undefined;
 var rotation: usize = 0;
 
 fn setup_cache() void {
     table = cache.Cache.init(&slots, &keys, seed, cache.constants.ttl_seconds_max_default);
-    answers = cocuyo.wire.fixtures.answers_address(cocuyo.Address.from_v4(.{ 192, 0, 2, 1 }), ttl_seconds);
+    answers = wire.fixtures.answers_address(cocuyo.Address.from_v4(.{ 192, 0, 2, 1 }), ttl_seconds);
     var buffer: [24]u8 = undefined;
     for (&questions, 0..) |*question, index| {
         const text = std.fmt.bufPrint(&buffer, "l{d}.example", .{index}) catch unreachable;

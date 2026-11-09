@@ -9,6 +9,7 @@
 const std = @import("std");
 const testing = std.testing;
 const cocuyo = @import("cocuyo");
+const wire = @import("wire");
 const cocuyo_doh = @import("io_doh_channel.zig");
 const identity = @import("io_doh_channel_identity.zig");
 const server_module = @import("io_doh_channel_server.zig");
@@ -450,7 +451,7 @@ test "a template whose GET path at its longest fills the path buffer starts, and
     // 512 octets carries, 384 octets in base64url (RFC 4648 §5).
     const query_part = "?x=";
     const value_part = "&dns=";
-    const filler = doh_limits.doh_request_bytes_max - 1 - query_part.len - value_part.len - cocuyo.wire.limits.dns_variable_bytes_max;
+    const filler = doh_limits.doh_request_bytes_max - 1 - query_part.len - value_part.len - wire.limits.dns_variable_bytes_max;
     const longest = query_part ++ "p" ** filler ++ "{&dns}";
     const host = ("h" ** 63 ++ ".") ** 3 ++ "h" ** 61;
     const pair = try testing.allocator.create(Pair);
@@ -460,7 +461,7 @@ test "a template whose GET path at its longest fills the path buffer starts, and
     const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(identity.server_name) };
     const fits_slot = .{ .authority = host ++ ":8443", .host = host, .port = port, .path = longest };
     try pair.doh.start(.{ .server = 0, .endpoint = pair.endpoint, .tls = &named, .https = fits_slot, .alternative = null, .context = &pair.context, .now_ns = pair.now_ns });
-    var longest_query: [cocuyo.wire.limits.dns_variable_bytes_max / 4 * 3]u8 = @splat(0);
+    var longest_query: [wire.limits.dns_variable_bytes_max / 4 * 3]u8 = @splat(0);
     @memcpy(longest_query[0..query.len], &query);
     try testing.expect(pair.doh.request(0, &longest_query, pair.now_ns));
     const result = (try pair.run(.finished)).finished.result;
@@ -476,7 +477,7 @@ test "a template whose path starts with a slash and fills the path buffer starts
     // The slash is the template's own, so the expansion has the whole buffer: a slash, the
     // filler, `?dns=` and a value of 512 octets make 1536 (docs/design.md §24, §17 question 42).
     const value_part = "?dns=";
-    const filler = doh_limits.doh_request_bytes_max - 1 - value_part.len - cocuyo.wire.limits.dns_variable_bytes_max;
+    const filler = doh_limits.doh_request_bytes_max - 1 - value_part.len - wire.limits.dns_variable_bytes_max;
     const pair = try testing.allocator.create(Pair);
     defer testing.allocator.destroy(pair);
     pair.* = .{ .endpoint = endpoint };
@@ -486,7 +487,7 @@ test "a template whose path starts with a slash and fills the path buffer starts
     try pair.doh.start(.{ .server = 0, .endpoint = pair.endpoint, .tls = &named, .https = fills, .alternative = null, .context = &pair.context, .now_ns = pair.now_ns });
     // The longest query a `dns` value of 512 octets carries goes out on that path, and colibri's
     // server answers it.
-    var longest_query: [cocuyo.wire.limits.dns_variable_bytes_max / 4 * 3]u8 = @splat(0);
+    var longest_query: [wire.limits.dns_variable_bytes_max / 4 * 3]u8 = @splat(0);
     @memcpy(longest_query[0..query.len], &query);
     try testing.expect(pair.doh.request(0, &longest_query, pair.now_ns));
     const result = (try pair.run(.finished)).finished.result;
