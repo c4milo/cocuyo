@@ -147,7 +147,10 @@ pub fn build(b: *std.Build) void {
             .name = std.fs.path.stem(root),
             .root_module = tool_module(b, pepegrillo, root),
         });
-        const run = &b.addRunArtifact(tool_tests).step;
+        const tool_run = b.addRunArtifact(tool_tests);
+        // In the root of the tree, which a tool's test may read, wherever `zig build` started.
+        tool_run.setCwd(b.path("."));
+        const run = &tool_run.step;
         test_step.dependOn(run);
         tool_test_step.dependOn(run);
     }

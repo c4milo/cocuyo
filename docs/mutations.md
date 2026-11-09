@@ -11910,3 +11910,21 @@ changed. SM4 names the consumer fixture's new hash, and `zig build mutations -- 
 | Id | Mutation | Caught by | Result |
 | --- | --- | --- | --- |
 | SM4 | the consumer fixture pins colibri v0.11.0, where `build.zig.zon` pins v0.15.0 | `zig build consumer-check` | `CAUGHT` |
+
+## Mutations that still apply
+
+2026-11-08. A mutation whose text a later change moved cannot run, so it proves nothing, and 89 of
+them had drifted unseen. The owner ruled to check it in the gate. A test of `tools/mutations.zig`
+applies each mutation's edits in memory, in turn, as the tool applies them, and fails when an
+edit's text is not in its file exactly once. The build runs the tools' tests in the root of the
+tree. `zig build mutations -- engine MA1 MA2 MA3 MA4` ran each row.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| MA1 | an edit whose text is in its file twice applies | `zig build test-tools` | `CAUGHT` |
+| MA2 | each edit reads its file as it was, not as the edits before it left it | `zig build test-tools` | `CAUGHT` |
+| MA3 | an edit of a file that is not there applies | `zig build test-tools` | `CAUGHT` |
+| MA4 | a mutation's text is not in its file | `zig build test-tools` | `CAUGHT` |
+
+MA4 changes the text of mutation A20 in `tools/mutations/address.zon`, so the test of the tree
+finds one mutation that does not apply.

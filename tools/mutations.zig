@@ -356,6 +356,22 @@ test "every mutation names its section and its edits, and each edit changes some
     };
 }
 
+test "every mutation's edits apply to the tree as it stands" {
+    // A mutation whose text a later change moved cannot run, so it proves nothing. The build runs
+    // this test in the root of the tree.
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const tree: mutations_edit.Tree = .{ .arena = arena, .io = testing.io, .dir = Io.Dir.cwd() };
+    var stale: usize = 0;
+    for (sets) |set| for (set.mutations) |mutation| {
+        const index = try mutations_edit.first_stale(arena, &tree, mutation.edits) orelse continue;
+        std.debug.print("{s} {s}: edit {d} of {s} does not apply\n", .{ set.name, mutation.id, index, mutation.edits[index].file });
+        stale += 1;
+    };
+    try testing.expectEqual(0, stale);
+}
+
 test "a mutation is named by its id, or by its section's start and its id" {
     const mutation: Mutation = .{ .section = "Step 3, the state machine", .id = "S1", .what = "w", .edits = &.{}, .caught_by = .short_walks };
     try testing.expect(is_named("S1", mutation) and is_named("Step 3/S1", mutation));

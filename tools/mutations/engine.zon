@@ -8173,4 +8173,40 @@
         },
         .caught_by = .{ .step = "test-io" },
     },
+    .{
+        .section = "Mutations that still apply",
+        .id = "MA1",
+        .what = "an edit whose text is in its file twice applies",
+        .edits = .{
+            .{ .file = "tools/mutations_edit.zig", .old = "if (std.mem.count(u8, entry.value_ptr.*, edit.old) != 1) return index;", .new = "if (std.mem.count(u8, entry.value_ptr.*, edit.old) == 0) return index;" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Mutations that still apply",
+        .id = "MA2",
+        .what = "each edit reads its file as it was, not as the edits before it left it",
+        .edits = .{
+            .{ .file = "tools/mutations_edit.zig", .old = "        entry.value_ptr.* = try std.mem.replaceOwned(u8, arena, entry.value_ptr.*, edit.old, edit.new);\n", .new = "        _ = try std.mem.replaceOwned(u8, arena, entry.value_ptr.*, edit.old, edit.new);\n" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Mutations that still apply",
+        .id = "MA3",
+        .what = "an edit of a file that is not there applies",
+        .edits = .{
+            .{ .file = "tools/mutations_edit.zig", .old = "            if (failure == error.FileNotFound) return index;", .new = "            if (failure == error.FileNotFound) return null;" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
+    .{
+        .section = "Mutations that still apply",
+        .id = "MA4",
+        .what = "a mutation's text is not in its file",
+        .edits = .{
+            .{ .file = "tools/mutations/address.zon", .old = "walk.release_pair(self);", .new = "walk.release_pair(this);" },
+        },
+        .caught_by = .{ .step = "test-tools" },
+    },
 }
