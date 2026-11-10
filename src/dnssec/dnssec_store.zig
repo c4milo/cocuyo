@@ -71,11 +71,12 @@ pub const Store = struct {
         return .{ .entries = entries, .anchors = anchors };
     }
 
-    /// Pins the time of day: `clock.unix_seconds` holds at `clock.now_ns`. The caller passes it at
-    /// init and whenever it corrects its clock, so it may go backwards; `now_ns` never does.
-    pub fn set_clock(self: *Store, clock: core.Clock) void {
-        self.unix_seconds = clock.unix_seconds;
-        self.clock_ns = clock.now_ns;
+    /// Pins the time of day: `timestamp.unix_seconds` holds at `timestamp.monotonic_ns`. The caller
+    /// passes it at init and whenever it corrects its clock. So `unix_seconds` may go backwards, and
+    /// `monotonic_ns` never does.
+    pub fn set_clock(self: *Store, timestamp: core.Timestamp) void {
+        self.unix_seconds = timestamp.unix_seconds;
+        self.clock_ns = timestamp.monotonic_ns;
     }
 
     /// The time of day at `now_ns`, in the 32 bits a signature's dates are compared in (RFC 4034
@@ -175,10 +176,10 @@ fn named(text: []const u8) Name {
 test "the time of day adds the now_ns that passed, in 32 bits" {
     var entries: [1]Entry = undefined;
     var store = Store.init(&entries, &.{});
-    store.set_clock(.{ .unix_seconds = 1000, .now_ns = 5 * constants.ns_per_second });
+    store.set_clock(.{ .unix_seconds = 1000, .monotonic_ns = 5 * constants.ns_per_second });
     try testing.expectEqual(@as(u32, 1002), store.now_seconds(7 * constants.ns_per_second + 1));
     // RFC 4034 §3.1.5: the dates are the low 32 bits, compared in serial number arithmetic.
-    store.set_clock(.{ .unix_seconds = (1 << 32) + 5, .now_ns = 0 });
+    store.set_clock(.{ .unix_seconds = (1 << 32) + 5, .monotonic_ns = 0 });
     try testing.expectEqual(@as(u32, 5), store.now_seconds(0));
 }
 

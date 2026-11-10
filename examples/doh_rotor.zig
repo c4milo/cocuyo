@@ -118,14 +118,14 @@ pub fn main(init: std.process.Init) !void {
     try engine.init(&loop, &config, cache_memory.slices(), std.mem.readInt(u64, &engine_seed, .little), clock.read());
     // The engine has no context of its own, and a lookup started before this call would stop the
     // program at an assertion (docs/design.md §16 decision 39).
-    engine.use_doh(.init(anchors[0..roots.len], command.cpu, seed, .{ .unix_seconds = unix_seconds, .now_ns = clock.read() }));
+    engine.use_doh(.init(anchors[0..roots.len], command.cpu, seed, .{ .unix_seconds = unix_seconds, .monotonic_ns = clock.read() }));
     defer {
         engine.deinit();
         loop.drain(&events) catch {};
         engine.close();
     }
     // Before any lookup, which the engine asserts.
-    if (trusted.anchor_path) |path| engine.use_trust(try trust.open(init.io, arena, path, .{ .unix_seconds = unix_seconds, .now_ns = clock.read() }));
+    if (trusted.anchor_path) |path| engine.use_trust(try trust.open(init.io, arena, path, .{ .unix_seconds = unix_seconds, .monotonic_ns = clock.read() }));
     if (std.mem.count(u8, arguments[0], ",") >= names_max) return error.TooManyNames;
     var turns = std.mem.splitScalar(u8, arguments[0], ',');
     for (0..names_max) |position| {

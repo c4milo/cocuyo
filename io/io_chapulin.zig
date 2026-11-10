@@ -82,12 +82,12 @@ pub const Session = struct {
         /// check (§16 decision 48). Under `data_independent`, with the AES instructions found,
         /// each hello offers AES-GCM first; under any other value, ChaCha20-Poly1305 alone. `seed`
         /// must be 32 octets of a CSPRNG, drawn for this context alone: chapulin draws each
-        /// handshake's random and its key shares from the stream they key. `clock` is the wall
-        /// clock at an instant of the caller's. `anchors` may be none when every server is known
-        /// by its pins.
-        pub fn init(anchors: []const Anchor, cpu: Cpu, seed: [std.Random.ChaCha.secret_seed_length]u8, clock: cocuyo.Clock) Context {
+        /// handshake's random and its key shares from the stream they key. `timestamp` is the
+        /// wall clock at an instant of the caller's. `anchors` may be none when every server is
+        /// known by its pins.
+        pub fn init(anchors: []const Anchor, cpu: Cpu, seed: [std.Random.ChaCha.secret_seed_length]u8, timestamp: cocuyo.Timestamp) Context {
             assert(anchors.len <= anchors_max);
-            return .{ .anchors = anchors, .cpu = cpu, .stream = std.Random.ChaCha.init(seed), .unix_seconds = clock.unix_seconds, .at_ns = clock.now_ns };
+            return .{ .anchors = anchors, .cpu = cpu, .stream = std.Random.ChaCha.init(seed), .unix_seconds = timestamp.unix_seconds, .at_ns = timestamp.monotonic_ns };
         }
 
         /// The wall clock at `now_ns`, carried forward from the instant the context was made.

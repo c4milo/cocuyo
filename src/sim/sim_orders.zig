@@ -114,7 +114,7 @@ const Rig = struct {
     fn open(self: *Rig) void {
         self.anchors = .{.{ .zone = core.Name.root, .kind = .ds, .rdata = &self.anchor_rdata }};
         self.table = resolver.Resolver.init(&self.slots, &self.keys, &self.config, table_seed);
-        self.store.init(&self.entries, &self.anchors, self.sums.verifier(), self.hashes.hasher(), .{ .unix_seconds = signed.now_seconds, .now_ns = 0 });
+        self.store.init(&self.entries, &self.anchors, self.sums.verifier(), self.hashes.hasher(), .{ .unix_seconds = signed.now_seconds, .monotonic_ns = 0 });
         self.table.use_trust(signed.trust(&self.store));
     }
 

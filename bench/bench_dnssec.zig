@@ -123,7 +123,7 @@ fn set(example: *const Example, validates: bool) void {
     rrsig_rdata = rrsig_buffer[0 .. example.fields.len + example.signature.len];
     anchors = .{.{ .zone = zone(), .kind = .dnskey, .rdata = example.key }};
     store = validation.store.Store.init(&entries, &anchors);
-    store.set_clock(.{ .unix_seconds = example.unix_seconds, .now_ns = 0 });
+    store.set_clock(.{ .unix_seconds = example.unix_seconds, .monotonic_ns = 0 });
     const held = store.put(&zone(), .keys, &.{example.key}, std.math.maxInt(u64));
     std.debug.assert(held);
     // Each case is checked once, here, so a row never measures a check that fails.

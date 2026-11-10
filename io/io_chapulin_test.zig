@@ -44,7 +44,7 @@ fn test_context(anchors: []const tls.Anchor, seed_octet: u8) Session.Context {
 
 /// As `test_context`, with the statement of the CPU that the test names.
 fn test_context_with(cpu: Session.Cpu, anchors: []const tls.Anchor, seed_octet: u8) Session.Context {
-    return .init(anchors, cpu, @splat(seed_octet), .{ .unix_seconds = test_seconds, .now_ns = 0 });
+    return .init(anchors, cpu, @splat(seed_octet), .{ .unix_seconds = test_seconds, .monotonic_ns = 0 });
 }
 
 /// The octets of the pin the tests' servers are known by, which no key hashes to.

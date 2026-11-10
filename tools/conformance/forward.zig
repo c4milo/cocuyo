@@ -139,7 +139,7 @@ pub fn main(init: std.process.Init) !void {
         loop.drain(&events) catch {};
         engine.close();
     }
-    if (command.anchor_path) |path| engine.use_trust(try trust.open(init.io, arena, path, .{ .unix_seconds = unix_seconds(init.io), .now_ns = clock.read() }));
+    if (command.anchor_path) |path| engine.use_trust(try trust.open(init.io, arena, path, .{ .unix_seconds = unix_seconds(init.io), .monotonic_ns = clock.read() }));
 
     var address: std.Io.net.IpAddress = .{ .ip4 = .{ .bytes = .{ 0, 0, 0, 0 }, .port = port } };
     const socket = try address.bind(init.io, .{ .mode = .dgram });

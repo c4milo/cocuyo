@@ -28,7 +28,7 @@ pub const Setup = struct {
     pub fn init(self: *Setup) void {
         self.anchors = .{.{ .zone = Name.from_text("example") catch unreachable, .kind = .dnskey, .rdata = &ksk }};
         self.store = store_module.Store.init(&self.entries, &self.anchors);
-        self.store.set_clock(.{ .unix_seconds = now_seconds, .now_ns = 0 });
+        self.store.set_clock(.{ .unix_seconds = now_seconds, .monotonic_ns = 0 });
         const held = self.store.put(&(Name.from_text("example") catch unreachable), .keys, &.{ &zsk, &ksk }, std.math.maxInt(u64));
         std.debug.assert(held);
     }

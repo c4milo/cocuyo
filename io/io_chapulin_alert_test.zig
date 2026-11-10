@@ -103,7 +103,7 @@ test "a session that is up stages the record_overflow alert the engine names, wh
     const sides = try testing.allocator.create(Sides);
     defer testing.allocator.destroy(sides);
     sides.* = .{};
-    sides.context = .init(&anchors, cpu_not_stated, @splat(client_seed_octet), .{ .unix_seconds = unix_seconds, .now_ns = 0 });
+    sides.context = .init(&anchors, cpu_not_stated, @splat(client_seed_octet), .{ .unix_seconds = unix_seconds, .monotonic_ns = 0 });
     try sides.config.init(.{ .identities = &identities, .cookie_key = &cookie_key, .cpu = cpu_not_stated });
     try sides.server.start(&sides.config, sides.server_stream.random(), unix_seconds);
     defer sides.server.close();

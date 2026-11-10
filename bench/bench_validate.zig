@@ -33,7 +33,7 @@ fn setup() void {
     asked = Name.from_text("www.example") catch unreachable;
     anchors = .{.{ .zone = zone, .kind = .dnskey, .rdata = &key }};
     store = validation.store.Store.init(&entries, &anchors);
-    store.set_clock(.{ .unix_seconds = unix_seconds, .now_ns = 0 });
+    store.set_clock(.{ .unix_seconds = unix_seconds, .monotonic_ns = 0 });
     const held = store.put(&zone, .keys, &.{&key}, std.math.maxInt(u64));
     assert(held);
     builder = fixtures.Builder.init("www.example", .a, 0);

@@ -12067,3 +12067,20 @@ mutations -- engine IP1` ran each row.
 | A16 | a numeric host is queried anyway | `zig build test-resolver` | `CAUGHT` |
 | A17 | `numeric_host` does not insist | `zig build test-resolver` | `CAUGHT` |
 | IP1 | `Lookup.init` builds the lookup in a local and copies it to its place | `zig build fill-check` | `CAUGHT` |
+
+## The time of day as a Timestamp
+
+2026-11-10, c4milo/cocuyo#65. The owner renamed `Clock` to `Timestamp`, and its field `now_ns` to
+`monotonic_ns`, so that cocuyo and colibri give one name to one value. The type holds two readings
+of one instant, where std's `Io.Timestamp` holds one. `KeyStore.set_clock` keeps its name, and the
+`now_ns` parameter of each entry point keeps its name too. No check changed. KS1 and CK1 to CK4
+named the old parameter and the old field, and now name the new ones.
+`zig build mutations -- engine KS1 CK1 CK2 CK3 CK4` ran each row.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| KS1 | the key store keeps no time of day | `zig build test-dnssec` | `CAUGHT` |
+| CK1 | the key store reads the monotonic clock as the time of day | `zig build test-dnssec` | `CAUGHT` |
+| CK2 | the DoT context reads the monotonic clock as the wall clock | `zig build test-chapulin` | `CAUGHT` |
+| CK3 | the DoQ context reads the monotonic clock as the wall clock | `zig build test-chapulin-quic` | `CAUGHT` |
+| CK4 | the DoH context reads the monotonic clock as the wall clock | `zig build test-cocuyo_doh` | `CAUGHT` |

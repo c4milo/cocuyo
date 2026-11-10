@@ -30,27 +30,27 @@ pub const KeyStore = struct {
     /// The memory one validation writes, held here so that none fills it (§17 question 108).
     scratch: Scratch,
 
-    /// `verifier` and `hasher` are the cryptography, `cocuyo_dnssec`'s over chapulin. `clock` is
-    /// the time of day at an instant of the caller's (§25, Time).
+    /// `verifier` and `hasher` are the cryptography, `cocuyo_dnssec`'s over chapulin. `timestamp`
+    /// is the time of day at an instant of the caller's (§25, Time).
     pub fn init(
         self: *KeyStore,
         entries: []Entry,
         anchors: []const Anchor,
         verifier: dnssec.Verifier,
         hasher: dnssec.nsec3.Hasher,
-        clock: core.Clock,
+        timestamp: core.Timestamp,
     ) void {
         assert(anchors.len >= 1);
         self.store = .init(entries, anchors);
-        self.store.set_clock(clock);
+        self.store.set_clock(timestamp);
         self.scratch = .{};
         self.walker = .{ .store = &self.store, .verifier = verifier, .hasher = hasher, .scratch = &self.scratch };
     }
 
-    /// The caller corrected its clock: `clock` is the time of day now. Its `unix_seconds` may go
-    /// backwards, and its `now_ns` never does.
-    pub fn set_clock(self: *KeyStore, clock: core.Clock) void {
-        self.store.set_clock(clock);
+    /// The caller corrected its clock: `timestamp` is the time of day now. Its `unix_seconds` may
+    /// go backwards, and its `monotonic_ns` never does.
+    pub fn set_clock(self: *KeyStore, timestamp: core.Timestamp) void {
+        self.store.set_clock(timestamp);
     }
 
     /// The context of every call below.
@@ -113,7 +113,7 @@ const Fixture = struct {
     keys: KeyStore = undefined,
 
     fn init(self: *Fixture) *anyopaque {
-        self.keys.init(&self.entries, &self.anchors, self.sums.verifier(), self.hashes.hasher(), .{ .unix_seconds = zone.now_seconds, .now_ns = 0 });
+        self.keys.init(&self.entries, &self.anchors, self.sums.verifier(), self.hashes.hasher(), .{ .unix_seconds = zone.now_seconds, .monotonic_ns = 0 });
         return self.keys.context();
     }
 };

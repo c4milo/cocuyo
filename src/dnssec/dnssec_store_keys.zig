@@ -206,7 +206,7 @@ fn example() Name {
 /// Admits `bytes` to a store whose anchors are `anchors`, and whose DS set for `example` is `ds`.
 fn admitted(anchors: []const store_module.Anchor, ds: []const []const u8, bytes: []const u8, entries: *Entries) !struct { Admission, Store } {
     var store = Store.init(entries, anchors);
-    store.set_clock(.{ .unix_seconds = now_seconds, .now_ns = 0 });
+    store.set_clock(.{ .unix_seconds = now_seconds, .monotonic_ns = 0 });
     if (ds.len > 0) try testing.expect(store.put(&example(), .ds, ds, std.math.maxInt(u64)));
     var sums: fixtures.Sums = .{};
     var scratch: Scratch = .{};
@@ -325,7 +325,7 @@ test "a DS is matched by its tag and algorithm before its digest is computed" {
     const ds = fixtures.ds_of(&example(), &zone_fixtures.ksk, 5, 2);
     var entries: Entries = undefined;
     var store = Store.init(&entries, &ds_anchor(&ds));
-    store.set_clock(.{ .unix_seconds = now_seconds, .now_ns = 0 });
+    store.set_clock(.{ .unix_seconds = now_seconds, .monotonic_ns = 0 });
     var sums: fixtures.Sums = .{};
     var scratch: Scratch = .{};
     try testing.expectEqual(Admission.admitted, try admit(&store, sums.verifier(), &scratch, &example(), builder.message(), 0));
@@ -383,7 +383,7 @@ test "a key set the store holds is no DS set to match a new one against" {
     var builder = zone_fixtures.keys();
     var entries: Entries = undefined;
     var store = Store.init(&entries, &.{});
-    store.set_clock(.{ .unix_seconds = now_seconds, .now_ns = 0 });
+    store.set_clock(.{ .unix_seconds = now_seconds, .monotonic_ns = 0 });
     const ds = fixtures.ds_of(&example(), &zone_fixtures.ksk, 5, 2);
     try testing.expect(store.put(&example(), .keys, &.{&ds}, std.math.maxInt(u64)));
     var sums: fixtures.Sums = .{};

@@ -8356,7 +8356,9 @@ The central types are flat:
 
 - Names and questions: `Name`, `Question`, `Kind`, `Address`, `Endpoint`, `Family`.
 - Configuration: `Config`, `Server`, `Tls`, `Https`, `Pin`.
-- The time of day: `Clock`, which a key store and each session's context take.
+- The time of day: `Timestamp`, which a key store and each session's context take. It holds two
+  readings of one instant, `unix_seconds` and `monotonic_ns`, where std's `Io.Timestamp` holds
+  one. Its name was `Clock` until 2026-11-10, when it took the name colibri gives the same value.
 - The table: `Resolver`, `Slot`, `MatchKey`, `Handle`, `Event`, `Action`, `Answer`, `Failure`,
   `Cause`, `Reason`, `Error`.
 - One lookup: `Lookup`, `Servers`.
@@ -10255,9 +10257,9 @@ consumer supplies each, as it supplies the engine's seed and its clock (§3):
   by its template's host, so a DoH context needs anchors.
 - **The wall clock.** Unix seconds at a `now_ns` of the consumer's clock, which the context
   carries forward by the `now_ns` that has passed since. A chain's dates are judged against
-  it. A server known by pins alone reads no clock. Since 2026-11-09 one `Clock` value holds the
-  two, `unix_seconds` and `now_ns`, so that they cannot change places in a call
-  (c4milo/cocuyo#65).
+  it. A server known by pins alone reads no clock. Since 2026-11-09 one value holds the two, so
+  that they cannot change places in a call (c4milo/cocuyo#65). Since 2026-11-10 it is a
+  `Timestamp`, with the fields `unix_seconds` and `monotonic_ns`.
 - **The statement of the CPU.** A `tls.Cpu` since 2026-10-20: what the consumer's probe found,
   and the timing mode of the thread that drives the engine. Each session hands it to colibri's
   TLS value, and it decides the suites of each hello (§16 decision 48). A consumer that cannot
@@ -11272,7 +11274,8 @@ Each step lands with its checks, each check broken on purpose and recorded in
      §5.2). When no anchor or DS names an algorithm and a digest type the verifier supports,
      the zone is an insecure delegation (item 5).
    - The time of day is Unix seconds pinned to a `now_ns`, which `Store.set_clock` takes, as one
-     `Clock` value since 2026-11-09 (c4milo/cocuyo#65). The
+     value since 2026-11-09 (c4milo/cocuyo#65): a `Timestamp` since 2026-11-10, whose
+     `monotonic_ns` is that `now_ns`. The
      store adds the `now_ns` that has passed, and compares the low 32 bits of the sum in serial
      number arithmetic (item 6).
    - The validator follows the chain from the name asked, `cname_hops_max` links at most. An

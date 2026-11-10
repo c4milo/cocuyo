@@ -53,7 +53,7 @@ pub fn main(init: std.process.Init) !void {
     try resolver.init(&loop, &config, null, std.mem.readInt(u64, &engine_seed, .little), now_ns);
     defer resolver.deinit();
     resolver.use_quic(.{
-        .session = .init(&.{}, cpu, session_seed, .{ .unix_seconds = unix_seconds, .now_ns = now_ns }),
+        .session = .init(&.{}, cpu, session_seed, .{ .unix_seconds = unix_seconds, .monotonic_ns = now_ns }),
         .stream = std.Random.ChaCha.init(id_seed),
     });
     _ = try resolver.start(&try cocuyo.Question.from_text("example.com.", .a), now_ns);
