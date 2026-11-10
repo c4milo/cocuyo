@@ -96,7 +96,7 @@ pub fn ask_questions(self: *Resolver) void {
         // reaches a poll that would write one.
         slot.asked_memory = true;
         slot.walk = asked.walk;
-        self.occupy(index, asked.question);
+        slots_module.occupy(self, index, asked.question);
         slot.lookup.conjunctions.for_walk = true;
         walks.asking_slots += 1;
     }

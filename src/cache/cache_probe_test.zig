@@ -5,6 +5,7 @@ const std = @import("std");
 const testing = std.testing;
 const core = @import("core");
 const cache = @import("cache.zig");
+const cache_entry = @import("cache_entry.zig");
 const constants = @import("constants.zig");
 const limits = @import("limits.zig");
 const fixtures = @import("fixtures.zig");
@@ -31,7 +32,7 @@ test "a chain longer than the probe bound is a refusal on put and the slot goes 
     while (tried < names_tried_max and found <= limits.probe_max) : (tried += 1) {
         const text = try std.fmt.bufPrint(&buffer, "n{d}.example", .{tried});
         const asked = fixtures.question(text);
-        const hash = table.hash_of(&asked);
+        const hash = cache_entry.hash_of(&table, &asked);
         if (@as(usize, hash) & (table.keys.len - 1) != 0) continue;
         found += 1;
         last = asked;
@@ -43,7 +44,7 @@ test "a chain longer than the probe bound is a refusal on put and the slot goes 
     try testing.expect(table.get(&last, 0) == null);
     // The refused put released its slot: another name, off that chain, fills the table.
     const elsewhere = fixtures.question("elsewhere.example");
-    try testing.expect(@as(usize, table.hash_of(&elsewhere)) & (table.keys.len - 1) != 0);
+    try testing.expect(@as(usize, cache_entry.hash_of(&table, &elsewhere)) & (table.keys.len - 1) != 0);
     table.put(&elsewhere, &answers, null, .unchecked, 0);
     try testing.expectEqual(@as(usize, slot_count), table.len());
     try testing.expect(table.get(&elsewhere, 0) != null);
@@ -55,13 +56,13 @@ test "find checks the type and the flag the hash already mixed, because a hash i
     const answers = fixtures.answers_v4(1, 300);
     const asked = fixtures.question("example.com");
     table.put(&asked, &answers, null, .unchecked, 0);
-    const hash = table.hash_of(&asked);
-    try testing.expect(table.find(&asked, hash) != null);
+    const hash = cache_entry.hash_of(&table, &asked);
+    try testing.expect(cache_entry.find(&table, &asked, hash) != null);
     var absolute = asked;
     absolute.absolute = true;
-    try testing.expect(table.find(&absolute, hash) == null);
+    try testing.expect(cache_entry.find(&table, &absolute, hash) == null);
     const aaaa = try core.Question.from_text("example.com", .aaaa);
-    try testing.expect(table.find(&aaaa, hash) == null);
+    try testing.expect(cache_entry.find(&table, &aaaa, hash) == null);
 }
 
 // Moved from `cache.zig` to keep it under 500 lines.
@@ -70,12 +71,12 @@ test "the hash is keyed: two seeds land one name in two places" {
     const one = cache.Cache.init(&fixture.slots, &fixture.keys, 1, constants.ttl_seconds_max_default);
     const two = cache.Cache.init(&fixture.slots, &fixture.keys, 2, constants.ttl_seconds_max_default);
     const asked = fixtures.question("example.com");
-    try testing.expect(one.hash_of(&asked) != two.hash_of(&asked));
-    try testing.expectEqual(one.hash_of(&asked), one.hash_of(&fixtures.question("EXAMPLE.COM")));
-    try testing.expect(one.hash_of(&asked) != one.hash_of(&fixtures.question("example.org")));
+    try testing.expect(cache_entry.hash_of(&one, &asked) != cache_entry.hash_of(&two, &asked));
+    try testing.expectEqual(cache_entry.hash_of(&one, &asked), cache_entry.hash_of(&one, &fixtures.question("EXAMPLE.COM")));
+    try testing.expect(cache_entry.hash_of(&one, &asked) != cache_entry.hash_of(&one, &fixtures.question("example.org")));
     const aaaa = try core.Question.from_text("example.com", .aaaa);
-    try testing.expect(one.hash_of(&asked) != one.hash_of(&aaaa));
+    try testing.expect(cache_entry.hash_of(&one, &asked) != cache_entry.hash_of(&one, &aaaa));
     var absolute = asked;
     absolute.absolute = true;
-    try testing.expect(one.hash_of(&asked) != one.hash_of(&absolute));
+    try testing.expect(cache_entry.hash_of(&one, &asked) != cache_entry.hash_of(&one, &absolute));
 }

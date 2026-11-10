@@ -5,6 +5,7 @@ const std = @import("std");
 const testing = std.testing;
 const core = @import("core");
 const cache = @import("cache.zig");
+const cache_entry = @import("cache_entry.zig");
 const fixtures = @import("fixtures.zig");
 const Cache = cache.Cache;
 const Outcome = cache.Outcome;
@@ -50,7 +51,7 @@ test "a hit sets the visited bit and moves nothing" {
     const oldest = table.order.oldest;
     const newest = table.order.newest;
     try testing.expect(table.get(&ask("b.example"), 0) != null);
-    const b = table.find(&ask("b.example"), table.hash_of(&ask("b.example"))).?;
+    const b = cache_entry.find(&table, &ask("b.example"), cache_entry.hash_of(&table, &ask("b.example"))).?;
     try testing.expect(table.slots[b].visited);
     try testing.expect(!table.slots[oldest].visited);
     try testing.expect(!table.slots[newest].visited);

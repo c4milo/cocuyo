@@ -15,6 +15,15 @@ const cache_entries = 4;
 const seed = 1;
 const now_ns = 1;
 
+comptime {
+    // What the files of a type call of it is no declaration of the type, so a consumer cannot
+    // call it (c4milo/cocuyo#65; docs/mutations.md, SF6 to SF9).
+    for ([_][]const u8{ "evict", "find", "hash_of" }) |name| {
+        if (@hasDecl(cocuyo.Cache, name)) @compileError("a consumer reached cocuyo.Cache." ++ name);
+    }
+    if (@hasDecl(cocuyo.Resolver, "occupy")) @compileError("a consumer reached cocuyo.Resolver.occupy");
+}
+
 pub fn main() !void {
     var slots: [lookups]cocuyo.Slot = @splat(.{});
     var keys: [lookups * keys_per_lookup]cocuyo.MatchKey = @splat(.{});

@@ -8254,4 +8254,40 @@
         },
         .caught_by = .{ .step = "consumer-check" },
     },
+    .{
+        .section = "The surface, since 2026-11-09",
+        .id = "SF6",
+        .what = "`Cache.evict` is a declaration of the type again",
+        .edits = .{
+            .{ .file = "src/cache/cache.zig", .old = "pub const Cache = struct {\n", .new = "pub const Cache = struct {\n    pub const evict = cache_entry.evict;\n" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "The surface, since 2026-11-09",
+        .id = "SF7",
+        .what = "`Cache.find` is a declaration of the type again",
+        .edits = .{
+            .{ .file = "src/cache/cache.zig", .old = "pub const Cache = struct {\n", .new = "pub const Cache = struct {\n    pub const find = cache_entry.find;\n" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "The surface, since 2026-11-09",
+        .id = "SF8",
+        .what = "`Cache.hash_of` is a declaration of the type again",
+        .edits = .{
+            .{ .file = "src/cache/cache.zig", .old = "pub const Cache = struct {\n", .new = "pub const Cache = struct {\n    pub const hash_of = cache_entry.hash_of;\n" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "The surface, since 2026-11-09",
+        .id = "SF9",
+        .what = "`Resolver.occupy` is a declaration of the type again",
+        .edits = .{
+            .{ .file = "src/resolver/table.zig", .old = "pub const Resolver = struct {\n", .new = "pub const Resolver = struct {\n    pub const occupy = slots_module.occupy;\n" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
 }

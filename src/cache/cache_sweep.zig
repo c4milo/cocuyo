@@ -8,6 +8,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const cache = @import("cache.zig");
+const cache_entry = @import("cache_entry.zig");
 const constants = @import("constants.zig");
 const limits = @import("limits.zig");
 const none = cache.none;
@@ -27,7 +28,7 @@ pub fn evict_one(self: *cache.Cache, now_ns: u64) void {
         assert(slot.occupied);
         if (now_ns >= slot.expires_ns or !slot.visited) {
             self.hand = index;
-            self.evict(index);
+            cache_entry.evict(self, index);
             assert(self.free != none);
             return;
         }
@@ -124,7 +125,7 @@ test "an expired entry a get has missed is still the hand's to take" {
     put_v4(&table, "b.example", 2, 10, 0);
     // Full: the hand starts at a, unvisited, evicts it and comes to rest on b.
     put_v4(&table, "c.example", 3, 300, 0);
-    try testing.expectEqual(table.hand, table.find(&ask("b.example"), table.hash_of(&ask("b.example"))).?);
+    try testing.expectEqual(table.hand, cache_entry.find(&table, &ask("b.example"), cache_entry.hash_of(&table, &ask("b.example"))).?);
     // At twenty seconds b has expired: the get misses and b keeps its slot.
     try testing.expect(!hits(&table, "b.example", 20 * second));
     try testing.expectEqual(@as(usize, 2), table.len());

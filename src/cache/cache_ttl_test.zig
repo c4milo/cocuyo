@@ -5,6 +5,7 @@ const std = @import("std");
 const testing = std.testing;
 const core = @import("core");
 const cache = @import("cache.zig");
+const cache_entry = @import("cache_entry.zig");
 const constants = @import("constants.zig");
 const fixtures = @import("fixtures.zig");
 const Cache = cache.Cache;
@@ -43,7 +44,7 @@ test "the put after an expired miss renews the entry where it stands" {
     // Still the oldest, in the same slot, and not a new entry at the newest end.
     try testing.expectEqual(@as(usize, 2), table.len());
     try testing.expectEqual(oldest, table.order.oldest);
-    try testing.expectEqual(oldest, table.find(&ask("a.example"), table.hash_of(&ask("a.example"))).?);
+    try testing.expectEqual(oldest, cache_entry.find(&table, &ask("a.example"), cache_entry.hash_of(&table, &ask("a.example"))).?);
     try testing.expectEqual(@as(u32, 300), table.get(&ask("a.example"), 20 * second).?.ttl_seconds);
 }
 

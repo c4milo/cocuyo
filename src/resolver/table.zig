@@ -113,22 +113,8 @@ pub const Resolver = struct {
     pub fn start(self: *Resolver, question: Question) error{NoSlot}!Handle {
         if (!walks_module.consumer_may(self)) return error.NoSlot;
         const index = self.slots.acquire() orelse return error.NoSlot;
-        self.occupy(index, question);
+        slots_module.occupy(self, index, question);
         return self.slots.handle_of(index);
-    }
-
-    /// Puts a lookup for `question` in a slot just taken.
-    pub fn occupy(self: *Resolver, index: u16, question: Question) void {
-        const slot = &self.slots.items[index];
-        assert(slot.occupied);
-        slot.lookup.init_in_place(self.config, &self.servers, question, self.entropy.next());
-        slot.keyed_id = slot.lookup.transaction.id;
-        keys_module.insert(self.keys, slot.keyed_id, index);
-        // A new lookup has sent nothing, so it keeps no try open.
-        assert(slot.lookup.tries.count == 0);
-        slot.keyed_tries_count = 0;
-        slot.keyed_epoch = slot.lookup.tries.epoch;
-        ready_module.offer(self, index);
     }
 
     /// The next thing for the caller to do, for any lookup, or null when there is nothing to

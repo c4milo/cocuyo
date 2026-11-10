@@ -17,6 +17,7 @@ const Error = core.Error;
 pub const constants = @import("constants.zig");
 pub const limits = @import("limits.zig");
 const cache_keys = @import("cache_keys.zig");
+const cache_entry = @import("cache_entry.zig");
 const cache_chain = @import("cache_chain.zig");
 const cache_sweep = @import("cache_sweep.zig");
 const cache_failure = @import("cache_failure.zig");
@@ -171,7 +172,7 @@ pub const Cache = struct {
         while (index > 0) {
             index -= 1;
             self.slots[index] = Slot.empty;
-            self.release(@intCast(index));
+            cache_entry.release(self, @intCast(index));
         }
         assert(self.free == 0);
         assert(self.order.len == 0);
@@ -187,7 +188,7 @@ pub const Cache = struct {
     /// sight if that put never comes (docs/design.md §17 question 14). Evicted here, the put
     /// would go in as new at the newest end, which is a promotion earned by a miss.
     pub fn get(self: *Cache, question: *const Question, now_ns: u64) ?Hit {
-        const index = self.find(question, self.hash_of(question)) orelse return null;
+        const index = cache_entry.find(self, question, cache_entry.hash_of(self, question)) orelse return null;
         const slot = &self.slots[index];
         assert(slot.occupied);
         if (now_ns >= slot.expires_ns) return null;
@@ -256,7 +257,7 @@ pub const Cache = struct {
         assert(failure_seconds_min_valid(self.failure_seconds_min));
         const failure = cache_failure.failure_of(err) orelse return;
         var doublings: u4 = 0;
-        if (self.find(question, self.hash_of(question))) |index| {
+        if (cache_entry.find(self, question, cache_entry.hash_of(self, question))) |index| {
             const held = &self.slots[index];
             // "MUST NOT send any corresponding outgoing queries until after the cache entries
             // expire" (RFC 9520 §3.2): a lookup that ends while the entry lives was no new try.
@@ -274,8 +275,8 @@ pub const Cache = struct {
     /// An answer the cache refuses still ends a name's backoff (RFC 9520 §3.2): its failure
     /// entry goes, and the next failure starts at `failure_seconds_min` (§16 decision 60).
     fn forget_failure(self: *Cache, question: *const Question) void {
-        const index = self.find(question, self.hash_of(question)) orelse return;
-        if (self.slots[index].outcome == .failed) self.evict(index);
+        const index = cache_entry.find(self, question, cache_entry.hash_of(self, question)) orelse return;
+        if (self.slots[index].outcome == .failed) cache_entry.evict(self, index);
     }
 
     fn insert(
@@ -291,8 +292,8 @@ pub const Cache = struct {
         const ttl = @min(ttl_seconds, self.ttl_seconds_max);
         assert(ttl >= 1);
         const expires_ns = now_ns + @as(u64, ttl) * constants.ns_per_s;
-        const hash = self.hash_of(question);
-        if (self.find(question, hash)) |index| {
+        const hash = cache_entry.hash_of(self, question);
+        if (cache_entry.find(self, question, hash)) |index| {
             // Replaced in place, and the bit set: a name put twice is a name being used.
             const slot = &self.slots[index];
             keep_answers(slot, answers, question.kind, ttl);
@@ -306,7 +307,7 @@ pub const Cache = struct {
         const index = self.acquire();
         cache_keys.insert(self.keys, hash, index) catch {
             // A chain past the probe bound: refused, and the slot goes back.
-            self.release(index);
+            cache_entry.release(self, index);
             return null;
         };
         // Field by field, not as one literal: a literal would write the whole slot, and the
@@ -347,54 +348,6 @@ pub const Cache = struct {
         slot.answers.ttl_seconds = ttl_seconds;
     }
 
-    /// Takes the entry at `index` out of the table. The hand, if it was there, moves on.
-    pub fn evict(self: *Cache, index: u16) void {
-        const slot = &self.slots[index];
-        assert(slot.occupied);
-        const next = self.order.after(self.slots, index);
-        cache_keys.remove(self.keys, slot.hash, index);
-        self.order.unlink(self.slots, index);
-        if (self.hand == index) self.hand = if (self.order.len == 0) none else next;
-        slot.occupied = false;
-        self.release(index);
-    }
-
-    /// The slot holding `question`, found through the key index and confirmed by the name.
-    pub fn find(self: *const Cache, question: *const Question, hash: u32) ?u16 {
-        var candidates = cache_keys.Candidates.init(self.keys, hash);
-        while (candidates.next()) |index| {
-            const slot = &self.slots[index];
-            assert(slot.occupied);
-            if (slot.kind == question.kind and slot.absolute == question.absolute and
-                slot.name.equal(&question.name)) return index;
-        }
-        return null;
-    }
-
-    /// The keyed hash of the question's folded name, its type and whether it was absolute. Two
-    /// questions that differ only in `absolute` can resolve differently through the search list,
-    /// so they are two keys. The name is folded eight octets at a time as it is read, so a hash
-    /// costs no copy and no per-octet loop. Its length is not mixed in: the last chunk is padded
-    /// with zeros, and a name ends at its root octet, so no name is another's zero padding
-    /// (mutation Q34 found the length redundant).
-    pub fn hash_of(self: *const Cache, question: *const Question) u32 {
-        const prefix = self.seed ^
-            (@as(u64, question.kind.code()) << constants.hash_kind_shift) ^
-            (@as(u64, @intFromBool(question.absolute)) << constants.hash_absolute_shift);
-        var word = core.mix.next(prefix);
-        const bytes = question.name.wire();
-        var offset: usize = 0;
-        while (offset + @sizeOf(u64) <= bytes.len) : (offset += @sizeOf(u64)) {
-            const chunk = std.mem.readInt(u64, bytes[offset..][0..@sizeOf(u64)], .little);
-            word = core.mix.next(word ^ Name.fold_word(chunk));
-        }
-        var tail: [@sizeOf(u64)]u8 = @splat(0);
-        @memcpy(tail[0 .. bytes.len - offset], bytes[offset..]);
-        word = core.mix.next(word ^ Name.fold_word(std.mem.readInt(u64, &tail, .little)));
-        assert(offset <= core.limits.name_bytes_max);
-        return @truncate(word);
-    }
-
     fn remaining(self: *const Cache, expires_ns: u64, now_ns: u64) u32 {
         assert(expires_ns > now_ns);
         const left = (expires_ns - now_ns) / constants.ns_per_s;
@@ -408,12 +361,6 @@ pub const Cache = struct {
         self.free = self.slots[index].links.newer;
         self.slots[index].links = .{};
         return index;
-    }
-
-    fn release(self: *Cache, index: u16) void {
-        assert(!self.slots[index].occupied);
-        self.slots[index].links = .{ .newer = self.free };
-        self.free = index;
     }
 };
 

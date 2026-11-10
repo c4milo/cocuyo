@@ -11962,3 +11962,18 @@ each row.
 | LM31 | the port span of the engine leaves out its last port | `zig build test-io` | `CAUGHT` |
 | CZ18 | the engine caps its cache at the constant of an hour, whatever the configuration says | `zig build test-io` | `CAUGHT` |
 | CZ23 | reinit builds its cache over the memory the engine held, when it held some | `zig build test-io` | `CAUGHT` |
+
+2026-11-09, the functions that left their types (c4milo/cocuyo#65). `Cache.evict`, `Cache.find`,
+`Cache.hash_of` and `Resolver.occupy` were public declarations that no consumer calls. Zig has no
+declaration that is private to a set of files, so each is now a function of an internal file:
+`src/cache/cache_entry.zig` and `src/resolver/table_slots.zig`. The fixture of `consumer-check`
+fails to compile when one is a declaration of its type. Each mutant passes the tests of its own
+module, so the fixture alone catches it. `zig build mutations -- engine SF6 SF7 SF8 SF9` ran each
+row.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| SF6 | `Cache.evict` is a declaration of the type again | `zig build consumer-check` | `CAUGHT` |
+| SF7 | `Cache.find` is a declaration of the type again | `zig build consumer-check` | `CAUGHT` |
+| SF8 | `Cache.hash_of` is a declaration of the type again | `zig build consumer-check` | `CAUGHT` |
+| SF9 | `Resolver.occupy` is a declaration of the type again | `zig build consumer-check` | `CAUGHT` |

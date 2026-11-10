@@ -12,6 +12,9 @@ const assert = std.debug.assert;
 const core = @import("core");
 const lookup_module = @import("lookup.zig");
 const Lookup = lookup_module.Lookup;
+const table_module = @import("table.zig");
+const keys_module = @import("table_keys.zig");
+const ready_module = @import("table_ready.zig");
 
 /// The end of the free list. A slot index cannot reach it: `lookup_slots_max` is far below.
 pub const slot_none: u16 = 0xffff;
@@ -139,6 +142,21 @@ pub const Slots = struct {
         return count;
     }
 };
+
+/// Puts a lookup for `question` in a slot just taken. The table's files call it, and no consumer
+/// does, so it is a function of this file and no declaration of `Resolver` (c4milo/cocuyo#65).
+pub fn occupy(self: *table_module.Resolver, index: u16, question: core.Question) void {
+    const slot = &self.slots.items[index];
+    assert(slot.occupied);
+    slot.lookup.init_in_place(self.config, &self.servers, question, self.entropy.next());
+    slot.keyed_id = slot.lookup.transaction.id;
+    keys_module.insert(self.keys, slot.keyed_id, index);
+    // A new lookup has sent nothing, so it keeps no try open.
+    assert(slot.lookup.tries.count == 0);
+    slot.keyed_tries_count = 0;
+    slot.keyed_epoch = slot.lookup.tries.epoch;
+    ready_module.offer(self, index);
+}
 
 // Tests.
 
