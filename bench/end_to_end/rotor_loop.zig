@@ -113,7 +113,7 @@ const Driver = struct {
             const name = try std.fmt.bufPrint(&text, "h{d}.example.", .{self.names.number(self.started)});
             // The cache under the table answers a name it holds inside `start` (docs/design.md
             // §20), so its result is taken now, before a tick could wait for nothing.
-            const handle = try engine.start(try cocuyo.Question.from_text(name, .a), now);
+            const handle = try engine.start(&try cocuyo.Question.from_text(name, .a), now);
             lookup_of[handle.index] = self.started;
             self.record.late[self.started] = now - due;
             self.started += 1;
