@@ -33,7 +33,7 @@ var loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_al
 var engine: Resolver = undefined;
 /// The memory of the engine's cache, a slot for each of its lookups: the engine has the cache it
 /// is handed the memory of (docs/design.md §19 step 13), and the row of cache hits needs one.
-var cache_memory: cocuyo.cache.Storage(constants.in_flight_max + 1) = undefined;
+var cache_memory: cocuyo.Cache.Storage(constants.in_flight_max + 1) = undefined;
 /// Which lookup of the row each of the engine's slots holds, by the slot's index.
 var lookup_of: [constants.in_flight_max + 1]u32 = @splat(0);
 

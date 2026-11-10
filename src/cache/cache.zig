@@ -24,74 +24,18 @@ const cache_failure = @import("cache_failure.zig");
 pub const resolution_failure = cache_failure.resolution_failure;
 pub const failure_seconds_min_valid = cache_failure.failure_seconds_min_valid;
 
-pub const Key = cache_keys.Key;
 pub const Links = cache_chain.Links;
 pub const none = cache_chain.none;
 
+const cache_slot = @import("cache_slot.zig");
 const cache_storage = @import("cache_storage.zig");
-/// The memory a cache is built over, and how much of it a slot count takes (docs/design.md §18).
+/// The memory a cache is built over, as a pair of slices (docs/design.md §18). No consumer names
+/// it: `Cache.Storage.slices` hands one over, and a literal builds one.
 pub const Slices = cache_storage.Slices;
-pub const Storage = cache_storage.Storage;
-pub const keys_for = cache_storage.keys_for;
-pub const slot_count_valid = cache_storage.slot_count_valid;
-
-/// Whether a cache takes `ttl_seconds_max` as its cap: 1 second to seven days. A cap of zero
-/// would keep nothing, and "Values SHOULD be capped on the order of days to weeks, with a
-/// recommended cap of 604,800 seconds (7 days)" (RFC 8767 §4). A cap read at run time is input,
-/// so its reader asks this and refuses a bad one itself; `Cache.init` asserts the same bound.
-pub fn ttl_seconds_max_valid(ttl_seconds_max: u32) bool {
-    return ttl_seconds_max >= 1 and ttl_seconds_max <= core.limits.cache_ttl_seconds_max;
-}
 
 /// What an entry remembers: records, one of the two negative answers RFC 2308 caches, or a
 /// resolution failure (RFC 9520 §3.2, docs/design.md §16 decision 60).
 pub const Outcome = enum { answered, name_not_found, no_data, failed };
-
-/// One entry. The name is stored folded: it is the key, and what a hit hands back.
-pub const Slot = struct {
-    name: Name,
-    answers: wire.Answers,
-    /// The end of the CNAME chain the answers were reached through, when `aliased` says there
-    /// was one: what a lookup that went out reports as the canonical name, kept so that a hit
-    /// reports it too (docs/design.md §17 question 13).
-    canonical: Name,
-    /// The CNAME links that reached `canonical`, when `aliased` says there was a chain, so that a
-    /// hit reports them as a lookup that went out does (docs/design.md §5, §17 question 122).
-    aliases: core.Aliases,
-    expires_ns: u64,
-    hash: u32,
-    links: Links,
-    kind: Kind,
-    outcome: Outcome,
-    /// The error of a `failed` entry, and how often its time was doubled (§16 decision 60): one
-    /// octet, which fits in padding the slot had.
-    kept: cache_failure.Kept,
-    /// Whether the servers said they validated what the entry holds (docs/design.md §25, Stage A
-    /// rule 5): an answer's or a negative's, and `unchecked` for a failure.
-    security: core.Security,
-    absolute: bool,
-    aliased: bool,
-    visited: bool,
-    occupied: bool,
-
-    pub const empty: Slot = .{
-        .name = Name.root,
-        .answers = wire.Answers.init(.a),
-        .canonical = Name.root,
-        .aliases = .{},
-        .expires_ns = 0,
-        .hash = 0,
-        .links = .{},
-        .kind = .a,
-        .outcome = .answered,
-        .kept = .{},
-        .security = .unchecked,
-        .absolute = false,
-        .aliased = false,
-        .visited = false,
-        .occupied = false,
-    };
-};
 
 /// What a `get` returns. The pointers are into the table and stay valid until the next call on
 /// the cache, which may evict the entry.
@@ -120,7 +64,7 @@ pub const Chain = struct { end: *const Name, aliases: *const core.Aliases };
 /// Keeps the chain's end and its links with the entry, or says there was none. Both are copied
 /// only when there is one, and the links only as far as they are used: a slot that never held an
 /// aliased entry never pays the copy.
-fn keep_chain(slot: *Slot, chain: ?Chain) void {
+fn keep_chain(slot: *Cache.Slot, chain: ?Chain) void {
     slot.aliased = chain != null;
     const kept = chain orelse return;
     slot.canonical = kept.end.*;
@@ -142,6 +86,23 @@ pub const Cache = struct {
     hand: u16 = none,
     /// The free list, threaded through `links.newer` of the slots outside the order.
     free: u16 = none,
+
+    /// One entry, and one entry of the key index: what the caller's memory holds.
+    pub const Slot = cache_slot.Slot;
+    pub const Key = cache_keys.Key;
+    /// The memory of a cache whose slot count is known when the caller compiles, and how much of
+    /// it a slot count read at run time takes (docs/design.md §18, Sizing the memory).
+    pub const Storage = cache_storage.Storage;
+    pub const keys_for = cache_storage.keys_for;
+    pub const slot_count_valid = cache_storage.slot_count_valid;
+
+    /// Whether a cache takes `ttl_seconds_max` as its cap: 1 second to seven days. A cap of zero
+    /// would keep nothing, and "Values SHOULD be capped on the order of days to weeks, with a
+    /// recommended cap of 604,800 seconds (7 days)" (RFC 8767 §4). A cap read at run time is
+    /// input, so its reader asks this and refuses a bad one itself; `init` asserts the same bound.
+    pub fn ttl_seconds_max_valid(ttl_seconds_max: u32) bool {
+        return ttl_seconds_max >= 1 and ttl_seconds_max <= core.limits.cache_ttl_seconds_max;
+    }
 
     /// `keys.len` is a power of two at least `keys_per_slot_min` times `slots.len`, which
     /// `keys_for` gives at its least, and `slots.len` is one `slot_count_valid` takes.
@@ -380,7 +341,7 @@ test "the size of a slot is pinned" {
     // 2992 since the slot keeps the status of DNSSEC Stage A on 2026-10-31 (§25): its padding had
     // no octet left for it. 5080 since the slot keeps the chain's links on 2026-11-03 (§17
     // question 122).
-    try testing.expectEqual(@as(usize, 5080), @sizeOf(Slot));
+    try testing.expectEqual(@as(usize, 5080), @sizeOf(Cache.Slot));
 }
 
 test {

@@ -12084,3 +12084,23 @@ named the old parameter and the old field, and now name the new ones.
 | CK2 | the DoT context reads the monotonic clock as the wall clock | `zig build test-chapulin` | `CAUGHT` |
 | CK3 | the DoQ context reads the monotonic clock as the wall clock | `zig build test-chapulin-quic` | `CAUGHT` |
 | CK4 | the DoH context reads the monotonic clock as the wall clock | `zig build test-cocuyo_doh` | `CAUGHT` |
+
+## The cache namespace folded into Cache
+
+2026-11-10, c4milo/cocuyo#65. The owner ruled that `Cache` declares what sizes its memory, as
+`Resolver` declares `keys_for`: `Cache.Storage`, `Cache.Slot`, `Cache.Key`, `Cache.keys_for`,
+`Cache.slot_count_valid` and `Cache.ttl_seconds_max_valid`. The `cache` namespace left the
+surface. A slot is defined in `src/cache/cache_slot.zig`, so the module says no name twice. The
+fixture of `zig build consumer-check` writes `cocuyo.Cache.Storage`, and refuses to compile when
+`cocuyo` declares `cache`. FC1 puts the namespace back. CZ29 and CZ30 name the cap check, which
+moved into the type, and CZ9 and CZ25 name the storage the type now declares.
+`zig build mutations -- engine FC1` and `zig build mutations -- lookup CZ9 CZ25 CZ29 CZ30` ran each
+row.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| FC1 | the surface exports the `cache` namespace again, beside `Cache` | `zig build consumer-check` | `CAUGHT` |
+| CZ9 | `Slices.valid` asks nothing of the slot count | `zig build test-cache` | `CAUGHT` |
+| CZ25 | `Slices.valid` takes more slots than the most, where it refuses none | `zig build test-cache` | `CAUGHT` |
+| CZ29 | a cache takes a cap of zero | `zig build test-cache` | `CAUGHT` |
+| CZ30 | a cache takes a cap past seven days | `zig build test-cache` | `CAUGHT` |

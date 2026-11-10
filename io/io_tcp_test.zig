@@ -269,7 +269,7 @@ test "the stream receive is armed again after its group runs dry" {
     const servers = [_]cocuyo.Server{.{ .endpoint = endpoint_of(rotor.Network.server_address(0)) }};
     const config: cocuyo.Config = .{ .servers = &servers, .timeout_ns = 5_000_000_000 };
     var engine: Dry = undefined;
-    var cache_memory: cocuyo.cache.Storage(fixtures.small_lookups) = .{};
+    var cache_memory: cocuyo.Cache.Storage(fixtures.small_lookups) = .{};
     try engine.init(&loop, &config, cache_memory.slices(), 20, loop.now());
     var buffer: [fixtures.name_text_bytes]u8 = undefined;
     var started: usize = 0;

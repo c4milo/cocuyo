@@ -320,7 +320,7 @@ test "reinit refuses a payload one octet past the room, and the engine keeps wha
     try testing.expect(stream.up and stream.receiving);
     const sockets_open = open_sockets(&rig.loop);
     const past = advertising(&rig, io.limits.udp_payload_bytes_max + 1);
-    var other: cocuyo.cache.Storage(fixtures.cache_least_slots) = undefined;
+    var other: cocuyo.Cache.Storage(fixtures.cache_least_slots) = undefined;
     @memset(std.mem.asBytes(&other), fixtures.memory_mark);
     const refused = rig.engine.reinit(&past, other.slices(), 54, rig.loop.now());
     try testing.expectError(error.UdpPayloadTooLarge, refused);
@@ -331,7 +331,7 @@ test "reinit refuses a payload one octet past the room, and the engine keeps wha
     try testing.expectEqual(&rig.engine.resolver.config, rig.engine.config);
     try testing.expectEqual(rig.config.udp_payload_bytes, rig.engine.config.udp_payload_bytes);
     try testing.expect(rig.engine.config.udp_payload_bytes != past.udp_payload_bytes);
-    try testing.expectEqual(@as([*]cocuyo.cache.Slot, &rig.cache_memory.slots), rig.engine.cache.?.slots.ptr);
+    try testing.expectEqual(@as([*]cocuyo.Cache.Slot, &rig.cache_memory.slots), rig.engine.cache.?.slots.ptr);
     try testing.expectEqual(@as(u64, 53), rig.engine.cache.?.seed);
     try testing.expectEqual(socket, rig.engine.sockets.items[0]);
     try testing.expectEqual(stream, stream_of(&rig.engine));

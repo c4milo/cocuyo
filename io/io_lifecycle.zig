@@ -43,7 +43,7 @@ pub fn cancel_every(self: anytype) void {
 
 /// What `init` and `reinit` require of the cache memory they are handed: none, or slices
 /// `Cache.init` takes. A caller that reads a slot count at run time refuses a bad one itself,
-/// with `cocuyo.cache.slot_count_valid`, so slices of another shape are a programmer error
+/// with `cocuyo.Cache.slot_count_valid`, so slices of another shape are a programmer error
 /// (docs/design.md §18, Sizing the memory).
 pub fn assert_cache_memory(cache_memory: ?cache.Slices) void {
     const memory = cache_memory orelse return;

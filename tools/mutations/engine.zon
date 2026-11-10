@@ -8426,4 +8426,13 @@
         },
         .caught_by = .{ .step = "fill-check" },
     },
+    .{
+        .section = "The cache namespace folded into Cache",
+        .id = "FC1",
+        .what = "the surface exports the `cache` namespace again, beside `Cache`",
+        .edits = .{
+            .{ .file = "src/cocuyo.zig", .old = "pub const Cache = cache_module.Cache;\n", .new = "pub const Cache = cache_module.Cache;\npub const cache = struct {\n    pub const Storage = Cache.Storage;\n};\n" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
 }

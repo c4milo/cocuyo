@@ -36,7 +36,7 @@ test "a message longer than the connection can assemble ends the lookups on it" 
     const servers = [_]cocuyo.Server{.{ .endpoint = endpoint_of(rotor.Network.server_address(0)) }};
     const config: cocuyo.Config = .{ .servers = &servers, .timeout_ns = 1_000_000_000, .attempts = 1 };
     var engine: Tiny = undefined;
-    var cache_memory: cocuyo.cache.Storage(fixtures.small_lookups) = .{};
+    var cache_memory: cocuyo.Cache.Storage(fixtures.small_lookups) = .{};
     try engine.init(&loop, &config, cache_memory.slices(), 19, loop.now());
     _ = try engine.start(&question("example.com."), loop.now());
     var events: [fixtures.events_max]rotor.Event = undefined;

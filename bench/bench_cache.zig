@@ -46,8 +46,8 @@ pub const all = [_]Case{
     .{ .name = "cache put, evicting, 1024 entries full", .iterations = iterations, .run = &run_put_evict, .setup = &setup_cache },
 };
 
-var slots: [slot_count]cache.Slot = undefined;
-var keys: [key_count]cache.Key = undefined;
+var slots: [slot_count]cache.Cache.Slot = undefined;
+var keys: [key_count]cache.Cache.Key = undefined;
 var table: cache.Cache = undefined;
 var questions: [slot_count]Question = undefined;
 var answers: wire.Answers = undefined;

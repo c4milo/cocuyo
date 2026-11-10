@@ -168,7 +168,7 @@ const World = struct {
     config: cocuyo.Config = undefined,
     engine: Resolver = undefined,
     /// The memory of the engine's cache, a slot for each of its lookups.
-    cache_memory: cocuyo.cache.Storage(lookups) = .{},
+    cache_memory: cocuyo.Cache.Storage(lookups) = .{},
     events: [events_max]rotor.Event = undefined,
     sides: [servers]Side = undefined,
     quic_sides: [servers]QuicSide = undefined,

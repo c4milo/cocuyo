@@ -24,6 +24,9 @@ comptime {
     for ([_][]const u8{ "occupy", "remember_with", "validate_with" }) |name| {
         if (@hasDecl(cocuyo.Resolver, name)) @compileError("a consumer reached cocuyo.Resolver." ++ name);
     }
+    // `Cache` declares what sizes its memory, and no namespace says it again (docs/mutations.md,
+    // CF1).
+    if (@hasDecl(cocuyo, "cache")) @compileError("a consumer reached cocuyo.cache");
 }
 
 pub fn main() !void {
@@ -31,7 +34,7 @@ pub fn main() !void {
     // The table asserts a floor of keys for each slot (docs/design.md §17 question 123), and gives
     // the length that meets it. `zig build consumer-check` runs this program, so the assertion runs.
     var keys: [cocuyo.Resolver.keys_for(lookups)]cocuyo.MatchKey = @splat(.{});
-    var cache_memory: cocuyo.cache.Storage(cache_entries) = undefined;
+    var cache_memory: cocuyo.Cache.Storage(cache_entries) = undefined;
 
     const servers = [_]cocuyo.Server{
         .{ .endpoint = .{ .address = cocuyo.Address.from_v4(.{ 127, 0, 0, 1 }) } },

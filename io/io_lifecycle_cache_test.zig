@@ -50,7 +50,7 @@ fn ask(rig: *Rig, name: []const u8) !Asked {
 fn part_of(rig: *Rig, slot_count: usize) cache.Slices {
     return .{
         .slots = rig.cache_memory.slots[0..slot_count],
-        .keys = rig.cache_memory.keys[0..cocuyo.cache.keys_for(slot_count)],
+        .keys = rig.cache_memory.keys[0..cocuyo.Cache.keys_for(slot_count)],
     };
 }
 
@@ -61,8 +61,8 @@ test "an engine handed cache memory answers a repeated question from it, and sen
     try testing.expect(!(try ask(&rig, "a.example.")).sent);
     // The cache is over the memory the rig handed in, keyed by the seed of that call.
     const store = &rig.engine.cache.?;
-    try testing.expectEqual(@as([*]cocuyo.cache.Slot, &rig.cache_memory.slots), store.slots.ptr);
-    try testing.expectEqual(@as([*]cocuyo.cache.Key, &rig.cache_memory.keys), store.keys.ptr);
+    try testing.expectEqual(@as([*]cocuyo.Cache.Slot, &rig.cache_memory.slots), store.slots.ptr);
+    try testing.expectEqual(@as([*]cocuyo.Cache.Key, &rig.cache_memory.keys), store.keys.ptr);
     try testing.expectEqual(@as(usize, Rig.cache_slots), store.slots.len);
     try testing.expectEqual(@as(u64, 31), store.seed);
     try testing.expectEqual(@as(usize, 1), store.len());
@@ -88,7 +88,7 @@ test "a cache of two slots, a count read at run time, holds two names and the th
     var rig: Rig = .{};
     var slot_count: usize = fixtures.cache_two_slots;
     _ = &slot_count;
-    try testing.expect(cocuyo.cache.slot_count_valid(slot_count));
+    try testing.expect(cocuyo.Cache.slot_count_valid(slot_count));
     try rig.init_with(33, up, .{ .servers = &.{} }, part_of(&rig, slot_count));
     try testing.expect((try ask(&rig, "a.example.")).sent);
     try testing.expect((try ask(&rig, "b.example.")).sent);
@@ -104,9 +104,9 @@ test "a cache of two slots, a count read at run time, holds two names and the th
 
 test "the least memory there is, one slot and two keys, is a cache of one answer" {
     var rig: Rig = .{};
-    var least: cocuyo.cache.Storage(fixtures.cache_least_slots) = .{};
+    var least: cocuyo.Cache.Storage(fixtures.cache_least_slots) = .{};
     try testing.expectEqual(@as(usize, fixtures.cache_least_keys), least.keys.len);
-    try testing.expectEqual(least.keys.len, cocuyo.cache.keys_for(least.slots.len));
+    try testing.expectEqual(least.keys.len, cocuyo.Cache.keys_for(least.slots.len));
     try rig.init_with(34, up, .{ .servers = &.{} }, least.slices());
     try testing.expect((try ask(&rig, "a.example.")).sent);
     try testing.expect(!(try ask(&rig, "a.example.")).sent);
@@ -136,13 +136,13 @@ test "reinit handed other memory builds the cache over it, and leaves the old al
     var rig: Rig = .{};
     try rig.init(37, up, .{ .servers = &.{} });
     try testing.expect((try ask(&rig, "a.example.")).sent);
-    var other: cocuyo.cache.Storage(fixtures.cache_least_slots) = .{};
+    var other: cocuyo.Cache.Storage(fixtures.cache_least_slots) = .{};
     try rig.engine.reinit(&rig.config, other.slices(), 38, rig.loop.now());
     // The old memory is the caller's again once `reinit` returns: written over, it must stay
     // as written, and nothing the engine does may depend on it.
     const old = std.mem.asBytes(&rig.cache_memory);
     @memset(old, fixtures.memory_mark);
-    try testing.expectEqual(@as([*]cocuyo.cache.Slot, &other.slots), rig.engine.cache.?.slots.ptr);
+    try testing.expectEqual(@as([*]cocuyo.Cache.Slot, &other.slots), rig.engine.cache.?.slots.ptr);
     try testing.expectEqual(@as(usize, fixtures.cache_least_slots), rig.engine.cache.?.slots.len);
     // One slot now, where the old memory held a slot a lookup: the second name evicts the first.
     try testing.expect((try ask(&rig, "a.example.")).sent);
@@ -157,7 +157,7 @@ test "a reinit that fails has taken the memory it was handed, and let go of what
     var rig: Rig = .{};
     try rig.init(48, up, .{ .servers = &.{} });
     try testing.expect((try ask(&rig, "a.example.")).sent);
-    var other: cocuyo.cache.Storage(fixtures.cache_least_slots) = .{};
+    var other: cocuyo.Cache.Storage(fixtures.cache_least_slots) = .{};
     // No descriptor is left, so the sockets of the new start cannot be opened.
     rig.loop.network().refuse_open = true;
     const failed = rig.engine.reinit(&rig.config, other.slices(), 49, rig.loop.now());
@@ -166,8 +166,8 @@ test "a reinit that fails has taken the memory it was handed, and let go of what
     // The table and the cache were built before the sockets were asked for, so the cache is
     // over the memory that call handed in, under its seed: the caller keeps that memory, and
     // the memory the engine held before is the caller's to write over (rule 5).
-    try testing.expectEqual(@as([*]cocuyo.cache.Slot, &other.slots), rig.engine.cache.?.slots.ptr);
-    try testing.expectEqual(@as([*]cocuyo.cache.Key, &other.keys), rig.engine.cache.?.keys.ptr);
+    try testing.expectEqual(@as([*]cocuyo.Cache.Slot, &other.slots), rig.engine.cache.?.slots.ptr);
+    try testing.expectEqual(@as([*]cocuyo.Cache.Key, &other.keys), rig.engine.cache.?.keys.ptr);
     try testing.expectEqual(@as(u64, 49), rig.engine.cache.?.seed);
     const old = std.mem.asBytes(&rig.cache_memory);
     @memset(old, fixtures.memory_mark);

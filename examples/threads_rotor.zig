@@ -39,7 +39,7 @@ var loop_memory: [engines][loop_memory_bytes]u8 align(rotor.memory_alignment) = 
 var resolvers: [engines]Resolver = undefined;
 /// Each engine's cache memory, which is the caller's and never shared between two engines
 /// (docs/design.md §19 step 13, §24): the size the README recommends, one for each thread.
-var cache_memory: [engines]cocuyo.cache.Storage(io.constants.cache_slots_default) = undefined;
+var cache_memory: [engines]cocuyo.Cache.Storage(io.constants.cache_slots_default) = undefined;
 
 /// One engine thread: what it was given, and what it took.
 const Engine = struct {

@@ -41,7 +41,7 @@ var loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_al
 var resolver: Resolver = undefined;
 /// The cache's memory is the consumer's, as the loop's is: the resolver is handed its slices at
 /// `init`, or `null` for no cache (docs/design.md §19 step 13, the cache's memory).
-var cache_memory: cocuyo.cache.Storage(cache_slots) = undefined;
+var cache_memory: cocuyo.Cache.Storage(cache_slots) = undefined;
 
 pub fn main() !void {
     var loop: rotor.Loop = undefined;

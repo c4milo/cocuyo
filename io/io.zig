@@ -172,7 +172,7 @@ pub fn Resolver(comptime options: Options) type {
         closing: bool,
 
         /// The key table the lookups' slots need, which the table itself gives. The cache's key
-        /// index is sized by its caller, with `cocuyo.cache.keys_for`.
+        /// index is sized by its caller, with `cocuyo.Cache.keys_for`.
         fn table_keys_for(lookups: usize) usize {
             return cocuyo.Resolver.keys_for(lookups);
         }
@@ -211,7 +211,7 @@ pub fn Resolver(comptime options: Options) type {
         /// the caller's and this engine's alone, and must stay valid and unmoved until `close`
         /// returns, or until a `reinit` that is handed other memory or none returns
         /// (docs/design.md §19 step 13, the cache's memory). Slices `Cache.init` would refuse
-        /// are a programmer error: `cocuyo.cache.slot_count_valid` and `keys_for` say what it
+        /// are a programmer error: `cocuyo.Cache.slot_count_valid` and `keys_for` say what it
         /// takes. The engine starts with no context for DoT, DoQ or DoH, whatever its memory
         /// held: a consumer that speaks one calls `use_tls`, `use_quic` or `use_doh` next, before
         /// its first lookup (§24, the context a session starts from, rule 4). A

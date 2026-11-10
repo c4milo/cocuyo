@@ -330,7 +330,7 @@ const cocuyo = @import("cocuyo");
 
 var slots: [64]cocuyo.Slot = @splat(.{});
 var keys: [cocuyo.Resolver.keys_for(64)]cocuyo.MatchKey = @splat(.{}); // 4,096: 64 for each slot
-var cache_memory: cocuyo.cache.Storage(1024) = undefined; // 1,024 slots and their key index
+var cache_memory: cocuyo.Cache.Storage(1024) = undefined; // 1,024 slots and their key index
 
 const cap_seconds = config.cache_ttl_seconds_max; // no answer is kept longer: an hour by default
 var store = cocuyo.Cache.init(&cache_memory.slots, &cache_memory.keys, seed, cap_seconds);
@@ -355,23 +355,23 @@ const dns = @import("cocuyo_rotor");
 const Resolver = dns.Resolver(.{});
 var resolver: Resolver = undefined;
 // A size known when you compile: 1,024 slots, the size measured below, 5.0 MiB.
-var cache_memory: cocuyo.cache.Storage(dns.constants.cache_slots_default) = undefined;
+var cache_memory: cocuyo.Cache.Storage(dns.constants.cache_slots_default) = undefined;
 try resolver.init(&loop, &config, cache_memory.slices(), seed, now_ns);
 
 // A size read at run time, handed over at a `reinit`. The engine must be idle.
-if (!cocuyo.cache.slot_count_valid(slot_count)) return error.CacheSlotsOutOfRange;
-const entries = try allocator.alloc(cocuyo.cache.Slot, slot_count);
-const index = try allocator.alloc(cocuyo.cache.Key, cocuyo.cache.keys_for(slot_count));
+if (!cocuyo.Cache.slot_count_valid(slot_count)) return error.CacheSlotsOutOfRange;
+const entries = try allocator.alloc(cocuyo.Cache.Slot, slot_count);
+const index = try allocator.alloc(cocuyo.Cache.Key, cocuyo.Cache.keys_for(slot_count));
 try resolver.reinit(&config, .{ .slots = entries, .keys = index }, new_seed, now_ns);
 ```
 
-A cache takes 1 to 16,384 slots, 5,080 octets each, and `cocuyo.cache.keys_for` gives the key
+A cache takes 1 to 16,384 slots, 5,080 octets each, and `cocuyo.Cache.keys_for` gives the key
 index a slot count needs. The memory must stay valid, and where it is, until the engine's `close`,
 or until a `reinit` hands the engine other memory or none. A `reinit` that fails at its sockets has
 still taken the memory it was handed. So never free that memory on that error: hand it to the next
 `reinit`, or keep it until `close`. Each engine has its own. The cache keeps no answer longer than
 `Config.cache_ttl_seconds_max`, an hour unless you set it and seven days at most, the cap
-RFC 8767 §4 recommends; `cocuyo.cache.ttl_seconds_max_valid` says whether a cap you read at run
+RFC 8767 §4 recommends; `cocuyo.Cache.ttl_seconds_max_valid` says whether a cap you read at run
 time is one a cache takes. cocuyo never reads the cap from a `resolv.conf`, which has no line for
 it.
 

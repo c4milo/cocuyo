@@ -172,7 +172,7 @@ the entry point.
 | --- | --- | --- |
 | Lookup storage | `var slots: [N]cocuyo.Lookup = undefined;` | §9 gives the size |
 | Match keys | `var keys: [cocuyo.Resolver.keys_for(N)]cocuyo.MatchKey = undefined;` | `keys_for` gives a power-of-two length with `keys_per_slot_min` entries for each slot, §11 |
-| Cache memory | `var cache_memory: cocuyo.cache.Storage(M) = undefined;` | optional; §18 gives the size, the bounds and the form for a count read at run time |
+| Cache memory | `var cache_memory: cocuyo.Cache.Storage(M) = undefined;` | optional; §18 gives the size, the bounds and the form for a count read at run time |
 | Send buffer | `poll(now_ns, out)` | `out.len >= query_bytes_max` |
 | Receive buffer | the caller's own | at least `config.udp_payload_bytes` |
 | Configuration | `Config`, which a table and an engine copy at `init` since 2026-11-10 | its `servers` and `search` slices are the caller's, and must outlive the table |
@@ -6944,7 +6944,9 @@ from 1 to `cache_slots_max`, and a key index whose length is a power of two at l
 `cache_keys_per_slot_min` times `slots.len`. `Cache.init` asserts both, and the engine's `init`
 and `reinit` assert them of the memory they are handed (§19 step 13). Until that day a caller
 worked the key index's length out by hand, and the engine did it in a function of its own that
-no caller could reach. The `cache` module now says it once, for both:
+no caller could reach. The `cache` module now says it once, for both. Since 2026-11-10 each of
+the four functions below, with `Slot` and `Key`, is a declaration of `Cache`, as `keys_for` is
+of `Resolver` (§20, the surface):
 
 - `keys_for(slot_count)` is the least key index a slot count takes: 2 for 1 slot, 4 for 2, 8 for
   3, 2048 for 1024 and 32768 for 16384. A longer index of a power of two is taken too, and buys
@@ -6959,12 +6961,12 @@ no caller could reach. The `cache` module now says it once, for both:
   names the bounds. No step of the gate holds that, since a test cannot fail to compile: both
   were compiled by hand on 2026-10-11.
 - `Slices` is the pair as `Cache.init` takes it, and `valid()` says what `Cache.init` asserts of
-  it.
+  it. A consumer never names it: `Storage.slices()` hands one over, and a literal builds one.
 
 A caller whose count is known when it compiles writes two lines:
 
 ```zig
-var cache_memory: cocuyo.cache.Storage(1024) = undefined;
+var cache_memory: cocuyo.Cache.Storage(1024) = undefined;
 var store = cocuyo.Cache.init(&cache_memory.slots, &cache_memory.keys, seed, config.cache_ttl_seconds_max);
 ```
 
@@ -6972,10 +6974,10 @@ A caller that reads the count at run time, from a configuration file, checks it 
 the memory however it gets memory. cocuyo allocates none of it (CLAUDE.md non-negotiable 2):
 
 ```zig
-if (!cocuyo.cache.slot_count_valid(slot_count)) return error.CacheSlotsOutOfRange;
-const slots = try allocator.alloc(cocuyo.cache.Slot, slot_count);
-const keys = try allocator.alloc(cocuyo.cache.Key, cocuyo.cache.keys_for(slot_count));
-const cache_memory: cocuyo.cache.Slices = .{ .slots = slots, .keys = keys };
+if (!cocuyo.Cache.slot_count_valid(slot_count)) return error.CacheSlotsOutOfRange;
+const slots = try allocator.alloc(cocuyo.Cache.Slot, slot_count);
+const keys = try allocator.alloc(cocuyo.Cache.Key, cocuyo.Cache.keys_for(slot_count));
+var store = cocuyo.Cache.init(slots, keys, seed, config.cache_ttl_seconds_max);
 ```
 
 A count outside the bounds, or a key index of the wrong shape, is the caller's programmer error
@@ -7871,7 +7873,7 @@ cache's slots and key index inside itself, sized by `Options.cache_slots` when t
 was built. So the size could not come from a number read at run time, an engine could not run
 without a cache, and the cap on a TTL was the constant of an hour. These rules replace that:
 
-1. `init` and `reinit` each take `cache_memory`, a `?cocuyo.cache.Slices`: the slots and the key
+1. `init` and `reinit` each take `cache_memory`, an optional pair of slices: the slots and the key
    index as `Cache.init` takes them (§18, Sizing the memory), or null. It sits after the
    configuration and before the seed. `Options.cache_slots` is gone, and the engine holds no
    cache array.
@@ -7906,7 +7908,7 @@ without a cache, and the cap on a TTL was the constant of an hour. These rules r
    and cannot know who else holds them.
 7. Slices `Cache.init` would refuse are the caller's programmer error, and `init` and `reinit`
    assert `cache_memory.valid()` before they change anything. A caller that reads the slot count
-   at run time refuses a bad number itself with `cocuyo.cache.slot_count_valid`, before it gets
+   at run time refuses a bad number itself with `cocuyo.Cache.slot_count_valid`, before it gets
    the memory.
 8. The cap is `Config.cache_ttl_seconds_max`, an hour by default, read at `init` and at each
    `reinit` and never between. `assert_valid` requires it to be at least 1.
@@ -8363,7 +8365,8 @@ The central types are flat:
   `Cause`, `Reason`, `Error`.
 - One lookup: `Lookup`, `Servers`.
 - The `getaddrinfo` shape: `AddressLookup`, `AddressFlags`, `NameLookup`, `Hosts`.
-- The cache: `Cache`, `Memory`, `Remembered`, `remembered_by`.
+- The cache: `Cache`, `Memory`, `Remembered`, `remembered_by`. `Cache` declares what sizes its
+  memory: `Storage`, `Slot`, `Key`, `keys_for`, `slot_count_valid` and `ttl_seconds_max_valid`.
 - DNSSEC: `KeyStore`, `Anchor`, `validated_by`.
 - Records: `Rcode`, `Kept`, `message_len`.
 
@@ -8373,10 +8376,14 @@ Each namespace holds one job, and its helpers keep their names without a prefix,
 - `hosts`: `parse` and `Storage`.
 - `spki_pin`: `from_base64` and `Error`.
 - `trust_anchors`: `parse`, `Error` and `anchors_max`.
-- `cache`: `Storage`, `Slot`, `Key`, `keys_for`, `slot_count_valid` and `ttl_seconds_max_valid`.
 - `rdata`: the readers of record data.
 - `limits` and `constants`: each limit and each constant that a consumer sizes its memory with,
   once.
+
+The owner ruled on 2026-11-10 that the `cache` namespace folds into `Cache`. Until then the six
+names were `cocuyo.cache.Storage` and the rest, in a namespace of their own. So `Cache` and
+`Resolver` size their memory the same way, and the surface has seven namespaces. The fixture
+refuses a `cocuyo.cache` that comes back (docs/mutations.md, CF1).
 
 `core`, `wire`, `resolver` and `config` are not public. Nor is any file that splits a type apart,
 nor the test data. The engine of `io/`, `bench/` and `tools/` are parts of this package, so the
@@ -8393,7 +8400,7 @@ How the build and the checks hold it:
   `cocuyo.wire.fixtures`, `cocuyo.rdata.fixtures` and `cocuyo.resolv_conf.fuzz`. The fixture's
   `-Dreach-inside` names the path, and `test/consumer/inside/` holds one program for each
   (docs/mutations.md, SF1 to SF5).
-- `Resolver.keys_for(slot_count)` gives the length of the key table, as `cache.keys_for` does for
+- `Resolver.keys_for(slot_count)` gives the length of the key table, as `Cache.keys_for` does for
   a cache (c4milo/cocuyo#65). It is a declaration of the type, since `resolver` is no public
   namespace. So a consumer writes no `keys_per_slot_min`, and that limit left the surface.
 - `zig build consumer-check` runs the fixture's `consumer` program once it builds. The program
@@ -10086,13 +10093,13 @@ const dns = @import("cocuyo_rotor");
 
 const Resolver = dns.Resolver(.{});
 var resolver: Resolver = undefined;
-var cache_memory: cocuyo.cache.Storage(dns.constants.cache_slots_default) = undefined;
+var cache_memory: cocuyo.Cache.Storage(dns.constants.cache_slots_default) = undefined;
 
 try resolver.init(&loop, &config, cache_memory.slices(), seed, now_ns);
 ```
 
 With a slot count its own configuration file gave it, it checks the count with
-`cocuyo.cache.slot_count_valid`, gets `slot_count` slots and `cocuyo.cache.keys_for(slot_count)`
+`cocuyo.Cache.slot_count_valid`, gets `slot_count` slots and `cocuyo.Cache.keys_for(slot_count)`
 keys from wherever it gets memory, and hands them over as `.{ .slots = slots, .keys = keys }`
 (§18, Sizing the memory). With no cache, it hands over `null`. The cap on a TTL is the
 configuration's: `config.cache_ttl_seconds_max`, which the consumer may set from the same file.

@@ -106,16 +106,6 @@ pub const trust_anchors = struct {
     pub const anchors_max = dnssec.limits.anchors_max;
 };
 
-/// The memory a consumer hands a `Cache`, and the checks of its size and its cap.
-pub const cache = struct {
-    pub const Storage = cache_module.Storage;
-    pub const Slot = cache_module.Slot;
-    pub const Key = cache_module.Key;
-    pub const keys_for = cache_module.keys_for;
-    pub const slot_count_valid = cache_module.slot_count_valid;
-    pub const ttl_seconds_max_valid = cache_module.ttl_seconds_max_valid;
-};
-
 /// The readers of record data, one for each type a lookup keeps as rdata.
 pub const rdata = struct {
     pub const name = wire.rdata.name;
@@ -350,8 +340,8 @@ const remembered_ttl_seconds: u32 = 300;
 
 /// A cache and the storage it is given, in one value a test puts on its stack.
 const CacheRig = struct {
-    slots: [cache_slot_count]cache.Slot = @splat(cache.Slot.empty),
-    keys: [cache_key_count]cache.Key = @splat(.{}),
+    slots: [cache_slot_count]Cache.Slot = @splat(Cache.Slot.empty),
+    keys: [cache_key_count]Cache.Key = @splat(.{}),
     store: Cache = undefined,
 
     fn open(self: *CacheRig) void {

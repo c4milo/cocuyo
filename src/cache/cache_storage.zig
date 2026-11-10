@@ -12,7 +12,7 @@ const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const limits = @import("limits.zig");
 const cache = @import("cache.zig");
-const Slot = cache.Slot;
+const Slot = @import("cache_slot.zig").Slot;
 const Key = @import("cache_keys.zig").Key;
 
 /// Whether a cache takes `slot_count` slots: 1 to `limits.slots_max`. A count read at run

@@ -37,7 +37,7 @@ const lookups_max = 8;
 const loop_options: rotor.Loop.Options = .{ .operations = Resolver.loop_operations };
 var loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment) = undefined;
 var engine: Resolver = undefined;
-var cache_memory: cocuyo.cache.Storage(io.constants.cache_slots_default) = undefined;
+var cache_memory: cocuyo.Cache.Storage(io.constants.cache_slots_default) = undefined;
 var trust: trust_text.Trust = .{};
 
 const tick_ns: u64 = 100_000_000;

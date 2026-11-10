@@ -54,7 +54,7 @@ pub fn RigOfServers(comptime EngineType: type, comptime server_count: u8) type {
 
         loop: rotor.Loop = undefined,
         memory: [0]u8 align(rotor.memory_alignment) = undefined,
-        cache_memory: cocuyo.cache.Storage(cache_slots) = .{},
+        cache_memory: cocuyo.Cache.Storage(cache_slots) = .{},
         servers: [server_count]cocuyo.Server = servers_of(server_count),
         config: cocuyo.Config = undefined,
         engine: EngineType = undefined,
@@ -452,7 +452,7 @@ test "the receive is armed again after the group runs dry, and every answer stil
     const servers = [_]cocuyo.Server{.{ .endpoint = endpoint_of(rotor.Network.server_address(0)) }};
     const config: cocuyo.Config = .{ .servers = &servers };
     var engine: Small = undefined;
-    var cache_memory: cocuyo.cache.Storage(fixtures.small_lookups) = .{};
+    var cache_memory: cocuyo.Cache.Storage(fixtures.small_lookups) = .{};
     try engine.init(&loop, &config, cache_memory.slices(), 8, loop.now());
     var buffer: [fixtures.name_text_bytes]u8 = undefined;
     var started: usize = 0;

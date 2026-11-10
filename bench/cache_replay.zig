@@ -18,8 +18,8 @@ const keys_max = std.math.ceilPowerOfTwoAssert(usize, slots_max * cache_module.l
 const name_prefix = "n";
 const name_suffix = ".example.";
 
-var slots: [slots_max]cache_module.Slot = undefined;
-var keys: [keys_max]cache_module.Key = undefined;
+var slots: [slots_max]cache_module.Cache.Slot = undefined;
+var keys: [keys_max]cache_module.Cache.Key = undefined;
 
 pub fn NameText(comptime digits: usize) type {
     return [name_prefix.len + digits + name_suffix.len]u8;

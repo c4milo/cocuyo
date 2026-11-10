@@ -61,11 +61,11 @@ test "the default cap is an hour, and it is the cap a configuration names by def
 }
 
 test "a cache takes a cap of a second to seven days, and refuses none and a second more" {
-    try testing.expect(!cache.ttl_seconds_max_valid(0));
-    try testing.expect(cache.ttl_seconds_max_valid(1));
-    try testing.expect(cache.ttl_seconds_max_valid(3600));
-    try testing.expect(cache.ttl_seconds_max_valid(604_800));
-    try testing.expect(!cache.ttl_seconds_max_valid(604_801));
+    try testing.expect(!Cache.ttl_seconds_max_valid(0));
+    try testing.expect(Cache.ttl_seconds_max_valid(1));
+    try testing.expect(Cache.ttl_seconds_max_valid(3600));
+    try testing.expect(Cache.ttl_seconds_max_valid(604_800));
+    try testing.expect(!Cache.ttl_seconds_max_valid(604_801));
     // "a recommended cap of 604,800 seconds (7 days)" (RFC 8767 §4).
     try testing.expectEqual(@as(u32, 604_800), core.limits.cache_ttl_seconds_max);
     // A table built with the longest cap keeps a TTL of thirty days for the seven.

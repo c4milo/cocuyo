@@ -13,8 +13,8 @@ pub const seed: u64 = 1;
 /// two at least `keys_per_slot_min` entries a slot.
 pub fn Fixture(comptime slot_count: usize) type {
     return struct {
-        slots: [slot_count]cache.Slot = undefined,
-        keys: [cache.keys_for(slot_count)]cache.Key = undefined,
+        slots: [slot_count]cache.Cache.Slot = undefined,
+        keys: [cache.Cache.keys_for(slot_count)]cache.Cache.Key = undefined,
 
         pub fn init(self: *@This()) cache.Cache {
             return cache.Cache.init(&self.slots, &self.keys, seed, constants.ttl_seconds_max_default);

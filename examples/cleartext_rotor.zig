@@ -31,7 +31,7 @@ var engine: Resolver = undefined;
 /// The cache's memory, which is the caller's (docs/design.md §19 step 13): the size the README
 /// recommends, 2.9 MiB. The engine builds its cache over it at `init`, and `null` in its place
 /// would be an engine with no cache.
-var cache_memory: cocuyo.cache.Storage(io.constants.cache_slots_default) = undefined;
+var cache_memory: cocuyo.Cache.Storage(io.constants.cache_slots_default) = undefined;
 /// The key store under the word `dnssec`, and the memory it names.
 var trust: trust_text.Trust = .{};
 

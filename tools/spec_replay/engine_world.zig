@@ -84,7 +84,7 @@ pub fn WorldOver(comptime slots: u16, comptime conns: u16, comptime Doh: type) t
         engine: Resolver,
         /// The memory of the engine's cache: two slots, the size it had as an option. The model
         /// holds no cache, and no start of a walk asks a name twice (`names`).
-        cache_memory: cocuyo.cache.Storage(2),
+        cache_memory: cocuyo.Cache.Storage(2),
         now_ns: u64,
         /// Names asked so far in this walk: each start asks a new one, so the cache never
         /// answers, as the model has it.
