@@ -42,7 +42,7 @@ pub fn main() !void {
     var table = cocuyo.Resolver.init(&slots, &keys, &config, seed);
     table.use_memory(cocuyo.remembered_by(&store));
 
-    _ = try table.start(try cocuyo.Question.from_text("example.com.", .a));
+    _ = try table.start(&try cocuyo.Question.from_text("example.com.", .a));
     var query: [cocuyo.limits.query_bytes_max]u8 = undefined;
     const event = table.poll(now_ns, &query) orelse return error.NothingToDo;
     if (event.action != .send_udp) return error.NotAQuery;

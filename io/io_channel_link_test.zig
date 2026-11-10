@@ -27,7 +27,7 @@ test "a TCP link connects first, and its connection starts at the connect's end"
     // Request rule 14: a stream socket connects before the connection on it starts.
     var rig: Rig = .{};
     try start(&rig, 101, .{ slow, .{} });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     const link = &rig.engine.doh.slots[0].links[1];
     try tell(&rig, 0, .{ .open = .tcp });
     try testing.expect(link.state == .connecting);
@@ -46,7 +46,7 @@ test "a link's connect that fails is told to the channel, and fails no request i
     // Rule 19: the channel decides what a link's end fails, and says so at a read.
     var rig: Rig = .{};
     try start(&rig, 102, .{ .{ .tcp = false }, .{} });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     try tell(&rig, 0, .{ .open = .tcp });
     _ = try rig.step(fixtures.channel_read_ns);
     try testing.expect(rig.engine.doh.slots[0].links[1].state == .down);
@@ -64,7 +64,7 @@ test "a link the channel closes shuts its socket once the octets it kept have go
     // refuses the send, so the link keeps its octets when the channel closes it.
     var rig: Rig = .{};
     try start(&rig, 103, .{ .{}, .{} });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     const link = &rig.engine.doh.slots[0].links[0];
     try tell(&rig, 0, .{ .open = .quic });
     rig.loop.refuse_submissions = true;
@@ -88,7 +88,7 @@ test "each transport's ticket is kept, and the next link of that transport spend
     // its age, the time since it came (RFC 9846 §4.3.11.1).
     var rig: Rig = .{};
     try start(&rig, 104, .{ .{}, .{} });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     try tell(&rig, 0, .{ .open = .quic });
     try testing.expect(!channel_of(&rig, 0).resumed[0]);
     try tell(&rig, 0, .{ .ticket = .quic });
@@ -118,7 +118,7 @@ test "a running link whose receive the loop refused has it armed at the next dri
     // for again at the next drive.
     var rig: Rig = .{};
     try start(&rig, 105, .{ .{}, .{} });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     const link = &rig.engine.doh.slots[0].links[0];
     rig.loop.refuse_submissions = true;
     try tell(&rig, 0, .{ .open = .quic });
@@ -138,7 +138,7 @@ test "a TCP link opened again while its earlier connect is in flight connects at
     // link connects nothing until then.
     var rig: Rig = .{};
     try start(&rig, 106, .{ slow, .{} });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     const link = &rig.engine.doh.slots[0].links[1];
     try tell(&rig, 0, .{ .open = .tcp });
     try testing.expect(link.state == .connecting);
@@ -162,7 +162,7 @@ test "the channel is read at a link's send end, and tells then what it held" {
     // ends are the reads that come.
     var rig: Rig = .{};
     try start(&rig, 107, .{ .{}, .{} });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     const channel = channel_of(&rig, 0);
     channel.say(.{ .open = .quic }, rig.loop.now());
     channel.say(.{ .hold = .{ .index = handle.index, .answer = true } }, rig.loop.now());
@@ -179,7 +179,7 @@ test "the channel is read when a link's socket ends, and tells then what it held
     // comes.
     var rig: Rig = .{};
     try start(&rig, 108, .{ .{ .tcp = false }, .{} });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     const channel = channel_of(&rig, 0);
     channel.say(.{ .open = .tcp }, rig.loop.now());
     try tell(&rig, 0, .{ .hold = .{ .index = handle.index, .answer = true } });
@@ -197,7 +197,7 @@ test "a link's incarnation wraps at the last of its thirty-two bits, and each op
     // wraps it to zero.
     var rig: Rig = .{};
     try start(&rig, 109, .{ slow, .{} });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     const link = &rig.engine.doh.slots[0].links[1];
     link.incarnation = std.math.maxInt(u32) - 1;
     try tell(&rig, 0, .{ .open = .tcp });
@@ -226,7 +226,7 @@ test "a link's incarnation wraps at the last of its thirty-two bits, and each op
 /// its side open. The channel owes octets again, and the link's send of them never ends.
 fn stall_tcp_link(rig: *Rig, seed: u64) !cocuyo.Handle {
     try start(rig, seed, .{ .{}, .{} });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     const link = &rig.engine.doh.slots[0].links[1];
     const send = &rig.engine.doh.sends[0][1];
     try tell(rig, 0, .{ .open = .tcp });
@@ -315,7 +315,7 @@ test "a later request to a server whose link's send never ends is sent and answe
     var rig: Rig = .{};
     const first = try stall_tcp_link(&rig, 116);
     const started_ns = rig.loop.now();
-    const later = try rig.engine.start(question("two.example."), started_ns);
+    const later = try rig.engine.start(&question("two.example."), started_ns);
     rig.engine.drive(started_ns);
     try testing.expect(channel_of(&rig, 0).holds(later.index));
     try tell(&rig, 0, .{ .close = .tcp });
@@ -345,7 +345,7 @@ test "a reinit cancels a link's send that never ends, and the next channel's lin
     const handle = try stall_tcp_link(&rig, 113);
     try end_lookup(&rig, handle);
     try rig.engine.reinit(&rig.config, rig.cache_memory.slices(), 114, rig.loop.now());
-    const second = try rig.engine.start(question("two.example."), rig.loop.now());
+    const second = try rig.engine.start(&question("two.example."), rig.loop.now());
     try tell(&rig, 0, .{ .open = .tcp });
     try until_sent(&rig);
     try end_lookup(&rig, second);

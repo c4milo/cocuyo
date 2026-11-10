@@ -56,7 +56,7 @@ pub fn main(init: std.process.Init) !void {
         .session = .init(&.{}, cpu, session_seed, .{ .unix_seconds = unix_seconds, .now_ns = now_ns }),
         .stream = std.Random.ChaCha.init(id_seed),
     });
-    _ = try resolver.start(try cocuyo.Question.from_text("example.com.", .a), now_ns);
+    _ = try resolver.start(&try cocuyo.Question.from_text("example.com.", .a), now_ns);
 
     var events: [events_max]rotor.Event = undefined;
     const count = try loop.tick(&events, 0);

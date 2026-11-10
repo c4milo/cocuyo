@@ -61,7 +61,7 @@ const Rig = struct {
 
     /// Resolves `text` of `kind` to its end. The caller frees the lookup with `release`.
     fn resolve(self: *Rig, text: []const u8, kind: Kind) !End {
-        const handle = try self.table.start(try Question.from_text(text, kind));
+        const handle = try self.table.start(&try Question.from_text(text, kind));
         self.handle = handle;
         var questions: usize = 0;
         for (0..polls_max) |_| {

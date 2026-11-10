@@ -32,7 +32,7 @@ fn expect_all_failed(rig: anytype, server: u8, reason: cocuyo.Reason) !void {
 test "a lookup every server refused a connection ends in AllServersFailed, its cause the connect" {
     var rig: Rig = .{};
     try rig.init(116, .{ .{ .tcp = false }, .{ .tcp = false } }, .{ .servers = &.{}, .use_tcp = true, .failover_retry_chance = 0 });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     // The connection never came up.
     try expect_all_failed(&rig, 1, .connect);
     try rig.deinit();
@@ -41,7 +41,7 @@ test "a lookup every server refused a connection ends in AllServersFailed, its c
 test "a lookup whose every stream failed once up ends in AllServersFailed, its cause closed" {
     var rig: Rig = .{};
     try rig.init(118, .{ .{}, .{} }, .{ .servers = &.{}, .use_tcp = true, .attempts = 1, .failover_retry_chance = 0 });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     for (0..fixtures.servers) |server| {
         // The query is on its way out on the server's connection, which is up, and the peer
         // resets it.
@@ -75,7 +75,7 @@ test "a query send that fails on a connection that is up gives closed as the cau
     // silence, and this server took the connection (docs/design.md §5, The cause of a failure).
     var rig: OneServer = .{};
     try rig.init(117, .{.{}}, .{ .servers = &.{}, .use_tcp = true, .attempts = 1 });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     // The connect ends, the lookup hears that the connection is up, and its query goes out.
     _ = try rig.step(fixtures.wait_ns);
     try testing.expect(rig.engine.connections[0].sending);
@@ -102,8 +102,8 @@ test "a lookup that finds each slot held by a lookup fails over at once, its cau
     var rig: Rig = .{};
     try rig.init(119, .{ .{ .drop_per_256 = fixtures.always }, .{} }, .{ .servers = &.{}, .use_tcp = true, .attempts = 1, .failover_retry_chance = 0 });
     try testing.expectEqual(@as(usize, 1), rig.engine.connections.len);
-    const first = try rig.engine.start(question("one.example."), rig.loop.now());
-    _ = try rig.engine.start(question("two.example."), rig.loop.now());
+    const first = try rig.engine.start(&question("one.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("two.example."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(first, result.handle);
     const failure: ?cocuyo.Error = if (result.outcome == .failure) result.outcome.failure.err else null;
@@ -124,7 +124,7 @@ test "an engine with no TCP connection fails each stream that a lookup asks for,
     var rig: sim_test.RigOf(Streamless) = .{};
     const truncating: rotor.server.Script = .{ .truncate_per_256 = fixtures.always };
     try rig.init(120, .{ truncating, truncating }, .{ .servers = &.{}, .attempts = 1, .failover_retry_chance = 0 });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     try expect_all_failed(&rig, 1, .local);
     try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(1));
     try rig.deinit();
@@ -133,7 +133,7 @@ test "an engine with no TCP connection fails each stream that a lookup asks for,
 test "a lookup whose every stream the peer closed once up ends in AllServersFailed, its cause closed" {
     var rig: Rig = .{};
     try rig.init(121, .{ .{}, .{} }, .{ .servers = &.{}, .use_tcp = true, .attempts = 1, .failover_retry_chance = 0 });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     for (0..fixtures.servers) |server| {
         // Zero octets is the peer closing its side of a connection that is up.
         const at = try until_up(&rig, @intCast(server));
@@ -150,7 +150,7 @@ test "a query's send that the loop refuses on a connection that is up gives clos
     // though no server took part (docs/design.md §5, The cause of a failure).
     var rig: OneServer = .{};
     try rig.init(122, .{.{}}, .{ .servers = &.{}, .use_tcp = true, .attempts = 1 });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     var connected = false;
     for (0..fixtures.until_rounds_max) |_| {
         const connect = tcp.user_data_of(&rig.engine, .tcp_connect, 0);

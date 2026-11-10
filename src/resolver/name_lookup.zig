@@ -146,7 +146,7 @@ fn consult_file(self: *NameLookup) bool {
 /// One `PTR` question, whose name the address builds and which is absolute.
 fn start_query(self: *NameLookup) NameLookup.InitError!bool {
     const question = try Question.from_address(&self.address);
-    self.handle = try self.resolver.start(question);
+    self.handle = try self.resolver.start(&question);
     return true;
 }
 

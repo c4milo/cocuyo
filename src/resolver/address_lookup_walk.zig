@@ -104,7 +104,7 @@ fn start_pair(self: *AddressLookup, name: *const Name) error{NoSlot}!void {
 
 fn start_one(self: *AddressLookup, name: *const Name, kind: Kind) error{NoSlot}!Pending {
     const question: Question = .{ .name = name.*, .kind = kind, .absolute = true };
-    const handle = try self.resolver.start(question);
+    const handle = try self.resolver.start(&question);
     return .{ .kind = kind, .handle = handle, .ended = false };
 }
 

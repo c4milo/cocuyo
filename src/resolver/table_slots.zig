@@ -145,7 +145,7 @@ pub const Slots = struct {
 
 /// Puts a lookup for `question` in a slot just taken. The table's files call it, and no consumer
 /// does, so it is a function of this file and no declaration of `Resolver` (c4milo/cocuyo#65).
-pub fn occupy(self: *table_module.Resolver, index: u16, question: core.Question) void {
+pub fn occupy(self: *table_module.Resolver, index: u16, question: *const core.Question) void {
     const slot = &self.slots.items[index];
     assert(slot.occupied);
     slot.lookup.init_in_place(self.config, &self.servers, question, self.entropy.next());

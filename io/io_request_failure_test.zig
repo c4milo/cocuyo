@@ -21,7 +21,7 @@ const start = request_test.start;
 fn fails_over(seed: u64, script: rotor.server.Script, reason: cocuyo.Reason) !void {
     var rig: Rig = .{};
     try start(&rig, seed, .{ script, .{} });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(0));
@@ -36,7 +36,7 @@ fn fails_over(seed: u64, script: rotor.server.Script, reason: cocuyo.Reason) !vo
 fn fails_all(seed: u64, first: rotor.server.Script, second: rotor.server.Script, reason: cocuyo.Reason) !void {
     var rig: Rig = .{};
     try start(&rig, seed, .{ first, second });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(cocuyo.Error.AllServersFailed, result.outcome.failure.err);
     try testing.expectEqual(@as(?cocuyo.Cause, .{ .server_index = 1, .what = .{ .reason = reason } }), result.outcome.failure.cause);
@@ -73,7 +73,7 @@ test "a socket the system refuses fails the request, on every server" {
     var rig: Rig = .{};
     try start(&rig, 77, .{ .{}, .{} });
     rig.loop.network().refuse_open = true;
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(cocuyo.Error.AllServersFailed, result.outcome.failure.err);
     // No server took part (docs/design.md §5, The cause of a failure).
@@ -87,7 +87,7 @@ test "a socket the system refuses fails the request, on every server" {
 test "a connection whose QUIC timer gives up fails, when the engine's one timer comes" {
     var rig: Rig = .{};
     try start(&rig, 78, .{ .{ .down = true }, .{} });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const connection = &rig.engine.quic.connections[0];
     try testing.expect(connection.state == .handshaking);
     connection.transport.due_ns = rig.loop.now() + fixtures.quic_timer_ns;
@@ -113,7 +113,7 @@ test "an idle connection near its negotiated timeout closes before a request, wh
     connection.transport.idle_left = 0;
     // RFC 9250 §4.4: "it SHOULD check whether the idle time is sufficiently lower than the idle
     // timer. ... If not, the client SHOULD establish a new connection".
-    _ = try rig.engine.start(question("two.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("two.example."), rig.loop.now());
     try testing.expect(connection.state == .closing);
     try testing.expectEqual(@as(u16, 1), connection.queue_len);
     const result = try rig.until_result();
@@ -143,7 +143,7 @@ fn tiny_failure(seed: u64, text: []const u8) !Seen {
     const bare: rotor.server.Script = .{ .cookies = false };
     try rig.init(seed, .{ bare, bare }, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     rig.use_test_contexts();
-    _ = try rig.engine.start(question(text), rig.loop.now());
+    _ = try rig.engine.start(&question(text), rig.loop.now());
     const result = try rig.until_result();
     const failure: Seen = switch (result.outcome) {
         .answer => |answer| .{ .err = if (answer.addresses.len == 1) null else error.NoData },
@@ -179,12 +179,12 @@ test "a connection that cannot open again for the requests that waited gives loc
     rig.servers[0].quic = .{ .name = try cocuyo.Name.from_text("dns.example.") };
     try rig.init(83, .{.{}}, .{ .servers = &.{}, .attempts = 1, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns });
     rig.use_test_contexts();
-    _ = try rig.engine.start(question("one.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("one.example."), rig.loop.now());
     try testing.expect((try rig.until_result()).outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
     const connection = &rig.engine.quic.connections[0];
     connection.transport.idle_left = 0;
-    _ = try rig.engine.start(question("two.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("two.example."), rig.loop.now());
     try testing.expect(connection.state == .closing);
     rig.loop.network().refuse_open = true;
     const result = try rig.until_result();
@@ -198,7 +198,7 @@ test "a connection that cannot open again for the requests that waited gives loc
 test "a receive that fails while the handshake runs gives the handshake as the cause" {
     var rig: Rig = .{};
     try start(&rig, 84, .{ .{}, .{} });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     const connection = &rig.engine.quic.connections[0];
     try testing.expect(connection.state == .handshaking);
     // The loop ends the receive in an error before the server's first datagram comes.
@@ -215,7 +215,7 @@ test "a receive that fails while the handshake runs gives the handshake as the c
 test "a datagram the transport refuses while the handshake runs gives the handshake as the cause" {
     var rig: Rig = .{};
     try start(&rig, 85, .{ .{}, .{} });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     const connection = &rig.engine.quic.connections[0];
     try testing.expect(connection.state == .handshaking);
     // The server's first datagram breaks the protocol, as the twin's transport says it does.
@@ -235,7 +235,7 @@ test "a stream that the transport cannot open on a connection that is up gives c
     const connection = &rig.engine.quic.connections[0];
     try testing.expect(connection.state == .up);
     connection.transport.refuses_requests = true;
-    const handle = try rig.engine.start(question("two.example."), rig.loop.now());
+    const handle = try rig.engine.start(&question("two.example."), rig.loop.now());
     try testing.expect(connection.state == .closed);
     const cause = rig.engine.resolver.lookup_of(handle).cause.get();
     try testing.expectEqual(@as(?cocuyo.Cause, .{ .server_index = 0, .what = .{ .reason = .closed } }), cause);

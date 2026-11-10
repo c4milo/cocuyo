@@ -147,7 +147,7 @@ fn resolve(loop: *rotor.Loop, events: []rotor.Event, clock: Clock, turn: []const
     var started: usize = 0;
     for (0..at_once_max) |_| {
         const name = names.next() orelse break;
-        const handle = try engine.start(try answer_text.question_of(name), clock.read());
+        const handle = try engine.start(&try answer_text.question_of(name), clock.read());
         named[handle.index] = name;
         started += 1;
     }

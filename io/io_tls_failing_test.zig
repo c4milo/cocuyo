@@ -124,7 +124,7 @@ fn expect_fails_over(seed: u64, at: Failure) !void {
     try tls_test.encrypt(&rig);
     try rig.init(seed, .{ .{}, .{} }, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     rig.use_test_contexts();
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expectEqual(@as(u8, 0), failing.left);
@@ -160,7 +160,7 @@ test "a session that fails at each server ends in AllServersFailed, its cause wh
         try tls_test.encrypt(&rig);
         try rig.init(117, .{ .{}, .{} }, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
         rig.use_test_contexts();
-        _ = try rig.engine.start(question("example.com."), rig.loop.now());
+        _ = try rig.engine.start(&question("example.com."), rig.loop.now());
         const result = try rig.until_result();
         try testing.expectEqual(cocuyo.Error.AllServersFailed, result.outcome.failure.err);
         try testing.expectEqual(@as(?cocuyo.Cause, .{ .server_index = 1, .what = .{ .reason = case.reason } }), result.outcome.failure.cause);
@@ -188,7 +188,7 @@ test "a second pass waits for the slot that a refused connection holds while its
     try tls_test.encrypt(&rig);
     try rig.init(62, .{.{}}, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     rig.use_test_contexts();
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     for (0..fixtures.until_rounds_max) |_| {
         if (rig.engine.tcp_waiters > 0) break;
         _ = try rig.step(fixtures.wait_ns);
@@ -219,7 +219,7 @@ test "a second pass waits for a closed slot whose records the loop still holds" 
     try tls_test.encrypt(&rig);
     try rig.init(63, .{.{}}, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     rig.use_test_contexts();
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const connection = &rig.engine.connections[0];
     try until_hello_in_flight(&rig);
     reset_first(&rig);
@@ -246,7 +246,7 @@ test "a second pass waits for a closed slot whose query's records the loop still
     try tls_test.encrypt(&rig);
     try rig.init(65, .{.{}}, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     rig.use_test_contexts();
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     const connection = &rig.engine.connections[0];
     try until_query_in_flight(&rig);
     const lent = io.tls.pending(&rig.engine, 0, connection.queue.first().?.end);
@@ -323,7 +323,7 @@ test "a second pass whose connect the loop refuses is told at once, though a slo
     try tls_test.encrypt(&rig);
     try rig.init(64, .{.{}}, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     rig.use_test_contexts();
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     try until_hello_in_flight(&rig);
     rig.loop.refuse_submissions = true;
     reset_first(&rig);
@@ -347,7 +347,7 @@ test "a second pass opens the other slot while a query's send reads the first on
     try tls_test.encrypt(&rig);
     try rig.init(66, .{.{}}, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     rig.use_test_contexts();
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     const first = &rig.engine.connections[0];
     const second = &rig.engine.connections[1];
     try until_query_in_flight(&rig);
@@ -385,7 +385,7 @@ const Seen = struct { failure: ?cocuyo.Error, cause: ?cocuyo.Cause, failures: u8
 fn lookup_with_room(comptime room: usize, seed: u64) !Seen {
     var rig: RigOver(FailingOf(room)) = .{};
     try tls_test.start(&rig, seed, .{ .{}, .{} });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     const failure: ?cocuyo.Error = if (result.outcome == .failure) result.outcome.failure.err else null;
     const cause: ?cocuyo.Cause = if (result.outcome == .failure) result.outcome.failure.cause else null;
@@ -422,7 +422,7 @@ test "a queue holds a query for each lookup and two entries of the records the s
     // twice more.
     var rig: FailingRig = .{};
     try tls_test.start(&rig, 61, .{ .{}, .{} });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     _ = try rig.until_result();
     _ = rig.engine.take(rig.loop.now());
     _ = rig.engine.take(rig.loop.now());
@@ -432,7 +432,7 @@ test "a queue holds a query for each lookup and two entries of the records the s
     try testing.expect(io.tls.make_records(&rig.engine, 0, rig.loop.now()));
     try testing.expect(connection.sending);
     comptime std.debug.assert(queued_names.len == fixtures.small_lookups);
-    for (queued_names) |name| _ = try rig.engine.start(question(name), rig.loop.now());
+    for (queued_names) |name| _ = try rig.engine.start(&question(name), rig.loop.now());
     for (0..io.limits.tls_records_entries_max) |_| {
         unasked = 1;
         try testing.expect(io.tls.make_records(&rig.engine, 0, rig.loop.now()));
@@ -449,7 +449,7 @@ test "records the session makes while a send is in flight go behind it, and move
     // flight from inside the buffer. The session makes records again, and these go behind them.
     var rig: FailingRig = .{};
     try tls_test.start(&rig, 67, .{ .{}, .{} });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const connection = &rig.engine.connections[0];
     defer unasked = 0;
     try until_query_in_flight(&rig);

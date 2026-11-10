@@ -65,7 +65,7 @@ fn config_of(servers: []const cocuyo.Server) cocuyo.Config {
 /// One lookup started, answered by the first server, and its result taken. A started lookup has
 /// passed `start`'s assertion, and its session took its context from the engine.
 fn expect_answered(rig: *Rig, name: []const u8) !void {
-    const handle = try rig.engine.start(question(name), rig.loop.now());
+    const handle = try rig.engine.start(&question(name), rig.loop.now());
     if (rig.engine.config.uses_https()) {
         // The twin's channel says what a test queues: the exchange's end, read at the next drive.
         rig.engine.doh.slots[0].channel.say(.{ .finished = .{ .index = handle.index, .answer = true } }, rig.loop.now());

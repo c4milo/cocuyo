@@ -186,7 +186,7 @@ pub fn framed_answer(engine: anytype, handle: cocuyo.Handle, out: []u8) !usize {
 test "a lookup started on the engine is answered by the scripted server through the loop" {
     var rig: Rig = .{};
     try rig.init(1, .{ .{}, .{} }, .{ .servers = &.{} });
-    const started = try rig.engine.start(question("example.com."), rig.loop.now());
+    const started = try rig.engine.start(&question("example.com."), rig.loop.now());
     try testing.expectEqual(@as(usize, 1), rig.engine.in_flight());
     const result = try rig.until_result();
     try testing.expectEqual(started, result.handle);
@@ -207,7 +207,7 @@ test "a lookup of a name of 255 octets is answered through the loop, over UDP an
         try rig.init(fixtures.longest_name_seed + case, .{ script, .{ .down = true } }, .{ .servers = &.{} });
         const text_question = question(fixtures.longest_name_text);
         try testing.expectEqual(@as(usize, core.limits.name_bytes_max), text_question.name.len);
-        _ = try rig.engine.start(text_question, rig.loop.now());
+        _ = try rig.engine.start(&text_question, rig.loop.now());
         const result = try rig.until_result();
         try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
         // A truncated answer sent the lookup to the stream, which answered it (RFC 7766 §5).
@@ -220,13 +220,13 @@ test "a lookup of a name of 255 octets is answered through the loop, over UDP an
 test "a second start for the same name is a cache hit, and a negative answer is cached too" {
     var rig: Rig = .{};
     try rig.init(2, .{ .{}, .{} }, .{ .servers = &.{} });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const first = try rig.until_result();
     const address = first.outcome.answer.addresses[0];
     _ = rig.engine.take(rig.loop.now());
     // The cache answers it under the table (docs/design.md §20), so the result is there before
     // the loop turns: nothing was sent, because nothing could have been.
-    const again = try rig.engine.start(question("EXAMPLE.com."), rig.loop.now());
+    const again = try rig.engine.start(&question("EXAMPLE.com."), rig.loop.now());
     const hit = rig.engine.take(rig.loop.now()).?;
     try testing.expectEqual(again, hit.handle);
     try testing.expect(address.equal(&hit.outcome.answer.addresses[0]));
@@ -236,12 +236,12 @@ test "a second start for the same name is a cache hit, and a negative answer is 
     // with the TTL the failure carries, which is zero here and so not cached.
     var mx = question("nodata.example.");
     mx.kind = .mx;
-    _ = try rig.engine.start(mx, rig.loop.now());
+    _ = try rig.engine.start(&mx, rig.loop.now());
     const nodata = try rig.until_result();
     try testing.expectEqual(cocuyo.Error.NoData, nodata.outcome.failure.err);
     try testing.expectEqual(@as(u32, 0), nodata.outcome.failure.negative_ttl_seconds);
     _ = rig.engine.take(rig.loop.now());
-    _ = try rig.engine.start(mx, rig.loop.now());
+    _ = try rig.engine.start(&mx, rig.loop.now());
     _ = try rig.until_result();
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
@@ -250,7 +250,7 @@ test "a second start for the same name is a cache hit, and a negative answer is 
 test "a server that is down costs a timeout, the other answers, and the failure is counted" {
     var rig: Rig = .{};
     try rig.init(3, .{ .{ .down = true }, .{} }, .{ .servers = &.{}, .timeout_ns = 1_000_000_000, .failover_retry_chance = 0 });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expect(rig.loop.now() >= 1_000_000_000);
@@ -259,7 +259,7 @@ test "a server that is down costs a timeout, the other answers, and the failure 
     _ = rig.engine.take(rig.loop.now());
     // The next lookup asks the live server first and needs no timeout.
     const before = rig.loop.now();
-    _ = try rig.engine.start(question("other.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("other.example."), rig.loop.now());
     _ = try rig.until_result();
     try testing.expect(rig.loop.now() - before < 1_000_000_000);
     _ = rig.engine.take(rig.loop.now());
@@ -269,7 +269,7 @@ test "a server that is down costs a timeout, the other answers, and the failure 
 test "cancel ends a lookup with Canceled, through take" {
     var rig: Rig = .{};
     try rig.init(4, .{ .{ .delay_ns_min = 1_000_000_000, .delay_ns_max = 1_000_000_000 }, .{} }, .{ .servers = &.{} });
-    const started = try rig.engine.start(question("example.com."), rig.loop.now());
+    const started = try rig.engine.start(&question("example.com."), rig.loop.now());
     rig.engine.cancel(started, rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(cocuyo.Error.Canceled, result.outcome.failure.err);
@@ -281,7 +281,7 @@ test "cancel ends a lookup with Canceled, through take" {
 test "the timer follows the table's soonest deadline" {
     var rig: Rig = .{};
     try rig.init(5, .{ .{ .down = true }, .{ .down = true } }, .{ .servers = &.{}, .timeout_ns = 2_000_000_000, .attempts = 1 });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     // A queued send is not a sent one: the wait, and the timer, start when it completes.
     try testing.expect(rig.engine.timer_handle == null);
     _ = try rig.step(0);
@@ -304,7 +304,7 @@ test "the end of a timer the engine has replaced is not taken for the current on
     var rig: Rig = .{};
     try rig.init(9, .{ .{ .down = true }, .{ .down = true } }, .{ .servers = &.{}, .timeout_ns = 2_000_000_000, .attempts = 1 });
     rig.engine.timer_generation = std.math.maxInt(u32) - 1;
-    const started = try rig.engine.start(question("first.example."), rig.loop.now());
+    const started = try rig.engine.start(&question("first.example."), rig.loop.now());
     _ = try rig.step(0);
     try testing.expectEqual(@as(?u64, 2_000_000_000), rig.engine.timer_due_ns);
     try testing.expectEqual(@as(u32, std.math.maxInt(u32)), rig.engine.timer_generation);
@@ -340,7 +340,7 @@ test "an event another component submitted is handed back untouched" {
     // current timer in every bit but the tag: taken for the resolver's, it would end that timer.
     var rig: Rig = .{};
     try rig.init(11, .{ .{ .down = true }, .{ .down = true } }, .{ .servers = &.{}, .timeout_ns = 2_000_000_000, .attempts = 1 });
-    const started = try rig.engine.start(question("example.com."), rig.loop.now());
+    const started = try rig.engine.start(&question("example.com."), rig.loop.now());
     _ = try rig.step(0);
     const armed = rig.engine.timer_handle;
     try testing.expect(armed != null);
@@ -362,7 +362,7 @@ test "an event another component submitted is handed back untouched" {
 test "a timer that fires before the caller's clock reaches the deadline is armed again" {
     var rig: Rig = .{};
     try rig.init(10, .{ .{ .down = true }, .{ .down = true } }, .{ .servers = &.{}, .timeout_ns = 2_000_000_000, .attempts = 1 });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     _ = try rig.step(0);
     try testing.expectEqual(@as(u32, 1), try tick_for(&rig.loop, &rig.events, fixtures.wait_ns));
     try testing.expectEqual(@as(u64, 2_000_000_000), rig.loop.now());
@@ -382,7 +382,7 @@ test "a lookup offered twice is on the ready list once" {
     // asked to put one slot on its list twice (§11).
     var rig: Rig = .{};
     try rig.init(15, .{ .{}, .{} }, .{ .servers = &.{} });
-    const started = try rig.engine.start(question("example.com."), rig.loop.now());
+    const started = try rig.engine.start(&question("example.com."), rig.loop.now());
     rig.engine.cancel(started, rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(cocuyo.Error.Canceled, result.outcome.failure.err);
@@ -400,7 +400,7 @@ fn many(seed: u64) !u64 {
     var started: usize = 0;
     while (started < fixtures.many_lookups) : (started += 1) {
         const text = try std.fmt.bufPrint(&buffer, "h{d}.example.", .{started});
-        _ = try rig.engine.start(question(text), rig.loop.now());
+        _ = try rig.engine.start(&question(text), rig.loop.now());
     }
     var trace: u64 = seed;
     var taken: usize = 0;
@@ -431,7 +431,7 @@ test "many lookups in flight over lossy servers all end, and one seed gives one 
 test "a send that fails at the socket costs no timeout: the next server is asked at once" {
     var rig: Rig = .{};
     try rig.init(6, .{ .{ .no_route = true }, .{} }, .{ .servers = &.{}, .timeout_ns = 1_000_000_000, .failover_retry_chance = 0 });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expect(rig.loop.now() < 1_000_000_000);
@@ -458,7 +458,7 @@ test "the receive is armed again after the group runs dry, and every answer stil
     var started: usize = 0;
     while (started < fixtures.small_lookups) : (started += 1) {
         const text = try std.fmt.bufPrint(&buffer, "h{d}.example.", .{started});
-        _ = try engine.start(question(text), loop.now());
+        _ = try engine.start(&question(text), loop.now());
     }
     var events: [fixtures.events_max]rotor.Event = undefined;
     var answers: usize = 0;

@@ -21,7 +21,7 @@ const three_servers = fixtures.servers_three;
 test "a lookup starts ready to send its first query" {
     const config: Config = .{ .servers = &one_server };
     var servers_config = Servers.init(&config, 1);
-    var lookup = Lookup.init(&config, &servers_config, try Question.from_text("example.com", .a), 1);
+    var lookup = Lookup.init(&config, &servers_config, &try Question.from_text("example.com", .a), 1);
     try testing.expectEqual(State.query_ready, lookup.state);
     try testing.expect(lookup.current.equal(&try Name.from_text("example.com")));
     try testing.expect(lookup.flags.edns_enabled);
@@ -35,7 +35,7 @@ test "the name on the wire is cased and the name held is not" {
     var out: [core.limits.query_bytes_max]u8 = @splat(0);
     const config: Config = .{ .servers = &one_server };
     var servers_config = Servers.init(&config, 1);
-    var lookup = Lookup.init(&config, &servers_config, try Question.from_text("example.com", .a), 1);
+    var lookup = Lookup.init(&config, &servers_config, &try Question.from_text("example.com", .a), 1);
     try testing.expect(!lookup.flags.query_mixed);
     _ = lookup.poll(0, &out);
     try testing.expect(lookup.flags.query_mixed);
@@ -45,7 +45,7 @@ test "the name on the wire is cased and the name held is not" {
 
     const plain: Config = .{ .servers = &one_server, .mix_case = false };
     var servers_plain = Servers.init(&plain, 1);
-    var without = Lookup.init(&plain, &servers_plain, lookup.question, 1);
+    var without = Lookup.init(&plain, &servers_plain, &lookup.question, 1);
     _ = without.poll(0, &out);
     try testing.expect(!without.flags.query_mixed);
     try testing.expectEqualSlices(u8, without.current.wire(), without.cased_name().wire());
@@ -59,12 +59,12 @@ test "rotation starts somewhere in the list, and a lookup without it starts at t
     var seen: [three_servers.len]bool = @splat(false);
     var seed: u64 = 0;
     while (seed < 64) : (seed += 1) {
-        const lookup = Lookup.init(&rotating, &servers_rotating, try Question.from_text("example.com.", .a), seed);
+        const lookup = Lookup.init(&rotating, &servers_rotating, &try Question.from_text("example.com.", .a), seed);
         var polled = lookup;
         var out: [core.limits.query_bytes_max]u8 = @splat(0);
         _ = polled.poll(0, &out);
         seen[polled.server_slot()] = true;
-        const fixed = Lookup.init(&plain, &servers_plain, try Question.from_text("example.com.", .a), seed);
+        const fixed = Lookup.init(&plain, &servers_plain, &try Question.from_text("example.com.", .a), seed);
         var fixed_polled = fixed;
         _ = fixed_polled.poll(0, &out);
         try testing.expectEqual(@as(u8, 0), fixed_polled.server_slot());
@@ -75,7 +75,7 @@ test "rotation starts somewhere in the list, and a lookup without it starts at t
 test "cancel settles a lookup without an answer" {
     const config: Config = .{ .servers = &one_server };
     var servers_config = Servers.init(&config, 1);
-    var lookup = Lookup.init(&config, &servers_config, try Question.from_text("example.com.", .a), 1);
+    var lookup = Lookup.init(&config, &servers_config, &try Question.from_text("example.com.", .a), 1);
     lookup.cancel();
     try testing.expect(lookup.is_settled());
     try testing.expectEqual(core.Error.Canceled, lookup.failure_of().err);
@@ -90,7 +90,7 @@ test "a lookup started in its slot leaves the answers' storage as the last looku
     // `undefined` with 0xAA (docs/design.md §16 decision 34).
     const left: u8 = 0x5a;
     @memset(std.mem.asBytes(&lookup.answers.items), left);
-    lookup.init_in_place(&config, &servers_config, try Question.from_text("example.com", .mx), 1);
+    lookup.init_in_place(&config, &servers_config, &try Question.from_text("example.com", .mx), 1);
     try testing.expectEqual(core.Kind.mx, lookup.answers.kind);
     try testing.expectEqual(@as(u8, 0), lookup.answers.count);
     try testing.expectEqual(@as(u16, 0), lookup.answers.items.records.used);

@@ -29,7 +29,7 @@ const scripts = blk: {
 fn expect_last_answers(rig: anytype, seed: u64, named: cocuyo.Config) !void {
     try rig.init(seed, scripts, named);
     rig.use_test_contexts();
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expect(result.outcome == .answer);
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
@@ -105,14 +105,14 @@ test "one drive takes a lookup through every try at eight servers when the loop 
     for (0..fixtures.until_rounds_max) |round| {
         if (up_count(&rig) == servers_max) break;
         const text = try std.fmt.bufPrint(&buffer, "w{d}.example.", .{round});
-        _ = try rig.engine.start(question(text), rig.loop.now());
+        _ = try rig.engine.start(&question(text), rig.loop.now());
         try testing.expect((try rig.until_result()).outcome == .answer);
         _ = rig.engine.take(rig.loop.now());
     }
     try testing.expectEqual(@as(usize, servers_max), up_count(&rig));
     // The loop refuses each send now, so each try fails at once, in the drive that `start` runs.
     rig.loop.refuse_submissions = true;
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = rig.engine.take(rig.loop.now()) orelse return error.TestUnexpectedResult;
     try testing.expectEqual(cocuyo.Error.AllServersFailed, result.outcome.failure.err);
     rig.loop.refuse_submissions = false;

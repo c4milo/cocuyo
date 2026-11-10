@@ -220,7 +220,7 @@ fn answer(loop: *rotor.Loop, events: []rotor.Event, clock: Clock, bytes: []const
 /// `ticks_max` ticks.
 fn resolve(loop: *rotor.Loop, events: []rotor.Event, clock: Clock, query: *const Query, bytes: []const u8, over_tcp: bool, out: []u8) ![]const u8 {
     const flags = query.flags;
-    const handle = engine.start(query.question, clock.read()) catch return bare(bytes, flags, rcode_server_failure, out);
+    const handle = engine.start(&query.question, clock.read()) catch return bare(bytes, flags, rcode_server_failure, out);
     for (0..ticks_max) |_| {
         if (engine.take(clock.read())) |result| {
             assert(result.handle.index == handle.index);

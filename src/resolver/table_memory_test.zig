@@ -396,7 +396,7 @@ fn first_poll(held: memory_module.Remembered, kind: Kind, validating: bool) !loo
     rig.open();
     rig.resolver.use_memory(stub.memory());
     if (validating) rig.resolver.use_trust(Secure.trust(&context));
-    _ = try rig.resolver.start(try core.Question.from_text("example.com.", kind));
+    _ = try rig.resolver.start(&try core.Question.from_text("example.com.", kind));
     const event = rig.poll().?;
     try testing.expectEqual(@as(u32, 1), stub.recalls);
     return event.action;

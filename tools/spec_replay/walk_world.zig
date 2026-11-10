@@ -165,7 +165,7 @@ pub const World = struct {
         var buffer: [32]u8 = undefined;
         const other = std.fmt.bufPrint(&buffer, "o{d}.other.", .{world.live.others_count}) catch unreachable;
         const question = core.Question.from_text(other, .a) catch unreachable;
-        world.live.others[world.live.others_count] = world.live.table.start(question) catch return error.Refused;
+        world.live.others[world.live.others_count] = world.live.table.start(&question) catch return error.Refused;
         world.live.others_count += 1;
     }
 

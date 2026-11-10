@@ -284,7 +284,7 @@ pub fn Resolver(comptime options: Options) type {
         /// there by the time this returns: the table asks the cache at the lookup's first poll,
         /// which the drive below makes (docs/design.md §20). The transport the configuration's
         /// servers speak must have its context by now: `has_context` says whether it has.
-        pub fn start(self: *Self, question: cocuyo.Question, now_ns: u64) error{NoSlot}!cocuyo.Handle {
+        pub fn start(self: *Self, question: *const cocuyo.Question, now_ns: u64) error{NoSlot}!cocuyo.Handle {
             assert(!self.closing);
             // A lookup is the first call that can reach a server, and a session never starts from
             // a context nobody named: forgetting `use_tls`, `use_quic` or `use_doh` is a

@@ -63,7 +63,7 @@ test "a lookup at the next server closes the connect of its last try, and the ne
     var rig: Rig = .{};
     try rig.init(120, hung_first, one_pass);
     try testing.expectEqual(@as(usize, 1), rig.engine.connections.len);
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(@as(?cocuyo.Error, null), failure_of(result));
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
@@ -84,7 +84,7 @@ test "a lookup whose admission the loop refuses waits for the next drive, which 
     // connection that the second opened (the stream's rule 12).
     var rig: Rig = .{};
     try rig.init(122, hung_first, one_pass);
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     try until_waiting(&rig);
     rig.loop.refuse_submissions = true;
     _ = try rig.step(fixtures.wait_ns);
@@ -92,7 +92,7 @@ test "a lookup whose admission the loop refuses waits for the next drive, which 
     const connection = &rig.engine.connections[0];
     try testing.expect(connection.state == .closed and !connection.borrowed());
     try testing.expectEqual(@as(u16, 1), rig.engine.tcp_waiters);
-    _ = try rig.engine.start(question("example.net."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.net."), rig.loop.now());
     try testing.expectEqual(@as(u16, 0), rig.engine.tcp_waiters);
     try testing.expectEqual(@as(u16, 2), connection.users);
     // `until_result` takes each result, and the last `take` frees the slot of the second.
@@ -108,7 +108,7 @@ test "a lookup whose admission the loop refuses until its deadline moves on ther
     // lookup waits for nothing (the stream's rule 12).
     var rig: Rig = .{};
     try rig.init(123, hung_first, one_pass);
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     try until_waiting(&rig);
     rig.loop.refuse_submissions = true;
     const result = try rig.until_result();
@@ -121,7 +121,7 @@ test "a lookup whose admission the loop refuses until its deadline moves on ther
     // (docs/design.md §16 decision 46).
     try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(1));
     _ = rig.engine.take(rig.loop.now());
-    _ = try rig.engine.start(question("example.net."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.net."), rig.loop.now());
     try testing.expectEqual(@as(?cocuyo.Error, null), failure_of(try rig.until_result()));
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
@@ -134,9 +134,9 @@ test "a lookup at the next server leaves alone a connect that a lookup is on, an
     // connection failed (the stream's rules 1 and 12).
     var rig: Rig = .{};
     try rig.init(124, hung_first, one_pass);
-    const first = try rig.engine.start(question("one.example."), rig.loop.now());
+    const first = try rig.engine.start(&question("one.example."), rig.loop.now());
     _ = try rig.step(fixtures.slow_connect_timeout_ns / 2);
-    const second = try rig.engine.start(question("two.example."), rig.loop.now());
+    const second = try rig.engine.start(&question("two.example."), rig.loop.now());
     const connection = &rig.engine.connections[0];
     try testing.expectEqual(@as(u16, 2), connection.users);
     const result = try rig.until_result();
@@ -173,7 +173,7 @@ test "a lookup that waits while a slot is pending leaves alone a connect that no
     var rig: TwoSlots = .{};
     const hung: rotor.server.Script = .{ .connect_delay_ns = fixtures.hung_connect_ns };
     try rig.init(125, .{ hung, hung }, one_pass);
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     try testing.expectEqual(@as(?cocuyo.Error, cocuyo.Error.Timeout), failure_of(try rig.until_result()));
     _ = rig.engine.take(rig.loop.now());
     // The first slot has been idle since the first wait ran out, and the second since the second
@@ -181,7 +181,7 @@ test "a lookup that waits while a slot is pending leaves alone a connect that no
     _ = try rig.step(rig.engine.tcp_idle_ns - fixtures.slow_connect_timeout_ns / 2);
     rig.engine.drive(rig.loop.now());
     try testing.expect(rig.engine.connections[0].state == .closed and rig.engine.connections[0].borrowed());
-    _ = try rig.engine.start(question("example.net."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.net."), rig.loop.now());
     try testing.expectEqual(@as(u16, 1), rig.engine.tcp_waiters);
     const other = &rig.engine.connections[1];
     try testing.expect(other.state == .connecting and other.server == 1 and other.borrowed());
@@ -258,7 +258,7 @@ fn expect_freed_at_cancel(rig: anytype) !void {
 /// rule 5).
 fn stall_close_notify(rig: *TlsOneSlot, seed: u64) !void {
     try start_tls(rig, seed, .{});
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     try testing.expectEqual(@as(?cocuyo.Error, null), failure_of(try rig.until_result()));
     _ = rig.engine.take(rig.loop.now());
     stall_first(rig);
@@ -275,7 +275,7 @@ test "a second pass gets a slot whose alert never goes once the idle close's wai
     // connect.
     var rig: TlsOneSlot = .{};
     try start_tls(&rig, 126, .{ .tls = .{ .refuse = true }, .delay_ns_min = fixtures.slow_step_ns, .delay_ns_max = fixtures.slow_step_ns });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const connection = &rig.engine.connections[0];
     for (0..fixtures.until_rounds_max) |_| {
         if (connection.state == .handshaking and !connection.sending) break;
@@ -296,7 +296,7 @@ test "a second pass gets a slot whose alert never goes once the idle close's wai
     try testing.expectEqual(@as(u32, 0), rig.loop.network().alerts_heard[0]);
     // A later lookup joins that connection, and the server answers it.
     _ = rig.engine.take(rig.loop.now());
-    _ = try rig.engine.start(question("example.net."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.net."), rig.loop.now());
     try testing.expectEqual(@as(?cocuyo.Error, null), failure_of(try rig.until_result()));
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
@@ -308,7 +308,7 @@ test "a lookup gets a slot whose close_notify never goes once the idle close's w
     var rig: TlsOneSlot = .{};
     try stall_close_notify(&rig, 127);
     const since = rig.loop.now();
-    _ = try rig.engine.start(question("example.net."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.net."), rig.loop.now());
     try expect_shut_after_wait(&rig, since);
     const result = try rig.until_result();
     try testing.expectEqual(@as(?cocuyo.Error, null), failure_of(result));
@@ -324,7 +324,7 @@ test "a reinit cancels a close_notify that never goes, and a later lookup gets i
     var rig: TlsOneSlot = .{};
     try stall_close_notify(&rig, 128);
     try rig.engine.reinit(&rig.config, rig.cache_memory.slices(), 129, rig.loop.now());
-    _ = try rig.engine.start(question("example.net."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.net."), rig.loop.now());
     try expect_freed_at_cancel(&rig);
     try testing.expectEqual(@as(?cocuyo.Error, null), failure_of(try rig.until_result()));
     _ = rig.engine.take(rig.loop.now());
@@ -352,7 +352,7 @@ test "a resumed handshake that fails while its hello never goes connects again i
     var rig: TlsOneSlot = .{};
     try start_tls(&rig, 131, .{ .delay_ns_min = fixtures.slow_step_ns, .delay_ns_max = fixtures.slow_step_ns });
     rig.engine.tls_tickets[0] = .{ .ticket = .{}, .since_ns = rig.loop.now() };
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const connection = &rig.engine.connections[0];
     try testing.expect(connection.tls.ticket != null);
     // The twin opens the stream as it takes the connect, whose event comes a step later.

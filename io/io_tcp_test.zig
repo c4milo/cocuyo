@@ -26,7 +26,7 @@ const Dry = io.Resolver(.{
 test "a truncated answer goes to the stream, and the stream answers it" {
     var rig: Rig = .{};
     try rig.init(11, .{ .{ .truncate_per_256 = fixtures.always }, .{} }, .{ .servers = &.{} });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     // The same server answered, over a connection this lookup opened (RFC 7766 §5).
@@ -42,8 +42,8 @@ test "two lookups that need the stream share one connection" {
     // The other server is down, so a lookup that opened a connection of its own rather than
     // sharing would be refused one and fail over to nothing.
     try rig.init(12, .{ .{ .truncate_per_256 = fixtures.always }, .{ .down = true } }, .{ .servers = &.{}, .timeout_ns = 1_000_000_000, .attempts = 1 });
-    _ = try rig.engine.start(question("one.example."), rig.loop.now());
-    _ = try rig.engine.start(question("two.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("one.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("two.example."), rig.loop.now());
     var answered: usize = 0;
     while (answered < 2) : (answered += 1) {
         const result = try rig.until_result();
@@ -65,8 +65,8 @@ test "a stream send that goes short sends the rest, and the next query waits its
         .attempts = 1,
         .socket_send_bytes = fixtures.socket_send_bytes_short,
     });
-    _ = try rig.engine.start(question("one.example."), rig.loop.now());
-    _ = try rig.engine.start(question("two.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("one.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("two.example."), rig.loop.now());
     var answered: usize = 0;
     while (answered < 2) : (answered += 1) {
         const result = try rig.until_result();
@@ -81,8 +81,8 @@ test "a stream send that goes short sends the rest, and the next query waits its
 test "a lookup that leaves its connection takes its waiting query out of the queue" {
     var rig: Rig = .{};
     try rig.init(19, .{ .{}, .{ .down = true } }, .{ .servers = &.{}, .use_tcp = true, .attempts = 1 });
-    const first = try rig.engine.start(question("one.example."), rig.loop.now());
-    const second = try rig.engine.start(question("two.example."), rig.loop.now());
+    const first = try rig.engine.start(&question("one.example."), rig.loop.now());
+    const second = try rig.engine.start(&question("two.example."), rig.loop.now());
     // The connect ends, and both queries are asked for: the first goes, the second waits.
     _ = try rig.step(fixtures.wait_ns);
     const connection = &rig.engine.connections[0];
@@ -101,7 +101,7 @@ test "a lookup that leaves its connection takes its waiting query out of the que
 test "a server that refuses the connection costs it the lookup, and the next server answers" {
     var rig: Rig = .{};
     try rig.init(13, .{ .{ .truncate_per_256 = fixtures.always, .tcp = false }, .{} }, .{ .servers = &.{}, .failover_retry_chance = 0 });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(0));
@@ -134,7 +134,7 @@ test "an engine with no TCP connection fails a lookup's stream over at once" {
     // told so, and the next server answers long before the first one's wait would have ended.
     var rig: sim_test.RigOf(Streamless) = .{};
     try rig.init(15, .{ .{ .truncate_per_256 = fixtures.always }, .{} }, .{ .servers = &.{}, .failover_retry_chance = 0 });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(0));
@@ -146,7 +146,7 @@ test "an engine with no TCP connection fails a lookup's stream over at once" {
 test "a connection nobody is using is closed once it has been idle long enough" {
     var rig: Rig = .{};
     try rig.init(14, .{ .{ .truncate_per_256 = fixtures.always }, .{} }, .{ .servers = &.{} });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     _ = try rig.until_result();
     _ = rig.engine.take(rig.loop.now());
     try testing.expect(rig.engine.connections[0].state == .up);
@@ -170,7 +170,7 @@ test "a connection with a lookup on it is not closed for having been idle" {
         .delay_ns_max = fixtures.stream_delay_ns,
     };
     try rig.init(16, .{ script, .{ .down = true } }, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .attempts = 1 });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expect(rig.loop.now() >= fixtures.stream_delay_ns);
@@ -184,7 +184,7 @@ test "a connection with a lookup on it is not closed for having been idle" {
 /// so the drive shuts the connection at once (docs/design.md §16 decision 53).
 fn stall_a_query(rig: *Rig, seed: u64) !cocuyo.Handle {
     try rig.init(seed, .{ .{}, .{} }, .{ .servers = &.{}, .use_tcp = true, .attempts = 1 });
-    const first = try rig.engine.start(question("one.example."), rig.loop.now());
+    const first = try rig.engine.start(&question("one.example."), rig.loop.now());
     const connection = &rig.engine.connections[0];
     rig.loop.network().stall(connection.descriptor.?);
     _ = try rig.step(fixtures.wait_ns);
@@ -202,7 +202,7 @@ fn expect_buffer_at_cancel(rig: *Rig, first: cocuyo.Handle) !void {
     try testing.expect(rig.engine.connections[0].state == .closed and rig.engine.send_in_flight[first.index]);
     _ = try rig.step(fixtures.channel_read_ns);
     try testing.expect(!rig.engine.send_in_flight[first.index]);
-    _ = try rig.engine.start(question("two.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("two.example."), rig.loop.now());
     try testing.expect((try rig.until_result()).outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
 }
@@ -230,7 +230,7 @@ test "a stream answer comes from the server's own TCP port" {
     var rig: Rig = .{};
     rig.servers[0].tcp_port = rotor.constants.server_tcp_port;
     try rig.init(17, .{ .{ .truncate_per_256 = fixtures.always }, .{ .down = true } }, .{ .servers = &.{}, .timeout_ns = 1_000_000_000, .attempts = 1 });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     _ = rig.engine.take(rig.loop.now());
@@ -250,7 +250,7 @@ test "a connection that comes up after its lookup moved on tells nobody" {
     };
     const next: rotor.server.Script = .{ .delay_ns_min = fixtures.slow_answer_ns, .delay_ns_max = fixtures.slow_answer_ns };
     try rig.init(18, .{ slow, next }, .{ .servers = &.{}, .timeout_ns = fixtures.slow_connect_timeout_ns, .attempts = 1, .failover_retry_chance = 0 });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     _ = rig.engine.take(rig.loop.now());
@@ -275,7 +275,7 @@ test "the stream receive is armed again after its group runs dry" {
     var started: usize = 0;
     while (started < fixtures.small_lookups) : (started += 1) {
         const text = try std.fmt.bufPrint(&buffer, "h{d}.example.", .{started});
-        _ = try engine.start(question(text), loop.now());
+        _ = try engine.start(&question(text), loop.now());
     }
     var events: [fixtures.events_max]rotor.Event = undefined;
     var answered: usize = 0;
@@ -301,8 +301,8 @@ test "the stream receive is armed again after its group runs dry" {
 /// and the second's waits behind it.
 fn two_queued(rig: *Rig, seed: u64) ![fixtures.queued_lookups]cocuyo.Handle {
     try rig.init(seed, .{ .{}, .{ .down = true } }, .{ .servers = &.{}, .use_tcp = true, .attempts = 1 });
-    const first = try rig.engine.start(question("one.example."), rig.loop.now());
-    const second = try rig.engine.start(question("two.example."), rig.loop.now());
+    const first = try rig.engine.start(&question("one.example."), rig.loop.now());
+    const second = try rig.engine.start(&question("two.example."), rig.loop.now());
     _ = try rig.step(fixtures.wait_ns);
     const connection = &rig.engine.connections[0];
     try testing.expectEqual(@as(u16, fixtures.queued_lookups), connection.queue.count);
@@ -366,8 +366,8 @@ test "a new opening in the slot of a connection that failed mid-send writes none
     // held until the send's event, so the octets the loop may still read stay as they were.
     var rig: Rig = .{};
     try rig.init(23, .{ .{}, .{} }, .{ .servers = &.{}, .use_tcp = true, .attempts = 1 });
-    const first = try rig.engine.start(question("one.example."), rig.loop.now());
-    _ = try rig.engine.start(question("two.example."), rig.loop.now());
+    const first = try rig.engine.start(&question("one.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("two.example."), rig.loop.now());
     _ = try rig.step(fixtures.wait_ns);
     const connection = &rig.engine.connections[0];
     try testing.expect(connection.sending and connection.queue.first().?.slot == first.index);
@@ -447,7 +447,7 @@ test "a connection's incarnation wraps at the last of its thirty-two bits, and t
     var rig: Rig = .{};
     try rig.init(13, .{ .{ .truncate_per_256 = fixtures.always }, .{} }, .{ .servers = &.{} });
     rig.engine.connections[0].incarnation = std.math.maxInt(u32) - 1;
-    _ = try rig.engine.start(question("one.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("one.example."), rig.loop.now());
     try testing.expect((try rig.until_result()).outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
     // Its events carried the largest incarnation above the slot, and each was the connection's.
@@ -458,7 +458,7 @@ test "a connection's incarnation wraps at the last of its thirty-two bits, and t
     _ = try rig.step(fixtures.tcp_idle_jump_ns);
     rig.engine.drive(rig.loop.now());
     try testing.expect(rig.engine.connections[0].state == .closed);
-    _ = try rig.engine.start(question("two.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("two.example."), rig.loop.now());
     try testing.expect((try rig.until_result()).outcome == .answer);
     try testing.expectEqual(@as(u32, 0), rig.engine.connections[0].incarnation);
     try testing.expectEqual(@as(u8, 0), rig.engine.resolver.servers.failures(0));

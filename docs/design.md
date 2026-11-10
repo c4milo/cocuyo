@@ -282,9 +282,9 @@ pub const Servers = struct {
 };
 
 pub const Lookup = struct {
-    pub fn init(config: *const Config, servers: *Servers, question: Question, seed: u64) Lookup;
+    pub fn init(config: *const Config, servers: *Servers, question: *const Question, seed: u64) Lookup;
     /// `init` into memory the caller owns, which is what `Resolver` does with its slots (§11).
-    pub fn init_in_place(self: *Lookup, config: *const Config, servers: *Servers, question: Question, seed: u64) void;
+    pub fn init_in_place(self: *Lookup, config: *const Config, servers: *Servers, question: *const Question, seed: u64) void;
     pub fn poll(self: *Lookup, now_ns: u64, out: []u8) Action;
     pub fn on_sent(self: *Lookup, now_ns: u64) void;
     pub fn on_send_failed(self: *Lookup, now_ns: u64) void;
@@ -406,7 +406,7 @@ pub const Slot = struct {
 
 pub const Resolver = struct {
     pub fn init(slots: []Slot, keys: []MatchKey, config: *const Config, seed: u64) Resolver;
-    pub fn start(self: *Resolver, question: Question) error{NoSlot}!Handle;
+    pub fn start(self: *Resolver, question: *const Question) error{NoSlot}!Handle;
     /// Null when there is nothing to do now. Each lookup is offered once for each thing it has
     /// to do, and offered again when an event gives it something new, so a caller acts on what
     /// it is given rather than polling again to be reminded (§11, §16 decision 20).
@@ -7803,7 +7803,7 @@ pub const Engine = struct {
         hosts: ?*const Hosts, cache_memory: ?cache.Slices, seed: u64, now_ns: u64, options: Options) InitError!void;
     pub fn deinit(self: *Engine) void;
 
-    pub fn start(self: *Engine, question: Question, now_ns: u64) error{Full}!Handle;
+    pub fn start(self: *Engine, question: *const Question, now_ns: u64) error{NoSlot}!Handle;
     pub fn address_info(self: *Engine, name: []const u8, port: u16, flags: AddressInfoFlags, now_ns: u64) error{Full}!Handle;
     pub fn name_info(self: *Engine, address: *const Address, now_ns: u64) error{Full}!Handle;
     pub fn cancel(self: *Engine, handle: Handle) void;

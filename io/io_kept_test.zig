@@ -41,7 +41,7 @@ test "a lookup that moved on over TCP takes the late answer on the connection it
     try rig.init(141, late_then_dropping, .{ .servers = &.{}, .use_tcp = true, .timeout_ns = wait_ns, .attempts = 1, .failover_retry_chance = 0 });
     // An idle close that forgot the keeper would end the first connection before the answer.
     rig.engine.tcp_idle_ns = idle_ns;
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     // Before decision 66 the lookup left the first connection at its deadline and timed out on
     // the second server.
@@ -57,7 +57,7 @@ test "a socket that drains stays open for the late answer to an open datagram tr
     var rig: Rig = .{};
     // One query a port: the first query's socket drains from the end of the drive that sent it.
     try rig.init(142, late_then_down, .{ .servers = &.{}, .timeout_ns = wait_ns, .attempts = 1, .failover_retry_chance = 0, .udp_queries_per_port = 1 });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     // Before decision 66 the draining socket closed once the lookup waited on the second server,
     // and the answer came to no socket.
@@ -73,7 +73,7 @@ test "a connection that only keepers hold makes room, and its keepers hear local
     // first closes, and its keeper hears `local`.
     var rig: Rig = .{};
     try rig.init(143, .{ .{ .drop_per_256 = fixtures.always, .connect_delay_ns = connect_ns }, .{} }, .{ .servers = &.{}, .use_tcp = true, .timeout_ns = wait_ns, .attempts = 1, .failover_retry_chance = 0 });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expect(result.outcome == .answer);
     // The first server failed once, at its deadline. The close made for room is no second failure.
@@ -88,7 +88,7 @@ test "a later pass over TCP waits on its open query, and takes its answer there"
     // drops each query. The second pass waits on the first query, and sends none.
     const slow: rotor.server.Script = .{ .delay_ns_min = later_ns, .delay_ns_max = later_ns, .connect_delay_ns = connect_ns };
     try rig.init(144, .{ slow, .{ .drop_per_256 = fixtures.always } }, .{ .servers = &.{}, .use_tcp = true, .timeout_ns = wait_ns, .attempts = 2, .failover_retry_chance = 0 });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     for (0..fixtures.until_rounds_max) |_| {
         if (rig.engine.resolver.lookup_of(handle).round == 1) break;
         _ = try rig.step(step_ns);
@@ -109,7 +109,7 @@ test "a later pass over TCP waits on its open query, and takes its answer there"
 test "a keeper hears closed when its connection fails for a reason that fits a closing connection" {
     var rig: TwoSlots = .{};
     try rig.init(145, late_then_dropping, .{ .servers = &.{}, .use_tcp = true, .timeout_ns = wait_ns, .attempts = 1, .failover_retry_chance = 0 });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     // The deadline moves the lookup to the second server: it keeps the first connection.
     for (0..fixtures.until_rounds_max) |_| {
         if (rig.engine.kept.conns[handle.index][0] != null) break;

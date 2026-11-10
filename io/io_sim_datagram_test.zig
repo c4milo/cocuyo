@@ -81,7 +81,7 @@ fn waiting(rig: anytype, seed: u64) !cocuyo.Handle {
 /// The same, under `config`.
 fn waiting_under(rig: anytype, seed: u64, config: cocuyo.Config) !cocuyo.Handle {
     try rig.init(seed, .{ .{ .down = true }, .{ .down = true } }, config);
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     _ = try rig.step(0);
     try testing.expectEqual(@as(usize, 1), rig.engine.in_flight());
     return handle;
@@ -221,7 +221,7 @@ test "a receive that ends on a datagram has the datagram read, and is armed agai
     try rig.init(37, .{ .{}, .{} }, .{ .servers = &.{}, .failover_retry_chance = 0 });
     rig.loop.network().multishot_deliveries_max = 1;
     const names = [_][]const u8{ "a.example.", "b.example.", "c.example.", "d.example." };
-    for (names) |name| _ = try rig.engine.start(question(name), rig.loop.now());
+    for (names) |name| _ = try rig.engine.start(&question(name), rig.loop.now());
     const armed = rig.engine.sockets.items[0].armed_generation;
     for (names) |_| {
         const result = try rig.until_result();

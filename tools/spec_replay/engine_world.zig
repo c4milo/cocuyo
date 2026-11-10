@@ -230,7 +230,7 @@ fn start(self: anytype) Error!void {
     const name = std.fmt.bufPrint(&text, "n{d}.test.", .{self.names}) catch unreachable;
     self.names += 1;
     const question = cocuyo.Question.from_text(name, .a) catch unreachable;
-    _ = self.engine.start(question, self.now_ns) catch return error.Full;
+    _ = self.engine.start(&question, self.now_ns) catch return error.Full;
 }
 
 /// The soonest deadline a lookup waits for.

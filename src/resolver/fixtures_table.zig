@@ -39,7 +39,7 @@ pub const Table = struct {
     }
 
     pub fn start(self: *Table, text: []const u8) !Handle {
-        return self.resolver.start(try Question.from_text(text, .a));
+        return self.resolver.start(&try Question.from_text(text, .a));
     }
 
     pub fn poll(self: *Table) ?Event {

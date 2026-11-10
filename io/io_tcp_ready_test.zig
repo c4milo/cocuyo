@@ -53,7 +53,7 @@ const datagram_pass: cocuyo.Config = .{
 /// Starts a lookup, and stops the peer of its connection from reading before the query goes. The
 /// connection comes up, and the query's send never ends. The lookup is in `tcp_ready`.
 fn stall_the_query(rig: anytype) !cocuyo.Handle {
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     try stall_when_connecting(rig, handle);
     return handle;
 }
@@ -125,7 +125,7 @@ test "a send never ends after TC=1, and the datagram at the next server goes at 
     // (docs/design.md §16 decision 53).
     var rig: Rig = .{};
     try rig.init(146, .{ .{ .truncate_per_256 = fixtures.always }, .{} }, datagram_pass);
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     try stall_when_connecting(&rig, handle);
     const deadline = rig.engine.resolver.lookup_of(handle).deadline_ns;
     try drive_at(&rig, deadline);
@@ -148,13 +148,13 @@ test "a send never ends, and a new lookup in the same table slot sends at the ca
     // (docs/design.md §16 decision 53). The server no longer truncates, and answers it.
     var rig: OneServer = .{};
     try rig.init(147, .{.{ .truncate_per_256 = fixtures.always }}, datagram_pass);
-    const first = try rig.engine.start(question("example.com."), rig.loop.now());
+    const first = try rig.engine.start(&question("example.com."), rig.loop.now());
     try stall_when_connecting(&rig, first);
     try testing.expectEqual(@as(?cocuyo.Error, cocuyo.Error.Timeout), failure_of(try rig.until_result()));
     _ = rig.engine.take(rig.loop.now());
     try testing.expect(rig.engine.send_in_flight[first.index]);
     rig.loop.network().scripts[0].truncate_per_256 = 0;
-    const second = try rig.engine.start(question("example.net."), rig.loop.now());
+    const second = try rig.engine.start(&question("example.net."), rig.loop.now());
     try testing.expectEqual(first.index, second.index);
     try testing.expect(rig.engine.held[second.index] != null);
     try testing.expectEqual(@as(?cocuyo.Error, null), failure_of(try rig.until_result()));
@@ -173,7 +173,7 @@ test "the other lookups on a connection whose send never ends keep their own dea
     // comes back at the cancel's event (decision 53).
     var rig: OneServer = .{};
     try rig.init(144, .{.{ .delay_ns_min = fixtures.slow_step_ns, .delay_ns_max = fixtures.slow_step_ns }}, one_pass);
-    const answered = try rig.engine.start(question("example.com."), rig.loop.now());
+    const answered = try rig.engine.start(&question("example.com."), rig.loop.now());
     for (0..fixtures.until_rounds_max) |_| {
         if (rig.engine.resolver.lookup_of(answered).state == .awaiting_tcp) break;
         _ = try rig.step(fixtures.wait_ns);
@@ -181,8 +181,8 @@ test "the other lookups on a connection whose send never ends keep their own dea
     try testing.expectEqual(resolver.State.awaiting_tcp, rig.engine.resolver.lookup_of(answered).state);
     const connection = &rig.engine.connections[0];
     rig.loop.network().stall(connection.descriptor.?);
-    const started = try rig.engine.start(question("example.net."), rig.loop.now());
-    const queued = try rig.engine.start(question("example.org."), rig.loop.now());
+    const started = try rig.engine.start(&question("example.net."), rig.loop.now());
+    const queued = try rig.engine.start(&question("example.org."), rig.loop.now());
     const first = try rig.until_result();
     try testing.expect(first.handle.index == answered.index and failure_of(first) == null);
     const deadline = rig.engine.resolver.lookup_of(started).deadline_ns;
@@ -223,7 +223,7 @@ test "a lookup whose query's send never ends fails at its deadline, and its leav
     _ = try rig.step(fixtures.channel_read_ns);
     try testing.expect(!rig.engine.send_in_flight[handle.index]);
     // A later lookup opens the slot again, and the server answers it there.
-    _ = try rig.engine.start(question("example.net."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.net."), rig.loop.now());
     try testing.expectEqual(@as(?cocuyo.Error, null), failure_of(try rig.until_result()));
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
@@ -239,7 +239,7 @@ test "over TLS a lookup whose send never ends frees the slot once the idle close
     // for the slot, and gets it at the cancel's event.
     var rig: wait_test.TlsOneSlot = .{};
     try wait_test.start_tls(&rig, 142, .{ .delay_ns_min = fixtures.slow_step_ns, .delay_ns_max = fixtures.slow_step_ns });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     const connection = &rig.engine.connections[0];
     for (0..fixtures.until_rounds_max) |_| {
         if (connection.state == .handshaking and !connection.sending) break;
@@ -267,7 +267,7 @@ test "over TLS a lookup whose send never ends frees the slot once the idle close
     try drive_at(&rig, connection.idle_since_ns + rig.engine.tcp_idle_ns);
     try testing.expectEqual(State.closing, connection.state);
     const since = rig.loop.now();
-    _ = try rig.engine.start(question("example.net."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.net."), rig.loop.now());
     try wait_test.expect_shut_after_wait(&rig, since);
     try testing.expectEqual(@as(?cocuyo.Error, null), failure_of(try rig.until_result()));
     _ = rig.engine.take(rig.loop.now());
@@ -284,7 +284,7 @@ test "over TLS a query's send never ends, and the leave shuts the connection wit
     try tls_test.encrypt(&rig);
     try rig.init(145, .{ .{}, .{} }, one_pass);
     rig.use_test_contexts();
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     const connection = &rig.engine.connections[0];
     for (0..fixtures.until_rounds_max) |_| {
         if (connection.state == .up) break;

@@ -319,7 +319,7 @@ test "a failure in the cache ends a table's lookup at its first poll, and nothin
     const config: Config = .{ .servers = &servers, .search = &.{} };
     var table = Resolver.init(&slots, &keys, &config, 0);
     table.use_memory(remembered_by(&rig.store));
-    _ = try table.start(question);
+    _ = try table.start(&question);
     var out: [limits.query_bytes_max]u8 = @splat(0);
     const failure = table.poll(0, &out).?.action.failed;
     try testing.expectEqual(Error.AllServersFailed, failure.err);
@@ -489,7 +489,7 @@ test "a hit through the table hands each record back less the time it spent in t
     const config: Config = .{ .servers = &servers, .search = &.{} };
     var table = Resolver.init(&slots, &keys, &config, 0);
     table.use_memory(memory);
-    _ = try table.start(question);
+    _ = try table.start(&question);
     var out: [limits.query_bytes_max]u8 = @splat(0);
     const done = table.poll(spent_seconds * cache_module.constants.ns_per_s, &out).?.action.done;
     try testing.expectEqual(@as(u32, capped_ttl_seconds - spent_seconds), done.ttl_seconds);

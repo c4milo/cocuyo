@@ -19,7 +19,7 @@ const three_servers = fixtures.servers_three;
 test "the servers are tried in turn, then the passes, then the lookup fails" {
     const config: Config = .{ .servers = &three_servers, .attempts = 2 };
     var servers_config = Servers.init(&config, 1);
-    var lookup = Lookup.init(&config, &servers_config, try Question.from_text("example.com.", .a), 1);
+    var lookup = Lookup.init(&config, &servers_config, &try Question.from_text("example.com.", .a), 1);
     const first_id = lookup.transaction.id;
     lookup.next_server(1);
     try testing.expectEqual(@as(u8, 1), lookup.server_index);
@@ -39,7 +39,7 @@ test "the servers are tried in turn, then the passes, then the lookup fails" {
 test "a lookup that saw a server failure fails with that rather than a timeout" {
     const config: Config = .{ .servers = &one_server, .attempts = 1 };
     var servers_config = Servers.init(&config, 1);
-    var lookup = Lookup.init(&config, &servers_config, try Question.from_text("example.com.", .a), 1);
+    var lookup = Lookup.init(&config, &servers_config, &try Question.from_text("example.com.", .a), 1);
     lookup.cause = .{ .server_index = 0, .what = .{ .rcode = .server_failure } };
     lookup.next_server(1);
     try testing.expectEqual(core.Error.AllServersFailed, lookup.failure_of().err);
@@ -50,14 +50,14 @@ test "the candidate walk ends in NameNotFound, or NoData when a name existed" {
     const search = [_]Name{try Name.from_text("one.net")};
     const config: Config = .{ .servers = &one_server, .search = &search, .ndots = 1 };
     var servers_config = Servers.init(&config, 1);
-    var lookup = Lookup.init(&config, &servers_config, try Question.from_text("host.example", .a), 1);
+    var lookup = Lookup.init(&config, &servers_config, &try Question.from_text("host.example", .a), 1);
     try testing.expect(lookup.current.equal(&try Name.from_text("host.example")));
     lookup.next_candidate(1);
     try testing.expect(lookup.current.equal(&try Name.from_text("host.example.one.net")));
     lookup.next_candidate(2);
     try testing.expectEqual(core.Error.NameNotFound, lookup.failure_of().err);
 
-    var second = Lookup.init(&config, &servers_config, try Question.from_text("host.example", .a), 1);
+    var second = Lookup.init(&config, &servers_config, &try Question.from_text("host.example", .a), 1);
     second.flags.had_no_data = true;
     second.next_candidate(1);
     second.next_candidate(2);
@@ -71,7 +71,7 @@ test "the next candidate starts over at the first server, the first pass and wit
     const search = [_]Name{try Name.from_text("one.net")};
     const config: Config = .{ .servers = &three_servers, .search = &search, .ndots = 1, .attempts = 2 };
     var servers_config = Servers.init(&config, 1);
-    var lookup = Lookup.init(&config, &servers_config, try Question.from_text("host.example", .a), 1);
+    var lookup = Lookup.init(&config, &servers_config, &try Question.from_text("host.example", .a), 1);
     lookup.next_server(1);
     lookup.next_server(2);
     lookup.next_server(3);

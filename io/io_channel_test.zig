@@ -49,7 +49,7 @@ pub fn tell(rig: *Rig, server: u8, step: Step) !void {
 
 /// One lookup of `name`, answered on server `server`'s channel, and its result taken.
 pub fn answer(rig: *Rig, server: u8, name: []const u8) !void {
-    const handle = try rig.engine.start(question(name), rig.loop.now());
+    const handle = try rig.engine.start(&question(name), rig.loop.now());
     try tell(rig, server, .{ .finished = .{ .index = handle.index, .answer = true } });
     const result = try rig.until_result();
     try testing.expect(result.outcome == .answer);
@@ -59,7 +59,7 @@ pub fn answer(rig: *Rig, server: u8, name: []const u8) !void {
 test "a DoH lookup opens its server's channel with its request, and no link until the channel says" {
     var rig: Rig = .{};
     try start(&rig, 91, .{ .{}, .{} });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     const slot = &rig.engine.doh.slots[0];
     try testing.expect(slot.state == .open);
     try testing.expectEqual(@as(u16, 1), slot.exchanges);
@@ -79,7 +79,7 @@ test "a DoH lookup opens its server's channel with its request, and no link unti
 test "an exchange's answer goes to its lookup" {
     var rig: Rig = .{};
     try start(&rig, 92, .{ .{}, .{} });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     try tell(&rig, 0, .{ .open = .quic });
     try tell(&rig, 0, .{ .finished = .{ .index = handle.index, .answer = true } });
     const result = try rig.until_result();
@@ -94,7 +94,7 @@ test "an exchange that fails fails its request once, as the server's failure, an
     // counts it as the server's failure.
     var rig: Rig = .{};
     try start(&rig, 93, .{ .{}, .{} });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     try tell(&rig, 0, .{ .finished = .{ .index = handle.index, .answer = false } });
     try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(0));
     try testing.expect(channel_of(&rig, 1).holds(handle.index));
@@ -112,7 +112,7 @@ test "a lookup whose every exchange failed ends in AllServersFailed, its cause t
     for ([_]cocuyo.Reason{ .status, .reset, .closed }, 0..) |reason, at| {
         var rig: Rig = .{};
         try start(&rig, 115 + at, .{ .{}, .{} });
-        const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+        const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
         for (0..rig.config.attempts) |_| {
             for (0..fixtures.servers) |server| {
                 try tell(&rig, @intCast(server), .{ .finished = .{ .index = handle.index, .answer = false, .reason = reason } });
@@ -134,7 +134,7 @@ test "a template the engine cannot read fails its server before its channel open
     rig.servers[1].https = .{ .template = template };
     try rig.init(88, .{ .{}, .{} }, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     rig.use_test_contexts();
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     try testing.expect(rig.engine.doh.slots[0].state == .closed);
     try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(0));
     // No server took part (docs/design.md §5, The cause of a failure).
@@ -153,7 +153,7 @@ test "a request its lookup left is cancelled on its channel, whose memory is the
     // nobody.
     var rig: Rig = .{};
     try start(&rig, 94, .{ .{}, .{} });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     try testing.expect(channel_of(&rig, 0).holds(handle.index));
     rig.engine.cancel(handle, rig.loop.now());
     try testing.expect(!channel_of(&rig, 0).holds(handle.index));
@@ -169,8 +169,8 @@ test "a request waits for room on its channel, and becomes an exchange once one 
     var rig: Rig = .{};
     try start(&rig, 95, .{ .{}, .{} });
     channel_of(&rig, 0).limit = 1;
-    const first = try rig.engine.start(question("one.example."), rig.loop.now());
-    const second = try rig.engine.start(question("two.example."), rig.loop.now());
+    const first = try rig.engine.start(&question("one.example."), rig.loop.now());
+    const second = try rig.engine.start(&question("two.example."), rig.loop.now());
     const slot = &rig.engine.doh.slots[0];
     try testing.expectEqual(@as(u16, 1), slot.exchanges);
     try testing.expectEqual(@as(u16, 1), slot.queue_len);
@@ -192,11 +192,11 @@ test "a request put on its channel has the channel read, which tells then what i
     // request on it is one. The channel holds an end, and no step, send or instant brings a read.
     var rig: Rig = .{};
     try start(&rig, 97, .{ .{}, .{} });
-    const first = try rig.engine.start(question("one.example."), rig.loop.now());
+    const first = try rig.engine.start(&question("one.example."), rig.loop.now());
     try tell(&rig, 0, .{ .hold = .{ .index = first.index, .answer = true } });
     const channel = channel_of(&rig, 0);
     try testing.expect(channel.held != null);
-    const second = try rig.engine.start(question("two.example."), rig.loop.now());
+    const second = try rig.engine.start(&question("two.example."), rig.loop.now());
     try testing.expect(channel.held == null);
     const result = try rig.until_result();
     try testing.expectEqual(first, result.handle);
@@ -225,7 +225,7 @@ test "an idle channel shuts down, a request taken meanwhile waits, and the next 
     const slot = &rig.engine.doh.slots[0];
     try testing.expect(slot.state == .shutting);
     try testing.expect(channel_of(&rig, 0).shut);
-    const handle = try rig.engine.start(question("two.example."), rig.loop.now());
+    const handle = try rig.engine.start(&question("two.example."), rig.loop.now());
     try testing.expectEqual(@as(u16, 1), slot.queue_len);
     try testing.expectEqual(@as(u16, 0), slot.exchanges);
     try tell(&rig, 0, .closed);
@@ -246,7 +246,7 @@ test "a channel that cannot open again for the request that waited gives local a
     try start(&rig, 97, .{ .{}, .{} });
     try answer(&rig, 0, "one.example.");
     try idle(&rig);
-    const handle = try rig.engine.start(question("two.example."), rig.loop.now());
+    const handle = try rig.engine.start(&question("two.example."), rig.loop.now());
     rig.servers[0].https = .{ .template = "http://dns.example/dns-query{?dns}" };
     try tell(&rig, 0, .closed);
     try testing.expect(rig.engine.doh.slots[0].state == .closed);
@@ -347,7 +347,7 @@ test "one read of a channel takes an end for each request and 16 of its own, and
     for (&rig.servers) |*server| server.https = .{ .template = template };
     try rig.init(98, .{ .{}, .{} }, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     rig.use_test_contexts();
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     const channel = &rig.engine.doh.slots[0].channel;
     const per_read = rig.engine.requests.len + io.limits.channel_events_max;
     channel.flood = per_read + 1;

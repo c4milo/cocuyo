@@ -97,13 +97,13 @@ fn stall_query(rig: anytype, handle: cocuyo.Handle) !void {
 /// `Timeout`, and its result waits to be taken. It left during its query's send, and the second
 /// stays (docs/design.md §16 decision 54).
 fn mark_first(rig: anytype) !Marked {
-    const left = try rig.engine.start(question("example.com."), rig.loop.now());
+    const left = try rig.engine.start(&question("example.com."), rig.loop.now());
     try stall_query(rig, left);
     const deadline = rig.engine.resolver.lookup_of(left).deadline_ns;
     // A second, half the default wait, is before the deadline (`timeout_ns_default`).
     try testing.expect(rig.loop.now() + fixtures.slow_step_ns < deadline);
     try drive_at(rig, rig.loop.now() + fixtures.slow_step_ns);
-    const stays = try rig.engine.start(question("example.net."), rig.loop.now());
+    const stays = try rig.engine.start(&question("example.net."), rig.loop.now());
     try testing.expectEqual(@as(?u8, 0), rig.engine.tcp_connection[stays.index]);
     try drive_at(rig, deadline);
     const connection = &rig.engine.connections[0];
@@ -125,7 +125,7 @@ fn expect_left_timed_out(rig: anytype, marked: Marked) !void {
 /// leave shuts the marked connection (docs/design.md §16 decisions 53 and 54).
 fn expect_new_connection(rig: anytype) !void {
     const marked = try mark_first(rig);
-    const new = try rig.engine.start(question("example.org."), rig.loop.now());
+    const new = try rig.engine.start(&question("example.org."), rig.loop.now());
     try expect_left_timed_out(rig, marked);
     const answered = try rig.until_result();
     try testing.expectEqual(@as(?cocuyo.Error, null), failure_of(answered));
@@ -146,7 +146,7 @@ fn expect_new_connection(rig: anytype) !void {
 /// new lookup, and the server answers it on a new connection (docs/design.md §16 decision 54).
 fn expect_wait_for_slot(rig: anytype) !void {
     const marked = try mark_first(rig);
-    const new = try rig.engine.start(question("example.org."), rig.loop.now());
+    const new = try rig.engine.start(&question("example.org."), rig.loop.now());
     try expect_left_timed_out(rig, marked);
     const last = try rig.until_result();
     try testing.expectEqual(marked.stays.index, last.handle.index);
@@ -200,13 +200,13 @@ test "a lookup that leaves while another lookup's query is in flight marks nothi
     // (docs/design.md §16 decision 54).
     var rig: TwoSlots = .{};
     try begin(&rig, 156, .{}, one_pass);
-    const first = try rig.engine.start(question("example.com."), rig.loop.now());
+    const first = try rig.engine.start(&question("example.com."), rig.loop.now());
     try stall_query(&rig, first);
-    const second = try rig.engine.start(question("example.net."), rig.loop.now());
+    const second = try rig.engine.start(&question("example.net."), rig.loop.now());
     try testing.expectEqual(@as(?u8, 0), rig.engine.tcp_connection[second.index]);
     rig.engine.cancel(second, rig.loop.now());
     try testing.expect(!rig.engine.send_in_flight[second.index]);
-    const joins = try rig.engine.start(question("example.org."), rig.loop.now());
+    const joins = try rig.engine.start(&question("example.org."), rig.loop.now());
     try testing.expectEqual(@as(?u8, 0), rig.engine.tcp_connection[joins.index]);
     try testing.expectEqual(@as(u16, 2), rig.engine.connections[0].users);
     try testing.expect(rig.engine.connections[1].state == .closed);
@@ -232,8 +232,8 @@ const slow_answers: rotor.server.Script = .{ .delay_ns_min = fixtures.slow_step_
 /// the leave ends it at once, with no wait for the idle close (docs/design.md §16 decision 54).
 /// Returns the connection.
 fn answer_after_mark(rig: anytype) !*@TypeOf(rig.engine.connections[0]) {
-    const stays = try rig.engine.start(question("example.com."), rig.loop.now());
-    const left = try rig.engine.start(question("example.net."), rig.loop.now());
+    const stays = try rig.engine.start(&question("example.com."), rig.loop.now());
+    const left = try rig.engine.start(&question("example.net."), rig.loop.now());
     const connection = &rig.engine.connections[0];
     for (0..fixtures.until_rounds_max) |_| {
         if (connection.sending and connection.queue.first().?.slot == left.index) break;

@@ -36,7 +36,7 @@ const Asked = struct { sent: bool, ttl_seconds: u32 };
 /// the cache answered has lent none when `start` returns, and one bound for a server has. An
 /// answer from the cache is taken at once, before the loop turns: nothing was sent for it.
 fn ask(rig: *Rig, name: []const u8) !Asked {
-    const handle = try rig.engine.start(question(name), rig.loop.now());
+    const handle = try rig.engine.start(&question(name), rig.loop.now());
     const sent = rig.engine.send_in_flight[handle.index];
     const result = if (sent) try rig.until_result() else rig.engine.take(rig.loop.now()) orelse return error.NoResult;
     try testing.expectEqual(handle, result.handle);
@@ -264,7 +264,7 @@ const Failed = struct { sent: bool, err: cocuyo.Error };
 
 /// Asks `name` and takes its failure, as `ask` takes an answer.
 fn ask_failed(rig: *Rig, name: []const u8) !Failed {
-    const handle = try rig.engine.start(question(name), rig.loop.now());
+    const handle = try rig.engine.start(&question(name), rig.loop.now());
     const sent = rig.engine.send_in_flight[handle.index];
     const result = if (sent) try rig.until_result() else rig.engine.take(rig.loop.now()) orelse return error.NoResult;
     try testing.expectEqual(handle, result.handle);

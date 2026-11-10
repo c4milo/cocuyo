@@ -44,7 +44,7 @@ pub fn init_in_place(
     self: *Lookup,
     config: *const Config,
     servers: *Servers,
-    question: Question,
+    question: *const Question,
     seed: u64,
 ) void {
     config.assert_valid();
@@ -104,7 +104,7 @@ pub fn init_in_place(
         // No query is built yet, so none carries a cookie.
         .cookie_form = .none,
         .cookie_client = @splat(0),
-        .question = question,
+        .question = question.*,
         .current = question.name,
     };
     inline for (@typeInfo(Head).@"struct".fields) |field| @field(self, field.name) = @field(head, field.name);

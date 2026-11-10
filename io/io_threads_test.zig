@@ -50,7 +50,7 @@ fn resolve_all(state: *Run) !void {
     _ = state.started.fetchAdd(1, .acq_rel);
     // Bounded by the other thread's start, which the test joins.
     while (state.started.load(.acquire) < threads) std.atomic.spinLoopHint();
-    for (names) |name| _ = try state.rig.engine.start(question(name), state.rig.loop.now());
+    for (names) |name| _ = try state.rig.engine.start(&question(name), state.rig.loop.now());
     for (names) |_| {
         const result = try state.rig.until_result();
         const answer = switch (result.outcome) {

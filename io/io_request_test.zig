@@ -42,7 +42,7 @@ test "a lookup over DoQ handshakes, then is answered on its stream, and no plain
     var rig: Rig = .{};
     try start(&rig, 61, .{ .{}, .{} });
     try testing.expectEqual(@as(u8, 0), rig.engine.sockets.count);
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expect(rig.engine.quic.connections[0].state == .up);
@@ -55,7 +55,7 @@ test "a lookup of a name of 255 octets is answered over DoQ" {
     // The answer of a request passes check 5 too, over the longest question (docs/design.md §23).
     var rig: Rig = .{};
     try start(&rig, fixtures.longest_name_seed, .{ .{}, .{} });
-    _ = try rig.engine.start(question(fixtures.longest_name_text), rig.loop.now());
+    _ = try rig.engine.start(&question(fixtures.longest_name_text), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expectEqual(@as(u8, 0), rig.engine.resolver.servers.failures(0));
@@ -66,8 +66,8 @@ test "a lookup of a name of 255 octets is answered over DoQ" {
 test "requests taken while the handshake runs wait for its end, then each opens a stream" {
     var rig: Rig = .{};
     try start(&rig, 62, .{ .{ .quic = .{ .flights = 2 } }, .{} });
-    _ = try rig.engine.start(question("one.example."), rig.loop.now());
-    _ = try rig.engine.start(question("two.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("one.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("two.example."), rig.loop.now());
     try testing.expectEqual(@as(u16, 2), rig.engine.quic.connections[0].queue_len);
     var answered: usize = 0;
     while (answered < 2) : (answered += 1) {
@@ -85,7 +85,7 @@ test "a lookup cancelled while its stream is open has the stream cancelled, and 
     // takes no new request: the drive cancels the stream it left (request rule 6).
     var rig: Rig = .{};
     try start(&rig, 68, .{ .{ .drop_per_256 = fixtures.always }, .{} });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     const connection = &rig.engine.quic.connections[0];
     var rounds: usize = 0;
     while (connection.streams == 0 and rounds < fixtures.until_rounds_max) : (rounds += 1) {
@@ -113,7 +113,7 @@ pub fn idle(rig: *Rig) !void {
 
 /// One lookup of `name`, answered, and its result taken.
 pub fn answer(rig: *Rig, name: []const u8) !void {
-    _ = try rig.engine.start(question(name), rig.loop.now());
+    _ = try rig.engine.start(&question(name), rig.loop.now());
     const result = try rig.until_result();
     try testing.expect(result.outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
@@ -154,7 +154,7 @@ test "a request whose try closed is cancelled with STOP_SENDING, and the next se
     // 9250 §4.3.1).
     var rig: Rig = .{};
     try start(&rig, 65, .{ .{ .drop_per_256 = fixtures.always }, .{} });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expect(result.outcome == .answer);
     try testing.expectEqual(@as(u16, 1), peer_of(&rig, 0).?.cancels);
@@ -206,7 +206,7 @@ test "a receive that runs out of buffers is armed again, and fails nothing" {
     try rig.init(67, .{ script, .{} }, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     rig.use_test_contexts();
     const names = [_][]const u8{ "a.example.", "b.example.", "c.example.", "d.example.", "e.example.", "f.example." };
-    for (names) |name| _ = try rig.engine.start(question(name), rig.loop.now());
+    for (names) |name| _ = try rig.engine.start(&question(name), rig.loop.now());
     for (names) |_| {
         const result = try rig.until_result();
         try testing.expect(result.outcome == .answer);
@@ -223,7 +223,7 @@ test "a receive that ends on a datagram has the datagram read, and is armed at t
     try start(&rig, 68, .{ .{}, .{} });
     rig.loop.network().multishot_deliveries_max = 1;
     const names = [_][]const u8{ "a.example.", "b.example.", "c.example." };
-    for (names) |name| _ = try rig.engine.start(question(name), rig.loop.now());
+    for (names) |name| _ = try rig.engine.start(&question(name), rig.loop.now());
     for (names) |_| {
         const result = try rig.until_result();
         try testing.expect(result.outcome == .answer);
@@ -329,7 +329,7 @@ test "one read of a connection takes an end for each request and 16 of its own, 
     for (&rig.servers) |*server| server.quic = quic;
     try rig.init(70, .{ .{}, .{} }, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     rig.use_test_contexts();
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     try testing.expect((try rig.until_result()).outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
     const transport = &rig.engine.quic.connections[0].transport;
@@ -355,7 +355,7 @@ test "an earlier try's request stays open over DoQ, and its late answer ends the
     // second server, which drops each query, left the lookup to time out.
     try rig.init(66, .{ .{ .delay_ns_min = late_delay_ns, .delay_ns_max = late_delay_ns }, .{ .drop_per_256 = fixtures.always } }, .{ .servers = &.{}, .timeout_ns = late_wait_ns, .attempts = 1, .failover_retry_chance = 0 });
     rig.use_test_contexts();
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expect(result.outcome == .answer);
     try testing.expect(rig.loop.now() > late_wait_ns);
@@ -380,7 +380,7 @@ test "a full request pool cancels the oldest earlier request, whose lookup hears
     rig.use_test_contexts();
     // Every slot of the pool holds a lookup's request to the first server.
     var handles: [fixtures.small_lookups]cocuyo.Handle = undefined;
-    for (&handles) |*handle| handle.* = try rig.engine.start(question("example.com."), rig.loop.now());
+    for (&handles) |*handle| handle.* = try rig.engine.start(&question("example.com."), rig.loop.now());
     // Each deadline moves its lookup to the second server, whose request takes the slot of the
     // oldest earlier one. That try closes, and its server takes no failure beyond its deadline's.
     for (0..fixtures.until_rounds_max) |_| {

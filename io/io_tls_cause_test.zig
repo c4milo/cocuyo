@@ -30,7 +30,7 @@ fn until_handshaking(rig: *OneServer, seed: u64, script: rotor.server.Script) !v
     try tls_test.encrypt(rig);
     try rig.init(seed, .{script}, .{ .servers = &.{}, .attempts = 1, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     rig.use_test_contexts();
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     for (0..fixtures.until_rounds_max) |_| {
         if (rig.engine.connections[0].state == .handshaking) return;
         _ = try rig.step(fixtures.wait_ns);
@@ -95,7 +95,7 @@ test "a send the loop refuses while the handshake runs gives local as the cause"
     try tls_test.encrypt(&rig);
     try rig.init(133, .{.{}}, .{ .servers = &.{}, .attempts = 1, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     rig.use_test_contexts();
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     // The connect ends, and the loop refuses what the handshake asks of it then.
     var connected = false;
     for (0..fixtures.until_rounds_max) |_| {
@@ -120,7 +120,7 @@ test "a connection that cannot connect again after its resumed handshake failed 
     const declining: rotor.server.Script = .{ .tls = .{ .tickets = true, .decline_tickets = true } };
     try rig.init(134, .{declining}, .{ .servers = &.{}, .attempts = 1, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     rig.use_test_contexts();
-    _ = try rig.engine.start(question("one.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("one.example."), rig.loop.now());
     try testing.expect((try rig.until_result()).outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
     try testing.expect(rig.engine.tls_tickets[0] != null);
@@ -130,7 +130,7 @@ test "a connection that cannot connect again after its resumed handshake failed 
     rig.engine.drive(rig.loop.now());
     _ = try rig.step(fixtures.wait_ns);
     try testing.expect(rig.engine.connections[0].state == .closed);
-    _ = try rig.engine.start(question("two.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("two.example."), rig.loop.now());
     try testing.expect(rig.engine.connections[0].tls.ticket != null);
     rig.loop.network().refuse_open = true;
     defer rig.loop.network().refuse_open = false;

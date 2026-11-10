@@ -29,7 +29,7 @@ test "cancel_all ends every lookup, and the caller is told about each" {
     var buffer: [fixtures.name_text_bytes]u8 = undefined;
     while (started < fixtures.small_lookups) : (started += 1) {
         const text = try std.fmt.bufPrint(&buffer, "h{d}.example.", .{started});
-        _ = try rig.engine.start(question(text), rig.loop.now());
+        _ = try rig.engine.start(&question(text), rig.loop.now());
     }
     rig.engine.cancel_all(rig.loop.now());
     var ended: usize = 0;
@@ -48,10 +48,10 @@ test "an engine whose table is full refuses a lookup with NoSlot, the table's ow
     var buffer: [fixtures.name_text_bytes]u8 = undefined;
     for (0..fixtures.lookups) |started| {
         const text = try std.fmt.bufPrint(&buffer, "h{d}.example.", .{started});
-        _ = try rig.engine.start(question(text), rig.loop.now());
+        _ = try rig.engine.start(&question(text), rig.loop.now());
     }
     try testing.expectEqual(@as(usize, fixtures.lookups), rig.engine.in_flight());
-    try testing.expectError(error.NoSlot, rig.engine.start(question("over.example."), rig.loop.now()));
+    try testing.expectError(error.NoSlot, rig.engine.start(&question("over.example."), rig.loop.now()));
     rig.engine.cancel_all(rig.loop.now());
     for (0..fixtures.lookups) |_| _ = try rig.until_result();
     _ = rig.engine.take(rig.loop.now());
@@ -61,13 +61,13 @@ test "an engine whose table is full refuses a lookup with NoSlot, the table's ow
 test "reinit cancels what is in flight, empties the cache, and asks the new servers" {
     var rig: Rig = .{};
     try rig.init(22, .{ .{}, .{} }, .{ .servers = &.{} });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const first = try rig.until_result();
     try testing.expect(first.outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
     // A lookup is in flight when the configuration goes, so the caller ends it and takes what it
     // lost before it reinits: the engine must be idle.
-    _ = try rig.engine.start(question("other.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("other.example."), rig.loop.now());
     rig.engine.cancel_all(rig.loop.now());
     const cancelled = try rig.until_result();
     try testing.expectEqual(cocuyo.Error.Canceled, cancelled.outcome.failure.err);
@@ -78,14 +78,14 @@ test "reinit cancels what is in flight, empties the cache, and asks the new serv
     const replacement: cocuyo.Config = .{ .servers = &servers, .search = &.{} };
     try rig.engine.reinit(&replacement, rig.cache_memory.slices(), 22, rig.loop.now());
     // The cache went with the servers that filled it, so the name is asked about again.
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     // Nothing is waiting to be taken, so the cache did not answer it: it goes to a server.
     try testing.expect(rig.engine.take(rig.loop.now()) == null);
     const answer = try rig.until_result();
     try testing.expect(answer.outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
     // The new cache is under the new table: the answer the new server gave is remembered.
-    const again = try rig.engine.start(question("example.com."), rig.loop.now());
+    const again = try rig.engine.start(&question("example.com."), rig.loop.now());
     const hit = rig.engine.take(rig.loop.now()).?;
     try testing.expectEqual(again, hit.handle);
     try rig.deinit();
@@ -113,7 +113,7 @@ test "a local address of another family is not bound to a socket of this one" {
     try testing.expectEqual(rotor.Address.Family.ipv4, bound.family);
     // Unspecified, and not the first four octets of an address that names another family.
     try testing.expectEqualSlices(u8, &fixtures.unspecified_v4, bound.bytes[0..fixtures.unspecified_v4.len]);
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     try testing.expect((try rig.until_result()).outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
@@ -145,7 +145,7 @@ test "a size the kernel caps or refuses leaves the socket working with what it h
     try refused.init(28, .{ .{}, .{} }, .{ .servers = &.{}, .socket_receive_bytes = fixtures.socket_bytes_refused });
     const entry = refused.loop.network().socket(refused.engine.sockets.descriptor_of(0));
     try testing.expectEqual(@as(u32, 0), entry.receive_buffer_bytes);
-    _ = try refused.engine.start(question("example.com."), refused.loop.now());
+    _ = try refused.engine.start(&question("example.com."), refused.loop.now());
     try testing.expect((try refused.until_result()).outcome == .answer);
     _ = refused.engine.take(refused.loop.now());
     try refused.deinit();
@@ -155,7 +155,7 @@ test "a source port that has carried its share is replaced at once, and the old 
     var rig: Rig = .{};
     try rig.init(24, .{ .{}, .{} }, .{ .servers = &.{}, .udp_queries_per_port = 1 });
     const before = rig.loop.network().socket(rig.engine.sockets.descriptor_of(0)).local.port;
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     // The query has gone out, so the port has carried its share, and a new one takes every
     // query from now on while the lookup still waits (docs/design.md §19 step 13, the datagram's
     // rule 4). The old socket drains: its answer comes back to it.
@@ -170,7 +170,7 @@ test "a source port that has carried its share is replaced at once, and the old 
     // Nothing is owed on the old socket any more, so it is gone.
     try testing.expect(!rig.engine.sockets.draining[0].open);
     // The new port answers as the old one did.
-    _ = try rig.engine.start(question("other.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("other.example."), rig.loop.now());
     try testing.expect((try rig.until_result()).outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
@@ -183,7 +183,7 @@ test "a port that cannot be replaced stays in use until one can be opened" {
     // No descriptor is left when the port comes to be replaced: the old socket stays the one
     // queries leave from, and the program goes on (the datagram's rule 4).
     rig.loop.network().refuse_open = true;
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     try testing.expect((try rig.until_result()).outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
     try testing.expect(rig.engine.sockets.items[0].retiring);
@@ -205,7 +205,7 @@ test "a receive's generation and a socket's epoch wrap at the last of their thir
     try rig.init(26, .{ .{}, .{} }, .{ .servers = &.{}, .udp_queries_per_port = 1 });
     rig.engine.sockets.next_generation = std.math.maxInt(u32) - 1;
     rig.engine.sockets.next_epoch = std.math.maxInt(u32) - 1;
-    _ = try rig.engine.start(question("one.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("one.example."), rig.loop.now());
     try testing.expect((try rig.until_result()).outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
     try testing.expectEqual(@as(u32, std.math.maxInt(u32)), rig.engine.sockets.items[0].armed_generation);
@@ -214,7 +214,7 @@ test "a receive's generation and a socket's epoch wrap at the last of their thir
     // receive that did not find its socket would drop the answer, and the lookup would wait out
     // its try and count a failure against the server.
     const sent_ns = rig.loop.now();
-    _ = try rig.engine.start(question("two.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("two.example."), rig.loop.now());
     try testing.expect((try rig.until_result()).outcome == .answer);
     try testing.expect(rig.loop.now() - sent_ns < core.constants.timeout_ns_default);
     try testing.expectEqual(@as(u8, 0), rig.engine.resolver.servers.failures(0));
@@ -283,7 +283,7 @@ test "init takes a payload at the room of a datagram buffer, and refuses one oct
     // The room is what a buffer of the loop's group holds, under the options the engine gave it.
     const holds = rotor.datagram.payload_capacity(io.limits.buffer_bytes_max, rig.loop.group_options);
     try testing.expectEqual(room, holds);
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     try testing.expectEqual(@as(u16, @intCast(room)), try advertised(&rig.engine, handle));
     try testing.expect((try rig.until_result()).outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
@@ -295,7 +295,7 @@ test "reinit refuses a payload one octet past the room, and the engine keeps wha
     // 7766 §5). Then the stream stays up and idle beside the socket.
     var rig: Rig = .{};
     try rig.init(53, .{ .{ .truncate_per_256 = fixtures.always }, .{} }, .{ .servers = &.{} });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     try testing.expect((try rig.until_result()).outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
     const socket = rig.engine.sockets.items[0];
@@ -318,7 +318,7 @@ test "reinit refuses a payload one octet past the room, and the engine keeps wha
     try testing.expectEqual(sockets_open, open_sockets(&rig.loop));
     try testing.expect(std.mem.allEqual(u8, std.mem.asBytes(&other), fixtures.memory_mark));
     // The cache still holds the answer, so nothing goes out for it.
-    const hit = try rig.engine.start(question("example.com."), rig.loop.now());
+    const hit = try rig.engine.start(&question("example.com."), rig.loop.now());
     try testing.expectEqual(hit, rig.engine.take(rig.loop.now()).?.handle);
     _ = rig.engine.take(rig.loop.now());
 
@@ -326,7 +326,7 @@ test "reinit refuses a payload one octet past the room, and the engine keeps wha
     const at = advertising(&rig, io.limits.udp_payload_bytes_max);
     try rig.engine.reinit(&at, rig.cache_memory.slices(), 55, rig.loop.now());
     try testing.expectEqual(@as(*const cocuyo.Config, &at), rig.engine.config);
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     try testing.expectEqual(@as(u16, @intCast(io.limits.udp_payload_bytes_max)), try advertised(&rig.engine, handle));
     try testing.expect((try rig.until_result()).outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
@@ -355,7 +355,7 @@ fn expect_reinit_waits(tls: bool, seed: u64) !void {
     try tls_test.encrypt(&rig);
     try rig.init(seed, .{.{}}, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     rig.use_test_contexts();
-    const first = try rig.engine.start(question("example.com."), rig.loop.now());
+    const first = try rig.engine.start(&question("example.com."), rig.loop.now());
     const connection = &rig.engine.connections[0];
     try failing_test.until_query_in_flight(&rig);
     const lent = io.tls.pending(&rig.engine, 0, connection.queue.first().?.end);
@@ -371,7 +371,7 @@ fn expect_reinit_waits(tls: bool, seed: u64) !void {
     try rig.engine.reinit(&config, rig.cache_memory.slices(), seed + 1, rig.loop.now());
     try testing.expect(connection.state == .closed);
     try testing.expectEqual(@as(?u16, first.index), connection.records_send);
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     try testing.expectEqual(@as(u16, 1), rig.engine.tcp_waiters);
     const send = @TypeOf(rig.engine).user_data(.tcp_send, first.index);
     var held: ?rotor.Event = null;

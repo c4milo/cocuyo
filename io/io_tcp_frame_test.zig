@@ -38,7 +38,7 @@ test "a message longer than the connection can assemble ends the lookups on it" 
     var engine: Tiny = undefined;
     var cache_memory: cocuyo.cache.Storage(fixtures.small_lookups) = .{};
     try engine.init(&loop, &config, cache_memory.slices(), 19, loop.now());
-    _ = try engine.start(question("example.com."), loop.now());
+    _ = try engine.start(&question("example.com."), loop.now());
     var events: [fixtures.events_max]rotor.Event = undefined;
     var rounds: usize = 0;
     var outcome: ?Tiny.Result = null;
@@ -61,7 +61,7 @@ test "a message longer than the connection can assemble ends the lookups on it" 
 /// its frame empty: the socket the server writes to.
 fn answered_stream(rig: *Rig, seed: u64) !rotor.Descriptor {
     try rig.init(seed, .{ .{}, .{ .down = true } }, .{ .servers = &.{}, .use_tcp = true, .attempts = 1 });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expect(result.outcome == .answer);
     _ = rig.engine.take(rig.loop.now());
@@ -112,7 +112,7 @@ test "a frame holds the longest message a prefix can say and a chunk after it, a
 fn failures_after_message(seed: u64, length: usize) !u8 {
     var rig: sim_test.RigOf(Tiny) = .{};
     try rig.init(seed, .{ .{ .drop_per_256 = fixtures.always }, .{ .down = true } }, .{ .servers = &.{}, .use_tcp = true, .attempts = 1 });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     _ = try rig.step(fixtures.wait_ns);
     try testing.expect(rig.engine.connections[0].state == .up);
     var bytes: [core.constants.tcp_prefix_bytes + fixtures.tiny_message_bytes + 1]u8 = @splat(0);
@@ -142,7 +142,7 @@ test "a chunk that ends a message and starts the next keeps the connection up" {
     // first octets of the next message (the stream's rule 11).
     var rig: sim_test.RigOf(Tiny) = .{};
     try rig.init(fixtures.one_chunk_seed, .{ .{ .drop_per_256 = fixtures.always }, .{ .down = true } }, .{ .servers = &.{}, .use_tcp = true, .attempts = 1 });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     _ = try rig.step(fixtures.wait_ns);
     const connection = &rig.engine.connections[0];
     try testing.expect(connection.state == .up);
@@ -176,7 +176,7 @@ test "every whole message one chunk carries is handed over with it, the last one
     // rule 11).
     var rig: Rig = .{};
     try rig.init(27, .{ .{ .drop_per_256 = fixtures.always }, .{ .down = true } }, .{ .servers = &.{}, .use_tcp = true, .attempts = 1 });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     try sim_test.until_sent(&rig);
     var answer: [io.limits.tcp_chunk_bytes_max]u8 = undefined;
     const answer_bytes = try sim_test.framed_answer(&rig.engine, handle, &answer);
@@ -233,7 +233,7 @@ test "a prefix split between two chunks is read once its second octet has come" 
     // whole (the stream's rule 11). The server drops every query, so no answer comes between.
     var rig: sim_test.RigOf(Tiny) = .{};
     try rig.init(29, .{ .{ .drop_per_256 = fixtures.always }, .{ .down = true } }, .{ .servers = &.{}, .use_tcp = true, .attempts = 1 });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     _ = try rig.step(fixtures.wait_ns);
     const connection = &rig.engine.connections[0];
     try testing.expect(connection.state == .up and connection.used == 0);

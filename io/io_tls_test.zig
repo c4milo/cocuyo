@@ -51,7 +51,7 @@ test "a lookup over TLS handshakes, then is answered on the stream, and no UDP s
     var rig: Rig = .{};
     try start(&rig, 41, .{ .{}, .{} });
     try testing.expectEqual(@as(u8, 0), rig.engine.sockets.count);
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expect(rig.engine.connections[0].state == .up);
@@ -62,8 +62,8 @@ test "a lookup over TLS handshakes, then is answered on the stream, and no UDP s
 test "flights before the handshake's end are answered, and both lookups wait for it" {
     var rig: Rig = .{};
     try start(&rig, 42, .{ .{ .tls = .{ .flights = 2 } }, .{} });
-    _ = try rig.engine.start(question("one.example."), rig.loop.now());
-    _ = try rig.engine.start(question("two.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("one.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("two.example."), rig.loop.now());
     var answered: usize = 0;
     while (answered < 2) : (answered += 1) {
         const result = try rig.until_result();
@@ -77,7 +77,7 @@ test "flights before the handshake's end are answered, and both lookups wait for
 test "a refused handshake says its alert, fails the connection, and the next server answers" {
     var rig: Rig = .{};
     try start(&rig, 43, .{ .{ .tls = .{ .refuse = true } }, .{} });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expectEqual(@as(u8, 1), rig.engine.resolver.servers.failures(0));
@@ -96,7 +96,7 @@ test "a lookup every server refused over TLS ends in AllServersFailed, not Timeo
     // run out of time (docs/design.md §16 decision 25).
     var rig: Rig = .{};
     try start(&rig, 47, .{ .{ .tls = .{ .refuse = true } }, .{ .tls = .{ .refuse = true } } });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(cocuyo.Error.AllServersFailed, result.outcome.failure.err);
     _ = rig.engine.take(rig.loop.now());
@@ -112,7 +112,7 @@ test "a refused handshake is the handshake's cause, and names the server that re
     const refusing: rotor.server.Script = .{ .tls = .{ .refuse = true } };
     try rig.init(119, .{ refusing, refusing }, .{ .servers = &.{}, .attempts = 1, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     rig.use_test_contexts();
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(cocuyo.Error.AllServersFailed, result.outcome.failure.err);
     try testing.expectEqual(@as(?cocuyo.Cause, .{ .server_index = 1, .what = .{ .reason = .handshake } }), result.outcome.failure.cause);
@@ -142,7 +142,7 @@ fn idle(rig: *Rig) !void {
 test "an idle TLS connection says close_notify, and closes once it has gone" {
     var rig: Rig = .{};
     try start(&rig, 44, .{ .{}, .{} });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     _ = try rig.until_result();
     _ = rig.engine.take(rig.loop.now());
     try idle(&rig);
@@ -157,7 +157,7 @@ test "a length prefix of 65535 in a record's plaintext is waited for, and the co
     // clear reads it (TLS rule 7): the prefix's sum with its own two octets passes sixteen bits.
     var rig: Rig = .{};
     try start(&rig, 49, .{ .{}, .{} });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     _ = try rig.until_result();
     _ = rig.engine.take(rig.loop.now());
     const connection = &rig.engine.connections[0];
@@ -177,7 +177,7 @@ test "a length prefix of 65535 in a record's plaintext is waited for, and the co
 /// buffer and its frame empty.
 pub fn up(rig: anytype, seed: u64) !void {
     try start(rig, seed, .{ .{}, .{} });
-    _ = try rig.engine.start(question("example.com."), rig.loop.now());
+    _ = try rig.engine.start(&question("example.com."), rig.loop.now());
     _ = try rig.until_result();
     _ = rig.engine.take(rig.loop.now());
     const connection = &rig.engine.connections[0];
@@ -291,7 +291,7 @@ test "a prefix in a record that says more than the connection assembles ends it 
     for ([_]bool{ false, true }) |refused| {
         var rig: TinyRig = .{};
         try start(&rig, 58, .{ .{ .drop_per_256 = fixtures.always }, .{ .down = true } });
-        const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+        const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
         try sim_test.until_sent(&rig);
         var stream: BackToBack = .{};
         rig.loop.refuse_submissions = refused;
@@ -322,7 +322,7 @@ test "a record header longer than TLS allows once up ends the connection after r
     // 4 and 5). A chunk that comes meanwhile does not end the connection before that.
     var rig: Rig = .{};
     try start(&rig, 59, .{ .{ .drop_per_256 = fixtures.always }, .{ .down = true } });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     try sim_test.until_sent(&rig);
     const header_bytes = io.constants.tls_record_header_bytes;
     var header: [header_bytes]u8 = .{ rotor.constants.tls_content_application, 3, 3, 0, 0 };
@@ -353,7 +353,7 @@ test "every whole record one chunk carries goes to the session with it, the last
     // rule 7).
     var rig: Rig = .{};
     try start(&rig, 55, .{ .{ .drop_per_256 = fixtures.always }, .{ .down = true } });
-    const handle = try rig.engine.start(question("example.com."), rig.loop.now());
+    const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     try sim_test.until_sent(&rig);
     var answer: [rotor.limits.tls_payload_bytes_max]u8 = undefined;
     const answer_bytes = try sim_test.framed_answer(&rig.engine, handle, &answer);
@@ -402,7 +402,7 @@ test "a buffer of records that are their header alone goes to the session whole"
 test "a ticket is kept and spent, and a declined one is answered in full, counting no failure" {
     var rig: Rig = .{};
     try start(&rig, 45, .{ .{ .tls = .{ .tickets = true, .decline_tickets = true } }, .{} });
-    _ = try rig.engine.start(question("one.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("one.example."), rig.loop.now());
     _ = try rig.until_result();
     _ = rig.engine.take(rig.loop.now());
     try testing.expect(rig.engine.tls_tickets[0] != null);
@@ -411,7 +411,7 @@ test "a ticket is kept and spent, and a declined one is answered in full, counti
     try testing.expect(rig.engine.connections[0].state == .closed);
     // The next connection resumes, spending the ticket; the server declines it, and the
     // connection opens again in full before the lookup hears anything (TLS rule 8).
-    _ = try rig.engine.start(question("two.example."), rig.loop.now());
+    _ = try rig.engine.start(&question("two.example."), rig.loop.now());
     try testing.expect(rig.engine.tls_tickets[0] == null);
     const result = try rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);

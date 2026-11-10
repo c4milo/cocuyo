@@ -120,7 +120,7 @@ pub const Resolver = struct {
     /// Starts a lookup. Its seed is drawn from the table's own generator, so one seed at the top
     /// gives the whole table a reproducible stream (docs/design.md §7). A validating table keeps
     /// `trust_slots_min` slots for the walks' questions, and refuses the consumer those.
-    pub fn start(self: *Resolver, question: Question) error{NoSlot}!Handle {
+    pub fn start(self: *Resolver, question: *const Question) error{NoSlot}!Handle {
         if (!walks_module.consumer_may(self)) return error.NoSlot;
         const index = self.slots.acquire() orelse return error.NoSlot;
         slots_module.occupy(self, index, question);

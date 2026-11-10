@@ -123,7 +123,7 @@ const Rig = struct {
     /// seed picks. Returns the lookup cancelled, if any.
     fn run(self: *Rig, asked: []const Asked, seed: u64, how: Twist) !?usize {
         assert(asked.len <= names.len);
-        for (asked, 0..) |name, index| self.handles[index] = try self.table.start(try Question.from_text(name.text, name.kind));
+        for (asked, 0..) |name, index| self.handles[index] = try self.table.start(&try Question.from_text(name.text, name.kind));
         var order = resolver.Entropy.init(seed);
         const twist_step = order.next() % limits.order_twist_steps_max;
         const cancelled: ?usize = if (how == .cancel) @intCast(order.next() % asked.len) else null;

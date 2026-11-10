@@ -190,7 +190,7 @@ fn setup_table(count: usize) void {
     resolver = cocuyo.Resolver.init(slots[0..count], keys[0..cocuyo.Resolver.keys_for(count)], &config, seed);
     var started: usize = 0;
     while (started < count) : (started += 1) {
-        handles[started] = resolver.start(question_for(started)) catch unreachable;
+        handles[started] = resolver.start(&question_for(started)) catch unreachable;
         const event = resolver.poll(now_ns, &send_out).?;
         assert(event.action == .send_udp);
         resolver.on_sent(event.handle, now_ns);
@@ -325,7 +325,7 @@ var round_servers: cocuyo.Servers = undefined;
 fn setup_round_trip() void {
     round_question = cocuyo.Question.from_text("example.com.", .a) catch unreachable;
     round_servers = cocuyo.Servers.init(&config, seed);
-    var initial = Lookup.init(&config, &round_servers, round_question, seed);
+    var initial = Lookup.init(&config, &round_servers, &round_question, seed);
     _ = initial.poll(now_ns, &round_out);
     const cased = initial.cased_name();
     round_reply_len = build_reply(&round_reply, initial.transaction.id, &cased);
@@ -344,7 +344,7 @@ fn with_cookie(out: []u8, len: usize, client: *const [core.constants.cookie_clie
 }
 
 fn run_round_trip() void {
-    lookup.init_in_place(&config, &round_servers, round_question, seed);
+    lookup.init_in_place(&config, &round_servers, &round_question, seed);
     now_ns += 1;
     doNotOptimizeAway(lookup.poll(now_ns, &round_out));
     lookup.on_sent(now_ns);

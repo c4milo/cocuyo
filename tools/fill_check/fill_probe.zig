@@ -35,7 +35,7 @@ export fn probe_response_collect(message: [*]const u8, message_bytes: usize, cha
 
 /// A lookup started in the table: its slot taken and the lookup built in it.
 export fn probe_table_start(resolver: *cocuyo.Resolver, question: *const cocuyo.Question, handle: *cocuyo.Handle) bool {
-    handle.* = resolver.start(question.*) catch return false;
+    handle.* = resolver.start(&question.*) catch return false;
     return true;
 }
 
@@ -67,7 +67,7 @@ export fn probe_cache_put_negative(cache: *cocuyo.Cache, question: *const cocuyo
 
 /// A lookup built by value, as a caller that holds one outside a table builds it.
 export fn probe_lookup_init(config: *const cocuyo.Config, servers: *cocuyo.Servers, question: *const cocuyo.Question, seed: u64, out: *cocuyo.Lookup) void {
-    out.* = cocuyo.Lookup.init(config, servers, question.*, seed);
+    out.* = cocuyo.Lookup.init(config, servers, &question.*, seed);
 }
 
 /// The benchmark programs' `memset` (`bench/memset.zig`), which calls none: in a program that
@@ -82,7 +82,7 @@ const Engine = io.Resolver(.{});
 
 /// A lookup started in the engine: its cache asked first, then the table driven.
 export fn probe_engine_start(engine: *Engine, question: *const cocuyo.Question, now_ns: u64, handle: *cocuyo.Handle) bool {
-    handle.* = engine.start(question.*, now_ns) catch return false;
+    handle.* = engine.start(&question.*, now_ns) catch return false;
     return true;
 }
 

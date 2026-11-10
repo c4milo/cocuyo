@@ -206,7 +206,7 @@ fn test_context() Resolver.Quic.Context {
 test "a lookup over DoQ is answered through colibri's client and colibri's server on the twin" {
     const world = try World.create(91, .{ .{}, .{} });
     defer world.free();
-    _ = try world.rig.engine.start(question("example.com."), world.rig.loop.now());
+    _ = try world.rig.engine.start(&question("example.com."), world.rig.loop.now());
     const result = try world.rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expect(world.rig.engine.quic.connections[0].state == .up);
@@ -219,7 +219,7 @@ test "lookups over DoQ share one connection to colibri's server, each on a strea
     const world = try World.create(92, .{ .{}, .{} });
     defer world.free();
     const names = [_][]const u8{ "a.example.", "b.example.", "c.example.", "d.example.", "e.example.", "f.example." };
-    for (names) |name| _ = try world.rig.engine.start(question(name), world.rig.loop.now());
+    for (names) |name| _ = try world.rig.engine.start(&question(name), world.rig.loop.now());
     for (names) |_| {
         const result = try world.rig.until_result();
         try testing.expect(result.outcome == .answer);
@@ -235,7 +235,7 @@ test "a colibri server that selects another protocol than doq is refused, and th
     const world = try World.create(93, .{ .{}, .{} });
     defer world.free();
     world.sides[0].script.other_protocol = true;
-    _ = try world.rig.engine.start(question("example.com."), world.rig.loop.now());
+    _ = try world.rig.engine.start(&question("example.com."), world.rig.loop.now());
     const result = try world.rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expectEqual(@as(u8, 1), world.rig.engine.resolver.servers.failures(0));
@@ -249,7 +249,7 @@ test "colibri resends the client's first datagrams when they are lost, through t
     const world = try World.create(94, .{ .{}, .{} });
     defer world.free();
     world.sides[0].drop_first = fixtures.quic_datagrams_lost;
-    _ = try world.rig.engine.start(question("example.com."), world.rig.loop.now());
+    _ = try world.rig.engine.start(&question("example.com."), world.rig.loop.now());
     const result = try world.rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     // The first server answered after all: the loss cost time, not the server.
@@ -262,7 +262,7 @@ test "colibri resends the client's first datagrams when they are lost, through t
 test "an idle connection to colibri's server closes with CONNECTION_CLOSE, which the server hears" {
     const world = try World.create(95, .{ .{}, .{} });
     defer world.free();
-    _ = try world.rig.engine.start(question("example.com."), world.rig.loop.now());
+    _ = try world.rig.engine.start(&question("example.com."), world.rig.loop.now());
     _ = try world.rig.until_result();
     _ = world.rig.engine.take(world.rig.loop.now());
     // colibri's own timers wake the loop meanwhile, so the clock is stepped until the idle close
@@ -288,7 +288,7 @@ test "streams the engine cancels are drained, and give their places in colibri's
     const engine = &world.rig.engine;
     var cancelled: usize = 0;
     while (cancelled < fixtures.quic_cancelled_streams) : (cancelled += 1) {
-        const handle = try engine.start(question("example.com."), world.rig.loop.now());
+        const handle = try engine.start(&question("example.com."), world.rig.loop.now());
         var rounds: usize = 0;
         while (engine.quic.connections[0].streams == 0 and rounds < fixtures.until_rounds_max) : (rounds += 1) {
             _ = try world.rig.step(fixtures.wait_ns);
@@ -300,7 +300,7 @@ test "streams the engine cancels are drained, and give their places in colibri's
         // The server's answer arrives on the cancelled stream, and is drained.
         _ = try world.rig.step(fixtures.wait_ns);
     }
-    _ = try engine.start(question("example.com."), world.rig.loop.now());
+    _ = try engine.start(&question("example.com."), world.rig.loop.now());
     const result = try world.rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     _ = engine.take(world.rig.loop.now());
@@ -315,7 +315,7 @@ test "a lookup cancelled while colibri's server holds its query sends STOP_SENDI
     defer world.free();
     world.sides[0].script.hold = true;
     const engine = &world.rig.engine;
-    const handle = try engine.start(question("example.com."), world.rig.loop.now());
+    const handle = try engine.start(&question("example.com."), world.rig.loop.now());
     var rounds: usize = 0;
     while (engine.quic.connections[0].streams == 0 and rounds < fixtures.until_rounds_max) : (rounds += 1) {
         _ = try world.rig.step(fixtures.wait_ns);
@@ -343,7 +343,7 @@ test "a request taken while an idle close is held back reopens the connection, t
     defer world.free();
     const engine = &world.rig.engine;
     const connection = &engine.quic.connections[0];
-    _ = try engine.start(question("one.example."), world.rig.loop.now());
+    _ = try engine.start(&question("one.example."), world.rig.loop.now());
     _ = try world.rig.until_result();
     _ = engine.take(world.rig.loop.now());
     var rounds: usize = 0;
@@ -354,7 +354,7 @@ test "a request taken while an idle close is held back reopens the connection, t
     world.rig.loop.refuse_submissions = true;
     engine.drive(world.rig.loop.now());
     try testing.expect(connection.state == .closing and connection.made > 0);
-    _ = try engine.start(question("two.example."), world.rig.loop.now());
+    _ = try engine.start(&question("two.example."), world.rig.loop.now());
     try testing.expectEqual(@as(u16, 1), connection.queue_len);
     rounds = 0;
     while (connection.transport.connection.termination.state != .closed and rounds < fixtures.until_rounds_max) : (rounds += 1) {
@@ -379,7 +379,7 @@ test "a request's bytes outlive its answer, and colibri sends them again until t
     defer world.free();
     world.sides[0].answers_unacknowledged = 1;
     const engine = &world.rig.engine;
-    _ = try engine.start(question("one.example."), world.rig.loop.now());
+    _ = try engine.start(&question("one.example."), world.rig.loop.now());
     _ = try world.rig.until_result();
     _ = engine.take(world.rig.loop.now());
     try testing.expect(world.sides[0].acks_lost > 0);
@@ -390,7 +390,7 @@ test "a request's bytes outlive its answer, and colibri sends them again until t
         _ = try world.rig.step(fixtures.wait_ns);
     }
     try testing.expect(client.streams.lookup(first) == .closed);
-    _ = try engine.start(question("two.example."), world.rig.loop.now());
+    _ = try engine.start(&question("two.example."), world.rig.loop.now());
     const result = try world.rig.until_result();
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expectEqual(@as(usize, 2), world.sides[0].entries[0].server.answered);
@@ -403,7 +403,7 @@ test "a connection colibri's server closes is closed, and the next lookup opens 
     // (RFC 9000 §10.2), whenever it likes: the client does not charge it, and opens anew.
     const world = try World.create(100, .{ .{}, .{} });
     defer world.free();
-    _ = try world.rig.engine.start(question("a.example."), world.rig.loop.now());
+    _ = try world.rig.engine.start(&question("a.example."), world.rig.loop.now());
     _ = try world.rig.until_result();
     const entry = &world.sides[0].entries[0];
     quic.Connection.owe_close(&entry.server.connection, .{
@@ -419,7 +419,7 @@ test "a connection colibri's server closes is closed, and the next lookup opens 
         _ = try world.rig.step(fixtures.wait_ns);
     }
     try testing.expect(connection.state == .closed);
-    _ = try world.rig.engine.start(question("b.example."), world.rig.loop.now());
+    _ = try world.rig.engine.start(&question("b.example."), world.rig.loop.now());
     const result = try world.rig.until_result();
     try testing.expect(result.outcome == .answer);
     // The same server answered, on a connection opened anew, and was not charged for the close.

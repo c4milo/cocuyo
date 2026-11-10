@@ -108,7 +108,7 @@ fn resolve(state: *Engine) !void {
     // Both engines start their lookups together, so the two loops run at once.
     _ = state.started.fetchAdd(1, .acq_rel);
     while (state.started.load(.acquire) < engines) std.atomic.spinLoopHint();
-    for (names) |name| _ = try resolver.start(try cocuyo.Question.from_text(name, .a), state.clock.read());
+    for (names) |name| _ = try resolver.start(&try cocuyo.Question.from_text(name, .a), state.clock.read());
     try drive(state, resolver, &loop, &events);
 }
 

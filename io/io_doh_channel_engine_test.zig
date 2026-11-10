@@ -236,7 +236,7 @@ const World = struct {
 
     /// One lookup of `name`, whose result is taken.
     fn resolve(world: *World, name: []const u8) !Resolver.Result {
-        _ = try world.engine.start(try cocuyo.Question.from_text(name, .a), world.loop.now());
+        _ = try world.engine.start(&try cocuyo.Question.from_text(name, .a), world.loop.now());
         for (0..rounds_max) |_| {
             if (world.engine.take(world.loop.now())) |result| {
                 _ = world.engine.take(world.loop.now());

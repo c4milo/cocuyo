@@ -158,7 +158,7 @@ pub const Lookup = struct {
     /// The earlier tries of the current name still open (docs/design.md §5, Tries kept open).
     tries: tries_module.Tries,
 
-    pub fn init(config: *const Config, servers: *Servers, question: Question, seed: u64) Lookup {
+    pub fn init(config: *const Config, servers: *Servers, question: *const Question, seed: u64) Lookup {
         var lookup: Lookup = undefined;
         lookup.init_in_place(config, servers, question, seed);
         return lookup;
@@ -171,7 +171,7 @@ pub const Lookup = struct {
         self: *Lookup,
         config: *const Config,
         servers: *Servers,
-        question: Question,
+        question: *const Question,
         seed: u64,
     ) void {
         init_module.init_in_place(self, config, servers, question, seed);
