@@ -139,7 +139,8 @@ pub const Cache = struct {
         assert(self.order.len == 0);
     }
 
-    pub fn len(self: *const Cache) usize {
+    /// How many entries the cache holds: `slots_max` at most, which a `u16` holds.
+    pub fn len(self: *const Cache) u16 {
         return self.order.len;
     }
 
@@ -353,4 +354,13 @@ test {
     _ = @import("cache_kinds_test.zig");
     _ = @import("cache_probe_test.zig");
     _ = @import("cache_ttl_test.zig");
+}
+
+test "the entries a cache holds are counted in the smallest type that holds the most slots" {
+    // TigerStyle sizes each integer (docs/design.md §20, Explicit sizes). A `u8` does not hold
+    // `slots_max`, and a `u16` does.
+    const Count = @typeInfo(@TypeOf(Cache.len)).@"fn".return_type.?;
+    try testing.expectEqual(u16, Count);
+    try testing.expect(limits.slots_max > std.math.maxInt(u8));
+    try testing.expect(limits.slots_max <= std.math.maxInt(u16));
 }

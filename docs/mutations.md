@@ -12104,3 +12104,22 @@ row.
 | CZ25 | `Slices.valid` takes more slots than the most, where it refuses none | `zig build test-cache` | `CAUGHT` |
 | CZ29 | a cache takes a cap of zero | `zig build test-cache` | `CAUGHT` |
 | CZ30 | a cache takes a cap past seven days | `zig build test-cache` | `CAUGHT` |
+
+## Explicit sizes on the surface
+
+2026-11-10, c4milo/cocuyo#65. TigerStyle gives each integer a size. The owner ruled that a count
+of the surface takes the smallest of `u8`, `u16`, `u32` and `u64` that holds its named limit, and
+that the length of a slice and an index into one stay `usize`. Four functions returned a count as
+a `usize`: `Resolver.in_flight` and `Cache.len` are a `u16` now, and `Config.server_count` and
+`AddressLookup.in_flight` a `u8`. The engine's `in_flight` is the table's, so it is a `u16` too.
+A test beside each function holds its type to its limit, and `io/io_lifecycle_test.zig` holds the
+engine's type to the table's. Each mutation below gives one function its `usize` back.
+`zig build mutations -- engine XS1 XS2 XS3 XS4 XS5` ran each row.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| XS1 | the table counts its lookups in flight as a `usize` | `zig build test-resolver` | `CAUGHT` |
+| XS2 | the cache counts its entries as a `usize` | `zig build test-cache` | `CAUGHT` |
+| XS3 | the configuration counts its servers as a `usize` | `zig build test-core` | `CAUGHT` |
+| XS4 | a walk counts its lookups in flight as a `usize` | `zig build test-resolver` | `CAUGHT` |
+| XS5 | the engine counts its lookups in flight as a `usize`, where its table counts a `u16` | `zig build test-io` | `CAUGHT` |

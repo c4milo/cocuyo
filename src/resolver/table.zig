@@ -279,8 +279,8 @@ pub const Resolver = struct {
         self.slots.release(index);
     }
 
-    /// How many lookups are in flight.
-    pub fn in_flight(self: *const Resolver) usize {
+    /// How many lookups are in flight: `lookup_slots_max` at most, which a `u16` holds.
+    pub fn in_flight(self: *const Resolver) u16 {
         return self.slots.occupied_count();
     }
 

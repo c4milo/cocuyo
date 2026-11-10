@@ -438,7 +438,7 @@ pub const Resolver = struct {
     /// Frees the slot. Every slice an answer handed out points into it and dies here.
     pub fn release(self: *Resolver, handle: Handle) void;
     pub fn lookup_of(self: *Resolver, handle: Handle) *Lookup;
-    pub fn in_flight(self: *const Resolver) usize;
+    pub fn in_flight(self: *const Resolver) u16;
 };
 
 pub const Event = struct { handle: Handle, action: Action };
@@ -6538,7 +6538,7 @@ pub const Cache = struct {
     failure_seconds_min: u32 = constants.failure_seconds_min_default,
     pub fn put_failure(self: *Cache, question: *const Question, err: Error, now_ns: u64) void;
     pub fn flush(self: *Cache) void;
-    pub fn len(self: *const Cache) usize;
+    pub fn len(self: *const Cache) u16;
 };
 
 // Since 2026-10-11 (§16 decision 37, Sizing the memory below):
@@ -8411,6 +8411,25 @@ How the build and the checks hold it:
   of what a consumer of cocuyo writes, so its reply moved to `examples/responder.zig`, a module
   that the build hands the internal `core` and `wire` alone. The example's own code names only
   the surface. No name joined the surface for it (the owner's ruling of 2026-11-09).
+
+**Explicit sizes.** TigerStyle gives each integer a size, and names `usize` as the type to stay
+away from. The owner ruled on 2026-11-10 how far that goes on the surface: the methods of the flat
+types and the functions of the namespaces. A count takes the smallest of `u8`, `u16`, `u32` and
+`u64` that holds its named limit. The length of a slice and an index into one stay `usize`, as
+the language gives them. So four functions changed their type:
+
+| Function | Type | The limit it holds |
+| --- | --- | --- |
+| `Resolver.in_flight` | `u16` | `lookup_slots_max`, 1024 |
+| `Cache.len` | `u16` | the cache's `slots_max`, 16,384 |
+| `Config.server_count` | `u8` | `servers_max`, 8 |
+| `AddressLookup.in_flight` | `u8` | 2, an A lookup and an AAAA lookup |
+
+The engine's `in_flight` is a `u16` too, since it is the table's. A slot count stays `usize`: it
+is the length of the caller's slice, which `keys_for`, `slot_count_valid` and `Storage` take. What
+a function writes into a slice of the caller's is a length too: `Name.write_text` and
+`Hosts.find` stay. A test beside each function holds its type to its limit, so a limit that
+outgrows its type fails the gate (docs/mutations.md, XS1 to XS5).
 
 **Rejected alternatives.**
 

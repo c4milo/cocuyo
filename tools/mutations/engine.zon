@@ -8435,4 +8435,49 @@
         },
         .caught_by = .{ .step = "consumer-check" },
     },
+    .{
+        .section = "Explicit sizes on the surface",
+        .id = "XS1",
+        .what = "the table counts its lookups in flight as a `usize`",
+        .edits = .{
+            .{ .file = "src/resolver/table.zig", .old = "    pub fn in_flight(self: *const Resolver) u16 {", .new = "    pub fn in_flight(self: *const Resolver) usize {" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Explicit sizes on the surface",
+        .id = "XS2",
+        .what = "the cache counts its entries as a `usize`",
+        .edits = .{
+            .{ .file = "src/cache/cache.zig", .old = "    pub fn len(self: *const Cache) u16 {", .new = "    pub fn len(self: *const Cache) usize {" },
+        },
+        .caught_by = .{ .step = "test-cache" },
+    },
+    .{
+        .section = "Explicit sizes on the surface",
+        .id = "XS3",
+        .what = "the configuration counts its servers as a `usize`",
+        .edits = .{
+            .{ .file = "src/core/config.zig", .old = "    pub fn server_count(self: *const Config) u8 {", .new = "    pub fn server_count(self: *const Config) usize {" },
+        },
+        .caught_by = .{ .step = "test-core" },
+    },
+    .{
+        .section = "Explicit sizes on the surface",
+        .id = "XS4",
+        .what = "a walk counts its lookups in flight as a `usize`",
+        .edits = .{
+            .{ .file = "src/resolver/address_lookup.zig", .old = "    pub fn in_flight(self: *const AddressLookup) u8 {", .new = "    pub fn in_flight(self: *const AddressLookup) usize {" },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "Explicit sizes on the surface",
+        .id = "XS5",
+        .what = "the engine counts its lookups in flight as a `usize`, where its table counts a `u16`",
+        .edits = .{
+            .{ .file = "io/io.zig", .old = "        pub fn in_flight(self: *const Self) u16 {", .new = "        pub fn in_flight(self: *const Self) usize {" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
 }

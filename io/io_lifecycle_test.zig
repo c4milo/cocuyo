@@ -51,6 +51,8 @@ test "an engine whose table is full refuses a lookup with NoSlot, the table's ow
         _ = try rig.engine.start(&question(text), rig.loop.now());
     }
     try testing.expectEqual(@as(usize, fixtures.lookups), rig.engine.in_flight());
+    // The engine counts its lookups as its table does (docs/design.md §20, Explicit sizes).
+    try testing.expectEqual(@TypeOf(rig.engine.resolver.in_flight()), @TypeOf(rig.engine.in_flight()));
     try testing.expectError(error.NoSlot, rig.engine.start(&question("over.example."), rig.loop.now()));
     rig.engine.cancel_all(rig.loop.now());
     for (0..fixtures.lookups) |_| _ = try rig.until_result();

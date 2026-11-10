@@ -394,7 +394,7 @@ pub fn Resolver(comptime options: Options) type {
             drive_module.drive(self, now_ns);
         }
 
-        pub fn in_flight(self: *const Self) usize {
+        pub fn in_flight(self: *const Self) u16 {
             return self.resolver.in_flight();
         }
 

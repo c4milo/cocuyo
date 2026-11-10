@@ -205,9 +205,9 @@ pub const AddressLookup = struct {
         assert(self.in_flight() >= 1);
     }
 
-    /// How many of its lookups hold a slot.
-    pub fn in_flight(self: *const AddressLookup) usize {
-        var count: usize = 0;
+    /// How many of its lookups hold a slot: 2 at most, one for each family.
+    pub fn in_flight(self: *const AddressLookup) u8 {
+        var count: u8 = 0;
         if (!self.a.ended) count += 1;
         if (!self.aaaa.ended) count += 1;
         return count;

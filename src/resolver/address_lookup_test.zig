@@ -489,3 +489,9 @@ test "a lookup that fills the table between a pair's two ends leaves the next pa
     try rig.asking(rig.lookup.a.handle, "host.b.example");
     try rig.asking(rig.lookup.aaaa.handle, "host.b.example");
 }
+
+test "the lookups a walk has in flight are counted in a u8, which holds one for each family" {
+    const Count = @typeInfo(@TypeOf(AddressLookup.in_flight)).@"fn".return_type.?;
+    try testing.expectEqual(u8, Count);
+    try testing.expect(@typeInfo(Family).@"enum".fields.len <= std.math.maxInt(u8));
+}

@@ -2,6 +2,7 @@
 //! frees their slots (docs/design.md §4 and §11). Split from `table.zig` by the file-length rule.
 const std = @import("std");
 const testing = std.testing;
+const core = @import("core");
 const fixtures = @import("fixtures.zig");
 const table_module = @import("table.zig");
 const Event = table_module.Event;
@@ -190,4 +191,13 @@ test "a cut datagram reaches the lookup whose transaction it carries, which then
     try testing.expectEqual(second, event.handle);
     try testing.expect(event.action == .connect_tcp);
     try testing.expect(table.resolver.lookup_of(first).state == .awaiting_udp);
+}
+
+test "the lookups in flight are counted in the smallest type that holds the most slots" {
+    // TigerStyle sizes each integer (docs/design.md §20, Explicit sizes). A `u8` does not hold
+    // `lookup_slots_max`, and a `u16` does.
+    const Count = @typeInfo(@TypeOf(table_module.Resolver.in_flight)).@"fn".return_type.?;
+    try testing.expectEqual(u16, Count);
+    try testing.expect(core.limits.lookup_slots_max > std.math.maxInt(u8));
+    try testing.expect(core.limits.lookup_slots_max <= std.math.maxInt(u16));
 }

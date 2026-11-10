@@ -133,8 +133,8 @@ pub const Slots = struct {
         return true;
     }
 
-    pub fn occupied_count(self: *const Slots) usize {
-        var count: usize = 0;
+    pub fn occupied_count(self: *const Slots) u16 {
+        var count: u16 = 0;
         for (self.items) |*slot| {
             if (slot.occupied) count += 1;
         }

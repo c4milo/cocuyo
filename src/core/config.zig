@@ -283,10 +283,12 @@ pub const Config = struct {
         return self.use_tcp or self.uses_tls();
     }
 
-    /// How many servers a lookup may ask: with `primary`, the first is the only one.
-    pub fn server_count(self: *const Config) usize {
+    /// How many servers a lookup may ask: with `primary`, the first is the only one. It is
+    /// `servers_max` at most, which a `u8` holds.
+    pub fn server_count(self: *const Config) u8 {
+        assert(self.servers.len <= limits.servers_max);
         if (self.primary and self.servers.len >= 1) return 1;
-        return self.servers.len;
+        return @intCast(self.servers.len);
     }
 };
 
@@ -469,4 +471,11 @@ test "primary asks one server, and a configuration may name none" {
     const none: Config = .{ .servers = &.{} };
     none.assert_valid();
     try testing.expectEqual(@as(usize, 0), none.server_count());
+}
+
+test "the servers a lookup may ask are counted in the smallest type that holds the most servers" {
+    // TigerStyle sizes each integer (docs/design.md §20, Explicit sizes): a `u8` holds `servers_max`.
+    const Count = @typeInfo(@TypeOf(Config.server_count)).@"fn".return_type.?;
+    try testing.expectEqual(u8, Count);
+    try testing.expect(limits.servers_max <= std.math.maxInt(u8));
 }
