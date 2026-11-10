@@ -352,7 +352,18 @@ your configuration come from:
 const cocuyo = @import("cocuyo");
 const dns = @import("cocuyo_rotor");
 
-const Resolver = dns.Resolver(.{});
+const Resolver = dns.Resolver(.{
+    .lookups = dns.constants.lookups_default,
+    .tag = dns.constants.tag_default,
+    .group_buffers = dns.constants.group_buffers_default,
+    .tcp_connections = dns.constants.tcp_connections_default,
+    .tcp_group_buffers = dns.constants.tcp_group_buffers_default,
+    .requests = null,
+    .tcp_message_bytes = dns.limits.tcp_message_bytes_max,
+    .tls = dns.tls.None,
+    .quic = dns.quic.None,
+    .doh = dns.channel.None,
+});
 var resolver: Resolver = undefined;
 // A size known when you compile: 1,024 slots, the size measured below, 5.0 MiB.
 var cache_memory: cocuyo.Cache.Storage(dns.constants.cache_slots_default) = undefined;

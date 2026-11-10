@@ -8378,7 +8378,7 @@ Each namespace holds one job, and its helpers keep their names without a prefix,
 - `trust_anchors`: `parse`, `Error` and `anchors_max`.
 - `rdata`: the readers of record data.
 - `limits` and `constants`: each limit and each constant that a consumer sizes its memory with,
-  once.
+  once. Since 2026-11-10 `constants` holds each default of a `Config` that is a number too.
 
 The owner ruled on 2026-11-10 that the `cache` namespace folds into `Cache`. Until then the six
 names were `cocuyo.cache.Storage` and the rest, in a namespace of their own. So `Cache` and
@@ -8430,6 +8430,26 @@ is the length of the caller's slice, which `keys_for`, `slot_count_valid` and `S
 a function writes into a slice of the caller's is a length too: `Name.write_text` and
 `Hosts.find` stay. A test beside each function holds its type to its limit, so a limit that
 outgrows its type fails the gate (docs/mutations.md, XS1 to XS5).
+
+**Every field.** TigerStyle has a caller pass each option where it calls, so that a reader sees
+each setting and no default changes under it. The owner ruled on 2026-11-07 that `Config` and
+`Options` keep their defaults, and on 2026-11-10 where a caller passes each field all the same:
+in consumer-shaped code. That is each Zig block of the README, each program of `examples/` and
+each program of `test/consumer/`. A test keeps the defaults, and names the field it tests.
+
+- Each of them writes each field where it builds a `Config` or the engine's `Options`, and no
+  function builds one for them.
+- A field left at the default names the default. `cocuyo.constants` gained the eight defaults of
+  `Config` that are numbers and had no public name: `ndots_default`, `attempts_default`,
+  `timeout_ns_default`, `timeout_ns_max_default`, `failover_retry_chance_default`,
+  `failover_retry_delay_ns_default`, `cache_ttl_seconds_max_default` and
+  `cache_failure_seconds_min_default`. The engine's defaults had public names already.
+- `zig build every-field` holds it, and the gate runs it (`tools/every_field.zig`). It reads each
+  literal that its list names, and requires each field of the type at the literal's own depth. So
+  a field that joins `Config` later fails the gate until each program passes it
+  (docs/mutations.md, EF1 to EF7).
+- A program that builds one more `Config` or `Options` joins the list by hand. The check counts
+  the literals of each file, and a file with one more than the list names fails.
 
 **Rejected alternatives.**
 

@@ -8480,4 +8480,67 @@
         },
         .caught_by = .{ .step = "test-io" },
     },
+    .{
+        .section = "Every field in consumer-shaped code",
+        .id = "EF1",
+        .what = "an example's Config leaves `rotate` at its default",
+        .edits = .{
+            .{ .file = "examples/dot_rotor.zig", .old = "        .rotate = false,\n", .new = "" },
+        },
+        .caught_by = .{ .step = "every-field" },
+    },
+    .{
+        .section = "Every field in consumer-shaped code",
+        .id = "EF2",
+        .what = "a fixture program's Options leaves `tag` at its default",
+        .edits = .{
+            .{ .file = "test/consumer/embed.zig", .old = "    .tag = dns.constants.tag_default,\n", .new = "" },
+        },
+        .caught_by = .{ .step = "every-field" },
+    },
+    .{
+        .section = "Every field in consumer-shaped code",
+        .id = "EF3",
+        .what = "the README's engine block leaves `requests` at its default",
+        .edits = .{
+            .{ .file = "README.md", .old = "    .requests = null,\n", .new = "" },
+        },
+        .caught_by = .{ .step = "every-field" },
+    },
+    .{
+        .section = "Every field in consumer-shaped code",
+        .id = "EF4",
+        .what = "the check takes a field named in a literal inside the literal",
+        .edits = .{
+            .{ .file = "tools/every_field.zig", .old = "        if (depth == 0 and names_field(inside, at, name)) return true;", .new = "        if (names_field(inside, at, name)) return true;" },
+        },
+        .caught_by = .{ .step = "test-every-field" },
+    },
+    .{
+        .section = "Every field in consumer-shaped code",
+        .id = "EF5",
+        .what = "the check passes a file that builds more literals than the list names",
+        .edits = .{
+            .{ .file = "tools/every_field.zig", .old = "        if (built == listed) continue;", .new = "        if (built == listed or built > listed) continue;" },
+        },
+        .caught_by = .{ .step = "test-every-field" },
+    },
+    .{
+        .section = "Every field in consumer-shaped code",
+        .id = "EF6",
+        .what = "the check passes a site whose literal is not there",
+        .edits = .{
+            .{ .file = "tools/every_field.zig", .old = "        return 1;\n    };\n    var faults: usize = 0;\n    for (fields_of(site.kind)) |name| {", .new = "        return 0;\n    };\n    var faults: usize = 0;\n    for (fields_of(site.kind)) |name| {" },
+        },
+        .caught_by = .{ .step = "test-every-field" },
+    },
+    .{
+        .section = "Every field in consumer-shaped code",
+        .id = "EF7",
+        .what = "the check reads a comment and a string as code",
+        .edits = .{
+            .{ .file = "tools/every_field.zig", .old = "        kept.* = if (state == .code) octet else ' ';", .new = "        kept.* = octet;" },
+        },
+        .caught_by = .{ .step = "test-every-field" },
+    },
 }

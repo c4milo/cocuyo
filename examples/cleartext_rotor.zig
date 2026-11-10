@@ -23,7 +23,18 @@ const answer_text = @import("answer_text.zig");
 const server_text = @import("server_text.zig");
 const trust_text = @import("trust_text.zig");
 
-const Resolver = io.Resolver(.{ .lookups = at_once_max + 1 });
+const Resolver = io.Resolver(.{
+    .lookups = at_once_max + 1,
+    .tag = io.constants.tag_default,
+    .group_buffers = io.constants.group_buffers_default,
+    .tcp_connections = io.constants.tcp_connections_default,
+    .tcp_group_buffers = io.constants.tcp_group_buffers_default,
+    .requests = null,
+    .tcp_message_bytes = io.limits.tcp_message_bytes_max,
+    .tls = io.tls.None,
+    .quic = io.quic.None,
+    .doh = io.channel.None,
+});
 
 const loop_options: rotor.Loop.Options = .{ .operations = Resolver.loop_operations };
 var loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment) = undefined;
@@ -57,7 +68,32 @@ pub fn main(init: std.process.Init) !void {
     const use_tcp = arguments.len == 3 and std.mem.eql(u8, arguments[2], "tcp");
     if (arguments.len == 3 and !use_tcp and !std.mem.eql(u8, arguments[2], "udp")) return error.BadTransport;
     const servers = [_]cocuyo.Server{.{ .endpoint = endpoint }};
-    const config: cocuyo.Config = .{ .servers = &servers, .search = &.{}, .use_tcp = use_tcp };
+    const config: cocuyo.Config = .{
+        .servers = &servers,
+        .search = &.{},
+        .ndots = cocuyo.constants.ndots_default,
+        .attempts = cocuyo.constants.attempts_default,
+        .timeout_ns = cocuyo.constants.timeout_ns_default,
+        .udp_payload_bytes = cocuyo.constants.udp_payload_bytes_default,
+        .mix_case = true,
+        .rotate = false,
+        .timeout_ns_max = cocuyo.constants.timeout_ns_max_default,
+        .use_tcp = use_tcp,
+        .ignore_truncation = false,
+        .recursion_desired = true,
+        .check_response = true,
+        .primary = false,
+        .authenticated_data = .ignored,
+        .lookups = &.{ .file, .dns },
+        .failover_retry_chance = cocuyo.constants.failover_retry_chance_default,
+        .local_address = null,
+        .socket_receive_bytes = 0,
+        .socket_send_bytes = 0,
+        .udp_queries_per_port = 0,
+        .failover_retry_delay_ns = cocuyo.constants.failover_retry_delay_ns_default,
+        .cache_ttl_seconds_max = cocuyo.constants.cache_ttl_seconds_max_default,
+        .cache_failure_seconds_min = cocuyo.constants.cache_failure_seconds_min_default,
+    };
 
     var engine_seed: [@sizeOf(u64)]u8 = undefined;
     try init.io.randomSecure(&engine_seed);

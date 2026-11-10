@@ -12123,3 +12123,24 @@ engine's type to the table's. Each mutation below gives one function its `usize`
 | XS3 | the configuration counts its servers as a `usize` | `zig build test-core` | `CAUGHT` |
 | XS4 | a walk counts its lookups in flight as a `usize` | `zig build test-resolver` | `CAUGHT` |
 | XS5 | the engine counts its lookups in flight as a `usize`, where its table counts a `u16` | `zig build test-io` | `CAUGHT` |
+
+## Every field in consumer-shaped code
+
+2026-11-10, c4milo/cocuyo#65. TigerStyle has a caller pass each option where it calls. The owner
+ruled that `Config` and the engine's `Options` keep their defaults, for tests, and that the
+README's blocks, the examples and the consumer fixture pass each field all the same. A field left
+at the default names the default, so `cocuyo.constants` gained the eight defaults of `Config`
+that had no public name. A struct with defaults compiles when a literal leaves a field out, so
+`tools/every_field.zig` reads each of the 18 literals and requires each field of its type.
+EF1 to EF3 leave one field out of one literal. EF4 to EF7 break the check itself.
+`zig build mutations -- engine EF1 EF2 EF3 EF4 EF5 EF6 EF7` ran each row.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| EF1 | an example's `Config` leaves `rotate` at its default | `zig build every-field` | `CAUGHT` |
+| EF2 | a fixture program's `Options` leaves `tag` at its default | `zig build every-field` | `CAUGHT` |
+| EF3 | the README's engine block leaves `requests` at its default | `zig build every-field` | `CAUGHT` |
+| EF4 | the check takes a field named in a literal inside the literal | `zig build test-every-field` | `CAUGHT` |
+| EF5 | the check passes a file that builds more literals than the list names | `zig build test-every-field` | `CAUGHT` |
+| EF6 | the check passes a site whose literal is not there | `zig build test-every-field` | `CAUGHT` |
+| EF7 | the check reads a comment and a string as code | `zig build test-every-field` | `CAUGHT` |

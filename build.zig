@@ -22,6 +22,7 @@ const lint = @import("build/lint.zig");
 const graph_check = @import("build/graph_check.zig");
 const consumer_check = @import("build/consumer_check.zig");
 const readme_check = @import("build/readme_check.zig");
+const every_field = @import("build/every_field.zig");
 const examples = @import("build/examples.zig");
 const conformance = @import("build/conformance.zig");
 const bench = @import("build/bench.zig");
@@ -157,6 +158,7 @@ pub fn build(b: *std.Build) void {
 
     test_step.dependOn(consumer_check.add(b, host_module(b, "tools/consumer_check.zig")));
     test_step.dependOn(readme_check.add(b, host_module(b, "tools/readme_check.zig")));
+    test_step.dependOn(every_field.add(b, graph.cocuyo, graph.io));
     test_step.dependOn(fill_check.add(b, host_module(b, "tools/fill_check/fill_check.zig")));
     // rotor drives the examples over a real loop and the comparison. A rotor asked for no mode
     // builds Debug, so it follows `-Drelease` as colibri does, and the comparison, ReleaseSafe

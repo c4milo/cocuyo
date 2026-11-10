@@ -178,6 +178,16 @@ pub const constants = struct {
     /// an insecure delegation (docs/design.md §25, §17 question 121). The consumer sizes the store.
     /// Chosen, not measured: a run of a few names fills far fewer.
     pub const key_store_zones_default = core.constants.key_store_zones_default;
+    // The defaults of a `Config` that are numbers, for a caller that passes each field
+    // (docs/design.md §20, Every field). `src/core/constants.zig` gives the reason for each.
+    pub const ndots_default = core.constants.ndots_default;
+    pub const attempts_default = core.constants.attempts_default;
+    pub const timeout_ns_default = core.constants.timeout_ns_default;
+    pub const timeout_ns_max_default = core.constants.timeout_ns_max_default;
+    pub const failover_retry_chance_default = core.constants.failover_retry_chance_default;
+    pub const failover_retry_delay_ns_default = core.constants.failover_retry_delay_ns_default;
+    pub const cache_ttl_seconds_max_default = core.constants.cache_ttl_seconds_max_default;
+    pub const cache_failure_seconds_min_default = core.constants.cache_failure_seconds_min_default;
 };
 
 /// What the table asks of a validator, and what `validated_by` fills in. Not public: a consumer

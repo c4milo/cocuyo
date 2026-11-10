@@ -48,8 +48,15 @@ const trust_text = @import("trust_text.zig");
 
 const Resolver = io.Resolver(.{
     .lookups = at_once_max + 1,
+    .tag = io.constants.tag_default,
+    .group_buffers = io.constants.group_buffers_default,
     .tcp_connections = cocuyo.limits.servers_max,
+    .tcp_group_buffers = io.constants.tcp_group_buffers_default,
+    .requests = null,
+    .tcp_message_bytes = io.limits.tcp_message_bytes_max,
     .tls = chapulin.Session,
+    .quic = io.quic.None,
+    .doh = io.channel.None,
 });
 
 const loop_options: rotor.Loop.Options = .{ .operations = Resolver.loop_operations };
@@ -95,7 +102,32 @@ pub fn main(init: std.process.Init) !void {
     if (at.port) |port| tls.port = port;
     const servers = [_]cocuyo.Server{.{ .endpoint = .{ .address = at.address }, .tls = tls }};
     // Strict mode authenticated the server, so its AD bit counts (docs/design.md §25, Stage A).
-    const config: cocuyo.Config = .{ .servers = &servers, .search = &.{}, .authenticated_data = .encrypted };
+    const config: cocuyo.Config = .{
+        .servers = &servers,
+        .search = &.{},
+        .ndots = cocuyo.constants.ndots_default,
+        .attempts = cocuyo.constants.attempts_default,
+        .timeout_ns = cocuyo.constants.timeout_ns_default,
+        .udp_payload_bytes = cocuyo.constants.udp_payload_bytes_default,
+        .mix_case = true,
+        .rotate = false,
+        .timeout_ns_max = cocuyo.constants.timeout_ns_max_default,
+        .use_tcp = false,
+        .ignore_truncation = false,
+        .recursion_desired = true,
+        .check_response = true,
+        .primary = false,
+        .authenticated_data = .encrypted,
+        .lookups = &.{ .file, .dns },
+        .failover_retry_chance = cocuyo.constants.failover_retry_chance_default,
+        .local_address = null,
+        .socket_receive_bytes = 0,
+        .socket_send_bytes = 0,
+        .udp_queries_per_port = 0,
+        .failover_retry_delay_ns = cocuyo.constants.failover_retry_delay_ns_default,
+        .cache_ttl_seconds_max = cocuyo.constants.cache_ttl_seconds_max_default,
+        .cache_failure_seconds_min = cocuyo.constants.cache_failure_seconds_min_default,
+    };
 
     var anchors: [anchors_max]chapulin.Session.Anchor = undefined;
     const roots = arguments[3..];

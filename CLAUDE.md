@@ -224,7 +224,8 @@ The architecture depends on every rule in this section.
   directory it walks or handed to it by name, `test/`'s fixtures apart, so a directory left off
   the list fails too.
 - Test: `zig build test` — the lint, the format check, the graph check, the consumer check, the
-  README check, the hook check, the fill check, then every module's unit tests, the DoT and DoQ
+  README check, the every-field check, the hook check, the fill check, then every module's unit
+  tests, the DoT and DoQ
   sessions' tests and a build of their examples, and the tools' own tests. Every change passes it
   before it is committed. `zig build test-<module>` (`test-core`, `test-wire`, `test-resolver`,
   `test-config`, `test-cache`, `test-dnssec`, `test-sim`, `test-cocuyo`, `test-io`, `test-chapulin_hooks`,
@@ -239,6 +240,11 @@ The architecture depends on every rule in this section.
   every Zig block of README.md, each under the `<!-- readme-check: ... -->` marker that names its
   harness in `tools/readme_check.zig`, and runs the quick start. A new block brings its marker and
   harness.
+- Every field: `zig build every-field` requires each field of a `Config` and of the engine's
+  `Options` in each literal of the README, `examples/` and `test/consumer/` that builds one
+  (design §20, Every field). `tools/every_field.zig` lists the literals, and a file that builds
+  one more fails. A test keeps the defaults. `zig build test-every-field` runs the check's own
+  tests alone.
 - Fills: `zig build fill-check` compiles the library's hot paths, and the engine's over rotor,
   ReleaseSafe for x86-64 Linux and arm64 macOS, and requires their code to call `memset` or `bzero`
   exactly as often as `tools/fill_check/fill_check.zig` knows it does (c4milo/cocuyo#35): a new

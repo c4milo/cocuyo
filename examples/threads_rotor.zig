@@ -24,7 +24,18 @@ const engines = 2;
 /// nothing of, since each resolves each name once.
 const names = [_][]const u8{ "a.example.", "b.example.", "c.example.", "d.example." };
 
-const Resolver = io.Resolver(.{ .lookups = names.len });
+const Resolver = io.Resolver(.{
+    .lookups = names.len,
+    .tag = io.constants.tag_default,
+    .group_buffers = io.constants.group_buffers_default,
+    .tcp_connections = io.constants.tcp_connections_default,
+    .tcp_group_buffers = io.constants.tcp_group_buffers_default,
+    .requests = null,
+    .tcp_message_bytes = io.limits.tcp_message_bytes_max,
+    .tls = io.tls.None,
+    .quic = io.quic.None,
+    .doh = io.channel.None,
+});
 const loop_options: rotor.Loop.Options = .{ .operations = Resolver.loop_operations };
 const events_max = 16;
 /// How long the engines are given, in ticks of `tick_ns`, before the example gives up.
@@ -59,7 +70,32 @@ pub fn main(init: std.process.Init) !void {
     try responder.start();
     defer responder.stop();
     const servers = [_]cocuyo.Server{.{ .endpoint = .{ .address = cocuyo.Address.from_v4(loopback_v4), .port = responder.port } }};
-    const config: cocuyo.Config = .{ .servers = &servers, .search = &.{} };
+    const config: cocuyo.Config = .{
+        .servers = &servers,
+        .search = &.{},
+        .ndots = cocuyo.constants.ndots_default,
+        .attempts = cocuyo.constants.attempts_default,
+        .timeout_ns = cocuyo.constants.timeout_ns_default,
+        .udp_payload_bytes = cocuyo.constants.udp_payload_bytes_default,
+        .mix_case = true,
+        .rotate = false,
+        .timeout_ns_max = cocuyo.constants.timeout_ns_max_default,
+        .use_tcp = false,
+        .ignore_truncation = false,
+        .recursion_desired = true,
+        .check_response = true,
+        .primary = false,
+        .authenticated_data = .ignored,
+        .lookups = &.{ .file, .dns },
+        .failover_retry_chance = cocuyo.constants.failover_retry_chance_default,
+        .local_address = null,
+        .socket_receive_bytes = 0,
+        .socket_send_bytes = 0,
+        .udp_queries_per_port = 0,
+        .failover_retry_delay_ns = cocuyo.constants.failover_retry_delay_ns_default,
+        .cache_ttl_seconds_max = cocuyo.constants.cache_ttl_seconds_max_default,
+        .cache_failure_seconds_min = cocuyo.constants.cache_failure_seconds_min_default,
+    };
     const clock: Clock = .init(init.io);
 
     var started = std.atomic.Value(usize).init(0);
