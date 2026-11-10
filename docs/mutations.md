@@ -11997,3 +11997,22 @@ fixture of `consumer-check` fails to compile when an old name is a declaration a
 | ON3 | the table has `validate_with` beside `use_trust` | `zig build consumer-check` | `CAUGHT` |
 | ON4 | the engine has `active` beside `in_flight` | `zig build consumer-check` | `CAUGHT` |
 | ON5 | the engine has the alias `InitErrorType` beside `InitError` | `zig build consumer-check` | `CAUGHT` |
+
+## The length of the key table
+
+2026-11-09, c4milo/cocuyo#65. `Resolver.keys_for(slot_count)` gives the length of the key table
+that `Resolver.init` asserts, as `cache.keys_for` does for a cache. The engine, the fixtures and
+the README take their lengths from it, and `keys_per_slot_min` left the surface. `zig build
+consumer-check` now runs the fixture's program once it builds. The floor rose to 64 on 2026-11-03,
+the fixture gave 4 keys for each slot, and nothing ran it, so nothing reached the assertion. The
+test of `keys_for` is in `src/resolver/table_test.zig`. `zig build mutations -- engine KF1 KF2 KF3`
+ran each row.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| KF1 | `keys_for` gives the floor itself, which is no power of two for most slot counts | `zig build test-resolver` | `CAUGHT` |
+| KF2 | `keys_for` gives twice the least power of two | `zig build test-resolver` | `CAUGHT` |
+| KF3 | the consumer fixture gives 4 keys for each slot, under the floor of 64 | `zig build consumer-check` | `CAUGHT` |
+
+KF3 compiles. The fixture's program stops at the assertion of `Resolver.init`, and the check reads
+its exit status.

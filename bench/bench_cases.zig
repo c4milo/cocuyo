@@ -30,8 +30,8 @@ const table_small = 1;
 const table_medium = 64;
 const table_large = core.limits.lookup_slots_max;
 
-/// The keys the largest table needs: at least `keys_per_slot_min` per slot, a power of two.
-const keys_large = table_large * resolver_module.limits.keys_per_slot_min;
+/// The keys the largest table needs, as the table itself gives them.
+const keys_large = cocuyo.Resolver.keys_for(table_large);
 
 /// The seed every lookup here is started from. A fixed one, so two runs measure the same ids and
 /// the same case patterns.
@@ -187,7 +187,7 @@ fn setup_table_large() void {
 fn setup_table(count: usize) void {
     assert(count >= 1);
     assert(count <= table_large);
-    resolver = cocuyo.Resolver.init(slots[0..count], keys[0 .. count * resolver_module.limits.keys_per_slot_min], &config, seed);
+    resolver = cocuyo.Resolver.init(slots[0..count], keys[0..cocuyo.Resolver.keys_for(count)], &config, seed);
     var started: usize = 0;
     while (started < count) : (started += 1) {
         handles[started] = resolver.start(question_for(started)) catch unreachable;

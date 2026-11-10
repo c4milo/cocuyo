@@ -16,7 +16,7 @@ const KeyStore = dnssec.keys.KeyStore;
 
 /// The table's slots: the lookup a test starts, and the walk's lookup in the slot kept for it.
 const slot_count: usize = 4;
-const key_count: usize = std.math.ceilPowerOfTwoAssert(usize, slot_count * resolver.limits.keys_per_slot_min);
+const key_count: usize = resolver.Resolver.keys_for(slot_count);
 /// The store's entries: the three signed zones, and the delegation that is not.
 const entries_count: usize = 4;
 /// More polls than any lookup here takes: seven questions, each sent and answered.

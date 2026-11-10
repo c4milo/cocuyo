@@ -20,7 +20,7 @@ const Pending = resolver.address_lookup.Pending;
 
 /// The slots the largest table the transcript names has.
 pub const slots_max = 3;
-const keys_count = std.math.ceilPowerOfTwoAssert(usize, slots_max * resolver.limits.keys_per_slot_min);
+const keys_count = resolver.Resolver.keys_for(slots_max);
 
 /// The seed of the table; the model abstracts its entropy away.
 const seed = 0xadd7_e55e;

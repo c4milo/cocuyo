@@ -9,8 +9,6 @@ const cocuyo = @import("cocuyo");
 
 /// Small on purpose: this proves the package, not the library.
 const lookups = 2;
-/// The table asserts this many keys for each slot at least (docs/design.md §17 question 123).
-const keys_per_lookup = cocuyo.limits.keys_per_slot_min;
 const cache_entries = 4;
 const seed = 1;
 const now_ns = 1;
@@ -30,7 +28,9 @@ comptime {
 
 pub fn main() !void {
     var slots: [lookups]cocuyo.Slot = @splat(.{});
-    var keys: [lookups * keys_per_lookup]cocuyo.MatchKey = @splat(.{});
+    // The table asserts a floor of keys for each slot (docs/design.md §17 question 123), and gives
+    // the length that meets it. `zig build consumer-check` runs this program, so the assertion runs.
+    var keys: [cocuyo.Resolver.keys_for(lookups)]cocuyo.MatchKey = @splat(.{});
     var cache_memory: cocuyo.cache.Storage(cache_entries) = undefined;
 
     const servers = [_]cocuyo.Server{

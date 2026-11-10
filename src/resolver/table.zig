@@ -72,6 +72,16 @@ pub const Resolver = struct {
     /// (docs/design.md §25, step 12).
     walks: ?walks_module.Walks,
 
+    /// The length of the key table that `slot_count` slots take, which `init` asserts:
+    /// `keys_per_slot_min` entries for each slot, rounded up to a power of two, which the table's
+    /// mask needs. A longer power of two is taken too.
+    pub fn keys_for(slot_count: usize) usize {
+        assert(slot_count >= 1 and slot_count <= core.limits.lookup_slots_max);
+        const key_count = std.math.ceilPowerOfTwoAssert(usize, slot_count * limits.keys_per_slot_min);
+        assert(key_count >= slot_count * limits.keys_per_slot_min);
+        return key_count;
+    }
+
     /// `keys.len` must be a power of two and at least `keys_per_slot_min` times `slots.len`: the
     /// probe relies on the mask, and the load factor keeps the probe short.
     pub fn init(slots: []Slot, keys: []MatchKey, config: *const Config, seed: u64) Resolver {

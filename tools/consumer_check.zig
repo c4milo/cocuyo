@@ -5,6 +5,7 @@
 //! cocuyo's own build — the early return before the tools' dependency, the manifest's `paths` —
 //! is compiled by nothing else. `test/consumer/` is that dependent: it declares cocuyo by
 //! relative path, imports `cocuyo`, and builds a query through the table with the cache under it.
+//! The tool runs that program once it builds, so what the table asserts of its memory runs too.
 //! It also builds the engine on a rotor of its own, and over DoQ and DoT with a colibri of its own.
 //!
 //! The refusals are the same package with each value of `-Dreach-inside`. The first asks for
@@ -86,6 +87,14 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(1);
     }
     std.debug.print("consumer-check control: a package depending on cocuyo builds, as it must\n", .{});
+
+    // The program runs too. It does no I/O, and the table asserts the floor of its keys at `init`,
+    // which a build alone never runs (docs/design.md §20).
+    if (!try runs(arena, init.io, cache)) {
+        std.debug.print("consumer-check: the dependent program built and did not run to its query\n", .{});
+        std.process.exit(1);
+    }
+    std.debug.print("consumer-check: the dependent program runs to its query\n", .{});
 
     // Each refusal runs, so one report names every path a consumer reached.
     var reached: usize = 0;
@@ -184,6 +193,25 @@ fn run_build(
     return switch (result.term) {
         .exited => |code| if (code == 0) .built else .refused,
         else => .refused,
+    };
+}
+
+/// The program the control build installs, which drives the table with no I/O.
+const consumer_program = "consumer";
+
+/// Whether the fixture's `consumer` program, which the control build installed under `cache`,
+/// runs and exits with 0.
+fn runs(arena: std.mem.Allocator, io: std.Io, cache: []const u8) !bool {
+    assert(cache.len > 0);
+    const program = try std.fs.path.join(arena, &.{ cache, "out", "bin", consumer_program });
+    const result = std.process.run(arena, io, .{
+        .argv = &.{program},
+        .stdout_limit = output_bytes_max,
+        .stderr_limit = output_bytes_max,
+    }) catch return false;
+    return switch (result.term) {
+        .exited => |code| code == 0,
+        else => false,
     };
 }
 

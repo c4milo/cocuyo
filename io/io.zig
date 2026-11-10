@@ -170,10 +170,10 @@ pub fn Resolver(comptime options: Options) type {
         scratch: [cocuyo.limits.query_bytes_max]u8,
         closing: bool,
 
-        /// The key table the lookups' slots need: the load factor the table asks, at a power of
-        /// two. The cache's key index is sized by its caller, with `cocuyo.cache.keys_for`.
+        /// The key table the lookups' slots need, which the table itself gives. The cache's key
+        /// index is sized by its caller, with `cocuyo.cache.keys_for`.
         fn table_keys_for(lookups: usize) usize {
-            return std.math.ceilPowerOfTwoAssert(usize, lookups * resolver.limits.keys_per_slot_min);
+            return cocuyo.Resolver.keys_for(lookups);
         }
 
         /// The high bits of every `user_data` this engine submits.

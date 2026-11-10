@@ -171,7 +171,7 @@ the entry point.
 | Thing | How it arrives | Note |
 | --- | --- | --- |
 | Lookup storage | `var slots: [N]cocuyo.Lookup = undefined;` | §9 gives the size |
-| Match keys | `var keys: [64*N]cocuyo.MatchKey = undefined;` | power-of-two length, `keys_per_slot_min` for each slot, §11 |
+| Match keys | `var keys: [cocuyo.Resolver.keys_for(N)]cocuyo.MatchKey = undefined;` | `keys_for` gives a power-of-two length with `keys_per_slot_min` entries for each slot, §11 |
 | Cache memory | `var cache_memory: cocuyo.cache.Storage(M) = undefined;` | optional; §18 gives the size, the bounds and the form for a count read at run time |
 | Send buffer | `poll(now_ns, out)` | `out.len >= query_bytes_max` |
 | Receive buffer | the caller's own | at least `config.udp_payload_bytes` |
@@ -8383,6 +8383,13 @@ How the build and the checks hold it:
   `cocuyo.wire.fixtures`, `cocuyo.rdata.fixtures` and `cocuyo.resolv_conf.fuzz`. The fixture's
   `-Dreach-inside` names the path, and `test/consumer/inside/` holds one program for each
   (docs/mutations.md, SF1 to SF5).
+- `Resolver.keys_for(slot_count)` gives the length of the key table, as `cache.keys_for` does for
+  a cache (c4milo/cocuyo#65). It is a declaration of the type, since `resolver` is no public
+  namespace. So a consumer writes no `keys_per_slot_min`, and that limit left the surface.
+- `zig build consumer-check` runs the fixture's `consumer` program once it builds. The program
+  does no I/O, and `Resolver.init` asserts the floor of its keys. Until 2026-11-09 the check built
+  the program alone. The floor rose to 64 on 2026-11-03, the fixture gave 4 keys for each slot,
+  and nothing ran it (docs/mutations.md, KF1 to KF3).
 - `examples/threads_rotor.zig` answered its own queries through `wire`. A responder is no part
   of what a consumer of cocuyo writes, so its reply moved to `examples/responder.zig`, a module
   that the build hands the internal `core` and `wire` alone. The example's own code names only

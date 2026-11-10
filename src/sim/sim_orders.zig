@@ -35,7 +35,7 @@ const names = [_]Asked{
 /// walks.
 const slot_count: usize = names.len + dnssec.limits.walks_max + resolver.limits.trust_slots_min;
 /// The match keys the table asks for its slots, as the power of two it requires.
-const key_count: usize = std.math.ceilPowerOfTwoAssert(usize, slot_count * resolver.limits.keys_per_slot_min);
+const key_count: usize = resolver.Resolver.keys_for(slot_count);
 /// The store's entries: the four zones of the tree, with room to spare.
 const entries_count: usize = 8;
 /// Replies held at once: one for each slot, since each slot has one query out at most.

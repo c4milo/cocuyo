@@ -13,6 +13,20 @@ const Table = fixtures.Table;
 const slot_count = fixtures.slot_count;
 const key_count = fixtures.key_count;
 
+test "keys_for gives the least power of two that holds the floor of keys for each slot" {
+    const limits = @import("limits.zig");
+    const lookup_slots_max = @import("core").limits.lookup_slots_max;
+    for ([_]usize{ 1, 2, 3, 4, 5, 64, 100, lookup_slots_max }) |slots| {
+        const keys = table_module.Resolver.keys_for(slots);
+        try testing.expect(std.math.isPowerOfTwo(keys));
+        try testing.expect(keys >= slots * limits.keys_per_slot_min);
+        // The least one: half of it is under the floor.
+        try testing.expect(keys / 2 < slots * limits.keys_per_slot_min);
+    }
+    // What `init` asserts of a table's keys, for the keys the fixtures hold.
+    try testing.expectEqual(key_count, table_module.Resolver.keys_for(slot_count));
+}
+
 test "a table starts lookups, answers them, and frees their slots" {
     var table: Table = .{ .config = .{ .servers = &servers } };
     table.open();

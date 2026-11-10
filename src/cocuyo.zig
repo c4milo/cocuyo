@@ -161,11 +161,6 @@ pub const limits = struct {
     /// The pins one TLS server may carry: a primary pin and the backup RFC 7858 §4.2 asks to deploy
     /// with it, each with room to rotate. It is also chapulin's own bound (docs/design.md §21).
     pub const spki_pins_max = core.limits.spki_pins_max;
-    /// The key table holds at least this many entries per slot. A slot keys its lookup's current
-    /// transaction and each try it keeps open, at most `tries_open_max` and one more, so the table
-    /// is never full. The table is sized by the caller, so the floor is checked rather than
-    /// assumed (docs/design.md §11).
-    pub const keys_per_slot_min = resolver.limits.keys_per_slot_min;
 };
 
 /// The protocol sizes and the defaults a consumer sizes its memory with. Each is the module's own,
@@ -317,7 +312,7 @@ test "a failure in the cache ends a table's lookup at its first poll, and nothin
     const question = try Question.from_text("down.example.", .a);
     rig.store.put_failure(&question, Error.AllServersFailed, 0);
     var slots: [1]Slot = @splat(.{});
-    var keys: [resolver.limits.keys_per_slot_min]MatchKey = @splat(.{});
+    var keys: [Resolver.keys_for(1)]MatchKey = @splat(.{});
     const servers = [_]Server{.{ .endpoint = .{ .address = Address.from_v4(.{ 192, 0, 2, 53 }) } }};
     const config: Config = .{ .servers = &servers, .search = &.{} };
     var table = Resolver.init(&slots, &keys, &config, 0);
@@ -487,7 +482,7 @@ test "a hit through the table hands each record back less the time it spent in t
     } }, 0);
 
     var slots: [1]Slot = @splat(.{});
-    var keys: [resolver.limits.keys_per_slot_min]MatchKey = @splat(.{});
+    var keys: [Resolver.keys_for(1)]MatchKey = @splat(.{});
     const servers = [_]Server{.{ .endpoint = .{ .address = Address.from_v4(.{ 192, 0, 2, 53 }) } }};
     const config: Config = .{ .servers = &servers, .search = &.{} };
     var table = Resolver.init(&slots, &keys, &config, 0);

@@ -328,7 +328,7 @@ wait defaults to 5 seconds.
 const cocuyo = @import("cocuyo");
 
 var slots: [64]cocuyo.Slot = @splat(.{});
-var keys: [4096]cocuyo.MatchKey = @splat(.{}); // keys_per_slot_min, 64, for each slot
+var keys: [cocuyo.Resolver.keys_for(64)]cocuyo.MatchKey = @splat(.{}); // 4,096: 64 for each slot
 var cache_memory: cocuyo.cache.Storage(1024) = undefined; // 1,024 slots and their key index
 
 const cap_seconds = config.cache_ttl_seconds_max; // no answer is kept longer: an hour by default
