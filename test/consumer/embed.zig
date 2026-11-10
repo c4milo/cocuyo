@@ -108,6 +108,18 @@ pub fn main() !void {
         mine += 1;
     }
     resolver.drive(now_ns);
-    if (resolver.take(now_ns)) |result| std.debug.print("{any}\n", .{result.handle});
+    // A consumer copies an answer's addresses out before the next `take` frees its slot, into a
+    // buffer the most one answer hands out sizes (docs/design.md §20).
+    var copied: [cocuyo.limits.addresses_max]cocuyo.Address = undefined;
+    var copied_count: usize = 0;
+    if (resolver.take(now_ns)) |result| {
+        std.debug.print("{any}\n", .{result.handle});
+        if (result.outcome == .answer) {
+            const addresses = result.outcome.answer.addresses;
+            @memcpy(copied[0..addresses.len], addresses);
+            copied_count = addresses.len;
+        }
+    }
+    std.debug.print("{d} addresses copied\n", .{copied_count});
     std.debug.print("{d} of {d} events were the consumer's own\n", .{ mine, count });
 }

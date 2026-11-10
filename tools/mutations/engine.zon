@@ -8570,4 +8570,13 @@
         },
         .caught_by = .{ .step = "consumer-check" },
     },
+    .{
+        .section = "The most addresses an answer hands out",
+        .id = "AM1",
+        .what = "the surface drops `limits.addresses_max` again",
+        .edits = .{
+            .{ .file = "src/cocuyo.zig", .old = "    pub const addresses_max = core.limits.addresses_max;\n", .new = "" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
 }

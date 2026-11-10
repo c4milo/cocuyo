@@ -147,6 +147,9 @@ pub const limits = struct {
     /// pointer to `name_bytes_max`. A TCP answer that does not fit sets `truncated`
     /// (docs/design.md §19).
     pub const rdata_bytes_max = core.limits.rdata_bytes_max;
+    /// The most addresses one `Answer` hands out, which sizes a consumer's copy of them. A larger
+    /// round-robin name sets `Answer.truncated` (docs/design.md §17.4: not measured).
+    pub const addresses_max = core.limits.addresses_max;
     /// The most servers a configuration may name. glibc's MAXNS is 3; 8 leaves room and still
     /// bounds every loop over the list.
     pub const servers_max = core.limits.servers_max;

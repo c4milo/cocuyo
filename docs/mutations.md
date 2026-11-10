@@ -12159,3 +12159,15 @@ when one of the three types declares it. Each mutation below puts one back as a 
 | PT1 | `Name` keeps `from_text` beside `parse` | `zig build consumer-check` | `CAUGHT` |
 | PT2 | `Question` keeps `from_text` beside `parse` | `zig build consumer-check` | `CAUGHT` |
 | PT3 | `Address` keeps `from_text` beside `parse` | `zig build consumer-check` | `CAUGHT` |
+
+## The most addresses an answer hands out
+
+2026-11-10, c4milo/cocuyo#65. The surface of 2026-11-09 dropped `addresses_max`, and stompy sizes
+its copy of an answer's addresses with it. The owner ruled that `cocuyo.limits` holds it again: a
+consumer that copies the addresses out before it frees the slot needs the bound. The fixture's
+`embed` program copies them into a buffer of that size, so `zig build consumer-check` fails when
+the name leaves. `zig build mutations -- engine AM1` ran the row.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| AM1 | the surface drops `limits.addresses_max` again | `zig build consumer-check` | `CAUGHT` |

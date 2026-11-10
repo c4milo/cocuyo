@@ -8379,6 +8379,9 @@ Each namespace holds one job, and its helpers keep their names without a prefix,
 - `rdata`: the readers of record data.
 - `limits` and `constants`: each limit and each constant that a consumer sizes its memory with,
   once. Since 2026-11-10 `constants` holds each default of a `Config` that is a number too.
+  The same day `limits` gained `addresses_max`, the most addresses one answer hands out. A
+  consumer that copies them out before it frees the slot sizes its buffer with it, as stompy
+  does. The owner ruled it so when the surface had dropped it (the rule above).
 
 The owner ruled on 2026-11-10 that the `cache` namespace folds into `Cache`. Until then the six
 names were `cocuyo.cache.Storage` and the rest, in a namespace of their own. So `Cache` and
