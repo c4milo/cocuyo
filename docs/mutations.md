@@ -11977,3 +11977,23 @@ row.
 | SF7 | `Cache.find` is a declaration of the type again | `zig build consumer-check` | `CAUGHT` |
 | SF8 | `Cache.hash_of` is a declaration of the type again | `zig build consumer-check` | `CAUGHT` |
 | SF9 | `Resolver.occupy` is a declaration of the type again | `zig build consumer-check` | `CAUGHT` |
+
+## One name for each thing
+
+2026-11-09, c4milo/cocuyo#65. The owner ruled one name for each thing, and on 2026-11-09 which name
+stays. The table's setters are `use_memory` and `use_trust`, in the form of the engine's `use_tls`.
+`Servers.use_validator` follows them. A full engine refuses a lookup with `error.NoSlot`, the
+table's error. The engine counts its lookups with `in_flight`, and the alias `InitErrorType` is
+gone. `Config`'s default order is `lookups_default`. Each limit has a doc comment of its own.
+
+The test of ON1 is in `io/io_lifecycle_test.zig`: no test read the engine's error before. The
+fixture of `consumer-check` fails to compile when an old name is a declaration again.
+`zig build mutations -- engine ON1 ON2 ON3 ON4 ON5` ran each row.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| ON1 | a full engine refuses a lookup with an error of its own, not the table's | `zig build test-io` | `CAUGHT` |
+| ON2 | the table has `remember_with` beside `use_memory` | `zig build consumer-check` | `CAUGHT` |
+| ON3 | the table has `validate_with` beside `use_trust` | `zig build consumer-check` | `CAUGHT` |
+| ON4 | the engine has `active` beside `in_flight` | `zig build consumer-check` | `CAUGHT` |
+| ON5 | the engine has the alias `InitErrorType` beside `InitError` | `zig build consumer-check` | `CAUGHT` |

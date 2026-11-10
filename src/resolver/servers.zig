@@ -94,7 +94,7 @@ pub const Servers = struct {
 
     /// Validates the lookups started from here on with `validator`. A security-aware resolver
     /// advertises 1220 octets at least (RFC 4035 §4.1).
-    pub fn validate_with(self: *Servers, config: *const Config, validator: *const Validator) void {
+    pub fn use_validator(self: *Servers, config: *const Config, validator: *const Validator) void {
         assert(config.udp_payload_bytes >= limits.dnssec_payload_bytes_min);
         self.validator = validator;
     }

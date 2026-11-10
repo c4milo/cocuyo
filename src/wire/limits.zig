@@ -24,11 +24,17 @@ pub const bitmap_octets_max: usize = 32;
 /// blocks in an NSEC or NSEC3 type map. A record of every type then fits a message several times
 /// over. Chosen, not measured.
 pub const fuzz_labels_max: usize = 3;
+/// The longest label the fuzz generator writes in a record. Chosen, not measured.
 pub const fuzz_label_bytes_max: usize = 12;
+/// The longest character-string the fuzz generator writes. Chosen, not measured.
 pub const fuzz_string_bytes_max: usize = 20;
+/// The most character-strings in one record the fuzz generator writes. Chosen, not measured.
 pub const fuzz_strings_max: usize = 4;
+/// The longest opaque field the fuzz generator writes. Chosen, not measured.
 pub const fuzz_opaque_bytes_max: usize = 32;
+/// The most addresses in an SVCB hint the fuzz generator writes. Chosen, not measured.
 pub const fuzz_hints_max: usize = 3;
+/// The most blocks in an NSEC or NSEC3 type map the fuzz generator writes. Chosen, not measured.
 pub const fuzz_windows_max: usize = 3;
 
 /// The shortest name of the long questions the fuzz generator writes (`fuzz/fuzz_generate.zig`):
@@ -45,6 +51,8 @@ pub const label_wire_bytes_min: usize = 2;
 /// The COOKIE option's length when it holds a client cookie and a server cookie of 8 to 32 octets
 /// (RFC 7873 §4).
 pub const cookie_option_long_bytes_min: usize = 16;
+/// The COOKIE option at its longest: a client cookie of 8 octets and a server cookie of 32 (RFC
+/// 7873 §4).
 pub const cookie_option_long_bytes_max: usize = 40;
 
 /// The most segments a record layout has: NAPTR's fixed part, three strings and a name

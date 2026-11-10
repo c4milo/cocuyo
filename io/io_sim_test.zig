@@ -187,14 +187,14 @@ test "a lookup started on the engine is answered by the scripted server through 
     var rig: Rig = .{};
     try rig.init(1, .{ .{}, .{} }, .{ .servers = &.{} });
     const started = try rig.engine.start(question("example.com."), rig.loop.now());
-    try testing.expectEqual(@as(usize, 1), rig.engine.active());
+    try testing.expectEqual(@as(usize, 1), rig.engine.in_flight());
     const result = try rig.until_result();
     try testing.expectEqual(started, result.handle);
     try testing.expectEqual(@as(usize, 1), result.outcome.answer.addresses.len);
     try testing.expect(result.outcome.answer.addresses[0].family == .ipv4);
     try testing.expect(rig.loop.now() >= 1_000_000);
     try testing.expectEqual(@as(?Resolver.Result, null), rig.engine.take(rig.loop.now()));
-    try testing.expectEqual(@as(usize, 0), rig.engine.active());
+    try testing.expectEqual(@as(usize, 0), rig.engine.in_flight());
     try rig.deinit();
 }
 
@@ -274,7 +274,7 @@ test "cancel ends a lookup with Canceled, through take" {
     const result = try rig.until_result();
     try testing.expectEqual(cocuyo.Error.Canceled, result.outcome.failure.err);
     _ = rig.engine.take(rig.loop.now());
-    try testing.expectEqual(@as(usize, 0), rig.engine.active());
+    try testing.expectEqual(@as(usize, 0), rig.engine.in_flight());
     try rig.deinit();
 }
 
@@ -351,7 +351,7 @@ test "an event another component submitted is handed back untouched" {
     try testing.expect(!rig.engine.apply(foreign, rig.loop.now()));
     try testing.expectEqual(armed, rig.engine.timer_handle);
     try testing.expectEqual(@as(?u64, 2_000_000_000), rig.engine.timer_due_ns);
-    try testing.expectEqual(@as(usize, 1), rig.engine.active());
+    try testing.expectEqual(@as(usize, 1), rig.engine.in_flight());
 
     rig.engine.cancel(started, rig.loop.now());
     try testing.expectEqual(cocuyo.Error.Canceled, (try rig.until_result()).outcome.failure.err);
@@ -369,7 +369,7 @@ test "a timer that fires before the caller's clock reaches the deadline is armed
     // The caller's clock is a nanosecond short of the deadline the loop's has reached: nothing
     // times out yet, and the timer must be armed again rather than left for dead.
     try testing.expect(rig.engine.apply(rig.events[0], rig.loop.now() - 1));
-    try testing.expectEqual(@as(usize, 1), rig.engine.active());
+    try testing.expectEqual(@as(usize, 1), rig.engine.in_flight());
     try testing.expect(rig.engine.timer_handle != null);
     try testing.expectEqual(@as(?u64, 2_000_000_000), rig.engine.timer_due_ns);
     try testing.expectEqual(cocuyo.Error.Timeout, (try rig.until_result()).outcome.failure.err);
@@ -388,7 +388,7 @@ test "a lookup offered twice is on the ready list once" {
     try testing.expectEqual(cocuyo.Error.Canceled, result.outcome.failure.err);
     _ = rig.engine.take(rig.loop.now());
     try testing.expectEqual(@as(?Resolver.Result, null), rig.engine.take(rig.loop.now()));
-    try testing.expectEqual(@as(usize, 0), rig.engine.active());
+    try testing.expectEqual(@as(usize, 0), rig.engine.in_flight());
     try rig.deinit();
 }
 
@@ -418,7 +418,7 @@ fn many(seed: u64) !u64 {
     }
     try testing.expectEqual(@as(usize, fixtures.many_lookups), taken);
     _ = rig.engine.take(rig.loop.now());
-    try testing.expectEqual(@as(usize, 0), rig.engine.active());
+    try testing.expectEqual(@as(usize, 0), rig.engine.in_flight());
     try rig.deinit();
     return trace;
 }

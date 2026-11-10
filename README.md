@@ -334,7 +334,7 @@ var cache_memory: cocuyo.cache.Storage(1024) = undefined; // 1,024 slots and the
 const cap_seconds = config.cache_ttl_seconds_max; // no answer is kept longer: an hour by default
 var store = cocuyo.Cache.init(&cache_memory.slots, &cache_memory.keys, seed, cap_seconds);
 var table = cocuyo.Resolver.init(&slots, &keys, &config, seed);
-table.remember_with(cocuyo.remembered_by(&store)); // optional: the cache under every lookup
+table.use_memory(cocuyo.remembered_by(&store)); // optional: the cache under every lookup
 
 _ = try table.start(try cocuyo.Question.from_text("example.com.", .a));
 var query: [cocuyo.limits.query_bytes_max]u8 = undefined;

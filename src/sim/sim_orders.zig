@@ -115,7 +115,7 @@ const Rig = struct {
         self.anchors = .{.{ .zone = core.Name.root, .kind = .ds, .rdata = &self.anchor_rdata }};
         self.table = resolver.Resolver.init(&self.slots, &self.keys, &self.config, table_seed);
         self.store.init(&self.entries, &self.anchors, self.sums.verifier(), self.hashes.hasher(), signed.now_seconds, 0);
-        self.table.validate_with(signed.trust(&self.store));
+        self.table.use_trust(signed.trust(&self.store));
     }
 
     /// Starts each of `asked`, then hands the replies back in the order `seed` chooses, until

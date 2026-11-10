@@ -433,7 +433,7 @@ test "a failure the memory recalls ends the walk with that error, and no cause" 
     var rig: lookup_test.Rig = .{ .table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } } };
     try rig.open();
     var stub: table_memory.Stub = .{ .held = .{ .failed = core.Error.AllServersFailed } };
-    rig.table.resolver.remember_with(stub.memory());
+    rig.table.resolver.use_memory(stub.memory());
     try rig.start(null, "host.example.", null, .{});
     try rig.drive();
     const failure = rig.lookup.outcome().?.failed;

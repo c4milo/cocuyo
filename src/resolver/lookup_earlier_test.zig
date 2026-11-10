@@ -230,7 +230,7 @@ test "a bogus message of an earlier try closes that try alone, and names its ser
     var harness: fixtures.Harness = .{ .config = .{ .servers = &two } };
     harness.servers = .init(&harness.config, seed);
     harness.servers_ready = true;
-    harness.servers.validate_with(&harness.config, bogus.bind());
+    harness.servers.use_validator(&harness.config, bogus.bind());
     const late = try moved_on(&harness, fixtures.answer_a);
     try testing.expectEqual(Verdict.accepted, hand(&harness, &late, 0));
     try testing.expectEqual(State.awaiting_udp, harness.lookup.state);
@@ -274,7 +274,7 @@ test "an earlier try's message that wants keys waits on the current server, and 
     var harness: fixtures.Harness = .{ .config = .{ .servers = &two } };
     harness.servers = .init(&harness.config, seed);
     harness.servers_ready = true;
-    harness.servers.validate_with(&harness.config, wanting.bind());
+    harness.servers.use_validator(&harness.config, wanting.bind());
     const late = try moved_on(&harness, fixtures.answer_a);
     const current_id = harness.lookup.transaction.id;
     try testing.expectEqual(Verdict.accepted, hand(&harness, &late, 0));

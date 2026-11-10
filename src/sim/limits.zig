@@ -20,14 +20,17 @@ pub const servers_max = core.limits.servers_max;
 /// The most datagrams waiting to be delivered, and the room each holds: a reply is at most the
 /// UDP payload cocuyo advertises.
 pub const datagrams_pending_max: usize = 256;
+/// The room one waiting datagram holds: the UDP payload cocuyo advertises by default.
 pub const datagram_bytes_max = core.constants.udp_payload_bytes_default;
 
 /// The most stream connections open at once, and the octets each direction of one buffers.
 pub const connections_max: usize = 16;
+/// The octets each direction of one stream connection buffers. Chosen, not measured.
 pub const stream_bytes_max: usize = 16384;
 
 /// Buffer groups and the buffers each holds, as rotor bounds them.
 pub const buffer_groups_max: usize = 4;
+/// The buffers one group holds, at most, as rotor bounds them.
 pub const buffers_per_group_max: usize = 256;
 
 /// What a socket's kernel buffers may be sized to here. This is the shape rotor measured on macOS.
@@ -35,6 +38,8 @@ pub const buffers_per_group_max: usize = 256;
 /// that cap. A request above `socket_buffer_bytes_asked_max` is refused, because that kernel
 /// refuses rather than caps once a socket is already large.
 pub const socket_buffer_bytes_granted_max: usize = 1 << 20;
+/// The largest size a socket buffer may be asked for. A larger request is refused, as that kernel
+/// refuses it.
 pub const socket_buffer_bytes_asked_max: usize = 1 << 28;
 
 /// The longest one `tick` may wait: rotor's `wait_ns_max`, ten seconds, kept so a tick valid here
@@ -72,6 +77,8 @@ pub const quic_items_per_datagram_max: usize = quic_datagram_bytes_max / constan
 /// What a client connection keeps to send, and how much of it a request may not take: room for
 /// every short item it still owes, a cancel for each of the engine's streams among them.
 pub const quic_pending_bytes_max: usize = 16384;
+/// The part of `quic_pending_bytes_max` no request may take: room for each short item the
+/// connection still owes.
 pub const quic_pending_reserve_bytes_min: usize = 2048;
 
 /// The longest ALPN token a scripted server keeps from a client's hello (RFC 7301 §6).

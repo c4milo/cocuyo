@@ -31,6 +31,7 @@ pub const cookie_option_bytes_max: usize = constants.opt_option_header_bytes + c
 
 /// The server cookie is eight to thirty-two octets (RFC 7873 §4).
 pub const cookie_server_bytes_min: usize = 8;
+/// The longest server cookie: thirty-two octets (RFC 7873 §4).
 pub const cookie_server_bytes_max: usize = 32;
 
 /// A name in wire form, counting every length octet and the root (RFC 1035 §2.3.4).
@@ -99,7 +100,10 @@ pub const lookup_sources_max: usize = 2;
 /// offset each. More lines than a machine that is not a blocklist has; past them, dropped and
 /// said so (docs/design.md §19 step 11).
 pub const hosts_entries_max: usize = 1024;
+/// The most names on one line of the hosts file: the official name and its aliases. Chosen, not
+/// measured (docs/design.md §19 step 11).
 pub const hosts_names_per_entry_max: usize = 8;
+/// The octets of wire names one hosts storage holds: what a `u16` offset reaches.
 pub const hosts_names_bytes_max: usize = 65536;
 
 /// The most search-list entries a configuration may name. glibc's MAXDNSRCH; recalled, not
@@ -145,6 +149,7 @@ pub const cache_failure_seconds_max: u32 = 300;
 
 /// The IANA Dynamic port range, which the source-port hint is drawn from (RFC 6335 §6).
 pub const port_ephemeral_min: u16 = 49152;
+/// The last port of the IANA Dynamic range (RFC 6335 §6).
 pub const port_ephemeral_max: u16 = 65535;
 
 /// The pins one TLS server may carry: a primary pin and the backup RFC 7858 §4.2 asks to deploy
@@ -165,6 +170,7 @@ pub const lookup_slots_max: usize = 1024;
 /// IPv6 stops before the interface identifier of RFC 4291 §2.5.1, 64 bits, and for IPv4 is the
 /// whole address.
 pub const common_prefix_bits_v6_max: usize = 64;
+/// The most bits `CommonPrefixLen` counts for IPv4: the whole address (RFC 6724 §2.2).
 pub const common_prefix_bits_v4_max: usize = 32;
 
 /// The most digits one octet needs in decimal in a reverse name (`name_reverse.zig`): 255.
@@ -173,6 +179,7 @@ pub const reverse_octet_digits_max: usize = 3;
 /// The printable ASCII range a label may hold on input (`name_text.zig`): `!` through `~`.
 /// Anything below is a control byte and anything above is not ASCII.
 pub const text_printable_min: u8 = 0x21;
+/// The last printable ASCII octet a label may hold on input: `~`. An octet above it is not ASCII.
 pub const text_printable_max: u8 = 0x7e;
 
 // A constant with no type is a `comptime_int`, which takes the type of a narrow runtime value it

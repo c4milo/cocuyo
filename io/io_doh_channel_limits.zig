@@ -8,7 +8,9 @@ const constants = @import("io_doh_channel_constants.zig");
 /// A TLS record at its longest, header and all: a five-octet header, then at most 2^14 + 256
 /// octets of `encrypted_record`, its plaintext and what protecting it adds (RFC 9846 §5.2).
 pub const record_plaintext_bytes_max: usize = 16_384;
+/// What protecting a record adds to its plaintext, at most (RFC 9846 §5.2).
 pub const record_expansion_bytes_max: usize = 256;
+/// A TLS record at its longest: its header, its plaintext and what protecting it adds.
 pub const record_bytes_max: usize = constants.record_header_bytes + record_plaintext_bytes_max + record_expansion_bytes_max;
 
 /// One chunk of the stream the engine reads at a time: its TCP chunk, `tcp_chunk_bytes_max` in
@@ -36,6 +38,8 @@ pub const header_section_bytes_max: usize = 2048;
 /// says nothing. That is the version each of the two connections speaks, once for each, and the
 /// TCP connection's debt, once between two of the engine's sends (colibri's decision 125).
 pub const unheard_per_next_max: usize = 3;
+/// The passes one `next` takes, at most: one for each octet the two links can hold, the passes of
+/// `unheard_per_next_max`, and the one that says nothing.
 pub const next_passes_max: usize = datagram_bytes_max + stream_bytes_max + unheard_per_next_max + 1;
 
 /// The TCP connections colibri's pool holds for a channel at once: one, as the channel has one TCP
@@ -54,6 +58,7 @@ pub const receive_bytes_max: usize = 66_560;
 /// type, its length, a content coding and an `Age`; and the digits of a length at most, those
 /// of the largest `u64`.
 pub const server_response_fields_max: usize = 4;
+/// The digits of a length the test server writes, at most: those of the largest `u64`.
 pub const server_length_digits_max: usize = 20;
 
 /// The longest value the test server keeps of what it heard (`io_doh_channel_server.zig`).

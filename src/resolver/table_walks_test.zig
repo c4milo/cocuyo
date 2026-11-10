@@ -114,7 +114,7 @@ const Scripted = struct {
 /// A table that validates under `scripted`.
 fn validating(table: *Table, scripted: *Scripted) void {
     table.open();
-    table.resolver.validate_with(scripted.trust());
+    table.resolver.use_trust(scripted.trust());
 }
 
 /// Sends every query the table asks for, frees each walk's lookup a poll hands `walked` for, and
@@ -151,8 +151,8 @@ test "a table full of lookups that wait for keys still fetches them, in the slot
     var scripted: Scripted = .{};
     var stub: Stub = .{};
     table.open();
-    table.resolver.remember_with(stub.memory());
-    table.resolver.validate_with(scripted.trust());
+    table.resolver.use_memory(stub.memory());
+    table.resolver.use_trust(scripted.trust());
     var handles: [slot_count - limits.trust_slots_min]Handle = undefined;
     try fill_waiting(&table, &handles);
 

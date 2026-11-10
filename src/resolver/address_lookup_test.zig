@@ -446,7 +446,7 @@ test "a family the memory holds costs no query, and the walk asks for the other 
     var rig: Rig = .{ .table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } } };
     try rig.open();
     var held: OneFamily = .{ .answers = fixtures.cached_a("192.0.2.7"), .kind = .a };
-    rig.table.resolver.remember_with(held.memory());
+    rig.table.resolver.use_memory(held.memory());
 
     try rig.start(null, "host", null, .{});
     try rig.drive();

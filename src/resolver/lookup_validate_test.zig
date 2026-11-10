@@ -56,7 +56,7 @@ fn started(harness: *fixtures.Harness, scripted: *Scripted, kind: Kind) !void {
 fn start_validating(harness: *fixtures.Harness, scripted: *Scripted, text: []const u8, kind: Kind) !void {
     harness.servers = .init(&harness.config, seed);
     harness.servers_ready = true;
-    harness.servers.validate_with(&harness.config, scripted.bind());
+    harness.servers.use_validator(&harness.config, scripted.bind());
     try harness.start(text, kind, seed);
 }
 

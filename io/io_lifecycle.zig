@@ -77,10 +77,10 @@ pub fn reset_tables(self: anytype, config: *const cocuyo.Config, cache_memory: ?
     if (cache_memory) |memory| {
         self.cache = cocuyo.Cache.init(memory.slots, memory.keys, seed, config.cache_ttl_seconds_max);
         self.cache.?.failure_seconds_min = config.cache_failure_seconds_min;
-        self.resolver.remember_with(cocuyo.remembered_by(&self.cache.?));
+        self.resolver.use_memory(cocuyo.remembered_by(&self.cache.?));
     }
     // A `reinit` keeps the key store (docs/design.md §17 question 98).
-    if (self.trust) |key_store| self.resolver.validate_with(cocuyo.validated_by(key_store));
+    if (self.trust) |key_store| self.resolver.use_trust(cocuyo.validated_by(key_store));
     send_module.forget_all(self);
     self.reported = @splat(false);
     self.results = .{};
@@ -129,7 +129,7 @@ pub fn reinit(
     cache_memory: ?cache.Slices,
     seed: u64,
     now_ns: u64,
-) @TypeOf(self.*).InitErrorType!void {
+) @import("io.zig").InitError!void {
     config.assert_valid();
     @TypeOf(self.*).assert_tls(config);
     assert_cache_memory(cache_memory);

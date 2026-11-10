@@ -28,9 +28,13 @@ pub const timeout_seconds_limit: u64 = 30;
 /// labels in a name, and the longest label it writes but for one of full length; and the most
 /// comment or blank lines it puts between two lines that count.
 pub const fuzz_text_bytes_max: usize = 2048;
+/// The most servers or search domains one fuzz text names. Chosen, not measured.
 pub const fuzz_entries_max: usize = 4;
+/// The most labels in a name the fuzz generator writes. Chosen, not measured.
 pub const fuzz_labels_max: usize = 4;
+/// The longest label the fuzz generator writes, but for one of full length. Chosen, not measured.
 pub const fuzz_label_bytes_max: usize = 12;
+/// The most comment or blank lines the fuzz generator puts between two lines that count.
 pub const fuzz_filler_lines_max: usize = 2;
 
 /// The longest noise the target writes: longer than any address, name or pin it reads.

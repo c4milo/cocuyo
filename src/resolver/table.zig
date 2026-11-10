@@ -95,7 +95,7 @@ pub const Resolver = struct {
 
     /// Puts a cache under every lookup this table starts (docs/design.md §20). Set before the
     /// first lookup: a table with lookups already in flight would remember some and not others.
-    pub fn remember_with(self: *Resolver, memory: memory_module.Memory) void {
+    pub fn use_memory(self: *Resolver, memory: memory_module.Memory) void {
         assert(self.in_flight() == 0);
         self.memory = memory;
     }
@@ -103,8 +103,8 @@ pub const Resolver = struct {
     /// Validates every lookup this table starts, and fetches the keys they want with walks under
     /// it (docs/design.md §25). Set before the first lookup, as the cache is. The table must not
     /// move from here on.
-    pub fn validate_with(self: *Resolver, trust: Trust) void {
-        walks_module.validate_with(self, trust);
+    pub fn use_trust(self: *Resolver, trust: Trust) void {
+        walks_module.use_trust(self, trust);
     }
 
     /// Starts a lookup. Its seed is drawn from the table's own generator, so one seed at the top

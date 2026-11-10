@@ -54,11 +54,11 @@ pub const Walks = struct {
 
 /// Validates every lookup the table starts from here on. The table must stay where it is from
 /// here on: its lookups' validator names it.
-pub fn validate_with(self: *Resolver, trust: Trust) void {
+pub fn use_trust(self: *Resolver, trust: Trust) void {
     assert(self.in_flight() == 0);
     assert(self.slots.items.len > limits.trust_slots_min);
     self.walks = .{ .trust = trust, .validator = .{ .context = self, .validate = validate } };
-    self.servers.validate_with(self.config, &self.walks.?.validator);
+    self.servers.use_validator(self.config, &self.walks.?.validator);
 }
 
 /// A `keys_wanted` joins its walk. A target that finds every walk busy waits for none, and the

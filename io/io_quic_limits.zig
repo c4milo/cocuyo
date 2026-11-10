@@ -26,12 +26,15 @@ pub const params_bytes_max: usize = 256;
 /// The test server's (`io_quic_server.zig`): its receive pool, which holds the few queries a test
 /// sends at once, and the longest answer it keeps, a datagram's worth after the prefix.
 pub const server_receive_blocks_max: usize = 16;
+/// The octets of the test server's receive pool: its blocks at the pool's block size.
 pub const server_receive_bytes_max: usize = server_receive_blocks_max * constants.pool_block_bytes;
+/// The longest answer the test server keeps: a datagram's worth after the two-octet prefix.
 pub const server_answer_bytes_max: usize = core.constants.tcp_prefix_bytes + cocuyo.constants.udp_payload_bytes_default;
 
 /// The longest transport parameters either side of `Plain` sends, and the longest ALPN token it
 /// keeps (`io_quic_plain.zig`).
 pub const plain_params_bytes_max: usize = 256;
+/// The longest ALPN token `Plain` keeps (`io_quic_plain.zig`). `doq` takes three octets.
 pub const plain_alpn_bytes_max: usize = 16;
 
 /// What one level of `Plain` holds of messages, both ways (`io_quic_plain.zig`): a hello at its

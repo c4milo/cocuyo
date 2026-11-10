@@ -97,7 +97,6 @@ pub fn Resolver(comptime options: Options) type {
         const Self = @This();
 
         pub const Result = results_module.Result;
-        pub const InitErrorType = InitError;
 
         loop: *rotor.Loop,
         config: *const cocuyo.Config,
@@ -285,13 +284,13 @@ pub fn Resolver(comptime options: Options) type {
         /// there by the time this returns: the table asks the cache at the lookup's first poll,
         /// which the drive below makes (docs/design.md §20). The transport the configuration's
         /// servers speak must have its context by now: `has_context` says whether it has.
-        pub fn start(self: *Self, question: cocuyo.Question, now_ns: u64) error{Full}!cocuyo.Handle {
+        pub fn start(self: *Self, question: cocuyo.Question, now_ns: u64) error{NoSlot}!cocuyo.Handle {
             assert(!self.closing);
             // A lookup is the first call that can reach a server, and a session never starts from
             // a context nobody named: forgetting `use_tls`, `use_quic` or `use_doh` is a
             // programmer error (docs/design.md §24, the context a session starts from, rule 3).
             assert(self.has_context());
-            const handle = self.resolver.start(question) catch return error.Full;
+            const handle = self.resolver.start(question) catch return error.NoSlot;
             drive_module.adopt(self, handle);
             drive_module.drive(self, now_ns);
             return handle;
@@ -338,7 +337,7 @@ pub fn Resolver(comptime options: Options) type {
         pub fn use_trust(self: *Self, key_store: *cocuyo.KeyStore) void {
             assert(self.resolver.in_flight() == 0);
             self.trust = key_store;
-            self.resolver.validate_with(cocuyo.validated_by(key_store));
+            self.resolver.use_trust(cocuyo.validated_by(key_store));
         }
 
         /// Names what every QUIC connection starts from (docs/design.md §24): the session's
@@ -393,7 +392,7 @@ pub fn Resolver(comptime options: Options) type {
             drive_module.drive(self, now_ns);
         }
 
-        pub fn active(self: *const Self) usize {
+        pub fn in_flight(self: *const Self) usize {
             return self.resolver.in_flight();
         }
 

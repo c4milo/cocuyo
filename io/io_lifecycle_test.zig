@@ -38,7 +38,23 @@ test "cancel_all ends every lookup, and the caller is told about each" {
         try testing.expectEqual(cocuyo.Error.Canceled, result.outcome.failure.err);
     }
     _ = rig.engine.take(rig.loop.now());
-    try testing.expectEqual(@as(usize, 0), rig.engine.active());
+    try testing.expectEqual(@as(usize, 0), rig.engine.in_flight());
+    try rig.deinit();
+}
+
+test "an engine whose table is full refuses a lookup with NoSlot, the table's own error" {
+    var rig: Rig = .{};
+    try rig.init(21, .{ .{ .down = true }, .{ .down = true } }, .{ .servers = &.{} });
+    var buffer: [fixtures.name_text_bytes]u8 = undefined;
+    for (0..fixtures.lookups) |started| {
+        const text = try std.fmt.bufPrint(&buffer, "h{d}.example.", .{started});
+        _ = try rig.engine.start(question(text), rig.loop.now());
+    }
+    try testing.expectEqual(@as(usize, fixtures.lookups), rig.engine.in_flight());
+    try testing.expectError(error.NoSlot, rig.engine.start(question("over.example."), rig.loop.now()));
+    rig.engine.cancel_all(rig.loop.now());
+    for (0..fixtures.lookups) |_| _ = try rig.until_result();
+    _ = rig.engine.take(rig.loop.now());
     try rig.deinit();
 }
 
@@ -56,7 +72,7 @@ test "reinit cancels what is in flight, empties the cache, and asks the new serv
     const cancelled = try rig.until_result();
     try testing.expectEqual(cocuyo.Error.Canceled, cancelled.outcome.failure.err);
     _ = rig.engine.take(rig.loop.now());
-    try testing.expectEqual(@as(usize, 0), rig.engine.active());
+    try testing.expectEqual(@as(usize, 0), rig.engine.in_flight());
 
     var servers = [_]cocuyo.Server{.{ .endpoint = endpoint_of(rotor.Network.server_address(1)) }};
     const replacement: cocuyo.Config = .{ .servers = &servers, .search = &.{} };

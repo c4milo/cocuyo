@@ -108,7 +108,7 @@ pub const Server = struct {
 /// c-ares's `lookups` option, `fb` by default (§19 step 11); the engine reads the order.
 pub const Source = enum { file, dns };
 
-pub const default_lookups = [_]Source{ .file, .dns };
+pub const lookups_default = [_]Source{ .file, .dns };
 
 pub const Config = struct {
     /// The servers to ask, in the order they are asked. At most `limits.servers_max`; none
@@ -165,7 +165,7 @@ pub const Config = struct {
     /// Stage A). Ignored by default, so every answer is `unchecked`.
     authenticated_data: AuthenticatedData = .ignored,
     /// Where the engine looks a name up, in order: the hosts file, then DNS, by default.
-    lookups: []const Source = &default_lookups,
+    lookups: []const Source = &lookups_default,
     /// One query in this many gives a server that failed, and whose delay has passed, the first
     /// place again (§19 step 12); zero never does.
     failover_retry_chance: u8 = constants.failover_retry_chance_default,
@@ -316,7 +316,7 @@ test "the defaults are the resolv.conf defaults, c-ares's waits, and are valid" 
     try testing.expectEqual(AuthenticatedData.ignored, config.authenticated_data);
     try testing.expect(!config.use_tcp and !config.ignore_truncation and !config.primary);
     try testing.expectEqual(@as(u64, 5_000_000_000), config.timeout_ns_max);
-    try testing.expectEqualSlices(Source, &default_lookups, config.lookups);
+    try testing.expectEqualSlices(Source, &lookups_default, config.lookups);
     try testing.expectEqual(@as(u8, 2), config.attempts);
     try testing.expectEqual(@as(u64, 2_000_000_000), config.timeout_ns);
     try testing.expectEqual(@as(u16, 1232), config.udp_payload_bytes);

@@ -464,7 +464,7 @@ test "a failure the memory recalls ends the reverse walk with that error, and no
     var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
     rig.open();
     var stub: @import("table_memory.zig").Stub = .{ .held = .{ .failed = core.Error.AllServersFailed } };
-    rig.resolver.remember_with(stub.memory());
+    rig.resolver.use_memory(stub.memory());
     var lookup = try NameLookup.init(&rig.resolver, null, &Address.from_v4(.{ 192, 0, 2, 1 }));
     try drive(&rig, &lookup);
     const failure = lookup.outcome().?.failed;

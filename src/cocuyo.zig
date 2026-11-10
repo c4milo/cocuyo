@@ -198,7 +198,7 @@ pub const constants = struct {
 const Trust = resolver.Trust;
 const Security = core.Security;
 
-/// A `Trust` filled in from a key store: what a consumer hands `Resolver.validate_with` to
+/// A `Trust` filled in from a key store: what a consumer hands `Resolver.use_trust` to
 /// validate every lookup the table starts, composed ones included (docs/design.md §25, step 12).
 /// `resolver` cannot reach `dnssec`, and this file can reach both.
 pub fn validated_by(store: *KeyStore) Trust {
@@ -215,7 +215,7 @@ pub fn validated_by(store: *KeyStore) Trust {
     };
 }
 
-/// A `Memory` filled in from a `Cache`: what a consumer hands `Resolver.remember_with` to put
+/// A `Memory` filled in from a `Cache`: what a consumer hands `Resolver.use_memory` to put
 /// the cache under every lookup the table starts, composed ones included (docs/design.md §20).
 ///
 /// This is the one place that says what may be remembered at all: an answer, the two
@@ -321,7 +321,7 @@ test "a failure in the cache ends a table's lookup at its first poll, and nothin
     const servers = [_]Server{.{ .endpoint = .{ .address = Address.from_v4(.{ 192, 0, 2, 53 }) } }};
     const config: Config = .{ .servers = &servers, .search = &.{} };
     var table = Resolver.init(&slots, &keys, &config, 0);
-    table.remember_with(remembered_by(&rig.store));
+    table.use_memory(remembered_by(&rig.store));
     _ = try table.start(question);
     var out: [limits.query_bytes_max]u8 = @splat(0);
     const failure = table.poll(0, &out).?.action.failed;
@@ -491,7 +491,7 @@ test "a hit through the table hands each record back less the time it spent in t
     const servers = [_]Server{.{ .endpoint = .{ .address = Address.from_v4(.{ 192, 0, 2, 53 }) } }};
     const config: Config = .{ .servers = &servers, .search = &.{} };
     var table = Resolver.init(&slots, &keys, &config, 0);
-    table.remember_with(memory);
+    table.use_memory(memory);
     _ = try table.start(question);
     var out: [limits.query_bytes_max]u8 = @splat(0);
     const done = table.poll(spent_seconds * cache_module.constants.ns_per_s, &out).?.action.done;

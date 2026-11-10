@@ -21,7 +21,11 @@ comptime {
     for ([_][]const u8{ "evict", "find", "hash_of" }) |name| {
         if (@hasDecl(cocuyo.Cache, name)) @compileError("a consumer reached cocuyo.Cache." ++ name);
     }
-    if (@hasDecl(cocuyo.Resolver, "occupy")) @compileError("a consumer reached cocuyo.Resolver.occupy");
+    // Each thing has one name: the setters are `use_memory` and `use_trust` (docs/mutations.md,
+    // ON2 and ON3).
+    for ([_][]const u8{ "occupy", "remember_with", "validate_with" }) |name| {
+        if (@hasDecl(cocuyo.Resolver, name)) @compileError("a consumer reached cocuyo.Resolver." ++ name);
+    }
 }
 
 pub fn main() !void {
@@ -36,7 +40,7 @@ pub fn main() !void {
 
     var store = cocuyo.Cache.init(&cache_memory.slots, &cache_memory.keys, seed, config.cache_ttl_seconds_max);
     var table = cocuyo.Resolver.init(&slots, &keys, &config, seed);
-    table.remember_with(cocuyo.remembered_by(&store));
+    table.use_memory(cocuyo.remembered_by(&store));
 
     _ = try table.start(try cocuyo.Question.from_text("example.com.", .a));
     var query: [cocuyo.limits.query_bytes_max]u8 = undefined;

@@ -35,7 +35,7 @@ test "a question the memory holds is answered at its first poll, and nothing is 
     rig.open();
     const answers = try answered_once(&rig);
     var stub: Stub = .{ .held = .{ .answered = .{ .answers = &answers, .ttl_seconds = 42, .canonical_name = null, .security = .unchecked } } };
-    rig.resolver.remember_with(stub.memory());
+    rig.resolver.use_memory(stub.memory());
 
     const handle = try rig.start("example.com.");
     const event = rig.poll().?;
@@ -66,7 +66,7 @@ test "a question the memory holds is answered over TCP too, before any connectio
     rig.open();
     const answers = try answered_once(&rig);
     var stub: Stub = .{ .held = .{ .answered = .{ .answers = &answers, .ttl_seconds = 42, .canonical_name = null, .security = .unchecked } } };
-    rig.resolver.remember_with(stub.memory());
+    rig.resolver.use_memory(stub.memory());
     // Every query over TCP (§19 step 11): the lookup starts waiting for its connection.
     rig.config.use_tcp = true;
     const handle = try rig.start("example.com.");
@@ -80,7 +80,7 @@ test "a lookup that ended before its first poll is not asked about" {
     rig.open();
     const answers = try answered_once(&rig);
     var stub: Stub = .{ .held = .{ .answered = .{ .answers = &answers, .ttl_seconds = 42, .canonical_name = null, .security = .unchecked } } };
-    rig.resolver.remember_with(stub.memory());
+    rig.resolver.use_memory(stub.memory());
     const handle = try rig.start("example.com.");
     rig.resolver.cancel(handle);
     try testing.expectEqual(core.Error.Canceled, rig.poll().?.action.failed.err);
@@ -92,7 +92,7 @@ test "an answer reached through a chain is written with the chain's end" {
     var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
     rig.open();
     var stub: Stub = .{};
-    rig.resolver.remember_with(stub.memory());
+    rig.resolver.use_memory(stub.memory());
 
     const handle = try rig.start("example.com.");
     const sent = rig.poll().?;
@@ -121,7 +121,7 @@ test "a walk's end is written under the name asked with the bound a negative on 
     var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &search, .ndots = 1 } };
     rig.open();
     var stub: Stub = .{};
-    rig.resolver.remember_with(stub.memory());
+    rig.resolver.use_memory(stub.memory());
 
     const handle = try rig.start("example");
     for ([_]fixtures.Reply{ fixtures.name_error, fixtures.answer_a }) |reply| {
@@ -154,7 +154,7 @@ test "a recalled answer reports the chain's end it was remembered with" {
         .aliases = &aliases,
         .security = .unchecked,
     } } };
-    rig.resolver.remember_with(stub.memory());
+    rig.resolver.use_memory(stub.memory());
 
     const handle = try rig.start("example.com.");
     const event = rig.poll().?;
@@ -179,7 +179,7 @@ test "a recalled negative reports the chain that reached the name with no data" 
         .canonical_name = &target,
         .aliases = &aliases,
     } } };
-    rig.resolver.remember_with(stub.memory());
+    rig.resolver.use_memory(stub.memory());
 
     const handle = try rig.start("example.com.");
     const failed = rig.poll().?.action.failed;
@@ -193,7 +193,7 @@ test "a negative the memory holds comes back as that failure, with what is left 
     var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
     rig.open();
     var stub: Stub = .{ .held = .{ .negative = .{ .outcome = .name_not_found, .ttl_seconds = 7, .security = .unchecked } } };
-    rig.resolver.remember_with(stub.memory());
+    rig.resolver.use_memory(stub.memory());
 
     const handle = try rig.start("example.com.");
     const event = rig.poll().?;
@@ -208,7 +208,7 @@ test "an end is written back once, however many polls produce it" {
     var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
     rig.open();
     var stub: Stub = .{};
-    rig.resolver.remember_with(stub.memory());
+    rig.resolver.use_memory(stub.memory());
 
     const handle = try rig.start("example.com.");
     const sent = rig.poll().?;
@@ -231,7 +231,7 @@ test "a cancel is no resolution failure, and is not written back" {
     var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
     rig.open();
     var stub: Stub = .{};
-    rig.resolver.remember_with(stub.memory());
+    rig.resolver.use_memory(stub.memory());
 
     const handle = try rig.start("example.com.");
     rig.resolver.cancel(handle);
@@ -279,7 +279,7 @@ test "a lookup whose servers all fail is written back as failed, with its error"
     var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
     rig.open();
     var stub: Stub = .{};
-    rig.resolver.remember_with(stub.memory());
+    rig.resolver.use_memory(stub.memory());
     const failure = try failed_once(&rig);
     try testing.expectEqual(Error.AllServersFailed, failure.err);
     try testing.expectEqual(@as(u32, 1), stub.writes);
@@ -292,7 +292,7 @@ test "a failure the memory holds ends the lookup at its first poll, and nothing 
     var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
     rig.open();
     var stub: Stub = .{ .held = .{ .failed = Error.AllServersFailed } };
-    rig.resolver.remember_with(stub.memory());
+    rig.resolver.use_memory(stub.memory());
 
     const handle = try rig.start("example.com.");
     const event = rig.poll().?;
@@ -328,7 +328,7 @@ test "an end is written with its status, and a negative with its own (docs/desig
     var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{}, .authenticated_data = .always } };
     rig.open();
     var stub: Stub = .{};
-    rig.resolver.remember_with(stub.memory());
+    rig.resolver.use_memory(stub.memory());
     try answered_with_ad(&rig, "example.com.", fixtures.answer_a);
     try testing.expectEqual(core.Security.authenticated, stub.written.?.answered.security);
     try answered_with_ad(&rig, "nothing.example.", fixtures.name_error_soa);
@@ -394,8 +394,8 @@ fn first_poll(held: memory_module.Remembered, kind: Kind, validating: bool) !loo
     var stub: Stub = .{ .held = held };
     var context: u8 = 0;
     rig.open();
-    rig.resolver.remember_with(stub.memory());
-    if (validating) rig.resolver.validate_with(Secure.trust(&context));
+    rig.resolver.use_memory(stub.memory());
+    if (validating) rig.resolver.use_trust(Secure.trust(&context));
     _ = try rig.resolver.start(try core.Question.from_text("example.com.", kind));
     const event = rig.poll().?;
     try testing.expectEqual(@as(u32, 1), stub.recalls);

@@ -17,6 +17,14 @@ comptime {
 }
 
 const Resolver = dns.Resolver(.{ .lookups = 2 });
+
+comptime {
+    // Each thing has one name: the engine counts its lookups with `in_flight`, as the table does,
+    // and names its `init` errors once, as `dns.InitError` (docs/mutations.md, ON4 and ON5).
+    for ([_][]const u8{ "active", "InitErrorType" }) |name| {
+        if (@hasDecl(Resolver, name)) @compileError("a consumer reached the engine's " ++ name);
+    }
+}
 /// The slots of the resolver's cache: small on purpose, as the table is.
 const cache_slots = 2;
 

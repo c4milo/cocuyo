@@ -233,7 +233,7 @@ pub const Replay = struct {
         self.servers = Servers.init(&self.config, seed);
         if (self.validating) {
             self.validator = .{ .context = self, .validate = validated };
-            self.servers.validate_with(&self.config, &self.validator);
+            self.servers.use_validator(&self.config, &self.validator);
         }
         self.lookup.init_in_place(&self.config, &self.servers, self.question, seed);
         self.now_ns = 0;

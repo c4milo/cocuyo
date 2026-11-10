@@ -83,7 +83,7 @@ fn waiting_under(rig: anytype, seed: u64, config: cocuyo.Config) !cocuyo.Handle 
     try rig.init(seed, .{ .{ .down = true }, .{ .down = true } }, config);
     const handle = try rig.engine.start(question("example.com."), rig.loop.now());
     _ = try rig.step(0);
-    try testing.expectEqual(@as(usize, 1), rig.engine.active());
+    try testing.expectEqual(@as(usize, 1), rig.engine.in_flight());
     return handle;
 }
 

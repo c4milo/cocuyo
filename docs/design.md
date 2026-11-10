@@ -8244,7 +8244,7 @@ function, so that no path built one without the other. One path does now, by the
 choice (§19 step 13, the cache's memory; §16 decision 37): an engine handed no memory for a
 cache gives its table no `Memory`. Every lookup that table starts, the composed ones included,
 goes to its servers, and nothing is remembered. That is the table a caller of the library has
-had all along when it calls no `remember_with`. An engine handed memory builds both in that one
+had all along when it calls no `use_memory`. An engine handed memory builds both in that one
 function still.
 
 **A recalled answer carries the chain's end.** The cache is keyed by the question, and until
@@ -11331,7 +11331,7 @@ Each step lands with its checks, each check broken on purpose and recorded in
       chain under NXDOMAIN is bogus too.
     Built on 2026-11-01: the model first (`spec/lean/Spec/LookupProofs/Validation.lean`), then
     `src/resolver/lookup_validate.zig`, whose `Validator` the table hands a lookup with
-    `Servers.validate_with`, beside the state its lookups share. `core.validation` holds the types
+    `Servers.use_validator`, beside the state its lookups share. `core.validation` holds the types
     `dnssec` and `resolver` share, since neither may import the other. A validator's secure verdict
     names an ending, `alias` among them: a chain of valid links whose end the message does not
     say, which the lookup asks for next. A lookup with no validator pays one branch for each
@@ -11414,7 +11414,7 @@ Each step lands with its checks, each check broken on purpose and recorded in
     `cocuyo.Anchor`, `cocuyo.Trust` and `cocuyo.validated_by`:
     - `KeyStore`, in `src/dnssec/dnssec_keys.zig`, holds the store and the walker. Its `init` takes
       the entries, the anchors, `cocuyo_dnssec`'s verifier and hasher, and the time of day.
-    - `validated_by(&key_store)` gives the `Trust` the consumer hands `Resolver.validate_with`.
+    - `validated_by(&key_store)` gives the `Trust` the consumer hands `Resolver.use_trust`.
       It lives in `src/cocuyo.zig`, which imports `dnssec` and registers it nowhere.
     - `KeyStore` is in `dnssec` and not in a file of its own beside `cocuyo.zig`, since a file
       there that `cocuyo.zig` imported would leave the module (the relative-import rule).

@@ -1162,7 +1162,7 @@
         .id = "CZ15",
         .what = "an engine handed cache memory puts no cache under its table",
         .edits = .{
-            .{ .file = "io/io_lifecycle.zig", .old = "        self.resolver.remember_with(cocuyo.remembered_by(&self.cache.?));\n", .new = "" },
+            .{ .file = "io/io_lifecycle.zig", .old = "        self.resolver.use_memory(cocuyo.remembered_by(&self.cache.?));\n", .new = "" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -1225,7 +1225,7 @@
         .id = "CZ22",
         .what = "reinit keeps the cache it had, whatever memory it is handed",
         .edits = .{
-            .{ .file = "io/io_lifecycle.zig", .old = "    reset_tables(self, config, cache_memory, seed);\n    try self.sockets.open", .new = "    const held = self.cache;\n    reset_tables(self, config, null, seed);\n    self.cache = held;\n    if (self.cache) |*store| self.resolver.remember_with(cocuyo.remembered_by(store));\n    try self.sockets.open" },
+            .{ .file = "io/io_lifecycle.zig", .old = "    reset_tables(self, config, cache_memory, seed);\n    try self.sockets.open", .new = "    const held = self.cache;\n    reset_tables(self, config, null, seed);\n    self.cache = held;\n    if (self.cache) |*store| self.resolver.use_memory(cocuyo.remembered_by(store));\n    try self.sockets.open" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -7609,7 +7609,7 @@
         .id = "WD6",
         .what = "a reinit forgets the key store",
         .edits = .{
-            .{ .file = "io/io_lifecycle.zig", .old = "    if (self.trust) |key_store| self.resolver.validate_with(cocuyo.validated_by(key_store));\n", .new = "" },
+            .{ .file = "io/io_lifecycle.zig", .old = "    if (self.trust) |key_store| self.resolver.use_trust(cocuyo.validated_by(key_store));\n", .new = "" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -8287,6 +8287,52 @@
         .what = "`Resolver.occupy` is a declaration of the type again",
         .edits = .{
             .{ .file = "src/resolver/table.zig", .old = "pub const Resolver = struct {\n", .new = "pub const Resolver = struct {\n    pub const occupy = slots_module.occupy;\n" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "One name for each thing",
+        .id = "ON1",
+        .what = "a full engine refuses a lookup with an error of its own, not the table's",
+        .edits = .{
+            .{ .file = "io/io.zig", .old = "now_ns: u64) error{NoSlot}!cocuyo.Handle {", .new = "now_ns: u64) error{ NoSlot, Full }!cocuyo.Handle {" },
+            .{ .file = "io/io.zig", .old = "const handle = self.resolver.start(question) catch return error.NoSlot;", .new = "const handle = self.resolver.start(question) catch return error.Full;" },
+        },
+        .caught_by = .{ .step = "test-io" },
+    },
+    .{
+        .section = "One name for each thing",
+        .id = "ON2",
+        .what = "the table has `remember_with` beside `use_memory`",
+        .edits = .{
+            .{ .file = "src/resolver/table.zig", .old = "pub const Resolver = struct {\n", .new = "pub const Resolver = struct {\n    pub const remember_with = use_memory;\n" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "One name for each thing",
+        .id = "ON3",
+        .what = "the table has `validate_with` beside `use_trust`",
+        .edits = .{
+            .{ .file = "src/resolver/table.zig", .old = "pub const Resolver = struct {\n", .new = "pub const Resolver = struct {\n    pub const validate_with = use_trust;\n" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "One name for each thing",
+        .id = "ON4",
+        .what = "the engine has `active` beside `in_flight`",
+        .edits = .{
+            .{ .file = "io/io.zig", .old = "        const Self = @This();\n\n        pub const Result = results_module.Result;\n", .new = "        const Self = @This();\n\n        pub const Result = results_module.Result;\n        pub const active = in_flight;\n" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "One name for each thing",
+        .id = "ON5",
+        .what = "the engine has the alias `InitErrorType` beside `InitError`",
+        .edits = .{
+            .{ .file = "io/io.zig", .old = "        const Self = @This();\n\n        pub const Result = results_module.Result;\n", .new = "        const Self = @This();\n\n        pub const Result = results_module.Result;\n        pub const InitErrorType = InitError;\n" },
         },
         .caught_by = .{ .step = "consumer-check" },
     },
