@@ -110,15 +110,18 @@ pub const AddressLookup = struct {
 
     /// Starts the walk. A name that is an address is answered here; with `numeric_host`, any
     /// other name fails here with `NameNotFound`, which is `EAI_NONAME`. `family` null asks both
-    /// families, as `AF_UNSPEC` does.
+    /// families, as `AF_UNSPEC` does. It starts in memory the caller owns, since a walk is over a
+    /// kilooctet (c4milo/cocuyo#65). On an error the walk holds nothing, and its memory is the
+    /// caller's to start again.
     pub fn init(
+        self: *AddressLookup,
         resolver: *Resolver,
         hosts: ?*const Hosts,
         name: []const u8,
         family: ?Family,
         flags: AddressFlags,
-    ) InitError!AddressLookup {
-        var self: AddressLookup = .{
+    ) InitError!void {
+        self.* = .{
             .resolver = resolver,
             .hosts = hosts,
             .question = undefined,
@@ -142,17 +145,16 @@ pub const AddressLookup = struct {
         };
         if (Address.from_text(name)) |address| {
             self.question = Question.from_text(".", .a) catch unreachable;
-            walk.answer_numeric(&self, address);
-            return self;
+            walk.answer_numeric(self, address);
+            return;
         }
         self.question = try Question.from_text(name, .a);
         if (flags.numeric_host) {
-            walk.end_failed(&self, core.Error.NameNotFound);
-            return self;
+            walk.end_failed(self, core.Error.NameNotFound);
+            return;
         }
-        try walk.begin(&self);
+        try walk.begin(self);
         assert(self.ended != null or self.in_flight() >= 1);
-        return self;
     }
 
     /// A `.done` or `.failed` event of the resolver. True when the handle was one of this

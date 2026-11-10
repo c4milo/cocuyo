@@ -18,7 +18,7 @@ const identity_order: [core.limits.servers_max]u8 = blk: {
     break :blk order;
 };
 
-/// Every field of `Lookup` but its answers, its links and its tries. `init_in_place` builds one of these
+/// Every field of `Lookup` but its answers, its links and its tries. `init` builds one of these
 /// whole, so the compiler refuses a field left out, and copies it into the lookup field by field,
 /// so that the answers' storage and the links' octets, which nothing reads before `collect` writes
 /// them, are not written: assigning the whole lookup would write them, since a safe build fills
@@ -39,8 +39,8 @@ const Head = head: {
     break :head @Struct(.auto, null, &names, &types, &@splat(.{}));
 };
 
-/// `Lookup.init_in_place`: a lookup started in memory the caller owns.
-pub fn init_in_place(
+/// `Lookup.init`: a lookup started in memory the caller owns.
+pub fn init(
     self: *Lookup,
     config: *const Config,
     servers: *Servers,

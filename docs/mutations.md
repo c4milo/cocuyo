@@ -12050,3 +12050,20 @@ PL9 named a line that left `init`, and now names the lines that stay.
 | PL9 | init checks the payload after it writes the engine | `zig build test-io` | `CAUGHT` |
 | CC1 | the table copies the servers and the search list alone, and no other field | `zig build test-resolver` | `CAUGHT` |
 | CC2 | the engine keeps a pointer to the caller's configuration | `zig build test-io` | `CAUGHT` |
+
+## A lookup started in place
+
+2026-11-10, c4milo/cocuyo#65. `Lookup` and `AddressLookup` each have one `init`, which starts the
+value in memory the caller owns. A lookup is five kilooctets and a walk over one, and the owner's
+API rule starts a large struct in place. `Lookup.init_in_place` is that `init` now, and the `init`
+that handed a lookup back by value is gone. With it went the one fill a lookup's start made: the
+list of `tools/fill_check/fill_check.zig` no longer names `probe_lookup_init`. IP1 puts the copy
+back, and the fill check finds its fill. A16 and A17 named lines of `AddressLookup.init` that
+changed, and now name the new lines. `zig build mutations -- address A16 A17` and `zig build
+mutations -- engine IP1` ran each row.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| A16 | a numeric host is queried anyway | `zig build test-resolver` | `CAUGHT` |
+| A17 | `numeric_host` does not insist | `zig build test-resolver` | `CAUGHT` |
+| IP1 | `Lookup.init` builds the lookup in a local and copies it to its place | `zig build fill-check` | `CAUGHT` |

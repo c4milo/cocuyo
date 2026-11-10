@@ -325,11 +325,11 @@ var round_servers: cocuyo.Servers = undefined;
 fn setup_round_trip() void {
     round_question = cocuyo.Question.from_text("example.com.", .a) catch unreachable;
     round_servers = cocuyo.Servers.init(&config, seed);
-    var initial = Lookup.init(&config, &round_servers, &round_question, seed);
-    _ = initial.poll(now_ns, &round_out);
-    const cased = initial.cased_name();
-    round_reply_len = build_reply(&round_reply, initial.transaction.id, &cased);
-    round_reply_len += with_cookie(&round_reply, round_reply_len, &initial.cookie_client);
+    lookup.init(&config, &round_servers, &round_question, seed);
+    _ = lookup.poll(now_ns, &round_out);
+    const cased = lookup.cased_name();
+    round_reply_len = build_reply(&round_reply, lookup.transaction.id, &cased);
+    round_reply_len += with_cookie(&round_reply, round_reply_len, &lookup.cookie_client);
 }
 
 /// Appends an OPT record to the reply of `len` octets in `out`, with a COOKIE option that echoes
@@ -344,7 +344,7 @@ fn with_cookie(out: []u8, len: usize, client: *const [core.constants.cookie_clie
 }
 
 fn run_round_trip() void {
-    lookup.init_in_place(&config, &round_servers, &round_question, seed);
+    lookup.init(&config, &round_servers, &round_question, seed);
     now_ns += 1;
     doNotOptimizeAway(lookup.poll(now_ns, &round_out));
     lookup.on_sent(now_ns);

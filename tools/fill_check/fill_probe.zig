@@ -65,9 +65,10 @@ export fn probe_cache_put_negative(cache: *cocuyo.Cache, question: *const cocuyo
     cache.put_negative(question, .no_data, ttl_seconds, null, .unchecked, now_ns);
 }
 
-/// A lookup built by value, as a caller that holds one outside a table builds it.
+/// A lookup started in memory of the caller's, as a caller that holds one outside a table starts
+/// it.
 export fn probe_lookup_init(config: *const cocuyo.Config, servers: *cocuyo.Servers, question: *const cocuyo.Question, seed: u64, out: *cocuyo.Lookup) void {
-    out.* = cocuyo.Lookup.init(config, servers, &question.*, seed);
+    out.init(config, servers, question, seed);
 }
 
 /// The benchmark programs' `memset` (`bench/memset.zig`), which calls none: in a program that

@@ -282,9 +282,11 @@ pub const Servers = struct {
 };
 
 pub const Lookup = struct {
-    pub fn init(config: *const Config, servers: *Servers, question: *const Question, seed: u64) Lookup;
-    /// `init` into memory the caller owns, which is what `Resolver` does with its slots (§11).
-    pub fn init_in_place(self: *Lookup, config: *const Config, servers: *Servers, question: *const Question, seed: u64) void;
+    /// Starts a lookup in memory the caller owns, which is what `Resolver` does with its slots
+    /// (§11). The one `init` since 2026-11-10: a lookup is five kilooctets, and the owner's API
+    /// rule starts a large struct in place (c4milo/cocuyo#65). Until then `init` handed a lookup
+    /// back by value, and `init_in_place` was this function.
+    pub fn init(self: *Lookup, config: *const Config, servers: *Servers, question: *const Question, seed: u64) void;
     pub fn poll(self: *Lookup, now_ns: u64, out: []u8) Action;
     pub fn on_sent(self: *Lookup, now_ns: u64) void;
     pub fn on_send_failed(self: *Lookup, now_ns: u64) void;
@@ -2468,7 +2470,9 @@ step until `zig build test` passes.
     but `answers`, and then resets the answers, so the octets of the slot's last lookup are left and
     never read; `Cache.put_negative` resets the slot's answers in place instead of filling a local.
     Two fills stay: `Lookup.init`, which builds a lookup whole and hands it back by value, and the
-    zeros of the EDNS padding (RFC 7830 §3). Rejected: runtime safety off around the switch, an
+    zeros of the EDNS padding (RFC 7830 §3). Since 2026-11-10 the padding's fill alone stays:
+    `Lookup.init` starts a lookup in place, as `init_in_place` did, and the form that handed one
+    back by value is gone (c4milo/cocuyo#65). Rejected: runtime safety off around the switch, an
     exception the owner rules on (pepegrillo's method, step 3) for a cost the representation can
     avoid; the storage as bytes read through pointer casts, which loses every member's type; a field
     for each list, which adds 2.4 KiB to every lookup and every cache slot; and leaving it, which on

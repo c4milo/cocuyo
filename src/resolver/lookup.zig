@@ -158,23 +158,18 @@ pub const Lookup = struct {
     /// The earlier tries of the current name still open (docs/design.md §5, Tries kept open).
     tries: tries_module.Tries,
 
-    pub fn init(config: *const Config, servers: *Servers, question: *const Question, seed: u64) Lookup {
-        var lookup: Lookup = undefined;
-        lookup.init_in_place(config, servers, question, seed);
-        return lookup;
-    }
-
-    /// `init` into memory the caller already owns, a slot of `Resolver` above all: the lookup is
-    /// three kilooctets since §19 step 9, and a value built in a local and returned is copied
-    /// into its destination, which §11 measured at forty nanoseconds a start.
-    pub fn init_in_place(
+    /// Starts a lookup in memory the caller already owns, a slot of `Resolver` above all. A
+    /// lookup is five kilooctets, and a value built in a local and returned is copied into its
+    /// destination, which §11 measured at forty nanoseconds a start. So there is no `init` that
+    /// hands a lookup back by value (c4milo/cocuyo#65).
+    pub fn init(
         self: *Lookup,
         config: *const Config,
         servers: *Servers,
         question: *const Question,
         seed: u64,
     ) void {
-        init_module.init_in_place(self, config, servers, question, seed);
+        init_module.init(self, config, servers, question, seed);
     }
 
     pub fn poll(self: *Lookup, now_ns: u64, out: []u8) Action {

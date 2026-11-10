@@ -133,7 +133,7 @@
         .id = "A16",
         .what = "a numeric host is queried anyway",
         .edits = .{
-            .{ .file = "src/resolver/address_lookup.zig", .old = "            walk.answer_numeric(&self, address);\n            return self;\n", .new = "            walk.answer_numeric(&self, address);\n" },
+            .{ .file = "src/resolver/address_lookup.zig", .old = "            walk.answer_numeric(self, address);\n            return;\n", .new = "            walk.answer_numeric(self, address);\n" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },
@@ -142,7 +142,7 @@
         .id = "A17",
         .what = "`numeric_host` does not insist",
         .edits = .{
-            .{ .file = "src/resolver/address_lookup.zig", .old = "        if (flags.numeric_host) {\n            walk.end_failed(&self, core.Error.NameNotFound);\n            return self;\n        }\n", .new = "" },
+            .{ .file = "src/resolver/address_lookup.zig", .old = "        if (flags.numeric_host) {\n            walk.end_failed(self, core.Error.NameNotFound);\n            return;\n        }\n", .new = "" },
         },
         .caught_by = .{ .step = "test-resolver" },
     },

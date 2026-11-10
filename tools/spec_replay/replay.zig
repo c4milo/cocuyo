@@ -235,7 +235,7 @@ pub const Replay = struct {
             self.validator = .{ .context = self, .validate = validated };
             self.servers.use_validator(&self.config, &self.validator);
         }
-        self.lookup.init_in_place(&self.config, &self.servers, &self.question, seed);
+        self.lookup.init(&self.config, &self.servers, &self.question, seed);
         self.now_ns = 0;
         self.started = true;
     }

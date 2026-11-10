@@ -77,7 +77,8 @@ pub fn main(init: std.process.Init) !void {
 fn resolve(io: std.Io, name: []const u8, config: *const cocuyo.Config, seed: u64) !void {
     // The per-server state a lookup shares with the others of its process: cookies live here.
     var servers = cocuyo.Servers.init(config, seed);
-    var lookup = cocuyo.Lookup.init(config, &servers, &try cocuyo.Question.from_text(name, .a), seed);
+    var lookup: cocuyo.Lookup = undefined;
+    lookup.init(config, &servers, &try cocuyo.Question.from_text(name, .a), seed);
     const clock: Clock = .init(io);
 
     var loop_memory: [loop_memory_bytes]u8 align(rotor.memory_alignment) = undefined;

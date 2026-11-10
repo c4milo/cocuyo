@@ -181,7 +181,9 @@ threadlocal var test_servers: Servers = undefined;
 
 fn lookup_for(config: *const Config, text: []const u8) !Lookup {
     test_servers = Servers.init(config, fixtures.seed);
-    return Lookup.init(config, &test_servers, &try Question.from_text(text, .a), fixtures.seed);
+    var lookup: Lookup = undefined;
+    lookup.init(config, &test_servers, &try Question.from_text(text, .a), fixtures.seed);
+    return lookup;
 }
 
 test "the first poll asks for a UDP send to the first server" {

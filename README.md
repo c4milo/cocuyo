@@ -85,7 +85,8 @@ stands for your own UDP socket, and `clock` for a monotonic clock in nanoseconds
 <!-- readme-check: loop -->
 ```zig
 var servers = cocuyo.Servers.init(&config, seed);
-var lookup = cocuyo.Lookup.init(&config, &servers, &try cocuyo.Question.from_text(name, .a), seed);
+var lookup: cocuyo.Lookup = undefined;
+lookup.init(&config, &servers, &try cocuyo.Question.from_text(name, .a), seed);
 var query: [cocuyo.limits.query_bytes_max]u8 = undefined;
 
 while (true) {

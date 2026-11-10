@@ -25,8 +25,6 @@ const assert = std.debug.assert;
 /// - The zeros of the EDNS Padding option, which `query.write` writes for a query that goes
 ///   encrypted (RFC 7830 §3), fewer than one block of them. The table's poll builds queries, so
 ///   it reaches them too, and so do the engine's start and its completions, which drive the table.
-/// - `Lookup.init`, which builds a whole lookup and hands it back by value, for a caller that
-///   holds one outside a table. The table builds its lookups in place, and fills nothing.
 /// - rotor's, which the engine reaches through the loop and no lookup pays. On Linux the loop's
 ///   first use decides, once a process, between io_uring and epoll, and deciding zeroes 2 KiB of
 ///   stack. On macOS a changelist that fills up between two ticks goes to the kernel early,
@@ -42,10 +40,8 @@ pub const Known = struct { target: []const u8, probe: []const u8, fills: u32 };
 pub const known = [_]Known{
     .{ .target = "x86_64-linux-gnu", .probe = "probe_query_write", .fills = 1 },
     .{ .target = "x86_64-linux-gnu", .probe = "probe_table_poll", .fills = 1 },
-    .{ .target = "x86_64-linux-gnu", .probe = "probe_lookup_init", .fills = 1 },
     .{ .target = "aarch64-macos", .probe = "probe_query_write", .fills = 1 },
     .{ .target = "aarch64-macos", .probe = "probe_table_poll", .fills = 1 },
-    .{ .target = "aarch64-macos", .probe = "probe_lookup_init", .fills = 1 },
     .{ .target = "x86_64-linux-gnu", .probe = "probe_engine_start", .fills = 2 },
     .{ .target = "x86_64-linux-gnu", .probe = "probe_engine_apply", .fills = 2 },
     .{ .target = "aarch64-macos", .probe = "probe_engine_start", .fills = 2 },
@@ -313,16 +309,16 @@ test "a called function's fills count, a panic handler's do not, and a cycle cou
     const arena = arena_state.allocator();
     const text = "\t.type\t.Lfill_probe.probe_a,@function\n" ++
         ".Lfill_probe.probe_a:\n" ++
-        "\tcall\t.Llookup.Lookup.init_in_place\n" ++
+        "\tcall\t.Llookup.Lookup.init\n" ++
         "\tcall\t\".Ldebug.FullPanic((function 'defaultPanic')).integerOverflow\"\n" ++
-        "\t.type\t.Llookup.Lookup.init_in_place,@function\n" ++
-        ".Llookup.Lookup.init_in_place:\n" ++
+        "\t.type\t.Llookup.Lookup.init,@function\n" ++
+        ".Llookup.Lookup.init:\n" ++
         "\tcall\tmemset@PLT\n" ++
         "\tcall\t.Lresponse.Answers.reset\n" ++
         "\t.type\t.Lresponse.Answers.reset,@function\n" ++
         ".Lresponse.Answers.reset:\n" ++
         "\tcall\tmemset@PLT\n" ++
-        "\tcall\t.Llookup.Lookup.init_in_place\n" ++
+        "\tcall\t.Llookup.Lookup.init\n" ++
         "\t.type\t\".Ldebug.FullPanic((function 'defaultPanic')).integerOverflow\",@function\n" ++
         "\".Ldebug.FullPanic((function 'defaultPanic')).integerOverflow\":\n" ++
         "\tcall\tmemset@PLT\n";

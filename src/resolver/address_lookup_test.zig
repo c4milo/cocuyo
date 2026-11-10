@@ -32,7 +32,7 @@ pub const Rig = struct {
     }
 
     pub fn start(rig: *Rig, hosts: ?*const core.Hosts, name: []const u8, family: ?Family, flags: AddressFlags) !void {
-        rig.lookup = try AddressLookup.init(&rig.table.resolver, hosts, name, family, flags);
+        try rig.lookup.init(&rig.table.resolver, hosts, name, family, flags);
     }
 
     /// Polls until every lookup waits: a send is acknowledged, an end is handed to the address
@@ -374,7 +374,8 @@ test "a table with one slot short of the pair refuses the start and leaves nothi
     try rig.open();
     var filler: [fixtures.slot_count - 1]Handle = undefined;
     for (&filler) |*handle| handle.* = try rig.table.start("filler.example.");
-    try testing.expectError(error.NoSlot, AddressLookup.init(&rig.table.resolver, null, "host.example.", null, .{}));
+    var refused: AddressLookup = undefined;
+    try testing.expectError(error.NoSlot, refused.init(&rig.table.resolver, null, "host.example.", null, .{}));
     try testing.expectEqual(@as(usize, filler.len), rig.table.resolver.in_flight());
 }
 

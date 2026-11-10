@@ -8417,4 +8417,13 @@
         },
         .caught_by = .{ .step = "test-io" },
     },
+    .{
+        .section = "A lookup started in place",
+        .id = "IP1",
+        .what = "`Lookup.init` builds the lookup in a local and copies it to its place",
+        .edits = .{
+            .{ .file = "src/resolver/lookup.zig", .old = "        init_module.init(self, config, servers, question, seed);", .new = "        var built: Lookup = undefined;\n        init_module.init(&built, config, servers, question, seed);\n        self.* = built;" },
+        },
+        .caught_by = .{ .step = "fill-check" },
+    },
 }

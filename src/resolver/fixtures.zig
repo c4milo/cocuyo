@@ -306,7 +306,7 @@ pub const Harness = struct {
             self.servers = Servers.init(&self.config, lookup_seed);
             self.servers_ready = true;
         }
-        self.lookup = Lookup.init(&self.config, &self.servers, &try Question.from_text(text, kind), lookup_seed);
+        self.lookup.init(&self.config, &self.servers, &try Question.from_text(text, kind), lookup_seed);
     }
 
     pub fn poll(self: *Harness) Action {

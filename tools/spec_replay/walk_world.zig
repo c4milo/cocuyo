@@ -116,7 +116,7 @@ pub const World = struct {
         live.now_ns = 1;
         const hosts: ?*const core.Hosts = if (world.has_hosts) &world.hosts else null;
         switch (world.walk) {
-            .address => live.address = AddressLookup.init(&live.table, hosts, asked_name, world.family, .{}) catch return error.Refused,
+            .address => live.address.init(&live.table, hosts, asked_name, world.family, .{}) catch return error.Refused,
             .name => live.name = NameLookup.init(&live.table, hosts, &address_v4) catch return error.Refused,
         }
         world.acknowledge();
