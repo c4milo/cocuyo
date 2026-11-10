@@ -48,7 +48,9 @@ pub const Event = struct {
 pub const Resolver = struct {
     slots: slots_module.Slots,
     keys: []MatchKey,
-    config: *const Config,
+    /// The table's own copy of the caller's configuration, which each lookup points at. Its
+    /// `servers` and `search` are slices of the caller's (docs/design.md §3).
+    config: Config,
     /// The per-server state every lookup of the table shares: the cookies and the failover
     /// counters (docs/design.md §19 steps 10 and 12).
     servers: servers_module.Servers,
@@ -92,7 +94,7 @@ pub const Resolver = struct {
         return .{
             .slots = slots_module.Slots.init(slots),
             .keys = keys,
-            .config = config,
+            .config = config.*,
             .servers = servers_module.Servers.init(config, seed),
             .entropy = entropy_module.Entropy.init(seed),
             .ready_head = slots_module.slot_none,

@@ -73,7 +73,7 @@ fn start_dns(self: *AddressLookup) error{NoSlot}!bool {
 /// encoded; false when the candidates are exhausted.
 fn start_candidate(self: *AddressLookup) error{NoSlot}!bool {
     while (self.candidate_index <= core.limits.candidates_max) : (self.candidate_index += 1) {
-        switch (policy.candidate(self.resolver.config, &self.question, self.candidate_index)) {
+        switch (policy.candidate(&self.resolver.config, &self.question, self.candidate_index)) {
             .name => |name| {
                 try start_pair(self, &name);
                 return true;
@@ -124,7 +124,7 @@ fn mapping(self: *const AddressLookup) bool {
 
 /// The name of the candidate whose lookups are in flight or just ended.
 fn candidate_name(self: *const AddressLookup) Name {
-    return switch (policy.candidate(self.resolver.config, &self.question, self.candidate_index)) {
+    return switch (policy.candidate(&self.resolver.config, &self.question, self.candidate_index)) {
         .name => |name| name,
         .skip, .exhausted => unreachable,
     };

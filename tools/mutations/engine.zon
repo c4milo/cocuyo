@@ -2521,7 +2521,7 @@
         .id = "PL9",
         .what = "init checks the payload after it writes the engine",
         .edits = .{
-            .{ .file = "io/io.zig", .old = "            try lifecycle.check_payload(config);\n            self.loop = loop;\n            self.config = config;\n            self.send_in_flight = @splat(false);\n            self.sent_from = @splat(null);\n", .new = "            self.loop = loop;\n            self.config = config;\n            self.send_in_flight = @splat(false);\n            self.sent_from = @splat(null);\n            try lifecycle.check_payload(config);\n" },
+            .{ .file = "io/io.zig", .old = "            try lifecycle.check_payload(config);\n            self.loop = loop;\n            self.send_in_flight = @splat(false);\n            self.sent_from = @splat(null);\n", .new = "            self.loop = loop;\n            self.send_in_flight = @splat(false);\n            self.sent_from = @splat(null);\n            try lifecycle.check_payload(config);\n" },
         },
         .caught_by = .{ .step = "test-io" },
     },
@@ -8398,5 +8398,23 @@
             .{ .file = "io/io_doh_channel_start.zig", .old = ".unix_seconds = clock.unix_seconds, .at_ns = clock.now_ns };", .new = ".unix_seconds = clock.now_ns, .at_ns = clock.unix_seconds };" },
         },
         .caught_by = .{ .step = "test-cocuyo_doh" },
+    },
+    .{
+        .section = "The configuration a table copies",
+        .id = "CC1",
+        .what = "the table copies the servers and the search list alone, and no other field",
+        .edits = .{
+            .{ .file = "src/resolver/table.zig", .old = "            .config = config.*,", .new = "            .config = .{ .servers = config.servers, .search = config.search }," },
+        },
+        .caught_by = .{ .step = "test-resolver" },
+    },
+    .{
+        .section = "The configuration a table copies",
+        .id = "CC2",
+        .what = "the engine keeps a pointer to the caller's configuration",
+        .edits = .{
+            .{ .file = "io/io_lifecycle.zig", .old = "    self.config = &self.resolver.config;", .new = "    self.config = config;" },
+        },
+        .caught_by = .{ .step = "test-io" },
     },
 }

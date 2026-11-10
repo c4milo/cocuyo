@@ -12033,3 +12033,20 @@ inside the function that reads the value. KS1 named the two arguments, and now n
 | CK2 | the DoT context reads the monotonic clock as the wall clock | `zig build test-chapulin` | `CAUGHT` |
 | CK3 | the DoQ context reads the monotonic clock as the wall clock | `zig build test-chapulin-quic` | `CAUGHT` |
 | CK4 | the DoH context reads the monotonic clock as the wall clock | `zig build test-cocuyo_doh` | `CAUGHT` |
+
+## The configuration a table copies
+
+2026-11-10, c4milo/cocuyo#65. `Resolver.init` copies the caller's `Config`, and each lookup points
+at the table's copy. The engine reads that copy too, so neither keeps a pointer to the caller's
+`Config` after `init` or `reinit` returns. The `servers` and `search` slices stay the caller's.
+The tests are in `src/resolver/table_test.zig` and `io/io_lifecycle_test.zig`: each changes the
+caller's `Config` after `init`, and requires that nothing reads the change. The test of a refused
+`reinit` compared the engine's pointer with the caller's, and now compares what the copy holds.
+PL9 named a line that left `init`, and now names the lines that stay.
+`zig build mutations -- engine PL9 CC1 CC2` ran each row.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| PL9 | init checks the payload after it writes the engine | `zig build test-io` | `CAUGHT` |
+| CC1 | the table copies the servers and the search list alone, and no other field | `zig build test-resolver` | `CAUGHT` |
+| CC2 | the engine keeps a pointer to the caller's configuration | `zig build test-io` | `CAUGHT` |

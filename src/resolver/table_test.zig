@@ -27,6 +27,17 @@ test "keys_for gives the least power of two that holds the floor of keys for eac
     try testing.expectEqual(key_count, table_module.Resolver.keys_for(slot_count));
 }
 
+test "a table copies its configuration, and each lookup points at the copy" {
+    var table: Table = .{ .config = .{ .servers = &servers, .cache_ttl_seconds_max = 77 } };
+    table.open();
+    // The caller's `Config` is its own again once `init` returns: a change of it is not seen.
+    table.config.cache_ttl_seconds_max = 78;
+    try testing.expectEqual(@as(u32, 77), table.resolver.config.cache_ttl_seconds_max);
+    const handle = try table.start("example.com.");
+    try testing.expectEqual(&table.resolver.config, table.resolver.lookup_of(handle).config);
+    table.resolver.release(handle);
+}
+
 test "a table starts lookups, answers them, and frees their slots" {
     var table: Table = .{ .config = .{ .servers = &servers } };
     table.open();

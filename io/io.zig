@@ -99,6 +99,7 @@ pub fn Resolver(comptime options: Options) type {
         pub const Result = results_module.Result;
 
         loop: *rotor.Loop,
+        /// The table's copy of the configuration, never the caller's `Config` (docs/design.md §3).
         config: *const cocuyo.Config,
         resolver: cocuyo.Resolver,
         slots: [options.lookups]cocuyo.Slot,
@@ -215,7 +216,9 @@ pub fn Resolver(comptime options: Options) type {
         /// held: a consumer that speaks one calls `use_tls`, `use_quic` or `use_doh` next, before
         /// its first lookup (§24, the context a session starts from, rule 4). A
         /// `config.udp_payload_bytes` above `limits.udp_payload_bytes_max` is refused before
-        /// anything is written (§19 step 13, the datagram's rule 7).
+        /// anything is written (§19 step 13, the datagram's rule 7). The table copies `config`, and
+        /// the engine reads that copy, so `config` need not outlive the call. Its `servers` and
+        /// `search` slices are the caller's, and outlive the engine.
         pub fn init(
             self: *Self,
             loop: *rotor.Loop,
@@ -229,7 +232,6 @@ pub fn Resolver(comptime options: Options) type {
             lifecycle.assert_cache_memory(cache_memory);
             try lifecycle.check_payload(config);
             self.loop = loop;
-            self.config = config;
             self.send_in_flight = @splat(false);
             self.sent_from = @splat(null);
             self.trust = null;

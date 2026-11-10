@@ -58,6 +58,23 @@ test "an engine whose table is full refuses a lookup with NoSlot, the table's ow
     try rig.deinit();
 }
 
+test "an engine reads the table's copy of its configuration, and never the caller's" {
+    var rig: Rig = .{};
+    try rig.init(23, .{ .{}, .{} }, .{ .servers = &.{} });
+    const held = rig.config.cache_ttl_seconds_max;
+    // The caller's `Config` is its own again once `init` returns: a change of it is not seen.
+    rig.config.cache_ttl_seconds_max = held - 1;
+    try testing.expect(rig.engine.config != &rig.config);
+    try testing.expectEqual(held, rig.engine.config.cache_ttl_seconds_max);
+    // A `reinit` copies the configuration it is handed, and the engine reads that copy.
+    var next = rig.config;
+    try rig.engine.reinit(&next, rig.cache_memory.slices(), 24, rig.loop.now());
+    next.cache_ttl_seconds_max = held - 2;
+    try testing.expect(rig.engine.config != &next);
+    try testing.expectEqual(held - 1, rig.engine.config.cache_ttl_seconds_max);
+    try rig.deinit();
+}
+
 test "reinit cancels what is in flight, empties the cache, and asks the new servers" {
     var rig: Rig = .{};
     try rig.init(22, .{ .{}, .{} }, .{ .servers = &.{} });
@@ -310,7 +327,10 @@ test "reinit refuses a payload one octet past the room, and the engine keeps wha
     // Nothing changed: the configuration, the cache over the memory it held, and the socket and
     // the stream, each with its receive. The memory of the call is the caller's, and the engine
     // never wrote it.
-    try testing.expectEqual(@as(*const cocuyo.Config, &rig.config), rig.engine.config);
+    // The engine reads the table's copy of the configuration, which holds what it held.
+    try testing.expectEqual(&rig.engine.resolver.config, rig.engine.config);
+    try testing.expectEqual(rig.config.udp_payload_bytes, rig.engine.config.udp_payload_bytes);
+    try testing.expect(rig.engine.config.udp_payload_bytes != past.udp_payload_bytes);
     try testing.expectEqual(@as([*]cocuyo.cache.Slot, &rig.cache_memory.slots), rig.engine.cache.?.slots.ptr);
     try testing.expectEqual(@as(u64, 53), rig.engine.cache.?.seed);
     try testing.expectEqual(socket, rig.engine.sockets.items[0]);
@@ -325,7 +345,7 @@ test "reinit refuses a payload one octet past the room, and the engine keeps wha
     // At the room the reinit takes the configuration, and its queries advertise the room.
     const at = advertising(&rig, io.limits.udp_payload_bytes_max);
     try rig.engine.reinit(&at, rig.cache_memory.slices(), 55, rig.loop.now());
-    try testing.expectEqual(@as(*const cocuyo.Config, &at), rig.engine.config);
+    try testing.expectEqual(at.udp_payload_bytes, rig.engine.config.udp_payload_bytes);
     const handle = try rig.engine.start(&question("example.com."), rig.loop.now());
     try testing.expectEqual(@as(u16, @intCast(io.limits.udp_payload_bytes_max)), try advertised(&rig.engine, handle));
     try testing.expect((try rig.until_result()).outcome == .answer);

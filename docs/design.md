@@ -175,7 +175,7 @@ the entry point.
 | Cache memory | `var cache_memory: cocuyo.cache.Storage(M) = undefined;` | optional; §18 gives the size, the bounds and the form for a count read at run time |
 | Send buffer | `poll(now_ns, out)` | `out.len >= query_bytes_max` |
 | Receive buffer | the caller's own | at least `config.udp_payload_bytes` |
-| Servers and search list | `Config`, caller-owned slices | must outlive the lookups |
+| Configuration | `Config`, which a table and an engine copy at `init` since 2026-11-10 | its `servers` and `search` slices are the caller's, and must outlive the table |
 | Time | `now_ns` on every entry point | monotonic, non-decreasing, asserted |
 | Entropy | a `u64` seed per lookup | must come from a CSPRNG; §7 says why |
 | Sockets, connects, reads, writes | the caller performs them | cocuyo makes no syscall |
@@ -405,6 +405,9 @@ pub const Slot = struct {
 };
 
 pub const Resolver = struct {
+    /// Copies `config.*` since 2026-11-10 (c4milo/cocuyo#65), and keeps no pointer to it. Each
+    /// lookup points at the table's copy, so the table stays where it is from its first `start`.
+    /// The servers and the search list are slices of the caller's, which outlive the table.
     pub fn init(slots: []Slot, keys: []MatchKey, config: *const Config, seed: u64) Resolver;
     pub fn start(self: *Resolver, question: *const Question) error{NoSlot}!Handle;
     /// Null when there is nothing to do now. Each lookup is offered once for each thing it has

@@ -148,7 +148,7 @@ pub const Slots = struct {
 pub fn occupy(self: *table_module.Resolver, index: u16, question: *const core.Question) void {
     const slot = &self.slots.items[index];
     assert(slot.occupied);
-    slot.lookup.init_in_place(self.config, &self.servers, question, self.entropy.next());
+    slot.lookup.init_in_place(&self.config, &self.servers, question, self.entropy.next());
     slot.keyed_id = slot.lookup.transaction.id;
     keys_module.insert(self.keys, slot.keyed_id, index);
     // A new lookup has sent nothing, so it keeps no try open.

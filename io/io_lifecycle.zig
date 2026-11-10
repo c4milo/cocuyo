@@ -73,6 +73,9 @@ pub fn reset_tables(self: anytype, config: *const cocuyo.Config, cache_memory: ?
     // `check_payload` refused a larger size before the call changed anything (rule 7).
     assert(config.udp_payload_bytes <= limits.udp_payload_bytes_max);
     self.resolver = cocuyo.Resolver.init(&self.slots, &self.keys, config, seed);
+    // The table copied `config`. The engine reads that copy from here on, and keeps no pointer
+    // to the caller's (c4milo/cocuyo#65).
+    self.config = &self.resolver.config;
     self.cache = null;
     if (cache_memory) |memory| {
         self.cache = cocuyo.Cache.init(memory.slots, memory.keys, seed, config.cache_ttl_seconds_max);
@@ -150,7 +153,6 @@ pub fn reinit(
     request_module.forget_all(self);
     self.sockets.cancel(self.loop);
     self.sockets.close();
-    self.config = config;
     // A ticket was a server's of the old configuration (docs/design.md §21, TLS rule 8, and §24,
     // request rule 10).
     self.tls_tickets = @splat(null);
