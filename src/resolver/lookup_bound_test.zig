@@ -202,13 +202,13 @@ test "a cut datagram from a server with no query left on a stream moves the look
 }
 
 test "the next search candidate is another query, and each server has three queries for it" {
-    const search = [_]Name{try Name.from_text("one.net")};
+    const search = [_]Name{try Name.parse("one.net")};
     var harness: Harness = .{ .config = .{ .servers = &one_server, .search = &search, .ndots = 1, .attempts = 3 } };
     try harness.start("host.example", .a, seed);
     try testing.expect(send_and_run_out(&harness) == .send_udp);
     try testing.expect(send_and_run_out(&harness) == .send_udp);
     try ask(&harness, fixtures.name_error);
-    try testing.expect(harness.lookup.current.equal(&try Name.from_text("host.example.one.net")));
+    try testing.expect(harness.lookup.current.equal(&try Name.parse("host.example.one.net")));
     for (0..limits.queries_per_transport_max - 1) |_| try testing.expect(send_and_run_out(&harness) == .send_udp);
     try expect_failure(send_and_run_out(&harness), core.Error.Timeout, null);
 }

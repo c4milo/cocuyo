@@ -1,6 +1,6 @@
 //! `Address` and `Endpoint`: an IP address as octets, and a server to send to. cocuyo formats no
 //! address — it owns no I/O, so it never has to name one to the host — and reads one only from
-//! text it is handed (`from_text`). These types exist so the response check of docs/design.md §7
+//! text it is handed (`parse`). These types exist so the response check of docs/design.md §7
 //! can compare the source of a datagram against the server the query went to, octet for octet.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -44,7 +44,7 @@ pub const Address = extern struct {
 
     /// An address from text, IPv4 or IPv6, or null when the text is not one: no zone index, no
     /// brackets, no prefix length (`address_text.zig` says why each).
-    pub fn from_text(text: []const u8) ?Address {
+    pub fn parse(text: []const u8) ?Address {
         return address_text.parse(text);
     }
 
@@ -131,5 +131,5 @@ test "the length of an address is the family's, not the buffer's" {
 test "an IPv4 address maps into ::ffff:0:0/96, octet for octet" {
     const mapped = Address.from_v4(.{ 192, 0, 2, 1 }).v4_mapped();
     try std.testing.expectEqual(Family.ipv6, mapped.family);
-    try std.testing.expect(mapped.equal(&Address.from_text("::ffff:192.0.2.1").?));
+    try std.testing.expect(mapped.equal(&Address.parse("::ffff:192.0.2.1").?));
 }

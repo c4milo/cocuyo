@@ -61,7 +61,7 @@ test "find checks the type and the flag the hash already mixed, because a hash i
     var absolute = asked;
     absolute.absolute = true;
     try testing.expect(cache_entry.find(&table, &absolute, hash) == null);
-    const aaaa = try core.Question.from_text("example.com", .aaaa);
+    const aaaa = try core.Question.parse("example.com", .aaaa);
     try testing.expect(cache_entry.find(&table, &aaaa, hash) == null);
 }
 
@@ -74,7 +74,7 @@ test "the hash is keyed: two seeds land one name in two places" {
     try testing.expect(cache_entry.hash_of(&one, &asked) != cache_entry.hash_of(&two, &asked));
     try testing.expectEqual(cache_entry.hash_of(&one, &asked), cache_entry.hash_of(&one, &fixtures.question("EXAMPLE.COM")));
     try testing.expect(cache_entry.hash_of(&one, &asked) != cache_entry.hash_of(&one, &fixtures.question("example.org")));
-    const aaaa = try core.Question.from_text("example.com", .aaaa);
+    const aaaa = try core.Question.parse("example.com", .aaaa);
     try testing.expect(cache_entry.hash_of(&one, &asked) != cache_entry.hash_of(&one, &aaaa));
     var absolute = asked;
     absolute.absolute = true;

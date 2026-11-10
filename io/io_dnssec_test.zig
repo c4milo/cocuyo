@@ -26,7 +26,7 @@ const testing = std.testing;
 fn digest_of(chapulin: *Chapulin, owner: []const u8, rdata: []const u8, digest_type: u8, out: *[validation.constants.digest_bytes]u8) []const u8 {
     const verifier = chapulin.verifier();
     const hash = verifier.digest_begin(verifier.context, digest_type);
-    validation.ds_input(&(Name.from_text(owner) catch unreachable), rdata, hash);
+    validation.ds_input(&(Name.parse(owner) catch unreachable), rdata, hash);
     return out[0..verifier.digest_end(verifier.context, out)];
 }
 
@@ -57,7 +57,7 @@ fn verifies(chapulin: *Chapulin, rrsig_rdata: []const u8, owner: []const u8, add
     const sig = try wire.rdata.Rrsig.parse(rrsig_rdata);
     const hash = verifier.check_begin(verifier.context, sig.algorithm, fixtures.public_key(key), sig.signature) orelse return false;
     const records = validation.canonical.Written{ .records = &.{address} };
-    try validation.canonical.signed_data(rrsig_rdata, &try Name.from_text(owner), .a, core.constants.class_internet, records, hash);
+    try validation.canonical.signed_data(rrsig_rdata, &try Name.parse(owner), .a, core.constants.class_internet, records, hash);
     return verifier.check_end(verifier.context, fixtures.public_key(key), sig.signature);
 }
 
@@ -152,7 +152,7 @@ test "RFC 5155 Appendix A: the hashed owner names, under salt aabbccdd and 12 it
         .{ "xx.example", "t644ebqk9bibcna874givr6joj62mlhv" },
     }) |entry| {
         var hash: validation.nsec3.Hash = undefined;
-        hasher.compute(hasher.context, (try Name.from_text(entry[0])).wire(), &salt, 12, &hash);
+        hasher.compute(hasher.context, (try Name.parse(entry[0])).wire(), &salt, 12, &hash);
         try testing.expectEqualStrings(entry[1], &base32hex(&hash));
     }
 }
@@ -160,7 +160,7 @@ test "RFC 5155 Appendix A: the hashed owner names, under salt aabbccdd and 12 it
 test "a whole message validates over chapulin: RFC 6605 §6.1's answer, under its key" {
     var chapulin: Chapulin = .{};
     const key = dnskey(257, 13, &base64("GojIhhXUN/u4v54ZQqGSnyhWJwaubCvTmeexv7bR6edbkrSqQpF64cYbcB7wNcP+e+MAnLr+Wi9xMWyQLc8NAA=="));
-    const zone = try Name.from_text("example.net");
+    const zone = try Name.parse("example.net");
     const anchors = [_]validation.store.Anchor{.{ .zone = zone, .kind = .dnskey, .rdata = &key }};
     var entries: [2]validation.store.Entry = undefined;
     var store = validation.store.Store.init(&entries, &anchors);
@@ -171,7 +171,7 @@ test "a whole message validates over chapulin: RFC 6605 §6.1's answer, under it
     const validator: validation.validate.Validator = .{ .store = &store, .verifier = chapulin.verifier(), .hasher = chapulin.hasher(), .scratch = &scratch };
     var signature = base64("qx6wLYqmh+l9oCKTN6qIc+bw6ya+KJ8oMz0YP107epXAyGmt+3SNruPFKG7tZoLBLlUzGGus7ZwmwWep666VCw==");
     var buffer: [512]u8 = undefined;
-    const asked = try Name.from_text("www.example.net");
+    const asked = try Name.parse("www.example.net");
     const secure = validator.validate(&asked, .a, p256_message(&buffer, &signature), 0);
     try testing.expectEqual(validation.validate.Ending.answer, secure.secure.ending);
     signature[0] +%= 1;

@@ -35,8 +35,8 @@ const client_port: u16 = 50_000;
 const quic_version_2: u32 = 0x6b33_43cf;
 
 const port: u16 = 8443;
-const endpoint: cocuyo.Endpoint = .{ .address = cocuyo.Address.from_text("192.0.2.1").?, .port = port };
-const client_address = cocuyo.Address.from_text("192.0.2.9").?;
+const endpoint: cocuyo.Endpoint = .{ .address = cocuyo.Address.parse("192.0.2.1").?, .port = port };
+const client_address = cocuyo.Address.parse("192.0.2.9").?;
 const template = .{ .authority = "dns.example:8443", .host = "dns.example", .port = port, .path = "/dns-query{?dns}" };
 /// A query of a header alone, ID 0, as DoH asks (RFC 8484 §4.1): the server echoes it.
 const query = [_]u8{ 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
@@ -81,7 +81,7 @@ const Pair = struct {
 
     fn open(pair: *Pair, script: tcp_server.Script) !void {
         try pair.server.init(script, identity.unix_seconds, pair.now_ns);
-        const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(pair.name) };
+        const named: cocuyo.Tls = .{ .name = try cocuyo.Name.parse(pair.name) };
         try pair.doh.start(.{
             .server = 0,
             .endpoint = pair.endpoint,

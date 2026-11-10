@@ -101,10 +101,10 @@ pub const Question = struct {
     /// A question from presentation form, refused with `UnqueryableType` for a type never asked
     /// for (`Kind.queryable`). A question built as a literal must name a queryable type, which
     /// the codec and the cache assert.
-    pub fn from_text(text: []const u8, kind: Kind) Error!Question {
+    pub fn parse(text: []const u8, kind: Kind) Error!Question {
         if (!kind.queryable()) return Error.UnqueryableType;
         const question: Question = .{
-            .name = try Name.from_text(text),
+            .name = try Name.parse(text),
             .kind = kind,
             .absolute = is_absolute(text),
         };
@@ -150,23 +150,23 @@ test "the types of DNSSEC carry the codes their RFCs assign" {
 }
 
 test "a trailing dot makes the question absolute and the wire name identical" {
-    const relative = try Question.from_text("example.com", .a);
-    const absolute = try Question.from_text("example.com.", .a);
+    const relative = try Question.parse("example.com", .a);
+    const absolute = try Question.parse("example.com.", .a);
     try testing.expect(!relative.absolute);
     try testing.expect(absolute.absolute);
     try testing.expect(relative.name.equal(&absolute.name));
 }
 
 test "the root and the empty name are absolute" {
-    try testing.expect((try Question.from_text("", .a)).absolute);
-    try testing.expect((try Question.from_text(".", .aaaa)).absolute);
+    try testing.expect((try Question.parse("", .a)).absolute);
+    try testing.expect((try Question.parse(".", .aaaa)).absolute);
 }
 
 test "a reverse question is a PTR question and is absolute" {
     const question = try Question.from_address(&Address.from_v4(.{ 9, 9, 9, 9 }));
     try testing.expectEqual(Kind.ptr, question.kind);
     try testing.expect(question.absolute);
-    try testing.expect(question.name.equal(&try Name.from_text("9.9.9.9.in-addr.arpa")));
+    try testing.expect(question.name.equal(&try Name.parse("9.9.9.9.in-addr.arpa")));
 }
 
 test "every kind but OPT is queryable, and each has its registry code" {
@@ -195,13 +195,13 @@ test "a question may name any type but zero, OPT and the query and meta range, A
     // Refused: zero, OPT, and 128 to 254, AXFR (252) and TSIG (250) among them.
     for ([_]u16{ 0, 41, 128, 250, 252, 254 }) |refused| {
         try testing.expect(!Kind.of(refused).queryable());
-        try testing.expectError(Error.UnqueryableType, Question.from_text("example.com", Kind.of(refused)));
+        try testing.expectError(Error.UnqueryableType, Question.parse("example.com", Kind.of(refused)));
     }
     // Asked as they are: ANY, the codes just past the range's ends, a DNSSEC type (DNSKEY, 48),
     // one cocuyo does not name (99), one reserved for future use and one for private use.
     for ([_]u16{ 255, 127, 256, 48, 99, 0xF000, 0xFF00, 0xFFFF }) |asked| {
         try testing.expect(Kind.of(asked).queryable());
-        const question = try Question.from_text("example.com", Kind.of(asked));
+        const question = try Question.parse("example.com", Kind.of(asked));
         try testing.expectEqual(asked, question.kind.code());
     }
 }
@@ -216,5 +216,5 @@ test "addresses, PTR names and everything else each have their storage" {
 }
 
 test "a malformed name is an error before a question exists" {
-    try testing.expectError(Error.MalformedName, Question.from_text("a..b", .a));
+    try testing.expectError(Error.MalformedName, Question.parse("a..b", .a));
 }

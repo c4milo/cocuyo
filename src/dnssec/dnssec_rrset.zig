@@ -236,9 +236,9 @@ const Fixed = struct {
 
     fn held(context: *const anyopaque, signer: *const Name) Held {
         const self: *const Fixed = @ptrCast(@alignCast(context));
-        if (signer.equal(&(Name.from_text(self.zone) catch unreachable))) return .{ .keys = .{ .list = self.keys.slice() } };
+        if (signer.equal(&(Name.parse(self.zone) catch unreachable))) return .{ .keys = .{ .list = self.keys.slice() } };
         const wanted = self.wanted orelse return .outside;
-        return if (signer.equal(&(Name.from_text(wanted) catch unreachable))) .wanted else .outside;
+        return if (signer.equal(&(Name.parse(wanted) catch unreachable))) .wanted else .outside;
     }
 };
 
@@ -264,8 +264,8 @@ fn zone_keys(records: []const []const u8) KeyList {
 /// Verifies the RRset of `kind` at `owner` in the answer of `bytes`, asked as `asked`.
 fn outcome(bytes: []const u8, asked: []const u8, owner: []const u8, kind: Kind, fixed: *const Fixed, sums: *Sums, budget: *Budget) !Outcome {
     var message: Message = undefined;
-    try testing.expect(try message.read(bytes, &try Name.from_text(asked)));
-    const owner_name = try Name.from_text(owner);
+    try testing.expect(try message.read(bytes, &try Name.parse(asked)));
+    const owner_name = try Name.parse(owner);
     const set = try message.rrset(.answer, kind, &owner_name);
     // A changed owner or type leaves no RRset to verify.
     if (set.count() == 0) return .unsigned;
@@ -297,7 +297,7 @@ test "B.1's MX RRset verifies under the zone's key, kept no longer than its TTL"
     try testing.expectEqual(@as(usize, 1), sums.checked);
     try testing.expectEqual(@as(u32, 3600), result.valid.ttl_seconds);
     try testing.expectEqual(@as(u8, 3), result.valid.labels);
-    try testing.expect(result.valid.signer.equal(&try Name.from_text("example")));
+    try testing.expect(result.valid.signer.equal(&try Name.parse("example")));
 }
 
 test "an RRset whose signature has under a day left is kept no longer than that" {
@@ -313,7 +313,7 @@ test "any changed octet of the RRset or of its RRSIG's signed fields makes it bo
     const bytes = builder.message();
     const fixed: Fixed = .{ .keys = zone_keys(&.{&zone.zsk}) };
     var message: Message = undefined;
-    _ = try message.read(bytes, &try Name.from_text("x.w.example"));
+    _ = try message.read(bytes, &try Name.parse("x.w.example"));
     // The answer section's two records: every octet but the TTLs, which the signature does not
     // cover (RFC 4035 §5.3.2), and the RRSIG's own record TTL.
     for (0..2) |index| {

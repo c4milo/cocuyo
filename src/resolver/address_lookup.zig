@@ -143,12 +143,12 @@ pub const AddressLookup = struct {
             .truncated = false,
             .partial = null,
         };
-        if (Address.from_text(name)) |address| {
-            self.question = Question.from_text(".", .a) catch unreachable;
+        if (Address.parse(name)) |address| {
+            self.question = Question.parse(".", .a) catch unreachable;
             walk.answer_numeric(self, address);
             return;
         }
-        self.question = try Question.from_text(name, .a);
+        self.question = try Question.parse(name, .a);
         if (flags.numeric_host) {
             walk.end_failed(self, core.Error.NameNotFound);
             return;

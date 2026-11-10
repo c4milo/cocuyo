@@ -61,13 +61,13 @@ fn setup_cache() void {
     var buffer: [24]u8 = undefined;
     for (&questions, 0..) |*question, index| {
         const text = std.fmt.bufPrint(&buffer, "l{d}.example", .{index}) catch unreachable;
-        question.* = Question.from_text(text, .a) catch unreachable;
+        question.* = Question.parse(text, .a) catch unreachable;
         table.put(question, &answers, null, .unchecked, now_ns);
     }
     // Every name went in: no chain reached the probe bound at this seed.
     assert(table.len() == slot_count);
-    absent = Question.from_text("absent.example", .a) catch unreachable;
-    fresh = Question.from_text(fresh_text, .a) catch unreachable;
+    absent = Question.parse("absent.example", .a) catch unreachable;
+    fresh = Question.parse(fresh_text, .a) catch unreachable;
     rotation = 0;
 }
 
@@ -118,12 +118,12 @@ fn advance(question: *Question) void {
 }
 
 test "the fresh name steps through distinct names" {
-    var question = try Question.from_text(fresh_text, .a);
+    var question = try Question.parse(fresh_text, .a);
     const first = question.name;
     advance(&question);
     try std.testing.expect(!question.name.equal(&first));
     var steps: usize = 0;
     while (steps < 10) : (steps += 1) advance(&question);
-    const eleventh = try Question.from_text("fresh0000000011.example", .a);
+    const eleventh = try Question.parse("fresh0000000011.example", .a);
     try std.testing.expect(question.name.equal(&eleventh.name));
 }

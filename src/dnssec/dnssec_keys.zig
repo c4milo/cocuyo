@@ -119,7 +119,7 @@ const Fixture = struct {
 };
 
 fn named(text: []const u8) Name {
-    return Name.from_text(text) catch unreachable;
+    return Name.parse(text) catch unreachable;
 }
 
 test "a joined walk asks the anchor's keys, and fails as its question failed" {

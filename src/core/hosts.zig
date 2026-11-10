@@ -103,7 +103,7 @@ const Fixture = struct {
     fn add(self: *Fixture, address: Address, names: []const []const u8) !void {
         var entry: Entry = .{ .address = address, .names = undefined, .name_count = 0 };
         for (names) |text| {
-            const name = try Name.from_text(text);
+            const name = try Name.parse(text);
             @memcpy(self.storage.names[self.names_used..][0..name.len], name.wire());
             entry.names[entry.name_count] = .{ .offset = @intCast(self.names_used), .len = name.len };
             entry.name_count += 1;
@@ -133,13 +133,13 @@ test "find gives every entry naming the name, of one family or either, in the ta
     try typical(&fixture);
     const hosts = fixture.table();
     var out: [4]Address = undefined;
-    const localhost = try Name.from_text("localhost");
+    const localhost = try Name.parse("localhost");
     try testing.expectEqual(@as(usize, 2), hosts.find(&localhost, null, &out));
     try testing.expectEqual(Family.ipv4, out[0].family);
     try testing.expectEqual(Family.ipv6, out[1].family);
     try testing.expectEqual(@as(usize, 1), hosts.find(&localhost, .ipv6, &out));
     try testing.expectEqual(Family.ipv6, out[0].family);
-    try testing.expectEqual(@as(usize, 0), hosts.find(&try Name.from_text("nothing.example"), null, &out));
+    try testing.expectEqual(@as(usize, 0), hosts.find(&try Name.parse("nothing.example"), null, &out));
 }
 
 test "an alias finds the entry, its official name is the canonical one, and case does not matter" {
@@ -147,21 +147,21 @@ test "an alias finds the entry, its official name is the canonical one, and case
     try typical(&fixture);
     const hosts = fixture.table();
     var out: [4]Address = undefined;
-    const alias = try Name.from_text("DB");
+    const alias = try Name.parse("DB");
     try testing.expectEqual(@as(usize, 1), hosts.find(&alias, null, &out));
     try testing.expect(out[0].equal(&fixtures.db_v4));
     const canonical = hosts.canonical(&alias).?;
-    try testing.expect(canonical.equal(&try Name.from_text("db.example")));
-    const official = try Name.from_text("db.example");
+    try testing.expect(canonical.equal(&try Name.parse("db.example")));
+    const official = try Name.parse("db.example");
     try testing.expectEqual(@as(usize, 2), hosts.find(&official, null, &out));
-    try testing.expectEqual(@as(?Name, null), hosts.canonical(&try Name.from_text("nothing.example")));
+    try testing.expectEqual(@as(?Name, null), hosts.canonical(&try Name.parse("nothing.example")));
 }
 
 test "a reverse lookup gives the official name of the first entry with the address" {
     var fixture: Fixture = .{};
     try typical(&fixture);
     const hosts = fixture.table();
-    try testing.expect(hosts.reverse(&fixtures.db_v4).?.equal(&try Name.from_text("db.example")));
+    try testing.expect(hosts.reverse(&fixtures.db_v4).?.equal(&try Name.parse("db.example")));
     try testing.expectEqual(@as(?Name, null), hosts.reverse(&fixtures.unlisted_v4));
 }
 
@@ -170,7 +170,7 @@ test "the room the caller gives bounds a find, and the empty table finds nothing
     try typical(&fixture);
     const hosts = fixture.table();
     var one: [1]Address = undefined;
-    const localhost = try Name.from_text("localhost");
+    const localhost = try Name.parse("localhost");
     try testing.expectEqual(@as(usize, 1), hosts.find(&localhost, null, &one));
     try testing.expectEqual(@as(usize, 0), Hosts.empty.find(&localhost, null, &one));
     try testing.expectEqual(@as(?Name, null), Hosts.empty.canonical(&localhost));

@@ -202,7 +202,7 @@ pub const Name = extern struct {
     pub const root: Name;  // "."
     pub const empty: Name; // a builder: no label yet, not a name until terminated
 
-    pub fn from_text(text: []const u8) Error!Name;
+    pub fn parse(text: []const u8) Error!Name;
     pub fn write_text(self: *const Name, out: []u8) usize; // out.len >= name_text_bytes_max
     pub fn equal(self: *const Name, other: *const Name) bool; // case-insensitive, per RFC 4343
     pub fn wire(self: *const Name) []const u8;
@@ -222,7 +222,7 @@ pub const Question = struct {
     absolute: bool = false,
 
     /// `Error.UnqueryableType` for a type never asked for (§19 step 9, Questions).
-    pub fn from_text(text: []const u8, kind: Kind) Error!Question;
+    pub fn parse(text: []const u8, kind: Kind) Error!Question;
     /// The reverse question: the in-addr.arpa or ip6.arpa name for an address, always absolute.
     pub fn from_address(address: *const Address) Error!Question;
 };
@@ -7151,7 +7151,7 @@ character-strings (RFC 1035 §3.3, which is `ares_expand_string`). `A` and `AAAA
 addresses. A view holds slices into the rdata it was given and copies nothing.
 
 **Questions.** A question may name any type but three kinds of code, which `Kind.queryable`
-refuses and `Question.from_text` answers with `Error.UnqueryableType`:
+refuses and `Question.parse` answers with `Error.UnqueryableType`:
 
 - Zero, which is never a type (RFC 6895 §3.1).
 - OPT, a pseudo-record that belongs to a message and not to a name (RFC 6891 §6.1.1).
@@ -7162,7 +7162,7 @@ refuses and `Question.from_text` answers with `Error.UnqueryableType`:
 ANY, in that range, is the exception: cocuyo reads it (RFC 8482). Every other code, a DNSSEC type
 or a private one (RFC 6895 §3.1) among them, is asked as it is, and its records come back whole,
 their rdata copied as the wire has it (RFC 3597 §3, §4). A question built as a literal must name
-a queryable type, which the codec and the cache assert; `from_text` is where the check is. Asking
+a queryable type, which the codec and the cache assert; `parse` is where the check is. Asking
 for `CNAME` keeps the CNAME record and follows nothing (RFC 1034 §3.6.2). Asking for `ANY` keeps every record the name owns whatever
 its type, which may be one synthesized `HINFO` (RFC 8482 §4.2), and is `NoData` when there are
 none. Every other kind follows the chain as `A` does today.
@@ -7945,8 +7945,8 @@ is where a consumer with a loop of its own can reach it now that the engine is h
 13). Services by name stay out: `/etc/services` belongs to the consumer, who has the port.
 
 - **Two moves first**, so `resolver` reaches what the shape needs without importing `config`
-  (§2). The address text parser becomes `core.address_text`, reached as `Address.from_text`
-  the way `Name.from_text` is. The hosts table becomes a `core` type, `core.Hosts`, with its
+  (§2). The address text parser becomes `core.address_text`, reached as `Address.parse`
+  the way `Name.parse` is. The hosts table becomes a `core` type, `core.Hosts`, with its
   `Entry`, `Storage`, `find`, `canonical` and `reverse`, and `config.hosts.parse` stays its one
   producer. That is the split `Config` already has: the type in `core`, the parser in
   `config`. `cocuyo.resolv_conf.address_text` goes, and `cocuyo.Hosts` joins the flattened
@@ -8430,6 +8430,12 @@ is the length of the caller's slice, which `keys_for`, `slot_count_valid` and `S
 a function writes into a slice of the caller's is a length too: `Name.write_text` and
 `Hosts.find` stay. A test beside each function holds its type to its limit, so a limit that
 outgrows its type fails the gate (docs/mutations.md, XS1 to XS5).
+
+**A text read by `parse`.** `Name`, `Question` and `Address` each had a `from_text`. The owner
+ruled on 2026-11-07 that each is `parse`, as `std.Uri.parse` and `std.net`'s address parsers
+are, and as cocuyo's own `resolv_conf.parse`, `hosts.parse` and `trust_anchors.parse` were. It
+was built on 2026-11-10. No `from_text` stays beside it: each thing has one name, and the
+fixture refuses to compile when one comes back (docs/mutations.md, PT1 to PT3).
 
 **Every field.** TigerStyle has a caller pass each option where it calls, so that a reader sees
 each setting and no default changes under it. The owner ruled on 2026-11-07 that `Config` and

@@ -215,7 +215,7 @@ test "a name of labels decodes and reports the octet after the root" {
 test "a name ending in a pointer decodes to the whole name and ends after the pointer" {
     var name: Name = Name.empty;
     const end = try decode(&compressed_message, 25, &name);
-    try testing.expect(name.equal(&try Name.from_text("www.example.com")));
+    try testing.expect(name.equal(&try Name.parse("www.example.com")));
     try testing.expectEqual(@as(usize, compressed_message.len), end);
 }
 
@@ -306,7 +306,7 @@ test "skip refuses a reserved kind and a truncated name" {
 }
 
 test "encode writes the wire bytes and nothing else" {
-    const name = try Name.from_text("example.com");
+    const name = try Name.parse("example.com");
     var out: [core.limits.name_bytes_max]u8 = @splat(0xff);
     try testing.expectEqual(@as(usize, 13), encode(&name, &out));
     try testing.expectEqualStrings("\x07example\x03com\x00", out[0..13]);

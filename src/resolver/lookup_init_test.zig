@@ -22,9 +22,9 @@ test "a lookup starts ready to send its first query" {
     const config: Config = .{ .servers = &one_server };
     var servers_config = Servers.init(&config, 1);
     var lookup: Lookup = undefined;
-    lookup.init(&config, &servers_config, &try Question.from_text("example.com", .a), 1);
+    lookup.init(&config, &servers_config, &try Question.parse("example.com", .a), 1);
     try testing.expectEqual(State.query_ready, lookup.state);
-    try testing.expect(lookup.current.equal(&try Name.from_text("example.com")));
+    try testing.expect(lookup.current.equal(&try Name.parse("example.com")));
     try testing.expect(lookup.flags.edns_enabled);
     try testing.expect(lookup.flags.mix_case);
     try testing.expectEqual(@as(u8, 0), lookup.server_index);
@@ -37,7 +37,7 @@ test "the name on the wire is cased and the name held is not" {
     const config: Config = .{ .servers = &one_server };
     var servers_config = Servers.init(&config, 1);
     var lookup: Lookup = undefined;
-    lookup.init(&config, &servers_config, &try Question.from_text("example.com", .a), 1);
+    lookup.init(&config, &servers_config, &try Question.parse("example.com", .a), 1);
     try testing.expect(!lookup.flags.query_mixed);
     _ = lookup.poll(0, &out);
     try testing.expect(lookup.flags.query_mixed);
@@ -63,13 +63,13 @@ test "rotation starts somewhere in the list, and a lookup without it starts at t
     var seed: u64 = 0;
     while (seed < 64) : (seed += 1) {
         var lookup: Lookup = undefined;
-        lookup.init(&rotating, &servers_rotating, &try Question.from_text("example.com.", .a), seed);
+        lookup.init(&rotating, &servers_rotating, &try Question.parse("example.com.", .a), seed);
         var polled = lookup;
         var out: [core.limits.query_bytes_max]u8 = @splat(0);
         _ = polled.poll(0, &out);
         seen[polled.server_slot()] = true;
         var fixed: Lookup = undefined;
-        fixed.init(&plain, &servers_plain, &try Question.from_text("example.com.", .a), seed);
+        fixed.init(&plain, &servers_plain, &try Question.parse("example.com.", .a), seed);
         var fixed_polled = fixed;
         _ = fixed_polled.poll(0, &out);
         try testing.expectEqual(@as(u8, 0), fixed_polled.server_slot());
@@ -81,7 +81,7 @@ test "cancel settles a lookup without an answer" {
     const config: Config = .{ .servers = &one_server };
     var servers_config = Servers.init(&config, 1);
     var lookup: Lookup = undefined;
-    lookup.init(&config, &servers_config, &try Question.from_text("example.com.", .a), 1);
+    lookup.init(&config, &servers_config, &try Question.parse("example.com.", .a), 1);
     lookup.cancel();
     try testing.expect(lookup.is_settled());
     try testing.expectEqual(core.Error.Canceled, lookup.failure_of().err);
@@ -96,7 +96,7 @@ test "a lookup started in its slot leaves the answers' storage as the last looku
     // `undefined` with 0xAA (docs/design.md §16 decision 34).
     const left: u8 = 0x5a;
     @memset(std.mem.asBytes(&lookup.answers.items), left);
-    lookup.init(&config, &servers_config, &try Question.from_text("example.com", .mx), 1);
+    lookup.init(&config, &servers_config, &try Question.parse("example.com", .mx), 1);
     try testing.expectEqual(core.Kind.mx, lookup.answers.kind);
     try testing.expectEqual(@as(u8, 0), lookup.answers.count);
     try testing.expectEqual(@as(u16, 0), lookup.answers.items.records.used);

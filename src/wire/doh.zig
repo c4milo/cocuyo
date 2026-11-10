@@ -51,7 +51,7 @@ test "RFC 8484 §4.1.1's query for www.example.com is its dns variable, and ID 0
     // The query cocuyo builds for it without EDNS0 is the RFC's, octet for octet.
     const www: query.Query = .{
         .id = 0,
-        .name = try core.Name.from_text("www.example.com"),
+        .name = try core.Name.parse("www.example.com"),
         .kind = .a,
         .payload_bytes = null,
     };
@@ -69,7 +69,7 @@ test "RFC 8484 §4.1.1's query that tells base64url from base64 has the dash, an
         "dGFuZGFyZC1iYXNlNjQHZXhhbXBsZQNjb20AAAEAAQ";
     const asked: query.Query = .{
         .id = 0,
-        .name = try core.Name.from_text("a." ++ label ++ ".example.com"),
+        .name = try core.Name.parse("a." ++ label ++ ".example.com"),
         .kind = .a,
         .payload_bytes = null,
     };

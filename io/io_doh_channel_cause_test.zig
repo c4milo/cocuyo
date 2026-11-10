@@ -43,7 +43,7 @@ fn create(known: *const cocuyo.Tls, refused: bool) !*Pair {
 test "a name the certificate does not carry ends the exchange as a handshake" {
     // The TCP link connected, so a server took part, and its handshake was refused (RFC 9110
     // §4.3.4). QUIC's datagrams went nowhere, and no connection came up.
-    const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("other.example") };
+    const named: cocuyo.Tls = .{ .name = try cocuyo.Name.parse("other.example") };
     const pair = try create(&named, false);
     defer pair.free();
     try testing.expect(pair.doh.request(0, &channel_test.query, pair.now_ns));
@@ -66,7 +66,7 @@ test "a pin that the chain does not hold ends the exchange as a handshake" {
 
 test "links whose sockets end before they connect end the exchange as a connect" {
     // No server took part: neither link connected, and no QUIC datagram came.
-    const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(identity.server_name) };
+    const named: cocuyo.Tls = .{ .name = try cocuyo.Name.parse(identity.server_name) };
     const pair = try create(&named, true);
     defer pair.free();
     try testing.expect(pair.doh.request(0, &channel_test.query, pair.now_ns));
@@ -78,7 +78,7 @@ test "links whose sockets end before they connect end the exchange as a connect"
 test "a request made while the TCP handshake runs ends as a handshake too" {
     // The second exchange starts after the TCP link connected, so it learns that a server took
     // part from the channel and not from an event of its own.
-    const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("other.example") };
+    const named: cocuyo.Tls = .{ .name = try cocuyo.Name.parse("other.example") };
     const pair = try create(&named, false);
     defer pair.free();
     try testing.expect(pair.doh.request(0, &channel_test.query, pair.now_ns));
@@ -97,7 +97,7 @@ test "a request made while the TCP handshake runs ends as a handshake too" {
 test "a request after the connection that came up is over starts as if none came up" {
     // The first request is answered over HTTP/2. Its TCP link then ends, and each link after it
     // ends before it connects, so no connection comes up for the second request.
-    const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(identity.server_name) };
+    const named: cocuyo.Tls = .{ .name = try cocuyo.Name.parse(identity.server_name) };
     const pair = try create(&named, false);
     defer pair.free();
     try testing.expect(pair.doh.request(0, &channel_test.query, pair.now_ns));
@@ -113,7 +113,7 @@ test "a request after the connection that came up is over starts as if none came
 test "a request made while a connection is up is answered over it" {
     // The second request starts on the connection that came up for the first, so it knows that
     // connection is up without an event of its own.
-    const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(identity.server_name) };
+    const named: cocuyo.Tls = .{ .name = try cocuyo.Name.parse(identity.server_name) };
     const pair = try create(&named, false);
     defer pair.free();
     try testing.expect(pair.doh.request(0, &channel_test.query, pair.now_ns));

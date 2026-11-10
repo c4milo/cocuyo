@@ -16,7 +16,7 @@ const servers = [_]core.Server{
     .{ .endpoint = fixtures.servers_two[0].endpoint, .https = https },
     .{ .endpoint = fixtures.servers_two[1].endpoint, .https = https },
 };
-const quic: core.Tls = .{ .name = core.Name.from_text("dns.example.") catch unreachable };
+const quic: core.Tls = .{ .name = core.Name.parse("dns.example.") catch unreachable };
 const servers_quic = [_]core.Server{
     .{ .endpoint = fixtures.servers_two[0].endpoint, .quic = quic },
     .{ .endpoint = fixtures.servers_two[1].endpoint, .quic = quic },

@@ -50,7 +50,7 @@ test "a NAPTR record is two counters, three strings and a name" {
     try testing.expectEqualStrings("s", naptr.flags);
     try testing.expectEqualStrings("SIP+D2U", naptr.services);
     try testing.expectEqualStrings("", naptr.regexp);
-    try testing.expect(naptr.replacement.equal(&try Name.from_text("_sip._udp.example.com")));
+    try testing.expect(naptr.replacement.equal(&try Name.parse("_sip._udp.example.com")));
 }
 
 test "a NAPTR record that ends inside a string, or past its name, is malformed" {
@@ -65,7 +65,7 @@ test "RFC 3403 §6.1 and §6.2's NAPTRs read back field for field, a regexp and 
     try testing.expectEqualStrings("a", urn.flags);
     try testing.expectEqualStrings("z3950+N2L+N2C", urn.services);
     try testing.expectEqualStrings("", urn.regexp);
-    try testing.expect(urn.replacement.equal(&try Name.from_text("cidserver.example.com")));
+    try testing.expect(urn.replacement.equal(&try Name.parse("cidserver.example.com")));
     const e164 = try Naptr.parse(&fixtures.rfc3403_naptr_e164);
     try testing.expectEqual(@as(u16, 100), e164.order);
     try testing.expectEqual(@as(u16, 10), e164.preference);

@@ -37,7 +37,7 @@ pub fn question_of(comptime digits: usize, index: usize, text: *NameText(digits)
     }
     std.debug.assert(value == 0);
     @memcpy(text[name_prefix.len + digits ..], name_suffix);
-    return Question.from_text(text, .a) catch unreachable;
+    return Question.parse(text, .a) catch unreachable;
 }
 
 /// The address every answer carries: a replay counts hits, not what they carry.

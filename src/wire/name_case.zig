@@ -202,7 +202,7 @@ fn is_capital(letter: u8) bool {
 const testing = std.testing;
 
 test "mix_case changes only the case, and the same entropy gives the same case" {
-    const original = try Name.from_text("example.com");
+    const original = try Name.parse("example.com");
     var mixed = original;
     mix_case(&mixed, 0x0123456789abcdef);
     try testing.expect(mixed.equal(&original));
@@ -219,7 +219,7 @@ test "mix_case changes only the case, and the same entropy gives the same case" 
 }
 
 test "mix_case leaves the length octets and the non-letters alone" {
-    var name = try Name.from_text("a1-b.example");
+    var name = try Name.parse("a1-b.example");
     const lengths = [_]u8{ name.bytes[0], name.bytes[5] };
     mix_case(&name, 0xffff_ffff_ffff_ffff);
     try testing.expectEqual(lengths[0], name.bytes[0]);
@@ -232,7 +232,7 @@ test "mix_case leaves the length octets and the non-letters alone" {
 test "mix_case gives every letter its own bit, past one word of entropy" {
     // 96 letters is more than the 64 bits one word holds, so the mixer must re-mix rather than
     // reuse or stop.
-    var name = try Name.from_text("a" ** 48 ++ "." ++ "b" ** 48);
+    var name = try Name.parse("a" ** 48 ++ "." ++ "b" ** 48);
     mix_case(&name, 1);
     var upper: usize = 0;
     for (name.wire()) |byte| {
@@ -253,7 +253,7 @@ test "every letter of every label can take either case, whichever position it si
     // from the first label octet cased every letter but the last of each label, and passed every
     // other test in this file. A position that never changes over many seeds is that bug.
     const case_seed_count = 64;
-    const original = try Name.from_text("ab.cd");
+    const original = try Name.parse("ab.cd");
     var seen_upper: [core.limits.name_bytes_max]bool = @splat(false);
     var seed: u64 = 0;
     while (seed < case_seed_count) : (seed += 1) {
@@ -280,7 +280,7 @@ test "a draw that leaves every letter small is drawn again, from the next word" 
     // `ab.cd` takes its four bits from the low end of the first word, and a set bit leaves its
     // letter small. Where all four are set, the name is cased as a seed one step on cases it.
     const seed_count = 256;
-    const original = try Name.from_text("ab.cd");
+    const original = try Name.parse("ab.cd");
     const all_small: u64 = 0b1111;
     var redrawn: usize = 0;
     var seed: u64 = 0;
@@ -302,7 +302,7 @@ test "a name of one letter always comes out a capital, by the fallback when ever
     var fallen_back: usize = 0;
     var seed: u64 = 0;
     while (seed < seed_count) : (seed += 1) {
-        var name = try Name.from_text("a");
+        var name = try Name.parse("a");
         mix_case(&name, seed);
         try testing.expectEqual(@as(u8, 'A'), name.bytes[1]);
         // Each draw reads the low bit of the next word, and every draw small falls back.
@@ -318,7 +318,7 @@ test "a name of one letter always comes out a capital, by the fallback when ever
 }
 
 test "mix_case leaves a name without a letter as it was" {
-    const original = try Name.from_text("192.0.2.1");
+    const original = try Name.parse("192.0.2.1");
     var name = original;
     mix_case(&name, 0);
     try testing.expectEqualSlices(u8, original.wire(), name.wire());
@@ -332,7 +332,7 @@ fn cased_by(name: *const Name, entropy: u64) Name {
 }
 
 test "is_mix_of takes the name mix_case makes, and no other case and no other name" {
-    const name = try Name.from_text("example.com");
+    const name = try Name.parse("example.com");
     const entropy = 0x0123456789abcdef;
     const cased = cased_by(&name, entropy);
     try testing.expect(is_mix_of(cased.wire(), &name, entropy));
@@ -346,7 +346,7 @@ test "is_mix_of takes the name mix_case makes, and no other case and no other na
     }
     // The same echo is the name another seed makes, and the name with no letter is itself.
     try testing.expect(!is_mix_of(cased.wire(), &name, entropy + 1));
-    const letterless = try Name.from_text("192.0.2.1");
+    const letterless = try Name.parse("192.0.2.1");
     try testing.expect(is_mix_of(letterless.wire(), &letterless, entropy));
 }
 
@@ -381,7 +381,7 @@ test "is_mix_of takes the name a later draw or the fallback made, for one, two a
         .{ .text = "x-y.2.z", .fallback_seed = 8229 },
     };
     for (names, 1..) |later, letters| {
-        const name = try Name.from_text(later.text);
+        const name = try Name.parse(later.text);
         const mask = (@as(u64, 1) << @intCast(letters)) - 1;
         var redrawn: usize = 0;
         for (0..seed_count) |seed| {
@@ -403,7 +403,7 @@ test "the first draw reads an octet that differs in more than its case as anothe
     // `a1.b`: offsets 1 and 4 hold its letters, 2 a digit, 0 and 3 its length octets, 5 the root.
     // A seed whose first draw left both small reads another case as `later`, another name `other`.
     const seed_count = 16;
-    const name = try Name.from_text("a1.b");
+    const name = try Name.parse("a1.b");
     const both_small = 0b11;
     const Edit = struct { at: usize, octet: u8 };
     const case_bit = core.constants.ascii_case_bit;

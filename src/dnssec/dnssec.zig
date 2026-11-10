@@ -141,7 +141,7 @@ test "a DS digest covers the DNSKEY's owner in lowercase, then its rdata" {
     var bytes: [rdata_fixtures.dnskey_example_bytes]u8 = undefined;
     const key = rdata_fixtures.dnskey_example(&bytes);
     var recorded: Recorded = .{};
-    ds_input(&try Name.from_text("DSKEY.Example.COM."), key, recorded.hash());
+    ds_input(&try Name.parse("DSKEY.Example.COM."), key, recorded.hash());
     const owner = "\x05dskey\x07example\x03com\x00";
     try testing.expectEqualSlices(u8, owner, recorded.octets[0..owner.len]);
     try testing.expectEqualSlices(u8, key, recorded.octets[owner.len..recorded.len]);

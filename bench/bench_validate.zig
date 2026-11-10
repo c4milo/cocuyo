@@ -29,8 +29,8 @@ var message: []const u8 = &.{};
 var asked: Name = undefined;
 
 fn setup() void {
-    const zone = Name.from_text("example") catch unreachable;
-    asked = Name.from_text("www.example") catch unreachable;
+    const zone = Name.parse("example") catch unreachable;
+    asked = Name.parse("www.example") catch unreachable;
     anchors = .{.{ .zone = zone, .kind = .dnskey, .rdata = &key }};
     store = validation.store.Store.init(&entries, &anchors);
     store.set_clock(.{ .unix_seconds = unix_seconds, .monotonic_ns = 0 });

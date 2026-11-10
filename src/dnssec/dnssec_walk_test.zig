@@ -21,7 +21,7 @@ const nsec3_zone = @import("rfc5155/fixtures.zig");
 const Builder = fixtures.Builder;
 
 fn named(text: []const u8) Name {
-    return Name.from_text(text) catch unreachable;
+    return Name.parse(text) catch unreachable;
 }
 
 /// A store of eight entries holds every zone a test's walk reaches, and none is replaced.

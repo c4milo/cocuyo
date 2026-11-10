@@ -222,7 +222,7 @@ test "an echo of another lookup's mixed query marks nothing, nor does one in cap
     _ = first.send();
     try testing.expect(sent_mixed(&first));
     var second: fixtures.Harness = .{ .config = first.config };
-    const question = try Question.from_text("example.com.", .a);
+    const question = try Question.parse("example.com.", .a);
     second.lookup.init(&second.config, &first.servers, &question, seed + 1);
     _ = second.send();
     second.lookup.transaction.id = first.lookup.transaction.id;
@@ -318,7 +318,7 @@ test "a mark made while another lookup's mixed query is in flight changes nothin
     _ = first.send();
     // A second lookup on the same table sends its own mixed query before the mark.
     var second: fixtures.Harness = .{ .config = first.config };
-    const question = try Question.from_text("example.com.", .a);
+    const question = try Question.parse("example.com.", .a);
     second.lookup.init(&second.config, &first.servers, &question, seed + 1);
     _ = second.send();
     try testing.expect(second.lookup.flags.query_mixed and sent_mixed(&second));
@@ -339,7 +339,7 @@ test "a server that lowercases is asked for a name written with capitals in lowe
     harness.servers.record_case_change(0);
     _ = harness.send();
     try testing.expect(!harness.lookup.flags.query_mixed);
-    const lowered = try Name.from_text("example.com");
+    const lowered = try Name.parse("example.com");
     try testing.expectEqualSlices(u8, lowered.wire(), sent_name(&harness));
     try testing.expectEqual(Verdict.accepted, harness.respond(folded, servers[0].endpoint));
 }
@@ -353,7 +353,7 @@ test "a chain name a server spelled with capitals is folded, though the query we
     const record = cname_capitals();
     const reply: fixtures.Reply = .{ .records = &record, .ancount = 1, .fold_case = true };
     try testing.expectEqual(Verdict.accepted, harness.respond(reply, servers[0].endpoint));
-    const target = try Name.from_text("host.example.net");
+    const target = try Name.parse("host.example.net");
     try testing.expectEqualSlices(u8, target.wire(), harness.lookup.current.wire());
     // The chain goes on at the same server, in lowercase, and its lowercase echo is taken.
     _ = harness.send();
@@ -427,7 +427,7 @@ test "each try is marked by its own reply alone, so a try that no reply marked i
 
 /// Starts a lookup of `example.com.` on `other`, over the table of `first`, and sends its query.
 fn send_beside(first: *const fixtures.Harness, other: *fixtures.Harness, lookup_seed: u64) !void {
-    const question = try Question.from_text("example.com.", .a);
+    const question = try Question.parse("example.com.", .a);
     other.lookup.init(&other.config, first.lookup.servers, &question, lookup_seed);
     other.now_ns = first.now_ns;
     _ = other.send();

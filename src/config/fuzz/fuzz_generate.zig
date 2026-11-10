@@ -1,7 +1,7 @@
 //! The generator behind the text fuzz target (`fuzz.zig`): one seed in, one text out, and, for a
 //! text written whole, what its parser must read from it.
 //!
-//! A text is for one parser: an address (`Address.from_text`), a name (`Name.from_text`), a
+//! A text is for one parser: an address (`Address.parse`), a name (`Name.parse`), a
 //! `resolv.conf`, a hosts file, or an SPKI pin. And it has one of four shapes:
 //!
 //! - Whole: written from values the generator chose, which the parser must read back as those.
@@ -378,7 +378,7 @@ fn write_v6_dressed(generator: *Generator, out: *Text, miss: AddressMiss) void {
 pub const Alphabet = enum { printable, host };
 
 /// Writes a name of labels the generator chose, absolute or not, and returns it in wire form,
-/// built label by label and not by `Name.from_text`, which is what the check holds it against.
+/// built label by label and not by `Name.parse`, which is what the check holds it against.
 pub fn write_name(generator: *Generator, out: *Text, alphabet: Alphabet) core.Name {
     var name: core.Name = .empty;
     const labels = 1 + generator.below(limits.fuzz_labels_max);
@@ -406,7 +406,7 @@ fn label_byte(generator: *Generator, alphabet: Alphabet) u8 {
     return if (byte == '.' or byte == '\\') 'a' else byte;
 }
 
-/// The ways a name is broken, each one `Name.from_text` refuses.
+/// The ways a name is broken, each one `Name.parse` refuses.
 const NameMiss = enum { empty_label, leading_dot, label_too_long, name_too_long, bad_byte };
 
 fn write_name_near_miss(generator: *Generator, out: *Text) void {

@@ -14,12 +14,12 @@ const servers = fixtures.servers_two;
 const seed = fixtures.seed;
 
 test "NXDOMAIN moves to the next candidate, and the last one fails the lookup" {
-    const search = [_]Name{try Name.from_text("one.net")};
+    const search = [_]Name{try Name.parse("one.net")};
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .search = &search, .ndots = 1 } };
     try harness.start("example.com", .a, seed);
     _ = harness.send();
     _ = harness.respond(fixtures.name_error, servers[0].endpoint);
-    try testing.expect(harness.lookup.current.equal(&try Name.from_text("example.com.one.net")));
+    try testing.expect(harness.lookup.current.equal(&try Name.parse("example.com.one.net")));
     _ = harness.send();
     _ = harness.respond(fixtures.name_error, servers[0].endpoint);
     try testing.expectEqual(core.Error.NameNotFound, harness.poll().failed.err);
@@ -127,16 +127,16 @@ const no_data_short: fixtures.Reply = .{ .authority = &record_soa_short, .nscoun
 fn walk(harness: *fixtures.Harness, first: fixtures.Reply, second: fixtures.Reply) !lookup_module.Action {
     try harness.start("host", .a, seed);
     _ = harness.send();
-    try testing.expect(harness.lookup.current.equal(&try Name.from_text("host.one.net")));
+    try testing.expect(harness.lookup.current.equal(&try Name.parse("host.one.net")));
     try testing.expectEqual(Verdict.accepted, harness.respond(first, servers[0].endpoint));
-    try testing.expect(harness.lookup.current.equal(&try Name.from_text("host")));
+    try testing.expect(harness.lookup.current.equal(&try Name.parse("host")));
     _ = harness.send();
     try testing.expectEqual(Verdict.accepted, harness.respond(second, servers[0].endpoint));
     return harness.poll();
 }
 
 test "a walk whose every candidate is negative carries the smallest negative TTL, not the last" {
-    const search = [_]Name{try Name.from_text("one.net")};
+    const search = [_]Name{try Name.parse("one.net")};
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .search = &search, .ndots = 1 } };
     const both_alike = (try walk(&harness, fixtures.name_error_soa, fixtures.name_error_soa)).failed;
     try testing.expectEqual(@as(u32, soa_ttl_seconds), both_alike.negative_ttl_seconds);
@@ -157,7 +157,7 @@ test "a walk whose every candidate is negative carries the smallest negative TTL
 }
 
 test "an answer past negative candidates is kept no longer than the shortest of them" {
-    const search = [_]Name{try Name.from_text("one.net")};
+    const search = [_]Name{try Name.parse("one.net")};
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .search = &search, .ndots = 1 } };
     // `host.one.net` may exist once its negative runs out, and a new walk would stop there.
     const past_name_error = (try walk(&harness, name_error_short, fixtures.answer_a)).done;
@@ -179,7 +179,7 @@ test "an answer past negative candidates is kept no longer than the shortest of 
 
 test "a negative with no SOA on the way makes the walk's end one no cache keeps" {
     // Its TTL is zero, which is not cached (RFC 2308 §5), and the end rests on it.
-    const search = [_]Name{try Name.from_text("one.net")};
+    const search = [_]Name{try Name.parse("one.net")};
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .search = &search, .ndots = 1 } };
     const past_name_error = (try walk(&harness, fixtures.name_error, fixtures.answer_a)).done;
     try testing.expectEqual(@as(u32, 0), past_name_error.ttl_seconds);

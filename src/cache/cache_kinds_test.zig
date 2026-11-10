@@ -14,9 +14,9 @@ const slot_count: usize = 4;
 test "a PTR answer comes back from the cache with its name" {
     var fixture: fixtures.Fixture(slot_count) = .{};
     var table = fixture.init();
-    const asked = try core.Question.from_text("2.2.0.192.in-addr.arpa", .ptr);
+    const asked = try core.Question.parse("2.2.0.192.in-addr.arpa", .ptr);
     var answers = wire.Answers.init(.ptr);
-    answers.items.names[0] = try core.Name.from_text("host.example");
+    answers.items.names[0] = try core.Name.parse("host.example");
     answers.count = 1;
     answers.ttl_seconds = 300;
     table.put(&asked, &answers, null, .unchecked, 0);
@@ -28,7 +28,7 @@ test "a PTR answer comes back from the cache with its name" {
 test "an MX answer comes back from the cache with each record's type, TTL and rdata" {
     var fixture: fixtures.Fixture(slot_count) = .{};
     var table = fixture.init();
-    const asked = try core.Question.from_text("example.com", .mx);
+    const asked = try core.Question.parse("example.com", .mx);
     // Two records one after the other in the buffer, as the codec keeps them, the second with a
     // preference and a TTL of its own so that a copy that mixed them up would show.
     const mx = wire.rdata.fixtures.mx;

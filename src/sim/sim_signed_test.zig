@@ -61,7 +61,7 @@ const Rig = struct {
 
     /// Resolves `text` of `kind` to its end. The caller frees the lookup with `release`.
     fn resolve(self: *Rig, text: []const u8, kind: Kind) !End {
-        const handle = try self.table.start(&try Question.from_text(text, kind));
+        const handle = try self.table.start(&try Question.parse(text, kind));
         self.handle = handle;
         var questions: usize = 0;
         for (0..polls_max) |_| {
@@ -233,7 +233,7 @@ test "a query without the DO bit gets no RRSIG and no NSEC" {
     var script: server.Script = .{ .signed = .{ .on = true } };
     script.cookies = false;
     var query_out: [core.limits.query_bytes_max]u8 = undefined;
-    var query: @import("wire").Query = .{ .id = fixtures.server_query_id, .name = try core.Name.from_text("www.signed.example"), .kind = .a };
+    var query: @import("wire").Query = .{ .id = fixtures.server_query_id, .name = try core.Name.parse("www.signed.example"), .kind = .a };
     const plain = query_out[0..@import("wire").query.write(&query, &query_out)];
     var reply: [limits.datagram_bytes_max]u8 = undefined;
     const answer = server.respond(&script, &fixtures.server_address, plain, false, 1, &reply).?;

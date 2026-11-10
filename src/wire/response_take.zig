@@ -79,7 +79,7 @@ threadlocal var test_chain: Name = Name.empty;
 threadlocal var test_aliases: core.Aliases = .{};
 
 fn collect_from(message: []const u8, kind: Kind, out: *Answers) !Outcome {
-    test_chain = try Name.from_text("example.com");
+    test_chain = try Name.parse("example.com");
     test_aliases.clear();
     return response.collect(message, &test_chain, kind, 0, &test_aliases, out);
 }
@@ -87,7 +87,7 @@ fn collect_from(message: []const u8, kind: Kind, out: *Answers) !Outcome {
 test "a record with a TTL of zero keeps the answer's TTL at zero, whatever comes after it" {
     // RFC 1035 §3.2.1: zero means the record "should not be cached". The round-robin fixture's
     // two records carry 300; the first is written to zero, then the second, in turn.
-    const question = try Name.from_text("example.com");
+    const question = try Name.parse("example.com");
     const first_ttl_at = response.section_start(&question) + constants.pointer_bytes + constants.record_ttl_offset;
     const record_bytes = fixtures.record_a.len;
     for ([_]usize{ first_ttl_at, first_ttl_at + record_bytes }) |ttl_at| {
@@ -109,7 +109,7 @@ test "an MX record is kept with its exchange written out in full, and reads back
     try testing.expectEqual(@as(u32, 300), kept.ttl_seconds);
     try testing.expectEqualSlices(u8, &rdata.fixtures.mx, kept.rdata);
     const mx = try rdata.Mx.parse(kept.rdata);
-    try testing.expect(mx.exchange.equal(&try Name.from_text("mail.example.com")));
+    try testing.expect(mx.exchange.equal(&try Name.parse("mail.example.com")));
     try testing.expectEqual(@as(u32, 300), collected.ttl_seconds);
 }
 
@@ -118,12 +118,12 @@ test "an SRV target and both SOA names are written out, whatever their RFCs say 
     try testing.expectEqual(Outcome.answered, try collect_from(&fixtures.answer_srv, .srv, &collected));
     const srv = try rdata.Srv.parse(collected.records().at(0).rdata);
     try testing.expectEqual(@as(u16, 5269), srv.port);
-    try testing.expect(srv.target.equal(&try Name.from_text("sip.example.com")));
+    try testing.expect(srv.target.equal(&try Name.parse("sip.example.com")));
 
     try testing.expectEqual(Outcome.answered, try collect_from(&fixtures.answer_soa_asked, .soa, &collected));
     const soa = try rdata.Soa.parse(collected.records().at(0).rdata);
-    try testing.expect(soa.mname.equal(&try Name.from_text("ns1.example.com")));
-    try testing.expect(soa.rname.equal(&try Name.from_text("hostmaster.example.com")));
+    try testing.expect(soa.mname.equal(&try Name.parse("ns1.example.com")));
+    try testing.expect(soa.rname.equal(&try Name.parse("hostmaster.example.com")));
     try testing.expectEqual(@as(u32, 300), soa.minimum);
 }
 
@@ -151,9 +151,9 @@ test "a CNAME answers a CNAME question and an ANY question, and is followed for 
     var collected: Answers = undefined;
     try testing.expectEqual(Outcome.answered, try collect_from(&fixtures.answer_cname_asked, .cname, &collected));
     try testing.expect(!collected.aliased);
-    try testing.expect(test_chain.equal(&try Name.from_text("example.com")));
+    try testing.expect(test_chain.equal(&try Name.parse("example.com")));
     const target = try rdata.name.whole(collected.records().at(0).rdata);
-    try testing.expect(target.equal(&try Name.from_text("host.example.net")));
+    try testing.expect(target.equal(&try Name.parse("host.example.net")));
 
     try testing.expectEqual(Outcome.answered, try collect_from(&fixtures.answer_any_cname, .any, &collected));
     try testing.expect(!collected.aliased);
@@ -220,7 +220,7 @@ test "a PTR answer keeps its one name, and a second PTR record sets truncated" {
     try testing.expectEqual(Outcome.answered, try collect_from(message, .ptr, &collected));
     try testing.expectEqual(@as(u8, core.limits.ptr_names_max), collected.count);
     try testing.expect(collected.truncated);
-    try testing.expect(collected.names()[0].equal(&try Name.from_text("first.example")));
+    try testing.expect(collected.names()[0].equal(&try Name.parse("first.example")));
     // One PTR record alone fills the list, and is not truncated.
     try testing.expectEqual(Outcome.answered, try collect_from(answer_of(&buffer, .ptr, &.{"\x05first\x07example\x00"}), .ptr, &collected));
     try testing.expect(!collected.truncated);

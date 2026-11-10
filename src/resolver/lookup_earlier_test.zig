@@ -240,7 +240,7 @@ test "a bogus message of an earlier try closes that try alone, and names its ser
 }
 
 test "the next search candidate closes every try, so an answer for the name before is ignored" {
-    const search = [_]Name{try Name.from_text("test.")};
+    const search = [_]Name{try Name.parse("test.")};
     var harness: fixtures.Harness = .{ .config = .{ .servers = &two, .search = &search } };
     // One dot and `ndots` at one: the name as written first, then with the search domain.
     try harness.start("example.com", .a, seed);

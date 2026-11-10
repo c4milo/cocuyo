@@ -103,9 +103,9 @@ const testing = std.testing;
 
 test "links keep their owners and TTLs, and each target is the next owner or the end" {
     var aliases: Aliases = .{};
-    const first = try Name.from_text("www.example.com");
-    const second = try Name.from_text("cdn.example.net");
-    const end = try Name.from_text("edge.example.org");
+    const first = try Name.parse("www.example.com");
+    const second = try Name.parse("cdn.example.net");
+    const end = try Name.parse("edge.example.org");
     try testing.expect(aliases.append(&first, 300));
     try testing.expect(aliases.append(&second, 60));
     try testing.expectEqual(@as(u8, 2), aliases.count);
@@ -137,7 +137,7 @@ test "a chain holds cname_hops_max links of the longest names, and refuses one m
             at += 1;
         }
     }
-    const longest = try Name.from_text(text[0..at]);
+    const longest = try Name.parse(text[0..at]);
     try testing.expectEqual(limits.name_bytes_max, longest.wire().len);
     for (0..limits.cname_hops_max) |_| try testing.expect(aliases.append(&longest, 1));
     try testing.expect(!aliases.append(&longest, 1));

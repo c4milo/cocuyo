@@ -79,7 +79,7 @@ const Scripted = struct {
         for (&self.asking, 0..) |*asking, walk| {
             if (!asking.*) continue;
             asking.* = false;
-            const question = Question.from_text("example.", .ds) catch unreachable;
+            const question = Question.parse("example.", .ds) catch unreachable;
             return .{ .walk = @intCast(walk), .question = question };
         }
         return null;

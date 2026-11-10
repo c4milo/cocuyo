@@ -45,8 +45,8 @@ const fixtures = @import("fixtures.zig");
 
 test "an SOA record is two names and five counters" {
     const soa = try Soa.parse(&fixtures.soa);
-    try testing.expect(soa.mname.equal(&try Name.from_text("ns1.example.com")));
-    try testing.expect(soa.rname.equal(&try Name.from_text("hostmaster.example.com")));
+    try testing.expect(soa.mname.equal(&try Name.parse("ns1.example.com")));
+    try testing.expect(soa.rname.equal(&try Name.parse("hostmaster.example.com")));
     try testing.expectEqual(@as(u32, 2026092201), soa.serial);
     try testing.expectEqual(@as(u32, 7200), soa.refresh);
     try testing.expectEqual(@as(u32, 900), soa.retry);
@@ -61,7 +61,7 @@ test "an SOA record whose counters do not fill the rdata exactly is malformed, e
 
 test "RFC 1035 §5.3's SOA reads back field for field, the dot inside its mailbox's label too" {
     const soa = try Soa.parse(&fixtures.rfc1035_soa);
-    try testing.expect(soa.mname.equal(&try Name.from_text("VENERA.ISI.EDU")));
+    try testing.expect(soa.mname.equal(&try Name.parse("VENERA.ISI.EDU")));
     try testing.expectEqualSlices(u8, "\x0eAction.domains\x03ISI\x03EDU\x00", soa.rname.wire());
     try testing.expectEqual(@as(u32, 20), soa.serial);
     try testing.expectEqual(@as(u32, 7200), soa.refresh);

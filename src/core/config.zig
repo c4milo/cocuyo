@@ -358,7 +358,7 @@ test "the first time a failure is kept is 5 s by default, and a time of 1 s to 3
 test "a TLS or HTTPS server does not require the post-quantum hybrid unless it says so" {
     // docs/design.md §21, TLS rule 10: off by default, the hello offers the hybrid and two
     // classic groups, so a server without the hybrid still answers.
-    const tls: Tls = .{ .name = try Name.from_text("dns.example.") };
+    const tls: Tls = .{ .name = try Name.parse("dns.example.") };
     const https: Https = .{ .template = "https://dns.example/dns-query{?dns}" };
     try testing.expect(!tls.require_post_quantum);
     try testing.expect(!https.require_post_quantum);
@@ -383,7 +383,7 @@ test "a TCP port of its own replaces the UDP port for a connection, and zero kee
 
 test "servers speak TLS all together or not at all, and TLS sends every query on a stream" {
     const address = Address.from_v4(.{ 192, 0, 2, 53 });
-    const tls: Tls = .{ .name = try Name.from_text("dns.example.") };
+    const tls: Tls = .{ .name = try Name.parse("dns.example.") };
     const encrypted = [_]Server{ .{ .endpoint = .{ .address = address }, .tls = tls }, .{ .endpoint = .{ .address = address }, .tls = tls } };
     const mixed = [_]Server{ .{ .endpoint = .{ .address = address }, .tls = tls }, .{ .endpoint = .{ .address = address } } };
     const cleartext = [_]Server{ .{ .endpoint = .{ .address = address } }, .{ .endpoint = .{ .address = address } } };
@@ -405,7 +405,7 @@ test "servers speak TLS all together or not at all, and TLS sends every query on
 }
 
 test "a TLS server is known by its name, its pins, or both, and by no more pins than the bound" {
-    const name = try Name.from_text("dns.example.");
+    const name = try Name.parse("dns.example.");
     const pins: [limits.spki_pins_max + 1]Pin = @splat(@splat(0xab));
     const by_name: Tls = .{ .name = name };
     const by_pins: Tls = .{ .pins = pins[0..1] };
@@ -423,7 +423,7 @@ test "a TLS server is known by its name, its pins, or both, and by no more pins 
 test "servers speak HTTPS all together, never beside TLS or the clear, and never both at once" {
     const address = Address.from_v4(.{ 192, 0, 2, 53 });
     const https: Https = .{ .template = "https://dns.example/dns-query{?dns}" };
-    const tls: Tls = .{ .name = try Name.from_text("dns.example.") };
+    const tls: Tls = .{ .name = try Name.parse("dns.example.") };
     const over_https = [_]Server{ .{ .endpoint = .{ .address = address }, .https = https }, .{ .endpoint = .{ .address = address }, .https = https } };
     try testing.expect(servers_agree(&over_https));
     const config: Config = .{ .servers = &over_https };
@@ -440,7 +440,7 @@ test "servers speak HTTPS all together, never beside TLS or the clear, and never
 
 test "servers speak QUIC all together, known as a TLS server is, and never beside another kind" {
     const address = Address.from_v4(.{ 192, 0, 2, 53 });
-    const quic: Tls = .{ .name = try Name.from_text("dns.example.") };
+    const quic: Tls = .{ .name = try Name.parse("dns.example.") };
     const over_quic = [_]Server{ .{ .endpoint = .{ .address = address }, .quic = quic }, .{ .endpoint = .{ .address = address }, .quic = quic } };
     try testing.expect(servers_agree(&over_quic));
     const config: Config = .{ .servers = &over_quic };

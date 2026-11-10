@@ -170,7 +170,7 @@ fn above(zone: *const Name, name: *const Name) bool {
 const testing = std.testing;
 
 fn named(text: []const u8) Name {
-    return Name.from_text(text) catch unreachable;
+    return Name.parse(text) catch unreachable;
 }
 
 test "the time of day adds the now_ns that passed, in 32 bits" {

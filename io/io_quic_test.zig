@@ -180,7 +180,7 @@ const World = struct {
         const world = try testing.allocator.create(World);
         errdefer testing.allocator.destroy(world);
         world.* = .{};
-        const tls: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
+        const tls: cocuyo.Tls = .{ .name = try cocuyo.Name.parse("dns.example.") };
         for (&world.rig.servers) |*server| server.quic = tls;
         try world.rig.init(seed, scripts, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
         world.rig.engine.use_quic(test_context());

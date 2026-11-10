@@ -8543,4 +8543,31 @@
         },
         .caught_by = .{ .step = "test-every-field" },
     },
+    .{
+        .section = "A text read by parse",
+        .id = "PT1",
+        .what = "`Name` keeps `from_text` beside `parse`",
+        .edits = .{
+            .{ .file = "src/core/name.zig", .old = "    pub fn parse(text: []const u8) Error!Name {", .new = "    pub const from_text = parse;\n    pub fn parse(text: []const u8) Error!Name {" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "A text read by parse",
+        .id = "PT2",
+        .what = "`Question` keeps `from_text` beside `parse`",
+        .edits = .{
+            .{ .file = "src/core/question.zig", .old = "    pub fn parse(text: []const u8, kind: Kind) Error!Question {", .new = "    pub const from_text = parse;\n    pub fn parse(text: []const u8, kind: Kind) Error!Question {" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "A text read by parse",
+        .id = "PT3",
+        .what = "`Address` keeps `from_text` beside `parse`",
+        .edits = .{
+            .{ .file = "src/core/address.zig", .old = "    pub fn parse(text: []const u8) ?Address {", .new = "    pub const from_text = parse;\n    pub fn parse(text: []const u8) ?Address {" },
+        },
+        .caught_by = .{ .step = "consumer-check" },
+    },
 }

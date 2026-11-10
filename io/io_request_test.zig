@@ -24,7 +24,7 @@ pub const Rig = sim_test.RigOf(Resolver);
 
 /// A rig whose servers speak DoQ as `scripts` say, under a timeout long enough for any of them.
 pub fn start(rig: *Rig, seed: u64, scripts: [fixtures.servers]rotor.server.Script) !void {
-    const quic: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
+    const quic: cocuyo.Tls = .{ .name = try cocuyo.Name.parse("dns.example.") };
     for (&rig.servers) |*server| server.quic = quic;
     try rig.init(seed, scripts, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     rig.use_test_contexts();
@@ -199,7 +199,7 @@ const Starved = io.Resolver(.{
 
 test "a receive that runs out of buffers is armed again, and fails nothing" {
     var rig: sim_test.RigOf(Starved) = .{};
-    const quic: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
+    const quic: cocuyo.Tls = .{ .name = try cocuyo.Name.parse("dns.example.") };
     for (&rig.servers) |*server| server.quic = quic;
     // Every answer comes at the same instant: more datagrams than the group has buffers.
     const script: rotor.server.Script = .{ .delay_ns_min = fixtures.slow_answer_ns, .delay_ns_max = fixtures.slow_answer_ns };
@@ -325,7 +325,7 @@ test "one read of a connection takes an end for each request and 16 of its own, 
     // takes.
     const request_events = @import("io_request_events.zig");
     var rig: FloodingRig = .{};
-    const quic: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
+    const quic: cocuyo.Tls = .{ .name = try cocuyo.Name.parse("dns.example.") };
     for (&rig.servers) |*server| server.quic = quic;
     try rig.init(70, .{ .{}, .{} }, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
     rig.use_test_contexts();
@@ -349,7 +349,7 @@ const late_delay_ns: u64 = 700_000_000;
 
 test "an earlier try's request stays open over DoQ, and its late answer ends the lookup" {
     var rig: Rig = .{};
-    const quic: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
+    const quic: cocuyo.Tls = .{ .name = try cocuyo.Name.parse("dns.example.") };
     for (&rig.servers) |*server| server.quic = quic;
     // Before the pool kept it, the drive cancelled the first request at the deadline, and the
     // second server, which drops each query, left the lookup to time out.
@@ -374,7 +374,7 @@ const Tight = io.Resolver(.{
 
 test "a full request pool cancels the oldest earlier request, whose lookup hears local, no failure" {
     var rig: sim_test.RigOf(Tight) = .{};
-    const quic: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
+    const quic: cocuyo.Tls = .{ .name = try cocuyo.Name.parse("dns.example.") };
     for (&rig.servers) |*server| server.quic = quic;
     try rig.init(67, .{ .{ .drop_per_256 = fixtures.always }, .{ .drop_per_256 = fixtures.always } }, .{ .servers = &.{}, .timeout_ns = late_wait_ns, .attempts = 1, .failover_retry_chance = 0 });
     rig.use_test_contexts();

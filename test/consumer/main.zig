@@ -27,6 +27,11 @@ comptime {
     // `Cache` declares what sizes its memory, and no namespace says it again (docs/mutations.md,
     // CF1).
     if (@hasDecl(cocuyo, "cache")) @compileError("a consumer reached cocuyo.cache");
+    // A text is read by `parse`, as `std.Uri.parse` reads one, and by no second name
+    // (docs/mutations.md, PT1 to PT3).
+    for (.{ cocuyo.Name, cocuyo.Question, cocuyo.Address }) |Read| {
+        if (@hasDecl(Read, "from_text")) @compileError("a consumer reached from_text of " ++ @typeName(Read));
+    }
 }
 
 pub fn main() !void {
@@ -70,7 +75,7 @@ pub fn main() !void {
     var table = cocuyo.Resolver.init(&slots, &keys, &config, seed);
     table.use_memory(cocuyo.remembered_by(&store));
 
-    _ = try table.start(&try cocuyo.Question.from_text("example.com.", .a));
+    _ = try table.start(&try cocuyo.Question.parse("example.com.", .a));
     var query: [cocuyo.limits.query_bytes_max]u8 = undefined;
     const event = table.poll(now_ns, &query) orelse return error.NothingToDo;
     if (event.action != .send_udp) return error.NotAQuery;

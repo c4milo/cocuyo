@@ -30,7 +30,7 @@ const fixtures = @import("fixtures.zig");
 
 test "RFC 4034 §4.3's NSEC names host.example.com next, and A, MX, RRSIG, NSEC and TYPE1234" {
     const nsec = try Nsec.parse(&fixtures.nsec_example);
-    try testing.expect(nsec.next.equal(&try Name.from_text("host.example.com")));
+    try testing.expect(nsec.next.equal(&try Name.parse("host.example.com")));
     try testing.expect(nsec.types.has(.mx));
     try testing.expect(nsec.types.has(core.Kind.of(1234)));
     try testing.expect(!nsec.types.has(.aaaa));

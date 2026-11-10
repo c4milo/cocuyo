@@ -216,7 +216,7 @@ const rrsig_a = fixtures.rrsig_a;
 test "the signed data is the RRSIG's head with its signer lowered, then each record in canonical order" {
     // RFC 4035 §5.3.2: RRSIG_RDATA | RR(1) | RR(2), the RRs sorted (RFC 4034 §6.3).
     // An owner of two labels, as the RRSIG's Labels field counts, in the case it came in.
-    const owner = try Name.from_text("EXAMPLE.com");
+    const owner = try Name.parse("EXAMPLE.com");
     const high = [_]u8{ 192, 0, 2, 2 };
     const low = [_]u8{ 192, 0, 2, 1 };
     var recorded: Recorded = .{};
@@ -231,12 +231,12 @@ test "the signed data is the RRSIG's head with its signer lowered, then each rec
 
 test "a wildcard expansion is signed under its wildcard, and too many labels is malformed" {
     // RFC 4035 §5.3.2: Labels 2 under a three-label owner signs `*.example.com`.
-    const expanded = try Name.from_text("a.b.example.com");
+    const expanded = try Name.parse("a.b.example.com");
     var recorded: Recorded = .{};
     try signed_data(&rrsig_a, &expanded, .a, core.constants.class_internet, Written{ .records = &.{&[_]u8{ 192, 0, 2, 1 }} }, recorded.hash());
     const owner_at = wire.constants.sig_fixed_bytes + "\x07example\x03com\x00".len;
     try testing.expectEqualSlices(u8, "\x01*\x07example\x03com\x00", recorded.slice()[owner_at..][0.."\x01*\x07example\x03com\x00".len]);
-    const short = try Name.from_text("com");
+    const short = try Name.parse("com");
     try testing.expectError(Error.MalformedMessage, signed_data(&rrsig_a, &short, .a, core.constants.class_internet, Written{ .records = &.{&[_]u8{ 192, 0, 2, 1 }} }, recorded.hash()));
 }
 

@@ -128,7 +128,7 @@ test "RFC 5155 B.1: a.c.x.w.example does not exist, under the closest encloser x
         try record3("b4um86eghhds6nea196smvmlo4ors995", "gjeqe526plbf1g8mklp59enfd789njgi", &appendix_a.mail3, 1),
         try record3("35mthgpgcu1qg68fab165klnsnk3dpvl", "b4um86eghhds6nea196smvmlo4ors995", &appendix_a.secure_cut3, 1),
     };
-    const asked = try Name.from_text("a.c.x.w.example");
+    const asked = try Name.parse("a.c.x.w.example");
     // The record that covers c.x.w.example has Opt-Out set, so the proof is not secure.
     try testing.expectEqual(Denial.insecure, deny(&asked, .a, &records, table.hasher()));
     var clear = records;
@@ -143,12 +143,12 @@ test "RFC 5155 B.1: a.c.x.w.example does not exist, under the closest encloser x
 test "RFC 5155 B.2 and B.2.1: ns1.example holds no MX, and the empty non-terminal y.w.example no A" {
     var table: appendix_a.Hashes = .{};
     const host = [_]Record{try record3("2t7b4g4vsa5smi47k61mv5bv1a22bojr", "2vptu5timamqttgl4luu9kg21e0aor3s", &appendix_a.address3, 1)};
-    const ns1 = try Name.from_text("ns1.example");
+    const ns1 = try Name.parse("ns1.example");
     try testing.expectEqual(Denial.no_data, deny(&ns1, .mx, &host, table.hasher()));
     try testing.expectEqual(Denial.none, deny(&ns1, .a, &host, table.hasher()));
     try testing.expectEqual(Denial.none, deny(&ns1, .any, &host, table.hasher()));
     const empty = [_]Record{try record3("ji6neoaepv8b5o6k4ev33abha8ht9fgc", "k8udemvp1j2f7eg6jebps17vp3n8i58h", &.{}, 1)};
-    try testing.expectEqual(Denial.no_data, deny(&try Name.from_text("y.w.example"), .a, &empty, table.hasher()));
+    try testing.expectEqual(Denial.no_data, deny(&try Name.parse("y.w.example"), .a, &empty, table.hasher()));
     // RFC 6840 §4.3: the CNAME bit set denies every type.
     const alias = [_]Record{try record3("2t7b4g4vsa5smi47k61mv5bv1a22bojr", "2vptu5timamqttgl4luu9kg21e0aor3s", &appendix_a.alias3, 1)};
     try testing.expectEqual(Denial.none, deny(&ns1, .mx, &alias, table.hasher()));
@@ -160,7 +160,7 @@ test "RFC 5155 B.3: c.example is an unsigned delegation under an Opt-Out span" {
         try record3("35mthgpgcu1qg68fab165klnsnk3dpvl", "b4um86eghhds6nea196smvmlo4ors995", &appendix_a.secure_cut3, 1),
         try record3("0p9mhaveqvm6t7vbl5lop2u3t2rp3tom", "2t7b4g4vsa5smi47k61mv5bv1a22bojr", &appendix_a.apex3, 1),
     };
-    const cut = try Name.from_text("c.example");
+    const cut = try Name.parse("c.example");
     try testing.expectEqual(Holds.insecure, unsigned_delegation(&cut, &records, table.hasher()));
     try testing.expectEqual(Denial.insecure, deny(&cut, .ds, &records, table.hasher()));
     var clear = records;
@@ -172,7 +172,7 @@ test "RFC 5155 B.3: c.example is an unsigned delegation under an Opt-Out span" {
 test "RFC 5155 B.4: a.z.w.example came from *.w.example, and z.w.example does not exist" {
     var table: appendix_a.Hashes = .{};
     const records = [_]Record{try record3("q04jkcevqvmu85r014c7dkba38o0ji5r", "r53bq7cc2uvmubfu5ocmm6pers9tk9en", &appendix_a.address3, 1)};
-    const asked = try Name.from_text("a.z.w.example");
+    const asked = try Name.parse("a.z.w.example");
     try testing.expectEqual(Holds.yes, wildcard_answer(&asked, 2, &records, table.hasher()));
     // Labels 1 names a.z.w.example's next closer w.example, which the record does not cover.
     try testing.expectEqual(Holds.no, wildcard_answer(&asked, 1, &records, table.hasher()));
@@ -185,7 +185,7 @@ test "RFC 5155 B.5: a.z.w.example matches *.w.example, which holds no AAAA" {
         try record3("q04jkcevqvmu85r014c7dkba38o0ji5r", "r53bq7cc2uvmubfu5ocmm6pers9tk9en", &appendix_a.address3, 1),
         try record3("r53bq7cc2uvmubfu5ocmm6pers9tk9en", "t644ebqk9bibcna874givr6joj62mlhv", &appendix_a.mail3, 1),
     };
-    const asked = try Name.from_text("a.z.w.example");
+    const asked = try Name.parse("a.z.w.example");
     // The span that covers z.w.example has Opt-Out set, as every span of the example does.
     try testing.expectEqual(Denial.insecure, deny(&asked, .aaaa, &records, table.hasher()));
     var clear = records;
@@ -198,14 +198,14 @@ test "RFC 5155 B.5: a.z.w.example matches *.w.example, which holds no AAAA" {
 test "RFC 5155 B.6: the child's apex record says nothing of a DS" {
     var table: appendix_a.Hashes = .{};
     const records = [_]Record{try record3("0p9mhaveqvm6t7vbl5lop2u3t2rp3tom", "2t7b4g4vsa5smi47k61mv5bv1a22bojr", &appendix_a.apex3, 1)};
-    try testing.expectEqual(Denial.none, deny(&try Name.from_text("example"), .ds, &records, table.hasher()));
+    try testing.expectEqual(Denial.none, deny(&try Name.parse("example"), .ds, &records, table.hasher()));
 }
 
 test "a compact denial's NXNAME says the name does not exist, and too many iterations is insecure" {
     // RFC 9824 §4: "In responses for nonexistent names, the Type Bit Maps field will contain only
     // the NXNAME Meta-TYPE".
     var table: appendix_a.Hashes = .{};
-    const ns1 = try Name.from_text("ns1.example");
+    const ns1 = try Name.parse("ns1.example");
     var compact = try record3("2t7b4g4vsa5smi47k61mv5bv1a22bojr", "2t7b4g4vsa5smi47k61mv5bv1a22bojs", &appendix_a.nxname3, 0);
     try testing.expectEqual(Denial.name_error, deny(&ns1, .aaaa, &.{compact}, table.hasher()));
     try testing.expectEqual(Denial.name_error, deny(&ns1, .ds, &.{compact}, table.hasher()));
@@ -220,7 +220,7 @@ test "an ancestor delegation's record denies no type at its owner but DS" {
     // RFC 6840 §4.1, over RFC 5155 Appendix A's a.example, which holds NS and DS.
     var table: appendix_a.Hashes = .{};
     const cut = [_]Record{try record3("2t7b4g4vsa5smi47k61mv5bv1a22bojr", "2vptu5timamqttgl4luu9kg21e0aor3s", &appendix_a.ns3, 0)};
-    const ns1 = try Name.from_text("ns1.example");
+    const ns1 = try Name.parse("ns1.example");
     try testing.expectEqual(Denial.none, deny(&ns1, .a, &cut, table.hasher()));
     try testing.expectEqual(Denial.no_data, deny(&ns1, .ds, &cut, table.hasher()));
     try testing.expectEqual(Holds.yes, unsigned_delegation(&ns1, &cut, table.hasher()));
@@ -234,16 +234,16 @@ test "a host and a zone's apex are no unsigned delegation" {
     // RFC 5155 §8.9: the NS bit set, and the DS and SOA bits clear.
     var table: appendix_a.Hashes = .{};
     const host = [_]Record{try record3("2t7b4g4vsa5smi47k61mv5bv1a22bojr", "2vptu5timamqttgl4luu9kg21e0aor3s", &appendix_a.address3, 0)};
-    try testing.expectEqual(Holds.no, unsigned_delegation(&try Name.from_text("ns1.example"), &host, table.hasher()));
+    try testing.expectEqual(Holds.no, unsigned_delegation(&try Name.parse("ns1.example"), &host, table.hasher()));
     const apex = [_]Record{try record3("0p9mhaveqvm6t7vbl5lop2u3t2rp3tom", "2t7b4g4vsa5smi47k61mv5bv1a22bojr", &appendix_a.apex3, 0)};
-    try testing.expectEqual(Holds.no, unsigned_delegation(&try Name.from_text("example"), &apex, table.hasher()));
+    try testing.expectEqual(Holds.no, unsigned_delegation(&try Name.parse("example"), &apex, table.hasher()));
 }
 
 test "too many iterations make a wildcard answer and an unsigned delegation insecure" {
     var table: appendix_a.Hashes = .{};
     var costly = try record3("q04jkcevqvmu85r014c7dkba38o0ji5r", "r53bq7cc2uvmubfu5ocmm6pers9tk9en", &appendix_a.address3, 0);
     costly.nsec3.iterations = @import("limits.zig").nsec3_iterations_max + 1;
-    const asked = try Name.from_text("a.z.w.example");
+    const asked = try Name.parse("a.z.w.example");
     try testing.expectEqual(Holds.insecure, wildcard_answer(&asked, 2, &.{costly}, table.hasher()));
     try testing.expectEqual(Holds.insecure, unsigned_delegation(&asked, &.{costly}, table.hasher()));
 }
@@ -256,15 +256,15 @@ test "a match with no cover below it proves no closest encloser" {
         try record3("b4um86eghhds6nea196smvmlo4ors995", "gjeqe526plbf1g8mklp59enfd789njgi", &appendix_a.mail3, 0),
         try record3("35mthgpgcu1qg68fab165klnsnk3dpvl", "b4um86eghhds6nea196smvmlo4ors995", &appendix_a.secure_cut3, 0),
     };
-    try testing.expectEqual(Denial.none, deny(&try Name.from_text("c.x.w.example"), .a, &records, table.hasher()));
+    try testing.expectEqual(Denial.none, deny(&try Name.parse("c.x.w.example"), .a, &records, table.hasher()));
 }
 
 test "a record of another zone takes no part in the proof" {
     // A record of the root's zone at ns1.example's hash, beside the apex record of example.
     var table: appendix_a.Hashes = .{};
     var root_zone = try record3("2t7b4g4vsa5smi47k61mv5bv1a22bojr", "2vptu5timamqttgl4luu9kg21e0aor3s", &.{}, 0);
-    root_zone.owner = try Name.from_text("2t7b4g4vsa5smi47k61mv5bv1a22bojr");
+    root_zone.owner = try Name.parse("2t7b4g4vsa5smi47k61mv5bv1a22bojr");
     root_zone.signer = Name.root;
     const records = [_]Record{ try record3("0p9mhaveqvm6t7vbl5lop2u3t2rp3tom", "2t7b4g4vsa5smi47k61mv5bv1a22bojr", &appendix_a.apex3, 0), root_zone };
-    try testing.expectEqual(Denial.none, deny(&try Name.from_text("ns1.example"), .a, &records, table.hasher()));
+    try testing.expectEqual(Denial.none, deny(&try Name.parse("ns1.example"), .a, &records, table.hasher()));
 }

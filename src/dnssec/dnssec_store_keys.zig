@@ -200,7 +200,7 @@ const entries_count: usize = 2;
 const Entries = [entries_count]store_module.Entry;
 
 fn example() Name {
-    return Name.from_text("example") catch unreachable;
+    return Name.parse("example") catch unreachable;
 }
 
 /// Admits `bytes` to a store whose anchors are `anchors`, and whose DS set for `example` is `ds`.
@@ -239,7 +239,7 @@ test "the set enters under a DS anchor, or a held DS set, and waits for a DS wit
     try testing.expectEqual(Admission.admitted, try admission(&.{}, &.{&ds}, builder.message()));
     try testing.expectEqual(Admission.ds_wanted, try admission(&.{}, &.{}, builder.message()));
     // An anchor for another zone speaks for nothing here.
-    const elsewhere = [_]store_module.Anchor{.{ .zone = Name.from_text("org") catch unreachable, .kind = .ds, .rdata = &ds }};
+    const elsewhere = [_]store_module.Anchor{.{ .zone = Name.parse("org") catch unreachable, .kind = .ds, .rdata = &ds }};
     try testing.expectEqual(Admission.ds_wanted, try admission(&elsewhere, &.{}, builder.message()));
 }
 

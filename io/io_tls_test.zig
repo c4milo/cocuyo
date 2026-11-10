@@ -36,7 +36,7 @@ const TinyRig = sim_test.RigOf(io.Resolver(.{
 
 /// Both of the rig's servers known by a name, as a configuration names DoT servers.
 pub fn encrypt(rig: anytype) !void {
-    const tls: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
+    const tls: cocuyo.Tls = .{ .name = try cocuyo.Name.parse("dns.example.") };
     for (&rig.servers) |*server| server.tls = tls;
 }
 

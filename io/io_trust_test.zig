@@ -43,7 +43,7 @@ const Trust = struct {
 
 /// Asks `text` of `kind` and takes its result, which must be the lookup's own.
 fn ask(rig: *Rig, text: []const u8, kind: cocuyo.Kind) !Result {
-    const handle = try rig.engine.start(&try cocuyo.Question.from_text(text, kind), rig.loop.now());
+    const handle = try rig.engine.start(&try cocuyo.Question.parse(text, kind), rig.loop.now());
     const result = try rig.until_result();
     try testing.expectEqual(handle, result.handle);
     return result;

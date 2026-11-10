@@ -268,7 +268,7 @@ fn report(name: []const u8, result: Resolver.Result) !void {
 /// SubjectPublicKeyInfo (RFC 7858 §4.2), which chapulin matches against the leaf's key.
 fn known_by(text: []const u8, pins: *[cocuyo.limits.spki_pins_max]cocuyo.Pin) !cocuyo.Tls {
     const prefix = "pin-sha256:";
-    if (!std.mem.startsWith(u8, text, prefix)) return .{ .name = try cocuyo.Name.from_text(text) };
+    if (!std.mem.startsWith(u8, text, prefix)) return .{ .name = try cocuyo.Name.parse(text) };
     var each = std.mem.splitScalar(u8, text[prefix.len..], ',');
     var count: usize = 0;
     // Bounded by the pins a server may have, and one more to say there were too many.

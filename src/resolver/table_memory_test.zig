@@ -105,7 +105,7 @@ test "an answer reached through a chain is written with the chain's end" {
     try testing.expect(end.action == .done);
 
     // What the memory is given is what a lookup that went out reports.
-    const target = try core.Name.from_text("host.example.net");
+    const target = try core.Name.parse("host.example.net");
     try testing.expect(end.action.done.canonical_name.?.equal(&target));
     try testing.expect(stub.written.?.answered.canonical_name.?.equal(&target));
     // And its links (docs/design.md §5, §17 question 122).
@@ -117,7 +117,7 @@ test "a walk's end is written under the name asked with the bound a negative on 
     // `example` is asked as `example.one.net` first, whose NXDOMAIN carries no SOA, then as
     // `example`, which answers. The end rests on a negative no cache keeps (RFC 2308 §5), so it
     // is written with a TTL of zero, which no cache keeps either (docs/design.md §5).
-    const search = [_]core.Name{try core.Name.from_text("one.net")};
+    const search = [_]core.Name{try core.Name.parse("one.net")};
     var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &search, .ndots = 1 } };
     rig.open();
     var stub: Stub = .{};
@@ -144,9 +144,9 @@ test "a recalled answer reports the chain's end it was remembered with" {
     var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
     rig.open();
     const answers = try answered_once(&rig);
-    const target = try core.Name.from_text("host.example.net");
+    const target = try core.Name.parse("host.example.net");
     var aliases: core.Aliases = .{};
-    try testing.expect(aliases.append(&try core.Name.from_text("example.com"), 60));
+    try testing.expect(aliases.append(&try core.Name.parse("example.com"), 60));
     var stub: Stub = .{ .held = .{ .answered = .{
         .answers = &answers,
         .ttl_seconds = 42,
@@ -169,9 +169,9 @@ test "a recalled answer reports the chain's end it was remembered with" {
 test "a recalled negative reports the chain that reached the name with no data" {
     var rig: Table = .{ .config = .{ .servers = &fixtures.servers_one, .search = &.{} } };
     rig.open();
-    const target = try core.Name.from_text("host.example.net");
+    const target = try core.Name.parse("host.example.net");
     var aliases: core.Aliases = .{};
-    try testing.expect(aliases.append(&try core.Name.from_text("example.com"), 60));
+    try testing.expect(aliases.append(&try core.Name.parse("example.com"), 60));
     var stub: Stub = .{ .held = .{ .negative = .{
         .outcome = .no_data,
         .ttl_seconds = 42,
@@ -396,7 +396,7 @@ fn first_poll(held: memory_module.Remembered, kind: Kind, validating: bool) !loo
     rig.open();
     rig.resolver.use_memory(stub.memory());
     if (validating) rig.resolver.use_trust(Secure.trust(&context));
-    _ = try rig.resolver.start(&try core.Question.from_text("example.com.", kind));
+    _ = try rig.resolver.start(&try core.Question.parse("example.com.", kind));
     const event = rig.poll().?;
     try testing.expectEqual(@as(u32, 1), stub.recalls);
     return event.action;

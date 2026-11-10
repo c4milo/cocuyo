@@ -62,7 +62,7 @@ test "the last of eight servers answers over TLS, after the seven before it fail
         .tcp_connections = servers_max,
         .tls = rotor.tls.Session,
     }), servers_max) = .{};
-    const tls: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
+    const tls: cocuyo.Tls = .{ .name = try cocuyo.Name.parse("dns.example.") };
     for (&rig.servers) |*server| server.tls = tls;
     var over_tls = one_try;
     over_tls.timeout_ns = fixtures.stream_timeout_ns;

@@ -55,7 +55,7 @@ const fixtures = @import("fixtures.zig");
 
 test "a name reads back from uncompressed rdata, and the root alone is a name" {
     const name = try whole(&fixtures.name_example);
-    try testing.expect(name.equal(&try Name.from_text("example.com")));
+    try testing.expect(name.equal(&try Name.parse("example.com")));
     const root = try whole(&fixtures.name_root);
     try testing.expect(root.is_root());
 }

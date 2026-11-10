@@ -182,7 +182,7 @@ const record3 = appendix_a.record3;
 
 test "a record of another hash, with unknown flags, or not one label below its signer is ignored" {
     var table: appendix_a.Hashes = .{};
-    const name = try Name.from_text("ns1.example");
+    const name = try Name.parse("ns1.example");
     const good = try record3("2t7b4g4vsa5smi47k61mv5bv1a22bojr", "2vptu5timamqttgl4luu9kg21e0aor3s", &appendix_a.address3, 1);
     try testing.expect(Proof.of(&name, &.{good}, table.hasher()) != null);
     var other_hash = good;
@@ -190,25 +190,25 @@ test "a record of another hash, with unknown flags, or not one label below its s
     var other_flags = good;
     other_flags.nsec3.flags = 2;
     var deeper = good;
-    deeper.signer = try Name.from_text("w.example");
+    deeper.signer = try Name.parse("w.example");
     var short_next = good;
     short_next.nsec3.next_hashed = good.nsec3.next_hashed[1..];
     var not_hash = good;
-    not_hash.owner = try Name.from_text("ns1.example");
+    not_hash.owner = try Name.parse("ns1.example");
     var two_below = good;
-    two_below.owner = try Name.from_text("2t7b4g4vsa5smi47k61mv5bv1a22bojr.w.example");
+    two_below.owner = try Name.parse("2t7b4g4vsa5smi47k61mv5bv1a22bojr.w.example");
     var other_zone = good;
-    other_zone.owner = try Name.from_text("2t7b4g4vsa5smi47k61mv5bv1a22bojr.other");
+    other_zone.owner = try Name.parse("2t7b4g4vsa5smi47k61mv5bv1a22bojr.other");
     for ([_]Record{ other_hash, other_flags, deeper, two_below, short_next, not_hash, other_zone }) |bad| {
         try testing.expectEqual(@as(?Proof, null), Proof.of(&name, &.{bad}, table.hasher()));
     }
     // A name outside the signer's zone.
-    try testing.expectEqual(@as(?Proof, null), Proof.of(&try Name.from_text("ns1.other"), &.{good}, table.hasher()));
+    try testing.expectEqual(@as(?Proof, null), Proof.of(&try Name.parse("ns1.other"), &.{good}, table.hasher()));
 }
 
 test "records that differ in salt or iterations make no proof, and past the limit one is costly" {
     var table: appendix_a.Hashes = .{};
-    const name = try Name.from_text("ns1.example");
+    const name = try Name.parse("ns1.example");
     const good = try record3("2t7b4g4vsa5smi47k61mv5bv1a22bojr", "2vptu5timamqttgl4luu9kg21e0aor3s", &appendix_a.address3, 1);
     var salted = good;
     salted.nsec3.salt = good.nsec3.salt[1..];
@@ -225,7 +225,7 @@ test "records that differ in salt or iterations make no proof, and past the limi
 test "a proof hashes no more names than its limit, and hashes each in lowercase" {
     var table: appendix_a.Hashes = .{};
     const good = try record3("2t7b4g4vsa5smi47k61mv5bv1a22bojr", "2vptu5timamqttgl4luu9kg21e0aor3s", &appendix_a.address3, 1);
-    const name = try Name.from_text("NS1.Example");
+    const name = try Name.parse("NS1.Example");
     var proof = Proof.of(&name, &.{good}, table.hasher()).?;
     const hashed = proof.hash(&name).?;
     try testing.expect(proof.matching(&hashed) != null);
@@ -235,7 +235,7 @@ test "a proof hashes no more names than its limit, and hashes each in lowercase"
 
 test "a span covers what lies strictly inside it, and the last one wraps past the end" {
     var table: appendix_a.Hashes = .{};
-    const name = try Name.from_text("example");
+    const name = try Name.parse("example");
     const last = try record3("t644ebqk9bibcna874givr6joj62mlhv", "0p9mhaveqvm6t7vbl5lop2u3t2rp3tom", &appendix_a.mail3, 0);
     const proof = Proof.of(&name, &.{last}, table.hasher()).?;
     const low: Hash = @splat(0);
@@ -252,7 +252,7 @@ test "a span covers what lies strictly inside it, and the last one wraps past th
 test "a closest encloser whose record marks a cut or a DNAME proves nothing" {
     // RFC 5155 B.1's encloser x.w.example, with NS and no SOA, then with DNAME.
     var table: appendix_a.Hashes = .{};
-    const name = try Name.from_text("c.x.w.example");
+    const name = try Name.parse("c.x.w.example");
     var records = [_]Record{
         try record3("b4um86eghhds6nea196smvmlo4ors995", "gjeqe526plbf1g8mklp59enfd789njgi", &appendix_a.mail3, 0),
         try record3("0p9mhaveqvm6t7vbl5lop2u3t2rp3tom", "2t7b4g4vsa5smi47k61mv5bv1a22bojr", &appendix_a.apex3, 0),

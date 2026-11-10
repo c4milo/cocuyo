@@ -16,7 +16,7 @@ test "a CNAME with no target asks the same server about where the chain went" {
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     _ = harness.respond(fixtures.cname_only, servers[0].endpoint);
-    try testing.expect(harness.lookup.current.equal(&try Name.from_text("host.example.net")));
+    try testing.expect(harness.lookup.current.equal(&try Name.parse("host.example.net")));
     try testing.expectEqual(@as(u8, 1), harness.lookup.cname_hops);
     try testing.expectEqual(@as(u8, 0), harness.lookup.server_index);
     try testing.expect(harness.poll() == .send_udp);
@@ -53,7 +53,7 @@ test "a chain resolved in one message answers with the canonical name" {
     _ = harness.respond(fixtures.cname_then_a, servers[0].endpoint);
     const action = harness.poll();
     try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 3 }, action.done.addresses[0].slice());
-    try testing.expect(action.done.canonical_name.?.equal(&try Name.from_text("host.example.net")));
+    try testing.expect(action.done.canonical_name.?.equal(&try Name.parse("host.example.net")));
     try testing.expectEqual(@as(u32, 60), action.done.ttl_seconds);
 }
 
@@ -100,7 +100,7 @@ test "a chain name compressed into the question comes back without cocuyo's own 
         _ = harness.respond(fixtures.cname_into_question, servers[0].endpoint);
         try testing.expectEqualSlices(
             u8,
-            (try Name.from_text("host.com")).wire(),
+            (try Name.parse("host.com")).wire(),
             harness.lookup.current.wire(),
         );
     }
@@ -117,11 +117,11 @@ test "an answer through a chain across messages hands back each link, and each t
     }
     const done = harness.poll().done;
     const end = done.canonical_name.?;
-    try testing.expect(end.equal(&try Name.from_text("c.host.example.net")));
+    try testing.expect(end.equal(&try Name.parse("c.host.example.net")));
     try testing.expectEqual(@as(u8, 2), done.aliases.count);
-    try testing.expectEqualSlices(u8, (try Name.from_text("example.com")).wire(), done.aliases.at(0).owner);
+    try testing.expectEqualSlices(u8, (try Name.parse("example.com")).wire(), done.aliases.at(0).owner);
     try testing.expectEqual(@as(u32, 20), done.aliases.at(0).ttl_seconds);
-    try testing.expectEqualSlices(u8, (try Name.from_text("host.example.net")).wire(), done.aliases.at(1).owner);
+    try testing.expectEqualSlices(u8, (try Name.parse("host.example.net")).wire(), done.aliases.at(1).owner);
     try testing.expectEqual(@as(u32, 60), done.aliases.at(1).ttl_seconds);
     try testing.expectEqualSlices(u8, done.aliases.at(1).owner, done.aliases.target(0, end));
     try testing.expectEqualSlices(u8, end.wire(), done.aliases.target(1, end));
@@ -136,9 +136,9 @@ test "a no data after a CNAME reports the chain's end and its link" {
     }
     const failed = harness.poll().failed;
     try testing.expectEqual(core.Error.NoData, failed.err);
-    try testing.expect(failed.canonical_name.?.equal(&try Name.from_text("host.example.net")));
+    try testing.expect(failed.canonical_name.?.equal(&try Name.parse("host.example.net")));
     try testing.expectEqual(@as(u8, 1), failed.aliases.count);
-    try testing.expectEqualSlices(u8, (try Name.from_text("example.com")).wire(), failed.aliases.at(0).owner);
+    try testing.expectEqualSlices(u8, (try Name.parse("example.com")).wire(), failed.aliases.at(0).owner);
 }
 
 test "a name error whose message holds the CNAME reports the link it took" {
@@ -149,7 +149,7 @@ test "a name error whose message holds the CNAME reports the link it took" {
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.name_error_cname_soa, servers[0].endpoint));
     const failed = harness.poll().failed;
     try testing.expectEqual(core.Error.NameNotFound, failed.err);
-    try testing.expect(failed.canonical_name.?.equal(&try Name.from_text("host.example.net")));
+    try testing.expect(failed.canonical_name.?.equal(&try Name.parse("host.example.net")));
     try testing.expectEqual(@as(u8, 1), failed.aliases.count);
 }
 
@@ -168,7 +168,7 @@ test "a reply the lookup ignores leaves the links as they were" {
 }
 
 test "the search walk's next candidate starts with no link" {
-    const search = [_]Name{try Name.from_text("one.net")};
+    const search = [_]Name{try Name.parse("one.net")};
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .search = &search, .ndots = 1 } };
     try harness.start("example", .a, seed);
     // `example.one.net` moves the chain, then has no data; `example` answers with no chain.

@@ -54,7 +54,7 @@ pub fn main(init: std.process.Init) !void {
     // never run against a network.
     const servers = [_]cocuyo.Server{.{
         .endpoint = .{ .address = cocuyo.Address.from_v4(.{ 127, 0, 0, 1 }) },
-        .quic = .{ .name = try cocuyo.Name.from_text("dns.example.") },
+        .quic = .{ .name = try cocuyo.Name.parse("dns.example.") },
     }};
     const config: cocuyo.Config = .{
         .servers = &servers,
@@ -96,7 +96,7 @@ pub fn main(init: std.process.Init) !void {
         .session = .init(&.{}, cpu, session_seed, .{ .unix_seconds = unix_seconds, .monotonic_ns = now_ns }),
         .stream = std.Random.ChaCha.init(id_seed),
     });
-    _ = try resolver.start(&try cocuyo.Question.from_text("example.com.", .a), now_ns);
+    _ = try resolver.start(&try cocuyo.Question.parse("example.com.", .a), now_ns);
 
     var events: [events_max]rotor.Event = undefined;
     const count = try loop.tick(&events, 0);

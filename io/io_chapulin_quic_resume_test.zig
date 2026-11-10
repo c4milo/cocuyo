@@ -176,7 +176,7 @@ const Side = struct {
             .session = .init(&anchors, cpu_not_stated, @splat(session_seed_octet), .{ .unix_seconds = unix_seconds, .monotonic_ns = now_ns }),
             .stream = std.Random.ChaCha.init(@splat(ids_seed_octet)),
         };
-        const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(server_name) };
+        const named: cocuyo.Tls = .{ .name = try cocuyo.Name.parse(server_name) };
         try side.client.start(.{ .tls = &named, .alpn = "doq", .ticket = ticket, .ticket_age_ns = @as(u64, 0), .context = &side.context, .now_ns = now_ns });
     }
 };

@@ -173,7 +173,7 @@ const Builder = fixtures.Builder;
 const Setup = zone.Setup;
 
 fn named(text: []const u8) Name {
-    return Name.from_text(text) catch unreachable;
+    return Name.parse(text) catch unreachable;
 }
 
 fn expect_secure(result: Validation, ending: Ending) !void {

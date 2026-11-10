@@ -86,7 +86,7 @@ stands for your own UDP socket, and `clock` for a monotonic clock in nanoseconds
 ```zig
 var servers = cocuyo.Servers.init(&config, seed);
 var lookup: cocuyo.Lookup = undefined;
-lookup.init(&config, &servers, &try cocuyo.Question.from_text(name, .a), seed);
+lookup.init(&config, &servers, &try cocuyo.Question.parse(name, .a), seed);
 var query: [cocuyo.limits.query_bytes_max]u8 = undefined;
 
 while (true) {
@@ -337,7 +337,7 @@ var store = cocuyo.Cache.init(&cache_memory.slots, &cache_memory.keys, seed, cap
 var table = cocuyo.Resolver.init(&slots, &keys, &config, seed);
 table.use_memory(cocuyo.remembered_by(&store)); // optional: the cache under every lookup
 
-_ = try table.start(&try cocuyo.Question.from_text("example.com.", .a));
+_ = try table.start(&try cocuyo.Question.parse("example.com.", .a));
 var query: [cocuyo.limits.query_bytes_max]u8 = undefined;
 const event = table.poll(now_ns, &query).?; // event.action is .send_udp: the bytes, and where
 ```

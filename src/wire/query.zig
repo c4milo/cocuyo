@@ -136,7 +136,7 @@ const testing = std.testing;
 const fixtures = @import("fixtures.zig");
 
 fn query_for(text: []const u8) !Query {
-    return .{ .id = fixtures.id, .name = try Name.from_text(text), .kind = .a };
+    return .{ .id = fixtures.id, .name = try Name.parse(text), .kind = .a };
 }
 
 test "a query is a header, a question and an OPT record" {

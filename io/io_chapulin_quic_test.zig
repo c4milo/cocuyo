@@ -120,7 +120,7 @@ test "a server known by a name and pins is checked by both" {
     const context = test_context(&anchors_test, 0);
     const pins = [_]cocuyo.Pin{@splat(0)};
     var hostname: [cocuyo.limits.name_text_bytes_max]u8 = undefined;
-    const trust = Session.trust(&.{ .name = try cocuyo.Name.from_text("dns.example."), .pins = &pins }, &context, &hostname);
+    const trust = Session.trust(&.{ .name = try cocuyo.Name.parse("dns.example."), .pins = &pins }, &context, &hostname);
     try testing.expect(trust == .web_pki);
     try testing.expectEqual(anchors_test.len, trust.web_pki.anchors.len);
     try testing.expectEqual(pins.len, trust.web_pki.pins.len);
@@ -132,7 +132,7 @@ test "a named server with no anchors to check it is judged by its pins, its name
     const context = test_context(&.{}, 0);
     const pins = [_]cocuyo.Pin{@splat(0)};
     var hostname: [cocuyo.limits.name_text_bytes_max]u8 = undefined;
-    const trust = Session.trust(&.{ .name = try cocuyo.Name.from_text("dns.example."), .pins = &pins }, &context, &hostname);
+    const trust = Session.trust(&.{ .name = try cocuyo.Name.parse("dns.example."), .pins = &pins }, &context, &hostname);
     try testing.expect(trust == .pins);
     try testing.expectEqual(pins.len, trust.pins.pins.len);
     try testing.expectEqualStrings("dns.example", trust.pins.server_name.?);
@@ -148,7 +148,7 @@ test "the wall clock a chain is judged at is carried forward from the context's 
 
 test "a server known by a name with no anchor to check it against is refused by chapulin" {
     var context: Context = .{ .session = test_context(&.{}, 0) };
-    const name = try cocuyo.Name.from_text("dns.example.");
+    const name = try cocuyo.Name.parse("dns.example.");
     try testing.expectError(error.TlsFailed, started(&.{ .name = name }, &context, null));
 }
 

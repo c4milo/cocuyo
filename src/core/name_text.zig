@@ -1,5 +1,5 @@
 //! A name between presentation form and wire form: the syntax constants of RFC 1035 §5.1, the
-//! per-label validation `Name.from_text` applies, and the escaping writer that turns wire bytes
+//! per-label validation `Name.parse` applies, and the escaping writer that turns wire bytes
 //! back into text a human reads.
 //!
 //! Version one accepts no escape sequence on input. A label is printable ASCII, so `\.` and `\255`

@@ -276,7 +276,7 @@ fn read_query(bytes: []const u8) !Query {
     // Meta-RRs, NOTIMP may be returned instead" (RFC 8906 §7), which `Kind.queryable` refuses.
     const kind = cocuyo.Kind.of(std.mem.readInt(u16, bytes[at..][0..u16_bytes], .big));
     at += 2 * u16_bytes;
-    const question = cocuyo.Question.from_text(text[0..length], kind) catch return error.NotImplemented;
+    const question = cocuyo.Question.parse(text[0..length], kind) catch return error.NotImplemented;
     return .{
         .id = std.mem.readInt(u16, bytes[0..u16_bytes], .big),
         .flags = std.mem.readInt(u16, bytes[u16_bytes..][0..u16_bytes], .big),

@@ -41,7 +41,7 @@ test "an SRV record is a priority, a weight, a port and a target" {
     try testing.expectEqual(@as(u16, 10), srv.priority);
     try testing.expectEqual(@as(u16, 20), srv.weight);
     try testing.expectEqual(@as(u16, 5269), srv.port);
-    try testing.expect(srv.target.equal(&try Name.from_text("sip.example.com")));
+    try testing.expect(srv.target.equal(&try Name.parse("sip.example.com")));
 }
 
 test "an SRV record short of its fixed fields, or long past its target, is malformed" {
@@ -54,5 +54,5 @@ test "RFC 2782's example SRV reads back field for field" {
     try testing.expectEqual(@as(u16, 0), srv.priority);
     try testing.expectEqual(@as(u16, 1), srv.weight);
     try testing.expectEqual(@as(u16, 9), srv.port);
-    try testing.expect(srv.target.equal(&try Name.from_text("old-slow-box.example.com")));
+    try testing.expect(srv.target.equal(&try Name.parse("old-slow-box.example.com")));
 }

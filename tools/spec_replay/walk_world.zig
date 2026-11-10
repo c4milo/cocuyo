@@ -79,7 +79,7 @@ pub const World = struct {
         }
         if (candidates < 1 or candidates > search_texts.len + 1) return error.Malformed;
         if (slot_count < 2 or slot_count > slots_max) return error.Malformed;
-        for (search_texts[0 .. candidates - 1], 0..) |entry, index| world.search[index] = core.Name.from_text(entry) catch unreachable;
+        for (search_texts[0 .. candidates - 1], 0..) |entry, index| world.search[index] = core.Name.parse(entry) catch unreachable;
         world.server = .{.{ .endpoint = .{ .address = core.Address.from_v4(.{ 192, 0, 2, 53 }) } }};
         world.config = .{
             .servers = &world.server,
@@ -96,9 +96,9 @@ pub const World = struct {
 
     /// A hosts table naming `host` at an address of each family.
     fn fill_hosts(world: *World) void {
-        const name = core.Name.from_text(asked_name) catch unreachable;
+        const name = core.Name.parse(asked_name) catch unreachable;
         @memcpy(world.storage.names[0..name.len], name.wire());
-        const addresses = [_]core.Address{ address_v4, core.Address.from_text("2001:db8::1").? };
+        const addresses = [_]core.Address{ address_v4, core.Address.parse("2001:db8::1").? };
         for (addresses, 0..) |address, index| {
             var entry: core.hosts.Entry = .{ .address = address, .names = undefined, .name_count = 1 };
             entry.names[0] = .{ .offset = 0, .len = name.len };
@@ -164,7 +164,7 @@ pub const World = struct {
     fn steal(world: *World) Error!void {
         var buffer: [32]u8 = undefined;
         const other = std.fmt.bufPrint(&buffer, "o{d}.other.", .{world.live.others_count}) catch unreachable;
-        const question = core.Question.from_text(other, .a) catch unreachable;
+        const question = core.Question.parse(other, .a) catch unreachable;
         world.live.others[world.live.others_count] = world.live.table.start(&question) catch return error.Refused;
         world.live.others_count += 1;
     }

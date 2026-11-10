@@ -122,28 +122,28 @@ test "RFC 4034 §6.1's nine names are in canonical order, each before the next" 
 }
 
 test "a name is equal to itself in canonical order, whatever the case of its letters" {
-    const lower = try Name.from_text("www.example.com");
-    const upper = try Name.from_text("WWW.Example.COM");
+    const lower = try Name.parse("www.example.com");
+    const upper = try Name.parse("WWW.Example.COM");
     try testing.expectEqual(std.math.Order.eq, order(&lower, &upper));
     try testing.expectEqual(std.math.Order.eq, order(&Name.root, &Name.root));
     try testing.expectEqual(std.math.Order.lt, order(&Name.root, &lower));
 }
 
 test "two names share the labels they agree on from the right, whatever their case" {
-    const host = try Name.from_text("a.b.Example.com");
-    const other = try Name.from_text("c.b.example.COM");
+    const host = try Name.parse("a.b.Example.com");
+    const other = try Name.parse("c.b.example.COM");
     try testing.expectEqual(@as(u8, 3), shared_labels(&host, &other));
     try testing.expectEqual(@as(u8, 4), shared_labels(&host, &host));
     try testing.expectEqual(@as(u8, 0), shared_labels(&host, &Name.root));
     // "b.example.com" and "bb.example.com" differ in their third label from the right.
-    const short = try Name.from_text("b.example.com");
-    const long = try Name.from_text("bb.example.com");
+    const short = try Name.parse("b.example.com");
+    const long = try Name.parse("bb.example.com");
     try testing.expectEqual(@as(u8, 2), shared_labels(&short, &long));
 }
 
 test "an ancestor holds the rightmost labels of a name" {
-    const host = try Name.from_text("a.b.example.com");
-    try testing.expect(ancestor(&host, 2).equal(&try Name.from_text("example.com")));
+    const host = try Name.parse("a.b.example.com");
+    try testing.expect(ancestor(&host, 2).equal(&try Name.parse("example.com")));
     try testing.expect(ancestor(&host, 4).equal(&host));
     try testing.expect(ancestor(&host, 0).equal(&Name.root));
 }

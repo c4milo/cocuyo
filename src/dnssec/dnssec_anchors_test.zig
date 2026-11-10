@@ -46,7 +46,7 @@ test "RFC 4034 §5.4's example reads to a DNSKEY whose tag its DS names" {
     var rig: Rig = .{};
     const read = try rig.read(rfc_example);
     try testing.expectEqual(@as(usize, 2), read.len);
-    const owner = try core.Name.from_text("dskey.example.com.");
+    const owner = try core.Name.parse("dskey.example.com.");
     for (read) |anchor| try testing.expect(anchor.zone.equal(&owner));
     const key = read[0];
     try testing.expectEqual(core.Kind.dnskey, key.kind);

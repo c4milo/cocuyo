@@ -143,7 +143,7 @@ fn check_typed(kind: Kind, record: *const Record, copy: []const u8, fields: []co
 fn check_address(record: *const Record, fields: []const []const u8) Mismatch!void {
     try arity(fields, 1);
     const address = record.address() catch return Mismatch.Codec;
-    const printed = core.Address.from_text(fields[0]) orelse return Mismatch.Text;
+    const printed = core.Address.parse(fields[0]) orelse return Mismatch.Text;
     if (!address.equal(&printed)) return Mismatch.Rdata;
 }
 
@@ -235,7 +235,7 @@ pub fn same_number(value: anytype, field: []const u8) Mismatch!void {
 /// dnslib prints for an octet that is not a letter, a digit or a hyphen, and which cocuyo's own
 /// reader of text does not take.
 fn name_of(field: []const u8) Mismatch!Name {
-    if (std.mem.indexOfScalar(u8, field, '\\') == null) return Name.from_text(field) catch Mismatch.Text;
+    if (std.mem.indexOfScalar(u8, field, '\\') == null) return Name.parse(field) catch Mismatch.Text;
     var name: Name = Name.empty;
     var label: [core.limits.label_bytes_max]u8 = undefined;
     var len: usize = 0;

@@ -40,7 +40,7 @@ pub const qr_bit: u8 = 0x80;
 /// The server's address, and its template as the engine splits it, on a port of its own, so a link
 /// that went to HTTPS's 443 anyway shows.
 const port: u16 = 8443;
-pub const endpoint: cocuyo.Endpoint = .{ .address = cocuyo.Address.from_text("192.0.2.1").?, .port = port };
+pub const endpoint: cocuyo.Endpoint = .{ .address = cocuyo.Address.parse("192.0.2.1").?, .port = port };
 pub const template = .{ .authority = "dns.example:8443", .host = "dns.example", .port = port, .path = "/dns-query{?dns}" };
 /// A query of a header alone, ID 0, as DoH asks (RFC 8484 §4.1), recursion desired: the server
 /// echoes it, so it need not ask anything.
@@ -100,7 +100,7 @@ pub const Pair = struct {
     /// A new channel, and a new connection of the server's for it.
     pub fn open(pair: *Pair, script: server_module.Script) !void {
         try pair.server.init(script, identity.unix_seconds, pair.now_ns);
-        const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(identity.server_name), .require_post_quantum = pair.require_post_quantum };
+        const named: cocuyo.Tls = .{ .name = try cocuyo.Name.parse(identity.server_name), .require_post_quantum = pair.require_post_quantum };
         try pair.doh.start(.{
             .server = 0,
             .endpoint = pair.endpoint,
@@ -430,7 +430,7 @@ test "a template whose GET would not fit is refused when the channel starts" {
     defer testing.allocator.destroy(pair);
     pair.* = .{};
     const long_path = "/" ++ "p" ** 1400 ++ "{?dns}";
-    const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(identity.server_name) };
+    const named: cocuyo.Tls = .{ .name = try cocuyo.Name.parse(identity.server_name) };
     const long = .{ .authority = "dns.example:8443", .host = "dns.example", .port = port, .path = long_path };
     try testing.expectError(error.Failed, pair.doh.start(.{
         .server = 0,
@@ -458,7 +458,7 @@ test "a template whose GET path at its longest fills the path buffer starts, and
     defer testing.allocator.destroy(pair);
     pair.* = .{ .endpoint = endpoint };
     try pair.server.init(.{}, identity.unix_seconds, pair.now_ns);
-    const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(identity.server_name) };
+    const named: cocuyo.Tls = .{ .name = try cocuyo.Name.parse(identity.server_name) };
     const fits_slot = .{ .authority = host ++ ":8443", .host = host, .port = port, .path = longest };
     try pair.doh.start(.{ .server = 0, .endpoint = pair.endpoint, .tls = &named, .https = fits_slot, .alternative = null, .context = &pair.context, .now_ns = pair.now_ns });
     var longest_query: [wire.limits.dns_variable_bytes_max / 4 * 3]u8 = @splat(0);
@@ -482,7 +482,7 @@ test "a template whose path starts with a slash and fills the path buffer starts
     defer testing.allocator.destroy(pair);
     pair.* = .{ .endpoint = endpoint };
     try pair.server.init(.{}, identity.unix_seconds, pair.now_ns);
-    const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(identity.server_name) };
+    const named: cocuyo.Tls = .{ .name = try cocuyo.Name.parse(identity.server_name) };
     const fills = .{ .authority = "dns.example:8443", .host = "dns.example", .port = port, .path = "/" ++ "p" ** filler ++ "{?dns}" };
     try pair.doh.start(.{ .server = 0, .endpoint = pair.endpoint, .tls = &named, .https = fills, .alternative = null, .context = &pair.context, .now_ns = pair.now_ns });
     // The longest query a `dns` value of 512 octets carries goes out on that path, and colibri's

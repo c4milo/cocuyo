@@ -48,7 +48,7 @@ const Builder = struct {
         var tokens = std.mem.tokenizeAny(u8, text[0..end], constants.token_separators);
         const address_token = tokens.next() orelse return;
         if (self.entry_count == core.limits.hosts_entries_max) return;
-        const address = Address.from_text(address_token) orelse return;
+        const address = Address.parse(address_token) orelse return;
         var entry: Entry = .{ .address = address, .names = undefined, .name_count = 0 };
         var read: usize = 0;
         while (read <= core.limits.hosts_names_per_entry_max) : (read += 1) {
@@ -68,7 +68,7 @@ const Builder = struct {
     /// Writes `text` into the arena as a wire name; null when it is not a name, or when the
     /// arena is full.
     fn intern(self: *Builder, text: []const u8) ?NameRef {
-        const name = Name.from_text(text) catch return null;
+        const name = Name.parse(text) catch return null;
         if (self.names_used + name.len > core.limits.hosts_names_bytes_max) return null;
         const offset = self.names_used;
         @memcpy(self.storage.names[offset..][0..name.len], name.wire());
@@ -104,19 +104,19 @@ test "a typical file gives its entries, comments and bad lines skipped" {
     const hosts = parse_text(typical, &storage);
     try testing.expectEqual(@as(usize, 5), hosts.entries.len);
     var out: [4]Address = undefined;
-    const localhost = try Name.from_text("localhost");
+    const localhost = try Name.parse("localhost");
     try testing.expectEqual(@as(usize, 2), hosts.find(&localhost, null, &out));
     try testing.expectEqual(core.Family.ipv4, out[0].family);
     try testing.expectEqual(core.Family.ipv6, out[1].family);
     try testing.expectEqual(@as(usize, 1), hosts.find(&localhost, .ipv6, &out));
     // A word in a comment is not a name.
-    try testing.expectEqual(@as(usize, 0), hosts.find(&try Name.from_text("aliased"), null, &out));
+    try testing.expectEqual(@as(usize, 0), hosts.find(&try Name.parse("aliased"), null, &out));
 }
 
 test "a name that will not parse is skipped and the good one beside it kept" {
     var storage: Storage = .{};
     const hosts = parse_text(typical, &storage);
-    const good = try Name.from_text("good.example");
+    const good = try Name.parse("good.example");
     var out: [1]Address = undefined;
     try testing.expectEqual(@as(usize, 1), hosts.find(&good, null, &out));
     try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 12 }, out[0].slice());
@@ -128,7 +128,7 @@ test "names past the limit on one line, and entries past the limit, are dropped"
     const hosts = parse_text(many_names, &storage);
     try testing.expectEqual(@as(u8, core.limits.hosts_names_per_entry_max), hosts.entries[0].name_count);
     var out: [1]Address = undefined;
-    try testing.expectEqual(@as(usize, 0), hosts.find(&try Name.from_text("n9"), null, &out));
+    try testing.expectEqual(@as(usize, 0), hosts.find(&try Name.parse("n9"), null, &out));
 
     const line = "192.0.2.2 host\n";
     const too_many = line ** (core.limits.hosts_entries_max + 3);
@@ -154,6 +154,6 @@ test "the line at the bound is read, and the line after it is not" {
     const hosts = parse_text(text, &storage);
     try testing.expectEqual(@as(usize, 1), hosts.entries.len);
     var out: [1]Address = undefined;
-    try testing.expectEqual(@as(usize, 1), hosts.find(&try Name.from_text("at.limit"), null, &out));
-    try testing.expectEqual(@as(usize, 0), hosts.find(&try Name.from_text("past.limit"), null, &out));
+    try testing.expectEqual(@as(usize, 1), hosts.find(&try Name.parse("at.limit"), null, &out));
+    try testing.expectEqual(@as(usize, 0), hosts.find(&try Name.parse("past.limit"), null, &out));
 }

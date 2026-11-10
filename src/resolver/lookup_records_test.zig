@@ -25,7 +25,7 @@ test "a lookup for MX ends with the record kept and readable" {
     try testing.expectEqual(Kind.mx.code(), kept.kind_code);
     const mx = try wire.rdata.Mx.parse(kept.rdata);
     try testing.expectEqual(@as(u16, 10), mx.preference);
-    try testing.expect(mx.exchange.equal(&try Name.from_text("mail.example.com")));
+    try testing.expect(mx.exchange.equal(&try Name.parse("mail.example.com")));
     try testing.expectEqual(@as(u32, 300), done.ttl_seconds);
 }
 
@@ -50,7 +50,7 @@ test "a CNAME question is answered by the CNAME and follows nothing" {
     try testing.expectEqual(@as(u8, 1), done.record_count);
     try testing.expectEqual(@as(?*const Name, null), done.canonical_name);
     const target = try wire.rdata.name.whole(done.records.?.at(0).rdata);
-    try testing.expect(target.equal(&try Name.from_text("host.example.net")));
+    try testing.expect(target.equal(&try Name.parse("host.example.net")));
 }
 
 test "an address lookup has no records view, and a PTR lookup has names" {

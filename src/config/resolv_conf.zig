@@ -124,7 +124,7 @@ fn read_search(tokens: *Tokens, storage: *Storage) []const Name {
     while (read <= core.limits.search_max) : (read += 1) {
         const text = tokens.next() orelse break;
         if (count == core.limits.search_max) break;
-        const name = Name.from_text(text) catch continue;
+        const name = Name.parse(text) catch continue;
         storage.search[count] = name;
         count += 1;
     }
@@ -161,7 +161,7 @@ const Builder = struct {
     fn nameserver(self: *Builder, tokens: *Tokens) void {
         const text = tokens.next() orelse return;
         if (self.server_count == core.limits.servers_max) return;
-        const address = Address.from_text(text) orelse return;
+        const address = Address.parse(text) orelse return;
         self.storage.servers[self.server_count] = .{ .endpoint = .{ .address = address } };
         self.server_count += 1;
         assert(self.server_count <= core.limits.servers_max);
@@ -170,7 +170,7 @@ const Builder = struct {
     /// `domain NAME`: a search list of one. The last `search` or `domain` line in a file wins.
     fn domain(self: *Builder, tokens: *Tokens) void {
         const text = tokens.next() orelse return;
-        const name = Name.from_text(text) catch return;
+        const name = Name.parse(text) catch return;
         self.storage.search[0] = name;
         self.config.search = self.storage.search[0..1];
         assert(self.config.search.len == 1);
@@ -229,8 +229,8 @@ test "a search line becomes the search list, in order" {
     var storage: Storage = .{};
     const config = parse_text("search one.example two.example three.example\n", &storage);
     try testing.expectEqual(@as(usize, 3), config.search.len);
-    try testing.expect(config.search[0].equal(&try Name.from_text("one.example")));
-    try testing.expect(config.search[2].equal(&try Name.from_text("three.example")));
+    try testing.expect(config.search[0].equal(&try Name.parse("one.example")));
+    try testing.expect(config.search[2].equal(&try Name.parse("three.example")));
 }
 
 test "the last search or domain line wins" {
@@ -241,7 +241,7 @@ test "the last search or domain line wins" {
         \\
     , &storage);
     try testing.expectEqual(@as(usize, 1), config.search.len);
-    try testing.expect(config.search[0].equal(&try Name.from_text("last.example")));
+    try testing.expect(config.search[0].equal(&try Name.parse("last.example")));
 
     const other = parse_text(
         \\domain first.example
@@ -249,7 +249,7 @@ test "the last search or domain line wins" {
         \\
     , &storage);
     try testing.expectEqual(@as(usize, 2), other.search.len);
-    try testing.expect(other.search[0].equal(&try Name.from_text("one.example")));
+    try testing.expect(other.search[0].equal(&try Name.parse("one.example")));
 }
 
 test "options are read, and the ones cocuyo does not know are skipped" {
@@ -355,7 +355,7 @@ test "RES_OPTIONS applies over a configuration, and LOCALDOMAIN replaces its sea
     try testing.expect(config.use_tcp);
     apply_search("two.example three.example", &storage, &config);
     try testing.expectEqual(@as(usize, 2), config.search.len);
-    try testing.expect(config.search[1].equal(&try Name.from_text("three.example")));
+    try testing.expect(config.search[1].equal(&try Name.parse("three.example")));
     apply_search("", &storage, &config);
     try testing.expectEqual(@as(usize, 0), config.search.len);
 }
@@ -364,7 +364,7 @@ test "a file with carriage returns parses" {
     var storage: Storage = .{};
     const config = parse_text("nameserver 192.0.2.53\r\nsearch one.example\r\n", &storage);
     try testing.expectEqual(@as(usize, 1), config.servers.len);
-    try testing.expect(config.search[0].equal(&try Name.from_text("one.example")));
+    try testing.expect(config.search[0].equal(&try Name.parse("one.example")));
 }
 
 test "more servers than the limit are dropped, and the configuration says so" {
@@ -428,7 +428,7 @@ test "a malformed search entry is skipped and the rest are kept" {
     var storage: Storage = .{};
     const config = parse_text("search one.example a..b two.example\n", &storage);
     try testing.expectEqual(@as(usize, 2), config.search.len);
-    try testing.expect(config.search[1].equal(&try Name.from_text("two.example")));
+    try testing.expect(config.search[1].equal(&try Name.parse("two.example")));
 }
 
 test {

@@ -140,7 +140,7 @@ test "a truncated answer and the TCP answer after it are a sample each, TCP's fr
 }
 
 test "an answer over TLS is a sample, measured once the connection is up" {
-    const tls: core.Tls = .{ .name = try core.Name.from_text("dns.example.") };
+    const tls: core.Tls = .{ .name = try core.Name.parse("dns.example.") };
     const encrypted = [_]core.Server{
         .{ .endpoint = servers[0].endpoint, .tls = tls },
         .{ .endpoint = servers[1].endpoint, .tls = tls },
@@ -159,7 +159,7 @@ test "an answer over TLS is a sample, measured once the connection is up" {
 
 test "an answer to a DoH or DoQ request is a sample, and a failed request is none" {
     const https: core.Https = .{ .template = "https://dns.example/dns-query{?dns}" };
-    const quic: core.Tls = .{ .name = try core.Name.from_text("dns.example.") };
+    const quic: core.Tls = .{ .name = try core.Name.parse("dns.example.") };
     const over_https = [_]core.Server{ .{ .endpoint = servers[0].endpoint, .https = https }, .{ .endpoint = servers[1].endpoint, .https = https } };
     const over_quic = [_]core.Server{ .{ .endpoint = servers[0].endpoint, .quic = quic }, .{ .endpoint = servers[1].endpoint, .quic = quic } };
     for ([_][]const core.Server{ &over_https, &over_quic }) |list| {
@@ -252,7 +252,7 @@ test "a try that its reply marked is no sample, though a table built again holds
 }
 
 test "a try over TLS that ran out is a sample, and a connect that ran out is none" {
-    const tls: core.Tls = .{ .name = try core.Name.from_text("dns.example.") };
+    const tls: core.Tls = .{ .name = try core.Name.parse("dns.example.") };
     const encrypted = [_]core.Server{
         .{ .endpoint = servers[0].endpoint, .tls = tls },
         .{ .endpoint = servers[1].endpoint, .tls = tls },
@@ -280,7 +280,7 @@ test "a try over TLS whose send never ended runs out at its deadline, a failure 
     // The connection comes up, and the lookup hands out its query, whose send never ends. Since
     // 2026-10-24 the deadline ends `tcp_ready` too (docs/design.md §5, §16 decision 52). The server
     // counts a failure. No query went out whole, so no wait for an answer began: no sample.
-    const tls: core.Tls = .{ .name = try core.Name.from_text("dns.example.") };
+    const tls: core.Tls = .{ .name = try core.Name.parse("dns.example.") };
     const encrypted = [_]core.Server{
         .{ .endpoint = servers[0].endpoint, .tls = tls },
         .{ .endpoint = servers[1].endpoint, .tls = tls },
@@ -300,7 +300,7 @@ test "a try over TLS whose send never ended runs out at its deadline, a failure 
 
 test "a DoH or DoQ request that ran out is a sample as long as its wait" {
     const https: core.Https = .{ .template = "https://dns.example/dns-query{?dns}" };
-    const quic: core.Tls = .{ .name = try core.Name.from_text("dns.example.") };
+    const quic: core.Tls = .{ .name = try core.Name.parse("dns.example.") };
     const over_https = [_]core.Server{.{ .endpoint = servers[0].endpoint, .https = https }};
     const over_quic = [_]core.Server{.{ .endpoint = servers[0].endpoint, .quic = quic }};
     for ([_][]const core.Server{ &over_https, &over_quic }) |list| {

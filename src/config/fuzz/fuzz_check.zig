@@ -40,8 +40,8 @@ pub fn check(text: *const Text, scratch: *Scratch) ?[]const u8 {
 }
 
 fn check_address(text: *const Text) ?[]const u8 {
-    const parsed = core.Address.from_text(text.slice());
-    const again = core.Address.from_text(text.slice());
+    const parsed = core.Address.parse(text.slice());
+    const again = core.Address.parse(text.slice());
     if ((parsed == null) != (again == null)) return "an address reads the same twice";
     if (parsed) |address| {
         if (!address.equal(&again.?)) return "an address reads the same twice";
@@ -60,8 +60,8 @@ fn check_address(text: *const Text) ?[]const u8 {
 }
 
 fn check_name(text: *const Text) ?[]const u8 {
-    const parsed: ?core.Name = core.Name.from_text(text.slice()) catch null;
-    const again: ?core.Name = core.Name.from_text(text.slice()) catch null;
+    const parsed: ?core.Name = core.Name.parse(text.slice()) catch null;
+    const again: ?core.Name = core.Name.parse(text.slice()) catch null;
     if ((parsed == null) != (again == null)) return "a name reads the same twice";
     if (parsed) |name| {
         if (!std.mem.eql(u8, name.wire(), again.?.wire())) return "a name reads the same twice";
@@ -82,7 +82,7 @@ fn check_name(text: *const Text) ?[]const u8 {
 fn round_trip(name: *const core.Name) ?[]const u8 {
     var buffer: [core.limits.name_text_bytes_max]u8 = undefined;
     const written = name.write_text(&buffer);
-    const again = core.Name.from_text(buffer[0..written]) catch return "a name written out reads back";
+    const again = core.Name.parse(buffer[0..written]) catch return "a name written out reads back";
     if (!std.mem.eql(u8, again.wire(), name.wire())) return "a name written out reads back as itself";
     return null;
 }

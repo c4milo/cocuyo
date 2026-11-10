@@ -23,7 +23,7 @@ pub fn Fixture(comptime slot_count: usize) type {
 }
 
 pub fn question(text: []const u8) core.Question {
-    return core.Question.from_text(text, .a) catch unreachable;
+    return core.Question.parse(text, .a) catch unreachable;
 }
 
 /// One A record, `192.0.2.<last>` (RFC 5737), with the TTL given.

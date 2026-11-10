@@ -138,7 +138,7 @@ const Seen = struct { err: ?cocuyo.Error, cause: ?cocuyo.Cause = null };
 
 fn tiny_failure(seed: u64, text: []const u8) !Seen {
     var rig: sim_test.RigOf(Tiny) = .{};
-    const quic: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
+    const quic: cocuyo.Tls = .{ .name = try cocuyo.Name.parse("dns.example.") };
     for (&rig.servers) |*server| server.quic = quic;
     const bare: rotor.server.Script = .{ .cookies = false };
     try rig.init(seed, .{ bare, bare }, .{ .servers = &.{}, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns, .failover_retry_chance = 0 });
@@ -176,7 +176,7 @@ test "a connection that cannot open again for the requests that waited gives loc
     // socket of the next one. No server took part (docs/design.md §5, The cause of a failure). One
     // server and one pass, so that this failure is the last.
     var rig: sim_test.RigOfServers(@FieldType(Rig, "engine"), 1) = .{};
-    rig.servers[0].quic = .{ .name = try cocuyo.Name.from_text("dns.example.") };
+    rig.servers[0].quic = .{ .name = try cocuyo.Name.parse("dns.example.") };
     try rig.init(83, .{.{}}, .{ .servers = &.{}, .attempts = 1, .timeout_ns = fixtures.stream_timeout_ns, .timeout_ns_max = fixtures.stream_timeout_ns });
     rig.use_test_contexts();
     _ = try rig.engine.start(&question("one.example."), rig.loop.now());

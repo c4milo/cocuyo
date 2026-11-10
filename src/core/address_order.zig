@@ -267,7 +267,7 @@ const testing = std.testing;
 const fixtures = @import("fixtures.zig");
 
 fn addr(text: []const u8) Address {
-    return Address.from_text(text) orelse unreachable;
+    return Address.parse(text) orelse unreachable;
 }
 
 fn via(text: []const u8) Route {

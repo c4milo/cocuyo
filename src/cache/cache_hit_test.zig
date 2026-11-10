@@ -33,7 +33,7 @@ test "a put is a hit whatever the case, and a miss for another type, name or abs
     // The name comes back folded, whatever case it was put or asked in.
     try testing.expectEqualSlices(u8, ask("example.com").name.wire(), hit.name.wire());
 
-    const aaaa = try Question.from_text("example.com", .aaaa);
+    const aaaa = try Question.parse("example.com", .aaaa);
     try testing.expect(table.get(&aaaa, 0) == null);
     try testing.expect(table.get(&ask("example.org"), 0) == null);
     var absolute = asked;

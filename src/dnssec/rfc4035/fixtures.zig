@@ -26,16 +26,16 @@ pub const Setup = struct {
     scratch: Scratch = .{},
 
     pub fn init(self: *Setup) void {
-        self.anchors = .{.{ .zone = Name.from_text("example") catch unreachable, .kind = .dnskey, .rdata = &ksk }};
+        self.anchors = .{.{ .zone = Name.parse("example") catch unreachable, .kind = .dnskey, .rdata = &ksk }};
         self.store = store_module.Store.init(&self.entries, &self.anchors);
         self.store.set_clock(.{ .unix_seconds = now_seconds, .monotonic_ns = 0 });
-        const held = self.store.put(&(Name.from_text("example") catch unreachable), .keys, &.{ &zsk, &ksk }, std.math.maxInt(u64));
+        const held = self.store.put(&(Name.parse("example") catch unreachable), .keys, &.{ &zsk, &ksk }, std.math.maxInt(u64));
         std.debug.assert(held);
     }
 
     pub fn validate(self: *Setup, asked: []const u8, kind: core.Kind, bytes: []const u8) validating.Validation {
         const validator: validating.Validator = .{ .store = &self.store, .verifier = self.sums.verifier(), .hasher = self.hashes.hasher(), .scratch = &self.scratch };
-        return validator.validate(&(Name.from_text(asked) catch unreachable), kind, bytes, 0);
+        return validator.validate(&(Name.parse(asked) catch unreachable), kind, bytes, 0);
     }
 };
 
@@ -201,7 +201,7 @@ pub fn ds_at_child() Builder {
 /// The answers a walk reads (docs/design.md §25 step 12). `a.example` is a signed child, with
 /// `example`'s two keys as its own and a DS of SHA-256 for its key-signing key.
 pub fn child_ds() [12]u8 {
-    return fixtures.ds_of(&(Name.from_text("a.example") catch unreachable), &ksk, 5, 2);
+    return fixtures.ds_of(&(Name.parse("a.example") catch unreachable), &ksk, 5, 2);
 }
 
 /// A response to `a.example DS`: the set `ds` holds, signed by `example`.

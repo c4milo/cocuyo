@@ -277,7 +277,7 @@ fn remember_in_cache(
 test "a failure the cache holds comes back as failed, with its error" {
     var rig: CacheRig = .{};
     rig.open();
-    const question = try Question.from_text("down.example", .a);
+    const question = try Question.parse("down.example", .a);
     rig.store.put_failure(&question, Error.AllServersFailed, 0);
     const memory = remembered_by(&rig.store);
     try testing.expectEqual(Error.AllServersFailed, memory.recall(memory.context, &question, 0).?.failed);
@@ -287,7 +287,7 @@ test "a failure written through the memory is kept for the cache's minimum, and 
     var rig: CacheRig = .{};
     rig.open();
     const memory = remembered_by(&rig.store);
-    const question = try Question.from_text("down.example", .a);
+    const question = try Question.parse("down.example", .a);
     memory.remember(memory.context, &question, .{ .failed = Error.Timeout }, 0);
     const hit = rig.store.get(&question, 0).?;
     try testing.expectEqual(cache_module.Outcome.failed, hit.outcome);
@@ -311,7 +311,7 @@ test "a failure in the cache ends a table's lookup at its first poll, and nothin
     // entries expire" (RFC 9520 §3.2).
     var rig: CacheRig = .{};
     rig.open();
-    const question = try Question.from_text("down.example.", .a);
+    const question = try Question.parse("down.example.", .a);
     rig.store.put_failure(&question, Error.AllServersFailed, 0);
     var slots: [1]Slot = @splat(.{});
     var keys: [Resolver.keys_for(1)]MatchKey = @splat(.{});
@@ -369,7 +369,7 @@ test "an answer put through the memory comes back with what is left of its life"
     var rig: CacheRig = .{};
     rig.open();
     const memory = remembered_by(&rig.store);
-    const question = try Question.from_text("example.com.", .a);
+    const question = try Question.parse("example.com.", .a);
     const answers = one_address(remembered_ttl_seconds);
 
     memory.remember(memory.context, &question, .{ .answered = .{
@@ -392,8 +392,8 @@ test "each negative of RFC 2308 goes in and comes back as itself" {
     var rig: CacheRig = .{};
     rig.open();
     const memory = remembered_by(&rig.store);
-    const missing = try Question.from_text("nothing.example.", .a);
-    const empty = try Question.from_text("empty.example.", .a);
+    const missing = try Question.parse("nothing.example.", .a);
+    const empty = try Question.parse("empty.example.", .a);
 
     memory.remember(memory.context, &missing, .{ .negative = .{
         .outcome = .name_not_found,
@@ -418,7 +418,7 @@ test "what the memory has nothing for, and what has expired, is a miss" {
     var rig: CacheRig = .{};
     rig.open();
     const memory = remembered_by(&rig.store);
-    const question = try Question.from_text("example.com.", .a);
+    const question = try Question.parse("example.com.", .a);
     try testing.expectEqual(@as(?Remembered, null), memory.recall(memory.context, &question, 0));
 
     const answers = one_address(remembered_ttl_seconds);
@@ -436,10 +436,10 @@ test "the chain's end goes through the memory and comes back as it went in" {
     var rig: CacheRig = .{};
     rig.open();
     const memory = remembered_by(&rig.store);
-    const aliased = try Question.from_text("www.example.", .a);
-    const plain = try Question.from_text("plain.example.", .a);
+    const aliased = try Question.parse("www.example.", .a);
+    const plain = try Question.parse("plain.example.", .a);
     const answers = one_address(remembered_ttl_seconds);
-    const target = try Name.from_text("edge.cdn.example");
+    const target = try Name.parse("edge.cdn.example");
 
     memory.remember(memory.context, &aliased, .{ .answered = .{
         .answers = &answers,
@@ -470,7 +470,7 @@ test "a hit through the table hands each record back less the time it spent in t
     var rig: CacheRig = .{};
     rig.store = Cache.init(&rig.slots, &rig.keys, 0, capped_ttl_seconds);
     const memory = remembered_by(&rig.store);
-    const question = try Question.from_text("example.com.", .mx);
+    const question = try Question.parse("example.com.", .mx);
     var chain = question.name;
     var answers = wire.Answers.init(.mx);
     _ = try wire.response.collect(&wire.fixtures.answer_mx, &chain, .mx, 0, null, &answers);

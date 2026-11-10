@@ -12,16 +12,16 @@ pub const Place = struct { address: cocuyo.Address, port: ?u16 };
 pub fn place_of(text: []const u8) !Place {
     if (std.mem.startsWith(u8, text, "[")) {
         const close = std.mem.indexOfScalar(u8, text, ']') orelse return error.BadAddress;
-        const address = cocuyo.Address.from_text(text[1..close]) orelse return error.BadAddress;
+        const address = cocuyo.Address.parse(text[1..close]) orelse return error.BadAddress;
         if (address.family != .ipv6) return error.BadAddress;
         const rest = text[close + 1 ..];
         if (rest.len == 0) return .{ .address = address, .port = null };
         if (rest[0] != ':') return error.BadAddress;
         return .{ .address = address, .port = try std.fmt.parseInt(u16, rest[1..], 10) };
     }
-    if (cocuyo.Address.from_text(text)) |address| return .{ .address = address, .port = null };
+    if (cocuyo.Address.parse(text)) |address| return .{ .address = address, .port = null };
     const colon = std.mem.lastIndexOfScalar(u8, text, ':') orelse return error.BadAddress;
-    const address = cocuyo.Address.from_text(text[0..colon]) orelse return error.BadAddress;
+    const address = cocuyo.Address.parse(text[0..colon]) orelse return error.BadAddress;
     // An IPv6 address and a port with no brackets would have parsed whole above, or is ambiguous.
     if (address.family != .ipv4) return error.BadAddress;
     return .{ .address = address, .port = try std.fmt.parseInt(u16, text[colon + 1 ..], 10) };

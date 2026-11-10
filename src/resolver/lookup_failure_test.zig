@@ -74,7 +74,7 @@ test "FORMERR to a query without EDNS0 is the cause, and FORMERR to one with it 
 }
 
 /// A TLS server, for the one reason that a stream gives over TLS alone.
-const servers_tls = [_]core.Server{.{ .endpoint = fixtures.servers_one[0].endpoint, .tls = .{ .name = core.Name.from_text("dns.example.") catch unreachable } }};
+const servers_tls = [_]core.Server{.{ .endpoint = fixtures.servers_one[0].endpoint, .tls = .{ .name = core.Name.parse("dns.example.") catch unreachable } }};
 
 test "a connection that fails keeps the reason given: what failed before it is up, and closed after" {
     // A caller that owns its sockets passes the reason too (docs/design.md §5, The cause of a

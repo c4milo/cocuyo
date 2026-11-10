@@ -101,7 +101,7 @@ pub fn begin(self: anytype, transport: Transport) !void {
             .address = cocuyo.Address.from_v4(address.bytes[0..cocuyo.constants.address_v4_bytes].*),
             .port = address.port,
         } };
-        const name = cocuyo.Name.from_text("dns.example.") catch unreachable;
+        const name = cocuyo.Name.parse("dns.example.") catch unreachable;
         if (transport.tls) server.tls = .{ .name = name };
         if (transport.request and !transport.channel) server.quic = .{ .name = name };
         if (transport.channel) server.https = .{ .template = template };
@@ -229,7 +229,7 @@ fn start(self: anytype) Error!void {
     var text: [32]u8 = undefined;
     const name = std.fmt.bufPrint(&text, "n{d}.test.", .{self.names}) catch unreachable;
     self.names += 1;
-    const question = cocuyo.Question.from_text(name, .a) catch unreachable;
+    const question = cocuyo.Question.parse(name, .a) catch unreachable;
     _ = self.engine.start(&question, self.now_ns) catch return error.Full;
 }
 

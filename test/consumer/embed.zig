@@ -98,7 +98,7 @@ pub fn main() !void {
     };
     var handles: [1]rotor.Handle = undefined;
     _ = loop.submit(&.{own}, &handles);
-    _ = try resolver.start(&try cocuyo.Question.from_text("example.com.", .a), now_ns);
+    _ = try resolver.start(&try cocuyo.Question.parse("example.com.", .a), now_ns);
 
     var events: [events_max]rotor.Event = undefined;
     const count = try loop.tick(&events, 0);

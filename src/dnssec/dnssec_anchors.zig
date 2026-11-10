@@ -55,7 +55,7 @@ fn owner_name(word: []const u8) Error!Name {
     if (word[0] == constants.control_mark) return Error.MalformedAnchor;
     // "A relative name is an error when no origin is available" (RFC 1035 §5.1).
     if (word[word.len - 1] != constants.label_separator) return Error.MalformedAnchor;
-    return Name.from_text(word) catch Error.MalformedAnchor;
+    return Name.parse(word) catch Error.MalformedAnchor;
 }
 
 /// One record after its owner: "[<TTL>] [<class>] <type> <RDATA>" or "[<class>] [<TTL>] <type>

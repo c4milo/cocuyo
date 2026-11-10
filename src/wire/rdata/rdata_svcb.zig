@@ -130,7 +130,7 @@ fn params_of(rdata: []const u8) !Params {
 test "AliasMode is priority zero, a target and no parameters (D.1)" {
     const svcb = try Svcb.parse(&fixtures.svcb_alias);
     try testing.expectEqual(@as(u16, 0), svcb.priority);
-    try testing.expect(svcb.target.equal(&try Name.from_text("foo.example.com")));
+    try testing.expect(svcb.target.equal(&try Name.parse("foo.example.com")));
     var params = svcb.params();
     try testing.expectEqual(@as(?Param, null), try params.next());
 }

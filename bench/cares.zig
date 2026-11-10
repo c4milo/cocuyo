@@ -173,7 +173,7 @@ test "c-ares writes the same query bytes cocuyo does" {
     var ours: [cocuyo.limits.query_bytes_max]u8 = undefined;
     const ours_len = wire.query.write(&.{
         .id = fixtures.id,
-        .name = try cocuyo.Name.from_text(query_name),
+        .name = try cocuyo.Name.parse(query_name),
         .kind = .a,
     }, &ours);
     const record = build_query_record();

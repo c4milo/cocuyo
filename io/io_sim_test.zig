@@ -157,7 +157,7 @@ pub fn endpoint_of(address: rotor.Address) cocuyo.Endpoint {
 }
 
 pub fn question(text: []const u8) cocuyo.Question {
-    return cocuyo.Question.from_text(text, .a) catch unreachable;
+    return cocuyo.Question.parse(text, .a) catch unreachable;
 }
 
 /// Steps until the connection in the first slot is up and its queue has gone out. Then every

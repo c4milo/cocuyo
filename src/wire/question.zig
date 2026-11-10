@@ -159,7 +159,7 @@ const testing = std.testing;
 const query_message = @import("fixtures.zig").query_a;
 
 test "a question section writes the name, the type and class IN" {
-    const name = try Name.from_text("example.com");
+    const name = try Name.parse("example.com");
     var out: [core.limits.query_bytes_max]u8 = @splat(0);
     const written = write(&name, .a, &out);
     try testing.expectEqual(section_bytes(&name), written);
@@ -167,13 +167,13 @@ test "a question section writes the name, the type and class IN" {
 }
 
 test "matches accepts the question that was asked" {
-    const name = try Name.from_text("example.com");
+    const name = try Name.parse("example.com");
     try testing.expect(matches(&query_message, &name, .a));
 }
 
 test "matches refuses a different name, type or case" {
-    const name = try Name.from_text("example.com");
-    try testing.expect(!matches(&query_message, &try Name.from_text("example.net"), .a));
+    const name = try Name.parse("example.com");
+    try testing.expect(!matches(&query_message, &try Name.parse("example.net"), .a));
     try testing.expect(!matches(&query_message, &name, .aaaa));
 
     // The same name with one letter's case flipped: this is the DNS-0x20 check.
@@ -184,7 +184,7 @@ test "matches refuses a different name, type or case" {
 }
 
 test "matches_lowercase takes the name asked with every letter small, and nothing else" {
-    var mixed = try Name.from_text("example.com");
+    var mixed = try Name.parse("example.com");
     mixed.bytes[1] = 'E';
     mixed.bytes[9] = 'C';
     // The question asked was mixed and the echo is lowercase: equal but for the case.
@@ -198,8 +198,8 @@ test "matches_lowercase takes the name asked with every letter small, and nothin
     var other_case = query_message;
     other_case[core.constants.header_bytes + 2] = 'X';
     try testing.expect(!matches_lowercase(&other_case, &mixed, .a));
-    const other_label = try Name.from_text("example.net");
-    const other_letter = try Name.from_text("examplf.com");
+    const other_label = try Name.parse("example.net");
+    const other_letter = try Name.parse("examplf.com");
     try testing.expect(!matches_lowercase(&query_message, &other_label, .a));
     try testing.expect(!matches_lowercase(&query_message, &other_letter, .a));
     try testing.expect(!matches_lowercase(&query_message, &mixed, .aaaa));
@@ -222,7 +222,7 @@ fn with_name(name: *const Name) [query_message.len]u8 {
 const query_name_bytes = "\x07example\x03com\x00".len;
 
 test "matches_mixed takes the question a mixed query asked, and refuses what matches refuses" {
-    const held = try Name.from_text("example.com");
+    const held = try Name.parse("example.com");
     const entropy = 0x0123456789abcdef;
     var cased = held;
     name_codec.mix_case(&cased, entropy);
@@ -238,21 +238,21 @@ test "matches_mixed takes the question a mixed query asked, and refuses what mat
     try testing.expect(!matches_mixed(&chaos, &held, .a, entropy));
     try testing.expect(!matches_mixed(asked[0 .. asked.len - 1], &held, .a, entropy));
     // A name of another length: the echo is read for the name's octets alone.
-    try testing.expect(!matches_mixed(&asked, &try Name.from_text("example.co"), .a, entropy));
+    try testing.expect(!matches_mixed(&asked, &try Name.parse("example.co"), .a, entropy));
 }
 
 test "the lowercase compare reads the same against the name as held, mixed and folded" {
     // A response is held to `matches_lowercase` over the name as held: by `case_change` for the
     // name a mixed query sent, and by check 5 for a server asked in lowercase, which compares
     // with the folded name byte for byte (docs/design.md §7).
-    const held = try Name.from_text("Example.COM");
+    const held = try Name.parse("Example.COM");
     var cased = held;
     name_codec.mix_case(&cased, 0x0123456789abcdef);
     var folded = held;
     folded.fold_case();
     var upper = folded;
     for (upper.bytes[0..upper.len]) |*octet| octet.* = std.ascii.toUpper(octet.*);
-    for ([_]Name{ held, cased, folded, upper, try Name.from_text("example.net") }) |echo| {
+    for ([_]Name{ held, cased, folded, upper, try Name.parse("example.net") }) |echo| {
         const message = with_name(&echo);
         const lowercase = matches_lowercase(&message, &held, .a);
         try testing.expectEqual(lowercase, matches_lowercase(&message, &cased, .a));
@@ -316,7 +316,7 @@ test "a question of a name of 242 octets or more matches itself, its class past 
 
 test "a question of the most labels a name holds is written, read back and matched" {
     // 127 labels of one letter are 254 octets, and the root's makes 255 (RFC 1035 §2.3.4).
-    const most = try Name.from_text("a." ** 126 ++ "a");
+    const most = try Name.parse("a." ** 126 ++ "a");
     try testing.expectEqual(@as(usize, core.limits.name_bytes_max), most.len);
     var buffer: [long_message_bytes]u8 = undefined;
     const message = question_message(&most, &buffer);
@@ -369,13 +369,13 @@ test "matches_mixed takes a question of a name of 241 octets or more, read in pl
         try expect_mixed_in_place(&held, entropy);
     }
     // The most labels a name holds: a length octet between every two of its 127 letters.
-    const most = try Name.from_text("a." ** 126 ++ "a");
+    const most = try Name.parse("a." ** 126 ++ "a");
     try testing.expectEqual(@as(usize, core.limits.name_bytes_max), most.len);
     try expect_mixed_in_place(&most, entropy);
 }
 
 test "matches refuses a message too short to hold the question" {
-    const name = try Name.from_text("example.com");
+    const name = try Name.parse("example.com");
     try testing.expect(!matches(query_message[0 .. query_message.len - 1], &name, .a));
     try testing.expect(!matches(query_message[0..core.constants.header_bytes], &name, .a));
 }
@@ -383,7 +383,7 @@ test "matches refuses a message too short to hold the question" {
 test "parse reads the question a message carries" {
     var name: Name = Name.empty;
     const parsed = try parse(&query_message, &name);
-    try testing.expect(name.equal(&try Name.from_text("example.com")));
+    try testing.expect(name.equal(&try Name.parse("example.com")));
     try testing.expectEqual(@as(u16, 1), parsed.kind_code);
     try testing.expectEqual(@as(u16, 1), parsed.class);
     try testing.expectEqual(query_message.len, parsed.end);

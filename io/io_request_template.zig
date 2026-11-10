@@ -62,7 +62,7 @@ fn host_of(host: []const u8) ?[]const u8 {
     // "If host matches the rule for IPv4address, then it should be considered an IPv4 address
     // literal and not a reg-name" (RFC 3986 §3.2.2). The session checks a name, not an address.
     if (is_ipv4(host)) return null;
-    _ = cocuyo.Name.from_text(host) catch return null;
+    _ = cocuyo.Name.parse(host) catch return null;
     return host;
 }
 

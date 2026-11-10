@@ -244,7 +244,7 @@ test "records of another shape than the proof's are bogus" {
         _ = harness.send();
         _ = harness.respond(case.reply, servers[0].endpoint);
         try testing.expectEqual(State.tcp_needed, harness.lookup.state);
-        try testing.expect(harness.lookup.current.equal(&try Name.from_text("example.com.")));
+        try testing.expect(harness.lookup.current.equal(&try Name.parse("example.com.")));
         // A CNAME the lookup did not take leaves no link (docs/design.md §5).
         try testing.expectEqual(@as(u8, 0), harness.lookup.aliases.count);
     }
@@ -317,7 +317,7 @@ test "a new name, a CNAME's target or the next candidate, waits for keys afresh"
     _ = harness.respond(fixtures.cname_only, servers[0].endpoint);
     try testing.expectEqual(@as(u8, 0), harness.lookup.conjunctions.key_asks);
     try wait_and_ready(&harness);
-    const search = [_]Name{try Name.from_text("one.net")};
+    const search = [_]Name{try Name.parse("one.net")};
     var walking: fixtures.Harness = .{ .config = .{ .servers = &servers, .search = &search, .ndots = 1 } };
     var proofs: Scripted = .{ .verdicts = &.{ keys_wanted, keys_wanted, secure(.name_error, 300), keys_wanted } };
     try start_validating(&walking, &proofs, "host.example", .a);
@@ -325,7 +325,7 @@ test "a new name, a CNAME's target or the next candidate, waits for keys afresh"
     try wait_and_ready(&walking);
     _ = walking.send();
     _ = walking.respond(fixtures.name_error_soa, servers[0].endpoint);
-    try testing.expect(walking.lookup.current.equal(&try Name.from_text("host.example.one.net")));
+    try testing.expect(walking.lookup.current.equal(&try Name.parse("host.example.one.net")));
     try testing.expectEqual(@as(u8, 0), walking.lookup.conjunctions.key_asks);
     try wait_and_ready(&walking);
 }

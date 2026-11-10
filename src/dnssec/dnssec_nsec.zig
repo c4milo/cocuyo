@@ -182,14 +182,14 @@ const appendix_a = @import("fixtures.zig");
 
 test "RFC 4035 B.2: ml.example does not exist, and no wildcard at example answers for it" {
     const records = [_]Record{ try appendix_a.record("b.example", "ns1.example", &appendix_a.ns), try appendix_a.record("example", "a.example", &appendix_a.apex) };
-    try testing.expectEqual(Denial.name_error, deny(&try Name.from_text("ml.example"), .a, &records));
+    try testing.expectEqual(Denial.name_error, deny(&try Name.parse("ml.example"), .a, &records));
     // Without the record that covers *.example, a wildcard could have answered.
-    try testing.expectEqual(Denial.none, deny(&try Name.from_text("ml.example"), .a, records[0..1]));
+    try testing.expectEqual(Denial.none, deny(&try Name.parse("ml.example"), .a, records[0..1]));
 }
 
 test "RFC 4035 B.3: ns1.example holds no MX, and a type its map sets is not denied" {
     const records = [_]Record{try appendix_a.record("ns1.example", "ns2.example", &appendix_a.address)};
-    const ns1 = try Name.from_text("ns1.example");
+    const ns1 = try Name.parse("ns1.example");
     try testing.expectEqual(Denial.no_data, deny(&ns1, .mx, &records));
     try testing.expectEqual(Denial.none, deny(&ns1, .a, &records));
     try testing.expectEqual(Denial.none, deny(&ns1, .nsec, &records));
@@ -200,12 +200,12 @@ test "RFC 4035 B.3: ns1.example holds no MX, and a type its map sets is not deni
 test "a record with the CNAME bit set denies no type at its owner" {
     // RFC 6840 §4.3: a CNAME stripped from the answer would otherwise read as no data.
     const records = [_]Record{try appendix_a.record("ns1.example", "ns2.example", &appendix_a.alias)};
-    try testing.expectEqual(Denial.none, deny(&try Name.from_text("ns1.example"), .mx, &records));
+    try testing.expectEqual(Denial.none, deny(&try Name.parse("ns1.example"), .mx, &records));
 }
 
 test "RFC 4035 B.6: the record that covers a.z.w.example shows the wildcard's encloser w.example" {
     const records = [_]Record{try appendix_a.record("x.y.w.example", "xx.example", &appendix_a.mail)};
-    const asked = try Name.from_text("a.z.w.example");
+    const asked = try Name.parse("a.z.w.example");
     try testing.expect(wildcard_answer(&asked, 2, &records));
     // Labels 1 claims *.example, and the record shows w.example exists, a closer encloser.
     try testing.expect(!wildcard_answer(&asked, 1, &records));
@@ -214,7 +214,7 @@ test "RFC 4035 B.6: the record that covers a.z.w.example shows the wildcard's en
 
 test "RFC 4035 B.7: a.z.w.example matches *.w.example, which holds no AAAA" {
     const records = [_]Record{ try appendix_a.record("x.y.w.example", "xx.example", &appendix_a.mail), try appendix_a.record("*.w.example", "x.w.example", &appendix_a.mail) };
-    const asked = try Name.from_text("a.z.w.example");
+    const asked = try Name.parse("a.z.w.example");
     try testing.expectEqual(Denial.no_data, deny(&asked, .aaaa, &records));
     try testing.expectEqual(Denial.none, deny(&asked, .mx, &records));
     try testing.expectEqual(Denial.none, deny(&asked, .aaaa, records[0..1]));
@@ -222,86 +222,86 @@ test "RFC 4035 B.7: a.z.w.example matches *.w.example, which holds no AAAA" {
 
 test "RFC 4035 B.8: the child's apex record says nothing of a DS" {
     const records = [_]Record{try appendix_a.record("example", "a.example", &appendix_a.apex)};
-    try testing.expectEqual(Denial.none, deny(&try Name.from_text("example"), .ds, &records));
+    try testing.expectEqual(Denial.none, deny(&try Name.parse("example"), .ds, &records));
 }
 
 test "RFC 4035 B.5: b.example is an unsigned delegation, and its record denies nothing below it" {
     const records = [_]Record{try appendix_a.record("b.example", "ns1.example", &appendix_a.ns)};
-    const cut = try Name.from_text("b.example");
+    const cut = try Name.parse("b.example");
     try testing.expect(unsigned_delegation(&cut, &records));
     try testing.expectEqual(Denial.no_data, deny(&cut, .ds, &records));
     // RFC 6840 §4.1: neither a type at the cut but DS, nor a name below it.
     try testing.expectEqual(Denial.none, deny(&cut, .mx, &records));
-    try testing.expectEqual(Denial.none, deny(&try Name.from_text("mc.b.example"), .mx, &records));
+    try testing.expectEqual(Denial.none, deny(&try Name.parse("mc.b.example"), .mx, &records));
     // a.example's record sets DS, and the apex's sets SOA: neither is an unsigned delegation.
     const signed = [_]Record{try appendix_a.record("a.example", "ai.example", &appendix_a.secure_cut)};
-    try testing.expect(!unsigned_delegation(&try Name.from_text("a.example"), &signed));
+    try testing.expect(!unsigned_delegation(&try Name.parse("a.example"), &signed));
     const apex = [_]Record{try appendix_a.record("example", "a.example", &appendix_a.apex)};
-    try testing.expect(!unsigned_delegation(&try Name.from_text("example"), &apex));
+    try testing.expect(!unsigned_delegation(&try Name.parse("example"), &apex));
     const host = [_]Record{try appendix_a.record("ns1.example", "ns2.example", &appendix_a.address)};
-    try testing.expect(!unsigned_delegation(&try Name.from_text("ns1.example"), &host));
+    try testing.expect(!unsigned_delegation(&try Name.parse("ns1.example"), &host));
 }
 
 test "an empty non-terminal holds no data, as w.example and y.w.example do in RFC 4035 Appendix A" {
     const records = [_]Record{ try appendix_a.record("ns2.example", "*.w.example", &appendix_a.address), try appendix_a.record("x.w.example", "x.y.w.example", &appendix_a.mail) };
-    try testing.expectEqual(Denial.no_data, deny(&try Name.from_text("w.example"), .a, &records));
-    try testing.expectEqual(Denial.no_data, deny(&try Name.from_text("y.w.example"), .mx, &records));
+    try testing.expectEqual(Denial.no_data, deny(&try Name.parse("w.example"), .a, &records));
+    try testing.expectEqual(Denial.no_data, deny(&try Name.parse("y.w.example"), .mx, &records));
 }
 
 test "the zone's last record wraps to the apex and covers what sorts after it" {
     const records = [_]Record{ try appendix_a.record("xx.example", "example", &appendix_a.everything), try appendix_a.record("example", "a.example", &appendix_a.apex) };
-    try testing.expectEqual(Denial.name_error, deny(&try Name.from_text("zz.example"), .a, &records));
+    try testing.expectEqual(Denial.name_error, deny(&try Name.parse("zz.example"), .a, &records));
 }
 
 test "a record with the DNAME bit set denies no name below its owner" {
     // RFC 6840 §4.1. b.example covers mc.b.example in order, and a DNAME there redirects it.
     const records = [_]Record{ try appendix_a.record("b.example", "ns1.example", &appendix_a.redirect), try appendix_a.record("example", "a.example", &appendix_a.apex) };
-    try testing.expectEqual(Denial.none, deny(&try Name.from_text("mc.b.example"), .a, &records));
+    try testing.expectEqual(Denial.none, deny(&try Name.parse("mc.b.example"), .a, &records));
 }
 
 test "a record signed as a wildcard expansion, or outside the zone asked, proves nothing" {
     var expanded = try appendix_a.record("ns1.example", "ns2.example", &appendix_a.address);
     expanded.labels = 1;
-    try testing.expectEqual(Denial.none, deny(&try Name.from_text("ns1.example"), .mx, &.{expanded}));
+    try testing.expectEqual(Denial.none, deny(&try Name.parse("ns1.example"), .mx, &.{expanded}));
     var other_zone = try appendix_a.record("ns1.example", "ns2.example", &appendix_a.address);
-    other_zone.signer = try Name.from_text("other");
-    try testing.expectEqual(Denial.none, deny(&try Name.from_text("ns1.example"), .mx, &.{other_zone}));
+    other_zone.signer = try Name.parse("other");
+    try testing.expectEqual(Denial.none, deny(&try Name.parse("ns1.example"), .mx, &.{other_zone}));
     // The zone is example, and the name asked is under another, which the last record's span
     // would wrap over.
     const records = [_]Record{try appendix_a.record("xx.example", "example", &appendix_a.everything)};
-    try testing.expectEqual(Denial.none, deny(&try Name.from_text("www.other"), .a, &records));
+    try testing.expectEqual(Denial.none, deny(&try Name.parse("www.other"), .a, &records));
 }
 
 test "a compact denial's NXNAME says the name does not exist, under NOERROR" {
     // RFC 9824 §3.1: "a.example.com. 300 IN NSEC \000.a.example.com. RRSIG NSEC NXNAME".
     var record = try appendix_a.record("a.example", "a.example", &appendix_a.compact);
     record.nsec.next = try appendix_a.epsilon("a.example");
-    try testing.expectEqual(Denial.name_error, deny(&try Name.from_text("a.example"), .aaaa, &.{record}));
+    try testing.expectEqual(Denial.name_error, deny(&try Name.parse("a.example"), .aaaa, &.{record}));
     // The same record without NXNAME is an empty non-terminal (§3.2).
     var empty = record;
     empty.nsec.types = try wire.rdata.TypeBitmaps.parse(&appendix_a.nothing);
-    try testing.expectEqual(Denial.no_data, deny(&try Name.from_text("a.example"), .aaaa, &.{empty}));
+    try testing.expectEqual(Denial.no_data, deny(&try Name.parse("a.example"), .aaaa, &.{empty}));
 }
 
 test "a record whose owner is outside its signer's zone covers nothing" {
     // "other" sorts after every name under example, so its span would wrap over ml.example.
     var outside = try appendix_a.record("other", "zz.example", &appendix_a.address);
-    outside.signer = try Name.from_text("example");
+    outside.signer = try Name.parse("example");
     const records = [_]Record{ outside, try appendix_a.record("example", "a.example", &appendix_a.apex) };
-    try testing.expectEqual(Denial.none, deny(&try Name.from_text("ml.example"), .a, &records));
+    try testing.expectEqual(Denial.none, deny(&try Name.parse("ml.example"), .a, &records));
 }
 
 test "a record at its signer's own name is no delegation, with the SOA bit clear or not" {
     // RFC 6840 §4.1 asks for "a signer field that is shorter than the owner name".
     const records = [_]Record{try appendix_a.record("example", "a.example", &appendix_a.ns)};
-    try testing.expectEqual(Denial.no_data, deny(&try Name.from_text("example"), .mx, &records));
+    try testing.expectEqual(Denial.no_data, deny(&try Name.parse("example"), .mx, &records));
 }
 
 test "the closest encloser is the deeper of what the owner and the next name show" {
     // a.y.w.example falls between x.w.example and x.y.w.example: its closest encloser is the
     // empty non-terminal y.w.example, which the next name shows, and *.y.w.example is covered.
     const records = [_]Record{ try appendix_a.record("x.w.example", "x.y.w.example", &appendix_a.mail), try appendix_a.record("*.w.example", "x.w.example", &appendix_a.mail) };
-    try testing.expectEqual(Denial.name_error, deny(&try Name.from_text("a.y.w.example"), .a, &records));
+    try testing.expectEqual(Denial.name_error, deny(&try Name.parse("a.y.w.example"), .a, &records));
     // a.x.w.example falls in the same span, and its closest encloser x.w.example is the owner.
-    try testing.expectEqual(Denial.name_error, deny(&try Name.from_text("a.x.w.example"), .a, &records));
+    try testing.expectEqual(Denial.name_error, deny(&try Name.parse("a.x.w.example"), .a, &records));
 }

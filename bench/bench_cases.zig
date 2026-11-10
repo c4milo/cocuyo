@@ -78,9 +78,9 @@ var query_max: wire.Query = undefined;
 var query_out: [cocuyo.limits.query_bytes_max]u8 = undefined;
 
 pub fn setup_queries() void {
-    query = .{ .id = fixtures.id, .name = Name.from_text("example.com") catch unreachable, .kind = .a };
+    query = .{ .id = fixtures.id, .name = Name.parse("example.com") catch unreachable, .kind = .a };
     const long = "a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63 ++ "." ++ "d" ** 61;
-    query_max = .{ .id = fixtures.id, .name = Name.from_text(long) catch unreachable, .kind = .a, .tcp = true };
+    query_max = .{ .id = fixtures.id, .name = Name.parse(long) catch unreachable, .kind = .a, .tcp = true };
     assert(query_max.name.len == core.limits.name_bytes_max);
 }
 
@@ -108,7 +108,7 @@ pub fn setup_messages() void {
     message_one = fixtures.answer_a;
     message_cname = fixtures.answer_cname_then_a;
     message_sixteen = fixtures.answer_a_seventeen;
-    question_name = Name.from_text("example.com") catch unreachable;
+    question_name = Name.parse("example.com") catch unreachable;
     chain = question_name;
 }
 
@@ -200,7 +200,7 @@ fn setup_table(count: usize) void {
     const armed = resolver.lookup_of(first);
     saved_slot = slots[first.index];
     const cased = armed.cased_name();
-    other_name = Name.from_text("other.example") catch unreachable;
+    other_name = Name.parse("other.example") catch unreachable;
     reply_accept_len = build_reply(&reply_accept, armed.transaction.id, &cased);
     reply_wrong_len = build_reply(&reply_wrong, armed.transaction.id, &other_name);
     reply_stray_len = build_reply(&reply_stray, stray_id, &cased);
@@ -234,7 +234,7 @@ fn unheld_id() u16 {
 fn question_for(index: usize) cocuyo.Question {
     var text: [32]u8 = undefined;
     const written = std.fmt.bufPrint(&text, "l{d}.example.", .{index}) catch unreachable;
-    return cocuyo.Question.from_text(written, .a) catch unreachable;
+    return cocuyo.Question.parse(written, .a) catch unreachable;
 }
 
 /// A response with `id`, echoing `name` as its question, and one A record whose owner points at
@@ -323,7 +323,7 @@ var round_servers: cocuyo.Servers = undefined;
 /// cookie: the first iteration keeps the pair, and every later one carries it, as a query to a
 /// server with cookies does (docs/design.md §19 step 10).
 fn setup_round_trip() void {
-    round_question = cocuyo.Question.from_text("example.com.", .a) catch unreachable;
+    round_question = cocuyo.Question.parse("example.com.", .a) catch unreachable;
     round_servers = cocuyo.Servers.init(&config, seed);
     lookup.init(&config, &round_servers, &round_question, seed);
     _ = lookup.poll(now_ns, &round_out);

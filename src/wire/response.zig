@@ -216,7 +216,7 @@ threadlocal var test_chain: Name = Name.empty;
 threadlocal var test_aliases: core.Aliases = .{};
 
 fn collect_from(message: []const u8, kind: Kind, out: *Answers) !Outcome {
-    test_chain = try Name.from_text("example.com");
+    test_chain = try Name.parse("example.com");
     test_aliases.clear();
     return collect(message, &test_chain, kind, 0, &test_aliases, out);
 }
@@ -224,7 +224,7 @@ fn collect_from(message: []const u8, kind: Kind, out: *Answers) !Outcome {
 /// Links for `count` hops an earlier message took, each owned by `example.com`.
 fn earlier_links(count: usize) void {
     test_aliases.clear();
-    const owner = Name.from_text("example.com") catch unreachable;
+    const owner = Name.parse("example.com") catch unreachable;
     for (0..count) |_| assert(test_aliases.append(&owner, 1));
 }
 
@@ -258,7 +258,7 @@ test "a CNAME and its target's A record answer in one message" {
     const outcome = try collect_from(&fixtures.answer_cname_then_a, .a, &collected);
     try testing.expectEqual(Outcome.answered, outcome);
     try testing.expect(collected.aliased);
-    try testing.expect(test_chain.equal(&try Name.from_text("host.example.net")));
+    try testing.expect(test_chain.equal(&try Name.parse("host.example.net")));
     try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 3 }, collected.addresses()[0].slice());
     // The smallest TTL over the records used: the CNAME's 60, not the address's 300.
     try testing.expectEqual(@as(u32, 60), collected.ttl_seconds);
@@ -269,7 +269,7 @@ test "a CNAME with no target record asks the caller to query again" {
     const outcome = try collect_from(&fixtures.answer_cname_only, .a, &collected);
     try testing.expectEqual(Outcome.chain_incomplete, outcome);
     try testing.expectEqual(@as(u8, 0), collected.count);
-    try testing.expect(test_chain.equal(&try Name.from_text("host.example.net")));
+    try testing.expect(test_chain.equal(&try Name.parse("host.example.net")));
 }
 
 test "an A record for a name nobody asked about is dropped" {
@@ -289,7 +289,7 @@ test "a response with no answers at all is NODATA" {
 
 test "a chain already at the hop bound is refused rather than followed" {
     var collected: Answers = undefined;
-    const question = try Name.from_text("example.com");
+    const question = try Name.parse("example.com");
     test_chain = question;
     earlier_links(core.limits.cname_hops_max);
     try testing.expectError(Error.ChainTooLong, collect(
@@ -336,9 +336,9 @@ test "the hop count follows the chain across messages" {
     try testing.expectEqual(@as(u8, 1), collected.hops_used);
     // The one link: the CNAME owned by the name asked (docs/design.md §5).
     try testing.expectEqual(@as(u8, 1), test_aliases.count);
-    try testing.expectEqualSlices(u8, (try Name.from_text("example.com")).wire(), test_aliases.at(0).owner);
+    try testing.expectEqualSlices(u8, (try Name.parse("example.com")).wire(), test_aliases.at(0).owner);
 
-    test_chain = try Name.from_text("example.com");
+    test_chain = try Name.parse("example.com");
     earlier_links(3);
     const outcome = try collect(&fixtures.answer_cname_only, &test_chain, .a, 3, &test_aliases, &collected);
     try testing.expectEqual(Outcome.chain_incomplete, outcome);
@@ -346,7 +346,7 @@ test "the hop count follows the chain across messages" {
 }
 
 test "a negative answer's TTL is the SOA minimum, and zero with no SOA, which is not cached" {
-    const question = try Name.from_text("example.com");
+    const question = try Name.parse("example.com");
     try testing.expectEqual(@as(u32, 60), try negative_ttl_seconds(&fixtures.answer_name_error_soa, &question));
     try testing.expectEqual(@as(u32, 60), try negative_ttl_seconds(&fixtures.answer_no_data_soa, &question));
     try testing.expectEqual(@as(u32, 30), try negative_ttl_seconds(&fixtures.answer_no_data_soa_short, &question));
@@ -358,13 +358,13 @@ test "a negative answer's TTL is the SOA minimum, and zero with no SOA, which is
     try testing.expectEqual(@as(u32, 0), try negative_ttl_seconds(&fixtures.answer_a_twice, &question));
     // The question is read for its length alone, which says where the sections start: a lookup
     // passes the name it holds, not the case its query carried (docs/design.md §7).
-    const capitals = try Name.from_text("EXAMPLE.COM");
+    const capitals = try Name.parse("EXAMPLE.COM");
     try testing.expectEqual(@as(u32, 60), try negative_ttl_seconds(&fixtures.answer_name_error_soa, &capitals));
 }
 
 test "a response echoing a maximal name parses, and its offsets do not overflow an octet" {
     var collected: Answers = undefined;
-    test_chain = try Name.from_text("a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63 ++ "." ++ "d" ** 61);
+    test_chain = try Name.parse("a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63 ++ "." ++ "d" ** 61);
     try testing.expectEqual(core.limits.name_bytes_max, test_chain.len);
     test_aliases.clear();
     const outcome = try collect(&fixtures.answer_a_long_name, &test_chain, .a, 0, &test_aliases, &collected);
@@ -405,7 +405,7 @@ test "an owner longer than 255 octets through its pointer fails the collection, 
 test "an owner longer than 255 octets through its pointer fails the negative TTL's walk" {
     // The walk steps over the answers to reach the authority section, and skips each owner. Until
     // 2026-10-14 it passed the owner of 256 octets, and gave a TTL of 0.
-    const question = try Name.from_text("example.com");
+    const question = try Name.parse("example.com");
     const longest = aaaa_owned_through_pointer(&(label_longest ** 3 ++ [_]u8{49} ++ [_]u8{'b'} ** 49));
     try testing.expectEqual(@as(u32, 0), try negative_ttl_seconds(&longest, &question));
     const one_past = aaaa_owned_through_pointer(&(label_longest ** 3 ++ [_]u8{50} ++ [_]u8{'b'} ** 50));

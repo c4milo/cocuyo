@@ -50,7 +50,7 @@ pub const Name = extern struct {
     }
 
     /// Appends one label, leaving room for the terminating root octet. The label is not validated
-    /// here: `from_text` validates what a caller spelled, and the codec appends bytes a server
+    /// here: `parse` validates what a caller spelled, and the codec appends bytes a server
     /// sent, which may be anything a length octet can describe.
     pub fn append_label(self: *Name, label: []const u8) Error!void {
         if (label.len == 0) return Error.MalformedName;
@@ -186,7 +186,7 @@ pub const Name = extern struct {
     /// A name from presentation form. A trailing dot is the mark of an absolute name and is not an
     /// empty label; every other empty label is a malformed name. Version one spells no escapes, so
     /// a label is printable ASCII (name_text.zig).
-    pub fn from_text(text: []const u8) Error!Name {
+    pub fn parse(text: []const u8) Error!Name {
         if (text.len == 0) return root;
         if (text.len == 1 and text[0] == name_text.separator) return root;
         var body = text;
@@ -306,8 +306,8 @@ test "the word fold leaves a length octet, a digit, a hyphen and a high octet al
     try testing.expectEqualSlices(u8, "\x07ab-9z@\xc1", std.mem.asBytes(&folded));
 }
 
-test "from_text encodes labels in wire form" {
-    const name = try Name.from_text("example.com");
+test "parse encodes labels in wire form" {
+    const name = try Name.parse("example.com");
     try testing.expectEqualStrings("\x07example\x03com\x00", name.wire());
     try testing.expectEqual(@as(u8, 13), name.len);
     try testing.expectEqual(@as(u8, 2), name.label_count());
@@ -315,39 +315,39 @@ test "from_text encodes labels in wire form" {
 }
 
 test "a trailing dot is absoluteness, not an empty label" {
-    const absolute = try Name.from_text("example.com.");
-    const relative = try Name.from_text("example.com");
+    const absolute = try Name.parse("example.com.");
+    const relative = try Name.parse("example.com");
     try testing.expectEqualStrings(absolute.wire(), relative.wire());
 }
 
 test "the empty text and a lone dot are the root" {
     try testing.expect(Name.root.is_root());
-    try testing.expect((try Name.from_text("")).is_root());
-    try testing.expect((try Name.from_text(".")).is_root());
+    try testing.expect((try Name.parse("")).is_root());
+    try testing.expect((try Name.parse(".")).is_root());
     try testing.expectEqual(@as(u8, 0), Name.root.label_count());
     try testing.expectEqual(@as(u8, 0), Name.root.dot_count());
 }
 
-test "from_text refuses what cannot be encoded" {
-    try testing.expectError(Error.MalformedName, Name.from_text("a..b"));
-    try testing.expectError(Error.MalformedName, Name.from_text(".a"));
-    try testing.expectError(Error.LabelTooLong, Name.from_text("a" ** 64));
+test "parse refuses what cannot be encoded" {
+    try testing.expectError(Error.MalformedName, Name.parse("a..b"));
+    try testing.expectError(Error.MalformedName, Name.parse(".a"));
+    try testing.expectError(Error.LabelTooLong, Name.parse("a" ** 64));
     // Four labels of 63 bytes are 256 wire octets with the root, one over the limit.
     const long = "a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63 ++ "." ++ "d" ** 63;
-    try testing.expectError(Error.NameTooLong, Name.from_text(long));
+    try testing.expectError(Error.NameTooLong, Name.parse(long));
 }
 
 test "a name at exactly the limit encodes" {
     // 63 + 63 + 63 + 61 bytes over four labels: 4 length octets, 250 bytes, one root octet.
     const at_limit = "a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63 ++ "." ++ "d" ** 61;
-    const name = try Name.from_text(at_limit);
+    const name = try Name.parse(at_limit);
     try testing.expectEqual(@as(u8, 255), name.len);
 }
 
 test "equality is case-insensitive, per RFC 4343" {
-    const lower = try Name.from_text("example.com");
-    const mixed = try Name.from_text("ExAmPlE.CoM");
-    const other = try Name.from_text("example.net");
+    const lower = try Name.parse("example.com");
+    const mixed = try Name.parse("ExAmPlE.CoM");
+    const other = try Name.parse("example.net");
     try testing.expect(lower.equal(&mixed));
     try testing.expect(mixed.equal(&lower));
     try testing.expect(!lower.equal(&other));
@@ -407,24 +407,24 @@ test "a run of octets and a longer run that starts with it differ, in either ord
 }
 
 test "concat builds a search candidate and refuses one too long" {
-    const host = try Name.from_text("www");
-    const domain = try Name.from_text("example.com");
+    const host = try Name.parse("www");
+    const domain = try Name.parse("example.com");
     const joined = try host.concat(&domain);
     try testing.expectEqualStrings("\x03www\x07example\x03com\x00", joined.wire());
-    try testing.expect(joined.equal(&try Name.from_text("www.example.com")));
+    try testing.expect(joined.equal(&try Name.parse("www.example.com")));
     try testing.expect((try Name.root.concat(&domain)).equal(&domain));
     try testing.expect((try domain.concat(&Name.root)).equal(&domain));
 
-    const long = try Name.from_text("a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63);
+    const long = try Name.parse("a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63);
     try testing.expectError(Error.NameTooLong, long.concat(&long));
 }
 
 test "write_text round-trips a name the caller could have spelled" {
     var out: [limits.name_text_bytes_max]u8 = undefined;
-    const name = try Name.from_text("www.example.com");
+    const name = try Name.parse("www.example.com");
     const text = out[0..name.write_text(&out)];
     try testing.expectEqualStrings("www.example.com.", text);
-    try testing.expect((try Name.from_text(text)).equal(&name));
+    try testing.expect((try Name.parse(text)).equal(&name));
 }
 
 test "append_label and terminate keep the length invariant" {
@@ -439,7 +439,7 @@ test "append_label and terminate keep the length invariant" {
 
 test "a name at the limit refuses one more label and one more octet" {
     // Three labels of 63 and one of 61 is exactly 255 octets, the root included.
-    var name = try Name.from_text("a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63 ++ "." ++ "d" ** 61);
+    var name = try Name.parse("a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63 ++ "." ++ "d" ** 61);
     try testing.expectEqual(@as(u8, limits.name_bytes_max), name.len);
     try testing.expectError(Error.NameTooLong, name.append_label("e"));
     try testing.expectError(Error.NameTooLong, name.terminate());
@@ -473,8 +473,8 @@ test "a label that fits only by leaving no room for the root does not fit" {
 
 test "concat accepts a candidate of exactly the limit" {
     // 192 label octets and a 63-octet suffix are 255, the root included: the largest name there is.
-    const prefix = try Name.from_text("a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63);
-    const suffix = try Name.from_text("d" ** 61);
+    const prefix = try Name.parse("a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63);
+    const suffix = try Name.parse("d" ** 61);
     try testing.expectEqual(@as(u8, 193), prefix.len);
     try testing.expectEqual(@as(u8, 63), suffix.len);
     const joined = try prefix.concat(&suffix);
@@ -483,7 +483,7 @@ test "concat accepts a candidate of exactly the limit" {
 }
 
 test "fold_case lowercases the labels and nothing else" {
-    var name = try Name.from_text("Example.COM");
+    var name = try Name.parse("Example.COM");
     const before = name;
     name.fold_case();
     try testing.expect(name.equal(&before));

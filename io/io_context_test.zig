@@ -43,7 +43,7 @@ const template = "https://dns.example/dns-query{?dns}";
 
 /// The twin's two scripted servers, spoken to as `spoken` says.
 fn servers_over(spoken: Spoken) ![fixtures.servers]cocuyo.Server {
-    const name = try cocuyo.Name.from_text("dns.example.");
+    const name = try cocuyo.Name.parse("dns.example.");
     var servers: [fixtures.servers]cocuyo.Server = undefined;
     for (&servers, 0..) |*server, index| {
         server.* = .{ .endpoint = sim_test.endpoint_of(rotor.Network.server_address(@intCast(index))) };

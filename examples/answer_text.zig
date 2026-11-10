@@ -31,12 +31,12 @@ const name_text_bytes_max = cocuyo.limits.name_text_bytes_max;
 
 /// A question from `name` or `name/TYPE`.
 pub fn question_of(text: []const u8) !cocuyo.Question {
-    const slash = std.mem.indexOfScalar(u8, text, '/') orelse return cocuyo.Question.from_text(text, .a);
+    const slash = std.mem.indexOfScalar(u8, text, '/') orelse return cocuyo.Question.parse(text, .a);
     const type_text = text[slash + 1 ..];
     var lower: [type_text_bytes_max]u8 = undefined;
     if (type_text.len > lower.len) return error.UnknownType;
     const kind = kind_of(std.ascii.lowerString(&lower, type_text)) orelse return error.UnknownType;
-    return cocuyo.Question.from_text(text[0..slash], kind);
+    return cocuyo.Question.parse(text[0..slash], kind);
 }
 
 /// A type by its name, or by its number in the generic form.
@@ -196,7 +196,7 @@ test "a name asks for A, and a name with a type asks for that type, spelled in e
     try testing.expectEqual(cocuyo.Kind.mx, (try question_of("example.com/MX")).kind);
     try testing.expectEqual(cocuyo.Kind.https, (try question_of("example.com/https")).kind);
     const question = try question_of("example.com/AAAA");
-    try testing.expect(question.name.equal(&try cocuyo.Name.from_text("example.com")));
+    try testing.expect(question.name.equal(&try cocuyo.Name.parse("example.com")));
 }
 
 test "a type by its number is asked as it is, named or not" {

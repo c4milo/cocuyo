@@ -145,7 +145,7 @@ test "a negative with AD set is authenticated, and a server failure is unchecked
     try testing.expectEqual(core.Security.authenticated, (try failed(&.{}, &.{with_ad(fixtures.name_error)})).security);
     try testing.expectEqual(core.Security.authenticated, (try failed(&.{}, &.{with_ad(fixtures.no_data)})).security);
     try testing.expectEqual(core.Security.unchecked, (try failed(&.{}, &.{fixtures.name_error})).security);
-    const search = [_]Name{try Name.from_text("one.net")};
+    const search = [_]Name{try Name.parse("one.net")};
     // The negative that moved the walk to the next candidate is a message the lookup acted on.
     try testing.expectEqual(core.Security.unchecked, (try failed(&search, &.{ fixtures.name_error, with_ad(fixtures.name_error) })).security);
     try testing.expectEqual(core.Security.authenticated, (try failed(&search, &.{ with_ad(fixtures.name_error), with_ad(fixtures.name_error) })).security);

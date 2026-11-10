@@ -172,7 +172,7 @@ pub const cached_ttl_seconds: u32 = 300;
 /// Answers as a memory above the table hands them back: one A record, for the address `text`
 /// (docs/design.md §20).
 pub fn cached_a(text: []const u8) wire.Answers {
-    return wire.fixtures.answers_address(core.Address.from_text(text).?, cached_ttl_seconds);
+    return wire.fixtures.answers_address(core.Address.parse(text).?, cached_ttl_seconds);
 }
 
 /// A reply carrying one A record.
@@ -306,7 +306,7 @@ pub const Harness = struct {
             self.servers = Servers.init(&self.config, lookup_seed);
             self.servers_ready = true;
         }
-        self.lookup.init(&self.config, &self.servers, &try Question.from_text(text, kind), lookup_seed);
+        self.lookup.init(&self.config, &self.servers, &try Question.parse(text, kind), lookup_seed);
     }
 
     pub fn poll(self: *Harness) Action {
@@ -416,7 +416,7 @@ pub const Harness = struct {
     /// Echoes the question, or the spoof a test asked for: the case folded, or another name.
     fn write_question(self: *Harness, question: []const u8, reply: Reply, offset: usize) usize {
         if (reply.other_name) {
-            const other = Name.from_text("other.example") catch unreachable;
+            const other = Name.parse("other.example") catch unreachable;
             @memcpy(self.reply_buffer[offset..][0..other.len], other.wire());
             const fixed = question[question.len - core.constants.question_fixed_bytes ..];
             @memcpy(self.reply_buffer[offset + other.len ..][0..fixed.len], fixed);

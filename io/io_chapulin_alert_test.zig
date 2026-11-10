@@ -107,7 +107,7 @@ test "a session that is up stages the record_overflow alert the engine names, wh
     try sides.config.init(.{ .identities = &identities, .cookie_key = &cookie_key, .cpu = cpu_not_stated });
     try sides.server.start(&sides.config, sides.server_stream.random(), unix_seconds);
     defer sides.server.close();
-    const server: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
+    const server: cocuyo.Tls = .{ .name = try cocuyo.Name.parse("dns.example.") };
     try sides.session.start(.{ .tls = &server, .ticket = @as(?Session.Ticket, null), .ticket_age_ns = @as(u64, 0), .context = &sides.context, .now_ns = @as(u64, 0) });
     defer sides.session.wipe();
     try shake(sides);

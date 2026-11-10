@@ -163,7 +163,7 @@ fn under(name: *const Name, zone: *const Name) bool {
 }
 
 fn named(text: []const u8) Name {
-    return Name.from_text(text) catch unreachable;
+    return Name.parse(text) catch unreachable;
 }
 
 /// One reply under construction.

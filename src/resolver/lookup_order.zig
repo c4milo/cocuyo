@@ -82,7 +82,7 @@ const three = fixtures.servers_three;
 
 fn ordered(config: *const Config, servers: *Servers, seed: u64, now_ns: u64) [core.limits.servers_max]u8 {
     var lookup: Lookup = undefined;
-    lookup.init(config, servers, &(Question.from_text("example.com.", .a) catch unreachable), seed);
+    lookup.init(config, servers, &(Question.parse("example.com.", .a) catch unreachable), seed);
     var out: [core.limits.query_bytes_max]u8 = @splat(0);
     _ = lookup.poll(now_ns, &out);
     return lookup.order;

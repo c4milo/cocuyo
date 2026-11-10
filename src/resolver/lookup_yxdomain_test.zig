@@ -53,11 +53,11 @@ test "YXDOMAIN ends the lookup at once with NameTooLong, and asks no other serve
 }
 
 test "YXDOMAIN ends the search walk, and the next candidate is not asked" {
-    const search = [_]Name{try Name.from_text("one.net")};
+    const search = [_]Name{try Name.parse("one.net")};
     var harness: fixtures.Harness = .{ .config = .{ .servers = &servers, .search = &search, .ndots = 1 } };
     try harness.start("example.com", .a, seed);
     _ = harness.send();
-    try testing.expect(harness.lookup.current.equal(&try Name.from_text("example.com")));
+    try testing.expect(harness.lookup.current.equal(&try Name.parse("example.com")));
     try testing.expectEqual(Verdict.accepted, try respond(&harness, servers[0].endpoint));
     try testing.expectEqual(core.Error.NameTooLong, harness.poll().failed.err);
     try testing.expectEqual(@as(u8, 0), harness.lookup.candidate_index);
@@ -138,5 +138,5 @@ test "YXDOMAIN on one family and NXDOMAIN on the other move the walk to the next
     try rig.drive();
     try testing.expectEqual(@as(?address_lookup.AddressOutcome, null), rig.lookup.outcome());
     const next = rig.table.resolver.lookup_of(rig.lookup.a.handle orelse return error.NotInFlight);
-    try testing.expect(next.question.name.equal(&try Name.from_text("host.b.example")));
+    try testing.expect(next.question.name.equal(&try Name.parse("host.b.example")));
 }

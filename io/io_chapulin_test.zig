@@ -275,7 +275,7 @@ test "a server known by pins alone gets no anchors, though the context carries t
 test "a named server is checked against the anchors and its name, on the context's clock" {
     const context = test_context(&anchors_test, test_seed_octet);
     var hostname: [cocuyo.limits.name_text_bytes_max]u8 = undefined;
-    const trust = Session.trust(&.{ .name = try cocuyo.Name.from_text("dns.example.") }, &context, &hostname);
+    const trust = Session.trust(&.{ .name = try cocuyo.Name.parse("dns.example.") }, &context, &hostname);
     try testing.expect(trust == .web_pki);
     try testing.expectEqual(anchors_test.len, trust.web_pki.anchors.len);
     // chapulin takes a hostname, with no root label's dot.
@@ -287,7 +287,7 @@ test "a named server with no anchors to check is judged by its pins, and its nam
     const context = test_context(&.{}, test_seed_octet);
     const pins = [_]cocuyo.Pin{@splat(pin_octet)};
     var hostname: [cocuyo.limits.name_text_bytes_max]u8 = undefined;
-    const trust = Session.trust(&.{ .name = try cocuyo.Name.from_text("dns.example."), .pins = &pins }, &context, &hostname);
+    const trust = Session.trust(&.{ .name = try cocuyo.Name.parse("dns.example."), .pins = &pins }, &context, &hostname);
     try testing.expect(trust == .pins);
     try testing.expectEqual(pins.len, trust.pins.pins.len);
     try testing.expectEqualStrings("dns.example", trust.pins.server_name.?);
@@ -295,7 +295,7 @@ test "a named server with no anchors to check is judged by its pins, and its nam
 
 test "a session with neither pins nor anchors for its name is refused before a byte" {
     var context = test_context(&.{}, test_seed_octet);
-    const server: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text("dns.example.") };
+    const server: cocuyo.Tls = .{ .name = try cocuyo.Name.parse("dns.example.") };
     const session = try testing.allocator.create(Session);
     defer testing.allocator.destroy(session);
     session.* = .{};

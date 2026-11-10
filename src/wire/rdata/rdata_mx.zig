@@ -30,7 +30,7 @@ const fixtures = @import("fixtures.zig");
 test "an MX record is a preference and an exchange" {
     const mx = try Mx.parse(&fixtures.mx);
     try testing.expectEqual(@as(u16, 10), mx.preference);
-    try testing.expect(mx.exchange.equal(&try Name.from_text("mail.example.com")));
+    try testing.expect(mx.exchange.equal(&try Name.parse("mail.example.com")));
 }
 
 test "an MX record without room for its preference, or with octets after its name, is malformed" {
@@ -41,5 +41,5 @@ test "an MX record without room for its preference, or with octets after its nam
 test "RFC 1035 §5.3's MX reads back as its preference and exchange" {
     const mx = try Mx.parse(&fixtures.rfc1035_mx);
     try testing.expectEqual(@as(u16, 10), mx.preference);
-    try testing.expect(mx.exchange.equal(&try Name.from_text("VENERA.ISI.EDU")));
+    try testing.expect(mx.exchange.equal(&try Name.parse("VENERA.ISI.EDU")));
 }

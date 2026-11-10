@@ -229,7 +229,7 @@ const server_address = fixtures.server_address;
 fn query_bytes(out: []u8, kind: core.Kind, with_cookie: bool) []const u8 {
     var query: wire.Query = .{
         .id = fixtures.server_query_id,
-        .name = Name.from_text("example.com") catch unreachable,
+        .name = Name.parse("example.com") catch unreachable,
         .kind = kind,
     };
     if (with_cookie) query.cookie = .{ .client = @splat(fixtures.client_cookie_fill), .server = @splat(0), .server_len = 0 };
@@ -242,7 +242,7 @@ test "an A question is answered with one address owned by the name, the same on 
     var reply: [limits.datagram_bytes_max]u8 = undefined;
     const script: Script = .{};
     const first = respond(&script, &server_address, query, false, 1, &reply).?;
-    var chain = try Name.from_text("example.com");
+    var chain = try Name.parse("example.com");
     var answers: wire.Answers = undefined;
     try testing.expectEqual(wire.Outcome.answered, try wire.response.collect(reply[0..first.len], &chain, .a, 0, null, &answers));
     const address = answers.addresses()[0];
@@ -290,7 +290,7 @@ test "a cookie is echoed with the server's own, and a server without cookies sen
     var reply: [limits.datagram_bytes_max]u8 = undefined;
     const script: Script = .{};
     const answer = respond(&script, &server_address, query, false, 1, &reply).?;
-    const name = try Name.from_text("example.com");
+    const name = try Name.parse("example.com");
     const opt = (try wire.response_opt.find(reply[0..answer.len], &name)).?;
     const cookie = (try wire.edns.find_cookie(opt.rdata)).?;
     try testing.expectEqualSlices(u8, &[_]u8{fixtures.client_cookie_fill} ** 8, cookie.client);

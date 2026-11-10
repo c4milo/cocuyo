@@ -181,7 +181,7 @@ fn walked_check(message: []const u8, record: *const record_codec.Record, previou
 /// The OPT record's options, as a lookup reads them (docs/design.md §7 check 6): each option's
 /// data lies inside the rdata, and a COOKIE read is one of the lengths RFC 7873 §4 allows.
 fn opt_check(message: []const u8) ?[]const u8 {
-    const question = Name.from_text(question_text) catch unreachable;
+    const question = Name.parse(question_text) catch unreachable;
     const opt = (response_opt.find(message, &question) catch return null) orelse return null;
     const start = @intFromPtr(opt.rdata.ptr);
     var options: rdata.Options = .{ .rdata = opt.rdata };
@@ -315,7 +315,7 @@ fn accepted(result: anytype) bool {
 /// `collect` for a type kept as rdata: the counts and the references stay inside their bounds,
 /// and an MX question keeps only MX records that read back.
 fn records_check(message: []const u8, kind: core.Kind) ?[]const u8 {
-    var chain = Name.from_text(question_text) catch unreachable;
+    var chain = Name.parse(question_text) catch unreachable;
     var collected: response_codec.Answers = undefined;
     var aliases: core.Aliases = .{};
     const outcome = response_codec.collect(message, &chain, kind, 0, &aliases, &collected) catch return null;
@@ -342,7 +342,7 @@ fn kept_check(collected: *const response_codec.Answers, index: usize, kind: core
 fn response_check(message: []const u8) ?[]const u8 {
     if (records_check(message, .mx)) |failure| return failure;
     if (records_check(message, .any)) |failure| return failure;
-    var chain = Name.from_text(question_text) catch unreachable;
+    var chain = Name.parse(question_text) catch unreachable;
     var collected: response_codec.Answers = response_codec.Answers.init(.a);
     var aliases: core.Aliases = .{};
     const outcome = response_codec.collect(message, &chain, .a, 0, &aliases, &collected) catch return null;

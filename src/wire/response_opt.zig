@@ -39,7 +39,7 @@ const fixtures = @import("fixtures.zig");
 const edns = @import("edns.zig");
 
 test "an OPT in the additional section is found, past the answers and other additional records" {
-    const question = try Name.from_text("example.com");
+    const question = try Name.parse("example.com");
     const opt = (try find(&fixtures.answer_a_with_opt, &question)).?;
     try testing.expectEqual(@as(usize, 0), opt.rdata.len);
     try testing.expectEqual(@as(u16, core.constants.udp_payload_bytes_default), opt.class);
@@ -48,12 +48,12 @@ test "an OPT in the additional section is found, past the answers and other addi
     try testing.expectEqual(@as(?record_codec.Record, null), try find(&fixtures.answer_a, &question));
     // The question is read for its length alone: a lookup passes the name it holds, not the case
     // its query carried (docs/design.md §7).
-    const capitals = try Name.from_text("EXAMPLE.COM");
+    const capitals = try Name.parse("EXAMPLE.COM");
     try testing.expectEqual(opt.end, (try find(&fixtures.answer_a_with_opt, &capitals)).?.end);
 }
 
 test "the OPT's cookie option reads through its rdata" {
-    const question = try Name.from_text("example.com");
+    const question = try Name.parse("example.com");
     const opt = (try find(&fixtures.answer_a_with_cookie, &question)).?;
     const cookie = (try edns.find_cookie(opt.rdata)).?;
     try testing.expectEqualSlices(u8, &fixtures.cookie_client, cookie.client);
@@ -61,7 +61,7 @@ test "the OPT's cookie option reads through its rdata" {
 }
 
 test "an OPT owned by a name is malformed" {
-    const question = try Name.from_text("example.com");
+    const question = try Name.parse("example.com");
     try testing.expectError(Error.MalformedMessage, find(&fixtures.answer_a_with_opt_bad_owner, &question));
 }
 
@@ -80,7 +80,7 @@ test "an owner longer than 255 octets through its pointer, before the OPT, fails
     // "label octets and label length octets" count (RFC 1035 §3.1), those a pointer reaches too
     // (§4.1.4), in a name of "255 octets or less" (§2.3.4). Until 2026-10-14 the search did not
     // follow the owner's pointer, and found the OPT of the second message.
-    const question = try Name.from_text("example.com");
+    const question = try Name.parse("example.com");
     // Labels of 242 octets, and the 13 that the pointer reaches: 255 octets.
     const longest = opt_after_owner_through_pointer(&(label_longest ** 3 ++ [_]u8{49} ++ [_]u8{'b'} ** 49));
     try testing.expectEqual(longest.len, (try find(&longest, &question)).?.end);

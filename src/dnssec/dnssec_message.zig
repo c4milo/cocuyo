@@ -123,9 +123,9 @@ test "a message's answer and authority records are read, each with its section" 
     builder.authority();
     builder.record("example", .ns, 60, "\x03ns1\x07example\x00");
     var message: Message = undefined;
-    try testing.expect(try message.read(builder.message(), &try Name.from_text("example")));
+    try testing.expect(try message.read(builder.message(), &try Name.parse("example")));
     try testing.expectEqual(@as(usize, 2), message.count);
-    const owner = try Name.from_text("EXAMPLE");
+    const owner = try Name.parse("EXAMPLE");
     try testing.expect(try message.holds(0, .answer, .a, &owner));
     try testing.expect(!try message.holds(0, .authority, .a, &owner));
     try testing.expect(try message.holds(1, .authority, .ns, &owner));
@@ -137,7 +137,7 @@ test "more records than records_max are refused, and so is a second question" {
     builder.authority();
     for (0..core.limits.records_max / 2 + 1) |_| builder.record("example", .a, 60, &.{ 192, 0, 2, 1 });
     var message: Message = undefined;
-    const asked = try Name.from_text("example");
+    const asked = try Name.parse("example");
     try testing.expect(!try message.read(builder.message(), &asked));
     var two = fixtures.Builder.init("example", .a, 0);
     const bytes = two.message();

@@ -105,11 +105,11 @@ var data_buffer: [256]u8 = undefined;
 var data: []const u8 = &.{};
 
 fn zone() Name {
-    return Name.from_text("example.net") catch unreachable;
+    return Name.parse("example.net") catch unreachable;
 }
 
 fn asked() Name {
-    return Name.from_text("www.example.net") catch unreachable;
+    return Name.parse("www.example.net") catch unreachable;
 }
 
 /// Sets up one example: the message, the RRSIG's rdata, and a store that holds the key. A key

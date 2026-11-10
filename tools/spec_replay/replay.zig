@@ -171,7 +171,7 @@ pub const Replay = struct {
         if (fields.next() != null) return error.Malformed;
         self.validating = validating != null;
         for (search_all[0 .. candidates - 1], 0..) |entry, index| {
-            self.search[index] = core.Name.from_text(entry) catch unreachable;
+            self.search[index] = core.Name.parse(entry) catch unreachable;
         }
         const servers: []const core.Server = switch (transport) {
             .udp, .tcp => &fixtures.servers,
@@ -187,7 +187,7 @@ pub const Replay = struct {
             .authenticated_data = mode,
         };
         const name = if (candidates == 1) name_absolute else name_relative;
-        self.question = core.Question.from_text(name, .a) catch unreachable;
+        self.question = core.Question.parse(name, .a) catch unreachable;
         @memcpy(self.config_text[0..text.len], text);
         self.config_len = text.len;
         self.configured = true;

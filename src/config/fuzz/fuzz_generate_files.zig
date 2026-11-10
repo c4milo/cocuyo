@@ -97,7 +97,7 @@ fn write_host_name(generator: *Generator, out: *Text, index: usize) core.Name {
     out.put_decimal(index);
     out.put(".");
     _ = generate.write_name(generator, out, .host);
-    return core.Name.from_text(out.bytes[start..out.len]) catch unreachable;
+    return core.Name.parse(out.bytes[start..out.len]) catch unreachable;
 }
 
 fn write_bad_host(generator: *Generator, out: *Text) void {

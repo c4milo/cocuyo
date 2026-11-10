@@ -300,7 +300,7 @@ fn open(self: anytype, server: u8, now_ns: u64) bool {
     const template = request_template.split(https.template) orelse return false;
     var endpoint = configured.endpoint;
     endpoint.port = template.port;
-    const named: cocuyo.Tls = .{ .name = cocuyo.Name.from_text(template.host) catch unreachable, .require_post_quantum = https.require_post_quantum };
+    const named: cocuyo.Tls = .{ .name = cocuyo.Name.parse(template.host) catch unreachable, .require_post_quantum = https.require_post_quantum };
     slot.channel.start(.{
         .server = server,
         .endpoint = endpoint,

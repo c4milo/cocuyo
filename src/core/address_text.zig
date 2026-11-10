@@ -1,5 +1,5 @@
 //! An address from text, IPv4 or IPv6: what a `nameserver` line, a hosts file line and a numeric
-//! host given to `AddressLookup` (docs/design.md §19 step 14) carry. `Address.from_text` is the
+//! host given to `AddressLookup` (docs/design.md §19 step 14) carry. `Address.parse` is the
 //! entry point; the two parsers are public for the tests.
 //!
 //! This is the one place cocuyo reads an address as text, and it formats none: it owns no
@@ -257,10 +257,10 @@ test "a full address and its compressed form are the same address" {
     try testing.expect(full.equal(&short));
 }
 
-test "Address.from_text is the parser, for either family" {
-    try testing.expect(Address.from_text("192.0.2.1").?.equal(&Address.from_v4(.{ 192, 0, 2, 1 })));
-    try testing.expectEqual(Family.ipv6, Address.from_text("::1").?.family);
-    try testing.expectEqual(@as(?Address, null), Address.from_text("example.com"));
+test "Address.parse is the parser, for either family" {
+    try testing.expect(Address.parse("192.0.2.1").?.equal(&Address.from_v4(.{ 192, 0, 2, 1 })));
+    try testing.expectEqual(Family.ipv6, Address.parse("::1").?.family);
+    try testing.expectEqual(@as(?Address, null), Address.parse("example.com"));
 }
 
 test "a double colon standing for no groups is refused" {

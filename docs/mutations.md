@@ -12144,3 +12144,18 @@ EF1 to EF3 leave one field out of one literal. EF4 to EF7 break the check itself
 | EF5 | the check passes a file that builds more literals than the list names | `zig build test-every-field` | `CAUGHT` |
 | EF6 | the check passes a site whose literal is not there | `zig build test-every-field` | `CAUGHT` |
 | EF7 | the check reads a comment and a string as code | `zig build test-every-field` | `CAUGHT` |
+
+## A text read by parse
+
+2026-11-10, c4milo/cocuyo#65. `Name.from_text`, `Question.from_text` and `Address.from_text` are
+each `parse` now, as `std.Uri.parse` is, and as `resolv_conf.parse`, `hosts.parse` and
+`trust_anchors.parse` were. The rename changed 504 uses in 134 files, and no check changed. No
+`from_text` stays beside `parse`: the fixture of `zig build consumer-check` refuses to compile
+when one of the three types declares it. Each mutation below puts one back as a second name.
+`zig build mutations -- engine PT1 PT2 PT3` ran each row.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| PT1 | `Name` keeps `from_text` beside `parse` | `zig build consumer-check` | `CAUGHT` |
+| PT2 | `Question` keeps `from_text` beside `parse` | `zig build consumer-check` | `CAUGHT` |
+| PT3 | `Address` keeps `from_text` beside `parse` | `zig build consumer-check` | `CAUGHT` |

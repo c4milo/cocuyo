@@ -37,7 +37,7 @@ const Rig = struct {
         rig.loop.network().scripts[0] = script;
         rig.loop.network().server_count = 1;
         try rig.loop.provide_datagram_buffers(group_id, &rig.group_memory, group_buffers, buffer_bytes, group);
-        var query: wire.Query = .{ .id = fixtures.query_id, .name = try core.Name.from_text("example.com"), .kind = .a, .tcp = false };
+        var query: wire.Query = .{ .id = fixtures.query_id, .name = try core.Name.parse("example.com"), .kind = .a, .tcp = false };
         rig.query_len = wire.query.write(&query, &rig.query);
         rig.outbound = .{
             .peer = sim.Network.server_address(0),
@@ -231,7 +231,7 @@ test "a query over a stream is answered in framed chunks the seed sizes" {
     try testing.expectEqual(@as(u32, 1), try rig.collect(&events, 1000));
     try testing.expectEqual(@as(u32, 0), try events[0].outcome());
     var framed: [core.limits.query_bytes_max]u8 = undefined;
-    var query: wire.Query = .{ .id = fixtures.stream_query_id, .name = try core.Name.from_text("example.com"), .kind = .a, .tcp = true };
+    var query: wire.Query = .{ .id = fixtures.stream_query_id, .name = try core.Name.parse("example.com"), .kind = .a, .tcp = true };
     const framed_len = wire.query.write(&query, &framed);
     var handles: [1]sim.Handle = undefined;
     const receive: Operation = .{ .user_data = receive_tag, .kind = .{ .receive = .{ .socket = socket, .target = .{ .group = group_id }, .multishot = true } } };
@@ -277,7 +277,7 @@ test "a send to a peer that stopped reading takes nothing, and ends only at its 
     try testing.expectEqual(@as(u32, 1), try rig.collect(&events, 1000));
     rig.loop.network().stall(socket);
     var framed: [core.limits.query_bytes_max]u8 = undefined;
-    var query: wire.Query = .{ .id = fixtures.stream_query_id, .name = try core.Name.from_text("example.com"), .kind = .a, .tcp = true };
+    var query: wire.Query = .{ .id = fixtures.stream_query_id, .name = try core.Name.parse("example.com"), .kind = .a, .tcp = true };
     const framed_len = wire.query.write(&query, &framed);
     const send: Operation = .{ .user_data = send_tag, .kind = .{ .send = .{ .socket = socket, .buffer = .{ .bytes = framed[0..framed_len] } } } };
     var handles: [1]sim.Handle = undefined;

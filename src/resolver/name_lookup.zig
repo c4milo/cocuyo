@@ -210,7 +210,7 @@ const HostsFixture = struct {
     names_used: usize = 0,
 
     fn add(self: *HostsFixture, address: Address, text: []const u8) !void {
-        const name = try Name.from_text(text);
+        const name = try Name.parse(text);
         @memcpy(self.storage.names[self.names_used..][0..name.len], name.wire());
         var entry: core.hosts.Entry = .{ .address = address, .names = undefined, .name_count = 1 };
         entry.names[0] = .{ .offset = @intCast(self.names_used), .len = name.len };
@@ -250,7 +250,7 @@ test "the hosts table answers a reverse lookup first, and costs no slot" {
     const address = Address.from_v4(.{ 192, 0, 2, 10 });
     var lookup = try NameLookup.init(&rig.resolver, &hosts, &address);
     const info = lookup.outcome().?.answered;
-    try testing.expect(info.name.equal(&try Name.from_text("db.example")));
+    try testing.expect(info.name.equal(&try Name.parse("db.example")));
     try testing.expect(info.from_hosts);
     try testing.expectEqual(@as(u32, 0), info.ttl_seconds);
     try testing.expectEqual(@as(usize, 0), rig.resolver.in_flight());
@@ -263,7 +263,7 @@ test "an address the table does not name is asked about as a PTR question" {
     var lookup = try NameLookup.init(&rig.resolver, null, &address);
     const asked = rig.resolver.lookup_of(lookup.handle.?);
     try testing.expectEqual(core.Kind.ptr, asked.question.kind);
-    try testing.expect(asked.question.name.equal(&try Name.from_text("1.2.0.192.in-addr.arpa.")));
+    try testing.expect(asked.question.name.equal(&try Name.parse("1.2.0.192.in-addr.arpa.")));
 
     const event = rig.poll().?;
     rig.resolver.on_sent(event.handle, rig.now_ns);
@@ -272,7 +272,7 @@ test "an address the table does not name is asked about as a PTR question" {
     try testing.expectEqual(Verdict.accepted, rig.resolver.on_datagram(message, asked.server(), rig.now_ns));
     try drive(&rig, &lookup);
     const info = lookup.outcome().?.answered;
-    try testing.expect(info.name.equal(&try Name.from_text("host.example.net")));
+    try testing.expect(info.name.equal(&try Name.parse("host.example.net")));
     try testing.expect(!info.from_hosts);
     try testing.expectEqual(@as(usize, 0), rig.resolver.in_flight());
 }

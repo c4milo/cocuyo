@@ -276,7 +276,7 @@ const Met = struct {
 };
 
 fn question_name() !core.Name {
-    return core.Name.from_text("example.com");
+    return core.Name.parse("example.com");
 }
 
 /// The first answer of a message whose question parses, as the walk reads it.

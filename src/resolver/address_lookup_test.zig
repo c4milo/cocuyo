@@ -25,8 +25,8 @@ pub const Rig = struct {
     search: [fixtures.address_search_entries]Name = undefined,
 
     pub fn open(rig: *Rig) !void {
-        rig.search[0] = try Name.from_text("a.example");
-        rig.search[1] = try Name.from_text("b.example");
+        rig.search[0] = try Name.parse("a.example");
+        rig.search[1] = try Name.parse("b.example");
         rig.table.config.search = &rig.search;
         rig.table.open();
     }
@@ -63,13 +63,13 @@ pub const Rig = struct {
     fn asking(rig: *Rig, handle: ?Handle, text: []const u8) !void {
         const lookup = rig.table.resolver.lookup_of(handle orelse return error.NotInFlight);
         try testing.expect(lookup.question.absolute);
-        try testing.expect(lookup.question.name.equal(&try Name.from_text(text)));
+        try testing.expect(lookup.question.name.equal(&try Name.parse(text)));
     }
 };
 
 fn expect_address(info: address_lookup.AddressInfo, index: usize, text: []const u8) !void {
     try testing.expect(index < info.addresses.len);
-    try testing.expect(info.addresses[index].equal(&Address.from_text(text).?));
+    try testing.expect(info.addresses[index].equal(&Address.parse(text).?));
 }
 
 test "the two families ask the same candidate, and move together when both say no" {
@@ -245,14 +245,14 @@ test "the canonical name is the chain's end, or the candidate's own name without
     try rig.reply(rig.lookup.a.handle, fixtures.cname_then_a);
     try rig.drive();
     const chained = rig.lookup.outcome().?.answered;
-    try testing.expect(chained.canonical_name.?.equal(&try Name.from_text("host.example.net")));
+    try testing.expect(chained.canonical_name.?.equal(&try Name.parse("host.example.net")));
 
     try rig.start(null, "host", .ipv4, .{ .canonical_name = true });
     try rig.drive();
     try rig.reply(rig.lookup.a.handle, fixtures.answer_a);
     try rig.drive();
     const plain = rig.lookup.outcome().?.answered;
-    try testing.expect(plain.canonical_name.?.equal(&try Name.from_text("host.a.example")));
+    try testing.expect(plain.canonical_name.?.equal(&try Name.parse("host.a.example")));
 }
 
 test "the hosts table answers first in the default order, with its official name, and no slot" {
@@ -265,7 +265,7 @@ test "the hosts table answers first in the default order, with its official name
     const info = rig.lookup.outcome().?.answered;
     try testing.expectEqual(@as(usize, 1), info.addresses.len);
     try expect_address(info, 0, "192.0.2.10");
-    try testing.expect(info.canonical_name.?.equal(&try Name.from_text("db.example")));
+    try testing.expect(info.canonical_name.?.equal(&try Name.parse("db.example")));
     try testing.expectEqual(@as(u32, 0), info.ttl_seconds);
     try testing.expectEqual(@as(usize, 0), rig.table.resolver.in_flight());
 }
@@ -388,7 +388,7 @@ const HostsFixture = struct {
     fn add(self: *HostsFixture, address: Address, names: []const []const u8) !void {
         var entry: core.hosts.Entry = .{ .address = address, .names = undefined, .name_count = 0 };
         for (names) |text| {
-            const name = try Name.from_text(text);
+            const name = try Name.parse(text);
             @memcpy(self.storage.names[self.names_used..][0..name.len], name.wire());
             entry.names[entry.name_count] = .{ .offset = @intCast(self.names_used), .len = name.len };
             entry.name_count += 1;

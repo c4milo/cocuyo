@@ -69,13 +69,13 @@ pub const nothing = map(&.{ 46, 47 });
 /// An NSEC record at `owner` of RFC 4035 Appendix A's zone, signed by `example.` over its own
 /// labels, naming `next` and the types of `types`.
 pub fn record(owner: []const u8, next: []const u8, types: []const u8) !nsec.Record {
-    const owner_name = try Name.from_text(owner);
+    const owner_name = try Name.parse(owner);
     const wildcard: u8 = if (owner[0] == '*') 1 else 0;
     return .{
         .owner = owner_name,
-        .signer = try Name.from_text("example"),
+        .signer = try Name.parse("example"),
         .labels = owner_name.label_count() - wildcard,
-        .nsec = .{ .next = try Name.from_text(next), .types = try wire.rdata.TypeBitmaps.parse(types) },
+        .nsec = .{ .next = try Name.parse(next), .types = try wire.rdata.TypeBitmaps.parse(types) },
     };
 }
 
@@ -85,7 +85,7 @@ pub fn epsilon(text: []const u8) !Name {
     var name: Name = Name.empty;
     try name.append_label(&.{0});
     try name.terminate();
-    return name.concat(&try Name.from_text(text));
+    return name.concat(&try Name.parse(text));
 }
 
 /// The maps of RFC 5155 Appendix A's zone, by what they hold. NSEC3 sets no bit for itself, and
@@ -118,8 +118,8 @@ pub fn record3(comptime owner: []const u8, comptime next: []const u8, types: []c
         const bytes = decoded(next);
     }.bytes;
     return .{
-        .owner = try Name.from_text(owner ++ ".example"),
-        .signer = try Name.from_text("example"),
+        .owner = try Name.parse(owner ++ ".example"),
+        .signer = try Name.parse("example"),
         .nsec3 = .{
             .hash_algorithm = 1,
             .flags = flags,
@@ -162,7 +162,7 @@ pub const Hashes = struct {
         for (name) |octet| std.debug.assert(!std.ascii.isUpper(octet));
         out.* = @splat(0);
         inline for (printed) |entry| {
-            const wire_name = (Name.from_text(entry[0]) catch unreachable).wire();
+            const wire_name = (Name.parse(entry[0]) catch unreachable).wire();
             if (std.mem.eql(u8, wire_name, name)) out.* = comptime decoded(entry[1]);
         }
     }
@@ -284,7 +284,7 @@ pub const Builder = struct {
 
     /// A response to `question` of `kind`: QR, AA and RCODE `rcode`, and one question.
     pub fn init(question: []const u8, kind: core.Kind, rcode: u4) Builder {
-        return init_name(&(Name.from_text(question) catch unreachable), kind, rcode);
+        return init_name(&(Name.parse(question) catch unreachable), kind, rcode);
     }
 
     /// A response to `question` as written, its case kept.
@@ -304,7 +304,7 @@ pub const Builder = struct {
     }
 
     pub fn record(self: *Builder, owner: []const u8, kind: core.Kind, ttl: u32, rdata: []const u8) void {
-        self.record_wire((Name.from_text(owner) catch unreachable).wire(), kind, ttl, rdata);
+        self.record_wire((Name.parse(owner) catch unreachable).wire(), kind, ttl, rdata);
     }
 
     /// A record whose owner is written as `owner` holds it, a compression pointer allowed.
@@ -326,7 +326,7 @@ pub const Builder = struct {
 
     /// An RRSIG at `owner` over `records`, the RRset of `kind` there, by `signing`.
     pub fn rrsig(self: *Builder, owner: []const u8, kind: core.Kind, records: []const []const u8, signing: Signing) void {
-        self.rrsig_name(&(Name.from_text(owner) catch unreachable), kind, records, signing);
+        self.rrsig_name(&(Name.parse(owner) catch unreachable), kind, records, signing);
     }
 
     /// `rrsig` at `owner` as written, its case kept. A wildcard owner's `*` is no label it counts.
@@ -340,7 +340,7 @@ pub const Builder = struct {
         std.mem.writeInt(u32, rdata[8..12], signing.expiration, .big);
         std.mem.writeInt(u32, rdata[12..16], signing.inception, .big);
         std.mem.writeInt(u16, rdata[16..18], signing.key_tag, .big);
-        const signer = (Name.from_text(signing.signer) catch unreachable).wire();
+        const signer = (Name.parse(signing.signer) catch unreachable).wire();
         @memcpy(rdata[18..][0..signer.len], signer);
         const head = 18 + signer.len;
         const sum = sign(rdata[0..head], owner_name, kind, records, signing.public_key);

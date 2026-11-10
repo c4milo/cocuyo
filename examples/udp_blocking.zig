@@ -56,7 +56,7 @@ fn resolve(io: std.Io, name: []const u8, config: *const cocuyo.Config, seed: u64
     // The per-server state a lookup shares with the others of its process: cookies live here.
     var servers = cocuyo.Servers.init(config, seed);
     var lookup: cocuyo.Lookup = undefined;
-    lookup.init(config, &servers, &try cocuyo.Question.from_text(name, .a), seed);
+    lookup.init(config, &servers, &try cocuyo.Question.parse(name, .a), seed);
     const clock: Clock = .init(io);
     var query: [cocuyo.limits.query_bytes_max]u8 = undefined;
     var reply: [cocuyo.constants.udp_payload_bytes_default]u8 = undefined;

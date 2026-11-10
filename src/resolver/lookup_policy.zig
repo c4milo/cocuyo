@@ -140,53 +140,53 @@ fn config_with(search: []const Name, ndots: u8) Config {
 }
 
 test "an absolute name has one candidate and no search list is tried" {
-    const search = [_]Name{try Name.from_text("example.net")};
+    const search = [_]Name{try Name.parse("example.net")};
     const config = config_with(&search, 1);
-    const question = try Question.from_text("host.example.com.", .a);
+    const question = try Question.parse("host.example.com.", .a);
     try testing.expect(candidate(&config, &question, 0).name.equal(&question.name));
     try testing.expectEqual(Candidate.exhausted, candidate(&config, &question, 1));
     try testing.expectEqual(@as(u8, 1), candidate_count(&config, &question));
 }
 
 test "a name with enough dots is tried first, then the search list" {
-    const search = [_]Name{ try Name.from_text("one.net"), try Name.from_text("two.net") };
+    const search = [_]Name{ try Name.parse("one.net"), try Name.parse("two.net") };
     const config = config_with(&search, 1);
-    const question = try Question.from_text("host.example.com", .a);
+    const question = try Question.parse("host.example.com", .a);
     try testing.expect(candidate(&config, &question, 0).name.equal(&question.name));
     try testing.expect(candidate(&config, &question, 1).name.equal(
-        &try Name.from_text("host.example.com.one.net"),
+        &try Name.parse("host.example.com.one.net"),
     ));
     try testing.expect(candidate(&config, &question, 2).name.equal(
-        &try Name.from_text("host.example.com.two.net"),
+        &try Name.parse("host.example.com.two.net"),
     ));
     try testing.expectEqual(Candidate.exhausted, candidate(&config, &question, 3));
     try testing.expectEqual(@as(u8, 3), candidate_count(&config, &question));
 }
 
 test "a name with too few dots is tried against the search list first" {
-    const search = [_]Name{ try Name.from_text("one.net"), try Name.from_text("two.net") };
+    const search = [_]Name{ try Name.parse("one.net"), try Name.parse("two.net") };
     const config = config_with(&search, 2);
-    const question = try Question.from_text("host", .a);
-    try testing.expect(candidate(&config, &question, 0).name.equal(&try Name.from_text("host.one.net")));
-    try testing.expect(candidate(&config, &question, 1).name.equal(&try Name.from_text("host.two.net")));
+    const question = try Question.parse("host", .a);
+    try testing.expect(candidate(&config, &question, 0).name.equal(&try Name.parse("host.one.net")));
+    try testing.expect(candidate(&config, &question, 1).name.equal(&try Name.parse("host.two.net")));
     try testing.expect(candidate(&config, &question, 2).name.equal(&question.name));
     try testing.expectEqual(Candidate.exhausted, candidate(&config, &question, 3));
 }
 
 test "a candidate too long to encode is skipped, not fatal" {
-    const long = try Name.from_text("a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63);
-    const search = [_]Name{ long, try Name.from_text("short.net") };
+    const long = try Name.parse("a" ** 63 ++ "." ++ "b" ** 63 ++ "." ++ "c" ** 63);
+    const search = [_]Name{ long, try Name.parse("short.net") };
     const config = config_with(&search, 2);
-    const question = try Question.from_text("host" ++ "." ++ "d" ** 63, .a);
+    const question = try Question.parse("host" ++ "." ++ "d" ** 63, .a);
     try testing.expectEqual(Candidate.skip, candidate(&config, &question, 0));
     try testing.expect(candidate(&config, &question, 1).name.equal(
-        &try Name.from_text("host." ++ "d" ** 63 ++ ".short.net"),
+        &try Name.parse("host." ++ "d" ** 63 ++ ".short.net"),
     ));
 }
 
 test "an empty search list leaves the name as the only candidate" {
     const config = config_with(&.{}, 1);
-    const question = try Question.from_text("host", .a);
+    const question = try Question.parse("host", .a);
     try testing.expect(candidate(&config, &question, 0).name.equal(&question.name));
     try testing.expectEqual(Candidate.exhausted, candidate(&config, &question, 1));
     try testing.expectEqual(@as(u8, 1), candidate_count(&config, &question));

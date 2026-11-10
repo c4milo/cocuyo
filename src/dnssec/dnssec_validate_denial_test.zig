@@ -14,7 +14,7 @@ const zone = @import("rfc4035/fixtures.zig");
 const Builder = fixtures.Builder;
 
 fn named(text: []const u8) Name {
-    return Name.from_text(text) catch unreachable;
+    return Name.parse(text) catch unreachable;
 }
 
 const address = zone.address;

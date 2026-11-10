@@ -203,7 +203,7 @@ test "the owner name is decoded only when it is asked for, and decompresses" {
     const record = try first_record(&fixtures.answer_a, 1);
     var owner: Name = Name.empty;
     try record.owner_name(&fixtures.answer_a, &owner);
-    try testing.expect(owner.equal(&try Name.from_text("example.com")));
+    try testing.expect(owner.equal(&try Name.parse("example.com")));
 }
 
 test "a walk yields every record the count promises and then stops" {
@@ -249,7 +249,7 @@ test "a CNAME's rdata name decodes and must consume the rdata exactly" {
     try testing.expect(record.is_kind(.cname));
     var target: Name = Name.empty;
     try record.rdata_name(&fixtures.answer_cname_then_a, &target);
-    try testing.expect(target.equal(&try Name.from_text("host.example.net")));
+    try testing.expect(target.equal(&try Name.parse("host.example.net")));
 }
 
 test "a record of a class cocuyo does not query is not the kind it claims" {

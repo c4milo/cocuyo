@@ -169,7 +169,7 @@ test "a process that has a reply reads a count that holds it" {
     const socket = try udp.open(0);
     defer udp.close(socket);
     var query: [cocuyo.limits.query_bytes_max]u8 = undefined;
-    const len = wire.query.write(&.{ .id = 0x1234, .name = try cocuyo.Name.from_text("h1.example."), .kind = .a }, &query);
+    const len = wire.query.write(&.{ .id = 0x1234, .name = try cocuyo.Name.parse("h1.example."), .kind = .a }, &query);
     const to = udp.loopback(responder.port);
     var reply: [constants.datagram_bytes_max]u8 = undefined;
     var from: udp.Address = undefined;

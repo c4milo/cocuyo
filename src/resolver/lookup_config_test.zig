@@ -39,7 +39,7 @@ test "use_tcp sends every query over TCP, the retries included" {
 }
 
 test "servers that speak TLS take every query on the stream, to their TLS port" {
-    const tls: core.Tls = .{ .name = try core.Name.from_text("dns.example.") };
+    const tls: core.Tls = .{ .name = try core.Name.parse("dns.example.") };
     const encrypted = [_]core.Server{
         .{ .endpoint = servers[0].endpoint, .tls = tls },
         .{ .endpoint = servers[1].endpoint, .tls = tls },

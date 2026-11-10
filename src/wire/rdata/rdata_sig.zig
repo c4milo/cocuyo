@@ -55,7 +55,7 @@ test "a SIG record's fixed fields, signer and signature read back" {
     try testing.expectEqual(@as(u32, 0x5f000000), sig.expiration);
     try testing.expectEqual(@as(u32, 0x5e000000), sig.inception);
     try testing.expectEqual(@as(u16, 0x1234), sig.key_tag);
-    try testing.expect(sig.signer.equal(&try Name.from_text("example.com")));
+    try testing.expect(sig.signer.equal(&try Name.parse("example.com")));
     try testing.expectEqualSlices(u8, &.{ 0xde, 0xad, 0xbe, 0xef }, sig.signature);
 }
 

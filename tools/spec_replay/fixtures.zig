@@ -29,7 +29,7 @@ pub const servers_https = [_]core.Server{
 };
 
 /// The same servers over DoQ (docs/design.md §23), known by a name as a DoT server is.
-const quic: core.Tls = .{ .name = core.Name.from_text("dns.example.") catch unreachable };
+const quic: core.Tls = .{ .name = core.Name.parse("dns.example.") catch unreachable };
 pub const servers_quic = [_]core.Server{
     .{ .endpoint = servers[0].endpoint, .quic = quic },
     .{ .endpoint = servers[1].endpoint, .quic = quic },
