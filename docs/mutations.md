@@ -12016,3 +12016,20 @@ ran each row.
 
 KF3 compiles. The fixture's program stops at the assertion of `Resolver.init`, and the check reads
 its exit status.
+
+## The time of day as one value
+
+2026-11-09, c4milo/cocuyo#65. `KeyStore.init`, `KeyStore.set_clock` and the `Context.init` of the
+DoT, DoQ and DoH sessions took the wall clock and the monotonic clock as two `u64` values, which a
+caller can pass in the wrong order. Each now takes one `Clock`, with the fields `unix_seconds` and
+`now_ns`, so the compiler refuses the wrong order. Each mutation below changes the two places
+inside the function that reads the value. KS1 named the two arguments, and now names the value.
+`zig build mutations -- engine KS1 CK1 CK2 CK3 CK4` ran each row.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| KS1 | the key store keeps no time of day | `zig build test-dnssec` | `CAUGHT` |
+| CK1 | the key store reads the monotonic clock as the time of day | `zig build test-dnssec` | `CAUGHT` |
+| CK2 | the DoT context reads the monotonic clock as the wall clock | `zig build test-chapulin` | `CAUGHT` |
+| CK3 | the DoQ context reads the monotonic clock as the wall clock | `zig build test-chapulin-quic` | `CAUGHT` |
+| CK4 | the DoH context reads the monotonic clock as the wall clock | `zig build test-cocuyo_doh` | `CAUGHT` |

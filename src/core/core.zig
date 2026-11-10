@@ -32,6 +32,7 @@ pub const Kind = question.Kind;
 pub const Question = question.Question;
 
 pub const Config = @import("config.zig").Config;
+pub const Clock = @import("clock.zig").Clock;
 pub const Security = @import("security.zig").Security;
 pub const AuthenticatedData = @import("security.zig").AuthenticatedData;
 pub const validation = @import("validation.zig");

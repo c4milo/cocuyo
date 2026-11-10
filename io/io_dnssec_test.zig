@@ -165,7 +165,7 @@ test "a whole message validates over chapulin: RFC 6605 §6.1's answer, under it
     var entries: [2]validation.store.Entry = undefined;
     var store = validation.store.Store.init(&entries, &anchors);
     // 2010-08-20, inside the signature's dates.
-    store.set_clock(1282262400, 0);
+    store.set_clock(.{ .unix_seconds = 1282262400, .now_ns = 0 });
     try testing.expect(store.put(&zone, .keys, &.{&key}, std.math.maxInt(u64)));
     var scratch: validation.scratch.Scratch = .{};
     const validator: validation.validate.Validator = .{ .store = &store, .verifier = chapulin.verifier(), .hasher = chapulin.hasher(), .scratch = &scratch };

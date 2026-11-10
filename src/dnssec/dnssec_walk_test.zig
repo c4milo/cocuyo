@@ -58,7 +58,7 @@ const Fixture = struct {
             .{ .zone = Name.root, .kind = .dnskey, .rdata = &zone.zsk_twin },
         };
         self.store = Store.init(&self.entries, self.anchors[0..count]);
-        self.store.set_clock(zone.now_seconds, 0);
+        self.store.set_clock(.{ .unix_seconds = zone.now_seconds, .now_ns = 0 });
         self.walker = .{ .store = &self.store, .verifier = self.sums.verifier(), .hasher = self.hashes.hasher(), .scratch = &self.scratch };
     }
 

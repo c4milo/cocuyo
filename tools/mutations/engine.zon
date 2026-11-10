@@ -7366,7 +7366,7 @@
         .id = "KS1",
         .what = "the key store keeps no time of day",
         .edits = .{
-            .{ .file = "src/dnssec/dnssec_keys.zig", .old = "        self.store.set_clock(unix_seconds, now_ns);\n        self.scratch = .{};", .new = "        self.store.set_clock(unix_seconds - unix_seconds, now_ns);\n        self.scratch = .{};" },
+            .{ .file = "src/dnssec/dnssec_keys.zig", .old = "        self.store.set_clock(clock);\n        self.scratch = .{};", .new = "        self.store.set_clock(.{ .unix_seconds = 0, .now_ns = clock.now_ns });\n        self.scratch = .{};" },
         },
         .caught_by = .{ .step = "test-dnssec" },
     },
@@ -8362,5 +8362,41 @@
             .{ .file = "test/consumer/main.zig", .old = "var keys: [cocuyo.Resolver.keys_for(lookups)]cocuyo.MatchKey = @splat(.{});", .new = "var keys: [lookups * 4]cocuyo.MatchKey = @splat(.{});" },
         },
         .caught_by = .{ .step = "consumer-check" },
+    },
+    .{
+        .section = "The time of day as one value",
+        .id = "CK1",
+        .what = "the key store reads the monotonic clock as the time of day",
+        .edits = .{
+            .{ .file = "src/dnssec/dnssec_store.zig", .old = "        self.unix_seconds = clock.unix_seconds;\n        self.clock_ns = clock.now_ns;", .new = "        self.unix_seconds = clock.now_ns;\n        self.clock_ns = clock.unix_seconds;" },
+        },
+        .caught_by = .{ .step = "test-dnssec" },
+    },
+    .{
+        .section = "The time of day as one value",
+        .id = "CK2",
+        .what = "the DoT context reads the monotonic clock as the wall clock",
+        .edits = .{
+            .{ .file = "io/io_chapulin.zig", .old = ".unix_seconds = clock.unix_seconds, .at_ns = clock.now_ns };", .new = ".unix_seconds = clock.now_ns, .at_ns = clock.unix_seconds };" },
+        },
+        .caught_by = .{ .step = "test-chapulin" },
+    },
+    .{
+        .section = "The time of day as one value",
+        .id = "CK3",
+        .what = "the DoQ context reads the monotonic clock as the wall clock",
+        .edits = .{
+            .{ .file = "io/io_chapulin_quic.zig", .old = ".unix_seconds = clock.unix_seconds, .at_ns = clock.now_ns };", .new = ".unix_seconds = clock.now_ns, .at_ns = clock.unix_seconds };" },
+        },
+        .caught_by = .{ .step = "test-chapulin-quic" },
+    },
+    .{
+        .section = "The time of day as one value",
+        .id = "CK4",
+        .what = "the DoH context reads the monotonic clock as the wall clock",
+        .edits = .{
+            .{ .file = "io/io_doh_channel_start.zig", .old = ".unix_seconds = clock.unix_seconds, .at_ns = clock.now_ns };", .new = ".unix_seconds = clock.now_ns, .at_ns = clock.unix_seconds };" },
+        },
+        .caught_by = .{ .step = "test-cocuyo_doh" },
     },
 }

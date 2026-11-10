@@ -40,12 +40,12 @@ fn test_context(anchors: []const tls.Anchor, seed_octet: u8) Session.Context {
 
 /// As `test_context`, with the statement of the CPU that the test names.
 fn test_context_with(cpu: Session.Cpu, anchors: []const tls.Anchor, seed_octet: u8) Session.Context {
-    return .init(anchors, cpu, @splat(seed_octet), test_seconds, test_ns);
+    return .init(anchors, cpu, @splat(seed_octet), .{ .unix_seconds = test_seconds, .now_ns = test_ns });
 }
 
 /// As `test_context`, with the wall clock the test names: `unix_seconds` at `now_ns`.
 fn test_context_at(anchors: []const tls.Anchor, seed_octet: u8, unix_seconds: u64, now_ns: u64) Session.Context {
-    return .init(anchors, cpu_not_stated, @splat(seed_octet), unix_seconds, now_ns);
+    return .init(anchors, cpu_not_stated, @splat(seed_octet), .{ .unix_seconds = unix_seconds, .now_ns = now_ns });
 }
 
 /// max_idle_timeout, of 30,000 milliseconds (RFC 9000 §18.2), which chapulin carries without

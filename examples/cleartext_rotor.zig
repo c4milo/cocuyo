@@ -74,7 +74,7 @@ pub fn main(init: std.process.Init) !void {
         engine.close();
     }
     // Before any lookup, which the engine asserts.
-    if (command.anchor_path) |path| engine.use_trust(try trust.open(init.io, arena, path, unix_seconds(init.io), clock.read()));
+    if (command.anchor_path) |path| engine.use_trust(try trust.open(init.io, arena, path, .{ .unix_seconds = unix_seconds(init.io), .now_ns = clock.read() }));
     if (std.mem.count(u8, arguments[0], ",") >= turns_max) return error.TooManyTurns;
     var turns = std.mem.splitScalar(u8, arguments[0], ',');
     for (0..turns_max) |_| {

@@ -37,6 +37,8 @@ pub const Server = core.Server;
 pub const Tls = core.Tls;
 pub const Https = core.Https;
 pub const Pin = core.Pin;
+// The time of day.
+pub const Clock = core.Clock;
 
 // The table.
 pub const Resolver = resolver.Resolver;

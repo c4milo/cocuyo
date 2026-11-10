@@ -173,7 +173,7 @@ const Side = struct {
     fn start(side: *Side, ticket: ?Session.Ticket, now_ns: u64) !void {
         side.* = .{};
         side.context = .{
-            .session = .init(&anchors, cpu_not_stated, @splat(session_seed_octet), unix_seconds, now_ns),
+            .session = .init(&anchors, cpu_not_stated, @splat(session_seed_octet), .{ .unix_seconds = unix_seconds, .now_ns = now_ns }),
             .stream = std.Random.ChaCha.init(@splat(ids_seed_octet)),
         };
         const named: cocuyo.Tls = .{ .name = try cocuyo.Name.from_text(server_name) };

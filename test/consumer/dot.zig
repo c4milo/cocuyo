@@ -51,7 +51,7 @@ pub fn main(init: std.process.Init) !void {
 
     try resolver.init(&loop, &config, null, std.mem.readInt(u64, &engine_seed, .little), now_ns);
     defer resolver.deinit();
-    resolver.use_tls(.init(&.{}, cpu, session_seed, unix_seconds, now_ns));
+    resolver.use_tls(.init(&.{}, cpu, session_seed, .{ .unix_seconds = unix_seconds, .now_ns = now_ns }));
     _ = try resolver.start(try cocuyo.Question.from_text("example.com.", .a), now_ns);
 
     var events: [events_max]rotor.Event = undefined;

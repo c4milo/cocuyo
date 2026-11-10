@@ -29,11 +29,11 @@ pub const Context = struct {
     /// offers AES-GCM first; under any other value, ChaCha20-Poly1305 alone. `seed` must be 32
     /// octets of a CSPRNG, drawn for this context alone: chapulin draws each handshake's random and
     /// its key shares from the stream they key, and the QUIC link its connection IDs.
-    /// `unix_seconds` is the wall clock at the caller's `now_ns`. A DoH server is known by its
+    /// `clock` is the wall clock at an instant of the caller's. A DoH server is known by its
     /// template's host, so `anchors` holds the roots its chain may end at.
-    pub fn init(anchors: []const tls.Anchor, cpu: tls.Cpu, seed: [std.Random.ChaCha.secret_seed_length]u8, unix_seconds: u64, now_ns: u64) Context {
+    pub fn init(anchors: []const tls.Anchor, cpu: tls.Cpu, seed: [std.Random.ChaCha.secret_seed_length]u8, clock: cocuyo.Clock) Context {
         assert(anchors.len <= tls.record.ClientConfig.anchors_max);
-        return .{ .anchors = anchors, .cpu = cpu, .stream = std.Random.ChaCha.init(seed), .unix_seconds = unix_seconds, .at_ns = now_ns };
+        return .{ .anchors = anchors, .cpu = cpu, .stream = std.Random.ChaCha.init(seed), .unix_seconds = clock.unix_seconds, .at_ns = clock.now_ns };
     }
 
     /// The wall clock at `now_ns`, carried forward from the instant the context was made.

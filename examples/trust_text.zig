@@ -56,12 +56,12 @@ pub const Trust = struct {
 
     /// Reads the anchors from the file at `path`, and starts the store: the time of day is
     /// `unix_seconds` at `now_ns`. Returns the store for `use_trust`.
-    pub fn open(self: *Trust, io: std.Io, arena: std.mem.Allocator, path: []const u8, unix_seconds: u64, now_ns: u64) !*cocuyo.KeyStore {
+    pub fn open(self: *Trust, io: std.Io, arena: std.mem.Allocator, path: []const u8, clock: cocuyo.Clock) !*cocuyo.KeyStore {
         const text = try std.Io.Dir.cwd().readFileAlloc(io, path, arena, .limited(file_bytes_max));
         const anchors = try cocuyo.trust_anchors.parse(text, &self.anchors, &self.rdata);
         assert(anchors.len >= 1);
         self.chapulin = .{};
-        self.store.init(&self.entries, anchors, self.chapulin.verifier(), self.chapulin.hasher(), unix_seconds, now_ns);
+        self.store.init(&self.entries, anchors, self.chapulin.verifier(), self.chapulin.hasher(), clock);
         return &self.store;
     }
 };

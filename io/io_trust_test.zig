@@ -37,7 +37,7 @@ const Trust = struct {
     fn init(self: *Trust, now_ns: u64) void {
         self.anchor_rdata = signed.root_anchor();
         self.anchors = .{.{ .zone = cocuyo.Name.root, .kind = .ds, .rdata = &self.anchor_rdata }};
-        self.store.init(&self.entries, &self.anchors, self.sums.verifier(), self.hashes.hasher(), signed.now_seconds, now_ns);
+        self.store.init(&self.entries, &self.anchors, self.sums.verifier(), self.hashes.hasher(), .{ .unix_seconds = signed.now_seconds, .now_ns = now_ns });
     }
 };
 

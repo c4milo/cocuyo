@@ -72,5 +72,5 @@ pub fn test_context(seed_octet: u8, now_ns: u64) start_module.Context {
 
 /// As `test_context`, with the statement of the CPU that the test names.
 pub fn test_context_with(cpu: tls.Cpu, seed_octet: u8, now_ns: u64) start_module.Context {
-    return .init(&anchors, cpu, @splat(seed_octet), unix_seconds, now_ns);
+    return .init(&anchors, cpu, @splat(seed_octet), .{ .unix_seconds = unix_seconds, .now_ns = now_ns });
 }
