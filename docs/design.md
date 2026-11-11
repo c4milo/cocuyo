@@ -6471,21 +6471,23 @@ handshake used, so no example and no live check can say it.
 
 124. **The engine's module.** `cocuyo_rotor` names Rotor, and a `.hosted` engine reads no Rotor
     (§26). Recommended: `cocuyo_engine`, whose `rotor` import a consumer binds only when it names
-    `.private`.
+    `.private`. Answered on 2026-11-11: `cocuyo_engine`, as recommended.
 125. **An open that fails.** Today `init` and a port's replacement open their sockets at once, and
     `init` returns `SocketFailed`. A host completes an open later (§26, What changes inside the
     engine). Recommended: on `address_in_use` the engine opens again on port 0 at once, as today.
     On another failure, each try that waits on the socket fails as a send fails, and the next turn
-    opens again.
+    opens again. Answered on 2026-11-11: as recommended.
 126. **What `.private` offers.** Recommended: what `.hosted` offers but `turn` and `complete`, plus
     `next`. `next` ticks the loop until a result is ready, and returns null when no lookup is in
     flight. The calls of `.private` take no `now_ns`, because the adapter reads the loop's clock.
+    Answered on 2026-11-11: as recommended.
 127. **An adapter for a shared Rotor loop.** colibri exports none, because the export puts
     `*rotor.Loop` in its API. An example shows a program's own adapter. Recommended: the same, with
-    an example of a shared Rotor loop beside a timer of the program's own.
+    an example of a shared Rotor loop beside a timer of the program's own. Answered on 2026-11-11:
+    an example alone, as recommended.
 128. **`group_buffers` on a `.hosted` engine.** The datagram memory is the host's, so the field sizes
     the `.private` adapter alone. Recommended: `.hosted` refuses a value other than the default at
-    compile time, so a setting is never lost.
+    compile time, so a setting is never lost. Answered on 2026-11-11: as recommended.
 
 ## 18. The cache
 
@@ -11822,8 +11824,9 @@ for each (question 25). They are c4milo/cocuyo#48 to c4milo/cocuyo#52, in the or
 
 The owner ruled on 2026-11-11 that the engine follows colibri's decision 159 (§16 decision 67).
 This section is the design that the ruling makes. It was written on 2026-11-11 from the engine at
-aee946b and from colibri's decision 159 at its v0.16.0. §17 questions 124 to 128 hold what the
-owner has not answered. Nothing under `io/` reads it yet.
+aee946b and from colibri's decision 159 at its v0.16.0. The owner answered §17 questions 124 to
+128 on the same day, each as recommended, and the text below states each answer. Nothing under
+`io/` reads it yet.
 
 ### Why the engine changes
 
@@ -11848,7 +11851,9 @@ owner has not answered. Nothing under `io/` reads it yet.
    - The host does each operation on its own loop, gives back each completion, and calls the
      driver again at the driver's deadline.
 2. The engine is `Engine(options, kind)`, with `.hosted` or `.private` as its second comptime
-   argument, as colibri's `Client(capacity, kind)` has it. The kind has no public name.
+   argument, as colibri's `Client(capacity, kind)` has it. The kind has no public name. The module
+   is `cocuyo_engine`, and a consumer binds its `rotor` import only when it names `.private` (§17
+   question 124).
 3. `.private` is the driver plus cocuyo's own Rotor adapter, in `io/rotor_host.zig`. The module
    imports that file only when a program names `.private`. So both kinds run one code path, and
    the twin tests the code that `.private` runs.
@@ -11952,8 +11957,17 @@ pub fn deinit(self: *Self) void;
   `use_trust`, `use_quic` and `use_doh` stay as they are.
 - `apply` and `drive` leave, and `complete` and `turn` take their places.
 - `loop_operations` becomes `operations_max`, less the timer.
-- `Engine(options, .private)` has the same calls, but `turn` and `complete` are each a
-  `@compileError` with the engine's message. §17 question 126 asks what it adds.
+- `Options.group_buffers` sizes the datagram group of `.private` alone. `.hosted` refuses a value
+  other than the default at compile time, so a setting is never lost (§17 question 128).
+
+`Engine(options, .private)` has the calls of `.hosted`, but `turn` and `complete` are each a
+`@compileError` with the engine's message (§17 question 126). Its calls take no `now_ns`, because
+the adapter reads the loop's clock. It adds one call:
+
+```zig
+/// Ticks the loop until a result is ready, and returns it. Null when no lookup is in flight.
+pub fn next(self: *Self) RunError!?Result;
+```
 
 ### The rules that bind a host
 
@@ -11984,7 +11998,10 @@ The engine asserts each rule that it can see.
 
 - **Opens.** A socket opens through an operation, and its completion comes later. A UDP socket is
   `opening` from its `open_datagram` to its completion. A query to its server waits, as a send
-  waits today while its buffer is lent. §17 question 125 asks what a failed open does.
+  waits today while its buffer is lent.
+- **A failed open** (§17 question 125). On `address_in_use` the engine opens again at once on port
+  0, as it does today when the seed's port is taken. On another failure, each try that waits on
+  the socket fails as a failed send fails, and the next turn opens again.
 - **The timer leaves.** The deadline is `Turn.wait`. The timer's generation, which told a
   cancelled timer from the current one, leaves with it.
 - **Memory.** The datagram group moves to the host, and to the adapter under `.private`. The TCP
@@ -12021,17 +12038,21 @@ The engine asserts each rule that it can see.
   over the twin, as they drive the engine today.
 - The Lean model of §5 renames `wait` to `wait_until_ns`, and no theorem changes.
 - The examples run `.private`. A new example hosts the engine on a shared Rotor loop beside a timer
-  of its own, and another hosts it in memory with no loop. The consumer fixture builds a `.hosted`
+  of its own, with the program's own adapter: cocuyo exports no adapter for a shared loop, as
+  colibri exports none (§17 question 127). Another example hosts the engine in memory with no
+  loop. The consumer fixture builds a `.hosted`
   consumer with no Rotor, and a `.private` one.
 
 ### Order and checks
 
-Each step is one commit, with its mutations in `docs/mutations.md`.
+Each step is one commit, with its mutations in `docs/mutations.md`. A change to a model lands with
+the code that it describes, because CI's `spec` job replays the model's walks against the code.
 
-1. This design, and the owner's answers to §17 questions 124 to 128.
-2. The model: the open as an operation in the TLA+ model, and the rename in the Lean model, each
-   with its mutants.
-3. The driver: `turn` and `complete`, with the fake host's tests.
-4. The adapter: `.private` over Rotor v0.10.0 and the twin, with each test of `zig build test-io`.
+1. This design, and the owner's answers to §17 questions 124 to 128. Done on 2026-11-11.
+2. The lookup's wait: `Action.wait` becomes `wait_until_ns` in the library, the Lean model and the
+   replays.
+3. Rotor v0.10.0: the twin takes its surface, and the engine reserves its buffer groups.
+4. The driver and the adapter: `turn`, `complete` and `.private` over the twin, the fake host's
+   tests, and the open as an operation in the TLA+ model, with its walks and its mutants.
 5. The surface: the renames, the module, the examples, the README and the consumer fixture.
 6. The release, with one message to each consumer that names each break.
