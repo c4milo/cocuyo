@@ -157,7 +157,7 @@ inductive Event where
 
 /-- What a lookup answers: an action for a poll, a verdict for a reply, nothing for the rest. -/
 inductive Out where
-  | sendUdp | connectTcp | sendTcp | sendRequest | wait | done
+  | sendUdp | connectTcp | sendTcp | sendRequest | waitUntilNs | done
   | failed (e : Err)
   | accepted | ignored
   | none

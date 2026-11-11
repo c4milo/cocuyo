@@ -77,7 +77,7 @@ test "under use_tcp one server under five passes asks once on a stream, and each
     const sent_id = harness.lookup.transaction.id;
     var passes: usize = 1;
     var action = run_out(&harness);
-    while (action == .wait) : (passes += 1) {
+    while (action == .wait_until_ns) : (passes += 1) {
         try testing.expect(passes < core.limits.attempts_max);
         try testing.expectEqual(lookup_module.State.awaiting_tcp, harness.lookup.state);
         try testing.expectEqual(sent_id, harness.lookup.transaction.id);

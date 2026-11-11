@@ -4187,7 +4187,7 @@
         .id = "VL23",
         .what = "a wait for keys has the last deadline",
         .edits = .{
-            .{ .file = "src/resolver/lookup_poll.zig", .old = "        .awaiting_keys => .{ .wait = std.math.maxInt(u64) },", .new = "        .awaiting_keys => .{ .wait = self.deadline_ns }," },
+            .{ .file = "src/resolver/lookup_poll.zig", .old = "        .awaiting_keys => .{ .wait_until_ns = std.math.maxInt(u64) },", .new = "        .awaiting_keys => .{ .wait_until_ns = self.deadline_ns }," },
         },
         .caught_by = .{ .step = "test-resolver" },
     },

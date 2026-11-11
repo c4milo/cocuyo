@@ -547,7 +547,7 @@ Eight states: `query_ready`, `awaiting_udp`, `tcp_needed`, `connecting_tcp`, `tc
 | `query_ready` | `poll` | `query_ready` | build the query into `out`, return `send_udp` |
 | `query_ready` | `on_sent` | `awaiting_udp` | arm the deadline |
 | `query_ready` | `on_send_failed` | `query_ready` or `failed` | advance the server |
-| `awaiting_udp` | `poll` before the deadline | unchanged | return `wait` |
+| `awaiting_udp` | `poll` before the deadline | unchanged | return `wait_until_ns` |
 | `awaiting_udp` | `poll` at or past it | `query_ready` or `failed` | a sample as long as the wait, unless a reply to the try marked its server (§7), then advance the server, then the attempt |
 | `awaiting_udp` | `on_response` unmatched | unchanged | return `ignored`, the wait stands |
 | `awaiting_udp` | `on_response` with TC=1 | `tcp_needed`, or `query_ready` or `failed` | keep the same server; when it has no query left on a stream, advance the server and keep no cause |
@@ -635,7 +635,7 @@ is added:
 | `awaiting_udp` | `on_request_failed` for the current transaction | `query_ready` or `failed` | keep the reason as the cause, advance the server, as SERVFAIL does |
 
 After `send_tcp` the caller reads two bytes, calls `wire.message_len(prefix)`, reads that many
-bytes and passes them to `on_response`. There is no `read` action: the `wait` deadline already
+bytes and passes them to `on_response`. There is no `read` action: the `wait_until_ns` deadline
 governs the read, and the framing rule is three lines in the example (§15 step 6). The length is
 a `u16`, and a caller who adds the prefix's two octets to it widens it first. A sum made in
 sixteen bits overflows from a prefix of 65534, which a server chooses: the engine and the twin
@@ -11431,7 +11431,7 @@ Each step lands with its checks, each check broken on purpose and recorded in
       keeps `bogus` as the cause, as SERVFAIL keeps its rcode. A lookup whose passes run out with
       `bogus` as its cause ends `Bogus`.
     - A message the validator answers `keys_wanted` moves the lookup to `awaiting_keys`. The
-      state has no deadline, and its poll returns `wait`. The table's walk ends it with
+      state has no deadline, and its poll returns `wait_until_ns`. The table's walk ends it with
       `on_keys_ready`, keys held or an insecure delegation, or with `on_keys_failed` and the
       walk's failure: `Bogus`, `Timeout` or `AllServersFailed` (walk rules 7 and 11).
     - `on_keys_ready` asks the same server again, over the transport the lookup starts on, as a

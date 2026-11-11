@@ -38,7 +38,7 @@ test "a response with the wrong id is ignored and the wait stands" {
     var reply = fixtures.answer_a;
     reply.id = harness.lookup.transaction.id ^ 0xffff;
     try testing.expectEqual(Verdict.ignored, harness.respond(reply, servers[0].endpoint));
-    try testing.expect(harness.poll() == .wait);
+    try testing.expect(harness.poll() == .wait_until_ns);
 }
 
 test "a response from another server, or another port, is ignored" {
@@ -48,7 +48,7 @@ test "a response from another server, or another port, is ignored" {
     try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.answer_a, servers[1].endpoint));
     const wrong_port: Endpoint = .{ .address = servers[0].endpoint.address, .port = fixtures.port_other };
     try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.answer_a, wrong_port));
-    try testing.expect(harness.poll() == .wait);
+    try testing.expect(harness.poll() == .wait_until_ns);
 }
 
 test "a truncated response sends the lookup to TCP" {
@@ -76,7 +76,7 @@ test "a malformed answer section is ignored and leaves the name alone" {
     const before = harness.lookup.current;
     try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.long_rdlength, servers[0].endpoint));
     try testing.expectEqualSlices(u8, before.wire(), harness.lookup.current.wire());
-    try testing.expect(harness.poll() == .wait);
+    try testing.expect(harness.poll() == .wait_until_ns);
 }
 
 test "an address of the wrong length is ignored, though every length in the message is sound" {
@@ -88,7 +88,7 @@ test "an address of the wrong length is ignored, though every length in the mess
     const before = harness.lookup.current;
     try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.short_address, servers[0].endpoint));
     try testing.expectEqualSlices(u8, before.wire(), harness.lookup.current.wire());
-    try testing.expect(harness.poll() == .wait);
+    try testing.expect(harness.poll() == .wait_until_ns);
 }
 
 test "a response arriving after the lookup settled is ignored" {
@@ -112,7 +112,7 @@ test "a flood of unmatched datagrams neither extends nor shortens the wait" {
         try testing.expectEqual(Verdict.ignored, harness.respond(reply, servers[0].endpoint));
         try testing.expectEqual(deadline, harness.lookup.deadline_ns);
     }
-    try testing.expectEqual(deadline, harness.poll().wait);
+    try testing.expectEqual(deadline, harness.poll().wait_until_ns);
 }
 
 test "a truncated response over TCP is read, marked truncated, and not a reason to connect again" {
@@ -146,7 +146,7 @@ test "a message of 65535 octets is read, and one of 65536 is ignored at check 1"
     const reply = harness.build(fixtures.answer_a);
     @memcpy(message[0..reply.len], reply);
     try testing.expectEqual(Verdict.ignored, harness.lookup.on_response(&message, servers[0].endpoint, harness.now_ns));
-    try testing.expect(harness.poll() == .wait);
+    try testing.expect(harness.poll() == .wait_until_ns);
     const longest = message[0..core.limits.message_bytes_max];
     try testing.expectEqual(Verdict.accepted, harness.lookup.on_response(longest, servers[0].endpoint, harness.now_ns));
     try testing.expect(harness.poll() == .done);

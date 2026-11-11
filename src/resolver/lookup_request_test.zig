@@ -97,7 +97,7 @@ test "an answer to an earlier transaction still open is taken; one to a transact
         try testing.expectEqual(@as(u8, 1), second.server_index);
         try testing.expect(second.transaction != first);
         try testing.expectEqual(Verdict.ignored, answer(&harness, fixtures.answer_a, second.transaction +% 1, 0));
-        try testing.expect(harness.poll() == .wait);
+        try testing.expect(harness.poll() == .wait_until_ns);
         // The first try stays open past its deadline (docs/design.md §5, Tries kept open).
         try testing.expectEqual(Verdict.accepted, answer(&harness, fixtures.answer_a, first, 0));
         try testing.expectEqual(@as(usize, 1), harness.poll().done.addresses.len);
@@ -110,7 +110,7 @@ test "a datagram is no answer to a lookup over DoH or DoQ, whatever it carries" 
         try start_over(&harness, list, "example.com.", .a, seed);
         _ = try send(&harness);
         try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.answer_a, list[0].endpoint));
-        try testing.expect(harness.poll() == .wait);
+        try testing.expect(harness.poll() == .wait_until_ns);
     }
 }
 

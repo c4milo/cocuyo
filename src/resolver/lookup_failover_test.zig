@@ -24,7 +24,7 @@ test "a server that timed out is asked last by the next lookup on the same table
     // The order holds for the lookup: another poll does not recompute it around the failure,
     // so server 1's answer is still this lookup's.
     harness.lookup.on_sent(harness.now_ns);
-    try testing.expect(harness.poll() == .wait);
+    try testing.expect(harness.poll() == .wait_until_ns);
     try testing.expectEqual(Verdict.accepted, harness.respond(fixtures.answer_a, servers[1].endpoint));
 
     try harness.start("other.example.", .a, seed + 1);

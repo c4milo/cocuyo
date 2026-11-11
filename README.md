@@ -96,7 +96,7 @@ while (true) {
             try socket.send(send.server, send.message_bytes);
             lookup.on_sent(clock.read());
         },
-        .wait => |deadline_ns| {
+        .wait_until_ns => |deadline_ns| {
             // Receive until the deadline, and hand over whatever arrived.
             if (try socket.receive_until(deadline_ns)) |datagram| {
                 _ = lookup.on_response(datagram.bytes, datagram.from, clock.read());

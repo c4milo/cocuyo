@@ -65,7 +65,7 @@ def causeToken : Option Cause → String
 
 def outToken : Out → String
   | .sendUdp => "send_udp" | .connectTcp => "connect_tcp" | .sendTcp => "send_tcp"
-  | .sendRequest => "send_request" | .wait => "wait" | .done => "done" | .failed e => "failed_" ++ errToken e
+  | .sendRequest => "send_request" | .waitUntilNs => "wait_until_ns" | .done => "done" | .failed e => "failed_" ++ errToken e
   | .accepted => "accepted" | .ignored => "ignored" | .none => "none"
 
 def stageToken : Stage → String

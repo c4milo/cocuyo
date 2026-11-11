@@ -154,7 +154,7 @@ pub const Resolver = struct {
             // waiting for its connection, and the bound must hold that deadline too, or the
             // caller's timer never fires for it.
             if (slot.lookup.is_waiting()) ready_module.note_deadline(self, slot.lookup.deadline_ns);
-            if (action == .wait) continue;
+            if (action == .wait_until_ns) continue;
             memory_module.remember_end(self.memory, slot, action, now_ns);
             return .{ .handle = self.slots.handle_of(index), .action = action };
         }

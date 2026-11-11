@@ -25,7 +25,7 @@ pub const Out = enum {
     connect_tcp,
     send_tcp,
     send_request,
-    wait,
+    wait_until_ns,
     done,
     failed_name_not_found,
     failed_no_data,
@@ -118,7 +118,7 @@ pub fn out_of(action: resolver.Action) Out {
         .connect_tcp => .connect_tcp,
         .send_tcp => .send_tcp,
         .send_request => .send_request,
-        .wait => .wait,
+        .wait_until_ns => .wait_until_ns,
         .done => .done,
         .failed => |failure| failed_out(failure.err),
         // The models drive a bare lookup, which never walks for keys.

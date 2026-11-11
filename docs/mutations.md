@@ -12187,3 +12187,17 @@ engine SM4` ran it.
 | Id | Mutation | Caught by | Result |
 | --- | --- | --- | --- |
 | SM4 | the consumer fixture pins colibri v0.11.0, where `build.zig.zon` pins v0.16.0 | `zig build consumer-check` | `CAUGHT` |
+
+## The lookup's wait names its instant
+
+2026-11-11, c4milo/cocuyo#65 and docs/design.md §26. `Action.wait` is `wait_until_ns`, because its
+value is the instant that the lookup waits until, and not a length of time. The Lean model's
+action is `waitUntilNs`, and its token is `wait_until_ns`, so the transcript of
+`tools/spec_replay/lookup_gate.txt` changed in each of its 2,254 polls that wait. No check changed.
+Three mutations name the action in their text, and `zig build mutations` ran each one again.
+
+| Id | Mutation | Caught by | Result |
+| --- | --- | --- | --- |
+| E7 | the table misses the deadline of a wait that a poll starts | the engine model's short walks | `CAUGHT` |
+| VL23 | a wait for keys has the last deadline | `zig build test-resolver` | `CAUGHT` |
+| LV3 | the model sends while it waits for keys | `zig build spec-lean` | `CAUGHT` |

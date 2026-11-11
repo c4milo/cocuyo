@@ -374,7 +374,7 @@
         .id = "LV3",
         .what = "the model sends while it waits for keys",
         .edits = .{
-            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .awaitingUdp | .connectingTcp | .awaitingTcp | .awaitingKeys => (s, .wait)", .new = "  | .awaitingUdp | .connectingTcp | .awaitingTcp => (s, .wait)\n  | .awaitingKeys => ({ s with offered := true }, .sendUdp)" },
+            .{ .file = "spec/lean/Spec/Lookup.lean", .old = "  | .awaitingUdp | .connectingTcp | .awaitingTcp | .awaitingKeys => (s, .waitUntilNs)", .new = "  | .awaitingUdp | .connectingTcp | .awaitingTcp => (s, .waitUntilNs)\n  | .awaitingKeys => ({ s with offered := true }, .sendUdp)" },
         },
         .caught_by = .{ .step = "spec-lean" },
     },

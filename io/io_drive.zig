@@ -84,7 +84,7 @@ fn act(self: anytype, event: cocuyo.Event, now_ns: u64) bool {
         // A walk's lookup ended. `tcp.follow` took it off its connection, and its request is
         // cancelled after the drive, so the slot is the table's to free (§17 question 100).
         .walked => self.resolver.release(event.handle),
-        .wait => unreachable,
+        .wait_until_ns => unreachable,
         .send_request => |send| if (channel_module.carries(self))
             channel_module.take(self, index, send, now_ns)
         else

@@ -29,7 +29,7 @@ pub const Action = union(enum) {
     /// of the lookup's transaction, or say the request failed with `on_request_failed`.
     send_request: struct { server_index: u8, message_bytes: []const u8, transaction: u16 },
     /// Nothing to do until this instant, in the caller's own monotonic nanoseconds.
-    wait: u64,
+    wait_until_ns: u64,
     done: Answer,
     failed: Failure,
     /// A walk's lookup of a validating table ended: the walk has its message or its failure.

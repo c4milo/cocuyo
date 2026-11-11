@@ -84,7 +84,7 @@ const Rig = struct {
                 },
                 // The driver frees a walk's lookup that ended (docs/design.md §17 question 100).
                 .walked => self.table.release(event.handle),
-                .wait, .send_request => return error.Unexpected,
+                .wait_until_ns, .send_request => return error.Unexpected,
             }
         }
         return error.Stalled;

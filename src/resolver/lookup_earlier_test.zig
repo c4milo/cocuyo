@@ -159,7 +159,7 @@ test "a later pass over a stream waits on the open try of that server, and sends
     try testing.expect(run_out(&harness) == .connect_tcp);
     harness.lookup.on_tcp_connected(harness.now_ns);
     _ = harness.send_over_tcp();
-    try testing.expect(run_out(&harness) == .wait);
+    try testing.expect(run_out(&harness) == .wait_until_ns);
     try testing.expectEqual(State.awaiting_tcp, harness.lookup.state);
     try testing.expectEqual(@as(u8, 0), harness.lookup.server_slot());
     try testing.expectEqual(first_id, harness.lookup.transaction.id);

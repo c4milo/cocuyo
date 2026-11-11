@@ -70,7 +70,7 @@ test "a response echoing the question with its case folded is ignored" {
     try harness.start("example.com.", .a, seed);
     _ = harness.send();
     try testing.expectEqual(Verdict.ignored, harness.respond(folded, servers[0].endpoint));
-    try testing.expect(harness.poll() == .wait);
+    try testing.expect(harness.poll() == .wait_until_ns);
 
     // The same reply is accepted when the caller turned 0x20 off, which shows the fold is the
     // only thing the check refused.
@@ -90,7 +90,7 @@ test "a server that lowercases is marked by its reply, the wait stands, and it i
     try testing.expect(harness.servers.changes_case(0));
     // The reply failed check 5, so it does not cut the wait short (§16 decision 10).
     try testing.expectEqual(deadline, harness.lookup.deadline_ns);
-    try testing.expectEqual(deadline, harness.poll().wait);
+    try testing.expectEqual(deadline, harness.poll().wait_until_ns);
 
     // The retry after the deadline goes to the same server in lowercase, and its reply is taken.
     harness.now_ns = deadline - 1;
@@ -327,7 +327,7 @@ test "a mark made while another lookup's mixed query is in flight changes nothin
     try testing.expect(first.servers.changes_case(0));
     // The second query went out mixed, and its reply is compared with what it carried.
     try testing.expectEqual(Verdict.ignored, second.respond(folded, only));
-    try testing.expect(second.poll() == .wait);
+    try testing.expect(second.poll() == .wait_until_ns);
     try testing.expectEqual(Verdict.accepted, second.respond(fixtures.answer_a, only));
 }
 

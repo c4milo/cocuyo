@@ -137,7 +137,7 @@ test "a cut datagram that fails check 1, 2 or 3 is ignored, and the wait stands"
     const wrong_port: Endpoint = .{ .address = servers[0].endpoint.address, .port = fixtures.port_other };
     try testing.expectEqual(Verdict.ignored, hand(&harness, message_again, wrong_port));
     try testing.expectEqual(State.awaiting_udp, harness.lookup.state);
-    try testing.expect(harness.poll() == .wait);
+    try testing.expect(harness.poll() == .wait_until_ns);
 }
 
 test "a cut datagram that fails check 4 or 5 is ignored, and marks no server" {
@@ -204,7 +204,7 @@ test "a lookup that expects a COOKIE option ignores a cut datagram, as it ignore
     try testing.expectEqual(Verdict.ignored, hand(&harness, cut_reply(&harness, fixtures.answer_a_cookie), servers[0].endpoint));
     try testing.expectEqual(Verdict.ignored, harness.respond(fixtures.truncated, servers[0].endpoint));
     try testing.expectEqual(State.awaiting_udp, harness.lookup.state);
-    try testing.expect(harness.poll() == .wait);
+    try testing.expect(harness.poll() == .wait_until_ns);
 }
 
 test "a fresh cookie whose server has given one since expects it, and a cut datagram is ignored" {

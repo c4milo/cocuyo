@@ -159,7 +159,7 @@ test "keys wanted wait with no deadline, and the keys ask the same server again"
     _ = harness.respond(fixtures.answer_a, servers[0].endpoint);
     try testing.expectEqual(State.awaiting_keys, harness.lookup.state);
     try testing.expect(!harness.lookup.is_waiting());
-    try testing.expectEqual(std.math.maxInt(u64), harness.poll().wait);
+    try testing.expectEqual(std.math.maxInt(u64), harness.poll().wait_until_ns);
     harness.lookup.on_keys_ready(harness.now_ns);
     try testing.expectEqual(State.query_ready, harness.lookup.state);
     try testing.expectEqual(@as(u8, 0), harness.lookup.server_index);

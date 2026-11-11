@@ -61,7 +61,7 @@
         .id = "E7",
         .what = "the table misses the deadline of a wait a poll starts",
         .edits = .{
-            .{ .file = "src/resolver/table.zig", .old = "            if (slot.lookup.is_waiting()) ready_module.note_deadline(self, slot.lookup.deadline_ns);\n            if (action == .wait) continue;", .new = "            if (action == .wait) {\n                ready_module.note_deadline(self, action.wait);\n                continue;\n            }" },
+            .{ .file = "src/resolver/table.zig", .old = "            if (slot.lookup.is_waiting()) ready_module.note_deadline(self, slot.lookup.deadline_ns);\n            if (action == .wait_until_ns) continue;", .new = "            if (action == .wait_until_ns) {\n                ready_module.note_deadline(self, action.wait_until_ns);\n                continue;\n            }" },
         },
         .caught_by = .short_walks,
     },

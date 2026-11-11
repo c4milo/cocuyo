@@ -71,7 +71,7 @@ fn resolve(io: std.Io, name: []const u8, config: *const cocuyo.Config, seed: u64
                 try socket.?.send(io, &server, send.message_bytes);
                 lookup.on_sent(clock.read());
             },
-            .wait => |deadline_ns| try wait(io, &lookup, socket.?, &reply, clock, deadline_ns),
+            .wait_until_ns => |deadline_ns| try wait(io, &lookup, socket.?, &reply, clock, deadline_ns),
             // The servers this example names are cleartext ones: DoH and DoQ are an HTTP or a
             // QUIC client's to drive (docs/design.md §22, §23).
             .send_request => unreachable,

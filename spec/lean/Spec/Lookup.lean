@@ -65,7 +65,7 @@ def poll (c : Config) (s : State) : State × Out :=
   | .queryReady => ({ s with offered := true }, if c.request then .sendRequest else .sendUdp)
   | .tcpNeeded => ({ s with stage := .connectingTcp }, .connectTcp)
   | .tcpReady => ({ s with offered := true }, .sendTcp)
-  | .awaitingUdp | .connectingTcp | .awaitingTcp | .awaitingKeys => (s, .wait)
+  | .awaitingUdp | .connectingTcp | .awaitingTcp | .awaitingKeys => (s, .waitUntilNs)
   | .done => (s, .done)
   | .failed => (s, .failed s.err)
 

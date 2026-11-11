@@ -28,9 +28,9 @@ pub fn poll(self: *Lookup, now_ns: u64, out: []u8) Action {
         .query_ready => if (self.config.sends_requests()) send_request(self, now_ns, out) else send_udp(self, now_ns, out),
         .tcp_needed => connect_tcp(self, now_ns),
         .tcp_ready => send_tcp(self, now_ns, out),
-        .awaiting_udp, .awaiting_tcp, .connecting_tcp => .{ .wait = self.deadline_ns },
+        .awaiting_udp, .awaiting_tcp, .connecting_tcp => .{ .wait_until_ns = self.deadline_ns },
         // No deadline: the table's walk ends the wait for keys (docs/design.md §25).
-        .awaiting_keys => .{ .wait = std.math.maxInt(u64) },
+        .awaiting_keys => .{ .wait_until_ns = std.math.maxInt(u64) },
         .done => .{ .done = self.answer() },
         .failed => .{ .failed = self.failure_of() },
     };
@@ -216,7 +216,7 @@ test "after sending, a poll waits until the deadline" {
     _ = lookup.poll(0, &out);
     lookup.on_sent(0);
     const action = lookup.poll(1, &out);
-    try testing.expectEqual(config.timeout_ns, action.wait);
+    try testing.expectEqual(config.timeout_ns, action.wait_until_ns);
     try testing.expectEqual(lookup_module.State.awaiting_udp, lookup.state);
 }
 
@@ -280,7 +280,7 @@ test "the TCP path connects, sends with a length prefix, then waits" {
     );
     lookup.on_sent(2);
     try testing.expectEqual(lookup_module.State.awaiting_tcp, lookup.state);
-    try testing.expect(lookup.poll(3, &out) == .wait);
+    try testing.expect(lookup.poll(3, &out) == .wait_until_ns);
 }
 
 test "a connection that failed costs the server its turn" {
